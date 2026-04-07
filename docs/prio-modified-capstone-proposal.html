@@ -1,0 +1,491 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Prio Modified Capstone Project Proposal</title>
+    <style>
+      @page {
+        size: A4;
+        margin: 0.75in;
+      }
+
+      :root {
+        --ink: #15202b;
+        --muted: #4d5c6f;
+        --line: #cfd8e3;
+        --soft: #f4f7fb;
+        --accent: #1e4b7a;
+        --accent-soft: #eaf2fb;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        color: var(--ink);
+        font-family: "Times New Roman", Times, serif;
+        font-size: 11.5pt;
+        line-height: 1.5;
+        background: #ffffff;
+      }
+
+      main {
+        max-width: 7.15in;
+        margin: 0 auto;
+      }
+
+      h1,
+      h2,
+      h3 {
+        margin: 0;
+        font-weight: 700;
+      }
+
+      h1 {
+        font-size: 18pt;
+        line-height: 1.35;
+      }
+
+      h2 {
+        font-size: 13.5pt;
+        margin-bottom: 0.15in;
+      }
+
+      h3 {
+        font-size: 12pt;
+        margin-bottom: 0.12in;
+      }
+
+      p {
+        margin: 0 0 0.16in;
+        text-align: justify;
+      }
+
+      ul {
+        margin: 0 0 0.14in 0.28in;
+        padding: 0;
+      }
+
+      li {
+        margin-bottom: 0.08in;
+      }
+
+      .page {
+        min-height: calc(100vh - 1.5in);
+      }
+
+      .page-break {
+        break-before: page;
+        page-break-before: always;
+      }
+
+      .cover {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        min-height: calc(100vh - 1.5in);
+        text-align: center;
+      }
+
+      .eyebrow {
+        color: var(--accent);
+        font-size: 11pt;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        margin-bottom: 0.16in;
+      }
+
+      .subtitle {
+        color: var(--muted);
+        margin-top: 0.14in;
+      }
+
+      .meta-stack {
+        margin-top: 0.45in;
+      }
+
+      .meta-stack p {
+        text-align: center;
+        margin-bottom: 0.08in;
+      }
+
+      .panel {
+        border: 1px solid var(--line);
+        background: linear-gradient(180deg, #ffffff 0%, #fbfcff 100%);
+        padding: 0.18in 0.2in;
+        margin-bottom: 0.18in;
+      }
+
+      .summary-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.14in;
+        margin-bottom: 0.18in;
+      }
+
+      .summary-card {
+        border: 1px solid var(--line);
+        background: var(--soft);
+        padding: 0.16in 0.18in;
+      }
+
+      .summary-card strong {
+        display: block;
+        margin-bottom: 0.06in;
+        color: var(--accent);
+      }
+
+      .info-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 0.2in;
+      }
+
+      .info-table th,
+      .info-table td {
+        border: 1px solid var(--line);
+        padding: 0.1in 0.11in;
+        vertical-align: top;
+        text-align: left;
+      }
+
+      .info-table th {
+        width: 30%;
+        background: var(--accent-soft);
+        color: var(--accent);
+      }
+
+      .persona-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.16in;
+      }
+
+      .persona-card {
+        border: 1px solid var(--line);
+        padding: 0.18in;
+        background: #ffffff;
+      }
+
+      .persona-role {
+        color: var(--accent);
+        font-weight: 700;
+        margin-bottom: 0.06in;
+      }
+
+      .tag-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.08in;
+        margin-top: 0.08in;
+      }
+
+      .tag {
+        display: inline-block;
+        padding: 0.04in 0.08in;
+        border: 1px solid #a9b9cc;
+        border-radius: 999px;
+        font-size: 10pt;
+        color: #26496b;
+        background: #f7fbff;
+      }
+
+      .two-col {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.16in;
+      }
+
+      .section-note {
+        color: var(--muted);
+        font-size: 10.5pt;
+      }
+
+      .small {
+        font-size: 10.5pt;
+      }
+
+      .center {
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="page cover">
+        <div class="eyebrow">Modified Capstone Project Proposal</div>
+        <h1>PRIO: A Multi-Tenant QR-Based Digital Queue Management Platform</h1>
+        <p class="subtitle">
+          Consultation-ready concept paper aligned with the modified capstone proposal guidelines
+        </p>
+
+        <div class="meta-stack">
+          <p><strong>Track Concentration:</strong> Web Applications Development</p>
+          <p><strong>Primary Targeted SDG:</strong> SDG 9 - Industry, Innovation and Infrastructure</p>
+          <p><strong>Prepared by:</strong> Roberto Carlo Abella</p>
+          <p><strong>Adviser:</strong> Prof. Jovelyn Cuizon</p>
+          <p><strong>Date:</strong> April 2026</p>
+        </div>
+      </section>
+
+      <section class="page page-break">
+        <h2>Project Summary</h2>
+        <div class="summary-grid">
+          <div class="summary-card">
+            <strong>Subject Area</strong>
+            Web application development for digital queueing, service operations, and customer
+            experience management.
+          </div>
+          <div class="summary-card">
+            <strong>Aim</strong>
+            To build a tenant-aware queue platform that allows vendors to manage walk-in and remote
+            customers through QR-based ticketing and live queue monitoring.
+          </div>
+          <div class="summary-card">
+            <strong>Core Argument</strong>
+            Many service providers still rely on manual or fragmented queueing methods that create
+            crowding, uncertainty, and inconsistent queue visibility.
+          </div>
+          <div class="summary-card">
+            <strong>Expected Deliverable</strong>
+            A working web-based prototype with vendor dashboard, public queue board, QR join flow,
+            and near-turn notification support.
+          </div>
+        </div>
+
+        <h2>Introduction</h2>
+        <p>
+          Service-oriented establishments such as clinics, school offices, retail counters, and
+          small business service desks often struggle with long physical lines, manual ticket
+          handling, and poor visibility into queue progress. Customers are forced to remain near the
+          service area because they do not know when they will be called, while staff must manually
+          manage the order of service and respond repeatedly to follow-up questions. This problem
+          leads to crowded waiting areas, missed turns, inconsistent service flow, and unnecessary
+          operational pressure on front-desk personnel.
+        </p>
+        <p>
+          Existing digital queueing solutions already attempt to improve this situation. Commercial
+          systems such as Qminder, QLESS, and similar queue management platforms provide digital
+          check-ins, service dashboards, and customer notifications. Some organizations also use
+          appointment systems, messaging-based queue updates, or standalone queue display systems to
+          reduce physical crowding. These solutions demonstrate that digital queueing can improve
+          customer experience, especially when it gives users visibility into queue progress and
+          reduces idle waiting time.
+        </p>
+        <p>
+          Despite these existing solutions, several gaps remain for the context targeted by this
+          project. Many available platforms are subscription-based, optimized for larger
+          organizations, or designed as closed systems that are difficult to adapt for smaller local
+          service providers. Other solutions focus only on check-in or only on appointment booking,
+          but do not combine QR-based entry, live queue monitoring, tenant-specific management, and
+          configurable near-turn notifications in one lightweight web application. There is also a
+          need for a system that allows multiple independent vendors to operate under one platform
+          while still keeping their queue settings and ticket records separated.
+        </p>
+        <p>
+          The proposed solution is <strong>Prio</strong>, a multi-tenant QR-based digital queue
+          management platform designed for small and medium-sized service environments. Prio gives
+          each vendor its own workspace, public queue monitor, queue settings, and QR-based join
+          link while allowing customers to join remotely or on site. The system generates daily
+          ticket numbers, provides live public queue updates, and supports email or SMS alerts when
+          a customer is near the front or already called for service. By combining accessibility,
+          tenant-aware design, and real-time queue visibility, the proposed platform directly
+          addresses the identified gaps in existing queueing approaches.
+        </p>
+
+        <h2>Targeted SDG</h2>
+        <div class="panel">
+          <p>
+            <strong>Primary SDG:</strong> <strong>SDG 9 - Industry, Innovation and
+            Infrastructure.</strong>
+          </p>
+          <p>
+            Prio supports SDG 9 by introducing a practical digital service infrastructure that helps
+            organizations modernize how they manage queues and customer flow. The project applies
+            web technologies to improve service efficiency, strengthen day-to-day operational
+            processes, and provide an accessible innovation path for vendors that cannot easily
+            invest in large enterprise systems.
+          </p>
+          <p class="section-note">
+            Supporting alignment may also be argued for SDG 11 through reduced crowding in waiting
+            areas and for SDG 8 through more efficient front-desk operations.
+          </p>
+        </div>
+      </section>
+
+      <section class="page page-break">
+        <h2>User Persona</h2>
+        <div class="persona-grid">
+          <div class="persona-card">
+            <div class="persona-role">Primary Persona: Vendor Queue Manager</div>
+            <p><strong>Name:</strong> Maria Santos</p>
+            <p><strong>Age:</strong> 38</p>
+            <p><strong>Role:</strong> Receptionist / Small business front-desk staff</p>
+            <p>
+              <strong>Needs:</strong> A faster way to issue queue numbers, monitor current and next
+              tickets, and reduce repetitive customer inquiries about waiting time.
+            </p>
+            <p>
+              <strong>Pain Points:</strong> Manual ticket tracking, crowded waiting areas, missed
+              turns, and difficulty notifying customers who step away from the service area.
+            </p>
+            <div class="tag-row">
+              <span class="tag">Dashboard user</span>
+              <span class="tag">Needs live updates</span>
+              <span class="tag">Needs easy ticket controls</span>
+            </div>
+          </div>
+
+          <div class="persona-card">
+            <div class="persona-role">Secondary Persona: Queueing Customer</div>
+            <p><strong>Name:</strong> Paolo Reyes</p>
+            <p><strong>Age:</strong> 27</p>
+            <p><strong>Role:</strong> Walk-in or remote customer seeking service</p>
+            <p>
+              <strong>Needs:</strong> A simple way to join a queue, monitor progress remotely, and
+              know when it is almost his turn.
+            </p>
+            <p>
+              <strong>Pain Points:</strong> Long idle waiting, uncertainty about queue position, and
+              the risk of missing a turn when stepping away from the venue.
+            </p>
+            <div class="tag-row">
+              <span class="tag">QR joiner</span>
+              <span class="tag">Needs queue visibility</span>
+              <span class="tag">Values notifications</span>
+            </div>
+          </div>
+        </div>
+
+        <h2 style="margin-top: 0.24in;">Development Platform and Tools</h2>
+        <table class="info-table">
+          <tr>
+            <th>Track / Platform</th>
+            <td>Web Applications Development</td>
+          </tr>
+          <tr>
+            <th>Frontend</th>
+            <td>React with Vite for a responsive browser-based interface</td>
+          </tr>
+          <tr>
+            <th>Backend</th>
+            <td>Node.js with Express for authentication, ticket management, and queue operations</td>
+          </tr>
+          <tr>
+            <th>Database</th>
+            <td>MongoDB with tenant-aware collections for users, vendors, tickets, and counters</td>
+          </tr>
+          <tr>
+            <th>Real-Time Updates</th>
+            <td>Server-Sent Events for live queue board and dashboard synchronization</td>
+          </tr>
+          <tr>
+            <th>Notifications</th>
+            <td>Email via SMTP and SMS via Twilio-compatible messaging workflow</td>
+          </tr>
+          <tr>
+            <th>Developer Tools</th>
+            <td>Git, npm, nodemon, browser developer tools, and Visual Studio Code</td>
+          </tr>
+        </table>
+
+        <h2>Proposed Objectives</h2>
+        <div class="panel">
+          <p>
+            <strong>General Objective:</strong> To develop a multi-tenant digital queue management
+            platform that improves service efficiency through QR-based joining, live queue
+            monitoring, and near-turn customer notifications.
+          </p>
+          <p><strong>Specific Objectives:</strong></p>
+          <ul>
+            <li>Enable vendor registration and tenant-specific queue workspace creation.</li>
+            <li>Allow customers to join queues through QR codes or online join pages.</li>
+            <li>Generate daily ticket numbers and lookup codes for queue tracking.</li>
+            <li>Provide vendor controls for call next, serve current, skip, and walk-in issuance.</li>
+            <li>Display a live public queue board accessible through a browser.</li>
+            <li>Send email or SMS alerts when a customer is almost next or already called.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="page page-break">
+        <h2>Proposed Features</h2>
+        <div class="two-col">
+          <div class="panel">
+            <h3>Must-Have Features</h3>
+            <ul>
+              <li>Vendor onboarding and tenant creation</li>
+              <li>Customer account registration</li>
+              <li>QR-based queue entry</li>
+              <li>Online queue join page</li>
+              <li>Daily ticket generation with queue prefixes</li>
+              <li>Vendor dashboard for queue control</li>
+              <li>Live public queue monitor</li>
+              <li>Near-turn notifications through email or SMS</li>
+            </ul>
+          </div>
+
+          <div class="panel">
+            <h3>Nice-to-Have Features</h3>
+            <ul>
+              <li>Multiple counters per tenant</li>
+              <li>Business hours and queue availability controls</li>
+              <li>Separate owner and staff roles</li>
+              <li>Queue analytics and reporting</li>
+              <li>Appointment windows or scheduled visits</li>
+              <li>Rate limiting and CAPTCHA for public ticket creation</li>
+            </ul>
+          </div>
+        </div>
+
+        <h2>Feasibility for Proposal Consultation</h2>
+        <p>
+          The proposed system is feasible within the scope of a capstone project because its core
+          workflow is clear and measurable: a customer joins a queue, receives a ticket, monitors
+          queue movement, and is eventually called for service through a vendor-controlled dashboard.
+          The selected technology stack is appropriate for a BSIT web development capstone because
+          it requires applied work in interface design, backend API development, database modeling,
+          real-time event handling, and external service integration.
+        </p>
+        <p>
+          The project also has a clear deliverable that can be demonstrated during consultation and
+          defense: a working web prototype that shows vendor onboarding, QR queue entry, real-time
+          monitoring, and queue state transitions. This makes the project suitable for evaluation in
+          terms of technical implementation, usability, and problem-solution alignment.
+        </p>
+
+        <h2>Expected Consultation Talking Points</h2>
+        <table class="info-table">
+          <tr>
+            <th>Problem Focus</th>
+            <td>Manual queueing causes crowding, uncertainty, and inefficient service handling.</td>
+          </tr>
+          <tr>
+            <th>Project Direction</th>
+            <td>Web-based queue management platform with tenant-aware service workspaces.</td>
+          </tr>
+          <tr>
+            <th>Clear Deliverable</th>
+            <td>Working prototype with vendor dashboard, public board, and QR join flow.</td>
+          </tr>
+          <tr>
+            <th>Innovation Angle</th>
+            <td>Combines multi-tenancy, QR self-service entry, live queue visibility, and alerting.</td>
+          </tr>
+          <tr>
+            <th>Evaluation Basis</th>
+            <td>Functionality, usability, queue accuracy, notification support, and feasibility.</td>
+          </tr>
+        </table>
+
+        <p class="small center">
+          End of modified capstone project proposal draft for individual consultation
+        </p>
+      </section>
+    </main>
+  </body>
+</html>

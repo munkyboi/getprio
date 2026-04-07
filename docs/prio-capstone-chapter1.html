@@ -1,0 +1,587 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Prio Capstone Chapter 1</title>
+    <style>
+      @page {
+        size: A4;
+        margin: 0.8in;
+      }
+
+      :root {
+        --ink: #1a1a1a;
+        --muted: #4c4c4c;
+        --line: #b9bec7;
+        --soft: #eef2f7;
+        --accent: #18324d;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        color: var(--ink);
+        font-family: "Times New Roman", Times, serif;
+        font-size: 12pt;
+        line-height: 1.55;
+        background: #ffffff;
+      }
+
+      main {
+        max-width: 7.1in;
+        margin: 0 auto;
+      }
+
+      p {
+        margin: 0 0 0.16in;
+        text-align: justify;
+      }
+
+      h1,
+      h2,
+      h3 {
+        margin: 0;
+        font-weight: 700;
+      }
+
+      h1 {
+        font-size: 15pt;
+        letter-spacing: 0.02em;
+      }
+
+      h2 {
+        font-size: 13pt;
+        margin-bottom: 0.18in;
+      }
+
+      h3 {
+        font-size: 12.5pt;
+        margin: 0.18in 0 0.12in;
+      }
+
+      ul,
+      ol {
+        margin: 0 0 0.18in 0.28in;
+        padding: 0;
+      }
+
+      li {
+        margin-bottom: 0.09in;
+        text-align: justify;
+      }
+
+      .page {
+        min-height: calc(100vh - 1.6in);
+      }
+
+      .page-break {
+        break-before: page;
+        page-break-before: always;
+      }
+
+      .center {
+        text-align: center;
+      }
+
+      .all-caps {
+        text-transform: uppercase;
+      }
+
+      .cover {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        min-height: calc(100vh - 1.6in);
+        gap: 0.18in;
+      }
+
+      .cover .spacer-lg {
+        height: 0.35in;
+      }
+
+      .cover .spacer-xl {
+        height: 0.6in;
+      }
+
+      .product-label {
+        font-weight: 700;
+      }
+
+      .title-block {
+        font-size: 16pt;
+        font-weight: 700;
+        line-height: 1.45;
+        text-transform: uppercase;
+      }
+
+      .meta-line {
+        margin: 0;
+        text-align: center;
+      }
+
+      .toc {
+        border: 1px solid var(--line);
+        padding: 0.22in 0.24in;
+        background: linear-gradient(180deg, #ffffff 0%, #fbfcfe 100%);
+      }
+
+      .toc-item {
+        display: flex;
+        gap: 0.14in;
+        align-items: baseline;
+        margin-bottom: 0.1in;
+      }
+
+      .toc-item:last-child {
+        margin-bottom: 0;
+      }
+
+      .toc-item .dots {
+        flex: 1;
+        border-bottom: 1px dotted #8f97a3;
+        transform: translateY(-0.08em);
+      }
+
+      .chapter-heading {
+        margin-bottom: 0.24in;
+      }
+
+      .chapter-heading p {
+        text-align: center;
+        margin-bottom: 0.08in;
+      }
+
+      .figure {
+        margin: 0.2in 0 0.12in;
+        padding: 0.18in;
+        border: 1px solid var(--line);
+        background: #fbfcfe;
+      }
+
+      .figure svg {
+        width: 100%;
+        height: auto;
+        display: block;
+      }
+
+      .figure-caption {
+        margin-top: 0.12in;
+        font-size: 11pt;
+        color: var(--muted);
+        text-align: center;
+      }
+
+      .note {
+        color: var(--muted);
+        font-size: 11pt;
+      }
+
+      .reference-list {
+        margin-left: 0;
+        list-style: none;
+      }
+
+      .reference-list li {
+        margin-bottom: 0.14in;
+        padding-left: 0.28in;
+        text-indent: -0.28in;
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      .small-gap {
+        height: 0.18in;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="page cover">
+        <p class="meta-line product-label">PRODUCT NAME: PRIO</p>
+        <div class="title-block center">
+          PRIO: A MULTI-TENANT QR-BASED PRIORITY QUEUE PLATFORM FOR WALK-IN CUSTOMERS, REMOTE
+          JOINERS, AND SERVICE TEAMS
+        </div>
+
+        <div class="spacer-lg"></div>
+
+        <p class="meta-line">A Capstone Project Presented to the Faculty of</p>
+        <p class="meta-line">School of Computer Studies</p>
+
+        <div class="small-gap"></div>
+
+        <p class="meta-line">In Partial Fulfillment</p>
+        <p class="meta-line">of the Requirements for the Degree of</p>
+        <p class="meta-line">Bachelor of Science in Information Technology</p>
+
+        <div class="spacer-xl"></div>
+
+        <p class="meta-line">By</p>
+        <p class="meta-line"><strong>Roberto Carlo Abella</strong></p>
+
+        <div class="small-gap"></div>
+
+        <p class="meta-line"><strong>Prof. Jovelyn Cuizon</strong></p>
+        <p class="meta-line">Adviser</p>
+
+        <div class="spacer-xl"></div>
+
+        <p class="meta-line">March 2026</p>
+      </section>
+
+      <section class="page page-break">
+        <h1 class="center all-caps">Abstract</h1>
+        <div class="small-gap"></div>
+        <p>
+          Long physical lines remain a common problem in service-oriented environments such as
+          clinics, school offices, municipal counters, retail shops, and small business service
+          desks. Traditional first-come, first-served arrangements often force customers to wait in
+          crowded areas without clear visibility into queue progress. This situation increases
+          uncertainty, causes missed turns, and places pressure on staff who must manually track the
+          order of service. The project entitled <em>Prio</em> addresses this problem through a
+          multi-tenant web platform that digitizes ticket issuance, live queue monitoring, and
+          near-turn customer notifications.
+        </p>
+        <p>
+          Prio is designed as a tenant-aware queue platform where each vendor or service unit has
+          its own workspace, queue settings, public join link, and public monitor page. Customers
+          may join through a QR code or through an online workflow, while vendors can issue walk-in
+          tickets directly from a dashboard. The system generates ticket numbers per tenant and per
+          day, publishes queue updates in real time, and notifies customers through email or SMS
+          when their turn is approaching or when they are actively called for service. The proposed
+          implementation uses a React and Vite frontend, an Express backend, MongoDB for data
+          persistence, and Server-Sent Events for live queue updates.
+        </p>
+        <p>
+          The project is positioned as a practical, scalable, and accessible solution for
+          organizations that need modern queue handling without building separate systems for each
+          branch or vendor. Its primary contribution lies in combining multi-tenancy, QR-based
+          self-service queue entry, live public visibility, and configurable near-turn alerts in a
+          single web application. By reducing uncertainty and minimizing overcrowded waiting areas,
+          Prio aims to improve customer experience, support service staff, and provide a useful
+          foundation for future enhancements such as multiple counters, business-hour controls, role
+          separation, and production-grade anti-abuse protections.
+        </p>
+      </section>
+
+      <section class="page page-break">
+        <h1 class="center all-caps">Table of Contents</h1>
+        <div class="small-gap"></div>
+        <div class="toc">
+          <div class="toc-item">
+            <span>Abstract</span>
+            <span class="dots"></span>
+            <span>ii</span>
+          </div>
+          <div class="toc-item">
+            <span>Chapter I. Introduction</span>
+            <span class="dots"></span>
+            <span>1</span>
+          </div>
+          <div class="toc-item">
+            <span>Rationale of the Study</span>
+            <span class="dots"></span>
+            <span>1</span>
+          </div>
+          <div class="toc-item">
+            <span>Review of Related Works</span>
+            <span class="dots"></span>
+            <span>2</span>
+          </div>
+          <div class="toc-item">
+            <span>Project Objectives</span>
+            <span class="dots"></span>
+            <span>3</span>
+          </div>
+          <div class="toc-item">
+            <span>Project Scope and Limitation</span>
+            <span class="dots"></span>
+            <span>4</span>
+          </div>
+          <div class="toc-item">
+            <span>Architectural Diagram</span>
+            <span class="dots"></span>
+            <span>5</span>
+          </div>
+          <div class="toc-item">
+            <span>Bibliography</span>
+            <span class="dots"></span>
+            <span>6</span>
+          </div>
+        </div>
+        <p class="note" style="margin-top: 0.18in;">
+          Page numbers are approximate and intended for draft review of this generated capstone
+          chapter.
+        </p>
+      </section>
+
+      <section class="page page-break">
+        <div class="chapter-heading">
+          <p class="all-caps"><strong>Chapter I</strong></p>
+          <p class="all-caps"><strong>Introduction</strong></p>
+        </div>
+
+        <h2>Rationale of the Study</h2>
+        <p>
+          Service queues are still managed manually in many small and medium-sized organizations.
+          Customers often line up physically, ask staff for updates, or remain near the service
+          area because they do not know when they will be called. This results in long perceived
+          waiting times, congestion, and inconsistent customer experience. For vendors and staff,
+          manual queue handling also creates unnecessary operational work because ticket numbers,
+          queue status, and customer follow-up must be coordinated through verbal announcements or
+          paper-based tracking.
+        </p>
+        <p>
+          The growing availability of smartphones and internet-connected devices has made digital
+          queueing more realistic even for smaller organizations. Customers already expect to scan a
+          QR code, receive updates remotely, and monitor service progress through a browser.
+          However, many available queueing solutions are designed as closed commercial platforms or
+          are optimized for a single organization rather than for a platform that can support
+          several independent vendors with isolated settings and queue records. This creates an
+          opportunity for a web-based solution that combines accessibility, clear queue visibility,
+          and tenant-aware management.
+        </p>
+        <p>
+          The Prio project is proposed to address this gap. It provides each vendor with its own
+          queue prefix, service settings, public join link, QR target, and live monitor page while
+          keeping the platform centralized. Customers may join before arriving or while physically
+          present, and staff can still issue walk-in tickets when necessary. Real-time monitoring
+          and near-turn alerts reduce uncertainty for customers, while the dashboard helps staff
+          control calling, serving, skipping, and queue configuration from a single interface.
+        </p>
+        <p>
+          The study is significant because it demonstrates how a modern queueing workflow can be
+          implemented using common web technologies and open standards. It also supports the
+          practical needs of organizations that want a more organized service process without
+          maintaining separate systems for each queueing context. By combining QR-based entry, live
+          queue visibility, and notification support, Prio proposes a solution that is both
+          technically feasible and operationally useful.
+        </p>
+
+        <h2>Review of Related Works</h2>
+        <p>
+          Existing queue management platforms show that digital queueing can substantially improve
+          transparency and customer experience. Qminder highlights a central service dashboard where
+          staff can manage queues, view visitor details, and notify customers when their turn is
+          ready [1]. QLESS similarly promotes removing the need for customers to wait in a physical
+          line by combining line management, appointments, and queue intelligence [2]. Queue-Fair,
+          while focused on virtual waiting rooms for high-demand scenarios, emphasizes fairness,
+          estimated wait visibility, and controlled queue progress [3]. These systems validate the
+          value of digital queueing and informed waiting.
+        </p>
+        <p>
+          Academic work also supports the need for improved queue management. Ndiaye et al.
+          discussed how electronic queue systems can reduce the negative impact of prolonged waiting
+          in public service contexts and argued for more intelligent queue handling in environments
+          where vulnerable users and high service demand are present [4]. This aligns with the
+          practical motivation of Prio, which aims to reduce crowding, uncertainty, and missed
+          turns through a web-based priority number system.
+        </p>
+        <p>
+          Despite the strengths of existing systems, a gap remains for a platform that is both
+          tenant-aware and lightweight enough for web-first deployment in local service
+          environments. Many commercial platforms focus on enterprise use cases, formal appointment
+          systems, or high-volume access control. Prio instead concentrates on a simpler but highly
+          practical combination of features: vendor-specific queue workspaces, QR-based self-entry,
+          customer lookup codes, public live queue monitoring, and configurable near-turn alerts.
+        </p>
+        <p>
+          Another relevant technical consideration is live queue synchronization. The WHATWG HTML
+          specification defines Server-Sent Events as a browser-friendly mechanism for streaming
+          updates from server to client over standard HTTP connections [5]. This model is well
+          suited to the project because it enables a public queue monitor and vendor dashboard to
+          reflect queue movement in real time without requiring more complex websocket
+          infrastructure. The selected approach supports the project goal of accessibility and
+          straightforward deployment.
+        </p>
+
+        <h2>Project Objectives</h2>
+        <p>
+          The general objective of the study is to design and develop a multi-tenant web-based
+          priority queue management system that enables vendors to manage walk-in and remote
+          customers through QR-based queue entry, real-time queue monitoring, and near-turn customer
+          notifications.
+        </p>
+        <p>The specific objectives of the project are the following:</p>
+        <ol>
+          <li>
+            To provide vendor registration and tenant workspace creation so that each service unit
+            can maintain its own queue identity, settings, and access controls.
+          </li>
+          <li>
+            To allow customers to join a queue either by scanning a QR code or by using an online
+            join page, with optional contact details for notifications.
+          </li>
+          <li>
+            To generate queue tickets with tenant-specific prefixes, daily sequence numbers, and
+            lookup codes for easier ticket tracking.
+          </li>
+          <li>
+            To develop a vendor dashboard that supports issuing walk-in tickets, calling the next
+            customer, serving or skipping the current ticket, and updating queue settings.
+          </li>
+          <li>
+            To provide a live public queue board and a ticket-specific monitoring view that update
+            in real time as the queue changes.
+          </li>
+          <li>
+            To send near-turn and called-turn notifications through email or SMS when supported
+            provider credentials are available.
+          </li>
+          <li>
+            To store tenant, user, ticket, and counter data in a persistent database that supports
+            queue history and daily queue sequencing.
+          </li>
+        </ol>
+
+        <h2>Project Scope and Limitation</h2>
+        <p>
+          The scope of Prio covers a browser-based queue management workflow for multiple vendors or
+          service units within one platform. The system includes vendor onboarding, customer
+          registration, authenticated tenant dashboards, QR-based queue entry, online queue joining,
+          ticket generation, queue history, public queue monitoring, and notification preferences
+          for email or SMS alerts. It also includes tenant settings such as queue prefix, average
+          service time, and notification threshold.
+        </p>
+        <p>
+          The project is limited to one active called ticket per tenant at a given time and follows
+          a first-in, first-out queue order within each tenant. The current implementation is
+          optimized for web access and does not provide a separate native mobile application.
+          Although the notification workflow supports email and SMS channels, dependable production
+          delivery still depends on valid external SMTP and messaging credentials as well as network
+          availability.
+        </p>
+        <p>
+          In its current form, the project does not yet include advanced production features such as
+          appointment scheduling, multiple simultaneous counters per tenant, role separation between
+          owner and staff accounts, payment integration, anti-spam protection such as CAPTCHA, or
+          full automated test coverage. These limitations are acceptable for the present capstone
+          phase because the main focus of the project is to validate the core queue lifecycle and
+          tenant-aware workflow rather than to deliver a complete enterprise deployment package.
+        </p>
+
+        <h2>Architectural Diagram</h2>
+        <p>
+          Figure 1 presents the high-level architecture of the proposed system. The design separates
+          the customer and vendor interfaces from the backend queue services while preserving live
+          data flow to public and authenticated pages. MongoDB stores tenant, user, ticket, and
+          counter data, while the backend also coordinates notifications and real-time event
+          publication.
+        </p>
+
+        <div class="figure">
+          <svg viewBox="0 0 960 520" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Prio system architecture diagram">
+            <defs>
+              <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#355575"></path>
+              </marker>
+            </defs>
+
+            <rect x="24" y="24" width="912" height="472" rx="20" fill="#f7f9fc" stroke="#c7cfda" stroke-width="2"/>
+
+            <rect x="60" y="90" width="180" height="120" rx="16" fill="#ffffff" stroke="#355575" stroke-width="2"/>
+            <text x="150" y="128" text-anchor="middle" font-size="24" font-weight="700" fill="#18324d">Customers</text>
+            <text x="150" y="160" text-anchor="middle" font-size="18" fill="#2d3f56">QR scan / online join</text>
+            <text x="150" y="188" text-anchor="middle" font-size="18" fill="#2d3f56">Live ticket lookup</text>
+
+            <rect x="60" y="300" width="180" height="120" rx="16" fill="#ffffff" stroke="#355575" stroke-width="2"/>
+            <text x="150" y="338" text-anchor="middle" font-size="24" font-weight="700" fill="#18324d">Vendor Staff</text>
+            <text x="150" y="370" text-anchor="middle" font-size="18" fill="#2d3f56">Dashboard controls</text>
+            <text x="150" y="398" text-anchor="middle" font-size="18" fill="#2d3f56">Walk-in ticket issuing</text>
+
+            <rect x="315" y="72" width="320" height="366" rx="18" fill="#ffffff" stroke="#355575" stroke-width="2.5"/>
+            <text x="475" y="110" text-anchor="middle" font-size="28" font-weight="700" fill="#18324d">Prio Web Platform</text>
+
+            <rect x="342" y="132" width="266" height="82" rx="12" fill="#eef4fb" stroke="#5a7694" stroke-width="1.8"/>
+            <text x="475" y="164" text-anchor="middle" font-size="22" font-weight="700" fill="#18324d">React + Vite Client</text>
+            <text x="475" y="192" text-anchor="middle" font-size="17" fill="#2d3f56">Landing, Join, Monitor, Dashboard</text>
+
+            <rect x="342" y="236" width="266" height="172" rx="12" fill="#eef4fb" stroke="#5a7694" stroke-width="1.8"/>
+            <text x="475" y="268" text-anchor="middle" font-size="22" font-weight="700" fill="#18324d">Express API</text>
+            <text x="475" y="298" text-anchor="middle" font-size="17" fill="#2d3f56">Auth Routes</text>
+            <text x="475" y="322" text-anchor="middle" font-size="17" fill="#2d3f56">Public Queue Routes</text>
+            <text x="475" y="346" text-anchor="middle" font-size="17" fill="#2d3f56">Vendor Queue Routes</text>
+            <text x="475" y="370" text-anchor="middle" font-size="17" fill="#2d3f56">Queue Service + SSE Event Stream</text>
+            <text x="475" y="394" text-anchor="middle" font-size="17" fill="#2d3f56">Email / SMS Notification Service</text>
+
+            <rect x="700" y="90" width="190" height="128" rx="16" fill="#ffffff" stroke="#355575" stroke-width="2"/>
+            <text x="795" y="128" text-anchor="middle" font-size="24" font-weight="700" fill="#18324d">MongoDB</text>
+            <text x="795" y="160" text-anchor="middle" font-size="18" fill="#2d3f56">Tenants</text>
+            <text x="795" y="186" text-anchor="middle" font-size="18" fill="#2d3f56">Users, Tickets, Counters</text>
+
+            <rect x="700" y="290" width="190" height="130" rx="16" fill="#ffffff" stroke="#355575" stroke-width="2"/>
+            <text x="795" y="328" text-anchor="middle" font-size="24" font-weight="700" fill="#18324d">External Services</text>
+            <text x="795" y="360" text-anchor="middle" font-size="18" fill="#2d3f56">SMTP Email</text>
+            <text x="795" y="386" text-anchor="middle" font-size="18" fill="#2d3f56">Twilio SMS API</text>
+
+            <line x1="240" y1="150" x2="342" y2="170" stroke="#355575" stroke-width="3" marker-end="url(#arrow)"/>
+            <line x1="240" y1="360" x2="342" y2="330" stroke="#355575" stroke-width="3" marker-end="url(#arrow)"/>
+            <line x1="608" y1="290" x2="700" y2="160" stroke="#355575" stroke-width="3" marker-end="url(#arrow)"/>
+            <line x1="608" y1="348" x2="700" y2="355" stroke="#355575" stroke-width="3" marker-end="url(#arrow)"/>
+            <line x1="342" y1="200" x2="608" y2="245" stroke="#6e89a5" stroke-width="2.4" marker-end="url(#arrow)"/>
+            <text x="502" y="222" text-anchor="middle" font-size="16" fill="#4a5f78">REST requests</text>
+
+            <path d="M 608 372 C 650 420, 675 430, 760 438" fill="none" stroke="#6e89a5" stroke-width="2.4" marker-end="url(#arrow)"/>
+            <text x="675" y="458" text-anchor="middle" font-size="16" fill="#4a5f78">Notification triggers</text>
+
+            <path d="M 610 286 C 660 250, 670 236, 610 196" fill="none" stroke="#6e89a5" stroke-width="2.4" marker-end="url(#arrow)"/>
+            <text x="664" y="228" text-anchor="middle" font-size="16" fill="#4a5f78">SSE updates</text>
+          </svg>
+          <div class="figure-caption">Figure 1. High-level architecture of the Prio queue platform.</div>
+        </div>
+      </section>
+
+      <section class="page page-break">
+        <h1 class="center all-caps">Bibliography</h1>
+        <div class="small-gap"></div>
+        <ol class="reference-list">
+          <li>
+            Qminder. <em>Service &amp; Appointment Management Dashboard: Manage Queues &amp;
+            Appointments</em>. Available at:
+            <a href="https://www.qminder.com/features/service-dashboard/">
+              https://www.qminder.com/features/service-dashboard/
+            </a>
+            Accessed March 31, 2026.
+          </li>
+          <li>
+            QLESS. <em>QLESS Product Overview</em>. Available at:
+            <a href="https://www.qless.com/qless-product-overview/">
+              https://www.qless.com/qless-product-overview/
+            </a>
+            Accessed March 31, 2026.
+          </li>
+          <li>
+            Queue-Fair. <em>What is a Virtual Waiting Room?</em>. Available at:
+            <a href="https://queue-fair.com/virtual-waiting-room">
+              https://queue-fair.com/virtual-waiting-room
+            </a>
+            Accessed March 31, 2026.
+          </li>
+          <li>
+            Ndiaye, J., Sow, O., Traore, Y., Diop, M. A., Faye, A. S., and Diop, A. <em>Electronic
+            System Using Artificial Intelligence for Queue Management</em>. Open Journal of Applied
+            Sciences, 12(12), 2022. Available at:
+            <a href="https://www.scirp.org/journal/doi.aspx?doi=10.4236/ojapps.2022.1212141">
+              https://www.scirp.org/journal/doi.aspx?doi=10.4236/ojapps.2022.1212141
+            </a>
+            Accessed March 31, 2026.
+          </li>
+          <li>
+            WHATWG. <em>HTML Living Standard: Server-Sent Events</em>. Available at:
+            <a href="https://html.spec.whatwg.org/multipage/server-sent-events.html">
+              https://html.spec.whatwg.org/multipage/server-sent-events.html
+            </a>
+            Accessed March 31, 2026.
+          </li>
+        </ol>
+      </section>
+    </main>
+  </body>
+</html>
