@@ -11,21 +11,38 @@
     "dev:backend": "npm --workspace backend run dev",
     "dev:frontend": "npm --workspace frontend run dev",
     "build": "npm --workspace frontend run build",
+    "build:backend": "npm --workspace backend run build",
     "start": "npm --workspace backend run start",
-    "lint": "eslint backend/src frontend/src",
-    "lint:fix": "eslint backend/src frontend/src --fix",
+    "lint": "eslint backend/src frontend/src shared",
+    "lint:fix": "eslint backend/src frontend/src shared --fix",
+    "typecheck": "npm run typecheck:frontend && npm run typecheck:backend",
+    "typecheck:frontend": "npm --workspace frontend run typecheck",
+    "typecheck:backend": "npm --workspace backend run typecheck",
     "prepare": "husky"
   },
   "lint-staged": {
-    "backend/src/**/*.js": [
+    "backend/src/**/*.{js,ts}": [
       "eslint --fix"
     ],
-    "frontend/src/**/*.{js,jsx}": [
+    "frontend/src/**/*.{js,jsx,ts,tsx}": [
+      "eslint --fix"
+    ],
+    "shared/**/*.ts": [
       "eslint --fix"
     ]
   },
   "devDependencies": {
     "@eslint/js": "^9.7.0",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/morgan": "^1.9.10",
+    "@types/node": "^25.5.2",
+    "@types/nodemailer": "^8.0.0",
+    "@types/pg": "^8.20.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
     "concurrently": "^9.1.2",
     "eslint": "^9.7.0",
     "eslint-plugin-react": "^7.37.5",
@@ -33,6 +50,9 @@
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.4.0",
     "husky": "^9.1.7",
-    "lint-staged": "^16.4.0"
+    "lint-staged": "^16.4.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2",
+    "typescript-eslint": "^8.58.0"
   }
 }

@@ -1,8 +1,8 @@
-const app = require("./app");
-const { connectDb } = require("./config/db");
-const env = require("./config/env");
+import app from "./app";
+import { connectDb } from "./config/db";
+import env from "./config/env";
 
-function wait(ms) {
+function wait(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
@@ -11,17 +11,20 @@ function wait(ms) {
 async function connectWithRetry({
   attempts = 20,
   delayMs = 3000
-} = {}) {
-  let lastError;
+}: {
+  attempts?: number;
+  delayMs?: number;
+} = {}): Promise<void> {
+  let lastError: Error | undefined;
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
       await connectDb();
       return;
     } catch (error) {
-      lastError = error;
+      lastError = error instanceof Error ? error : new Error("Database connection failed.");
       console.error(
-        `Database connection attempt ${attempt}/${attempts} failed: ${error.message}`
+        `Database connection attempt ${attempt}/${attempts} failed: ${lastError.message}`
       );
 
       if (attempt < attempts) {
@@ -30,17 +33,17 @@ async function connectWithRetry({
     }
   }
 
-  throw lastError;
+  throw lastError ?? new Error("Database connection failed.");
 }
 
-async function start() {
+async function start(): Promise<void> {
   await connectWithRetry();
   app.listen(env.port, () => {
     console.log(`Prio server listening on port ${env.port}`);
   });
 }
 
-start().catch((error) => {
+start().catch((error: unknown) => {
   console.error("Failed to start server", error);
   process.exit(1);
 });

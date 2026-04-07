@@ -1,18 +1,18 @@
-const express = require("express");
-const cors = require("cors");
-const morgan = require("morgan");
-const env = require("./config/env");
-const authRoutes = require("./routes/authRoutes");
-const publicRoutes = require("./routes/publicRoutes");
-const vendorRoutes = require("./routes/vendorRoutes");
-const errorHandler = require("./middleware/errorHandler");
+import express from "express";
+import cors from "cors";
+import morgan from "morgan";
+import env from "./config/env";
+import authRoutes from "./routes/authRoutes";
+import publicRoutes from "./routes/publicRoutes";
+import vendorRoutes from "./routes/vendorRoutes";
+import errorHandler from "./middleware/errorHandler";
 
-function normalizeOrigin(origin) {
+function normalizeOrigin(origin?: string): string {
   return String(origin || "").replace(/\/$/, "");
 }
 
-function buildAllowedOrigins() {
-  const origins = new Set();
+function buildAllowedOrigins(): Set<string> {
+  const origins = new Set<string>();
   const configuredOrigins = [env.clientUrl, env.appBaseUrl]
     .filter(Boolean)
     .map((origin) => normalizeOrigin(origin));
@@ -56,7 +56,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(morgan("dev"));
 
-app.get("/api/health", (req, res) => {
+app.get("/api/health", (_req, res) => {
   res.json({
     status: "ok"
   });
@@ -68,4 +68,4 @@ app.use("/api/vendor", vendorRoutes);
 
 app.use(errorHandler);
 
-module.exports = app;
+export default app;

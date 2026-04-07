@@ -1,18 +1,20 @@
-import { useEffect, useState } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { useEffect, useState, type FormEvent } from "react";
+import { Navigate, Link, useNavigate } from "react-router-dom";
+import type { LoginRequest } from "@shared";
 import SocialAuthButtons from "../components/SocialAuthButtons";
 import { useAuth } from "../context/AuthContext";
+import { getErrorMessage } from "../utils/errors";
 
-export default function RegisterCustomerPage() {
+export default function LoginPage() {
   const navigate = useNavigate();
-  const { loading, registerCustomer, user } = useAuth();
-  const [form, setForm] = useState({ name: "", email: "", phone: "", password: "" });
+  const { login, loading, user } = useAuth();
+  const [form, setForm] = useState<LoginRequest>({ email: "", password: "" });
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    if (user && !user.tenants?.length) {
-      navigate("/", { replace: true });
+    if (user?.tenants?.length) {
+      navigate("/dashboard", { replace: true });
     }
   }, [navigate, user]);
 
@@ -24,16 +26,16 @@ export default function RegisterCustomerPage() {
     return <Navigate to="/" replace />;
   }
 
-  async function handleSubmit(event) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
     setSubmitting(true);
 
     try {
-      await registerCustomer(form);
-      navigate("/", { replace: true });
+      const result = await login(form);
+      navigate(result.user.tenants.length ? "/dashboard" : "/", { replace: true });
     } catch (submitError) {
-      setError(submitError.message);
+      setError(getErrorMessage(submitError));
     } finally {
       setSubmitting(false);
     }
@@ -41,17 +43,9 @@ export default function RegisterCustomerPage() {
 
   return (
     <section className="card auth-card stack gap-md narrow">
-      <span className="eyebrow">Customer account</span>
-      <h1>Queue remotely and save your contact details</h1>
+      <span className="eyebrow">Sign in</span>
+      <h1>Access your vendor or customer account</h1>
       <form className="stack gap-sm" onSubmit={handleSubmit}>
-        <label className="field">
-          <span>Name</span>
-          <input
-            required
-            value={form.name}
-            onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
-          />
-        </label>
         <label className="field">
           <span>Email</span>
           <input
@@ -59,13 +53,6 @@ export default function RegisterCustomerPage() {
             type="email"
             value={form.email}
             onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))}
-          />
-        </label>
-        <label className="field">
-          <span>Phone</span>
-          <input
-            value={form.phone}
-            onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))}
           />
         </label>
         <label className="field">
@@ -79,10 +66,14 @@ export default function RegisterCustomerPage() {
         </label>
         {error ? <p className="error-text">{error}</p> : null}
         <button className="primary-button" disabled={submitting} type="submit">
-          {submitting ? "Creating account..." : "Register account"}
+          {submitting ? "Signing in..." : "Sign in"}
         </button>
       </form>
-      <SocialAuthButtons intent="register_customer" />
+      <SocialAuthButtons intent="login" />
+      <p>
+        New here? <Link to="/register/vendor">Create a vendor workspace</Link> or{" "}
+        <Link to="/register/customer">register as a customer</Link>.
+      </p>
     </section>
   );
 }

@@ -1,11 +1,18 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import QRCode from "react-qr-code";
 import { Navigate } from "react-router-dom";
+import type {
+  CreateWalkInTicketRequest,
+  QueueSnapshot,
+  TicketMutationResponse,
+  UpdateTenantSettingsRequest
+} from "@shared";
 import { API_BASE_URL, apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { buildJoinUrl, buildMonitorUrl } from "../queuePaths";
+import { getErrorMessage } from "../utils/errors";
 
-const emptyWalkIn = {
+const emptyWalkIn: CreateWalkInTicketRequest = {
   customerName: "",
   customerEmail: "",
   customerPhone: "",
@@ -14,18 +21,25 @@ const emptyWalkIn = {
   notes: ""
 };
 
+const defaultSettings: UpdateTenantSettingsRequest = {
+  queuePrefix: "P",
+  averageServiceMinutes: 5,
+  notificationThreshold: 2,
+  contactEmail: "",
+  contactPhone: ""
+};
+
+type DashboardActionResponse = Partial<TicketMutationResponse> & {
+  message?: string;
+  snapshot?: QueueSnapshot;
+};
+
 export default function VendorDashboardPage() {
   const { token, user, loading } = useAuth();
   const [selectedTenantSlug, setSelectedTenantSlug] = useState("");
-  const [snapshot, setSnapshot] = useState(null);
-  const [settings, setSettings] = useState({
-    queuePrefix: "P",
-    averageServiceMinutes: 5,
-    notificationThreshold: 2,
-    contactEmail: "",
-    contactPhone: ""
-  });
-  const [walkInForm, setWalkInForm] = useState(emptyWalkIn);
+  const [snapshot, setSnapshot] = useState<QueueSnapshot | null>(null);
+  const [settings, setSettings] = useState<UpdateTenantSettingsRequest>(defaultSettings);
+  const [walkInForm, setWalkInForm] = useState<CreateWalkInTicketRequest>(emptyWalkIn);
   const [error, setError] = useState("");
   const [busyAction, setBusyAction] = useState("");
 
@@ -43,7 +57,7 @@ export default function VendorDashboardPage() {
     let active = true;
     setError("");
 
-    apiRequest(`/vendor/tenant/${selectedTenantSlug}/dashboard`, { token })
+    apiRequest<QueueSnapshot>(`/vendor/tenant/${selectedTenantSlug}/dashboard`, { token })
       .then((data) => {
         if (!active) {
           return;
@@ -59,7 +73,7 @@ export default function VendorDashboardPage() {
       })
       .catch((loadError) => {
         if (active) {
-          setError(loadError.message);
+          setError(getErrorMessage(loadError));
         }
       });
 
@@ -75,7 +89,7 @@ export default function VendorDashboardPage() {
 
     const eventSource = new EventSource(`${API_BASE_URL}/public/tenant/${selectedTenantSlug}/stream`);
     eventSource.onmessage = (event) => {
-      const payload = JSON.parse(event.data);
+      const payload = JSON.parse(event.data) as QueueSnapshot;
       setSnapshot(payload);
     };
     eventSource.onerror = () => {
@@ -110,12 +124,17 @@ export default function VendorDashboardPage() {
     joinUrl,
     qrUrl: `${joinUrl}?source=qr`,
     monitorQrUrl:
-      snapshot?.tenant.monitorUrl || buildMonitorUrl(window.location.origin, selectedTenantSlug),
+      snapshot?.tenant.monitorUrl ||
+      buildMonitorUrl(window.location.origin, selectedTenantSlug),
     monitorUrl:
-      snapshot?.tenant.monitorUrl || buildMonitorUrl(window.location.origin, selectedTenantSlug)
+      snapshot?.tenant.monitorUrl ||
+      buildMonitorUrl(window.location.origin, selectedTenantSlug)
   };
 
-  async function runAction(actionName, request) {
+  async function runAction(
+    actionName: string,
+    request: () => Promise<DashboardActionResponse>
+  ): Promise<boolean> {
     setError("");
     setBusyAction(actionName);
 
@@ -126,21 +145,24 @@ export default function VendorDashboardPage() {
       }
       return true;
     } catch (actionError) {
-      setError(actionError.message);
+      setError(getErrorMessage(actionError));
       return false;
     } finally {
       setBusyAction("");
     }
   }
 
-  async function handleCreateWalkIn(event) {
+  async function handleCreateWalkIn(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const success = await runAction("walk-in", () =>
-      apiRequest(`/vendor/tenant/${selectedTenantSlug}/tickets`, {
-        method: "POST",
-        token,
-        body: walkInForm
-      })
+      apiRequest<TicketMutationResponse, CreateWalkInTicketRequest>(
+        `/vendor/tenant/${selectedTenantSlug}/tickets`,
+        {
+          method: "POST",
+          token,
+          body: walkInForm
+        }
+      )
     );
 
     if (success) {
@@ -148,14 +170,17 @@ export default function VendorDashboardPage() {
     }
   }
 
-  async function handleSaveSettings(event) {
+  async function handleSaveSettings(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     await runAction("settings", () =>
-      apiRequest(`/vendor/tenant/${selectedTenantSlug}/settings`, {
-        method: "PATCH",
-        token,
-        body: settings
-      })
+      apiRequest<DashboardActionResponse, UpdateTenantSettingsRequest>(
+        `/vendor/tenant/${selectedTenantSlug}/settings`,
+        {
+          method: "PATCH",
+          token,
+          body: settings
+        }
+      )
     );
   }
 
@@ -211,10 +236,13 @@ export default function VendorDashboardPage() {
               disabled={busyAction === "call-next"}
               onClick={() =>
                 runAction("call-next", () =>
-                  apiRequest(`/vendor/tenant/${selectedTenantSlug}/queue/call-next`, {
-                    method: "POST",
-                    token
-                  })
+                  apiRequest<DashboardActionResponse>(
+                    `/vendor/tenant/${selectedTenantSlug}/queue/call-next`,
+                    {
+                      method: "POST",
+                      token
+                    }
+                  )
                 )
               }
               type="button"
@@ -226,10 +254,13 @@ export default function VendorDashboardPage() {
               disabled={busyAction === "serve-current"}
               onClick={() =>
                 runAction("serve-current", () =>
-                  apiRequest(`/vendor/tenant/${selectedTenantSlug}/queue/current/serve`, {
-                    method: "POST",
-                    token
-                  })
+                  apiRequest<DashboardActionResponse>(
+                    `/vendor/tenant/${selectedTenantSlug}/queue/current/serve`,
+                    {
+                      method: "POST",
+                      token
+                    }
+                  )
                 )
               }
               type="button"
@@ -241,10 +272,13 @@ export default function VendorDashboardPage() {
               disabled={busyAction === "skip-current"}
               onClick={() =>
                 runAction("skip-current", () =>
-                  apiRequest(`/vendor/tenant/${selectedTenantSlug}/queue/current/skip`, {
-                    method: "POST",
-                    token
-                  })
+                  apiRequest<DashboardActionResponse>(
+                    `/vendor/tenant/${selectedTenantSlug}/queue/current/skip`,
+                    {
+                      method: "POST",
+                      token
+                    }
+                  )
                 )
               }
               type="button"
@@ -347,7 +381,7 @@ export default function VendorDashboardPage() {
             <label className="field">
               <span>Notes</span>
               <textarea
-                rows="3"
+                rows={3}
                 value={walkInForm.notes}
                 onChange={(event) =>
                   setWalkInForm((current) => ({ ...current, notes: event.target.value }))
@@ -386,32 +420,41 @@ export default function VendorDashboardPage() {
             <label className="field">
               <span>Queue prefix</span>
               <input
-                maxLength="4"
+                maxLength={4}
                 value={settings.queuePrefix}
                 onChange={(event) =>
-                  setSettings((current) => ({ ...current, queuePrefix: event.target.value.toUpperCase() }))
+                  setSettings((current) => ({
+                    ...current,
+                    queuePrefix: event.target.value.toUpperCase()
+                  }))
                 }
               />
             </label>
             <label className="field">
               <span>Average service minutes</span>
               <input
-                min="1"
+                min={1}
                 type="number"
                 value={settings.averageServiceMinutes}
                 onChange={(event) =>
-                  setSettings((current) => ({ ...current, averageServiceMinutes: event.target.value }))
+                  setSettings((current) => ({
+                    ...current,
+                    averageServiceMinutes: event.target.value
+                  }))
                 }
               />
             </label>
             <label className="field">
               <span>Notify when within</span>
               <input
-                min="1"
+                min={1}
                 type="number"
                 value={settings.notificationThreshold}
                 onChange={(event) =>
-                  setSettings((current) => ({ ...current, notificationThreshold: event.target.value }))
+                  setSettings((current) => ({
+                    ...current,
+                    notificationThreshold: event.target.value
+                  }))
                 }
               />
             </label>

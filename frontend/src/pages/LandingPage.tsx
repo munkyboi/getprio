@@ -1,4 +1,4 @@
-﻿import { Link } from "react-router-dom";
+import { Link } from "react-router-dom";
 
 const features = [
   {
@@ -17,7 +17,7 @@ const features = [
     title: "Multi-tenant by design",
     text: "Every business has its own slug, queue settings, ticket stream, and vendor dashboard while sharing one platform."
   }
-];
+] as const;
 
 export default function LandingPage() {
   return (

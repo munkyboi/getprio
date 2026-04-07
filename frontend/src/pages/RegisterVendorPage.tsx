@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import type { OAuthProviderId, RegisterVendorRequest } from "@shared";
 import SocialAuthButtons from "../components/SocialAuthButtons";
 import { useAuth } from "../context/AuthContext";
+import { getErrorMessage } from "../utils/errors";
 
-const PROVIDER_LABELS = {
+const PROVIDER_LABELS: Record<OAuthProviderId, string> = {
   google: "Google",
   facebook: "Facebook"
 };
@@ -12,7 +14,7 @@ export default function RegisterVendorPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { completeVendorOnboarding, loading, registerVendor, user } = useAuth();
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<RegisterVendorRequest>({
     tenantName: "",
     tenantSlug: "",
     name: "",
@@ -38,7 +40,11 @@ export default function RegisterVendorPage() {
 
   const oauthProviderLabel = useMemo(() => {
     const oauthProvider = searchParams.get("oauth");
-    return PROVIDER_LABELS[oauthProvider] || "";
+    if (oauthProvider === "google" || oauthProvider === "facebook") {
+      return PROVIDER_LABELS[oauthProvider];
+    }
+
+    return "";
   }, [searchParams]);
 
   if (loading) {
@@ -48,7 +54,7 @@ export default function RegisterVendorPage() {
   const isAuthenticatedFlow = Boolean(user);
   const hasTenantMemberships = Boolean(user?.tenants?.length);
 
-  async function handleSubmit(event) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
     setSubmitting(true);
@@ -68,7 +74,7 @@ export default function RegisterVendorPage() {
 
       navigate("/dashboard", { replace: true });
     } catch (submitError) {
-      setError(submitError.message);
+      setError(getErrorMessage(submitError));
     } finally {
       setSubmitting(false);
     }
