@@ -11,9 +11,28 @@
     "dev:backend": "npm --workspace backend run dev",
     "dev:frontend": "npm --workspace frontend run dev",
     "build": "npm --workspace frontend run build",
-    "start": "npm --workspace backend run start"
+    "start": "npm --workspace backend run start",
+    "lint": "eslint backend/src frontend/src",
+    "lint:fix": "eslint backend/src frontend/src --fix",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "backend/src/**/*.js": [
+      "eslint --fix"
+    ],
+    "frontend/src/**/*.{js,jsx}": [
+      "eslint --fix"
+    ]
   },
   "devDependencies": {
-    "concurrently": "^9.1.2"
+    "@eslint/js": "^9.7.0",
+    "concurrently": "^9.1.2",
+    "eslint": "^9.7.0",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "globals": "^17.4.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0"
   }
 }

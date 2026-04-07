@@ -21,7 +21,7 @@ function AppShell({ children }) {
     <div className="app-shell">
       <header className="topbar">
         <Link className="brand" to="/">
-          <span className="brand-mark">Prio</span>
+          <span className="brand-mark">Prioxxxx</span>
           <span className="brand-text">Priority Queue Platform</span>
         </Link>
 

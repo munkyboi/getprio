@@ -80,7 +80,7 @@ function readOAuthState(value) {
 
   try {
     return jwt.verify(value, env.jwtSecret);
-  } catch (verifyError) {
+  } catch {
     const error = new Error("OAuth session expired. Please try again.");
     error.statusCode = 400;
     throw error;
