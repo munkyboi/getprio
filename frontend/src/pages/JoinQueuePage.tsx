@@ -1,16 +1,20 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import type { JoinQueueRequest, QueueSnapshot, TenantSummary, TicketMutationResponse } from "@shared";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { buildMonitorPath, buildMonitorPathWithTicket } from "../queuePaths";
+import { getErrorMessage } from "../utils/errors";
+
+type JoinQueueFormState = Omit<JoinQueueRequest, "joinChannel">;
 
 export default function JoinQueuePage() {
-  const { tenantSlug } = useParams();
+  const { tenantSlug } = useParams<{ tenantSlug: string }>();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { token, user } = useAuth();
-  const [tenantInfo, setTenantInfo] = useState(null);
-  const [form, setForm] = useState({
+  const [tenantInfo, setTenantInfo] = useState<TenantSummary | null>(null);
+  const [form, setForm] = useState<JoinQueueFormState>({
     customerName: "",
     customerEmail: "",
     customerPhone: "",
@@ -20,6 +24,8 @@ export default function JoinQueuePage() {
   });
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const tenantSlugValue = tenantSlug || "";
+  const monitorPath = tenantSlug ? buildMonitorPath(tenantSlug) : "/";
 
   useEffect(() => {
     if (user) {
@@ -37,33 +43,38 @@ export default function JoinQueuePage() {
       return;
     }
 
-    apiRequest(`/public/tenant/${tenantSlug}/queue`)
+    apiRequest<QueueSnapshot>(`/public/tenant/${tenantSlug}/queue`)
       .then((data) => {
         setTenantInfo(data.tenant);
       })
       .catch((loadError) => {
-        setError(loadError.message);
+        setError(getErrorMessage(loadError));
       });
   }, [tenantSlug]);
 
-  async function handleSubmit(event) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitting(true);
     setError("");
 
     try {
       const source = searchParams.get("source") === "qr" ? "qr" : "online";
-      const data = await apiRequest(`/public/tenant/${tenantSlug}/tickets`, {
-        method: "POST",
-        token,
-        body: {
-          ...form,
-          joinChannel: source
+      const data = await apiRequest<TicketMutationResponse, JoinQueueRequest>(
+        `/public/tenant/${tenantSlugValue}/tickets`,
+        {
+          method: "POST",
+          token,
+          body: {
+            ...form,
+            joinChannel: source
+          }
         }
+      );
+      navigate(buildMonitorPathWithTicket(tenantSlugValue, data.ticket.lookupCode), {
+        replace: true
       });
-      navigate(buildMonitorPathWithTicket(tenantSlug, data.ticket.lookupCode), { replace: true });
     } catch (submitError) {
-      setError(submitError.message);
+      setError(getErrorMessage(submitError));
     } finally {
       setSubmitting(false);
     }
@@ -73,7 +84,7 @@ export default function JoinQueuePage() {
     <div className="grid join-layout">
       <section className="card stack gap-md">
         <span className="eyebrow">Join queue</span>
-        <h1>{tenantInfo?.name || tenantSlug}</h1>
+        <h1>{tenantInfo?.name || tenantSlugValue}</h1>
         <p>
           Grab your priority number online, then keep monitoring progress from the public board.
         </p>
@@ -110,7 +121,7 @@ export default function JoinQueuePage() {
           <label className="field">
             <span>Notes</span>
             <textarea
-              rows="3"
+              rows={3}
               value={form.notes}
               onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
             />
@@ -129,7 +140,9 @@ export default function JoinQueuePage() {
             <input
               checked={form.notifyBySms}
               type="checkbox"
-              onChange={(event) => setForm((current) => ({ ...current, notifyBySms: event.target.checked }))}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, notifyBySms: event.target.checked }))
+              }
             />
             <span>Send SMS alerts</span>
           </label>
@@ -156,7 +169,7 @@ export default function JoinQueuePage() {
             <p>Email or SMS alerts are sent when your turn is getting close, based on tenant settings.</p>
           </div>
         </div>
-        <Link className="text-link" to={buildMonitorPath(tenantSlug)}>
+        <Link className="text-link" to={monitorPath}>
           Open public board instead
         </Link>
       </aside>

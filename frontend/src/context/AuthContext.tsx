@@ -1,22 +1,36 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import type {
+  AuthIntent,
+  AuthResponse,
+  CompleteVendorOnboardingRequest,
+  LoginRequest,
+  OAuthProviderAvailability,
+  OAuthProviderId,
+  OAuthProvidersResponse,
+  RegisterCustomerRequest,
+  RegisterVendorRequest,
+  UserSummary
+} from "@shared";
 import { API_BASE_URL, apiRequest } from "../api/client";
+import type { AuthContextValue } from "./AuthContext.types";
 
-const AuthContext = createContext(null);
+const AuthContext = createContext<AuthContextValue | null>(null);
 const STORAGE_KEY = "prio-auth";
-const EMPTY_OAUTH_PROVIDERS = {
+const EMPTY_OAUTH_PROVIDERS: OAuthProviderAvailability = {
   google: false,
   facebook: false
 };
 
-export function AuthProvider({ children }) {
+export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState(() => localStorage.getItem(STORAGE_KEY) || "");
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState<UserSummary | null>(null);
   const [loading, setLoading] = useState(Boolean(localStorage.getItem(STORAGE_KEY)));
-  const [oauthProviders, setOauthProviders] = useState(EMPTY_OAUTH_PROVIDERS);
+  const [oauthProviders, setOauthProviders] =
+    useState<OAuthProviderAvailability>(EMPTY_OAUTH_PROVIDERS);
   const [oauthLoading, setOauthLoading] = useState(true);
 
   useEffect(() => {
-    apiRequest("/auth/oauth/providers")
+    apiRequest<OAuthProvidersResponse>("/auth/oauth/providers")
       .then((data) => {
         setOauthProviders({
           ...EMPTY_OAUTH_PROVIDERS,
@@ -42,7 +56,7 @@ export function AuthProvider({ children }) {
     localStorage.setItem(STORAGE_KEY, token);
     setLoading(true);
 
-    apiRequest("/auth/me", { token })
+    apiRequest<{ user: UserSummary }>("/auth/me", { token })
       .then((data) => {
         setUser(data.user);
       })
@@ -58,14 +72,14 @@ export function AuthProvider({ children }) {
     return undefined;
   }, [token]);
 
-  const value = {
+  const value: AuthContextValue = {
     token,
     user,
     loading,
     oauthProviders,
     oauthLoading,
-    async login(credentials) {
-      const data = await apiRequest("/auth/login", {
+    async login(credentials: LoginRequest): Promise<AuthResponse> {
+      const data = await apiRequest<AuthResponse, LoginRequest>("/auth/login", {
         method: "POST",
         body: credentials
       });
@@ -73,8 +87,8 @@ export function AuthProvider({ children }) {
       setUser(data.user);
       return data;
     },
-    async registerVendor(payload) {
-      const data = await apiRequest("/auth/register/vendor", {
+    async registerVendor(payload: RegisterVendorRequest): Promise<AuthResponse> {
+      const data = await apiRequest<AuthResponse, RegisterVendorRequest>("/auth/register/vendor", {
         method: "POST",
         body: payload
       });
@@ -82,30 +96,38 @@ export function AuthProvider({ children }) {
       setUser(data.user);
       return data;
     },
-    async completeVendorOnboarding(payload) {
-      const data = await apiRequest("/auth/register/vendor/complete", {
-        method: "POST",
-        body: payload,
-        token
-      });
+    async completeVendorOnboarding(
+      payload: CompleteVendorOnboardingRequest
+    ): Promise<AuthResponse> {
+      const data = await apiRequest<AuthResponse, CompleteVendorOnboardingRequest>(
+        "/auth/register/vendor/complete",
+        {
+          method: "POST",
+          body: payload,
+          token
+        }
+      );
       setToken(data.token);
       setUser(data.user);
       return data;
     },
-    async registerCustomer(payload) {
-      const data = await apiRequest("/auth/register/customer", {
-        method: "POST",
-        body: payload
-      });
+    async registerCustomer(payload: RegisterCustomerRequest): Promise<AuthResponse> {
+      const data = await apiRequest<AuthResponse, RegisterCustomerRequest>(
+        "/auth/register/customer",
+        {
+          method: "POST",
+          body: payload
+        }
+      );
       setToken(data.token);
       setUser(data.user);
       return data;
     },
-    acceptAuthToken(nextToken) {
+    acceptAuthToken(nextToken: string) {
       setLoading(true);
       setToken(nextToken);
     },
-    startOAuth(provider, intent) {
+    startOAuth(provider: OAuthProviderId, intent: AuthIntent) {
       if (!oauthProviders[provider]) {
         throw new Error(`${provider} sign-in is not available right now.`);
       }
@@ -124,7 +146,7 @@ export function AuthProvider({ children }) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
-export function useAuth() {
+export function useAuth(): AuthContextValue {
   const context = useContext(AuthContext);
   if (!context) {
     throw new Error("useAuth must be used inside AuthProvider.");

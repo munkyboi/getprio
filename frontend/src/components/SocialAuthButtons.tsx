@@ -1,11 +1,13 @@
+import type { OAuthProviderId } from "@shared";
 import { useAuth } from "../context/AuthContext";
+import type { SocialAuthButtonsProps } from "./SocialAuthButtons.types";
 
-const PROVIDER_OPTIONS = [
+const PROVIDER_OPTIONS: Array<{ id: OAuthProviderId; label: string }> = [
   { id: "google", label: "Google" },
   { id: "facebook", label: "Facebook" }
 ];
 
-export default function SocialAuthButtons({ intent }) {
+export default function SocialAuthButtons({ intent }: SocialAuthButtonsProps) {
   const { oauthLoading, oauthProviders, startOAuth } = useAuth();
   const hasConfiguredProvider = Object.values(oauthProviders).some(Boolean);
 

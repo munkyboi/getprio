@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Link, Navigate, NavLink, Route, Routes, useLocation, useParams } from "react-router-dom";
 import { useAuth } from "./context/AuthContext";
 import LandingPage from "./pages/LandingPage";
@@ -14,7 +15,7 @@ import {
   MONITOR_ROUTE_PATH
 } from "./queuePaths";
 
-function AppShell({ children }) {
+function AppShell({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
 
   return (
@@ -46,7 +47,7 @@ function AppShell({ children }) {
 }
 
 function LegacyMonitorRedirect() {
-  const { tenantSlug } = useParams();
+  const { tenantSlug } = useParams<{ tenantSlug: string }>();
   const location = useLocation();
 
   if (!tenantSlug) {

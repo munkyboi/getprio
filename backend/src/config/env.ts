@@ -1,5 +1,5 @@
-const path = require("path");
-const dotenv = require("dotenv");
+import path from "path";
+import dotenv from "dotenv";
 
 const rootEnvPath = path.resolve(__dirname, "../../../.env");
 dotenv.config({ path: rootEnvPath });
@@ -7,10 +7,10 @@ dotenv.config({ path: rootEnvPath });
 const backendEnvPath = path.resolve(__dirname, "../../.env");
 dotenv.config({ path: backendEnvPath, override: false });
 
-const port = Number(process.env.PORT || process.env.BACKEND_PORT || 5000);
+export const port = Number(process.env.PORT || process.env.BACKEND_PORT || 5000);
 const frontendPort = Number(process.env.FRONTEND_PORT || 5173);
 
-module.exports = {
+const env = {
   nodeEnv: process.env.NODE_ENV || "development",
   port,
   databaseUrl: process.env.DATABASE_URL || "postgresql://prio:prio@127.0.0.1:5432/prio_queue",
@@ -35,3 +35,5 @@ module.exports = {
   smsFromNumber: process.env.TWILIO_FROM_NUMBER || "",
   notificationCooldownMinutes: Number(process.env.NOTIFICATION_COOLDOWN_MINUTES || 30)
 };
+
+export default env;

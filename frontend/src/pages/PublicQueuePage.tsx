@@ -1,17 +1,21 @@
 import { useEffect, useState } from "react";
 import QRCode from "react-qr-code";
 import { Link, useParams, useSearchParams } from "react-router-dom";
+import type { QueueSnapshot } from "@shared";
 import { API_BASE_URL, apiRequest } from "../api/client";
 import { buildJoinPath, buildJoinUrl } from "../queuePaths";
+import { getErrorMessage } from "../utils/errors";
 
 export default function PublicQueuePage() {
-  const { tenantSlug } = useParams();
+  const { tenantSlug } = useParams<{ tenantSlug: string }>();
   const [searchParams] = useSearchParams();
-  const [snapshot, setSnapshot] = useState(null);
+  const [snapshot, setSnapshot] = useState<QueueSnapshot | null>(null);
   const [error, setError] = useState("");
   const lookupCode = searchParams.get("ticket") || "";
+  const tenantSlugValue = tenantSlug || "";
+  const joinPath = tenantSlug ? buildJoinPath(tenantSlug) : "/";
   const joinUrl =
-    snapshot?.tenant?.joinUrl || buildJoinUrl(window.location.origin, tenantSlug || "");
+    snapshot?.tenant?.joinUrl || buildJoinUrl(window.location.origin, tenantSlugValue);
   const joinQrUrl = `${joinUrl}?source=qr`;
 
   useEffect(() => {
@@ -22,7 +26,7 @@ export default function PublicQueuePage() {
     let active = true;
     const query = lookupCode ? `?lookupCode=${encodeURIComponent(lookupCode)}` : "";
 
-    apiRequest(`/public/tenant/${tenantSlug}/queue${query}`)
+    apiRequest<QueueSnapshot>(`/public/tenant/${tenantSlug}/queue${query}`)
       .then((data) => {
         if (active) {
           setSnapshot(data);
@@ -30,13 +34,13 @@ export default function PublicQueuePage() {
       })
       .catch((loadError) => {
         if (active) {
-          setError(loadError.message);
+          setError(getErrorMessage(loadError));
         }
       });
 
     const eventSource = new EventSource(`${API_BASE_URL}/public/tenant/${tenantSlug}/stream${query}`);
     eventSource.onmessage = (event) => {
-      setSnapshot(JSON.parse(event.data));
+      setSnapshot(JSON.parse(event.data) as QueueSnapshot);
       setError("");
     };
     eventSource.onerror = () => {
@@ -55,14 +59,14 @@ export default function PublicQueuePage() {
       <section className="card hero-card queue-hero">
         <div className="stack gap-sm">
           <span className="eyebrow">Live public board</span>
-          <h1>{snapshot?.tenant?.name || tenantSlug}</h1>
+          <h1>{snapshot?.tenant?.name || tenantSlugValue}</h1>
           <p>
             Customers can monitor their turn remotely and join the line online if the vendor has enabled
             the public flow.
           </p>
         </div>
         <div className="row gap-sm wrap">
-          <Link className="primary-button" to={buildJoinPath(tenantSlug)}>
+          <Link className="primary-button" to={joinPath}>
             Join this queue
           </Link>
           <span className="pill large-pill">Waiting: {snapshot?.stats?.waitingCount ?? 0}</span>
@@ -114,7 +118,7 @@ export default function PublicQueuePage() {
             <span className="eyebrow">Next in line</span>
             <h2>Queue progress</h2>
           </div>
-          <Link className="text-link" to={buildJoinPath(tenantSlug)}>
+          <Link className="text-link" to={joinPath}>
             Need a number?
           </Link>
         </div>
