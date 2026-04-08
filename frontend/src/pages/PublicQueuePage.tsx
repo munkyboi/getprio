@@ -17,6 +17,24 @@ export default function PublicQueuePage() {
   const joinUrl =
     snapshot?.tenant?.joinUrl || buildJoinUrl(window.location.origin, tenantSlugValue);
   const joinQrUrl = `${joinUrl}?source=qr`;
+  const queueProgressTickets = [
+    ...(snapshot?.current
+      ? [
+          {
+            id: `current-${snapshot.current.id}`,
+            ticketNumber: snapshot.current.ticketNumber,
+            customerName: snapshot.current.customerName,
+            progressLabel: "Now serving"
+          }
+        ]
+      : []),
+    ...((snapshot?.nextUp || []).map((ticket) => ({
+      id: ticket.id,
+      ticketNumber: ticket.ticketNumber,
+      customerName: ticket.customerName,
+      progressLabel: `#${ticket.position}`
+    })))
+  ].slice(0, 10);
 
   useEffect(() => {
     if (!tenantSlug) {
@@ -57,20 +75,33 @@ export default function PublicQueuePage() {
   return (
     <div className="stack gap-lg">
       <section className="card hero-card queue-hero">
-        <div className="stack gap-sm">
-          <span className="eyebrow">Live public board</span>
-          <h1>{snapshot?.tenant?.name || tenantSlugValue}</h1>
-          <p>
-            Customers can monitor their turn remotely and join the line online if the vendor has enabled
-            the public flow.
-          </p>
-        </div>
-        <div className="row gap-sm wrap">
-          <Link className="primary-button" to={joinPath}>
-            Join this queue
-          </Link>
-          <span className="pill large-pill">Waiting: {snapshot?.stats?.waitingCount ?? 0}</span>
-          <span className="pill large-pill">ETA: {snapshot?.stats?.estimatedWaitMinutes ?? 0} mins</span>
+        <div className={`grid ${lookupCode && snapshot?.focusTicket ? 'two-up' : 'three-up'}`}>
+          <div style={{ gridColumnStart: 1, gridColumnEnd: 3 }}>
+            <div className="stack gap-sm">
+              <span className="eyebrow">Live public board</span>
+              <h1>{snapshot?.tenant?.name || tenantSlugValue}</h1>
+              <p>
+                Customers can monitor their turn remotely and join the line online if the vendor has enabled
+                the public flow.
+              </p>
+            </div>
+            <div className="row gap-sm wrap" style={{ marginTop: '2rem' }}>
+              <Link className="primary-button" to={joinPath}>
+                Join this queue
+              </Link>
+              <span className="pill large-pill">Waiting: {snapshot?.stats?.waitingCount ?? 0}</span>
+              <span className="pill large-pill">ETA: {snapshot?.stats?.estimatedWaitMinutes ?? 0} mins</span>
+            </div>
+          </div>
+          {!lookupCode && !snapshot?.focusTicket ? (
+            <div style={{ width: '100%' }}>
+              <span>Scan to join</span>
+              <div className="qr-card qr-card-stretch">
+                <QRCode size={256} value={joinQrUrl} />
+              </div>
+              <small>Use your phone camera to open the queue form.</small>
+            </div>
+          ) : null}
         </div>
       </section>
 
@@ -92,7 +123,7 @@ export default function PublicQueuePage() {
         </section>
       ) : null}
 
-      <section className="grid three-up">
+      <section className="grid two-up">
         <article className="card stat-card large-stat">
           <span>Now serving</span>
           <strong>{snapshot?.current?.ticketNumber || "--"}</strong>
@@ -102,13 +133,6 @@ export default function PublicQueuePage() {
           <span>Served today</span>
           <strong>{snapshot?.stats?.servedToday ?? 0}</strong>
           <small>Updated live for this tenant</small>
-        </article>
-        <article className="card stat-card qr-stat-card">
-          <span>Scan to join</span>
-          <div className="qr-card qr-card-stretch">
-            <QRCode size={112} value={joinQrUrl} />
-          </div>
-          <small>Use your phone camera to open the queue form.</small>
         </article>
       </section>
 
@@ -127,14 +151,14 @@ export default function PublicQueuePage() {
             <span>Ticket</span>
             <span>Position</span>
           </div>
-          {snapshot?.nextUp?.length ? (
-            snapshot.nextUp.map((ticket) => (
+          {queueProgressTickets.length ? (
+            queueProgressTickets.map((ticket) => (
               <div className="panel-row" key={ticket.id}>
                 <div>
                   <strong>{ticket.ticketNumber}</strong>
                   <span>{ticket.customerName}</span>
                 </div>
-                <span className="pill">#{ticket.position}</span>
+                <span className="pill">{ticket.progressLabel}</span>
               </div>
             ))
           ) : (
