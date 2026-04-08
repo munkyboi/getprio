@@ -105,7 +105,7 @@ export default function PublicQueuePage() {
         </article>
         <article className="card stat-card qr-stat-card">
           <span>Scan to join</span>
-          <div className="qr-card compact-qr-card">
+          <div className="qr-card qr-card-stretch">
             <QRCode size={112} value={joinQrUrl} />
           </div>
           <small>Use your phone camera to open the queue form.</small>

@@ -123,9 +123,6 @@ export default function VendorDashboardPage() {
   const queueLinks = {
     joinUrl,
     qrUrl: `${joinUrl}?source=qr`,
-    monitorQrUrl:
-      snapshot?.tenant.monitorUrl ||
-      buildMonitorUrl(window.location.origin, selectedTenantSlug),
     monitorUrl:
       snapshot?.tenant.monitorUrl ||
       buildMonitorUrl(window.location.origin, selectedTenantSlug)
@@ -318,14 +315,10 @@ export default function VendorDashboardPage() {
               Open public board
             </a>
           </div>
-          <div className="qr-panel">
+          <div className="qr-panel single-qr-panel">
             <div className="qr-card stack gap-sm">
               <QRCode size={180} value={queueLinks.qrUrl} />
               <span className="eyebrow centered-text">Join QR</span>
-            </div>
-            <div className="qr-card stack gap-sm">
-              <QRCode size={180} value={queueLinks.monitorQrUrl} />
-              <span className="eyebrow centered-text">Monitor QR</span>
             </div>
             <div className="stack gap-xs">
               <label className="field readonly-field">
