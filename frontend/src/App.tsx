@@ -46,6 +46,14 @@ function AppShell({ children }: { children: ReactNode }) {
   );
 }
 
+function BarePage({ children }: { children: ReactNode }) {
+  return (
+    <div className="app-shell">
+      <main className="page-wrap">{children}</main>
+    </div>
+  );
+}
+
 function LegacyMonitorRedirect() {
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
   const location = useLocation();
@@ -64,19 +72,17 @@ function LegacyMonitorRedirect() {
 
 export default function App() {
   return (
-    <AppShell>
-      <Routes>
-        <Route path="/" element={<LandingPage />} />
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
-        <Route path="/register/vendor" element={<RegisterVendorPage />} />
-        <Route path="/register/customer" element={<RegisterCustomerPage />} />
-        <Route path="/dashboard" element={<VendorDashboardPage />} />
-        <Route path={MONITOR_ROUTE_PATH} element={<PublicQueuePage />} />
-        <Route path={LEGACY_MONITOR_ROUTE_PATH} element={<LegacyMonitorRedirect />} />
-        <Route path="/join/:tenantSlug" element={<JoinQueuePage />} />
-        <Route path="*" element={<LandingPage />} />
-      </Routes>
-    </AppShell>
+    <Routes>
+      <Route path={MONITOR_ROUTE_PATH} element={<BarePage><PublicQueuePage /></BarePage>} />
+      <Route path={LEGACY_MONITOR_ROUTE_PATH} element={<LegacyMonitorRedirect />} />
+      <Route path="/" element={<AppShell><LandingPage /></AppShell>} />
+      <Route path="/login" element={<AppShell><LoginPage /></AppShell>} />
+      <Route path="/oauth/callback" element={<AppShell><OAuthCallbackPage /></AppShell>} />
+      <Route path="/register/vendor" element={<AppShell><RegisterVendorPage /></AppShell>} />
+      <Route path="/register/customer" element={<AppShell><RegisterCustomerPage /></AppShell>} />
+      <Route path="/dashboard" element={<AppShell><VendorDashboardPage /></AppShell>} />
+      <Route path="/join/:tenantSlug" element={<AppShell><JoinQueuePage /></AppShell>} />
+      <Route path="*" element={<AppShell><LandingPage /></AppShell>} />
+    </Routes>
   );
 }
