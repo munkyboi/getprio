@@ -4,19 +4,22 @@
   "private": true,
   "workspaces": [
     "frontend",
+    "platform-dashboard",
     "backend"
   ],
   "scripts": {
-    "dev": "concurrently \"npm --workspace backend run dev\" \"npm --workspace frontend run dev\"",
+    "dev": "concurrently \"npm --workspace backend run dev\" \"npm --workspace frontend run dev\" \"npm --workspace platform-dashboard run dev\"",
     "dev:backend": "npm --workspace backend run dev",
     "dev:frontend": "npm --workspace frontend run dev",
-    "build": "npm --workspace frontend run build",
+    "dev:platform": "npm --workspace platform-dashboard run dev",
+    "build": "npm --workspace frontend run build && npm --workspace platform-dashboard run build",
     "build:backend": "npm --workspace backend run build",
     "start": "npm --workspace backend run start",
-    "lint": "eslint backend/src frontend/src shared",
-    "lint:fix": "eslint backend/src frontend/src shared --fix",
-    "typecheck": "npm run typecheck:frontend && npm run typecheck:backend",
+    "lint": "eslint backend/src frontend/src platform-dashboard/src shared",
+    "lint:fix": "eslint backend/src frontend/src platform-dashboard/src shared --fix",
+    "typecheck": "npm run typecheck:frontend && npm run typecheck:platform && npm run typecheck:backend",
     "typecheck:frontend": "npm --workspace frontend run typecheck",
+    "typecheck:platform": "npm --workspace platform-dashboard run typecheck",
     "typecheck:backend": "npm --workspace backend run typecheck",
     "prepare": "husky"
   },

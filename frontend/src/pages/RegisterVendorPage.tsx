@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { Alert, Button, Paper, PasswordInput, SimpleGrid, Stack, Text, TextInput, Title } from "@mantine/core";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import type { OAuthProviderId, RegisterVendorRequest } from "@shared";
 import SocialAuthButtons from "../components/SocialAuthButtons";
@@ -48,7 +49,7 @@ export default function RegisterVendorPage() {
   }, [searchParams]);
 
   if (loading) {
-    return <div className="card">Loading session...</div>;
+    return <Paper className="finazze-auth-card" p="xl">Loading session...</Paper>;
   }
 
   const isAuthenticatedFlow = Boolean(user);
@@ -81,90 +82,71 @@ export default function RegisterVendorPage() {
   }
 
   return (
-    <section className="card auth-card stack gap-md">
-      <span className="eyebrow">{isAuthenticatedFlow ? "Vendor workspace" : "Vendor onboarding"}</span>
-      <h1>
-        {isAuthenticatedFlow
-          ? hasTenantMemberships
-            ? "Create another tenant-ready queue workspace"
-            : "Finish setting up your tenant workspace"
-          : "Create a tenant-ready queue workspace"}
-      </h1>
-      {isAuthenticatedFlow ? (
-        <p className="muted-text subtle-text">
-          {oauthProviderLabel
-            ? `Signed in with ${oauthProviderLabel}. Finish the workspace details below.`
-            : "You're signed in. Finish the workspace details below to create your vendor tenant."}
-        </p>
-      ) : (
-        <SocialAuthButtons intent="register_vendor" />
-      )}
-      <form className="grid two-up gap-sm" onSubmit={handleSubmit}>
-        <label className="field">
-          <span>Business name</span>
-          <input
-            required
-            value={form.tenantName}
-            onChange={(event) => setForm((current) => ({ ...current, tenantName: event.target.value }))}
-          />
-        </label>
-        <label className="field">
-          <span>Tenant slug</span>
-          <input
-            required
-            placeholder="acme-clinic"
-            value={form.tenantSlug}
-            onChange={(event) => setForm((current) => ({ ...current, tenantSlug: event.target.value }))}
-          />
-        </label>
-        <label className="field">
-          <span>Owner name</span>
-          <input
-            required
-            value={form.name}
-            onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
-          />
-        </label>
-        <label className="field">
-          <span>Email</span>
-          <input
-            required
-            type="email"
-            value={form.email}
-            onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))}
-          />
-        </label>
-        <label className="field">
-          <span>Phone</span>
-          <input
-            value={form.phone}
-            onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))}
-          />
-        </label>
-        {!isAuthenticatedFlow ? (
-          <label className="field">
-            <span>Password</span>
-            <input
-              required
-              type="password"
-              value={form.password}
-              onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))}
-            />
-          </label>
-        ) : null}
-        {error ? <p className="error-text full-span">{error}</p> : null}
-        <button className="primary-button full-span" disabled={submitting} type="submit">
-          {submitting
-            ? isAuthenticatedFlow
-              ? "Finishing workspace..."
-              : "Creating workspace..."
-            : isAuthenticatedFlow
+    <Paper className="finazze-auth-card finazze-auth-card-wide onboarding-shell" p={{ base: "xl", md: 44 }}>
+      <SimpleGrid cols={{ base: 1, md: 2 }} spacing={{ base: "xl", md: 36 }}>
+      <Stack gap="lg">
+        <div>
+          <Text className="finazze-section-label">
+            {isAuthenticatedFlow ? "Vendor workspace" : "Vendor onboarding"}
+          </Text>
+          <Title order={1}>
+            {isAuthenticatedFlow
               ? hasTenantMemberships
-                ? "Create workspace"
-                : "Finish workspace setup"
-              : "Create workspace"}
-        </button>
-      </form>
-    </section>
+                ? "Create another tenant-ready queue workspace."
+                : "Finish your tenant workspace."
+              : "Create a tenant-ready queue workspace."}
+          </Title>
+          <Text c="dimmed" mt="sm">
+            {isAuthenticatedFlow
+              ? oauthProviderLabel
+                ? `Signed in with ${oauthProviderLabel}. Finish the workspace details below.`
+                : "You're signed in. Finish the workspace details below to create your vendor tenant."
+              : "Set up your business profile, queue slug, and owner account in one pass."}
+          </Text>
+        </div>
+        {!isAuthenticatedFlow ? <SocialAuthButtons intent="register_vendor" /> : null}
+        <form onSubmit={handleSubmit}>
+          <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
+            <TextInput label="Business name" required value={form.tenantName} onChange={(event) => setForm((current) => ({ ...current, tenantName: event.target.value }))} />
+            <TextInput label="Tenant slug" placeholder="acme-clinic" required value={form.tenantSlug} onChange={(event) => setForm((current) => ({ ...current, tenantSlug: event.target.value }))} />
+            <TextInput label="Owner name" required value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} />
+            <TextInput label="Email" required type="email" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} />
+            <TextInput label="Phone" value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} />
+            {!isAuthenticatedFlow ? (
+              <PasswordInput label="Password" required value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} />
+            ) : null}
+          </SimpleGrid>
+          <Stack gap="md" mt="md">
+            {error ? <Alert color="red">{error}</Alert> : null}
+            <Button color="dark" disabled={submitting} type="submit">
+              {submitting
+                ? isAuthenticatedFlow
+                  ? "Finishing workspace..."
+                  : "Creating workspace..."
+                : isAuthenticatedFlow
+                  ? hasTenantMemberships
+                    ? "Create workspace"
+                    : "Finish workspace setup"
+                  : "Create workspace"}
+            </Button>
+          </Stack>
+        </form>
+      </Stack>
+      <Stack className="onboarding-art-panel" justify="space-between" gap="lg">
+        <img
+          alt="Illustration of a vendor setting up a GetPrio workspace"
+          className="onboarding-art"
+          src="/illustrations/generated/vendor-onboarding.png"
+        />
+        <div>
+          <Text className="finazze-section-label">What opens up next</Text>
+          <Text c="dimmed">
+            Publish a QR join point, configure service locations, and start serving from one live
+            workspace.
+          </Text>
+        </div>
+      </Stack>
+      </SimpleGrid>
+    </Paper>
   );
 }

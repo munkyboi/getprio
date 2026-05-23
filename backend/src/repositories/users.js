@@ -328,6 +328,54 @@ async function addTenantMembership(userId, tenantId, role = "staff", options = {
   return findUserById(userId, { client: queryClient });
 }
 
+async function listUsersByTenantId(tenantId, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const result = await queryClient.query(
+    `
+      SELECT
+        users.id,
+        users.name,
+        users.email,
+        users.phone,
+        users.password_hash,
+        users.email_verified,
+        users.last_login_provider,
+        users.roles,
+        users.created_at,
+        users.updated_at
+      FROM users
+      INNER JOIN tenant_memberships ON tenant_memberships.user_id = users.id
+      WHERE tenant_memberships.tenant_id = $1
+      ORDER BY users.name ASC, users.email ASC
+    `,
+    [Number(tenantId)]
+  );
+
+  return hydrateUsers(result.rows, queryClient);
+}
+
+async function updateTenantMembershipRole(userId, tenantId, role, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  await queryClient.query(
+    `
+      UPDATE tenant_memberships
+      SET role = $3
+      WHERE user_id = $1 AND tenant_id = $2
+    `,
+    [Number(userId), Number(tenantId), role]
+  );
+
+  return findUserById(userId, { client: queryClient });
+}
+
+async function removeTenantMembership(userId, tenantId, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  await queryClient.query(
+    `DELETE FROM tenant_memberships WHERE user_id = $1 AND tenant_id = $2`,
+    [Number(userId), Number(tenantId)]
+  );
+}
+
 module.exports = {
   mapUser,
   findUserById,
@@ -336,5 +384,8 @@ module.exports = {
   createUser,
   updateUser,
   addOauthAccount,
-  addTenantMembership
+  addTenantMembership,
+  listUsersByTenantId,
+  updateTenantMembershipRole,
+  removeTenantMembership
 };

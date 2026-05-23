@@ -31,6 +31,7 @@ services:
     environment:
       PORT: ${BACKEND_PORT:-5000}
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}
+      PLATFORM_DASHBOARD_URL: ${PLATFORM_DASHBOARD_URL}
     ports:
       - "${BACKEND_PORT:-5000}:5000"
     volumes:
@@ -56,6 +57,25 @@ services:
       - ./tsconfig.base.json:/tsconfig.base.json:ro
       - /app/node_modules
     command: npm run dev -- --host 0.0.0.0 --port 5173
+
+  platform-dashboard:
+    build:
+      context: ./platform-dashboard
+    restart: unless-stopped
+    depends_on:
+      - backend
+    env_file:
+      - .env
+    environment:
+      VITE_API_URL: ${VITE_API_URL}
+    ports:
+      - "${PLATFORM_DASHBOARD_PORT:-7100}:7100"
+    volumes:
+      - ./platform-dashboard:/app
+      - ./shared:/shared:ro
+      - ./tsconfig.base.json:/tsconfig.base.json:ro
+      - /app/node_modules
+    command: npm run dev -- --host 0.0.0.0 --port 7100
 
 volumes:
   postgres_data:

@@ -1,9 +1,15 @@
 const crypto = require("crypto");
 const db = require("../config/db");
 const env = require("../config/env");
+const billingRepository = require("../repositories/billing");
+const notificationDeliveryRepository = require("../repositories/notificationDeliveries");
+const publicBoardThemeRepository = require("../repositories/publicBoardThemes");
+const storeLocationRepository = require("../repositories/storeLocations");
 const ticketRepository = require("../repositories/tickets");
 const queueEvents = require("./queueEvents");
 const notificationService = require("./notificationService");
+const queueFeeService = require("./queueFeeService");
+const storeHoursService = require("./storeHoursService");
 const { buildJoinUrl, buildMonitorUrl } = require("../publicLinks");
 
 function getDateKey(date = new Date()) {
@@ -18,16 +24,38 @@ function buildLookupCode() {
   return crypto.randomBytes(4).toString("hex").toUpperCase();
 }
 
-async function reserveNextSequence(client, tenantId, dateKey) {
+function getCurrentMonthStart() {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+}
+
+async function getTenantUsage(tenantId) {
+  const subscription = await billingRepository.getActiveSubscriptionByTenantId(tenantId);
+  const periodStart = subscription?.currentPeriodStart || getCurrentMonthStart();
+  const periodEnd = subscription?.currentPeriodEnd || null;
+  const emailsSentThisPeriod = await notificationDeliveryRepository.countSentTransactionalEmails(tenantId, {
+    from: periodStart,
+    to: periodEnd,
+    ignoreMissingTable: true
+  });
+
+  return {
+    periodStart,
+    periodEnd,
+    emailsSentThisPeriod
+  };
+}
+
+async function reserveNextSequence(client, tenantId, locationId, dateKey) {
   const result = await client.query(
     `
-      INSERT INTO counters (tenant_id, key, date_key, value)
-      VALUES ($1, 'ticket', $2, 1)
-      ON CONFLICT (tenant_id, key, date_key)
+      INSERT INTO counters (tenant_id, location_id, key, date_key, value)
+      VALUES ($1, $2, 'ticket', $3, 1)
+      ON CONFLICT (tenant_id, location_id, key, date_key)
       DO UPDATE SET value = counters.value + 1
       RETURNING value
     `,
-    [Number(tenantId), dateKey]
+    [Number(tenantId), Number(locationId), dateKey]
   );
 
   return result.rows[0].value;
@@ -55,11 +83,47 @@ async function createTicketRecord(client, data) {
   throw error;
 }
 
+async function resolveLocation(tenant, options = {}) {
+  if (options.location) {
+    return options.location;
+  }
+
+  if (options.locationSlug) {
+    const location = await storeLocationRepository.findLocationByTenantAndSlug(
+      tenant._id,
+      options.locationSlug
+    );
+    if (location) {
+      return location;
+    }
+  }
+
+  return storeLocationRepository.findPrimaryLocationByTenantId(tenant._id);
+}
+
 async function getQueueSnapshot(tenant, options = {}) {
-  const current = await ticketRepository.findCurrentCalledTicket(tenant._id);
-  const waitingTickets = await ticketRepository.listWaitingTickets(tenant._id);
-  const history = await ticketRepository.listHistoryTickets(tenant._id, { limit: 10 });
-  const servedToday = await ticketRepository.countServedToday(tenant._id, getDateKey());
+  const location = await resolveLocation(tenant, options);
+  const locationId = location?._id;
+  const current = await ticketRepository.findCurrentCalledTicket(tenant._id, { locationId });
+  const waitingTickets = await ticketRepository.listWaitingTickets(tenant._id, { locationId });
+  const dateKey = getDateKey();
+  const history = await ticketRepository.listHistoryTickets(tenant._id, {
+    limit: 30,
+    dateKey,
+    locationId
+  });
+  const servedToday = await ticketRepository.countServedToday(tenant._id, dateKey, { locationId });
+  const usage = await getTenantUsage(tenant._id);
+  const queueFee = await queueFeeService.getQueueFeeForTenant(tenant._id);
+  const activeSubscription = await queueFeeService.getActiveTenantSubscription(tenant._id);
+  const openStatus = location
+    ? await storeHoursService.getOpenStatus(location)
+    : { isOpen: true, timezone: "Asia/Manila", summary: "Open 24 hours", today: null, nextOpenAt: null };
+  const hours = location ? await storeLocationRepository.listHoursByLocationId(location._id) : [];
+  const publicBoardTheme = await publicBoardThemeRepository.getResolvedTheme(
+    tenant._id,
+    location?._id
+  );
 
   const nextUp = waitingTickets.slice(0, 10).map((ticket, index) => ({
     id: String(ticket._id),
@@ -110,9 +174,40 @@ async function getQueueSnapshot(tenant, options = {}) {
       notificationThreshold: tenant.notificationThreshold,
       contactEmail: tenant.contactEmail || "",
       contactPhone: tenant.contactPhone || "",
-      joinUrl: buildJoinUrl(env.appBaseUrl, tenant.slug),
-      monitorUrl: buildMonitorUrl(env.appBaseUrl, tenant.slug)
+      joinUrl: buildJoinUrl(env.appBaseUrl, tenant.slug, location?.slug),
+      monitorUrl: buildMonitorUrl(env.appBaseUrl, tenant.slug, location?.slug),
+      isActive: Boolean(activeSubscription),
+      queueFee
     },
+    location: location
+      ? {
+          id: String(location._id),
+          tenantId: String(location.tenantId),
+          name: location.name,
+          slug: location.slug,
+          addressLine1: location.addressLine1,
+          addressLine2: location.addressLine2,
+          city: location.city,
+          province: location.province,
+          postalCode: location.postalCode,
+          country: location.country,
+          contactEmail: location.contactEmail,
+          contactPhone: location.contactPhone,
+          timezone: location.timezone,
+          isPrimary: location.isPrimary,
+          isActive: location.isActive,
+          joinUrl: buildJoinUrl(env.appBaseUrl, tenant.slug, location.slug),
+          monitorUrl: buildMonitorUrl(env.appBaseUrl, tenant.slug, location.slug),
+          openStatus,
+          hours: hours.map((hour) => ({
+            weekday: hour.weekday,
+            opensAt: hour.opensAt,
+            closesAt: hour.closesAt,
+            isClosed: hour.isClosed
+          }))
+        }
+      : null,
+    publicBoardTheme,
     stats: {
       waitingCount: waitingTickets.length,
       servedToday,
@@ -136,6 +231,7 @@ async function getQueueSnapshot(tenant, options = {}) {
       status: ticket.status,
       updatedAt: ticket.updatedAt
     })),
+    usage,
     focusTicket
   };
 }
@@ -146,9 +242,11 @@ async function publishSnapshot(tenant, options = {}) {
   return snapshot;
 }
 
-async function maybeNotifyUpcomingTickets(tenant) {
+async function maybeNotifyUpcomingTickets(tenant, options = {}) {
+  const location = await resolveLocation(tenant, options);
   const waitingTickets = await ticketRepository.listWaitingTickets(tenant._id, {
-    limit: tenant.notificationThreshold
+    limit: tenant.notificationThreshold,
+    locationId: location?._id
   });
   const cooldownMs = env.notificationCooldownMinutes * 60 * 1000;
 
@@ -178,6 +276,44 @@ async function maybeNotifyUpcomingTickets(tenant) {
 
 async function createTicket({
   tenant,
+  location,
+  userId,
+  customerName,
+  customerEmail,
+  customerPhone,
+  notifyByEmail,
+  notifyBySms,
+  joinChannel,
+  notes
+}) {
+  const resolvedLocation = await resolveLocation(tenant, { location });
+  const ticket = await db.withTransaction(async (client) => {
+    return createTicketForTenantInTransaction(client, {
+      tenant,
+      location: resolvedLocation,
+      userId,
+      customerName,
+      customerEmail,
+      customerPhone,
+      notifyByEmail,
+      notifyBySms,
+      joinChannel,
+      notes
+    });
+  });
+
+  await maybeNotifyUpcomingTickets(tenant, { location: resolvedLocation });
+  const snapshot = await publishSnapshot(tenant, {
+    lookupCode: ticket.lookupCode,
+    location: resolvedLocation
+  });
+
+  return { ticket, snapshot };
+}
+
+async function createTicketForTenantInTransaction(client, {
+  tenant,
+  location,
   userId,
   customerName,
   customerEmail,
@@ -188,42 +324,44 @@ async function createTicket({
   notes
 }) {
   const dateKey = getDateKey();
+  const resolvedLocation = location || (await resolveLocation(tenant));
+  const sequence = await reserveNextSequence(client, tenant._id, resolvedLocation._id, dateKey);
 
-  const ticket = await db.withTransaction(async (client) => {
-    const sequence = await reserveNextSequence(client, tenant._id, dateKey);
-
-    return createTicketRecord(client, {
-      tenantId: tenant._id,
-      userId,
-      ticketNumber: formatTicketNumber(tenant.queuePrefix, sequence),
-      sequence,
-      dateKey,
-      customerName,
-      customerEmail,
-      customerPhone,
-      notifyByEmail: Boolean(notifyByEmail && customerEmail),
-      notifyBySms: Boolean(notifyBySms && customerPhone),
-      joinChannel: joinChannel || "online",
-      notes
-    });
+  return createTicketRecord(client, {
+    tenantId: tenant._id,
+    locationId: resolvedLocation._id,
+    userId,
+    ticketNumber: formatTicketNumber(tenant.queuePrefix, sequence),
+    sequence,
+    dateKey,
+    customerName,
+    customerEmail,
+    customerPhone,
+    notifyByEmail: Boolean(notifyByEmail && customerEmail),
+    notifyBySms: Boolean(notifyBySms && customerPhone),
+    joinChannel: joinChannel || "online",
+    notes
   });
-
-  await maybeNotifyUpcomingTickets(tenant);
-  const snapshot = await publishSnapshot(tenant, { lookupCode: ticket.lookupCode });
-
-  return { ticket, snapshot };
 }
 
-async function callNextTicket(tenant) {
+async function callNextTicket(tenant, options = {}) {
+  const location = await resolveLocation(tenant, options);
   const ticket = await db.withTransaction(async (client) => {
-    const activeTicket = await ticketRepository.findCurrentCalledTicket(tenant._id, { client });
+    const activeTicket = await ticketRepository.findCurrentCalledTicket(tenant._id, {
+      client,
+      locationId: location?._id
+    });
     if (activeTicket) {
       const error = new Error("Serve or skip the current ticket before calling the next one.");
       error.statusCode = 400;
       throw error;
     }
 
-    return ticketRepository.callNextWaitingTicket(tenant._id, { client });
+    return ticketRepository.callNextWaitingTicket(tenant._id, {
+      client,
+      locationId: location?._id,
+      serviceCounterId: options.serviceCounter?._id
+    });
   });
 
   if (!ticket) {
@@ -234,28 +372,33 @@ async function callNextTicket(tenant) {
     await notificationService.notifyCalled({ ticket, tenant });
   }
 
-  await maybeNotifyUpcomingTickets(tenant);
-  const snapshot = await publishSnapshot(tenant);
+  await maybeNotifyUpcomingTickets(tenant, { location });
+  const snapshot = await publishSnapshot(tenant, { location });
 
   return { ticket, snapshot };
 }
 
-async function updateCurrentTicketStatus(tenant, status) {
+async function updateCurrentTicketStatus(tenant, status, options = {}) {
+  const location = await resolveLocation(tenant, options);
   const ticket = await db.withTransaction((client) =>
-    ticketRepository.updateCurrentCalledTicketStatus(tenant._id, status, { client })
+    ticketRepository.updateCurrentCalledTicketStatus(tenant._id, status, {
+      client,
+      locationId: location?._id
+    })
   );
 
   if (!ticket) {
     return null;
   }
 
-  await maybeNotifyUpcomingTickets(tenant);
-  const snapshot = await publishSnapshot(tenant);
+  await maybeNotifyUpcomingTickets(tenant, { location });
+  const snapshot = await publishSnapshot(tenant, { location });
 
   return { ticket, snapshot };
 }
 
-async function cancelTicket(tenant, lookupCode) {
+async function cancelTicket(tenant, lookupCode, options = {}) {
+  const location = await resolveLocation(tenant, options);
   const ticket = await db.withTransaction((client) =>
     ticketRepository.cancelWaitingTicket(tenant._id, lookupCode.toUpperCase(), { client })
   );
@@ -264,17 +407,20 @@ async function cancelTicket(tenant, lookupCode) {
     return null;
   }
 
-  await maybeNotifyUpcomingTickets(tenant);
-  const snapshot = await publishSnapshot(tenant);
+  await maybeNotifyUpcomingTickets(tenant, { location });
+  const snapshot = await publishSnapshot(tenant, { location });
 
   return { ticket, snapshot };
 }
 
 module.exports = {
+  resolveLocation,
   createTicket,
+  createTicketForTenantInTransaction,
   getQueueSnapshot,
   callNextTicket,
   updateCurrentTicketStatus,
   cancelTicket,
-  publishSnapshot
+  publishSnapshot,
+  maybeNotifyUpcomingTickets
 };

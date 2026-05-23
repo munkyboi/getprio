@@ -1,11 +1,18 @@
 const express = require("express");
 const tenantRepository = require("../repositories/tenants");
+const storeLocationRepository = require("../repositories/storeLocations");
 const ticketRepository = require("../repositories/tickets");
 const asyncHandler = require("../middleware/asyncHandler");
 const { maybeAuthenticate } = require("../middleware/auth");
 const queueEvents = require("../services/queueEvents");
+const turnstileService = require("../services/turnstileService");
+const queueJoinOtpService = require("../services/queueJoinOtpService");
+const queueJoinPaymentService = require("../services/queueJoinPaymentService");
+const queueFeeService = require("../services/queueFeeService");
+const storeHoursService = require("../services/storeHoursService");
+const notificationService = require("../services/notificationService");
+const platformRepository = require("../repositories/platform");
 const {
-  createTicket,
   getQueueSnapshot,
   cancelTicket
 } = require("../services/queueService");
@@ -26,15 +33,118 @@ async function getTenantOrThrow(tenantSlug) {
   return tenant;
 }
 
+async function getLocationOrPrimary(tenant, locationSlug) {
+  if (locationSlug) {
+    const location = await storeLocationRepository.findLocationByTenantAndSlug(
+      tenant._id,
+      locationSlug
+    );
+    if (!location || !location.isActive) {
+      const error = new Error("Location not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+    return location;
+  }
+
+  const location = await storeLocationRepository.findPrimaryLocationByTenantId(tenant._id);
+  if (!location) {
+    const error = new Error("Location not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+  return location;
+}
+
+function getRequestIp(req) {
+  return (
+    req.headers["cf-connecting-ip"] ||
+    String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() ||
+    req.ip
+  );
+}
+
+async function verifyQrTurnstileIfNeeded(req, joinChannel) {
+  if (joinChannel !== "qr") {
+    return;
+  }
+
+  const verification = await turnstileService.verifyTurnstileToken({
+    token: req.body.turnstileToken,
+    remoteIp: getRequestIp(req)
+  });
+
+  if (!verification.success) {
+    const error = new Error("Verification failed. Please retry the security check.");
+    error.statusCode = 400;
+    throw error;
+  }
+}
+
 router.get(
-  "/tenant/:tenantSlug/queue",
+  ["/tenant/:tenantSlug/queue", "/tenant/:tenantSlug/location/:locationSlug/queue"],
   asyncHandler(async (req, res) => {
     const tenant = await getTenantOrThrow(req.params.tenantSlug);
+    const location = await getLocationOrPrimary(tenant, req.params.locationSlug);
     const snapshot = await getQueueSnapshot(tenant, {
+      location,
       lookupCode: req.query.lookupCode
     });
 
     res.json(snapshot);
+  })
+);
+
+function normalizeText(value, maxLength) {
+  return String(value || "").trim().slice(0, maxLength);
+}
+
+function normalizeEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+router.post(
+  "/enterprise-inquiries",
+  asyncHandler(async (req, res) => {
+    const businessName = normalizeText(req.body.businessName, 140);
+    const contactName = normalizeText(req.body.contactName, 140);
+    const email = normalizeEmail(req.body.email);
+    const phone = normalizeText(req.body.phone, 80);
+    const message = normalizeText(req.body.message, 1200);
+
+    if (!businessName || !contactName || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      const error = new Error("Business name, contact name, and a valid email are required.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const settings = await platformRepository.getPlatformSettings();
+    const inquiryText = [
+      "New GetPrio Enterprise setup inquiry",
+      "",
+      `Business: ${businessName}`,
+      `Contact: ${contactName}`,
+      `Email: ${email}`,
+      `Phone: ${phone || "Not provided"}`,
+      "",
+      "Message:",
+      message || "No message provided."
+    ].join("\n");
+
+    await notificationService.sendEmail({
+      to: settings.enterpriseInquiryEmail,
+      subject: `Enterprise setup inquiry: ${businessName}`,
+      text: inquiryText,
+      purpose: "enterprise_inquiry",
+      metadata: {
+        businessName,
+        contactName,
+        email,
+        phone
+      }
+    });
+
+    res.status(201).json({ sent: true });
   })
 );
 
@@ -52,18 +162,33 @@ router.get(
     }
 
     const tenant = await tenantRepository.findTenantById(ticket.tenantId);
-    const snapshot = await getQueueSnapshot(tenant, { lookupCode: ticket.lookupCode });
+    const location = ticket.locationId
+      ? await storeLocationRepository.findLocationById(ticket.locationId)
+      : null;
+    const snapshot = await getQueueSnapshot(tenant, {
+      lookupCode: ticket.lookupCode,
+      location: location || undefined
+    });
     res.json(snapshot.focusTicket);
   })
 );
 
 router.post(
-  "/tenant/:tenantSlug/tickets",
+  ["/tenant/:tenantSlug/join-otp", "/tenant/:tenantSlug/location/:locationSlug/join-otp"],
   maybeAuthenticate,
   asyncHandler(async (req, res) => {
     const tenant = await getTenantOrThrow(req.params.tenantSlug);
-    const { customerName, customerEmail, customerPhone, notifyByEmail, notifyBySms, notes, joinChannel } = req.body;
-
+    const location = await getLocationOrPrimary(tenant, req.params.locationSlug);
+    const {
+      customerName,
+      customerEmail,
+      customerPhone,
+      notifyByEmail,
+      notifyBySms,
+      notes,
+      joinChannel
+    } = req.body;
+    const normalizedJoinChannel = joinChannel || (req.user ? "online" : "qr");
     const name = customerName || req.user?.name;
     const email = customerEmail || req.user?.email;
     const phone = customerPhone || req.user?.phone;
@@ -74,28 +199,96 @@ router.post(
       throw error;
     }
 
-    const result = await createTicket({
+    await queueFeeService.assertTenantCanAcceptCustomerJoins(tenant._id);
+    await storeHoursService.assertLocationOpenForCustomerJoin(location);
+    await verifyQrTurnstileIfNeeded(req, normalizedJoinChannel);
+
+    const otp = await queueJoinOtpService.requestJoinOtp({
       tenant,
-      userId: req.user?._id,
-      customerName: name,
-      customerEmail: email,
-      customerPhone: phone,
-      notifyByEmail,
-      notifyBySms,
-      joinChannel: joinChannel || (req.user ? "online" : "qr"),
-      notes
+      payload: {
+        userId: req.user?._id,
+        customerName: name,
+        customerEmail: email,
+        customerPhone: phone,
+        notifyByEmail,
+        notifyBySms,
+        joinChannel: normalizedJoinChannel,
+        locationSlug: location.slug,
+        notes
+      }
     });
 
-    res.status(201).json({
-      ticket: {
-        id: String(result.ticket._id),
-        lookupCode: result.ticket.lookupCode,
-        ticketNumber: result.ticket.ticketNumber,
-        customerName: result.ticket.customerName,
-        status: result.ticket.status
-      },
-      snapshot: result.snapshot
+    res.status(201).json(otp);
+  })
+);
+
+router.post(
+  ["/tenant/:tenantSlug/join-otp/verify", "/tenant/:tenantSlug/location/:locationSlug/join-otp/verify"],
+  asyncHandler(async (req, res) => {
+    const tenant = await getTenantOrThrow(req.params.tenantSlug);
+    const location = await getLocationOrPrimary(tenant, req.params.locationSlug);
+    await queueFeeService.assertTenantCanAcceptCustomerJoins(tenant._id);
+    await storeHoursService.assertLocationOpenForCustomerJoin(location);
+    const payload = await queueJoinOtpService.verifyJoinOtp({
+      tenant,
+      otpId: req.body.otpId,
+      code: req.body.code
     });
+    const result = await queueJoinPaymentService.handleVerifiedJoin({
+      tenant,
+      otpId: req.body.otpId,
+      payload
+    });
+
+    if (result.requiresPayment) {
+      res.status(201).json(result);
+      return;
+    }
+
+    res.status(201).json(result);
+  })
+);
+
+router.post(
+  [
+    "/tenant/:tenantSlug/join-payments/:paymentId/sync",
+    "/tenant/:tenantSlug/location/:locationSlug/join-payments/:paymentId/sync"
+  ],
+  asyncHandler(async (req, res) => {
+    const tenant = await getTenantOrThrow(req.params.tenantSlug);
+    const result = await queueJoinPaymentService.syncQueueJoinPayment({
+      tenant,
+      paymentId: req.params.paymentId
+    });
+
+    res.json(result);
+  })
+);
+
+router.post(
+  [
+    "/tenant/:tenantSlug/join-otp/:otpId/resend",
+    "/tenant/:tenantSlug/location/:locationSlug/join-otp/:otpId/resend"
+  ],
+  asyncHandler(async (req, res) => {
+    const tenant = await getTenantOrThrow(req.params.tenantSlug);
+    const otp = await queueJoinOtpService.resendJoinOtp({
+      tenant,
+      otpId: req.params.otpId
+    });
+
+    res.status(201).json(otp);
+  })
+);
+
+router.post(
+  "/tenant/:tenantSlug/tickets",
+  maybeAuthenticate,
+  asyncHandler(async (req, _res) => {
+    await getTenantOrThrow(req.params.tenantSlug);
+    const error = new Error("OTP verification is required before joining the queue.");
+    error.statusCode = 400;
+    throw error;
   })
 );
 
@@ -122,9 +315,10 @@ router.delete(
 );
 
 router.get(
-  "/tenant/:tenantSlug/stream",
+  ["/tenant/:tenantSlug/stream", "/tenant/:tenantSlug/location/:locationSlug/stream"],
   asyncHandler(async (req, res) => {
     const tenant = await getTenantOrThrow(req.params.tenantSlug);
+    const location = await getLocationOrPrimary(tenant, req.params.locationSlug);
     const lookupCode = req.query.lookupCode ? String(req.query.lookupCode) : "";
 
     res.setHeader("Content-Type", "text/event-stream");
@@ -134,8 +328,8 @@ router.get(
 
     const writeSnapshot = async (snapshot) => {
       const payload = lookupCode
-        ? await getQueueSnapshot(tenant, { lookupCode })
-        : snapshot || (await getQueueSnapshot(tenant));
+        ? await getQueueSnapshot(tenant, { lookupCode, location })
+        : snapshot || (await getQueueSnapshot(tenant, { location }));
       res.write(`data: ${JSON.stringify(payload)}\n\n`);
     };
 

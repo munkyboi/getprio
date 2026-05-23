@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { Alert, Button, Paper, PasswordInput, SimpleGrid, Stack, Text, TextInput, Title } from "@mantine/core";
 import { Navigate, useNavigate } from "react-router-dom";
 import type { RegisterCustomerRequest } from "@shared";
 import SocialAuthButtons from "../components/SocialAuthButtons";
@@ -24,7 +25,7 @@ export default function RegisterCustomerPage() {
   }, [navigate, user]);
 
   if (loading) {
-    return <div className="card">Loading session...</div>;
+    return <Paper className="finazze-auth-card" p="xl">Loading session...</Paper>;
   }
 
   if (user && !user.tenants?.length) {
@@ -47,49 +48,44 @@ export default function RegisterCustomerPage() {
   }
 
   return (
-    <section className="card auth-card stack gap-md narrow">
-      <span className="eyebrow">Customer account</span>
-      <h1>Queue remotely and save your contact details</h1>
-      <form className="stack gap-sm" onSubmit={handleSubmit}>
-        <label className="field">
-          <span>Name</span>
-          <input
-            required
-            value={form.name}
-            onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
-          />
-        </label>
-        <label className="field">
-          <span>Email</span>
-          <input
-            required
-            type="email"
-            value={form.email}
-            onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))}
-          />
-        </label>
-        <label className="field">
-          <span>Phone</span>
-          <input
-            value={form.phone}
-            onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))}
-          />
-        </label>
-        <label className="field">
-          <span>Password</span>
-          <input
-            required
-            type="password"
-            value={form.password}
-            onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))}
-          />
-        </label>
-        {error ? <p className="error-text">{error}</p> : null}
-        <button className="primary-button" disabled={submitting} type="submit">
-          {submitting ? "Creating account..." : "Register account"}
-        </button>
-      </form>
-      <SocialAuthButtons intent="register_customer" />
-    </section>
+    <Paper className="finazze-auth-card finazze-auth-card-wide onboarding-shell" p={{ base: "xl", md: 44 }}>
+      <SimpleGrid cols={{ base: 1, md: 2 }} spacing={{ base: "xl", md: 36 }}>
+      <Stack gap="lg">
+        <div>
+          <Text className="finazze-section-label">Customer account</Text>
+          <Title order={1}>Queue remotely with saved contact details.</Title>
+          <Text c="dimmed" mt="sm">
+            Create your profile once, then use it when joining vendor queues online.
+          </Text>
+        </div>
+        <form onSubmit={handleSubmit}>
+          <Stack gap="md">
+            <TextInput label="Name" required value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} />
+            <TextInput label="Email" required type="email" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} />
+            <TextInput label="Phone" value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} />
+            <PasswordInput label="Password" required value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} />
+            {error ? <Alert color="red">{error}</Alert> : null}
+            <Button color="dark" disabled={submitting} type="submit">
+              {submitting ? "Creating account..." : "Register account"}
+            </Button>
+          </Stack>
+        </form>
+        <SocialAuthButtons intent="register_customer" />
+      </Stack>
+      <Stack className="onboarding-art-panel" justify="space-between" gap="lg">
+        <img
+          alt="Illustration of a customer joining a GetPrio queue from a phone"
+          className="onboarding-art"
+          src="/illustrations/generated/customer-onboarding.png"
+        />
+        <div>
+          <Text className="finazze-section-label">Wait on your terms</Text>
+          <Text c="dimmed">
+            Save your details once, join faster next time, and get alerted when your turn is near.
+          </Text>
+        </div>
+      </Stack>
+      </SimpleGrid>
+    </Paper>
   );
 }

@@ -1,3 +1,4 @@
+import { Button, Divider, SimpleGrid, Stack, Text } from "@mantine/core";
 import type { OAuthProviderId } from "@shared";
 import { useAuth } from "../context/AuthContext";
 import type { SocialAuthButtonsProps } from "./SocialAuthButtons.types";
@@ -12,33 +13,32 @@ export default function SocialAuthButtons({ intent }: SocialAuthButtonsProps) {
   const hasConfiguredProvider = Object.values(oauthProviders).some(Boolean);
 
   return (
-    <div className="stack gap-sm">
-      <div className="auth-divider">
-        <span>Or continue with</span>
-      </div>
-      <div className="social-auth-list">
+    <Stack gap="md">
+      <Divider label="Or continue with" labelPosition="center" />
+      <SimpleGrid cols={{ base: 1, sm: 2 }}>
         {PROVIDER_OPTIONS.map((provider) => {
           const enabled = Boolean(oauthProviders[provider.id]);
 
           return (
-            <button
-              key={provider.id}
-              className={`social-auth-button provider-${provider.id}`}
+            <Button
+              color="dark"
               disabled={oauthLoading || !enabled}
+              key={provider.id}
               onClick={() => startOAuth(provider.id, intent)}
               type="button"
+              variant="outline"
             >
               Continue with {provider.label}
-            </button>
+            </Button>
           );
         })}
-      </div>
+      </SimpleGrid>
       {!oauthLoading && !hasConfiguredProvider ? (
-        <p className="muted-text subtle-text">
-          Social sign-in buttons stay disabled until the provider credentials are added to the
+        <Text c="dimmed" size="sm">
+          Social sign-in buttons stay disabled until provider credentials are added to the
           server environment.
-        </p>
+        </Text>
       ) : null}
-    </div>
+    </Stack>
   );
 }

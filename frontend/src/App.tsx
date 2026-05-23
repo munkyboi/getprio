@@ -1,11 +1,15 @@
 import type { ReactNode } from "react";
+import { Anchor, Box, Button, Container, Group } from "@mantine/core";
 import { Link, Navigate, NavLink, Route, Routes, useLocation, useParams } from "react-router-dom";
+import { IconLogout } from "@tabler/icons-react";
+import BrandMark from "./components/BrandMark";
 import { useAuth } from "./context/AuthContext";
 import LandingPage from "./pages/LandingPage";
 import LoginPage from "./pages/LoginPage";
 import OAuthCallbackPage from "./pages/OAuthCallbackPage";
 import RegisterVendorPage from "./pages/RegisterVendorPage";
 import RegisterCustomerPage from "./pages/RegisterCustomerPage";
+import CustomerAccountPage from "./pages/CustomerAccountPage";
 import VendorDashboardPage from "./pages/VendorDashboardPage";
 import PublicQueuePage from "./pages/PublicQueuePage";
 import JoinQueuePage from "./pages/JoinQueuePage";
@@ -17,32 +21,68 @@ import {
 
 function AppShell({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
+  const location = useLocation();
+  const isDashboardRoute = location.pathname.startsWith("/dashboard");
 
   return (
-    <div className="app-shell">
-      <header className="topbar">
-        <Link className="brand" to="/">
-          <span className="brand-mark">Prio</span>
-          <span className="brand-text">Priority Queue Platform</span>
-        </Link>
+    <Box className={isDashboardRoute ? "app-shell dashboard-app-shell" : "app-shell finazze-app-shell"}>
+      <Box className={isDashboardRoute ? "topbar dashboard-topbar" : "finazze-topbar"} component="header">
+        <Container size={isDashboardRoute ? "100%" : "xl"} w="100%">
+          <Group justify="space-between" gap="lg">
+            <Anchor c="inherit" component={Link} to="/" underline="never">
+              <BrandMark />
+            </Anchor>
 
-        <nav className="nav-links">
-          <NavLink to="/">Home</NavLink>
-          <NavLink to="/register/vendor">For Vendors</NavLink>
-          <NavLink to="/register/customer">For Customers</NavLink>
-          {user?.tenants?.length ? <NavLink to="/dashboard">Dashboard</NavLink> : null}
+            <Group component="nav" gap="xs">
+              <Button component={Link} to="/#product" variant="subtle" color="dark">
+                Product
+              </Button>
+          {!user ? (
+            <>
+                  <Button component={Link} to="/#solutions" variant="subtle" color="dark">
+                    Solutions
+                  </Button>
+                  <Button component={Link} to="/#pricing" variant="subtle" color="dark">
+                    Pricing
+                  </Button>
+            </>
+          ) : null}
+              {user?.tenants?.length ? (
+                <Button component={NavLink} to="/dashboard" variant="light" color="dark">
+                  Dashboard
+                </Button>
+              ) : null}
+              {user?.roles?.includes("customer") ? (
+                <Button component={NavLink} to="/account" variant="subtle" color="dark">
+                  Account
+                </Button>
+              ) : null}
           {user ? (
-            <button className="ghost-button" onClick={logout} type="button">
-              Sign out
-            </button>
+                <Button leftSection={<IconLogout size={16} />} onClick={logout} variant="subtle" color="dark">
+                  Sign out
+                </Button>
           ) : (
-            <NavLink to="/login">Sign in</NavLink>
+                <>
+                  <Button component={NavLink} to="/login" variant="subtle" color="dark">
+                    Log in
+                  </Button>
+                  <Button component={NavLink} to="/register/vendor" color="orange">
+                    Start free
+                  </Button>
+                </>
           )}
-        </nav>
-      </header>
+            </Group>
+          </Group>
+        </Container>
+      </Box>
 
-      <main className="page-wrap">{children}</main>
-    </div>
+      <Box
+        className={isDashboardRoute ? "page-wrap dashboard-page-wrap" : "finazze-page-wrap"}
+        component="main"
+      >
+        {children}
+      </Box>
+    </Box>
   );
 }
 
@@ -70,6 +110,17 @@ function LegacyMonitorRedirect() {
   );
 }
 
+function DashboardRedirect() {
+  const location = useLocation();
+
+  return (
+    <Navigate
+      replace
+      to={`/dashboard/queue${location.search}${location.hash}`}
+    />
+  );
+}
+
 export default function App() {
   return (
     <Routes>
@@ -80,8 +131,10 @@ export default function App() {
       <Route path="/oauth/callback" element={<AppShell><OAuthCallbackPage /></AppShell>} />
       <Route path="/register/vendor" element={<AppShell><RegisterVendorPage /></AppShell>} />
       <Route path="/register/customer" element={<AppShell><RegisterCustomerPage /></AppShell>} />
-      <Route path="/dashboard" element={<AppShell><VendorDashboardPage /></AppShell>} />
-      <Route path="/join/:tenantSlug" element={<AppShell><JoinQueuePage /></AppShell>} />
+      <Route path="/account" element={<AppShell><CustomerAccountPage /></AppShell>} />
+      <Route path="/dashboard" element={<DashboardRedirect />} />
+      <Route path="/dashboard/:section" element={<AppShell><VendorDashboardPage /></AppShell>} />
+      <Route path="/join/:tenantSlug/:locationSlug?" element={<AppShell><JoinQueuePage /></AppShell>} />
       <Route path="*" element={<AppShell><LandingPage /></AppShell>} />
     </Routes>
   );
