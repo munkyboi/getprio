@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GetPrio Revised Capstone Project Proposal Rev. 2</title>
+    <style>
+      @page {
+        size: A4;
+        margin: 0.72in;
+      }
+
+      :root {
+        --ink: #17202a;
+        --muted: #536172;
+        --line: #cbd5df;
+        --soft: #f5f7fa;
+        --accent: #b45309;
+        --accent-soft: #fff7ed;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        color: var(--ink);
+        font-family: "Times New Roman", Times, serif;
+        font-size: 11.25pt;
+        line-height: 1.48;
+        background: #ffffff;
+      }
+
+      main {
+        max-width: 7.18in;
+        margin: 0 auto;
+      }
+
+      h1,
+      h2,
+      h3 {
+        margin: 0;
+        font-weight: 700;
+      }
+
+      h1 {
+        font-size: 18pt;
+        line-height: 1.28;
+      }
+
+      h2 {
+        font-size: 13.5pt;
+        margin: 0 0 0.12in;
+      }
+
+      h3 {
+        color: var(--accent);
+        font-size: 12pt;
+        margin: 0 0 0.08in;
+      }
+
+      p {
+        margin: 0 0 0.15in;
+        text-align: justify;
+      }
+
+      ul,
+      ol {
+        margin: 0 0 0.14in 0.28in;
+        padding: 0;
+      }
+
+      li {
+        margin-bottom: 0.055in;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 0.18in;
+      }
+
+      th,
+      td {
+        border: 1px solid var(--line);
+        padding: 0.085in 0.1in;
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        color: var(--accent);
+        background: var(--accent-soft);
+      }
+
+      .page {
+        min-height: calc(100vh - 1.44in);
+      }
+
+      .page-break {
+        break-before: page;
+        page-break-before: always;
+      }
+
+      .cover {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        min-height: calc(100vh - 1.44in);
+        text-align: center;
+      }
+
+      .eyebrow {
+        color: var(--accent);
+        font-size: 11pt;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        margin-bottom: 0.16in;
+        text-transform: uppercase;
+      }
+
+      .subtitle {
+        color: var(--muted);
+        margin-top: 0.14in;
+        text-align: center;
+      }
+
+      .meta-stack {
+        margin-top: 0.44in;
+      }
+
+      .meta-stack p {
+        margin-bottom: 0.07in;
+        text-align: center;
+      }
+
+      .summary-grid,
+      .persona-grid,
+      .two-col {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.14in;
+        margin-bottom: 0.18in;
+      }
+
+      .panel,
+      .summary-card,
+      .persona-card {
+        border: 1px solid var(--line);
+        background: var(--soft);
+        padding: 0.16in 0.18in;
+      }
+
+      .panel {
+        background: linear-gradient(180deg, #ffffff 0%, #f9fafb 100%);
+      }
+
+      .summary-card strong,
+      .persona-role {
+        display: block;
+        color: var(--accent);
+        font-weight: 700;
+        margin-bottom: 0.045in;
+      }
+
+      .section-note {
+        color: var(--muted);
+        font-size: 10.25pt;
+      }
+
+      .small {
+        font-size: 10.25pt;
+      }
+
+      .center {
+        text-align: center;
+      }
+
+      @media print {
+        body {
+          print-color-adjust: exact;
+          -webkit-print-color-adjust: exact;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="page cover">
+        <div class="eyebrow">Revised Capstone Project Proposal, Rev. 2</div>
+        <h1>GetPrio: A Multi-Tenant QR-Based Digital Queue Management and Platform Operations System</h1>
+        <p class="subtitle">Updated proposal aligned with the current application scope and implementation</p>
+        <div class="meta-stack">
+          <p><strong>Track Concentration:</strong> Web Applications Development</p>
+          <p><strong>Primary Targeted SDG:</strong> SDG 9 - Industry, Innovation and Infrastructure</p>
+          <p><strong>Supporting SDGs:</strong> SDG 8 and SDG 11</p>
+          <p><strong>Prepared by:</strong> Roberto Carlo Abella</p>
+          <p><strong>Adviser:</strong> Prof. Jovelyn Cuizon</p>
+          <p><strong>Date:</strong> May 2026</p>
+        </div>
+      </section>
+
+      <section class="page page-break">
+        <h2>Project Summary</h2>
+        <div class="summary-grid">
+          <div class="summary-card">
+            <strong>Subject Area</strong>
+            Web application development for digital queueing, service operations, and SaaS-style platform administration.
+          </div>
+          <div class="summary-card">
+            <strong>Aim</strong>
+            To develop a tenant-aware queue platform with QR joining, live queue visibility, vendor controls, notifications, payment records, and platform oversight.
+          </div>
+          <div class="summary-card">
+            <strong>Core Problem</strong>
+            Manual queueing creates crowding, uncertainty, missed turns, and repetitive service-desk work.
+          </div>
+          <div class="summary-card">
+            <strong>Expected Deliverable</strong>
+            A working web prototype with customer/vendor frontend, platform dashboard, Express API, and PostgreSQL database.
+          </div>
+        </div>
+
+        <h2>Introduction</h2>
+        <p>
+          Many service establishments still depend on manual queue logs, paper numbers, verbal announcements, or simple first-come-first-served lists. These methods are familiar, but they create recurring problems: customers must stay near the service area, staff repeatedly answer questions about queue progress, and missed turns or disorganized ticket handling can disrupt service flow.
+        </p>
+        <p>
+          Digital queue systems help address these problems by letting users join, monitor, and receive updates about their queue status. However, many available systems are enterprise-oriented, costly, appointment-focused, or limited to a single organization. Smaller local establishments often need a practical web platform that can support multiple independent vendors while still keeping each vendor's data, queue settings, locations, and staff access separated.
+        </p>
+        <p>
+          GetPrio responds to this gap by providing a tenant-aware queue platform that supports vendor self-service and platform-level administration. The revised application now includes operational requirements that make the system closer to a deployable software-as-a-service prototype: subscription plans, queue join fees, PayMongo-ready payment records, OTP-secured public joins, notification delivery logs, configurable public board design, staff/counter attribution, and platform-wide monitoring.
+        </p>
+
+        <h2>Statement of the Problem</h2>
+        <ol>
+          <li>How can a web application reduce the need for customers to physically wait near service counters?</li>
+          <li>How can vendors manage queue flow, staff assignments, service counters, and customer tickets in a tenant-specific dashboard?</li>
+          <li>How can customers receive reliable queue visibility and near-turn alerts without requiring a complex mobile application?</li>
+          <li>How can a platform administrator monitor tenants, payments, subscriptions, and operational activity across multiple vendors?</li>
+          <li>How can queue records, ticket numbers, payment records, notifications, and public board settings be stored securely and consistently?</li>
+        </ol>
+      </section>
+
+      <section class="page page-break">
+        <h2>Objectives</h2>
+        <div class="panel">
+          <p>
+            <strong>General Objective:</strong> To develop GetPrio, a multi-tenant QR-based digital queue management and platform operations system that improves customer flow, vendor service efficiency, and platform-level manageability through a responsive web application.
+          </p>
+          <p><strong>Specific Objectives:</strong></p>
+          <ol>
+            <li>Implement vendor registration, tenant creation, login, and role-based access.</li>
+            <li>Allow customers to join queues through QR-based public links and OTP-verified online forms.</li>
+            <li>Generate tenant-specific daily ticket numbers, lookup codes, and queue positions using PostgreSQL-backed counters.</li>
+            <li>Provide vendor controls for walk-in ticket issuance, call-next, serve-current, skip-current, ticket history, and customer tracking.</li>
+            <li>Support branch/location records, store hours, service counters, staff membership, and counter assignments.</li>
+            <li>Provide live public queue monitoring using Server-Sent Events.</li>
+            <li>Record near-turn and called-ticket notifications through email or SMS provider integrations.</li>
+            <li>Support payment and subscription workflows through queue join payment records, billing checkout sessions, billing events, and configurable subscription plans.</li>
+            <li>Provide a platform operations dashboard for monitoring tenants, users, queue fees, subscriptions, join payments, and billing events.</li>
+            <li>Allow vendors to customize public board themes, including branding colors and uploaded board assets.</li>
+          </ol>
+        </div>
+
+        <h2>Scope and Limitations</h2>
+        <div class="two-col">
+          <div class="panel">
+            <h3>Scope</h3>
+            <ul>
+              <li>Customer-facing landing, account, queue join, ticket lookup, and public queue monitor pages.</li>
+              <li>Vendor dashboard for queue operations, locations, staff, clients, history, reports, and settings.</li>
+              <li>Platform administrator dashboard for operational and billing oversight.</li>
+              <li>REST API services for auth, public queue access, vendor operations, billing, and platform administration.</li>
+              <li>PostgreSQL schema for tenants, users, tickets, counters, OTPs, notifications, themes, fees, plans, subscriptions, payments, and billing events.</li>
+            </ul>
+          </div>
+          <div class="panel">
+            <h3>Limitations</h3>
+            <ul>
+              <li>The system is a capstone prototype and may require additional production hardening.</li>
+              <li>SMS, email, payment, OAuth, CAPTCHA, and object storage depend on configured third-party provider accounts.</li>
+              <li>The queue model focuses on first-in-first-out flow and does not yet include appointment scheduling or priority lanes.</li>
+              <li>Offline operation is not included.</li>
+              <li>The platform dashboard is for administration, not full customer support case management.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="page page-break">
+        <h2>Target Users and Personas</h2>
+        <div class="persona-grid">
+          <div class="persona-card">
+            <div class="persona-role">Vendor Owner or Queue Manager</div>
+            <p>Operates a service desk for a clinic, salon, campus office, government desk, or small business counter. Needs ticket issuance, queue movement controls, staff access, counters, history, and fewer repeated queue-status inquiries.</p>
+          </div>
+          <div class="persona-card">
+            <div class="persona-role">Vendor Staff</div>
+            <p>Assists with daily queue processing and needs controlled access to queue actions, customer records, and history without full owner-level settings or billing permissions.</p>
+          </div>
+          <div class="persona-card">
+            <div class="persona-role">Customer</div>
+            <p>Joins a queue on-site through a QR code or remotely through a join page. Needs a simple form, a clear ticket number, queue visibility, and optional near-turn notifications.</p>
+          </div>
+          <div class="persona-card">
+            <div class="persona-role">Platform Administrator</div>
+            <p>Monitors the GetPrio platform through visibility into tenant activity, users, payment records, subscription plans, fee settings, and billing events.</p>
+          </div>
+        </div>
+
+        <h2>Proposed Features</h2>
+        <div class="two-col">
+          <div class="panel">
+            <h3>Customer and Vendor Features</h3>
+            <ul>
+              <li>Customer registration, login, account, and ticket lookup.</li>
+              <li>QR queue join links and OTP-based join verification.</li>
+              <li>Live public queue board and ticket cancellation support.</li>
+              <li>Vendor onboarding and tenant workspace creation.</li>
+              <li>Queue dashboard, walk-in ticket creation, and ticket status controls.</li>
+              <li>Locations, store hours, service counters, staff, clients, history, reports, and settings.</li>
+              <li>Public board theme customization and asset uploads.</li>
+            </ul>
+          </div>
+          <div class="panel">
+            <h3>Platform and Billing Features</h3>
+            <ul>
+              <li>Platform admin role and operations portal.</li>
+              <li>Overview metrics for tenants, users, revenue, subscriptions, and queue join payments.</li>
+              <li>Queue fee configuration by plan.</li>
+              <li>Subscription plan management for economical, pro, and enterprise tiers.</li>
+              <li>Billing checkout session and queue join payment records.</li>
+              <li>PayMongo-oriented payment fields and webhook event records.</li>
+              <li>Tenant, user, subscription, payment, and billing-event lists.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="page page-break">
+        <h2>Development Platform and Tools</h2>
+        <table>
+          <tr><th>Area</th><th>Technology / Tool</th></tr>
+          <tr><td>Frontend Application</td><td>React, Vite, TypeScript, Mantine UI, React Router</td></tr>
+          <tr><td>Platform Dashboard</td><td>Separate React + Vite operations dashboard</td></tr>
+          <tr><td>Backend</td><td>Node.js, Express, TypeScript/JavaScript</td></tr>
+          <tr><td>Database</td><td>PostgreSQL with relational tables, indexes, constraints, and triggers</td></tr>
+          <tr><td>Real-Time Updates</td><td>Server-Sent Events for public queue monitoring</td></tr>
+          <tr><td>Authentication</td><td>JWT-based API authentication, password login, OAuth account support</td></tr>
+          <tr><td>Notifications</td><td>Email/SMS delivery services with delivery logs and local console fallbacks</td></tr>
+          <tr><td>Payments</td><td>PayMongo-ready checkout/session/payment records and webhook route</td></tr>
+          <tr><td>Abuse Protection</td><td>Cloudflare Turnstile-ready public join protection</td></tr>
+          <tr><td>Asset Storage</td><td>Backblaze B2 S3-compatible signed upload URLs for public board assets</td></tr>
+          <tr><td>Deployment Support</td><td>Docker, Docker Compose, environment-based configuration</td></tr>
+        </table>
+
+        <h2>System Architecture Overview</h2>
+        <p>
+          GetPrio uses a three-application structure connected through a shared backend API and PostgreSQL database. The customer/vendor frontend handles landing pages, authentication, vendor dashboard workflows, public queue joins, and live queue boards. The platform dashboard provides a separate administrative interface for GetPrio operators. The backend exposes REST and streaming endpoints for authentication, queue operations, public access, billing, and platform administration. PostgreSQL stores all core platform records, while external providers are used only when configured.
+        </p>
+
+        <h2>Data Management</h2>
+        <p>
+          The revised application uses PostgreSQL instead of the earlier MongoDB-oriented proposal. This better supports the updated requirements because the system now has many relational entities: tenants, users, tenant memberships, locations, service counters, staff assignments, tickets, subscriptions, payments, notification deliveries, and billing events.
+        </p>
+        <ul>
+          <li>Tenant-aware records separate vendor data.</li>
+          <li>Daily ticket sequences are scoped by tenant, location, and date.</li>
+          <li>Lookup codes support customer ticket access.</li>
+          <li>Indexes support queue retrieval, payment monitoring, and history views.</li>
+          <li>JSONB fields support flexible theme settings, plan entitlements, and provider metadata.</li>
+        </ul>
+      </section>
+
+      <section class="page page-break">
+        <h2>Methodology</h2>
+        <ol>
+          <li><strong>Requirements refinement:</strong> Identify queueing workflows, user roles, tenant boundaries, and platform administration needs.</li>
+          <li><strong>System design:</strong> Prepare database schema, API route structure, frontend route map, and dashboard layout.</li>
+          <li><strong>Core implementation:</strong> Build authentication, tenant creation, ticket generation, queue control, and public queue monitoring.</li>
+          <li><strong>Extended implementation:</strong> Add locations, counters, staff, notifications, public board customization, payments, subscriptions, and platform operations.</li>
+          <li><strong>Testing and validation:</strong> Test queue ordering, ticket uniqueness, user permissions, payment state records, notification logging, and live queue updates.</li>
+          <li><strong>Documentation and presentation:</strong> Prepare proposal, system documentation, deployment notes, and defense materials.</li>
+        </ol>
+
+        <h2>Evaluation Criteria</h2>
+        <ul>
+          <li>Functional completeness of customer, vendor, and platform workflows.</li>
+          <li>Queue correctness for ticket numbers, positions, and status changes.</li>
+          <li>Usability for queue joining, monitoring, and dashboard operation.</li>
+          <li>Reliability of API routes, database constraints, and live updates.</li>
+          <li>Security and role-appropriate access control.</li>
+          <li>Data integrity across tenants, tickets, counters, payments, and subscriptions.</li>
+          <li>Maintainability of frontend, backend, platform dashboard, shared types, and database modules.</li>
+          <li>Deployment readiness through documented npm and Docker workflows.</li>
+        </ul>
+
+        <h2>Project Timeline</h2>
+        <table>
+          <tr><th>Phase</th><th>Activities</th><th>Expected Output</th></tr>
+          <tr><td>Phase 1</td><td>Proposal revision, requirements review, scope confirmation</td><td>Approved revised proposal</td></tr>
+          <tr><td>Phase 2</td><td>Database and API stabilization</td><td>Stable schema, routes, and shared types</td></tr>
+          <tr><td>Phase 3</td><td>Customer and vendor workflow completion</td><td>Queue join, public board, dashboard operations</td></tr>
+          <tr><td>Phase 4</td><td>Platform operations and billing workflows</td><td>Admin dashboard, plans, fees, payments, subscriptions</td></tr>
+          <tr><td>Phase 5</td><td>Testing, documentation, and deployment preparation</td><td>Tested prototype and deployment notes</td></tr>
+          <tr><td>Phase 6</td><td>Capstone presentation preparation</td><td>Final paper, presentation, and demonstration script</td></tr>
+        </table>
+      </section>
+
+      <section class="page page-break">
+        <h2>Expected Outputs</h2>
+        <ol>
+          <li>A working GetPrio customer/vendor web application.</li>
+          <li>A working GetPrio platform operations dashboard.</li>
+          <li>A backend API with authentication, queue, vendor, public, billing, and platform routes.</li>
+          <li>A PostgreSQL schema and migration set.</li>
+          <li>Local development and deployment documentation.</li>
+          <li>Revised capstone proposal and presentation materials.</li>
+          <li>Demonstration data or workflow scripts for capstone presentation.</li>
+        </ol>
+
+        <h2>Significance of the Study</h2>
+        <p>
+          For customers, GetPrio reduces uncertainty by allowing them to join a queue, receive a ticket, monitor progress, and receive alerts without remaining physically near the service counter. For vendors, it improves queue handling by providing a dashboard for issuing tickets, managing queue movement, organizing staff and counters, and reviewing service history. For platform operators, it demonstrates how a queue management application can be operated as a multi-tenant platform with subscription plans, fee settings, payment monitoring, and administrative oversight.
+        </p>
+
+        <h2>Conclusion</h2>
+        <p>
+          GetPrio is a revised and expanded capstone project that moves beyond a simple digital queue prototype. The updated application now represents a practical multi-tenant queue management and operations platform. By combining QR-based queue joining, live public monitoring, vendor queue controls, staff and counter management, notification support, payment-aware workflows, subscription plans, public board customization, and platform administration, the project provides a stronger technical and operational foundation for capstone evaluation.
+        </p>
+        <p>
+          The proposal remains feasible for a web applications development capstone because the workflows are clear, demonstrable, and measurable. At the same time, the revised scope reflects a more complete software product direction that can support real service environments in the future.
+        </p>
+
+        <p class="small center">End of revised capstone project proposal, Rev. 2</p>
+      </section>
+    </main>
+  </body>
+</html>
