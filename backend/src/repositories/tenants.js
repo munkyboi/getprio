@@ -1,4 +1,5 @@
 const db = require("../config/db");
+const storeLocationRepository = require("./storeLocations");
 
 const TENANT_COLUMNS = `
   id,
@@ -103,7 +104,22 @@ async function createTenant(data, options = {}) {
     ]
   );
 
-  return mapTenant(result.rows[0]);
+  const tenant = mapTenant(result.rows[0]);
+  const location = await storeLocationRepository.createLocation(
+    {
+      tenantId: tenant._id,
+      name: "Main location",
+      slug: "main",
+      contactEmail: tenant.contactEmail,
+      contactPhone: tenant.contactPhone,
+      isPrimary: true,
+      isActive: true
+    },
+    { client: queryClient }
+  );
+  await storeLocationRepository.createAlwaysOpenHours(location._id, { client: queryClient });
+
+  return tenant;
 }
 
 async function updateTenant(tenantId, changes, options = {}) {

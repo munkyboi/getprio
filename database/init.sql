@@ -1,4 +1,34 @@
-CREATE TABLE IF NOT EXISTS tenants (
+BEGIN;
+
+-- Clean-slate bootstrap for local/dev databases.
+-- Docker only runs this file when the Postgres data directory is empty.
+-- Running it manually against an existing database will remove app data.
+
+DROP TABLE IF EXISTS billing_events CASCADE;
+DROP TABLE IF EXISTS billing_checkout_sessions CASCADE;
+DROP TABLE IF EXISTS tenant_subscriptions CASCADE;
+DROP TABLE IF EXISTS service_counter_assignments CASCADE;
+DROP TABLE IF EXISTS service_counters CASCADE;
+DROP TABLE IF EXISTS subscription_plans CASCADE;
+DROP TABLE IF EXISTS queue_join_payments CASCADE;
+DROP TABLE IF EXISTS queue_fee_settings CASCADE;
+DROP TABLE IF EXISTS platform_settings CASCADE;
+DROP TABLE IF EXISTS public_board_themes CASCADE;
+DROP TABLE IF EXISTS public_board_assets CASCADE;
+DROP TABLE IF EXISTS notification_deliveries CASCADE;
+DROP TABLE IF EXISTS queue_join_otps CASCADE;
+DROP TABLE IF EXISTS tickets CASCADE;
+DROP TABLE IF EXISTS counters CASCADE;
+DROP TABLE IF EXISTS store_hours CASCADE;
+DROP TABLE IF EXISTS store_locations CASCADE;
+DROP TABLE IF EXISTS tenant_memberships CASCADE;
+DROP TABLE IF EXISTS oauth_accounts CASCADE;
+DROP TABLE IF EXISTS users CASCADE;
+DROP TABLE IF EXISTS tenants CASCADE;
+
+DROP FUNCTION IF EXISTS set_updated_at() CASCADE;
+
+CREATE TABLE tenants (
   id BIGSERIAL PRIMARY KEY,
   name TEXT NOT NULL,
   slug TEXT NOT NULL UNIQUE,
@@ -12,7 +42,7 @@ CREATE TABLE IF NOT EXISTS tenants (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS users (
+CREATE TABLE users (
   id BIGSERIAL PRIMARY KEY,
   name TEXT NOT NULL,
   email TEXT UNIQUE,
@@ -25,7 +55,7 @@ CREATE TABLE IF NOT EXISTS users (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS oauth_accounts (
+CREATE TABLE oauth_accounts (
   id BIGSERIAL PRIMARY KEY,
   user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   provider TEXT NOT NULL,
@@ -36,29 +66,84 @@ CREATE TABLE IF NOT EXISTS oauth_accounts (
   UNIQUE (provider, provider_user_id)
 );
 
-CREATE TABLE IF NOT EXISTS tenant_memberships (
+CREATE TABLE tenant_memberships (
   id BIGSERIAL PRIMARY KEY,
   user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  role TEXT NOT NULL DEFAULT 'staff',
+  role TEXT NOT NULL DEFAULT 'staff' CHECK (role IN ('owner', 'staff')),
   UNIQUE (user_id, tenant_id)
 );
 
-CREATE TABLE IF NOT EXISTS counters (
+CREATE TABLE store_locations (
   id BIGSERIAL PRIMARY KEY,
   tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  slug TEXT NOT NULL,
+  address_line1 TEXT,
+  address_line2 TEXT,
+  city TEXT,
+  province TEXT,
+  postal_code TEXT,
+  country TEXT NOT NULL DEFAULT 'Philippines',
+  contact_email TEXT,
+  contact_phone TEXT,
+  timezone TEXT NOT NULL DEFAULT 'Asia/Manila',
+  is_primary BOOLEAN NOT NULL DEFAULT FALSE,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (tenant_id, slug)
+);
+
+CREATE TABLE store_hours (
+  id BIGSERIAL PRIMARY KEY,
+  location_id BIGINT NOT NULL REFERENCES store_locations(id) ON DELETE CASCADE,
+  weekday INTEGER NOT NULL CHECK (weekday BETWEEN 0 AND 6),
+  opens_at TIME,
+  closes_at TIME,
+  is_closed BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (location_id, weekday)
+);
+
+CREATE TABLE counters (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  location_id BIGINT NOT NULL REFERENCES store_locations(id) ON DELETE CASCADE,
   key TEXT NOT NULL,
   date_key TEXT NOT NULL,
   value INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE (tenant_id, key, date_key)
+  UNIQUE (tenant_id, location_id, key, date_key)
 );
 
-CREATE TABLE IF NOT EXISTS tickets (
+CREATE TABLE service_counters (
   id BIGSERIAL PRIMARY KEY,
   tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  location_id BIGINT NOT NULL REFERENCES store_locations(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  slug TEXT NOT NULL,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (location_id, slug)
+);
+
+CREATE TABLE service_counter_assignments (
+  counter_id BIGINT NOT NULL REFERENCES service_counters(id) ON DELETE CASCADE,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (counter_id, user_id)
+);
+
+CREATE TABLE tickets (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  location_id BIGINT NOT NULL REFERENCES store_locations(id) ON DELETE CASCADE,
   user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  service_counter_id BIGINT REFERENCES service_counters(id) ON DELETE SET NULL,
   ticket_number TEXT NOT NULL,
   sequence INTEGER NOT NULL,
   date_key TEXT NOT NULL,
@@ -68,8 +153,10 @@ CREATE TABLE IF NOT EXISTS tickets (
   customer_phone TEXT,
   notify_by_email BOOLEAN NOT NULL DEFAULT FALSE,
   notify_by_sms BOOLEAN NOT NULL DEFAULT FALSE,
-  join_channel TEXT NOT NULL DEFAULT 'online',
-  status TEXT NOT NULL DEFAULT 'waiting',
+  join_channel TEXT NOT NULL DEFAULT 'online' CHECK (join_channel IN ('online', 'qr', 'vendor')),
+  status TEXT NOT NULL DEFAULT 'waiting' CHECK (
+    status IN ('waiting', 'called', 'served', 'skipped', 'cancelled')
+  ),
   notes TEXT,
   notified_almost_there_at TIMESTAMPTZ,
   notified_called_at TIMESTAMPTZ,
@@ -79,17 +166,291 @@ CREATE TABLE IF NOT EXISTS tickets (
   cancelled_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE (tenant_id, date_key, sequence)
+  UNIQUE (tenant_id, location_id, date_key, sequence)
 );
 
-CREATE INDEX IF NOT EXISTS idx_tickets_tenant_status_created_at
+CREATE TABLE queue_join_otps (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  code_hash TEXT NOT NULL,
+  delivery_channel TEXT NOT NULL CHECK (delivery_channel IN ('email', 'sms')),
+  delivery_target TEXT NOT NULL,
+  payload JSONB NOT NULL DEFAULT '{}'::JSONB,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE notification_deliveries (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT REFERENCES tenants(id) ON DELETE CASCADE,
+  ticket_id BIGINT REFERENCES tickets(id) ON DELETE SET NULL,
+  channel TEXT NOT NULL CHECK (channel IN ('email', 'sms')),
+  purpose TEXT NOT NULL DEFAULT 'general',
+  recipient TEXT NOT NULL,
+  subject TEXT,
+  provider TEXT,
+  status TEXT NOT NULL CHECK (status IN ('sent', 'failed')),
+  error_message TEXT,
+  metadata JSONB NOT NULL DEFAULT '{}'::JSONB,
+  sent_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE platform_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+INSERT INTO platform_settings (key, value)
+VALUES ('enterprise_inquiry_email', 'carlo.abella@gmail.com');
+
+CREATE TABLE public_board_assets (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  location_id BIGINT REFERENCES store_locations(id) ON DELETE SET NULL,
+  asset_type TEXT NOT NULL CHECK (asset_type IN ('background', 'logo')),
+  object_key TEXT NOT NULL,
+  public_url TEXT NOT NULL,
+  file_name TEXT NOT NULL,
+  content_type TEXT NOT NULL,
+  size_bytes INTEGER NOT NULL CHECK (size_bytes > 0),
+  created_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE public_board_themes (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  location_id BIGINT REFERENCES store_locations(id) ON DELETE CASCADE,
+  theme JSONB NOT NULL DEFAULT '{}'::JSONB,
+  updated_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE queue_fee_settings (
+  plan_slug TEXT PRIMARY KEY CHECK (plan_slug IN ('economical', 'pro', 'enterprise')),
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  amount_cents INTEGER NOT NULL DEFAULT 0 CHECK (amount_cents >= 0),
+  currency TEXT NOT NULL DEFAULT 'PHP',
+  updated_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE subscription_plans (
+  slug TEXT PRIMARY KEY CHECK (slug IN ('economical', 'pro', 'enterprise')),
+  name TEXT NOT NULL,
+  best_for TEXT NOT NULL,
+  checkout_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  monthly_amount_cents INTEGER NOT NULL CHECK (monthly_amount_cents >= 0),
+  annual_amount_cents INTEGER NOT NULL CHECK (annual_amount_cents >= 0),
+  currency TEXT NOT NULL DEFAULT 'PHP',
+  entitlements JSONB NOT NULL DEFAULT '{}'::JSONB,
+  included JSONB NOT NULL DEFAULT '[]'::JSONB,
+  updated_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+INSERT INTO queue_fee_settings (plan_slug, enabled, amount_cents, currency)
+VALUES
+  ('economical', TRUE, 5000, 'PHP'),
+  ('pro', TRUE, 2500, 'PHP'),
+  ('enterprise', FALSE, 0, 'PHP');
+
+INSERT INTO subscription_plans (
+  slug,
+  name,
+  best_for,
+  checkout_enabled,
+  monthly_amount_cents,
+  annual_amount_cents,
+  currency,
+  entitlements,
+  included
+)
+VALUES
+  (
+    'economical',
+    'Economical',
+    'Solo vendors, small shops, small clinics',
+    TRUE,
+    49900,
+    498000,
+    'PHP',
+    '{"locations":1,"counters":1,"staffSeats":1,"monthlyTickets":500,"monthlyTransactionalEmails":100,"historyDays":30,"historyLabel":"30-day history","emailAlerts":true,"smsAllowance":0,"smsBundleType":"none","qrJoinPage":true,"publicQueueBoard":true,"basicDashboard":true,"queueSettings":false,"brandedQueuePages":false,"analytics":false,"csvExport":false,"pdfExport":false,"allowedHistoryExportRanges":["today","month"],"advancedRoles":false,"slaSupport":false,"supportLevel":"self_serve","customDomain":false,"sso":false}',
+    '["1 location","1 counter","1 vendor seat","QR join page","Public queue board","Basic dashboard","Email alerts","100 transactional emails/mo","500 tickets/mo","30-day history"]'
+  ),
+  (
+    'pro',
+    'Pro',
+    'Clinics, salons, offices, busier service counters',
+    TRUE,
+    149900,
+    1499000,
+    'PHP',
+    '{"locations":3,"counters":5,"staffSeats":10,"monthlyTickets":5000,"monthlyTransactionalEmails":500,"historyDays":365,"historyLabel":"365-day history","emailAlerts":true,"smsAllowance":300,"smsBundleType":"fixed","qrJoinPage":true,"publicQueueBoard":true,"basicDashboard":true,"queueSettings":true,"brandedQueuePages":true,"analytics":true,"csvExport":true,"pdfExport":true,"allowedHistoryExportRanges":["today","week","month","quarter","year"],"advancedRoles":false,"slaSupport":false,"supportLevel":"standard","customDomain":false,"sso":false}',
+    '["3 locations","5 counters","10 staff seats","Branded queue pages","Analytics","CSV export","PDF export","Queue settings","Email alerts","500 transactional emails/mo","5,000 tickets/mo","300 SMS/mo"]'
+  ),
+  (
+    'enterprise',
+    'Enterprise',
+    'Multi-branch businesses, schools, LGUs, hospitals',
+    FALSE,
+    699900,
+    6999000,
+    'PHP',
+    '{"locations":10,"counters":20,"staffSeats":50,"monthlyTickets":25000,"monthlyTransactionalEmails":null,"historyDays":1095,"historyLabel":"1,095-day history","emailAlerts":true,"smsAllowance":0,"smsBundleType":"custom","qrJoinPage":true,"publicQueueBoard":true,"basicDashboard":true,"queueSettings":true,"brandedQueuePages":true,"analytics":true,"csvExport":true,"pdfExport":true,"allowedHistoryExportRanges":["today","week","month","quarter","year"],"advancedRoles":true,"slaSupport":true,"supportLevel":"sla","customDomain":true,"sso":true}',
+    '["10+ locations","20 counters","Advanced roles","SLA/support","Longer history","Custom SMS bundle","Optional custom domain/SSO"]'
+  );
+
+CREATE TABLE queue_join_payments (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  otp_id BIGINT NOT NULL REFERENCES queue_join_otps(id) ON DELETE CASCADE,
+  plan_slug TEXT NOT NULL CHECK (plan_slug IN ('economical', 'pro', 'enterprise')),
+  provider TEXT NOT NULL DEFAULT 'paymongo',
+  provider_checkout_session_id TEXT UNIQUE,
+  provider_payment_id TEXT,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (
+    status IN ('pending', 'paid', 'failed', 'expired', 'canceled')
+  ),
+  amount_cents INTEGER NOT NULL CHECK (amount_cents >= 0),
+  currency TEXT NOT NULL DEFAULT 'PHP',
+  checkout_url TEXT,
+  payload JSONB NOT NULL DEFAULT '{}'::JSONB,
+  metadata JSONB NOT NULL DEFAULT '{}'::JSONB,
+  ticket_id BIGINT REFERENCES tickets(id) ON DELETE SET NULL,
+  ticket_lookup_code TEXT,
+  paid_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (tenant_id, otp_id)
+);
+
+CREATE TABLE tenant_subscriptions (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  plan_slug TEXT NOT NULL CHECK (plan_slug IN ('economical', 'pro', 'enterprise')),
+  status TEXT NOT NULL DEFAULT 'unpaid' CHECK (
+    status IN ('active', 'unpaid', 'past_due', 'canceled', 'expired')
+  ),
+  provider TEXT NOT NULL DEFAULT 'manual',
+  provider_customer_id TEXT,
+  provider_subscription_id TEXT,
+  provider_checkout_session_id TEXT,
+  billing_interval TEXT NOT NULL DEFAULT 'monthly' CHECK (billing_interval IN ('monthly', 'annual', 'custom')),
+  current_period_start TIMESTAMPTZ,
+  current_period_end TIMESTAMPTZ,
+  entitlements JSONB NOT NULL DEFAULT '{}'::JSONB,
+  metadata JSONB NOT NULL DEFAULT '{}'::JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE billing_checkout_sessions (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  plan_slug TEXT NOT NULL CHECK (plan_slug IN ('economical', 'pro', 'enterprise')),
+  provider TEXT NOT NULL DEFAULT 'paymongo',
+  provider_checkout_session_id TEXT UNIQUE,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (
+    status IN ('pending', 'paid', 'failed', 'expired', 'canceled')
+  ),
+  amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
+  currency TEXT NOT NULL DEFAULT 'PHP',
+  checkout_url TEXT,
+  metadata JSONB NOT NULL DEFAULT '{}'::JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE billing_events (
+  id BIGSERIAL PRIMARY KEY,
+  provider TEXT NOT NULL,
+  provider_event_id TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  provider_checkout_session_id TEXT,
+  provider_payment_id TEXT,
+  tenant_id BIGINT REFERENCES tenants(id) ON DELETE SET NULL,
+  payload JSONB NOT NULL DEFAULT '{}'::JSONB,
+  processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (provider, provider_event_id)
+);
+
+CREATE INDEX idx_tenants_slug_active
+  ON tenants (slug, is_active);
+
+CREATE INDEX idx_oauth_accounts_user_id
+  ON oauth_accounts (user_id);
+
+CREATE INDEX idx_tenant_memberships_user_id
+  ON tenant_memberships (user_id);
+
+CREATE INDEX idx_tenant_memberships_tenant_id
+  ON tenant_memberships (tenant_id);
+
+CREATE UNIQUE INDEX idx_store_locations_one_primary
+  ON store_locations (tenant_id)
+  WHERE is_primary = TRUE;
+
+CREATE INDEX idx_store_locations_tenant_active
+  ON store_locations (tenant_id, is_active);
+
+CREATE INDEX idx_store_hours_location_weekday
+  ON store_hours (location_id, weekday);
+
+CREATE INDEX idx_tickets_tenant_status_created_at
   ON tickets (tenant_id, status, created_at);
 
-CREATE INDEX IF NOT EXISTS idx_tickets_lookup_code
+CREATE INDEX idx_tickets_location_status_created_at
+  ON tickets (location_id, status, created_at);
+
+CREATE INDEX idx_tickets_lookup_code
   ON tickets (lookup_code);
 
-CREATE INDEX IF NOT EXISTS idx_tenant_memberships_user_id
-  ON tenant_memberships (user_id);
+CREATE INDEX idx_queue_join_otps_tenant_expires
+  ON queue_join_otps (tenant_id, expires_at DESC);
+
+CREATE INDEX idx_notification_deliveries_tenant_email_sent
+  ON notification_deliveries (tenant_id, sent_at DESC)
+  WHERE channel = 'email' AND status = 'sent';
+
+CREATE INDEX idx_public_board_assets_tenant_created
+  ON public_board_assets (tenant_id, created_at DESC);
+
+CREATE UNIQUE INDEX idx_public_board_themes_tenant_default
+  ON public_board_themes (tenant_id)
+  WHERE location_id IS NULL;
+
+CREATE UNIQUE INDEX idx_public_board_themes_location
+  ON public_board_themes (location_id)
+  WHERE location_id IS NOT NULL;
+
+CREATE INDEX idx_counters_tenant_key_date
+  ON counters (tenant_id, location_id, key, date_key);
+
+CREATE INDEX idx_tenant_subscriptions_tenant_status
+  ON tenant_subscriptions (tenant_id, status, updated_at DESC);
+
+CREATE INDEX idx_queue_join_payments_tenant_status
+  ON queue_join_payments (tenant_id, status, created_at DESC);
+
+CREATE INDEX idx_queue_join_payments_status_created
+  ON queue_join_payments (status, created_at DESC);
+
+CREATE INDEX idx_billing_checkout_sessions_tenant_id
+  ON billing_checkout_sessions (tenant_id);
+
+CREATE INDEX idx_billing_events_provider_checkout_session_id
+  ON billing_events (provider_checkout_session_id);
 
 CREATE OR REPLACE FUNCTION set_updated_at()
 RETURNS TRIGGER AS $$
@@ -99,26 +460,69 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-DROP TRIGGER IF EXISTS set_tenants_updated_at ON tenants;
 CREATE TRIGGER set_tenants_updated_at
 BEFORE UPDATE ON tenants
 FOR EACH ROW
 EXECUTE FUNCTION set_updated_at();
 
-DROP TRIGGER IF EXISTS set_users_updated_at ON users;
 CREATE TRIGGER set_users_updated_at
 BEFORE UPDATE ON users
 FOR EACH ROW
 EXECUTE FUNCTION set_updated_at();
 
-DROP TRIGGER IF EXISTS set_counters_updated_at ON counters;
 CREATE TRIGGER set_counters_updated_at
 BEFORE UPDATE ON counters
 FOR EACH ROW
 EXECUTE FUNCTION set_updated_at();
 
-DROP TRIGGER IF EXISTS set_tickets_updated_at ON tickets;
+CREATE TRIGGER set_store_locations_updated_at
+BEFORE UPDATE ON store_locations
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER set_store_hours_updated_at
+BEFORE UPDATE ON store_hours
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
 CREATE TRIGGER set_tickets_updated_at
 BEFORE UPDATE ON tickets
 FOR EACH ROW
 EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER set_queue_join_otps_updated_at
+BEFORE UPDATE ON queue_join_otps
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER set_platform_settings_updated_at
+BEFORE UPDATE ON platform_settings
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER set_public_board_themes_updated_at
+BEFORE UPDATE ON public_board_themes
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER set_tenant_subscriptions_updated_at
+BEFORE UPDATE ON tenant_subscriptions
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER set_queue_fee_settings_updated_at
+BEFORE UPDATE ON queue_fee_settings
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER set_queue_join_payments_updated_at
+BEFORE UPDATE ON queue_join_payments
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER set_billing_checkout_sessions_updated_at
+BEFORE UPDATE ON billing_checkout_sessions
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+COMMIT;

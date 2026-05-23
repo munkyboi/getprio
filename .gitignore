@@ -7,3 +7,6 @@ frontend/dist/
 .env.local
 .DS_Store
 coverage/
+.vscode/
+*.log
+frontend/*.log

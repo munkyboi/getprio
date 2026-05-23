@@ -1,18 +1,89 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  Alert,
+  Button,
+  Checkbox,
+  Paper,
+  SimpleGrid,
+  Stack,
+  Text,
+  Textarea,
+  TextInput,
+  Title
+} from "@mantine/core";
+import { notifications } from "@mantine/notifications";
+import { IconCheck, IconInfoCircle } from "@tabler/icons-react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import type { JoinQueueRequest, QueueSnapshot, TenantSummary, TicketMutationResponse } from "@shared";
+import type {
+  JoinQueueRequest,
+  QueueJoinPaymentResponse,
+  QueueJoinPaymentSyncResponse,
+  QueueSnapshot,
+  RequestJoinOtpResponse,
+  TenantSummary,
+  VerifyJoinOtpRequest
+} from "@shared";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { buildMonitorPath, buildMonitorPathWithTicket } from "../queuePaths";
 import { getErrorMessage } from "../utils/errors";
 
-type JoinQueueFormState = Omit<JoinQueueRequest, "joinChannel">;
+type JoinQueueFormState = Omit<JoinQueueRequest, "joinChannel" | "turnstileToken">;
+
+function maskSegment(value: string): string {
+  if (!value) {
+    return "";
+  }
+
+  if (value.length === 1) {
+    return `${value[0]}****`;
+  }
+
+  return `${value[0]}****${value[value.length - 1]}`;
+}
+
+function maskEmail(email: string): string {
+  const [localPart, domain = ""] = email.split("@");
+  const domainParts = domain.split(".").filter(Boolean);
+  const visibleSuffix = domainParts[domainParts.length - 1] || "";
+  const maskedDomainName = domainParts[0] ? `${domainParts[0][0]}****` : "";
+
+  return `${maskSegment(localPart)}@${maskedDomainName}.${visibleSuffix}`;
+}
+
+function maskDeliveryTarget(channel: string, target: string): string {
+  if (channel === "email" && target.includes("@")) {
+    return maskEmail(target);
+  }
+
+  return `ending in ${target.slice(-4)}`;
+}
+
+declare global {
+  interface Window {
+    turnstile?: {
+      render: (
+        container: HTMLElement,
+        options: {
+          sitekey: string;
+          callback: (token: string) => void;
+          "expired-callback": () => void;
+          "error-callback": () => void;
+        }
+      ) => string;
+      remove: (widgetId: string) => void;
+      reset: (widgetId: string) => void;
+    };
+  }
+}
 
 export default function JoinQueuePage() {
-  const { tenantSlug } = useParams<{ tenantSlug: string }>();
+  const { tenantSlug, locationSlug } = useParams<{ tenantSlug: string; locationSlug?: string }>();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { token, user } = useAuth();
+  const turnstileContainerRef = useRef<HTMLDivElement | null>(null);
+  const turnstileWidgetIdRef = useRef<string | null>(null);
   const [tenantInfo, setTenantInfo] = useState<TenantSummary | null>(null);
   const [form, setForm] = useState<JoinQueueFormState>({
     customerName: "",
@@ -24,8 +95,30 @@ export default function JoinQueuePage() {
   });
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState("");
+  const [turnstileReady, setTurnstileReady] = useState(false);
+  const [otp, setOtp] = useState<RequestJoinOtpResponse | null>(null);
+  const [otpCode, setOtpCode] = useState("");
+  const [now, setNow] = useState(() => Date.now());
   const tenantSlugValue = tenantSlug || "";
-  const monitorPath = tenantSlug ? buildMonitorPath(tenantSlug) : "/";
+  const monitorPath = tenantSlug ? buildMonitorPath(tenantSlug, locationSlug) : "/";
+  const publicApiBase = locationSlug
+    ? `/public/tenant/${tenantSlugValue}/location/${locationSlug}`
+    : `/public/tenant/${tenantSlugValue}`;
+  const joinSource = searchParams.get("source")?.toLowerCase() === "qr" ? "qr" : "online";
+  const turnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY || "";
+  const shouldUseTurnstile = joinSource === "qr" && Boolean(turnstileSiteKey);
+  const resendAvailableAtMs = otp ? new Date(otp.resendAvailableAt).getTime() : 0;
+  const resendSecondsRemaining = Math.max(
+    0,
+    Math.ceil((resendAvailableAtMs - now) / 1000)
+  );
+  const resendLabel =
+    resendSecondsRemaining > 0
+      ? `Send new code in ${Math.floor(resendSecondsRemaining / 60)}:${String(
+          resendSecondsRemaining % 60
+        ).padStart(2, "0")}`
+      : "Send new code";
 
   useEffect(() => {
     if (user) {
@@ -43,35 +136,304 @@ export default function JoinQueuePage() {
       return;
     }
 
-    apiRequest<QueueSnapshot>(`/public/tenant/${tenantSlug}/queue`)
+    const basePath = locationSlug
+      ? `/public/tenant/${tenantSlug}/location/${locationSlug}`
+      : `/public/tenant/${tenantSlug}`;
+
+    apiRequest<QueueSnapshot>(`${basePath}/queue`)
       .then((data) => {
-        setTenantInfo(data.tenant);
+        setTenantInfo({
+          ...data.tenant,
+          name: data.location?.name || data.tenant.name
+        });
       })
       .catch((loadError) => {
         setError(getErrorMessage(loadError));
       });
-  }, [tenantSlug]);
+  }, [locationSlug, tenantSlug]);
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  useEffect(() => {
+    if (!tenantSlugValue) {
+      return;
+    }
+
+    const paymentId = searchParams.get("payment");
+    const paymentStatus = searchParams.get("payment_status");
+    if (!paymentId) {
+      return;
+    }
+
+    if (paymentStatus === "cancelled") {
+      notifications.show({
+        color: "blue",
+        icon: <IconInfoCircle size={18} />,
+        message: "No ticket was issued.",
+        title: "Checkout cancelled"
+      });
+      return;
+    }
+
+    let active = true;
+    setSubmitting(true);
+    setError("");
+    notifications.show({
+      color: "blue",
+      icon: <IconInfoCircle size={18} />,
+      message: "Confirming your queue fee payment...",
+      title: "Payment received"
+    });
+
+    apiRequest<QueueJoinPaymentSyncResponse>(
+      `${publicApiBase}/join-payments/${paymentId}/sync`,
+      {
+        method: "POST"
+      }
+    )
+      .then((data) => {
+        if (!active) {
+          return;
+        }
+
+        if (data.paid && data.ticket?.lookupCode) {
+          navigate(buildMonitorPathWithTicket(tenantSlugValue, data.ticket.lookupCode, locationSlug), {
+            replace: true
+          });
+          return;
+        }
+
+        notifications.show({
+          color: "blue",
+          icon: <IconInfoCircle size={18} />,
+          message: "Payment is still being confirmed. Please refresh in a moment.",
+          title: "Payment pending"
+        });
+      })
+      .catch((syncError) => {
+        if (active) {
+          setError(getErrorMessage(syncError));
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setSubmitting(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [locationSlug, navigate, publicApiBase, searchParams, tenantSlugValue]);
+
+  useEffect(() => {
+    if (!otp || resendSecondsRemaining <= 0) {
+      return undefined;
+    }
+
+    const interval = window.setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [otp, resendSecondsRemaining]);
+
+  useEffect(() => {
+    setTurnstileToken("");
+
+    if (!shouldUseTurnstile) {
+      setTurnstileReady(true);
+      return undefined;
+    }
+
+    let active = true;
+    setTurnstileReady(false);
+    const existingScript = document.querySelector<HTMLScriptElement>(
+      'script[src^="https://challenges.cloudflare.com/turnstile/v0/api.js"]'
+    );
+
+    function renderTurnstile() {
+      if (
+        !active ||
+        !turnstileContainerRef.current ||
+        !window.turnstile ||
+        turnstileWidgetIdRef.current
+      ) {
+        return;
+      }
+
+      turnstileWidgetIdRef.current = window.turnstile.render(turnstileContainerRef.current, {
+        sitekey: turnstileSiteKey,
+        callback: (nextToken) => {
+          setTurnstileToken(nextToken);
+          setTurnstileReady(true);
+        },
+        "expired-callback": () => {
+          setTurnstileToken("");
+          setTurnstileReady(false);
+        },
+        "error-callback": () => {
+          setTurnstileToken("");
+          setTurnstileReady(false);
+          setError("Verification could not load. Please refresh and try again.");
+        }
+      });
+    }
+
+    if (window.turnstile) {
+      renderTurnstile();
+    } else if (existingScript) {
+      existingScript.addEventListener("load", renderTurnstile, { once: true });
+    } else {
+      const script = document.createElement("script");
+      script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+      script.async = true;
+      script.defer = true;
+      script.addEventListener("load", renderTurnstile, { once: true });
+      document.head.appendChild(script);
+    }
+
+    return () => {
+      active = false;
+      if (existingScript) {
+        existingScript.removeEventListener("load", renderTurnstile);
+      }
+
+      if (turnstileWidgetIdRef.current && window.turnstile) {
+        window.turnstile.remove(turnstileWidgetIdRef.current);
+        turnstileWidgetIdRef.current = null;
+      }
+    };
+  }, [shouldUseTurnstile, turnstileSiteKey]);
+
+  function resetTurnstile() {
+    setTurnstileToken("");
+    setTurnstileReady(false);
+
+    if (turnstileWidgetIdRef.current && window.turnstile) {
+      window.turnstile.reset(turnstileWidgetIdRef.current);
+    }
+  }
+
+  function buildJoinRequest(): JoinQueueRequest {
+    return {
+      ...form,
+      joinChannel: joinSource,
+      turnstileToken: shouldUseTurnstile ? turnstileToken : undefined
+    };
+  }
+
+  async function requestOtp() {
     setSubmitting(true);
     setError("");
 
     try {
-      const source = searchParams.get("source") === "qr" ? "qr" : "online";
-      const data = await apiRequest<TicketMutationResponse, JoinQueueRequest>(
-        `/public/tenant/${tenantSlugValue}/tickets`,
+      if (shouldUseTurnstile && !turnstileToken) {
+        setError("Please complete the security check before joining.");
+        setSubmitting(false);
+        return;
+      }
+
+      const data = await apiRequest<RequestJoinOtpResponse, JoinQueueRequest>(
+        `${publicApiBase}/join-otp`,
         {
           method: "POST",
           token,
+          body: buildJoinRequest()
+        }
+      );
+      setOtp(data);
+      setOtpCode("");
+    } catch (submitError) {
+      setError(getErrorMessage(submitError));
+      if (shouldUseTurnstile) {
+        resetTurnstile();
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function resendOtp() {
+    if (!otp) {
+      return;
+    }
+
+    setSubmitting(true);
+    setError("");
+
+    try {
+      const data = await apiRequest<RequestJoinOtpResponse>(
+        `${publicApiBase}/join-otp/${otp.otpId}/resend`,
+        {
+          method: "POST"
+        }
+      );
+      setOtp(data);
+      setOtpCode("");
+    } catch (submitError) {
+      setError(getErrorMessage(submitError));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await requestOtp();
+  }
+
+  async function handleVerifyOtp(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!otp) {
+      return;
+    }
+
+    setSubmitting(true);
+    setError("");
+
+    try {
+      const data = await apiRequest<QueueJoinPaymentResponse, VerifyJoinOtpRequest>(
+        `${publicApiBase}/join-otp/verify`,
+        {
+          method: "POST",
           body: {
-            ...form,
-            joinChannel: source
+            otpId: otp.otpId,
+            code: otpCode
           }
         }
       );
-      navigate(buildMonitorPathWithTicket(tenantSlugValue, data.ticket.lookupCode), {
-        replace: true
+
+      if (data.requiresPayment && data.checkoutSession?.checkoutUrl) {
+        notifications.show({
+          color: "blue",
+          icon: <IconInfoCircle size={18} />,
+          message: `Opening checkout for ${data.queueFee.displayAmount}...`,
+          title: "Queue fee required"
+        });
+        window.location.href = data.checkoutSession.checkoutUrl;
+        return;
+      }
+
+      if (data.ticket?.lookupCode) {
+        notifications.show({
+          color: "teal",
+          icon: <IconCheck size={18} />,
+          message: "Your ticket has been issued.",
+          title: "Joined queue"
+        });
+        navigate(buildMonitorPathWithTicket(tenantSlugValue, data.ticket.lookupCode, locationSlug), {
+          replace: true
+        });
+        return;
+      }
+
+      notifications.show({
+        color: "blue",
+        icon: <IconInfoCircle size={18} />,
+        message: "Your join request is being processed.",
+        title: "Join request submitted"
       });
     } catch (submitError) {
       setError(getErrorMessage(submitError));
@@ -81,98 +443,135 @@ export default function JoinQueuePage() {
   }
 
   return (
-    <div className="grid join-layout">
-      <section className="card stack gap-md">
-        <span className="eyebrow">Join queue</span>
-        <h1>{tenantInfo?.name || tenantSlugValue}</h1>
-        <p>
+    <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xl" className="finazze-join-layout">
+      <Paper className="finazze-auth-card finazze-join-card" p={{ base: "xl", md: 44 }}>
+        <Stack gap="md">
+        <Text className="finazze-section-label">Join queue</Text>
+        <Title order={1}>{tenantInfo?.name || tenantSlugValue}</Title>
+        <Text c="dimmed">
           Grab your priority number online, then keep monitoring progress from the public board.
-        </p>
-        <form className="stack gap-sm" onSubmit={handleSubmit}>
-          <label className="field">
-            <span>Name</span>
-            <input
+        </Text>
+        {tenantInfo?.queueFee?.enabled ? (
+          <Text c="dimmed">
+            This queue requires a platform fee of {tenantInfo.queueFee.displayAmount} after
+            contact verification.
+          </Text>
+        ) : null}
+        {otp ? (
+          <form onSubmit={handleVerifyOtp}>
+            <Stack gap="md">
+            <Paper className="finazze-soft-panel" p="md">
+              <Text className="finazze-section-label">Verification code</Text>
+              <Text>
+                We sent a 6-digit code to your {otp.deliveryChannel}{" "}
+                {maskDeliveryTarget(otp.deliveryChannel, otp.deliveryTarget)}.
+              </Text>
+              <Text c="dimmed" size="sm">
+                It expires at {new Date(otp.expiresAt).toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit"
+                })}.
+              </Text>
+            </Paper>
+            <TextInput
+              autoComplete="one-time-code"
+              inputMode="numeric"
+              label="OTP"
+              maxLength={6}
+              pattern="[0-9]{6}"
               required
-              value={form.customerName}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, customerName: event.target.value }))
-              }
+              value={otpCode}
+              onChange={(event) => setOtpCode(event.target.value.replace(/\D/g, ""))}
             />
-          </label>
-          <label className="field">
-            <span>Email</span>
-            <input
-              type="email"
-              value={form.customerEmail}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, customerEmail: event.target.value }))
-              }
-            />
-          </label>
-          <label className="field">
-            <span>Phone</span>
-            <input
-              value={form.customerPhone}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, customerPhone: event.target.value }))
-              }
-            />
-          </label>
-          <label className="field">
-            <span>Notes</span>
-            <textarea
-              rows={3}
-              value={form.notes}
-              onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
-            />
-          </label>
-          <label className="check-row">
-            <input
+            {error ? <Alert color="red">{error}</Alert> : null}
+            <Button color="dark" disabled={submitting} type="submit">
+              {submitting
+                ? "Verifying..."
+                : tenantInfo?.queueFee?.enabled
+                  ? "Verify and continue to payment"
+                  : "Verify and join queue"}
+            </Button>
+            <SimpleGrid cols={{ base: 1, sm: 2 }}>
+              <Button
+                color="dark"
+                disabled={submitting || resendSecondsRemaining > 0}
+                onClick={resendOtp}
+                type="button"
+                variant="outline"
+              >
+                {resendLabel}
+              </Button>
+              <Button
+                color="dark"
+                disabled={submitting}
+                onClick={() => navigate("/")}
+                type="button"
+                variant="subtle"
+              >
+                Cancel
+              </Button>
+            </SimpleGrid>
+            </Stack>
+          </form>
+        ) : (
+          <form onSubmit={handleSubmit}>
+            <Stack gap="md">
+            <TextInput required label="Name" value={form.customerName} onChange={(event) => setForm((current) => ({ ...current, customerName: event.target.value }))} />
+            <TextInput label="Email" type="email" value={form.customerEmail} onChange={(event) => setForm((current) => ({ ...current, customerEmail: event.target.value }))} />
+            <TextInput label="Phone" value={form.customerPhone} onChange={(event) => setForm((current) => ({ ...current, customerPhone: event.target.value }))} />
+            <Textarea label="Notes" minRows={3} value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} />
+            <Checkbox
               checked={form.notifyByEmail}
-              type="checkbox"
-              onChange={(event) =>
-                setForm((current) => ({ ...current, notifyByEmail: event.target.checked }))
-              }
+              label="Email me when I am almost next"
+              onChange={(event) => setForm((current) => ({ ...current, notifyByEmail: event.target.checked }))}
             />
-            <span>Email me when I am almost next</span>
-          </label>
-          <label className="check-row">
-            <input
+            <Checkbox
               checked={form.notifyBySms}
-              type="checkbox"
-              onChange={(event) =>
-                setForm((current) => ({ ...current, notifyBySms: event.target.checked }))
-              }
+              label="Send SMS alerts"
+              onChange={(event) => setForm((current) => ({ ...current, notifyBySms: event.target.checked }))}
             />
-            <span>Send SMS alerts</span>
-          </label>
-          {error ? <p className="error-text">{error}</p> : null}
-          <button className="primary-button" disabled={submitting} type="submit">
-            {submitting ? "Joining queue..." : "Get priority number"}
-          </button>
-        </form>
-      </section>
+            {shouldUseTurnstile ? (
+              <Paper className="finazze-soft-panel" p="md">
+                <div ref={turnstileContainerRef} />
+              </Paper>
+            ) : null}
+            {error ? <Alert color="red">{error}</Alert> : null}
+            <Button
+              color="dark"
+              disabled={submitting || (shouldUseTurnstile && !turnstileReady)}
+              type="submit"
+            >
+              {submitting ? "Sending code..." : "Get priority number"}
+            </Button>
+            </Stack>
+          </form>
+        )}
+        </Stack>
+      </Paper>
 
-      <aside className="card stack gap-md side-panel">
-        <span className="eyebrow">What happens next</span>
-        <div className="stack gap-sm">
-          <div>
-            <h2>1. Ticket issued instantly</h2>
-            <p>Your ticket number is generated immediately for this tenant.</p>
+      <Paper className="finazze-auth-card finazze-join-side" p={{ base: "xl", md: 44 }}>
+        <Stack gap="lg">
+        <img
+          alt=""
+          className="join-side-art"
+          src="/illustrations/generated/customer-onboarding.png"
+        />
+        <Text className="finazze-section-label">What happens next</Text>
+        {[
+          ["1. Ticket issued instantly", "Your ticket number is generated immediately for this tenant."],
+          ["2. Monitor online", "After joining, you are redirected to a live board with your ticket highlighted."],
+          ["3. Near-turn notification", "Email or SMS alerts are sent when your turn is getting close, based on tenant settings."]
+        ].map(([title, text]) => (
+          <div key={title}>
+            <Title order={3}>{title}</Title>
+            <Text c="dimmed">{text}</Text>
           </div>
-          <div>
-            <h2>2. Monitor online</h2>
-            <p>After joining, you are redirected to a live board with your ticket highlighted.</p>
-          </div>
-          <div>
-            <h2>3. Near-turn notification</h2>
-            <p>Email or SMS alerts are sent when your turn is getting close, based on tenant settings.</p>
-          </div>
-        </div>
-        <Link className="text-link" to={monitorPath}>
+        ))}
+        <Button color="dark" component={Link} to={monitorPath} variant="subtle">
           Open public board instead
-        </Link>
-      </aside>
-    </div>
+        </Button>
+        </Stack>
+      </Paper>
+    </SimpleGrid>
   );
 }

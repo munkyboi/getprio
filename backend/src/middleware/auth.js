@@ -65,8 +65,48 @@ function userHasTenantAccess(user, tenantId) {
   );
 }
 
+function getTenantRole(user, tenantId) {
+  return (user?.tenantMemberships || []).find(
+    (membership) => String(membership.tenantId) === String(tenantId)
+  )?.role || null;
+}
+
+function userIsTenantOwner(user, tenantId) {
+  return getTenantRole(user, tenantId) === "owner";
+}
+
+function assertTenantOwner(user, tenantId) {
+  if (userIsTenantOwner(user, tenantId)) {
+    return;
+  }
+
+  const error = new Error("Tenant owner access required.");
+  error.statusCode = 403;
+  throw error;
+}
+
+function userIsPlatformAdmin(user) {
+  return Boolean((user?.roles || []).includes("platform_admin"));
+}
+
+function requirePlatformAdmin(req, _res, next) {
+  if (userIsPlatformAdmin(req.user)) {
+    next();
+    return;
+  }
+
+  const error = new Error("Platform admin access required.");
+  error.statusCode = 403;
+  next(error);
+}
+
 module.exports = {
   authenticate,
   maybeAuthenticate,
-  userHasTenantAccess
+  userHasTenantAccess,
+  getTenantRole,
+  userIsTenantOwner,
+  assertTenantOwner,
+  userIsPlatformAdmin,
+  requirePlatformAdmin
 };

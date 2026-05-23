@@ -1,0 +1,326 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="980" viewBox="0 0 1440 980" role="img" aria-labelledby="title desc">
+  <title id="title">GetPrio high-level architecture diagram</title>
+  <desc id="desc">A high-level system diagram for the GetPrio queue platform showing user-facing apps, API route groups, services, database, and external integrations.</desc>
+  <defs>
+    <style>
+      :root {
+        color-scheme: light;
+      }
+      text {
+        font-family: Inter, Aptos, "Segoe UI", Arial, sans-serif;
+        fill: #162033;
+      }
+      .bg {
+        fill: #f7f4ed;
+      }
+      .title {
+        font-size: 34px;
+        font-weight: 800;
+        letter-spacing: 0;
+      }
+      .subtitle {
+        font-size: 15px;
+        fill: #5f6673;
+      }
+      .section-label {
+        font-size: 13px;
+        font-weight: 800;
+        fill: #6a4b15;
+        text-transform: uppercase;
+        letter-spacing: 1.8px;
+      }
+      .box-title {
+        font-size: 18px;
+        font-weight: 800;
+      }
+      .box-text {
+        font-size: 13px;
+        fill: #4b5565;
+      }
+      .small {
+        font-size: 12px;
+        fill: #697384;
+      }
+      .lane {
+        fill: #fffaf0;
+        stroke: #eadcc6;
+        stroke-width: 1.5;
+      }
+      .card {
+        fill: #ffffff;
+        stroke: #ded7cc;
+        stroke-width: 1.5;
+      }
+      .client {
+        fill: #fff7e7;
+        stroke: #efa935;
+      }
+      .api {
+        fill: #eef7ff;
+        stroke: #5aa2d8;
+      }
+      .service {
+        fill: #f1fbf5;
+        stroke: #5fb783;
+      }
+      .data {
+        fill: #f6f0ff;
+        stroke: #9070d4;
+      }
+      .external {
+        fill: #fff1f1;
+        stroke: #d66b6b;
+      }
+      .flow {
+        fill: none;
+        stroke: #5c6470;
+        stroke-width: 2.2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        marker-end: url(#arrow);
+      }
+      .flow-soft {
+        fill: none;
+        stroke: #9299a5;
+        stroke-width: 1.8;
+        stroke-dasharray: 7 7;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        marker-end: url(#arrow-soft);
+      }
+      .accent {
+        fill: #f4a62a;
+      }
+      .chip {
+        fill: #fff4dc;
+        stroke: #efc56d;
+      }
+      .chip-text {
+        font-size: 12px;
+        font-weight: 700;
+        fill: #7c520f;
+      }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#5c6470" />
+    </marker>
+    <marker id="arrow-soft" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#9299a5" />
+    </marker>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#3b2c15" flood-opacity="0.09" />
+    </filter>
+  </defs>
+
+  <rect class="bg" width="1440" height="980" />
+  <circle cx="1220" cy="72" r="116" fill="#ffe3a5" opacity="0.45" />
+  <circle cx="136" cy="904" r="160" fill="#dff0ff" opacity="0.5" />
+
+  <g transform="translate(70 52)">
+    <rect x="0" y="0" width="1300" height="876" rx="22" fill="#ffffff" opacity="0.86" filter="url(#shadow)" />
+    <text class="title" x="38" y="54">GetPrio High-Level Architecture</text>
+    <text class="subtitle" x="40" y="84">Multi-tenant QR queueing platform with customer joins, vendor operations, platform administration, payments, notifications, and live public boards.</text>
+
+    <g transform="translate(40 126)">
+      <rect class="lane" x="0" y="0" width="290" height="682" rx="18" />
+      <text class="section-label" x="24" y="34">Users and Apps</text>
+
+      <g transform="translate(24 62)">
+        <rect class="card client" x="0" y="0" width="242" height="122" rx="14" />
+        <text class="box-title" x="20" y="34">Customers</text>
+        <text class="box-text" x="20" y="62">Register, scan QR codes,</text>
+        <text class="box-text" x="20" y="82">join queues, track tickets</text>
+        <text class="small" x="20" y="106">React/Vite frontend</text>
+      </g>
+
+      <g transform="translate(24 214)">
+        <rect class="card client" x="0" y="0" width="242" height="122" rx="14" />
+        <text class="box-title" x="20" y="34">Vendors</text>
+        <text class="box-text" x="20" y="62">Manage queues, counters,</text>
+        <text class="box-text" x="20" y="82">staff, themes, history</text>
+        <text class="small" x="20" y="106">React/Vite frontend</text>
+      </g>
+
+      <g transform="translate(24 366)">
+        <rect class="card client" x="0" y="0" width="242" height="122" rx="14" />
+        <text class="box-title" x="20" y="34">Public Queue Board</text>
+        <text class="box-text" x="20" y="62">Monitor current queue</text>
+        <text class="box-text" x="20" y="82">with live updates</text>
+        <text class="small" x="20" y="106">Server-Sent Events</text>
+      </g>
+
+      <g transform="translate(24 518)">
+        <rect class="card client" x="0" y="0" width="242" height="122" rx="14" />
+        <text class="box-title" x="20" y="34">Platform Admins</text>
+        <text class="box-text" x="20" y="62">Oversee tenants, plans,</text>
+        <text class="box-text" x="20" y="82">fees, payments, users</text>
+        <text class="small" x="20" y="106">Platform dashboard</text>
+      </g>
+    </g>
+
+    <g transform="translate(382 126)">
+      <rect class="lane" x="0" y="0" width="302" height="682" rx="18" />
+      <text class="section-label" x="24" y="34">Express API</text>
+
+      <g transform="translate(24 62)">
+        <rect class="card api" x="0" y="0" width="254" height="92" rx="14" />
+        <text class="box-title" x="20" y="32">Auth Routes</text>
+        <text class="box-text" x="20" y="58">Email login, registration,</text>
+        <text class="box-text" x="20" y="76">JWT, OAuth callbacks</text>
+      </g>
+
+      <g transform="translate(24 178)">
+        <rect class="card api" x="0" y="0" width="254" height="92" rx="14" />
+        <text class="box-title" x="20" y="32">Public Routes</text>
+        <text class="box-text" x="20" y="58">Queue lookup, OTP, joins,</text>
+        <text class="box-text" x="20" y="76">ticket status, SSE stream</text>
+      </g>
+
+      <g transform="translate(24 294)">
+        <rect class="card api" x="0" y="0" width="254" height="92" rx="14" />
+        <text class="box-title" x="20" y="32">Vendor Routes</text>
+        <text class="box-text" x="20" y="58">Dashboard, queue control,</text>
+        <text class="box-text" x="20" y="76">locations, staff, themes</text>
+      </g>
+
+      <g transform="translate(24 410)">
+        <rect class="card api" x="0" y="0" width="254" height="92" rx="14" />
+        <text class="box-title" x="20" y="32">Billing Routes</text>
+        <text class="box-text" x="20" y="58">Plan checkout, payment sync,</text>
+        <text class="box-text" x="20" y="76">PayMongo webhooks</text>
+      </g>
+
+      <g transform="translate(24 526)">
+        <rect class="card api" x="0" y="0" width="254" height="92" rx="14" />
+        <text class="box-title" x="20" y="32">Platform Routes</text>
+        <text class="box-text" x="20" y="58">Operations overview, plans,</text>
+        <text class="box-text" x="20" y="76">queue fees, tenants, users</text>
+      </g>
+    </g>
+
+    <g transform="translate(736 126)">
+      <rect class="lane" x="0" y="0" width="270" height="682" rx="18" />
+      <text class="section-label" x="24" y="34">Core Services</text>
+
+      <g transform="translate(24 62)">
+        <rect class="card service" x="0" y="0" width="222" height="84" rx="14" />
+        <text class="box-title" x="20" y="31">Queue Service</text>
+        <text class="box-text" x="20" y="57">FIFO tickets, daily numbers,</text>
+        <text class="box-text" x="20" y="75">counter attribution</text>
+      </g>
+
+      <g transform="translate(24 166)">
+        <rect class="card service" x="0" y="0" width="222" height="84" rx="14" />
+        <text class="box-title" x="20" y="31">Queue Events</text>
+        <text class="box-text" x="20" y="57">Broadcasts queue changes</text>
+        <text class="box-text" x="20" y="75">to public boards</text>
+      </g>
+
+      <g transform="translate(24 270)">
+        <rect class="card service" x="0" y="0" width="222" height="84" rx="14" />
+        <text class="box-title" x="20" y="31">Join Verification</text>
+        <text class="box-text" x="20" y="57">OTP delivery, QR source,</text>
+        <text class="box-text" x="20" y="75">Turnstile checks</text>
+      </g>
+
+      <g transform="translate(24 374)">
+        <rect class="card service" x="0" y="0" width="222" height="84" rx="14" />
+        <text class="box-title" x="20" y="31">Billing Service</text>
+        <text class="box-text" x="20" y="57">Subscriptions, queue fees,</text>
+        <text class="box-text" x="20" y="75">checkout reconciliation</text>
+      </g>
+
+      <g transform="translate(24 478)">
+        <rect class="card service" x="0" y="0" width="222" height="84" rx="14" />
+        <text class="box-title" x="20" y="31">Notification Service</text>
+        <text class="box-text" x="20" y="57">Near-turn email and SMS</text>
+        <text class="box-text" x="20" y="75">with usage limits</text>
+      </g>
+
+      <g transform="translate(24 582)">
+        <rect class="card service" x="0" y="0" width="222" height="64" rx="14" />
+        <text class="box-title" x="20" y="30">Upload Service</text>
+        <text class="box-text" x="20" y="55">Signed public board assets</text>
+      </g>
+    </g>
+
+    <g transform="translate(1058 126)">
+      <rect class="lane" x="0" y="0" width="202" height="682" rx="18" />
+      <text class="section-label" x="24" y="34">Data and Vendors</text>
+
+      <g transform="translate(22 62)">
+        <rect class="card data" x="0" y="0" width="158" height="138" rx="14" />
+        <text class="box-title" x="20" y="33">PostgreSQL</text>
+        <text class="box-text" x="20" y="60">Tenants</text>
+        <text class="box-text" x="20" y="80">Users and roles</text>
+        <text class="box-text" x="20" y="100">Tickets</text>
+        <text class="box-text" x="20" y="120">Payments</text>
+      </g>
+
+      <g transform="translate(22 224)">
+        <rect class="card external" x="0" y="0" width="158" height="84" rx="14" />
+        <text class="box-title" x="20" y="32">PayMongo</text>
+        <text class="box-text" x="20" y="58">Checkouts, joins,</text>
+        <text class="box-text" x="20" y="76">webhooks</text>
+      </g>
+
+      <g transform="translate(22 332)">
+        <rect class="card external" x="0" y="0" width="158" height="84" rx="14" />
+        <text class="box-title" x="20" y="32">Email/SMS</text>
+        <text class="box-text" x="20" y="58">Resend, SendGrid,</text>
+        <text class="box-text" x="20" y="76">SMTP, Twilio</text>
+      </g>
+
+      <g transform="translate(22 440)">
+        <rect class="card external" x="0" y="0" width="158" height="84" rx="14" />
+        <text class="box-title" x="20" y="32">OAuth</text>
+        <text class="box-text" x="20" y="58">Google and</text>
+        <text class="box-text" x="20" y="76">Facebook sign-in</text>
+      </g>
+
+      <g transform="translate(22 548)">
+        <rect class="card external" x="0" y="0" width="158" height="84" rx="14" />
+        <text class="box-title" x="20" y="32">B2 Storage</text>
+        <text class="box-text" x="20" y="58">Public board logos</text>
+        <text class="box-text" x="20" y="76">and theme images</text>
+      </g>
+    </g>
+
+    <path class="flow" d="M 330 246 C 352 246 358 234 382 234" />
+    <path class="flow" d="M 330 398 C 354 398 358 452 382 452" />
+    <path class="flow" d="M 330 550 C 354 550 356 340 382 340" />
+    <path class="flow" d="M 330 702 C 354 702 356 710 382 710" />
+
+    <path class="flow" d="M 684 234 C 714 234 710 230 736 230" />
+    <path class="flow" d="M 684 340 C 714 340 710 334 736 334" />
+    <path class="flow" d="M 684 452 C 714 452 710 516 736 516" />
+    <path class="flow" d="M 684 594 C 714 594 710 620 736 620" />
+    <path class="flow" d="M 684 710 C 714 710 710 724 736 724" />
+
+    <path class="flow" d="M 1006 230 C 1028 230 1030 257 1058 257" />
+    <path class="flow" d="M 1006 516 C 1028 516 1030 392 1058 392" />
+    <path class="flow" d="M 1006 620 C 1028 620 1030 500 1058 500" />
+    <path class="flow" d="M 1006 724 C 1028 724 1030 716 1058 716" />
+
+    <path class="flow-soft" d="M 868 292 C 700 260 514 430 330 558" />
+    <path class="flow-soft" d="M 860 334 C 720 300 520 554 330 558" />
+    <path class="flow-soft" d="M 1138 350 C 1024 348 960 454 958 500" />
+    <path class="flow-soft" d="M 1138 482 C 1030 482 982 398 958 398" />
+
+    <g transform="translate(386 834)">
+      <rect class="chip" x="0" y="0" width="158" height="34" rx="17" />
+      <text class="chip-text" x="18" y="22">REST JSON API</text>
+      <rect class="chip" x="178" y="0" width="196" height="34" rx="17" />
+      <text class="chip-text" x="196" y="22">JWT protected routes</text>
+      <rect class="chip" x="394" y="0" width="174" height="34" rx="17" />
+      <text class="chip-text" x="412" y="22">SSE live updates</text>
+      <rect class="chip" x="588" y="0" width="206" height="34" rx="17" />
+      <text class="chip-text" x="606" y="22">Docker local stack</text>
+    </g>
+
+    <g transform="translate(44 834)">
+      <rect class="accent" x="0" y="0" width="12" height="12" rx="3" />
+      <text class="small" x="22" y="11">Source: current repo structure, README, API routes, Docker Compose, and environment config.</text>
+    </g>
+  </g>
+</svg>
