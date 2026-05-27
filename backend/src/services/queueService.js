@@ -101,12 +101,28 @@ async function resolveLocation(tenant, options = {}) {
   return storeLocationRepository.findPrimaryLocationByTenantId(tenant._id);
 }
 
-async function getQueueSnapshot(tenant, options = {}) {
+async function rolloverQueueDayForTenant(tenant, options = {}) {
   const location = await resolveLocation(tenant, options);
-  const locationId = location?._id;
-  const current = await ticketRepository.findCurrentCalledTicket(tenant._id, { locationId });
-  const waitingTickets = await ticketRepository.listWaitingTickets(tenant._id, { locationId });
   const dateKey = getDateKey();
+  await ticketRepository.rolloverQueueDay(tenant._id, dateKey, {
+    client: options.client,
+    locationId: location?._id
+  });
+
+  return { dateKey, location };
+}
+
+async function getQueueSnapshot(tenant, options = {}) {
+  const { dateKey, location } = await rolloverQueueDayForTenant(tenant, options);
+  const locationId = location?._id;
+  const current = await ticketRepository.findCurrentCalledTicket(tenant._id, {
+    locationId,
+    queueDateKey: dateKey
+  });
+  const waitingTickets = await ticketRepository.listWaitingTickets(tenant._id, {
+    locationId,
+    queueDateKey: dateKey
+  });
   const history = await ticketRepository.listHistoryTickets(tenant._id, {
     limit: 30,
     dateKey,
@@ -144,7 +160,7 @@ async function getQueueSnapshot(tenant, options = {}) {
 
     if (ticket) {
       const position =
-        ticket.status === "waiting"
+        ticket.status === "waiting" && ticket.queueDateKey === dateKey
           ? waitingTickets.findIndex(
               (waitingTicket) => String(waitingTicket._id) === String(ticket._id)
             ) + 1
@@ -243,10 +259,11 @@ async function publishSnapshot(tenant, options = {}) {
 }
 
 async function maybeNotifyUpcomingTickets(tenant, options = {}) {
-  const location = await resolveLocation(tenant, options);
+  const { dateKey, location } = await rolloverQueueDayForTenant(tenant, options);
   const waitingTickets = await ticketRepository.listWaitingTickets(tenant._id, {
     limit: tenant.notificationThreshold,
-    locationId: location?._id
+    locationId: location?._id,
+    queueDateKey: dateKey
   });
   const cooldownMs = env.notificationCooldownMinutes * 60 * 1000;
 
@@ -325,6 +342,10 @@ async function createTicketForTenantInTransaction(client, {
 }) {
   const dateKey = getDateKey();
   const resolvedLocation = location || (await resolveLocation(tenant));
+  await ticketRepository.rolloverQueueDay(tenant._id, dateKey, {
+    client,
+    locationId: resolvedLocation._id
+  });
   const sequence = await reserveNextSequence(client, tenant._id, resolvedLocation._id, dateKey);
 
   return createTicketRecord(client, {
@@ -334,6 +355,7 @@ async function createTicketForTenantInTransaction(client, {
     ticketNumber: formatTicketNumber(tenant.queuePrefix, sequence),
     sequence,
     dateKey,
+    queueDateKey: dateKey,
     customerName,
     customerEmail,
     customerPhone,
@@ -346,10 +368,16 @@ async function createTicketForTenantInTransaction(client, {
 
 async function callNextTicket(tenant, options = {}) {
   const location = await resolveLocation(tenant, options);
+  const dateKey = getDateKey();
   const ticket = await db.withTransaction(async (client) => {
-    const activeTicket = await ticketRepository.findCurrentCalledTicket(tenant._id, {
+    await ticketRepository.rolloverQueueDay(tenant._id, dateKey, {
       client,
       locationId: location?._id
+    });
+    const activeTicket = await ticketRepository.findCurrentCalledTicket(tenant._id, {
+      client,
+      locationId: location?._id,
+      queueDateKey: dateKey
     });
     if (activeTicket) {
       const error = new Error("Serve or skip the current ticket before calling the next one.");
@@ -360,6 +388,7 @@ async function callNextTicket(tenant, options = {}) {
     return ticketRepository.callNextWaitingTicket(tenant._id, {
       client,
       locationId: location?._id,
+      queueDateKey: dateKey,
       serviceCounterId: options.serviceCounter?._id
     });
   });
@@ -380,12 +409,19 @@ async function callNextTicket(tenant, options = {}) {
 
 async function updateCurrentTicketStatus(tenant, status, options = {}) {
   const location = await resolveLocation(tenant, options);
-  const ticket = await db.withTransaction((client) =>
-    ticketRepository.updateCurrentCalledTicketStatus(tenant._id, status, {
+  const dateKey = getDateKey();
+  const ticket = await db.withTransaction(async (client) => {
+    await ticketRepository.rolloverQueueDay(tenant._id, dateKey, {
       client,
       locationId: location?._id
-    })
-  );
+    });
+
+    return ticketRepository.updateCurrentCalledTicketStatus(tenant._id, status, {
+      client,
+      locationId: location?._id,
+      queueDateKey: dateKey
+    });
+  });
 
   if (!ticket) {
     return null;
@@ -399,9 +435,20 @@ async function updateCurrentTicketStatus(tenant, status, options = {}) {
 
 async function cancelTicket(tenant, lookupCode, options = {}) {
   const location = await resolveLocation(tenant, options);
-  const ticket = await db.withTransaction((client) =>
-    ticketRepository.cancelWaitingTicket(tenant._id, lookupCode.toUpperCase(), { client })
-  );
+  const dateKey = getDateKey();
+  const rolloverLocationId =
+    options.location || options.locationSlug ? location?._id : undefined;
+  const ticket = await db.withTransaction(async (client) => {
+    await ticketRepository.rolloverQueueDay(tenant._id, dateKey, {
+      client,
+      locationId: rolloverLocationId
+    });
+
+    return ticketRepository.cancelWaitingTicket(tenant._id, lookupCode.toUpperCase(), {
+      client,
+      queueDateKey: dateKey
+    });
+  });
 
   if (!ticket) {
     return null;

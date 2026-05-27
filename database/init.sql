@@ -147,6 +147,7 @@ CREATE TABLE tickets (
   ticket_number TEXT NOT NULL,
   sequence INTEGER NOT NULL,
   date_key TEXT NOT NULL,
+  queue_date_key TEXT NOT NULL,
   lookup_code TEXT NOT NULL UNIQUE,
   customer_name TEXT NOT NULL,
   customer_email TEXT,
@@ -155,7 +156,7 @@ CREATE TABLE tickets (
   notify_by_sms BOOLEAN NOT NULL DEFAULT FALSE,
   join_channel TEXT NOT NULL DEFAULT 'online' CHECK (join_channel IN ('online', 'qr', 'vendor')),
   status TEXT NOT NULL DEFAULT 'waiting' CHECK (
-    status IN ('waiting', 'called', 'served', 'skipped', 'cancelled')
+    status IN ('waiting', 'called', 'served', 'skipped', 'cancelled', 'unserved')
   ),
   notes TEXT,
   notified_almost_there_at TIMESTAMPTZ,
@@ -164,6 +165,9 @@ CREATE TABLE tickets (
   served_at TIMESTAMPTZ,
   skipped_at TIMESTAMPTZ,
   cancelled_at TIMESTAMPTZ,
+  carried_over_at TIMESTAMPTZ,
+  carry_over_count INTEGER NOT NULL DEFAULT 0,
+  unserved_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (tenant_id, location_id, date_key, sequence)
@@ -412,6 +416,9 @@ CREATE INDEX idx_tickets_tenant_status_created_at
 
 CREATE INDEX idx_tickets_location_status_created_at
   ON tickets (location_id, status, created_at);
+
+CREATE INDEX idx_tickets_active_queue_day
+  ON tickets (tenant_id, location_id, queue_date_key, status, created_at);
 
 CREATE INDEX idx_tickets_lookup_code
   ON tickets (lookup_code);
