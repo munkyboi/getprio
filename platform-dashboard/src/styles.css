@@ -45,6 +45,13 @@ body {
   text-transform: uppercase;
 }
 
+.portal-logo {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  filter: drop-shadow(0 16px 28px rgba(249, 115, 22, 0.24));
+}
+
 .portal-profile-card {
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.035);
@@ -144,4 +151,17 @@ body {
   flex: 1;
   border-radius: 999px;
   background: linear-gradient(180deg, #fb923c, #f97316);
+}
+
+.portal-sort-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
 }

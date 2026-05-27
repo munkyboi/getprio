@@ -1,17 +1,24 @@
 const express = require("express");
+const db = require("../config/db");
+const env = require("../config/env");
 const tenantRepository = require("../repositories/tenants");
 const storeLocationRepository = require("../repositories/storeLocations");
 const ticketRepository = require("../repositories/tickets");
 const publicBoardThemeRepository = require("../repositories/publicBoardThemes");
 const serviceCounterRepository = require("../repositories/serviceCounters");
+const staffInvitationRepository = require("../repositories/staffInvitations");
 const userRepository = require("../repositories/users");
 const asyncHandler = require("../middleware/asyncHandler");
 const {
   authenticate,
   userHasTenantAccess,
-  assertTenantOwner
+  userIsTenantOwner,
+  getTenantRole,
+  assertTenantOwner,
+  assertTenantManager
 } = require("../middleware/auth");
 const billingService = require("../services/billingService");
+const notificationService = require("../services/notificationService");
 const publicBoardThemeUploadService = require("../services/publicBoardThemeUploadService");
 const storeHoursService = require("../services/storeHoursService");
 const PDFDocument = require("pdfkit");
@@ -23,6 +30,7 @@ const {
 } = require("../services/queueService");
 
 const router = express.Router();
+const STAFF_INVITE_TTL_DAYS = 7;
 
 async function getAuthorizedTenant(user, tenantSlug) {
   const tenant = await tenantRepository.findTenantBySlug(String(tenantSlug).toLowerCase());
@@ -78,8 +86,8 @@ async function formatLocation(location, tenant) {
     timezone: location.timezone,
     isPrimary: location.isPrimary,
     isActive: location.isActive,
-    joinUrl: `${process.env.APP_BASE_URL || "http://localhost:7000"}/join/${tenant.slug}/${location.slug}`,
-    monitorUrl: `${process.env.APP_BASE_URL || "http://localhost:7000"}/monitor/${tenant.slug}/${location.slug}`,
+    joinUrl: `${process.env.APP_BASE_URL || "http://localhost:5173"}/join/${tenant.slug}/${location.slug}`,
+    monitorUrl: `${process.env.APP_BASE_URL || "http://localhost:5173"}/monitor/${tenant.slug}/${location.slug}`,
     openStatus,
     hours: hours.map((hour) => ({
       weekday: hour.weekday,
@@ -96,6 +104,143 @@ function normalizeCounterSlug(value) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+function normalizeLocationSlug(value) {
+  return normalizeCounterSlug(value);
+}
+
+function normalizeSortDirection(value) {
+  return String(value).toLowerCase() === "asc" ? "asc" : "desc";
+}
+
+function sortRecords(records, sort, direction, getters) {
+  const getter = getters[String(sort || "")];
+  if (!getter) {
+    return records;
+  }
+
+  const multiplier = normalizeSortDirection(direction) === "asc" ? 1 : -1;
+  return [...records].sort((left, right) => {
+    const leftValue = getter(left);
+    const rightValue = getter(right);
+    if (leftValue == null && rightValue == null) return 0;
+    if (leftValue == null) return 1;
+    if (rightValue == null) return -1;
+    if (typeof leftValue === "number" && typeof rightValue === "number") {
+      return (leftValue - rightValue) * multiplier;
+    }
+    return String(leftValue).localeCompare(String(rightValue), undefined, {
+      numeric: true,
+      sensitivity: "base"
+    }) * multiplier;
+  });
+}
+
+function normalizeEmail(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase();
+}
+
+function isValidEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+function getStaffInviteUrl(token) {
+  return `${env.appBaseUrl.replace(/\/$/, "")}/staff/invite/${token}`;
+}
+
+function normalizeAssignableTenantRole(role) {
+  return role === "admin" ? "admin" : "staff";
+}
+
+function getRequesterTenantRole(user, tenantId) {
+  return getTenantRole(user, tenantId);
+}
+
+function isActiveMembership(membership) {
+  return membership?.isActive !== false;
+}
+
+function getInviteExpiry() {
+  return new Date(Date.now() + STAFF_INVITE_TTL_DAYS * 24 * 60 * 60 * 1000);
+}
+
+function formatInvitation(invitation, inviteUrl) {
+  return {
+    id: invitation._id,
+    email: invitation.email,
+    role: normalizeAssignableTenantRole(invitation.role),
+    status: invitation.status,
+    invitedAt: invitation.createdAt,
+    expiresAt: invitation.expiresAt,
+    ...(inviteUrl && env.nodeEnv !== "production" ? { inviteUrl } : {})
+  };
+}
+
+async function sendStaffInvitationEmail({ tenant, invitation, inviteUrl, invitedBy }) {
+  await notificationService.sendEmail({
+    to: invitation.email,
+    subject: `You're invited to join ${tenant.name} on GetPrio`,
+    text: [
+      `You were invited by ${invitedBy.name || "a GetPrio vendor admin"} to join ${tenant.name} as vendor ${normalizeAssignableTenantRole(invitation.role)}.`,
+      "",
+      "Accept the invitation using this link:",
+      inviteUrl,
+      "",
+      `This invitation expires on ${new Date(invitation.expiresAt).toLocaleString()}.`,
+      "",
+      "If you did not expect this invitation, you can ignore this email."
+    ].join("\n"),
+    tenantId: tenant._id,
+    purpose: "staff_invite",
+    metadata: {
+      invitationId: invitation._id
+    }
+  });
+}
+
+async function assertStaffInviteSeatAvailable(tenantId, entitlements) {
+  const [staff, pendingCount] = await Promise.all([
+    userRepository.listUsersByTenantId(tenantId),
+    staffInvitationRepository.countPendingByTenantId(tenantId)
+  ]);
+  const activeStaffCount = staff.filter((user) =>
+    user.tenantMemberships.some(
+      (membership) => String(membership.tenantId) === String(tenantId) && isActiveMembership(membership)
+    )
+  ).length;
+
+  if (activeStaffCount + pendingCount >= Number(entitlements.staffSeats || 0)) {
+    const error = new Error("Staff seat limit exceeded for this subscription plan.");
+    error.statusCode = 403;
+    throw error;
+  }
+}
+
+function normalizeCounterPayload(body) {
+  const name = String(body.name || "").trim();
+  const slug = normalizeCounterSlug(body.slug || name);
+
+  if (!name) {
+    const error = new Error("Counter name is required.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (!slug) {
+    const error = new Error("Counter slug must contain letters or numbers.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return {
+    name,
+    slug,
+    isActive: body.isActive !== false,
+    assignedUserIds: Array.isArray(body.assignedUserIds) ? body.assignedUserIds : []
+  };
 }
 
 async function getCounterForLocation(location, counterSlug) {
@@ -115,6 +260,42 @@ async function getCounterForLocation(location, counterSlug) {
   return counter;
 }
 
+router.get(
+  "/staff-invitations/:token",
+  asyncHandler(async (req, res) => {
+    const invitation = await staffInvitationRepository.findByToken(req.params.token);
+    if (!invitation) {
+      const error = new Error("Invitation not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const tenant = await tenantRepository.findTenantById(invitation.tenantId);
+    if (!tenant) {
+      const error = new Error("Invitation tenant not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const effectiveStatus =
+      invitation.status === "pending" && new Date(invitation.expiresAt).getTime() <= Date.now()
+        ? "expired"
+        : invitation.status;
+
+    res.json({
+      invitation: {
+        id: invitation._id,
+        tenantName: tenant.name,
+        tenantSlug: tenant.slug,
+        email: invitation.email,
+        role: normalizeAssignableTenantRole(invitation.role),
+        status: effectiveStatus,
+        expiresAt: invitation.expiresAt
+      }
+    });
+  })
+);
+
 router.use(authenticate);
 
 router.get(
@@ -122,7 +303,11 @@ router.get(
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     const location = await getLocationForTenant(tenant, req.query.location);
-    const snapshot = await getQueueSnapshot(tenant, { location });
+    const snapshot = await getQueueSnapshot(tenant, {
+      location,
+      nextUpSort: req.query.sort,
+      nextUpDirection: req.query.direction
+    });
 
     res.json(snapshot);
   })
@@ -142,6 +327,31 @@ router.get(
     res.json({
       activeLocationLimit,
       locations: await Promise.all(locations.map((location) => formatLocation(location, tenant)))
+    });
+  })
+);
+
+router.get(
+  "/tenant/:tenantSlug/locations/slug-availability",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    const slug = normalizeLocationSlug(req.query.slug);
+    const excludeSlug = normalizeLocationSlug(req.query.excludeSlug);
+
+    if (!slug) {
+      const error = new Error("Location slug must contain letters or numbers.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const existingLocation = await storeLocationRepository.findLocationByTenantAndSlug(
+      tenant._id,
+      slug
+    );
+
+    res.json({
+      slug,
+      available: !existingLocation || existingLocation.slug === excludeSlug
     });
   })
 );
@@ -212,7 +422,7 @@ router.post(
   "/tenant/:tenantSlug/locations",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantOwner(req.user, tenant._id);
+    assertTenantManager(req.user, tenant._id);
     const billing = await billingService.getBillingOverview(tenant._id);
     const activeLocationLimit = billing.subscription?.entitlements?.locations || 1;
     const existingLocations = await storeLocationRepository.listLocationsByTenantId(tenant._id);
@@ -239,8 +449,29 @@ router.patch(
   "/tenant/:tenantSlug/locations/:locationSlug",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantOwner(req.user, tenant._id);
+    assertTenantManager(req.user, tenant._id);
     const location = await getLocationForTenant(tenant, req.params.locationSlug);
+    if (location.isPrimary && req.body.isPrimary === false) {
+      const error = new Error("Primary locations cannot be unset. Set another location as primary instead.");
+      error.statusCode = 409;
+      throw error;
+    }
+    if (location.isPrimary && req.body.isActive === false) {
+      const error = new Error("Primary locations cannot be disabled.");
+      error.statusCode = 409;
+      throw error;
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(req.body, "slug") &&
+      normalizeLocationSlug(req.body.slug) !== location.slug
+    ) {
+      const error = new Error("Location slug cannot be changed after creation.");
+      error.statusCode = 409;
+      throw error;
+    }
+    if (req.body.isPrimary === true) {
+      req.body.isActive = true;
+    }
     if (req.body.isActive === true && !location.isActive) {
       const billing = await billingService.getBillingOverview(tenant._id);
       const activeLocationLimit = billing.subscription?.entitlements?.locations || 1;
@@ -264,13 +495,30 @@ router.patch(
   "/tenant/:tenantSlug/locations/:locationSlug/hours",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantOwner(req.user, tenant._id);
+    assertTenantManager(req.user, tenant._id);
     const location = await getLocationForTenant(tenant, req.params.locationSlug);
     const hours = Array.isArray(req.body.hours) ? req.body.hours : [];
     await storeLocationRepository.replaceHours(location._id, hours);
     const updatedLocation = await storeLocationRepository.findLocationById(location._id);
 
     res.json({ location: await formatLocation(updatedLocation, tenant) });
+  })
+);
+
+router.delete(
+  "/tenant/:tenantSlug/locations/:locationSlug",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantOwner(req.user, tenant._id);
+    const location = await getLocationForTenant(tenant, req.params.locationSlug);
+    if (location.isPrimary) {
+      const error = new Error("Primary locations cannot be deleted.");
+      error.statusCode = 409;
+      throw error;
+    }
+
+    await storeLocationRepository.deleteLocation(location._id);
+    res.status(204).send();
   })
 );
 
@@ -390,16 +638,17 @@ router.patch(
   "/tenant/:tenantSlug/settings",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantOwner(req.user, tenant._id);
+    assertTenantManager(req.user, tenant._id);
     await getLocationForTenant(tenant, req.query.location);
     const { queuePrefix, averageServiceMinutes, notificationThreshold, contactEmail, contactPhone } = req.body;
+    const isOwner = userIsTenantOwner(req.user, tenant._id);
 
     const updatedTenant = await tenantRepository.updateTenant(tenant._id, {
       queuePrefix: queuePrefix ? String(queuePrefix).slice(0, 4).toUpperCase() : tenant.queuePrefix,
       averageServiceMinutes: averageServiceMinutes ? Number(averageServiceMinutes) : tenant.averageServiceMinutes,
       notificationThreshold: notificationThreshold ? Number(notificationThreshold) : tenant.notificationThreshold,
-      contactEmail: typeof contactEmail === "string" ? contactEmail : tenant.contactEmail,
-      contactPhone: typeof contactPhone === "string" ? contactPhone : tenant.contactPhone
+      contactEmail: isOwner && typeof contactEmail === "string" ? contactEmail : tenant.contactEmail,
+      contactPhone: isOwner && typeof contactPhone === "string" ? contactPhone : tenant.contactPhone
     });
 
     res.json({
@@ -428,7 +677,9 @@ router.get(
     const tickets = await ticketRepository.listHistoryTickets(tenant._id, {
       limit,
       historyDays: entitlements.historyDays,
-      locationId: location?._id
+      locationId: location?._id,
+      sort: req.query.sort,
+      direction: req.query.direction
     });
 
     res.json({
@@ -454,7 +705,9 @@ router.get(
     const tickets = await ticketRepository.listClientTickets(tenant._id, {
       limit: 500,
       historyDays: entitlements.historyDays,
-      locationId: location?._id
+      locationId: location?._id,
+      sort: req.query.sort,
+      direction: req.query.direction
     });
     const clientsByKey = new Map();
 
@@ -473,6 +726,11 @@ router.get(
         existing.visitCount += 1;
         existing.notifyByEmail = existing.notifyByEmail || Boolean(ticket.notifyByEmail);
         existing.notifyBySms = existing.notifyBySms || Boolean(ticket.notifyBySms);
+        if (new Date(ticket.updatedAt).getTime() > new Date(existing.latestVisitAt).getTime()) {
+          existing.latestTicketNumber = ticket.ticketNumber;
+          existing.latestStatus = ticket.status;
+          existing.latestVisitAt = ticket.updatedAt;
+        }
         return;
       }
 
@@ -493,7 +751,13 @@ router.get(
     res.json({
       historyDays: entitlements.historyDays,
       historyLabel: entitlements.historyLabel,
-      clients: Array.from(clientsByKey.values())
+      clients: sortRecords(Array.from(clientsByKey.values()), req.query.sort, req.query.direction, {
+        customerName: (client) => client.customerName,
+        contact: (client) => client.customerEmail || client.customerPhone,
+        visitCount: (client) => client.visitCount,
+        latestTicketNumber: (client) => client.latestTicketNumber,
+        latestVisitAt: (client) => new Date(client.latestVisitAt).getTime()
+      })
     });
   })
 );
@@ -521,11 +785,37 @@ router.get(
   })
 );
 
+router.get(
+  "/tenant/:tenantSlug/counters/slug-availability",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    const location = await getLocationForTenant(tenant, req.query.location);
+    const slug = normalizeCounterSlug(req.query.slug);
+    const excludeSlug = normalizeCounterSlug(req.query.excludeSlug);
+
+    if (!slug) {
+      const error = new Error("Counter slug must contain letters or numbers.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const existingCounter = await serviceCounterRepository.findCounterByLocationAndSlug(
+      location._id,
+      slug
+    );
+
+    res.json({
+      slug,
+      available: !existingCounter || existingCounter.slug === excludeSlug
+    });
+  })
+);
+
 router.patch(
   "/tenant/:tenantSlug/counters/:counterSlug",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantOwner(req.user, tenant._id);
+    assertTenantManager(req.user, tenant._id);
     const location = await getLocationForTenant(tenant, req.query.location);
     const counter = await getCounterForLocation(location, req.params.counterSlug);
     const entitlements = await billingService.getTenantEntitlements(tenant._id);
@@ -538,15 +828,15 @@ router.patch(
       }
     }
 
-    const slug = normalizeCounterSlug(req.body.slug || req.body.name);
+    const counterPayload = normalizeCounterPayload(req.body);
     const updatedCounter = await serviceCounterRepository.updateCounter(counter._id, {
-      name: req.body.name,
-      slug,
-      isActive: req.body.isActive !== false
+      name: counterPayload.name,
+      slug: counterPayload.slug,
+      isActive: counterPayload.isActive
     });
     await serviceCounterRepository.replaceAssignments(
       updatedCounter._id,
-      req.body.assignedUserIds || []
+      counterPayload.assignedUserIds
     );
 
     res.json({ counter: updatedCounter });
@@ -557,7 +847,7 @@ router.delete(
   "/tenant/:tenantSlug/counters/:counterSlug",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantOwner(req.user, tenant._id);
+    assertTenantManager(req.user, tenant._id);
     const location = await getLocationForTenant(tenant, req.query.location);
     const counter = await getCounterForLocation(location, req.params.counterSlug);
     await serviceCounterRepository.deleteCounter(counter._id);
@@ -569,27 +859,45 @@ router.get(
   "/tenant/:tenantSlug/staff",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantOwner(req.user, tenant._id);
+    assertTenantManager(req.user, tenant._id);
     const entitlements = await billingService.getTenantEntitlements(tenant._id);
-    const staff = await userRepository.listUsersByTenantId(tenant._id);
+    const [staff, pendingInvites] = await Promise.all([
+      userRepository.listUsersByTenantId(tenant._id),
+      staffInvitationRepository.listActivePendingByTenantId(tenant._id)
+    ]);
     const assignedCountersByUserId = await serviceCounterRepository.listAssignedCounterIdsByUserIds(
       staff.map((user) => user._id)
     );
 
+    const staffRows = staff.map((user) => {
+      const membership = user.tenantMemberships.find(
+        (item) => String(item.tenantId) === String(tenant._id)
+      );
+      return {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        role: membership?.role || "staff",
+        isActive: isActiveMembership(membership),
+        assignedCounterIds: assignedCountersByUserId.get(String(user._id)) || []
+      };
+    });
+    const pendingInviteRows = pendingInvites.map((invitation) => formatInvitation(invitation));
+
     res.json({
       staffSeatLimit: entitlements.staffSeats || 0,
-      staff: staff.map((user) => {
-        const membership = user.tenantMemberships.find(
-          (item) => String(item.tenantId) === String(tenant._id)
-        );
-        return {
-          id: user._id,
-          name: user.name,
-          email: user.email,
-          phone: user.phone,
-          role: membership?.role || "staff",
-          assignedCounterIds: assignedCountersByUserId.get(String(user._id)) || []
-        };
+      pendingInvites: sortRecords(pendingInviteRows, req.query.inviteSort || req.query.sort, req.query.inviteDirection || req.query.direction, {
+        email: (invitation) => invitation.email,
+        role: (invitation) => invitation.role,
+        expiresAt: (invitation) => new Date(invitation.expiresAt).getTime()
+      }),
+      staff: sortRecords(staffRows, req.query.sort, req.query.direction, {
+        name: (member) => member.name,
+        contact: (member) => member.email || member.phone,
+        status: (member) => Number(member.isActive),
+        role: (member) => member.role,
+        counters: (member) => member.assignedCounterIds.length
       })
     });
   })
@@ -599,31 +907,200 @@ router.post(
   "/tenant/:tenantSlug/staff",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantOwner(req.user, tenant._id);
+    assertTenantManager(req.user, tenant._id);
     const entitlements = await billingService.getTenantEntitlements(tenant._id);
-    const staff = await userRepository.listUsersByTenantId(tenant._id);
-    if (staff.length >= Number(entitlements.staffSeats || 0)) {
-      const error = new Error("Staff seat limit exceeded for this subscription plan.");
-      error.statusCode = 403;
-      throw error;
-    }
+    await assertStaffInviteSeatAvailable(tenant._id, entitlements);
 
-    const email = String(req.body.email || "").trim().toLowerCase();
-    if (!email) {
-      const error = new Error("email is required.");
+    const email = normalizeEmail(req.body.email);
+    if (!email || !isValidEmail(email)) {
+      const error = new Error("A valid email is required.");
       error.statusCode = 400;
       throw error;
     }
 
     const user = await userRepository.findUserByEmail(email);
-    if (!user) {
-      const error = new Error("Staff must already have a GetPrio account before being added.");
+    if (user?.tenantMemberships.some(
+      (item) => String(item.tenantId) === String(tenant._id) && isActiveMembership(item)
+    )) {
+      const error = new Error("That email already has access to this tenant.");
+      error.statusCode = 409;
+      throw error;
+    }
+
+    const existingInvite = await staffInvitationRepository.findPendingByTenantAndEmail(
+      tenant._id,
+      email
+    );
+    if (existingInvite) {
+      const error = new Error("A pending invitation already exists for this email.");
+      error.statusCode = 409;
+      throw error;
+    }
+
+    const token = staffInvitationRepository.createInviteToken();
+    const inviteUrl = getStaffInviteUrl(token);
+    const inviteRole = userIsTenantOwner(req.user, tenant._id)
+      ? normalizeAssignableTenantRole(req.body.role)
+      : "staff";
+    const invitation = await staffInvitationRepository.createInvitation({
+      tenantId: tenant._id,
+      email,
+      role: inviteRole,
+      tokenHash: staffInvitationRepository.hashToken(token),
+      invitedByUserId: req.user._id,
+      expiresAt: getInviteExpiry()
+    });
+
+    await sendStaffInvitationEmail({
+      tenant,
+      invitation,
+      inviteUrl,
+      invitedBy: req.user
+    });
+
+    res.status(201).json({
+      invitation: formatInvitation(invitation, inviteUrl)
+    });
+  })
+);
+
+router.post(
+  "/tenant/:tenantSlug/staff-invitations/:inviteId/resend",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantManager(req.user, tenant._id);
+    const invitation = await staffInvitationRepository.findByIdForTenant(
+      req.params.inviteId,
+      tenant._id
+    );
+    if (!invitation || invitation.status !== "pending") {
+      const error = new Error("Pending invitation not found.");
       error.statusCode = 404;
       throw error;
     }
 
-    await userRepository.addTenantMembership(user._id, tenant._id, req.body.role || "staff");
-    res.status(201).json({ userId: user._id });
+    if (new Date(invitation.expiresAt).getTime() <= Date.now()) {
+      await staffInvitationRepository.expirePendingInvitations({ tenantId: tenant._id });
+      const error = new Error("This invitation has expired.");
+      error.statusCode = 410;
+      throw error;
+    }
+
+    const token = staffInvitationRepository.createInviteToken();
+    const inviteUrl = getStaffInviteUrl(token);
+    const refreshedInvitation = await staffInvitationRepository.refreshInvitation(
+      invitation._id,
+      {
+        tokenHash: staffInvitationRepository.hashToken(token),
+        expiresAt: getInviteExpiry()
+      }
+    );
+
+    await sendStaffInvitationEmail({
+      tenant,
+      invitation: refreshedInvitation,
+      inviteUrl,
+      invitedBy: req.user
+    });
+
+    res.json({
+      invitation: formatInvitation(refreshedInvitation, inviteUrl)
+    });
+  })
+);
+
+router.delete(
+  "/tenant/:tenantSlug/staff-invitations/:inviteId",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantManager(req.user, tenant._id);
+    const invitation = await staffInvitationRepository.findByIdForTenant(
+      req.params.inviteId,
+      tenant._id
+    );
+    if (!invitation || invitation.status !== "pending") {
+      const error = new Error("Pending invitation not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    await staffInvitationRepository.revokeInvitation(invitation._id);
+    res.status(204).send();
+  })
+);
+
+router.post(
+  "/staff-invitations/:token/accept",
+  asyncHandler(async (req, res) => {
+    const invitation = await staffInvitationRepository.findByToken(req.params.token);
+    if (!invitation) {
+      const error = new Error("Invitation not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    if (invitation.status !== "pending") {
+      const error = new Error("This invitation is no longer pending.");
+      error.statusCode = 409;
+      throw error;
+    }
+
+    if (new Date(invitation.expiresAt).getTime() <= Date.now()) {
+      await staffInvitationRepository.expirePendingInvitations({ tenantId: invitation.tenantId });
+      const error = new Error("This invitation has expired.");
+      error.statusCode = 410;
+      throw error;
+    }
+
+    if (normalizeEmail(req.user.email) !== invitation.email) {
+      const error = new Error("Sign in with the invited email address to accept this invitation.");
+      error.statusCode = 403;
+      throw error;
+    }
+
+    const tenant = await tenantRepository.findTenantById(invitation.tenantId);
+    if (!tenant) {
+      const error = new Error("Invitation tenant not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const acceptedInvitation = await db.withTransaction(async (client) => {
+      const currentUser = await userRepository.findUserById(req.user._id, { client });
+      if (currentUser.tenantMemberships.some(
+        (item) => String(item.tenantId) === String(invitation.tenantId)
+      )) {
+        return staffInvitationRepository.acceptInvitation(invitation._id, currentUser._id, {
+          client
+        });
+      }
+
+      await userRepository.addTenantMembership(
+        currentUser._id,
+        invitation.tenantId,
+        normalizeAssignableTenantRole(invitation.role),
+        { client }
+      );
+      return staffInvitationRepository.acceptInvitation(invitation._id, currentUser._id, {
+        client
+      });
+    });
+
+    if (!acceptedInvitation) {
+      const error = new Error("This invitation could not be accepted.");
+      error.statusCode = 409;
+      throw error;
+    }
+
+    res.json({
+      accepted: true,
+      tenant: {
+        id: String(tenant._id),
+        name: tenant.name,
+        slug: tenant.slug,
+        role: normalizeAssignableTenantRole(invitation.role)
+      }
+    });
   })
 );
 
@@ -632,6 +1109,7 @@ router.patch(
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantOwner(req.user, tenant._id);
+    const nextRole = normalizeAssignableTenantRole(req.body.role);
     const user = await userRepository.findUserById(req.params.userId);
     if (!user || !user.tenantMemberships.some((item) => String(item.tenantId) === String(tenant._id))) {
       const error = new Error("Staff member not found.");
@@ -642,26 +1120,59 @@ router.patch(
       (item) => String(item.tenantId) === String(tenant._id)
     );
 
-    if (membership.role === "owner" && req.body.role !== "owner") {
-      const staff = await userRepository.listUsersByTenantId(tenant._id);
-      const ownerCount = staff.filter((member) =>
-        member.tenantMemberships.some(
-          (item) => String(item.tenantId) === String(tenant._id) && item.role === "owner"
-        )
-      ).length;
-      if (ownerCount <= 1) {
-        const error = new Error("At least one tenant owner is required.");
-        error.statusCode = 400;
-        throw error;
-      }
+    if (membership.role === "owner") {
+      const error = new Error("Tenant owner roles are permanent and cannot be changed.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    if (req.body.role === "owner") {
+      const error = new Error("Owner role cannot be assigned from staff management.");
+      error.statusCode = 400;
+      throw error;
     }
 
     await userRepository.updateTenantMembershipRole(
       user._id,
       tenant._id,
-      req.body.role === "owner" ? "owner" : "staff"
+      nextRole
     );
-    res.json({ userId: user._id });
+    res.json({ userId: user._id, role: nextRole });
+  })
+);
+
+router.patch(
+  "/tenant/:tenantSlug/staff/:userId/access",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantManager(req.user, tenant._id);
+    const requesterRole = getRequesterTenantRole(req.user, tenant._id);
+    const user = await userRepository.findUserById(req.params.userId);
+    const membership = user?.tenantMemberships.find(
+      (item) => String(item.tenantId) === String(tenant._id)
+    );
+
+    if (!membership) {
+      const error = new Error("Staff member not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    if (membership.role === "owner") {
+      const error = new Error("Tenant owners cannot be disabled from staff management.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    if (requesterRole === "admin" && membership.role !== "staff") {
+      const error = new Error("Vendor admins can only disable vendor staff.");
+      error.statusCode = 403;
+      throw error;
+    }
+
+    const isActive = Boolean(req.body.isActive);
+    await userRepository.updateTenantMembershipAccess(user._id, tenant._id, isActive);
+    res.json({ userId: user._id, isActive });
   })
 );
 
@@ -694,7 +1205,7 @@ router.post(
   "/tenant/:tenantSlug/counters",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantOwner(req.user, tenant._id);
+    assertTenantManager(req.user, tenant._id);
     const location = await getLocationForTenant(tenant, req.query.location);
     const entitlements = await billingService.getTenantEntitlements(tenant._id);
     const counters = await serviceCounterRepository.listCountersByLocationId(location._id);
@@ -704,15 +1215,16 @@ router.post(
       throw error;
     }
 
+    const counterPayload = normalizeCounterPayload(req.body);
     const counter = await serviceCounterRepository.createCounter({
       tenantId: tenant._id,
       locationId: location._id,
-      name: req.body.name,
-      slug: String(req.body.slug || req.body.name).trim().toLowerCase().replace(/\s+/g, "-"),
-      isActive: req.body.isActive !== false
+      name: counterPayload.name,
+      slug: counterPayload.slug,
+      isActive: counterPayload.isActive
     });
 
-    await serviceCounterRepository.replaceAssignments(counter._id, req.body.assignedUserIds || []);
+    await serviceCounterRepository.replaceAssignments(counter._id, counterPayload.assignedUserIds);
     res.status(201).json({ counter });
   })
 );
@@ -733,7 +1245,7 @@ router.get(
   "/tenant/:tenantSlug/history/export",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantOwner(req.user, tenant._id);
+    assertTenantManager(req.user, tenant._id);
     const location = await getLocationForTenant(tenant, req.query.location);
     const entitlements = await billingService.getTenantEntitlements(tenant._id);
     const range = String(req.query.range || "today");

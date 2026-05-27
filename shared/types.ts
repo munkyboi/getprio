@@ -1,7 +1,8 @@
 export type OAuthProviderId = "google" | "facebook";
 export type AuthIntent = "login" | "register_customer" | "register_vendor";
 export type UserRole = "customer" | "vendor" | "platform_admin";
-export type TenantRole = "owner" | "staff";
+export type TenantRole = "owner" | "admin" | "staff";
+export type AssignableTenantRole = "admin" | "staff";
 export type JoinChannel = "online" | "qr" | "vendor";
 export type TicketStatus = "waiting" | "called" | "served" | "skipped" | "cancelled" | "unserved";
 export type SubscriptionPlanSlug = "economical" | "pro" | "enterprise";
@@ -125,6 +126,7 @@ export interface TenantMembershipSummary {
   name: string;
   slug: string;
   role: TenantRole;
+  isActive: boolean;
 }
 
 export interface UserSummary {
@@ -138,6 +140,21 @@ export interface UserSummary {
   oauthProviders: OAuthProviderId[];
   lastLoginProvider: string | null;
   tenants: TenantMembershipSummary[];
+}
+
+export interface UpdateAccountProfileRequest {
+  name: string;
+  email: string;
+  phone: string;
+}
+
+export interface UpdateAccountProfileResponse {
+  user: UserSummary;
+}
+
+export interface UpdateAccountPasswordRequest {
+  currentPassword?: string;
+  newPassword: string;
 }
 
 export interface OAuthProviderAvailability {
@@ -279,7 +296,7 @@ export interface CreateStoreLocationRequest {
   isActive: boolean;
 }
 
-export type UpdateStoreLocationRequest = CreateStoreLocationRequest;
+export type UpdateStoreLocationRequest = Omit<CreateStoreLocationRequest, "slug">;
 
 export interface UpdateStoreHoursRequest {
   hours: StoreHourSummary[];
@@ -379,6 +396,11 @@ export interface CompleteVendorOnboardingRequest {
   name: string;
   email: string;
   phone: string;
+}
+
+export interface TenantSlugAvailabilityResponse {
+  slug: string;
+  available: boolean;
 }
 
 export interface JoinQueueRequest {
@@ -535,21 +557,70 @@ export interface VendorStaffSummary {
   email: string | null;
   phone: string | null;
   role: TenantRole;
+  isActive: boolean;
   assignedCounterIds: string[];
+}
+
+export type StaffInvitationStatus = "pending" | "accepted" | "expired" | "revoked";
+
+export interface VendorStaffInvitationSummary {
+  id: string;
+  email: string;
+  role: AssignableTenantRole;
+  status: StaffInvitationStatus;
+  invitedAt: string | Date;
+  expiresAt: string | Date;
+  inviteUrl?: string;
 }
 
 export interface VendorStaffResponse {
   staff: VendorStaffSummary[];
+  pendingInvites: VendorStaffInvitationSummary[];
   staffSeatLimit: number;
 }
 
 export interface AddVendorStaffRequest {
   email: string;
-  role: TenantRole;
+  role: AssignableTenantRole;
+}
+
+export interface AddVendorStaffResponse {
+  invitation: VendorStaffInvitationSummary;
+}
+
+export interface StaffInvitationPreviewResponse {
+  invitation: {
+    id: string;
+    tenantName: string;
+    tenantSlug: string;
+    email: string;
+    role: AssignableTenantRole;
+    status: StaffInvitationStatus;
+    expiresAt: string | Date;
+  };
+}
+
+export interface AcceptStaffInvitationResponse {
+  accepted: boolean;
+  tenant: TenantMembershipSummary;
 }
 
 export interface UpdateVendorStaffRequest {
-  role: TenantRole;
+  role: AssignableTenantRole;
+}
+
+export interface UpdateVendorStaffResponse {
+  userId: string;
+  role: AssignableTenantRole;
+}
+
+export interface UpdateVendorStaffAccessRequest {
+  isActive: boolean;
+}
+
+export interface UpdateVendorStaffAccessResponse {
+  userId: string;
+  isActive: boolean;
 }
 
 export interface SaveServiceCounterRequest {
@@ -557,6 +628,16 @@ export interface SaveServiceCounterRequest {
   slug: string;
   isActive: boolean;
   assignedUserIds: string[];
+}
+
+export interface CounterSlugAvailabilityResponse {
+  slug: string;
+  available: boolean;
+}
+
+export interface LocationSlugAvailabilityResponse {
+  slug: string;
+  available: boolean;
 }
 
 export interface ServiceCountersResponse {

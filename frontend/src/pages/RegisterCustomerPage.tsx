@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Alert, Button, Paper, PasswordInput, SimpleGrid, Stack, Text, TextInput, Title } from "@mantine/core";
-import { Navigate, useNavigate } from "react-router-dom";
+import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import type { RegisterCustomerRequest } from "@shared";
 import SocialAuthButtons from "../components/SocialAuthButtons";
 import { useAuth } from "../context/AuthContext";
@@ -8,7 +8,11 @@ import { getErrorMessage } from "../utils/errors";
 
 export default function RegisterCustomerPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { loading, registerCustomer, user } = useAuth();
+  const redirectTo = searchParams.get("redirect") || "";
+  const safeRedirectTo =
+    redirectTo.startsWith("/") && !redirectTo.startsWith("//") ? redirectTo : "";
   const [form, setForm] = useState<RegisterCustomerRequest>({
     name: "",
     email: "",
@@ -19,16 +23,21 @@ export default function RegisterCustomerPage() {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
+    if (user && safeRedirectTo) {
+      navigate(safeRedirectTo, { replace: true });
+      return;
+    }
+
     if (user && !user.tenants?.length) {
       navigate("/", { replace: true });
     }
-  }, [navigate, user]);
+  }, [navigate, safeRedirectTo, user]);
 
   if (loading) {
     return <Paper className="finazze-auth-card" p="xl">Loading session...</Paper>;
   }
 
-  if (user && !user.tenants?.length) {
+  if (user && !user.tenants?.length && !safeRedirectTo) {
     return <Navigate to="/" replace />;
   }
 
@@ -39,7 +48,7 @@ export default function RegisterCustomerPage() {
 
     try {
       await registerCustomer(form);
-      navigate("/", { replace: true });
+      navigate(safeRedirectTo || "/", { replace: true });
     } catch (submitError) {
       setError(getErrorMessage(submitError));
     } finally {
@@ -60,10 +69,10 @@ export default function RegisterCustomerPage() {
         </div>
         <form onSubmit={handleSubmit}>
           <Stack gap="md">
-            <TextInput label="Name" required value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} />
-            <TextInput label="Email" required type="email" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} />
-            <TextInput label="Phone" value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} />
-            <PasswordInput label="Password" required value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} />
+            <TextInput label="Name" name="name" required value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} />
+            <TextInput label="Email" name="email" required type="email" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} />
+            <TextInput label="Phone" name="phone" value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} />
+            <PasswordInput label="Password" name="password" required value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} />
             {error ? <Alert color="red">{error}</Alert> : null}
             <Button color="dark" disabled={submitting} type="submit">
               {submitting ? "Creating account..." : "Register account"}

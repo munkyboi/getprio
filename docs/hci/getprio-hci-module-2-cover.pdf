@@ -1,0 +1,271 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Resources << /Font << /F1 4 0 R /F2 5 0 R >> >> /Contents 6 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+6 0 obj
+<< /Length 3334 >>
+stream
+0.980 0.965 0.941 rg
+0 0 595.28 841.89 re f
+0.920 0.380 0.150 rg
+BT
+/F2 10 Tf
+235.23999999999998 770 Td
+(HCI MODULE 2 DELIVERABLE) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 34 Tf
+235.76 728 Td
+(GetPrio) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 17 Tf
+160.61999999999998 694 Td
+(User Research Report & Personas) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 10 Tf
+112.9 662 Td
+(Cover sheet for the HCI Module 2 Figma boards and PDF deliverable for a) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 10 Tf
+131.1 648 Td
+(multi-tenant QR-based digital queue management capstone project.) Tj
+ET
+1.000 1.000 1.000 rg
+0.850 0.810 0.750 RG
+54 430 487 180 re B
+0.350 0.390 0.450 rg
+BT
+/F2 8 Tf
+78 575 Td
+(NAME) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 14 Tf
+78 555 Td
+(Roberto Carlo Abella) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F2 8 Tf
+336 575 Td
+(STUDENT ID) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 14 Tf
+336 555 Td
+(2025040965) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F2 8 Tf
+78 522 Td
+(CAPSTONE APP) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 14 Tf
+78 502 Td
+(GetPrio) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F2 8 Tf
+336 522 Td
+(INSTRUCTOR) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 14 Tf
+336 502 Td
+(Engr. Vicente Patalita III) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F2 8 Tf
+78 474 Td
+(MODULE) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 14 Tf
+78 454 Td
+(HCI Module 2) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F2 8 Tf
+336 474 Td
+(DELIVERABLE) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 14 Tf
+336 454 Td
+(User Research Report & Personas) Tj
+ET
+0.890 0.940 0.980 rg
+0.120 0.310 0.530 RG
+54 332 487 84 re B
+0.120 0.310 0.530 rg
+BT
+/F2 13 Tf
+78 382 Td
+(Figma Board URL) Tj
+ET
+0.120 0.310 0.530 rg
+BT
+/F1 8.4 Tf
+78 360 Td
+(https://www.figma.com/design/rwKhBnsKjEBprhQpC5kiez/GetPrio-HCI---IAS--UI-UX-?node-id=57-2) Tj
+ET
+0.860 0.960 0.930 rg
+0.050 0.460 0.360 RG
+54 128 234 170 re B
+0.050 0.460 0.360 rg
+BT
+/F2 16 Tf
+72 264 Td
+(Included Boards) Tj
+ET
+0.050 0.460 0.360 rg
+74 225 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 9.5 Tf
+88 230 Td
+(Research report overview with) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.5 Tf
+88 217 Td
+(objectives and assumptions.) Tj
+ET
+0.050 0.460 0.360 rg
+74 199 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 9.5 Tf
+88 204 Td
+(Research method and key findings.) Tj
+ET
+0.050 0.460 0.360 rg
+74 186 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 9.5 Tf
+88 191 Td
+(Persona overview map for customer,) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.5 Tf
+88 178 Td
+(vendor staff, vendor admin, and) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.5 Tf
+88 165 Td
+(platform admin.) Tj
+ET
+0.050 0.460 0.360 rg
+74 147 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 9.5 Tf
+88 152 Td
+(Detailed persona boards and) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.5 Tf
+88 139 Td
+(research-to-design traceability.) Tj
+ET
+0.930 0.910 0.980 rg
+0.350 0.250 0.620 RG
+307 128 234 170 re B
+0.350 0.250 0.620 rg
+BT
+/F2 16 Tf
+325 264 Td
+(Security Scope) Tj
+ET
+0.350 0.250 0.620 rg
+327 225 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 9.5 Tf
+341 230 Td
+(MVP includes password login,) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.5 Tf
+341 217 Td
+(JWT/session handling, RBAC, OTP,) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.5 Tf
+341 204 Td
+(and CAPTCHA states.) Tj
+ET
+0.350 0.250 0.620 rg
+327 186 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 9.5 Tf
+341 191 Td
+(OAuth2 is documented as a planned) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.5 Tf
+341 178 Td
+(post-MVP admin sign-in enhancement.) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.5 Tf
+222.5 56 Td
+(Generated for capstone submission.) Tj
+ET
+endstream
+endobj
+xref
+0 7
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000257 00000 n 
+0000000327 00000 n 
+0000000402 00000 n 
+trailer
+<< /Size 7 /Root 1 0 R >>
+startxref
+3788
+%%EOF

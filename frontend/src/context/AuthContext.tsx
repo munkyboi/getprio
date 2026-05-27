@@ -29,6 +29,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     useState<OAuthProviderAvailability>(EMPTY_OAUTH_PROVIDERS);
   const [oauthLoading, setOauthLoading] = useState(true);
 
+  async function refreshUser(): Promise<UserSummary | null> {
+    if (!token) {
+      setUser(null);
+      return null;
+    }
+
+    const data = await apiRequest<{ user: UserSummary }>("/auth/me", { token });
+    setUser(data.user);
+    return data.user;
+  }
+
   useEffect(() => {
     apiRequest<OAuthProvidersResponse>("/auth/oauth/providers")
       .then((data) => {
@@ -136,6 +147,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       startUrl.searchParams.set("intent", intent);
       window.location.assign(startUrl.toString());
     },
+    refreshUser,
     logout() {
       setToken("");
       setUser(null);

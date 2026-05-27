@@ -1,0 +1,1435 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [5 0 R 7 0 R 9 0 R 11 0 R 13 0 R 15 0 R 17 0 R] /Count 7 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 6 0 R >>
+endobj
+6 0 obj
+<< /Length 2925 >>
+stream
+0.980 0.965 0.941 rg
+0 0 595.28 841.89 re f
+0.920 0.380 0.150 rg
+BT
+/F2 9 Tf
+46 796.89 Td
+(GETPRIO HCI DESIGN BRIEF) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 25 Tf
+46 763.89 Td
+(Capstone Application Overview) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 9.5 Tf
+46 737.89 Td
+(A human-computer interaction brief for GetPrio, a multi-tenant QR-based digital queue) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 9.5 Tf
+46 724.89 Td
+(management and platform operations system.) Tj
+ET
+0.890 0.940 0.980 rg
+0.120 0.310 0.530 RG
+46 585 240 128 re B
+0.120 0.310 0.530 rg
+BT
+/F2 13 Tf
+62 685 Td
+(Application) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.4 Tf
+62 663 Td
+(GetPrio helps customers join queues) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.4 Tf
+62 650.5 Td
+(through QR or online links, verify queue) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.4 Tf
+62 638 Td
+(joins, receive ticket numbers, monitor) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.4 Tf
+62 625.5 Td
+(queue movement, and receive near-turn) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.4 Tf
+62 613 Td
+(alerts.) Tj
+ET
+1.000 0.920 0.840 rg
+0.920 0.380 0.150 RG
+310 585 240 128 re B
+0.920 0.380 0.150 rg
+BT
+/F2 13 Tf
+326 685 Td
+(Primary HCI Problem) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.4 Tf
+326 663 Td
+(Manual queues create uncertainty,) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.4 Tf
+326 650.5 Td
+(crowded waiting areas, repeated staff) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.4 Tf
+326 638 Td
+(interruptions, and missed turns. The) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.4 Tf
+326 625.5 Td
+(interface must make queue state visible) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.4 Tf
+326 613 Td
+(and actionable.) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 22 Tf
+46 540 Td
+(Design Goals) Tj
+ET
+0.050 0.460 0.360 rg
+46 510.496 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 9.2 Tf
+60 507 Td
+(Reduce uncertainty by making ticket number, queue position, current ticket,) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.2 Tf
+60 494.5 Td
+(and next action visible.) Tj
+ET
+0.050 0.460 0.360 rg
+46 481.496 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 9.2 Tf
+60 478 Td
+(Minimize vendor workload by grouping call-next, serve, skip, and walk-in) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.2 Tf
+60 465.5 Td
+(actions around the active queue state.) Tj
+ET
+0.050 0.460 0.360 rg
+46 452.496 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 9.2 Tf
+60 449 Td
+(Support role-aware navigation for customers, vendor staff, vendor admins, and) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.2 Tf
+60 436.5 Td
+(platform admins.) Tj
+ET
+0.050 0.460 0.360 rg
+46 423.496 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 9.2 Tf
+60 420 Td
+(Keep public queue screens readable on mobile phones and larger display boards.) Tj
+ET
+0.050 0.460 0.360 rg
+46 406.996 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 9.2 Tf
+60 403.5 Td
+(Make security steps, such as OTP, CAPTCHA, JWT sessions, and post-MVP OAuth2,) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.2 Tf
+60 391 Td
+(understandable without adding unnecessary friction.) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8 Tf
+285.15999999999997 28 Td
+(Page 1) Tj
+ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 8 0 R >>
+endobj
+8 0 obj
+<< /Length 3544 >>
+stream
+0.980 0.965 0.941 rg
+0 0 595.28 841.89 re f
+0.920 0.380 0.150 rg
+BT
+/F2 9 Tf
+46 796.89 Td
+(GETPRIO HCI DESIGN BRIEF) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 25 Tf
+46 763.89 Td
+(Target Users and Context) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 9.5 Tf
+46 737.89 Td
+(The design brief separates the main audiences so each workflow can be evaluated against) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 9.5 Tf
+46 724.89 Td
+(the right user need.) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 22 Tf
+46 700 Td
+(Target Users) Tj
+ET
+1.000 1.000 1.000 rg
+0.850 0.810 0.750 RG
+46 350 502 290 re B
+0.090 0.130 0.170 rg
+46 582 112 58 re f
+1.000 1.000 1.000 rg
+BT
+/F2 8.5 Tf
+54 612 Td
+(User) Tj
+ET
+0.090 0.130 0.170 rg
+158 582 260 58 re f
+1.000 1.000 1.000 rg
+BT
+/F2 8.5 Tf
+166 612 Td
+(Need) Tj
+ET
+0.090 0.130 0.170 rg
+418 582 130 58 re f
+1.000 1.000 1.000 rg
+BT
+/F2 8.5 Tf
+426 612 Td
+(Key Screen) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 8.1 Tf
+54 564 Td
+(Customer) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+166 564 Td
+(Join a queue, track progress, and avoid) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+166 552.5 Td
+(missing a turn.) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+426 564 Td
+(Join Queue / Public) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+426 552.5 Td
+(Board) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 8.1 Tf
+54 506 Td
+(Vendor Staff) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+166 506 Td
+(Operate assigned queue actions quickly and) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+166 494.5 Td
+(safely.) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+426 506 Td
+(Vendor Queue) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+426 494.5 Td
+(Dashboard) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 8.1 Tf
+54 448 Td
+(Vendor Admin) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+166 448 Td
+(Manage queue settings, locations, counters,) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+166 436.5 Td
+(staff, history, and reports.) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+426 448 Td
+(Dashboard Sections) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 8.1 Tf
+54 390 Td
+(Platform Admin) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+166 390 Td
+(Monitor tenants, users, subscriptions,) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+166 378.5 Td
+(payments, and billing activity.) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+426 390 Td
+(Platform Dashboard) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F2 8.5 Tf
+46 650 Td
+(User groups and needs) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 22 Tf
+46 300 Td
+(Design Context) Tj
+ET
+0.120 0.310 0.530 rg
+46 272.534 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 9.3 Tf
+60 269 Td
+(Customers may arrive from a public QR code, a shared link, or a queue display and need) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.3 Tf
+60 256.5 Td
+(immediate confidence that the join action worked.) Tj
+ET
+0.120 0.310 0.530 rg
+46 246.534 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 9.3 Tf
+60 243 Td
+(Vendor staff repeatedly perform operational actions during peak queue periods, so) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.3 Tf
+60 230.5 Td
+(controls must stay close to the active ticket state.) Tj
+ET
+0.120 0.310 0.530 rg
+46 220.534 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 9.3 Tf
+60 217 Td
+(Vendor admins need configuration, reporting, and staff-management screens without mixing) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.3 Tf
+60 204.5 Td
+(them into the live queue operator flow.) Tj
+ET
+0.120 0.310 0.530 rg
+46 194.534 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 9.3 Tf
+60 191 Td
+(Platform admins need higher-level visibility into tenants, subscriptions, payments,) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.3 Tf
+60 178.5 Td
+(users, and system health.) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8 Tf
+285.15999999999997 28 Td
+(Page 2) Tj
+ET
+endstream
+endobj
+9 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 10 0 R >>
+endobj
+10 0 obj
+<< /Length 2126 >>
+stream
+0.980 0.965 0.941 rg
+0 0 595.28 841.89 re f
+0.920 0.380 0.150 rg
+BT
+/F2 9 Tf
+46 796.89 Td
+(GETPRIO HCI DESIGN BRIEF) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 25 Tf
+46 763.89 Td
+(User Flows: Customer and Vendor) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 9.5 Tf
+46 737.89 Td
+(The prototype prioritizes the two highest-frequency workflows: customer queue joining) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 9.5 Tf
+46 724.89 Td
+(and vendor queue operation.) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 22 Tf
+46 700 Td
+(Primary Flow 1: Customer QR Join) Tj
+ET
+0.120 0.310 0.530 rg
+46 662.8 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 10 Tf
+60 659 Td
+(Open QR or online join link for a tenant/location.) Tj
+ET
+0.120 0.310 0.530 rg
+46 643.3 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 10 Tf
+60 639.5 Td
+(Enter name, email or phone, optional notes, and notification preferences.) Tj
+ET
+0.120 0.310 0.530 rg
+46 623.8 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 10 Tf
+60 620 Td
+(Complete security check and OTP verification.) Tj
+ET
+0.120 0.310 0.530 rg
+46 604.3 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 10 Tf
+60 600.5 Td
+(Receive ticket number and lookup code.) Tj
+ET
+0.120 0.310 0.530 rg
+46 584.8 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 10 Tf
+60 581 Td
+(Open public queue board and monitor progress.) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 22 Tf
+46 455 Td
+(Primary Flow 2: Vendor Queue Operation) Tj
+ET
+0.920 0.380 0.150 rg
+46 417.8 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 10 Tf
+60 414 Td
+(Open dashboard and select tenant, location, and service counter.) Tj
+ET
+0.920 0.380 0.150 rg
+46 398.3 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 10 Tf
+60 394.5 Td
+(Review current, waiting, served, skipped, and cancelled tickets.) Tj
+ET
+0.920 0.380 0.150 rg
+46 378.8 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 10 Tf
+60 375 Td
+(Create a walk-in ticket when needed.) Tj
+ET
+0.920 0.380 0.150 rg
+46 359.3 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 10 Tf
+60 355.5 Td
+(Call next ticket, then serve or skip the current ticket.) Tj
+ET
+0.920 0.380 0.150 rg
+46 339.8 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 10 Tf
+60 336 Td
+(Share join URL, QR target, and monitor URL.) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8 Tf
+285.15999999999997 28 Td
+(Page 3) Tj
+ET
+endstream
+endobj
+11 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 12 0 R >>
+endobj
+12 0 obj
+<< /Length 1746 >>
+stream
+0.980 0.965 0.941 rg
+0 0 595.28 841.89 re f
+0.920 0.380 0.150 rg
+BT
+/F2 9 Tf
+46 796.89 Td
+(GETPRIO HCI DESIGN BRIEF) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 25 Tf
+46 763.89 Td
+(User Flow: Platform Monitoring) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 9.5 Tf
+46 737.89 Td
+(The platform workflow supports oversight of tenants, billing, payments, and) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 9.5 Tf
+46 724.89 Td
+(administrative health.) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 22 Tf
+46 700 Td
+(Primary Flow 3: Platform Monitoring) Tj
+ET
+0.350 0.250 0.620 rg
+46 662.8 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 10 Tf
+60 659 Td
+(Sign in through the platform operations dashboard.) Tj
+ET
+0.350 0.250 0.620 rg
+46 643.3 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 10 Tf
+60 639.5 Td
+(Review tenant, user, revenue, subscription, and payment metrics.) Tj
+ET
+0.350 0.250 0.620 rg
+46 623.8 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 10 Tf
+60 620 Td
+(Configure queue fees and subscription plans.) Tj
+ET
+0.350 0.250 0.620 rg
+46 604.3 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 10 Tf
+60 600.5 Td
+(Inspect tenants, users, queue join payments, subscriptions, and billing events.) Tj
+ET
+0.930 0.910 0.980 rg
+0.350 0.250 0.620 RG
+46 390 502 138 re B
+0.350 0.250 0.620 rg
+BT
+/F2 13 Tf
+62 500 Td
+(Scope Note) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.4 Tf
+62 478 Td
+(The platform-monitoring flow is included because GetPrio depends on tenant subscriptions,) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.4 Tf
+62 465.5 Td
+(queue-join payments, and administrative controls. The HCI review should still prioritize) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.4 Tf
+62 453 Td
+(customer and vendor staff tasks first because those are the highest-frequency interactions.) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8 Tf
+285.15999999999997 28 Td
+(Page 4) Tj
+ET
+endstream
+endobj
+13 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 14 0 R >>
+endobj
+14 0 obj
+<< /Length 3486 >>
+stream
+0.980 0.965 0.941 rg
+0 0 595.28 841.89 re f
+0.920 0.380 0.150 rg
+BT
+/F2 9 Tf
+46 796.89 Td
+(GETPRIO HCI DESIGN BRIEF) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 25 Tf
+46 763.89 Td
+(Interface Requirements) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 9.5 Tf
+46 737.89 Td
+(The HCI design uses wireframes and annotations to connect each screen to its task) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 9.5 Tf
+46 724.89 Td
+(purpose and security consideration.) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 22 Tf
+46 700 Td
+(Required Screens) Tj
+ET
+1.000 1.000 1.000 rg
+0.850 0.810 0.750 RG
+46 188 502 462 re B
+0.090 0.130 0.170 rg
+46 584 48 66 re f
+1.000 1.000 1.000 rg
+BT
+/F2 8.5 Tf
+54 622 Td
+(Priority) Tj
+ET
+0.090 0.130 0.170 rg
+94 584 130 66 re f
+1.000 1.000 1.000 rg
+BT
+/F2 8.5 Tf
+102 622 Td
+(Screen) Tj
+ET
+0.090 0.130 0.170 rg
+224 584 190 66 re f
+1.000 1.000 1.000 rg
+BT
+/F2 8.5 Tf
+232 622 Td
+(HCI Purpose) Tj
+ET
+0.090 0.130 0.170 rg
+414 584 134 66 re f
+1.000 1.000 1.000 rg
+BT
+/F2 8.5 Tf
+422 622 Td
+(IAS Trace) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 8.1 Tf
+54 566 Td
+(P0) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+102 566 Td
+(Join Queue Form) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+232 566 Td
+(Complete queue join quickly.) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+422 566 Td
+(PI collection,) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+422 554.5 Td
+(CAPTCHA, OTP request.) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 8.1 Tf
+54 500 Td
+(P0) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+102 500 Td
+(OTP Verification) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+232 500 Td
+(Confirm identity/contact) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+232 488.5 Td
+(channel.) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+422 500 Td
+(OTP brute-force and) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+422 488.5 Td
+(enumeration risk.) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 8.1 Tf
+54 434 Td
+(P0) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+102 434 Td
+(Ticket Confirmed) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+232 434 Td
+(Show ticket, lookup code, and) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+232 422.5 Td
+(next action.) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+422 434 Td
+(Lookup-code privacy.) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 8.1 Tf
+54 368 Td
+(P0) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+102 368 Td
+(Public Queue Board) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+232 368 Td
+(Monitor queue without staff) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+232 356.5 Td
+(assistance.) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+422 368 Td
+(Public data) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+422 356.5 Td
+(minimization.) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 8.1 Tf
+54 302 Td
+(P0) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+102 302 Td
+(Vendor Queue) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+102 290.5 Td
+(Dashboard) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+232 302 Td
+(Run queue operations) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+232 290.5 Td
+(efficiently.) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+422 302 Td
+(Tenant RBAC and) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+422 290.5 Td
+(ticket mutation.) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 8.1 Tf
+54 236 Td
+(P1) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+102 236 Td
+(Platform Overview) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+232 236 Td
+(Monitor platform health.) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+422 236 Td
+(Platform admin) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+422 224.5 Td
+(authorization.) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F2 8.5 Tf
+46 660 Td
+(Screen inventory) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8 Tf
+285.15999999999997 28 Td
+(Page 5) Tj
+ET
+endstream
+endobj
+15 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 16 0 R >>
+endobj
+16 0 obj
+<< /Length 2637 >>
+stream
+0.980 0.965 0.941 rg
+0 0 595.28 841.89 re f
+0.920 0.380 0.150 rg
+BT
+/F2 9 Tf
+46 796.89 Td
+(GETPRIO HCI DESIGN BRIEF) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 25 Tf
+46 763.89 Td
+(Interaction and Accessibility Rules) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 9.5 Tf
+46 737.89 Td
+(These rules guide the high-fidelity prototype and usability review so GetPrio remains) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 9.5 Tf
+46 724.89 Td
+(clear, readable, and recoverable under queue pressure.) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 22 Tf
+46 700 Td
+(Interaction Rules) Tj
+ET
+0.050 0.460 0.360 rg
+46 660.8 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 10 Tf
+60 657 Td
+(Use visible labels for all form fields; do not rely on placeholders alone.) Tj
+ET
+0.050 0.460 0.360 rg
+46 641.3 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 10 Tf
+60 637.5 Td
+(Keep mobile queue joining in one column with primary action visible.) Tj
+ET
+0.050 0.460 0.360 rg
+46 621.8 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 10 Tf
+60 618 Td
+(Use large ticket numbers and text labels for queue status, not color alone.) Tj
+ET
+0.050 0.460 0.360 rg
+46 602.3 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 10 Tf
+60 598.5 Td
+(Show clear empty, error, loading, unauthorized, OTP failed, and session-expiry) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 10 Tf
+60 584 Td
+(states.) Tj
+ET
+0.050 0.460 0.360 rg
+46 568.3 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 10 Tf
+60 564.5 Td
+(Confirm destructive actions such as cancelling a waiting ticket.) Tj
+ET
+0.050 0.460 0.360 rg
+46 548.8 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 10 Tf
+60 545 Td
+(Keep dashboard actions close to the ticket state they affect.) Tj
+ET
+0.860 0.960 0.930 rg
+0.050 0.460 0.360 RG
+46 355 502 126 re B
+0.050 0.460 0.360 rg
+BT
+/F2 13 Tf
+62 453 Td
+(Accessibility Focus) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.4 Tf
+62 431 Td
+(The prototype should be reviewed for readable contrast, keyboard-accessible controls,) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.4 Tf
+62 418.5 Td
+(visible focus states, clear form errors, non-color-only status indicators, and) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.4 Tf
+62 406 Td
+(mobile-friendly queue monitoring.) Tj
+ET
+0.890 0.940 0.980 rg
+0.120 0.310 0.530 RG
+46 205 502 116 re B
+0.120 0.310 0.530 rg
+BT
+/F2 13 Tf
+62 293 Td
+(Security Roadmap) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.4 Tf
+62 271 Td
+(MVP authentication should prioritize password login, JWT/session handling, RBAC, OTP queue) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.4 Tf
+62 258.5 Td
+(joins, and abuse protection. OAuth2 sign-in is planned after MVP for vendor and platform) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.4 Tf
+62 246 Td
+(administrator accounts.) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8 Tf
+285.15999999999997 28 Td
+(Page 6) Tj
+ET
+endstream
+endobj
+17 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 18 0 R >>
+endobj
+18 0 obj
+<< /Length 3711 >>
+stream
+0.980 0.965 0.941 rg
+0 0 595.28 841.89 re f
+0.920 0.380 0.150 rg
+BT
+/F2 9 Tf
+46 796.89 Td
+(GETPRIO HCI DESIGN BRIEF) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 25 Tf
+46 763.89 Td
+(Usability Evaluation Plan) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 9.5 Tf
+46 737.89 Td
+(The evaluation checks whether GetPrio reduces queue uncertainty and supports repeated) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 9.5 Tf
+46 724.89 Td
+(queue operation without unnecessary cognitive load.) Tj
+ET
+1.000 1.000 1.000 rg
+0.850 0.810 0.750 RG
+46 234 502 456 re B
+0.090 0.130 0.170 rg
+46 614 150 76 re f
+1.000 1.000 1.000 rg
+BT
+/F2 8.5 Tf
+54 662 Td
+(Scenario) Tj
+ET
+0.090 0.130 0.170 rg
+196 614 250 76 re f
+1.000 1.000 1.000 rg
+BT
+/F2 8.5 Tf
+204 662 Td
+(Success Criteria) Tj
+ET
+0.090 0.130 0.170 rg
+446 614 102 76 re f
+1.000 1.000 1.000 rg
+BT
+/F2 8.5 Tf
+454 662 Td
+(Metric) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 8.1 Tf
+54 596 Td
+(Customer joins from QR) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+204 596 Td
+(Completes join, OTP verification, and) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+204 584.5 Td
+(ticket confirmation without staff help.) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+454 596 Td
+(Completion,) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+454 584.5 Td
+(time, errors) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 8.1 Tf
+54 520 Td
+(Customer checks queue) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+204 520 Td
+(Finds current ticket, own ticket, and) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+204 508.5 Td
+(waiting context within 10 seconds.) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+454 520 Td
+(Comprehension) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 8.1 Tf
+54 444 Td
+(Vendor calls next) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+204 444 Td
+(Calls next and serves/skips current) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+204 432.5 Td
+(ticket from main queue screen.) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+454 444 Td
+(Clicks,) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+454 432.5 Td
+(hesitation) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 8.1 Tf
+54 368 Td
+(Vendor adds walk-in) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+204 368 Td
+(Creates ticket while keeping queue) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+204 356.5 Td
+(visibility.) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+454 368 Td
+(Completion,) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+454 356.5 Td
+(missed fields) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 8.1 Tf
+54 292 Td
+(Platform admin reviews) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+204 292 Td
+(Finds tenants, users, subscriptions,) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+204 280.5 Td
+(payments, and billing events.) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.1 Tf
+454 292 Td
+(Navigation path) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F2 8.5 Tf
+46 700 Td
+(Usability test scenarios) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 22 Tf
+46 205 Td
+(Evaluation Metrics) Tj
+ET
+0.860 0.960 0.930 rg
+0.050 0.460 0.360 RG
+46 70 240 110 re B
+0.050 0.460 0.360 rg
+BT
+/F2 13 Tf
+62 152 Td
+(Quantitative) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.4 Tf
+62 130 Td
+(Completion rate, time on task, input) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.4 Tf
+62 117.5 Td
+(errors, recovery attempts, navigation) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.4 Tf
+62 105 Td
+(missteps, and help prompts.) Tj
+ET
+0.930 0.910 0.980 rg
+0.350 0.250 0.620 RG
+310 70 240 110 re B
+0.350 0.250 0.620 rg
+BT
+/F2 13 Tf
+326 152 Td
+(Qualitative) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.4 Tf
+326 130 Td
+(Perceived clarity, confidence in queue) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.4 Tf
+326 117.5 Td
+(status, trust in ticket confirmation,) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.4 Tf
+326 105 Td
+(ease of next action, and perceived) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.4 Tf
+326 92.5 Td
+(security friction.) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8 Tf
+285.15999999999997 28 Td
+(Page 7) Tj
+ET
+endstream
+endobj
+xref
+0 19
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000155 00000 n 
+0000000225 00000 n 
+0000000300 00000 n 
+0000000442 00000 n 
+0000003419 00000 n 
+0000003561 00000 n 
+0000007157 00000 n 
+0000007300 00000 n 
+0000009479 00000 n 
+0000009623 00000 n 
+0000011422 00000 n 
+0000011566 00000 n 
+0000015105 00000 n 
+0000015249 00000 n 
+0000017939 00000 n 
+0000018083 00000 n 
+trailer
+<< /Size 19 /Root 1 0 R >>
+startxref
+21847
+%%EOF

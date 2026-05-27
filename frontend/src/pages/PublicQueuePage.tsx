@@ -2,10 +2,13 @@ import { useEffect, useState, type CSSProperties } from "react";
 import { Badge, Box, Button, Group, Paper, SimpleGrid, Stack, Table, Text, Title } from "@mantine/core";
 import QRCode from "react-qr-code";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import type { QueueSnapshot, StoreHourSummary } from "@shared";
+import type { QueueSnapshot } from "@shared";
 import { API_BASE_URL, apiRequest } from "../api/client";
 import { buildJoinPath, buildJoinUrl } from "../queuePaths";
 import { getErrorMessage } from "../utils/errors";
+
+type SortDirection = "asc" | "desc";
+type SortState = { key: string; direction: SortDirection };
 
 function maskNamePart(namePart: string): string {
   if (!namePart) {
@@ -37,63 +40,13 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${red}, ${green}, ${blue}, ${Math.min(1, Math.max(0, alpha))})`;
 }
 
-const weekdayLabels = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
-
-function getTodayIndex(timezone?: string): number {
-  const weekday = new Intl.DateTimeFormat("en-US", {
-    timeZone: timezone || "Asia/Manila",
-    weekday: "short"
-  }).format(new Date());
-
-  return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(weekday);
-}
-
-function formatDisplayTime(value: string): string {
-  const [hourValue = "0", minuteValue = "0"] = value.split(":");
-  const hour = Number(hourValue);
-  const minute = Number(minuteValue);
-  const period = hour >= 12 ? "PM" : "AM";
-  const displayHour = hour % 12 || 12;
-
-  return minute ? `${displayHour}:${String(minute).padStart(2, "0")}${period}` : `${displayHour}${period}`;
-}
-
-function formatHoursLabel(hour: StoreHourSummary): string {
-  if (hour.isClosed) {
-    return "Closed";
-  }
-
-  if (!hour.opensAt || !hour.closesAt) {
-    return "--  •  --";
-  }
-
-  if (hour.opensAt === "00:00" && hour.closesAt === "00:00") {
-    return "Open 24h";
-  }
-
-  return `${formatDisplayTime(hour.opensAt)}  •  ${formatDisplayTime(hour.closesAt)}`;
-}
-
-function normalizeHours(hours: StoreHourSummary[] = []): StoreHourSummary[] {
-  return Array.from({ length: 7 }, (_, weekday) => {
-    const hour = hours.find((item) => item.weekday === weekday);
-
-    return (
-      hour || {
-        weekday,
-        opensAt: "",
-        closesAt: "",
-        isClosed: false
-      }
-    );
-  });
-}
-
 export default function PublicQueuePage() {
   const { tenantSlug, locationSlug } = useParams<{ tenantSlug: string; locationSlug?: string }>();
   const [searchParams] = useSearchParams();
   const [snapshot, setSnapshot] = useState<QueueSnapshot | null>(null);
   const [error, setError] = useState("");
+  const [liveStatus, setLiveStatus] = useState<"connecting" | "connected" | "reconnecting">("connecting");
+  const [sort, setSort] = useState<SortState>({ key: "position", direction: "asc" });
   const lookupCode = searchParams.get("ticket") || "";
   const tenantSlugValue = tenantSlug || "";
   const joinPath = tenantSlug ? buildJoinPath(tenantSlug, locationSlug) : "/";
@@ -152,12 +105,8 @@ export default function PublicQueuePage() {
   const headerColor = theme?.headerColor || "#24160f";
   const subheaderColor = theme?.subheaderColor || "#8a5c39";
   const bodyColor = theme?.bodyColor || "#3f3027";
-  const heroTitle = theme?.heroTitle || snapshot?.location?.name || snapshot?.tenant?.name || tenantSlugValue;
-  const heroSubtitle =
-    theme?.heroSubtitle ||
-    "Customers can monitor their turn remotely and join the line online if the vendor has enabled the public flow.";
-  const locationHours = normalizeHours(snapshot?.location?.hours || []);
-  const todayIndex = getTodayIndex(snapshot?.location?.timezone);
+  const businessName = snapshot?.tenant?.name || tenantSlugValue;
+  const locationName = snapshot?.location?.name || "Primary location";
   const queueProgressTickets = [
     ...(snapshot?.current
       ? [
@@ -183,7 +132,14 @@ export default function PublicQueuePage() {
     }
 
     let active = true;
-    const query = lookupCode ? `?lookupCode=${encodeURIComponent(lookupCode)}` : "";
+    const params = new URLSearchParams({
+      sort: sort.key,
+      direction: sort.direction
+    });
+    if (lookupCode) {
+      params.set("lookupCode", lookupCode);
+    }
+    const query = `?${params.toString()}`;
     const basePath = locationSlug
       ? `/public/tenant/${tenantSlug}/location/${locationSlug}`
       : `/public/tenant/${tenantSlug}`;
@@ -200,21 +156,43 @@ export default function PublicQueuePage() {
         }
       });
 
+    setLiveStatus("connecting");
     const eventSource = new EventSource(`${API_BASE_URL}${basePath}/stream${query}`);
+    eventSource.onopen = () => {
+      setLiveStatus("connected");
+      setError("");
+    };
     eventSource.onmessage = (event) => {
       setSnapshot(JSON.parse(event.data) as QueueSnapshot);
+      setLiveStatus("connected");
       setError("");
     };
     eventSource.onerror = () => {
-      setError("Live updates disconnected. Refresh to reconnect.");
-      eventSource.close();
+      setLiveStatus("reconnecting");
+      setError("Live updates are reconnecting.");
     };
 
     return () => {
       active = false;
       eventSource.close();
     };
-  }, [locationSlug, lookupCode, tenantSlug]);
+  }, [locationSlug, lookupCode, sort.direction, sort.key, tenantSlug]);
+
+  function handleSortChange(key: string) {
+    setSort((current) => ({
+      key,
+      direction: current.key === key && current.direction === "asc" ? "desc" : "asc"
+    }));
+  }
+
+  function renderSortHeader(key: string, label: string) {
+    return (
+      <button className="sortable-table-header" type="button" onClick={() => handleSortChange(key)}>
+        <span>{label}</span>
+        <span>{sort.key === key ? (sort.direction === "asc" ? "↑" : "↓") : "↕"}</span>
+      </button>
+    );
+  }
 
   return (
     <Box style={pageStyle}>
@@ -224,7 +202,7 @@ export default function PublicQueuePage() {
             <Stack gap="md" style={{ gridColumn: publicBoardUnavailable ? undefined : "span 2" }}>
               {theme?.logoUrl ? (
                 <Box
-                  alt={`${heroTitle} logo`}
+                  alt={`${businessName} logo`}
                   component="img"
                   src={theme.logoUrl}
                   style={{ maxHeight: 76, maxWidth: 180, objectFit: "contain" }}
@@ -233,48 +211,25 @@ export default function PublicQueuePage() {
               <Text c={subheaderColor} fw={800} size="xs" tt="uppercase" lts={2}>
                 Live public board
               </Text>
+              <Badge
+                color={liveStatus === "connected" ? "teal" : "orange"}
+                radius="xl"
+                size="lg"
+                variant="light"
+                w="fit-content"
+              >
+                {liveStatus === "connected" ? "Live" : liveStatus === "connecting" ? "Connecting" : "Reconnecting"}
+              </Badge>
               <Title c={headerColor} order={1} style={{ fontSize: "clamp(3rem, 7vw, 4.5rem)" }}>
-                {heroTitle}
+                {businessName}
+              </Title>
+              <Title c={subheaderColor} order={2} style={{ fontSize: "clamp(1.75rem, 4vw, 2.75rem)" }}>
+                {locationName}
               </Title>
               {vendorIsInactive ? (
                 <Text c="red" fw={700}>Vendor is not yet active.</Text>
               ) : locationIsClosed ? (
                 <Text c="red" fw={700}>This location is currently closed</Text>
-              ) : (
-                <Text c={bodyColor} maw={760}>{heroSubtitle}</Text>
-              )}
-              {snapshot?.location ? (
-                <Group className="public-board-hours-strip" gap="xl">
-                  {locationHours.map((hour) => {
-                    const isToday = hour.weekday === todayIndex;
-                    return (
-                      <Stack
-                        className={
-                          [
-                            "public-board-hours-day",
-                            isToday ? "public-board-hours-day-active" : "",
-                            hour.isClosed ? "public-board-hours-day-closed" : ""
-                          ]
-                            .filter(Boolean)
-                            .join(" ")
-                        }
-                        gap={0}
-                        key={hour.weekday}
-                      >
-                        <Text
-                          className="public-board-hours-time"
-                        >
-                          {formatHoursLabel(hour)}
-                        </Text>
-                        <Text
-                          className="public-board-hours-label"
-                        >
-                          {weekdayLabels[hour.weekday]}
-                        </Text>
-                      </Stack>
-                    );
-                  })}
-                </Group>
               ) : null}
               {!publicBoardUnavailable ? (
                 <Group mt="lg" gap="sm">
@@ -358,8 +313,8 @@ export default function PublicQueuePage() {
                   <Table verticalSpacing="sm">
                     <Table.Thead>
                       <Table.Tr>
-                        <Table.Th>Ticket</Table.Th>
-                        <Table.Th ta="right">Position</Table.Th>
+                        <Table.Th>{renderSortHeader("ticketNumber", "Ticket")}</Table.Th>
+                        <Table.Th ta="right">{renderSortHeader("position", "Position")}</Table.Th>
                       </Table.Tr>
                     </Table.Thead>
                     <Table.Tbody>

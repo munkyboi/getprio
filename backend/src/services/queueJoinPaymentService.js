@@ -284,7 +284,7 @@ async function createZeroFeeTicket({ tenant, payload, queueFee }) {
 async function handleVerifiedJoin({ tenant, otpId, payload }) {
   await queueFeeService.assertTenantCanAcceptCustomerJoins(tenant._id);
   const queueFee = await queueFeeService.getQueueFeeForTenant(tenant._id);
-  if (!queueFee.enabled || queueFee.amountCents <= 0) {
+  if (!payload.notifyBySms || !queueFee.enabled || queueFee.amountCents <= 0) {
     return createZeroFeeTicket({ tenant, payload, queueFee });
   }
 

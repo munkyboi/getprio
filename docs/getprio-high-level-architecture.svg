@@ -166,7 +166,7 @@
         <rect class="card api" x="0" y="0" width="254" height="92" rx="14" />
         <text class="box-title" x="20" y="32">Auth Routes</text>
         <text class="box-text" x="20" y="58">Email login, registration,</text>
-        <text class="box-text" x="20" y="76">JWT, OAuth callbacks</text>
+        <text class="box-text" x="20" y="76">JWT; OAuth2 planned</text>
       </g>
 
       <g transform="translate(24 178)">
@@ -273,9 +273,9 @@
 
       <g transform="translate(22 440)">
         <rect class="card external" x="0" y="0" width="158" height="84" rx="14" />
-        <text class="box-title" x="20" y="32">OAuth</text>
-        <text class="box-text" x="20" y="58">Google and</text>
-        <text class="box-text" x="20" y="76">Facebook sign-in</text>
+        <text class="box-title" x="20" y="32">OAuth2</text>
+        <text class="box-text" x="20" y="58">Post-MVP admin</text>
+        <text class="box-text" x="20" y="76">sign-in providers</text>
       </g>
 
       <g transform="translate(22 548)">

@@ -14,7 +14,8 @@ const notificationService = require("../services/notificationService");
 const platformRepository = require("../repositories/platform");
 const {
   getQueueSnapshot,
-  cancelTicket
+  cancelTicket,
+  createTicket
 } = require("../services/queueService");
 
 const router = express.Router();
@@ -75,10 +76,23 @@ async function verifyQrTurnstileIfNeeded(req, joinChannel) {
   });
 
   if (!verification.success) {
-    const error = new Error("Verification failed. Please retry the security check.");
+    const errorCodes = verification.errorCodes?.length
+      ? ` (${verification.errorCodes.join(", ")})`
+      : "";
+    const error = new Error(`Verification failed. Please retry the security check.${errorCodes}`);
     error.statusCode = 400;
     throw error;
   }
+}
+
+function formatTicketResponse(ticket) {
+  return {
+    id: String(ticket._id),
+    lookupCode: ticket.lookupCode,
+    ticketNumber: ticket.ticketNumber,
+    customerName: ticket.customerName,
+    status: ticket.status
+  };
 }
 
 router.get(
@@ -88,7 +102,9 @@ router.get(
     const location = await getLocationOrPrimary(tenant, req.params.locationSlug);
     const snapshot = await getQueueSnapshot(tenant, {
       location,
-      lookupCode: req.query.lookupCode
+      lookupCode: req.query.lookupCode,
+      nextUpSort: req.query.sort,
+      nextUpDirection: req.query.direction
     });
 
     res.json(snapshot);
@@ -198,24 +214,60 @@ router.post(
       error.statusCode = 400;
       throw error;
     }
+    if (notifyByEmail && !email) {
+      const error = new Error("Email is required when email notifications are selected.");
+      error.statusCode = 400;
+      throw error;
+    }
+    if (notifyBySms && !phone) {
+      const error = new Error("Phone is required when SMS alerts are selected.");
+      error.statusCode = 400;
+      throw error;
+    }
 
     await queueFeeService.assertTenantCanAcceptCustomerJoins(tenant._id);
     await storeHoursService.assertLocationOpenForCustomerJoin(location);
     await verifyQrTurnstileIfNeeded(req, normalizedJoinChannel);
 
+    const payload = {
+      userId: req.user?._id,
+      customerName: name,
+      customerEmail: email,
+      customerPhone: phone,
+      notifyByEmail,
+      notifyBySms,
+      joinChannel: normalizedJoinChannel,
+      locationSlug: location.slug,
+      notes
+    };
+
+    if (!notifyByEmail) {
+      if (notifyBySms) {
+        const result = await queueJoinPaymentService.handleVerifiedJoin({
+          tenant,
+          payload
+        });
+        res.status(201).json(result);
+        return;
+      }
+
+      const result = await createTicket({
+        tenant,
+        location,
+        ...payload
+      });
+      res.status(201).json({
+        requiresPayment: false,
+        queueFee: await queueFeeService.getQueueFeeForTenant(tenant._id),
+        ticket: formatTicketResponse(result.ticket),
+        snapshot: result.snapshot
+      });
+      return;
+    }
+
     const otp = await queueJoinOtpService.requestJoinOtp({
       tenant,
-      payload: {
-        userId: req.user?._id,
-        customerName: name,
-        customerEmail: email,
-        customerPhone: phone,
-        notifyByEmail,
-        notifyBySms,
-        joinChannel: normalizedJoinChannel,
-        locationSlug: location.slug,
-        notes
-      }
+      payload
     });
 
     res.status(201).json(otp);
@@ -320,24 +372,29 @@ router.get(
     const tenant = await getTenantOrThrow(req.params.tenantSlug);
     const location = await getLocationOrPrimary(tenant, req.params.locationSlug);
     const lookupCode = req.query.lookupCode ? String(req.query.lookupCode) : "";
+    const nextUpSort = req.query.sort;
+    const nextUpDirection = req.query.direction;
 
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
     res.flushHeaders();
 
-    const writeSnapshot = async (snapshot) => {
-      const payload = lookupCode
-        ? await getQueueSnapshot(tenant, { lookupCode, location })
-        : snapshot || (await getQueueSnapshot(tenant, { location }));
+    const writeSnapshot = async () => {
+      const payload = await getQueueSnapshot(tenant, {
+        ...(lookupCode ? { lookupCode } : {}),
+        location,
+        nextUpSort,
+        nextUpDirection
+      });
       res.write(`data: ${JSON.stringify(payload)}\n\n`);
     };
 
     await writeSnapshot();
 
-    const unsubscribe = queueEvents.subscribe(tenant.slug, async (snapshot) => {
+    const unsubscribe = queueEvents.subscribe(tenant.slug, async () => {
       try {
-        await writeSnapshot(snapshot);
+        await writeSnapshot();
       } catch (error) {
         console.error(error);
       }

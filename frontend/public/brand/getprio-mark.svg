@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">GetPrio mark</title>
+  <desc id="desc">A rounded orange P-shaped queue marker with a circular counter opening.</desc>
+  <defs>
+    <linearGradient id="getprio-orange" x1="48" x2="216" y1="220" y2="28" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f97316"/>
+      <stop offset="0.52" stop-color="#fb7b22"/>
+      <stop offset="1" stop-color="#ffb000"/>
+    </linearGradient>
+  </defs>
+  <path
+    fill="url(#getprio-orange)"
+    d="M76 228V90c0-42 34-76 76-76s76 34 76 76-34 76-76 76h-28v62H76Z"
+  />
+  <circle cx="152" cy="90" r="32" fill="#fffaf4"/>
+</svg>

@@ -1,0 +1,289 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Resources << /Font << /F1 4 0 R /F2 5 0 R >> >> /Contents 6 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+6 0 obj
+<< /Length 3473 >>
+stream
+0.980 0.965 0.941 rg
+0 0 595.28 841.89 re f
+0.920 0.380 0.150 rg
+BT
+/F2 10 Tf
+235.23999999999998 770 Td
+(HCI MODULE 1 DELIVERABLE) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 34 Tf
+235.76 728 Td
+(GetPrio) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 17 Tf
+187.14 694 Td
+(Norman's Principles Audit) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 15 Tf
+207.94 668 Td
+(+ Capstone App HCI Lens) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 10 Tf
+151.9 636 Td
+(Cover sheet for the HCI Module 1 Norman audit boards and) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 10 Tf
+198.7 622 Td
+(GetPrio-specific HCI lens deliverable.) Tj
+ET
+1.000 1.000 1.000 rg
+0.850 0.810 0.750 RG
+54 430 487 180 re B
+0.350 0.390 0.450 rg
+BT
+/F2 8 Tf
+78 575 Td
+(NAME) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 13.4 Tf
+78 555 Td
+(Roberto Carlo Abella) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F2 8 Tf
+336 575 Td
+(STUDENT ID) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 13.4 Tf
+336 555 Td
+(2025040965) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F2 8 Tf
+78 522 Td
+(CAPSTONE APP) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 13.4 Tf
+78 502 Td
+(GetPrio) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F2 8 Tf
+336 522 Td
+(INSTRUCTOR) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 13.4 Tf
+336 502 Td
+(Engr. Vicente Patalita III) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F2 8 Tf
+78 474 Td
+(MODULE) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 13.4 Tf
+78 454 Td
+(HCI Module 1) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F2 8 Tf
+336 474 Td
+(DELIVERABLE) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 13.4 Tf
+336 454 Td
+(Norman's Principles Audit +) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 13.4 Tf
+336 438 Td
+(Capstone App HCI Lens) Tj
+ET
+0.890 0.940 0.980 rg
+0.120 0.310 0.530 RG
+54 328 487 78 re B
+0.120 0.310 0.530 rg
+BT
+/F2 13 Tf
+78 374 Td
+(Figma Board URL) Tj
+ET
+0.120 0.310 0.530 rg
+BT
+/F1 8.4 Tf
+78 352 Td
+(https://www.figma.com/design/rwKhBnsKjEBprhQpC5kiez/GetPrio-HCI---IAS--UI-UX-?node-id=61-2) Tj
+ET
+0.860 0.960 0.930 rg
+0.050 0.460 0.360 RG
+54 124 234 170 re B
+0.050 0.460 0.360 rg
+BT
+/F2 15.5 Tf
+72 260 Td
+(Included Boards) Tj
+ET
+0.050 0.460 0.360 rg
+74 223 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 9.3 Tf
+88 228 Td
+(Deliverable overview and Capstone) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.3 Tf
+88 215.5 Td
+(App HCI Lens.) Tj
+ET
+0.050 0.460 0.360 rg
+74 199 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 9.3 Tf
+88 204 Td
+(Norman-style principles audit) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.3 Tf
+88 191.5 Td
+(matrix.) Tj
+ET
+0.050 0.460 0.360 rg
+74 175 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 9.3 Tf
+88 180 Td
+(Screen-level HCI lens for customer,) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.3 Tf
+88 167.5 Td
+(vendor, and admin flows.) Tj
+ET
+0.050 0.460 0.360 rg
+74 151 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 9.3 Tf
+88 156 Td
+(Findings and recommendations.) Tj
+ET
+0.930 0.910 0.980 rg
+0.350 0.250 0.620 RG
+307 124 234 170 re B
+0.350 0.250 0.620 rg
+BT
+/F2 15.5 Tf
+325 260 Td
+(Audit Lens) Tj
+ET
+0.350 0.250 0.620 rg
+327 223 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 9.3 Tf
+341 228 Td
+(Visibility, feedback, affordances,) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.3 Tf
+341 215.5 Td
+(signifiers, mapping, constraints,) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.3 Tf
+341 203 Td
+(conceptual model, and error) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.3 Tf
+341 190.5 Td
+(recovery.) Tj
+ET
+0.350 0.250 0.620 rg
+327 174 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 9.3 Tf
+341 179 Td
+(Applied to GetPrio queue, OTP,) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.3 Tf
+341 166.5 Td
+(public board, RBAC, and admin) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.3 Tf
+341 154 Td
+(screens.) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.5 Tf
+222.5 56 Td
+(Generated for capstone submission.) Tj
+ET
+endstream
+endobj
+xref
+0 7
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000257 00000 n 
+0000000327 00000 n 
+0000000402 00000 n 
+trailer
+<< /Size 7 /Root 1 0 R >>
+startxref
+3927
+%%EOF

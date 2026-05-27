@@ -25,6 +25,24 @@ function buildQueryClient(client) {
   return client || db.pool;
 }
 
+function normalizeSortDirection(direction) {
+  return String(direction).toLowerCase() === "asc" ? "ASC" : "DESC";
+}
+
+function buildPaymentOrderClause(options) {
+  const sortColumns = {
+    tenantName: "tenants.name",
+    planSlug: "queue_join_payments.plan_slug",
+    status: "queue_join_payments.status",
+    amountCents: "queue_join_payments.amount_cents",
+    createdAt: "queue_join_payments.created_at"
+  };
+  const sortColumn = sortColumns[String(options.sort || "")] || "queue_join_payments.created_at";
+  const direction = normalizeSortDirection(options.direction);
+
+  return `ORDER BY ${sortColumn} ${direction}, queue_join_payments.id ${direction}`;
+}
+
 function mapPayment(row) {
   if (!row) {
     return null;
@@ -225,6 +243,7 @@ async function listPayments(options = {}) {
   }
 
   const whereClause = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
+  const orderClause = buildPaymentOrderClause(options);
   const result = await queryClient.query(
     `
       SELECT ${PAYMENT_COLUMNS},
@@ -233,7 +252,7 @@ async function listPayments(options = {}) {
       FROM queue_join_payments
       INNER JOIN tenants ON tenants.id = queue_join_payments.tenant_id
       ${whereClause}
-      ORDER BY queue_join_payments.created_at DESC
+      ${orderClause}
       LIMIT $1
     `,
     values

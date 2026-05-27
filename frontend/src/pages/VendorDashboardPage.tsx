@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
 import {
   ActionIcon,
   Badge,
@@ -15,12 +15,14 @@ import {
   MultiSelect,
   NumberInput,
   Paper,
+  PasswordInput,
   ScrollArea,
   Select,
   SegmentedControl,
   SimpleGrid,
   Slider,
   Stack,
+  Switch,
   Table,
   Text,
   TextInput,
@@ -36,9 +38,11 @@ import {
   IconHistory,
   IconHomeStats,
   IconInfoCircle,
+  IconTrash,
   IconLogout,
   IconQrcode,
   IconSettings,
+  IconUserCog,
   IconUsersGroup
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
@@ -48,8 +52,10 @@ import type {
   BillingOverviewResponse,
   CheckoutSessionResponse,
   CheckoutSyncResponse,
+  CounterSlugAvailabilityResponse,
   CreateCheckoutRequest,
   CreateWalkInTicketRequest,
+  LocationSlugAvailabilityResponse,
   QueueHistoryTicket,
   PublicBoardThemeResponse,
   PublicBoardThemeSettings,
@@ -65,11 +71,19 @@ import type {
   SaveServiceCounterRequest,
   VendorStaffResponse,
   VendorStaffSummary,
+  VendorStaffInvitationSummary,
   AddVendorStaffRequest,
+  AddVendorStaffResponse,
   UpdateVendorStaffRequest,
+  UpdateVendorStaffResponse,
+  UpdateVendorStaffAccessRequest,
+  UpdateVendorStaffAccessResponse,
   HistoryExportRange,
   SubscriptionPlanSlug,
   TicketMutationResponse,
+  UpdateAccountPasswordRequest,
+  UpdateAccountProfileRequest,
+  UpdateAccountProfileResponse,
   UpdateTenantSettingsRequest,
   VendorClientsResponse
 } from "@shared";
@@ -78,7 +92,16 @@ import { useAuth } from "../context/AuthContext";
 import { buildJoinUrl, buildMonitorUrl } from "../queuePaths";
 import { getErrorMessage } from "../utils/errors";
 
-const dashboardSections = new Set(["queue", "tenants", "staff", "clients", "history", "reports", "settings"]);
+const dashboardSections = new Set([
+  "queue",
+  "tenants",
+  "staff",
+  "clients",
+  "history",
+  "reports",
+  "settings",
+  "account"
+]);
 const SERVICE_TREND_USER_LIMIT = 30;
 
 const emptyWalkIn: CreateWalkInTicketRequest = {
@@ -104,6 +127,14 @@ const defaultHours: StoreHourSummary[] = Array.from({ length: 7 }, (_, weekday) 
   closesAt: "17:00",
   isClosed: true
 }));
+
+function toSlug(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
 
 const emptyLocationForm = {
   name: "",
@@ -184,15 +215,31 @@ const publicBoardThemePresets: Record<string, PublicBoardThemeSettings> = {
 
 const defaultPublicBoardTheme = publicBoardThemePresets.classic;
 
-type DashboardSection = "queue" | "tenants" | "staff" | "clients" | "history" | "reports" | "settings";
+type DashboardSection =
+  | "queue"
+  | "tenants"
+  | "staff"
+  | "clients"
+  | "history"
+  | "reports"
+  | "settings"
+  | "account";
 type DashboardActionResponse = Partial<TicketMutationResponse> & {
   message?: string;
   snapshot?: QueueSnapshot;
 };
+type SortDirection = "asc" | "desc";
+type SortState = { key: string; direction: SortDirection };
 type VendorHistoryResponse = {
   historyDays?: number;
   historyLabel?: string;
   tickets: QueueHistoryTicket[];
+};
+type ConfirmAction = {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  onConfirm: () => Promise<void>;
 };
 
 const navItems = [
@@ -202,9 +249,20 @@ const navItems = [
   { section: "clients", label: "Clients", icon: IconUsersGroup },
   { section: "history", label: "History", icon: IconHistory },
   { section: "reports", label: "Reports", icon: IconChartBar },
-  { section: "settings", label: "Settings", icon: IconSettings }
+  { section: "settings", label: "Settings", icon: IconSettings },
+  { section: "account", label: "Account", icon: IconUserCog }
 ] as const;
-const staffAllowedSections = new Set<DashboardSection>(["queue", "clients", "history"]);
+const staffAllowedSections = new Set<DashboardSection>(["queue", "clients", "history", "account"]);
+const adminAllowedSections = new Set<DashboardSection>([
+  "queue",
+  "tenants",
+  "staff",
+  "clients",
+  "history",
+  "reports",
+  "settings",
+  "account"
+]);
 
 function getHistoryTimestamp(value: string | Date): number {
   return new Date(value).getTime();
@@ -299,7 +357,7 @@ function DashboardEmptyState({
 }
 
 export default function VendorDashboardPage() {
-  const { token, user, loading, logout } = useAuth();
+  const { token, user, loading, logout, refreshUser } = useAuth();
   const { section } = useParams<{ section: string }>();
   const location = useLocation();
   const navigate = useNavigate();
@@ -313,12 +371,17 @@ export default function VendorDashboardPage() {
   const [locations, setLocations] = useState<StoreLocationWithHours[]>([]);
   const [serviceCounters, setServiceCounters] = useState<ServiceCounterSummary[]>([]);
   const [staff, setStaff] = useState<VendorStaffSummary[]>([]);
+  const [pendingStaffInvites, setPendingStaffInvites] = useState<VendorStaffInvitationSummary[]>([]);
   const [staffSeatLimit, setStaffSeatLimit] = useState(0);
   const [counterLimit, setCounterLimit] = useState(0);
   const [activeLocationLimit, setActiveLocationLimit] = useState(1);
   const [locationDialogOpen, setLocationDialogOpen] = useState(false);
   const [editingLocationSlug, setEditingLocationSlug] = useState("");
   const [locationForm, setLocationForm] = useState(emptyLocationForm);
+  const [locationSlugEdited, setLocationSlugEdited] = useState(false);
+  const [locationSlugStatus, setLocationSlugStatus] = useState<
+    "idle" | "checking" | "available" | "taken" | "error"
+  >("idle");
   const [settings, setSettings] = useState<UpdateTenantSettingsRequest>(defaultSettings);
   const [walkInForm, setWalkInForm] = useState<CreateWalkInTicketRequest>(emptyWalkIn);
   const [billing, setBilling] = useState<BillingOverviewResponse | null>(null);
@@ -342,13 +405,33 @@ export default function VendorDashboardPage() {
     isActive: true,
     assignedUserIds: []
   });
+  const [counterSlugEdited, setCounterSlugEdited] = useState(false);
+  const [counterSlugStatus, setCounterSlugStatus] = useState<
+    "idle" | "checking" | "available" | "taken" | "error"
+  >("idle");
   const [staffDialogOpen, setStaffDialogOpen] = useState(false);
   const [staffForm, setStaffForm] = useState<AddVendorStaffRequest>({
     email: "",
     role: "staff"
   });
+  const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
+  const [accountProfileForm, setAccountProfileForm] = useState<UpdateAccountProfileRequest>({
+    name: "",
+    email: "",
+    phone: ""
+  });
+  const [accountPasswordForm, setAccountPasswordForm] = useState({
+    currentPassword: "",
+    newPassword: "",
+    confirmPassword: ""
+  });
   const [historyExportFormat, setHistoryExportFormat] = useState<"csv" | "pdf" | null>(null);
   const [historyExportRange, setHistoryExportRange] = useState<HistoryExportRange | null>(null);
+  const [staffSort, setStaffSort] = useState<SortState>({ key: "name", direction: "asc" });
+  const [inviteSort, setInviteSort] = useState<SortState>({ key: "expiresAt", direction: "asc" });
+  const [clientSort, setClientSort] = useState<SortState>({ key: "latestVisitAt", direction: "desc" });
+  const [historySort, setHistorySort] = useState<SortState>({ key: "updatedAt", direction: "desc" });
+  const [queueSort, setQueueSort] = useState<SortState>({ key: "position", direction: "asc" });
   const hasActiveSubscription = billing?.subscription?.status === "active";
   const selectedLocation =
     locations.find((locationItem) => locationItem.slug === selectedLocationSlug) ||
@@ -357,12 +440,182 @@ export default function VendorDashboardPage() {
   const selectedTenantRole =
     user?.tenants.find((tenant) => tenant.slug === selectedTenantSlug)?.role || null;
   const isOwner = selectedTenantRole === "owner";
+  const isTenantAdmin = selectedTenantRole === "admin";
+  const canManageTenant = isOwner || isTenantAdmin;
+  const isEditingLocation = Boolean(editingLocationSlug);
+  const locationSlugMessage = {
+    idle: "Generated from the location name.",
+    checking: "Checking location slug...",
+    available: "Location slug is available.",
+    taken: "That location slug is already used for this tenant.",
+    error: "Unable to check slug right now. Try again in a moment."
+  }[locationSlugStatus];
+  const locationSlugError =
+    locationSlugStatus === "taken" || locationSlugStatus === "error"
+      ? locationSlugMessage
+      : undefined;
+  const locationSlugHelperColor = locationSlugStatus === "available" ? "green" : "dimmed";
+  const canSaveLocation =
+    busyAction !== "location" &&
+    locationSlugStatus !== "checking" &&
+    locationSlugStatus !== "taken" &&
+    locationSlugStatus !== "error";
+  const counterSlugMessage = {
+    idle: "Generated from the counter name.",
+    checking: "Checking counter slug...",
+    available: "Counter slug is available.",
+    taken: "That counter slug is already used for this location.",
+    error: "Unable to check slug right now. Try again in a moment."
+  }[counterSlugStatus];
+  const counterSlugError =
+    counterSlugStatus === "taken" || counterSlugStatus === "error" ? counterSlugMessage : undefined;
+  const counterSlugHelperColor = counterSlugStatus === "available" ? "green" : "dimmed";
+  const canSaveCounter =
+    busyAction !== "counter-save" &&
+    counterSlugStatus !== "checking" &&
+    counterSlugStatus !== "taken" &&
+    counterSlugStatus !== "error";
   const visibleNavItems = isOwner
     ? navItems
-    : navItems.filter((item) => staffAllowedSections.has(item.section));
+    : navItems.filter((item) =>
+        isTenantAdmin
+          ? adminAllowedSections.has(item.section)
+          : staffAllowedSections.has(item.section)
+      );
   const locationQuery = selectedLocationSlug
     ? `?location=${encodeURIComponent(selectedLocationSlug)}`
     : "";
+
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+
+    setAccountProfileForm({
+      name: user.name || "",
+      email: user.email || "",
+      phone: user.phone || ""
+    });
+  }, [user]);
+
+  useEffect(() => {
+    if (!locationDialogOpen) {
+      setLocationSlugStatus("idle");
+      return undefined;
+    }
+
+    if (editingLocationSlug) {
+      setLocationSlugStatus("idle");
+      return undefined;
+    }
+
+    const slug = locationForm.slug;
+    if (!slug || !selectedTenantSlug || !token) {
+      setLocationSlugStatus("idle");
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      setLocationSlugStatus("checking");
+      const params = new URLSearchParams({ slug });
+      if (editingLocationSlug) {
+        params.set("excludeSlug", editingLocationSlug);
+      }
+
+      apiRequest<LocationSlugAvailabilityResponse>(
+        `/vendor/tenant/${selectedTenantSlug}/locations/slug-availability?${params.toString()}`,
+        { token, signal: controller.signal }
+      )
+        .then((result) => {
+          if (result.slug !== slug) {
+            return;
+          }
+
+          setLocationSlugStatus(result.available ? "available" : "taken");
+        })
+        .catch((availabilityError) => {
+          if (
+            availabilityError instanceof DOMException &&
+            availabilityError.name === "AbortError"
+          ) {
+            return;
+          }
+
+          setLocationSlugStatus("error");
+        });
+    }, 400);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, [
+    editingLocationSlug,
+    locationDialogOpen,
+    locationForm.slug,
+    selectedTenantSlug,
+    token
+  ]);
+
+  useEffect(() => {
+    if (!counterDialogOpen) {
+      setCounterSlugStatus("idle");
+      return undefined;
+    }
+
+    const slug = counterForm.slug;
+    if (!slug || !selectedTenantSlug || !selectedLocationSlug || !token) {
+      setCounterSlugStatus("idle");
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      setCounterSlugStatus("checking");
+      const params = new URLSearchParams({
+        location: selectedLocationSlug,
+        slug
+      });
+      if (editingCounterSlug) {
+        params.set("excludeSlug", editingCounterSlug);
+      }
+
+      apiRequest<CounterSlugAvailabilityResponse>(
+        `/vendor/tenant/${selectedTenantSlug}/counters/slug-availability?${params.toString()}`,
+        { token, signal: controller.signal }
+      )
+        .then((result) => {
+          if (result.slug !== slug) {
+            return;
+          }
+
+          setCounterSlugStatus(result.available ? "available" : "taken");
+        })
+        .catch((availabilityError) => {
+          if (
+            availabilityError instanceof DOMException &&
+            availabilityError.name === "AbortError"
+          ) {
+            return;
+          }
+
+          setCounterSlugStatus("error");
+        });
+    }, 400);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, [
+    counterDialogOpen,
+    counterForm.slug,
+    editingCounterSlug,
+    selectedLocationSlug,
+    selectedTenantSlug,
+    token
+  ]);
 
   useEffect(() => {
     if (!selectedTenantSlug && user?.tenants?.length) {
@@ -410,7 +663,10 @@ export default function VendorDashboardPage() {
     let active = true;
     setError("");
 
-    apiRequest<QueueSnapshot>(`/vendor/tenant/${selectedTenantSlug}/dashboard${locationQuery}`, { token })
+    apiRequest<QueueSnapshot>(
+      `/vendor/tenant/${selectedTenantSlug}/dashboard${locationQuery}${locationQuery ? "&" : "?"}sort=${encodeURIComponent(queueSort.key)}&direction=${queueSort.direction}`,
+      { token }
+    )
       .then((data) => {
         if (!active) {
           return;
@@ -433,7 +689,7 @@ export default function VendorDashboardPage() {
     return () => {
       active = false;
     };
-  }, [locationQuery, selectedLocationSlug, selectedTenantSlug, token]);
+  }, [locationQuery, queueSort.direction, queueSort.key, selectedLocationSlug, selectedTenantSlug, token]);
 
   useEffect(() => {
     if (!selectedTenantSlug || !token) {
@@ -483,23 +739,31 @@ export default function VendorDashboardPage() {
         setServiceCounters([]);
         setCounterLimit(0);
       });
-  }, [selectedLocationSlug, selectedTenantSlug, token]);
+  }, [locationQuery, queueSort.direction, queueSort.key, selectedLocationSlug, selectedTenantSlug, token]);
 
   useEffect(() => {
-    if (!selectedTenantSlug || !token) {
+    if (!selectedTenantSlug || !token || !canManageTenant) {
+      setStaff([]);
+      setPendingStaffInvites([]);
+      setStaffSeatLimit(0);
       return;
     }
 
-    apiRequest<VendorStaffResponse>(`/vendor/tenant/${selectedTenantSlug}/staff`, { token })
+    apiRequest<VendorStaffResponse>(
+      `/vendor/tenant/${selectedTenantSlug}/staff?sort=${encodeURIComponent(staffSort.key)}&direction=${staffSort.direction}&inviteSort=${encodeURIComponent(inviteSort.key)}&inviteDirection=${inviteSort.direction}`,
+      { token }
+    )
       .then((data) => {
         setStaff(data.staff);
+        setPendingStaffInvites(data.pendingInvites || []);
         setStaffSeatLimit(data.staffSeatLimit);
       })
       .catch(() => {
         setStaff([]);
+        setPendingStaffInvites([]);
         setStaffSeatLimit(0);
       });
-  }, [selectedTenantSlug, token]);
+  }, [canManageTenant, inviteSort.direction, inviteSort.key, selectedTenantSlug, staffSort.direction, staffSort.key, token]);
 
   useEffect(() => {
     if (!selectedTenantSlug || !token) {
@@ -576,7 +840,7 @@ export default function VendorDashboardPage() {
     }
 
     const eventSource = new EventSource(
-      `${API_BASE_URL}/public/tenant/${selectedTenantSlug}/location/${selectedLocationSlug}/stream`
+      `${API_BASE_URL}/public/tenant/${selectedTenantSlug}/location/${selectedLocationSlug}/stream?sort=${encodeURIComponent(queueSort.key)}&direction=${queueSort.direction}`
     );
     eventSource.onmessage = (event) => {
       const payload = JSON.parse(event.data) as QueueSnapshot;
@@ -589,7 +853,7 @@ export default function VendorDashboardPage() {
     return () => {
       eventSource.close();
     };
-  }, [selectedLocationSlug, selectedTenantSlug]);
+  }, [queueSort.direction, queueSort.key, selectedLocationSlug, selectedTenantSlug]);
 
   useEffect(() => {
     if (!selectedTenantSlug || !selectedLocationSlug || !token || currentSection !== "history" || !hasActiveSubscription) {
@@ -599,7 +863,7 @@ export default function VendorDashboardPage() {
     let active = true;
 
     apiRequest<VendorHistoryResponse>(
-      `/vendor/tenant/${selectedTenantSlug}/history?limit=50&location=${encodeURIComponent(selectedLocationSlug)}`,
+      `/vendor/tenant/${selectedTenantSlug}/history?limit=50&location=${encodeURIComponent(selectedLocationSlug)}&sort=${encodeURIComponent(historySort.key)}&direction=${historySort.direction}`,
       { token }
     )
       .then((data) => {
@@ -616,7 +880,7 @@ export default function VendorDashboardPage() {
     return () => {
       active = false;
     };
-  }, [currentSection, hasActiveSubscription, selectedLocationSlug, selectedTenantSlug, token]);
+  }, [currentSection, hasActiveSubscription, historySort.direction, historySort.key, selectedLocationSlug, selectedTenantSlug, token]);
 
   useEffect(() => {
     if (!selectedTenantSlug || !selectedLocationSlug || !token || currentSection !== "clients" || !hasActiveSubscription) {
@@ -626,7 +890,7 @@ export default function VendorDashboardPage() {
     let active = true;
 
     apiRequest<VendorClientsResponse>(
-      `/vendor/tenant/${selectedTenantSlug}/clients${locationQuery}`,
+      `/vendor/tenant/${selectedTenantSlug}/clients${locationQuery}${locationQuery ? "&" : "?"}sort=${encodeURIComponent(clientSort.key)}&direction=${clientSort.direction}`,
       { token }
     )
       .then((data) => {
@@ -643,7 +907,7 @@ export default function VendorDashboardPage() {
     return () => {
       active = false;
     };
-  }, [currentSection, hasActiveSubscription, locationQuery, selectedLocationSlug, selectedTenantSlug, token]);
+  }, [clientSort.direction, clientSort.key, currentSection, hasActiveSubscription, locationQuery, selectedLocationSlug, selectedTenantSlug, token]);
 
   const activeSubscription =
     billing?.subscription?.status === "active" ? billing.subscription : null;
@@ -796,15 +1060,18 @@ export default function VendorDashboardPage() {
 
   async function reloadStaff() {
     const data = await apiRequest<VendorStaffResponse>(
-      `/vendor/tenant/${selectedTenantSlug}/staff`,
+      `/vendor/tenant/${selectedTenantSlug}/staff?sort=${encodeURIComponent(staffSort.key)}&direction=${staffSort.direction}&inviteSort=${encodeURIComponent(inviteSort.key)}&inviteDirection=${inviteSort.direction}`,
       { token }
     );
     setStaff(data.staff);
+    setPendingStaffInvites(data.pendingInvites || []);
     setStaffSeatLimit(data.staffSeatLimit);
   }
 
   function openCounterDialog(counter?: ServiceCounterSummary) {
     setEditingCounterSlug(counter?.slug || "");
+    setCounterSlugEdited(Boolean(counter));
+    setCounterSlugStatus(counter?.slug ? "checking" : "idle");
     setCounterForm({
       name: counter?.name || "",
       slug: counter?.slug || "",
@@ -814,8 +1081,30 @@ export default function VendorDashboardPage() {
     setCounterDialogOpen(true);
   }
 
+  function handleCounterNameChange(value: string) {
+    const nextSlug = counterSlugEdited ? counterForm.slug : toSlug(value);
+    setCounterSlugStatus(nextSlug ? "checking" : "idle");
+    setCounterForm((current) => ({
+      ...current,
+      name: value,
+      slug: counterSlugEdited ? current.slug : nextSlug
+    }));
+  }
+
+  function handleCounterSlugChange(value: string) {
+    const nextSlug = toSlug(value);
+    setCounterSlugEdited(Boolean(nextSlug));
+    setCounterSlugStatus(nextSlug ? "checking" : "idle");
+    setCounterForm((current) => ({ ...current, slug: nextSlug }));
+  }
+
   async function handleSaveCounter(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!canSaveCounter) {
+      setError(counterSlugError || "Please wait for counter slug validation to finish.");
+      return;
+    }
+
     setBusyAction("counter-save");
     try {
       if (editingCounterSlug) {
@@ -842,27 +1131,70 @@ export default function VendorDashboardPage() {
     }
   }
 
-  async function handleDeleteCounter(counter: ServiceCounterSummary) {
-    await apiRequest<void>(
-      `/vendor/tenant/${selectedTenantSlug}/counters/${counter.slug}?location=${encodeURIComponent(selectedLocationSlug)}`,
-      { method: "DELETE", token }
-    );
-    await reloadCounters();
-    showSuccessNotification("Counter removed", `${counter.name} was removed from this location.`);
+  async function handleUpdateCounterStatus(counter: ServiceCounterSummary, isActive: boolean) {
+    setBusyAction(`counter-status:${counter.id}`);
+    setError("");
+
+    try {
+      await apiRequest<{ counter: ServiceCounterSummary }, SaveServiceCounterRequest>(
+        `/vendor/tenant/${selectedTenantSlug}/counters/${counter.slug}?location=${encodeURIComponent(selectedLocationSlug)}`,
+        {
+          method: "PATCH",
+          token,
+          body: {
+            name: counter.name,
+            slug: counter.slug,
+            isActive,
+            assignedUserIds: counter.assignedUserIds
+          }
+        }
+      );
+      await reloadCounters();
+      showSuccessNotification(
+        isActive ? "Counter enabled" : "Counter disabled",
+        `${counter.name} is now ${isActive ? "active" : "inactive"}.`
+      );
+    } catch (statusError) {
+      setError(getErrorMessage(statusError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function handleDeleteCounterFromDialog() {
+    const counter = serviceCounters.find((item) => item.slug === editingCounterSlug);
+    if (!counter) {
+      return;
+    }
+
+    setConfirmAction({
+      title: "Delete counter?",
+      message: `${counter.name} will be permanently removed from this location.`,
+      confirmLabel: "Delete counter",
+      onConfirm: async () => {
+        await apiRequest<void>(
+          `/vendor/tenant/${selectedTenantSlug}/counters/${counter.slug}?location=${encodeURIComponent(selectedLocationSlug)}`,
+          { method: "DELETE", token }
+        );
+        await reloadCounters();
+        setCounterDialogOpen(false);
+        showSuccessNotification("Counter deleted", `${counter.name} was removed from this location.`);
+      }
+    });
   }
 
   async function handleAddStaff(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusyAction("staff-save");
     try {
-      await apiRequest<{ userId: string }, AddVendorStaffRequest>(
+      const data = await apiRequest<AddVendorStaffResponse, AddVendorStaffRequest>(
         `/vendor/tenant/${selectedTenantSlug}/staff`,
         { method: "POST", token, body: staffForm }
       );
       await reloadStaff();
       setStaffDialogOpen(false);
       setStaffForm({ email: "", role: "staff" });
-      showSuccessNotification("Staff added", "The staff member now has access to this tenant.");
+      showSuccessNotification("Invitation sent", `Invite sent to ${data.invitation.email}.`);
     } catch (saveError) {
       setError(getErrorMessage(saveError));
     } finally {
@@ -870,22 +1202,118 @@ export default function VendorDashboardPage() {
     }
   }
 
-  async function handleUpdateStaffRole(member: VendorStaffSummary, role: "owner" | "staff") {
-    await apiRequest<{ userId: string }, UpdateVendorStaffRequest>(
-      `/vendor/tenant/${selectedTenantSlug}/staff/${member.id}`,
-      { method: "PATCH", token, body: { role } }
-    );
-    await reloadStaff();
-    showSuccessNotification("Staff updated", `${member.name}'s role was updated.`);
+  async function handleResendStaffInvite(invitation: VendorStaffInvitationSummary) {
+    setBusyAction(`staff-invite-resend:${invitation.id}`);
+    setError("");
+    try {
+      await apiRequest<AddVendorStaffResponse>(
+        `/vendor/tenant/${selectedTenantSlug}/staff-invitations/${invitation.id}/resend`,
+        { method: "POST", token }
+      );
+      await reloadStaff();
+      showSuccessNotification("Invitation resent", `Invite resent to ${invitation.email}.`);
+    } catch (inviteError) {
+      setError(getErrorMessage(inviteError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function handleRevokeStaffInvite(invitation: VendorStaffInvitationSummary) {
+    setConfirmAction({
+      title: "Revoke invitation?",
+      message: `${invitation.email} will no longer be able to use this invite.`,
+      confirmLabel: "Revoke invite",
+      onConfirm: async () => {
+        await apiRequest<void>(
+          `/vendor/tenant/${selectedTenantSlug}/staff-invitations/${invitation.id}`,
+          { method: "DELETE", token }
+        );
+        await reloadStaff();
+        showSuccessNotification("Invitation revoked", `${invitation.email} can no longer use that invite.`);
+      }
+    });
+  }
+
+  async function handleUpdateStaffRole(member: VendorStaffSummary, role: "admin" | "staff") {
+    setBusyAction(`staff-role:${member.id}`);
+    setError("");
+    try {
+      const data = await apiRequest<UpdateVendorStaffResponse, UpdateVendorStaffRequest>(
+        `/vendor/tenant/${selectedTenantSlug}/staff/${member.id}`,
+        { method: "PATCH", token, body: { role } }
+      );
+      setStaff((current) =>
+        current.map((staffMember) =>
+          staffMember.id === data.userId ? { ...staffMember, role: data.role } : staffMember
+        )
+      );
+      await reloadStaff();
+      showSuccessNotification("Staff updated", `${member.name}'s role was updated.`);
+    } catch (roleError) {
+      setError(getErrorMessage(roleError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function handleUpdateStaffAccess(member: VendorStaffSummary, isActive: boolean) {
+    setBusyAction(`staff-access:${member.id}`);
+    setError("");
+    try {
+      const data = await apiRequest<UpdateVendorStaffAccessResponse, UpdateVendorStaffAccessRequest>(
+        `/vendor/tenant/${selectedTenantSlug}/staff/${member.id}/access`,
+        { method: "PATCH", token, body: { isActive } }
+      );
+      setStaff((current) =>
+        current.map((staffMember) =>
+          staffMember.id === data.userId ? { ...staffMember, isActive: data.isActive } : staffMember
+        )
+      );
+      await reloadStaff();
+      showSuccessNotification(
+        data.isActive ? "Access enabled" : "Access disabled",
+        `${member.name}'s vendor access was updated.`
+      );
+    } catch (accessError) {
+      setError(getErrorMessage(accessError));
+    } finally {
+      setBusyAction("");
+    }
   }
 
   async function handleRemoveStaff(member: VendorStaffSummary) {
-    await apiRequest<void>(`/vendor/tenant/${selectedTenantSlug}/staff/${member.id}`, {
-      method: "DELETE",
-      token
+    setConfirmAction({
+      title: "Remove staff access?",
+      message: `${member.name} will be removed from this tenant.`,
+      confirmLabel: "Remove access",
+      onConfirm: async () => {
+        await apiRequest<void>(`/vendor/tenant/${selectedTenantSlug}/staff/${member.id}`, {
+          method: "DELETE",
+          token
+        });
+        await reloadStaff();
+        showSuccessNotification("Staff removed", `${member.name} no longer has tenant access.`);
+      }
     });
-    await reloadStaff();
-    showSuccessNotification("Staff removed", `${member.name} no longer has tenant access.`);
+  }
+
+  async function handleConfirmAction() {
+    if (!confirmAction) {
+      return;
+    }
+
+    setBusyAction("confirm-action");
+    setError("");
+
+    try {
+      await confirmAction.onConfirm();
+      setConfirmAction(null);
+    } catch (confirmError) {
+      setError(getErrorMessage(confirmError));
+    } finally {
+      setBusyAction("");
+    }
   }
 
   async function handleSaveSettings(event: FormEvent<HTMLFormElement>) {
@@ -903,6 +1331,73 @@ export default function VendorDashboardPage() {
 
     if (success) {
       showSuccessNotification("Settings saved", "Tenant queue settings were updated.");
+    }
+  }
+
+  async function handleSaveAccountProfile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    setBusyAction("account-profile");
+
+    try {
+      const data = await apiRequest<UpdateAccountProfileResponse, UpdateAccountProfileRequest>(
+        "/account/profile",
+        {
+          method: "PATCH",
+          token,
+          body: accountProfileForm
+        }
+      );
+      await refreshUser();
+      setAccountProfileForm({
+        name: data.user.name || "",
+        email: data.user.email || "",
+        phone: data.user.phone || ""
+      });
+      showSuccessNotification("Account updated", "Your personal details were saved.");
+    } catch (saveError) {
+      setError(getErrorMessage(saveError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function handleSaveAccountPassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+
+    if (accountPasswordForm.newPassword !== accountPasswordForm.confirmPassword) {
+      setError("New password and confirmation do not match.");
+      return;
+    }
+
+    setBusyAction("account-password");
+
+    try {
+      const payload: UpdateAccountPasswordRequest = {
+        currentPassword: accountPasswordForm.currentPassword,
+        newPassword: accountPasswordForm.newPassword
+      };
+
+      await apiRequest<UpdateAccountProfileResponse, UpdateAccountPasswordRequest>(
+        "/account/password",
+        {
+          method: "PATCH",
+          token,
+          body: payload
+        }
+      );
+      await refreshUser();
+      setAccountPasswordForm({
+        currentPassword: "",
+        newPassword: "",
+        confirmPassword: ""
+      });
+      showSuccessNotification("Password updated", "Use your new password on the next sign-in.");
+    } catch (saveError) {
+      setError(getErrorMessage(saveError));
+    } finally {
+      setBusyAction("");
     }
   }
 
@@ -1085,6 +1580,7 @@ export default function VendorDashboardPage() {
             { value: "monthly", label: "Monthly" },
             { value: "annual", label: "Annual" }
           ]}
+          name="billingInterval"
           value={billingInterval}
           onChange={(value) => setBillingInterval(value as "monthly" | "annual")}
         />
@@ -1107,11 +1603,15 @@ export default function VendorDashboardPage() {
               {plan.checkoutEnabled ? (
                 <Button
                   className={plan.slug === "pro" ? "neura-primary-button" : "neura-secondary-button"}
-                  disabled={busyAction === `checkout:${plan.slug}`}
+                  disabled={!isOwner || busyAction === `checkout:${plan.slug}`}
                   mt="auto"
                   onClick={() => handleStartCheckout(plan.slug)}
                 >
-                  {busyAction === `checkout:${plan.slug}` ? "Opening..." : "Choose plan"}
+                  {!isOwner
+                    ? "Owner only"
+                    : busyAction === `checkout:${plan.slug}`
+                      ? "Opening..."
+                      : "Choose plan"}
                 </Button>
               ) : (
                 <Button disabled mt="auto" variant="default">
@@ -1141,6 +1641,10 @@ export default function VendorDashboardPage() {
   }
 
   function renderLocationDialog() {
+    const editingLocation = locations.find((item) => item.slug === editingLocationSlug);
+    const isEditingPrimaryLocation = Boolean(editingLocation?.isPrimary);
+    const canDeleteEditingLocation = isOwner && editingLocationSlug && !editingLocation?.isPrimary;
+
     return (
       <Modal
         centered
@@ -1149,165 +1653,204 @@ export default function VendorDashboardPage() {
         size="xl"
         title={editingLocationSlug ? "Edit location" : "Add location"}
       >
-        <Stack gap="md">
-          <SimpleGrid cols={{ base: 1, md: 2 }}>
-            <TextInput
-              label="Location name"
-              required
-              value={locationForm.name}
-              onChange={(event) =>
-                setLocationForm((current) => ({ ...current, name: event.target.value }))
-              }
-            />
-            <TextInput
-              label="Slug"
-              required
-              value={locationForm.slug}
-              onChange={(event) =>
-                setLocationForm((current) => ({ ...current, slug: event.target.value }))
-              }
-            />
-            <TextInput
-              label="Address line 1"
-              value={locationForm.addressLine1}
-              onChange={(event) =>
-                setLocationForm((current) => ({ ...current, addressLine1: event.target.value }))
-              }
-            />
-            <TextInput
-              label="Address line 2"
-              value={locationForm.addressLine2}
-              onChange={(event) =>
-                setLocationForm((current) => ({ ...current, addressLine2: event.target.value }))
-              }
-            />
-            <TextInput
-              label="City"
-              value={locationForm.city}
-              onChange={(event) =>
-                setLocationForm((current) => ({ ...current, city: event.target.value }))
-              }
-            />
-            <TextInput
-              label="Province"
-              value={locationForm.province}
-              onChange={(event) =>
-                setLocationForm((current) => ({ ...current, province: event.target.value }))
-              }
-            />
-            <TextInput
-              label="Contact email"
-              value={locationForm.contactEmail}
-              onChange={(event) =>
-                setLocationForm((current) => ({ ...current, contactEmail: event.target.value }))
-              }
-            />
-            <TextInput
-              label="Contact phone"
-              value={locationForm.contactPhone}
-              onChange={(event) =>
-                setLocationForm((current) => ({ ...current, contactPhone: event.target.value }))
-              }
-            />
-            <TextInput
-              label="Timezone"
-              value={locationForm.timezone}
-              onChange={(event) =>
-                setLocationForm((current) => ({ ...current, timezone: event.target.value }))
-              }
-            />
-          </SimpleGrid>
-          <Group>
-            <Checkbox
-              checked={locationForm.isActive}
-              label="Active location"
-              onChange={(event) =>
-                setLocationForm((current) => ({ ...current, isActive: event.target.checked }))
-              }
-            />
-            <Checkbox
-              checked={locationForm.isPrimary}
-              label="Primary location"
-              onChange={(event) =>
-                setLocationForm((current) => ({ ...current, isPrimary: event.target.checked }))
-              }
-            />
-          </Group>
-          <Table.ScrollContainer minWidth={700}>
-            <Table>
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>Day</Table.Th>
-                  <Table.Th>Closed</Table.Th>
-                  <Table.Th>Opens</Table.Th>
-                  <Table.Th>Closes</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {locationForm.hours.map((hour) => (
-                  <Table.Tr key={hour.weekday}>
-                    <Table.Td>{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][hour.weekday]}</Table.Td>
-                    <Table.Td>
-                      <Checkbox
-                        checked={hour.isClosed}
-                        onChange={(event) =>
-                          setLocationForm((current) => ({
-                            ...current,
-                            hours: current.hours.map((item) =>
-                              item.weekday === hour.weekday
-                                ? { ...item, isClosed: event.target.checked }
-                                : item
-                            )
-                          }))
-                        }
-                      />
-                    </Table.Td>
-                    <Table.Td>
-                      <TextInput
-                        disabled={hour.isClosed}
-                        type="time"
-                        value={hour.opensAt}
-                        onChange={(event) =>
-                          setLocationForm((current) => ({
-                            ...current,
-                            hours: current.hours.map((item) =>
-                              item.weekday === hour.weekday
-                                ? { ...item, opensAt: event.target.value }
-                                : item
-                            )
-                          }))
-                        }
-                      />
-                    </Table.Td>
-                    <Table.Td>
-                      <TextInput
-                        disabled={hour.isClosed}
-                        type="time"
-                        value={hour.closesAt}
-                        onChange={(event) =>
-                          setLocationForm((current) => ({
-                            ...current,
-                            hours: current.hours.map((item) =>
-                              item.weekday === hour.weekday
-                                ? { ...item, closesAt: event.target.value }
-                                : item
-                            )
-                          }))
-                        }
-                      />
-                    </Table.Td>
-                  </Table.Tr>
-                ))}
-              </Table.Tbody>
-            </Table>
-          </Table.ScrollContainer>
-          <Group justify="flex-end">
-            <Button variant="default" onClick={() => setLocationDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button className="neura-primary-button" disabled={busyAction === "location"} onClick={saveLocation}>
-              {busyAction === "location" ? "Saving..." : "Save location"}
-            </Button>
+        <Stack gap={0} style={{ maxHeight: "calc(100dvh - 150px)" }}>
+          <ScrollArea.Autosize mah="calc(100dvh - 245px)" type="auto" offsetScrollbars>
+            <Stack gap="md" pr="sm">
+              <SimpleGrid cols={{ base: 1, md: 2 }}>
+                <TextInput
+                  label="Location name"
+                  name="name"
+                  required
+                  value={locationForm.name}
+                  onChange={(event) => handleLocationNameChange(event.target.value)}
+                />
+                <Stack gap={4}>
+                  <TextInput
+                    description={isEditingLocation ? "Set during creation and locked after saving." : undefined}
+                    disabled={isEditingLocation}
+                    error={locationSlugError}
+                    label="Slug"
+                    name="slug"
+                    required
+                    value={locationForm.slug}
+                    onChange={(event) => handleLocationSlugChange(event.target.value)}
+                  />
+                  {!locationSlugError && !isEditingLocation ? (
+                    <Text c={locationSlugHelperColor} size="xs">
+                      {locationSlugMessage}
+                    </Text>
+                  ) : null}
+                </Stack>
+                <TextInput
+                  label="Address line 1"
+                  name="addressLine1"
+                  value={locationForm.addressLine1}
+                  onChange={(event) =>
+                    setLocationForm((current) => ({ ...current, addressLine1: event.target.value }))
+                  }
+                />
+                <TextInput
+                  label="Address line 2"
+                  name="addressLine2"
+                  value={locationForm.addressLine2}
+                  onChange={(event) =>
+                    setLocationForm((current) => ({ ...current, addressLine2: event.target.value }))
+                  }
+                />
+                <TextInput
+                  label="City"
+                  name="city"
+                  value={locationForm.city}
+                  onChange={(event) =>
+                    setLocationForm((current) => ({ ...current, city: event.target.value }))
+                  }
+                />
+                <TextInput
+                  label="Province"
+                  name="province"
+                  value={locationForm.province}
+                  onChange={(event) =>
+                    setLocationForm((current) => ({ ...current, province: event.target.value }))
+                  }
+                />
+                <TextInput
+                  label="Contact email"
+                  name="contactEmail"
+                  value={locationForm.contactEmail}
+                  onChange={(event) =>
+                    setLocationForm((current) => ({ ...current, contactEmail: event.target.value }))
+                  }
+                />
+                <TextInput
+                  label="Contact phone"
+                  name="contactPhone"
+                  value={locationForm.contactPhone}
+                  onChange={(event) =>
+                    setLocationForm((current) => ({ ...current, contactPhone: event.target.value }))
+                  }
+                />
+                <TextInput
+                  label="Timezone"
+                  name="timezone"
+                  value={locationForm.timezone}
+                  onChange={(event) =>
+                    setLocationForm((current) => ({ ...current, timezone: event.target.value }))
+                  }
+                />
+              </SimpleGrid>
+              <Group>
+                <Checkbox
+                  checked={locationForm.isActive}
+                  disabled={isEditingPrimaryLocation}
+                  label="Active location"
+                  name="isActive"
+                  onChange={(event) =>
+                    setLocationForm((current) => ({ ...current, isActive: event.target.checked }))
+                  }
+                />
+                <Checkbox
+                  checked={locationForm.isPrimary}
+                  disabled={isEditingPrimaryLocation}
+                  label="Primary location"
+                  name="isPrimary"
+                  onChange={(event) =>
+                    setLocationForm((current) => ({
+                      ...current,
+                      isActive: event.target.checked ? true : current.isActive,
+                      isPrimary: event.target.checked
+                    }))
+                  }
+                />
+              </Group>
+              <Table.ScrollContainer minWidth={700}>
+                <Table>
+                  <Table.Thead>
+                    <Table.Tr>
+                      <Table.Th>Day</Table.Th>
+                      <Table.Th>Closed</Table.Th>
+                      <Table.Th>Opens</Table.Th>
+                      <Table.Th>Closes</Table.Th>
+                    </Table.Tr>
+                  </Table.Thead>
+                  <Table.Tbody>
+                    {locationForm.hours.map((hour) => (
+                      <Table.Tr key={hour.weekday}>
+                        <Table.Td>{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][hour.weekday]}</Table.Td>
+                        <Table.Td>
+                          <Checkbox
+                            checked={hour.isClosed}
+                            name={`hours.${hour.weekday}.isClosed`}
+                            onChange={(event) =>
+                              setLocationForm((current) => ({
+                                ...current,
+                                hours: current.hours.map((item) =>
+                                  item.weekday === hour.weekday
+                                    ? { ...item, isClosed: event.target.checked }
+                                    : item
+                                )
+                              }))
+                            }
+                          />
+                        </Table.Td>
+                        <Table.Td>
+                          <TextInput
+                            disabled={hour.isClosed}
+                            name={`hours.${hour.weekday}.opensAt`}
+                            type="time"
+                            value={hour.opensAt}
+                            onChange={(event) =>
+                              setLocationForm((current) => ({
+                                ...current,
+                                hours: current.hours.map((item) =>
+                                  item.weekday === hour.weekday
+                                    ? { ...item, opensAt: event.target.value }
+                                    : item
+                                )
+                              }))
+                            }
+                          />
+                        </Table.Td>
+                        <Table.Td>
+                          <TextInput
+                            disabled={hour.isClosed}
+                            name={`hours.${hour.weekday}.closesAt`}
+                            type="time"
+                            value={hour.closesAt}
+                            onChange={(event) =>
+                              setLocationForm((current) => ({
+                                ...current,
+                                hours: current.hours.map((item) =>
+                                  item.weekday === hour.weekday
+                                    ? { ...item, closesAt: event.target.value }
+                                    : item
+                                )
+                              }))
+                            }
+                          />
+                        </Table.Td>
+                      </Table.Tr>
+                    ))}
+                  </Table.Tbody>
+                </Table>
+              </Table.ScrollContainer>
+            </Stack>
+          </ScrollArea.Autosize>
+          <Group justify="space-between" mt="md" pt="md" style={{ borderTop: "1px solid var(--mantine-color-gray-2)" }}>
+            {canDeleteEditingLocation ? (
+              <Button color="red" variant="subtle" onClick={handleDeleteLocationFromDialog}>
+                Delete location
+              </Button>
+            ) : (
+              <div />
+            )}
+            <Group justify="flex-end">
+              <Button variant="default" onClick={() => setLocationDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button className="neura-primary-button" disabled={!canSaveLocation} onClick={saveLocation}>
+                {busyAction === "location" ? "Saving..." : "Save location"}
+              </Button>
+            </Group>
           </Group>
         </Stack>
       </Modal>
@@ -1441,6 +1984,7 @@ export default function VendorDashboardPage() {
                     value: counter.slug
                   }))}
                   label="Serving from"
+                  name="selectedCounterSlug"
                   placeholder="Select counter"
                   value={selectedCounterSlug || null}
                   onChange={(value) => setSelectedCounterSlug(value || "")}
@@ -1503,8 +2047,8 @@ export default function VendorDashboardPage() {
                 <Table verticalSpacing="sm">
                   <Table.Thead>
                     <Table.Tr>
-                      <Table.Th>Up next</Table.Th>
-                      <Table.Th>Channel</Table.Th>
+                      <Table.Th>{renderSortHeader(queueSort, setQueueSort, "position", "Up next")}</Table.Th>
+                      <Table.Th>{renderSortHeader(queueSort, setQueueSort, "joinChannel", "Channel")}</Table.Th>
                     </Table.Tr>
                   </Table.Thead>
                   <Table.Tbody>
@@ -1554,9 +2098,9 @@ export default function VendorDashboardPage() {
                   </Group>
                 </Paper>
                 <Stack flex={1} gap="sm">
-                  <TextInput label="Join URL" readOnly value={queueLinks.joinUrl} />
-                  <TextInput label="QR target" readOnly value={queueLinks.qrUrl} />
-                  <TextInput label="Monitor URL" readOnly value={queueLinks.monitorUrl} />
+                  <TextInput label="Join URL" name="joinUrl" readOnly value={queueLinks.joinUrl} />
+                  <TextInput label="QR target" name="qrUrl" readOnly value={queueLinks.qrUrl} />
+                  <TextInput label="Monitor URL" name="monitorUrl" readOnly value={queueLinks.monitorUrl} />
                 </Stack>
               </Group>
             </Stack>
@@ -1578,6 +2122,7 @@ export default function VendorDashboardPage() {
               <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
                 <TextInput
                   label="Customer name"
+                  name="customerName"
                   required
                   value={walkInForm.customerName}
                   onChange={(event) =>
@@ -1586,6 +2131,7 @@ export default function VendorDashboardPage() {
                 />
                 <TextInput
                   label="Email"
+                  name="customerEmail"
                   type="email"
                   value={walkInForm.customerEmail}
                   onChange={(event) =>
@@ -1594,6 +2140,7 @@ export default function VendorDashboardPage() {
                 />
                 <TextInput
                   label="Phone"
+                  name="customerPhone"
                   value={walkInForm.customerPhone}
                   onChange={(event) =>
                     setWalkInForm((current) => ({ ...current, customerPhone: event.target.value }))
@@ -1602,6 +2149,7 @@ export default function VendorDashboardPage() {
                 <Textarea
                   label="Notes"
                   minRows={2}
+                  name="notes"
                   value={walkInForm.notes}
                   onChange={(event) =>
                     setWalkInForm((current) => ({ ...current, notes: event.target.value }))
@@ -1612,6 +2160,7 @@ export default function VendorDashboardPage() {
                 <Checkbox
                   checked={walkInForm.notifyByEmail}
                   label="Send email alerts"
+                  name="notifyByEmail"
                   onChange={(event) =>
                     setWalkInForm((current) => ({ ...current, notifyByEmail: event.target.checked }))
                   }
@@ -1619,6 +2168,7 @@ export default function VendorDashboardPage() {
                 <Checkbox
                   checked={walkInForm.notifyBySms}
                   label="Send SMS alerts"
+                  name="notifyBySms"
                   onChange={(event) =>
                     setWalkInForm((current) => ({ ...current, notifyBySms: event.target.checked }))
                   }
@@ -1633,10 +2183,17 @@ export default function VendorDashboardPage() {
 
   function renderThemePreview() {
     const previewLocation = themeLocation || selectedLocation;
+    const previewBusinessName =
+      snapshot?.tenant.name ||
+      user?.tenants.find((tenant) => tenant.slug === selectedTenantSlug)?.name ||
+      "Business name";
+    const previewLocationName = previewLocation?.name || "Location";
+    const previewJoinUrl = previewLocation?.joinUrl || queueLinks.joinUrl;
     const cardStyle = {
       backgroundColor: hexToRgba(themeForm.cardBackgroundColor, themeForm.cardAlpha),
       border: `${themeForm.cardBorderSize}px solid ${themeForm.cardBorderColor}`,
-      borderRadius: themeForm.cardBorderRadius
+      borderRadius: themeForm.cardBorderRadius,
+      color: themeForm.bodyColor
     };
 
     return (
@@ -1655,42 +2212,52 @@ export default function VendorDashboardPage() {
       >
         <Stack gap="md">
           <Paper p="xl" style={cardStyle}>
-            <Group justify="space-between" align="flex-start">
-              <div>
+            <SimpleGrid cols={{ base: 1, md: 3 }} spacing="xl">
+              <Stack gap="md" style={{ gridColumn: "span 2" }}>
+                {themeForm.logoUrl ? (
+                  <img
+                    alt={`${previewBusinessName} logo preview`}
+                    src={themeForm.logoUrl}
+                    style={{ maxHeight: 76, maxWidth: 180, objectFit: "contain" }}
+                  />
+                ) : null}
                 <Text size="xs" tt="uppercase" fw={800} c={themeForm.subheaderColor} lts={1.6}>
                   Live public board
                 </Text>
-                <Title order={1} c={themeForm.headerColor}>
-                  {themeForm.heroTitle || previewLocation?.name || snapshot?.tenant.name || "Public board"}
+                <Badge color="teal" radius="xl" size="lg" variant="light" w="fit-content">
+                  Live
+                </Badge>
+                <Title order={1} c={themeForm.headerColor} style={{ fontSize: "clamp(3rem, 7vw, 4.5rem)" }}>
+                  {previewBusinessName}
                 </Title>
-                <Text c={themeForm.bodyColor} maw={620}>
-                  {themeForm.heroSubtitle ||
-                    "Customers can monitor their turn remotely and join the line online."}
-                </Text>
-              </div>
-              {themeForm.logoUrl ? (
-                <img
-                  alt="Company logo preview"
-                  src={themeForm.logoUrl}
-                  style={{ maxHeight: 72, maxWidth: 140, objectFit: "contain" }}
-                />
-              ) : null}
-            </Group>
-            <Group mt="xl">
-              <Button
-                style={{
-                  background: themeForm.buttonBackgroundColor,
-                  borderColor: themeForm.buttonBorderColor,
-                  color: themeForm.buttonTextColor
-                }}
-              >
-                Join this queue
-              </Button>
-              <Badge variant="light">Waiting: {snapshot?.stats.waitingCount ?? 0}</Badge>
-              <Badge color={previewLocation?.openStatus.isOpen ? "teal" : "red"}>
-                {previewLocation?.openStatus.isOpen ? "Open" : "Closed"}
-              </Badge>
-            </Group>
+                <Title order={2} c={themeForm.subheaderColor} style={{ fontSize: "clamp(1.75rem, 4vw, 2.75rem)" }}>
+                  {previewLocationName}
+                </Title>
+                <Group mt="sm">
+                  <Button
+                    style={{
+                      background: themeForm.buttonBackgroundColor,
+                      borderColor: themeForm.buttonBorderColor,
+                      color: themeForm.buttonTextColor
+                    }}
+                  >
+                    Join this queue
+                  </Button>
+                  <Badge variant="light">Waiting: {snapshot?.stats.waitingCount ?? 0}</Badge>
+                  <Badge variant="light">ETA: {snapshot?.stats.estimatedWaitMinutes ?? 0} mins</Badge>
+                  <Badge color={previewLocation?.openStatus.isOpen ? "teal" : "red"}>
+                    {previewLocation?.openStatus.isOpen ? "Open" : "Closed"}
+                  </Badge>
+                </Group>
+              </Stack>
+              <Stack align="center" gap="sm">
+                <Text c={themeForm.bodyColor} fw={700}>Scan to join</Text>
+                <Paper bg="white" p="md" radius="lg" withBorder>
+                  <QRCode size={180} value={`${previewJoinUrl}?source=qr`} />
+                </Paper>
+                <Text c={themeForm.bodyColor} size="sm" ta="center">Use your phone camera to open the queue form.</Text>
+              </Stack>
+            </SimpleGrid>
           </Paper>
           <SimpleGrid cols={{ base: 1, md: 2 }}>
             <Paper p="lg" style={cardStyle}>
@@ -1713,6 +2280,30 @@ export default function VendorDashboardPage() {
     );
   }
 
+  function updateSort(
+    setSort: Dispatch<SetStateAction<SortState>>,
+    key: string
+  ) {
+    setSort((current) => ({
+      key,
+      direction: current.key === key && current.direction === "asc" ? "desc" : "asc"
+    }));
+  }
+
+  function renderSortHeader(
+    sort: SortState,
+    setSort: Dispatch<SetStateAction<SortState>>,
+    key: string,
+    label: string
+  ) {
+    return (
+      <button className="sortable-table-header" type="button" onClick={() => updateSort(setSort, key)}>
+        <span>{label}</span>
+        <span>{sort.key === key ? (sort.direction === "asc" ? "↑" : "↓") : "↕"}</span>
+      </button>
+    );
+  }
+
   function renderThemeDialog() {
     return (
       <Modal
@@ -1731,29 +2322,17 @@ export default function VendorDashboardPage() {
                   { value: "neura", label: "Neura Clean" },
                   { value: "clinic", label: "Clinic Calm" }
                 ]}
+                name="presetId"
                 value={themeForm.presetId}
                 onChange={(value) => value && applyThemePreset(value)}
               />
-              <SimpleGrid cols={{ base: 1, md: 2 }}>
-                <TextInput
-                  label="Hero title"
-                  value={themeForm.heroTitle}
-                  placeholder={themeLocation?.name || "Public board title"}
-                  onChange={(event) => setThemeField("heroTitle", event.target.value)}
-                />
-                <TextInput
-                  label="Hero subtitle"
-                  value={themeForm.heroSubtitle}
-                  placeholder="Customers can monitor their turn remotely."
-                  onChange={(event) => setThemeField("heroSubtitle", event.target.value)}
-                />
-              </SimpleGrid>
               <SimpleGrid cols={{ base: 1, md: 2 }}>
                 <FileInput
                   accept="image/png,image/jpeg,image/webp"
                   clearable
                   label="Background image"
                   disabled={busyAction === "theme-upload:background"}
+                  name="backgroundImage"
                   onChange={(file) => uploadThemeAsset("background", file)}
                 />
                 <FileInput
@@ -1761,42 +2340,46 @@ export default function VendorDashboardPage() {
                   clearable
                   label="Company logo"
                   disabled={busyAction === "theme-upload:logo"}
+                  name="logoImage"
                   onChange={(file) => uploadThemeAsset("logo", file)}
                 />
               </SimpleGrid>
               <SimpleGrid cols={{ base: 1, md: 2 }}>
                 <TextInput
                   label="Background image URL"
+                  name="backgroundImageUrl"
                   value={themeForm.backgroundImageUrl}
                   onChange={(event) => setThemeField("backgroundImageUrl", event.target.value)}
                 />
                 <TextInput
                   label="Logo URL"
+                  name="logoUrl"
                   value={themeForm.logoUrl}
                   onChange={(event) => setThemeField("logoUrl", event.target.value)}
                 />
               </SimpleGrid>
               <Divider label="Board colors" labelPosition="left" />
               <SimpleGrid cols={{ base: 1, md: 3 }}>
-                <ColorInput label="Page background" value={themeForm.pageBackgroundColor} onChange={(value) => setThemeField("pageBackgroundColor", value)} />
-                <ColorInput label="Header text" value={themeForm.headerColor} onChange={(value) => setThemeField("headerColor", value)} />
-                <ColorInput label="Subheader text" value={themeForm.subheaderColor} onChange={(value) => setThemeField("subheaderColor", value)} />
-                <ColorInput label="Body text" value={themeForm.bodyColor} onChange={(value) => setThemeField("bodyColor", value)} />
-                <ColorInput label="Button background" value={themeForm.buttonBackgroundColor} onChange={(value) => setThemeField("buttonBackgroundColor", value)} />
-                <ColorInput label="Button text" value={themeForm.buttonTextColor} onChange={(value) => setThemeField("buttonTextColor", value)} />
+                <ColorInput label="Page background" name="pageBackgroundColor" value={themeForm.pageBackgroundColor} onChange={(value) => setThemeField("pageBackgroundColor", value)} />
+                <ColorInput label="Header text" name="headerColor" value={themeForm.headerColor} onChange={(value) => setThemeField("headerColor", value)} />
+                <ColorInput label="Subheader text" name="subheaderColor" value={themeForm.subheaderColor} onChange={(value) => setThemeField("subheaderColor", value)} />
+                <ColorInput label="Body text" name="bodyColor" value={themeForm.bodyColor} onChange={(value) => setThemeField("bodyColor", value)} />
+                <ColorInput label="Button background" name="buttonBackgroundColor" value={themeForm.buttonBackgroundColor} onChange={(value) => setThemeField("buttonBackgroundColor", value)} />
+                <ColorInput label="Button text" name="buttonTextColor" value={themeForm.buttonTextColor} onChange={(value) => setThemeField("buttonTextColor", value)} />
               </SimpleGrid>
               <Divider label="Section cards" labelPosition="left" />
               <SimpleGrid cols={{ base: 1, md: 2 }}>
-                <ColorInput label="Card background" value={themeForm.cardBackgroundColor} onChange={(value) => setThemeField("cardBackgroundColor", value)} />
-                <ColorInput label="Card border" value={themeForm.cardBorderColor} onChange={(value) => setThemeField("cardBorderColor", value)} />
-                <NumberInput label="Border size" min={0} max={12} value={themeForm.cardBorderSize} onChange={(value) => setThemeField("cardBorderSize", Number(value) || 0)} />
-                <NumberInput label="Border radius" min={0} max={48} value={themeForm.cardBorderRadius} onChange={(value) => setThemeField("cardBorderRadius", Number(value) || 0)} />
+                <ColorInput label="Card background" name="cardBackgroundColor" value={themeForm.cardBackgroundColor} onChange={(value) => setThemeField("cardBackgroundColor", value)} />
+                <ColorInput label="Card border" name="cardBorderColor" value={themeForm.cardBorderColor} onChange={(value) => setThemeField("cardBorderColor", value)} />
+                <NumberInput label="Border size" min={0} max={12} name="cardBorderSize" value={themeForm.cardBorderSize} onChange={(value) => setThemeField("cardBorderSize", Number(value) || 0)} />
+                <NumberInput label="Border radius" min={0} max={48} name="cardBorderRadius" value={themeForm.cardBorderRadius} onChange={(value) => setThemeField("cardBorderRadius", Number(value) || 0)} />
               </SimpleGrid>
               <div>
                 <Text size="sm" fw={600}>Card alpha</Text>
                 <Slider
                   min={0.15}
                   max={1}
+                  name="cardAlpha"
                   step={0.05}
                   value={themeForm.cardAlpha}
                   onChange={(value) => setThemeField("cardAlpha", value)}
@@ -1805,6 +2388,7 @@ export default function VendorDashboardPage() {
               <Checkbox
                 checked={applyThemeToAllLocations}
                 label="Apply to all current and future locations"
+                name="applyThemeToAllLocations"
                 onChange={(event) => setApplyThemeToAllLocations(event.target.checked)}
               />
               <Group justify="flex-end">
@@ -1830,6 +2414,8 @@ export default function VendorDashboardPage() {
   function openLocationDialog(locationItem?: StoreLocationWithHours) {
     if (locationItem) {
       setEditingLocationSlug(locationItem.slug);
+      setLocationSlugEdited(true);
+      setLocationSlugStatus("idle");
       setLocationForm({
         name: locationItem.name,
         slug: locationItem.slug,
@@ -1848,20 +2434,126 @@ export default function VendorDashboardPage() {
       });
     } else {
       setEditingLocationSlug("");
+      setLocationSlugEdited(false);
+      setLocationSlugStatus("idle");
       setLocationForm(emptyLocationForm);
     }
 
     setLocationDialogOpen(true);
   }
 
+  function handleLocationNameChange(value: string) {
+    const nextSlug = editingLocationSlug || locationSlugEdited ? locationForm.slug : toSlug(value);
+    if (!editingLocationSlug) {
+      setLocationSlugStatus(nextSlug ? "checking" : "idle");
+    }
+    setLocationForm((current) => ({
+      ...current,
+      name: value,
+      slug: editingLocationSlug || locationSlugEdited ? current.slug : nextSlug
+    }));
+  }
+
+  function handleLocationSlugChange(value: string) {
+    if (editingLocationSlug) {
+      return;
+    }
+
+    const nextSlug = toSlug(value);
+    setLocationSlugEdited(Boolean(nextSlug));
+    setLocationSlugStatus(nextSlug ? "checking" : "idle");
+    setLocationForm((current) => ({ ...current, slug: nextSlug }));
+  }
+
+  async function handleUpdateLocationStatus(
+    locationItem: StoreLocationWithHours,
+    isActive: boolean
+  ) {
+    if (locationItem.isPrimary && !isActive) {
+      setError("Primary locations cannot be disabled.");
+      return;
+    }
+
+    setBusyAction(`location-status:${locationItem.id}`);
+    setError("");
+
+    try {
+      const payload = {
+        name: locationItem.name,
+        addressLine1: locationItem.addressLine1,
+        addressLine2: locationItem.addressLine2,
+        city: locationItem.city,
+        province: locationItem.province,
+        postalCode: locationItem.postalCode,
+        country: locationItem.country,
+        contactEmail: locationItem.contactEmail,
+        contactPhone: locationItem.contactPhone,
+        timezone: locationItem.timezone,
+        isPrimary: locationItem.isPrimary,
+        isActive
+      };
+      const response = await apiRequest<{ location: StoreLocationWithHours }, typeof payload>(
+        `/vendor/tenant/${selectedTenantSlug}/locations/${locationItem.slug}`,
+        { method: "PATCH", token, body: payload }
+      );
+
+      setLocations((current) =>
+        current.map((item) => (item.id === response.location.id ? response.location : item))
+      );
+      showSuccessNotification(
+        isActive ? "Location enabled" : "Location disabled",
+        `${locationItem.name} is now ${isActive ? "active" : "inactive"}.`
+      );
+    } catch (statusError) {
+      setError(getErrorMessage(statusError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function handleDeleteLocationFromDialog() {
+    const locationItem = locations.find((item) => item.slug === editingLocationSlug);
+    if (!locationItem) {
+      return;
+    }
+    if (locationItem.isPrimary) {
+      setError("Primary locations cannot be deleted.");
+      return;
+    }
+
+    setConfirmAction({
+      title: "Delete location?",
+      message: `${locationItem.name} will be permanently removed with its counters and schedules.`,
+      confirmLabel: "Delete location",
+      onConfirm: async () => {
+        await apiRequest<void>(
+          `/vendor/tenant/${selectedTenantSlug}/locations/${locationItem.slug}`,
+          { method: "DELETE", token }
+        );
+        const nextLocations = locations.filter((item) => item.id !== locationItem.id);
+        setLocations(nextLocations);
+        if (selectedLocationSlug === locationItem.slug) {
+          const nextLocation = nextLocations[0];
+          setSelectedLocationSlug(nextLocation?.slug || "");
+        }
+        setLocationDialogOpen(false);
+        showSuccessNotification("Location deleted", `${locationItem.name} was removed.`);
+      }
+    });
+  }
+
   async function saveLocation() {
+    if (!canSaveLocation) {
+      setError(locationSlugError || "Please wait for location slug validation to finish.");
+      return;
+    }
+
     setBusyAction("location");
     setError("");
 
     try {
       const payload = {
         name: locationForm.name,
-        slug: locationForm.slug,
         addressLine1: locationForm.addressLine1,
         addressLine2: locationForm.addressLine2,
         city: locationForm.city,
@@ -1879,9 +2571,12 @@ export default function VendorDashboardPage() {
             `/vendor/tenant/${selectedTenantSlug}/locations/${editingLocationSlug}`,
             { method: "PATCH", token, body: payload }
           )
-        : await apiRequest<{ location: StoreLocationWithHours }, typeof payload>(
+        : await apiRequest<
+            { location: StoreLocationWithHours },
+            typeof payload & { slug: string }
+          >(
             `/vendor/tenant/${selectedTenantSlug}/locations`,
-            { method: "POST", token, body: payload }
+            { method: "POST", token, body: { ...payload, slug: locationForm.slug } }
           );
 
       const hoursResponse = await apiRequest<
@@ -1944,14 +2639,17 @@ export default function VendorDashboardPage() {
                 </div>
                 <Group gap="xs">
                   {locationItem.isPrimary ? <Badge>Primary</Badge> : null}
+                  <Badge color={locationItem.isActive ? "teal" : "gray"}>
+                    {locationItem.isActive ? "Active" : "Inactive"}
+                  </Badge>
                   <Badge color={locationItem.openStatus.isOpen ? "teal" : "red"}>
                     {locationItem.openStatus.isOpen ? "Open" : "Closed"}
                   </Badge>
                 </Group>
               </Group>
               <Text size="sm" c="dimmed">{locationItem.openStatus.summary}</Text>
-              <TextInput label="Join URL" readOnly value={locationItem.joinUrl} />
-              <TextInput label="Monitor URL" readOnly value={locationItem.monitorUrl} />
+              <TextInput label="Join URL" name={`locations.${locationItem.id}.joinUrl`} readOnly value={locationItem.joinUrl} />
+              <TextInput label="Monitor URL" name={`locations.${locationItem.id}.monitorUrl`} readOnly value={locationItem.monitorUrl} />
               <Group>
                 <Button variant="default" onClick={() => setSelectedLocationSlug(locationItem.slug)}>
                   Select
@@ -1959,11 +2657,20 @@ export default function VendorDashboardPage() {
                 <Button variant="default" onClick={() => openLocationDialog(locationItem)}>
                   Edit
                 </Button>
-                {effectiveEntitlements?.brandedQueuePages ? (
+                {isOwner && effectiveEntitlements?.brandedQueuePages ? (
                   <Button className="neura-secondary-button" onClick={() => openThemeDialog(locationItem)}>
                     Setup Theme
                   </Button>
                 ) : null}
+                <Switch
+                  checked={locationItem.isActive}
+                  disabled={locationItem.isPrimary || busyAction === `location-status:${locationItem.id}`}
+                  label="Enabled"
+                  name={`locations.${locationItem.id}.isActive`}
+                  onChange={(event) =>
+                    handleUpdateLocationStatus(locationItem, event.currentTarget.checked)
+                  }
+                />
               </Group>
             </Stack>
           </Card>
@@ -1997,9 +2704,15 @@ export default function VendorDashboardPage() {
                     <Button size="xs" variant="default" onClick={() => openCounterDialog(counter)}>
                       Edit
                     </Button>
-                    <Button color="red" size="xs" variant="light" onClick={() => handleDeleteCounter(counter)}>
-                      Remove
-                    </Button>
+                    <Switch
+                      checked={counter.isActive}
+                      disabled={busyAction === `counter-status:${counter.id}`}
+                      label="Enabled"
+                      name={`counters.${counter.id}.isActive`}
+                      onChange={(event) =>
+                        handleUpdateCounterStatus(counter, event.currentTarget.checked)
+                      }
+                    />
                   </Group>
                 </Paper>
               ))}
@@ -2018,71 +2731,172 @@ export default function VendorDashboardPage() {
   }
 
   function renderStaffPage() {
+    const usedSeats = staff.filter((member) => member.isActive).length + pendingStaffInvites.length;
+
     return (
-      <Card className="neura-card" padding="lg">
-        <Stack gap="md">
-          <Group justify="space-between">
-            <div>
-              <Text className="neura-label">Staff</Text>
-              <Title order={3}>Tenant access</Title>
-              <Text c="dimmed" size="sm">{staff.length}/{staffSeatLimit} staff seats used</Text>
-            </div>
-            <Button
-              className="neura-primary-button"
-              disabled={staff.length >= staffSeatLimit}
-              onClick={() => setStaffDialogOpen(true)}
-            >
-              Add staff
-            </Button>
-          </Group>
-          <Table.ScrollContainer minWidth={720}>
-            <Table verticalSpacing="sm">
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>Name</Table.Th>
-                  <Table.Th>Contact</Table.Th>
-                  <Table.Th>Role</Table.Th>
-                  <Table.Th>Counters</Table.Th>
-                  <Table.Th />
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {staff.map((member) => (
-                  <Table.Tr key={member.id}>
-                    <Table.Td fw={700}>{member.name}</Table.Td>
-                    <Table.Td>{member.email || member.phone || "--"}</Table.Td>
-                    <Table.Td>
-                      <Select
-                        data={[
-                          { label: "Owner", value: "owner" },
-                          { label: "Staff", value: "staff" }
-                        ]}
-                        value={member.role}
-                        onChange={(value) =>
-                          value && handleUpdateStaffRole(member, value as "owner" | "staff")
-                        }
-                      />
-                    </Table.Td>
-                    <Table.Td>
-                      {member.assignedCounterIds
-                        .map((counterId) => serviceCounters.find((counter) => counter.id === counterId)?.name)
-                        .filter(Boolean)
-                        .join(", ") || "--"}
-                    </Table.Td>
-                    <Table.Td>
-                      {member.role !== "owner" ? (
-                        <Button color="red" size="xs" variant="light" onClick={() => handleRemoveStaff(member)}>
-                          Remove
-                        </Button>
-                      ) : null}
-                    </Table.Td>
+      <Stack gap="md">
+        <Card className="neura-card" padding="lg">
+          <Stack gap="md">
+            <Group justify="space-between">
+              <div>
+                <Text className="neura-label">Staff</Text>
+                <Title order={3}>Tenant access</Title>
+                <Text c="dimmed" size="sm">
+                  {usedSeats}/{staffSeatLimit} staff seats used, including pending invites
+                </Text>
+              </div>
+              <Button
+                className="neura-primary-button"
+                disabled={usedSeats >= staffSeatLimit}
+                onClick={() => setStaffDialogOpen(true)}
+              >
+                Invite staff
+              </Button>
+            </Group>
+            <Table.ScrollContainer minWidth={720}>
+              <Table verticalSpacing="sm">
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>{renderSortHeader(staffSort, setStaffSort, "name", "Name")}</Table.Th>
+                    <Table.Th>{renderSortHeader(staffSort, setStaffSort, "contact", "Contact")}</Table.Th>
+                    <Table.Th>{renderSortHeader(staffSort, setStaffSort, "status", "Status")}</Table.Th>
+                    <Table.Th>{renderSortHeader(staffSort, setStaffSort, "role", "Role")}</Table.Th>
+                    <Table.Th>{renderSortHeader(staffSort, setStaffSort, "counters", "Counters")}</Table.Th>
+                    <Table.Th />
                   </Table.Tr>
-                ))}
-              </Table.Tbody>
-            </Table>
-          </Table.ScrollContainer>
-        </Stack>
-      </Card>
+                </Table.Thead>
+                <Table.Tbody>
+                  {staff.map((member) => (
+                    <Table.Tr key={member.id}>
+                      <Table.Td fw={700}>{member.name}</Table.Td>
+	                      <Table.Td>{member.email || member.phone || "--"}</Table.Td>
+                      <Table.Td>
+                        <Badge color={member.isActive ? "teal" : "gray"} variant="light">
+                          {member.isActive ? "Active" : "Disabled"}
+                        </Badge>
+                      </Table.Td>
+	                      <Table.Td>
+	                        {member.role === "owner" ? (
+	                          <Badge color="dark" variant="light">Owner</Badge>
+	                        ) : !isOwner ? (
+	                          <Badge variant="light">{member.role === "admin" ? "Admin" : "Staff"}</Badge>
+	                        ) : (
+	                          <Select
+	                            data={[
+	                              { label: "Admin", value: "admin" },
+	                              { label: "Staff", value: "staff" }
+	                            ]}
+	                            name={`staff.${member.id}.role`}
+	                            value={member.role}
+	                            onChange={(value) =>
+	                              value && handleUpdateStaffRole(member, value as "admin" | "staff")
+	                            }
+	                          />
+	                        )}
+	                      </Table.Td>
+                      <Table.Td>
+                        {member.assignedCounterIds
+                          .map((counterId) => serviceCounters.find((counter) => counter.id === counterId)?.name)
+                          .filter(Boolean)
+                          .join(", ") || "--"}
+                      </Table.Td>
+                      <Table.Td>
+                        <Group justify="flex-end" gap="xs">
+                          {member.role !== "owner" && (isOwner || (isTenantAdmin && member.role === "staff")) ? (
+                            <Switch
+                              checked={member.isActive}
+                              disabled={busyAction === `staff-access:${member.id}`}
+                              label="Enabled"
+                              name={`staff.${member.id}.isActive`}
+                              onChange={(event) =>
+                                handleUpdateStaffAccess(member, event.currentTarget.checked)
+                              }
+                            />
+                          ) : null}
+                          {isOwner && member.role !== "owner" ? (
+                            <Tooltip label="Remove staff access" withArrow>
+                              <ActionIcon
+                                aria-label={`Remove ${member.name}`}
+                                color="red"
+                                onClick={() => handleRemoveStaff(member)}
+                                size="lg"
+                                variant="light"
+                              >
+                                <IconTrash size={16} />
+                              </ActionIcon>
+                            </Tooltip>
+                          ) : null}
+                        </Group>
+                      </Table.Td>
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            </Table.ScrollContainer>
+          </Stack>
+        </Card>
+
+        <Card className="neura-card" padding="lg">
+          <Stack gap="md">
+            <div>
+              <Text className="neura-label">Pending invitations</Text>
+              <Title order={3}>Awaiting acceptance</Title>
+            </div>
+            <Table.ScrollContainer minWidth={640}>
+              <Table verticalSpacing="sm">
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>{renderSortHeader(inviteSort, setInviteSort, "email", "Email")}</Table.Th>
+                    <Table.Th>{renderSortHeader(inviteSort, setInviteSort, "role", "Role")}</Table.Th>
+                    <Table.Th>{renderSortHeader(inviteSort, setInviteSort, "expiresAt", "Expires")}</Table.Th>
+                    <Table.Th />
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {pendingStaffInvites.length ? (
+                    pendingStaffInvites.map((invitation) => (
+                      <Table.Tr key={invitation.id}>
+                        <Table.Td fw={700}>{invitation.email}</Table.Td>
+	                        <Table.Td>
+	                          <Badge variant="light">{invitation.role === "admin" ? "Admin" : "Staff"}</Badge>
+	                        </Table.Td>
+                        <Table.Td>{formatDate(invitation.expiresAt)}</Table.Td>
+                        <Table.Td>
+                          <Group justify="flex-end" gap="xs">
+                            <Button
+                              disabled={busyAction === `staff-invite-resend:${invitation.id}`}
+                              size="xs"
+                              variant="light"
+                              onClick={() => handleResendStaffInvite(invitation)}
+                            >
+                              Resend
+                            </Button>
+                            <Button
+                              color="red"
+                              disabled={busyAction === `staff-invite-revoke:${invitation.id}`}
+                              size="xs"
+                              variant="light"
+                              onClick={() => handleRevokeStaffInvite(invitation)}
+                            >
+                              Revoke
+                            </Button>
+                          </Group>
+                        </Table.Td>
+                      </Table.Tr>
+                    ))
+                  ) : (
+                    <Table.Tr>
+                      <Table.Td colSpan={4}>
+                        <Text c="dimmed" size="sm">No pending staff invitations.</Text>
+                      </Table.Td>
+                    </Table.Tr>
+                  )}
+                </Table.Tbody>
+              </Table>
+            </Table.ScrollContainer>
+          </Stack>
+        </Card>
+      </Stack>
     );
   }
 
@@ -2101,11 +2915,11 @@ export default function VendorDashboardPage() {
             <Table verticalSpacing="sm">
               <Table.Thead>
                 <Table.Tr>
-                  <Table.Th>Customer</Table.Th>
-                  <Table.Th>Contact</Table.Th>
-                  <Table.Th>Visits</Table.Th>
-                  <Table.Th>Latest ticket</Table.Th>
-                  <Table.Th>Latest visit</Table.Th>
+                  <Table.Th>{renderSortHeader(clientSort, setClientSort, "customerName", "Customer")}</Table.Th>
+                  <Table.Th>{renderSortHeader(clientSort, setClientSort, "contact", "Contact")}</Table.Th>
+                  <Table.Th>{renderSortHeader(clientSort, setClientSort, "visitCount", "Visits")}</Table.Th>
+                  <Table.Th>{renderSortHeader(clientSort, setClientSort, "latestTicketNumber", "Latest ticket")}</Table.Th>
+                  <Table.Th>{renderSortHeader(clientSort, setClientSort, "latestVisitAt", "Latest visit")}</Table.Th>
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
@@ -2168,17 +2982,19 @@ export default function VendorDashboardPage() {
             </div>
             <Badge variant="light">{history?.historyLabel || "Recent history"}</Badge>
           </Group>
-          {isOwner && exportTypeOptions.length && historyRangeOptions.length ? (
+	          {canManageTenant && exportTypeOptions.length && historyRangeOptions.length ? (
             <Group align="flex-end">
               <Select
                 data={exportTypeOptions}
                 label="Export type"
+                name="historyExportFormat"
                 value={historyExportFormat}
                 onChange={(value) => setHistoryExportFormat(value as "csv" | "pdf" | null)}
               />
               <Select
                 data={historyRangeOptions}
                 label="History length"
+                name="historyExportRange"
                 value={historyExportRange}
                 onChange={(value) => setHistoryExportRange(value as HistoryExportRange | null)}
               />
@@ -2199,10 +3015,10 @@ export default function VendorDashboardPage() {
             <Table verticalSpacing="sm">
               <Table.Thead>
                 <Table.Tr>
-                  <Table.Th>Ticket</Table.Th>
-                  <Table.Th>Customer</Table.Th>
-                  <Table.Th>Status</Table.Th>
-                  <Table.Th>Updated</Table.Th>
+                  <Table.Th>{renderSortHeader(historySort, setHistorySort, "ticketNumber", "Ticket")}</Table.Th>
+                  <Table.Th>{renderSortHeader(historySort, setHistorySort, "customerName", "Customer")}</Table.Th>
+                  <Table.Th>{renderSortHeader(historySort, setHistorySort, "status", "Status")}</Table.Th>
+                  <Table.Th>{renderSortHeader(historySort, setHistorySort, "updatedAt", "Updated")}</Table.Th>
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
@@ -2260,6 +3076,7 @@ export default function VendorDashboardPage() {
     return (
       <Stack gap="md">
         <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
+          {isOwner ? (
           <Card className="neura-card" padding="lg">
             <Stack gap="md">
               <Group justify="space-between" align="flex-start">
@@ -2282,6 +3099,7 @@ export default function VendorDashboardPage() {
               </SimpleGrid>
             </Stack>
           </Card>
+          ) : null}
 
           <Card className="neura-card" padding="lg">
             <form onSubmit={handleSaveSettings}>
@@ -2293,6 +3111,7 @@ export default function VendorDashboardPage() {
                 <TextInput
                   label="Queue prefix"
                   maxLength={4}
+                  name="queuePrefix"
                   value={settings.queuePrefix}
                   onChange={(event) =>
                     setSettings((current) => ({
@@ -2304,6 +3123,7 @@ export default function VendorDashboardPage() {
                 <NumberInput
                   label="Average service minutes"
                   min={1}
+                  name="averageServiceMinutes"
                   value={Number(settings.averageServiceMinutes)}
                   onChange={(value) =>
                     setSettings((current) => ({ ...current, averageServiceMinutes: value || 1 }))
@@ -2312,26 +3132,33 @@ export default function VendorDashboardPage() {
                 <NumberInput
                   label="Notify when within"
                   min={1}
+                  name="notificationThreshold"
                   value={Number(settings.notificationThreshold)}
                   onChange={(value) =>
                     setSettings((current) => ({ ...current, notificationThreshold: value || 1 }))
                   }
                 />
-                <TextInput
-                  label="Contact email"
-                  type="email"
-                  value={settings.contactEmail}
-                  onChange={(event) =>
-                    setSettings((current) => ({ ...current, contactEmail: event.target.value }))
-                  }
-                />
-                <TextInput
-                  label="Contact phone"
-                  value={settings.contactPhone}
-                  onChange={(event) =>
-                    setSettings((current) => ({ ...current, contactPhone: event.target.value }))
-                  }
-                />
+                {isOwner ? (
+                  <>
+                    <TextInput
+                      label="Contact email"
+                      name="contactEmail"
+                      type="email"
+                      value={settings.contactEmail}
+                      onChange={(event) =>
+                        setSettings((current) => ({ ...current, contactEmail: event.target.value }))
+                      }
+                    />
+                    <TextInput
+                      label="Contact phone"
+                      name="contactPhone"
+                      value={settings.contactPhone}
+                      onChange={(event) =>
+                        setSettings((current) => ({ ...current, contactPhone: event.target.value }))
+                      }
+                    />
+                  </>
+                ) : null}
                 <Button className="neura-secondary-button" disabled={busyAction === "settings"} type="submit">
                   {busyAction === "settings" ? "Saving..." : "Save settings"}
                 </Button>
@@ -2340,7 +3167,132 @@ export default function VendorDashboardPage() {
           </Card>
         </SimpleGrid>
 
-        {!activeSubscription ? <Card className="neura-card" padding="lg">{renderPlanCards()}</Card> : null}
+        {isOwner && !activeSubscription ? <Card className="neura-card" padding="lg">{renderPlanCards()}</Card> : null}
+      </Stack>
+    );
+  }
+
+  function renderAccountPage() {
+    return (
+      <Stack gap="md">
+        <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
+          <Card className="neura-card" padding="lg">
+            <form onSubmit={handleSaveAccountProfile}>
+              <Stack gap="md">
+                <div>
+                  <Text className="neura-label">Personal account</Text>
+                  <Title order={3}>Profile details</Title>
+                  <Text c="dimmed" size="sm">
+                    These details identify you inside vendor workspaces and staff records.
+                  </Text>
+                </div>
+                <TextInput
+                  label="Full name"
+                  name="name"
+                  required
+                  value={accountProfileForm.name}
+                  onChange={(event) =>
+                    setAccountProfileForm((current) => ({
+                      ...current,
+                      name: event.target.value
+                    }))
+                  }
+                />
+                <TextInput
+                  label="Email"
+                  name="email"
+                  required
+                  type="email"
+                  value={accountProfileForm.email}
+                  onChange={(event) =>
+                    setAccountProfileForm((current) => ({
+                      ...current,
+                      email: event.target.value
+                    }))
+                  }
+                />
+                <TextInput
+                  label="Contact phone"
+                  name="phone"
+                  value={accountProfileForm.phone}
+                  onChange={(event) =>
+                    setAccountProfileForm((current) => ({
+                      ...current,
+                      phone: event.target.value
+                    }))
+                  }
+                />
+                <Button
+                  className="neura-secondary-button"
+                  disabled={busyAction === "account-profile"}
+                  type="submit"
+                >
+                  {busyAction === "account-profile" ? "Saving..." : "Save profile"}
+                </Button>
+              </Stack>
+            </form>
+          </Card>
+
+          <Card className="neura-card" padding="lg">
+            <form onSubmit={handleSaveAccountPassword}>
+              <Stack gap="md">
+                <div>
+                  <Text className="neura-label">Security</Text>
+                  <Title order={3}>Password</Title>
+                  <Text c="dimmed" size="sm">
+                    Keep your vendor access protected with a private password.
+                  </Text>
+                </div>
+                {user?.hasPassword ? (
+                  <PasswordInput
+                    label="Current password"
+                    name="currentPassword"
+                    required
+                    value={accountPasswordForm.currentPassword}
+                    onChange={(event) =>
+                      setAccountPasswordForm((current) => ({
+                        ...current,
+                        currentPassword: event.target.value
+                      }))
+                    }
+                  />
+                ) : null}
+                <PasswordInput
+                  description="Use at least 8 characters."
+                  label="New password"
+                  name="newPassword"
+                  required
+                  value={accountPasswordForm.newPassword}
+                  onChange={(event) =>
+                    setAccountPasswordForm((current) => ({
+                      ...current,
+                      newPassword: event.target.value
+                    }))
+                  }
+                />
+                <PasswordInput
+                  label="Confirm new password"
+                  name="confirmPassword"
+                  required
+                  value={accountPasswordForm.confirmPassword}
+                  onChange={(event) =>
+                    setAccountPasswordForm((current) => ({
+                      ...current,
+                      confirmPassword: event.target.value
+                    }))
+                  }
+                />
+                <Button
+                  className="neura-secondary-button"
+                  disabled={busyAction === "account-password"}
+                  type="submit"
+                >
+                  {busyAction === "account-password" ? "Saving..." : "Update password"}
+                </Button>
+              </Stack>
+            </form>
+          </Card>
+        </SimpleGrid>
       </Stack>
     );
   }
@@ -2357,23 +3309,30 @@ export default function VendorDashboardPage() {
           <Stack gap="md">
             <TextInput
               label="Counter name"
+              name="name"
               required
               value={counterForm.name}
-              onChange={(event) =>
-                setCounterForm((current) => ({ ...current, name: event.target.value }))
-              }
+              onChange={(event) => handleCounterNameChange(event.target.value)}
             />
-            <TextInput
-              label="Counter slug"
-              required
-              value={counterForm.slug}
-              onChange={(event) =>
-                setCounterForm((current) => ({ ...current, slug: event.target.value }))
-              }
-            />
+            <Stack gap={4}>
+              <TextInput
+                error={counterSlugError}
+                label="Counter slug"
+                name="slug"
+                required
+                value={counterForm.slug}
+                onChange={(event) => handleCounterSlugChange(event.target.value)}
+              />
+              {!counterSlugError ? (
+                <Text c={counterSlugHelperColor} size="xs">
+                  {counterSlugMessage}
+                </Text>
+              ) : null}
+            </Stack>
             <Checkbox
               checked={counterForm.isActive}
               label="Active counter"
+              name="isActive"
               onChange={(event) =>
                 setCounterForm((current) => ({ ...current, isActive: event.target.checked }))
               }
@@ -2381,18 +3340,26 @@ export default function VendorDashboardPage() {
             <MultiSelect
               data={staff.map((member) => ({ label: member.name, value: member.id }))}
               label="Assigned staff"
+              name="assignedUserIds"
               value={counterForm.assignedUserIds}
               onChange={(value) =>
                 setCounterForm((current) => ({ ...current, assignedUserIds: value }))
               }
             />
-            <Group justify="flex-end">
-              <Button variant="default" onClick={() => setCounterDialogOpen(false)}>
-                Cancel
-              </Button>
-              <Button className="neura-primary-button" disabled={busyAction === "counter-save"} type="submit">
-                {editingCounterSlug ? "Save counter" : "Create counter"}
-              </Button>
+            <Group justify="space-between">
+              {editingCounterSlug ? (
+                <Button color="red" variant="subtle" onClick={handleDeleteCounterFromDialog}>
+                  Delete counter
+                </Button>
+              ) : <div />}
+              <Group justify="flex-end">
+                <Button variant="default" onClick={() => setCounterDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button className="neura-primary-button" disabled={!canSaveCounter} type="submit">
+                  {editingCounterSlug ? "Save counter" : "Create counter"}
+                </Button>
+              </Group>
             </Group>
           </Stack>
         </form>
@@ -2402,11 +3369,12 @@ export default function VendorDashboardPage() {
 
   function renderStaffDialog() {
     return (
-      <Modal centered opened={staffDialogOpen} onClose={() => setStaffDialogOpen(false)} title="Add staff">
+      <Modal centered opened={staffDialogOpen} onClose={() => setStaffDialogOpen(false)} title="Invite staff">
         <form onSubmit={handleAddStaff}>
           <Stack gap="md">
             <TextInput
-              label="Existing account email"
+              label="Email"
+              name="email"
               required
               type="email"
               value={staffForm.email}
@@ -2414,29 +3382,32 @@ export default function VendorDashboardPage() {
                 setStaffForm((current) => ({ ...current, email: event.target.value }))
               }
             />
-            <Select
-              data={[
-                { label: "Staff", value: "staff" },
-                { label: "Owner", value: "owner" }
-              ]}
-              label="Role"
-              value={staffForm.role}
-              onChange={(value) =>
-                setStaffForm((current) => ({
-                  ...current,
-                  role: value === "owner" ? "owner" : "staff"
-                }))
-              }
-            />
+            {isOwner ? (
+              <Select
+                data={[
+                  { label: "Staff", value: "staff" },
+                  { label: "Admin", value: "admin" }
+                ]}
+                label="Role"
+                name="role"
+                value={staffForm.role}
+                onChange={(value) =>
+                  setStaffForm((current) => ({
+                    ...current,
+                    role: value === "admin" ? "admin" : "staff"
+                  }))
+                }
+              />
+            ) : null}
             <Text c="dimmed" size="sm">
-              The person must already have a GetPrio account before they can be added here.
+              The invitee can use an existing GetPrio account or register a new one with this email.
             </Text>
             <Group justify="flex-end">
               <Button variant="default" onClick={() => setStaffDialogOpen(false)}>
                 Cancel
               </Button>
               <Button className="neura-primary-button" disabled={busyAction === "staff-save"} type="submit">
-                Add staff
+                Send invite
               </Button>
             </Group>
           </Stack>
@@ -2445,13 +3416,40 @@ export default function VendorDashboardPage() {
     );
   }
 
+  function renderConfirmDialog() {
+    return (
+      <Modal
+        centered
+        opened={Boolean(confirmAction)}
+        onClose={() => setConfirmAction(null)}
+        title={confirmAction?.title || "Confirm action"}
+      >
+        <Stack gap="md">
+          <Text c="dimmed">{confirmAction?.message}</Text>
+          <Group justify="flex-end">
+            <Button variant="default" onClick={() => setConfirmAction(null)}>
+              Cancel
+            </Button>
+            <Button
+              color="red"
+              disabled={busyAction === "confirm-action"}
+              onClick={handleConfirmAction}
+            >
+              {busyAction === "confirm-action" ? "Working..." : confirmAction?.confirmLabel || "Confirm"}
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
+    );
+  }
+
   function renderDashboardSidebar({ compact = false }: { compact?: boolean } = {}) {
     return (
       <Stack className={compact ? "neura-sidebar-content" : undefined} gap="lg" h="100%">
         <Group gap="sm" className="neura-brand">
-          <div className="neura-logo">P</div>
+          <img alt="GetPrio logo" className="neura-logo" src="/brand/getprio-mark.svg" />
           <div>
-            <Text fw={800}>Prio</Text>
+            <Text fw={800}>GetPrio</Text>
             <Text size="xs" c="dimmed">Queue Platform</Text>
           </div>
         </Group>
@@ -2506,7 +3504,7 @@ export default function VendorDashboardPage() {
   }
 
   function renderCurrentSection() {
-    if (!activeSubscription && currentSection !== "settings") {
+    if (!activeSubscription && currentSection !== "settings" && currentSection !== "account") {
       return <ActivationPanel onViewPlans={() => setPlanDialogOpen(true)} />;
     }
 
@@ -2534,6 +3532,10 @@ export default function VendorDashboardPage() {
       return renderReportsPage();
     }
 
+    if (currentSection === "account") {
+      return renderAccountPage();
+    }
+
     return renderSettingsPage();
   }
 
@@ -2546,6 +3548,10 @@ export default function VendorDashboardPage() {
   }
 
   if (selectedTenantRole === "staff" && !staffAllowedSections.has(currentSection)) {
+    return <Navigate to="/dashboard/queue" replace />;
+  }
+
+  if (selectedTenantRole === "admin" && !adminAllowedSections.has(currentSection)) {
     return <Navigate to="/dashboard/queue" replace />;
   }
 
@@ -2609,6 +3615,7 @@ export default function VendorDashboardPage() {
             className="neura-tenant-select"
             data={user.tenants.map((tenant) => ({ label: tenant.name, value: tenant.slug }))}
             label="Tenant"
+            name="selectedTenantSlug"
             value={selectedTenantSlug}
             onChange={(value) => {
               if (value) {
@@ -2624,6 +3631,7 @@ export default function VendorDashboardPage() {
               value: locationItem.slug
             }))}
             label="Location"
+            name="selectedLocationSlug"
             value={selectedLocationSlug}
             onChange={(value) => value && setSelectedLocationSlug(value)}
           />
@@ -2637,6 +3645,7 @@ export default function VendorDashboardPage() {
       {renderCounterDialog()}
       {renderStaffDialog()}
       {renderThemeDialog()}
+      {renderConfirmDialog()}
       <Drawer
         classNames={{ body: "neura-drawer-body", content: "neura-drawer-content", header: "neura-drawer-header" }}
         hiddenFrom="lg"

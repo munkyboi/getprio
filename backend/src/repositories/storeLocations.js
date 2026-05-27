@@ -202,7 +202,6 @@ async function updateLocation(locationId, changes, options = {}) {
   const values = [Number(locationId)];
   const setters = {
     name: "name",
-    slug: "slug",
     addressLine1: "address_line1",
     addressLine2: "address_line2",
     city: "city",
@@ -235,7 +234,7 @@ async function updateLocation(locationId, changes, options = {}) {
       continue;
     }
 
-    const value = key === "slug" ? normalizeSlug(changes[key]) : changes[key];
+    const value = changes[key];
     values.push(value === "" ? null : value);
     updates.push(`${column} = $${values.length}`);
   }
@@ -259,6 +258,11 @@ async function updateLocation(locationId, changes, options = {}) {
   );
 
   return mapLocation(result.rows[0]);
+}
+
+async function deleteLocation(locationId, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  await queryClient.query(`DELETE FROM store_locations WHERE id = $1`, [Number(locationId)]);
 }
 
 async function listHoursByLocationId(locationId, options = {}) {
@@ -331,6 +335,7 @@ module.exports = {
   findPrimaryLocationByTenantId,
   createLocation,
   updateLocation,
+  deleteLocation,
   listHoursByLocationId,
   replaceHours,
   createDefaultHours,

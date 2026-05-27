@@ -22,5 +22,6 @@ export interface AuthContextValue {
   registerCustomer(payload: RegisterCustomerRequest): Promise<AuthResponse>;
   acceptAuthToken(nextToken: string): void;
   startOAuth(provider: OAuthProviderId, intent: AuthIntent): void;
+  refreshUser(): Promise<UserSummary | null>;
   logout(): void;
 }

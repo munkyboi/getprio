@@ -288,15 +288,10 @@ button {
 }
 
 .finazze-brand-mark {
-  display: grid;
-  place-items: center;
   width: 42px;
   height: 42px;
-  border-radius: 14px;
-  color: #16120f;
-  font-weight: 900;
-  background: linear-gradient(135deg, #fffaf0, #d8b95f);
-  box-shadow: 0 16px 35px rgba(36, 30, 25, 0.16);
+  flex: 0 0 42px;
+  filter: drop-shadow(0 14px 24px rgba(249, 115, 22, 0.26));
 }
 
 .finazze-hero {
@@ -515,57 +510,6 @@ button {
 .finazze-join-side {
   width: auto;
   margin: 0;
-}
-
-.public-board-hours-strip {
-  width: 100%;
-  padding: 0.35rem 0 0.1rem;
-}
-
-.public-board-hours-day {
-  min-width: 60px;
-}
-
-.public-board-hours-time {
-  min-height: 1rem;
-  color: #101010;
-  font-size: 0.74rem;
-  font-weight: 700;
-  line-height: 1;
-  text-transform: uppercase;
-  white-space: nowrap;
-  text-align: center;
-}
-
-.public-board-hours-label {
-  color: #050505;
-  font-size: clamp(2rem, 4vw, 2.8rem);
-  font-weight: 950;
-  line-height: 0.95;
-  letter-spacing: 0;
-  text-transform: lowercase;
-  text-align: center;
-}
-
-.public-board-hours-day-closed .public-board-hours-time,
-.public-board-hours-day-closed .public-board-hours-label {
-  color: #b7b7b7;
-}
-
-.public-board-hours-day-active .public-board-hours-time,
-.public-board-hours-day-active .public-board-hours-label {
-  color: #f97316 !important;
-}
-
-@media (max-width: 720px) {
-  .public-board-hours-strip {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .public-board-hours-day {
-    min-width: 0;
-  }
 }
 
 .finazze-auth-card h1 {
@@ -1486,12 +1430,8 @@ h2 {
 .neura-logo {
   width: 42px;
   height: 42px;
-  border-radius: 14px;
-  display: grid;
-  place-items: center;
-  background: linear-gradient(135deg, #f2f5f9, #8f9db4);
-  color: #11151c;
-  font-weight: 900;
+  flex: 0 0 42px;
+  filter: drop-shadow(0 16px 28px rgba(249, 115, 22, 0.24));
 }
 
 .neura-nav-scroll {
@@ -1701,6 +1641,19 @@ h2 {
   border-radius: 20px;
   background: #fff;
   border: 1px solid #e5e9f0;
+}
+
+.sortable-table-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
 }
 
 @media (max-width: 1180px) {

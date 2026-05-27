@@ -59,6 +59,8 @@ import "./styles.css";
 const STORAGE_KEY = "prio-platform-auth";
 const PHP = new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" });
 type GenericRecord = Record<string, unknown>;
+type SortDirection = "asc" | "desc";
+type SortState = { key: string; direction: SortDirection };
 
 const theme = createTheme({
   primaryColor: "orange",
@@ -103,11 +105,15 @@ function StatusBadge({ value }: { value: unknown }) {
 function DataTable({
   rows,
   columns,
-  emptyLabel
+  emptyLabel,
+  sort,
+  onSortChange
 }: {
   rows: GenericRecord[];
   columns: Array<{ key: string; label: string; render?: (row: GenericRecord) => ReactNode }>;
   emptyLabel: string;
+  sort?: SortState;
+  onSortChange?: (key: string) => void;
 }) {
   return (
     <Paper className="portal-card" p="lg">
@@ -115,7 +121,21 @@ function DataTable({
         <Table verticalSpacing="sm">
           <Table.Thead>
             <Table.Tr>
-              {columns.map((column) => <Table.Th key={column.key}>{column.label}</Table.Th>)}
+              {columns.map((column) => (
+                <Table.Th key={column.key}>
+                  {onSortChange ? (
+                    <button
+                      aria-label={`Sort by ${column.label}`}
+                      className="portal-sort-header"
+                      type="button"
+                      onClick={() => onSortChange(column.key)}
+                    >
+                      <span>{column.label}</span>
+                      <span>{sort?.key === column.key ? (sort.direction === "asc" ? "↑" : "↓") : "↕"}</span>
+                    </button>
+                  ) : column.label}
+                </Table.Th>
+              ))}
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
@@ -167,8 +187,8 @@ function LoginPanel({ onLogin }: { onLogin: (token: string, user: UserSummary) =
               <Text className="portal-label">GetPrio Platform</Text>
               <Title order={1}>Operations portal</Title>
             </div>
-            <TextInput label="Email" type="email" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} />
-            <PasswordInput label="Password" value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} />
+            <TextInput label="Email" name="email" type="email" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} />
+            <PasswordInput label="Password" name="password" value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} />
             {error ? <Text c="red">{error}</Text> : null}
             <Button type="submit" loading={submitting}>Sign in</Button>
           </Stack>
@@ -199,7 +219,15 @@ function MetricCard({ label, value, values = [] }: { label: string; value: strin
 
 function OverviewPage({ token }: { token: string }) {
   const [data, setData] = useState<PlatformOverviewResponse | null>(null);
-  useEffect(() => { apiRequest<PlatformOverviewResponse>("/platform/overview", { token }).then(setData); }, [token]);
+  const [paymentSort, setPaymentSort] = useState<SortState>({ key: "createdAt", direction: "desc" });
+  const overviewEndpoint = `/platform/overview?paymentSort=${encodeURIComponent(paymentSort.key)}&paymentDirection=${paymentSort.direction}`;
+  useEffect(() => { apiRequest<PlatformOverviewResponse>(overviewEndpoint, { token }).then(setData); }, [overviewEndpoint, token]);
+  function handlePaymentSortChange(key: string) {
+    setPaymentSort((current) => ({
+      key,
+      direction: current.key === key && current.direction === "asc" ? "desc" : "asc"
+    }));
+  }
   const totals = data?.totals;
   return (
     <Stack gap="lg">
@@ -216,6 +244,8 @@ function OverviewPage({ token }: { token: string }) {
       <DataTable
         rows={(data?.recentPayments || []) as unknown as GenericRecord[]}
         emptyLabel="No recent payments."
+        sort={paymentSort}
+        onSortChange={handlePaymentSortChange}
         columns={[
           { key: "tenantName", label: "Tenant" },
           { key: "planSlug", label: "Plan" },
@@ -245,8 +275,8 @@ function QueueFeesPage({ token }: { token: string }) {
           <Card className="portal-card" key={fee.planSlug} padding="lg">
             <Stack>
               <Title order={3}>{fee.planSlug}</Title>
-              <Checkbox checked={fee.enabled} label="Enabled" onChange={(event) => setFees((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, enabled: event.target.checked } : item))} />
-              <NumberInput label="Amount in centavos" value={fee.amountCents} onChange={(value) => setFees((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, amountCents: Number(value) || 0 } : item))} />
+              <Checkbox checked={fee.enabled} label="Enabled" name={`queueFees.${fee.planSlug}.enabled`} onChange={(event) => setFees((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, enabled: event.target.checked } : item))} />
+              <NumberInput label="Amount in centavos" name={`queueFees.${fee.planSlug}.amountCents`} value={fee.amountCents} onChange={(value) => setFees((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, amountCents: Number(value) || 0 } : item))} />
             </Stack>
           </Card>
         ))}
@@ -276,9 +306,9 @@ function PlansPage({ token }: { token: string }) {
         <Card className="portal-card" key={plan.slug} padding="lg">
           <Stack>
             <Group grow align="flex-start">
-              <TextInput label="Name" value={plan.name} onChange={(event) => setPlans((current) => current.map((item) => item.slug === plan.slug ? { ...item, name: event.target.value } : item))} />
-              <NumberInput label="Monthly price (centavos)" value={plan.price.monthlyAmountCents} onChange={(value) => setPlans((current) => current.map((item) => item.slug === plan.slug ? { ...item, price: { ...item.price, monthlyAmountCents: Number(value) || 0 } } : item))} />
-              <NumberInput label="Annual price (centavos)" value={plan.price.annualAmountCents} onChange={(value) => setPlans((current) => current.map((item) => item.slug === plan.slug ? { ...item, price: { ...item.price, annualAmountCents: Number(value) || 0 } } : item))} />
+              <TextInput label="Name" name={`plans.${plan.slug}.name`} value={plan.name} onChange={(event) => setPlans((current) => current.map((item) => item.slug === plan.slug ? { ...item, name: event.target.value } : item))} />
+              <NumberInput label="Monthly price (centavos)" name={`plans.${plan.slug}.monthlyAmountCents`} value={plan.price.monthlyAmountCents} onChange={(value) => setPlans((current) => current.map((item) => item.slug === plan.slug ? { ...item, price: { ...item.price, monthlyAmountCents: Number(value) || 0 } } : item))} />
+              <NumberInput label="Annual price (centavos)" name={`plans.${plan.slug}.annualAmountCents`} value={plan.price.annualAmountCents} onChange={(value) => setPlans((current) => current.map((item) => item.slug === plan.slug ? { ...item, price: { ...item.price, annualAmountCents: Number(value) || 0 } } : item))} />
             </Group>
             <SimpleGrid cols={{ base: 1, md: 3 }}>
               {[
@@ -289,7 +319,7 @@ function PlansPage({ token }: { token: string }) {
                 ["counters", "Counters"],
                 ["staffSeats", "Staff seats"]
               ].map(([key, label]) => (
-                <NumberInput key={key} label={label} value={Number(plan.entitlements[key as keyof typeof plan.entitlements] ?? 0)} onChange={(value) => setPlans((current) => current.map((item) => item.slug === plan.slug ? { ...item, entitlements: { ...item.entitlements, [key]: Number(value) || 0 } } : item))} />
+                <NumberInput key={key} label={label} name={`plans.${plan.slug}.entitlements.${key}`} value={Number(plan.entitlements[key as keyof typeof plan.entitlements] ?? 0)} onChange={(value) => setPlans((current) => current.map((item) => item.slug === plan.slug ? { ...item, entitlements: { ...item.entitlements, [key]: Number(value) || 0 } } : item))} />
               ))}
             </SimpleGrid>
             <Group>
@@ -298,7 +328,7 @@ function PlansPage({ token }: { token: string }) {
                 ["csvExport", "CSV export"],
                 ["pdfExport", "PDF export"]
               ].map(([key, label]) => (
-                <Checkbox key={key} checked={Boolean(plan.entitlements[key as keyof typeof plan.entitlements])} label={label} onChange={(event) => setPlans((current) => current.map((item) => item.slug === plan.slug ? { ...item, entitlements: { ...item.entitlements, [key]: event.target.checked } } : item))} />
+                <Checkbox key={key} checked={Boolean(plan.entitlements[key as keyof typeof plan.entitlements])} label={label} name={`plans.${plan.slug}.entitlements.${key}`} onChange={(event) => setPlans((current) => current.map((item) => item.slug === plan.slug ? { ...item, entitlements: { ...item.entitlements, [key]: event.target.checked } } : item))} />
               ))}
             </Group>
             <Checkbox.Group
@@ -306,7 +336,7 @@ function PlansPage({ token }: { token: string }) {
               value={plan.entitlements.allowedHistoryExportRanges}
               onChange={(value) => setPlans((current) => current.map((item) => item.slug === plan.slug ? { ...item, entitlements: { ...item.entitlements, allowedHistoryExportRanges: value as typeof plan.entitlements.allowedHistoryExportRanges } } : item))}
             >
-              <Group mt="xs">{historyRanges.map((range) => <Checkbox key={range} value={range} label={range} />)}</Group>
+              <Group mt="xs">{historyRanges.map((range) => <Checkbox key={range} name={`plans.${plan.slug}.entitlements.allowedHistoryExportRanges`} value={range} label={range} />)}</Group>
             </Checkbox.Group>
             <Group justify="flex-end"><Button onClick={() => save(plan)}>Save plan</Button></Group>
           </Stack>
@@ -328,17 +358,25 @@ function SettingsPage({ token }: { token: string }) {
   return (
     <Paper className="portal-card" p="lg">
       <Stack>
-        <TextInput label="Enterprise inquiry recipient" value={settings?.enterpriseInquiryEmail || ""} onChange={(event) => setSettings({ enterpriseInquiryEmail: event.target.value })} />
+        <TextInput label="Enterprise inquiry recipient" name="enterpriseInquiryEmail" value={settings?.enterpriseInquiryEmail || ""} onChange={(event) => setSettings({ enterpriseInquiryEmail: event.target.value })} />
         <Group justify="flex-end"><Button onClick={save}>Save settings</Button></Group>
       </Stack>
     </Paper>
   );
 }
 
-function RecordsPage({ token, endpoint, columns, emptyLabel }: { token: string; endpoint: string; columns: Array<{ key: string; label: string; render?: (row: GenericRecord) => ReactNode }>; emptyLabel: string }) {
+function RecordsPage({ token, endpoint, columns, emptyLabel, defaultSort = "createdAt", defaultDirection = "desc" }: { token: string; endpoint: string; columns: Array<{ key: string; label: string; render?: (row: GenericRecord) => ReactNode }>; emptyLabel: string; defaultSort?: string; defaultDirection?: SortDirection }) {
   const [rows, setRows] = useState<GenericRecord[]>([]);
-  useEffect(() => { apiRequest<PlatformListResponse<GenericRecord>>(endpoint, { token }).then((data) => setRows(data.items)); }, [endpoint, token]);
-  return <DataTable rows={rows} columns={columns} emptyLabel={emptyLabel} />;
+  const [sort, setSort] = useState<SortState>({ key: defaultSort, direction: defaultDirection });
+  const sortedEndpoint = `${endpoint}?sort=${encodeURIComponent(sort.key)}&direction=${sort.direction}`;
+  useEffect(() => { apiRequest<PlatformListResponse<GenericRecord>>(sortedEndpoint, { token }).then((data) => setRows(data.items)); }, [sortedEndpoint, token]);
+  function handleSortChange(key: string) {
+    setSort((current) => ({
+      key,
+      direction: current.key === key && current.direction === "asc" ? "desc" : "asc"
+    }));
+  }
+  return <DataTable rows={rows} columns={columns} emptyLabel={emptyLabel} sort={sort} onSortChange={handleSortChange} />;
 }
 
 function PortalApp() {
@@ -372,10 +410,13 @@ function PortalApp() {
       <AppShell.Navbar className="portal-sidebar" p="lg">
         <Stack h="100%" justify="space-between">
           <Stack>
-            <div>
-              <Text className="portal-label">GetPrio</Text>
-              <Title order={2}>Platform</Title>
-            </div>
+            <Group gap="sm" wrap="nowrap">
+              <img alt="GetPrio logo" className="portal-logo" src="/brand/getprio-mark.svg" />
+              <div>
+                <Text className="portal-label">GetPrio</Text>
+                <Title order={2}>Platform</Title>
+              </div>
+            </Group>
             <Paper className="portal-profile-card" p="md">
               <Group gap="sm">
                 <div className="portal-avatar">CA</div>

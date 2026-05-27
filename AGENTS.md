@@ -4,7 +4,7 @@ This repository supports the GetPrio capstone project. Codex and other AI coding
 
 ## Product Summary
 
-GetPrio is a service marketplace and booking platform. Customers discover vendors publicly, view vendor profiles, book services, manage transactions, receive notifications, and leave reviews. Vendors manage their business profile, services, staff, availability, bookings, and operational dashboards. Platform administrators manage vendor approvals, disputes, moderation, audit logs, compliance, and platform governance.
+GetPrio is a multi-tenant QR-based digital queue management platform. Customers join queues through public QR or online links, verify queue joins, receive ticket numbers, monitor queue movement, and optionally receive near-turn alerts. Vendors manage tenant queue operations, walk-in tickets, locations, service counters, staff access, customer history, queue settings, public board branding, and subscription-related limits. Platform administrators monitor tenants, users, subscriptions, queue fees, queue join payments, and billing events through a separate operations dashboard.
 
 ## Capstone Roles
 
@@ -12,11 +12,11 @@ Use these roles consistently across UI, routing, authorization, data models, and
 
 | Role | Description |
 | --- | --- |
-| Guest | Public visitor who can browse/search vendors and view public vendor details. |
-| Customer | Registered user who can book services, manage profile, view booking history, make payments, receive notifications, and submit reviews. |
-| Vendor Staff | Vendor-side worker with limited operational access to assigned bookings and schedules. |
-| Vendor Admin | Vendor business owner/admin who manages services, staff, pricing, availability, bookings, and vendor analytics. |
-| Platform Admin | GetPrio administrator who manages vendor approval, user moderation, disputes, audit logs, reporting, and compliance. |
+| Guest | Public visitor who can view landing content, register, log in, open public queue boards, and join a queue through a tenant QR or online link. |
+| Customer | Registered user who can manage profile details, join queues, view ticket history, monitor current tickets, and receive notifications. |
+| Vendor Staff | Vendor-side worker with limited tenant access for queue operations, assigned counters, and customer/ticket handling. |
+| Vendor Admin | Vendor business owner/admin who manages tenant queue settings, locations, counters, staff, walk-in tickets, history, reports, branding, and billing-related settings. |
+| Platform Admin | GetPrio administrator who monitors tenants, users, queue fees, subscriptions, queue join payments, billing events, and platform settings. |
 
 ## HCI + IAS Integration Rule
 
@@ -37,10 +37,11 @@ When generating or implementing screens, prioritize role-based screen visibility
 ### Public / Guest
 
 - Landing page
-- Vendor search / discovery
-- Vendor profile / service details
 - Login
 - Register
+- Public queue board
+- QR/online join queue page
+- Ticket lookup state
 - Forgot password
 - Reset password
 
@@ -48,8 +49,9 @@ When generating or implementing screens, prioritize role-based screen visibility
 
 - Login
 - Register
-- MFA verification
-- Account locked state
+- OTP verification for public queue join
+- CAPTCHA/security check on queue join
+- Account locked state / rate-limit state
 - Forgot password
 - Reset password
 - Session expiry warning modal
@@ -58,43 +60,48 @@ When generating or implementing screens, prioritize role-based screen visibility
 ### Customer
 
 - Customer dashboard
-- Search vendors
-- Vendor details
-- Booking flow / booking request
-- Booking confirmation
-- Booking history
+- Join queue form
+- OTP verification
+- Ticket confirmation
+- Public queue monitor
+- Ticket lookup/cancellation
+- Queue history
 - Payment / checkout placeholder
-- Reviews and ratings
 - Notifications
 - Profile and account settings
 
 ### Vendor Staff
 
 - Staff dashboard
-- Assigned bookings
-- Booking detail
-- Schedule view
-- Limited customer details
+- Assigned counter view
+- Queue operation view
+- Ticket detail
+- Limited customer/ticket details
 
 ### Vendor Admin
 
 - Vendor dashboard
-- Business profile management
+- Queue operations
+- Walk-in ticket issuance
+- Location management
+- Service counter management
 - Staff management
-- Service catalog management
-- Pricing management
-- Availability calendar
-- Booking management
-- Vendor analytics
+- Customer/client history
+- Queue history and reports
+- Public board theme management
+- Queue settings
+- Billing/subscription status
 
 ### Platform Admin
 
 - Platform admin dashboard
-- Vendor approval queue
-- User management / moderation
-- Dispute resolution
-- Audit logs
-- Reports / compliance dashboard
+- Tenant list
+- User list
+- Queue fee configuration
+- Subscription plan management
+- Queue join payment records
+- Billing event records
+- Platform settings
 
 ## RBAC Expectations
 
@@ -102,11 +109,11 @@ RBAC must determine which screens and actions are visible. Permissions are assig
 
 | Role | Create | Read | Update | Delete | Manage Users |
 | --- | --- | --- | --- | --- | --- |
-| Guest | No | Public vendor listings and vendor profiles | No | No | No |
-| Customer | Bookings, reviews, own profile data | Own data, public vendor data | Own profile, bookings where allowed | Own reviews, cancel allowed bookings | No |
-| Vendor Staff | Booking status updates, internal notes where allowed | Assigned bookings and limited customer details | Assigned operational tasks | Limited/no destructive actions | No |
-| Vendor Admin | Services, schedules, staff records, vendor announcements | Vendor business data, staff, bookings, analytics | Vendor profile, services, pricing, schedules | Vendor-owned non-critical records where allowed | Vendor staff only |
-| Platform Admin | Platform records and admin actions | All platform data needed for governance | Users, vendors, disputes, moderation state | Administrative deletion/suspension where authorized | Yes |
+| Guest | Queue join requests after OTP/security checks | Landing content, public queue board, own lookup-code ticket state | Own pending join form before submission | Own waiting ticket through lookup code where allowed | No |
+| Customer | Queue joins, own profile data | Own account, own queue history, public board data | Own profile and notification preferences | Own waiting ticket where allowed | No |
+| Vendor Staff | Walk-in tickets, assigned operational updates | Assigned tenant queue, limited ticket/customer details | Ticket status and counter-related operational actions | Limited/no destructive actions | No |
+| Vendor Admin | Locations, counters, staff links, walk-in tickets, settings, public board themes | Tenant queue data, staff, clients, history, reports, billing status | Tenant settings, queue actions, locations, counters, staff roles, themes | Vendor-owned non-critical records where allowed | Vendor staff only |
+| Platform Admin | Platform fee/settings changes and admin records | Platform-wide tenants, users, subscriptions, payments, billing events | Queue fees, subscription plan settings, platform settings | Administrative disabling/removal where authorized | Yes |
 
 ## Authentication and Session Management Requirements
 
@@ -114,7 +121,7 @@ Use these defaults unless explicitly changed:
 
 - Primary auth: email + password.
 - MFA: required for Platform Admin and Vendor Admin; optional/recommended for Vendor Staff; optional for Customer.
-- OAuth: optional/future enhancement for Google/Apple login.
+- OAuth2: planned post-MVP enhancement for Google/Apple login, primarily for Vendor Admin and Platform Admin accounts. Do not describe OAuth2 as an MVP-complete feature until implemented.
 - Password hashing: Argon2id preferred; bcrypt acceptable fallback. Never store plaintext passwords; never use MD5/SHA-1 for password storage.
 - Access token: short-lived JWT, about 15 minutes.
 - Refresh token: server-tracked/rotated refresh token, about 7–30 days depending on risk.
@@ -154,11 +161,12 @@ Required content:
 
 Expected data categories:
 
-- Customer PI: full name, email, mobile number, address if required, profile image, account credentials/password hash.
-- Transactional data: bookings, service selections, timestamps, invoices, payment references, review content.
-- Vendor data: business name, contact details, service catalog, staff records, business verification documents if required.
-- Staff data: name, email, role, schedule, assigned bookings.
-- System/security data: audit logs, login attempts, IP/device metadata, session records.
+- Customer PI: name, email, mobile number, account credentials/password hash, queue notes when provided.
+- Queue data: ticket number, lookup code, queue status, join channel, tenant/location, service counter, timestamps, cancellation state.
+- Transactional data: queue join payment status, provider references, billing checkout/session records, subscription records.
+- Vendor data: tenant/business name, slug, contact details, locations, store hours, queue settings, public board theme assets.
+- Staff data: name, email, tenant role, assigned counter/location access.
+- System/security data: OTP records, notification delivery logs, login attempts, IP/device metadata if collected, session records, billing webhook events.
 
 ### Module 3 — Authentication and Access Control Design Document
 
@@ -201,17 +209,18 @@ Prioritize these in Module 4 and secure implementation:
 
 - Login form: credential stuffing, brute force, weak lockout, user enumeration.
 - Registration form: fake accounts, weak validation, enumeration.
-- Vendor search: injection, excessive data exposure.
-- Vendor profile: stored XSS via descriptions/reviews.
-- Booking request: IDOR, parameter tampering, injection.
-- Payment/checkout: payment reference tampering, broken access control.
-- Review submission: stored XSS, spam/abuse.
+- Public queue board: excessive data exposure, tenant enumeration, cache/privacy leakage.
+- Queue join form: fake joins, injection, spam/abuse, CAPTCHA bypass, OTP brute force.
+- Ticket lookup/cancellation: lookup-code guessing, IDOR, unauthorized cancellation.
+- Queue operations: broken tenant access control, parameter tampering, race conditions.
+- Payment/checkout: payment reference tampering, broken access control, webhook spoofing.
 - Profile update: unauthorized update, weak validation.
-- Vendor onboarding: sensitive document exposure, upload risks.
+- Vendor onboarding: tenant slug enumeration, weak validation, duplicate tenant abuse.
+- Public board theme uploads: unsafe file upload, stored XSS through asset URLs.
 - Staff management: privilege escalation, broken access control.
-- Admin vendor approval: CSRF, broken access control.
-- Dispute handling: sensitive data leakage.
-- Audit logs: unauthorized access, log tampering.
+- Platform dashboard: unauthorized platform access, overbroad data exposure.
+- Notification logs: sensitive contact leakage.
+- Billing events: unauthorized access, log tampering.
 
 ## Presentation Narrative
 

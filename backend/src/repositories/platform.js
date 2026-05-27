@@ -5,6 +5,19 @@ function buildQueryClient(client) {
   return client || db.pool;
 }
 
+function normalizeSortDirection(direction) {
+  return String(direction).toLowerCase() === "asc" ? "ASC" : "DESC";
+}
+
+function buildOrderClause(options, allowedSorts, fallback) {
+  const sortKey = String(options.sort || "");
+  const sortColumn = allowedSorts[sortKey] || fallback.column;
+  const direction = normalizeSortDirection(options.direction || fallback.direction);
+  const fallbackColumn = fallback.tieBreaker || "id";
+
+  return `ORDER BY ${sortColumn} ${direction}, ${fallbackColumn} ${direction}`;
+}
+
 async function getOverviewTotals(options = {}) {
   const queryClient = buildQueryClient(options.client);
   const result = await queryClient.query(
@@ -116,6 +129,17 @@ async function getOverviewAnalytics(options = {}) {
 async function listTenants(options = {}) {
   const queryClient = buildQueryClient(options.client);
   const limit = Math.min(Number(options.limit || 100), 250);
+  const orderClause = buildOrderClause(
+    options,
+    {
+      name: "tenants.name",
+      slug: "tenants.slug",
+      planSlug: "COALESCE(active_subscription.plan_slug, 'economical')",
+      ticketCount: "COUNT(tickets.id)",
+      createdAt: "tenants.created_at"
+    },
+    { column: "tenants.created_at", direction: "DESC", tieBreaker: "tenants.id" }
+  );
   const result = await queryClient.query(
     `
       SELECT
@@ -143,7 +167,7 @@ async function listTenants(options = {}) {
       ) active_subscription ON TRUE
       LEFT JOIN tickets ON tickets.tenant_id = tenants.id
       GROUP BY tenants.id, active_subscription.plan_slug
-      ORDER BY tenants.created_at DESC
+      ${orderClause}
       LIMIT $1
     `,
     [limit]
@@ -163,11 +187,21 @@ async function listTenants(options = {}) {
 async function listUsers(options = {}) {
   const queryClient = buildQueryClient(options.client);
   const limit = Math.min(Number(options.limit || 100), 250);
+  const orderClause = buildOrderClause(
+    options,
+    {
+      name: "name",
+      email: "email",
+      roles: "roles::text",
+      createdAt: "created_at"
+    },
+    { column: "created_at", direction: "DESC", tieBreaker: "id" }
+  );
   const result = await queryClient.query(
     `
       SELECT id, name, email, phone, roles, created_at, updated_at
       FROM users
-      ORDER BY created_at DESC
+      ${orderClause}
       LIMIT $1
     `,
     [limit]
@@ -187,6 +221,18 @@ async function listUsers(options = {}) {
 async function listSubscriptions(options = {}) {
   const queryClient = buildQueryClient(options.client);
   const limit = Math.min(Number(options.limit || 100), 250);
+  const orderClause = buildOrderClause(
+    options,
+    {
+      tenantName: "tenants.name",
+      planSlug: "tenant_subscriptions.plan_slug",
+      status: "tenant_subscriptions.status",
+      provider: "tenant_subscriptions.provider",
+      currentPeriodEnd: "tenant_subscriptions.current_period_end",
+      createdAt: "tenant_subscriptions.created_at"
+    },
+    { column: "tenant_subscriptions.updated_at", direction: "DESC", tieBreaker: "tenant_subscriptions.id" }
+  );
   const result = await queryClient.query(
     `
       SELECT
@@ -201,7 +247,7 @@ async function listSubscriptions(options = {}) {
         tenants.slug AS tenant_slug
       FROM tenant_subscriptions
       INNER JOIN tenants ON tenants.id = tenant_subscriptions.tenant_id
-      ORDER BY tenant_subscriptions.updated_at DESC
+      ${orderClause}
       LIMIT $1
     `,
     [limit]
@@ -223,6 +269,16 @@ async function listSubscriptions(options = {}) {
 async function listBillingEvents(options = {}) {
   const queryClient = buildQueryClient(options.client);
   const limit = Math.min(Number(options.limit || 100), 250);
+  const orderClause = buildOrderClause(
+    options,
+    {
+      eventType: "billing_events.event_type",
+      provider: "billing_events.provider",
+      tenantName: "tenants.name",
+      processedAt: "billing_events.processed_at"
+    },
+    { column: "billing_events.created_at", direction: "DESC", tieBreaker: "billing_events.id" }
+  );
   const result = await queryClient.query(
     `
       SELECT
@@ -237,7 +293,7 @@ async function listBillingEvents(options = {}) {
         tenants.slug AS tenant_slug
       FROM billing_events
       LEFT JOIN tenants ON tenants.id = billing_events.tenant_id
-      ORDER BY billing_events.created_at DESC
+      ${orderClause}
       LIMIT $1
     `,
     [limit]
@@ -259,6 +315,17 @@ async function listBillingEvents(options = {}) {
 async function listRecentPayments(options = {}) {
   const queryClient = buildQueryClient(options.client);
   const limit = Math.min(Number(options.limit || 10), 50);
+  const orderClause = buildOrderClause(
+    options,
+    {
+      tenantName: "tenants.name",
+      planSlug: "queue_join_payments.plan_slug",
+      status: "queue_join_payments.status",
+      amountCents: "queue_join_payments.amount_cents",
+      createdAt: "queue_join_payments.created_at"
+    },
+    { column: "queue_join_payments.created_at", direction: "DESC", tieBreaker: "queue_join_payments.id" }
+  );
   const result = await queryClient.query(
     `
       SELECT
@@ -267,7 +334,7 @@ async function listRecentPayments(options = {}) {
         tenants.slug AS tenant_slug
       FROM queue_join_payments
       INNER JOIN tenants ON tenants.id = queue_join_payments.tenant_id
-      ORDER BY queue_join_payments.created_at DESC
+      ${orderClause}
       LIMIT $1
     `,
     [limit]

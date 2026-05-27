@@ -74,6 +74,14 @@ function buildQueryClient(client) {
   return client || db.pool;
 }
 
+function normalizeSortDirection(direction) {
+  return String(direction).toLowerCase() === "asc" ? "ASC" : "DESC";
+}
+
+function getSortColumn(sort, columns, fallback) {
+  return columns[String(sort || "")] || fallback;
+}
+
 async function createTicket(data, options = {}) {
   const queryClient = buildQueryClient(options.client);
   const result = await queryClient.query(
@@ -196,6 +204,18 @@ async function listHistoryTickets(tenantId, options = {}) {
     dateFilter += ` AND queue_date_key = $${values.length}`;
   }
 
+  const sortColumn = getSortColumn(
+    options.sort,
+    {
+      ticketNumber: "ticket_number",
+      customerName: "customer_name",
+      status: "status",
+      updatedAt: "updated_at",
+      createdAt: "created_at"
+    },
+    "updated_at"
+  );
+  const direction = normalizeSortDirection(options.direction);
   const result = await queryClient.query(
     `
       SELECT ${TICKET_COLUMNS}
@@ -203,7 +223,7 @@ async function listHistoryTickets(tenantId, options = {}) {
       WHERE tenant_id = $1 AND status = ANY($2::text[])
       ${locationFilter}
       ${dateFilter}
-      ORDER BY updated_at DESC, created_at DESC
+      ORDER BY ${sortColumn} ${direction}, created_at ${direction}
       LIMIT $3
     `,
     values
@@ -229,6 +249,20 @@ async function listClientTickets(tenantId, options = {}) {
     dateFilter = `AND updated_at >= NOW() - ($${values.length}::int * INTERVAL '1 day')`;
   }
 
+  const sortColumn = getSortColumn(
+    options.sort,
+    {
+      customerName: "customer_name",
+      customerEmail: "customer_email",
+      customerPhone: "customer_phone",
+      ticketNumber: "ticket_number",
+      status: "status",
+      updatedAt: "updated_at",
+      createdAt: "created_at"
+    },
+    "updated_at"
+  );
+  const direction = normalizeSortDirection(options.direction);
   const result = await queryClient.query(
     `
       SELECT ${TICKET_COLUMNS}
@@ -236,7 +270,7 @@ async function listClientTickets(tenantId, options = {}) {
       WHERE tenant_id = $1
       ${locationFilter}
       ${dateFilter}
-      ORDER BY updated_at DESC, created_at DESC
+      ORDER BY ${sortColumn} ${direction}, created_at ${direction}
       LIMIT $2
     `,
     values
@@ -248,6 +282,18 @@ async function listClientTickets(tenantId, options = {}) {
 async function listTicketsByUserId(userId, options = {}) {
   const queryClient = buildQueryClient(options.client);
   const limit = Number(options.limit || 50);
+  const sortColumn = getSortColumn(
+    options.sort,
+    {
+      ticketNumber: "tickets.ticket_number",
+      tenantName: "tenants.name",
+      locationName: "store_locations.name",
+      status: "tickets.status",
+      createdAt: "tickets.created_at"
+    },
+    "tickets.created_at"
+  );
+  const direction = normalizeSortDirection(options.direction);
   const result = await queryClient.query(
     `
       SELECT
@@ -260,7 +306,7 @@ async function listTicketsByUserId(userId, options = {}) {
       INNER JOIN tenants ON tenants.id = tickets.tenant_id
       INNER JOIN store_locations ON store_locations.id = tickets.location_id
       WHERE tickets.user_id = $1
-      ORDER BY tickets.created_at DESC
+      ORDER BY ${sortColumn} ${direction}, tickets.id ${direction}
       LIMIT $2
     `,
     [Number(userId), limit]

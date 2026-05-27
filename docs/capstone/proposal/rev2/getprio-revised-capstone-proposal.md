@@ -62,13 +62,13 @@ The revised system covers the following functional areas:
 - Platform administrator dashboard for tenant, user, fee, subscription, payment, and billing-event oversight.
 - REST API services for authentication, account management, public queue access, vendor operations, billing, payment webhook handling, and platform operations.
 - PostgreSQL database schema for tenants, users, memberships, locations, store hours, counters, tickets, OTPs, notification deliveries, public board themes/assets, queue fees, subscription plans, subscriptions, checkout sessions, queue join payments, and billing events.
-- Integrations prepared for email, SMS, Cloudflare Turnstile, PayMongo, OAuth login, and Backblaze B2 S3-compatible asset uploads.
+- Integrations prepared for email, SMS, Cloudflare Turnstile, PayMongo, Backblaze B2 S3-compatible asset uploads, and post-MVP OAuth2 login.
 - Docker-based local development support for the frontend, backend, platform dashboard, and database.
 
 ### Limitations
 
 - The system is a capstone prototype and may require additional compliance, monitoring, and security hardening before production deployment.
-- SMS, email, payment, OAuth, CAPTCHA, and object-storage behavior depends on configured third-party provider accounts.
+- SMS, email, payment, CAPTCHA, object-storage, and future OAuth2 behavior depends on configured third-party provider accounts.
 - The system focuses on first-in-first-out queue flow and does not yet implement advanced appointment scheduling, priority lanes, or complex service routing.
 - Offline operation is not included; the application requires network access to the backend and database.
 - The platform operations dashboard is intended for administrative monitoring and configuration, not full customer support case management.
@@ -144,7 +144,7 @@ The platform administrator monitors the overall GetPrio system. This user needs 
 | Backend | Node.js, Express, TypeScript/JavaScript |
 | Database | PostgreSQL with relational tables, indexes, constraints, and triggers |
 | Real-Time Updates | Server-Sent Events for public queue monitoring |
-| Authentication | JWT-based API authentication, password login, OAuth account support |
+| Authentication | JWT-based API authentication, password login, RBAC/session handling, post-MVP OAuth2 account support |
 | Notifications | Email/SMS delivery services with delivery logs and local console fallbacks |
 | Payments | PayMongo-ready checkout/session/payment records and webhook route |
 | CAPTCHA / Abuse Protection | Cloudflare Turnstile-ready public join protection |

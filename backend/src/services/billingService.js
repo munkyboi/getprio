@@ -11,6 +11,7 @@ const {
 const queueJoinPaymentService = require("./queueJoinPaymentService");
 
 const PAYMONGO_PROVIDER = "paymongo";
+const LOCAL_PROVIDER = "local";
 
 function addMonths(date, months) {
   const next = new Date(date);
@@ -108,12 +109,6 @@ async function createPayMongoCheckout({ tenant, user, planSlug, billingInterval 
     throw error;
   }
 
-  if (!env.paymongoSecretKey) {
-    const error = new Error("PayMongo is not configured.");
-    error.statusCode = 503;
-    throw error;
-  }
-
   if (!["monthly", "annual"].includes(billingInterval)) {
     const error = new Error("Unknown billing interval.");
     error.statusCode = 400;
@@ -128,7 +123,7 @@ async function createPayMongoCheckout({ tenant, user, planSlug, billingInterval 
   const checkout = await billingRepository.createCheckoutSession({
     tenantId: tenant._id,
     planSlug: plan.slug,
-    provider: PAYMONGO_PROVIDER,
+    provider: env.paymongoSecretKey ? PAYMONGO_PROVIDER : LOCAL_PROVIDER,
     amountCents,
     currency: plan.price.currency,
     metadata: {
@@ -142,6 +137,31 @@ async function createPayMongoCheckout({ tenant, user, planSlug, billingInterval 
 
   const successUrl = buildCheckoutReturnUrl(checkout, plan, "success");
   const cancelUrl = buildCheckoutReturnUrl(checkout, plan, "cancelled");
+
+  if (!env.paymongoSecretKey) {
+    const localCheckout = await billingRepository.updateCheckoutSessionProviderData(checkout._id, {
+      providerCheckoutSessionId: `local_${checkout._id}`,
+      checkoutUrl: successUrl,
+      metadata: {
+        localCheckout: true
+      }
+    });
+
+    return {
+      checkoutSession: {
+        id: localCheckout._id,
+        provider: LOCAL_PROVIDER,
+        providerCheckoutSessionId: localCheckout.providerCheckoutSessionId,
+        checkoutUrl: localCheckout.checkoutUrl,
+        status: localCheckout.status,
+        planSlug: localCheckout.planSlug,
+        billingInterval,
+        amountCents: localCheckout.amountCents,
+        currency: localCheckout.currency
+      }
+    };
+  }
+
   const payload = {
     data: {
       attributes: {
@@ -380,6 +400,29 @@ async function syncPayMongoCheckout({ tenant, checkoutId }) {
     return {
       synced: true,
       paid: true,
+      billing: await getBillingOverview(tenant._id)
+    };
+  }
+
+  if (checkout.provider === LOCAL_PROVIDER) {
+    const activation = await db.withTransaction(async (client) =>
+      activateCheckoutSession(
+        checkout,
+        checkout.providerCheckoutSessionId || `local_${checkout._id}`,
+        {
+          amount: checkout.amountCents,
+          currency: checkout.currency,
+          paid_at: new Date()
+        },
+        `local_payment_${checkout._id}`,
+        { client }
+      )
+    );
+
+    return {
+      synced: true,
+      paid: Boolean(activation.subscription),
+      subscription: activation.subscription || null,
       billing: await getBillingOverview(tenant._id)
     };
   }

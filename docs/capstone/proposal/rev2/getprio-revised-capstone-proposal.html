@@ -280,7 +280,7 @@
             <h3>Limitations</h3>
             <ul>
               <li>The system is a capstone prototype and may require additional production hardening.</li>
-              <li>SMS, email, payment, OAuth, CAPTCHA, and object storage depend on configured third-party provider accounts.</li>
+              <li>SMS, email, payment, CAPTCHA, object storage, and future OAuth2 sign-in depend on configured third-party provider accounts.</li>
               <li>The queue model focuses on first-in-first-out flow and does not yet include appointment scheduling or priority lanes.</li>
               <li>Offline operation is not included.</li>
               <li>The platform dashboard is for administration, not full customer support case management.</li>
@@ -348,7 +348,7 @@
           <tr><td>Backend</td><td>Node.js, Express, TypeScript/JavaScript</td></tr>
           <tr><td>Database</td><td>PostgreSQL with relational tables, indexes, constraints, and triggers</td></tr>
           <tr><td>Real-Time Updates</td><td>Server-Sent Events for public queue monitoring</td></tr>
-          <tr><td>Authentication</td><td>JWT-based API authentication, password login, OAuth account support</td></tr>
+          <tr><td>Authentication</td><td>JWT-based API authentication, password login, RBAC/session handling, post-MVP OAuth2 account support</td></tr>
           <tr><td>Notifications</td><td>Email/SMS delivery services with delivery logs and local console fallbacks</td></tr>
           <tr><td>Payments</td><td>PayMongo-ready checkout/session/payment records and webhook route</td></tr>
           <tr><td>Abuse Protection</td><td>Cloudflare Turnstile-ready public join protection</td></tr>

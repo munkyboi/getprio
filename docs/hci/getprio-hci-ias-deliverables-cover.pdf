@@ -1,0 +1,317 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Resources << /Font << /F1 4 0 R /F2 5 0 R >> >> /Contents 6 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+6 0 obj
+<< /Length 4069 >>
+stream
+0.980 0.965 0.941 rg
+0 0 595.28 841.89 re f
+0.920 0.380 0.150 rg
+BT
+/F2 10 Tf
+243.04 770 Td
+(CAPSTONE DELIVERABLES) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 34 Tf
+235.76 728 Td
+(GetPrio) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 17 Tf
+165.04 694 Td
+(HCI and IAS UI/UX Deliverables) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 10 Tf
+128.5 662 Td
+(Human-Computer Interaction and Information Assurance and Security) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 10 Tf
+110.29999999999998 648 Td
+(artifacts for a multi-tenant QR-based digital queue management platform.) Tj
+ET
+1.000 1.000 1.000 rg
+0.850 0.810 0.750 RG
+54 440 487 170 re B
+0.350 0.390 0.450 rg
+BT
+/F2 8 Tf
+78 575 Td
+(NAME) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 14 Tf
+78 555 Td
+(Roberto Carlo Abella) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F2 8 Tf
+336 575 Td
+(STUDENT ID) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 14 Tf
+336 555 Td
+(2025040965) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F2 8 Tf
+78 522 Td
+(CAPSTONE APP) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 14 Tf
+78 502 Td
+(GetPrio) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F2 8 Tf
+336 522 Td
+(INSTRUCTOR) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F2 14 Tf
+336 502 Td
+(Engr. Vicente Patalita III) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F2 8 Tf
+78 468 Td
+(DELIVERABLES URL) Tj
+ET
+0.120 0.310 0.530 rg
+BT
+/F1 8.4 Tf
+78 450 Td
+(https://www.figma.com/design/rwKhBnsKjEBprhQpC5kiez/GetPrio-HCI---IAS--UI-UX-?m=auto&t=9NZK7uTNhXUoAGQF-1) Tj
+ET
+0.890 0.940 0.980 rg
+0.120 0.310 0.530 RG
+54 190 234 220 re B
+0.120 0.310 0.530 rg
+BT
+/F2 18 Tf
+74 374 Td
+(HCI) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 9.5 Tf
+74 348 Td
+(User research, flows,) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 9.5 Tf
+74 335 Td
+(wireframes, usability evidence,) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 9.5 Tf
+74 322 Td
+(and UI/UX presentation boards.) Tj
+ET
+0.120 0.310 0.530 rg
+78 293 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 9.5 Tf
+92 299 Td
+(Research board with) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.5 Tf
+92 286 Td
+(stakeholders, personas, empathy) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.5 Tf
+92 273 Td
+(maps, and problem statements.) Tj
+ET
+0.120 0.310 0.530 rg
+78 255 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 9.5 Tf
+92 261 Td
+(Journey maps and affinity/HMW) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.5 Tf
+92 248 Td
+(boards for Module 1 framing.) Tj
+ET
+0.120 0.310 0.530 rg
+78 230 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 9.5 Tf
+92 236 Td
+(Detailed queue-joining,) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.5 Tf
+92 223 Td
+(vendor-operation, and) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.5 Tf
+92 210 Td
+(platform-admin wireframes.) Tj
+ET
+0.930 0.910 0.980 rg
+0.350 0.250 0.620 RG
+307 190 234 220 re B
+0.350 0.250 0.620 rg
+BT
+/F2 18 Tf
+327 374 Td
+(IAS) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 9.5 Tf
+327 348 Td
+(Security, privacy, JWT/RBAC,) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 9.5 Tf
+327 335 Td
+(vulnerability assessment, and) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 9.5 Tf
+327 322 Td
+(post-MVP OAuth2 traceability.) Tj
+ET
+0.350 0.250 0.620 rg
+331 293 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 9.5 Tf
+345 299 Td
+(Role-aware screen mapping for) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.5 Tf
+345 286 Td
+(customer, vendor staff, vendor) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.5 Tf
+345 273 Td
+(admin, and platform admin.) Tj
+ET
+0.350 0.250 0.620 rg
+331 255 5 5 re f
+0.090 0.130 0.170 rg
+BT
+/F1 9.5 Tf
+345 261 Td
+(Privacy, data-flow,) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.5 Tf
+345 248 Td
+(public-form, payment, and) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.5 Tf
+345 235 Td
+(platform-operation risk notes.) Tj
+ET
+1.000 1.000 1.000 rg
+0.850 0.810 0.750 RG
+54 68 487 96 re B
+0.050 0.460 0.360 rg
+BT
+/F2 13 Tf
+78 134 Td
+(Capstone Theme) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.7 Tf
+78 115 Td
+(GetPrio improves service queues by reducing customer uncertainty, lowering staff) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.7 Tf
+78 102 Td
+(interruption, and aligning usable interface design with privacy, JWT/session) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.7 Tf
+78 89 Td
+(authentication, RBAC authorization, post-MVP OAuth2 planning, and data-integrity) Tj
+ET
+0.090 0.130 0.170 rg
+BT
+/F1 9.7 Tf
+78 76 Td
+(concerns.) Tj
+ET
+0.350 0.390 0.450 rg
+BT
+/F1 8.5 Tf
+222.5 34 Td
+(Generated for capstone submission.) Tj
+ET
+endstream
+endobj
+xref
+0 7
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000257 00000 n 
+0000000327 00000 n 
+0000000402 00000 n 
+trailer
+<< /Size 7 /Root 1 0 R >>
+startxref
+4523
+%%EOF

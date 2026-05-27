@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>GetPrio HCI and IAS Deliverables</title>
+    <style>
+      @page {
+        size: A4;
+        margin: 0.65in;
+      }
+
+      :root {
+        --ink: #17202a;
+        --muted: #5a6472;
+        --line: #d8cec0;
+        --canvas: #faf4ea;
+        --surface: #ffffff;
+        --orange: #ea6127;
+        --orange-soft: #ffebd6;
+        --blue: #1e5087;
+        --blue-soft: #e2f0fb;
+        --green: #0c755d;
+        --green-soft: #dcf6ed;
+        --violet: #5a419e;
+        --violet-soft: #efe8fc;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--canvas);
+        color: var(--ink);
+        font-family: Inter, Arial, Helvetica, sans-serif;
+        font-size: 11pt;
+        line-height: 1.45;
+      }
+
+      .page {
+        min-height: calc(100vh - 1.3in);
+        display: flex;
+        flex-direction: column;
+      }
+
+      .eyebrow {
+        color: var(--orange);
+        font-size: 10pt;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-align: center;
+        text-transform: uppercase;
+        margin-top: 0.05in;
+      }
+
+      h1 {
+        font-size: 34pt;
+        line-height: 1;
+        margin: 0.16in 0 0;
+        text-align: center;
+      }
+
+      .subtitle {
+        font-size: 17pt;
+        font-weight: 800;
+        margin: 0.08in 0 0;
+        text-align: center;
+      }
+
+      .summary {
+        color: var(--muted);
+        margin: 0.18in auto 0;
+        max-width: 6.2in;
+        text-align: center;
+      }
+
+      .details {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        margin-top: 0.42in;
+        padding: 0.26in;
+      }
+
+      .detail-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.22in 0.36in;
+      }
+
+      .label {
+        color: var(--muted);
+        display: block;
+        font-size: 8pt;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .value {
+        display: block;
+        font-size: 14pt;
+        font-weight: 800;
+        margin-top: 0.05in;
+      }
+
+      .url-block {
+        margin-top: 0.24in;
+      }
+
+      .url {
+        color: var(--blue);
+        display: block;
+        font-size: 9.4pt;
+        margin-top: 0.05in;
+        overflow-wrap: anywhere;
+        text-decoration: underline;
+      }
+
+      .cards {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.18in;
+        margin-top: 0.28in;
+      }
+
+      .card {
+        border-radius: 16px;
+        border: 1px solid var(--line);
+        min-height: 2.2in;
+        padding: 0.22in;
+      }
+
+      .card.hci {
+        background: var(--blue-soft);
+        border-color: var(--blue);
+      }
+
+      .card.ias {
+        background: var(--violet-soft);
+        border-color: var(--violet);
+      }
+
+      .card h2 {
+        font-size: 18pt;
+        margin: 0;
+      }
+
+      .card.hci h2 {
+        color: var(--blue);
+      }
+
+      .card.ias h2 {
+        color: var(--violet);
+      }
+
+      .card p {
+        color: var(--muted);
+        margin: 0.08in 0 0;
+      }
+
+      ul {
+        margin: 0.16in 0 0 0.16in;
+        padding: 0;
+      }
+
+      li {
+        margin-bottom: 0.08in;
+      }
+
+      .theme {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        margin-top: 0.26in;
+        padding: 0.2in 0.24in;
+      }
+
+      .theme strong {
+        color: var(--green);
+        display: block;
+        font-size: 13pt;
+        margin-bottom: 0.06in;
+      }
+
+      .footer {
+        color: var(--muted);
+        font-size: 8.5pt;
+        margin-top: auto;
+        padding-top: 0.18in;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <div class="eyebrow">Capstone Deliverables</div>
+      <h1>GetPrio</h1>
+      <div class="subtitle">HCI and IAS UI/UX Deliverables</div>
+      <p class="summary">
+        Human-Computer Interaction and Information Assurance and Security artifacts for a
+        multi-tenant QR-based digital queue management platform.
+      </p>
+
+      <section class="details">
+        <div class="detail-grid">
+          <div>
+            <span class="label">Name</span>
+            <span class="value">Roberto Carlo Abella</span>
+          </div>
+          <div>
+            <span class="label">Student ID</span>
+            <span class="value">2025040965</span>
+          </div>
+          <div>
+            <span class="label">Capstone App</span>
+            <span class="value">GetPrio</span>
+          </div>
+          <div>
+            <span class="label">Instructor</span>
+            <span class="value">Engr. Vicente Patalita III</span>
+          </div>
+        </div>
+        <div class="url-block">
+          <span class="label">Deliverables URL</span>
+          <a class="url" href="https://www.figma.com/design/rwKhBnsKjEBprhQpC5kiez/GetPrio-HCI---IAS--UI-UX-?m=auto&amp;t=9NZK7uTNhXUoAGQF-1">
+            https://www.figma.com/design/rwKhBnsKjEBprhQpC5kiez/GetPrio-HCI---IAS--UI-UX-?m=auto&amp;t=9NZK7uTNhXUoAGQF-1
+          </a>
+        </div>
+      </section>
+
+      <section class="cards">
+        <article class="card hci">
+          <h2>HCI</h2>
+          <p>User research, flows, wireframes, usability evidence, and UI/UX presentation boards.</p>
+          <ul>
+            <li>Research board with stakeholders, personas, empathy maps, and problem statements.</li>
+            <li>Journey maps and affinity/HMW boards for Module 1 framing.</li>
+            <li>Detailed queue-joining, vendor-operation, and platform-admin wireframes.</li>
+          </ul>
+        </article>
+
+        <article class="card ias">
+          <h2>IAS</h2>
+          <p>Security, privacy, JWT/RBAC, vulnerability assessment, and post-MVP OAuth2 traceability.</p>
+          <ul>
+            <li>Role-aware screen mapping for customer, vendor staff, vendor admin, and platform admin.</li>
+            <li>Privacy, data-flow, public-form, payment, and platform-operation risk notes.</li>
+          </ul>
+        </article>
+      </section>
+
+      <section class="theme">
+        <strong>Capstone Theme</strong>
+        GetPrio improves service queues by reducing customer uncertainty, lowering staff interruption,
+        and aligning usable interface design with privacy, JWT/session authentication, RBAC
+        authorization, post-MVP OAuth2 planning, and data-integrity concerns.
+      </section>
+
+      <div class="footer">Generated for capstone submission.</div>
+    </main>
+  </body>
+</html>

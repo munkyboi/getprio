@@ -61,18 +61,22 @@ async function maybeAuthenticate(req, res, next) {
 
 function userHasTenantAccess(user, tenantId) {
   return (user.tenantMemberships || []).some(
-    (membership) => String(membership.tenantId) === String(tenantId)
+    (membership) => String(membership.tenantId) === String(tenantId) && membership.isActive !== false
   );
 }
 
 function getTenantRole(user, tenantId) {
   return (user?.tenantMemberships || []).find(
-    (membership) => String(membership.tenantId) === String(tenantId)
+    (membership) => String(membership.tenantId) === String(tenantId) && membership.isActive !== false
   )?.role || null;
 }
 
 function userIsTenantOwner(user, tenantId) {
   return getTenantRole(user, tenantId) === "owner";
+}
+
+function userCanManageTenant(user, tenantId) {
+  return ["owner", "admin"].includes(getTenantRole(user, tenantId));
 }
 
 function assertTenantOwner(user, tenantId) {
@@ -81,6 +85,16 @@ function assertTenantOwner(user, tenantId) {
   }
 
   const error = new Error("Tenant owner access required.");
+  error.statusCode = 403;
+  throw error;
+}
+
+function assertTenantManager(user, tenantId) {
+  if (userCanManageTenant(user, tenantId)) {
+    return;
+  }
+
+  const error = new Error("Tenant admin access required.");
   error.statusCode = 403;
   throw error;
 }
@@ -106,7 +120,9 @@ module.exports = {
   userHasTenantAccess,
   getTenantRole,
   userIsTenantOwner,
+  userCanManageTenant,
   assertTenantOwner,
+  assertTenantManager,
   userIsPlatformAdmin,
   requirePlatformAdmin
 };

@@ -17,7 +17,10 @@ GetPrio is a multi-tenant queue platform for vendors that want QR-based ticketin
 - Customer registration and authenticated queue joins.
 - Public queue monitoring over Server-Sent Events.
 - Daily per-tenant ticket numbering with atomic Postgres counters.
+- JWT/session-based authentication with role-aware access control for customer, vendor, and platform workflows.
 - Email and SMS notification hooks with console fallbacks for local development.
+
+OAuth2 sign-in is planned after the MVP for vendor and platform administrator accounts. The MVP prioritizes password login, JWT/session handling, RBAC, OTP queue joins, and abuse protection.
 
 ## Local development
 

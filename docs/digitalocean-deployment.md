@@ -123,6 +123,7 @@ APP_BASE_URL=https://app.yourdomain.com
 PLATFORM_DASHBOARD_URL=https://platform.yourdomain.com
 VITE_API_URL=https://api.yourdomain.com/api
 
+# OAuth2 is planned for post-MVP admin sign-in. Leave these blank until implemented.
 OAUTH_CALLBACK_PATH=/oauth/callback
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
@@ -291,4 +292,3 @@ systemctl status nginx
 df -h
 free -m
 ```
-

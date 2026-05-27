@@ -26,7 +26,8 @@ function mapOauthAccount(row) {
 function mapTenantMembership(row) {
   return {
     tenantId: String(row.tenant_id),
-    role: row.role
+    role: row.role,
+    isActive: row.is_active !== false
   };
 }
 
@@ -97,7 +98,7 @@ async function loadTenantMemberships(userIds, client) {
 
   const result = await client.query(
     `
-      SELECT user_id, tenant_id, role
+      SELECT user_id, tenant_id, role, is_active
       FROM tenant_memberships
       WHERE user_id = ANY($1::bigint[])
       ORDER BY tenant_id ASC
@@ -318,9 +319,9 @@ async function addTenantMembership(userId, tenantId, role = "staff", options = {
 
   await queryClient.query(
     `
-      INSERT INTO tenant_memberships (user_id, tenant_id, role)
-      VALUES ($1, $2, $3)
-      ON CONFLICT (user_id, tenant_id) DO UPDATE SET role = EXCLUDED.role
+      INSERT INTO tenant_memberships (user_id, tenant_id, role, is_active)
+      VALUES ($1, $2, $3, TRUE)
+      ON CONFLICT (user_id, tenant_id) DO UPDATE SET role = EXCLUDED.role, is_active = TRUE
     `,
     [Number(userId), Number(tenantId), role]
   );
@@ -368,6 +369,20 @@ async function updateTenantMembershipRole(userId, tenantId, role, options = {}) 
   return findUserById(userId, { client: queryClient });
 }
 
+async function updateTenantMembershipAccess(userId, tenantId, isActive, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  await queryClient.query(
+    `
+      UPDATE tenant_memberships
+      SET is_active = $3
+      WHERE user_id = $1 AND tenant_id = $2
+    `,
+    [Number(userId), Number(tenantId), Boolean(isActive)]
+  );
+
+  return findUserById(userId, { client: queryClient });
+}
+
 async function removeTenantMembership(userId, tenantId, options = {}) {
   const queryClient = buildQueryClient(options.client);
   await queryClient.query(
@@ -387,5 +402,6 @@ module.exports = {
   addTenantMembership,
   listUsersByTenantId,
   updateTenantMembershipRole,
+  updateTenantMembershipAccess,
   removeTenantMembership
 };

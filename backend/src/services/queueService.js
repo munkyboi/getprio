@@ -112,6 +112,33 @@ async function rolloverQueueDayForTenant(tenant, options = {}) {
   return { dateKey, location };
 }
 
+function sortQueueTickets(tickets, sort, direction) {
+  const getters = {
+    ticketNumber: (ticket) => ticket.ticketNumber,
+    customerName: (ticket) => ticket.customerName,
+    joinChannel: (ticket) => ticket.joinChannel,
+    createdAt: (ticket) => new Date(ticket.createdAt).getTime(),
+    position: (ticket) => Number(ticket.sequence || 0)
+  };
+  const getter = getters[String(sort || "")];
+  if (!getter) {
+    return tickets;
+  }
+
+  const multiplier = String(direction).toLowerCase() === "asc" ? 1 : -1;
+  return [...tickets].sort((left, right) => {
+    const leftValue = getter(left);
+    const rightValue = getter(right);
+    if (typeof leftValue === "number" && typeof rightValue === "number") {
+      return (leftValue - rightValue) * multiplier;
+    }
+    return String(leftValue).localeCompare(String(rightValue), undefined, {
+      numeric: true,
+      sensitivity: "base"
+    }) * multiplier;
+  });
+}
+
 async function getQueueSnapshot(tenant, options = {}) {
   const { dateKey, location } = await rolloverQueueDayForTenant(tenant, options);
   const locationId = location?._id;
@@ -141,12 +168,20 @@ async function getQueueSnapshot(tenant, options = {}) {
     location?._id
   );
 
-  const nextUp = waitingTickets.slice(0, 10).map((ticket, index) => ({
+  const sortedWaitingTickets = sortQueueTickets(
+    waitingTickets,
+    options.nextUpSort,
+    options.nextUpDirection
+  );
+
+  const nextUp = sortedWaitingTickets.slice(0, 10).map((ticket) => ({
     id: String(ticket._id),
     ticketNumber: ticket.ticketNumber,
     customerName: ticket.customerName,
     status: ticket.status,
-    position: index + 1,
+    position: waitingTickets.findIndex(
+      (waitingTicket) => String(waitingTicket._id) === String(ticket._id)
+    ) + 1,
     joinChannel: ticket.joinChannel,
     createdAt: ticket.createdAt
   }));

@@ -110,7 +110,9 @@ function buildOauthAccount(profile) {
 }
 
 async function buildUserPayload(user) {
-  const memberships = user.tenantMemberships || [];
+  const memberships = (user.tenantMemberships || []).filter(
+    (membership) => membership.isActive !== false
+  );
   const tenants = await tenantRepository.findTenantsByIds(
     memberships.map((membership) => membership.tenantId)
   );
@@ -137,7 +139,8 @@ async function buildUserPayload(user) {
           id: String(tenant._id),
           name: tenant.name,
           slug: tenant.slug,
-          role: membership.role
+          role: membership.role,
+          isActive: membership.isActive !== false
         };
       })
       .filter(Boolean)
@@ -195,7 +198,9 @@ async function findOrCreateOauthUser(profile) {
 }
 
 function getPostOauthPath(intent, provider, user) {
-  const hasTenantMemberships = Boolean(user.tenantMemberships?.length);
+  const hasTenantMemberships = Boolean(
+    user.tenantMemberships?.some((membership) => membership.isActive !== false)
+  );
 
   if (intent === "register_vendor" && !hasTenantMemberships) {
     return `/register/vendor?oauth=${provider}`;
@@ -273,6 +278,26 @@ router.all("/oauth/:provider/callback", async (req, res) => {
     redirectOauthError(res, error.message || "Social sign-in failed.");
   }
 });
+
+router.get(
+  "/tenant-slug",
+  asyncHandler(async (req, res) => {
+    const normalizedSlug = normalizeSlug(req.query.slug);
+
+    if (!normalizedSlug) {
+      const error = new Error("slug must contain letters or numbers.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const existingTenant = await tenantRepository.findTenantBySlug(normalizedSlug);
+
+    res.json({
+      slug: normalizedSlug,
+      available: !existingTenant
+    });
+  })
+);
 
 router.post(
   "/register/vendor",

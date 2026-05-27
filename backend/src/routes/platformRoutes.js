@@ -13,11 +13,15 @@ router.use(authenticate, requirePlatformAdmin);
 
 router.get(
   "/overview",
-  asyncHandler(async (_req, res) => {
+  asyncHandler(async (req, res) => {
     const [totals, queueFees, recentPayments, analytics] = await Promise.all([
       platformRepository.getOverviewTotals(),
       queueFeeService.listQueueFees(),
-      platformRepository.listRecentPayments({ limit: 10 }),
+      platformRepository.listRecentPayments({
+        limit: 10,
+        sort: req.query.paymentSort,
+        direction: req.query.paymentDirection
+      }),
       platformRepository.getOverviewAnalytics()
     ]);
 
@@ -117,7 +121,9 @@ router.get(
   asyncHandler(async (req, res) => {
     const payments = await queueJoinPaymentRepository.listPayments({
       status: req.query.status,
-      limit: req.query.limit
+      limit: req.query.limit,
+      sort: req.query.sort,
+      direction: req.query.direction
     });
 
     res.json({
@@ -130,7 +136,11 @@ router.get(
   "/tenants",
   asyncHandler(async (req, res) => {
     res.json({
-      items: await platformRepository.listTenants({ limit: req.query.limit })
+      items: await platformRepository.listTenants({
+        limit: req.query.limit,
+        sort: req.query.sort,
+        direction: req.query.direction
+      })
     });
   })
 );
@@ -139,7 +149,11 @@ router.get(
   "/subscriptions",
   asyncHandler(async (req, res) => {
     res.json({
-      items: await platformRepository.listSubscriptions({ limit: req.query.limit })
+      items: await platformRepository.listSubscriptions({
+        limit: req.query.limit,
+        sort: req.query.sort,
+        direction: req.query.direction
+      })
     });
   })
 );
@@ -148,7 +162,11 @@ router.get(
   "/users",
   asyncHandler(async (req, res) => {
     res.json({
-      items: await platformRepository.listUsers({ limit: req.query.limit })
+      items: await platformRepository.listUsers({
+        limit: req.query.limit,
+        sort: req.query.sort,
+        direction: req.query.direction
+      })
     });
   })
 );
@@ -157,7 +175,11 @@ router.get(
   "/billing-events",
   asyncHandler(async (req, res) => {
     res.json({
-      items: await platformRepository.listBillingEvents({ limit: req.query.limit })
+      items: await platformRepository.listBillingEvents({
+        limit: req.query.limit,
+        sort: req.query.sort,
+        direction: req.query.direction
+      })
     });
   })
 );

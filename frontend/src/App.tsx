@@ -1,7 +1,8 @@
-import type { ReactNode } from "react";
-import { Anchor, Box, Button, Container, Group } from "@mantine/core";
+import { useEffect, useState, type ReactNode } from "react";
+import { Anchor, Box, Button, Container, Group, Modal, Stack, Text } from "@mantine/core";
 import { Link, Navigate, NavLink, Route, Routes, useLocation, useParams } from "react-router-dom";
 import { IconLogout } from "@tabler/icons-react";
+import { API_ERROR_EVENT, type ApiErrorEventDetail } from "./api/client";
 import BrandMark from "./components/BrandMark";
 import { useAuth } from "./context/AuthContext";
 import LandingPage from "./pages/LandingPage";
@@ -10,6 +11,7 @@ import OAuthCallbackPage from "./pages/OAuthCallbackPage";
 import RegisterVendorPage from "./pages/RegisterVendorPage";
 import RegisterCustomerPage from "./pages/RegisterCustomerPage";
 import CustomerAccountPage from "./pages/CustomerAccountPage";
+import StaffInvitePage from "./pages/StaffInvitePage";
 import VendorDashboardPage from "./pages/VendorDashboardPage";
 import PublicQueuePage from "./pages/PublicQueuePage";
 import JoinQueuePage from "./pages/JoinQueuePage";
@@ -52,7 +54,7 @@ function AppShell({ children }: { children: ReactNode }) {
                   Dashboard
                 </Button>
               ) : null}
-              {user?.roles?.includes("customer") ? (
+              {user?.roles?.includes("customer") && !user?.tenants?.length ? (
                 <Button component={NavLink} to="/account" variant="subtle" color="dark">
                   Account
                 </Button>
@@ -94,6 +96,46 @@ function BarePage({ children }: { children: ReactNode }) {
   );
 }
 
+function ApiErrorModal() {
+  const [error, setError] = useState<ApiErrorEventDetail | null>(null);
+
+  useEffect(() => {
+    function handleApiError(event: Event) {
+      const customEvent = event as CustomEvent<ApiErrorEventDetail>;
+      setError(customEvent.detail);
+    }
+
+    window.addEventListener(API_ERROR_EVENT, handleApiError);
+    return () => window.removeEventListener(API_ERROR_EVENT, handleApiError);
+  }, []);
+
+  return (
+    <Modal
+      centered
+      opened={Boolean(error)}
+      onClose={() => setError(null)}
+      title="Request failed"
+      zIndex={5000}
+    >
+      <Stack gap="md">
+        <div>
+          <Text fw={700}>{error?.message || "Something went wrong."}</Text>
+          {error?.status ? (
+            <Text c="dimmed" size="sm" mt={4}>
+              API responded with status {error.status}.
+            </Text>
+          ) : null}
+        </div>
+        <Group justify="flex-end">
+          <Button color="dark" onClick={() => setError(null)}>
+            Close
+          </Button>
+        </Group>
+      </Stack>
+    </Modal>
+  );
+}
+
 function LegacyMonitorRedirect() {
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
   const location = useLocation();
@@ -123,19 +165,23 @@ function DashboardRedirect() {
 
 export default function App() {
   return (
-    <Routes>
-      <Route path={MONITOR_ROUTE_PATH} element={<BarePage><PublicQueuePage /></BarePage>} />
-      <Route path={LEGACY_MONITOR_ROUTE_PATH} element={<LegacyMonitorRedirect />} />
-      <Route path="/" element={<AppShell><LandingPage /></AppShell>} />
-      <Route path="/login" element={<AppShell><LoginPage /></AppShell>} />
-      <Route path="/oauth/callback" element={<AppShell><OAuthCallbackPage /></AppShell>} />
-      <Route path="/register/vendor" element={<AppShell><RegisterVendorPage /></AppShell>} />
-      <Route path="/register/customer" element={<AppShell><RegisterCustomerPage /></AppShell>} />
-      <Route path="/account" element={<AppShell><CustomerAccountPage /></AppShell>} />
-      <Route path="/dashboard" element={<DashboardRedirect />} />
-      <Route path="/dashboard/:section" element={<AppShell><VendorDashboardPage /></AppShell>} />
-      <Route path="/join/:tenantSlug/:locationSlug?" element={<AppShell><JoinQueuePage /></AppShell>} />
-      <Route path="*" element={<AppShell><LandingPage /></AppShell>} />
-    </Routes>
+    <>
+      <ApiErrorModal />
+      <Routes>
+        <Route path={MONITOR_ROUTE_PATH} element={<BarePage><PublicQueuePage /></BarePage>} />
+        <Route path={LEGACY_MONITOR_ROUTE_PATH} element={<LegacyMonitorRedirect />} />
+        <Route path="/" element={<AppShell><LandingPage /></AppShell>} />
+        <Route path="/login" element={<AppShell><LoginPage /></AppShell>} />
+        <Route path="/oauth/callback" element={<AppShell><OAuthCallbackPage /></AppShell>} />
+        <Route path="/register/vendor" element={<AppShell><RegisterVendorPage /></AppShell>} />
+        <Route path="/register/customer" element={<AppShell><RegisterCustomerPage /></AppShell>} />
+        <Route path="/staff/invite/:token" element={<AppShell><StaffInvitePage /></AppShell>} />
+        <Route path="/account" element={<AppShell><CustomerAccountPage /></AppShell>} />
+        <Route path="/dashboard" element={<DashboardRedirect />} />
+        <Route path="/dashboard/:section" element={<AppShell><VendorDashboardPage /></AppShell>} />
+        <Route path="/join/:tenantSlug/:locationSlug?" element={<AppShell><JoinQueuePage /></AppShell>} />
+        <Route path="*" element={<AppShell><LandingPage /></AppShell>} />
+      </Routes>
+    </>
   );
 }

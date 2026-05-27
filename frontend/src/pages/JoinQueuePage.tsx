@@ -3,13 +3,16 @@ import {
   Alert,
   Button,
   Checkbox,
+  Group,
   Paper,
+  PinInput,
   SimpleGrid,
   Stack,
   Text,
   Textarea,
   TextInput,
-  Title
+  Title,
+  Tooltip
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { IconCheck, IconInfoCircle } from "@tabler/icons-react";
@@ -20,6 +23,7 @@ import type {
   QueueJoinPaymentSyncResponse,
   QueueSnapshot,
   RequestJoinOtpResponse,
+  StoreLocationSummary,
   TenantSummary,
   VerifyJoinOtpRequest
 } from "@shared";
@@ -68,7 +72,7 @@ declare global {
           sitekey: string;
           callback: (token: string) => void;
           "expired-callback": () => void;
-          "error-callback": () => void;
+          "error-callback": (code?: string) => boolean | void;
         }
       ) => string;
       remove: (widgetId: string) => void;
@@ -84,7 +88,9 @@ export default function JoinQueuePage() {
   const { token, user } = useAuth();
   const turnstileContainerRef = useRef<HTMLDivElement | null>(null);
   const turnstileWidgetIdRef = useRef<string | null>(null);
+  const lastAutoSubmittedOtpRef = useRef("");
   const [tenantInfo, setTenantInfo] = useState<TenantSummary | null>(null);
+  const [locationInfo, setLocationInfo] = useState<StoreLocationSummary | null>(null);
   const [form, setForm] = useState<JoinQueueFormState>({
     customerName: "",
     customerEmail: "",
@@ -108,6 +114,11 @@ export default function JoinQueuePage() {
   const joinSource = searchParams.get("source")?.toLowerCase() === "qr" ? "qr" : "online";
   const turnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY || "";
   const shouldUseTurnstile = joinSource === "qr" && Boolean(turnstileSiteKey);
+  const businessName = tenantInfo?.name || tenantSlugValue;
+  const locationName = locationInfo?.name || "Primary location";
+  const smsFeeApplies = form.notifyBySms && Boolean(tenantInfo?.queueFee?.enabled);
+  const queueFeeDisplayAmount = tenantInfo?.queueFee?.displayAmount || "";
+  const otpIsComplete = /^\d{6}$/.test(otpCode);
   const resendAvailableAtMs = otp ? new Date(otp.resendAvailableAt).getTime() : 0;
   const resendSecondsRemaining = Math.max(
     0,
@@ -142,10 +153,8 @@ export default function JoinQueuePage() {
 
     apiRequest<QueueSnapshot>(`${basePath}/queue`)
       .then((data) => {
-        setTenantInfo({
-          ...data.tenant,
-          name: data.location?.name || data.tenant.name
-        });
+        setTenantInfo(data.tenant);
+        setLocationInfo(data.location);
       })
       .catch((loadError) => {
         setError(getErrorMessage(loadError));
@@ -262,22 +271,32 @@ export default function JoinQueuePage() {
         return;
       }
 
-      turnstileWidgetIdRef.current = window.turnstile.render(turnstileContainerRef.current, {
-        sitekey: turnstileSiteKey,
-        callback: (nextToken) => {
-          setTurnstileToken(nextToken);
-          setTurnstileReady(true);
-        },
-        "expired-callback": () => {
-          setTurnstileToken("");
-          setTurnstileReady(false);
-        },
-        "error-callback": () => {
-          setTurnstileToken("");
-          setTurnstileReady(false);
-          setError("Verification could not load. Please refresh and try again.");
-        }
-      });
+      try {
+        turnstileWidgetIdRef.current = window.turnstile.render(turnstileContainerRef.current, {
+          sitekey: turnstileSiteKey,
+          callback: (nextToken) => {
+            setTurnstileToken(nextToken);
+            setTurnstileReady(true);
+            setError("");
+          },
+          "expired-callback": () => {
+            setTurnstileToken("");
+            setTurnstileReady(false);
+          },
+          "error-callback": (code) => {
+            setTurnstileToken("");
+            setTurnstileReady(false);
+            const errorCode = code ? ` Error code: ${code}.` : "";
+            setError(`Security verification could not load.${errorCode}`);
+            return false;
+          }
+        });
+      } catch (turnstileError) {
+        console.error(turnstileError);
+        setTurnstileToken("");
+        setTurnstileReady(false);
+        setError("Security verification could not load. Please refresh and try again.");
+      }
     }
 
     if (window.turnstile) {
@@ -328,13 +347,23 @@ export default function JoinQueuePage() {
     setError("");
 
     try {
+      if (form.notifyByEmail && !form.customerEmail.trim()) {
+        setError("Email is required when email notifications are selected.");
+        setSubmitting(false);
+        return;
+      }
+      if (form.notifyBySms && !form.customerPhone.trim()) {
+        setError("Phone is required when SMS alerts are selected.");
+        setSubmitting(false);
+        return;
+      }
       if (shouldUseTurnstile && !turnstileToken) {
         setError("Please complete the security check before joining.");
         setSubmitting(false);
         return;
       }
 
-      const data = await apiRequest<RequestJoinOtpResponse, JoinQueueRequest>(
+      const data = await apiRequest<RequestJoinOtpResponse | QueueJoinPaymentResponse, JoinQueueRequest>(
         `${publicApiBase}/join-otp`,
         {
           method: "POST",
@@ -342,6 +371,12 @@ export default function JoinQueuePage() {
           body: buildJoinRequest()
         }
       );
+
+      if ("requiresPayment" in data) {
+        handleJoinResult(data);
+        return;
+      }
+
       setOtp(data);
       setOtpCode("");
     } catch (submitError) {
@@ -383,10 +418,41 @@ export default function JoinQueuePage() {
     await requestOtp();
   }
 
-  async function handleVerifyOtp(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  function handleJoinResult(data: QueueJoinPaymentResponse) {
+    if (data.requiresPayment && data.checkoutSession?.checkoutUrl) {
+      notifications.show({
+        color: "blue",
+        icon: <IconInfoCircle size={18} />,
+        message: `Opening checkout for ${data.queueFee.displayAmount}...`,
+        title: "Queue fee required"
+      });
+      window.location.href = data.checkoutSession.checkoutUrl;
+      return;
+    }
 
-    if (!otp) {
+    if (data.ticket?.lookupCode) {
+      notifications.show({
+        color: "teal",
+        icon: <IconCheck size={18} />,
+        message: "Your ticket has been issued.",
+        title: "Joined queue"
+      });
+      navigate(buildMonitorPathWithTicket(tenantSlugValue, data.ticket.lookupCode, locationSlug), {
+        replace: true
+      });
+      return;
+    }
+
+    notifications.show({
+      color: "blue",
+      icon: <IconInfoCircle size={18} />,
+      message: "Your join request is being processed.",
+      title: "Join request submitted"
+    });
+  }
+
+  async function verifyOtpCode(code: string) {
+    if (!otp || submitting || !/^\d{6}$/.test(code)) {
       return;
     }
 
@@ -400,41 +466,12 @@ export default function JoinQueuePage() {
           method: "POST",
           body: {
             otpId: otp.otpId,
-            code: otpCode
+            code
           }
         }
       );
 
-      if (data.requiresPayment && data.checkoutSession?.checkoutUrl) {
-        notifications.show({
-          color: "blue",
-          icon: <IconInfoCircle size={18} />,
-          message: `Opening checkout for ${data.queueFee.displayAmount}...`,
-          title: "Queue fee required"
-        });
-        window.location.href = data.checkoutSession.checkoutUrl;
-        return;
-      }
-
-      if (data.ticket?.lookupCode) {
-        notifications.show({
-          color: "teal",
-          icon: <IconCheck size={18} />,
-          message: "Your ticket has been issued.",
-          title: "Joined queue"
-        });
-        navigate(buildMonitorPathWithTicket(tenantSlugValue, data.ticket.lookupCode, locationSlug), {
-          replace: true
-        });
-        return;
-      }
-
-      notifications.show({
-        color: "blue",
-        icon: <IconInfoCircle size={18} />,
-        message: "Your join request is being processed.",
-        title: "Join request submitted"
-      });
+      handleJoinResult(data);
     } catch (submitError) {
       setError(getErrorMessage(submitError));
     } finally {
@@ -442,21 +479,38 @@ export default function JoinQueuePage() {
     }
   }
 
+  async function handleVerifyOtp(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await verifyOtpCode(otpCode);
+  }
+
+  useEffect(() => {
+    if (!otpIsComplete) {
+      lastAutoSubmittedOtpRef.current = "";
+      return;
+    }
+
+    if (!otp || submitting || lastAutoSubmittedOtpRef.current === otpCode) {
+      return;
+    }
+
+    lastAutoSubmittedOtpRef.current = otpCode;
+    void verifyOtpCode(otpCode);
+  }, [otp, otpCode, otpIsComplete, submitting]);
+
   return (
     <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xl" className="finazze-join-layout">
       <Paper className="finazze-auth-card finazze-join-card" p={{ base: "xl", md: 44 }}>
         <Stack gap="md">
         <Text className="finazze-section-label">Join queue</Text>
-        <Title order={1}>{tenantInfo?.name || tenantSlugValue}</Title>
+        <Stack gap={2}>
+          <Title order={1}>{businessName}</Title>
+          <Title c="dimmed" order={2}>{locationName}</Title>
+        </Stack>
         <Text c="dimmed">
-          Grab your priority number online, then keep monitoring progress from the public board.
+          Enter your contact details to request a queue ticket. We will verify your contact
+          information before issuing the ticket.
         </Text>
-        {tenantInfo?.queueFee?.enabled ? (
-          <Text c="dimmed">
-            This queue requires a platform fee of {tenantInfo.queueFee.displayAmount} after
-            contact verification.
-          </Text>
-        ) : null}
         {otp ? (
           <form onSubmit={handleVerifyOtp}>
             <Stack gap="md">
@@ -473,21 +527,26 @@ export default function JoinQueuePage() {
                 })}.
               </Text>
             </Paper>
-            <TextInput
-              autoComplete="one-time-code"
-              inputMode="numeric"
-              label="OTP"
-              maxLength={6}
-              pattern="[0-9]{6}"
-              required
-              value={otpCode}
-              onChange={(event) => setOtpCode(event.target.value.replace(/\D/g, ""))}
-            />
+            <Stack gap={6}>
+              <Text fw={600} size="sm">OTP</Text>
+              <PinInput
+                aria-label="One-time verification code"
+                autoFocus
+                inputMode="numeric"
+                length={6}
+                name="otpCode"
+                oneTimeCode
+                size="lg"
+                type="number"
+                value={otpCode}
+                onChange={setOtpCode}
+              />
+            </Stack>
             {error ? <Alert color="red">{error}</Alert> : null}
-            <Button color="dark" disabled={submitting} type="submit">
+            <Button color="dark" disabled={submitting || !otpIsComplete} type="submit">
               {submitting
                 ? "Verifying..."
-                : tenantInfo?.queueFee?.enabled
+                : smsFeeApplies
                   ? "Verify and continue to payment"
                   : "Verify and join queue"}
             </Button>
@@ -516,20 +575,36 @@ export default function JoinQueuePage() {
         ) : (
           <form onSubmit={handleSubmit}>
             <Stack gap="md">
-            <TextInput required label="Name" value={form.customerName} onChange={(event) => setForm((current) => ({ ...current, customerName: event.target.value }))} />
-            <TextInput label="Email" type="email" value={form.customerEmail} onChange={(event) => setForm((current) => ({ ...current, customerEmail: event.target.value }))} />
-            <TextInput label="Phone" value={form.customerPhone} onChange={(event) => setForm((current) => ({ ...current, customerPhone: event.target.value }))} />
-            <Textarea label="Notes" minRows={3} value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} />
+            <TextInput required label="Name" name="customerName" value={form.customerName} onChange={(event) => setForm((current) => ({ ...current, customerName: event.target.value }))} />
+            <TextInput required={form.notifyByEmail} label="Email" name="customerEmail" type="email" value={form.customerEmail} onChange={(event) => setForm((current) => ({ ...current, customerEmail: event.target.value }))} />
+            <TextInput required={form.notifyBySms} label="Phone" name="customerPhone" value={form.customerPhone} onChange={(event) => setForm((current) => ({ ...current, customerPhone: event.target.value }))} />
+            <Textarea label="Notes" minRows={3} name="notes" value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} />
             <Checkbox
               checked={form.notifyByEmail}
-              label="Email me when I am almost next"
+              label="Email me when I am almost next in line"
+              name="notifyByEmail"
               onChange={(event) => setForm((current) => ({ ...current, notifyByEmail: event.target.checked }))}
             />
-            <Checkbox
-              checked={form.notifyBySms}
-              label="Send SMS alerts"
-              onChange={(event) => setForm((current) => ({ ...current, notifyBySms: event.target.checked }))}
-            />
+            <Group gap="xs" align="center">
+              <Checkbox
+                checked={form.notifyBySms}
+                label="Send SMS alerts"
+                name="notifyBySms"
+                onChange={(event) => setForm((current) => ({ ...current, notifyBySms: event.target.checked }))}
+              />
+              <Tooltip
+                label={`SMS alerts incur a small fee of ${queueFeeDisplayAmount || "PHP 0.00"}.`}
+                withArrow
+              >
+                <IconInfoCircle aria-label="SMS fee information" size={16} />
+              </Tooltip>
+            </Group>
+            {smsFeeApplies ? (
+              <Alert color="orange" title="Platform fee required">
+                This queue requires a platform fee of <strong>{queueFeeDisplayAmount}</strong> for SMS alerts.
+                You will continue to payment after contact verification.
+              </Alert>
+            ) : null}
             {shouldUseTurnstile ? (
               <Paper className="finazze-soft-panel" p="md">
                 <div ref={turnstileContainerRef} />
@@ -541,7 +616,7 @@ export default function JoinQueuePage() {
               disabled={submitting || (shouldUseTurnstile && !turnstileReady)}
               type="submit"
             >
-              {submitting ? "Sending code..." : "Get priority number"}
+              {submitting ? "Sending code..." : smsFeeApplies ? "Proceed to payment" : "Get priority number"}
             </Button>
             </Stack>
           </form>

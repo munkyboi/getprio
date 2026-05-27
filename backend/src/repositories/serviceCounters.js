@@ -5,6 +5,10 @@ function buildQueryClient(client) {
 }
 
 function mapCounter(row) {
+  if (!row) {
+    return null;
+  }
+
   return {
     _id: String(row.id),
     tenantId: String(row.tenant_id),

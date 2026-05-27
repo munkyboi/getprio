@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Alert, Anchor, Button, Paper, PasswordInput, Stack, Text, TextInput, Title } from "@mantine/core";
-import { Navigate, Link, useNavigate } from "react-router-dom";
+import { Navigate, Link, useNavigate, useSearchParams } from "react-router-dom";
 import type { LoginRequest } from "@shared";
 import SocialAuthButtons from "../components/SocialAuthButtons";
 import { useAuth } from "../context/AuthContext";
@@ -8,22 +8,31 @@ import { getErrorMessage } from "../utils/errors";
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { login, loading, user } = useAuth();
+  const redirectTo = searchParams.get("redirect") || "";
+  const safeRedirectTo =
+    redirectTo.startsWith("/") && !redirectTo.startsWith("//") ? redirectTo : "";
   const [form, setForm] = useState<LoginRequest>({ email: "", password: "" });
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
+    if (user && safeRedirectTo) {
+      navigate(safeRedirectTo, { replace: true });
+      return;
+    }
+
     if (user?.tenants?.length) {
       navigate("/dashboard", { replace: true });
     }
-  }, [navigate, user]);
+  }, [navigate, safeRedirectTo, user]);
 
   if (loading) {
     return <Paper className="finazze-auth-card" p="xl">Loading session...</Paper>;
   }
 
-  if (user && !user.tenants?.length) {
+  if (user && !user.tenants?.length && !safeRedirectTo) {
     return <Navigate to="/" replace />;
   }
 
@@ -34,7 +43,7 @@ export default function LoginPage() {
 
     try {
       const result = await login(form);
-      navigate(result.user.tenants.length ? "/dashboard" : "/", { replace: true });
+      navigate(safeRedirectTo || (result.user.tenants.length ? "/dashboard" : "/"), { replace: true });
     } catch (submitError) {
       setError(getErrorMessage(submitError));
     } finally {
@@ -56,6 +65,7 @@ export default function LoginPage() {
           <Stack gap="md">
             <TextInput
               label="Email"
+              name="email"
               required
               type="email"
               value={form.email}
@@ -63,6 +73,7 @@ export default function LoginPage() {
             />
             <PasswordInput
               label="Password"
+              name="password"
               required
               value={form.password}
               onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))}

@@ -7,20 +7,43 @@ import { useAuth } from "../context/AuthContext";
 import { buildMonitorPathWithTicket } from "../queuePaths";
 import { getErrorMessage } from "../utils/errors";
 
+type SortDirection = "asc" | "desc";
+type SortState = { key: string; direction: SortDirection };
+
 export default function CustomerAccountPage() {
   const { token, user, loading } = useAuth();
   const [account, setAccount] = useState<CustomerAccountOverviewResponse | null>(null);
   const [error, setError] = useState("");
+  const [sort, setSort] = useState<SortState>({ key: "createdAt", direction: "desc" });
 
   useEffect(() => {
     if (!token) {
       return;
     }
 
-    apiRequest<CustomerAccountOverviewResponse>("/account/overview", { token })
+    apiRequest<CustomerAccountOverviewResponse>(
+      `/account/overview?sort=${encodeURIComponent(sort.key)}&direction=${sort.direction}`,
+      { token }
+    )
       .then(setAccount)
       .catch((loadError) => setError(getErrorMessage(loadError)));
-  }, [token]);
+  }, [sort.direction, sort.key, token]);
+
+  function handleSortChange(key: string) {
+    setSort((current) => ({
+      key,
+      direction: current.key === key && current.direction === "asc" ? "desc" : "asc"
+    }));
+  }
+
+  function renderSortHeader(key: string, label: string) {
+    return (
+      <button className="sortable-table-header" type="button" onClick={() => handleSortChange(key)}>
+        <span>{label}</span>
+        <span>{sort.key === key ? (sort.direction === "asc" ? "↑" : "↓") : "↕"}</span>
+      </button>
+    );
+  }
 
   if (loading) {
     return <Card className="finazze-auth-card">Loading account...</Card>;
@@ -55,11 +78,11 @@ export default function CustomerAccountPage() {
             <Table verticalSpacing="sm">
               <Table.Thead>
                 <Table.Tr>
-                  <Table.Th>Ticket</Table.Th>
-                  <Table.Th>Vendor</Table.Th>
-                  <Table.Th>Location</Table.Th>
-                  <Table.Th>Status</Table.Th>
-                  <Table.Th>Joined</Table.Th>
+                  <Table.Th>{renderSortHeader("ticketNumber", "Ticket")}</Table.Th>
+                  <Table.Th>{renderSortHeader("tenantName", "Vendor")}</Table.Th>
+                  <Table.Th>{renderSortHeader("locationName", "Location")}</Table.Th>
+                  <Table.Th>{renderSortHeader("status", "Status")}</Table.Th>
+                  <Table.Th>{renderSortHeader("createdAt", "Joined")}</Table.Th>
                   <Table.Th />
                 </Table.Tr>
               </Table.Thead>
