@@ -27,7 +27,9 @@ function mapTenantMembership(row) {
   return {
     tenantId: String(row.tenant_id),
     role: row.role,
-    isActive: row.is_active !== false
+    isActive: row.is_active !== false,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
   };
 }
 
@@ -98,7 +100,7 @@ async function loadTenantMemberships(userIds, client) {
 
   const result = await client.query(
     `
-      SELECT user_id, tenant_id, role, is_active
+      SELECT user_id, tenant_id, role, is_active, created_at, updated_at
       FROM tenant_memberships
       WHERE user_id = ANY($1::bigint[])
       ORDER BY tenant_id ASC
@@ -365,7 +367,6 @@ async function updateTenantMembershipRole(userId, tenantId, role, options = {}) 
     `,
     [Number(userId), Number(tenantId), role]
   );
-
   return findUserById(userId, { client: queryClient });
 }
 
@@ -379,8 +380,24 @@ async function updateTenantMembershipAccess(userId, tenantId, isActive, options 
     `,
     [Number(userId), Number(tenantId), Boolean(isActive)]
   );
-
   return findUserById(userId, { client: queryClient });
+}
+
+async function touchTenantMembershipsUpdatedAt(userIds, tenantId, options = {}) {
+  const normalizedIds = normalizeIds(userIds);
+  if (!normalizedIds.length) {
+    return;
+  }
+
+  const queryClient = buildQueryClient(options.client);
+  await queryClient.query(
+    `
+      UPDATE tenant_memberships
+      SET updated_at = NOW()
+      WHERE user_id = ANY($1::bigint[]) AND tenant_id = $2
+    `,
+    [normalizedIds, Number(tenantId)]
+  );
 }
 
 async function removeTenantMembership(userId, tenantId, options = {}) {
@@ -403,5 +420,6 @@ module.exports = {
   listUsersByTenantId,
   updateTenantMembershipRole,
   updateTenantMembershipAccess,
+  touchTenantMembershipsUpdatedAt,
   removeTenantMembership
 };

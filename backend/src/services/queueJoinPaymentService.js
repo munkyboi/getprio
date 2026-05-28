@@ -60,7 +60,10 @@ function buildTicketResponse(ticket) {
     lookupCode: ticket.lookupCode,
     ticketNumber: ticket.ticketNumber,
     customerName: ticket.customerName,
-    status: ticket.status
+    status: ticket.status,
+    notifyBySms: Boolean(ticket.notifyBySms),
+    carriedOverAt: ticket.carriedOverAt,
+    carryOverCount: ticket.carryOverCount || 0
   };
 }
 
@@ -404,7 +407,10 @@ async function syncQueueJoinPayment({ tenant, paymentId }) {
             lookupCode: snapshot.focusTicket.lookupCode,
             ticketNumber: snapshot.focusTicket.ticketNumber,
             customerName: snapshot.focusTicket.customerName,
-            status: snapshot.focusTicket.status
+            status: snapshot.focusTicket.status,
+            notifyBySms: snapshot.focusTicket.notifyBySms,
+            carriedOverAt: snapshot.focusTicket.carriedOverAt,
+            carryOverCount: snapshot.focusTicket.carryOverCount
           }
         : undefined,
       snapshot
@@ -446,7 +452,10 @@ async function syncQueueJoinPayment({ tenant, paymentId }) {
           lookupCode: activated.snapshot.focusTicket.lookupCode,
           ticketNumber: activated.snapshot.focusTicket.ticketNumber,
           customerName: activated.snapshot.focusTicket.customerName,
-          status: activated.snapshot.focusTicket.status
+          status: activated.snapshot.focusTicket.status,
+          notifyBySms: activated.snapshot.focusTicket.notifyBySms,
+          carriedOverAt: activated.snapshot.focusTicket.carriedOverAt,
+          carryOverCount: activated.snapshot.focusTicket.carryOverCount
         }
       : activated.ticket
         ? buildTicketResponse(activated.ticket)

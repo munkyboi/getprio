@@ -26,7 +26,8 @@ const {
   createTicket,
   getQueueSnapshot,
   callNextTicket,
-  updateCurrentTicketStatus
+  updateCurrentTicketStatus,
+  closeQueueDay
 } = require("../services/queueService");
 
 const router = express.Router();
@@ -241,6 +242,17 @@ function normalizeCounterPayload(body) {
     isActive: body.isActive !== false,
     assignedUserIds: Array.isArray(body.assignedUserIds) ? body.assignedUserIds : []
   };
+}
+
+function mergeUserIds(...userIdGroups) {
+  return [
+    ...new Set(
+      userIdGroups
+        .flat()
+        .filter(Boolean)
+        .map((userId) => String(userId))
+    )
+  ];
 }
 
 async function getCounterForLocation(location, counterSlug) {
@@ -634,6 +646,88 @@ router.post(
   })
 );
 
+function formatOverflowTicket(ticket) {
+  return {
+    id: String(ticket._id),
+    lookupCode: ticket.lookupCode,
+    ticketNumber: ticket.ticketNumber,
+    dateKey: ticket.dateKey,
+    queueDateKey: ticket.queueDateKey,
+    customerName: ticket.customerName,
+    customerPhone: ticket.customerPhone,
+    notifyBySms: Boolean(ticket.notifyBySms),
+    status: ticket.status,
+    joinChannel: ticket.joinChannel,
+    createdAt: ticket.createdAt,
+    updatedAt: ticket.updatedAt,
+    carriedOverAt: ticket.carriedOverAt,
+    carryOverCount: ticket.carryOverCount || 0,
+    unservedAt: ticket.unservedAt
+  };
+}
+
+router.get(
+  "/tenant/:tenantSlug/queue/overflow",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    const location = await getLocationForTenant(tenant, req.query.location);
+    await getQueueSnapshot(tenant, { location });
+    const overflow = await ticketRepository.listOverflowTickets(tenant._id, {
+      locationId: location?._id,
+      queueDateKey: storeHoursService.getLocationDateKey(new Date(), location.timezone),
+      includeFuture: true
+    });
+
+    res.json({
+      carriedOver: overflow.carriedOver.map(formatOverflowTicket),
+      unserved: overflow.unserved.map(formatOverflowTicket)
+    });
+  })
+);
+
+router.post(
+  "/tenant/:tenantSlug/queue/close-day",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantManager(req.user, tenant._id);
+    const location = await getLocationForTenant(tenant, req.query.location);
+    const result = await closeQueueDay(tenant, {
+      location,
+      closedByUserId: req.user._id,
+      reason: String(req.body?.reason || "Closed for the day").slice(0, 500)
+    });
+
+    res.json(result);
+  })
+);
+
+router.post(
+  "/tenant/:tenantSlug/queue/overflow/:ticketId/requeue",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantManager(req.user, tenant._id);
+    const location = await getLocationForTenant(tenant, req.query.location);
+    await getQueueSnapshot(tenant, { location });
+    const ticket = await ticketRepository.requeueUnservedTicket(
+      tenant._id,
+      req.params.ticketId,
+      storeHoursService.getLocationDateKey(new Date(), location.timezone),
+      { locationId: location?._id }
+    );
+
+    if (!ticket) {
+      const error = new Error("Unserved ticket not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    res.json({
+      ticket: formatOverflowTicket(ticket),
+      snapshot: await getQueueSnapshot(tenant, { location })
+    });
+  })
+);
+
 router.patch(
   "/tenant/:tenantSlug/settings",
   asyncHandler(async (req, res) => {
@@ -672,19 +766,39 @@ router.get(
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     const location = await getLocationForTenant(tenant, req.query.location);
-    const limit = Math.min(Number(req.query.limit || 20), 50);
+    const requestedLimit = Number(req.query.limit || 20);
+    const requestedPage = Number(req.query.page || 1);
+    const limit = Number.isFinite(requestedLimit)
+      ? Math.min(Math.max(requestedLimit, 1), 50)
+      : 20;
+    const page = Number.isFinite(requestedPage) ? Math.max(requestedPage, 1) : 1;
+    const offset = (page - 1) * limit;
     const entitlements = await billingService.getTenantEntitlements(tenant._id);
-    const tickets = await ticketRepository.listHistoryTickets(tenant._id, {
-      limit,
+    const search = String(req.query.search || "").trim().slice(0, 120);
+    const historyOptions = {
       historyDays: entitlements.historyDays,
       locationId: location?._id,
       sort: req.query.sort,
-      direction: req.query.direction
-    });
+      direction: req.query.direction,
+      search
+    };
+    const [tickets, total] = await Promise.all([
+      ticketRepository.listHistoryTickets(tenant._id, {
+        ...historyOptions,
+        limit,
+        offset
+      }),
+      ticketRepository.countHistoryTickets(tenant._id, historyOptions)
+    ]);
+    const totalPages = Math.max(Math.ceil(total / limit), 1);
 
     res.json({
       historyDays: entitlements.historyDays,
       historyLabel: entitlements.historyLabel,
+      page,
+      limit,
+      total,
+      totalPages,
       tickets: tickets.map((ticket) => ({
         id: String(ticket._id),
         ticketNumber: ticket.ticketNumber,
@@ -701,9 +815,17 @@ router.get(
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     const location = await getLocationForTenant(tenant, req.query.location);
+    const requestedLimit = Number(req.query.limit || 25);
+    const requestedPage = Number(req.query.page || 1);
+    const limit = Number.isFinite(requestedLimit)
+      ? Math.min(Math.max(requestedLimit, 1), 50)
+      : 25;
+    const page = Number.isFinite(requestedPage) ? Math.max(requestedPage, 1) : 1;
+    const offset = (page - 1) * limit;
     const entitlements = await billingService.getTenantEntitlements(tenant._id);
+    const search = String(req.query.search || "").trim().toLowerCase().slice(0, 120);
     const tickets = await ticketRepository.listClientTickets(tenant._id, {
-      limit: 500,
+      limit: 5000,
       historyDays: entitlements.historyDays,
       locationId: location?._id,
       sort: req.query.sort,
@@ -748,16 +870,38 @@ router.get(
       });
     });
 
+    const clientItems = Array.from(clientsByKey.values());
+    const filteredClients = search
+      ? clientItems.filter((client) =>
+          [
+            client.customerName,
+            client.customerEmail,
+            client.customerPhone,
+            client.latestTicketNumber,
+            client.latestStatus
+          ]
+            .filter(Boolean)
+            .some((value) => String(value).toLowerCase().includes(search))
+        )
+      : clientItems;
+    const sortedClients = sortRecords(filteredClients, req.query.sort, req.query.direction, {
+      customerName: (client) => client.customerName,
+      contact: (client) => client.customerEmail || client.customerPhone,
+      visitCount: (client) => client.visitCount,
+      latestTicketNumber: (client) => client.latestTicketNumber,
+      latestVisitAt: (client) => new Date(client.latestVisitAt).getTime()
+    });
+    const total = sortedClients.length;
+    const totalPages = Math.max(Math.ceil(total / limit), 1);
+
     res.json({
       historyDays: entitlements.historyDays,
       historyLabel: entitlements.historyLabel,
-      clients: sortRecords(Array.from(clientsByKey.values()), req.query.sort, req.query.direction, {
-        customerName: (client) => client.customerName,
-        contact: (client) => client.customerEmail || client.customerPhone,
-        visitCount: (client) => client.visitCount,
-        latestTicketNumber: (client) => client.latestTicketNumber,
-        latestVisitAt: (client) => new Date(client.latestVisitAt).getTime()
-      })
+      page,
+      limit,
+      total,
+      totalPages,
+      clients: sortedClients.slice(offset, offset + limit)
     });
   })
 );
@@ -838,6 +982,10 @@ router.patch(
       updatedCounter._id,
       counterPayload.assignedUserIds
     );
+    await userRepository.touchTenantMembershipsUpdatedAt(
+      mergeUserIds(counter.assignedUserIds, counterPayload.assignedUserIds),
+      tenant._id
+    );
 
     res.json({ counter: updatedCounter });
   })
@@ -850,6 +998,7 @@ router.delete(
     assertTenantManager(req.user, tenant._id);
     const location = await getLocationForTenant(tenant, req.query.location);
     const counter = await getCounterForLocation(location, req.params.counterSlug);
+    await userRepository.touchTenantMembershipsUpdatedAt(counter.assignedUserIds, tenant._id);
     await serviceCounterRepository.deleteCounter(counter._id);
     res.status(204).send();
   })
@@ -880,7 +1029,9 @@ router.get(
         phone: user.phone,
         role: membership?.role || "staff",
         isActive: isActiveMembership(membership),
-        assignedCounterIds: assignedCountersByUserId.get(String(user._id)) || []
+        assignedCounterIds: assignedCountersByUserId.get(String(user._id)) || [],
+        createdAt: membership?.createdAt,
+        updatedAt: membership?.updatedAt
       };
     });
     const pendingInviteRows = pendingInvites.map((invitation) => formatInvitation(invitation));
@@ -897,7 +1048,9 @@ router.get(
         contact: (member) => member.email || member.phone,
         status: (member) => Number(member.isActive),
         role: (member) => member.role,
-        counters: (member) => member.assignedCounterIds.length
+        counters: (member) => member.assignedCounterIds.length,
+        createdAt: (member) => new Date(member.createdAt).getTime(),
+        updatedAt: (member) => new Date(member.updatedAt).getTime()
       })
     });
   })
@@ -1225,6 +1378,10 @@ router.post(
     });
 
     await serviceCounterRepository.replaceAssignments(counter._id, counterPayload.assignedUserIds);
+    await userRepository.touchTenantMembershipsUpdatedAt(
+      counterPayload.assignedUserIds,
+      tenant._id
+    );
     res.status(201).json({ counter });
   })
 );

@@ -4,6 +4,7 @@ const env = require("../config/env");
 const billingRepository = require("../repositories/billing");
 const notificationDeliveryRepository = require("../repositories/notificationDeliveries");
 const publicBoardThemeRepository = require("../repositories/publicBoardThemes");
+const queueDayClosureRepository = require("../repositories/queueDayClosures");
 const storeLocationRepository = require("../repositories/storeLocations");
 const ticketRepository = require("../repositories/tickets");
 const queueEvents = require("./queueEvents");
@@ -14,6 +15,28 @@ const { buildJoinUrl, buildMonitorUrl } = require("../publicLinks");
 
 function getDateKey(date = new Date()) {
   return date.toISOString().slice(0, 10).replace(/-/g, "");
+}
+
+function getQueueDateKeyForLocation(location, date = new Date()) {
+  return location
+    ? storeHoursService.getLocationDateKey(date, location.timezone)
+    : getDateKey(date);
+}
+
+function formatQueueClosure(closure) {
+  if (!closure) {
+    return null;
+  }
+
+  return {
+    id: String(closure._id),
+    queueDateKey: closure.queueDateKey,
+    nextQueueDateKey: closure.nextQueueDateKey,
+    closedAt: closure.closedAt,
+    reason: closure.reason,
+    waitingCarriedCount: closure.waitingCarriedCount,
+    calledUnservedCount: closure.calledUnservedCount
+  };
 }
 
 function formatTicketNumber(prefix, value) {
@@ -103,7 +126,7 @@ async function resolveLocation(tenant, options = {}) {
 
 async function rolloverQueueDayForTenant(tenant, options = {}) {
   const location = await resolveLocation(tenant, options);
-  const dateKey = getDateKey();
+  const dateKey = getQueueDateKeyForLocation(location);
   await ticketRepository.rolloverQueueDay(tenant._id, dateKey, {
     client: options.client,
     locationId: location?._id
@@ -142,6 +165,9 @@ function sortQueueTickets(tickets, sort, direction) {
 async function getQueueSnapshot(tenant, options = {}) {
   const { dateKey, location } = await rolloverQueueDayForTenant(tenant, options);
   const locationId = location?._id;
+  const closure = locationId
+    ? await queueDayClosureRepository.findClosure(tenant._id, locationId, dateKey)
+    : null;
   const current = await ticketRepository.findCurrentCalledTicket(tenant._id, {
     locationId,
     queueDateKey: dateKey
@@ -183,6 +209,10 @@ async function getQueueSnapshot(tenant, options = {}) {
       (waitingTicket) => String(waitingTicket._id) === String(ticket._id)
     ) + 1,
     joinChannel: ticket.joinChannel,
+    dateKey: ticket.dateKey,
+    queueDateKey: ticket.queueDateKey,
+    carriedOverAt: ticket.carriedOverAt,
+    carryOverCount: ticket.carryOverCount || 0,
     createdAt: ticket.createdAt
   }));
 
@@ -210,7 +240,10 @@ async function getQueueSnapshot(tenant, options = {}) {
         position: position || null,
         estimatedWaitMinutes:
           position && position > 0 ? position * tenant.averageServiceMinutes : 0,
-        joinedAt: ticket.createdAt
+        joinedAt: ticket.createdAt,
+        notifyBySms: Boolean(ticket.notifyBySms),
+        carriedOverAt: ticket.carriedOverAt,
+        carryOverCount: ticket.carryOverCount || 0
       };
     }
   }
@@ -266,6 +299,7 @@ async function getQueueSnapshot(tenant, options = {}) {
       estimatedWaitMinutes:
         waitingTickets.length > 0 ? waitingTickets.length * tenant.averageServiceMinutes : 0
     },
+    closure: formatQueueClosure(closure),
     current: current
       ? {
           id: String(current._id),
@@ -284,6 +318,69 @@ async function getQueueSnapshot(tenant, options = {}) {
     })),
     usage,
     focusTicket
+  };
+}
+
+async function closeQueueDay(tenant, options = {}) {
+  const location = await resolveLocation(tenant, options);
+  if (!location) {
+    const error = new Error("Location not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const queueDateKey = getQueueDateKeyForLocation(location);
+  const nextQueueDateKey = await storeHoursService.getNextOpenQueueDateKey(location, {
+    fromDateKey: queueDateKey
+  });
+
+  const closure = await db.withTransaction(async (client) => {
+    await ticketRepository.rolloverQueueDay(tenant._id, queueDateKey, {
+      client,
+      locationId: location._id
+    });
+
+    const existingClosure = await queueDayClosureRepository.findClosure(
+      tenant._id,
+      location._id,
+      queueDateKey,
+      { client }
+    );
+    if (existingClosure) {
+      return existingClosure;
+    }
+
+    const createdClosure = await queueDayClosureRepository.createClosure(
+      {
+        tenantId: tenant._id,
+        locationId: location._id,
+        queueDateKey,
+        nextQueueDateKey,
+        closedByUserId: options.closedByUserId,
+        reason: options.reason || "Closed for the day"
+      },
+      { client }
+    );
+
+    const counts = await ticketRepository.closeQueueDay(tenant._id, {
+      client,
+      locationId: location._id,
+      queueDateKey,
+      nextQueueDateKey
+    });
+
+    return queueDayClosureRepository.updateClosureCounts(
+      createdClosure._id,
+      counts,
+      { client }
+    );
+  });
+
+  const snapshot = await publishSnapshot(tenant, { location });
+
+  return {
+    closure: formatQueueClosure(closure),
+    snapshot
   };
 }
 
@@ -375,8 +472,8 @@ async function createTicketForTenantInTransaction(client, {
   joinChannel,
   notes
 }) {
-  const dateKey = getDateKey();
   const resolvedLocation = location || (await resolveLocation(tenant));
+  const dateKey = getQueueDateKeyForLocation(resolvedLocation);
   await ticketRepository.rolloverQueueDay(tenant._id, dateKey, {
     client,
     locationId: resolvedLocation._id
@@ -403,7 +500,7 @@ async function createTicketForTenantInTransaction(client, {
 
 async function callNextTicket(tenant, options = {}) {
   const location = await resolveLocation(tenant, options);
-  const dateKey = getDateKey();
+  const dateKey = getQueueDateKeyForLocation(location);
   const ticket = await db.withTransaction(async (client) => {
     await ticketRepository.rolloverQueueDay(tenant._id, dateKey, {
       client,
@@ -444,7 +541,7 @@ async function callNextTicket(tenant, options = {}) {
 
 async function updateCurrentTicketStatus(tenant, status, options = {}) {
   const location = await resolveLocation(tenant, options);
-  const dateKey = getDateKey();
+  const dateKey = getQueueDateKeyForLocation(location);
   const ticket = await db.withTransaction(async (client) => {
     await ticketRepository.rolloverQueueDay(tenant._id, dateKey, {
       client,
@@ -470,7 +567,7 @@ async function updateCurrentTicketStatus(tenant, status, options = {}) {
 
 async function cancelTicket(tenant, lookupCode, options = {}) {
   const location = await resolveLocation(tenant, options);
-  const dateKey = getDateKey();
+  const dateKey = getQueueDateKeyForLocation(location);
   const rolloverLocationId =
     options.location || options.locationSlug ? location?._id : undefined;
   const ticket = await db.withTransaction(async (client) => {
@@ -503,6 +600,7 @@ module.exports = {
   callNextTicket,
   updateCurrentTicketStatus,
   cancelTicket,
+  closeQueueDay,
   publishSnapshot,
   maybeNotifyUpcomingTickets
 };

@@ -185,9 +185,11 @@ async function listWaitingTickets(tenantId, options = {}) {
 async function listHistoryTickets(tenantId, options = {}) {
   const queryClient = buildQueryClient(options.client);
   const limit = Number(options.limit || 10);
-  const values = [Number(tenantId), ["served", "skipped", "cancelled", "unserved"], limit];
+  const offset = Math.max(Number(options.offset || 0), 0);
+  const values = [Number(tenantId), ["served", "skipped", "cancelled", "unserved"]];
   let dateFilter = "";
   let locationFilter = "";
+  let searchFilter = "";
 
   if (options.locationId) {
     values.push(Number(options.locationId));
@@ -202,6 +204,17 @@ async function listHistoryTickets(tenantId, options = {}) {
   if (options.dateKey) {
     values.push(String(options.dateKey));
     dateFilter += ` AND queue_date_key = $${values.length}`;
+  }
+
+  if (options.search) {
+    values.push(`%${String(options.search).trim()}%`);
+    searchFilter = `
+      AND (
+        ticket_number ILIKE $${values.length}
+        OR customer_name ILIKE $${values.length}
+        OR status ILIKE $${values.length}
+      )
+    `;
   }
 
   const sortColumn = getSortColumn(
@@ -223,13 +236,183 @@ async function listHistoryTickets(tenantId, options = {}) {
       WHERE tenant_id = $1 AND status = ANY($2::text[])
       ${locationFilter}
       ${dateFilter}
+      ${searchFilter}
       ORDER BY ${sortColumn} ${direction}, created_at ${direction}
-      LIMIT $3
+      LIMIT $${values.length + 1}
+      OFFSET $${values.length + 2}
+    `,
+    [...values, limit, offset]
+  );
+
+  return result.rows.map(mapTicket);
+}
+
+async function countHistoryTickets(tenantId, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const values = [Number(tenantId), ["served", "skipped", "cancelled", "unserved"]];
+  let dateFilter = "";
+  let locationFilter = "";
+  let searchFilter = "";
+
+  if (options.locationId) {
+    values.push(Number(options.locationId));
+    locationFilter = `AND location_id = $${values.length}`;
+  }
+
+  if (options.historyDays) {
+    values.push(Number(options.historyDays));
+    dateFilter = `AND updated_at >= NOW() - ($${values.length}::int * INTERVAL '1 day')`;
+  }
+
+  if (options.dateKey) {
+    values.push(String(options.dateKey));
+    dateFilter += ` AND queue_date_key = $${values.length}`;
+  }
+
+  if (options.search) {
+    values.push(`%${String(options.search).trim()}%`);
+    searchFilter = `
+      AND (
+        ticket_number ILIKE $${values.length}
+        OR customer_name ILIKE $${values.length}
+        OR status ILIKE $${values.length}
+      )
+    `;
+  }
+
+  const result = await queryClient.query(
+    `
+      SELECT COUNT(*)::int AS count
+      FROM tickets
+      WHERE tenant_id = $1 AND status = ANY($2::text[])
+      ${locationFilter}
+      ${dateFilter}
+      ${searchFilter}
     `,
     values
   );
 
-  return result.rows.map(mapTicket);
+  return result.rows[0]?.count || 0;
+}
+
+async function listOverflowTickets(tenantId, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const values = [Number(tenantId), String(options.queueDateKey)];
+  let locationFilter = "";
+  const carriedQueueDateOperator = options.includeFuture ? ">=" : "=";
+
+  if (options.locationId) {
+    values.push(Number(options.locationId));
+    locationFilter = `AND location_id = $${values.length}`;
+  }
+
+  const carriedOver = await queryClient.query(
+    `
+      SELECT ${TICKET_COLUMNS}
+      FROM tickets
+      WHERE tenant_id = $1
+        AND queue_date_key ${carriedQueueDateOperator} $2
+        ${locationFilter}
+        AND status = 'waiting'
+        AND carry_over_count > 0
+      ORDER BY queue_date_key ASC, carried_over_at ASC NULLS LAST, created_at ASC
+    `,
+    values.slice(0, 3)
+  );
+
+  const unserved = await queryClient.query(
+    `
+      SELECT ${TICKET_COLUMNS}
+      FROM tickets
+      WHERE tenant_id = $1
+        AND queue_date_key = $2
+        ${locationFilter}
+        AND status = 'unserved'
+      ORDER BY unserved_at DESC NULLS LAST, updated_at DESC
+    `,
+    values
+  );
+
+  return {
+    carriedOver: carriedOver.rows.map(mapTicket),
+    unserved: unserved.rows.map(mapTicket)
+  };
+}
+
+async function requeueUnservedTicket(tenantId, ticketId, dateKey, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const values = [Number(tenantId), Number(ticketId), String(dateKey)];
+  let locationFilter = "";
+
+  if (options.locationId) {
+    values.push(Number(options.locationId));
+    locationFilter = `AND location_id = $${values.length}`;
+  }
+
+  const result = await queryClient.query(
+    `
+      UPDATE tickets
+      SET
+        status = 'waiting',
+        queue_date_key = $3,
+        carried_over_at = NOW(),
+        carry_over_count = carry_over_count + 1,
+        notified_almost_there_at = NULL
+      WHERE tenant_id = $1
+        AND id = $2
+        ${locationFilter}
+        AND status = 'unserved'
+      RETURNING ${TICKET_COLUMNS}
+    `,
+    values
+  );
+
+  return mapTicket(result.rows[0]);
+}
+
+async function closeQueueDay(tenantId, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const values = [
+    Number(tenantId),
+    Number(options.locationId),
+    String(options.queueDateKey),
+    String(options.nextQueueDateKey)
+  ];
+
+  const markedUnserved = await queryClient.query(
+    `
+      UPDATE tickets
+      SET
+        status = 'unserved',
+        unserved_at = COALESCE(unserved_at, NOW())
+      WHERE tenant_id = $1
+        AND location_id = $2
+        AND queue_date_key = $3
+        AND status = 'called'
+    `,
+    values.slice(0, 3)
+  );
+
+  const carriedOver = await queryClient.query(
+    `
+      UPDATE tickets
+      SET
+        queue_date_key = $4,
+        carried_over_at = NOW(),
+        carry_over_count = carry_over_count + 1,
+        notified_almost_there_at = NULL
+      WHERE tenant_id = $1
+        AND location_id = $2
+        AND queue_date_key = $3
+        AND status = 'waiting'
+    `,
+    values
+  );
+
+  return {
+    waitingCarriedCount: carriedOver.rowCount,
+    calledUnservedCount: markedUnserved.rowCount
+  };
 }
 
 async function listClientTickets(tenantId, options = {}) {
@@ -526,6 +709,10 @@ module.exports = {
   findTicketByTenantAndLookupCode,
   listWaitingTickets,
   listHistoryTickets,
+  countHistoryTickets,
+  listOverflowTickets,
+  requeueUnservedTicket,
+  closeQueueDay,
   listClientTickets,
   listTicketsByUserId,
   countServedToday,

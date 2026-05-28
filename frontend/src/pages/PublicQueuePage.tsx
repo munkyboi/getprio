@@ -1,5 +1,6 @@
 import { useEffect, useState, type CSSProperties } from "react";
-import { Badge, Box, Button, Group, Paper, SimpleGrid, Stack, Table, Text, Title } from "@mantine/core";
+import { Alert, Badge, Box, Button, Group, Paper, SimpleGrid, Stack, Table, Text, Title } from "@mantine/core";
+import { IconInfoCircle } from "@tabler/icons-react";
 import QRCode from "react-qr-code";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import type { QueueSnapshot } from "@shared";
@@ -57,6 +58,7 @@ export default function PublicQueuePage() {
   const joinQrUrl = `${joinUrl}?source=qr`;
   const vendorIsInactive = snapshot ? !snapshot.tenant.isActive : false;
   const locationIsClosed = snapshot?.location ? !snapshot.location.openStatus.isOpen : false;
+  const queueClosedForDay = Boolean(snapshot?.closure);
   const publicBoardUnavailable = vendorIsInactive || locationIsClosed;
   const theme = snapshot?.publicBoardTheme.theme;
   const cardStyle: CSSProperties = theme
@@ -114,7 +116,8 @@ export default function PublicQueuePage() {
             id: `current-${snapshot.current.id}`,
             ticketNumber: snapshot.current.ticketNumber,
             customerName: maskCustomerName(snapshot.current.customerName),
-            progressLabel: "Now serving"
+            progressLabel: "Now serving",
+            carryOverCount: 0
           }
         ]
       : []),
@@ -122,7 +125,8 @@ export default function PublicQueuePage() {
       id: ticket.id,
       ticketNumber: ticket.ticketNumber,
       customerName: maskCustomerName(ticket.customerName),
-      progressLabel: `#${ticket.position}`
+      progressLabel: `#${ticket.position}`,
+      carryOverCount: ticket.carryOverCount
     })))
   ].slice(0, 10);
 
@@ -230,10 +234,21 @@ export default function PublicQueuePage() {
                 <Text c="red" fw={700}>Vendor is not yet active.</Text>
               ) : locationIsClosed ? (
                 <Text c="red" fw={700}>This location is currently closed</Text>
+              ) : queueClosedForDay ? (
+                <Text c="red" fw={700}>
+                  This queue is closed for today and resumes on the next open queue day.
+                </Text>
               ) : null}
               {!publicBoardUnavailable ? (
                 <Group mt="lg" gap="sm">
-                  <Button component={Link} to={joinPath} radius="xl" size="md" style={buttonStyle}>
+                  <Button
+                    component={Link}
+                    disabled={queueClosedForDay}
+                    to={joinPath}
+                    radius="xl"
+                    size="md"
+                    style={buttonStyle}
+                  >
                     Join this queue
                   </Button>
                   <Badge radius="xl" size="lg" variant="light">Waiting: {snapshot?.stats?.waitingCount ?? 0}</Badge>
@@ -245,7 +260,7 @@ export default function PublicQueuePage() {
               ) : null}
             </Stack>
 
-            {!publicBoardUnavailable && !lookupCode && !snapshot?.focusTicket ? (
+            {!publicBoardUnavailable && !queueClosedForDay && !lookupCode && !snapshot?.focusTicket ? (
               <Stack align="center" gap="sm">
                 <Text c={bodyColor} fw={700}>Scan to join</Text>
                 <Paper bg="white" p="md" radius="lg" withBorder>
@@ -259,13 +274,32 @@ export default function PublicQueuePage() {
 
         {error ? <Text c="red" fw={700}>{error}</Text> : null}
 
+        {!publicBoardUnavailable && queueClosedForDay ? (
+          <Alert color="orange" icon={<IconInfoCircle size={18} />} variant="light">
+            New joins are paused for today. Existing waiting tickets may be carried into the next
+            open queue day, and paid SMS alerts remain active.
+          </Alert>
+        ) : null}
+
         {publicBoardUnavailable ? null : (
           <>
             {lookupCode && snapshot?.focusTicket ? (
               <Paper p="xl" shadow="lg" style={cardStyle}>
                 <Stack gap="xs">
                   <Text c={subheaderColor} fw={800} size="xs" tt="uppercase" lts={2}>Your ticket</Text>
-                  <Title c={headerColor} order={2}>{snapshot.focusTicket.ticketNumber}</Title>
+                  <Group gap="xs">
+                    <Title c={headerColor} order={2}>{snapshot.focusTicket.ticketNumber}</Title>
+                    {snapshot.focusTicket.carryOverCount > 0 ? (
+                      <Badge color="orange" radius="xl" variant="light">
+                        Carried over
+                      </Badge>
+                    ) : null}
+                    {snapshot.focusTicket.notifyBySms ? (
+                      <Badge color="teal" radius="xl" variant="light">
+                        SMS alerts enabled
+                      </Badge>
+                    ) : null}
+                  </Group>
                   <Text c={bodyColor}>Status: <strong>{snapshot.focusTicket.status}</strong></Text>
                   <Text c={bodyColor}>
                     {snapshot.focusTicket.position
@@ -273,6 +307,10 @@ export default function PublicQueuePage() {
                       : "You are no longer in the waiting list."}
                   </Text>
                   <Text c={bodyColor}>Estimated wait: {snapshot.focusTicket.estimatedWaitMinutes} mins</Text>
+                  <Alert color="blue" icon={<IconInfoCircle size={18} />} mt="sm" variant="light">
+                    If your ticket is not served today, waiting tickets may be carried into the next queue day.
+                    Paid SMS alerts stay active for carried tickets.
+                  </Alert>
                 </Stack>
               </Paper>
             ) : null}
@@ -322,7 +360,14 @@ export default function PublicQueuePage() {
                         queueProgressTickets.map((ticket) => (
                           <Table.Tr key={ticket.id}>
                             <Table.Td>
-                              <Text c={headerColor} fw={800}>{ticket.ticketNumber}</Text>
+                              <Group gap="xs">
+                                <Text c={headerColor} fw={800}>{ticket.ticketNumber}</Text>
+                                {ticket.carryOverCount > 0 ? (
+                                  <Badge color="orange" size="sm" variant="light">
+                                    Carried over
+                                  </Badge>
+                                ) : null}
+                              </Group>
                               <Text c={bodyColor} size="sm">{ticket.customerName}</Text>
                             </Table.Td>
                             <Table.Td ta="right">

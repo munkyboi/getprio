@@ -315,6 +315,16 @@ export interface QueueUsage {
   emailsSentThisPeriod: number;
 }
 
+export interface QueueDayClosureSummary {
+  id: string;
+  queueDateKey: string;
+  nextQueueDateKey: string;
+  closedAt: string | Date;
+  reason: string;
+  waitingCarriedCount: number;
+  calledUnservedCount: number;
+}
+
 export interface QueueCurrentTicket {
   id: string;
   ticketNumber: string;
@@ -329,6 +339,10 @@ export interface QueueListTicket {
   status: TicketStatus;
   position: number;
   joinChannel: JoinChannel;
+  dateKey: string;
+  queueDateKey: string;
+  carriedOverAt: string | Date | null;
+  carryOverCount: number;
   createdAt: string | Date;
 }
 
@@ -341,6 +355,29 @@ export interface QueueHistoryTicket {
   serviceCounterId?: string | null;
 }
 
+export interface QueueOverflowTicket {
+  id: string;
+  lookupCode: string;
+  ticketNumber: string;
+  dateKey: string;
+  queueDateKey: string;
+  customerName: string;
+  customerPhone: string | null;
+  notifyBySms: boolean;
+  status: TicketStatus;
+  joinChannel: JoinChannel;
+  createdAt: string | Date;
+  updatedAt: string | Date;
+  carriedOverAt: string | Date | null;
+  carryOverCount: number;
+  unservedAt: string | Date | null;
+}
+
+export interface QueueOverflowResponse {
+  carriedOver: QueueOverflowTicket[];
+  unserved: QueueOverflowTicket[];
+}
+
 export interface QueueFocusTicket {
   id: string;
   lookupCode: string;
@@ -350,6 +387,9 @@ export interface QueueFocusTicket {
   position: number | null;
   estimatedWaitMinutes: number;
   joinedAt: string | Date;
+  notifyBySms: boolean;
+  carriedOverAt: string | Date | null;
+  carryOverCount: number;
 }
 
 export interface QueueSnapshot {
@@ -362,6 +402,7 @@ export interface QueueSnapshot {
   history: QueueHistoryTicket[];
   usage: QueueUsage;
   focusTicket: QueueFocusTicket | null;
+  closure: QueueDayClosureSummary | null;
 }
 
 export interface AuthResponse {
@@ -559,6 +600,8 @@ export interface VendorStaffSummary {
   role: TenantRole;
   isActive: boolean;
   assignedCounterIds: string[];
+  createdAt: string | Date;
+  updatedAt: string | Date;
 }
 
 export type StaffInvitationStatus = "pending" | "accepted" | "expired" | "revoked";
@@ -656,7 +699,15 @@ export interface TicketMutationResponse {
     ticketNumber: string;
     customerName?: string;
     status: TicketStatus;
+    notifyBySms?: boolean;
+    carriedOverAt?: string | Date | null;
+    carryOverCount?: number;
   };
+  snapshot: QueueSnapshot;
+}
+
+export interface CloseQueueDayResponse {
+  closure: QueueDayClosureSummary;
   snapshot: QueueSnapshot;
 }
 
@@ -680,6 +731,10 @@ export interface VendorClientSummary {
 export interface VendorClientsResponse {
   historyDays: number;
   historyLabel: string;
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
   clients: VendorClientSummary[];
 }
 

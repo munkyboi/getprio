@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
+import { useCallback, useEffect, useMemo, useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
 import {
   ActionIcon,
+  Alert,
   Badge,
   Button,
   Card,
@@ -11,9 +12,11 @@ import {
   FileInput,
   Burger,
   Group,
+  LoadingOverlay,
   Modal,
   MultiSelect,
   NumberInput,
+  Pagination,
   Paper,
   PasswordInput,
   ScrollArea,
@@ -52,11 +55,14 @@ import type {
   BillingOverviewResponse,
   CheckoutSessionResponse,
   CheckoutSyncResponse,
+  CloseQueueDayResponse,
   CounterSlugAvailabilityResponse,
   CreateCheckoutRequest,
   CreateWalkInTicketRequest,
   LocationSlugAvailabilityResponse,
   QueueHistoryTicket,
+  QueueOverflowResponse,
+  QueueOverflowTicket,
   PublicBoardThemeResponse,
   PublicBoardThemeSettings,
   PublicBoardThemeUploadRequest,
@@ -103,6 +109,7 @@ const dashboardSections = new Set([
   "account"
 ]);
 const SERVICE_TREND_USER_LIMIT = 30;
+const TABLE_SEARCH_DEBOUNCE_MS = 350;
 
 const emptyWalkIn: CreateWalkInTicketRequest = {
   customerName: "",
@@ -233,6 +240,10 @@ type SortState = { key: string; direction: SortDirection };
 type VendorHistoryResponse = {
   historyDays?: number;
   historyLabel?: string;
+  page?: number;
+  limit?: number;
+  total?: number;
+  totalPages?: number;
   tickets: QueueHistoryTicket[];
 };
 type ConfirmAction = {
@@ -268,12 +279,119 @@ function getHistoryTimestamp(value: string | Date): number {
   return new Date(value).getTime();
 }
 
-function formatDateTime(value: string | Date): string {
-  return new Date(value).toLocaleString();
+function formatDateTime(value: string | Date | null | undefined): string {
+  if (!value) {
+    return "--";
+  }
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "--" : date.toLocaleString();
+}
+
+function formatHistoryDateTime(value: string | Date | null | undefined): string {
+  if (!value) {
+    return "--";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "--";
+  }
+
+  const day = new Intl.DateTimeFormat(undefined, { day: "numeric" }).format(date);
+  const month = new Intl.DateTimeFormat(undefined, { month: "long" }).format(date);
+  const year = new Intl.DateTimeFormat(undefined, { year: "numeric" }).format(date);
+  const timePart = new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true
+  })
+    .format(date)
+    .toLowerCase();
+
+  return `${day} ${month} ${year} ${timePart}`;
+}
+
+function formatRelativeDateTime(value: string | Date | null | undefined): string {
+  if (!value) {
+    return "--";
+  }
+
+  const timestamp = new Date(value).getTime();
+  if (Number.isNaN(timestamp)) {
+    return "--";
+  }
+
+  const diffSeconds = Math.round((timestamp - Date.now()) / 1000);
+  const absoluteSeconds = Math.abs(diffSeconds);
+  const units: Array<[Intl.RelativeTimeFormatUnit, number]> = [
+    ["year", 60 * 60 * 24 * 365],
+    ["month", 60 * 60 * 24 * 30],
+    ["week", 60 * 60 * 24 * 7],
+    ["day", 60 * 60 * 24],
+    ["hour", 60 * 60],
+    ["minute", 60],
+    ["second", 1]
+  ];
+  const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+  const [unit, secondsPerUnit] =
+    units.find(([, seconds]) => absoluteSeconds >= seconds) || units[units.length - 1];
+
+  return formatter.format(Math.round(diffSeconds / secondsPerUnit), unit);
+}
+
+function renderRelativeDateTime(value: string | Date | null | undefined) {
+  const fullDateTime = formatDateTime(value);
+  const relativeDateTime = formatRelativeDateTime(value);
+
+  if (fullDateTime === "--") {
+    return "--";
+  }
+
+  return (
+    <Tooltip label={fullDateTime} withArrow>
+      <Text component="span" size="sm">
+        {relativeDateTime}
+      </Text>
+    </Tooltip>
+  );
 }
 
 function formatDate(value: string | Date | null): string {
   return value ? new Date(value).toLocaleDateString() : "";
+}
+
+function useDebouncedValue<T>(value: T, delayMs: number): T {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedValue(value);
+    }, delayMs);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [delayMs, value]);
+
+  return debouncedValue;
+}
+
+function formatDateKey(value: string | null | undefined): string {
+  if (!value || !/^\d{8}$/.test(value)) {
+    return "--";
+  }
+
+  const date = new Date(Date.UTC(
+    Number(value.slice(0, 4)),
+    Number(value.slice(4, 6)) - 1,
+    Number(value.slice(6, 8))
+  ));
+  const day = new Intl.DateTimeFormat(undefined, { day: "numeric", timeZone: "UTC" }).format(date);
+  const month = new Intl.DateTimeFormat(undefined, { month: "long", timeZone: "UTC" }).format(date);
+  const year = new Intl.DateTimeFormat(undefined, { year: "numeric", timeZone: "UTC" }).format(date);
+
+  return `${day} ${month} ${year}`;
 }
 
 function hexToRgba(hex: string, alpha: number): string {
@@ -368,6 +486,8 @@ export default function VendorDashboardPage() {
   const [selectedTenantSlug, setSelectedTenantSlug] = useState("");
   const [selectedLocationSlug, setSelectedLocationSlug] = useState("");
   const [snapshot, setSnapshot] = useState<QueueSnapshot | null>(null);
+  const [queueView, setQueueView] = useState<"live" | "overflow">("live");
+  const [overflow, setOverflow] = useState<QueueOverflowResponse | null>(null);
   const [locations, setLocations] = useState<StoreLocationWithHours[]>([]);
   const [serviceCounters, setServiceCounters] = useState<ServiceCounterSummary[]>([]);
   const [staff, setStaff] = useState<VendorStaffSummary[]>([]);
@@ -389,6 +509,7 @@ export default function VendorDashboardPage() {
   const [clients, setClients] = useState<VendorClientsResponse | null>(null);
   const [error, setError] = useState("");
   const [busyAction, setBusyAction] = useState("");
+  const [pendingFetchCount, setPendingFetchCount] = useState(0);
   const [planDialogOpen, setPlanDialogOpen] = useState(false);
   const [themeDialogOpen, setThemeDialogOpen] = useState(false);
   const [themeLocation, setThemeLocation] = useState<StoreLocationWithHours | null>(null);
@@ -427,12 +548,33 @@ export default function VendorDashboardPage() {
   });
   const [historyExportFormat, setHistoryExportFormat] = useState<"csv" | "pdf" | null>(null);
   const [historyExportRange, setHistoryExportRange] = useState<HistoryExportRange | null>(null);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyLimit, setHistoryLimit] = useState(25);
+  const [historySearch, setHistorySearch] = useState("");
+  const [clientPage, setClientPage] = useState(1);
+  const [clientLimit, setClientLimit] = useState(25);
+  const [clientSearch, setClientSearch] = useState("");
   const [staffSort, setStaffSort] = useState<SortState>({ key: "name", direction: "asc" });
   const [inviteSort, setInviteSort] = useState<SortState>({ key: "expiresAt", direction: "asc" });
   const [clientSort, setClientSort] = useState<SortState>({ key: "latestVisitAt", direction: "desc" });
   const [historySort, setHistorySort] = useState<SortState>({ key: "updatedAt", direction: "desc" });
   const [queueSort, setQueueSort] = useState<SortState>({ key: "position", direction: "asc" });
+  const debouncedHistorySearch = useDebouncedValue(
+    historySearch.trim(),
+    TABLE_SEARCH_DEBOUNCE_MS
+  );
+  const debouncedClientSearch = useDebouncedValue(
+    clientSearch.trim(),
+    TABLE_SEARCH_DEBOUNCE_MS
+  );
   const hasActiveSubscription = billing?.subscription?.status === "active";
+  const trackApiFetch = useCallback(<T,>(request: Promise<T>): Promise<T> => {
+    setPendingFetchCount((current) => current + 1);
+    return request.finally(() => {
+      setPendingFetchCount((current) => Math.max(0, current - 1));
+    });
+  }, []);
+  const showDashboardOverlay = pendingFetchCount > 0;
   const selectedLocation =
     locations.find((locationItem) => locationItem.slug === selectedLocationSlug) ||
     snapshot?.location ||
@@ -630,9 +772,9 @@ export default function VendorDashboardPage() {
 
     let active = true;
 
-    apiRequest<StoreLocationsResponse>(`/vendor/tenant/${selectedTenantSlug}/locations`, {
+    trackApiFetch(apiRequest<StoreLocationsResponse>(`/vendor/tenant/${selectedTenantSlug}/locations`, {
       token
-    })
+    }))
       .then((data) => {
         if (!active) {
           return;
@@ -653,7 +795,7 @@ export default function VendorDashboardPage() {
     return () => {
       active = false;
     };
-  }, [selectedLocationSlug, selectedTenantSlug, token]);
+  }, [selectedLocationSlug, selectedTenantSlug, token, trackApiFetch]);
 
   useEffect(() => {
     if (!selectedTenantSlug || !token || !selectedLocationSlug) {
@@ -663,10 +805,10 @@ export default function VendorDashboardPage() {
     let active = true;
     setError("");
 
-    apiRequest<QueueSnapshot>(
+    trackApiFetch(apiRequest<QueueSnapshot>(
       `/vendor/tenant/${selectedTenantSlug}/dashboard${locationQuery}${locationQuery ? "&" : "?"}sort=${encodeURIComponent(queueSort.key)}&direction=${queueSort.direction}`,
       { token }
-    )
+    ))
       .then((data) => {
         if (!active) {
           return;
@@ -689,7 +831,7 @@ export default function VendorDashboardPage() {
     return () => {
       active = false;
     };
-  }, [locationQuery, queueSort.direction, queueSort.key, selectedLocationSlug, selectedTenantSlug, token]);
+  }, [locationQuery, queueSort.direction, queueSort.key, selectedLocationSlug, selectedTenantSlug, token, trackApiFetch]);
 
   useEffect(() => {
     if (!selectedTenantSlug || !token) {
@@ -698,9 +840,9 @@ export default function VendorDashboardPage() {
 
     let active = true;
 
-    apiRequest<BillingOverviewResponse>(`/billing/tenant/${selectedTenantSlug}/subscription`, {
+    trackApiFetch(apiRequest<BillingOverviewResponse>(`/billing/tenant/${selectedTenantSlug}/subscription`, {
       token
-    })
+    }))
       .then((data) => {
         if (active) {
           setBilling(data);
@@ -715,17 +857,17 @@ export default function VendorDashboardPage() {
     return () => {
       active = false;
     };
-  }, [selectedTenantSlug, token]);
+  }, [selectedTenantSlug, token, trackApiFetch]);
 
   useEffect(() => {
     if (!selectedTenantSlug || !selectedLocationSlug || !token) {
       return;
     }
 
-    apiRequest<ServiceCountersResponse>(
+    trackApiFetch(apiRequest<ServiceCountersResponse>(
       `/vendor/tenant/${selectedTenantSlug}/counters?location=${encodeURIComponent(selectedLocationSlug)}`,
       { token }
-    )
+    ))
       .then((data) => {
         setServiceCounters(data.counters);
         setCounterLimit(data.counterLimit);
@@ -739,7 +881,7 @@ export default function VendorDashboardPage() {
         setServiceCounters([]);
         setCounterLimit(0);
       });
-  }, [locationQuery, queueSort.direction, queueSort.key, selectedLocationSlug, selectedTenantSlug, token]);
+  }, [locationQuery, queueSort.direction, queueSort.key, selectedLocationSlug, selectedTenantSlug, token, trackApiFetch]);
 
   useEffect(() => {
     if (!selectedTenantSlug || !token || !canManageTenant) {
@@ -749,10 +891,10 @@ export default function VendorDashboardPage() {
       return;
     }
 
-    apiRequest<VendorStaffResponse>(
+    trackApiFetch(apiRequest<VendorStaffResponse>(
       `/vendor/tenant/${selectedTenantSlug}/staff?sort=${encodeURIComponent(staffSort.key)}&direction=${staffSort.direction}&inviteSort=${encodeURIComponent(inviteSort.key)}&inviteDirection=${inviteSort.direction}`,
       { token }
-    )
+    ))
       .then((data) => {
         setStaff(data.staff);
         setPendingStaffInvites(data.pendingInvites || []);
@@ -763,7 +905,7 @@ export default function VendorDashboardPage() {
         setPendingStaffInvites([]);
         setStaffSeatLimit(0);
       });
-  }, [canManageTenant, inviteSort.direction, inviteSort.key, selectedTenantSlug, staffSort.direction, staffSort.key, token]);
+  }, [canManageTenant, inviteSort.direction, inviteSort.key, selectedTenantSlug, staffSort.direction, staffSort.key, token, trackApiFetch]);
 
   useEffect(() => {
     if (!selectedTenantSlug || !token) {
@@ -861,11 +1003,14 @@ export default function VendorDashboardPage() {
     }
 
     let active = true;
+    const searchParam = debouncedHistorySearch
+      ? `&search=${encodeURIComponent(debouncedHistorySearch)}`
+      : "";
 
-    apiRequest<VendorHistoryResponse>(
-      `/vendor/tenant/${selectedTenantSlug}/history?limit=50&location=${encodeURIComponent(selectedLocationSlug)}&sort=${encodeURIComponent(historySort.key)}&direction=${historySort.direction}`,
+    trackApiFetch(apiRequest<VendorHistoryResponse>(
+      `/vendor/tenant/${selectedTenantSlug}/history?page=${historyPage}&limit=${historyLimit}&location=${encodeURIComponent(selectedLocationSlug)}&sort=${encodeURIComponent(historySort.key)}&direction=${historySort.direction}${searchParam}`,
       { token }
-    )
+    ))
       .then((data) => {
         if (active) {
           setHistory(data);
@@ -880,7 +1025,45 @@ export default function VendorDashboardPage() {
     return () => {
       active = false;
     };
-  }, [currentSection, hasActiveSubscription, historySort.direction, historySort.key, selectedLocationSlug, selectedTenantSlug, token]);
+  }, [currentSection, debouncedHistorySearch, hasActiveSubscription, historyLimit, historyPage, historySort.direction, historySort.key, selectedLocationSlug, selectedTenantSlug, token, trackApiFetch]);
+
+  useEffect(() => {
+    setHistoryPage(1);
+  }, [debouncedHistorySearch, historyLimit, historySort.direction, historySort.key, selectedLocationSlug, selectedTenantSlug]);
+
+  useEffect(() => {
+    if (history?.totalPages && historyPage > history.totalPages) {
+      setHistoryPage(history.totalPages);
+    }
+  }, [history?.totalPages, historyPage]);
+
+  useEffect(() => {
+    if (!selectedTenantSlug || !selectedLocationSlug || !token || currentSection !== "queue" || !hasActiveSubscription) {
+      setOverflow(null);
+      return undefined;
+    }
+
+    let active = true;
+
+    trackApiFetch(apiRequest<QueueOverflowResponse>(
+      `/vendor/tenant/${selectedTenantSlug}/queue/overflow?location=${encodeURIComponent(selectedLocationSlug)}`,
+      { token }
+    ))
+      .then((data) => {
+        if (active) {
+          setOverflow(data);
+        }
+      })
+      .catch((loadError) => {
+        if (active) {
+          setError(getErrorMessage(loadError));
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [currentSection, hasActiveSubscription, selectedLocationSlug, selectedTenantSlug, token, trackApiFetch]);
 
   useEffect(() => {
     if (!selectedTenantSlug || !selectedLocationSlug || !token || currentSection !== "clients" || !hasActiveSubscription) {
@@ -888,11 +1071,14 @@ export default function VendorDashboardPage() {
     }
 
     let active = true;
+    const searchParam = debouncedClientSearch
+      ? `&search=${encodeURIComponent(debouncedClientSearch)}`
+      : "";
 
-    apiRequest<VendorClientsResponse>(
-      `/vendor/tenant/${selectedTenantSlug}/clients${locationQuery}${locationQuery ? "&" : "?"}sort=${encodeURIComponent(clientSort.key)}&direction=${clientSort.direction}`,
+    trackApiFetch(apiRequest<VendorClientsResponse>(
+      `/vendor/tenant/${selectedTenantSlug}/clients${locationQuery}${locationQuery ? "&" : "?"}page=${clientPage}&limit=${clientLimit}&sort=${encodeURIComponent(clientSort.key)}&direction=${clientSort.direction}${searchParam}`,
       { token }
-    )
+    ))
       .then((data) => {
         if (active) {
           setClients(data);
@@ -907,7 +1093,17 @@ export default function VendorDashboardPage() {
     return () => {
       active = false;
     };
-  }, [clientSort.direction, clientSort.key, currentSection, hasActiveSubscription, locationQuery, selectedLocationSlug, selectedTenantSlug, token]);
+  }, [clientLimit, clientPage, clientSort.direction, clientSort.key, currentSection, debouncedClientSearch, hasActiveSubscription, locationQuery, selectedLocationSlug, selectedTenantSlug, token, trackApiFetch]);
+
+  useEffect(() => {
+    setClientPage(1);
+  }, [clientLimit, clientSort.direction, clientSort.key, debouncedClientSearch, selectedLocationSlug, selectedTenantSlug]);
+
+  useEffect(() => {
+    if (clients?.totalPages && clientPage > clients.totalPages) {
+      setClientPage(clients.totalPages);
+    }
+  }, [clientPage, clients?.totalPages]);
 
   const activeSubscription =
     billing?.subscription?.status === "active" ? billing.subscription : null;
@@ -1030,6 +1226,61 @@ export default function VendorDashboardPage() {
     }
   }
 
+  async function reloadOverflow() {
+    if (!selectedTenantSlug || !selectedLocationSlug || !token) {
+      return;
+    }
+
+    const data = await apiRequest<QueueOverflowResponse>(
+      `/vendor/tenant/${selectedTenantSlug}/queue/overflow?location=${encodeURIComponent(selectedLocationSlug)}`,
+      { token }
+    );
+    setOverflow(data);
+  }
+
+  function handleCloseQueueDay() {
+    if (!selectedTenantSlug || !selectedLocationSlug || !token || snapshot?.closure) {
+      return;
+    }
+
+    setConfirmAction({
+      title: "Close queue for today?",
+      message:
+        "Waiting tickets will be carried over to the next open queue day. The current called ticket, if any, will be marked unserved. Paid SMS alerts stay active.",
+      confirmLabel: "Close queue",
+      onConfirm: async () => {
+        const data = await apiRequest<CloseQueueDayResponse>(
+          `/vendor/tenant/${selectedTenantSlug}/queue/close-day${locationQuery}`,
+          {
+            method: "POST",
+            token,
+            body: { reason: "Closed for the day" }
+          }
+        );
+        setSnapshot(data.snapshot);
+        await reloadOverflow();
+        showSuccessNotification(
+          "Queue closed",
+          `${data.closure.waitingCarriedCount} waiting ticket(s) carried to ${formatDateKey(data.closure.nextQueueDateKey)}.`
+        );
+      }
+    });
+  }
+
+  async function handleRequeueOverflowTicket(ticket: QueueOverflowTicket) {
+    const success = await runAction("overflow-requeue", () =>
+      apiRequest<DashboardActionResponse>(
+        `/vendor/tenant/${selectedTenantSlug}/queue/overflow/${ticket.id}/requeue${locationQuery}`,
+        { method: "POST", token }
+      )
+    );
+
+    if (success) {
+      await reloadOverflow();
+      showSuccessNotification("Ticket requeued", `${ticket.ticketNumber} is back in today's queue.`);
+    }
+  }
+
   async function handleCreateWalkIn(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const success = await runAction("walk-in", () =>
@@ -1119,6 +1370,7 @@ export default function VendorDashboardPage() {
         );
       }
       await reloadCounters();
+      await reloadStaff();
       setCounterDialogOpen(false);
       showSuccessNotification(
         editingCounterSlug ? "Counter updated" : "Counter created",
@@ -1150,6 +1402,7 @@ export default function VendorDashboardPage() {
         }
       );
       await reloadCounters();
+      await reloadStaff();
       showSuccessNotification(
         isActive ? "Counter enabled" : "Counter disabled",
         `${counter.name} is now ${isActive ? "active" : "inactive"}.`
@@ -1177,6 +1430,7 @@ export default function VendorDashboardPage() {
           { method: "DELETE", token }
         );
         await reloadCounters();
+        await reloadStaff();
         setCounterDialogOpen(false);
         showSuccessNotification("Counter deleted", `${counter.name} was removed from this location.`);
       }
@@ -1968,12 +2222,138 @@ export default function VendorDashboardPage() {
     );
   }
 
+  function renderOverflowTable(tickets: QueueOverflowTicket[], kind: "carried" | "unserved") {
+    return (
+      <Table.ScrollContainer minWidth={760}>
+        <Table verticalSpacing="sm">
+          <Table.Thead>
+            <Table.Tr>
+              <Table.Th>Ticket</Table.Th>
+              <Table.Th>Customer</Table.Th>
+              <Table.Th>Status</Table.Th>
+              <Table.Th>SMS</Table.Th>
+              <Table.Th>Queue day</Table.Th>
+              <Table.Th>{kind === "carried" ? "Carried over" : "Unserved"}</Table.Th>
+              <Table.Th />
+            </Table.Tr>
+          </Table.Thead>
+          <Table.Tbody>
+            {tickets.length ? (
+              tickets.map((ticket) => (
+                <Table.Tr key={ticket.id}>
+                  <Table.Td>
+                    <Text fw={700}>{ticket.ticketNumber}</Text>
+                    <Text c="dimmed" size="sm">Carry-over count: {ticket.carryOverCount}</Text>
+                  </Table.Td>
+                  <Table.Td>
+                    <Text>{ticket.customerName}</Text>
+                    <Text c="dimmed" size="sm">{ticket.customerPhone || "--"}</Text>
+                  </Table.Td>
+                  <Table.Td><Badge variant="light">{ticket.status}</Badge></Table.Td>
+                  <Table.Td>
+                    {ticket.notifyBySms ? <Badge color="teal" variant="light">SMS paid</Badge> : "--"}
+                  </Table.Td>
+                  <Table.Td>{formatDateKey(ticket.queueDateKey)}</Table.Td>
+                  <Table.Td>
+                    {kind === "carried"
+                      ? renderRelativeDateTime(ticket.carriedOverAt)
+                      : renderRelativeDateTime(ticket.unservedAt)}
+                  </Table.Td>
+                  <Table.Td>
+                    {kind === "unserved" ? (
+                      <Button
+                        disabled={busyAction === "overflow-requeue"}
+                        onClick={() => handleRequeueOverflowTicket(ticket)}
+                        size="xs"
+                        variant="default"
+                      >
+                        Requeue
+                      </Button>
+                    ) : null}
+                  </Table.Td>
+                </Table.Tr>
+              ))
+            ) : (
+              <Table.Tr>
+                <Table.Td colSpan={7}>
+                  <DashboardEmptyState
+                    title={kind === "carried" ? "No carried tickets." : "No unserved tickets."}
+                    text={
+                      kind === "carried"
+                        ? "Waiting tickets carried from a previous day will appear here."
+                        : "Called tickets left unresolved by rollover will appear here."
+                    }
+                  />
+                </Table.Td>
+              </Table.Tr>
+            )}
+          </Table.Tbody>
+        </Table>
+      </Table.ScrollContainer>
+    );
+  }
+
+  function renderOverflowPanel() {
+    return (
+      <Card className="neura-card" padding="lg">
+        <Stack gap="lg">
+          <Group justify="space-between">
+            <div>
+              <Text className="neura-label">Overflow</Text>
+              <Title order={3}>Next-day queue handling</Title>
+              <Text c="dimmed" size="sm">
+                Carried tickets keep paid SMS privileges. Unserved tickets can be manually requeued.
+              </Text>
+            </div>
+            <Button variant="default" onClick={reloadOverflow}>
+              Refresh
+            </Button>
+          </Group>
+          <Stack gap="sm">
+            <Group justify="space-between">
+              <Title order={4}>Carried over</Title>
+              <Badge variant="light">{overflow?.carriedOver.length || 0}</Badge>
+            </Group>
+            {renderOverflowTable(overflow?.carriedOver || [], "carried")}
+          </Stack>
+          <Stack gap="sm">
+            <Group justify="space-between">
+              <Title order={4}>Unserved</Title>
+              <Badge variant="light">{overflow?.unserved.length || 0}</Badge>
+            </Group>
+            {renderOverflowTable(overflow?.unserved || [], "unserved")}
+          </Stack>
+        </Stack>
+      </Card>
+    );
+  }
+
   function renderQueuePage() {
     const activeCounters = serviceCounters.filter((counter) => counter.isActive);
+    const queueClosedForDay = Boolean(snapshot?.closure);
 
     return (
       <Stack gap="md">
         {renderStats()}
+        {snapshot?.closure ? (
+          <Alert color="orange" icon={<IconInfoCircle size={18} />} variant="light">
+            Queue closed for {formatDateKey(snapshot.closure.queueDateKey)}.{" "}
+            {snapshot.closure.waitingCarriedCount} waiting ticket(s) were carried to{" "}
+            {formatDateKey(snapshot.closure.nextQueueDateKey)} and{" "}
+            {snapshot.closure.calledUnservedCount} called ticket(s) were marked unserved.
+          </Alert>
+        ) : null}
+        <SegmentedControl
+          data={[
+            { label: "Live queue", value: "live" },
+            { label: "Overflow", value: "overflow" }
+          ]}
+          name="queueView"
+          onChange={(value) => setQueueView(value as "live" | "overflow")}
+          value={queueView}
+        />
+        {queueView === "live" ? (
+          <>
         <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
           <Card className="neura-card" padding="lg">
             <Stack gap="md">
@@ -1989,11 +2369,19 @@ export default function VendorDashboardPage() {
                   value={selectedCounterSlug || null}
                   onChange={(value) => setSelectedCounterSlug(value || "")}
                 />
+                <Button
+                  color="red"
+                  disabled={busyAction === "close-day" || queueClosedForDay}
+                  onClick={handleCloseQueueDay}
+                  variant="light"
+                >
+                  {queueClosedForDay ? "Queue closed" : "Close queue for today"}
+                </Button>
               </Group>
               <Group>
                 <Button
                   className="neura-primary-button"
-                  disabled={busyAction === "call-next" || !selectedCounterSlug}
+                  disabled={busyAction === "call-next" || !selectedCounterSlug || queueClosedForDay}
                   onClick={async () => {
                     const success = await runAction("call-next", () =>
                       apiRequest<DashboardActionResponse>(
@@ -2056,7 +2444,14 @@ export default function VendorDashboardPage() {
                       snapshot.nextUp.map((ticket) => (
                         <Table.Tr key={ticket.id}>
                           <Table.Td>
-                            <Text fw={700}>{ticket.ticketNumber}</Text>
+                            <Group gap="xs">
+                              <Text fw={700}>{ticket.ticketNumber}</Text>
+                              {ticket.carryOverCount > 0 ? (
+                                <Badge color="orange" size="sm" variant="light">
+                                  Carried over
+                                </Badge>
+                              ) : null}
+                            </Group>
                             <Text c="dimmed" size="sm">{ticket.customerName}</Text>
                           </Table.Td>
                           <Table.Td><Badge variant="light">{ticket.joinChannel}</Badge></Table.Td>
@@ -2115,7 +2510,7 @@ export default function VendorDashboardPage() {
                   <Text className="neura-label">Issue walk-in ticket</Text>
                   <Title order={3}>Add customer at counter</Title>
                 </div>
-                <Button className="neura-primary-button" disabled={busyAction === "walk-in"} type="submit">
+                <Button className="neura-primary-button" disabled={busyAction === "walk-in" || queueClosedForDay} type="submit">
                   {busyAction === "walk-in" ? "Issuing..." : "Issue ticket"}
                 </Button>
               </Group>
@@ -2177,6 +2572,10 @@ export default function VendorDashboardPage() {
             </Stack>
           </form>
         </Card>
+          </>
+        ) : (
+          renderOverflowPanel()
+        )}
       </Stack>
     );
   }
@@ -2762,6 +3161,8 @@ export default function VendorDashboardPage() {
                     <Table.Th>{renderSortHeader(staffSort, setStaffSort, "status", "Status")}</Table.Th>
                     <Table.Th>{renderSortHeader(staffSort, setStaffSort, "role", "Role")}</Table.Th>
                     <Table.Th>{renderSortHeader(staffSort, setStaffSort, "counters", "Counters")}</Table.Th>
+                    <Table.Th>{renderSortHeader(staffSort, setStaffSort, "createdAt", "Date added")}</Table.Th>
+                    <Table.Th>{renderSortHeader(staffSort, setStaffSort, "updatedAt", "Updated")}</Table.Th>
                     <Table.Th />
                   </Table.Tr>
                 </Table.Thead>
@@ -2800,6 +3201,8 @@ export default function VendorDashboardPage() {
                           .filter(Boolean)
                           .join(", ") || "--"}
                       </Table.Td>
+                      <Table.Td>{renderRelativeDateTime(member.createdAt)}</Table.Td>
+                      <Table.Td>{renderRelativeDateTime(member.updatedAt)}</Table.Td>
                       <Table.Td>
                         <Group justify="flex-end" gap="xs">
                           {member.role !== "owner" && (isOwner || (isTenantAdmin && member.role === "staff")) ? (
@@ -2901,6 +3304,9 @@ export default function VendorDashboardPage() {
   }
 
   function renderClientsPage() {
+    const totalClientItems = clients?.total ?? clients?.clients.length ?? 0;
+    const totalClientPages = clients?.totalPages ?? 1;
+
     return (
       <Card className="neura-card" padding="lg">
         <Stack gap="md">
@@ -2910,6 +3316,29 @@ export default function VendorDashboardPage() {
               <Title order={3}>Customer history</Title>
             </div>
             <Badge variant="light">{clients?.historyLabel || "History window"}</Badge>
+          </Group>
+          <Group align="flex-end" justify="space-between">
+            <TextInput
+              label="Search"
+              name="clientSearch"
+              placeholder="Customer, contact, ticket, status"
+              value={clientSearch}
+              onChange={(event) => setClientSearch(event.currentTarget.value)}
+            />
+            <Select
+              data={[
+                { value: "10", label: "10 rows" },
+                { value: "25", label: "25 rows" },
+                { value: "50", label: "50 rows" }
+              ]}
+              label="Rows per page"
+              name="clientLimit"
+              value={String(clientLimit)}
+              onChange={(value) => {
+                setClientLimit(Number(value || 25));
+                setClientPage(1);
+              }}
+            />
           </Group>
           <Table.ScrollContainer minWidth={720}>
             <Table verticalSpacing="sm">
@@ -2930,7 +3359,7 @@ export default function VendorDashboardPage() {
                       <Table.Td>{[client.customerEmail, client.customerPhone].filter(Boolean).join(" | ") || "—"}</Table.Td>
                       <Table.Td>{client.visitCount}</Table.Td>
                       <Table.Td>{client.latestTicketNumber}</Table.Td>
-                      <Table.Td>{formatDateTime(client.latestVisitAt)}</Table.Td>
+                      <Table.Td>{renderRelativeDateTime(client.latestVisitAt)}</Table.Td>
                     </Table.Tr>
                   ))
                 ) : (
@@ -2946,6 +3375,19 @@ export default function VendorDashboardPage() {
               </Table.Tbody>
             </Table>
           </Table.ScrollContainer>
+          <Group justify="space-between">
+            <Text c="dimmed" size="sm">
+              {totalClientItems
+                ? `Showing page ${clientPage} of ${totalClientPages} (${totalClientItems} records)`
+                : "No client records"}
+            </Text>
+            <Pagination
+              disabled={totalClientPages <= 1}
+              onChange={setClientPage}
+              total={totalClientPages}
+              value={clientPage}
+            />
+          </Group>
         </Stack>
       </Card>
     );
@@ -2953,6 +3395,8 @@ export default function VendorDashboardPage() {
 
   function renderHistoryPage() {
     const tickets = history?.tickets || snapshot?.history || [];
+    const totalHistoryItems = history?.total ?? tickets.length;
+    const totalHistoryPages = history?.totalPages ?? 1;
     const exportTypeOptions = [
       effectiveEntitlements?.csvExport ? { value: "csv", label: "CSV" } : null,
       effectiveEntitlements?.pdfExport ? { value: "pdf", label: "PDF" } : null
@@ -2982,8 +3426,32 @@ export default function VendorDashboardPage() {
             </div>
             <Badge variant="light">{history?.historyLabel || "Recent history"}</Badge>
           </Group>
-	          {canManageTenant && exportTypeOptions.length && historyRangeOptions.length ? (
+          <Group align="flex-end" justify="space-between">
             <Group align="flex-end">
+              <TextInput
+                label="Search"
+                name="historySearch"
+                placeholder="Ticket, customer, status"
+                value={historySearch}
+                onChange={(event) => setHistorySearch(event.currentTarget.value)}
+              />
+              <Select
+                data={[
+                  { value: "10", label: "10 rows" },
+                  { value: "25", label: "25 rows" },
+                  { value: "50", label: "50 rows" }
+                ]}
+                label="Rows per page"
+                name="historyLimit"
+                value={String(historyLimit)}
+                onChange={(value) => {
+                  setHistoryLimit(Number(value || 25));
+                  setHistoryPage(1);
+                }}
+              />
+            </Group>
+            {canManageTenant && exportTypeOptions.length && historyRangeOptions.length ? (
+              <Group align="flex-end">
               <Select
                 data={exportTypeOptions}
                 label="Export type"
@@ -3009,8 +3477,9 @@ export default function VendorDashboardPage() {
               >
                 Export
               </Button>
-            </Group>
-          ) : null}
+              </Group>
+            ) : null}
+          </Group>
           <Table.ScrollContainer minWidth={620}>
             <Table verticalSpacing="sm">
               <Table.Thead>
@@ -3028,7 +3497,7 @@ export default function VendorDashboardPage() {
                       <Table.Td fw={700}>{ticket.ticketNumber}</Table.Td>
                       <Table.Td>{ticket.customerName}</Table.Td>
                       <Table.Td><Badge variant="light">{ticket.status}</Badge></Table.Td>
-                      <Table.Td>{formatDateTime(ticket.updatedAt)}</Table.Td>
+                      <Table.Td>{formatHistoryDateTime(ticket.updatedAt)}</Table.Td>
                     </Table.Tr>
                   ))
                 ) : (
@@ -3044,6 +3513,19 @@ export default function VendorDashboardPage() {
               </Table.Tbody>
             </Table>
           </Table.ScrollContainer>
+          <Group justify="space-between">
+            <Text c="dimmed" size="sm">
+              {totalHistoryItems
+                ? `Showing page ${historyPage} of ${totalHistoryPages} (${totalHistoryItems} records)`
+                : "No history records"}
+            </Text>
+            <Pagination
+              disabled={totalHistoryPages <= 1}
+              onChange={setHistoryPage}
+              total={totalHistoryPages}
+              value={historyPage}
+            />
+          </Group>
         </Stack>
       </Card>
     );
@@ -3637,8 +4119,15 @@ export default function VendorDashboardPage() {
           />
         </header>
 
-        {error ? <Text c="red" fw={700}>{error}</Text> : null}
-        {renderCurrentSection()}
+        <div style={{ position: "relative" }}>
+          <LoadingOverlay
+            visible={showDashboardOverlay}
+            zIndex={20}
+            overlayProps={{ blur: 2, radius: "md" }}
+          />
+          {error ? <Text c="red" fw={700}>{error}</Text> : null}
+          {renderCurrentSection()}
+        </div>
       </main>
       {renderPlanDialog()}
       {renderLocationDialog()}

@@ -1,5 +1,6 @@
 const express = require("express");
 const tenantRepository = require("../repositories/tenants");
+const queueDayClosureRepository = require("../repositories/queueDayClosures");
 const storeLocationRepository = require("../repositories/storeLocations");
 const ticketRepository = require("../repositories/tickets");
 const asyncHandler = require("../middleware/asyncHandler");
@@ -85,13 +86,33 @@ async function verifyQrTurnstileIfNeeded(req, joinChannel) {
   }
 }
 
+async function assertQueueOpenForJoin(tenant, location) {
+  const dateKey = storeHoursService.getLocationDateKey(new Date(), location.timezone);
+  const closure = await queueDayClosureRepository.findClosure(
+    tenant._id,
+    location._id,
+    dateKey
+  );
+  if (!closure) {
+    return;
+  }
+
+  const error = new Error("This queue is closed for today. Please join on the next open queue day.");
+  error.statusCode = 403;
+  error.closure = closure;
+  throw error;
+}
+
 function formatTicketResponse(ticket) {
   return {
     id: String(ticket._id),
     lookupCode: ticket.lookupCode,
     ticketNumber: ticket.ticketNumber,
     customerName: ticket.customerName,
-    status: ticket.status
+    status: ticket.status,
+    notifyBySms: Boolean(ticket.notifyBySms),
+    carriedOverAt: ticket.carriedOverAt,
+    carryOverCount: ticket.carryOverCount || 0
   };
 }
 
@@ -227,6 +248,7 @@ router.post(
 
     await queueFeeService.assertTenantCanAcceptCustomerJoins(tenant._id);
     await storeHoursService.assertLocationOpenForCustomerJoin(location);
+    await assertQueueOpenForJoin(tenant, location);
     await verifyQrTurnstileIfNeeded(req, normalizedJoinChannel);
 
     const payload = {
@@ -281,6 +303,7 @@ router.post(
     const location = await getLocationOrPrimary(tenant, req.params.locationSlug);
     await queueFeeService.assertTenantCanAcceptCustomerJoins(tenant._id);
     await storeHoursService.assertLocationOpenForCustomerJoin(location);
+    await assertQueueOpenForJoin(tenant, location);
     const payload = await queueJoinOtpService.verifyJoinOtp({
       tenant,
       otpId: req.body.otpId,

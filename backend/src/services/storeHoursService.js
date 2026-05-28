@@ -10,6 +10,9 @@ function toMinutes(value) {
 function getLocationParts(date, timezone) {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: timezone || "Asia/Manila",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
     weekday: "short",
     hour: "2-digit",
     minute: "2-digit",
@@ -18,11 +21,34 @@ function getLocationParts(date, timezone) {
   const weekdayName = parts.find((part) => part.type === "weekday")?.value || "Sun";
   const hour = Number(parts.find((part) => part.type === "hour")?.value || 0);
   const minute = Number(parts.find((part) => part.type === "minute")?.value || 0);
+  const year = parts.find((part) => part.type === "year")?.value || "1970";
+  const month = parts.find((part) => part.type === "month")?.value || "01";
+  const day = parts.find((part) => part.type === "day")?.value || "01";
 
   return {
     weekday: WEEKDAY_LABELS.indexOf(weekdayName),
-    minuteOfDay: hour * 60 + minute
+    minuteOfDay: hour * 60 + minute,
+    dateKey: `${year}${month}${day}`
   };
+}
+
+function getLocationDateKey(date = new Date(), timezone = "Asia/Manila") {
+  return getLocationParts(date, timezone).dateKey;
+}
+
+function addDaysToDateKey(dateKey, days) {
+  const year = Number(String(dateKey).slice(0, 4));
+  const month = Number(String(dateKey).slice(4, 6));
+  const day = Number(String(dateKey).slice(6, 8));
+  const date = new Date(Date.UTC(year, month - 1, day + Number(days)));
+  return date.toISOString().slice(0, 10).replace(/-/g, "");
+}
+
+function getWeekdayForDateKey(dateKey) {
+  const year = Number(String(dateKey).slice(0, 4));
+  const month = Number(String(dateKey).slice(4, 6));
+  const day = Number(String(dateKey).slice(6, 8));
+  return new Date(Date.UTC(year, month - 1, day)).getUTCDay();
 }
 
 function isOpenForHour(hour, weekday, minuteOfDay) {
@@ -89,6 +115,26 @@ async function getOpenStatus(location, options = {}) {
   };
 }
 
+async function getNextOpenQueueDateKey(location, options = {}) {
+  const hours = options.hours || (await storeLocationRepository.listHoursByLocationId(location._id));
+  const timezone = location.timezone || "Asia/Manila";
+  const fromDateKey = options.fromDateKey || getLocationDateKey(options.now || new Date(), timezone);
+  const maxDays = Number(options.maxDays || 370);
+
+  for (let offset = 1; offset <= maxDays; offset += 1) {
+    const candidateDateKey = addDaysToDateKey(fromDateKey, offset);
+    const weekday = getWeekdayForDateKey(candidateDateKey);
+    const hour = hours.find((item) => item.weekday === weekday);
+    if (hour && !hour.isClosed) {
+      return candidateDateKey;
+    }
+  }
+
+  const error = new Error("No open queue day is configured for this location.");
+  error.statusCode = 400;
+  throw error;
+}
+
 async function assertLocationOpenForCustomerJoin(location) {
   const openStatus = await getOpenStatus(location);
   if (openStatus.isOpen) {
@@ -104,6 +150,8 @@ async function assertLocationOpenForCustomerJoin(location) {
 module.exports = {
   WEEKDAY_LABELS,
   buildHoursSummary,
+  getLocationDateKey,
+  getNextOpenQueueDateKey,
   getOpenStatus,
   assertLocationOpenForCustomerJoin
 };

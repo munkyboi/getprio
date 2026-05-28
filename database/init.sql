@@ -18,6 +18,7 @@ DROP TABLE IF EXISTS public_board_themes CASCADE;
 DROP TABLE IF EXISTS public_board_assets CASCADE;
 DROP TABLE IF EXISTS notification_deliveries CASCADE;
 DROP TABLE IF EXISTS queue_join_otps CASCADE;
+DROP TABLE IF EXISTS queue_day_closures CASCADE;
 DROP TABLE IF EXISTS tickets CASCADE;
 DROP TABLE IF EXISTS counters CASCADE;
 DROP TABLE IF EXISTS store_hours CASCADE;
@@ -73,6 +74,8 @@ CREATE TABLE tenant_memberships (
   tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   role TEXT NOT NULL DEFAULT 'staff' CHECK (role IN ('owner', 'admin', 'staff')),
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (user_id, tenant_id)
 );
 
@@ -189,6 +192,22 @@ CREATE TABLE tickets (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (tenant_id, location_id, date_key, sequence)
+);
+
+CREATE TABLE queue_day_closures (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  location_id BIGINT NOT NULL REFERENCES store_locations(id) ON DELETE CASCADE,
+  queue_date_key TEXT NOT NULL,
+  next_queue_date_key TEXT NOT NULL,
+  closed_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  reason TEXT,
+  waiting_carried_count INTEGER NOT NULL DEFAULT 0,
+  called_unserved_count INTEGER NOT NULL DEFAULT 0,
+  closed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (tenant_id, location_id, queue_date_key)
 );
 
 CREATE TABLE queue_join_otps (
@@ -454,6 +473,9 @@ CREATE INDEX idx_tickets_active_queue_day
 CREATE INDEX idx_tickets_lookup_code
   ON tickets (lookup_code);
 
+CREATE INDEX idx_queue_day_closures_location_date
+  ON queue_day_closures (tenant_id, location_id, queue_date_key);
+
 CREATE INDEX idx_queue_join_otps_tenant_expires
   ON queue_join_otps (tenant_id, expires_at DESC);
 
@@ -508,6 +530,11 @@ BEFORE UPDATE ON users
 FOR EACH ROW
 EXECUTE FUNCTION set_updated_at();
 
+CREATE TRIGGER set_tenant_memberships_updated_at
+BEFORE UPDATE ON tenant_memberships
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
 CREATE TRIGGER set_tenant_staff_invitations_updated_at
 BEFORE UPDATE ON tenant_staff_invitations
 FOR EACH ROW
@@ -530,6 +557,11 @@ EXECUTE FUNCTION set_updated_at();
 
 CREATE TRIGGER set_tickets_updated_at
 BEFORE UPDATE ON tickets
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER set_queue_day_closures_updated_at
+BEFORE UPDATE ON queue_day_closures
 FOR EACH ROW
 EXECUTE FUNCTION set_updated_at();
 
