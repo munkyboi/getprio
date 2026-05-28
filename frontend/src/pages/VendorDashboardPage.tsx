@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
+import { useEffect, useMemo, useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
 import {
   ActionIcon,
   Alert,
@@ -48,6 +48,7 @@ import {
   IconUserCog,
   IconUsersGroup
 } from "@tabler/icons-react";
+import { useQuery } from "@tanstack/react-query";
 import { notifications } from "@mantine/notifications";
 import QRCode from "react-qr-code";
 import { Navigate, NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
@@ -509,7 +510,6 @@ export default function VendorDashboardPage() {
   const [clients, setClients] = useState<VendorClientsResponse | null>(null);
   const [error, setError] = useState("");
   const [busyAction, setBusyAction] = useState("");
-  const [pendingFetchCount, setPendingFetchCount] = useState(0);
   const [planDialogOpen, setPlanDialogOpen] = useState(false);
   const [themeDialogOpen, setThemeDialogOpen] = useState(false);
   const [themeLocation, setThemeLocation] = useState<StoreLocationWithHours | null>(null);
@@ -568,13 +568,6 @@ export default function VendorDashboardPage() {
     TABLE_SEARCH_DEBOUNCE_MS
   );
   const hasActiveSubscription = billing?.subscription?.status === "active";
-  const trackApiFetch = useCallback(<T,>(request: Promise<T>): Promise<T> => {
-    setPendingFetchCount((current) => current + 1);
-    return request.finally(() => {
-      setPendingFetchCount((current) => Math.max(0, current - 1));
-    });
-  }, []);
-  const showDashboardOverlay = pendingFetchCount > 0;
   const selectedLocation =
     locations.find((locationItem) => locationItem.slug === selectedLocationSlug) ||
     snapshot?.location ||
@@ -627,6 +620,149 @@ export default function VendorDashboardPage() {
   const locationQuery = selectedLocationSlug
     ? `?location=${encodeURIComponent(selectedLocationSlug)}`
     : "";
+  const locationsQuery = useQuery({
+    queryKey: ["vendor", "locations", selectedTenantSlug],
+    queryFn: () =>
+      apiRequest<StoreLocationsResponse>(`/vendor/tenant/${selectedTenantSlug}/locations`, {
+        token
+      }),
+    enabled: Boolean(selectedTenantSlug && token)
+  });
+  const dashboardQuery = useQuery({
+    queryKey: [
+      "vendor",
+      "dashboard",
+      selectedTenantSlug,
+      selectedLocationSlug,
+      queueSort.key,
+      queueSort.direction
+    ],
+    queryFn: () =>
+      apiRequest<QueueSnapshot>(
+        `/vendor/tenant/${selectedTenantSlug}/dashboard${locationQuery}${locationQuery ? "&" : "?"}sort=${encodeURIComponent(queueSort.key)}&direction=${queueSort.direction}`,
+        { token }
+      ),
+    enabled: Boolean(selectedTenantSlug && selectedLocationSlug && token)
+  });
+  const billingQuery = useQuery({
+    queryKey: ["billing", "tenant", selectedTenantSlug],
+    queryFn: () =>
+      apiRequest<BillingOverviewResponse>(`/billing/tenant/${selectedTenantSlug}/subscription`, {
+        token
+      }),
+    enabled: Boolean(selectedTenantSlug && token)
+  });
+  const countersQuery = useQuery({
+    queryKey: ["vendor", "counters", selectedTenantSlug, selectedLocationSlug],
+    queryFn: () =>
+      apiRequest<ServiceCountersResponse>(
+        `/vendor/tenant/${selectedTenantSlug}/counters?location=${encodeURIComponent(selectedLocationSlug)}`,
+        { token }
+      ),
+    enabled: Boolean(selectedTenantSlug && selectedLocationSlug && token)
+  });
+  const staffQuery = useQuery({
+    queryKey: [
+      "vendor",
+      "staff",
+      selectedTenantSlug,
+      staffSort.key,
+      staffSort.direction,
+      inviteSort.key,
+      inviteSort.direction
+    ],
+    queryFn: () =>
+      apiRequest<VendorStaffResponse>(
+        `/vendor/tenant/${selectedTenantSlug}/staff?sort=${encodeURIComponent(staffSort.key)}&direction=${staffSort.direction}&inviteSort=${encodeURIComponent(inviteSort.key)}&inviteDirection=${inviteSort.direction}`,
+        { token }
+      ),
+    enabled: Boolean(selectedTenantSlug && token && canManageTenant)
+  });
+  const historyQuery = useQuery({
+    queryKey: [
+      "vendor",
+      "history",
+      selectedTenantSlug,
+      selectedLocationSlug,
+      historyPage,
+      historyLimit,
+      historySort.key,
+      historySort.direction,
+      debouncedHistorySearch
+    ],
+    queryFn: () => {
+      const searchParam = debouncedHistorySearch
+        ? `&search=${encodeURIComponent(debouncedHistorySearch)}`
+        : "";
+
+      return apiRequest<VendorHistoryResponse>(
+        `/vendor/tenant/${selectedTenantSlug}/history?page=${historyPage}&limit=${historyLimit}&location=${encodeURIComponent(selectedLocationSlug)}&sort=${encodeURIComponent(historySort.key)}&direction=${historySort.direction}${searchParam}`,
+        { token }
+      );
+    },
+    enabled: Boolean(
+      selectedTenantSlug &&
+      selectedLocationSlug &&
+      token &&
+      currentSection === "history" &&
+      hasActiveSubscription
+    )
+  });
+  const overflowQuery = useQuery({
+    queryKey: ["vendor", "queue", "overflow", selectedTenantSlug, selectedLocationSlug],
+    queryFn: () =>
+      apiRequest<QueueOverflowResponse>(
+        `/vendor/tenant/${selectedTenantSlug}/queue/overflow?location=${encodeURIComponent(selectedLocationSlug)}`,
+        { token }
+      ),
+    enabled: Boolean(
+      selectedTenantSlug &&
+      selectedLocationSlug &&
+      token &&
+      currentSection === "queue" &&
+      hasActiveSubscription
+    )
+  });
+  const clientsQuery = useQuery({
+    queryKey: [
+      "vendor",
+      "clients",
+      selectedTenantSlug,
+      selectedLocationSlug,
+      clientPage,
+      clientLimit,
+      clientSort.key,
+      clientSort.direction,
+      debouncedClientSearch
+    ],
+    queryFn: () => {
+      const searchParam = debouncedClientSearch
+        ? `&search=${encodeURIComponent(debouncedClientSearch)}`
+        : "";
+
+      return apiRequest<VendorClientsResponse>(
+        `/vendor/tenant/${selectedTenantSlug}/clients${locationQuery}${locationQuery ? "&" : "?"}page=${clientPage}&limit=${clientLimit}&sort=${encodeURIComponent(clientSort.key)}&direction=${clientSort.direction}${searchParam}`,
+        { token }
+      );
+    },
+    enabled: Boolean(
+      selectedTenantSlug &&
+      selectedLocationSlug &&
+      token &&
+      currentSection === "clients" &&
+      hasActiveSubscription
+    )
+  });
+  const queryFetching =
+    locationsQuery.isFetching ||
+    dashboardQuery.isFetching ||
+    billingQuery.isFetching ||
+    countersQuery.isFetching ||
+    staffQuery.isFetching ||
+    historyQuery.isFetching ||
+    overflowQuery.isFetching ||
+    clientsQuery.isFetching;
+  const showDashboardOverlay = queryFetching || Boolean(busyAction);
 
   useEffect(() => {
     if (!user) {
@@ -766,146 +902,97 @@ export default function VendorDashboardPage() {
   }, [selectedTenantSlug, user]);
 
   useEffect(() => {
-    if (!selectedTenantSlug || !token) {
-      return undefined;
-    }
-
-    let active = true;
-
-    trackApiFetch(apiRequest<StoreLocationsResponse>(`/vendor/tenant/${selectedTenantSlug}/locations`, {
-      token
-    }))
-      .then((data) => {
-        if (!active) {
-          return;
-        }
-
-        setLocations(data.locations);
-        setActiveLocationLimit(data.activeLocationLimit);
-        if (!selectedLocationSlug || !data.locations.some((item) => item.slug === selectedLocationSlug)) {
-          setSelectedLocationSlug(data.locations.find((item) => item.isPrimary)?.slug || data.locations[0]?.slug || "");
-        }
-      })
-      .catch((loadError) => {
-        if (active) {
-          setError(getErrorMessage(loadError));
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [selectedLocationSlug, selectedTenantSlug, token, trackApiFetch]);
-
-  useEffect(() => {
-    if (!selectedTenantSlug || !token || !selectedLocationSlug) {
-      return undefined;
-    }
-
-    let active = true;
-    setError("");
-
-    trackApiFetch(apiRequest<QueueSnapshot>(
-      `/vendor/tenant/${selectedTenantSlug}/dashboard${locationQuery}${locationQuery ? "&" : "?"}sort=${encodeURIComponent(queueSort.key)}&direction=${queueSort.direction}`,
-      { token }
-    ))
-      .then((data) => {
-        if (!active) {
-          return;
-        }
-        setSnapshot(data);
-        setSettings({
-          queuePrefix: data.tenant.queuePrefix,
-          averageServiceMinutes: data.tenant.averageServiceMinutes,
-          notificationThreshold: data.tenant.notificationThreshold,
-          contactEmail: data.tenant.contactEmail || "",
-          contactPhone: data.tenant.contactPhone || ""
-        });
-      })
-      .catch((loadError) => {
-        if (active) {
-          setError(getErrorMessage(loadError));
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [locationQuery, queueSort.direction, queueSort.key, selectedLocationSlug, selectedTenantSlug, token, trackApiFetch]);
-
-  useEffect(() => {
-    if (!selectedTenantSlug || !token) {
-      return undefined;
-    }
-
-    let active = true;
-
-    trackApiFetch(apiRequest<BillingOverviewResponse>(`/billing/tenant/${selectedTenantSlug}/subscription`, {
-      token
-    }))
-      .then((data) => {
-        if (active) {
-          setBilling(data);
-        }
-      })
-      .catch((loadError) => {
-        if (active) {
-          setError(getErrorMessage(loadError));
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [selectedTenantSlug, token, trackApiFetch]);
-
-  useEffect(() => {
-    if (!selectedTenantSlug || !selectedLocationSlug || !token) {
+    const data = locationsQuery.data;
+    if (!data) {
       return;
     }
 
-    trackApiFetch(apiRequest<ServiceCountersResponse>(
-      `/vendor/tenant/${selectedTenantSlug}/counters?location=${encodeURIComponent(selectedLocationSlug)}`,
-      { token }
-    ))
-      .then((data) => {
-        setServiceCounters(data.counters);
-        setCounterLimit(data.counterLimit);
-        setSelectedCounterSlug((current) =>
-          current && data.counters.some((counter) => counter.slug === current && counter.isActive)
-            ? current
-            : data.counters.find((counter) => counter.isActive)?.slug || ""
-        );
-      })
-      .catch(() => {
-        setServiceCounters([]);
-        setCounterLimit(0);
-      });
-  }, [locationQuery, queueSort.direction, queueSort.key, selectedLocationSlug, selectedTenantSlug, token, trackApiFetch]);
+    setLocations(data.locations);
+    setActiveLocationLimit(data.activeLocationLimit);
+    if (!selectedLocationSlug || !data.locations.some((item) => item.slug === selectedLocationSlug)) {
+      setSelectedLocationSlug(data.locations.find((item) => item.isPrimary)?.slug || data.locations[0]?.slug || "");
+    }
+  }, [locationsQuery.data, selectedLocationSlug]);
 
   useEffect(() => {
-    if (!selectedTenantSlug || !token || !canManageTenant) {
+    const queryError =
+      locationsQuery.error ||
+      dashboardQuery.error ||
+      billingQuery.error ||
+      countersQuery.error ||
+      staffQuery.error ||
+      historyQuery.error ||
+      overflowQuery.error ||
+      clientsQuery.error;
+
+    if (queryError) {
+      setError(getErrorMessage(queryError));
+    }
+  }, [
+    billingQuery.error,
+    clientsQuery.error,
+    countersQuery.error,
+    dashboardQuery.error,
+    historyQuery.error,
+    locationsQuery.error,
+    overflowQuery.error,
+    staffQuery.error
+  ]);
+
+  useEffect(() => {
+    const data = dashboardQuery.data;
+    if (!data) {
+      return;
+    }
+
+    setSnapshot(data);
+    setSettings({
+      queuePrefix: data.tenant.queuePrefix,
+      averageServiceMinutes: data.tenant.averageServiceMinutes,
+      notificationThreshold: data.tenant.notificationThreshold,
+      contactEmail: data.tenant.contactEmail || "",
+      contactPhone: data.tenant.contactPhone || ""
+    });
+  }, [dashboardQuery.data]);
+
+  useEffect(() => {
+    if (billingQuery.data) {
+      setBilling(billingQuery.data);
+    }
+  }, [billingQuery.data]);
+
+  useEffect(() => {
+    const data = countersQuery.data;
+    if (!data) {
+      return;
+    }
+
+    setServiceCounters(data.counters);
+    setCounterLimit(data.counterLimit);
+    setSelectedCounterSlug((current) =>
+      current && data.counters.some((counter) => counter.slug === current && counter.isActive)
+        ? current
+        : data.counters.find((counter) => counter.isActive)?.slug || ""
+    );
+  }, [countersQuery.data]);
+
+  useEffect(() => {
+    if (!canManageTenant) {
       setStaff([]);
       setPendingStaffInvites([]);
       setStaffSeatLimit(0);
       return;
     }
 
-    trackApiFetch(apiRequest<VendorStaffResponse>(
-      `/vendor/tenant/${selectedTenantSlug}/staff?sort=${encodeURIComponent(staffSort.key)}&direction=${staffSort.direction}&inviteSort=${encodeURIComponent(inviteSort.key)}&inviteDirection=${inviteSort.direction}`,
-      { token }
-    ))
-      .then((data) => {
-        setStaff(data.staff);
-        setPendingStaffInvites(data.pendingInvites || []);
-        setStaffSeatLimit(data.staffSeatLimit);
-      })
-      .catch(() => {
-        setStaff([]);
-        setPendingStaffInvites([]);
-        setStaffSeatLimit(0);
-      });
-  }, [canManageTenant, inviteSort.direction, inviteSort.key, selectedTenantSlug, staffSort.direction, staffSort.key, token, trackApiFetch]);
+    const data = staffQuery.data;
+    if (!data) {
+      return;
+    }
+
+    setStaff(data.staff);
+    setPendingStaffInvites(data.pendingInvites || []);
+    setStaffSeatLimit(data.staffSeatLimit);
+  }, [canManageTenant, staffQuery.data]);
 
   useEffect(() => {
     if (!selectedTenantSlug || !token) {
@@ -998,34 +1085,10 @@ export default function VendorDashboardPage() {
   }, [queueSort.direction, queueSort.key, selectedLocationSlug, selectedTenantSlug]);
 
   useEffect(() => {
-    if (!selectedTenantSlug || !selectedLocationSlug || !token || currentSection !== "history" || !hasActiveSubscription) {
-      return undefined;
+    if (historyQuery.data) {
+      setHistory(historyQuery.data);
     }
-
-    let active = true;
-    const searchParam = debouncedHistorySearch
-      ? `&search=${encodeURIComponent(debouncedHistorySearch)}`
-      : "";
-
-    trackApiFetch(apiRequest<VendorHistoryResponse>(
-      `/vendor/tenant/${selectedTenantSlug}/history?page=${historyPage}&limit=${historyLimit}&location=${encodeURIComponent(selectedLocationSlug)}&sort=${encodeURIComponent(historySort.key)}&direction=${historySort.direction}${searchParam}`,
-      { token }
-    ))
-      .then((data) => {
-        if (active) {
-          setHistory(data);
-        }
-      })
-      .catch((loadError) => {
-        if (active) {
-          setError(getErrorMessage(loadError));
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [currentSection, debouncedHistorySearch, hasActiveSubscription, historyLimit, historyPage, historySort.direction, historySort.key, selectedLocationSlug, selectedTenantSlug, token, trackApiFetch]);
+  }, [historyQuery.data]);
 
   useEffect(() => {
     setHistoryPage(1);
@@ -1038,62 +1101,21 @@ export default function VendorDashboardPage() {
   }, [history?.totalPages, historyPage]);
 
   useEffect(() => {
-    if (!selectedTenantSlug || !selectedLocationSlug || !token || currentSection !== "queue" || !hasActiveSubscription) {
+    if (!hasActiveSubscription || currentSection !== "queue") {
       setOverflow(null);
-      return undefined;
+      return;
     }
 
-    let active = true;
-
-    trackApiFetch(apiRequest<QueueOverflowResponse>(
-      `/vendor/tenant/${selectedTenantSlug}/queue/overflow?location=${encodeURIComponent(selectedLocationSlug)}`,
-      { token }
-    ))
-      .then((data) => {
-        if (active) {
-          setOverflow(data);
-        }
-      })
-      .catch((loadError) => {
-        if (active) {
-          setError(getErrorMessage(loadError));
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [currentSection, hasActiveSubscription, selectedLocationSlug, selectedTenantSlug, token, trackApiFetch]);
+    if (overflowQuery.data) {
+      setOverflow(overflowQuery.data);
+    }
+  }, [currentSection, hasActiveSubscription, overflowQuery.data]);
 
   useEffect(() => {
-    if (!selectedTenantSlug || !selectedLocationSlug || !token || currentSection !== "clients" || !hasActiveSubscription) {
-      return undefined;
+    if (clientsQuery.data) {
+      setClients(clientsQuery.data);
     }
-
-    let active = true;
-    const searchParam = debouncedClientSearch
-      ? `&search=${encodeURIComponent(debouncedClientSearch)}`
-      : "";
-
-    trackApiFetch(apiRequest<VendorClientsResponse>(
-      `/vendor/tenant/${selectedTenantSlug}/clients${locationQuery}${locationQuery ? "&" : "?"}page=${clientPage}&limit=${clientLimit}&sort=${encodeURIComponent(clientSort.key)}&direction=${clientSort.direction}${searchParam}`,
-      { token }
-    ))
-      .then((data) => {
-        if (active) {
-          setClients(data);
-        }
-      })
-      .catch((loadError) => {
-        if (active) {
-          setError(getErrorMessage(loadError));
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [clientLimit, clientPage, clientSort.direction, clientSort.key, currentSection, debouncedClientSearch, hasActiveSubscription, locationQuery, selectedLocationSlug, selectedTenantSlug, token, trackApiFetch]);
+  }, [clientsQuery.data]);
 
   useEffect(() => {
     setClientPage(1);
@@ -1227,15 +1249,10 @@ export default function VendorDashboardPage() {
   }
 
   async function reloadOverflow() {
-    if (!selectedTenantSlug || !selectedLocationSlug || !token) {
-      return;
+    const { data } = await overflowQuery.refetch();
+    if (data) {
+      setOverflow(data);
     }
-
-    const data = await apiRequest<QueueOverflowResponse>(
-      `/vendor/tenant/${selectedTenantSlug}/queue/overflow?location=${encodeURIComponent(selectedLocationSlug)}`,
-      { token }
-    );
-    setOverflow(data);
   }
 
   function handleCloseQueueDay() {
@@ -1301,22 +1318,20 @@ export default function VendorDashboardPage() {
   }
 
   async function reloadCounters() {
-    const data = await apiRequest<ServiceCountersResponse>(
-      `/vendor/tenant/${selectedTenantSlug}/counters?location=${encodeURIComponent(selectedLocationSlug)}`,
-      { token }
-    );
-    setServiceCounters(data.counters);
-    setCounterLimit(data.counterLimit);
+    const { data } = await countersQuery.refetch();
+    if (data) {
+      setServiceCounters(data.counters);
+      setCounterLimit(data.counterLimit);
+    }
   }
 
   async function reloadStaff() {
-    const data = await apiRequest<VendorStaffResponse>(
-      `/vendor/tenant/${selectedTenantSlug}/staff?sort=${encodeURIComponent(staffSort.key)}&direction=${staffSort.direction}&inviteSort=${encodeURIComponent(inviteSort.key)}&inviteDirection=${inviteSort.direction}`,
-      { token }
-    );
-    setStaff(data.staff);
-    setPendingStaffInvites(data.pendingInvites || []);
-    setStaffSeatLimit(data.staffSeatLimit);
+    const { data } = await staffQuery.refetch();
+    if (data) {
+      setStaff(data.staff);
+      setPendingStaffInvites(data.pendingInvites || []);
+      setStaffSeatLimit(data.staffSeatLimit);
+    }
   }
 
   function openCounterDialog(counter?: ServiceCounterSummary) {
