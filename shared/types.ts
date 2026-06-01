@@ -320,6 +320,7 @@ export interface QueueDayClosureSummary {
   queueDateKey: string;
   nextQueueDateKey: string;
   closedAt: string | Date;
+  reopenedAt: string | Date | null;
   reason: string;
   waitingCarriedCount: number;
   calledUnservedCount: number;
@@ -710,6 +711,8 @@ export interface CloseQueueDayResponse {
   closure: QueueDayClosureSummary;
   snapshot: QueueSnapshot;
 }
+
+export type ReopenQueueDayResponse = CloseQueueDayResponse;
 
 export interface QueueHistoryResponse {
   tickets: QueueHistoryTicket[];

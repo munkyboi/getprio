@@ -33,6 +33,7 @@ function formatQueueClosure(closure) {
     queueDateKey: closure.queueDateKey,
     nextQueueDateKey: closure.nextQueueDateKey,
     closedAt: closure.closedAt,
+    reopenedAt: closure.reopenedAt,
     reason: closure.reason,
     waitingCarriedCount: closure.waitingCarriedCount,
     calledUnservedCount: closure.calledUnservedCount
@@ -384,6 +385,36 @@ async function closeQueueDay(tenant, options = {}) {
   };
 }
 
+async function reopenQueueDay(tenant, options = {}) {
+  const location = await resolveLocation(tenant, options);
+  if (!location) {
+    const error = new Error("Location not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const queueDateKey = getQueueDateKeyForLocation(location);
+  const closure = await queueDayClosureRepository.reopenClosure(
+    tenant._id,
+    location._id,
+    queueDateKey,
+    options.reopenedByUserId
+  );
+
+  if (!closure) {
+    const error = new Error("This queue is not closed for today.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const snapshot = await publishSnapshot(tenant, { location });
+
+  return {
+    closure: formatQueueClosure(closure),
+    snapshot
+  };
+}
+
 async function publishSnapshot(tenant, options = {}) {
   const snapshot = await getQueueSnapshot(tenant, options);
   queueEvents.publish(tenant.slug, snapshot);
@@ -601,6 +632,7 @@ module.exports = {
   updateCurrentTicketStatus,
   cancelTicket,
   closeQueueDay,
+  reopenQueueDay,
   publishSnapshot,
   maybeNotifyUpcomingTickets
 };

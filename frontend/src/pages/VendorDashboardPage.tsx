@@ -64,6 +64,7 @@ import type {
   QueueHistoryTicket,
   QueueOverflowResponse,
   QueueOverflowTicket,
+  ReopenQueueDayResponse,
   PublicBoardThemeResponse,
   PublicBoardThemeSettings,
   PublicBoardThemeUploadRequest,
@@ -1284,6 +1285,34 @@ export default function VendorDashboardPage() {
     });
   }
 
+  function handleReopenQueueDay() {
+    if (!selectedTenantSlug || !selectedLocationSlug || !token || !snapshot?.closure) {
+      return;
+    }
+
+    setConfirmAction({
+      title: "Reopen queue for today?",
+      message:
+        "New joins will be allowed again. Tickets already carried to the next open queue day will stay there unless you reschedule them separately.",
+      confirmLabel: "Reopen queue",
+      onConfirm: async () => {
+        const data = await apiRequest<ReopenQueueDayResponse>(
+          `/vendor/tenant/${selectedTenantSlug}/queue/reopen-day${locationQuery}`,
+          {
+            method: "POST",
+            token
+          }
+        );
+        setSnapshot(data.snapshot);
+        await reloadOverflow();
+        showSuccessNotification(
+          "Queue reopened",
+          "New customers can join again. Carried tickets were left unchanged."
+        );
+      }
+    });
+  }
+
   async function handleRequeueOverflowTicket(ticket: QueueOverflowTicket) {
     const success = await runAction("overflow-requeue", () =>
       apiRequest<DashboardActionResponse>(
@@ -2352,10 +2381,23 @@ export default function VendorDashboardPage() {
         {renderStats()}
         {snapshot?.closure ? (
           <Alert color="orange" icon={<IconInfoCircle size={18} />} variant="light">
-            Queue closed for {formatDateKey(snapshot.closure.queueDateKey)}.{" "}
-            {snapshot.closure.waitingCarriedCount} waiting ticket(s) were carried to{" "}
-            {formatDateKey(snapshot.closure.nextQueueDateKey)} and{" "}
-            {snapshot.closure.calledUnservedCount} called ticket(s) were marked unserved.
+            <Group justify="space-between" align="center">
+              <Text>
+                Queue closed for {formatDateKey(snapshot.closure.queueDateKey)}.{" "}
+                {snapshot.closure.waitingCarriedCount} waiting ticket(s) were carried to{" "}
+                {formatDateKey(snapshot.closure.nextQueueDateKey)} and{" "}
+                {snapshot.closure.calledUnservedCount} called ticket(s) were marked unserved.
+              </Text>
+              <Button
+                color="orange"
+                disabled={busyAction === "confirm-action"}
+                onClick={handleReopenQueueDay}
+                size="xs"
+                variant="light"
+              >
+                Reopen queue
+              </Button>
+            </Group>
           </Alert>
         ) : null}
         <SegmentedControl
@@ -2390,7 +2432,7 @@ export default function VendorDashboardPage() {
                   onClick={handleCloseQueueDay}
                   variant="light"
                 >
-                  {queueClosedForDay ? "Queue closed" : "Close queue for today"}
+                  Close queue for today
                 </Button>
               </Group>
               <Group>

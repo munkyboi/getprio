@@ -27,7 +27,8 @@ const {
   getQueueSnapshot,
   callNextTicket,
   updateCurrentTicketStatus,
-  closeQueueDay
+  closeQueueDay,
+  reopenQueueDay
 } = require("../services/queueService");
 
 const router = express.Router();
@@ -695,6 +696,21 @@ router.post(
       location,
       closedByUserId: req.user._id,
       reason: String(req.body?.reason || "Closed for the day").slice(0, 500)
+    });
+
+    res.json(result);
+  })
+);
+
+router.post(
+  "/tenant/:tenantSlug/queue/reopen-day",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantManager(req.user, tenant._id);
+    const location = await getLocationForTenant(tenant, req.query.location);
+    const result = await reopenQueueDay(tenant, {
+      location,
+      reopenedByUserId: req.user._id
     });
 
     res.json(result);

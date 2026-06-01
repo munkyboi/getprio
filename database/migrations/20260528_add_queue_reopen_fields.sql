@@ -1,0 +1,7 @@
+BEGIN;
+
+ALTER TABLE queue_day_closures
+  ADD COLUMN IF NOT EXISTS reopened_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS reopened_at TIMESTAMPTZ;
+
+COMMIT;
