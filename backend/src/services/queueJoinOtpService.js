@@ -55,6 +55,7 @@ function sanitizeJoinPayload(payload) {
     notifyByEmail: Boolean(payload.notifyByEmail),
     notifyBySms: Boolean(payload.notifyBySms),
     joinChannel: payload.joinChannel || "online",
+    locationSlug: String(payload.locationSlug || "").trim() || undefined,
     notes: String(payload.notes || "").trim()
   };
 }

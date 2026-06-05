@@ -36,6 +36,51 @@ This PRD upgrades the auth layer into a stable v1 foundation without forcing a f
 
 ---
 
+## Implementation Status
+
+Status date: `2026-06-05`
+
+### Done
+
+- server-tracked auth sessions
+- short-lived access token + rotating refresh token
+- session-aware auth middleware
+- logout and refresh rotation
+- login-attempt tracking and temporary lockout
+- password reset request / confirm
+- authenticated password change
+- frontend forgot/reset/change password UI
+- centralized tenant/platform permission map
+- backend authorization tests for the current permission model
+
+### Partial
+
+- OAuth remains supported and now issues tracked sessions, but it is not yet hardened with privileged-role MFA requirements
+- RBAC is centralized, but only for the current repo role model: `owner`, `staff`, `platform_admin`
+- session transport still uses bearer token + refresh token in JS-managed client state for browser clients
+
+### Pending
+
+- MFA / step-up flow for privileged roles
+- cookie transport migration
+- CSRF protection
+- logout-all-sessions account security UI
+- broader auth and permission regression coverage
+- any tenant `admin` role support described in the PRD but not present in the current runtime model
+
+### Important Repo Constraint
+
+The live repo currently supports tenant membership roles:
+
+```txt
+owner
+staff
+```
+
+The PRD mentions `admin`, but that role is not implemented in the current runtime types or route behavior. Any future `admin` role should be treated as a separate product/data-model change, not assumed to exist in this implementation.
+
+---
+
 ## 2. Problem Statement
 
 The current authentication and authorization design is sufficient for basic development, but not stable enough for a production-shaped v1 or for the IAS/security deliverables tied to this capstone.
@@ -153,15 +198,15 @@ Use these role boundaries consistently in frontend copy, backend access checks, 
 
 ### Current Gaps
 
-- JWTs are long-lived (`7d`) and used directly as bearer session tokens
-- No refresh-token store
-- No server-side revocation model for sessions
-- No login-attempt tracking or lockout
-- No password reset flow
+- JWTs are no longer long-lived session tokens; access tokens are now short-lived and backed by tracked refresh sessions
+- Refresh-token store now exists
+- Server-side revocation model for sessions now exists
+- Login-attempt tracking and lockout now exist
+- Password reset flow now exists
 - No session-expiry warning flow
 - No CSRF model because auth is not cookie-based yet
-- No formal session table, device/session metadata, or audit log
-- RBAC is partly role-based but not formalized as permission-driven rules
+- Formal session table and auth security event logging now exist
+- RBAC is now permission-driven in code, but still scoped to the current repo role model
 - No MFA enforcement path for privileged roles
 
 ---
@@ -178,7 +223,7 @@ Requirements:
 
 - Email + password for all standard accounts
 - Password hashing with `Argon2id` preferred
-- `bcrypt` may remain temporarily during migration only
+- `bcrypt` is currently used in implementation and remains an accepted transitional choice
 - New password writes should use the chosen v1-standard algorithm
 - Password rules must be explicit and enforced consistently
 - Authentication errors must remain generic
@@ -284,6 +329,11 @@ Primary target model:
 
 Access token and refresh token should move to cookie-based transport for browser clients.
 
+Current implementation note:
+
+- browser auth still uses bearer access token + refresh token stored in JS-managed client state
+- this was kept intentionally to finish the session architecture before cookie migration
+
 Compatibility note:
 
 - Current frontend uses bearer token in JS-managed client state
@@ -376,6 +426,11 @@ Tenant membership role examples:
 - `owner`
 - `admin`
 - `staff`
+
+Current implementation note:
+
+- the live repo currently implements `owner` and `staff`
+- `admin` remains a future role and is not assumed by the new permission map
 
 ### Permission Model
 
@@ -563,6 +618,11 @@ Apply rate limiting to:
 
 Rate limiting may start in application memory for local/dev but must be designed for persistent/shared storage in real deployment.
 
+Current implementation note:
+
+- login lockout is implemented
+- generalized rate limiting middleware is still pending
+
 ### CSRF Protection
 
 This becomes required when cookie-based auth is introduced.
@@ -617,6 +677,11 @@ Frontend must support:
 - logout
 - password reset
 - step-up/MFA-ready redirects
+
+Current implementation note:
+
+- initial bootstrap, refresh handling, logout, password reset, and password change UI are implemented
+- MFA/step-up redirects are still pending
 
 ### Session Expiry UX
 

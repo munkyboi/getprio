@@ -19,7 +19,9 @@ const {
   createTicket,
   getQueueSnapshot,
   callNextTicket,
-  updateCurrentTicketStatus
+  updateCurrentTicketStatus,
+  closeQueueDay,
+  reopenQueueDay
 } = require("../services/queueService");
 
 const router = express.Router();
@@ -78,8 +80,8 @@ async function formatLocation(location, tenant) {
     timezone: location.timezone,
     isPrimary: location.isPrimary,
     isActive: location.isActive,
-    joinUrl: `${process.env.APP_BASE_URL || "http://localhost:7000"}/join/${tenant.slug}/${location.slug}`,
-    monitorUrl: `${process.env.APP_BASE_URL || "http://localhost:7000"}/monitor/${tenant.slug}/${location.slug}`,
+    joinUrl: `${process.env.APP_BASE_URL || "http://localhost:5173"}/join/${tenant.slug}/${location.slug}`,
+    monitorUrl: `${process.env.APP_BASE_URL || "http://localhost:5173"}/monitor/${tenant.slug}/${location.slug}`,
     openStatus,
     hours: hours.map((hour) => ({
       weekday: hour.weekday,
@@ -300,7 +302,9 @@ router.post(
       notifyByEmail,
       notifyBySms,
       joinChannel: "vendor",
-      notes
+      notes,
+      actorUserId: req.user?._id,
+      actorRole: "vendor"
     });
 
     res.status(201).json({
@@ -316,18 +320,65 @@ router.post(
 );
 
 router.post(
+  "/tenant/:tenantSlug/queue/close",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.queue.operate");
+    const location = await getLocationForTenant(tenant, req.query.location);
+    const snapshot = await closeQueueDay(tenant, {
+      location,
+      reason: typeof req.body.reason === "string" ? req.body.reason.trim() : "",
+      actorUserId: req.user?._id,
+      actorRole: "vendor",
+      source: "vendor"
+    });
+
+    res.json({
+      message: "Queue day closed.",
+      snapshot
+    });
+  })
+);
+
+router.post(
+  "/tenant/:tenantSlug/queue/reopen",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.queue.operate");
+    const location = await getLocationForTenant(tenant, req.query.location);
+    const snapshot = await reopenQueueDay(tenant, {
+      location,
+      actorUserId: req.user?._id,
+      actorRole: "vendor",
+      source: "vendor"
+    });
+
+    res.json({
+      message: "Queue day reopened.",
+      snapshot
+    });
+  })
+);
+
+router.post(
   "/tenant/:tenantSlug/queue/call-next",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.queue.operate");
     const location = await getLocationForTenant(tenant, req.query.location);
     const serviceCounter = await getCounterForLocation(location, req.body.counterSlug);
-    const result = await callNextTicket(tenant, { location, serviceCounter });
+    const result = await callNextTicket(tenant, {
+      location,
+      serviceCounter,
+      actorUserId: req.user?._id,
+      actorRole: "vendor",
+      source: "vendor"
+    });
 
     if (!result) {
       res.json({
         message: "No waiting tickets in the queue.",
-        snapshot: await getQueueSnapshot(tenant)
+        snapshot: await getQueueSnapshot(tenant, { location })
       });
       return;
     }
@@ -349,7 +400,12 @@ router.post(
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.ticket.update_state");
     const location = await getLocationForTenant(tenant, req.query.location);
-    const result = await updateCurrentTicketStatus(tenant, "served", { location });
+    const result = await updateCurrentTicketStatus(tenant, "served", {
+      location,
+      actorUserId: req.user?._id,
+      actorRole: "vendor",
+      source: "vendor"
+    });
 
     if (!result) {
       const error = new Error("There is no active ticket to serve.");
@@ -374,7 +430,12 @@ router.post(
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.ticket.update_state");
     const location = await getLocationForTenant(tenant, req.query.location);
-    const result = await updateCurrentTicketStatus(tenant, "skipped", { location });
+    const result = await updateCurrentTicketStatus(tenant, "skipped", {
+      location,
+      actorUserId: req.user?._id,
+      actorRole: "vendor",
+      source: "vendor"
+    });
 
     if (!result) {
       const error = new Error("There is no active ticket to skip.");

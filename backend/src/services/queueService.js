@@ -4,9 +4,12 @@ const env = require("../config/env");
 const billingRepository = require("../repositories/billing");
 const notificationDeliveryRepository = require("../repositories/notificationDeliveries");
 const publicBoardThemeRepository = require("../repositories/publicBoardThemes");
+const queueEventRepository = require("../repositories/queueEvents");
+const queueDayClosureRepository = require("../repositories/queueDayClosures");
 const storeLocationRepository = require("../repositories/storeLocations");
 const ticketRepository = require("../repositories/tickets");
 const queueEvents = require("./queueEvents");
+const queueLifecycle = require("./queueLifecycle");
 const notificationService = require("./notificationService");
 const queueFeeService = require("./queueFeeService");
 const storeHoursService = require("./storeHoursService");
@@ -14,6 +17,52 @@ const { buildJoinUrl, buildMonitorUrl } = require("../publicLinks");
 
 function getDateKey(date = new Date()) {
   return date.toISOString().slice(0, 10).replace(/-/g, "");
+}
+
+function buildQueueEventActor(options = {}) {
+  return {
+    actorUserId: options.actorUserId || null,
+    actorRole: options.actorRole || null,
+    source: options.source || "system"
+  };
+}
+
+async function appendQueueEvent(client, ticket, eventType, options = {}) {
+  return queueEventRepository.createQueueEvent(
+    {
+      ticketId: ticket?._id || null,
+      tenantId: ticket.tenantId,
+      locationId: ticket.locationId,
+      queueDateKey: ticket.dateKey,
+      eventType,
+      fromStatus: options.fromStatus || null,
+      toStatus: options.toStatus || null,
+      actorUserId: options.actorUserId || null,
+      actorRole: options.actorRole || null,
+      source: options.source || "system",
+      metadata: options.metadata || {}
+    },
+    { client }
+  );
+}
+
+async function appendScopedQueueEvent(client, data) {
+  return queueEventRepository.createQueueEvent(
+    {
+      ticketId: null,
+      tenantId: data.tenantId,
+      locationId: data.locationId,
+      queueDateKey: data.queueDateKey,
+      eventType: data.eventType,
+      fromStatus: null,
+      toStatus: null,
+      actorUserId: data.actorUserId || null,
+      actorRole: data.actorRole || null,
+      source: data.source || "system",
+      metadata: data.metadata || {}
+    },
+    { client }
+  );
 }
 
 function formatTicketNumber(prefix, value) {
@@ -104,9 +153,12 @@ async function resolveLocation(tenant, options = {}) {
 async function getQueueSnapshot(tenant, options = {}) {
   const location = await resolveLocation(tenant, options);
   const locationId = location?._id;
-  const current = await ticketRepository.findCurrentCalledTicket(tenant._id, { locationId });
-  const waitingTickets = await ticketRepository.listWaitingTickets(tenant._id, { locationId });
-  const dateKey = getDateKey();
+  const dateKey = options.queueDateKey || getDateKey();
+  const queueDayClosure = location
+    ? await queueDayClosureRepository.findActiveClosure(tenant._id, location._id, dateKey)
+    : null;
+  const current = await ticketRepository.findCurrentCalledTicket(tenant._id, { locationId, dateKey });
+  const waitingTickets = await ticketRepository.listWaitingTickets(tenant._id, { locationId, dateKey });
   const history = await ticketRepository.listHistoryTickets(tenant._id, {
     limit: 30,
     dateKey,
@@ -145,9 +197,14 @@ async function getQueueSnapshot(tenant, options = {}) {
     if (ticket) {
       const position =
         ticket.status === "waiting"
-          ? waitingTickets.findIndex(
-              (waitingTicket) => String(waitingTicket._id) === String(ticket._id)
-            ) + 1
+          ? (
+              ticket.dateKey === dateKey
+                ? waitingTickets
+                : await ticketRepository.listWaitingTickets(tenant._id, {
+                    locationId,
+                    dateKey: ticket.dateKey
+                  })
+            ).findIndex((waitingTicket) => String(waitingTicket._id) === String(ticket._id)) + 1
           : null;
 
       focusTicket = {
@@ -208,6 +265,13 @@ async function getQueueSnapshot(tenant, options = {}) {
         }
       : null,
     publicBoardTheme,
+    queueDay: {
+      isClosed: Boolean(queueDayClosure),
+      queueDateKey: dateKey,
+      closedAt: queueDayClosure?.closedAt || queueDayClosure?.createdAt || null,
+      reopenedAt: queueDayClosure?.reopenedAt || null,
+      closureReason: queueDayClosure?.closureReason || null
+    },
     stats: {
       waitingCount: waitingTickets.length,
       servedToday,
@@ -234,6 +298,24 @@ async function getQueueSnapshot(tenant, options = {}) {
     usage,
     focusTicket
   };
+}
+
+async function assertQueueDayOpen(tenant, location, options = {}) {
+  const queueDateKey = options.queueDateKey || getDateKey();
+  const activeClosure = await queueDayClosureRepository.findActiveClosure(
+    tenant._id,
+    location._id,
+    queueDateKey,
+    { client: options.client }
+  );
+  if (!activeClosure) {
+    return;
+  }
+
+  const error = new Error("This queue day is closed. Reopen the queue to continue operations.");
+  error.statusCode = 409;
+  error.code = "QUEUE_DAY_CLOSED";
+  throw error;
 }
 
 async function publishSnapshot(tenant, options = {}) {
@@ -284,11 +366,14 @@ async function createTicket({
   notifyByEmail,
   notifyBySms,
   joinChannel,
-  notes
+  notes,
+  actorUserId,
+  actorRole
 }) {
   const resolvedLocation = await resolveLocation(tenant, { location });
+  await assertQueueDayOpen(tenant, resolvedLocation);
   const ticket = await db.withTransaction(async (client) => {
-    return createTicketForTenantInTransaction(client, {
+    const createdTicket = await createTicketForTenantInTransaction(client, {
       tenant,
       location: resolvedLocation,
       userId,
@@ -300,6 +385,23 @@ async function createTicket({
       joinChannel,
       notes
     });
+
+    const actor = buildQueueEventActor({
+      actorUserId,
+      actorRole,
+      source: joinChannel === "vendor" ? "vendor" : "public"
+    });
+    await appendQueueEvent(client, createdTicket, "ticket_created", {
+      toStatus: createdTicket.status,
+      actorUserId: actor.actorUserId,
+      actorRole: actor.actorRole,
+      source: actor.source,
+      metadata: {
+        joinChannel: createdTicket.joinChannel
+      }
+    });
+
+    return createdTicket;
   });
 
   await maybeNotifyUpcomingTickets(tenant, { location: resolvedLocation });
@@ -346,10 +448,13 @@ async function createTicketForTenantInTransaction(client, {
 
 async function callNextTicket(tenant, options = {}) {
   const location = await resolveLocation(tenant, options);
+  await assertQueueDayOpen(tenant, location);
+  const dateKey = options.queueDateKey || getDateKey();
   const ticket = await db.withTransaction(async (client) => {
     const activeTicket = await ticketRepository.findCurrentCalledTicket(tenant._id, {
       client,
-      locationId: location?._id
+      locationId: location?._id,
+      dateKey
     });
     if (activeTicket) {
       const error = new Error("Serve or skip the current ticket before calling the next one.");
@@ -357,11 +462,44 @@ async function callNextTicket(tenant, options = {}) {
       throw error;
     }
 
-    return ticketRepository.callNextWaitingTicket(tenant._id, {
+    const nextWaitingTicket = (await ticketRepository.listWaitingTickets(tenant._id, {
       client,
       locationId: location?._id,
-      serviceCounterId: options.serviceCounter?._id
+      dateKey,
+      limit: 1
+    }))[0];
+    if (!nextWaitingTicket) {
+      return null;
+    }
+
+    queueLifecycle.assertValidTransition(nextWaitingTicket.status, "called");
+    const nextTicket = await ticketRepository.callNextWaitingTicket(tenant._id, {
+      client,
+      locationId: location?._id,
+      serviceCounterId: options.serviceCounter?._id,
+      dateKey
     });
+    if (!nextTicket) {
+      return null;
+    }
+
+    const actor = buildQueueEventActor({
+      actorUserId: options.actorUserId,
+      actorRole: options.actorRole,
+      source: options.source || "vendor"
+    });
+    await appendQueueEvent(client, nextTicket, "ticket_called", {
+      fromStatus: "waiting",
+      toStatus: "called",
+      actorUserId: actor.actorUserId,
+      actorRole: actor.actorRole,
+      source: actor.source,
+      metadata: {
+        serviceCounterId: options.serviceCounter?._id || null
+      }
+    });
+
+    return nextTicket;
   });
 
   if (!ticket) {
@@ -380,12 +518,50 @@ async function callNextTicket(tenant, options = {}) {
 
 async function updateCurrentTicketStatus(tenant, status, options = {}) {
   const location = await resolveLocation(tenant, options);
-  const ticket = await db.withTransaction((client) =>
-    ticketRepository.updateCurrentCalledTicketStatus(tenant._id, status, {
+  queueLifecycle.assertSupportedCurrentTicketResolution(status);
+  const dateKey = options.queueDateKey || getDateKey();
+  const ticket = await db.withTransaction(async (client) => {
+    const currentTicket = await ticketRepository.findCurrentCalledTicket(tenant._id, {
       client,
-      locationId: location?._id
-    })
-  );
+      locationId: location?._id,
+      dateKey
+    });
+    if (!currentTicket) {
+      return null;
+    }
+
+    queueLifecycle.assertValidTransition(currentTicket.status, status);
+    const updatedTicket = await ticketRepository.updateCurrentCalledTicketStatus(tenant._id, status, {
+      client,
+      locationId: location?._id,
+      dateKey
+    });
+    if (!updatedTicket) {
+      return null;
+    }
+
+    const actor = buildQueueEventActor({
+      actorUserId: options.actorUserId,
+      actorRole: options.actorRole,
+      source: options.source || "vendor"
+    });
+    const eventTypeByStatus = {
+      served: "ticket_served",
+      skipped: "ticket_skipped",
+      cancelled: "ticket_cancelled",
+      unserved: "ticket_unserved"
+    };
+    await appendQueueEvent(client, updatedTicket, eventTypeByStatus[status], {
+      fromStatus: currentTicket.status,
+      toStatus: status,
+      actorUserId: actor.actorUserId,
+      actorRole: actor.actorRole,
+      source: actor.source,
+      metadata: {}
+    });
+
+    return updatedTicket;
+  });
 
   if (!ticket) {
     return null;
@@ -399,9 +575,45 @@ async function updateCurrentTicketStatus(tenant, status, options = {}) {
 
 async function cancelTicket(tenant, lookupCode, options = {}) {
   const location = await resolveLocation(tenant, options);
-  const ticket = await db.withTransaction((client) =>
-    ticketRepository.cancelWaitingTicket(tenant._id, lookupCode.toUpperCase(), { client })
-  );
+  const normalizedLookupCode = lookupCode.toUpperCase();
+  const ticket = await db.withTransaction(async (client) => {
+    const existingTicket = await ticketRepository.findTicketByTenantAndLookupCode(
+      tenant._id,
+      normalizedLookupCode,
+      { client }
+    );
+    if (!existingTicket) {
+      return null;
+    }
+
+    queueLifecycle.assertValidTransition(existingTicket.status, "cancelled");
+    const cancelledTicket = await ticketRepository.cancelWaitingTicket(
+      tenant._id,
+      normalizedLookupCode,
+      { client }
+    );
+    if (!cancelledTicket) {
+      return null;
+    }
+
+    const actor = buildQueueEventActor({
+      actorUserId: options.actorUserId,
+      actorRole: options.actorRole,
+      source: options.source || "public"
+    });
+    await appendQueueEvent(client, cancelledTicket, "ticket_cancelled", {
+      fromStatus: existingTicket.status,
+      toStatus: "cancelled",
+      actorUserId: actor.actorUserId,
+      actorRole: actor.actorRole,
+      source: actor.source,
+      metadata: {
+        lookupCode: cancelledTicket.lookupCode
+      }
+    });
+
+    return cancelledTicket;
+  });
 
   if (!ticket) {
     return null;
@@ -413,6 +625,196 @@ async function cancelTicket(tenant, lookupCode, options = {}) {
   return { ticket, snapshot };
 }
 
+async function closeQueueDay(tenant, options = {}) {
+  const location = await resolveLocation(tenant, options);
+  if (!location) {
+    const error = new Error("A location is required to close the queue.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const queueDateKey = options.queueDateKey || getDateKey();
+  const nextQueueDateKey = options.nextQueueDateKey || getDateKey(new Date(Date.now() + 24 * 60 * 60 * 1000));
+  await db.withTransaction(async (client) => {
+    const existingClosure = await queueDayClosureRepository.findActiveClosure(
+      tenant._id,
+      location._id,
+      queueDateKey,
+      { client }
+    );
+    if (existingClosure) {
+      const error = new Error("This queue day is already closed.");
+      error.statusCode = 409;
+      throw error;
+    }
+
+    const affectedTickets = await ticketRepository.listTicketsForQueueClosure(tenant._id, {
+      client,
+      locationId: location._id,
+      dateKey: queueDateKey
+    });
+    const calledTickets = affectedTickets.filter((ticket) => ticket.status === "called");
+    const waitingTickets = affectedTickets.filter((ticket) => ticket.status === "waiting");
+    const calledTicketIds = calledTickets.map((ticket) => ticket._id);
+    const waitingTicketIds = waitingTickets.map((ticket) => ticket._id);
+    const updatedTickets = await ticketRepository.markTicketsUnservedForClosure(tenant._id, {
+      client,
+      locationId: location._id,
+      dateKey: queueDateKey,
+      ticketIds: calledTicketIds
+    });
+    const carriedTickets = await ticketRepository.carryOverWaitingTickets(tenant._id, {
+      client,
+      locationId: location._id,
+      fromDateKey: queueDateKey,
+      toDateKey: nextQueueDateKey,
+      ticketIds: waitingTicketIds
+    });
+    const actor = buildQueueEventActor({
+      actorUserId: options.actorUserId,
+      actorRole: options.actorRole,
+      source: options.source || "vendor"
+    });
+
+    for (const ticket of updatedTickets) {
+      const originalTicket = calledTickets.find(
+        (candidate) => String(candidate._id) === String(ticket._id)
+      );
+      await appendQueueEvent(client, ticket, "ticket_unserved", {
+        fromStatus: originalTicket?.status || null,
+        toStatus: "unserved",
+        actorUserId: actor.actorUserId,
+        actorRole: actor.actorRole,
+        source: actor.source,
+        metadata: {
+          reason: "queue_day_closed"
+        }
+      });
+    }
+
+    for (const ticket of carriedTickets) {
+      const originalTicket = waitingTickets.find(
+        (candidate) => String(candidate._id) === String(ticket._id)
+      );
+      await appendQueueEvent(client, ticket, "ticket_carried_over", {
+        fromStatus: originalTicket?.status || "waiting",
+        toStatus: "waiting",
+        actorUserId: actor.actorUserId,
+        actorRole: actor.actorRole,
+        source: actor.source,
+        metadata: {
+          fromQueueDateKey: queueDateKey,
+          toQueueDateKey: nextQueueDateKey,
+          carryOverCount: ticket.carryOverCount
+        }
+      });
+    }
+
+    await queueDayClosureRepository.createClosure(
+      {
+        tenantId: tenant._id,
+        locationId: location._id,
+        queueDateKey,
+        nextQueueDateKey,
+        closureReason: options.reason || "",
+        affectedTicketIds: [...calledTicketIds, ...waitingTicketIds],
+        waitingCarriedCount: carriedTickets.length,
+        calledUnservedCount: updatedTickets.length,
+        closedByUserId: options.actorUserId || null
+      },
+      { client }
+    );
+
+    await appendScopedQueueEvent(client, {
+      tenantId: tenant._id,
+      locationId: location._id,
+      queueDateKey,
+      eventType: "queue_closed",
+      actorUserId: actor.actorUserId,
+      actorRole: actor.actorRole,
+      source: actor.source,
+      metadata: {
+        closureReason: options.reason || "",
+        affectedTicketIds: [...calledTicketIds, ...waitingTicketIds],
+        waitingCarriedCount: carriedTickets.length,
+        calledUnservedCount: updatedTickets.length,
+        nextQueueDateKey
+      }
+    });
+  });
+
+  return publishSnapshot(tenant, { location });
+}
+
+async function reopenQueueDay(tenant, options = {}) {
+  const location = await resolveLocation(tenant, options);
+  if (!location) {
+    const error = new Error("A location is required to reopen the queue.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const queueDateKey = options.queueDateKey || getDateKey();
+  await db.withTransaction(async (client) => {
+    const activeClosure = await queueDayClosureRepository.findActiveClosure(
+      tenant._id,
+      location._id,
+      queueDateKey,
+      { client }
+    );
+    if (!activeClosure) {
+      const error = new Error("There is no closed queue day to reopen.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const reopenedTickets = await ticketRepository.reopenTicketsFromClosure(tenant._id, {
+      client,
+      locationId: location._id,
+      dateKey: queueDateKey,
+      ticketIds: activeClosure.affectedTicketIds
+    });
+    const actor = buildQueueEventActor({
+      actorUserId: options.actorUserId,
+      actorRole: options.actorRole,
+      source: options.source || "vendor"
+    });
+
+    for (const ticket of reopenedTickets) {
+      await appendQueueEvent(client, ticket, "ticket_requeued", {
+        fromStatus: "unserved",
+        toStatus: "waiting",
+        actorUserId: actor.actorUserId,
+        actorRole: actor.actorRole,
+        source: actor.source,
+        metadata: {
+          reason: "queue_day_reopened"
+        }
+      });
+    }
+
+    await queueDayClosureRepository.reopenClosure(activeClosure._id, options.actorUserId || null, {
+      client
+    });
+
+    await appendScopedQueueEvent(client, {
+      tenantId: tenant._id,
+      locationId: location._id,
+      queueDateKey,
+      eventType: "queue_reopened",
+      actorUserId: actor.actorUserId,
+      actorRole: actor.actorRole,
+      source: actor.source,
+      metadata: {
+        affectedTicketIds: activeClosure.affectedTicketIds
+      }
+    });
+  });
+
+  await maybeNotifyUpcomingTickets(tenant, { location });
+  return publishSnapshot(tenant, { location });
+}
+
 module.exports = {
   resolveLocation,
   createTicket,
@@ -421,6 +823,8 @@ module.exports = {
   callNextTicket,
   updateCurrentTicketStatus,
   cancelTicket,
+  closeQueueDay,
+  reopenQueueDay,
   publishSnapshot,
   maybeNotifyUpcomingTickets
 };
