@@ -6,9 +6,16 @@ const USER_COLUMNS = `
   email,
   phone,
   password_hash,
+  password_hash_algorithm,
   email_verified,
   last_login_provider,
   roles,
+  account_locked_until,
+  failed_login_count,
+  last_failed_login_at,
+  last_password_changed_at,
+  mfa_enabled,
+  mfa_required,
   created_at,
   updated_at
 `;
@@ -41,9 +48,16 @@ function mapUser(row, relationships = {}) {
     email: row.email,
     phone: row.phone,
     passwordHash: row.password_hash,
+    passwordHashAlgorithm: row.password_hash_algorithm,
     emailVerified: row.email_verified,
     lastLoginProvider: row.last_login_provider,
     roles: row.roles || [],
+    accountLockedUntil: row.account_locked_until,
+    failedLoginCount: row.failed_login_count || 0,
+    lastFailedLoginAt: row.last_failed_login_at,
+    lastPasswordChangedAt: row.last_password_changed_at,
+    mfaEnabled: row.mfa_enabled === true,
+    mfaRequired: row.mfa_required === true,
     oauthAccounts: relationships.oauthAccounts || [],
     tenantMemberships: relationships.tenantMemberships || [],
     createdAt: row.created_at,
@@ -191,11 +205,13 @@ async function createUser(data, options = {}) {
         email,
         phone,
         password_hash,
+        password_hash_algorithm,
         email_verified,
         last_login_provider,
-        roles
+        roles,
+        last_password_changed_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING ${USER_COLUMNS}
     `,
     [
@@ -203,9 +219,11 @@ async function createUser(data, options = {}) {
       data.email || null,
       data.phone || null,
       data.passwordHash || null,
+      data.passwordHash ? data.passwordHashAlgorithm || "bcrypt" : null,
       Boolean(data.emailVerified),
       data.lastLoginProvider || "password",
-      data.roles && data.roles.length ? data.roles : ["customer"]
+      data.roles && data.roles.length ? data.roles : ["customer"],
+      data.passwordHash ? new Date() : null
     ]
   );
 
@@ -258,9 +276,16 @@ async function updateUser(userId, changes, options = {}) {
     email: "email",
     phone: "phone",
     passwordHash: "password_hash",
+    passwordHashAlgorithm: "password_hash_algorithm",
     emailVerified: "email_verified",
     lastLoginProvider: "last_login_provider",
-    roles: "roles"
+    roles: "roles",
+    accountLockedUntil: "account_locked_until",
+    failedLoginCount: "failed_login_count",
+    lastFailedLoginAt: "last_failed_login_at",
+    lastPasswordChangedAt: "last_password_changed_at",
+    mfaEnabled: "mfa_enabled",
+    mfaRequired: "mfa_required"
   };
 
   for (const [key, column] of Object.entries(setters)) {

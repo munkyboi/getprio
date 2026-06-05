@@ -18,22 +18,62 @@ function addMonths(date, months) {
   return next;
 }
 
+function normalizeOrigin(origin) {
+  return String(origin || "").replace(/\/$/, "");
+}
+
 function buildBasicAuth(secretKey) {
   return Buffer.from(`${secretKey}:`).toString("base64");
 }
 
-function getTenantBillingUrl(path) {
-  return `${env.clientUrl.replace(/\/$/, "")}${path}`;
+function buildAllowedReturnOrigins() {
+  const origins = new Set();
+  const configuredOrigins = [env.clientUrl, env.appBaseUrl, env.platformDashboardUrl]
+    .filter(Boolean)
+    .map((origin) => normalizeOrigin(origin));
+
+  for (const origin of configuredOrigins) {
+    origins.add(origin);
+
+    try {
+      const url = new URL(origin);
+      if (!url.port) {
+        continue;
+      }
+
+      origins.add(`${url.protocol}//localhost:${url.port}`);
+      origins.add(`${url.protocol}//127.0.0.1:${url.port}`);
+    } catch {
+      // Ignore invalid URLs and keep the configured value only.
+    }
+  }
+
+  return origins;
 }
 
-function buildCheckoutReturnUrl(checkout, plan, status) {
+const allowedReturnOrigins = buildAllowedReturnOrigins();
+
+function resolveReturnOrigin(requestOrigin) {
+  const normalizedOrigin = normalizeOrigin(requestOrigin);
+  if (normalizedOrigin && allowedReturnOrigins.has(normalizedOrigin)) {
+    return normalizedOrigin;
+  }
+
+  return normalizeOrigin(env.clientUrl);
+}
+
+function getTenantBillingUrl(path, requestOrigin) {
+  return `${resolveReturnOrigin(requestOrigin)}${path}`;
+}
+
+function buildCheckoutReturnUrl(checkout, plan, status, requestOrigin) {
   const params = new URLSearchParams({
     billing: status,
     plan: plan.slug,
     checkout: checkout._id
   });
 
-  return getTenantBillingUrl(`/dashboard?${params.toString()}`);
+  return getTenantBillingUrl(`/dashboard?${params.toString()}`, requestOrigin);
 }
 
 function formatPlanResponse(plan) {
@@ -94,7 +134,13 @@ async function getTenantEntitlements(tenantId) {
   return getPlanEntitlements("economical");
 }
 
-async function createPayMongoCheckout({ tenant, user, planSlug, billingInterval = "monthly" }) {
+async function createPayMongoCheckout({
+  tenant,
+  user,
+  planSlug,
+  billingInterval = "monthly",
+  requestOrigin
+}) {
   const plan = await findPlanBySlug(planSlug);
   if (!plan) {
     const error = new Error("Unknown subscription plan.");
@@ -140,8 +186,8 @@ async function createPayMongoCheckout({ tenant, user, planSlug, billingInterval 
     }
   });
 
-  const successUrl = buildCheckoutReturnUrl(checkout, plan, "success");
-  const cancelUrl = buildCheckoutReturnUrl(checkout, plan, "cancelled");
+  const successUrl = buildCheckoutReturnUrl(checkout, plan, "success", requestOrigin);
+  const cancelUrl = buildCheckoutReturnUrl(checkout, plan, "cancelled", requestOrigin);
   const payload = {
     data: {
       attributes: {

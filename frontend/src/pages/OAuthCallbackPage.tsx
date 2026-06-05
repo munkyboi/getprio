@@ -12,6 +12,7 @@ export default function OAuthCallbackPage() {
     const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
     const next = params.get("next") || "/";
     const token = params.get("token");
+    const refreshToken = params.get("refreshToken");
     const callbackError = params.get("error");
 
     if (callbackError) {
@@ -19,12 +20,12 @@ export default function OAuthCallbackPage() {
       return;
     }
 
-    if (!token) {
+    if (!token || !refreshToken) {
       setError("Missing sign-in token. Please try again.");
       return;
     }
 
-    acceptAuthToken(token);
+    acceptAuthToken(token, refreshToken);
     navigate(next, { replace: true });
   }, [acceptAuthToken, navigate]);
 

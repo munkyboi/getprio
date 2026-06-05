@@ -1,16 +1,23 @@
-import { useEffect, useState } from "react";
-import { Badge, Button, Card, Stack, Table, Text, Title } from "@mantine/core";
-import { Navigate, Link } from "react-router-dom";
-import type { CustomerAccountOverviewResponse } from "@shared";
+import { useEffect, useState, type FormEvent } from "react";
+import { Alert, Badge, Button, Card, PasswordInput, Stack, Table, Text, Title } from "@mantine/core";
+import { Navigate, Link, useNavigate } from "react-router-dom";
+import type { CustomerAccountOverviewResponse, PasswordChangeRequest } from "@shared";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { buildMonitorPathWithTicket } from "../queuePaths";
 import { getErrorMessage } from "../utils/errors";
 
 export default function CustomerAccountPage() {
-  const { token, user, loading } = useAuth();
+  const navigate = useNavigate();
+  const { changePassword, token, user, loading } = useAuth();
   const [account, setAccount] = useState<CustomerAccountOverviewResponse | null>(null);
   const [error, setError] = useState("");
+  const [passwordError, setPasswordError] = useState("");
+  const [passwordForm, setPasswordForm] = useState<PasswordChangeRequest>({
+    currentPassword: "",
+    newPassword: ""
+  });
+  const [changingPassword, setChangingPassword] = useState(false);
 
   useEffect(() => {
     if (!token) {
@@ -30,6 +37,25 @@ export default function CustomerAccountPage() {
     return <Navigate to="/login" replace />;
   }
 
+  async function handlePasswordChange(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPasswordError("");
+    setChangingPassword(true);
+
+    try {
+      await changePassword(passwordForm);
+      setPasswordForm({
+        currentPassword: "",
+        newPassword: ""
+      });
+      navigate("/login?passwordChanged=1", { replace: true });
+    } catch (changeError) {
+      setPasswordError(getErrorMessage(changeError));
+    } finally {
+      setChangingPassword(false);
+    }
+  }
+
   return (
     <Stack className="customer-account-page" gap="lg">
       <Card className="finazze-auth-card customer-account-card" p="xl">
@@ -41,6 +67,48 @@ export default function CustomerAccountPage() {
           <Badge color={account?.user.emailVerified ? "teal" : "yellow"} w="fit-content">
             {account?.user.emailVerified ? "Email verified" : "Email not verified"}
           </Badge>
+        </Stack>
+      </Card>
+
+      <Card className="finazze-auth-card customer-account-card" p="xl">
+        <Stack gap="md">
+          <div>
+            <Text className="finazze-section-label">Security</Text>
+            <Title order={2}>Change password</Title>
+            <Text c="dimmed" mt="xs">
+              Updating your password signs out this session and any other active sessions.
+            </Text>
+          </div>
+          <form onSubmit={handlePasswordChange}>
+            <Stack gap="md">
+              <PasswordInput
+                label="Current password"
+                required
+                value={passwordForm.currentPassword}
+                onChange={(event) =>
+                  setPasswordForm((current) => ({
+                    ...current,
+                    currentPassword: event.target.value
+                  }))
+                }
+              />
+              <PasswordInput
+                label="New password"
+                required
+                value={passwordForm.newPassword}
+                onChange={(event) =>
+                  setPasswordForm((current) => ({
+                    ...current,
+                    newPassword: event.target.value
+                  }))
+                }
+              />
+              {passwordError ? <Alert color="red">{passwordError}</Alert> : null}
+              <Button color="dark" disabled={changingPassword} type="submit">
+                {changingPassword ? "Updating password..." : "Change password"}
+              </Button>
+            </Stack>
+          </form>
         </Stack>
       </Card>
 

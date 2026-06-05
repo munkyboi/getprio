@@ -21,6 +21,7 @@
     "typecheck:frontend": "npm --workspace frontend run typecheck",
     "typecheck:platform": "npm --workspace platform-dashboard run typecheck",
     "typecheck:backend": "npm --workspace backend run typecheck",
+    "test:backend": "npm --workspace backend run test",
     "prepare": "husky"
   },
   "lint-staged": {

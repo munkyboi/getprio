@@ -22,6 +22,27 @@ export const platformDashboardUrl =
   process.env.PLATFORM_DASHBOARD_URL || "http://localhost:7100";
 export const oauthCallbackPath = process.env.OAUTH_CALLBACK_PATH || "/oauth/callback";
 export const oauthStateTtlMinutes = Number(process.env.OAUTH_STATE_TTL_MINUTES || 10);
+export const accessTokenTtlMinutes = Number(process.env.ACCESS_TOKEN_TTL_MINUTES || 15);
+export const refreshTokenTtlDaysCustomer = Number(
+  process.env.REFRESH_TOKEN_TTL_DAYS_CUSTOMER || 30
+);
+export const refreshTokenTtlDaysVendorStaff = Number(
+  process.env.REFRESH_TOKEN_TTL_DAYS_VENDOR_STAFF || 14
+);
+export const refreshTokenTtlDaysVendorAdmin = Number(
+  process.env.REFRESH_TOKEN_TTL_DAYS_VENDOR_ADMIN || 7
+);
+export const refreshTokenTtlDaysPlatformAdmin = Number(
+  process.env.REFRESH_TOKEN_TTL_DAYS_PLATFORM_ADMIN || 7
+);
+export const loginLockoutThreshold = Number(process.env.LOGIN_LOCKOUT_THRESHOLD || 5);
+export const loginLockoutWindowMinutes = Number(
+  process.env.LOGIN_LOCKOUT_WINDOW_MINUTES || 15
+);
+export const loginLockoutDurationMinutes = Number(
+  process.env.LOGIN_LOCKOUT_DURATION_MINUTES || 15
+);
+export const passwordResetTtlMinutes = Number(process.env.PASSWORD_RESET_TTL_MINUTES || 30);
 export const googleClientId = process.env.GOOGLE_CLIENT_ID || "";
 export const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET || "";
 export const facebookAppId = process.env.FACEBOOK_APP_ID || "";
@@ -75,6 +96,15 @@ const env = {
   platformDashboardUrl,
   oauthCallbackPath,
   oauthStateTtlMinutes,
+  accessTokenTtlMinutes,
+  refreshTokenTtlDaysCustomer,
+  refreshTokenTtlDaysVendorStaff,
+  refreshTokenTtlDaysVendorAdmin,
+  refreshTokenTtlDaysPlatformAdmin,
+  loginLockoutThreshold,
+  loginLockoutWindowMinutes,
+  loginLockoutDurationMinutes,
+  passwordResetTtlMinutes,
   googleClientId,
   googleClientSecret,
   facebookAppId,

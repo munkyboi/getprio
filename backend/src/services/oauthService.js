@@ -47,11 +47,15 @@ function buildServerCallbackUrl(provider) {
   return `${getServerOrigin()}/api/auth/oauth/${provider}/callback`;
 }
 
-function buildClientCallbackUrl({ token, next, error }) {
+function buildClientCallbackUrl({ token, refreshToken, next, error }) {
   const hash = new URLSearchParams();
 
   if (token) {
     hash.set("token", token);
+  }
+
+  if (refreshToken) {
+    hash.set("refreshToken", refreshToken);
   }
 
   if (next) {

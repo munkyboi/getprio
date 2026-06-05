@@ -1,12 +1,12 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
 const db = require("../config/db");
-const env = require("../config/env");
 const tenantRepository = require("../repositories/tenants");
+const authSessionRepository = require("../repositories/authSessions");
 const userRepository = require("../repositories/users");
 const asyncHandler = require("../middleware/asyncHandler");
-const { authenticate } = require("../middleware/auth");
+const { authenticate, maybeAuthenticate } = require("../middleware/auth");
+const authService = require("../services/authService");
 const {
   buildAuthorizationUrl,
   buildClientCallbackUrl,
@@ -17,15 +17,14 @@ const {
   getProviderLabel,
   readOAuthState
 } = require("../services/oauthService");
+const notificationService = require("../services/notificationService");
+const passwordResetService = require("../services/passwordResetService");
+const securityEventService = require("../services/securityEventService");
+const sessionService = require("../services/sessionService");
 
 const router = express.Router();
 const OAUTH_INTENTS = new Set(["login", "register_customer", "register_vendor"]);
-
-function normalizeEmail(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase();
-}
+const normalizeEmail = authService.normalizeEmail;
 
 function normalizeSlug(value) {
   return String(value || "")
@@ -35,8 +34,12 @@ function normalizeSlug(value) {
     .replace(/^-+|-+$/g, "");
 }
 
-function buildToken(user) {
-  return jwt.sign({ sub: String(user._id) }, env.jwtSecret, { expiresIn: "7d" });
+function buildAuthResponse(user, sessionResult) {
+  return {
+    token: sessionResult.accessToken,
+    refreshToken: sessionResult.refreshToken,
+    user
+  };
 }
 
 function ensureValidIntent(intent) {
@@ -79,16 +82,6 @@ function buildExistingAccountMessage(user) {
   }
 
   return "That email is already registered.";
-}
-
-function buildPasswordLoginMessage(user) {
-  const providerLabels = getOauthProviderLabels(user);
-
-  if (providerLabels.length) {
-    return `This account uses ${formatList(providerLabels)} sign-in. Continue with one of the social sign-in options.`;
-  }
-
-  return "This account does not have a password sign-in configured.";
 }
 
 function buildFallbackName(provider, email) {
@@ -212,6 +205,10 @@ function redirectOauthError(res, message) {
   res.redirect(buildClientCallbackUrl({ error: message }));
 }
 
+function getAuthMethodForProvider(provider) {
+  return provider === "google" || provider === "facebook" ? provider : "password";
+}
+
 router.get("/oauth/providers", (req, res) => {
   res.json({
     providers: buildProviderAvailability()
@@ -262,10 +259,25 @@ router.all("/oauth/:provider/callback", async (req, res) => {
 
     const user = await findOrCreateOauthUser(profile);
     const next = getPostOauthPath(oauthState.intent, provider, user);
+    const sessionResult = await sessionService.createAuthSession({
+      user,
+      authMethod: getAuthMethodForProvider(provider),
+      ipAddress: authService.getRequestIp(req),
+      userAgent: authService.getUserAgent(req)
+    });
+
+    await authService.recordLoginAttempt({
+      email: user.email || profile.email || "",
+      success: true,
+      user,
+      sessionId: sessionResult.session._id,
+      req
+    });
 
     res.redirect(
       buildClientCallbackUrl({
-        token: buildToken(user),
+        token: sessionResult.accessToken,
+        refreshToken: sessionResult.refreshToken,
         next
       })
     );
@@ -328,6 +340,7 @@ router.post(
           email: normalizedEmail,
           phone,
           passwordHash: await bcrypt.hash(password, 10),
+          passwordHashAlgorithm: "bcrypt",
           emailVerified: false,
           lastLoginProvider: "password",
           roles: ["customer", "vendor"],
@@ -339,9 +352,23 @@ router.post(
       return { user };
     });
 
+    const sessionResult = await sessionService.createAuthSession({
+      user: result.user,
+      authMethod: "password",
+      ipAddress: authService.getRequestIp(req),
+      userAgent: authService.getUserAgent(req)
+    });
+
+    await authService.recordLoginAttempt({
+      email: normalizedEmail,
+      success: true,
+      user: result.user,
+      sessionId: sessionResult.session._id,
+      req
+    });
+
     res.status(201).json({
-      token: buildToken(result.user),
-      user: await buildUserPayload(result.user)
+      ...buildAuthResponse(await buildUserPayload(result.user), sessionResult)
     });
   })
 );
@@ -425,9 +452,15 @@ router.post(
       );
     });
 
+    const sessionResult = await sessionService.createAuthSession({
+      user,
+      authMethod: "password",
+      ipAddress: authService.getRequestIp(req),
+      userAgent: authService.getUserAgent(req)
+    });
+
     res.status(201).json({
-      token: buildToken(user),
-      user: await buildUserPayload(user)
+      ...buildAuthResponse(await buildUserPayload(user), sessionResult)
     });
   })
 );
@@ -456,14 +489,29 @@ router.post(
       email: normalizedEmail,
       phone,
       passwordHash: await bcrypt.hash(password, 10),
+      passwordHashAlgorithm: "bcrypt",
       emailVerified: false,
       lastLoginProvider: "password",
       roles: ["customer"]
     });
 
+    const sessionResult = await sessionService.createAuthSession({
+      user,
+      authMethod: "password",
+      ipAddress: authService.getRequestIp(req),
+      userAgent: authService.getUserAgent(req)
+    });
+
+    await authService.recordLoginAttempt({
+      email: normalizedEmail,
+      success: true,
+      user,
+      sessionId: sessionResult.session._id,
+      req
+    });
+
     res.status(201).json({
-      token: buildToken(user),
-      user: await buildUserPayload(user)
+      ...buildAuthResponse(await buildUserPayload(user), sessionResult)
     });
   })
 );
@@ -479,34 +527,216 @@ router.post(
       throw error;
     }
 
-    const user = await userRepository.findUserByEmail(normalizeEmail(email));
+    const normalizedEmail = normalizeEmail(email);
+    const user = await userRepository.findUserByEmail(normalizedEmail);
     if (!user) {
+      await authService.recordLoginAttempt({
+        email: normalizedEmail,
+        success: false,
+        failureReason: "invalid_credentials",
+        req
+      });
       const error = new Error("Invalid email or password.");
       error.statusCode = 401;
       throw error;
     }
 
-    if (!user.passwordHash) {
-      const error = new Error(buildPasswordLoginMessage(user));
+    if (authService.isUserLocked(user)) {
+      await authService.recordLockedLoginAttempt({
+        email: normalizedEmail,
+        user,
+        req
+      });
+      const error = new Error("Your account is temporarily locked. Please try again later.");
+      error.statusCode = 423;
+      throw error;
+    }
+
+    const passwordMatches =
+      user.passwordHash && (await authService.verifyPasswordLogin(user, password));
+    if (!passwordMatches) {
+      const failureResult = await db.withTransaction(async (client) => {
+        return authService.handleFailedPasswordLogin({
+          email: normalizedEmail,
+          user,
+          req,
+          client
+        });
+      });
+
+      const error = new Error(
+        failureResult.updatedUser?.accountLockedUntil
+          ? "Your account is temporarily locked. Please try again later."
+          : "Invalid email or password."
+      );
+      error.statusCode = failureResult.updatedUser?.accountLockedUntil ? 423 : 401;
+      throw error;
+    }
+
+    const updatedUser = await db.withTransaction(async (client) => {
+      return authService.handleSuccessfulPasswordLogin({
+        user,
+        req,
+        client
+      });
+    });
+    const sessionResult = await sessionService.createAuthSession({
+      user: updatedUser,
+      authMethod: "password",
+      ipAddress: authService.getRequestIp(req),
+      userAgent: authService.getUserAgent(req)
+    });
+
+    await authService.recordLoginAttempt({
+      email: normalizedEmail,
+      success: true,
+      user: updatedUser,
+      sessionId: sessionResult.session._id,
+      req
+    });
+
+    res.json({
+      ...buildAuthResponse(await buildUserPayload(updatedUser), sessionResult)
+    });
+  })
+);
+
+router.post(
+  "/refresh",
+  asyncHandler(async (req, res) => {
+    const refreshToken = String(req.body.refreshToken || "");
+    if (!refreshToken) {
+      const error = new Error("refreshToken is required.");
       error.statusCode = 400;
       throw error;
     }
 
-    const passwordMatches = await bcrypt.compare(password, user.passwordHash);
-    if (!passwordMatches) {
-      const error = new Error("Invalid email or password.");
+    const session = await sessionService.resolveSessionByRefreshToken(refreshToken);
+    if (!session || session.status !== "active" || new Date(session.expiresAt).getTime() <= Date.now()) {
+      const error = new Error("Refresh session is no longer valid.");
       error.statusCode = 401;
       throw error;
     }
 
-    const updatedUser = await userRepository.updateUser(user._id, {
-      lastLoginProvider: "password"
+    const user = await userRepository.findUserById(session.userId);
+    if (!user) {
+      const error = new Error("Refresh session is no longer valid.");
+      error.statusCode = 401;
+      throw error;
+    }
+
+    const sessionResult = await sessionService.rotateRefreshSession({ session, user });
+
+    await securityEventService.logSecurityEvent({
+      userId: user._id,
+      sessionId: sessionResult.session._id,
+      eventType: "refresh_rotated",
+      actorRole: user.roles?.[0] || null,
+      ipAddress: authService.getRequestIp(req),
+      userAgent: authService.getUserAgent(req),
+      metadata: {}
+    });
+
+    res.json(buildAuthResponse(await buildUserPayload(user), sessionResult));
+  })
+);
+
+router.post(
+  "/password-reset/request",
+  asyncHandler(async (req, res) => {
+    const email = normalizeEmail(req.body.email);
+    if (!email) {
+      const error = new Error("email is required.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const user = await userRepository.findUserByEmail(email);
+    if (user?.email) {
+      const reset = await db.withTransaction(async (client) => {
+        return passwordResetService.issuePasswordResetToken({
+          user,
+          req,
+          client
+        });
+      });
+
+      await notificationService.sendEmail({
+        to: user.email,
+        subject: "Reset your GetPrio password",
+        text: [
+          `We received a request to reset your GetPrio password.`,
+          `Reset link: ${reset.resetUrl}`,
+          `Reset token: ${reset.token}`,
+          `This reset token expires at ${new Date(reset.expiresAt).toISOString()}.`,
+          `If you did not request this, you can ignore this email.`
+        ].join("\n\n"),
+        purpose: "general",
+        metadata: {
+          category: "password_reset"
+        }
+      });
+    }
+
+    res.json({
+      success: true,
+      message: "If an account exists for that email, password reset instructions have been sent."
+    });
+  })
+);
+
+router.post(
+  "/password-reset/confirm",
+  asyncHandler(async (req, res) => {
+    const token = String(req.body.token || "").trim();
+    const newPassword = String(req.body.newPassword || "");
+
+    if (!token || !newPassword) {
+      const error = new Error("token and newPassword are required.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    await passwordResetService.resetPassword({
+      token,
+      newPassword,
+      req
     });
 
     res.json({
-      token: buildToken(updatedUser),
-      user: await buildUserPayload(updatedUser)
+      success: true,
+      message: "Your password has been reset."
     });
+  })
+);
+
+router.post(
+  "/logout",
+  maybeAuthenticate,
+  asyncHandler(async (req, res) => {
+    const refreshToken = String(req.body.refreshToken || "");
+    let session = null;
+
+    if (refreshToken) {
+      session = await sessionService.resolveSessionByRefreshToken(refreshToken);
+    } else if (req.auth?.sessionId) {
+      session = await authSessionRepository.findSessionById(req.auth.sessionId);
+    }
+
+    if (session?.status === "active") {
+      await sessionService.revokeSessionById(session._id, "logout");
+      await securityEventService.logSecurityEvent({
+        userId: session.userId,
+        sessionId: session._id,
+        eventType: "logout",
+        actorRole: req.user?.roles?.[0] || null,
+        ipAddress: authService.getRequestIp(req),
+        userAgent: authService.getUserAgent(req),
+        metadata: {}
+      });
+    }
+
+    res.json({ success: true });
   })
 );
 
