@@ -145,6 +145,25 @@ export interface OAuthProviderAvailability {
   facebook: boolean;
 }
 
+export interface PasswordResetRequest {
+  email: string;
+}
+
+export interface PasswordResetConfirmRequest {
+  token: string;
+  newPassword: string;
+}
+
+export interface PasswordChangeRequest {
+  currentPassword: string;
+  newPassword: string;
+}
+
+export interface AuthActionResponse {
+  success: boolean;
+  message: string;
+}
+
 export interface TenantSummary {
   id: string;
   name: string;
@@ -349,6 +368,7 @@ export interface QueueSnapshot {
 
 export interface AuthResponse {
   token: string;
+  refreshToken: string;
   user: UserSummary;
 }
 

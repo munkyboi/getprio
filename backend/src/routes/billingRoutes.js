@@ -1,7 +1,11 @@
 const express = require("express");
 const tenantRepository = require("../repositories/tenants");
 const asyncHandler = require("../middleware/asyncHandler");
-const { authenticate, userHasTenantAccess, assertTenantOwner } = require("../middleware/auth");
+const {
+  authenticate,
+  userHasTenantAccess,
+  assertTenantPermission
+} = require("../middleware/auth");
 const billingService = require("../services/billingService");
 
 const router = express.Router();
@@ -35,6 +39,7 @@ router.get(
   authenticate,
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.billing.read");
     res.json(await billingService.getBillingOverview(tenant._id));
   })
 );
@@ -44,13 +49,14 @@ router.post(
   authenticate,
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantOwner(req.user, tenant._id);
+    assertTenantPermission(req.user, tenant._id, "tenant.billing.manage");
     const { planSlug, billingInterval } = req.body;
     const checkout = await billingService.createPayMongoCheckout({
       tenant,
       user: req.user,
       planSlug,
-      billingInterval
+      billingInterval,
+      requestOrigin: req.get("origin")
     });
 
     res.status(201).json(checkout);
@@ -62,7 +68,7 @@ router.post(
   authenticate,
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantOwner(req.user, tenant._id);
+    assertTenantPermission(req.user, tenant._id, "tenant.billing.manage");
     const result = await billingService.syncPayMongoCheckout({
       tenant,
       checkoutId: req.params.checkoutId

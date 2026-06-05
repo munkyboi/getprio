@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import type {
+  AuthActionResponse,
   AuthIntent,
   AuthResponse,
   CompleteVendorOnboardingRequest,
@@ -7,11 +8,14 @@ import type {
   OAuthProviderAvailability,
   OAuthProviderId,
   OAuthProvidersResponse,
+  PasswordChangeRequest,
+  PasswordResetConfirmRequest,
+  PasswordResetRequest,
   RegisterCustomerRequest,
   RegisterVendorRequest,
   UserSummary
 } from "@shared";
-import { API_BASE_URL, apiRequest } from "../api/client";
+import { API_BASE_URL, apiRequest, setAuthHandlers } from "../api/client";
 import type { AuthContextValue } from "./AuthContext.types";
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -22,7 +26,32 @@ const EMPTY_OAUTH_PROVIDERS: OAuthProviderAvailability = {
 };
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [token, setToken] = useState(() => localStorage.getItem(STORAGE_KEY) || "");
+  const [token, setToken] = useState(() => {
+    const stored = localStorage.getItem(STORAGE_KEY) || "";
+    if (!stored) {
+      return "";
+    }
+
+    try {
+      const parsed = JSON.parse(stored) as { token?: string };
+      return parsed.token || "";
+    } catch {
+      return stored;
+    }
+  });
+  const [refreshToken, setRefreshToken] = useState(() => {
+    const stored = localStorage.getItem(STORAGE_KEY) || "";
+    if (!stored) {
+      return "";
+    }
+
+    try {
+      const parsed = JSON.parse(stored) as { refreshToken?: string };
+      return parsed.refreshToken || "";
+    } catch {
+      return "";
+    }
+  });
   const [user, setUser] = useState<UserSummary | null>(null);
   const [loading, setLoading] = useState(Boolean(localStorage.getItem(STORAGE_KEY)));
   const [oauthProviders, setOauthProviders] =
@@ -46,14 +75,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!token) {
+    if (!token || !refreshToken) {
       setUser(null);
       setLoading(false);
       localStorage.removeItem(STORAGE_KEY);
       return undefined;
     }
 
-    localStorage.setItem(STORAGE_KEY, token);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ token, refreshToken }));
     setLoading(true);
 
     apiRequest<{ user: UserSummary }>("/auth/me", { token })
@@ -70,10 +99,60 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
 
     return undefined;
-  }, [token]);
+  }, [refreshToken, token]);
+
+  useEffect(() => {
+    const clearAuthState = () => {
+      setToken("");
+      setRefreshToken("");
+      setUser(null);
+      localStorage.removeItem(STORAGE_KEY);
+    };
+
+    async function refreshAccessToken() {
+      if (!refreshToken) {
+        return null;
+      }
+
+      try {
+        const data = await apiRequest<AuthResponse, { refreshToken: string }>(
+          "/auth/refresh",
+          {
+            method: "POST",
+            body: { refreshToken },
+            skipAuthRefresh: true
+          }
+        );
+        setToken(data.token);
+        setRefreshToken(data.refreshToken);
+        setUser(data.user);
+        localStorage.setItem(
+          STORAGE_KEY,
+          JSON.stringify({ token: data.token, refreshToken: data.refreshToken })
+        );
+        return data.token;
+      } catch {
+        clearAuthState();
+        return null;
+      }
+    }
+
+    setAuthHandlers({
+      refreshToken: refreshAccessToken,
+      onAuthFailure: clearAuthState
+    });
+
+    return () => {
+      setAuthHandlers({
+        refreshToken: null,
+        onAuthFailure: null
+      });
+    };
+  }, [refreshToken]);
 
   const value: AuthContextValue = {
     token,
+    refreshToken,
     user,
     loading,
     oauthProviders,
@@ -84,6 +163,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         body: credentials
       });
       setToken(data.token);
+      setRefreshToken(data.refreshToken);
       setUser(data.user);
       return data;
     },
@@ -93,6 +173,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         body: payload
       });
       setToken(data.token);
+      setRefreshToken(data.refreshToken);
       setUser(data.user);
       return data;
     },
@@ -108,6 +189,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       );
       setToken(data.token);
+      setRefreshToken(data.refreshToken);
       setUser(data.user);
       return data;
     },
@@ -120,12 +202,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       );
       setToken(data.token);
+      setRefreshToken(data.refreshToken);
       setUser(data.user);
       return data;
     },
-    acceptAuthToken(nextToken: string) {
+    async requestPasswordReset(payload: PasswordResetRequest): Promise<AuthActionResponse> {
+      return apiRequest<AuthActionResponse, PasswordResetRequest>("/auth/password-reset/request", {
+        method: "POST",
+        body: payload
+      });
+    },
+    async confirmPasswordReset(payload: PasswordResetConfirmRequest): Promise<AuthActionResponse> {
+      return apiRequest<AuthActionResponse, PasswordResetConfirmRequest>("/auth/password-reset/confirm", {
+        method: "POST",
+        body: payload
+      });
+    },
+    async changePassword(payload: PasswordChangeRequest): Promise<AuthActionResponse> {
+      const result = await apiRequest<AuthActionResponse, PasswordChangeRequest>("/account/password", {
+        method: "POST",
+        body: payload,
+        token,
+        skipAuthRefresh: true
+      });
+      setToken("");
+      setRefreshToken("");
+      setUser(null);
+      localStorage.removeItem(STORAGE_KEY);
+      return result;
+    },
+    acceptAuthToken(nextToken: string, nextRefreshToken: string) {
       setLoading(true);
       setToken(nextToken);
+      setRefreshToken(nextRefreshToken);
     },
     startOAuth(provider: OAuthProviderId, intent: AuthIntent) {
       if (!oauthProviders[provider]) {
@@ -136,10 +245,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       startUrl.searchParams.set("intent", intent);
       window.location.assign(startUrl.toString());
     },
-    logout() {
-      setToken("");
-      setUser(null);
-      localStorage.removeItem(STORAGE_KEY);
+    async logout() {
+      try {
+        if (refreshToken) {
+          await apiRequest<{ success: boolean }, { refreshToken: string }>("/auth/logout", {
+            method: "POST",
+            body: { refreshToken },
+            token,
+            skipAuthRefresh: true
+          });
+        }
+      } catch {
+        // Ignore logout transport errors and clear local auth state anyway.
+      } finally {
+        setToken("");
+        setRefreshToken("");
+        setUser(null);
+        localStorage.removeItem(STORAGE_KEY);
+      }
     }
   };
 

@@ -9,7 +9,7 @@ const asyncHandler = require("../middleware/asyncHandler");
 const {
   authenticate,
   userHasTenantAccess,
-  assertTenantOwner
+  assertTenantPermission
 } = require("../middleware/auth");
 const billingService = require("../services/billingService");
 const publicBoardThemeUploadService = require("../services/publicBoardThemeUploadService");
@@ -121,6 +121,7 @@ router.get(
   "/tenant/:tenantSlug/dashboard",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.queue.read");
     const location = await getLocationForTenant(tenant, req.query.location);
     const snapshot = await getQueueSnapshot(tenant, { location });
 
@@ -132,6 +133,7 @@ router.get(
   "/tenant/:tenantSlug/locations",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.queue.read");
     const billing = await billingService.getBillingOverview(tenant._id);
     const locations = await storeLocationRepository.listLocationsByTenantId(tenant._id);
     const activeLocationLimit =
@@ -150,6 +152,7 @@ router.get(
   "/tenant/:tenantSlug/public-board-theme",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.queue.read");
     const location = await getLocationForTenant(tenant, req.query.location);
     const theme = await publicBoardThemeRepository.getResolvedTheme(tenant._id, location?._id);
 
@@ -161,7 +164,7 @@ router.patch(
   "/tenant/:tenantSlug/public-board-theme",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantOwner(req.user, tenant._id);
+    assertTenantPermission(req.user, tenant._id, "tenant.theme.manage");
     const location = await getLocationForTenant(tenant, req.query.location);
 
     if (!location && !req.body.applyToAllLocations) {
@@ -186,7 +189,7 @@ router.post(
   "/tenant/:tenantSlug/public-board-theme/uploads",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantOwner(req.user, tenant._id);
+    assertTenantPermission(req.user, tenant._id, "tenant.theme.manage");
     const entitlements = await billingService.getTenantEntitlements(tenant._id);
     if (!entitlements.brandedQueuePages) {
       const error = new Error("Public board rebranding is not available for this plan.");
@@ -212,7 +215,7 @@ router.post(
   "/tenant/:tenantSlug/locations",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantOwner(req.user, tenant._id);
+    assertTenantPermission(req.user, tenant._id, "tenant.location.manage");
     const billing = await billingService.getBillingOverview(tenant._id);
     const activeLocationLimit = billing.subscription?.entitlements?.locations || 1;
     const existingLocations = await storeLocationRepository.listLocationsByTenantId(tenant._id);
@@ -239,7 +242,7 @@ router.patch(
   "/tenant/:tenantSlug/locations/:locationSlug",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantOwner(req.user, tenant._id);
+    assertTenantPermission(req.user, tenant._id, "tenant.location.manage");
     const location = await getLocationForTenant(tenant, req.params.locationSlug);
     if (req.body.isActive === true && !location.isActive) {
       const billing = await billingService.getBillingOverview(tenant._id);
@@ -264,7 +267,7 @@ router.patch(
   "/tenant/:tenantSlug/locations/:locationSlug/hours",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantOwner(req.user, tenant._id);
+    assertTenantPermission(req.user, tenant._id, "tenant.location.manage");
     const location = await getLocationForTenant(tenant, req.params.locationSlug);
     const hours = Array.isArray(req.body.hours) ? req.body.hours : [];
     await storeLocationRepository.replaceHours(location._id, hours);
@@ -278,6 +281,7 @@ router.post(
   "/tenant/:tenantSlug/tickets",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.queue.operate");
     const location = await getLocationForTenant(tenant, req.query.location);
     const { customerName, customerEmail, customerPhone, notifyByEmail, notifyBySms, notes } = req.body;
 
@@ -315,6 +319,7 @@ router.post(
   "/tenant/:tenantSlug/queue/call-next",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.queue.operate");
     const location = await getLocationForTenant(tenant, req.query.location);
     const serviceCounter = await getCounterForLocation(location, req.body.counterSlug);
     const result = await callNextTicket(tenant, { location, serviceCounter });
@@ -342,6 +347,7 @@ router.post(
   "/tenant/:tenantSlug/queue/current/serve",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.ticket.update_state");
     const location = await getLocationForTenant(tenant, req.query.location);
     const result = await updateCurrentTicketStatus(tenant, "served", { location });
 
@@ -366,6 +372,7 @@ router.post(
   "/tenant/:tenantSlug/queue/current/skip",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.ticket.update_state");
     const location = await getLocationForTenant(tenant, req.query.location);
     const result = await updateCurrentTicketStatus(tenant, "skipped", { location });
 
@@ -390,7 +397,7 @@ router.patch(
   "/tenant/:tenantSlug/settings",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantOwner(req.user, tenant._id);
+    assertTenantPermission(req.user, tenant._id, "tenant.settings.manage");
     await getLocationForTenant(tenant, req.query.location);
     const { queuePrefix, averageServiceMinutes, notificationThreshold, contactEmail, contactPhone } = req.body;
 
@@ -422,6 +429,7 @@ router.get(
   "/tenant/:tenantSlug/history",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.reports.read");
     const location = await getLocationForTenant(tenant, req.query.location);
     const limit = Math.min(Number(req.query.limit || 20), 50);
     const entitlements = await billingService.getTenantEntitlements(tenant._id);
@@ -449,6 +457,7 @@ router.get(
   "/tenant/:tenantSlug/clients",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.reports.read");
     const location = await getLocationForTenant(tenant, req.query.location);
     const entitlements = await billingService.getTenantEntitlements(tenant._id);
     const tickets = await ticketRepository.listClientTickets(tenant._id, {
@@ -502,6 +511,7 @@ router.get(
   "/tenant/:tenantSlug/counters",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.queue.read");
     const location = await getLocationForTenant(tenant, req.query.location);
     const entitlements = await billingService.getTenantEntitlements(tenant._id);
     const counters = await serviceCounterRepository.listCountersByLocationId(location._id);
@@ -525,7 +535,7 @@ router.patch(
   "/tenant/:tenantSlug/counters/:counterSlug",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantOwner(req.user, tenant._id);
+    assertTenantPermission(req.user, tenant._id, "tenant.counter.manage");
     const location = await getLocationForTenant(tenant, req.query.location);
     const counter = await getCounterForLocation(location, req.params.counterSlug);
     const entitlements = await billingService.getTenantEntitlements(tenant._id);
@@ -557,7 +567,7 @@ router.delete(
   "/tenant/:tenantSlug/counters/:counterSlug",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantOwner(req.user, tenant._id);
+    assertTenantPermission(req.user, tenant._id, "tenant.counter.manage");
     const location = await getLocationForTenant(tenant, req.query.location);
     const counter = await getCounterForLocation(location, req.params.counterSlug);
     await serviceCounterRepository.deleteCounter(counter._id);
@@ -569,7 +579,7 @@ router.get(
   "/tenant/:tenantSlug/staff",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantOwner(req.user, tenant._id);
+    assertTenantPermission(req.user, tenant._id, "tenant.staff.read");
     const entitlements = await billingService.getTenantEntitlements(tenant._id);
     const staff = await userRepository.listUsersByTenantId(tenant._id);
     const assignedCountersByUserId = await serviceCounterRepository.listAssignedCounterIdsByUserIds(
@@ -599,7 +609,7 @@ router.post(
   "/tenant/:tenantSlug/staff",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantOwner(req.user, tenant._id);
+    assertTenantPermission(req.user, tenant._id, "tenant.staff.invite");
     const entitlements = await billingService.getTenantEntitlements(tenant._id);
     const staff = await userRepository.listUsersByTenantId(tenant._id);
     if (staff.length >= Number(entitlements.staffSeats || 0)) {
@@ -631,7 +641,7 @@ router.patch(
   "/tenant/:tenantSlug/staff/:userId",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantOwner(req.user, tenant._id);
+    assertTenantPermission(req.user, tenant._id, "tenant.staff.manage");
     const user = await userRepository.findUserById(req.params.userId);
     if (!user || !user.tenantMemberships.some((item) => String(item.tenantId) === String(tenant._id))) {
       const error = new Error("Staff member not found.");
@@ -669,7 +679,7 @@ router.delete(
   "/tenant/:tenantSlug/staff/:userId",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantOwner(req.user, tenant._id);
+    assertTenantPermission(req.user, tenant._id, "tenant.staff.manage");
     const user = await userRepository.findUserById(req.params.userId);
     const membership = user?.tenantMemberships.find(
       (item) => String(item.tenantId) === String(tenant._id)
@@ -694,7 +704,7 @@ router.post(
   "/tenant/:tenantSlug/counters",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantOwner(req.user, tenant._id);
+    assertTenantPermission(req.user, tenant._id, "tenant.counter.manage");
     const location = await getLocationForTenant(tenant, req.query.location);
     const entitlements = await billingService.getTenantEntitlements(tenant._id);
     const counters = await serviceCounterRepository.listCountersByLocationId(location._id);
@@ -733,7 +743,7 @@ router.get(
   "/tenant/:tenantSlug/history/export",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantOwner(req.user, tenant._id);
+    assertTenantPermission(req.user, tenant._id, "tenant.reports.read");
     const location = await getLocationForTenant(tenant, req.query.location);
     const entitlements = await billingService.getTenantEntitlements(tenant._id);
     const range = String(req.query.range || "today");

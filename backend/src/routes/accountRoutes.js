@@ -2,6 +2,7 @@ const express = require("express");
 const asyncHandler = require("../middleware/asyncHandler");
 const { authenticate } = require("../middleware/auth");
 const ticketRepository = require("../repositories/tickets");
+const passwordResetService = require("../services/passwordResetService");
 
 const router = express.Router();
 
@@ -32,6 +33,32 @@ router.get(
         createdAt: ticket.createdAt,
         updatedAt: ticket.updatedAt
       }))
+    });
+  })
+);
+
+router.post(
+  "/password",
+  asyncHandler(async (req, res) => {
+    const currentPassword = String(req.body.currentPassword || "");
+    const newPassword = String(req.body.newPassword || "");
+
+    if (!currentPassword || !newPassword) {
+      const error = new Error("currentPassword and newPassword are required.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    await passwordResetService.changePassword({
+      user: req.user,
+      currentPassword,
+      newPassword,
+      req
+    });
+
+    res.json({
+      success: true,
+      message: "Your password has been changed. Please sign in again."
     });
   })
 );

@@ -1,6 +1,8 @@
 const jwt = require("jsonwebtoken");
 const env = require("../config/env");
+const authSessionRepository = require("../repositories/authSessions");
 const userRepository = require("../repositories/users");
+const permissions = require("../services/permissions");
 
 function getTokenFromRequest(req) {
   const authorization = req.headers.authorization || "";
@@ -26,6 +28,20 @@ async function loadAuthenticatedUser(req, strict) {
 
   try {
     const payload = jwt.verify(token, env.jwtSecret);
+    const sessionId = payload.session_id ? Number(payload.session_id) : null;
+    if (!sessionId) {
+      const error = new Error("User session is no longer valid.");
+      error.statusCode = 401;
+      throw error;
+    }
+
+    const session = await authSessionRepository.findSessionById(sessionId);
+    if (!session || session.status !== "active" || new Date(session.expiresAt).getTime() <= Date.now()) {
+      const error = new Error("User session is no longer valid.");
+      error.statusCode = 401;
+      throw error;
+    }
+
     const user = await userRepository.findUserById(payload.sub);
 
     if (!user) {
@@ -35,6 +51,9 @@ async function loadAuthenticatedUser(req, strict) {
     }
 
     req.user = user;
+    req.auth = {
+      sessionId: String(session._id)
+    };
   } catch (error) {
     error.statusCode = 401;
     throw error;
@@ -66,38 +85,43 @@ function userHasTenantAccess(user, tenantId) {
 }
 
 function getTenantRole(user, tenantId) {
-  return (user?.tenantMemberships || []).find(
-    (membership) => String(membership.tenantId) === String(tenantId)
-  )?.role || null;
+  return permissions.getTenantRole(user, tenantId);
 }
 
 function userIsTenantOwner(user, tenantId) {
-  return getTenantRole(user, tenantId) === "owner";
+  return permissions.userHasPermission(user, "tenant.settings.manage", { tenantId });
 }
 
 function assertTenantOwner(user, tenantId) {
-  if (userIsTenantOwner(user, tenantId)) {
-    return;
-  }
+  permissions.assertPermission(user, "tenant.settings.manage", { tenantId });
+}
 
-  const error = new Error("Tenant owner access required.");
-  error.statusCode = 403;
-  throw error;
+function assertTenantPermission(user, tenantId, permission) {
+  permissions.assertPermission(user, permission, { tenantId });
 }
 
 function userIsPlatformAdmin(user) {
-  return Boolean((user?.roles || []).includes("platform_admin"));
+  return permissions.userHasPermission(user, "platform.tenants.read");
 }
 
 function requirePlatformAdmin(req, _res, next) {
-  if (userIsPlatformAdmin(req.user)) {
+  try {
+    permissions.assertPermission(req.user, "platform.tenants.read");
     next();
-    return;
+  } catch (error) {
+    next(error);
   }
+}
 
-  const error = new Error("Platform admin access required.");
-  error.statusCode = 403;
-  next(error);
+function requirePlatformPermission(permission) {
+  return function platformPermissionMiddleware(req, _res, next) {
+    try {
+      permissions.assertPermission(req.user, permission);
+      next();
+    } catch (error) {
+      next(error);
+    }
+  };
 }
 
 module.exports = {
@@ -107,6 +131,8 @@ module.exports = {
   getTenantRole,
   userIsTenantOwner,
   assertTenantOwner,
+  assertTenantPermission,
   userIsPlatformAdmin,
-  requirePlatformAdmin
+  requirePlatformAdmin,
+  requirePlatformPermission
 };
