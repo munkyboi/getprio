@@ -1,10 +1,12 @@
 import { useEffect, useState, type CSSProperties } from "react";
-import { Badge, Box, Button, Group, Paper, SimpleGrid, Stack, Table, Text, Title } from "@mantine/core";
+import { Badge, Box, Button, Group, Modal, Paper, SimpleGrid, Stack, Table, Text, Title } from "@mantine/core";
+import { notifications } from "@mantine/notifications";
+import { IconCheck, IconInfoCircle } from "@tabler/icons-react";
 import QRCode from "react-qr-code";
-import { Link, useParams, useSearchParams } from "react-router-dom";
-import type { QueueSnapshot, StoreHourSummary } from "@shared";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import type { QueueJoinPaymentSyncResponse, QueueSnapshot, StoreHourSummary } from "@shared";
 import { API_BASE_URL, apiRequest } from "../api/client";
-import { buildJoinPath, buildJoinUrl } from "../queuePaths";
+import { buildJoinPath, buildJoinUrl, buildJoinedQueuePathWithTicket } from "../queuePaths";
 import { getErrorMessage } from "../utils/errors";
 
 function maskNamePart(namePart: string): string {
@@ -91,10 +93,15 @@ function normalizeHours(hours: StoreHourSummary[] = []): StoreHourSummary[] {
 
 export default function PublicQueuePage() {
   const { tenantSlug, locationSlug } = useParams<{ tenantSlug: string; locationSlug?: string }>();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [snapshot, setSnapshot] = useState<QueueSnapshot | null>(null);
   const [error, setError] = useState("");
+  const [paymentSyncing, setPaymentSyncing] = useState(false);
+  const [hoursOpened, setHoursOpened] = useState(false);
   const lookupCode = searchParams.get("ticket") || "";
+  const paymentId = searchParams.get("payment");
+  const paymentStatus = searchParams.get("payment_status");
   const tenantSlugValue = tenantSlug || "";
   const joinPath = tenantSlug ? buildJoinPath(tenantSlug, locationSlug) : "/";
   const joinUrl =
@@ -152,10 +159,10 @@ export default function PublicQueuePage() {
   const headerColor = theme?.headerColor || "#24160f";
   const subheaderColor = theme?.subheaderColor || "#8a5c39";
   const bodyColor = theme?.bodyColor || "#3f3027";
-  const heroTitle = theme?.heroTitle || snapshot?.location?.name || snapshot?.tenant?.name || tenantSlugValue;
-  const heroSubtitle =
-    theme?.heroSubtitle ||
-    "Customers can monitor their turn remotely and join the line online if the vendor has enabled the public flow.";
+  const businessName = snapshot?.tenant?.name || tenantSlugValue;
+  const locationName = snapshot?.location?.name || "Main location";
+  const heroTitle = theme?.heroTitle || businessName;
+  const heroSubtitle = theme?.heroSubtitle || locationName;
   const locationHours = normalizeHours(snapshot?.location?.hours || []);
   const todayIndex = getTodayIndex(snapshot?.location?.timezone);
   const queueProgressTickets = [
@@ -176,6 +183,81 @@ export default function PublicQueuePage() {
       progressLabel: `#${ticket.position}`
     })))
   ].slice(0, 10);
+
+  useEffect(() => {
+    if (!tenantSlugValue || !paymentId) {
+      return;
+    }
+
+    if (paymentStatus === "cancelled") {
+      notifications.show({
+        color: "blue",
+        icon: <IconInfoCircle size={18} />,
+        message: "No ticket was issued.",
+        title: "Checkout cancelled"
+      });
+      return;
+    }
+
+    let active = true;
+    setPaymentSyncing(true);
+    setError("");
+
+    notifications.show({
+      color: "blue",
+      icon: <IconInfoCircle size={18} />,
+      message: "Confirming your queue fee payment...",
+      title: "Payment received"
+    });
+
+    const basePath = locationSlug
+      ? `/public/tenant/${tenantSlugValue}/location/${locationSlug}`
+      : `/public/tenant/${tenantSlugValue}`;
+
+    apiRequest<QueueJoinPaymentSyncResponse>(`${basePath}/join-payments/${paymentId}/sync`, {
+      method: "POST"
+    })
+      .then((data) => {
+        if (!active) {
+          return;
+        }
+
+        if (data.paid && data.ticket?.lookupCode) {
+          notifications.show({
+            color: "teal",
+            icon: <IconCheck size={18} />,
+            message: "Your ticket has been issued.",
+            title: "Joined queue"
+          });
+          navigate(
+            buildJoinedQueuePathWithTicket(tenantSlugValue, data.ticket.lookupCode, locationSlug),
+            { replace: true }
+          );
+          return;
+        }
+
+        notifications.show({
+          color: "blue",
+          icon: <IconInfoCircle size={18} />,
+          message: "Payment is still being confirmed. Please refresh in a moment.",
+          title: "Payment pending"
+        });
+      })
+      .catch((syncError) => {
+        if (active) {
+          setError(getErrorMessage(syncError));
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setPaymentSyncing(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [locationSlug, navigate, paymentId, paymentStatus, tenantSlugValue]);
 
   useEffect(() => {
     if (!tenantSlug) {
@@ -219,6 +301,35 @@ export default function PublicQueuePage() {
   return (
     <Box style={pageStyle}>
       <Stack gap="lg" maw={1180} mx="auto">
+        <Modal
+          centered
+          opened={hoursOpened}
+          onClose={() => setHoursOpened(false)}
+          title="Business hours"
+          size="lg"
+        >
+          <Table.ScrollContainer minWidth={420}>
+            <Table verticalSpacing="sm">
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>Day</Table.Th>
+                  <Table.Th>Hours</Table.Th>
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {locationHours.map((hour) => {
+                  const isToday = hour.weekday === todayIndex;
+                  return (
+                    <Table.Tr key={hour.weekday}>
+                      <Table.Td fw={isToday ? 700 : 500}>{weekdayLabels[hour.weekday]}</Table.Td>
+                      <Table.Td fw={isToday ? 700 : 400}>{formatHoursLabel(hour)}</Table.Td>
+                    </Table.Tr>
+                  );
+                })}
+              </Table.Tbody>
+            </Table>
+          </Table.ScrollContainer>
+        </Modal>
         <Paper p={{ base: "lg", md: "xl" }} shadow="xl" style={cardStyle}>
           <SimpleGrid cols={{ base: 1, md: publicBoardUnavailable ? 1 : 3 }} spacing="xl">
             <Stack gap="md" style={{ gridColumn: publicBoardUnavailable ? undefined : "span 2" }}>
@@ -231,55 +342,32 @@ export default function PublicQueuePage() {
                 />
               ) : null}
               <Text c={subheaderColor} fw={800} size="xs" tt="uppercase" lts={2}>
-                Live public board
+                Live queue
               </Text>
               <Title c={headerColor} order={1} style={{ fontSize: "clamp(3rem, 7vw, 4.5rem)" }}>
                 {heroTitle}
+              </Title>
+              <Title c={headerColor} order={2} style={{ fontSize: "clamp(2rem, 4vw, 3rem)" }}>
+                {heroSubtitle}
               </Title>
               {vendorIsInactive ? (
                 <Text c="red" fw={700}>Vendor is not yet active.</Text>
               ) : locationIsClosed ? (
                 <Text c="red" fw={700}>This location is currently closed</Text>
-              ) : (
-                <Text c={bodyColor} maw={760}>{heroSubtitle}</Text>
-              )}
-              {snapshot?.location ? (
-                <Group className="public-board-hours-strip" gap="xl">
-                  {locationHours.map((hour) => {
-                    const isToday = hour.weekday === todayIndex;
-                    return (
-                      <Stack
-                        className={
-                          [
-                            "public-board-hours-day",
-                            isToday ? "public-board-hours-day-active" : "",
-                            hour.isClosed ? "public-board-hours-day-closed" : ""
-                          ]
-                            .filter(Boolean)
-                            .join(" ")
-                        }
-                        gap={0}
-                        key={hour.weekday}
-                      >
-                        <Text
-                          className="public-board-hours-time"
-                        >
-                          {formatHoursLabel(hour)}
-                        </Text>
-                        <Text
-                          className="public-board-hours-label"
-                        >
-                          {weekdayLabels[hour.weekday]}
-                        </Text>
-                      </Stack>
-                    );
-                  })}
-                </Group>
               ) : null}
               {!publicBoardUnavailable ? (
                 <Group mt="lg" gap="sm">
                   <Button component={Link} to={joinPath} radius="xl" size="md" style={buttonStyle}>
                     Join this queue
+                  </Button>
+                  <Button
+                    onClick={() => setHoursOpened(true)}
+                    radius="xl"
+                    size="md"
+                    style={buttonStyle}
+                    variant={theme ? "outline" : "default"}
+                  >
+                    View business hours
                   </Button>
                   <Badge radius="xl" size="lg" variant="light">Waiting: {snapshot?.stats?.waitingCount ?? 0}</Badge>
                   <Badge radius="xl" size="lg" variant="light">ETA: {snapshot?.stats?.estimatedWaitMinutes ?? 0} mins</Badge>
@@ -302,6 +390,20 @@ export default function PublicQueuePage() {
           </SimpleGrid>
         </Paper>
 
+        {paymentSyncing ? (
+          <Paper p="lg" shadow="md" style={cardStyle}>
+            <Stack gap="xs">
+              <Text c={subheaderColor} fw={800} size="xs" tt="uppercase" lts={2}>
+                Confirming payment
+              </Text>
+              <Title c={headerColor} order={3}>We are issuing your queue ticket.</Title>
+              <Text c={bodyColor}>
+                Please wait while we confirm your platform fee and activate your ticket.
+              </Text>
+            </Stack>
+          </Paper>
+        ) : null}
+
         {error ? <Text c="red" fw={700}>{error}</Text> : null}
 
         {publicBoardUnavailable ? null : (
@@ -309,15 +411,15 @@ export default function PublicQueuePage() {
             {lookupCode && snapshot?.focusTicket ? (
               <Paper p="xl" shadow="lg" style={cardStyle}>
                 <Stack gap="xs">
-                  <Text c={subheaderColor} fw={800} size="xs" tt="uppercase" lts={2}>Your ticket</Text>
+                  <Text c={subheaderColor} fw={800} size="xs" tt="uppercase" lts={2}>Ticket details</Text>
                   <Title c={headerColor} order={2}>{snapshot.focusTicket.ticketNumber}</Title>
-                  <Text c={bodyColor}>Status: <strong>{snapshot.focusTicket.status}</strong></Text>
+                  <Text c={bodyColor}>Current status: <strong>{snapshot.focusTicket.status}</strong></Text>
                   <Text c={bodyColor}>
                     {snapshot.focusTicket.position
                       ? `You are number ${snapshot.focusTicket.position} in line.`
                       : "You are no longer in the waiting list."}
                   </Text>
-                  <Text c={bodyColor}>Estimated wait: {snapshot.focusTicket.estimatedWaitMinutes} mins</Text>
+                  <Text c={bodyColor}>Estimated wait time: {snapshot.focusTicket.estimatedWaitMinutes} mins</Text>
                 </Stack>
               </Paper>
             ) : null}
@@ -325,7 +427,7 @@ export default function PublicQueuePage() {
             <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
               <Paper p="xl" shadow="lg" style={cardStyle}>
                 <Stack gap="md">
-                  <Text c={bodyColor}>Now serving</Text>
+                  <Text c={bodyColor}>Currently serving</Text>
                   <Title c={headerColor} order={2}>{snapshot?.current?.ticketNumber || "--"}</Title>
                   <Text c={bodyColor} size="sm">
                     {snapshot?.current?.customerName
@@ -336,9 +438,9 @@ export default function PublicQueuePage() {
               </Paper>
               <Paper p="xl" shadow="lg" style={cardStyle}>
                 <Stack gap="md">
-                  <Text c={bodyColor}>Served today</Text>
+                  <Text c={bodyColor}>Completed today</Text>
                   <Title c={headerColor} order={2}>{snapshot?.stats?.servedToday ?? 0}</Title>
-                  <Text c={bodyColor} size="sm">Updated live for this tenant</Text>
+                  <Text c={bodyColor} size="sm">Updated live for this location</Text>
                 </Stack>
               </Paper>
             </SimpleGrid>
@@ -347,11 +449,11 @@ export default function PublicQueuePage() {
               <Stack gap="md">
                 <Group justify="space-between" align="flex-start">
                   <div>
-                    <Text c={subheaderColor} fw={800} size="xs" tt="uppercase" lts={2}>Next in line</Text>
-                    <Title c={headerColor} order={2}>Queue progress</Title>
+                    <Text c={subheaderColor} fw={800} size="xs" tt="uppercase" lts={2}>Up next</Text>
+                    <Title c={headerColor} order={2}>Queue overview</Title>
                   </div>
                   <Button component={Link} to={joinPath} variant="subtle" style={{ color: theme?.buttonBackgroundColor || undefined }}>
-                    Need a number?
+                    Join this queue
                   </Button>
                 </Group>
                 <Table.ScrollContainer minWidth={560}>

@@ -11,7 +11,7 @@ router.use(authenticate);
 router.get(
   "/overview",
   asyncHandler(async (req, res) => {
-    const tickets = await ticketRepository.listTicketsByUserId(req.user._id, { limit: 50 });
+    const tickets = await ticketRepository.listTicketsForCustomerAccount(req.user, { limit: 50 });
 
     res.json({
       user: {

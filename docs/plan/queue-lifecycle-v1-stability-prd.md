@@ -12,6 +12,40 @@ The goal is to make queue state transitions deterministic, auditable, and safe a
 
 ---
 
+## Implementation Status
+
+Status date: `2026-06-06`
+
+### Done
+
+- centralized queue lifecycle transition rules
+- canonical status enforcement for queue mutations
+- `unserved` lifecycle support
+- queue event log schema and transactional event writes
+- queue-day close / reopen backend flow
+- carry-over behavior for unresolved waiting tickets
+- blocked operations while a queue day is closed
+- vendor dashboard queue-day controls and current/overflow queue views
+- customer joined-ticket flow aligned with queue lifecycle
+- backend lifecycle coverage for:
+  - close / reopen
+  - blocked join / call-next while closed
+  - duplicate call-next with an active ticket
+  - empty-queue call-next behavior
+  - duplicate close / reopen conflict paths
+
+### Partial
+
+- customer/public queue flow is lifecycle-aligned, but was advanced alongside product UI work rather than completed as an isolated PRD slice
+- local database compatibility fixes exist for older closure/table shapes and should still be normalized carefully across environments
+
+### Pending
+
+- broader transaction-race verification beyond the current focused backend coverage
+- final cleanup / packaging / merge workflow for the accumulated queue lifecycle branch work
+
+---
+
 ## 1. Product Context
 
 GetPrio is operational software. If queue state is wrong, every downstream surface becomes unreliable:
@@ -37,9 +71,9 @@ Current queue operations already support:
 - serve
 - skip
 - cancel
-- queue closure
-- queue reopen
-- carry-over and unserved handling
+- explicit unserved handling
+
+Queue closure, queue reopen, and carry-over handling are part of this stabilization scope and were not fully implemented in the live backend when this PRD moved into execution.
 
 The risk is not lack of features. The risk is that lifecycle correctness is not yet expressed as one clear state machine with explicit invariants.
 
@@ -82,7 +116,6 @@ Define and implement a stable queue lifecycle model for v1 across all queue-faci
 
 - Core `tickets` table already exists
 - Ticket timestamps exist for `called`, `served`, `skipped`, `cancelled`, `unserved`
-- Queue closure and reopen concepts already exist
 - Public and vendor snapshots are already generated from live state
 - Queue sequence generation is already transactional
 

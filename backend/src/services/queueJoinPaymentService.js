@@ -29,7 +29,14 @@ function buildReturnUrl(tenant, payment, status) {
   });
 
   const locationSlug = payment.payload?.locationSlug;
-  const path = locationSlug ? `/join/${tenant.slug}/${locationSlug}` : `/join/${tenant.slug}`;
+  const path =
+    status === "success"
+      ? locationSlug
+        ? `/ticket/${tenant.slug}/${locationSlug}`
+        : `/ticket/${tenant.slug}`
+      : locationSlug
+        ? `/join/${tenant.slug}/${locationSlug}`
+        : `/join/${tenant.slug}`;
   return getClientUrl(`${path}?${params.toString()}`);
 }
 
@@ -62,6 +69,10 @@ function buildTicketResponse(ticket) {
     customerName: ticket.customerName,
     status: ticket.status
   };
+}
+
+function shouldChargeQueueFee(queueFee, payload) {
+  return Boolean(queueFee?.enabled) && Number(queueFee?.amountCents || 0) > 0 && Boolean(payload?.notifyBySms);
 }
 
 function normalizeProviderTimestamp(value) {
@@ -284,7 +295,7 @@ async function createZeroFeeTicket({ tenant, payload, queueFee }) {
 async function handleVerifiedJoin({ tenant, otpId, payload }) {
   await queueFeeService.assertTenantCanAcceptCustomerJoins(tenant._id);
   const queueFee = await queueFeeService.getQueueFeeForTenant(tenant._id);
-  if (!queueFee.enabled || queueFee.amountCents <= 0) {
+  if (!shouldChargeQueueFee(queueFee, payload)) {
     return createZeroFeeTicket({ tenant, payload, queueFee });
   }
 
@@ -294,6 +305,18 @@ async function handleVerifiedJoin({ tenant, otpId, payload }) {
     payload,
     queueFee
   });
+}
+
+async function handleDirectJoin({ tenant, payload }) {
+  await queueFeeService.assertTenantCanAcceptCustomerJoins(tenant._id);
+  const queueFee = await queueFeeService.getQueueFeeForTenant(tenant._id);
+  if (shouldChargeQueueFee(queueFee, payload)) {
+    const error = new Error("Verification is required before continuing to payment for this queue.");
+    error.statusCode = 409;
+    throw error;
+  }
+
+  return createZeroFeeTicket({ tenant, payload, queueFee });
 }
 
 async function issueTicketForPaidPayment(payment, providerPaymentId, paymentAttributes, options = {}) {
@@ -519,6 +542,7 @@ async function getMonitorUrlForPayment(payment) {
 
 module.exports = {
   formatPayment,
+  handleDirectJoin,
   handleVerifiedJoin,
   syncQueueJoinPayment,
   handlePayMongoPaidCheckout,

@@ -13,7 +13,9 @@ import CustomerAccountPage from "./pages/CustomerAccountPage";
 import VendorDashboardPage from "./pages/VendorDashboardPage";
 import PublicQueuePage from "./pages/PublicQueuePage";
 import JoinQueuePage from "./pages/JoinQueuePage";
+import JoinedQueuePage from "./pages/JoinedQueuePage";
 import {
+  JOINED_QUEUE_ROUTE_PATH,
   buildMonitorPath,
   LEGACY_MONITOR_ROUTE_PATH,
   MONITOR_ROUTE_PATH
@@ -125,6 +127,7 @@ export default function App() {
   return (
     <Routes>
       <Route path={MONITOR_ROUTE_PATH} element={<BarePage><PublicQueuePage /></BarePage>} />
+      <Route path={JOINED_QUEUE_ROUTE_PATH} element={<AppShell><JoinedQueuePage /></AppShell>} />
       <Route path={LEGACY_MONITOR_ROUTE_PATH} element={<LegacyMonitorRedirect />} />
       <Route path="/" element={<AppShell><LandingPage /></AppShell>} />
       <Route path="/login" element={<AppShell><LoginPage /></AppShell>} />

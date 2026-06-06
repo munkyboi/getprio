@@ -185,6 +185,7 @@ const publicBoardThemePresets: Record<string, PublicBoardThemeSettings> = {
 const defaultPublicBoardTheme = publicBoardThemePresets.classic;
 
 type DashboardSection = "queue" | "tenants" | "staff" | "clients" | "history" | "reports" | "settings";
+type QueueView = "current" | "overflow";
 type DashboardActionResponse = Partial<TicketMutationResponse> & {
   message?: string;
   snapshot?: QueueSnapshot;
@@ -349,6 +350,7 @@ export default function VendorDashboardPage() {
   });
   const [historyExportFormat, setHistoryExportFormat] = useState<"csv" | "pdf" | null>(null);
   const [historyExportRange, setHistoryExportRange] = useState<HistoryExportRange | null>(null);
+  const [queueView, setQueueView] = useState<QueueView>("current");
   const hasActiveSubscription = billing?.subscription?.status === "active";
   const selectedLocation =
     locations.find((locationItem) => locationItem.slug === selectedLocationSlug) ||
@@ -744,6 +746,14 @@ export default function VendorDashboardPage() {
     averageServiceMinutes,
     1
   );
+  const overflowTickets = useMemo(
+    () =>
+      (snapshot?.history || []).filter(
+        (ticket) => ticket.status === "skipped" || ticket.status === "unserved"
+      ),
+    [snapshot]
+  );
+  const queueDayClosed = Boolean(snapshot?.queueDay?.isClosed);
 
   async function runAction(
     actionName: string,
@@ -1427,6 +1437,7 @@ export default function VendorDashboardPage() {
 
   function renderQueuePage() {
     const activeCounters = serviceCounters.filter((counter) => counter.isActive);
+    const activeTicket = snapshot?.current || null;
 
     return (
       <Stack gap="md">
@@ -1434,103 +1445,238 @@ export default function VendorDashboardPage() {
         <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
           <Card className="neura-card" padding="lg">
             <Stack gap="md">
-              <Group justify="space-between" align="flex-end">
-                <Select
-                  data={activeCounters.map((counter) => ({
-                    label: counter.name,
-                    value: counter.slug
-                  }))}
-                  label="Serving from"
-                  placeholder="Select counter"
-                  value={selectedCounterSlug || null}
-                  onChange={(value) => setSelectedCounterSlug(value || "")}
+              <Group justify="space-between" align="flex-start">
+                <SegmentedControl
+                  data={[
+                    { value: "current", label: "Current queue" },
+                    { value: "overflow", label: "Overflow queue" }
+                  ]}
+                  value={queueView}
+                  onChange={(value) => setQueueView(value as QueueView)}
                 />
-              </Group>
-              <Group>
-                <Button
-                  className="neura-primary-button"
-                  disabled={busyAction === "call-next" || !selectedCounterSlug}
-                  onClick={async () => {
-                    const success = await runAction("call-next", () =>
-                      apiRequest<DashboardActionResponse>(
-                      `/vendor/tenant/${selectedTenantSlug}/queue/call-next${locationQuery}`,
-                        { method: "POST", token, body: { counterSlug: selectedCounterSlug } }
-                      )
-                    );
-                    if (success) {
-                      showSuccessNotification("Customer called", "The next ticket is now being served.");
-                    }
-                  }}
-                >
-                  {busyAction === "call-next" ? "Calling..." : "Call next"}
-                </Button>
-                <Button
-                  className="neura-secondary-button"
-                  disabled={busyAction === "serve-current"}
-                  onClick={async () => {
-                    const success = await runAction("serve-current", () =>
-                      apiRequest<DashboardActionResponse>(
-                        `/vendor/tenant/${selectedTenantSlug}/queue/current/serve${locationQuery}`,
-                        { method: "POST", token }
-                      )
-                    );
-                    if (success) {
-                      showSuccessNotification("Ticket served", "The current ticket was marked as served.");
-                    }
-                  }}
-                >
-                  Serve current
-                </Button>
-                <Button
-                  variant="default"
-                  disabled={busyAction === "skip-current"}
-                  onClick={async () => {
-                    const success = await runAction("skip-current", () =>
-                      apiRequest<DashboardActionResponse>(
-                        `/vendor/tenant/${selectedTenantSlug}/queue/current/skip${locationQuery}`,
-                        { method: "POST", token }
-                      )
-                    );
-                    if (success) {
-                      showSuccessNotification("Ticket skipped", "The current ticket was skipped.");
-                    }
-                  }}
-                >
-                  Skip current
-                </Button>
-              </Group>
-              <Table.ScrollContainer minWidth={420}>
-                <Table verticalSpacing="sm">
-                  <Table.Thead>
-                    <Table.Tr>
-                      <Table.Th>Up next</Table.Th>
-                      <Table.Th>Channel</Table.Th>
-                    </Table.Tr>
-                  </Table.Thead>
-                  <Table.Tbody>
-                    {snapshot?.nextUp?.length ? (
-                      snapshot.nextUp.map((ticket) => (
-                        <Table.Tr key={ticket.id}>
-                          <Table.Td>
-                            <Text fw={700}>{ticket.ticketNumber}</Text>
-                            <Text c="dimmed" size="sm">{ticket.customerName}</Text>
-                          </Table.Td>
-                          <Table.Td><Badge variant="light">{ticket.joinChannel}</Badge></Table.Td>
-                        </Table.Tr>
-                      ))
+                <Stack gap={6} align="flex-end">
+                  <Badge color={queueDayClosed ? "red" : "teal"} variant="light">
+                    {queueDayClosed ? "Queue day closed" : "Queue day open"}
+                  </Badge>
+                  {isOwner ? (
+                    queueDayClosed ? (
+                      <Button
+                        className="neura-primary-button"
+                        disabled={busyAction === "queue-reopen"}
+                        onClick={async () => {
+                          const success = await runAction("queue-reopen", () =>
+                            apiRequest<DashboardActionResponse>(
+                              `/vendor/tenant/${selectedTenantSlug}/queue/reopen${locationQuery}`,
+                              { method: "POST", token }
+                            )
+                          );
+                          if (success) {
+                            showSuccessNotification("Queue reopened", "Customers can join and staff can resume service.");
+                            setQueueView("current");
+                          }
+                        }}
+                      >
+                        {busyAction === "queue-reopen" ? "Reopening..." : "Reopen queue"}
+                      </Button>
                     ) : (
-                      <Table.Tr>
-                        <Table.Td colSpan={2}>
-                          <DashboardEmptyState
-                            title="No one is waiting right now."
-                            text="As customers join from QR or online, the next tickets will appear here."
-                          />
-                        </Table.Td>
-                      </Table.Tr>
-                    )}
-                  </Table.Tbody>
-                </Table>
-              </Table.ScrollContainer>
+                      <Button
+                        color="red"
+                        variant="light"
+                        disabled={busyAction === "queue-close"}
+                        onClick={async () => {
+                          const success = await runAction("queue-close", () =>
+                            apiRequest<DashboardActionResponse, { reason: string }>(
+                              `/vendor/tenant/${selectedTenantSlug}/queue/close${locationQuery}`,
+                              { method: "POST", token, body: { reason: "Closed from vendor dashboard" } }
+                            )
+                          );
+                          if (success) {
+                            showSuccessNotification("Queue closed", "Waiting and active tickets were moved to overflow.");
+                            setQueueView("overflow");
+                          }
+                        }}
+                      >
+                        {busyAction === "queue-close" ? "Closing..." : "Close queue"}
+                      </Button>
+                    )
+                  ) : null}
+                </Stack>
+              </Group>
+              {queueView === "current" ? (
+                <>
+                  <Group justify="space-between" align="flex-end">
+                    <Select
+                      data={activeCounters.map((counter) => ({
+                        label: counter.name,
+                        value: counter.slug
+                      }))}
+                      label="Serving from"
+                      placeholder="Select counter"
+                      value={selectedCounterSlug || null}
+                      onChange={(value) => setSelectedCounterSlug(value || "")}
+                    />
+                    {snapshot?.queueDay?.closureReason ? (
+                      <Text c="dimmed" size="sm" maw={280} ta="right">
+                        {snapshot.queueDay.closureReason}
+                      </Text>
+                    ) : null}
+                  </Group>
+                  <Group>
+                    <Button
+                      className="neura-primary-button"
+                      disabled={busyAction === "call-next" || !selectedCounterSlug || queueDayClosed}
+                      onClick={async () => {
+                        const success = await runAction("call-next", () =>
+                          apiRequest<DashboardActionResponse>(
+                            `/vendor/tenant/${selectedTenantSlug}/queue/call-next${locationQuery}`,
+                            { method: "POST", token, body: { counterSlug: selectedCounterSlug } }
+                          )
+                        );
+                        if (success) {
+                          showSuccessNotification("Customer called", "The next ticket is now being served.");
+                        }
+                      }}
+                    >
+                      {busyAction === "call-next" ? "Calling..." : "Call next"}
+                    </Button>
+                    <Button
+                      className="neura-secondary-button"
+                      disabled={busyAction === "serve-current" || !activeTicket}
+                      onClick={async () => {
+                        const success = await runAction("serve-current", () =>
+                          apiRequest<DashboardActionResponse>(
+                            `/vendor/tenant/${selectedTenantSlug}/queue/current/serve${locationQuery}`,
+                            { method: "POST", token }
+                          )
+                        );
+                        if (success) {
+                          showSuccessNotification("Ticket served", "The current ticket was marked as served.");
+                        }
+                      }}
+                    >
+                      Serve current
+                    </Button>
+                    <Button
+                      variant="default"
+                      disabled={busyAction === "skip-current" || !activeTicket}
+                      onClick={async () => {
+                        const success = await runAction("skip-current", () =>
+                          apiRequest<DashboardActionResponse>(
+                            `/vendor/tenant/${selectedTenantSlug}/queue/current/skip${locationQuery}`,
+                            { method: "POST", token }
+                          )
+                        );
+                        if (success) {
+                          showSuccessNotification("Ticket skipped", "The current ticket was skipped.");
+                          setQueueView("overflow");
+                        }
+                      }}
+                    >
+                      Skip current
+                    </Button>
+                  </Group>
+                  <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+                    <Paper withBorder radius="md" p="md">
+                      <Text className="neura-label">Now serving</Text>
+                      <Title order={3}>{activeTicket?.ticketNumber || "--"}</Title>
+                      <Text c="dimmed" size="sm">
+                        {activeTicket?.customerName || "No active ticket"}
+                      </Text>
+                    </Paper>
+                    <Paper withBorder radius="md" p="md">
+                      <Text className="neura-label">Queue day</Text>
+                      <Title order={3}>{queueDayClosed ? "Closed" : "Open"}</Title>
+                      <Text c="dimmed" size="sm">
+                        {queueDayClosed && snapshot?.queueDay?.closedAt
+                          ? `Closed ${formatDateTime(snapshot.queueDay.closedAt)}`
+                          : "Customers can continue joining this queue"}
+                      </Text>
+                    </Paper>
+                  </SimpleGrid>
+                  <Table.ScrollContainer minWidth={420}>
+                    <Table verticalSpacing="sm">
+                      <Table.Thead>
+                        <Table.Tr>
+                          <Table.Th>Up next</Table.Th>
+                          <Table.Th>Channel</Table.Th>
+                        </Table.Tr>
+                      </Table.Thead>
+                      <Table.Tbody>
+                        {snapshot?.nextUp?.length ? (
+                          snapshot.nextUp.map((ticket) => (
+                            <Table.Tr key={ticket.id}>
+                              <Table.Td>
+                                <Text fw={700}>{ticket.ticketNumber}</Text>
+                                <Text c="dimmed" size="sm">{ticket.customerName}</Text>
+                              </Table.Td>
+                              <Table.Td><Badge variant="light">{ticket.joinChannel}</Badge></Table.Td>
+                            </Table.Tr>
+                          ))
+                        ) : (
+                          <Table.Tr>
+                            <Table.Td colSpan={2}>
+                              <DashboardEmptyState
+                                title="No one is waiting right now."
+                                text="As customers join from QR or online, the next tickets will appear here."
+                              />
+                            </Table.Td>
+                          </Table.Tr>
+                        )}
+                      </Table.Tbody>
+                    </Table>
+                  </Table.ScrollContainer>
+                </>
+              ) : (
+                <>
+                  <Group justify="space-between" align="flex-start">
+                    <div>
+                      <Text className="neura-label">Overflow queue</Text>
+                      <Title order={3}>Skipped and unserved tickets</Title>
+                    </div>
+                    <Badge variant="light">
+                      {overflowTickets.length} ticket{overflowTickets.length === 1 ? "" : "s"}
+                    </Badge>
+                  </Group>
+                  <Table.ScrollContainer minWidth={420}>
+                    <Table verticalSpacing="sm">
+                      <Table.Thead>
+                        <Table.Tr>
+                          <Table.Th>Ticket</Table.Th>
+                          <Table.Th>Status</Table.Th>
+                          <Table.Th>Updated</Table.Th>
+                        </Table.Tr>
+                      </Table.Thead>
+                      <Table.Tbody>
+                        {overflowTickets.length ? (
+                          overflowTickets.map((ticket) => (
+                            <Table.Tr key={ticket.id}>
+                              <Table.Td>
+                                <Text fw={700}>{ticket.ticketNumber}</Text>
+                                <Text c="dimmed" size="sm">{ticket.customerName}</Text>
+                              </Table.Td>
+                              <Table.Td>
+                                <Badge color={ticket.status === "unserved" ? "red" : "yellow"} variant="light">
+                                  {ticket.status}
+                                </Badge>
+                              </Table.Td>
+                              <Table.Td>{formatDateTime(ticket.updatedAt)}</Table.Td>
+                            </Table.Tr>
+                          ))
+                        ) : (
+                          <Table.Tr>
+                            <Table.Td colSpan={3}>
+                              <DashboardEmptyState
+                                title="No overflow tickets."
+                                text="Skipped or unserved tickets will appear here for follow-up."
+                              />
+                            </Table.Td>
+                          </Table.Tr>
+                        )}
+                      </Table.Tbody>
+                    </Table>
+                  </Table.ScrollContainer>
+                </>
+              )}
             </Stack>
           </Card>
 
@@ -1571,14 +1717,19 @@ export default function VendorDashboardPage() {
                   <Text className="neura-label">Issue walk-in ticket</Text>
                   <Title order={3}>Add customer at counter</Title>
                 </div>
-                <Button className="neura-primary-button" disabled={busyAction === "walk-in"} type="submit">
-                  {busyAction === "walk-in" ? "Issuing..." : "Issue ticket"}
+                <Button
+                  className="neura-primary-button"
+                  disabled={busyAction === "walk-in" || queueDayClosed}
+                  type="submit"
+                >
+                  {queueDayClosed ? "Queue closed" : busyAction === "walk-in" ? "Issuing..." : "Issue ticket"}
                 </Button>
               </Group>
               <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
                 <TextInput
                   label="Customer name"
                   required
+                  disabled={queueDayClosed}
                   value={walkInForm.customerName}
                   onChange={(event) =>
                     setWalkInForm((current) => ({ ...current, customerName: event.target.value }))
@@ -1587,6 +1738,7 @@ export default function VendorDashboardPage() {
                 <TextInput
                   label="Email"
                   type="email"
+                  disabled={queueDayClosed}
                   value={walkInForm.customerEmail}
                   onChange={(event) =>
                     setWalkInForm((current) => ({ ...current, customerEmail: event.target.value }))
@@ -1594,6 +1746,7 @@ export default function VendorDashboardPage() {
                 />
                 <TextInput
                   label="Phone"
+                  disabled={queueDayClosed}
                   value={walkInForm.customerPhone}
                   onChange={(event) =>
                     setWalkInForm((current) => ({ ...current, customerPhone: event.target.value }))
@@ -1602,6 +1755,7 @@ export default function VendorDashboardPage() {
                 <Textarea
                   label="Notes"
                   minRows={2}
+                  disabled={queueDayClosed}
                   value={walkInForm.notes}
                   onChange={(event) =>
                     setWalkInForm((current) => ({ ...current, notes: event.target.value }))
@@ -1610,6 +1764,7 @@ export default function VendorDashboardPage() {
               </SimpleGrid>
               <Group>
                 <Checkbox
+                  disabled={queueDayClosed}
                   checked={walkInForm.notifyByEmail}
                   label="Send email alerts"
                   onChange={(event) =>
@@ -1617,6 +1772,7 @@ export default function VendorDashboardPage() {
                   }
                 />
                 <Checkbox
+                  disabled={queueDayClosed}
                   checked={walkInForm.notifyBySms}
                   label="Send SMS alerts"
                   onChange={(event) =>

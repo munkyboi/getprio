@@ -3,6 +3,7 @@ import {
   Alert,
   Button,
   Checkbox,
+  PinInput,
   Paper,
   SimpleGrid,
   Stack,
@@ -25,7 +26,7 @@ import type {
 } from "@shared";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import { buildMonitorPath, buildMonitorPathWithTicket } from "../queuePaths";
+import { buildJoinedQueuePathWithTicket, buildMonitorPath } from "../queuePaths";
 import { getErrorMessage } from "../utils/errors";
 
 type JoinQueueFormState = Omit<JoinQueueRequest, "joinChannel" | "turnstileToken">;
@@ -85,6 +86,7 @@ export default function JoinQueuePage() {
   const turnstileContainerRef = useRef<HTMLDivElement | null>(null);
   const turnstileWidgetIdRef = useRef<string | null>(null);
   const [tenantInfo, setTenantInfo] = useState<TenantSummary | null>(null);
+  const [locationName, setLocationName] = useState("");
   const [form, setForm] = useState<JoinQueueFormState>({
     customerName: "",
     customerEmail: "",
@@ -99,6 +101,8 @@ export default function JoinQueuePage() {
   const [turnstileReady, setTurnstileReady] = useState(false);
   const [otp, setOtp] = useState<RequestJoinOtpResponse | null>(null);
   const [otpCode, setOtpCode] = useState("");
+  const otpAutoSubmitRef = useRef(false);
+  const lastAutoSubmittedOtpRef = useRef<string>("");
   const [now, setNow] = useState(() => Date.now());
   const tenantSlugValue = tenantSlug || "";
   const monitorPath = tenantSlug ? buildMonitorPath(tenantSlug, locationSlug) : "/";
@@ -119,6 +123,19 @@ export default function JoinQueuePage() {
           resendSecondsRemaining % 60
         ).padStart(2, "0")}`
       : "Send new code";
+  const queueFeeEnabled = Boolean(tenantInfo?.queueFee?.enabled);
+  const smsFeeApplies = Boolean(form.notifyBySms && queueFeeEnabled);
+  const canSkipOtp = !form.notifyByEmail && !smsFeeApplies;
+  const requiresPhone = form.notifyBySms;
+  const requiresEmail = form.notifyByEmail;
+  const pageTitle = tenantInfo?.name || tenantSlugValue;
+  const joinedQueueNavigationState = {
+    registrationPrefill: {
+      name: form.customerName,
+      email: form.customerEmail,
+      phone: form.customerPhone
+    }
+  };
 
   useEffect(() => {
     if (user) {
@@ -143,9 +160,9 @@ export default function JoinQueuePage() {
     apiRequest<QueueSnapshot>(`${basePath}/queue`)
       .then((data) => {
         setTenantInfo({
-          ...data.tenant,
-          name: data.location?.name || data.tenant.name
+          ...data.tenant
         });
+        setLocationName(data.location?.name || "");
       })
       .catch((loadError) => {
         setError(getErrorMessage(loadError));
@@ -195,9 +212,13 @@ export default function JoinQueuePage() {
         }
 
         if (data.paid && data.ticket?.lookupCode) {
-          navigate(buildMonitorPathWithTicket(tenantSlugValue, data.ticket.lookupCode, locationSlug), {
-            replace: true
-          });
+          navigate(
+            buildJoinedQueuePathWithTicket(tenantSlugValue, data.ticket.lookupCode, locationSlug),
+            {
+              replace: true,
+              state: joinedQueueNavigationState
+            }
+          );
           return;
         }
 
@@ -344,6 +365,50 @@ export default function JoinQueuePage() {
       );
       setOtp(data);
       setOtpCode("");
+      lastAutoSubmittedOtpRef.current = "";
+    } catch (submitError) {
+      setError(getErrorMessage(submitError));
+      if (shouldUseTurnstile) {
+        resetTurnstile();
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function submitDirectJoin() {
+    setSubmitting(true);
+    setError("");
+
+    try {
+      if (shouldUseTurnstile && !turnstileToken) {
+        setError("Please complete the security check before joining.");
+        setSubmitting(false);
+        return;
+      }
+
+      const data = await apiRequest<QueueJoinPaymentResponse, JoinQueueRequest>(
+        `${publicApiBase}/join`,
+        {
+          method: "POST",
+          token,
+          body: buildJoinRequest()
+        }
+      );
+
+      if (data.ticket?.lookupCode) {
+        notifications.show({
+          color: "teal",
+          icon: <IconCheck size={18} />,
+          message: "Your ticket has been issued.",
+          title: "Joined queue"
+        });
+        navigate(buildJoinedQueuePathWithTicket(tenantSlugValue, data.ticket.lookupCode, locationSlug), {
+          replace: true,
+          state: joinedQueueNavigationState
+        });
+        return;
+      }
     } catch (submitError) {
       setError(getErrorMessage(submitError));
       if (shouldUseTurnstile) {
@@ -371,6 +436,7 @@ export default function JoinQueuePage() {
       );
       setOtp(data);
       setOtpCode("");
+      lastAutoSubmittedOtpRef.current = "";
     } catch (submitError) {
       setError(getErrorMessage(submitError));
     } finally {
@@ -380,6 +446,11 @@ export default function JoinQueuePage() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (canSkipOtp) {
+      await submitDirectJoin();
+      return;
+    }
+
     await requestOtp();
   }
 
@@ -423,8 +494,9 @@ export default function JoinQueuePage() {
           message: "Your ticket has been issued.",
           title: "Joined queue"
         });
-        navigate(buildMonitorPathWithTicket(tenantSlugValue, data.ticket.lookupCode, locationSlug), {
-          replace: true
+        navigate(buildJoinedQueuePathWithTicket(tenantSlugValue, data.ticket.lookupCode, locationSlug), {
+          replace: true,
+          state: joinedQueueNavigationState
         });
         return;
       }
@@ -442,20 +514,49 @@ export default function JoinQueuePage() {
     }
   }
 
+  useEffect(() => {
+    if (!otp || otpCode.length !== 6 || submitting || otpAutoSubmitRef.current) {
+      return;
+    }
+
+    const submissionKey = `${otp.otpId}:${otpCode}`;
+    if (lastAutoSubmittedOtpRef.current === submissionKey) {
+      return;
+    }
+
+    lastAutoSubmittedOtpRef.current = submissionKey;
+    otpAutoSubmitRef.current = true;
+    handleVerifyOtp({ preventDefault() {} } as FormEvent<HTMLFormElement>).finally(() => {
+      otpAutoSubmitRef.current = false;
+    });
+  }, [otp, otpCode, submitting]);
+
   return (
     <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xl" className="finazze-join-layout">
       <Paper className="finazze-auth-card finazze-join-card" p={{ base: "xl", md: 44 }}>
         <Stack gap="md">
         <Text className="finazze-section-label">Join queue</Text>
-        <Title order={1}>{tenantInfo?.name || tenantSlugValue}</Title>
+        <Title order={1}>{pageTitle}</Title>
+        {locationName ? <Text fw={700}>{locationName}</Text> : null}
         <Text c="dimmed">
-          Grab your priority number online, then keep monitoring progress from the public board.
+          Join online, then monitor your ticket live from the public board.
         </Text>
         {tenantInfo?.queueFee?.enabled ? (
           <Text c="dimmed">
-            This queue requires a platform fee of {tenantInfo.queueFee.displayAmount} after
-            contact verification.
+            SMS queue alerts may incur a platform fee of {tenantInfo.queueFee.displayAmount}.
           </Text>
+        ) : null}
+        {!form.notifyByEmail ? (
+          <Text c="dimmed" size="sm">
+            Email verification is skipped when almost-next email alerts are off.
+            {smsFeeApplies ? " SMS alerts still require verification before payment." : ""}
+          </Text>
+        ) : null}
+        {smsFeeApplies ? (
+          <Alert color="blue" variant="light" radius="md">
+            SMS updates are convenient, but they carry a small platform fee of{" "}
+            {tenantInfo?.queueFee.displayAmount}. You will only be charged if you keep SMS alerts enabled.
+          </Alert>
         ) : null}
         {otp ? (
           <form onSubmit={handleVerifyOtp}>
@@ -473,21 +574,21 @@ export default function JoinQueuePage() {
                 })}.
               </Text>
             </Paper>
-            <TextInput
-              autoComplete="one-time-code"
+            <PinInput
+              aria-label="OTP"
               inputMode="numeric"
-              label="OTP"
-              maxLength={6}
-              pattern="[0-9]{6}"
-              required
+              length={6}
+              oneTimeCode
+              size="lg"
+              type="number"
               value={otpCode}
-              onChange={(event) => setOtpCode(event.target.value.replace(/\D/g, ""))}
+              onChange={(value) => setOtpCode(value.replace(/\D/g, ""))}
             />
             {error ? <Alert color="red">{error}</Alert> : null}
-            <Button color="dark" disabled={submitting} type="submit">
+            <Button color="dark" disabled={submitting || otpCode.length !== 6} type="submit">
               {submitting
                 ? "Verifying..."
-                : tenantInfo?.queueFee?.enabled
+                  : smsFeeApplies
                   ? "Verify and continue to payment"
                   : "Verify and join queue"}
             </Button>
@@ -517,12 +618,23 @@ export default function JoinQueuePage() {
           <form onSubmit={handleSubmit}>
             <Stack gap="md">
             <TextInput required label="Name" value={form.customerName} onChange={(event) => setForm((current) => ({ ...current, customerName: event.target.value }))} />
-            <TextInput label="Email" type="email" value={form.customerEmail} onChange={(event) => setForm((current) => ({ ...current, customerEmail: event.target.value }))} />
-            <TextInput label="Phone" value={form.customerPhone} onChange={(event) => setForm((current) => ({ ...current, customerPhone: event.target.value }))} />
+            <TextInput
+              label="Email"
+              required={requiresEmail}
+              type="email"
+              value={form.customerEmail}
+              onChange={(event) => setForm((current) => ({ ...current, customerEmail: event.target.value }))}
+            />
+            <TextInput
+              label="Phone"
+              required={requiresPhone}
+              value={form.customerPhone}
+              onChange={(event) => setForm((current) => ({ ...current, customerPhone: event.target.value }))}
+            />
             <Textarea label="Notes" minRows={3} value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} />
             <Checkbox
               checked={form.notifyByEmail}
-              label="Email me when I am almost next"
+              label="Email me when I am almost next in line"
               onChange={(event) => setForm((current) => ({ ...current, notifyByEmail: event.target.checked }))}
             />
             <Checkbox
@@ -541,7 +653,15 @@ export default function JoinQueuePage() {
               disabled={submitting || (shouldUseTurnstile && !turnstileReady)}
               type="submit"
             >
-              {submitting ? "Sending code..." : "Get priority number"}
+              {submitting
+                ? canSkipOtp
+                  ? "Joining..."
+                  : "Sending code..."
+                : canSkipOtp
+                  ? "Get priority number"
+                  : smsFeeApplies
+                    ? "Verify and continue"
+                    : "Send verification code"}
             </Button>
             </Stack>
           </form>

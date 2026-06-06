@@ -4,7 +4,7 @@ import { Navigate, Link, useNavigate } from "react-router-dom";
 import type { CustomerAccountOverviewResponse, PasswordChangeRequest } from "@shared";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import { buildMonitorPathWithTicket } from "../queuePaths";
+import { buildJoinedQueuePathWithTicket } from "../queuePaths";
 import { getErrorMessage } from "../utils/errors";
 
 export default function CustomerAccountPage() {
@@ -144,14 +144,14 @@ export default function CustomerAccountPage() {
                         <Button
                           component={Link}
                           size="xs"
-                          to={buildMonitorPathWithTicket(
+                          to={buildJoinedQueuePathWithTicket(
                             ticket.tenantSlug,
                             ticket.lookupCode,
                             ticket.locationSlug
                           )}
                           variant="light"
                         >
-                          Open board
+                          Open ticket
                         </Button>
                       </Table.Td>
                     </Table.Tr>

@@ -7,6 +7,7 @@ BEGIN;
 DROP TABLE IF EXISTS billing_events CASCADE;
 DROP TABLE IF EXISTS billing_checkout_sessions CASCADE;
 DROP TABLE IF EXISTS tenant_subscriptions CASCADE;
+DROP TABLE IF EXISTS queue_events CASCADE;
 DROP TABLE IF EXISTS auth_security_events CASCADE;
 DROP TABLE IF EXISTS auth_login_attempts CASCADE;
 DROP TABLE IF EXISTS password_reset_tokens CASCADE;
@@ -242,10 +243,56 @@ CREATE TABLE tickets (
   served_at TIMESTAMPTZ,
   skipped_at TIMESTAMPTZ,
   cancelled_at TIMESTAMPTZ,
+  unserved_at TIMESTAMPTZ,
+  carried_over_at TIMESTAMPTZ,
+  carry_over_count INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CHECK (
+    status IN ('waiting', 'called', 'served', 'skipped', 'cancelled', 'unserved')
+  ),
   UNIQUE (tenant_id, location_id, date_key, sequence)
 );
+
+CREATE TABLE queue_events (
+  id BIGSERIAL PRIMARY KEY,
+  ticket_id BIGINT REFERENCES tickets(id) ON DELETE CASCADE,
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  location_id BIGINT REFERENCES store_locations(id) ON DELETE SET NULL,
+  queue_date_key TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  from_status TEXT,
+  to_status TEXT,
+  actor_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  actor_role TEXT,
+  source TEXT NOT NULL,
+  metadata JSONB NOT NULL DEFAULT '{}'::JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE queue_day_closures (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  location_id BIGINT NOT NULL REFERENCES store_locations(id) ON DELETE CASCADE,
+  queue_date_key TEXT NOT NULL,
+  next_queue_date_key TEXT NOT NULL DEFAULT '00000000',
+  closure_reason TEXT,
+  affected_ticket_ids BIGINT[] NOT NULL DEFAULT ARRAY[]::BIGINT[],
+  waiting_carried_count INTEGER NOT NULL DEFAULT 0,
+  called_unserved_count INTEGER NOT NULL DEFAULT 0,
+  closed_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  reopened_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  reopened_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX queue_day_closures_active_scope_idx
+  ON queue_day_closures (tenant_id, location_id, queue_date_key)
+  WHERE reopened_at IS NULL;
+
+CREATE INDEX queue_day_closures_scope_created_idx
+  ON queue_day_closures (tenant_id, location_id, queue_date_key, created_at DESC);
 
 CREATE TABLE queue_join_otps (
   id BIGSERIAL PRIMARY KEY,

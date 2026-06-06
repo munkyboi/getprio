@@ -9,6 +9,7 @@ dotenv.config({ path: backendEnvPath, override: false });
 
 export const port = Number(process.env.PORT || process.env.BACKEND_PORT || 5000);
 const frontendPort = Number(process.env.FRONTEND_PORT || 5173);
+const platformDashboardPort = Number(process.env.PLATFORM_DASHBOARD_PORT || 7100);
 
 export const nodeEnv = process.env.NODE_ENV || "development";
 export const databaseUrl =
@@ -19,7 +20,7 @@ export const serverUrl = process.env.SERVER_URL || `http://localhost:${port}`;
 export const clientUrl = process.env.CLIENT_URL || `http://localhost:${frontendPort}`;
 export const appBaseUrl = process.env.APP_BASE_URL || `http://localhost:${frontendPort}`;
 export const platformDashboardUrl =
-  process.env.PLATFORM_DASHBOARD_URL || "http://localhost:7100";
+  process.env.PLATFORM_DASHBOARD_URL || `http://localhost:${platformDashboardPort}`;
 export const oauthCallbackPath = process.env.OAUTH_CALLBACK_PATH || "/oauth/callback";
 export const oauthStateTtlMinutes = Number(process.env.OAUTH_STATE_TTL_MINUTES || 10);
 export const accessTokenTtlMinutes = Number(process.env.ACCESS_TOKEN_TTL_MINUTES || 15);
