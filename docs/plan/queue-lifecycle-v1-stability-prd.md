@@ -26,6 +26,11 @@ Status date: `2026-06-06`
 - carry-over behavior for unresolved waiting tickets
 - blocked operations while a queue day is closed
 - vendor dashboard queue-day controls and current/overflow queue views
+- explicit overflow semantics: carried-over waiting tickets only
+- priority-band groundwork for `carry_over`, `recovery`, and `normal`
+- recovery deadline tracking for skipped tickets
+- vendor restore path for skipped-ticket recovery
+- vendor dashboard recovery UI for skipped tickets
 - customer joined-ticket flow aligned with queue lifecycle
 - backend lifecycle coverage for:
   - close / reopen
@@ -33,16 +38,18 @@ Status date: `2026-06-06`
   - duplicate call-next with an active ticket
   - empty-queue call-next behavior
   - duplicate close / reopen conflict paths
+  - skipped-ticket restore route contract
 
 ### Partial
 
 - customer/public queue flow is lifecycle-aligned, but was advanced alongside product UI work rather than completed as an isolated PRD slice
 - local database compatibility fixes exist for older closure/table shapes and should still be normalized carefully across environments
+- recovery-band support exists, but there is not yet a richer operator policy model such as manual override reasons or explicit recovery analytics
 
 ### Pending
 
 - broader transaction-race verification beyond the current focused backend coverage
-- final cleanup / packaging / merge workflow for the accumulated queue lifecycle branch work
+- richer recovery test coverage at the service/order-selection level
 
 ---
 
@@ -105,7 +112,6 @@ Define and implement a stable queue lifecycle model for v1 across all queue-faci
 
 - ETA prediction logic
 - appointment scheduling
-- priority rules beyond current FIFO + carry-over behavior
 - advanced queue orchestration by service type/staff lane
 
 ---
@@ -125,6 +131,7 @@ Define and implement a stable queue lifecycle model for v1 across all queue-faci
 - No single queue event history table exists for every state change
 - Staff/customer/public state meanings are partly implicit
 - Some edge cases are handled procedurally rather than through one lifecycle contract
+- Queue ordering semantics for carry-over vs missed-ticket recovery are not yet formalized
 
 ---
 
@@ -240,7 +247,7 @@ This remains the stable v1 queue-day identity.
 ### Queue-Day Rules
 
 - only one active called ticket per tenant/location/queue-day
-- waiting order is determined by carried-over precedence and creation order
+- waiting order is determined by explicit priority policy and creation order within that policy
 - queue-day closure applies to one tenant/location/date scope at a time
 
 ---
@@ -275,6 +282,55 @@ Stable v1 carry-over behavior:
 - carried-over tickets must preserve lineage to original queue-day
 - carry-over count must increment deterministically
 - carried-over tickets must re-enter waiting state in a predictable order
+
+### Priority Bands
+
+Stable queue ordering should follow explicit service-priority bands:
+
+```txt
+carry_over
+recovery
+normal
+```
+
+Definitions:
+
+- `carry_over`: unresolved `waiting` tickets moved from a previous queue-day
+- `recovery`: tickets that were previously `called`, missed, and returned within a defined grace window
+- `normal`: fresh same-day joins
+
+### Default Ordering Rule
+
+Queue servicing order must default to:
+
+```txt
+carry_over > recovery > normal
+```
+
+This rule must be enforced by backend queue selection, not only implied by UI labels.
+
+### Overflow Rule
+
+In the vendor dashboard:
+
+- `Overflow queue` means carried-over tickets only
+- skipped / unserved / cancelled tickets are not part of overflow
+- missed-ticket recovery is a separate operational concern from overflow
+
+### Missed-Ticket Recovery
+
+Tickets that were `called` but not served may be eligible for recovery.
+
+Stable direction for the next lifecycle slice:
+
+- a missed ticket can return within a grace window
+- if the grace window is still valid, it re-enters the queue as `recovery`
+- recovery tickets are placed behind `carry_over` and ahead of `normal`
+- if the grace window expires, the ticket loses recovery privilege and rejoins as `normal`
+
+### Anti-Pattern
+
+Do not model recovery as “take the place of a cancelled ticket.” That weakens auditability, makes queue order harder to explain, and complicates future ETA logic.
 
 ---
 
@@ -421,6 +477,8 @@ These must always hold:
 - a cancelled or served ticket cannot return to waiting
 - queue closure cannot silently drop unresolved tickets
 - carry-over must be explicit, never inferred only from UI
+- carried-over tickets must outrank fresh same-day joins by default
+- recovery tickets must outrank fresh same-day joins but not carried-over tickets
 - customer-visible ticket position must only be computed for actively waiting tickets in the active queue-day
 
 ---
@@ -458,6 +516,9 @@ Possible later additions:
 - `cancelled_by_actor_type`
 - `skipped_reason`
 - `requeue_reason`
+- `service_priority_band`
+- `rejoin_deadline_at`
+- `priority_override_reason`
 
 These are not required for stable v1, but the event schema should permit them in `metadata`.
 
@@ -470,6 +531,8 @@ These are not required for stable v1, but the event schema should permit them in
 - Serving, skipping, and cancellation only work from valid states
 - Closing queue day produces deterministic carry-over/unserved outcomes
 - Reopen does not duplicate or corrupt carried-over tickets
+- Carried-over tickets are always prioritized ahead of same-day joins
+- Recovery tickets, when introduced, are prioritized ahead of same-day joins and behind carry-over tickets
 - Public lookup and vendor dashboard agree on status semantics
 - Queue events are written for all state-changing operations
 - SSE updates reflect committed state only

@@ -694,6 +694,14 @@ export default function VendorDashboardPage() {
     });
   }
 
+  function isRecoveryWindowActive(value?: string | Date | null) {
+    if (!value) {
+      return false;
+    }
+
+    return new Date(value).getTime() > Date.now();
+  }
+
   const joinUrl =
     snapshot?.location?.joinUrl ||
     snapshot?.tenant.joinUrl ||
@@ -746,11 +754,17 @@ export default function VendorDashboardPage() {
     averageServiceMinutes,
     1
   );
-  const overflowTickets = useMemo(
+  const overflowTickets = useMemo(() => snapshot?.overflow || [], [snapshot]);
+  const currentQueueTickets = useMemo(
+    () => (snapshot?.nextUp || []).filter((ticket) => !ticket.isCarriedOver),
+    [snapshot]
+  );
+  const recoverableTickets = useMemo(
     () =>
-      (snapshot?.history || []).filter(
-        (ticket) => ticket.status === "skipped" || ticket.status === "unserved"
-      ),
+      (snapshot?.history || [])
+        .filter((ticket) => ticket.status === "skipped")
+        .sort((a, b) => getHistoryTimestamp(b.updatedAt) - getHistoryTimestamp(a.updatedAt))
+        .slice(0, 10),
     [snapshot]
   );
   const queueDayClosed = Boolean(snapshot?.queueDay?.isClosed);
@@ -1491,7 +1505,7 @@ export default function VendorDashboardPage() {
                             )
                           );
                           if (success) {
-                            showSuccessNotification("Queue closed", "Waiting and active tickets were moved to overflow.");
+                            showSuccessNotification("Queue closed", "Waiting tickets were carried over and active tickets were marked unserved.");
                             setQueueView("overflow");
                           }
                         }}
@@ -1568,7 +1582,7 @@ export default function VendorDashboardPage() {
                         );
                         if (success) {
                           showSuccessNotification("Ticket skipped", "The current ticket was skipped.");
-                          setQueueView("overflow");
+                          setQueueView("current");
                         }
                       }}
                     >
@@ -1602,8 +1616,8 @@ export default function VendorDashboardPage() {
                         </Table.Tr>
                       </Table.Thead>
                       <Table.Tbody>
-                        {snapshot?.nextUp?.length ? (
-                          snapshot.nextUp.map((ticket) => (
+                        {currentQueueTickets.length ? (
+                          currentQueueTickets.map((ticket) => (
                             <Table.Tr key={ticket.id}>
                               <Table.Td>
                                 <Text fw={700}>{ticket.ticketNumber}</Text>
@@ -1617,7 +1631,7 @@ export default function VendorDashboardPage() {
                             <Table.Td colSpan={2}>
                               <DashboardEmptyState
                                 title="No one is waiting right now."
-                                text="As customers join from QR or online, the next tickets will appear here."
+                                text="Fresh same-day joins will appear here once the carry-over backlog is cleared."
                               />
                             </Table.Td>
                           </Table.Tr>
@@ -1625,13 +1639,104 @@ export default function VendorDashboardPage() {
                       </Table.Tbody>
                     </Table>
                   </Table.ScrollContainer>
+                  <Divider />
+                  <Stack gap="md">
+                    <Group justify="space-between" align="flex-start">
+                      <div>
+                        <Text className="neura-label">Missed ticket recovery</Text>
+                        <Title order={4}>Skipped tickets</Title>
+                      </div>
+                      <Badge variant="light">
+                        {recoverableTickets.length} ticket{recoverableTickets.length === 1 ? "" : "s"}
+                      </Badge>
+                    </Group>
+                    <Table.ScrollContainer minWidth={420}>
+                      <Table verticalSpacing="sm">
+                        <Table.Thead>
+                          <Table.Tr>
+                            <Table.Th>Ticket</Table.Th>
+                            <Table.Th>Recovery</Table.Th>
+                            <Table.Th>Action</Table.Th>
+                          </Table.Tr>
+                        </Table.Thead>
+                        <Table.Tbody>
+                          {recoverableTickets.length ? (
+                            recoverableTickets.map((ticket) => {
+                              const priorityRecovery = isRecoveryWindowActive(ticket.rejoinDeadlineAt);
+
+                              return (
+                                <Table.Tr key={ticket.id}>
+                                  <Table.Td>
+                                    <Text fw={700}>{ticket.ticketNumber}</Text>
+                                    <Text c="dimmed" size="sm">{ticket.customerName}</Text>
+                                  </Table.Td>
+                                  <Table.Td>
+                                    <Badge color={priorityRecovery ? "blue" : "gray"} variant="light">
+                                      {priorityRecovery ? "recovery" : "normal"}
+                                    </Badge>
+                                    <Text c="dimmed" size="sm" mt={4}>
+                                      {ticket.rejoinDeadlineAt
+                                        ? priorityRecovery
+                                          ? `Priority until ${formatDateTime(ticket.rejoinDeadlineAt)}`
+                                          : `Recovery expired ${formatDateTime(ticket.rejoinDeadlineAt)}`
+                                        : "No recovery deadline"}
+                                    </Text>
+                                  </Table.Td>
+                                  <Table.Td>
+                                    <Button
+                                      disabled={busyAction === `restore-${ticket.id}` || !ticket.lookupCode}
+                                      onClick={async () => {
+                                        const success = await runAction(`restore-${ticket.id}`, () =>
+                                          apiRequest<DashboardActionResponse, { lookupCode: string }>(
+                                            `/vendor/tenant/${selectedTenantSlug}/queue/tickets/${ticket.id}/restore${locationQuery}`,
+                                            {
+                                              method: "POST",
+                                              token,
+                                              body: { lookupCode: ticket.lookupCode || "" }
+                                            }
+                                          )
+                                        );
+
+                                        if (success) {
+                                          showSuccessNotification(
+                                            "Ticket restored",
+                                            priorityRecovery
+                                              ? "The skipped ticket was restored with recovery priority."
+                                              : "The skipped ticket was restored at normal priority."
+                                          );
+                                          setQueueView("current");
+                                        }
+                                      }}
+                                      size="xs"
+                                      variant="light"
+                                    >
+                                      Restore
+                                    </Button>
+                                  </Table.Td>
+                                </Table.Tr>
+                              );
+                            })
+                          ) : (
+                            <Table.Tr>
+                              <Table.Td colSpan={3}>
+                                <DashboardEmptyState
+                                  title="No skipped tickets to recover."
+                                  text="Skipped tickets will appear here while they are still relevant for operator recovery."
+                                />
+                              </Table.Td>
+                            </Table.Tr>
+                          )}
+                        </Table.Tbody>
+                      </Table>
+                    </Table.ScrollContainer>
+                  </Stack>
                 </>
               ) : (
                 <>
                   <Group justify="space-between" align="flex-start">
                     <div>
                       <Text className="neura-label">Overflow queue</Text>
-                      <Title order={3}>Skipped and unserved tickets</Title>
+                      <Title order={3}>Carried-over tickets</Title>
                     </div>
                     <Badge variant="light">
                       {overflowTickets.length} ticket{overflowTickets.length === 1 ? "" : "s"}
@@ -1642,8 +1747,8 @@ export default function VendorDashboardPage() {
                       <Table.Thead>
                         <Table.Tr>
                           <Table.Th>Ticket</Table.Th>
-                          <Table.Th>Status</Table.Th>
-                          <Table.Th>Updated</Table.Th>
+                          <Table.Th>Priority</Table.Th>
+                          <Table.Th>Carried over</Table.Th>
                         </Table.Tr>
                       </Table.Thead>
                       <Table.Tbody>
@@ -1655,11 +1760,11 @@ export default function VendorDashboardPage() {
                                 <Text c="dimmed" size="sm">{ticket.customerName}</Text>
                               </Table.Td>
                               <Table.Td>
-                                <Badge color={ticket.status === "unserved" ? "red" : "yellow"} variant="light">
-                                  {ticket.status}
+                                <Badge color="orange" variant="light">
+                                  carry_over
                                 </Badge>
                               </Table.Td>
-                              <Table.Td>{formatDateTime(ticket.updatedAt)}</Table.Td>
+                              <Table.Td>{ticket.carriedOverAt ? formatDateTime(ticket.carriedOverAt) : "--"}</Table.Td>
                             </Table.Tr>
                           ))
                         ) : (
@@ -1667,7 +1772,7 @@ export default function VendorDashboardPage() {
                             <Table.Td colSpan={3}>
                               <DashboardEmptyState
                                 title="No overflow tickets."
-                                text="Skipped or unserved tickets will appear here for follow-up."
+                                text="Waiting tickets carried over from a previous queue day will appear here."
                               />
                             </Table.Td>
                           </Table.Tr>

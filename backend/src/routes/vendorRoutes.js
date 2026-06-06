@@ -21,7 +21,8 @@ const {
   callNextTicket,
   updateCurrentTicketStatus,
   closeQueueDay,
-  reopenQueueDay
+  reopenQueueDay,
+  restoreSkippedTicket
 } = require("../services/queueService");
 
 const router = express.Router();
@@ -395,6 +396,45 @@ router.post(
 );
 
 router.post(
+  "/tenant/:tenantSlug/queue/tickets/:ticketId/restore",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.ticket.update_state");
+    const location = await getLocationForTenant(tenant, req.query.location);
+    const lookupCode = String(req.body.lookupCode || "").trim().toUpperCase();
+
+    if (!lookupCode) {
+      const error = new Error("lookupCode is required.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const result = await restoreSkippedTicket(tenant, req.params.ticketId, {
+      location,
+      lookupCode,
+      actorUserId: req.user?._id,
+      actorRole: "vendor",
+      source: "vendor"
+    });
+
+    if (!result) {
+      const error = new Error("Skipped ticket not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    res.json({
+      ticket: {
+        id: String(result.ticket._id),
+        ticketNumber: result.ticket.ticketNumber,
+        status: result.ticket.status
+      },
+      snapshot: result.snapshot
+    });
+  })
+);
+
+router.post(
   "/tenant/:tenantSlug/queue/current/serve",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
@@ -505,10 +545,13 @@ router.get(
       historyLabel: entitlements.historyLabel,
       tickets: tickets.map((ticket) => ({
         id: String(ticket._id),
+        lookupCode: ticket.lookupCode,
         ticketNumber: ticket.ticketNumber,
         customerName: ticket.customerName,
         status: ticket.status,
-        updatedAt: ticket.updatedAt
+        updatedAt: ticket.updatedAt,
+        rejoinDeadlineAt: ticket.rejoinDeadlineAt || null,
+        servicePriorityBand: ticket.servicePriorityBand || "normal"
       }))
     });
   })

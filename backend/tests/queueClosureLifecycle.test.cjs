@@ -293,6 +293,146 @@ test("vendor call-next returns 409 when queue day is closed", async () => {
   }
 });
 
+test("vendor restore skipped ticket returns updated snapshot", async () => {
+  const vendorRouter = requireWithMocks("../src/routes/vendorRoutes.js", {
+    "../middleware/auth": buildAuthMock(),
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../repositories/tenants": {
+      findTenantBySlug: async () => ({ _id: "tenant-1", slug: "demo", name: "Demo Tenant" })
+    },
+    "../repositories/storeLocations": {
+      findPrimaryLocationByTenantId: async () => ({ _id: "location-1", slug: "ayala", name: "Ayala" }),
+      listHoursByLocationId: async () => []
+    },
+    "../repositories/publicBoardThemes": {
+      getResolvedTheme: async () => ({ scope: "location", theme: {} }),
+      saveTheme: async () => ({})
+    },
+    "../repositories/tickets": {
+      listClientTickets: async () => [],
+      listHistoryTickets: async () => []
+    },
+    "../repositories/serviceCounters": {
+      findCounterByLocationAndSlug: async () => null
+    },
+    "../repositories/users": {
+      listUsersByTenantId: async () => []
+    },
+    "../services/billingService": {
+      getBillingOverview: async () => ({ subscription: { entitlements: { locations: 1 } }, plans: [] }),
+      getTenantEntitlements: async () => ({ staffSeats: 5, counters: 2, brandedQueuePages: true })
+    },
+    "../services/publicBoardThemeUploadService": {
+      createUpload: async () => ({})
+    },
+    "../services/storeHoursService": {
+      getOpenStatus: async () => ({ isOpen: true, timezone: "Asia/Manila", summary: "Open", today: null, nextOpenAt: null })
+    },
+    "../services/queueService": {
+      createTicket: async () => ({}),
+      getQueueSnapshot: async () => ({ queueDay: { isClosed: false } }),
+      closeQueueDay: async () => ({ queueDay: { isClosed: true } }),
+      reopenQueueDay: async () => ({ queueDay: { isClosed: false } }),
+      restoreSkippedTicket: async () => ({
+        ticket: { _id: "ticket-7", ticketNumber: "P007", status: "waiting" },
+        snapshot: { queueDay: { isClosed: false }, overflow: [], nextUp: [{ id: "ticket-7", ticketNumber: "P007" }] }
+      }),
+      callNextTicket: async () => null,
+      updateCurrentTicketStatus: async () => null
+    },
+    pdfkit: function MockPdfDocument() {}
+  });
+
+  const { server, baseUrl } = await startServer(vendorRouter, "/api/vendor");
+
+  try {
+    const response = await fetch(`${baseUrl}/tenant/demo/queue/tickets/7/restore`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-test-tenant-role": "staff"
+      },
+      body: JSON.stringify({ lookupCode: "ABC12345" })
+    });
+
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.ticket.ticketNumber, "P007");
+    assert.equal(body.ticket.status, "waiting");
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("vendor restore skipped ticket requires lookup code", async () => {
+  const vendorRouter = requireWithMocks("../src/routes/vendorRoutes.js", {
+    "../middleware/auth": buildAuthMock(),
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../repositories/tenants": {
+      findTenantBySlug: async () => ({ _id: "tenant-1", slug: "demo", name: "Demo Tenant" })
+    },
+    "../repositories/storeLocations": {
+      findPrimaryLocationByTenantId: async () => ({ _id: "location-1", slug: "ayala", name: "Ayala" }),
+      listHoursByLocationId: async () => []
+    },
+    "../repositories/publicBoardThemes": {
+      getResolvedTheme: async () => ({ scope: "location", theme: {} }),
+      saveTheme: async () => ({})
+    },
+    "../repositories/tickets": {
+      listClientTickets: async () => [],
+      listHistoryTickets: async () => []
+    },
+    "../repositories/serviceCounters": {
+      findCounterByLocationAndSlug: async () => null
+    },
+    "../repositories/users": {
+      listUsersByTenantId: async () => []
+    },
+    "../services/billingService": {
+      getBillingOverview: async () => ({ subscription: { entitlements: { locations: 1 } }, plans: [] }),
+      getTenantEntitlements: async () => ({ staffSeats: 5, counters: 2, brandedQueuePages: true })
+    },
+    "../services/publicBoardThemeUploadService": {
+      createUpload: async () => ({})
+    },
+    "../services/storeHoursService": {
+      getOpenStatus: async () => ({ isOpen: true, timezone: "Asia/Manila", summary: "Open", today: null, nextOpenAt: null })
+    },
+    "../services/queueService": {
+      createTicket: async () => ({}),
+      getQueueSnapshot: async () => ({ queueDay: { isClosed: false } }),
+      closeQueueDay: async () => ({ queueDay: { isClosed: true } }),
+      reopenQueueDay: async () => ({ queueDay: { isClosed: false } }),
+      restoreSkippedTicket: async () => {
+        throw new Error("restoreSkippedTicket should not run");
+      },
+      callNextTicket: async () => null,
+      updateCurrentTicketStatus: async () => null
+    },
+    pdfkit: function MockPdfDocument() {}
+  });
+
+  const { server, baseUrl } = await startServer(vendorRouter, "/api/vendor");
+
+  try {
+    const response = await fetch(`${baseUrl}/tenant/demo/queue/tickets/7/restore`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-test-tenant-role": "staff"
+      },
+      body: JSON.stringify({})
+    });
+
+    assert.equal(response.status, 400);
+    const body = await response.json();
+    assert.match(body.message, /lookupCode is required/i);
+  } finally {
+    await stopServer(server);
+  }
+});
+
 test("vendor call-next returns 400 when a ticket is already active", async () => {
   const vendorRouter = requireWithMocks("../src/routes/vendorRoutes.js", {
     "../middleware/auth": buildAuthMock(),

@@ -27,6 +27,7 @@ import type {
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { buildJoinedQueuePathWithTicket, buildMonitorPath } from "../queuePaths";
+import { saveJoinedQueueAccess } from "../utils/joinedQueueAccess";
 import { getErrorMessage } from "../utils/errors";
 
 type JoinQueueFormState = Omit<JoinQueueRequest, "joinChannel" | "turnstileToken">;
@@ -211,7 +212,12 @@ export default function JoinQueuePage() {
           return;
         }
 
-        if (data.paid && data.ticket?.lookupCode) {
+      if (data.paid && data.ticket?.lookupCode) {
+          saveJoinedQueueAccess(data.ticket.lookupCode, {
+            customerEmail: form.customerEmail,
+            customerPhone: form.customerPhone,
+            customerName: form.customerName
+          });
           navigate(
             buildJoinedQueuePathWithTicket(tenantSlugValue, data.ticket.lookupCode, locationSlug),
             {
@@ -397,6 +403,11 @@ export default function JoinQueuePage() {
       );
 
       if (data.ticket?.lookupCode) {
+        saveJoinedQueueAccess(data.ticket.lookupCode, {
+          customerEmail: form.customerEmail,
+          customerPhone: form.customerPhone,
+          customerName: form.customerName
+        });
         notifications.show({
           color: "teal",
           icon: <IconCheck size={18} />,
@@ -488,6 +499,11 @@ export default function JoinQueuePage() {
       }
 
       if (data.ticket?.lookupCode) {
+        saveJoinedQueueAccess(data.ticket.lookupCode, {
+          customerEmail: form.customerEmail,
+          customerPhone: form.customerPhone,
+          customerName: form.customerName
+        });
         notifications.show({
           color: "teal",
           icon: <IconCheck size={18} />,

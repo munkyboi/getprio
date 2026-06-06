@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import {
+  Alert,
   Badge,
   Box,
   Button,
@@ -13,10 +14,11 @@ import {
   Title
 } from "@mantine/core";
 import { Link, Navigate, useLocation, useParams, useSearchParams } from "react-router-dom";
-import type { QueueSnapshot, StoreHourSummary } from "@shared";
+import type { CancelQueueTicketRequest, QueueSnapshot, StoreHourSummary } from "@shared";
 import { API_BASE_URL, apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { buildJoinPath, buildMonitorPath, buildMonitorPathWithTicket } from "../queuePaths";
+import { clearJoinedQueueAccess, getJoinedQueueAccess } from "../utils/joinedQueueAccess";
 import { getErrorMessage } from "../utils/errors";
 
 function maskNamePart(namePart: string): string {
@@ -105,9 +107,10 @@ export default function JoinedQueuePage() {
   const { tenantSlug, locationSlug } = useParams<{ tenantSlug: string; locationSlug?: string }>();
   const location = useLocation();
   const [searchParams] = useSearchParams();
-  const { user } = useAuth();
+  const { token, user } = useAuth();
   const [snapshot, setSnapshot] = useState<QueueSnapshot | null>(null);
   const [error, setError] = useState("");
+  const [cancelSubmitting, setCancelSubmitting] = useState(false);
   const [hoursOpened, setHoursOpened] = useState(false);
   const lookupCode = searchParams.get("ticket") || "";
   const tenantSlugValue = tenantSlug || "";
@@ -198,6 +201,12 @@ export default function JoinedQueuePage() {
     })))
   ].slice(0, 10);
   const userIsCustomer = Boolean(user?.roles?.includes("customer"));
+  const storedAccess = getJoinedQueueAccess(lookupCode);
+  const cancellationContact = {
+    customerEmail: user?.email || storedAccess?.customerEmail || prefill?.email || "",
+    customerPhone: user?.phone || storedAccess?.customerPhone || prefill?.phone || ""
+  };
+  const canCancelTicket = snapshot?.focusTicket?.status === "waiting";
 
   useEffect(() => {
     if (missingTenant || missingLookupCode) {
@@ -245,6 +254,42 @@ export default function JoinedQueuePage() {
 
   if (missingLookupCode) {
     return <Navigate replace to={buildMonitorPath(tenantSlugValue, locationSlug)} />;
+  }
+
+  async function handleCancelTicket() {
+    setCancelSubmitting(true);
+    setError("");
+
+    try {
+      await apiRequest<{ ticket: { lookupCode: string; status: string } }, CancelQueueTicketRequest>(
+        `${locationSlug ? `/public/tenant/${tenantSlugValue}/location/${locationSlug}` : `/public/tenant/${tenantSlugValue}`}/tickets/${lookupCode}`,
+        {
+          method: "DELETE",
+          body: cancellationContact,
+          token
+        }
+      );
+
+      clearJoinedQueueAccess(lookupCode);
+      setSnapshot((current) =>
+        current
+          ? {
+              ...current,
+              focusTicket: current.focusTicket
+                ? {
+                    ...current.focusTicket,
+                    status: "cancelled",
+                    position: null
+                  }
+                : null
+            }
+          : current
+      );
+    } catch (cancelError) {
+      setError(getErrorMessage(cancelError));
+    } finally {
+      setCancelSubmitting(false);
+    }
   }
 
   return (
@@ -347,6 +392,17 @@ export default function JoinedQueuePage() {
                   <Button component={Link} radius="xl" style={buttonStyle} to={publicBoardPath}>
                     View live board
                   </Button>
+                  {canCancelTicket ? (
+                    <Button
+                      color="red"
+                      loading={cancelSubmitting}
+                      onClick={handleCancelTicket}
+                      radius="xl"
+                      variant="light"
+                    >
+                      Cancel ticket
+                    </Button>
+                  ) : null}
                   <Button component={Link} radius="xl" to={joinPath} variant="subtle">
                     Join again
                   </Button>
@@ -385,7 +441,7 @@ export default function JoinedQueuePage() {
           </Paper>
         ) : null}
 
-        {error ? <Text c="red" fw={700}>{error}</Text> : null}
+        {error ? <Alert color="red">{error}</Alert> : null}
 
         <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
           <Paper p="xl" shadow="lg" style={cardStyle}>

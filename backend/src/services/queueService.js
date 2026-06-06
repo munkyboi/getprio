@@ -19,6 +19,10 @@ function getDateKey(date = new Date()) {
   return date.toISOString().slice(0, 10).replace(/-/g, "");
 }
 
+function getRecoveryDeadline(date = new Date()) {
+  return new Date(date.getTime() + env.queueRecoveryGraceMinutes * 60 * 1000);
+}
+
 function buildQueueEventActor(options = {}) {
   return {
     actorUserId: options.actorUserId || null,
@@ -159,6 +163,12 @@ async function getQueueSnapshot(tenant, options = {}) {
     : null;
   const current = await ticketRepository.findCurrentCalledTicket(tenant._id, { locationId, dateKey });
   const waitingTickets = await ticketRepository.listWaitingTickets(tenant._id, { locationId, dateKey });
+  const overflowTickets = await ticketRepository.listWaitingTickets(tenant._id, {
+    locationId,
+    dateKey,
+    onlyCarriedOver: true,
+    limit: 50
+  });
   const history = await ticketRepository.listHistoryTickets(tenant._id, {
     limit: 30,
     dateKey,
@@ -184,7 +194,23 @@ async function getQueueSnapshot(tenant, options = {}) {
     status: ticket.status,
     position: index + 1,
     joinChannel: ticket.joinChannel,
-    createdAt: ticket.createdAt
+    createdAt: ticket.createdAt,
+    isCarriedOver: Boolean(ticket.carriedOverAt || ticket.carryOverCount > 0),
+    carryOverCount: ticket.carryOverCount || 0,
+    carriedOverAt: ticket.carriedOverAt || null
+  }));
+
+  const overflow = overflowTickets.map((ticket, index) => ({
+    id: String(ticket._id),
+    ticketNumber: ticket.ticketNumber,
+    customerName: ticket.customerName,
+    status: ticket.status,
+    position: index + 1,
+    joinChannel: ticket.joinChannel,
+    createdAt: ticket.createdAt,
+    isCarriedOver: true,
+    carryOverCount: ticket.carryOverCount || 0,
+    carriedOverAt: ticket.carriedOverAt || null
   }));
 
   let focusTicket = null;
@@ -288,12 +314,16 @@ async function getQueueSnapshot(tenant, options = {}) {
         }
       : null,
     nextUp,
+    overflow,
     history: history.map((ticket) => ({
       id: String(ticket._id),
+      lookupCode: ticket.lookupCode,
       ticketNumber: ticket.ticketNumber,
       customerName: ticket.customerName,
       status: ticket.status,
-      updatedAt: ticket.updatedAt
+      updatedAt: ticket.updatedAt,
+      rejoinDeadlineAt: ticket.rejoinDeadlineAt || null,
+      servicePriorityBand: ticket.servicePriorityBand || "normal"
     })),
     usage,
     focusTicket
@@ -534,7 +564,8 @@ async function updateCurrentTicketStatus(tenant, status, options = {}) {
     const updatedTicket = await ticketRepository.updateCurrentCalledTicketStatus(tenant._id, status, {
       client,
       locationId: location?._id,
-      dateKey
+      dateKey,
+      rejoinDeadlineAt: status === "skipped" ? getRecoveryDeadline() : null
     });
     if (!updatedTicket) {
       return null;
@@ -815,6 +846,96 @@ async function reopenQueueDay(tenant, options = {}) {
   return publishSnapshot(tenant, { location });
 }
 
+async function restoreSkippedTicket(tenant, ticketId, options = {}) {
+  const location = await resolveLocation(tenant, options);
+  const dateKey = options.queueDateKey || getDateKey();
+
+  const ticket = await db.withTransaction(async (client) => {
+    const targetTicket = await ticketRepository.findTicketById(ticketId, { client });
+
+    if (!targetTicket || String(targetTicket.tenantId) !== String(tenant._id)) {
+      const error = new Error("Skipped ticket not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    if (
+      options.lookupCode &&
+      String(targetTicket.lookupCode || "").toUpperCase() !==
+        String(options.lookupCode || "").toUpperCase()
+    ) {
+      const error = new Error("Skipped ticket not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    if (targetTicket.locationId && String(targetTicket.locationId) !== String(location._id)) {
+      const error = new Error("Skipped ticket not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    if (targetTicket.status !== "skipped") {
+      const error = new Error("Only skipped tickets can be restored.");
+      error.statusCode = 409;
+      throw error;
+    }
+
+    if (!targetTicket.skippedAt) {
+      const error = new Error("This skipped ticket is missing recovery metadata.");
+      error.statusCode = 409;
+      throw error;
+    }
+
+    const recoveryDeadline = targetTicket.rejoinDeadlineAt
+      ? new Date(targetTicket.rejoinDeadlineAt)
+      : null;
+    const servicePriorityBand =
+      recoveryDeadline && recoveryDeadline.getTime() > Date.now() ? "recovery" : "normal";
+
+    queueLifecycle.assertValidTransition(targetTicket.status, "waiting");
+    const restoredTicket = await ticketRepository.restoreSkippedTicket(tenant._id, ticketId, {
+      client,
+      locationId: location._id,
+      servicePriorityBand
+    });
+
+    if (!restoredTicket) {
+      return null;
+    }
+
+    const actor = buildQueueEventActor({
+      actorUserId: options.actorUserId,
+      actorRole: options.actorRole,
+      source: options.source || "vendor"
+    });
+
+    await appendQueueEvent(client, restoredTicket, "ticket_requeued", {
+      fromStatus: "skipped",
+      toStatus: "waiting",
+      actorUserId: actor.actorUserId,
+      actorRole: actor.actorRole,
+      source: actor.source,
+      metadata: {
+        reason: servicePriorityBand === "recovery" ? "missed_ticket_recovery" : "missed_ticket_rejoin_expired",
+        servicePriorityBand,
+        queueDateKey: dateKey
+      }
+    });
+
+    return restoredTicket;
+  });
+
+  if (!ticket) {
+    return null;
+  }
+
+  await maybeNotifyUpcomingTickets(tenant, { location });
+  const snapshot = await publishSnapshot(tenant, { location });
+
+  return { ticket, snapshot };
+}
+
 module.exports = {
   resolveLocation,
   createTicket,
@@ -825,6 +946,7 @@ module.exports = {
   cancelTicket,
   closeQueueDay,
   reopenQueueDay,
+  restoreSkippedTicket,
   publishSnapshot,
   maybeNotifyUpcomingTickets
 };

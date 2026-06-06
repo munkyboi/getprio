@@ -246,6 +246,8 @@ CREATE TABLE tickets (
   unserved_at TIMESTAMPTZ,
   carried_over_at TIMESTAMPTZ,
   carry_over_count INTEGER NOT NULL DEFAULT 0,
+  service_priority_band TEXT NOT NULL DEFAULT 'normal',
+  rejoin_deadline_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CHECK (

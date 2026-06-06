@@ -332,15 +332,21 @@ export interface QueueListTicket {
   position: number;
   joinChannel: JoinChannel;
   createdAt: string | Date;
+  isCarriedOver?: boolean;
+  carryOverCount?: number;
+  carriedOverAt?: string | Date | null;
 }
 
 export interface QueueHistoryTicket {
   id: string;
+  lookupCode?: string;
   ticketNumber: string;
   customerName: string;
   status: TicketStatus;
   updatedAt: string | Date;
   serviceCounterId?: string | null;
+  rejoinDeadlineAt?: string | Date | null;
+  servicePriorityBand?: "carry_over" | "recovery" | "normal";
 }
 
 export interface QueueFocusTicket {
@@ -370,6 +376,7 @@ export interface QueueSnapshot {
   stats: QueueStats;
   current: QueueCurrentTicket | null;
   nextUp: QueueListTicket[];
+  overflow: QueueListTicket[];
   history: QueueHistoryTicket[];
   usage: QueueUsage;
   focusTicket: QueueFocusTicket | null;
@@ -434,6 +441,11 @@ export interface RequestJoinOtpResponse {
 export interface VerifyJoinOtpRequest {
   otpId: string;
   code: string;
+}
+
+export interface CancelQueueTicketRequest {
+  customerEmail?: string;
+  customerPhone?: string;
 }
 
 export interface QueueJoinPaymentSummary {

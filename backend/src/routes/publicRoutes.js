@@ -12,6 +12,7 @@ const queueFeeService = require("../services/queueFeeService");
 const storeHoursService = require("../services/storeHoursService");
 const notificationService = require("../services/notificationService");
 const platformRepository = require("../repositories/platform");
+const customerTicketAccess = require("../services/customerTicketAccess");
 const {
   getQueueSnapshot,
   cancelTicket
@@ -331,8 +332,35 @@ router.post(
 
 router.delete(
   "/tenant/:tenantSlug/tickets/:lookupCode",
+  maybeAuthenticate,
   asyncHandler(async (req, res) => {
     const tenant = await getTenantOrThrow(req.params.tenantSlug);
+    const existingTicket = await ticketRepository.findTicketByTenantAndLookupCode(
+      tenant._id,
+      String(req.params.lookupCode).toUpperCase()
+    );
+
+    if (!existingTicket) {
+      const error = new Error("Waiting ticket not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const authenticatedOwner = customerTicketAccess.userOwnsTicket(req.user, existingTicket);
+    const requestOwner = customerTicketAccess.requestMatchesTicket(req.body, existingTicket);
+
+    if (!authenticatedOwner && !requestOwner) {
+      const error = new Error("We could not verify that this ticket belongs to you.");
+      error.statusCode = 403;
+      throw error;
+    }
+
+    if (existingTicket.status !== "waiting") {
+      const error = new Error("Only waiting tickets can be cancelled.");
+      error.statusCode = 409;
+      throw error;
+    }
+
     const result = await cancelTicket(tenant, req.params.lookupCode, {
       actorUserId: req.user?._id,
       actorRole: req.user ? "customer" : null,

@@ -29,6 +29,8 @@ const TICKET_COLUMNS = `
   unserved_at,
   carried_over_at,
   carry_over_count,
+  service_priority_band,
+  rejoin_deadline_at,
   created_at,
   updated_at
 `;
@@ -66,6 +68,8 @@ function mapTicket(row) {
     unservedAt: row.unserved_at,
     carriedOverAt: row.carried_over_at,
     carryOverCount: row.carry_over_count || 0,
+    servicePriorityBand: row.service_priority_band || "normal",
+    rejoinDeadlineAt: row.rejoin_deadline_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -97,9 +101,11 @@ async function createTicket(data, options = {}) {
         status,
         notes,
         carried_over_at,
-        carry_over_count
+        carry_over_count,
+        service_priority_band,
+        rejoin_deadline_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
       RETURNING ${TICKET_COLUMNS}
     `,
     [
@@ -120,7 +126,9 @@ async function createTicket(data, options = {}) {
       data.status || "waiting",
       data.notes || null,
       data.carriedOverAt || null,
-      Number(data.carryOverCount || 0)
+      Number(data.carryOverCount || 0),
+      data.servicePriorityBand || "normal",
+      data.rejoinDeadlineAt || null
     ]
   );
 
@@ -132,6 +140,16 @@ async function findTicketByLookupCode(lookupCode, options = {}) {
   const result = await queryClient.query(
     `SELECT ${TICKET_COLUMNS} FROM tickets WHERE lookup_code = $1 LIMIT 1`,
     [lookupCode]
+  );
+
+  return mapTicket(result.rows[0]);
+}
+
+async function findTicketById(ticketId, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const result = await queryClient.query(
+    `SELECT ${TICKET_COLUMNS} FROM tickets WHERE id = $1 LIMIT 1`,
+    [Number(ticketId)]
   );
 
   return mapTicket(result.rows[0]);
@@ -152,6 +170,7 @@ async function listWaitingTickets(tenantId, options = {}) {
   const values = [Number(tenantId)];
   let locationFilter = "";
   let dateFilter = "";
+  let carryOverFilter = "";
 
   if (options.locationId) {
     values.push(Number(options.locationId));
@@ -163,7 +182,13 @@ async function listWaitingTickets(tenantId, options = {}) {
     dateFilter = `AND date_key = $${values.length}`;
   }
 
-  let query = `SELECT ${TICKET_COLUMNS} FROM tickets WHERE tenant_id = $1 ${locationFilter} ${dateFilter} AND status = 'waiting' ORDER BY carry_over_count DESC, created_at ASC`;
+  if (options.onlyCarriedOver) {
+    carryOverFilter = "AND (carried_over_at IS NOT NULL OR COALESCE(carry_over_count, 0) > 0)";
+  } else if (options.excludeCarriedOver) {
+    carryOverFilter = "AND carried_over_at IS NULL AND COALESCE(carry_over_count, 0) = 0";
+  }
+
+  let query = `SELECT ${TICKET_COLUMNS} FROM tickets WHERE tenant_id = $1 ${locationFilter} ${dateFilter} ${carryOverFilter} AND status = 'waiting' ORDER BY CASE service_priority_band WHEN 'carry_over' THEN 0 WHEN 'recovery' THEN 1 ELSE 2 END ASC, carry_over_count DESC, created_at ASC`;
 
   if (options.limit) {
     values.push(Number(options.limit));
@@ -380,7 +405,7 @@ async function callNextWaitingTicket(tenantId, options = {}) {
         SELECT id
         FROM tickets
         WHERE tenant_id = $1 AND location_id = $2 AND date_key = $4 AND status = 'waiting'
-        ORDER BY carry_over_count DESC, created_at ASC
+        ORDER BY CASE service_priority_band WHEN 'carry_over' THEN 0 WHEN 'recovery' THEN 1 ELSE 2 END ASC, carry_over_count DESC, created_at ASC
         LIMIT 1
         FOR UPDATE SKIP LOCKED
       )
@@ -422,11 +447,28 @@ async function updateCurrentCalledTicketStatus(tenantId, status, options = {}) {
         FOR UPDATE SKIP LOCKED
       )
       UPDATE tickets
-      SET status = $2, ${timestampColumn} = NOW()
+      SET status = $2,
+          ${timestampColumn} = NOW(),
+          service_priority_band = CASE
+            WHEN $2 = 'skipped' THEN 'normal'
+            WHEN $2 IN ('served', 'cancelled', 'unserved') THEN 'normal'
+            ELSE service_priority_band
+          END,
+          rejoin_deadline_at = CASE
+            WHEN $2 = 'skipped' THEN $5::timestamptz
+            WHEN $2 IN ('served', 'cancelled', 'unserved') THEN NULL
+            ELSE rejoin_deadline_at
+          END
       WHERE id IN (SELECT id FROM current_ticket)
       RETURNING ${TICKET_COLUMNS}
     `,
-    [Number(tenantId), status, Number(options.locationId), String(options.dateKey)]
+    [
+      Number(tenantId),
+      status,
+      Number(options.locationId),
+      String(options.dateKey),
+      options.rejoinDeadlineAt || null
+    ]
   );
 
   return mapTicket(result.rows[0]);
@@ -536,7 +578,9 @@ async function reopenTicketsFromClosure(tenantId, options = {}) {
           service_counter_id = NULL,
           called_at = NULL,
           notified_called_at = NULL,
-          unserved_at = NULL
+          unserved_at = NULL,
+          service_priority_band = 'normal',
+          rejoin_deadline_at = NULL
       WHERE tenant_id = $1
         AND location_id = $2
         AND date_key = $3
@@ -564,6 +608,8 @@ async function carryOverWaitingTickets(tenantId, options = {}) {
           queue_date_key = $4,
           carried_over_at = NOW(),
           carry_over_count = COALESCE(carry_over_count, 0) + 1,
+          service_priority_band = 'carry_over',
+          rejoin_deadline_at = NULL,
           updated_at = NOW()
       WHERE tenant_id = $1
         AND location_id = $2
@@ -584,9 +630,39 @@ async function carryOverWaitingTickets(tenantId, options = {}) {
   return result.rows.map(mapTicket);
 }
 
+async function restoreSkippedTicket(tenantId, ticketId, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const result = await queryClient.query(
+    `
+      UPDATE tickets
+      SET status = 'waiting',
+          service_counter_id = NULL,
+          called_at = NULL,
+          notified_called_at = NULL,
+          service_priority_band = $4,
+          rejoin_deadline_at = NULL,
+          updated_at = NOW()
+      WHERE tenant_id = $1
+        AND location_id = $2
+        AND id = $3
+        AND status = 'skipped'
+      RETURNING ${TICKET_COLUMNS}
+    `,
+    [
+      Number(tenantId),
+      Number(options.locationId),
+      Number(ticketId),
+      options.servicePriorityBand || "recovery"
+    ]
+  );
+
+  return mapTicket(result.rows[0]);
+}
+
 module.exports = {
   mapTicket,
   createTicket,
+  findTicketById,
   findTicketByLookupCode,
   findTicketByTenantAndLookupCode,
   listWaitingTickets,
@@ -603,5 +679,6 @@ module.exports = {
   listTicketsForQueueClosure,
   markTicketsUnservedForClosure,
   reopenTicketsFromClosure,
-  carryOverWaitingTickets
+  carryOverWaitingTickets,
+  restoreSkippedTicket
 };
