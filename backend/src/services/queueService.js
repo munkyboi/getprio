@@ -161,11 +161,12 @@ async function getQueueSnapshot(tenant, options = {}) {
   const queueDayClosure = location
     ? await queueDayClosureRepository.findActiveClosure(tenant._id, location._id, dateKey)
     : null;
+  const overflowDateKey = queueDayClosure?.nextQueueDateKey || dateKey;
   const current = await ticketRepository.findCurrentCalledTicket(tenant._id, { locationId, dateKey });
   const waitingTickets = await ticketRepository.listWaitingTickets(tenant._id, { locationId, dateKey });
   const overflowTickets = await ticketRepository.listWaitingTickets(tenant._id, {
     locationId,
-    dateKey,
+    dateKey: overflowDateKey,
     onlyCarriedOver: true,
     limit: 50
   });
