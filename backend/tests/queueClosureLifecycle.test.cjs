@@ -223,6 +223,95 @@ test("vendor queue close and reopen routes return lifecycle snapshots", async ()
   }
 });
 
+test("vendor queue pause and resume routes return intake snapshots", async () => {
+  const queueServiceCalls = [];
+  const vendorRouter = requireWithMocks("../src/routes/vendorRoutes.js", {
+    "../middleware/auth": buildAuthMock(),
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../repositories/tenants": {
+      findTenantBySlug: async () => ({ _id: "tenant-1", slug: "demo", name: "Demo Tenant" })
+    },
+    "../repositories/storeLocations": {
+      findPrimaryLocationByTenantId: async () => ({ _id: "location-1", slug: "ayala", name: "Ayala" }),
+      listHoursByLocationId: async () => []
+    },
+    "../repositories/publicBoardThemes": {
+      getResolvedTheme: async () => ({ scope: "location", theme: {} }),
+      saveTheme: async () => ({})
+    },
+    "../repositories/tickets": {
+      listClientTickets: async () => [],
+      listHistoryTickets: async () => []
+    },
+    "../repositories/serviceCounters": {
+      findCounterByLocationAndSlug: async () => null
+    },
+    "../repositories/users": {
+      listUsersByTenantId: async () => []
+    },
+    "../services/billingService": {
+      getBillingOverview: async () => ({ subscription: { entitlements: { locations: 1 } }, plans: [] }),
+      getTenantEntitlements: async () => ({ staffSeats: 5, counters: 2, brandedQueuePages: true })
+    },
+    "../services/publicBoardThemeUploadService": {
+      createUpload: async () => ({})
+    },
+    "../services/storeHoursService": {
+      getOpenStatus: async () => ({ isOpen: true, timezone: "Asia/Manila", summary: "Open", today: null, nextOpenAt: null })
+    },
+    "../services/queueService": {
+      createTicket: async () => ({}),
+      getQueueSnapshot: async () => ({ queueDay: { isClosed: false, isPaused: false } }),
+      pauseQueueDay: async (_tenant, options) => {
+        queueServiceCalls.push({ fn: "pauseQueueDay", options });
+        return { queueDay: { isClosed: false, isPaused: true, pauseReason: options.reason || "" } };
+      },
+      resumeQueueDay: async (_tenant, options) => {
+        queueServiceCalls.push({ fn: "resumeQueueDay", options });
+        return { queueDay: { isClosed: false, isPaused: false } };
+      },
+      closeQueueDay: async () => ({ queueDay: { isClosed: true } }),
+      reopenQueueDay: async () => ({ queueDay: { isClosed: false } }),
+      callNextTicket: async () => ({ ticket: { _id: "ticket-1", ticketNumber: "P001", status: "called" }, snapshot: { queueDay: { isClosed: false } } }),
+      updateCurrentTicketStatus: async () => ({ ticket: { _id: "ticket-1", ticketNumber: "P001", status: "served" }, snapshot: { queueDay: { isClosed: false } } })
+    },
+    pdfkit: function MockPdfDocument() {}
+  });
+
+  const { server, baseUrl } = await startServer(vendorRouter, "/api/vendor");
+
+  try {
+    const pauseResponse = await fetch(`${baseUrl}/tenant/demo/queue/pause`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-test-tenant-role": "staff"
+      },
+      body: JSON.stringify({ reason: "Queue too full" })
+    });
+    assert.equal(pauseResponse.status, 200);
+    const pauseBody = await pauseResponse.json();
+    assert.equal(pauseBody.snapshot.queueDay.isPaused, true);
+    assert.equal(queueServiceCalls[0].fn, "pauseQueueDay");
+    assert.equal(queueServiceCalls[0].options.reason, "Queue too full");
+
+    const resumeResponse = await fetch(`${baseUrl}/tenant/demo/queue/resume`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-test-tenant-role": "staff"
+      },
+      body: JSON.stringify({})
+    });
+    assert.equal(resumeResponse.status, 200);
+    const resumeBody = await resumeResponse.json();
+    assert.equal(resumeBody.snapshot.queueDay.isPaused, false);
+    assert.equal(queueServiceCalls[1].fn, "resumeQueueDay");
+  } finally {
+    await stopServer(server);
+  }
+});
+
 test("vendor call-next returns 409 when queue day is closed", async () => {
   const vendorRouter = requireWithMocks("../src/routes/vendorRoutes.js", {
     "../middleware/auth": buildAuthMock(),
@@ -769,6 +858,157 @@ test("public join returns 409 when queue day is closed", async () => {
     assert.equal(response.status, 409);
     const body = await response.json();
     assert.match(body.message, /queue day is closed/i);
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("public join returns 409 when queue intake is paused", async () => {
+  const publicRouter = requireWithMocks("../src/routes/publicRoutes.js", {
+    "../middleware/auth": buildAuthMock(),
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../repositories/tenants": {
+      findTenantBySlug: async () => ({
+        _id: "tenant-1",
+        slug: "demo",
+        name: "Demo Tenant",
+        queuePrefix: "P",
+        averageServiceMinutes: 5,
+        notificationThreshold: 3,
+        autoPauseEnabled: true,
+        autoPauseThreshold: 20,
+        isActive: true
+      }),
+      findTenantById: async () => ({ _id: "tenant-1", slug: "demo", name: "Demo Tenant" })
+    },
+    "../repositories/storeLocations": {
+      findPrimaryLocationByTenantId: async () => ({
+        _id: "location-1",
+        tenantId: "tenant-1",
+        slug: "ayala",
+        name: "Ayala",
+        timezone: "Asia/Manila",
+        isPrimary: true,
+        isActive: true
+      }),
+      findLocationById: async () => ({
+        _id: "location-1",
+        tenantId: "tenant-1",
+        slug: "ayala",
+        name: "Ayala",
+        timezone: "Asia/Manila",
+        isPrimary: true,
+        isActive: true
+      }),
+      listHoursByLocationId: async () => []
+    },
+    "../repositories/tickets": {
+      findTicketByLookupCode: async () => null
+    },
+    "../services/queueEvents": {
+      publish: () => {}
+    },
+    "../services/turnstileService": {
+      verifyTurnstileToken: async () => ({ success: true })
+    },
+    "../services/queueJoinOtpService": {
+      requestJoinOtp: async () => ({ otpId: "otp-1" }),
+      resendJoinOtp: async () => ({ otpId: "otp-2" }),
+      verifyJoinOtp: async () => ({})
+    },
+    "../services/queueJoinPaymentService": {
+      handleDirectJoin: async () => {
+        const error = new Error("This queue is paused for new joins.");
+        error.statusCode = 409;
+        error.code = "QUEUE_INTAKE_PAUSED";
+        throw error;
+      },
+      handleVerifiedJoin: async () => ({}),
+      syncQueueJoinPayment: async () => ({ synced: true, paid: false })
+    },
+    "../services/queueFeeService": {
+      assertTenantCanAcceptCustomerJoins: async () => {},
+      getQueueFeeForTenant: async () => ({ enabled: false, amountCents: 0, currency: "PHP", displayAmount: "PHP 0.00", planSlug: "economical" })
+    },
+    "../services/storeHoursService": {
+      assertLocationOpenForCustomerJoin: async () => {},
+      getOpenStatus: async () => ({ isOpen: true, timezone: "Asia/Manila", summary: "Open", today: null, nextOpenAt: null })
+    },
+    "../services/notificationService": {
+      sendEmail: async () => {},
+      sendSms: async () => {}
+    },
+    "../repositories/platform": {
+      getPlatformSettings: async () => ({ enterpriseInquiryEmail: "ops@getprio.test" })
+    },
+    "../services/queueService": {
+      getQueueSnapshot: async () => ({
+        tenant: {
+          name: "Demo Tenant",
+          slug: "demo",
+          isActive: true,
+          autoPauseEnabled: true,
+          autoPauseThreshold: 20,
+          queueFee: { enabled: false, amountCents: 0, currency: "PHP", displayAmount: "PHP 0.00", planSlug: "economical" }
+        },
+        location: { name: "Ayala", slug: "ayala", timezone: "Asia/Manila", openStatus: { isOpen: true }, hours: [] },
+        publicBoardTheme: { scope: "location", theme: {} },
+        queueDay: {
+          isClosed: false,
+          isPaused: true,
+          queueDateKey: "20260606",
+          closedAt: null,
+          reopenedAt: null,
+          closureReason: null,
+          pausedAt: new Date(),
+          resumedAt: null,
+          pauseReason: "Queue too full",
+          pauseMode: "manual"
+        },
+        queueIntake: {
+          autoPauseEnabled: true,
+          autoPauseThreshold: 20,
+          currentWaitingCount: 20,
+          fillRatio: 1,
+          thresholdRemaining: 0,
+          state: "paused",
+          stateLabel: "Paused"
+        },
+        stats: { waitingCount: 20, estimatedWaitMinutes: 100, servedToday: 0 },
+        current: null,
+        nextUp: [],
+        overflow: [],
+        recovery: [],
+        history: [],
+        usage: { periodStart: new Date(), periodEnd: null, emailsSentThisPeriod: 0 },
+        focusTicket: null
+      }),
+      cancelTicket: async () => ({})
+    }
+  });
+
+  const { server, baseUrl } = await startServer(publicRouter, "/api/public");
+
+  try {
+    const response = await fetch(`${baseUrl}/tenant/demo/join`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        customerName: "Paused Join",
+        customerEmail: "paused@example.com",
+        customerPhone: "",
+        notifyByEmail: true,
+        notifyBySms: false,
+        notes: "",
+        joinChannel: "online"
+      })
+    });
+
+    assert.equal(response.status, 409);
+    const body = await response.json();
+    assert.match(body.message, /paused/i);
   } finally {
     await stopServer(server);
   }

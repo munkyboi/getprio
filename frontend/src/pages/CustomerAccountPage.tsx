@@ -82,6 +82,7 @@ export default function CustomerAccountPage() {
           <form onSubmit={handlePasswordChange}>
             <Stack gap="md">
               <PasswordInput
+                name="currentPassword"
                 label="Current password"
                 required
                 value={passwordForm.currentPassword}
@@ -93,6 +94,7 @@ export default function CustomerAccountPage() {
                 }
               />
               <PasswordInput
+                name="newPassword"
                 label="New password"
                 required
                 value={passwordForm.newPassword}

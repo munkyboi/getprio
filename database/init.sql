@@ -40,6 +40,10 @@ CREATE TABLE tenants (
   queue_prefix VARCHAR(4) NOT NULL DEFAULT 'P',
   average_service_minutes INTEGER NOT NULL DEFAULT 5 CHECK (average_service_minutes BETWEEN 1 AND 120),
   notification_threshold INTEGER NOT NULL DEFAULT 2 CHECK (notification_threshold BETWEEN 1 AND 10),
+  auto_pause_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+  auto_pause_threshold INTEGER CHECK (auto_pause_threshold IS NULL OR auto_pause_threshold BETWEEN 1 AND 500),
+  auto_resume_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+  auto_resume_vacancy_percent INTEGER CHECK (auto_resume_vacancy_percent IS NULL OR auto_resume_vacancy_percent BETWEEN 5 AND 50),
   contact_email TEXT,
   contact_phone TEXT,
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -295,6 +299,28 @@ CREATE UNIQUE INDEX queue_day_closures_active_scope_idx
 
 CREATE INDEX queue_day_closures_scope_created_idx
   ON queue_day_closures (tenant_id, location_id, queue_date_key, created_at DESC);
+
+CREATE TABLE queue_day_pauses (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  location_id BIGINT NOT NULL REFERENCES store_locations(id) ON DELETE CASCADE,
+  queue_date_key TEXT NOT NULL,
+  pause_reason TEXT,
+  pause_mode TEXT NOT NULL DEFAULT 'manual' CHECK (pause_mode IN ('manual', 'auto_threshold')),
+  paused_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  resumed_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  paused_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  resumed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX queue_day_pauses_active_scope_idx
+  ON queue_day_pauses (tenant_id, location_id, queue_date_key)
+  WHERE resumed_at IS NULL;
+
+CREATE INDEX queue_day_pauses_scope_created_idx
+  ON queue_day_pauses (tenant_id, location_id, queue_date_key, created_at DESC);
 
 CREATE TABLE queue_join_otps (
   id BIGSERIAL PRIMARY KEY,

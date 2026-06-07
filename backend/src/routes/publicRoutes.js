@@ -331,7 +331,10 @@ router.post(
 );
 
 router.delete(
-  "/tenant/:tenantSlug/tickets/:lookupCode",
+  [
+    "/tenant/:tenantSlug/tickets/:lookupCode",
+    "/tenant/:tenantSlug/location/:locationSlug/tickets/:lookupCode"
+  ],
   maybeAuthenticate,
   asyncHandler(async (req, res) => {
     const tenant = await getTenantOrThrow(req.params.tenantSlug);

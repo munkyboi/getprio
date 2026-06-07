@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
+  Alert,
   ActionIcon,
   Badge,
   Button,
@@ -14,6 +15,7 @@ import {
   Modal,
   MultiSelect,
   NumberInput,
+  Pagination,
   Paper,
   ScrollArea,
   Select,
@@ -94,6 +96,10 @@ const defaultSettings: UpdateTenantSettingsRequest = {
   queuePrefix: "P",
   averageServiceMinutes: 5,
   notificationThreshold: 2,
+  autoPauseEnabled: false,
+  autoPauseThreshold: 20,
+  autoResumeEnabled: false,
+  autoResumeVacancyPercent: 20,
   contactEmail: "",
   contactPhone: ""
 };
@@ -185,7 +191,12 @@ const publicBoardThemePresets: Record<string, PublicBoardThemeSettings> = {
 const defaultPublicBoardTheme = publicBoardThemePresets.classic;
 
 type DashboardSection = "queue" | "tenants" | "staff" | "clients" | "history" | "reports" | "settings";
-type QueueView = "current" | "overflow";
+type QueueView = "current" | "overflow" | "recovery";
+type ClientSort = "latestVisitDesc" | "latestVisitAsc" | "nameAsc" | "nameDesc" | "visitsDesc" | "visitsAsc";
+type HistorySort = "updatedDesc" | "updatedAsc" | "ticketAsc" | "ticketDesc" | "customerAsc" | "customerDesc";
+
+const CLIENTS_PAGE_SIZE = 10;
+const HISTORY_PAGE_SIZE = 10;
 type DashboardActionResponse = Partial<TicketMutationResponse> & {
   message?: string;
   snapshot?: QueueSnapshot;
@@ -217,6 +228,78 @@ function formatDateTime(value: string | Date): string {
 
 function formatDate(value: string | Date | null): string {
   return value ? new Date(value).toLocaleDateString() : "";
+}
+
+function QueueIntakeGauge({
+  waitingCount,
+  threshold,
+  resumeWaitingCount,
+  autoResumeEnabled,
+  stateLabel,
+  state
+}: {
+  waitingCount: number;
+  threshold: number;
+  resumeWaitingCount: number | null;
+  autoResumeEnabled: boolean;
+  stateLabel: string;
+  state: "open" | "near_limit" | "paused";
+}) {
+  const ratio = Math.max(0, Math.min(waitingCount / threshold, 1));
+  const color = state === "paused" ? "#e03131" : state === "near_limit" ? "#f08c00" : "#12b886";
+  const radius = 46;
+  const stroke = 12;
+  const circumference = Math.PI * radius;
+  const offset = circumference * (1 - ratio);
+  const remaining = Math.max(threshold - waitingCount, 0);
+
+  return (
+    <Paper withBorder radius="md" p="md">
+      <Stack gap={8} align="center">
+        <Text className="neura-label">Queue intake</Text>
+        <svg aria-hidden="true" height="96" viewBox="0 0 140 90" width="140">
+          <path
+            d="M 24 70 A 46 46 0 0 1 116 70"
+            fill="none"
+            stroke="#ebe4da"
+            strokeLinecap="round"
+            strokeWidth={stroke}
+          />
+          <path
+            d="M 24 70 A 46 46 0 0 1 116 70"
+            fill="none"
+            pathLength={circumference}
+            stroke={color}
+            strokeDasharray={circumference}
+            strokeDashoffset={offset}
+            strokeLinecap="round"
+            strokeWidth={stroke}
+          />
+          <text fill="#24160f" fontSize="18" fontWeight="700" textAnchor="middle" x="70" y="56">
+            {waitingCount}/{threshold}
+          </text>
+          <text fill="#6f6259" fontSize="10" textAnchor="middle" x="70" y="68">
+            {stateLabel}
+          </text>
+          <text fill="#8a7b70" fontSize="9" textAnchor="start" x="18" y="84">
+            0
+          </text>
+          <text fill="#8a7b70" fontSize="9" textAnchor="end" x="122" y="84">
+            {threshold}
+          </text>
+        </svg>
+        <Text c="dimmed" size="sm" ta="center">
+          {state === "paused"
+            ? autoResumeEnabled && resumeWaitingCount !== null
+              ? `Queue will reopen automatically at ${resumeWaitingCount} waiting tickets or below.`
+              : "Queue intake is paused until a staff member resumes it."
+            : remaining === 0
+              ? "Threshold reached."
+              : `${remaining} slot${remaining === 1 ? "" : "s"} before auto-pause.`}
+        </Text>
+      </Stack>
+    </Paper>
+  );
 }
 
 function hexToRgba(hex: string, alpha: number): string {
@@ -351,6 +434,12 @@ export default function VendorDashboardPage() {
   const [historyExportFormat, setHistoryExportFormat] = useState<"csv" | "pdf" | null>(null);
   const [historyExportRange, setHistoryExportRange] = useState<HistoryExportRange | null>(null);
   const [queueView, setQueueView] = useState<QueueView>("current");
+  const [clientsSearch, setClientsSearch] = useState("");
+  const [clientsSort, setClientsSort] = useState<ClientSort>("latestVisitDesc");
+  const [clientsPage, setClientsPage] = useState(1);
+  const [historySearch, setHistorySearch] = useState("");
+  const [historySort, setHistorySort] = useState<HistorySort>("updatedDesc");
+  const [historyPage, setHistoryPage] = useState(1);
   const hasActiveSubscription = billing?.subscription?.status === "active";
   const selectedLocation =
     locations.find((locationItem) => locationItem.slug === selectedLocationSlug) ||
@@ -422,6 +511,10 @@ export default function VendorDashboardPage() {
           queuePrefix: data.tenant.queuePrefix,
           averageServiceMinutes: data.tenant.averageServiceMinutes,
           notificationThreshold: data.tenant.notificationThreshold,
+          autoPauseEnabled: data.tenant.autoPauseEnabled,
+          autoPauseThreshold: data.tenant.autoPauseThreshold ?? 20,
+          autoResumeEnabled: data.tenant.autoResumeEnabled,
+          autoResumeVacancyPercent: data.tenant.autoResumeVacancyPercent ?? 20,
           contactEmail: data.tenant.contactEmail || "",
           contactPhone: data.tenant.contactPhone || ""
         });
@@ -761,13 +854,109 @@ export default function VendorDashboardPage() {
   );
   const recoverableTickets = useMemo(
     () =>
-      (snapshot?.history || [])
-        .filter((ticket) => ticket.status === "skipped")
+      (snapshot?.recovery || [])
         .sort((a, b) => getHistoryTimestamp(b.updatedAt) - getHistoryTimestamp(a.updatedAt))
         .slice(0, 10),
     [snapshot]
   );
+  const filteredClients = useMemo(() => {
+    const query = clientsSearch.trim().toLowerCase();
+    const items = [...(clients?.clients || [])].filter((client) => {
+      if (!query) {
+        return true;
+      }
+
+      return [
+        client.customerName,
+        client.customerEmail,
+        client.customerPhone,
+        client.latestTicketNumber,
+        client.latestStatus
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(query));
+    });
+
+    items.sort((a, b) => {
+      switch (clientsSort) {
+        case "nameAsc":
+          return a.customerName.localeCompare(b.customerName);
+        case "nameDesc":
+          return b.customerName.localeCompare(a.customerName);
+        case "visitsAsc":
+          return a.visitCount - b.visitCount;
+        case "visitsDesc":
+          return b.visitCount - a.visitCount;
+        case "latestVisitAsc":
+          return getHistoryTimestamp(a.latestVisitAt) - getHistoryTimestamp(b.latestVisitAt);
+        case "latestVisitDesc":
+        default:
+          return getHistoryTimestamp(b.latestVisitAt) - getHistoryTimestamp(a.latestVisitAt);
+      }
+    });
+
+    return items;
+  }, [clients, clientsSearch, clientsSort]);
+  const paginatedClients = useMemo(() => {
+    const start = (clientsPage - 1) * CLIENTS_PAGE_SIZE;
+    return filteredClients.slice(start, start + CLIENTS_PAGE_SIZE);
+  }, [clientsPage, filteredClients]);
+  const clientsTotalPages = Math.max(1, Math.ceil(filteredClients.length / CLIENTS_PAGE_SIZE));
+
+  const historyTickets = history?.tickets || snapshot?.history || [];
+  const filteredHistoryTickets = useMemo(() => {
+    const query = historySearch.trim().toLowerCase();
+    const items = [...historyTickets].filter((ticket) => {
+      if (!query) {
+        return true;
+      }
+
+      return [ticket.ticketNumber, ticket.customerName, ticket.status, ticket.lookupCode]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(query));
+    });
+
+    items.sort((a, b) => {
+      switch (historySort) {
+        case "ticketAsc":
+          return a.ticketNumber.localeCompare(b.ticketNumber);
+        case "ticketDesc":
+          return b.ticketNumber.localeCompare(a.ticketNumber);
+        case "customerAsc":
+          return a.customerName.localeCompare(b.customerName);
+        case "customerDesc":
+          return b.customerName.localeCompare(a.customerName);
+        case "updatedAsc":
+          return getHistoryTimestamp(a.updatedAt) - getHistoryTimestamp(b.updatedAt);
+        case "updatedDesc":
+        default:
+          return getHistoryTimestamp(b.updatedAt) - getHistoryTimestamp(a.updatedAt);
+      }
+    });
+
+    return items;
+  }, [historySearch, historySort, historyTickets]);
+  const paginatedHistoryTickets = useMemo(() => {
+    const start = (historyPage - 1) * HISTORY_PAGE_SIZE;
+    return filteredHistoryTickets.slice(start, start + HISTORY_PAGE_SIZE);
+  }, [filteredHistoryTickets, historyPage]);
+  const historyTotalPages = Math.max(1, Math.ceil(filteredHistoryTickets.length / HISTORY_PAGE_SIZE));
   const queueDayClosed = Boolean(snapshot?.queueDay?.isClosed);
+  const queueDayPaused = Boolean(snapshot?.queueDay?.isPaused);
+  const intakeState = snapshot?.queueIntake || null;
+  const restoreBlockedByThreshold = Boolean(
+    intakeState?.autoPauseEnabled &&
+      intakeState.autoPauseThreshold &&
+      intakeState.currentWaitingCount >= intakeState.autoPauseThreshold
+  );
+
+  useEffect(() => {
+    setClientsPage(1);
+  }, [clientsSearch, clientsSort, clients]);
+
+  useEffect(() => {
+    setHistoryPage(1);
+  }, [historySearch, historySort, history]);
 
   async function runAction(
     actionName: string,
@@ -1176,6 +1365,7 @@ export default function VendorDashboardPage() {
         <Stack gap="md">
           <SimpleGrid cols={{ base: 1, md: 2 }}>
             <TextInput
+              name="locationName"
               label="Location name"
               required
               value={locationForm.name}
@@ -1184,6 +1374,7 @@ export default function VendorDashboardPage() {
               }
             />
             <TextInput
+              name="locationSlug"
               label="Slug"
               required
               value={locationForm.slug}
@@ -1192,6 +1383,7 @@ export default function VendorDashboardPage() {
               }
             />
             <TextInput
+              name="addressLine1"
               label="Address line 1"
               value={locationForm.addressLine1}
               onChange={(event) =>
@@ -1199,6 +1391,7 @@ export default function VendorDashboardPage() {
               }
             />
             <TextInput
+              name="addressLine2"
               label="Address line 2"
               value={locationForm.addressLine2}
               onChange={(event) =>
@@ -1206,6 +1399,7 @@ export default function VendorDashboardPage() {
               }
             />
             <TextInput
+              name="city"
               label="City"
               value={locationForm.city}
               onChange={(event) =>
@@ -1213,6 +1407,7 @@ export default function VendorDashboardPage() {
               }
             />
             <TextInput
+              name="province"
               label="Province"
               value={locationForm.province}
               onChange={(event) =>
@@ -1220,6 +1415,7 @@ export default function VendorDashboardPage() {
               }
             />
             <TextInput
+              name="locationContactEmail"
               label="Contact email"
               value={locationForm.contactEmail}
               onChange={(event) =>
@@ -1227,6 +1423,7 @@ export default function VendorDashboardPage() {
               }
             />
             <TextInput
+              name="locationContactPhone"
               label="Contact phone"
               value={locationForm.contactPhone}
               onChange={(event) =>
@@ -1234,6 +1431,7 @@ export default function VendorDashboardPage() {
               }
             />
             <TextInput
+              name="timezone"
               label="Timezone"
               value={locationForm.timezone}
               onChange={(event) =>
@@ -1243,6 +1441,7 @@ export default function VendorDashboardPage() {
           </SimpleGrid>
           <Group>
             <Checkbox
+              name="isActiveLocation"
               checked={locationForm.isActive}
               label="Active location"
               onChange={(event) =>
@@ -1250,6 +1449,7 @@ export default function VendorDashboardPage() {
               }
             />
             <Checkbox
+              name="isPrimaryLocation"
               checked={locationForm.isPrimary}
               label="Primary location"
               onChange={(event) =>
@@ -1273,6 +1473,7 @@ export default function VendorDashboardPage() {
                     <Table.Td>{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][hour.weekday]}</Table.Td>
                     <Table.Td>
                       <Checkbox
+                        name={`hours.${hour.weekday}.isClosed`}
                         checked={hour.isClosed}
                         onChange={(event) =>
                           setLocationForm((current) => ({
@@ -1288,6 +1489,7 @@ export default function VendorDashboardPage() {
                     </Table.Td>
                     <Table.Td>
                       <TextInput
+                        name={`hours.${hour.weekday}.opensAt`}
                         disabled={hour.isClosed}
                         type="time"
                         value={hour.opensAt}
@@ -1305,6 +1507,7 @@ export default function VendorDashboardPage() {
                     </Table.Td>
                     <Table.Td>
                       <TextInput
+                        name={`hours.${hour.weekday}.closesAt`}
                         disabled={hour.isClosed}
                         type="time"
                         value={hour.closesAt}
@@ -1463,15 +1666,60 @@ export default function VendorDashboardPage() {
                 <SegmentedControl
                   data={[
                     { value: "current", label: "Current queue" },
-                    { value: "overflow", label: "Overflow queue" }
+                    { value: "overflow", label: "Overflow queue" },
+                    { value: "recovery", label: "Missed recovery" }
                   ]}
                   value={queueView}
                   onChange={(value) => setQueueView(value as QueueView)}
                 />
                 <Stack gap={6} align="flex-end">
-                  <Badge color={queueDayClosed ? "red" : "teal"} variant="light">
-                    {queueDayClosed ? "Queue day closed" : "Queue day open"}
+                  <Badge color={queueDayClosed ? "red" : queueDayPaused ? "yellow" : "teal"} variant="light">
+                    {queueDayClosed ? "Queue day closed" : queueDayPaused ? "Queue intake paused" : "Queue day open"}
                   </Badge>
+                  <Group gap="xs" justify="flex-end">
+                    {queueDayClosed ? null : queueDayPaused ? (
+                      <Button
+                        color="yellow"
+                        variant="light"
+                        disabled={busyAction === "queue-resume"}
+                        onClick={async () => {
+                          const success = await runAction("queue-resume", () =>
+                            apiRequest<DashboardActionResponse>(
+                              `/vendor/tenant/${selectedTenantSlug}/queue/resume${locationQuery}`,
+                              { method: "POST", token }
+                            )
+                          );
+                          if (success) {
+                            showSuccessNotification("Queue resumed", "Customers can join this queue again.");
+                          }
+                        }}
+                      >
+                        {busyAction === "queue-resume" ? "Resuming..." : "Resume intake"}
+                      </Button>
+                    ) : (
+                      <Button
+                        color="yellow"
+                        variant="light"
+                        disabled={busyAction === "queue-pause"}
+                        onClick={async () => {
+                          const success = await runAction("queue-pause", () =>
+                            apiRequest<DashboardActionResponse, { reason: string }>(
+                              `/vendor/tenant/${selectedTenantSlug}/queue/pause${locationQuery}`,
+                              {
+                                method: "POST",
+                                token,
+                                body: { reason: "Paused from vendor dashboard" }
+                              }
+                            )
+                          );
+                          if (success) {
+                            showSuccessNotification("Queue paused", "New joins are paused while staff continues serving the active queue.");
+                          }
+                        }}
+                      >
+                        {busyAction === "queue-pause" ? "Pausing..." : "Pause intake"}
+                      </Button>
+                    )}
                   {isOwner ? (
                     queueDayClosed ? (
                       <Button
@@ -1514,6 +1762,7 @@ export default function VendorDashboardPage() {
                       </Button>
                     )
                   ) : null}
+                  </Group>
                 </Stack>
               </Group>
               {queueView === "current" ? (
@@ -1589,7 +1838,7 @@ export default function VendorDashboardPage() {
                       Skip current
                     </Button>
                   </Group>
-                  <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+                  <SimpleGrid cols={{ base: 1, sm: intakeState?.autoPauseEnabled ? 3 : 2 }} spacing="md">
                     <Paper withBorder radius="md" p="md">
                       <Text className="neura-label">Now serving</Text>
                       <Title order={3}>{activeTicket?.ticketNumber || "--"}</Title>
@@ -1599,13 +1848,31 @@ export default function VendorDashboardPage() {
                     </Paper>
                     <Paper withBorder radius="md" p="md">
                       <Text className="neura-label">Queue day</Text>
-                      <Title order={3}>{queueDayClosed ? "Closed" : "Open"}</Title>
+                      <Title order={3}>{queueDayClosed ? "Closed" : queueDayPaused ? "Paused" : "Open"}</Title>
                       <Text c="dimmed" size="sm">
                         {queueDayClosed && snapshot?.queueDay?.closedAt
                           ? `Closed ${formatDateTime(snapshot.queueDay.closedAt)}`
-                          : "Customers can continue joining this queue"}
+                          : queueDayPaused && snapshot?.queueDay?.pausedAt
+                            ? `Paused ${formatDateTime(snapshot.queueDay.pausedAt)}`
+                            : "Customers can continue joining this queue"}
                       </Text>
                     </Paper>
+                    {intakeState?.autoPauseEnabled && intakeState.autoPauseThreshold ? (
+                      <QueueIntakeGauge
+                        waitingCount={intakeState.currentWaitingCount}
+                        threshold={intakeState.autoPauseThreshold}
+                        resumeWaitingCount={intakeState.resumeWaitingCount}
+                        autoResumeEnabled={intakeState.autoResumeEnabled}
+                        state={
+                          intakeState.state === "paused"
+                            ? "paused"
+                            : intakeState.state === "near_limit"
+                              ? "near_limit"
+                              : "open"
+                        }
+                        stateLabel={intakeState.stateLabel}
+                      />
+                    ) : null}
                   </SimpleGrid>
                   <Table.ScrollContainer minWidth={420}>
                     <Table verticalSpacing="sm">
@@ -1613,6 +1880,8 @@ export default function VendorDashboardPage() {
                         <Table.Tr>
                           <Table.Th>Up next</Table.Th>
                           <Table.Th>Channel</Table.Th>
+                          <Table.Th>Carry-over</Table.Th>
+                          <Table.Th>Joined</Table.Th>
                         </Table.Tr>
                       </Table.Thead>
                       <Table.Tbody>
@@ -1624,11 +1893,17 @@ export default function VendorDashboardPage() {
                                 <Text c="dimmed" size="sm">{ticket.customerName}</Text>
                               </Table.Td>
                               <Table.Td><Badge variant="light">{ticket.joinChannel}</Badge></Table.Td>
+                              <Table.Td>
+                                <Badge color={ticket.isCarriedOver ? "orange" : "gray"} variant="light">
+                                  {ticket.isCarriedOver ? "Yes" : "No"}
+                                </Badge>
+                              </Table.Td>
+                              <Table.Td>{formatDateTime(ticket.createdAt)}</Table.Td>
                             </Table.Tr>
                           ))
                         ) : (
                           <Table.Tr>
-                            <Table.Td colSpan={2}>
+                            <Table.Td colSpan={4}>
                               <DashboardEmptyState
                                 title="No one is waiting right now."
                                 text="Fresh same-day joins will appear here once the carry-over backlog is cleared."
@@ -1639,99 +1914,8 @@ export default function VendorDashboardPage() {
                       </Table.Tbody>
                     </Table>
                   </Table.ScrollContainer>
-                  <Divider />
-                  <Stack gap="md">
-                    <Group justify="space-between" align="flex-start">
-                      <div>
-                        <Text className="neura-label">Missed ticket recovery</Text>
-                        <Title order={4}>Skipped tickets</Title>
-                      </div>
-                      <Badge variant="light">
-                        {recoverableTickets.length} ticket{recoverableTickets.length === 1 ? "" : "s"}
-                      </Badge>
-                    </Group>
-                    <Table.ScrollContainer minWidth={420}>
-                      <Table verticalSpacing="sm">
-                        <Table.Thead>
-                          <Table.Tr>
-                            <Table.Th>Ticket</Table.Th>
-                            <Table.Th>Recovery</Table.Th>
-                            <Table.Th>Action</Table.Th>
-                          </Table.Tr>
-                        </Table.Thead>
-                        <Table.Tbody>
-                          {recoverableTickets.length ? (
-                            recoverableTickets.map((ticket) => {
-                              const priorityRecovery = isRecoveryWindowActive(ticket.rejoinDeadlineAt);
-
-                              return (
-                                <Table.Tr key={ticket.id}>
-                                  <Table.Td>
-                                    <Text fw={700}>{ticket.ticketNumber}</Text>
-                                    <Text c="dimmed" size="sm">{ticket.customerName}</Text>
-                                  </Table.Td>
-                                  <Table.Td>
-                                    <Badge color={priorityRecovery ? "blue" : "gray"} variant="light">
-                                      {priorityRecovery ? "recovery" : "normal"}
-                                    </Badge>
-                                    <Text c="dimmed" size="sm" mt={4}>
-                                      {ticket.rejoinDeadlineAt
-                                        ? priorityRecovery
-                                          ? `Priority until ${formatDateTime(ticket.rejoinDeadlineAt)}`
-                                          : `Recovery expired ${formatDateTime(ticket.rejoinDeadlineAt)}`
-                                        : "No recovery deadline"}
-                                    </Text>
-                                  </Table.Td>
-                                  <Table.Td>
-                                    <Button
-                                      disabled={busyAction === `restore-${ticket.id}` || !ticket.lookupCode}
-                                      onClick={async () => {
-                                        const success = await runAction(`restore-${ticket.id}`, () =>
-                                          apiRequest<DashboardActionResponse, { lookupCode: string }>(
-                                            `/vendor/tenant/${selectedTenantSlug}/queue/tickets/${ticket.id}/restore${locationQuery}`,
-                                            {
-                                              method: "POST",
-                                              token,
-                                              body: { lookupCode: ticket.lookupCode || "" }
-                                            }
-                                          )
-                                        );
-
-                                        if (success) {
-                                          showSuccessNotification(
-                                            "Ticket restored",
-                                            priorityRecovery
-                                              ? "The skipped ticket was restored with recovery priority."
-                                              : "The skipped ticket was restored at normal priority."
-                                          );
-                                          setQueueView("current");
-                                        }
-                                      }}
-                                      size="xs"
-                                      variant="light"
-                                    >
-                                      Restore
-                                    </Button>
-                                  </Table.Td>
-                                </Table.Tr>
-                              );
-                            })
-                          ) : (
-                            <Table.Tr>
-                              <Table.Td colSpan={3}>
-                                <DashboardEmptyState
-                                  title="No skipped tickets to recover."
-                                  text="Skipped tickets will appear here while they are still relevant for operator recovery."
-                                />
-                              </Table.Td>
-                            </Table.Tr>
-                          )}
-                        </Table.Tbody>
-                      </Table>
-                    </Table.ScrollContainer>
-                  </Stack>
                 </>
-              ) : (
+              ) : queueView === "overflow" ? (
                 <>
                   <Group justify="space-between" align="flex-start">
                     <div>
@@ -1747,8 +1931,10 @@ export default function VendorDashboardPage() {
                       <Table.Thead>
                         <Table.Tr>
                           <Table.Th>Ticket</Table.Th>
+                          <Table.Th>Channel</Table.Th>
                           <Table.Th>Priority</Table.Th>
                           <Table.Th>Carried over</Table.Th>
+                          <Table.Th>Joined</Table.Th>
                         </Table.Tr>
                       </Table.Thead>
                       <Table.Tbody>
@@ -1759,20 +1945,130 @@ export default function VendorDashboardPage() {
                                 <Text fw={700}>{ticket.ticketNumber}</Text>
                                 <Text c="dimmed" size="sm">{ticket.customerName}</Text>
                               </Table.Td>
+                              <Table.Td><Badge variant="light">{ticket.joinChannel}</Badge></Table.Td>
                               <Table.Td>
                                 <Badge color="orange" variant="light">
                                   carry_over
                                 </Badge>
                               </Table.Td>
                               <Table.Td>{ticket.carriedOverAt ? formatDateTime(ticket.carriedOverAt) : "--"}</Table.Td>
+                              <Table.Td>{formatDateTime(ticket.createdAt)}</Table.Td>
                             </Table.Tr>
                           ))
                         ) : (
                           <Table.Tr>
-                            <Table.Td colSpan={3}>
+                            <Table.Td colSpan={5}>
                               <DashboardEmptyState
                                 title="No overflow tickets."
                                 text="Waiting tickets carried over from a previous queue day will appear here."
+                              />
+                            </Table.Td>
+                          </Table.Tr>
+                        )}
+                      </Table.Tbody>
+                    </Table>
+                  </Table.ScrollContainer>
+                </>
+              ) : (
+                <>
+                  <Group justify="space-between" align="flex-start">
+                    <div>
+                      <Text className="neura-label">Missed ticket recovery</Text>
+                      <Title order={3}>Skipped tickets</Title>
+                    </div>
+                    <Badge variant="light">
+                      {recoverableTickets.length} ticket{recoverableTickets.length === 1 ? "" : "s"}
+                    </Badge>
+                  </Group>
+                  {queueDayClosed || queueDayPaused || restoreBlockedByThreshold ? (
+                    <Alert color={queueDayClosed ? "red" : "yellow"} variant="light" radius="md">
+                      {queueDayClosed
+                        ? "Missed tickets cannot be restored while the queue day is closed."
+                        : queueDayPaused
+                          ? "Missed tickets cannot be restored while queue intake is paused."
+                          : `Missed tickets cannot be restored while the queue is at its intake threshold of ${intakeState?.autoPauseThreshold} waiting tickets.`}
+                    </Alert>
+                  ) : null}
+                  <Table.ScrollContainer minWidth={620}>
+                    <Table verticalSpacing="sm">
+                      <Table.Thead>
+                        <Table.Tr>
+                          <Table.Th>Ticket</Table.Th>
+                          <Table.Th>Joined</Table.Th>
+                          <Table.Th>Recovery</Table.Th>
+                          <Table.Th>Action</Table.Th>
+                        </Table.Tr>
+                      </Table.Thead>
+                      <Table.Tbody>
+                        {recoverableTickets.length ? (
+                          recoverableTickets.map((ticket) => {
+                            const priorityRecovery = isRecoveryWindowActive(ticket.rejoinDeadlineAt);
+
+                            return (
+                              <Table.Tr key={ticket.id}>
+                                <Table.Td>
+                                  <Text fw={700}>{ticket.ticketNumber}</Text>
+                                  <Text c="dimmed" size="sm">{ticket.customerName}</Text>
+                                </Table.Td>
+                                <Table.Td>{formatDateTime(ticket.createdAt)}</Table.Td>
+                                <Table.Td>
+                                  <Badge color={priorityRecovery ? "blue" : "gray"} variant="light">
+                                    {priorityRecovery ? "recovery" : "normal"}
+                                  </Badge>
+                                  <Text c="dimmed" size="sm" mt={4}>
+                                    {ticket.rejoinDeadlineAt
+                                      ? priorityRecovery
+                                        ? `Priority until ${formatDateTime(ticket.rejoinDeadlineAt)}`
+                                        : `Recovery expired ${formatDateTime(ticket.rejoinDeadlineAt)}`
+                                      : "No recovery deadline"}
+                                  </Text>
+                                </Table.Td>
+                                <Table.Td>
+                                  <Button
+                                    disabled={
+                                      busyAction === `restore-${ticket.id}` ||
+                                      !ticket.lookupCode ||
+                                      queueDayClosed ||
+                                      queueDayPaused ||
+                                      restoreBlockedByThreshold
+                                    }
+                                    onClick={async () => {
+                                      const success = await runAction(`restore-${ticket.id}`, () =>
+                                        apiRequest<DashboardActionResponse, { lookupCode: string }>(
+                                          `/vendor/tenant/${selectedTenantSlug}/queue/tickets/${ticket.id}/restore${locationQuery}`,
+                                          {
+                                            method: "POST",
+                                            token,
+                                            body: { lookupCode: ticket.lookupCode || "" }
+                                          }
+                                        )
+                                      );
+
+                                      if (success) {
+                                        showSuccessNotification(
+                                          "Ticket restored",
+                                          priorityRecovery
+                                            ? "The skipped ticket was restored with recovery priority."
+                                            : "The skipped ticket was restored at normal priority."
+                                        );
+                                        setQueueView("current");
+                                      }
+                                    }}
+                                    size="xs"
+                                    variant="light"
+                                  >
+                                    Restore
+                                  </Button>
+                                </Table.Td>
+                              </Table.Tr>
+                            );
+                          })
+                        ) : (
+                          <Table.Tr>
+                            <Table.Td colSpan={4}>
+                              <DashboardEmptyState
+                                title="No skipped tickets to recover."
+                                text="Skipped tickets will appear here while they are still relevant for operator recovery."
                               />
                             </Table.Td>
                           </Table.Tr>
@@ -1824,43 +2120,53 @@ export default function VendorDashboardPage() {
                 </div>
                 <Button
                   className="neura-primary-button"
-                  disabled={busyAction === "walk-in" || queueDayClosed}
+                  disabled={busyAction === "walk-in" || queueDayClosed || queueDayPaused}
                   type="submit"
                 >
-                  {queueDayClosed ? "Queue closed" : busyAction === "walk-in" ? "Issuing..." : "Issue ticket"}
+                  {queueDayClosed
+                    ? "Queue closed"
+                    : queueDayPaused
+                      ? "Intake paused"
+                      : busyAction === "walk-in"
+                        ? "Issuing..."
+                        : "Issue ticket"}
                 </Button>
               </Group>
               <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
                 <TextInput
+                  name="walkInCustomerName"
                   label="Customer name"
                   required
-                  disabled={queueDayClosed}
+                  disabled={queueDayClosed || queueDayPaused}
                   value={walkInForm.customerName}
                   onChange={(event) =>
                     setWalkInForm((current) => ({ ...current, customerName: event.target.value }))
                   }
                 />
                 <TextInput
+                  name="walkInCustomerEmail"
                   label="Email"
                   type="email"
-                  disabled={queueDayClosed}
+                  disabled={queueDayClosed || queueDayPaused}
                   value={walkInForm.customerEmail}
                   onChange={(event) =>
                     setWalkInForm((current) => ({ ...current, customerEmail: event.target.value }))
                   }
                 />
                 <TextInput
+                  name="walkInCustomerPhone"
                   label="Phone"
-                  disabled={queueDayClosed}
+                  disabled={queueDayClosed || queueDayPaused}
                   value={walkInForm.customerPhone}
                   onChange={(event) =>
                     setWalkInForm((current) => ({ ...current, customerPhone: event.target.value }))
                   }
                 />
                 <Textarea
+                  name="walkInNotes"
                   label="Notes"
                   minRows={2}
-                  disabled={queueDayClosed}
+                  disabled={queueDayClosed || queueDayPaused}
                   value={walkInForm.notes}
                   onChange={(event) =>
                     setWalkInForm((current) => ({ ...current, notes: event.target.value }))
@@ -1869,6 +2175,7 @@ export default function VendorDashboardPage() {
               </SimpleGrid>
               <Group>
                 <Checkbox
+                  name="walkInNotifyByEmail"
                   disabled={queueDayClosed}
                   checked={walkInForm.notifyByEmail}
                   label="Send email alerts"
@@ -1877,6 +2184,7 @@ export default function VendorDashboardPage() {
                   }
                 />
                 <Checkbox
+                  name="walkInNotifyBySms"
                   disabled={queueDayClosed}
                   checked={walkInForm.notifyBySms}
                   label="Send SMS alerts"
@@ -1997,12 +2305,14 @@ export default function VendorDashboardPage() {
               />
               <SimpleGrid cols={{ base: 1, md: 2 }}>
                 <TextInput
+                  name="heroTitle"
                   label="Hero title"
                   value={themeForm.heroTitle}
                   placeholder={themeLocation?.name || "Public board title"}
                   onChange={(event) => setThemeField("heroTitle", event.target.value)}
                 />
                 <TextInput
+                  name="heroSubtitle"
                   label="Hero subtitle"
                   value={themeForm.heroSubtitle}
                   placeholder="Customers can monitor their turn remotely."
@@ -2011,6 +2321,7 @@ export default function VendorDashboardPage() {
               </SimpleGrid>
               <SimpleGrid cols={{ base: 1, md: 2 }}>
                 <FileInput
+                  name="backgroundImageFile"
                   accept="image/png,image/jpeg,image/webp"
                   clearable
                   label="Background image"
@@ -2018,6 +2329,7 @@ export default function VendorDashboardPage() {
                   onChange={(file) => uploadThemeAsset("background", file)}
                 />
                 <FileInput
+                  name="logoFile"
                   accept="image/png,image/jpeg,image/webp"
                   clearable
                   label="Company logo"
@@ -2027,11 +2339,13 @@ export default function VendorDashboardPage() {
               </SimpleGrid>
               <SimpleGrid cols={{ base: 1, md: 2 }}>
                 <TextInput
+                  name="backgroundImageUrl"
                   label="Background image URL"
                   value={themeForm.backgroundImageUrl}
                   onChange={(event) => setThemeField("backgroundImageUrl", event.target.value)}
                 />
                 <TextInput
+                  name="logoUrl"
                   label="Logo URL"
                   value={themeForm.logoUrl}
                   onChange={(event) => setThemeField("logoUrl", event.target.value)}
@@ -2039,19 +2353,19 @@ export default function VendorDashboardPage() {
               </SimpleGrid>
               <Divider label="Board colors" labelPosition="left" />
               <SimpleGrid cols={{ base: 1, md: 3 }}>
-                <ColorInput label="Page background" value={themeForm.pageBackgroundColor} onChange={(value) => setThemeField("pageBackgroundColor", value)} />
-                <ColorInput label="Header text" value={themeForm.headerColor} onChange={(value) => setThemeField("headerColor", value)} />
-                <ColorInput label="Subheader text" value={themeForm.subheaderColor} onChange={(value) => setThemeField("subheaderColor", value)} />
-                <ColorInput label="Body text" value={themeForm.bodyColor} onChange={(value) => setThemeField("bodyColor", value)} />
-                <ColorInput label="Button background" value={themeForm.buttonBackgroundColor} onChange={(value) => setThemeField("buttonBackgroundColor", value)} />
-                <ColorInput label="Button text" value={themeForm.buttonTextColor} onChange={(value) => setThemeField("buttonTextColor", value)} />
+                <ColorInput name="pageBackgroundColor" label="Page background" value={themeForm.pageBackgroundColor} onChange={(value) => setThemeField("pageBackgroundColor", value)} />
+                <ColorInput name="headerColor" label="Header text" value={themeForm.headerColor} onChange={(value) => setThemeField("headerColor", value)} />
+                <ColorInput name="subheaderColor" label="Subheader text" value={themeForm.subheaderColor} onChange={(value) => setThemeField("subheaderColor", value)} />
+                <ColorInput name="bodyColor" label="Body text" value={themeForm.bodyColor} onChange={(value) => setThemeField("bodyColor", value)} />
+                <ColorInput name="buttonBackgroundColor" label="Button background" value={themeForm.buttonBackgroundColor} onChange={(value) => setThemeField("buttonBackgroundColor", value)} />
+                <ColorInput name="buttonTextColor" label="Button text" value={themeForm.buttonTextColor} onChange={(value) => setThemeField("buttonTextColor", value)} />
               </SimpleGrid>
               <Divider label="Section cards" labelPosition="left" />
               <SimpleGrid cols={{ base: 1, md: 2 }}>
-                <ColorInput label="Card background" value={themeForm.cardBackgroundColor} onChange={(value) => setThemeField("cardBackgroundColor", value)} />
-                <ColorInput label="Card border" value={themeForm.cardBorderColor} onChange={(value) => setThemeField("cardBorderColor", value)} />
-                <NumberInput label="Border size" min={0} max={12} value={themeForm.cardBorderSize} onChange={(value) => setThemeField("cardBorderSize", Number(value) || 0)} />
-                <NumberInput label="Border radius" min={0} max={48} value={themeForm.cardBorderRadius} onChange={(value) => setThemeField("cardBorderRadius", Number(value) || 0)} />
+                <ColorInput name="cardBackgroundColor" label="Card background" value={themeForm.cardBackgroundColor} onChange={(value) => setThemeField("cardBackgroundColor", value)} />
+                <ColorInput name="cardBorderColor" label="Card border" value={themeForm.cardBorderColor} onChange={(value) => setThemeField("cardBorderColor", value)} />
+                <NumberInput name="cardBorderSize" label="Border size" min={0} max={12} value={themeForm.cardBorderSize} onChange={(value) => setThemeField("cardBorderSize", Number(value) || 0)} />
+                <NumberInput name="cardBorderRadius" label="Border radius" min={0} max={48} value={themeForm.cardBorderRadius} onChange={(value) => setThemeField("cardBorderRadius", Number(value) || 0)} />
               </SimpleGrid>
               <div>
                 <Text size="sm" fw={600}>Card alpha</Text>
@@ -2064,6 +2378,7 @@ export default function VendorDashboardPage() {
                 />
               </div>
               <Checkbox
+                name="applyThemeToAllLocations"
                 checked={applyThemeToAllLocations}
                 label="Apply to all current and future locations"
                 onChange={(event) => setApplyThemeToAllLocations(event.target.checked)}
@@ -2358,6 +2673,27 @@ export default function VendorDashboardPage() {
             </div>
             <Badge variant="light">{clients?.historyLabel || "History window"}</Badge>
           </Group>
+          <Group align="end">
+            <TextInput
+              label="Search clients"
+              placeholder="Name, contact, ticket, status"
+              value={clientsSearch}
+              onChange={(event) => setClientsSearch(event.currentTarget.value)}
+            />
+            <Select
+              label="Sort by"
+              data={[
+                { value: "latestVisitDesc", label: "Latest visit newest" },
+                { value: "latestVisitAsc", label: "Latest visit oldest" },
+                { value: "nameAsc", label: "Name A-Z" },
+                { value: "nameDesc", label: "Name Z-A" },
+                { value: "visitsDesc", label: "Most visits" },
+                { value: "visitsAsc", label: "Fewest visits" }
+              ]}
+              value={clientsSort}
+              onChange={(value) => setClientsSort((value as ClientSort) || "latestVisitDesc")}
+            />
+          </Group>
           <Table.ScrollContainer minWidth={720}>
             <Table verticalSpacing="sm">
               <Table.Thead>
@@ -2370,8 +2706,8 @@ export default function VendorDashboardPage() {
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
-                {clients?.clients.length ? (
-                  clients.clients.map((client) => (
+                {paginatedClients.length ? (
+                  paginatedClients.map((client) => (
                     <Table.Tr key={client.id}>
                       <Table.Td fw={700}>{client.customerName}</Table.Td>
                       <Table.Td>{[client.customerEmail, client.customerPhone].filter(Boolean).join(" | ") || "—"}</Table.Td>
@@ -2384,8 +2720,12 @@ export default function VendorDashboardPage() {
                   <Table.Tr>
                     <Table.Td colSpan={5}>
                       <DashboardEmptyState
-                        title="No client history yet."
-                        text="Client records appear after tickets are created."
+                        title={clientsSearch ? "No matching clients." : "No client history yet."}
+                        text={
+                          clientsSearch
+                            ? "Try a different search term or reset the sort."
+                            : "Client records appear after tickets are created."
+                        }
                       />
                     </Table.Td>
                   </Table.Tr>
@@ -2393,13 +2733,19 @@ export default function VendorDashboardPage() {
               </Table.Tbody>
             </Table>
           </Table.ScrollContainer>
+          <Group justify="space-between" align="center">
+            <Text c="dimmed" size="sm">
+              Showing {paginatedClients.length ? (clientsPage - 1) * CLIENTS_PAGE_SIZE + 1 : 0}-
+              {Math.min(clientsPage * CLIENTS_PAGE_SIZE, filteredClients.length)} of {filteredClients.length}
+            </Text>
+            <Pagination total={clientsTotalPages} value={clientsPage} onChange={setClientsPage} />
+          </Group>
         </Stack>
       </Card>
     );
   }
 
   function renderHistoryPage() {
-    const tickets = history?.tickets || snapshot?.history || [];
     const exportTypeOptions = [
       effectiveEntitlements?.csvExport ? { value: "csv", label: "CSV" } : null,
       effectiveEntitlements?.pdfExport ? { value: "pdf", label: "PDF" } : null
@@ -2456,6 +2802,27 @@ export default function VendorDashboardPage() {
               </Button>
             </Group>
           ) : null}
+          <Group align="end">
+            <TextInput
+              label="Search history"
+              placeholder="Ticket, customer, status, lookup code"
+              value={historySearch}
+              onChange={(event) => setHistorySearch(event.currentTarget.value)}
+            />
+            <Select
+              label="Sort by"
+              data={[
+                { value: "updatedDesc", label: "Updated newest" },
+                { value: "updatedAsc", label: "Updated oldest" },
+                { value: "ticketAsc", label: "Ticket A-Z" },
+                { value: "ticketDesc", label: "Ticket Z-A" },
+                { value: "customerAsc", label: "Customer A-Z" },
+                { value: "customerDesc", label: "Customer Z-A" }
+              ]}
+              value={historySort}
+              onChange={(value) => setHistorySort((value as HistorySort) || "updatedDesc")}
+            />
+          </Group>
           <Table.ScrollContainer minWidth={620}>
             <Table verticalSpacing="sm">
               <Table.Thead>
@@ -2467,8 +2834,8 @@ export default function VendorDashboardPage() {
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
-                {tickets.length ? (
-                  tickets.map((ticket) => (
+                {paginatedHistoryTickets.length ? (
+                  paginatedHistoryTickets.map((ticket) => (
                     <Table.Tr key={ticket.id}>
                       <Table.Td fw={700}>{ticket.ticketNumber}</Table.Td>
                       <Table.Td>{ticket.customerName}</Table.Td>
@@ -2480,8 +2847,12 @@ export default function VendorDashboardPage() {
                   <Table.Tr>
                     <Table.Td colSpan={4}>
                       <DashboardEmptyState
-                        title="No completed queue activity yet."
-                        text="Served and skipped tickets will gather here over time."
+                        title={historySearch ? "No matching history records." : "No completed queue activity yet."}
+                        text={
+                          historySearch
+                            ? "Try a different search term or reset the sort."
+                            : "Served and skipped tickets will gather here over time."
+                        }
                       />
                     </Table.Td>
                   </Table.Tr>
@@ -2489,6 +2860,13 @@ export default function VendorDashboardPage() {
               </Table.Tbody>
             </Table>
           </Table.ScrollContainer>
+          <Group justify="space-between" align="center">
+            <Text c="dimmed" size="sm">
+              Showing {paginatedHistoryTickets.length ? (historyPage - 1) * HISTORY_PAGE_SIZE + 1 : 0}-
+              {Math.min(historyPage * HISTORY_PAGE_SIZE, filteredHistoryTickets.length)} of {filteredHistoryTickets.length}
+            </Text>
+            <Pagination total={historyTotalPages} value={historyPage} onChange={setHistoryPage} />
+          </Group>
         </Stack>
       </Card>
     );
@@ -2552,6 +2930,7 @@ export default function VendorDashboardPage() {
                   <Title order={3}>Queue preferences</Title>
                 </div>
                 <TextInput
+                  name="queuePrefix"
                   label="Queue prefix"
                   maxLength={4}
                   value={settings.queuePrefix}
@@ -2563,6 +2942,7 @@ export default function VendorDashboardPage() {
                   }
                 />
                 <NumberInput
+                  name="averageServiceMinutes"
                   label="Average service minutes"
                   min={1}
                   value={Number(settings.averageServiceMinutes)}
@@ -2571,6 +2951,7 @@ export default function VendorDashboardPage() {
                   }
                 />
                 <NumberInput
+                  name="notificationThreshold"
                   label="Notify when within"
                   min={1}
                   value={Number(settings.notificationThreshold)}
@@ -2578,7 +2959,96 @@ export default function VendorDashboardPage() {
                     setSettings((current) => ({ ...current, notificationThreshold: value || 1 }))
                   }
                 />
+                <Checkbox
+                  name="autoPauseEnabled"
+                  checked={settings.autoPauseEnabled}
+                  label="Enable auto-pause intake"
+                  onChange={(event) =>
+                    setSettings((current) => ({
+                      ...current,
+                      autoPauseEnabled: event.currentTarget.checked,
+                      autoPauseThreshold: event.currentTarget.checked
+                        ? Number(current.autoPauseThreshold) || 20
+                        : "",
+                      autoResumeEnabled: event.currentTarget.checked
+                        ? current.autoResumeEnabled
+                        : false,
+                      autoResumeVacancyPercent: event.currentTarget.checked
+                        ? Number(current.autoResumeVacancyPercent) || 20
+                        : ""
+                    }))
+                  }
+                />
+                <NumberInput
+                  name="autoPauseThreshold"
+                  label="Auto-pause threshold"
+                  min={1}
+                  max={500}
+                  disabled={!settings.autoPauseEnabled}
+                  description="When waiting tickets reach this number, new joins pause automatically until staff resumes intake."
+                  value={settings.autoPauseEnabled ? Number(settings.autoPauseThreshold) : undefined}
+                  onChange={(value) =>
+                    setSettings((current) => ({ ...current, autoPauseThreshold: value || 1 }))
+                  }
+                />
+                <Checkbox
+                  name="autoResumeEnabled"
+                  checked={settings.autoResumeEnabled}
+                  disabled={!settings.autoPauseEnabled}
+                  label="Enable auto-resume intake"
+                  onChange={(event) =>
+                    setSettings((current) => ({
+                      ...current,
+                      autoResumeEnabled: event.currentTarget.checked,
+                      autoResumeVacancyPercent: event.currentTarget.checked
+                        ? Number(current.autoResumeVacancyPercent) || 20
+                        : ""
+                    }))
+                  }
+                />
+                <Stack gap="sm">
+                  <Text fw={500} size="sm">Auto-resume vacancy percent</Text>
+                  {settings.autoPauseEnabled && settings.autoResumeEnabled ? (
+                    <Slider
+                      min={5}
+                      max={50}
+                      step={5}
+                      marks={[
+                        { value: 5, label: "5%" },
+                        { value: 15, label: "15%" },
+                        { value: 25, label: "25%" },
+                        { value: 35, label: "35%" },
+                        { value: 50, label: "50%" }
+                      ]}
+                      label={(value) => `${value}%`}
+                      value={Number(settings.autoResumeVacancyPercent) || 20}
+                      onChange={(value) =>
+                        setSettings((current) => ({ ...current, autoResumeVacancyPercent: value }))
+                      }
+                      styles={{
+                        markLabel: {
+                          marginTop: 10
+                        },
+                        root: {
+                          paddingBottom: 28
+                        }
+                      }}
+                    />
+                  ) : (
+                    <Text c="dimmed" size="sm">
+                      Only applies to queues paused automatically by threshold.
+                    </Text>
+                  )}
+                  <Text c="dimmed" size="sm">
+                    {settings.autoPauseEnabled && settings.autoResumeEnabled
+                      ? `With a threshold of ${Number(settings.autoPauseThreshold) || 0}, intake will reopen at ${
+                          Math.floor((Number(settings.autoPauseThreshold) || 0) * (1 - (Number(settings.autoResumeVacancyPercent) || 20) / 100))
+                        } waiting tickets or below.`
+                      : "Only applies to queues paused automatically by threshold."}
+                  </Text>
+                </Stack>
                 <TextInput
+                  name="contactEmail"
                   label="Contact email"
                   type="email"
                   value={settings.contactEmail}
@@ -2587,6 +3057,7 @@ export default function VendorDashboardPage() {
                   }
                 />
                 <TextInput
+                  name="contactPhone"
                   label="Contact phone"
                   value={settings.contactPhone}
                   onChange={(event) =>
@@ -2617,6 +3088,7 @@ export default function VendorDashboardPage() {
         <form onSubmit={handleSaveCounter}>
           <Stack gap="md">
             <TextInput
+              name="counterName"
               label="Counter name"
               required
               value={counterForm.name}
@@ -2625,6 +3097,7 @@ export default function VendorDashboardPage() {
               }
             />
             <TextInput
+              name="counterSlug"
               label="Counter slug"
               required
               value={counterForm.slug}
@@ -2633,6 +3106,7 @@ export default function VendorDashboardPage() {
               }
             />
             <Checkbox
+              name="counterIsActive"
               checked={counterForm.isActive}
               label="Active counter"
               onChange={(event) =>
@@ -2640,6 +3114,7 @@ export default function VendorDashboardPage() {
               }
             />
             <MultiSelect
+              name="assignedUserIds"
               data={staff.map((member) => ({ label: member.name, value: member.id }))}
               label="Assigned staff"
               value={counterForm.assignedUserIds}
@@ -2667,6 +3142,7 @@ export default function VendorDashboardPage() {
         <form onSubmit={handleAddStaff}>
           <Stack gap="md">
             <TextInput
+              name="staffEmail"
               label="Existing account email"
               required
               type="email"
@@ -2676,6 +3152,7 @@ export default function VendorDashboardPage() {
               }
             />
             <Select
+              name="staffRole"
               data={[
                 { label: "Staff", value: "staff" },
                 { label: "Owner", value: "owner" }

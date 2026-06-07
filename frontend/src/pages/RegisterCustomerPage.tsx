@@ -66,10 +66,10 @@ export default function RegisterCustomerPage() {
         </div>
         <form onSubmit={handleSubmit}>
           <Stack gap="md">
-            <TextInput label="Name" required value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} />
-            <TextInput label="Email" required type="email" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} />
-            <TextInput label="Phone" value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} />
-            <PasswordInput label="Password" required value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} />
+            <TextInput name="name" label="Name" required value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} />
+            <TextInput name="email" label="Email" required type="email" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} />
+            <TextInput name="phone" label="Phone" value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} />
+            <PasswordInput name="password" label="Password" required value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} />
             {error ? <Alert color="red">{error}</Alert> : null}
             <Button color="dark" disabled={submitting} type="submit">
               {submitting ? "Creating account..." : "Register account"}

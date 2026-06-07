@@ -32,7 +32,8 @@ const TENANT_PERMISSIONS = {
     "tenant.ticket.read_limited",
     "tenant.ticket.update_state",
     "tenant.staff.read",
-    "tenant.billing.read"
+    "tenant.billing.read",
+    "tenant.reports.read"
   ])
 };
 

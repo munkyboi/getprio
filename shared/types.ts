@@ -171,6 +171,10 @@ export interface TenantSummary {
   queuePrefix: string;
   averageServiceMinutes: number;
   notificationThreshold: number;
+  autoPauseEnabled: boolean;
+  autoPauseThreshold: number | null;
+  autoResumeEnabled: boolean;
+  autoResumeVacancyPercent: number | null;
   contactEmail: string;
   contactPhone: string;
   joinUrl: string;
@@ -343,6 +347,7 @@ export interface QueueHistoryTicket {
   ticketNumber: string;
   customerName: string;
   status: TicketStatus;
+  createdAt: string | Date;
   updatedAt: string | Date;
   serviceCounterId?: string | null;
   rejoinDeadlineAt?: string | Date | null;
@@ -362,10 +367,28 @@ export interface QueueFocusTicket {
 
 export interface QueueDayStatus {
   isClosed: boolean;
+  isPaused: boolean;
   queueDateKey: string;
   closedAt: string | Date | null;
   reopenedAt: string | Date | null;
   closureReason: string | null;
+  pausedAt: string | Date | null;
+  resumedAt: string | Date | null;
+  pauseReason: string | null;
+  pauseMode: "manual" | "auto_threshold" | null;
+}
+
+export interface QueueIntakeStatus {
+  autoPauseEnabled: boolean;
+  autoPauseThreshold: number | null;
+  autoResumeEnabled: boolean;
+  autoResumeVacancyPercent: number | null;
+  currentWaitingCount: number;
+  fillRatio: number | null;
+  thresholdRemaining: number | null;
+  resumeWaitingCount: number | null;
+  state: "disabled" | "open" | "near_limit" | "paused";
+  stateLabel: string;
 }
 
 export interface QueueSnapshot {
@@ -373,10 +396,12 @@ export interface QueueSnapshot {
   location: StoreLocationSummary | null;
   publicBoardTheme: PublicBoardThemeResponse;
   queueDay: QueueDayStatus;
+  queueIntake: QueueIntakeStatus;
   stats: QueueStats;
   current: QueueCurrentTicket | null;
   nextUp: QueueListTicket[];
   overflow: QueueListTicket[];
+  recovery: QueueHistoryTicket[];
   history: QueueHistoryTicket[];
   usage: QueueUsage;
   focusTicket: QueueFocusTicket | null;
@@ -505,6 +530,10 @@ export interface UpdateTenantSettingsRequest {
   queuePrefix: string;
   averageServiceMinutes: number | string;
   notificationThreshold: number | string;
+  autoPauseEnabled: boolean;
+  autoPauseThreshold: number | string;
+  autoResumeEnabled: boolean;
+  autoResumeVacancyPercent: number | string;
   contactEmail: string;
   contactPhone: string;
 }

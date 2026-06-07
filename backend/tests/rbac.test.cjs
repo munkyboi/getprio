@@ -163,6 +163,7 @@ test("permissions map keeps current owner, staff, and platform-admin boundaries"
   assert.equal(permissions.userHasPermission(staffUser, "tenant.queue.operate", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(staffUser, "tenant.staff.read", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(staffUser, "tenant.billing.read", { tenantId: "tenant-1" }), true);
+  assert.equal(permissions.userHasPermission(staffUser, "tenant.reports.read", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(staffUser, "tenant.settings.manage", { tenantId: "tenant-1" }), false);
   assert.equal(permissions.userHasPermission(ownerUser, "tenant.settings.manage", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(ownerUser, "tenant.billing.manage", { tenantId: "tenant-1" }), true);
@@ -170,7 +171,7 @@ test("permissions map keeps current owner, staff, and platform-admin boundaries"
   assert.equal(permissions.userHasPermission(platformAdmin, "platform.plans.manage"), true);
 });
 
-test("vendor staff is denied owner-only settings route but can operate queue and read staff list", async () => {
+test("vendor staff is denied owner-only settings route but can operate queue and read staff, clients, and history", async () => {
   const vendorRouter = requireWithMocks("../src/routes/vendorRoutes.js", {
     "../middleware/auth": buildAuthMock(),
     "../middleware/asyncHandler": buildAsyncHandlerMock(),
@@ -202,7 +203,10 @@ test("vendor staff is denied owner-only settings route but can operate queue and
         slug: "main"
       })
     },
-    "../repositories/tickets": {},
+    "../repositories/tickets": {
+      listHistoryTickets: async () => [],
+      listClientTickets: async () => []
+    },
     "../repositories/publicBoardThemes": {
       getResolvedTheme: async () => ({ scope: "fallback", theme: {} })
     },
@@ -275,6 +279,20 @@ test("vendor staff is denied owner-only settings route but can operate queue and
       }
     });
     assert.equal(staffListResponse.status, 200);
+
+    const clientsResponse = await fetch(`${baseUrl}/tenant/demo/clients?location=main`, {
+      headers: {
+        "x-test-tenant-role": "staff"
+      }
+    });
+    assert.equal(clientsResponse.status, 200);
+
+    const historyResponse = await fetch(`${baseUrl}/tenant/demo/history?location=main`, {
+      headers: {
+        "x-test-tenant-role": "staff"
+      }
+    });
+    assert.equal(historyResponse.status, 200);
   } finally {
     await stopServer(server);
   }

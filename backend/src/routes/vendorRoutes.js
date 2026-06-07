@@ -22,6 +22,8 @@ const {
   updateCurrentTicketStatus,
   closeQueueDay,
   reopenQueueDay,
+  pauseQueueDay,
+  resumeQueueDay,
   restoreSkippedTicket
 } = require("../services/queueService");
 
@@ -321,6 +323,42 @@ router.post(
 );
 
 router.post(
+  "/tenant/:tenantSlug/queue/pause",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.queue.operate");
+    const location = await getLocationForTenant(tenant, req.query.location);
+    const snapshot = await pauseQueueDay(tenant, {
+      location,
+      actorUserId: req.user?._id,
+      actorRole: "vendor",
+      source: "vendor",
+      reason: typeof req.body?.reason === "string" ? req.body.reason : "Paused from vendor dashboard",
+      pauseMode: "manual"
+    });
+
+    res.json({ snapshot });
+  })
+);
+
+router.post(
+  "/tenant/:tenantSlug/queue/resume",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.queue.operate");
+    const location = await getLocationForTenant(tenant, req.query.location);
+    const snapshot = await resumeQueueDay(tenant, {
+      location,
+      actorUserId: req.user?._id,
+      actorRole: "vendor",
+      source: "vendor"
+    });
+
+    res.json({ snapshot });
+  })
+);
+
+router.post(
   "/tenant/:tenantSlug/queue/close",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
@@ -500,12 +538,36 @@ router.patch(
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.settings.manage");
     await getLocationForTenant(tenant, req.query.location);
-    const { queuePrefix, averageServiceMinutes, notificationThreshold, contactEmail, contactPhone } = req.body;
+    const {
+      queuePrefix,
+      averageServiceMinutes,
+      notificationThreshold,
+      autoPauseEnabled,
+      autoPauseThreshold,
+      autoResumeEnabled,
+      autoResumeVacancyPercent,
+      contactEmail,
+      contactPhone
+    } = req.body;
+
+    const normalizedAutoPauseEnabled = Boolean(autoPauseEnabled);
+    const normalizedAutoPauseThreshold = normalizedAutoPauseEnabled
+      ? Math.max(1, Number(autoPauseThreshold || 1))
+      : null;
+    const normalizedAutoResumeEnabled = normalizedAutoPauseEnabled && Boolean(autoResumeEnabled);
+    const normalizedAutoResumeVacancyPercent =
+      normalizedAutoResumeEnabled
+        ? Math.max(5, Math.min(50, Number(autoResumeVacancyPercent || 20)))
+        : null;
 
     const updatedTenant = await tenantRepository.updateTenant(tenant._id, {
       queuePrefix: queuePrefix ? String(queuePrefix).slice(0, 4).toUpperCase() : tenant.queuePrefix,
       averageServiceMinutes: averageServiceMinutes ? Number(averageServiceMinutes) : tenant.averageServiceMinutes,
       notificationThreshold: notificationThreshold ? Number(notificationThreshold) : tenant.notificationThreshold,
+      autoPauseEnabled: normalizedAutoPauseEnabled,
+      autoPauseThreshold: normalizedAutoPauseThreshold,
+      autoResumeEnabled: normalizedAutoResumeEnabled,
+      autoResumeVacancyPercent: normalizedAutoResumeVacancyPercent,
       contactEmail: typeof contactEmail === "string" ? contactEmail : tenant.contactEmail,
       contactPhone: typeof contactPhone === "string" ? contactPhone : tenant.contactPhone
     });
@@ -518,10 +580,16 @@ router.patch(
         queuePrefix: updatedTenant.queuePrefix,
         averageServiceMinutes: updatedTenant.averageServiceMinutes,
         notificationThreshold: updatedTenant.notificationThreshold,
+        autoPauseEnabled: updatedTenant.autoPauseEnabled,
+        autoPauseThreshold: updatedTenant.autoPauseThreshold,
+        autoResumeEnabled: updatedTenant.autoResumeEnabled,
+        autoResumeVacancyPercent: updatedTenant.autoResumeVacancyPercent,
         contactEmail: updatedTenant.contactEmail,
         contactPhone: updatedTenant.contactPhone
       },
-      snapshot: await getQueueSnapshot(updatedTenant)
+      snapshot: await getQueueSnapshot(updatedTenant, {
+        location: await getLocationForTenant(updatedTenant, req.query.location)
+      })
     });
   })
 );

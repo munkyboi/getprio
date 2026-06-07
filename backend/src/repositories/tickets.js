@@ -237,6 +237,40 @@ async function listHistoryTickets(tenantId, options = {}) {
   return result.rows.map(mapTicket);
 }
 
+async function listSkippedTickets(tenantId, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const limit = Number(options.limit || 20);
+  const values = [Number(tenantId), limit];
+  let locationFilter = "";
+  let dateFilter = "";
+
+  if (options.locationId) {
+    values.push(Number(options.locationId));
+    locationFilter = `AND location_id = $${values.length}`;
+  }
+
+  if (options.dateKey) {
+    values.push(String(options.dateKey));
+    dateFilter = `AND date_key = $${values.length}`;
+  }
+
+  const result = await queryClient.query(
+    `
+      SELECT ${TICKET_COLUMNS}
+      FROM tickets
+      WHERE tenant_id = $1
+        AND status = 'skipped'
+        ${locationFilter}
+        ${dateFilter}
+      ORDER BY COALESCE(rejoin_deadline_at, updated_at) DESC, updated_at DESC
+      LIMIT $2
+    `,
+    values
+  );
+
+  return result.rows.map(mapTicket);
+}
+
 async function listClientTickets(tenantId, options = {}) {
   const queryClient = buildQueryClient(options.client);
   const limit = Number(options.limit || 500);
@@ -594,6 +628,47 @@ async function reopenTicketsFromClosure(tenantId, options = {}) {
   return result.rows.map(mapTicket);
 }
 
+async function restoreCarriedOverTicketsFromClosure(tenantId, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const ticketIds = (options.ticketIds || []).map((value) => Number(value)).filter(Boolean);
+  const shouldFilterByIds = ticketIds.length > 0;
+
+  const result = await queryClient.query(
+    `
+      UPDATE tickets
+      SET date_key = $4,
+          queue_date_key = $4,
+          carried_over_at = NULL,
+          carry_over_count = GREATEST(COALESCE(carry_over_count, 0) - 1, 0),
+          service_priority_band = 'normal',
+          updated_at = NOW()
+      WHERE tenant_id = $1
+        AND location_id = $2
+        AND date_key = $3
+        AND status = 'waiting'
+        AND (carried_over_at IS NOT NULL OR COALESCE(carry_over_count, 0) > 0)
+        ${shouldFilterByIds ? "AND id = ANY($5::BIGINT[])" : ""}
+      RETURNING ${TICKET_COLUMNS}
+    `,
+    shouldFilterByIds
+      ? [
+          Number(tenantId),
+          Number(options.locationId),
+          String(options.fromDateKey),
+          String(options.toDateKey),
+          ticketIds
+        ]
+      : [
+          Number(tenantId),
+          Number(options.locationId),
+          String(options.fromDateKey),
+          String(options.toDateKey)
+        ]
+  );
+
+  return result.rows.map(mapTicket);
+}
+
 async function carryOverWaitingTickets(tenantId, options = {}) {
   const queryClient = buildQueryClient(options.client);
   const ticketIds = (options.ticketIds || []).map((value) => Number(value)).filter(Boolean);
@@ -667,6 +742,7 @@ module.exports = {
   findTicketByTenantAndLookupCode,
   listWaitingTickets,
   listHistoryTickets,
+  listSkippedTickets,
   listClientTickets,
   listTicketsByUserId,
   listTicketsForCustomerAccount,
@@ -679,6 +755,7 @@ module.exports = {
   listTicketsForQueueClosure,
   markTicketsUnservedForClosure,
   reopenTicketsFromClosure,
+  restoreCarriedOverTicketsFromClosure,
   carryOverWaitingTickets,
   restoreSkippedTicket
 };
