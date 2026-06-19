@@ -292,3 +292,80 @@ test("queue join checkout preserves provider identifiers when local linking fail
     global.fetch = originalFetch;
   }
 });
+
+test("queue join payment sync returns the issued ticket lookup code for paid payments", async () => {
+  const publishSnapshotCalls = [];
+
+  const queueJoinPaymentService = requireWithMocks("../src/services/queueJoinPaymentService.js", {
+    "../repositories/queueJoinPayments": {
+      findPaymentById: async () => ({
+        _id: "payment-1",
+        tenantId: "tenant-1",
+        payload: { locationSlug: "main" },
+        providerCheckoutSessionId: "checkout_1",
+        ticketId: "ticket-1",
+        ticketLookupCode: "ABC12345",
+        amountCents: 1000,
+        currency: "PHP",
+        status: "paid",
+        createdAt: new Date(),
+        updatedAt: new Date()
+      })
+    },
+    "../repositories/tenants": {
+      findTenantById: async () => ({
+        _id: "tenant-1",
+        slug: "demo",
+        name: "Demo Tenant"
+      })
+    },
+    "../repositories/storeLocations": {
+      findLocationByTenantAndSlug: async () => ({
+        _id: "location-1",
+        tenantId: "tenant-1",
+        slug: "main",
+        name: "Main",
+        timezone: "Asia/Manila",
+        isPrimary: true,
+        isActive: true
+      })
+    },
+    "../repositories/billing": {
+      recordBillingEvent: async () => ({ id: "billing-event-1" })
+    },
+    "../services/queueFeeService": {
+      assertTenantCanAcceptCustomerJoins: async () => {}
+    },
+    "./queueService": {
+      maybeNotifyUpcomingTickets: async () => {},
+      publishSnapshot: async (_tenant, options) => {
+        publishSnapshotCalls.push(options);
+        return {
+          focusTicket: {
+            id: "ticket-1",
+            lookupCode: "ABC12345",
+            ticketNumber: "DMO-001",
+            customerName: "Customer One",
+            status: "waiting"
+          }
+        };
+      }
+    }
+  });
+
+  const result = await queueJoinPaymentService.syncQueueJoinPayment({
+    tenant: {
+      _id: "tenant-1",
+      slug: "demo",
+      name: "Demo Tenant"
+    },
+    paymentId: "payment-1"
+  });
+
+  assert.equal(result.paid, true);
+  assert.equal(result.ticket.lookupCode, "ABC12345");
+  assert.equal(result.ticket.ticketNumber, "DMO-001");
+  assert.equal(publishSnapshotCalls.length, 1);
+  assert.equal(publishSnapshotCalls[0].lookupCode, "ABC12345");
+  assert.equal(publishSnapshotCalls[0].locationSlug, "main");
+});
