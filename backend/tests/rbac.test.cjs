@@ -151,6 +151,10 @@ test("permissions map keeps current owner, staff, and platform-admin boundaries"
     roles: ["vendor"],
     tenantMemberships: [{ tenantId: "tenant-1", role: "staff" }]
   };
+  const adminUser = {
+    roles: ["vendor"],
+    tenantMemberships: [{ tenantId: "tenant-1", role: "admin" }]
+  };
   const ownerUser = {
     roles: ["vendor"],
     tenantMemberships: [{ tenantId: "tenant-1", role: "owner" }]
@@ -163,14 +167,20 @@ test("permissions map keeps current owner, staff, and platform-admin boundaries"
   assert.equal(permissions.userHasPermission(staffUser, "tenant.queue.operate", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(staffUser, "tenant.staff.read", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(staffUser, "tenant.billing.read", { tenantId: "tenant-1" }), true);
+  assert.equal(permissions.userHasPermission(staffUser, "tenant.reports.read", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(staffUser, "tenant.settings.manage", { tenantId: "tenant-1" }), false);
+  assert.equal(permissions.userHasPermission(adminUser, "tenant.settings.manage", { tenantId: "tenant-1" }), true);
+  assert.equal(permissions.userHasPermission(adminUser, "tenant.settings.manage_contact", { tenantId: "tenant-1" }), false);
+  assert.equal(permissions.userHasPermission(adminUser, "tenant.staff.manage", { tenantId: "tenant-1" }), true);
+  assert.equal(permissions.userHasPermission(adminUser, "tenant.location.manage", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(ownerUser, "tenant.settings.manage", { tenantId: "tenant-1" }), true);
+  assert.equal(permissions.userHasPermission(ownerUser, "tenant.settings.manage_contact", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(ownerUser, "tenant.billing.manage", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(platformAdmin, "platform.users.read"), true);
   assert.equal(permissions.userHasPermission(platformAdmin, "platform.plans.manage"), true);
 });
 
-test("vendor staff is denied owner-only settings route but can operate queue and read staff list", async () => {
+test("vendor staff is denied owner-only settings route but can operate queue and read staff, clients, and history", async () => {
   const vendorRouter = requireWithMocks("../src/routes/vendorRoutes.js", {
     "../middleware/auth": buildAuthMock(),
     "../middleware/asyncHandler": buildAsyncHandlerMock(),
@@ -202,7 +212,10 @@ test("vendor staff is denied owner-only settings route but can operate queue and
         slug: "main"
       })
     },
-    "../repositories/tickets": {},
+    "../repositories/tickets": {
+      listHistoryTickets: async () => [],
+      listClientTickets: async () => []
+    },
     "../repositories/publicBoardThemes": {
       getResolvedTheme: async () => ({ scope: "fallback", theme: {} })
     },
@@ -275,6 +288,20 @@ test("vendor staff is denied owner-only settings route but can operate queue and
       }
     });
     assert.equal(staffListResponse.status, 200);
+
+    const clientsResponse = await fetch(`${baseUrl}/tenant/demo/clients?location=main`, {
+      headers: {
+        "x-test-tenant-role": "staff"
+      }
+    });
+    assert.equal(clientsResponse.status, 200);
+
+    const historyResponse = await fetch(`${baseUrl}/tenant/demo/history?location=main`, {
+      headers: {
+        "x-test-tenant-role": "staff"
+      }
+    });
+    assert.equal(historyResponse.status, 200);
   } finally {
     await stopServer(server);
   }
@@ -321,6 +348,430 @@ test("tenant owner can access billing management routes", async () => {
       body: JSON.stringify({ planSlug: "pro", billingInterval: "monthly" })
     });
     assert.equal(staffResponse.status, 403);
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("tenant admin cannot add another admin through staff invite", async () => {
+  const vendorRouter = requireWithMocks("../src/routes/vendorRoutes.js", {
+    "../middleware/auth": buildAuthMock(),
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../repositories/tenants": {
+      findTenantBySlug: async () => ({ _id: "tenant-1", slug: "demo", name: "Demo Tenant" })
+    },
+    "../repositories/storeLocations": {
+      findPrimaryLocationByTenantId: async () => ({
+        _id: "location-1",
+        tenantId: "tenant-1",
+        name: "Main Branch",
+        slug: "main"
+      }),
+      listHoursByLocationId: async () => []
+    },
+    "../repositories/tickets": {
+      listHistoryTickets: async () => [],
+      listClientTickets: async () => []
+    },
+    "../repositories/publicBoardThemes": {
+      getResolvedTheme: async () => ({ scope: "fallback", theme: {} })
+    },
+    "../repositories/serviceCounters": {
+      listCountersByLocationId: async () => [],
+      listAssignedCounterIdsByUserIds: async () => new Map()
+    },
+    "../repositories/users": {
+      listUsersByTenantId: async () => [
+        {
+          _id: "owner-1",
+          name: "Owner User",
+          email: "owner@getprio.local",
+          phone: null,
+          tenantMemberships: [{ tenantId: "tenant-1", role: "owner" }]
+        }
+      ],
+      findUserByEmail: async () => ({
+        _id: "invitee-1",
+        name: "Invitee",
+        email: "invitee@getprio.local",
+        phone: null,
+        tenantMemberships: []
+      }),
+      addTenantMembership: async () => {
+        throw new Error("addTenantMembership should not be called");
+      }
+    },
+    "../services/billingService": {
+      getBillingOverview: async () => ({ subscription: { entitlements: { locations: 1 } }, plans: [] }),
+      getTenantEntitlements: async () => ({ staffSeats: 5, counters: 2, brandedQueuePages: true })
+    },
+    "../services/publicBoardThemeUploadService": {
+      createUpload: async () => ({})
+    },
+    "../services/storeHoursService": {
+      getOpenStatus: async () => ({ isOpen: true, timezone: "Asia/Manila", summary: "Open", today: null, nextOpenAt: null })
+    },
+    "../services/queueService": {
+      createTicket: async () => ({}),
+      getQueueSnapshot: async () => ({ tenant: { queuePrefix: "DMO", averageServiceMinutes: 5, notificationThreshold: 3 } }),
+      callNextTicket: async () => ({ ticket: null, snapshot: { queue: [] } }),
+      updateCurrentTicketStatus: async () => ({ ticket: null, snapshot: { queue: [] } })
+    },
+    pdfkit: function MockPdfDocument() {}
+  });
+
+  const { server, baseUrl } = await startServer(vendorRouter, "/api/vendor");
+
+  try {
+    const response = await fetch(`${baseUrl}/tenant/demo/staff`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-test-tenant-role": "admin"
+      },
+      body: JSON.stringify({
+        email: "invitee@getprio.local",
+        role: "admin"
+      })
+    });
+    assert.equal(response.status, 403);
+    assert.match(await response.text(), /Tenant admins can only invite staff members/i);
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("tenant admin can invite a staff member", async () => {
+  let addMembershipCalled = false;
+  const vendorRouter = requireWithMocks("../src/routes/vendorRoutes.js", {
+    "../middleware/auth": buildAuthMock(),
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../repositories/tenants": {
+      findTenantBySlug: async () => ({ _id: "tenant-1", slug: "demo", name: "Demo Tenant" })
+    },
+    "../repositories/storeLocations": {
+      findPrimaryLocationByTenantId: async () => ({
+        _id: "location-1",
+        tenantId: "tenant-1",
+        name: "Main Branch",
+        slug: "main"
+      }),
+      listHoursByLocationId: async () => []
+    },
+    "../repositories/tickets": {
+      listHistoryTickets: async () => [],
+      listClientTickets: async () => []
+    },
+    "../repositories/publicBoardThemes": {
+      getResolvedTheme: async () => ({ scope: "fallback", theme: {} })
+    },
+    "../repositories/serviceCounters": {
+      listCountersByLocationId: async () => [],
+      listAssignedCounterIdsByUserIds: async () => new Map()
+    },
+    "../repositories/users": {
+      listUsersByTenantId: async () => [
+        {
+          _id: "owner-1",
+          name: "Owner User",
+          email: "owner@getprio.local",
+          phone: null,
+          tenantMemberships: [{ tenantId: "tenant-1", role: "owner" }]
+        }
+      ],
+      findUserByEmail: async () => ({
+        _id: "invitee-1",
+        name: "Invitee",
+        email: "invitee@getprio.local",
+        phone: null,
+        tenantMemberships: []
+      }),
+      addTenantMembership: async (_userId, _tenantId, role) => {
+        addMembershipCalled = role === "staff";
+      }
+    },
+    "../services/billingService": {
+      getBillingOverview: async () => ({ subscription: { entitlements: { locations: 1 } }, plans: [] }),
+      getTenantEntitlements: async () => ({ staffSeats: 5, counters: 2, brandedQueuePages: true })
+    },
+    "../services/publicBoardThemeUploadService": {
+      createUpload: async () => ({})
+    },
+    "../services/storeHoursService": {
+      getOpenStatus: async () => ({ isOpen: true, timezone: "Asia/Manila", summary: "Open", today: null, nextOpenAt: null })
+    },
+    "../services/queueService": {
+      createTicket: async () => ({}),
+      getQueueSnapshot: async () => ({ tenant: { queuePrefix: "DMO", averageServiceMinutes: 5, notificationThreshold: 3 } }),
+      callNextTicket: async () => ({ ticket: null, snapshot: { queue: [] } }),
+      updateCurrentTicketStatus: async () => ({ ticket: null, snapshot: { queue: [] } })
+    },
+    pdfkit: function MockPdfDocument() {}
+  });
+
+  const { server, baseUrl } = await startServer(vendorRouter, "/api/vendor");
+
+  try {
+    const response = await fetch(`${baseUrl}/tenant/demo/staff`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-test-tenant-role": "admin"
+      },
+      body: JSON.stringify({
+        email: "invitee@getprio.local",
+        role: "staff"
+      })
+    });
+    assert.equal(response.status, 201);
+    assert.equal(addMembershipCalled, true);
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("tenant admin cannot change another staff member role", async () => {
+  const vendorRouter = requireWithMocks("../src/routes/vendorRoutes.js", {
+    "../middleware/auth": buildAuthMock(),
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../repositories/tenants": {
+      findTenantBySlug: async () => ({ _id: "tenant-1", slug: "demo", name: "Demo Tenant" })
+    },
+    "../repositories/storeLocations": {
+      findPrimaryLocationByTenantId: async () => ({
+        _id: "location-1",
+        tenantId: "tenant-1",
+        name: "Main Branch",
+        slug: "main"
+      }),
+      listHoursByLocationId: async () => []
+    },
+    "../repositories/tickets": {
+      listHistoryTickets: async () => [],
+      listClientTickets: async () => []
+    },
+    "../repositories/publicBoardThemes": {
+      getResolvedTheme: async () => ({ scope: "fallback", theme: {} })
+    },
+    "../repositories/serviceCounters": {
+      listCountersByLocationId: async () => [],
+      listAssignedCounterIdsByUserIds: async () => new Map()
+    },
+    "../repositories/users": {
+      findUserById: async () => ({
+        _id: "staff-2",
+        name: "Staff User",
+        email: "staff@getprio.local",
+        phone: null,
+        tenantMemberships: [{ tenantId: "tenant-1", role: "staff", isActive: true }]
+      }),
+      listUsersByTenantId: async () => [
+        {
+          _id: "owner-1",
+          name: "Owner User",
+          email: "owner@getprio.local",
+          phone: null,
+          tenantMemberships: [{ tenantId: "tenant-1", role: "owner", isActive: true }]
+        }
+      ],
+      updateTenantMembershipRole: async () => {
+        throw new Error("updateTenantMembershipRole should not be called");
+      }
+    },
+    "../services/billingService": {
+      getBillingOverview: async () => ({ subscription: { entitlements: { locations: 1 } }, plans: [] }),
+      getTenantEntitlements: async () => ({ staffSeats: 5, counters: 2, brandedQueuePages: true })
+    },
+    "../services/publicBoardThemeUploadService": {
+      createUpload: async () => ({})
+    },
+    "../services/storeHoursService": {
+      getOpenStatus: async () => ({ isOpen: true, timezone: "Asia/Manila", summary: "Open", today: null, nextOpenAt: null })
+    },
+    "../services/queueService": {
+      createTicket: async () => ({}),
+      getQueueSnapshot: async () => ({ tenant: { queuePrefix: "DMO", averageServiceMinutes: 5, notificationThreshold: 3 } }),
+      callNextTicket: async () => ({ ticket: null, snapshot: { queue: [] } }),
+      updateCurrentTicketStatus: async () => ({ ticket: null, snapshot: { queue: [] } })
+    },
+    pdfkit: function MockPdfDocument() {}
+  });
+
+  const { server, baseUrl } = await startServer(vendorRouter, "/api/vendor");
+
+  try {
+    const response = await fetch(`${baseUrl}/tenant/demo/staff/staff-2`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        "x-test-tenant-role": "admin"
+      },
+      body: JSON.stringify({ role: "admin" })
+    });
+    assert.equal(response.status, 403);
+    assert.match(await response.text(), /Only tenant owners can change staff roles/i);
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("tenant admin cannot remove another staff member", async () => {
+  const vendorRouter = requireWithMocks("../src/routes/vendorRoutes.js", {
+    "../middleware/auth": buildAuthMock(),
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../repositories/tenants": {
+      findTenantBySlug: async () => ({ _id: "tenant-1", slug: "demo", name: "Demo Tenant" })
+    },
+    "../repositories/storeLocations": {
+      findPrimaryLocationByTenantId: async () => ({
+        _id: "location-1",
+        tenantId: "tenant-1",
+        name: "Main Branch",
+        slug: "main"
+      }),
+      listHoursByLocationId: async () => []
+    },
+    "../repositories/tickets": {
+      listHistoryTickets: async () => [],
+      listClientTickets: async () => []
+    },
+    "../repositories/publicBoardThemes": {
+      getResolvedTheme: async () => ({ scope: "fallback", theme: {} })
+    },
+    "../repositories/serviceCounters": {
+      listCountersByLocationId: async () => [],
+      listAssignedCounterIdsByUserIds: async () => new Map()
+    },
+    "../repositories/users": {
+      findUserById: async () => ({
+        _id: "staff-2",
+        name: "Staff User",
+        email: "staff@getprio.local",
+        phone: null,
+        tenantMemberships: [{ tenantId: "tenant-1", role: "staff", isActive: true }]
+      }),
+      removeTenantMembership: async () => {
+        throw new Error("removeTenantMembership should not be called");
+      }
+    },
+    "../services/billingService": {
+      getBillingOverview: async () => ({ subscription: { entitlements: { locations: 1 } }, plans: [] }),
+      getTenantEntitlements: async () => ({ staffSeats: 5, counters: 2, brandedQueuePages: true })
+    },
+    "../services/publicBoardThemeUploadService": {
+      createUpload: async () => ({})
+    },
+    "../services/storeHoursService": {
+      getOpenStatus: async () => ({ isOpen: true, timezone: "Asia/Manila", summary: "Open", today: null, nextOpenAt: null })
+    },
+    "../services/queueService": {
+      createTicket: async () => ({}),
+      getQueueSnapshot: async () => ({ tenant: { queuePrefix: "DMO", averageServiceMinutes: 5, notificationThreshold: 3 } }),
+      callNextTicket: async () => ({ ticket: null, snapshot: { queue: [] } }),
+      updateCurrentTicketStatus: async () => ({ ticket: null, snapshot: { queue: [] } })
+    },
+    pdfkit: function MockPdfDocument() {}
+  });
+
+  const { server, baseUrl } = await startServer(vendorRouter, "/api/vendor");
+
+  try {
+    const response = await fetch(`${baseUrl}/tenant/demo/staff/staff-2`, {
+      method: "DELETE",
+      headers: {
+        "x-test-tenant-role": "admin"
+      }
+    });
+    assert.equal(response.status, 403);
+    assert.match(await response.text(), /Only tenant owners can remove staff members/i);
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("tenant owner cannot add a second owner through staff invite", async () => {
+  const vendorRouter = requireWithMocks("../src/routes/vendorRoutes.js", {
+    "../middleware/auth": buildAuthMock(),
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../repositories/tenants": {
+      findTenantBySlug: async () => ({ _id: "tenant-1", slug: "demo", name: "Demo Tenant" })
+    },
+    "../repositories/storeLocations": {
+      findPrimaryLocationByTenantId: async () => ({
+        _id: "location-1",
+        tenantId: "tenant-1",
+        name: "Main Branch",
+        slug: "main"
+      }),
+      listHoursByLocationId: async () => []
+    },
+    "../repositories/tickets": {
+      listHistoryTickets: async () => [],
+      listClientTickets: async () => []
+    },
+    "../repositories/publicBoardThemes": {
+      getResolvedTheme: async () => ({ scope: "fallback", theme: {} })
+    },
+    "../repositories/serviceCounters": {
+      listCountersByLocationId: async () => [],
+      listAssignedCounterIdsByUserIds: async () => new Map()
+    },
+    "../repositories/users": {
+      listUsersByTenantId: async () => [
+        {
+          _id: "owner-1",
+          name: "Owner User",
+          email: "owner@getprio.local",
+          phone: null,
+          tenantMemberships: [{ tenantId: "tenant-1", role: "owner" }]
+        }
+      ],
+      findUserByEmail: async () => ({
+        _id: "invitee-1",
+        name: "Invitee",
+        email: "invitee@getprio.local",
+        phone: null,
+        tenantMemberships: []
+      }),
+      addTenantMembership: async () => {
+        throw new Error("addTenantMembership should not be called");
+      }
+    },
+    "../services/billingService": {
+      getBillingOverview: async () => ({ subscription: { entitlements: { locations: 1 } }, plans: [] }),
+      getTenantEntitlements: async () => ({ staffSeats: 5, counters: 2, brandedQueuePages: true })
+    },
+    "../services/publicBoardThemeUploadService": {
+      createUpload: async () => ({})
+    },
+    "../services/storeHoursService": {
+      getOpenStatus: async () => ({ isOpen: true, timezone: "Asia/Manila", summary: "Open", today: null, nextOpenAt: null })
+    },
+    "../services/queueService": {
+      createTicket: async () => ({}),
+      getQueueSnapshot: async () => ({ tenant: { queuePrefix: "DMO", averageServiceMinutes: 5, notificationThreshold: 3 } }),
+      callNextTicket: async () => ({ ticket: null, snapshot: { queue: [] } }),
+      updateCurrentTicketStatus: async () => ({ ticket: null, snapshot: { queue: [] } })
+    },
+    pdfkit: function MockPdfDocument() {}
+  });
+
+  const { server, baseUrl } = await startServer(vendorRouter, "/api/vendor");
+
+  try {
+    const response = await fetch(`${baseUrl}/tenant/demo/staff`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-test-tenant-role": "owner"
+      },
+      body: JSON.stringify({
+        email: "invitee@getprio.local",
+        role: "owner"
+      })
+    });
+    assert.equal(response.status, 400);
+    assert.match(await response.text(), /Only one tenant owner is allowed per vendor/i);
   } finally {
     await stopServer(server);
   }

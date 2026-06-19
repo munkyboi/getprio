@@ -12,6 +12,7 @@ const queueFeeService = require("../services/queueFeeService");
 const storeHoursService = require("../services/storeHoursService");
 const notificationService = require("../services/notificationService");
 const platformRepository = require("../repositories/platform");
+const customerTicketAccess = require("../services/customerTicketAccess");
 const {
   getQueueSnapshot,
   cancelTicket
@@ -103,6 +104,50 @@ function normalizeEmail(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+function buildJoinPayload(req, tenant, location) {
+  const {
+    customerName,
+    customerEmail,
+    customerPhone,
+    notifyByEmail,
+    notifyBySms,
+    notes,
+    joinChannel
+  } = req.body;
+  const normalizedJoinChannel = joinChannel || (req.user ? "online" : "qr");
+  const payload = {
+    userId: req.user?._id,
+    customerName: customerName || req.user?.name,
+    customerEmail: customerEmail || req.user?.email,
+    customerPhone: customerPhone || req.user?.phone,
+    notifyByEmail: Boolean(notifyByEmail),
+    notifyBySms: Boolean(notifyBySms),
+    joinChannel: normalizedJoinChannel,
+    locationSlug: location.slug,
+    notes
+  };
+
+  if (!payload.customerName) {
+    const error = new Error("customerName is required.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (payload.notifyByEmail && !payload.customerEmail) {
+    const error = new Error("Enter an email address to receive email queue updates.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (payload.notifyBySms && !payload.customerPhone) {
+    const error = new Error("Enter a phone number to receive SMS queue updates.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return payload;
+}
+
 router.post(
   "/enterprise-inquiries",
   asyncHandler(async (req, res) => {
@@ -174,48 +219,41 @@ router.get(
 );
 
 router.post(
+  ["/tenant/:tenantSlug/join", "/tenant/:tenantSlug/location/:locationSlug/join"],
+  maybeAuthenticate,
+  asyncHandler(async (req, res) => {
+    const tenant = await getTenantOrThrow(req.params.tenantSlug);
+    const location = await getLocationOrPrimary(tenant, req.params.locationSlug);
+    const payload = buildJoinPayload(req, tenant, location);
+
+    await queueFeeService.assertTenantCanAcceptCustomerJoins(tenant._id);
+    await storeHoursService.assertLocationOpenForCustomerJoin(location);
+    await verifyQrTurnstileIfNeeded(req, payload.joinChannel);
+
+    const result = await queueJoinPaymentService.handleDirectJoin({
+      tenant,
+      payload
+    });
+
+    res.status(201).json(result);
+  })
+);
+
+router.post(
   ["/tenant/:tenantSlug/join-otp", "/tenant/:tenantSlug/location/:locationSlug/join-otp"],
   maybeAuthenticate,
   asyncHandler(async (req, res) => {
     const tenant = await getTenantOrThrow(req.params.tenantSlug);
     const location = await getLocationOrPrimary(tenant, req.params.locationSlug);
-    const {
-      customerName,
-      customerEmail,
-      customerPhone,
-      notifyByEmail,
-      notifyBySms,
-      notes,
-      joinChannel
-    } = req.body;
-    const normalizedJoinChannel = joinChannel || (req.user ? "online" : "qr");
-    const name = customerName || req.user?.name;
-    const email = customerEmail || req.user?.email;
-    const phone = customerPhone || req.user?.phone;
-
-    if (!name) {
-      const error = new Error("customerName is required.");
-      error.statusCode = 400;
-      throw error;
-    }
+    const payload = buildJoinPayload(req, tenant, location);
 
     await queueFeeService.assertTenantCanAcceptCustomerJoins(tenant._id);
     await storeHoursService.assertLocationOpenForCustomerJoin(location);
-    await verifyQrTurnstileIfNeeded(req, normalizedJoinChannel);
+    await verifyQrTurnstileIfNeeded(req, payload.joinChannel);
 
     const otp = await queueJoinOtpService.requestJoinOtp({
       tenant,
-      payload: {
-        userId: req.user?._id,
-        customerName: name,
-        customerEmail: email,
-        customerPhone: phone,
-        notifyByEmail,
-        notifyBySms,
-        joinChannel: normalizedJoinChannel,
-        locationSlug: location.slug,
-        notes
-      }
+      payload
     });
 
     res.status(201).json(otp);
@@ -293,10 +331,61 @@ router.post(
 );
 
 router.delete(
-  "/tenant/:tenantSlug/tickets/:lookupCode",
+  [
+    "/tenant/:tenantSlug/tickets/:lookupCode",
+    "/tenant/:tenantSlug/location/:locationSlug/tickets/:lookupCode"
+  ],
+  maybeAuthenticate,
   asyncHandler(async (req, res) => {
     const tenant = await getTenantOrThrow(req.params.tenantSlug);
-    const result = await cancelTicket(tenant, req.params.lookupCode);
+    const requestedLocation = req.params.locationSlug
+      ? await getLocationOrPrimary(tenant, req.params.locationSlug)
+      : null;
+    const existingTicket = await ticketRepository.findTicketByTenantAndLookupCode(
+      tenant._id,
+      String(req.params.lookupCode).toUpperCase()
+    );
+
+    if (!existingTicket) {
+      const error = new Error("Waiting ticket not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const authenticatedOwner = customerTicketAccess.userOwnsTicket(req.user, existingTicket);
+    const requestOwner = customerTicketAccess.requestMatchesTicket(req.body, existingTicket);
+
+    if (!authenticatedOwner && !requestOwner) {
+      const error = new Error("We could not verify that this ticket belongs to you.");
+      error.statusCode = 403;
+      throw error;
+    }
+
+    if (
+      requestedLocation &&
+      String(existingTicket.locationId || "") !== String(requestedLocation._id)
+    ) {
+      const error = new Error("Waiting ticket not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const ticketLocation = existingTicket.locationId
+      ? await storeLocationRepository.findLocationById(existingTicket.locationId)
+      : requestedLocation;
+
+    if (existingTicket.status !== "waiting") {
+      const error = new Error("Only waiting tickets can be cancelled.");
+      error.statusCode = 409;
+      throw error;
+    }
+
+    const result = await cancelTicket(tenant, req.params.lookupCode, {
+      actorUserId: req.user?._id,
+      actorRole: req.user ? "customer" : null,
+      source: "public",
+      location: ticketLocation || undefined
+    });
 
     if (!result) {
       const error = new Error("Waiting ticket not found.");

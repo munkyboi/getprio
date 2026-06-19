@@ -130,7 +130,8 @@ async function buildUserPayload(user) {
           id: String(tenant._id),
           name: tenant.name,
           slug: tenant.slug,
-          role: membership.role
+          role: membership.role,
+          isActive: membership.isActive !== false
         };
       })
       .filter(Boolean)

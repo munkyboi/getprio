@@ -8,10 +8,25 @@ const router = express.Router();
 
 router.use(authenticate);
 
+function formatCustomerTicket(ticket) {
+  return {
+    id: ticket._id,
+    lookupCode: ticket.lookupCode,
+    ticketNumber: ticket.ticketNumber,
+    tenantName: ticket.tenantName,
+    tenantSlug: ticket.tenantSlug,
+    locationName: ticket.locationName,
+    locationSlug: ticket.locationSlug,
+    status: ticket.status,
+    createdAt: ticket.createdAt,
+    updatedAt: ticket.updatedAt
+  };
+}
+
 router.get(
   "/overview",
   asyncHandler(async (req, res) => {
-    const tickets = await ticketRepository.listTicketsByUserId(req.user._id, { limit: 50 });
+    const tickets = await ticketRepository.listTicketsForCustomerAccount(req.user, { limit: 50 });
 
     res.json({
       user: {
@@ -21,18 +36,19 @@ router.get(
         phone: req.user.phone,
         emailVerified: Boolean(req.user.emailVerified)
       },
-      tickets: tickets.map((ticket) => ({
-        id: ticket._id,
-        lookupCode: ticket.lookupCode,
-        ticketNumber: ticket.ticketNumber,
-        tenantName: ticket.tenantName,
-        tenantSlug: ticket.tenantSlug,
-        locationName: ticket.locationName,
-        locationSlug: ticket.locationSlug,
-        status: ticket.status,
-        createdAt: ticket.createdAt,
-        updatedAt: ticket.updatedAt
-      }))
+      tickets: tickets.map(formatCustomerTicket)
+    });
+  })
+);
+
+router.get(
+  "/history",
+  asyncHandler(async (req, res) => {
+    const limit = Math.min(Math.max(Number(req.query.limit || 50) || 50, 1), 100);
+    const tickets = await ticketRepository.listTicketsForCustomerAccount(req.user, { limit });
+
+    res.json({
+      tickets: tickets.map(formatCustomerTicket)
     });
   })
 );

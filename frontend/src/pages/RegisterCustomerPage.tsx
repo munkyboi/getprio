@@ -1,18 +1,24 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Alert, Button, Paper, PasswordInput, SimpleGrid, Stack, Text, TextInput, Title } from "@mantine/core";
-import { Navigate, useNavigate } from "react-router-dom";
+import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import type { RegisterCustomerRequest } from "@shared";
 import SocialAuthButtons from "../components/SocialAuthButtons";
 import { useAuth } from "../context/AuthContext";
 import { getErrorMessage } from "../utils/errors";
 
 export default function RegisterCustomerPage() {
+  const location = useLocation();
   const navigate = useNavigate();
   const { loading, registerCustomer, user } = useAuth();
+  const registrationState = (location.state as {
+    prefill?: Partial<RegisterCustomerRequest>;
+    redirectTo?: string;
+  } | null) || null;
+  const redirectTo = registrationState?.redirectTo || "/";
   const [form, setForm] = useState<RegisterCustomerRequest>({
-    name: "",
-    email: "",
-    phone: "",
+    name: registrationState?.prefill?.name || "",
+    email: registrationState?.prefill?.email || "",
+    phone: registrationState?.prefill?.phone || "",
     password: ""
   });
   const [error, setError] = useState("");
@@ -20,16 +26,16 @@ export default function RegisterCustomerPage() {
 
   useEffect(() => {
     if (user && !user.tenants?.length) {
-      navigate("/", { replace: true });
+      navigate(redirectTo, { replace: true });
     }
-  }, [navigate, user]);
+  }, [navigate, redirectTo, user]);
 
   if (loading) {
     return <Paper className="finazze-auth-card" p="xl">Loading session...</Paper>;
   }
 
   if (user && !user.tenants?.length) {
-    return <Navigate to="/" replace />;
+    return <Navigate to={redirectTo} replace />;
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -39,7 +45,7 @@ export default function RegisterCustomerPage() {
 
     try {
       await registerCustomer(form);
-      navigate("/", { replace: true });
+      navigate(redirectTo, { replace: true });
     } catch (submitError) {
       setError(getErrorMessage(submitError));
     } finally {
@@ -60,10 +66,10 @@ export default function RegisterCustomerPage() {
         </div>
         <form onSubmit={handleSubmit}>
           <Stack gap="md">
-            <TextInput label="Name" required value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} />
-            <TextInput label="Email" required type="email" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} />
-            <TextInput label="Phone" value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} />
-            <PasswordInput label="Password" required value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} />
+            <TextInput name="name" label="Name" required value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} />
+            <TextInput name="email" label="Email" required type="email" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} />
+            <TextInput name="phone" label="Phone" value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} />
+            <PasswordInput name="password" label="Password" required value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} />
             {error ? <Alert color="red">{error}</Alert> : null}
             <Button color="dark" disabled={submitting} type="submit">
               {submitting ? "Creating account..." : "Register account"}

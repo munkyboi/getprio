@@ -1,9 +1,9 @@
 export type OAuthProviderId = "google" | "facebook";
 export type AuthIntent = "login" | "register_customer" | "register_vendor";
 export type UserRole = "customer" | "vendor" | "platform_admin";
-export type TenantRole = "owner" | "staff";
+export type TenantRole = "owner" | "admin" | "staff";
 export type JoinChannel = "online" | "qr" | "vendor";
-export type TicketStatus = "waiting" | "called" | "served" | "skipped" | "cancelled";
+export type TicketStatus = "waiting" | "called" | "served" | "skipped" | "cancelled" | "unserved";
 export type SubscriptionPlanSlug = "economical" | "pro" | "enterprise";
 export type SubscriptionStatus = "active" | "unpaid" | "past_due" | "canceled" | "expired";
 export type BillingInterval = "monthly" | "annual" | "custom";
@@ -125,6 +125,7 @@ export interface TenantMembershipSummary {
   name: string;
   slug: string;
   role: TenantRole;
+  isActive?: boolean;
 }
 
 export interface UserSummary {
@@ -171,6 +172,10 @@ export interface TenantSummary {
   queuePrefix: string;
   averageServiceMinutes: number;
   notificationThreshold: number;
+  autoPauseEnabled: boolean;
+  autoPauseThreshold: number | null;
+  autoResumeEnabled: boolean;
+  autoResumeVacancyPercent: number | null;
   contactEmail: string;
   contactPhone: string;
   joinUrl: string;
@@ -274,7 +279,7 @@ export interface PublicBoardThemeUploadResponse {
     contentType: string;
     sizeBytes: number;
   };
-  upload: {
+  upload?: {
     method: "PUT";
     url: string;
     headers: Record<string, string>;
@@ -332,15 +337,22 @@ export interface QueueListTicket {
   position: number;
   joinChannel: JoinChannel;
   createdAt: string | Date;
+  isCarriedOver?: boolean;
+  carryOverCount?: number;
+  carriedOverAt?: string | Date | null;
 }
 
 export interface QueueHistoryTicket {
   id: string;
+  lookupCode?: string;
   ticketNumber: string;
   customerName: string;
   status: TicketStatus;
+  createdAt: string | Date;
   updatedAt: string | Date;
   serviceCounterId?: string | null;
+  rejoinDeadlineAt?: string | Date | null;
+  servicePriorityBand?: "carry_over" | "recovery" | "normal";
 }
 
 export interface QueueFocusTicket {
@@ -354,13 +366,43 @@ export interface QueueFocusTicket {
   joinedAt: string | Date;
 }
 
+export interface QueueDayStatus {
+  isClosed: boolean;
+  isPaused: boolean;
+  queueDateKey: string;
+  closedAt: string | Date | null;
+  reopenedAt: string | Date | null;
+  closureReason: string | null;
+  pausedAt: string | Date | null;
+  resumedAt: string | Date | null;
+  pauseReason: string | null;
+  pauseMode: "manual" | "auto_threshold" | null;
+}
+
+export interface QueueIntakeStatus {
+  autoPauseEnabled: boolean;
+  autoPauseThreshold: number | null;
+  autoResumeEnabled: boolean;
+  autoResumeVacancyPercent: number | null;
+  currentWaitingCount: number;
+  fillRatio: number | null;
+  thresholdRemaining: number | null;
+  resumeWaitingCount: number | null;
+  state: "disabled" | "open" | "near_limit" | "paused";
+  stateLabel: string;
+}
+
 export interface QueueSnapshot {
   tenant: TenantSummary;
   location: StoreLocationSummary | null;
   publicBoardTheme: PublicBoardThemeResponse;
+  queueDay: QueueDayStatus;
+  queueIntake: QueueIntakeStatus;
   stats: QueueStats;
   current: QueueCurrentTicket | null;
   nextUp: QueueListTicket[];
+  overflow: QueueListTicket[];
+  recovery: QueueHistoryTicket[];
   history: QueueHistoryTicket[];
   usage: QueueUsage;
   focusTicket: QueueFocusTicket | null;
@@ -427,6 +469,11 @@ export interface VerifyJoinOtpRequest {
   code: string;
 }
 
+export interface CancelQueueTicketRequest {
+  customerEmail?: string;
+  customerPhone?: string;
+}
+
 export interface QueueJoinPaymentSummary {
   id: string;
   tenantId: string;
@@ -484,6 +531,10 @@ export interface UpdateTenantSettingsRequest {
   queuePrefix: string;
   averageServiceMinutes: number | string;
   notificationThreshold: number | string;
+  autoPauseEnabled: boolean;
+  autoPauseThreshold: number | string;
+  autoResumeEnabled: boolean;
+  autoResumeVacancyPercent: number | string;
   contactEmail: string;
   contactPhone: string;
 }
@@ -555,6 +606,7 @@ export interface VendorStaffSummary {
   email: string | null;
   phone: string | null;
   role: TenantRole;
+  isActive?: boolean;
   assignedCounterIds: string[];
 }
 
@@ -569,7 +621,8 @@ export interface AddVendorStaffRequest {
 }
 
 export interface UpdateVendorStaffRequest {
-  role: TenantRole;
+  role?: TenantRole;
+  isActive?: boolean;
 }
 
 export interface SaveServiceCounterRequest {
@@ -643,6 +696,10 @@ export interface CustomerAccountOverviewResponse {
     phone: string | null;
     emailVerified: boolean;
   };
+  tickets: CustomerAccountTicketSummary[];
+}
+
+export interface CustomerAccountHistoryResponse {
   tickets: CustomerAccountTicketSummary[];
 }
 

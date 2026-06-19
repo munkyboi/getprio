@@ -415,6 +415,7 @@ export default function LandingPage() {
                 </div>
                 <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="lg" verticalSpacing="lg">
                   <TextInput
+                    name="businessName"
                     label="Business name"
                     required
                     size="lg"
@@ -424,6 +425,7 @@ export default function LandingPage() {
                     }
                   />
                   <TextInput
+                    name="contactName"
                     label="Contact name"
                     required
                     size="lg"
@@ -433,6 +435,7 @@ export default function LandingPage() {
                     }
                   />
                   <TextInput
+                    name="email"
                     label="Email"
                     required
                     size="lg"
@@ -443,6 +446,7 @@ export default function LandingPage() {
                     }
                   />
                   <TextInput
+                    name="phone"
                     label="Phone"
                     size="lg"
                     value={enterpriseForm.phone}
@@ -452,6 +456,7 @@ export default function LandingPage() {
                   />
                 </SimpleGrid>
                 <Textarea
+                  name="message"
                   label="Message"
                   minRows={6}
                   placeholder="Tell us about branches, expected queue volume, or support needs."

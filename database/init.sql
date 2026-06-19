@@ -7,6 +7,7 @@ BEGIN;
 DROP TABLE IF EXISTS billing_events CASCADE;
 DROP TABLE IF EXISTS billing_checkout_sessions CASCADE;
 DROP TABLE IF EXISTS tenant_subscriptions CASCADE;
+DROP TABLE IF EXISTS queue_events CASCADE;
 DROP TABLE IF EXISTS auth_security_events CASCADE;
 DROP TABLE IF EXISTS auth_login_attempts CASCADE;
 DROP TABLE IF EXISTS password_reset_tokens CASCADE;
@@ -39,6 +40,10 @@ CREATE TABLE tenants (
   queue_prefix VARCHAR(4) NOT NULL DEFAULT 'P',
   average_service_minutes INTEGER NOT NULL DEFAULT 5 CHECK (average_service_minutes BETWEEN 1 AND 120),
   notification_threshold INTEGER NOT NULL DEFAULT 2 CHECK (notification_threshold BETWEEN 1 AND 10),
+  auto_pause_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+  auto_pause_threshold INTEGER CHECK (auto_pause_threshold IS NULL OR auto_pause_threshold BETWEEN 1 AND 500),
+  auto_resume_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+  auto_resume_vacancy_percent INTEGER CHECK (auto_resume_vacancy_percent IS NULL OR auto_resume_vacancy_percent BETWEEN 5 AND 50),
   contact_email TEXT,
   contact_phone TEXT,
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -148,7 +153,8 @@ CREATE TABLE tenant_memberships (
   id BIGSERIAL PRIMARY KEY,
   user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  role TEXT NOT NULL DEFAULT 'staff' CHECK (role IN ('owner', 'staff')),
+  role TEXT NOT NULL DEFAULT 'staff' CHECK (role IN ('owner', 'admin', 'staff')),
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
   UNIQUE (user_id, tenant_id)
 );
 
@@ -242,10 +248,80 @@ CREATE TABLE tickets (
   served_at TIMESTAMPTZ,
   skipped_at TIMESTAMPTZ,
   cancelled_at TIMESTAMPTZ,
+  unserved_at TIMESTAMPTZ,
+  carried_over_at TIMESTAMPTZ,
+  carry_over_count INTEGER NOT NULL DEFAULT 0,
+  service_priority_band TEXT NOT NULL DEFAULT 'normal',
+  rejoin_deadline_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CHECK (
+    status IN ('waiting', 'called', 'served', 'skipped', 'cancelled', 'unserved')
+  ),
   UNIQUE (tenant_id, location_id, date_key, sequence)
 );
+
+CREATE TABLE queue_events (
+  id BIGSERIAL PRIMARY KEY,
+  ticket_id BIGINT REFERENCES tickets(id) ON DELETE CASCADE,
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  location_id BIGINT REFERENCES store_locations(id) ON DELETE SET NULL,
+  queue_date_key TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  from_status TEXT,
+  to_status TEXT,
+  actor_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  actor_role TEXT,
+  source TEXT NOT NULL,
+  metadata JSONB NOT NULL DEFAULT '{}'::JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE queue_day_closures (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  location_id BIGINT NOT NULL REFERENCES store_locations(id) ON DELETE CASCADE,
+  queue_date_key TEXT NOT NULL,
+  next_queue_date_key TEXT NOT NULL DEFAULT '00000000',
+  closure_reason TEXT,
+  affected_ticket_ids BIGINT[] NOT NULL DEFAULT ARRAY[]::BIGINT[],
+  waiting_carried_count INTEGER NOT NULL DEFAULT 0,
+  called_unserved_count INTEGER NOT NULL DEFAULT 0,
+  closed_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  reopened_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  reopened_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX queue_day_closures_active_scope_idx
+  ON queue_day_closures (tenant_id, location_id, queue_date_key)
+  WHERE reopened_at IS NULL;
+
+CREATE INDEX queue_day_closures_scope_created_idx
+  ON queue_day_closures (tenant_id, location_id, queue_date_key, created_at DESC);
+
+CREATE TABLE queue_day_pauses (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  location_id BIGINT NOT NULL REFERENCES store_locations(id) ON DELETE CASCADE,
+  queue_date_key TEXT NOT NULL,
+  pause_reason TEXT,
+  pause_mode TEXT NOT NULL DEFAULT 'manual' CHECK (pause_mode IN ('manual', 'auto_threshold')),
+  paused_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  resumed_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  paused_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  resumed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX queue_day_pauses_active_scope_idx
+  ON queue_day_pauses (tenant_id, location_id, queue_date_key)
+  WHERE resumed_at IS NULL;
+
+CREATE INDEX queue_day_pauses_scope_created_idx
+  ON queue_day_pauses (tenant_id, location_id, queue_date_key, created_at DESC);
 
 CREATE TABLE queue_join_otps (
   id BIGSERIAL PRIMARY KEY,

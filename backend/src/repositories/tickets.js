@@ -1,4 +1,5 @@
 const db = require("../config/db");
+const queueLifecycle = require("../services/queueLifecycle");
 
 const TICKET_COLUMNS = `
   id,
@@ -9,6 +10,7 @@ const TICKET_COLUMNS = `
   ticket_number,
   sequence,
   date_key,
+  queue_date_key,
   lookup_code,
   customer_name,
   customer_email,
@@ -24,6 +26,11 @@ const TICKET_COLUMNS = `
   served_at,
   skipped_at,
   cancelled_at,
+  unserved_at,
+  carried_over_at,
+  carry_over_count,
+  service_priority_band,
+  rejoin_deadline_at,
   created_at,
   updated_at
 `;
@@ -42,6 +49,7 @@ function mapTicket(row) {
     ticketNumber: row.ticket_number,
     sequence: row.sequence,
     dateKey: row.date_key,
+    queueDateKey: row.queue_date_key,
     lookupCode: row.lookup_code,
     customerName: row.customer_name,
     customerEmail: row.customer_email,
@@ -57,6 +65,11 @@ function mapTicket(row) {
     servedAt: row.served_at,
     skippedAt: row.skipped_at,
     cancelledAt: row.cancelled_at,
+    unservedAt: row.unserved_at,
+    carriedOverAt: row.carried_over_at,
+    carryOverCount: row.carry_over_count || 0,
+    servicePriorityBand: row.service_priority_band || "normal",
+    rejoinDeadlineAt: row.rejoin_deadline_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -77,6 +90,7 @@ async function createTicket(data, options = {}) {
         ticket_number,
         sequence,
         date_key,
+        queue_date_key,
         lookup_code,
         customer_name,
         customer_email,
@@ -85,9 +99,13 @@ async function createTicket(data, options = {}) {
         notify_by_sms,
         join_channel,
         status,
-        notes
+        notes,
+        carried_over_at,
+        carry_over_count,
+        service_priority_band,
+        rejoin_deadline_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
       RETURNING ${TICKET_COLUMNS}
     `,
     [
@@ -97,6 +115,7 @@ async function createTicket(data, options = {}) {
       data.ticketNumber,
       data.sequence,
       data.dateKey,
+      data.dateKey,
       data.lookupCode,
       data.customerName,
       data.customerEmail || null,
@@ -105,7 +124,11 @@ async function createTicket(data, options = {}) {
       Boolean(data.notifyBySms),
       data.joinChannel || "online",
       data.status || "waiting",
-      data.notes || null
+      data.notes || null,
+      data.carriedOverAt || null,
+      Number(data.carryOverCount || 0),
+      data.servicePriorityBand || "normal",
+      data.rejoinDeadlineAt || null
     ]
   );
 
@@ -117,6 +140,16 @@ async function findTicketByLookupCode(lookupCode, options = {}) {
   const result = await queryClient.query(
     `SELECT ${TICKET_COLUMNS} FROM tickets WHERE lookup_code = $1 LIMIT 1`,
     [lookupCode]
+  );
+
+  return mapTicket(result.rows[0]);
+}
+
+async function findTicketById(ticketId, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const result = await queryClient.query(
+    `SELECT ${TICKET_COLUMNS} FROM tickets WHERE id = $1 LIMIT 1`,
+    [Number(ticketId)]
   );
 
   return mapTicket(result.rows[0]);
@@ -136,13 +169,26 @@ async function listWaitingTickets(tenantId, options = {}) {
   const queryClient = buildQueryClient(options.client);
   const values = [Number(tenantId)];
   let locationFilter = "";
+  let dateFilter = "";
+  let carryOverFilter = "";
 
   if (options.locationId) {
     values.push(Number(options.locationId));
     locationFilter = `AND location_id = $${values.length}`;
   }
 
-  let query = `SELECT ${TICKET_COLUMNS} FROM tickets WHERE tenant_id = $1 ${locationFilter} AND status = 'waiting' ORDER BY created_at ASC`;
+  if (options.dateKey) {
+    values.push(String(options.dateKey));
+    dateFilter = `AND date_key = $${values.length}`;
+  }
+
+  if (options.onlyCarriedOver) {
+    carryOverFilter = "AND (carried_over_at IS NOT NULL OR COALESCE(carry_over_count, 0) > 0)";
+  } else if (options.excludeCarriedOver) {
+    carryOverFilter = "AND carried_over_at IS NULL AND COALESCE(carry_over_count, 0) = 0";
+  }
+
+  let query = `SELECT ${TICKET_COLUMNS} FROM tickets WHERE tenant_id = $1 ${locationFilter} ${dateFilter} ${carryOverFilter} AND status = 'waiting' ORDER BY CASE service_priority_band WHEN 'carry_over' THEN 0 WHEN 'recovery' THEN 1 ELSE 2 END ASC, carry_over_count DESC, created_at ASC`;
 
   if (options.limit) {
     values.push(Number(options.limit));
@@ -184,6 +230,40 @@ async function listHistoryTickets(tenantId, options = {}) {
       ${dateFilter}
       ORDER BY updated_at DESC, created_at DESC
       LIMIT $3
+    `,
+    values
+  );
+
+  return result.rows.map(mapTicket);
+}
+
+async function listSkippedTickets(tenantId, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const limit = Number(options.limit || 20);
+  const values = [Number(tenantId), limit];
+  let locationFilter = "";
+  let dateFilter = "";
+
+  if (options.locationId) {
+    values.push(Number(options.locationId));
+    locationFilter = `AND location_id = $${values.length}`;
+  }
+
+  if (options.dateKey) {
+    values.push(String(options.dateKey));
+    dateFilter = `AND date_key = $${values.length}`;
+  }
+
+  const result = await queryClient.query(
+    `
+      SELECT ${TICKET_COLUMNS}
+      FROM tickets
+      WHERE tenant_id = $1
+        AND status = 'skipped'
+        ${locationFilter}
+        ${dateFilter}
+      ORDER BY COALESCE(rejoin_deadline_at, updated_at) DESC, updated_at DESC
+      LIMIT $2
     `,
     values
   );
@@ -254,6 +334,51 @@ async function listTicketsByUserId(userId, options = {}) {
   }));
 }
 
+async function listTicketsForCustomerAccount(user, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const limit = Number(options.limit || 50);
+  const values = [Number(user._id)];
+  const identityFilters = [`tickets.user_id = $1`];
+
+  if (user.email) {
+    values.push(String(user.email).trim().toLowerCase());
+    identityFilters.push(`LOWER(COALESCE(tickets.customer_email, '')) = $${values.length}`);
+  }
+
+  if (user.phone) {
+    values.push(String(user.phone).trim());
+    identityFilters.push(`tickets.customer_phone = $${values.length}`);
+  }
+
+  values.push(limit);
+
+  const result = await queryClient.query(
+    `
+      SELECT
+        tickets.*,
+        tenants.name AS tenant_name,
+        tenants.slug AS tenant_slug,
+        store_locations.name AS location_name,
+        store_locations.slug AS location_slug
+      FROM tickets
+      INNER JOIN tenants ON tenants.id = tickets.tenant_id
+      INNER JOIN store_locations ON store_locations.id = tickets.location_id
+      WHERE ${identityFilters.map((filter) => `(${filter})`).join(" OR ")}
+      ORDER BY tickets.created_at DESC
+      LIMIT $${values.length}
+    `,
+    values
+  );
+
+  return result.rows.map((row) => ({
+    ...mapTicket(row),
+    tenantName: row.tenant_name,
+    tenantSlug: row.tenant_slug,
+    locationName: row.location_name,
+    locationSlug: row.location_slug
+  }));
+}
+
 async function countServedToday(tenantId, dateKey, options = {}) {
   const queryClient = buildQueryClient(options.client);
   const values = [Number(tenantId), dateKey];
@@ -280,17 +405,23 @@ async function findCurrentCalledTicket(tenantId, options = {}) {
   const queryClient = buildQueryClient(options.client);
   const values = [Number(tenantId)];
   let locationFilter = "";
+  let dateFilter = "";
 
   if (options.locationId) {
     values.push(Number(options.locationId));
     locationFilter = `AND location_id = $${values.length}`;
   }
 
+  if (options.dateKey) {
+    values.push(String(options.dateKey));
+    dateFilter = `AND date_key = $${values.length}`;
+  }
+
   const result = await queryClient.query(
     `
       SELECT ${TICKET_COLUMNS}
       FROM tickets
-      WHERE tenant_id = $1 ${locationFilter} AND status = 'called'
+      WHERE tenant_id = $1 ${locationFilter} ${dateFilter} AND status = 'called'
       ORDER BY called_at ASC NULLS LAST, created_at ASC
       LIMIT 1
     `,
@@ -307,8 +438,8 @@ async function callNextWaitingTicket(tenantId, options = {}) {
       WITH next_ticket AS (
         SELECT id
         FROM tickets
-        WHERE tenant_id = $1 AND location_id = $2 AND status = 'waiting'
-        ORDER BY created_at ASC
+        WHERE tenant_id = $1 AND location_id = $2 AND date_key = $4 AND status = 'waiting'
+        ORDER BY CASE service_priority_band WHEN 'carry_over' THEN 0 WHEN 'recovery' THEN 1 ELSE 2 END ASC, carry_over_count DESC, created_at ASC
         LIMIT 1
         FOR UPDATE SKIP LOCKED
       )
@@ -317,7 +448,12 @@ async function callNextWaitingTicket(tenantId, options = {}) {
       WHERE id IN (SELECT id FROM next_ticket)
       RETURNING ${TICKET_COLUMNS}
     `,
-    [Number(tenantId), Number(options.locationId), options.serviceCounterId ? Number(options.serviceCounterId) : null]
+    [
+      Number(tenantId),
+      Number(options.locationId),
+      options.serviceCounterId ? Number(options.serviceCounterId) : null,
+      String(options.dateKey)
+    ]
   );
 
   return mapTicket(result.rows[0]);
@@ -325,33 +461,48 @@ async function callNextWaitingTicket(tenantId, options = {}) {
 
 async function updateCurrentCalledTicketStatus(tenantId, status, options = {}) {
   const queryClient = buildQueryClient(options.client);
+  queueLifecycle.assertSupportedCurrentTicketResolution(status);
   const timestampColumnByStatus = {
     served: "served_at",
     skipped: "skipped_at",
-    cancelled: "cancelled_at"
+    cancelled: "cancelled_at",
+    unserved: "unserved_at"
   };
   const timestampColumn = timestampColumnByStatus[status];
-
-  if (!timestampColumn) {
-    throw new Error("Unsupported ticket status update.");
-  }
 
   const result = await queryClient.query(
     `
       WITH current_ticket AS (
         SELECT id
         FROM tickets
-        WHERE tenant_id = $1 AND location_id = $3 AND status = 'called'
+        WHERE tenant_id = $1 AND location_id = $3 AND date_key = $4 AND status = 'called'
         ORDER BY called_at ASC NULLS LAST, created_at ASC
         LIMIT 1
         FOR UPDATE SKIP LOCKED
       )
       UPDATE tickets
-      SET status = $2, ${timestampColumn} = NOW()
+      SET status = $2,
+          ${timestampColumn} = NOW(),
+          service_priority_band = CASE
+            WHEN $2 = 'skipped' THEN 'normal'
+            WHEN $2 IN ('served', 'cancelled', 'unserved') THEN 'normal'
+            ELSE service_priority_band
+          END,
+          rejoin_deadline_at = CASE
+            WHEN $2 = 'skipped' THEN $5::timestamptz
+            WHEN $2 IN ('served', 'cancelled', 'unserved') THEN NULL
+            ELSE rejoin_deadline_at
+          END
       WHERE id IN (SELECT id FROM current_ticket)
       RETURNING ${TICKET_COLUMNS}
     `,
-    [Number(tenantId), status, Number(options.locationId)]
+    [
+      Number(tenantId),
+      status,
+      Number(options.locationId),
+      String(options.dateKey),
+      options.rejoinDeadlineAt || null
+    ]
   );
 
   return mapTicket(result.rows[0]);
@@ -394,19 +545,217 @@ async function markTicketNotifiedAlmostThere(ticketId, options = {}) {
   return mapTicket(result.rows[0]);
 }
 
+async function listTicketsForQueueClosure(tenantId, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const result = await queryClient.query(
+    `
+      SELECT ${TICKET_COLUMNS}
+      FROM tickets
+      WHERE tenant_id = $1
+        AND location_id = $2
+        AND date_key = $3
+        AND status = ANY($4::text[])
+      ORDER BY
+        CASE status WHEN 'called' THEN 0 ELSE 1 END,
+        called_at ASC NULLS LAST,
+        created_at ASC
+    `,
+    [Number(tenantId), Number(options.locationId), String(options.dateKey), ["called", "waiting"]]
+  );
+
+  return result.rows.map(mapTicket);
+}
+
+async function markTicketsUnservedForClosure(tenantId, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const ticketIds = (options.ticketIds || []).map((value) => Number(value)).filter(Boolean);
+  if (ticketIds.length === 0) {
+    return [];
+  }
+
+  const result = await queryClient.query(
+    `
+      UPDATE tickets
+      SET status = 'unserved',
+          unserved_at = NOW(),
+          service_counter_id = NULL
+      WHERE tenant_id = $1
+        AND location_id = $2
+        AND date_key = $3
+        AND id = ANY($4::BIGINT[])
+        AND status = ANY($5::text[])
+      RETURNING ${TICKET_COLUMNS}
+    `,
+    [
+      Number(tenantId),
+      Number(options.locationId),
+      String(options.dateKey),
+      ticketIds,
+      ["called", "waiting"]
+    ]
+  );
+
+  return result.rows.map(mapTicket);
+}
+
+async function reopenTicketsFromClosure(tenantId, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const ticketIds = (options.ticketIds || []).map((value) => Number(value)).filter(Boolean);
+  if (ticketIds.length === 0) {
+    return [];
+  }
+
+  const result = await queryClient.query(
+    `
+      UPDATE tickets
+      SET status = 'waiting',
+          service_counter_id = NULL,
+          called_at = NULL,
+          notified_called_at = NULL,
+          unserved_at = NULL,
+          service_priority_band = 'normal',
+          rejoin_deadline_at = NULL
+      WHERE tenant_id = $1
+        AND location_id = $2
+        AND date_key = $3
+        AND id = ANY($4::BIGINT[])
+        AND status = 'unserved'
+      RETURNING ${TICKET_COLUMNS}
+    `,
+    [Number(tenantId), Number(options.locationId), String(options.dateKey), ticketIds]
+  );
+
+  return result.rows.map(mapTicket);
+}
+
+async function restoreCarriedOverTicketsFromClosure(tenantId, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const ticketIds = (options.ticketIds || []).map((value) => Number(value)).filter(Boolean);
+  const shouldFilterByIds = ticketIds.length > 0;
+
+  const result = await queryClient.query(
+    `
+      UPDATE tickets
+      SET date_key = $4,
+          queue_date_key = $4,
+          carried_over_at = NULL,
+          carry_over_count = GREATEST(COALESCE(carry_over_count, 0) - 1, 0),
+          service_priority_band = 'normal',
+          updated_at = NOW()
+      WHERE tenant_id = $1
+        AND location_id = $2
+        AND date_key = $3
+        AND status = 'waiting'
+        AND (carried_over_at IS NOT NULL OR COALESCE(carry_over_count, 0) > 0)
+        ${shouldFilterByIds ? "AND id = ANY($5::BIGINT[])" : ""}
+      RETURNING ${TICKET_COLUMNS}
+    `,
+    shouldFilterByIds
+      ? [
+          Number(tenantId),
+          Number(options.locationId),
+          String(options.fromDateKey),
+          String(options.toDateKey),
+          ticketIds
+        ]
+      : [
+          Number(tenantId),
+          Number(options.locationId),
+          String(options.fromDateKey),
+          String(options.toDateKey)
+        ]
+  );
+
+  return result.rows.map(mapTicket);
+}
+
+async function carryOverWaitingTickets(tenantId, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const ticketIds = (options.ticketIds || []).map((value) => Number(value)).filter(Boolean);
+  if (ticketIds.length === 0) {
+    return [];
+  }
+
+  const result = await queryClient.query(
+    `
+      UPDATE tickets
+      SET date_key = $4,
+          queue_date_key = $4,
+          carried_over_at = NOW(),
+          carry_over_count = COALESCE(carry_over_count, 0) + 1,
+          service_priority_band = 'carry_over',
+          rejoin_deadline_at = NULL,
+          updated_at = NOW()
+      WHERE tenant_id = $1
+        AND location_id = $2
+        AND date_key = $3
+        AND id = ANY($5::BIGINT[])
+        AND status = 'waiting'
+      RETURNING ${TICKET_COLUMNS}
+    `,
+    [
+      Number(tenantId),
+      Number(options.locationId),
+      String(options.fromDateKey),
+      String(options.toDateKey),
+      ticketIds
+    ]
+  );
+
+  return result.rows.map(mapTicket);
+}
+
+async function restoreSkippedTicket(tenantId, ticketId, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const result = await queryClient.query(
+    `
+      UPDATE tickets
+      SET status = 'waiting',
+          service_counter_id = NULL,
+          called_at = NULL,
+          notified_called_at = NULL,
+          service_priority_band = $4,
+          rejoin_deadline_at = NULL,
+          updated_at = NOW()
+      WHERE tenant_id = $1
+        AND location_id = $2
+        AND id = $3
+        AND status = 'skipped'
+      RETURNING ${TICKET_COLUMNS}
+    `,
+    [
+      Number(tenantId),
+      Number(options.locationId),
+      Number(ticketId),
+      options.servicePriorityBand || "recovery"
+    ]
+  );
+
+  return mapTicket(result.rows[0]);
+}
+
 module.exports = {
   mapTicket,
   createTicket,
+  findTicketById,
   findTicketByLookupCode,
   findTicketByTenantAndLookupCode,
   listWaitingTickets,
   listHistoryTickets,
+  listSkippedTickets,
   listClientTickets,
   listTicketsByUserId,
+  listTicketsForCustomerAccount,
   countServedToday,
   findCurrentCalledTicket,
   callNextWaitingTicket,
   updateCurrentCalledTicketStatus,
   cancelWaitingTicket,
-  markTicketNotifiedAlmostThere
+  markTicketNotifiedAlmostThere,
+  listTicketsForQueueClosure,
+  markTicketsUnservedForClosure,
+  reopenTicketsFromClosure,
+  restoreCarriedOverTicketsFromClosure,
+  carryOverWaitingTickets,
+  restoreSkippedTicket
 };

@@ -19,7 +19,12 @@ const {
   createTicket,
   getQueueSnapshot,
   callNextTicket,
-  updateCurrentTicketStatus
+  updateCurrentTicketStatus,
+  closeQueueDay,
+  reopenQueueDay,
+  pauseQueueDay,
+  resumeQueueDay,
+  restoreSkippedTicket
 } = require("../services/queueService");
 
 const router = express.Router();
@@ -78,8 +83,8 @@ async function formatLocation(location, tenant) {
     timezone: location.timezone,
     isPrimary: location.isPrimary,
     isActive: location.isActive,
-    joinUrl: `${process.env.APP_BASE_URL || "http://localhost:7000"}/join/${tenant.slug}/${location.slug}`,
-    monitorUrl: `${process.env.APP_BASE_URL || "http://localhost:7000"}/monitor/${tenant.slug}/${location.slug}`,
+    joinUrl: `${process.env.APP_BASE_URL || "http://localhost:5173"}/join/${tenant.slug}/${location.slug}`,
+    monitorUrl: `${process.env.APP_BASE_URL || "http://localhost:5173"}/monitor/${tenant.slug}/${location.slug}`,
     openStatus,
     hours: hours.map((hour) => ({
       weekday: hour.weekday,
@@ -212,6 +217,39 @@ router.post(
 );
 
 router.post(
+  "/tenant/:tenantSlug/public-board-theme/uploads/direct",
+  express.raw({ type: ["image/jpeg", "image/png", "image/webp"], limit: "8mb" }),
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.theme.manage");
+    if (!req.body || !Buffer.isBuffer(req.body) || !req.body.length) {
+      const error = new Error("Image upload payload is required.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const requestedLocationSlug = req.query.location;
+    const location = requestedLocationSlug
+      ? await getLocationForTenant(tenant, requestedLocationSlug)
+      : null;
+    const upload = await publicBoardThemeUploadService.uploadBinary({
+      tenant,
+      location,
+      user: req.user,
+      body: {
+        assetType: req.query.assetType,
+        fileName: req.query.fileName,
+        contentType: req.headers["content-type"],
+        sizeBytes: req.body.length
+      },
+      fileBuffer: req.body
+    });
+
+    res.status(201).json(upload);
+  })
+);
+
+router.post(
   "/tenant/:tenantSlug/locations",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
@@ -300,7 +338,9 @@ router.post(
       notifyByEmail,
       notifyBySms,
       joinChannel: "vendor",
-      notes
+      notes,
+      actorUserId: req.user?._id,
+      actorRole: "vendor"
     });
 
     res.status(201).json({
@@ -316,20 +356,142 @@ router.post(
 );
 
 router.post(
+  "/tenant/:tenantSlug/queue/pause",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.queue.operate");
+    const location = await getLocationForTenant(tenant, req.query.location);
+    const snapshot = await pauseQueueDay(tenant, {
+      location,
+      actorUserId: req.user?._id,
+      actorRole: "vendor",
+      source: "vendor",
+      reason: typeof req.body?.reason === "string" ? req.body.reason : "Paused from vendor dashboard",
+      pauseMode: "manual"
+    });
+
+    res.json({ snapshot });
+  })
+);
+
+router.post(
+  "/tenant/:tenantSlug/queue/resume",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.queue.operate");
+    const location = await getLocationForTenant(tenant, req.query.location);
+    const snapshot = await resumeQueueDay(tenant, {
+      location,
+      actorUserId: req.user?._id,
+      actorRole: "vendor",
+      source: "vendor"
+    });
+
+    res.json({ snapshot });
+  })
+);
+
+router.post(
+  "/tenant/:tenantSlug/queue/close",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.queue.operate");
+    const location = await getLocationForTenant(tenant, req.query.location);
+    const snapshot = await closeQueueDay(tenant, {
+      location,
+      reason: typeof req.body.reason === "string" ? req.body.reason.trim() : "",
+      actorUserId: req.user?._id,
+      actorRole: "vendor",
+      source: "vendor"
+    });
+
+    res.json({
+      message: "Queue day closed.",
+      snapshot
+    });
+  })
+);
+
+router.post(
+  "/tenant/:tenantSlug/queue/reopen",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.queue.operate");
+    const location = await getLocationForTenant(tenant, req.query.location);
+    const snapshot = await reopenQueueDay(tenant, {
+      location,
+      actorUserId: req.user?._id,
+      actorRole: "vendor",
+      source: "vendor"
+    });
+
+    res.json({
+      message: "Queue day reopened.",
+      snapshot
+    });
+  })
+);
+
+router.post(
   "/tenant/:tenantSlug/queue/call-next",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.queue.operate");
     const location = await getLocationForTenant(tenant, req.query.location);
     const serviceCounter = await getCounterForLocation(location, req.body.counterSlug);
-    const result = await callNextTicket(tenant, { location, serviceCounter });
+    const result = await callNextTicket(tenant, {
+      location,
+      serviceCounter,
+      actorUserId: req.user?._id,
+      actorRole: "vendor",
+      source: "vendor"
+    });
 
     if (!result) {
       res.json({
         message: "No waiting tickets in the queue.",
-        snapshot: await getQueueSnapshot(tenant)
+        snapshot: await getQueueSnapshot(tenant, { location })
       });
       return;
+    }
+
+    res.json({
+      ticket: {
+        id: String(result.ticket._id),
+        ticketNumber: result.ticket.ticketNumber,
+        status: result.ticket.status
+      },
+      snapshot: result.snapshot
+    });
+  })
+);
+
+router.post(
+  "/tenant/:tenantSlug/queue/tickets/:ticketId/restore",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.ticket.update_state");
+    const location = await getLocationForTenant(tenant, req.query.location);
+    const lookupCode = String(req.body.lookupCode || "").trim().toUpperCase();
+
+    if (!lookupCode) {
+      const error = new Error("lookupCode is required.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const result = await restoreSkippedTicket(tenant, req.params.ticketId, {
+      location,
+      lookupCode,
+      actorUserId: req.user?._id,
+      actorRole: "vendor",
+      source: "vendor"
+    });
+
+    if (!result) {
+      const error = new Error("Skipped ticket not found.");
+      error.statusCode = 404;
+      throw error;
     }
 
     res.json({
@@ -349,7 +511,12 @@ router.post(
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.ticket.update_state");
     const location = await getLocationForTenant(tenant, req.query.location);
-    const result = await updateCurrentTicketStatus(tenant, "served", { location });
+    const result = await updateCurrentTicketStatus(tenant, "served", {
+      location,
+      actorUserId: req.user?._id,
+      actorRole: "vendor",
+      source: "vendor"
+    });
 
     if (!result) {
       const error = new Error("There is no active ticket to serve.");
@@ -374,7 +541,12 @@ router.post(
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.ticket.update_state");
     const location = await getLocationForTenant(tenant, req.query.location);
-    const result = await updateCurrentTicketStatus(tenant, "skipped", { location });
+    const result = await updateCurrentTicketStatus(tenant, "skipped", {
+      location,
+      actorUserId: req.user?._id,
+      actorRole: "vendor",
+      source: "vendor"
+    });
 
     if (!result) {
       const error = new Error("There is no active ticket to skip.");
@@ -399,12 +571,41 @@ router.patch(
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.settings.manage");
     await getLocationForTenant(tenant, req.query.location);
-    const { queuePrefix, averageServiceMinutes, notificationThreshold, contactEmail, contactPhone } = req.body;
+    const {
+      queuePrefix,
+      averageServiceMinutes,
+      notificationThreshold,
+      autoPauseEnabled,
+      autoPauseThreshold,
+      autoResumeEnabled,
+      autoResumeVacancyPercent,
+      contactEmail,
+      contactPhone
+    } = req.body;
+    const wantsToChangeContactDetails =
+      typeof contactEmail === "string" || typeof contactPhone === "string";
+    if (wantsToChangeContactDetails) {
+      assertTenantPermission(req.user, tenant._id, "tenant.settings.manage_contact");
+    }
+
+    const normalizedAutoPauseEnabled = Boolean(autoPauseEnabled);
+    const normalizedAutoPauseThreshold = normalizedAutoPauseEnabled
+      ? Math.max(1, Number(autoPauseThreshold || 1))
+      : null;
+    const normalizedAutoResumeEnabled = normalizedAutoPauseEnabled && Boolean(autoResumeEnabled);
+    const normalizedAutoResumeVacancyPercent =
+      normalizedAutoResumeEnabled
+        ? Math.max(5, Math.min(50, Number(autoResumeVacancyPercent || 20)))
+        : null;
 
     const updatedTenant = await tenantRepository.updateTenant(tenant._id, {
       queuePrefix: queuePrefix ? String(queuePrefix).slice(0, 4).toUpperCase() : tenant.queuePrefix,
       averageServiceMinutes: averageServiceMinutes ? Number(averageServiceMinutes) : tenant.averageServiceMinutes,
       notificationThreshold: notificationThreshold ? Number(notificationThreshold) : tenant.notificationThreshold,
+      autoPauseEnabled: normalizedAutoPauseEnabled,
+      autoPauseThreshold: normalizedAutoPauseThreshold,
+      autoResumeEnabled: normalizedAutoResumeEnabled,
+      autoResumeVacancyPercent: normalizedAutoResumeVacancyPercent,
       contactEmail: typeof contactEmail === "string" ? contactEmail : tenant.contactEmail,
       contactPhone: typeof contactPhone === "string" ? contactPhone : tenant.contactPhone
     });
@@ -417,10 +618,16 @@ router.patch(
         queuePrefix: updatedTenant.queuePrefix,
         averageServiceMinutes: updatedTenant.averageServiceMinutes,
         notificationThreshold: updatedTenant.notificationThreshold,
+        autoPauseEnabled: updatedTenant.autoPauseEnabled,
+        autoPauseThreshold: updatedTenant.autoPauseThreshold,
+        autoResumeEnabled: updatedTenant.autoResumeEnabled,
+        autoResumeVacancyPercent: updatedTenant.autoResumeVacancyPercent,
         contactEmail: updatedTenant.contactEmail,
         contactPhone: updatedTenant.contactPhone
       },
-      snapshot: await getQueueSnapshot(updatedTenant)
+      snapshot: await getQueueSnapshot(updatedTenant, {
+        location: await getLocationForTenant(updatedTenant, req.query.location)
+      })
     });
   })
 );
@@ -444,10 +651,13 @@ router.get(
       historyLabel: entitlements.historyLabel,
       tickets: tickets.map((ticket) => ({
         id: String(ticket._id),
+        lookupCode: ticket.lookupCode,
         ticketNumber: ticket.ticketNumber,
         customerName: ticket.customerName,
         status: ticket.status,
-        updatedAt: ticket.updatedAt
+        updatedAt: ticket.updatedAt,
+        rejoinDeadlineAt: ticket.rejoinDeadlineAt || null,
+        servicePriorityBand: ticket.servicePriorityBand || "normal"
       }))
     });
   })
@@ -598,6 +808,7 @@ router.get(
           email: user.email,
           phone: user.phone,
           role: membership?.role || "staff",
+          isActive: membership?.isActive !== false,
           assignedCounterIds: assignedCountersByUserId.get(String(user._id)) || []
         };
       })
@@ -632,7 +843,36 @@ router.post(
       throw error;
     }
 
-    await userRepository.addTenantMembership(user._id, tenant._id, req.body.role || "staff");
+    const nextRole = ["owner", "admin", "staff"].includes(req.body.role) ? req.body.role : "staff";
+    const requesterMembership = req.user.tenantMemberships?.find(
+      (item) => String(item.tenantId) === String(tenant._id) && item.isActive !== false
+    );
+    const requesterRole = requesterMembership?.role || null;
+    const ownerCount = staff.filter((member) =>
+      member.tenantMemberships.some(
+        (item) => String(item.tenantId) === String(tenant._id) && item.role === "owner" && item.isActive !== false
+      )
+    ).length;
+
+    if (requesterRole === "admin" && nextRole !== "staff") {
+      const error = new Error("Tenant admins can only invite staff members.");
+      error.statusCode = 403;
+      throw error;
+    }
+
+    if ((nextRole === "admin" || nextRole === "owner") && requesterRole !== "owner") {
+      const error = new Error("Only tenant owners can assign admin or owner roles.");
+      error.statusCode = 403;
+      throw error;
+    }
+
+    if (nextRole === "owner" && ownerCount >= 1) {
+      const error = new Error("Only one tenant owner is allowed per vendor.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    await userRepository.addTenantMembership(user._id, tenant._id, nextRole);
     res.status(201).json({ userId: user._id });
   })
 );
@@ -642,6 +882,11 @@ router.patch(
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.staff.manage");
+    if (String(req.user._id) === String(req.params.userId)) {
+      const error = new Error("You cannot edit your own tenant staff account.");
+      error.statusCode = 400;
+      throw error;
+    }
     const user = await userRepository.findUserById(req.params.userId);
     if (!user || !user.tenantMemberships.some((item) => String(item.tenantId) === String(tenant._id))) {
       const error = new Error("Staff member not found.");
@@ -651,8 +896,26 @@ router.patch(
     const membership = user.tenantMemberships.find(
       (item) => String(item.tenantId) === String(tenant._id)
     );
+    const requesterMembership = req.user.tenantMemberships?.find(
+      (item) => String(item.tenantId) === String(tenant._id) && item.isActive !== false
+    );
+    const requesterRole = requesterMembership?.role || null;
+    const hasRoleChange = Object.prototype.hasOwnProperty.call(req.body, "role");
+    const hasStatusChange = Object.prototype.hasOwnProperty.call(req.body, "isActive");
 
-    if (membership.role === "owner" && req.body.role !== "owner") {
+    if (!hasRoleChange && !hasStatusChange) {
+      const error = new Error("No staff updates were provided.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    if (hasRoleChange && requesterRole !== "owner") {
+      const error = new Error("Only tenant owners can change staff roles.");
+      error.statusCode = 403;
+      throw error;
+    }
+
+    if (membership.role === "owner" && hasRoleChange && req.body.role !== "owner") {
       const staff = await userRepository.listUsersByTenantId(tenant._id);
       const ownerCount = staff.filter((member) =>
         member.tenantMemberships.some(
@@ -666,11 +929,32 @@ router.patch(
       }
     }
 
-    await userRepository.updateTenantMembershipRole(
-      user._id,
-      tenant._id,
-      req.body.role === "owner" ? "owner" : "staff"
-    );
+    if (membership.role === "owner" && hasStatusChange && req.body.isActive === false) {
+      const error = new Error("Tenant owners cannot be disabled from staff management.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    if (hasRoleChange) {
+      const nextRole = req.body.role === "owner"
+        ? "owner"
+        : req.body.role === "admin"
+          ? "admin"
+          : "staff";
+
+      if (nextRole === "owner" && membership.role !== "owner") {
+        const error = new Error("Only one tenant owner is allowed per vendor.");
+        error.statusCode = 400;
+        throw error;
+      }
+
+      await userRepository.updateTenantMembershipRole(user._id, tenant._id, nextRole);
+    }
+
+    if (hasStatusChange) {
+      await userRepository.updateTenantMembershipStatus(user._id, tenant._id, req.body.isActive !== false);
+    }
+
     res.json({ userId: user._id });
   })
 );
@@ -680,6 +964,19 @@ router.delete(
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.staff.manage");
+    const requesterMembership = req.user.tenantMemberships?.find(
+      (item) => String(item.tenantId) === String(tenant._id) && item.isActive !== false
+    );
+    if (requesterMembership?.role !== "owner") {
+      const error = new Error("Only tenant owners can remove staff members.");
+      error.statusCode = 403;
+      throw error;
+    }
+    if (String(req.user._id) === String(req.params.userId)) {
+      const error = new Error("You cannot remove your own tenant staff account.");
+      error.statusCode = 400;
+      throw error;
+    }
     const user = await userRepository.findUserById(req.params.userId);
     const membership = user?.tenantMemberships.find(
       (item) => String(item.tenantId) === String(tenant._id)

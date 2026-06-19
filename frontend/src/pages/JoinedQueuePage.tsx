@@ -1,12 +1,24 @@
-import { useEffect, useState, type CSSProperties } from "react";
-import { Alert, Badge, Box, Button, Group, Modal, Paper, SimpleGrid, Stack, Table, Text, Title } from "@mantine/core";
-import { notifications } from "@mantine/notifications";
-import { IconCheck, IconInfoCircle } from "@tabler/icons-react";
-import QRCode from "react-qr-code";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import type { QueueJoinPaymentSyncResponse, QueueSnapshot, StoreHourSummary } from "@shared";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import {
+  Alert,
+  Badge,
+  Box,
+  Button,
+  Group,
+  Modal,
+  Paper,
+  SimpleGrid,
+  Stack,
+  Table,
+  Text,
+  Title
+} from "@mantine/core";
+import { Link, Navigate, useLocation, useParams, useSearchParams } from "react-router-dom";
+import type { CancelQueueTicketRequest, QueueSnapshot, StoreHourSummary } from "@shared";
 import { API_BASE_URL, apiRequest } from "../api/client";
-import { buildJoinPath, buildJoinUrl, buildJoinedQueuePathWithTicket } from "../queuePaths";
+import { useAuth } from "../context/AuthContext";
+import { buildJoinPath, buildMonitorPath, buildMonitorPathWithTicket } from "../queuePaths";
+import { clearJoinedQueueAccess, getJoinedQueueAccess } from "../utils/joinedQueueAccess";
 import { getErrorMessage } from "../utils/errors";
 import { getLocationStatusSummary, getQueueStateSummary, getTicketStateSummary } from "../utils/queueStatus";
 
@@ -92,26 +104,34 @@ function normalizeHours(hours: StoreHourSummary[] = []): StoreHourSummary[] {
   });
 }
 
-export default function PublicQueuePage() {
+export default function JoinedQueuePage() {
   const { tenantSlug, locationSlug } = useParams<{ tenantSlug: string; locationSlug?: string }>();
-  const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
+  const { token, user } = useAuth();
   const [snapshot, setSnapshot] = useState<QueueSnapshot | null>(null);
   const [error, setError] = useState("");
-  const [paymentSyncing, setPaymentSyncing] = useState(false);
+  const [cancelSubmitting, setCancelSubmitting] = useState(false);
   const [hoursOpened, setHoursOpened] = useState(false);
   const lookupCode = searchParams.get("ticket") || "";
-  const paymentId = searchParams.get("payment");
-  const paymentStatus = searchParams.get("payment_status");
   const tenantSlugValue = tenantSlug || "";
-  const joinPath = tenantSlug ? buildJoinPath(tenantSlug, locationSlug) : "/";
-  const joinUrl =
-    snapshot?.location?.joinUrl ||
-    snapshot?.tenant?.joinUrl ||
-    buildJoinUrl(window.location.origin, tenantSlugValue, locationSlug);
-  const joinQrUrl = `${joinUrl}?source=qr`;
-  const vendorIsInactive = snapshot ? !snapshot.tenant.isActive : false;
-  const locationIsClosed = snapshot?.location ? !snapshot.location.openStatus.isOpen : false;
+
+  const prefill = (location.state as { registrationPrefill?: { name?: string; email?: string; phone?: string } } | null)
+    ?.registrationPrefill;
+  const registrationState = useMemo(
+    () => ({
+      prefill,
+      redirectTo: `${location.pathname}${location.search}${location.hash}`
+    }),
+    [location.hash, location.pathname, location.search, prefill]
+  );
+  const missingTenant = !tenantSlugValue;
+  const missingLookupCode = !lookupCode;
+
+  const joinPath = buildJoinPath(tenantSlugValue, locationSlug);
+  const publicBoardPath = buildMonitorPathWithTicket(tenantSlugValue, lookupCode, locationSlug);
+  const locationHours = normalizeHours(snapshot?.location?.hours || []);
+  const todayIndex = getTodayIndex(snapshot?.location?.timezone);
   const theme = snapshot?.publicBoardTheme.theme;
   const cardStyle: CSSProperties = theme
     ? {
@@ -136,18 +156,18 @@ export default function PublicQueuePage() {
         backgroundPosition: "center",
         backgroundRepeat: "no-repeat",
         color: theme.bodyColor,
-        margin: "-2rem calc(50% - 50dvw) -4rem",
-        minHeight: "100vh",
+        margin: "0 calc(50% - 50dvw) -4rem",
+        minHeight: "calc(100vh - 81px)",
         maxWidth: "100dvw",
         overflowX: "hidden",
-        padding: "2rem"
+        padding: "3rem 2rem 4rem"
       }
     : {
-        margin: "-2rem calc(50% - 50dvw) -4rem",
-        minHeight: "100vh",
+        margin: "0 calc(50% - 50dvw) -4rem",
+        minHeight: "calc(100vh - 81px)",
         maxWidth: "100dvw",
         overflowX: "hidden",
-        padding: "2rem"
+        padding: "3rem 2rem 4rem"
       };
   const buttonStyle: CSSProperties | undefined = theme
     ? {
@@ -166,14 +186,14 @@ export default function PublicQueuePage() {
   const queueState = getQueueStateSummary(snapshot);
   const ticketState = getTicketStateSummary(snapshot?.focusTicket?.status);
   const locationState = getLocationStatusSummary(snapshot);
-  const locationHours = normalizeHours(snapshot?.location?.hours || []);
-  const todayIndex = getTodayIndex(snapshot?.location?.timezone);
+  const vendorIsInactive = snapshot ? !snapshot.tenant.isActive : false;
+  const locationIsClosed = snapshot?.location ? !snapshot.location.openStatus.isOpen : false;
   const queueDayClosed = Boolean(snapshot?.queueDay?.isClosed);
   const queueDayPaused = Boolean(snapshot?.queueDay?.isPaused);
-  const canJoinQueue =
+  const ticketIsWaiting = snapshot?.focusTicket?.status === "waiting";
+  const canJoinAgain =
     Boolean(snapshot) &&
-    !lookupCode &&
-    !snapshot?.focusTicket &&
+    !ticketIsWaiting &&
     !vendorIsInactive &&
     !locationIsClosed &&
     !queueDayClosed &&
@@ -196,97 +216,30 @@ export default function PublicQueuePage() {
       progressLabel: `#${ticket.position}`
     })))
   ].slice(0, 10);
+  const userIsCustomer = Boolean(user?.roles?.includes("customer"));
+  const storedAccess = getJoinedQueueAccess(lookupCode);
+  const cancellationContact = {
+    customerEmail: user?.email || storedAccess?.customerEmail || prefill?.email || "",
+    customerPhone: user?.phone || storedAccess?.customerPhone || prefill?.phone || ""
+  };
+  const canCancelTicket = snapshot?.focusTicket?.status === "waiting";
 
   useEffect(() => {
-    if (!tenantSlugValue || !paymentId) {
-      return;
+    if (missingTenant || missingLookupCode) {
+      return undefined;
     }
-
-    if (paymentStatus === "cancelled") {
-      notifications.show({
-        color: "blue",
-        icon: <IconInfoCircle size={18} />,
-        message: "No ticket was issued.",
-        title: "Checkout cancelled"
-      });
-      return;
-    }
-
-    let active = true;
-    setPaymentSyncing(true);
-    setError("");
-
-    notifications.show({
-      color: "blue",
-      icon: <IconInfoCircle size={18} />,
-      message: "Confirming your queue fee payment...",
-      title: "Payment received"
-    });
 
     const basePath = locationSlug
       ? `/public/tenant/${tenantSlugValue}/location/${locationSlug}`
       : `/public/tenant/${tenantSlugValue}`;
-
-    apiRequest<QueueJoinPaymentSyncResponse>(`${basePath}/join-payments/${paymentId}/sync`, {
-      method: "POST"
-    })
-      .then((data) => {
-        if (!active) {
-          return;
-        }
-
-        if (data.paid && data.ticket?.lookupCode) {
-          notifications.show({
-            color: "teal",
-            icon: <IconCheck size={18} />,
-            message: "Your ticket has been issued.",
-            title: "Joined queue"
-          });
-          navigate(
-            buildJoinedQueuePathWithTicket(tenantSlugValue, data.ticket.lookupCode, locationSlug),
-            { replace: true }
-          );
-          return;
-        }
-
-        notifications.show({
-          color: "blue",
-          icon: <IconInfoCircle size={18} />,
-          message: "Payment is still being confirmed. Please refresh in a moment.",
-          title: "Payment pending"
-        });
-      })
-      .catch((syncError) => {
-        if (active) {
-          setError(getErrorMessage(syncError));
-        }
-      })
-      .finally(() => {
-        if (active) {
-          setPaymentSyncing(false);
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [locationSlug, navigate, paymentId, paymentStatus, tenantSlugValue]);
-
-  useEffect(() => {
-    if (!tenantSlug) {
-      return undefined;
-    }
-
+    const query = `?lookupCode=${encodeURIComponent(lookupCode)}`;
     let active = true;
-    const query = lookupCode ? `?lookupCode=${encodeURIComponent(lookupCode)}` : "";
-    const basePath = locationSlug
-      ? `/public/tenant/${tenantSlug}/location/${locationSlug}`
-      : `/public/tenant/${tenantSlug}`;
 
     apiRequest<QueueSnapshot>(`${basePath}/queue${query}`)
       .then((data) => {
         if (active) {
           setSnapshot(data);
+          setError("");
         }
       })
       .catch((loadError) => {
@@ -309,7 +262,51 @@ export default function PublicQueuePage() {
       active = false;
       eventSource.close();
     };
-  }, [locationSlug, lookupCode, tenantSlug]);
+  }, [locationSlug, lookupCode, missingLookupCode, missingTenant, tenantSlugValue]);
+
+  if (missingTenant) {
+    return <Navigate replace to="/" />;
+  }
+
+  if (missingLookupCode) {
+    return <Navigate replace to={buildMonitorPath(tenantSlugValue, locationSlug)} />;
+  }
+
+  async function handleCancelTicket() {
+    setCancelSubmitting(true);
+    setError("");
+
+    try {
+      await apiRequest<{ ticket: { lookupCode: string; status: string } }, CancelQueueTicketRequest>(
+        `${locationSlug ? `/public/tenant/${tenantSlugValue}/location/${locationSlug}` : `/public/tenant/${tenantSlugValue}`}/tickets/${lookupCode}`,
+        {
+          method: "DELETE",
+          body: cancellationContact,
+          token
+        }
+      );
+
+      clearJoinedQueueAccess(lookupCode);
+      setSnapshot((current) =>
+        current
+          ? {
+              ...current,
+              focusTicket: current.focusTicket
+                ? {
+                    ...current.focusTicket,
+                    status: "cancelled",
+                    position: null
+                  }
+                : null
+            }
+          : current
+      );
+    } catch (cancelError) {
+      setError(getErrorMessage(cancelError));
+    } finally {
+      setCancelSubmitting(false);
+    }
+  }
 
   return (
     <Box style={pageStyle}>
@@ -344,8 +341,8 @@ export default function PublicQueuePage() {
           </Table.ScrollContainer>
         </Modal>
         <Paper p={{ base: "lg", md: "xl" }} shadow="xl" style={cardStyle}>
-          <SimpleGrid cols={{ base: 1, md: canJoinQueue ? 3 : 2 }} spacing="xl">
-            <Stack gap="md" style={{ gridColumn: canJoinQueue ? "span 2" : undefined }}>
+          <SimpleGrid cols={{ base: 1, md: 3 }} spacing="xl">
+            <Stack gap="md" style={{ gridColumn: "span 2" }}>
               {theme?.logoUrl ? (
                 <Box
                   alt={`${heroTitle} logo`}
@@ -355,7 +352,7 @@ export default function PublicQueuePage() {
                 />
               ) : null}
               <Text c={subheaderColor} fw={800} size="xs" tt="uppercase" lts={2}>
-                Live queue
+                Queue status
               </Text>
               <Title c={headerColor} order={1} style={{ fontSize: "clamp(3rem, 7vw, 4.5rem)" }}>
                 {heroTitle}
@@ -366,101 +363,116 @@ export default function PublicQueuePage() {
               <Alert color={queueState.color} radius="md" variant="light">
                 {queueState.message}
               </Alert>
-              {vendorIsInactive ? (
-                <Text c="red" fw={700}>
-                  This vendor is not yet active.
-                </Text>
-              ) : locationIsClosed ? (
-                <Text c="red" fw={700}>
-                  This location is currently closed.
-                </Text>
-              ) : null}
+              <Button
+                onClick={() => setHoursOpened(true)}
+                radius="xl"
+                size="md"
+                style={buttonStyle}
+                w="fit-content"
+              >
+                View business hours
+              </Button>
               <Stack gap="xs" mt="sm">
                 <Group gap="sm" wrap="wrap">
                   <Badge color={queueState.color} radius="xl" size="lg" variant="light">
                     {queueState.label}
                   </Badge>
                   <Badge radius="xl" size="lg" variant="light">
+                    Ticket: {snapshot?.focusTicket?.ticketNumber || lookupCode}
+                  </Badge>
+                  <Badge radius="xl" size="lg" variant="light">
                     Waiting: {snapshot?.stats?.waitingCount ?? 0}
                   </Badge>
                   <Badge radius="xl" size="lg" variant="light">
-                    ETA: {snapshot?.stats?.estimatedWaitMinutes ?? 0} mins
+                    ETA: {snapshot?.focusTicket?.estimatedWaitMinutes ?? snapshot?.stats?.estimatedWaitMinutes ?? 0} mins
                   </Badge>
-                  <Badge color={locationState.color} radius="xl" size="lg">
-                    {locationState.label}
-                  </Badge>
-                </Group>
-                <Group gap="sm">
-                  {canJoinQueue ? (
-                    <Button component={Link} to={joinPath} radius="xl" size="md" style={buttonStyle}>
-                      Join this queue
-                    </Button>
-                  ) : null}
-                  <Button
-                    onClick={() => setHoursOpened(true)}
-                    radius="xl"
-                    size="md"
-                    style={buttonStyle}
-                    variant={theme ? "outline" : "default"}
-                  >
-                    View business hours
-                  </Button>
                 </Group>
               </Stack>
+              <Text c={bodyColor} size="sm">{locationState.message}</Text>
             </Stack>
 
-            {canJoinQueue && !lookupCode && !snapshot?.focusTicket ? (
-              <Stack align="center" gap="sm">
-                <Text c={bodyColor} fw={700}>Scan to join</Text>
-                <Paper bg="white" p="md" radius="lg" withBorder>
-                  <QRCode size={256} value={joinQrUrl} />
-                </Paper>
-                <Text c={bodyColor} size="sm">Use your phone camera to open the queue form.</Text>
+            <Paper bg="white" p="lg" radius="xl" withBorder>
+              <Stack gap="sm">
+                <Text c={subheaderColor} fw={800} size="xs" tt="uppercase" lts={2}>
+                  Ticket details
+                </Text>
+                <Group gap="sm" align="center">
+                  <Title c={headerColor} order={2}>
+                    {snapshot?.focusTicket?.ticketNumber || "Loading..."}
+                  </Title>
+                  <Badge color={ticketState.color} radius="xl" size="lg" variant="light">
+                    {ticketState.label}
+                  </Badge>
+                </Group>
+                <Text c={bodyColor}>{ticketState.message}</Text>
+                <Text c={bodyColor}>
+                  {ticketIsWaiting && snapshot?.focusTicket?.position
+                    ? `You are number ${snapshot.focusTicket.position} in line.`
+                    : ticketIsWaiting
+                      ? "Your place in line is confirmed."
+                      : "This ticket is no longer active on the waiting list."}
+                </Text>
+                {ticketIsWaiting ? (
+                  <Text c={bodyColor}>
+                    Estimated wait time: {snapshot?.focusTicket?.estimatedWaitMinutes ?? 0} mins
+                  </Text>
+                ) : null}
+                <Group mt="sm">
+                  <Button component={Link} radius="xl" style={buttonStyle} to={publicBoardPath}>
+                    View live board
+                  </Button>
+                  {canCancelTicket ? (
+                    <Button
+                      color="red"
+                      loading={cancelSubmitting}
+                      onClick={handleCancelTicket}
+                      radius="xl"
+                      variant="light"
+                    >
+                      Cancel ticket
+                    </Button>
+                  ) : null}
+                  {canJoinAgain ? (
+                    <Button component={Link} radius="xl" to={joinPath} variant="subtle">
+                      Join again
+                    </Button>
+                  ) : null}
+                </Group>
               </Stack>
-            ) : null}
+            </Paper>
           </SimpleGrid>
         </Paper>
 
-        {paymentSyncing ? (
-          <Paper p="lg" shadow="md" style={cardStyle}>
-            <Stack gap="xs">
-              <Text c={subheaderColor} fw={800} size="xs" tt="uppercase" lts={2}>
-                Confirming payment
-              </Text>
-              <Title c={headerColor} order={3}>We are issuing your queue ticket.</Title>
-              <Text c={bodyColor}>
-                Please wait while we confirm your platform fee and activate your ticket.
-              </Text>
-            </Stack>
-          </Paper>
-        ) : null}
-
-        {error ? <Text c="red" fw={700}>{error}</Text> : null}
-
-        {lookupCode && snapshot?.focusTicket ? (
+        {!userIsCustomer ? (
           <Paper p="xl" shadow="lg" style={cardStyle}>
-            <Stack gap="xs">
-              <Text c={subheaderColor} fw={800} size="xs" tt="uppercase" lts={2}>Ticket details</Text>
-              <Group gap="sm" align="center">
-                <Title c={headerColor} order={2}>{snapshot.focusTicket.ticketNumber}</Title>
-                <Badge color={ticketState.color} radius="xl" size="lg" variant="light">
-                  {ticketState.label}
-                </Badge>
+            <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xl">
+              <Stack gap="xs">
+                <Text c={subheaderColor} fw={800} size="xs" tt="uppercase" lts={2}>
+                  Save this experience
+                </Text>
+                <Title c={headerColor} order={3}>
+                  Create a customer account for faster joins next time.
+                </Title>
+                <Text c={bodyColor}>
+                  Save your contact details, keep your queue activity in one place, and return to this ticket page after registration.
+                </Text>
+              </Stack>
+              <Group align="center" justify="flex-start">
+                <Button
+                  component={Link}
+                  state={registrationState}
+                  to="/register/customer"
+                  radius="xl"
+                  style={buttonStyle}
+                >
+                  Create customer account
+                </Button>
               </Group>
-              <Text c={bodyColor}>{ticketState.message}</Text>
-              <Text c={bodyColor}>
-                {snapshot.focusTicket.status === "waiting" && snapshot.focusTicket.position
-                  ? `You are number ${snapshot.focusTicket.position} in line.`
-                  : snapshot.focusTicket.status === "waiting"
-                    ? "Your place in line is confirmed."
-                    : "This ticket is no longer active on the waiting list."}
-              </Text>
-              {snapshot.focusTicket.status === "waiting" ? (
-                <Text c={bodyColor}>Estimated wait time: {snapshot.focusTicket.estimatedWaitMinutes} mins</Text>
-              ) : null}
-            </Stack>
+            </SimpleGrid>
           </Paper>
         ) : null}
+
+        {error ? <Alert color="red">{error}</Alert> : null}
 
         <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
           <Paper p="xl" shadow="lg" style={cardStyle}>
@@ -478,7 +490,9 @@ export default function PublicQueuePage() {
             <Stack gap="md">
               <Text c={bodyColor}>Completed today</Text>
               <Title c={headerColor} order={2}>{snapshot?.stats?.servedToday ?? 0}</Title>
-              <Text c={bodyColor} size="sm">Updated live for this location</Text>
+              <Text c={bodyColor} size="sm">
+                Location: {snapshot?.location?.name || snapshot?.tenant?.name || "--"}
+              </Text>
             </Stack>
           </Paper>
         </SimpleGrid>
@@ -487,18 +501,14 @@ export default function PublicQueuePage() {
           <Stack gap="md">
             <Group justify="space-between" align="flex-start">
               <div>
-                <Text c={subheaderColor} fw={800} size="xs" tt="uppercase" lts={2}>Up next</Text>
+                <Text c={subheaderColor} fw={800} size="xs" tt="uppercase" lts={2}>
+                  Up next
+                </Text>
                 <Title c={headerColor} order={2}>Queue overview</Title>
               </div>
-              {canJoinQueue ? (
-                <Button component={Link} to={joinPath} variant="subtle" style={{ color: theme?.buttonBackgroundColor || undefined }}>
-                  Join this queue
-                </Button>
-              ) : (
-                <Text c={bodyColor} fw={600} size="sm">
-                  New joins are currently unavailable.
-                </Text>
-              )}
+              <Button component={Link} to={joinPath} variant="subtle" style={{ color: theme?.buttonBackgroundColor || undefined }}>
+                Join this queue
+              </Button>
             </Group>
             <Table.ScrollContainer minWidth={560}>
               <Table verticalSpacing="sm">

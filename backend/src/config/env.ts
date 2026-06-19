@@ -9,6 +9,7 @@ dotenv.config({ path: backendEnvPath, override: false });
 
 export const port = Number(process.env.PORT || process.env.BACKEND_PORT || 5000);
 const frontendPort = Number(process.env.FRONTEND_PORT || 5173);
+const platformDashboardPort = Number(process.env.PLATFORM_DASHBOARD_PORT || 7100);
 
 export const nodeEnv = process.env.NODE_ENV || "development";
 export const databaseUrl =
@@ -19,7 +20,8 @@ export const serverUrl = process.env.SERVER_URL || `http://localhost:${port}`;
 export const clientUrl = process.env.CLIENT_URL || `http://localhost:${frontendPort}`;
 export const appBaseUrl = process.env.APP_BASE_URL || `http://localhost:${frontendPort}`;
 export const platformDashboardUrl =
-  process.env.PLATFORM_DASHBOARD_URL || "http://localhost:7100";
+  process.env.PLATFORM_DASHBOARD_URL || `http://localhost:${platformDashboardPort}`;
+export const appTimezone = process.env.APP_TIMEZONE || "Asia/Manila";
 export const oauthCallbackPath = process.env.OAUTH_CALLBACK_PATH || "/oauth/callback";
 export const oauthStateTtlMinutes = Number(process.env.OAUTH_STATE_TTL_MINUTES || 10);
 export const accessTokenTtlMinutes = Number(process.env.ACCESS_TOKEN_TTL_MINUTES || 15);
@@ -77,6 +79,9 @@ export const turnstileSecretKey = process.env.TURNSTILE_SECRET_KEY || "";
 export const notificationCooldownMinutes = Number(
   process.env.NOTIFICATION_COOLDOWN_MINUTES || 30
 );
+export const queueRecoveryGraceMinutes = Number(
+  process.env.QUEUE_RECOVERY_GRACE_MINUTES || 30
+);
 export const b2S3Endpoint = process.env.B2_S3_ENDPOINT || "";
 export const b2Region = process.env.B2_REGION || "us-east-005";
 export const b2BucketPublicBoard = process.env.B2_BUCKET_PUBLIC_BOARD || "";
@@ -94,6 +99,7 @@ const env = {
   clientUrl,
   appBaseUrl,
   platformDashboardUrl,
+  appTimezone,
   oauthCallbackPath,
   oauthStateTtlMinutes,
   accessTokenTtlMinutes,
@@ -131,6 +137,7 @@ const env = {
   paymongoPaymentMethodTypes,
   turnstileSecretKey,
   notificationCooldownMinutes,
+  queueRecoveryGraceMinutes,
   b2S3Endpoint,
   b2Region,
   b2BucketPublicBoard,
