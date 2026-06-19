@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import {
+  Alert,
   Badge,
   Box,
   Button,
@@ -13,11 +14,13 @@ import {
   Title
 } from "@mantine/core";
 import { Link, Navigate, useLocation, useParams, useSearchParams } from "react-router-dom";
-import type { QueueSnapshot, StoreHourSummary } from "@shared";
+import type { CancelQueueTicketRequest, QueueSnapshot, StoreHourSummary } from "@shared";
 import { API_BASE_URL, apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { buildJoinPath, buildMonitorPath, buildMonitorPathWithTicket } from "../queuePaths";
+import { clearJoinedQueueAccess, getJoinedQueueAccess } from "../utils/joinedQueueAccess";
 import { getErrorMessage } from "../utils/errors";
+import { getLocationStatusSummary, getQueueStateSummary, getTicketStateSummary } from "../utils/queueStatus";
 
 function maskNamePart(namePart: string): string {
   if (!namePart) {
@@ -105,9 +108,10 @@ export default function JoinedQueuePage() {
   const { tenantSlug, locationSlug } = useParams<{ tenantSlug: string; locationSlug?: string }>();
   const location = useLocation();
   const [searchParams] = useSearchParams();
-  const { user } = useAuth();
+  const { token, user } = useAuth();
   const [snapshot, setSnapshot] = useState<QueueSnapshot | null>(null);
   const [error, setError] = useState("");
+  const [cancelSubmitting, setCancelSubmitting] = useState(false);
   const [hoursOpened, setHoursOpened] = useState(false);
   const lookupCode = searchParams.get("ticket") || "";
   const tenantSlugValue = tenantSlug || "";
@@ -179,6 +183,21 @@ export default function JoinedQueuePage() {
   const locationName = snapshot?.location?.name || "Main location";
   const heroTitle = theme?.heroTitle || businessName;
   const heroSubtitle = theme?.heroSubtitle || locationName;
+  const queueState = getQueueStateSummary(snapshot);
+  const ticketState = getTicketStateSummary(snapshot?.focusTicket?.status);
+  const locationState = getLocationStatusSummary(snapshot);
+  const vendorIsInactive = snapshot ? !snapshot.tenant.isActive : false;
+  const locationIsClosed = snapshot?.location ? !snapshot.location.openStatus.isOpen : false;
+  const queueDayClosed = Boolean(snapshot?.queueDay?.isClosed);
+  const queueDayPaused = Boolean(snapshot?.queueDay?.isPaused);
+  const ticketIsWaiting = snapshot?.focusTicket?.status === "waiting";
+  const canJoinAgain =
+    Boolean(snapshot) &&
+    !ticketIsWaiting &&
+    !vendorIsInactive &&
+    !locationIsClosed &&
+    !queueDayClosed &&
+    !queueDayPaused;
   const queueProgressTickets = [
     ...(snapshot?.current
       ? [
@@ -198,6 +217,12 @@ export default function JoinedQueuePage() {
     })))
   ].slice(0, 10);
   const userIsCustomer = Boolean(user?.roles?.includes("customer"));
+  const storedAccess = getJoinedQueueAccess(lookupCode);
+  const cancellationContact = {
+    customerEmail: user?.email || storedAccess?.customerEmail || prefill?.email || "",
+    customerPhone: user?.phone || storedAccess?.customerPhone || prefill?.phone || ""
+  };
+  const canCancelTicket = snapshot?.focusTicket?.status === "waiting";
 
   useEffect(() => {
     if (missingTenant || missingLookupCode) {
@@ -245,6 +270,42 @@ export default function JoinedQueuePage() {
 
   if (missingLookupCode) {
     return <Navigate replace to={buildMonitorPath(tenantSlugValue, locationSlug)} />;
+  }
+
+  async function handleCancelTicket() {
+    setCancelSubmitting(true);
+    setError("");
+
+    try {
+      await apiRequest<{ ticket: { lookupCode: string; status: string } }, CancelQueueTicketRequest>(
+        `${locationSlug ? `/public/tenant/${tenantSlugValue}/location/${locationSlug}` : `/public/tenant/${tenantSlugValue}`}/tickets/${lookupCode}`,
+        {
+          method: "DELETE",
+          body: cancellationContact,
+          token
+        }
+      );
+
+      clearJoinedQueueAccess(lookupCode);
+      setSnapshot((current) =>
+        current
+          ? {
+              ...current,
+              focusTicket: current.focusTicket
+                ? {
+                    ...current.focusTicket,
+                    status: "cancelled",
+                    position: null
+                  }
+                : null
+            }
+          : current
+      );
+    } catch (cancelError) {
+      setError(getErrorMessage(cancelError));
+    } finally {
+      setCancelSubmitting(false);
+    }
   }
 
   return (
@@ -299,6 +360,9 @@ export default function JoinedQueuePage() {
               <Title c={headerColor} order={2} style={{ fontSize: "clamp(2rem, 4vw, 3rem)" }}>
                 {heroSubtitle}
               </Title>
+              <Alert color={queueState.color} radius="md" variant="light">
+                {queueState.message}
+              </Alert>
               <Button
                 onClick={() => setHoursOpened(true)}
                 radius="xl"
@@ -308,20 +372,23 @@ export default function JoinedQueuePage() {
               >
                 View business hours
               </Button>
-              <Group mt="lg" gap="sm">
-                <Badge radius="xl" size="lg" variant="light">
-                  Ticket: {snapshot?.focusTicket?.ticketNumber || lookupCode}
-                </Badge>
-                <Badge radius="xl" size="lg" variant="light">
-                  Waiting: {snapshot?.stats?.waitingCount ?? 0}
-                </Badge>
-                <Badge radius="xl" size="lg" variant="light">
-                  ETA: {snapshot?.focusTicket?.estimatedWaitMinutes ?? snapshot?.stats?.estimatedWaitMinutes ?? 0} mins
-                </Badge>
-                <Badge color={snapshot?.location?.openStatus.isOpen ? "teal" : "red"} radius="xl" size="lg">
-                  {snapshot?.location?.openStatus.isOpen ? "Open" : "Closed"}
-                </Badge>
-              </Group>
+              <Stack gap="xs" mt="sm">
+                <Group gap="sm" wrap="wrap">
+                  <Badge color={queueState.color} radius="xl" size="lg" variant="light">
+                    {queueState.label}
+                  </Badge>
+                  <Badge radius="xl" size="lg" variant="light">
+                    Ticket: {snapshot?.focusTicket?.ticketNumber || lookupCode}
+                  </Badge>
+                  <Badge radius="xl" size="lg" variant="light">
+                    Waiting: {snapshot?.stats?.waitingCount ?? 0}
+                  </Badge>
+                  <Badge radius="xl" size="lg" variant="light">
+                    ETA: {snapshot?.focusTicket?.estimatedWaitMinutes ?? snapshot?.stats?.estimatedWaitMinutes ?? 0} mins
+                  </Badge>
+                </Group>
+              </Stack>
+              <Text c={bodyColor} size="sm">{locationState.message}</Text>
             </Stack>
 
             <Paper bg="white" p="lg" radius="xl" withBorder>
@@ -329,27 +396,47 @@ export default function JoinedQueuePage() {
                 <Text c={subheaderColor} fw={800} size="xs" tt="uppercase" lts={2}>
                   Ticket details
                 </Text>
-                <Title c={headerColor} order={2}>
-                  {snapshot?.focusTicket?.ticketNumber || "Loading..."}
-                </Title>
+                <Group gap="sm" align="center">
+                  <Title c={headerColor} order={2}>
+                    {snapshot?.focusTicket?.ticketNumber || "Loading..."}
+                  </Title>
+                  <Badge color={ticketState.color} radius="xl" size="lg" variant="light">
+                    {ticketState.label}
+                  </Badge>
+                </Group>
+                <Text c={bodyColor}>{ticketState.message}</Text>
                 <Text c={bodyColor}>
-                  Current status: <strong>{snapshot?.focusTicket?.status || "pending"}</strong>
-                </Text>
-                <Text c={bodyColor}>
-                  {snapshot?.focusTicket?.position
+                  {ticketIsWaiting && snapshot?.focusTicket?.position
                     ? `You are number ${snapshot.focusTicket.position} in line.`
-                    : "You are no longer in the waiting list."}
+                    : ticketIsWaiting
+                      ? "Your place in line is confirmed."
+                      : "This ticket is no longer active on the waiting list."}
                 </Text>
-                <Text c={bodyColor}>
-                  Joined at: {snapshot?.focusTicket?.joinedAt ? new Date(snapshot.focusTicket.joinedAt).toLocaleString() : "--"}
-                </Text>
+                {ticketIsWaiting ? (
+                  <Text c={bodyColor}>
+                    Estimated wait time: {snapshot?.focusTicket?.estimatedWaitMinutes ?? 0} mins
+                  </Text>
+                ) : null}
                 <Group mt="sm">
                   <Button component={Link} radius="xl" style={buttonStyle} to={publicBoardPath}>
                     View live board
                   </Button>
-                  <Button component={Link} radius="xl" to={joinPath} variant="subtle">
-                    Join again
-                  </Button>
+                  {canCancelTicket ? (
+                    <Button
+                      color="red"
+                      loading={cancelSubmitting}
+                      onClick={handleCancelTicket}
+                      radius="xl"
+                      variant="light"
+                    >
+                      Cancel ticket
+                    </Button>
+                  ) : null}
+                  {canJoinAgain ? (
+                    <Button component={Link} radius="xl" to={joinPath} variant="subtle">
+                      Join again
+                    </Button>
+                  ) : null}
                 </Group>
               </Stack>
             </Paper>
@@ -385,7 +472,7 @@ export default function JoinedQueuePage() {
           </Paper>
         ) : null}
 
-        {error ? <Text c="red" fw={700}>{error}</Text> : null}
+        {error ? <Alert color="red">{error}</Alert> : null}
 
         <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
           <Paper p="xl" shadow="lg" style={cardStyle}>

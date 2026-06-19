@@ -36,6 +36,7 @@ The goal is to harden the existing queue behavior without forcing a full queue-d
 
 - lifecycle logic is still spread across service procedures and timestamp/status combinations rather than a single explicit transition map
 - queue close/reopen did not exist in the live backend when this checklist was created, so Slice 3 became a new backend feature slice rather than a pure hardening pass
+- carried-over precedence exists in code, but overflow and missed-ticket recovery semantics are not yet formalized end to end
 
 ---
 
@@ -66,7 +67,7 @@ Current status:
 - Slice 3: done
 - Slice 4: done
 
-Recommended next milestone: **cleanup, package, and merge the queue lifecycle branch work**
+Recommended next milestone: **package current recovery-band work and then extend service-order coverage**
 
 ---
 
@@ -298,3 +299,127 @@ First make the backend lifecycle explicit and evented, because:
 - UI consistency depends on lifecycle truth
 - reports and ETA will depend on lifecycle truth
 - concurrency bugs are backend problems, not presentation problems
+
+---
+
+## 9. Post-Merge Follow-On Slices
+
+The original queue-lifecycle branch is merged. The next lifecycle work should be treated as follow-on slices.
+
+### Slice 5
+
+Formalize priority bands and overflow semantics
+
+### Slice 6
+
+Missed-ticket recovery policy and backend support
+
+### Slice 7
+
+Vendor dashboard alignment for overflow and recovery behavior
+
+Current status:
+
+- Slice 5: done
+- Slice 6: mostly done
+- Slice 7: done
+
+---
+
+## 10. Slice 5: Priority Bands and Overflow Semantics
+
+### 10.1 Queue ordering rule
+
+Stable queue order should be:
+
+```txt
+carry_over > recovery > normal
+```
+
+This must be enforced in backend ordering, not only implied in the dashboard.
+
+### 10.2 Overflow definition
+
+Update snapshot shaping and dashboard expectations so:
+
+- `Overflow queue` = carried-over tickets only
+- skipped / unserved / cancelled belong in history or exception views
+
+### 10.3 Data-model direction
+
+Add explicit support for queue ordering concepts such as:
+
+- `service_priority_band`
+- `rejoin_deadline_at`
+- optional future `priority_override_reason`
+
+Do not rely forever on `carry_over_count` alone once recovery behavior exists.
+
+---
+
+## 11. Slice 6: Missed-Ticket Recovery
+
+### 11.1 Recovery policy
+
+For tickets that were `called` but not served:
+
+- allow rejoin within a grace window
+- return as `recovery`
+- place behind `carry_over` and ahead of `normal`
+- if the window expires, rejoin as `normal`
+
+### 11.2 Backend work
+
+Add:
+
+- explicit recovery-band support in ticket ordering
+- `rejoin_deadline_at` or equivalent grace-window tracking
+- staff action to restore a missed ticket with recovery priority
+
+Current status:
+
+- explicit recovery-band support: done
+- `rejoin_deadline_at`: done
+- vendor restore action: done
+
+### 11.3 Test coverage
+
+Add focused tests for:
+
+- recovery within grace window
+- recovery after grace expiry
+- carry-over tickets still outrank recovery tickets
+- recovery tickets outrank fresh same-day joins
+
+Current status:
+
+- route-level restore coverage: done
+- deeper order-selection coverage: pending
+
+---
+
+## 12. Slice 7: Vendor Dashboard Alignment
+
+### 12.1 Queue tabs
+
+Update the queue dashboard so:
+
+- `Current queue` = active queue-day operational queue
+- `Overflow queue` = carried-over waiting tickets only
+
+### 12.2 Recovery UI
+
+Recovery should not be hidden inside overflow.
+
+Preferred future actions:
+
+- `Restore with priority`
+- `Restore normal`
+
+Avoid generic `nudge up/down` until there is an explicit priority-override model and audit trail.
+
+Current status:
+
+- skipped-ticket recovery panel: done
+- restore action from dashboard: done
+- explicit manual override controls: pending

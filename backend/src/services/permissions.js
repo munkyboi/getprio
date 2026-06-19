@@ -21,9 +21,24 @@ const TENANT_PERMISSIONS = {
     "tenant.staff.read",
     "tenant.staff.manage",
     "tenant.settings.manage",
+    "tenant.settings.manage_contact",
     "tenant.theme.manage",
     "tenant.billing.read",
     "tenant.billing.manage",
+    "tenant.reports.read"
+  ]),
+  admin: new Set([
+    "tenant.queue.read",
+    "tenant.queue.operate",
+    "tenant.ticket.read_limited",
+    "tenant.ticket.update_state",
+    "tenant.location.manage",
+    "tenant.counter.manage",
+    "tenant.staff.invite",
+    "tenant.staff.read",
+    "tenant.staff.manage",
+    "tenant.settings.manage",
+    "tenant.billing.read",
     "tenant.reports.read"
   ]),
   staff: new Set([
@@ -32,7 +47,8 @@ const TENANT_PERMISSIONS = {
     "tenant.ticket.read_limited",
     "tenant.ticket.update_state",
     "tenant.staff.read",
-    "tenant.billing.read"
+    "tenant.billing.read",
+    "tenant.reports.read"
   ])
 };
 
@@ -59,6 +75,7 @@ function getGlobalPermissions(user) {
 function getTenantRole(user, tenantId) {
   return (user?.tenantMemberships || []).find(
     (membership) => String(membership.tenantId) === String(tenantId)
+      && membership.isActive !== false
   )?.role || null;
 }
 

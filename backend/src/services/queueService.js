@@ -6,6 +6,7 @@ const notificationDeliveryRepository = require("../repositories/notificationDeli
 const publicBoardThemeRepository = require("../repositories/publicBoardThemes");
 const queueEventRepository = require("../repositories/queueEvents");
 const queueDayClosureRepository = require("../repositories/queueDayClosures");
+const queueDayPauseRepository = require("../repositories/queueDayPauses");
 const storeLocationRepository = require("../repositories/storeLocations");
 const ticketRepository = require("../repositories/tickets");
 const queueEvents = require("./queueEvents");
@@ -15,8 +16,19 @@ const queueFeeService = require("./queueFeeService");
 const storeHoursService = require("./storeHoursService");
 const { buildJoinUrl, buildMonitorUrl } = require("../publicLinks");
 
-function getDateKey(date = new Date()) {
-  return date.toISOString().slice(0, 10).replace(/-/g, "");
+function getDateKey(date = new Date(), timezone = env.appTimezone || "Asia/Manila") {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  });
+
+  return formatter.format(date).replace(/-/g, "");
+}
+
+function getRecoveryDeadline(date = new Date()) {
+  return new Date(date.getTime() + env.queueRecoveryGraceMinutes * 60 * 1000);
 }
 
 function buildQueueEventActor(options = {}) {
@@ -73,6 +85,105 @@ function buildLookupCode() {
   return crypto.randomBytes(4).toString("hex").toUpperCase();
 }
 
+function redactPublicContactDetails(entity) {
+  if (!entity) {
+    return null;
+  }
+
+  const { contactEmail: _contactEmail, contactPhone: _contactPhone, ...publicEntity } = entity;
+  return publicEntity;
+}
+
+function getQueueIntakeState({
+  waitingCount,
+  autoPauseEnabled,
+  autoPauseThreshold,
+  autoResumeEnabled,
+  autoResumeVacancyPercent,
+  isPaused,
+  pauseMode
+}) {
+  if (!autoPauseEnabled || !autoPauseThreshold) {
+    return {
+      autoPauseEnabled: Boolean(autoPauseEnabled),
+      autoPauseThreshold: autoPauseThreshold || null,
+      autoResumeEnabled: Boolean(autoResumeEnabled),
+      autoResumeVacancyPercent: autoResumeVacancyPercent || null,
+      currentWaitingCount: waitingCount,
+      fillRatio: null,
+      thresholdRemaining: null,
+      resumeWaitingCount: null,
+      state: "disabled",
+      stateLabel: "Auto-pause off"
+    };
+  }
+
+  const fillRatio = Math.min(waitingCount / autoPauseThreshold, 1);
+  const thresholdRemaining = Math.max(autoPauseThreshold - waitingCount, 0);
+  const resumeWaitingCount =
+    autoResumeEnabled && autoResumeVacancyPercent
+      ? Math.floor(autoPauseThreshold * (1 - autoResumeVacancyPercent / 100))
+      : null;
+
+  if (isPaused) {
+    return {
+      autoPauseEnabled: true,
+      autoPauseThreshold,
+      autoResumeEnabled: Boolean(autoResumeEnabled),
+      autoResumeVacancyPercent: autoResumeVacancyPercent || null,
+      currentWaitingCount: waitingCount,
+      fillRatio,
+      thresholdRemaining,
+      resumeWaitingCount,
+      state: "paused",
+      stateLabel: pauseMode === "manual" ? "Paused" : "Auto-paused"
+    };
+  }
+
+  if (fillRatio >= 0.85) {
+    return {
+      autoPauseEnabled: true,
+      autoPauseThreshold,
+      autoResumeEnabled: Boolean(autoResumeEnabled),
+      autoResumeVacancyPercent: autoResumeVacancyPercent || null,
+      currentWaitingCount: waitingCount,
+      fillRatio,
+      thresholdRemaining,
+      resumeWaitingCount,
+      state: "near_limit",
+      stateLabel: "Near limit"
+    };
+  }
+
+  return {
+    autoPauseEnabled: true,
+    autoPauseThreshold,
+    autoResumeEnabled: Boolean(autoResumeEnabled),
+    autoResumeVacancyPercent: autoResumeVacancyPercent || null,
+    currentWaitingCount: waitingCount,
+    fillRatio,
+    thresholdRemaining,
+    resumeWaitingCount,
+    state: "open",
+    stateLabel: "Open"
+  };
+}
+
+function getAutoResumeWaitingCount(tenant) {
+  if (
+    !tenant.autoPauseEnabled ||
+    !tenant.autoPauseThreshold ||
+    !tenant.autoResumeEnabled ||
+    !tenant.autoResumeVacancyPercent
+  ) {
+    return null;
+  }
+
+  return Math.floor(
+    Number(tenant.autoPauseThreshold) * (1 - Number(tenant.autoResumeVacancyPercent) / 100)
+  );
+}
+
 function getCurrentMonthStart() {
   const now = new Date();
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
@@ -96,33 +207,75 @@ async function getTenantUsage(tenantId) {
 }
 
 async function reserveNextSequence(client, tenantId, locationId, dateKey) {
-  const result = await client.query(
-    `
-      INSERT INTO counters (tenant_id, location_id, key, date_key, value)
-      VALUES ($1, $2, 'ticket', $3, 1)
-      ON CONFLICT (tenant_id, location_id, key, date_key)
-      DO UPDATE SET value = counters.value + 1
-      RETURNING value
-    `,
-    [Number(tenantId), Number(locationId), dateKey]
-  );
+  try {
+    const result = await client.query(
+      `
+        INSERT INTO counters (tenant_id, location_id, key, date_key, value)
+        VALUES ($1, $2, 'ticket', $3, 1)
+        ON CONFLICT (tenant_id, location_id, key, date_key)
+        DO UPDATE SET value = counters.value + 1
+        RETURNING value
+      `,
+      [Number(tenantId), Number(locationId), dateKey]
+    );
 
-  return result.rows[0].value;
+    return result.rows[0].value;
+  } catch (error) {
+    console.error("reserveNextSequence failed", {
+      tenantId,
+      locationId,
+      dateKey,
+      code: error.code,
+      constraint: error.constraint,
+      detail: error.detail,
+      table: error.table,
+      column: error.column,
+      message: error.message
+    });
+    throw error;
+  }
 }
 
 async function createTicketRecord(client, data) {
+  let nextTicketData = { ...data };
   for (let attempt = 0; attempt < 5; attempt += 1) {
+    const savepointName = `ticket_insert_attempt_${attempt}`;
     try {
+      await client.query(`SAVEPOINT ${savepointName}`);
       return await ticketRepository.createTicket(
         {
-          ...data,
+          ...nextTicketData,
           lookupCode: buildLookupCode()
         },
         { client }
       );
     } catch (error) {
+      console.error("createTicketRecord attempt failed", {
+        attempt,
+        code: error.code,
+        constraint: error.constraint,
+        detail: error.detail,
+        table: error.table,
+        column: error.column,
+        message: error.message
+      });
+      await client.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
+      if (error.code === "23505" && error.constraint === "tickets_tenant_location_date_sequence_key") {
+        nextTicketData.sequence = await reserveNextSequence(
+          client,
+          nextTicketData.tenantId,
+          nextTicketData.locationId,
+          nextTicketData.dateKey
+        );
+      }
       if (error.code !== "23505") {
         throw error;
+      }
+    } finally {
+      try {
+        await client.query(`RELEASE SAVEPOINT ${savepointName}`);
+      } catch {
+        // Savepoint may already be gone after a successful return or rollback path.
       }
     }
   }
@@ -152,13 +305,47 @@ async function resolveLocation(tenant, options = {}) {
 
 async function getQueueSnapshot(tenant, options = {}) {
   const location = await resolveLocation(tenant, options);
-  const locationId = location?._id;
-  const dateKey = options.queueDateKey || getDateKey();
-  const queueDayClosure = location
-    ? await queueDayClosureRepository.findActiveClosure(tenant._id, location._id, dateKey)
+  let locationId = location?._id;
+  let snapshotLocation = location;
+  const lookupTicket = options.lookupCode
+    ? await ticketRepository.findTicketByTenantAndLookupCode(
+        tenant._id,
+        options.lookupCode.toUpperCase()
+      )
     : null;
+
+  if (lookupTicket?.locationId) {
+    const ticketLocation = await storeLocationRepository.findLocationById(lookupTicket.locationId);
+    if (ticketLocation && String(ticketLocation.tenantId) === String(tenant._id)) {
+      snapshotLocation = ticketLocation;
+      locationId = ticketLocation._id;
+    }
+  }
+
+  const locationToUse = snapshotLocation;
+  const dateKey =
+    options.queueDateKey ||
+    getDateKey(new Date(), locationToUse?.timezone || env.appTimezone || "Asia/Manila");
+  const queueDayClosure = locationToUse
+    ? await queueDayClosureRepository.findActiveClosure(tenant._id, locationToUse._id, dateKey)
+    : null;
+  const queueDayPause = locationToUse
+    ? await queueDayPauseRepository.findActivePause(tenant._id, locationToUse._id, dateKey)
+    : null;
+  const overflowDateKey = queueDayClosure?.nextQueueDateKey || dateKey;
   const current = await ticketRepository.findCurrentCalledTicket(tenant._id, { locationId, dateKey });
   const waitingTickets = await ticketRepository.listWaitingTickets(tenant._id, { locationId, dateKey });
+  const overflowTickets = await ticketRepository.listWaitingTickets(tenant._id, {
+    locationId,
+    dateKey: overflowDateKey,
+    onlyCarriedOver: true,
+    limit: 50
+  });
+  const recoveryTickets = await ticketRepository.listSkippedTickets(tenant._id, {
+    locationId,
+    dateKey,
+    limit: 20
+  });
   const history = await ticketRepository.listHistoryTickets(tenant._id, {
     limit: 30,
     dateKey,
@@ -168,13 +355,13 @@ async function getQueueSnapshot(tenant, options = {}) {
   const usage = await getTenantUsage(tenant._id);
   const queueFee = await queueFeeService.getQueueFeeForTenant(tenant._id);
   const activeSubscription = await queueFeeService.getActiveTenantSubscription(tenant._id);
-  const openStatus = location
-    ? await storeHoursService.getOpenStatus(location)
+  const openStatus = locationToUse
+    ? await storeHoursService.getOpenStatus(locationToUse)
     : { isOpen: true, timezone: "Asia/Manila", summary: "Open 24 hours", today: null, nextOpenAt: null };
-  const hours = location ? await storeLocationRepository.listHoursByLocationId(location._id) : [];
+  const hours = locationToUse ? await storeLocationRepository.listHoursByLocationId(locationToUse._id) : [];
   const publicBoardTheme = await publicBoardThemeRepository.getResolvedTheme(
     tenant._id,
-    location?._id
+    locationToUse?._id
   );
 
   const nextUp = waitingTickets.slice(0, 10).map((ticket, index) => ({
@@ -184,94 +371,117 @@ async function getQueueSnapshot(tenant, options = {}) {
     status: ticket.status,
     position: index + 1,
     joinChannel: ticket.joinChannel,
-    createdAt: ticket.createdAt
+    createdAt: ticket.createdAt,
+    isCarriedOver: Boolean(ticket.carriedOverAt || ticket.carryOverCount > 0),
+    carryOverCount: ticket.carryOverCount || 0,
+    carriedOverAt: ticket.carriedOverAt || null
+  }));
+
+  const overflow = overflowTickets.map((ticket, index) => ({
+    id: String(ticket._id),
+    ticketNumber: ticket.ticketNumber,
+    customerName: ticket.customerName,
+    status: ticket.status,
+    position: index + 1,
+    joinChannel: ticket.joinChannel,
+    createdAt: ticket.createdAt,
+    isCarriedOver: true,
+    carryOverCount: ticket.carryOverCount || 0,
+    carriedOverAt: ticket.carriedOverAt || null
   }));
 
   let focusTicket = null;
-  if (options.lookupCode) {
-    const ticket = await ticketRepository.findTicketByTenantAndLookupCode(
-      tenant._id,
-      options.lookupCode.toUpperCase()
-    );
+  if (lookupTicket) {
+    const position =
+      lookupTicket.status === "waiting"
+        ? (
+            await ticketRepository.listWaitingTickets(tenant._id, {
+              locationId,
+              dateKey: lookupTicket.dateKey
+            })
+          ).findIndex((waitingTicket) => String(waitingTicket._id) === String(lookupTicket._id)) + 1
+        : null;
 
-    if (ticket) {
-      const position =
-        ticket.status === "waiting"
-          ? (
-              ticket.dateKey === dateKey
-                ? waitingTickets
-                : await ticketRepository.listWaitingTickets(tenant._id, {
-                    locationId,
-                    dateKey: ticket.dateKey
-                  })
-            ).findIndex((waitingTicket) => String(waitingTicket._id) === String(ticket._id)) + 1
-          : null;
-
-      focusTicket = {
-        id: String(ticket._id),
-        lookupCode: ticket.lookupCode,
-        ticketNumber: ticket.ticketNumber,
-        customerName: ticket.customerName,
-        status: ticket.status,
-        position: position || null,
-        estimatedWaitMinutes:
-          position && position > 0 ? position * tenant.averageServiceMinutes : 0,
-        joinedAt: ticket.createdAt
-      };
-    }
+    focusTicket = {
+      id: String(lookupTicket._id),
+      lookupCode: lookupTicket.lookupCode,
+      ticketNumber: lookupTicket.ticketNumber,
+      customerName: lookupTicket.customerName,
+      status: lookupTicket.status,
+      position: position || null,
+      estimatedWaitMinutes:
+        position && position > 0 ? position * tenant.averageServiceMinutes : 0,
+      joinedAt: lookupTicket.createdAt
+    };
   }
 
   return {
-    tenant: {
+    tenant: redactPublicContactDetails({
       id: String(tenant._id),
       name: tenant.name,
       slug: tenant.slug,
       queuePrefix: tenant.queuePrefix,
       averageServiceMinutes: tenant.averageServiceMinutes,
       notificationThreshold: tenant.notificationThreshold,
-      contactEmail: tenant.contactEmail || "",
-      contactPhone: tenant.contactPhone || "",
-      joinUrl: buildJoinUrl(env.appBaseUrl, tenant.slug, location?.slug),
-      monitorUrl: buildMonitorUrl(env.appBaseUrl, tenant.slug, location?.slug),
+      autoPauseEnabled: Boolean(tenant.autoPauseEnabled),
+      autoPauseThreshold: tenant.autoPauseThreshold ?? null,
+      autoResumeEnabled: Boolean(tenant.autoResumeEnabled),
+      autoResumeVacancyPercent: tenant.autoResumeVacancyPercent ?? null,
+      joinUrl: buildJoinUrl(env.appBaseUrl, tenant.slug, locationToUse?.slug),
+      monitorUrl: buildMonitorUrl(env.appBaseUrl, tenant.slug, locationToUse?.slug),
       isActive: Boolean(activeSubscription),
       queueFee
-    },
-    location: location
-      ? {
-          id: String(location._id),
-          tenantId: String(location.tenantId),
-          name: location.name,
-          slug: location.slug,
-          addressLine1: location.addressLine1,
-          addressLine2: location.addressLine2,
-          city: location.city,
-          province: location.province,
-          postalCode: location.postalCode,
-          country: location.country,
-          contactEmail: location.contactEmail,
-          contactPhone: location.contactPhone,
-          timezone: location.timezone,
-          isPrimary: location.isPrimary,
-          isActive: location.isActive,
-          joinUrl: buildJoinUrl(env.appBaseUrl, tenant.slug, location.slug),
-          monitorUrl: buildMonitorUrl(env.appBaseUrl, tenant.slug, location.slug),
-          openStatus,
-          hours: hours.map((hour) => ({
-            weekday: hour.weekday,
-            opensAt: hour.opensAt,
-            closesAt: hour.closesAt,
-            isClosed: hour.isClosed
-          }))
-        }
-      : null,
+    }),
+    location: redactPublicContactDetails(
+      locationToUse
+        ? {
+            id: String(locationToUse._id),
+            tenantId: String(locationToUse.tenantId),
+            name: locationToUse.name,
+            slug: locationToUse.slug,
+            addressLine1: locationToUse.addressLine1,
+            addressLine2: locationToUse.addressLine2,
+            city: locationToUse.city,
+            province: locationToUse.province,
+            postalCode: locationToUse.postalCode,
+            country: locationToUse.country,
+            timezone: locationToUse.timezone,
+            isPrimary: locationToUse.isPrimary,
+            isActive: locationToUse.isActive,
+            joinUrl: buildJoinUrl(env.appBaseUrl, tenant.slug, locationToUse.slug),
+            monitorUrl: buildMonitorUrl(env.appBaseUrl, tenant.slug, locationToUse.slug),
+            openStatus,
+            hours: hours.map((hour) => ({
+              weekday: hour.weekday,
+              opensAt: hour.opensAt,
+              closesAt: hour.closesAt,
+              isClosed: hour.isClosed
+            }))
+          }
+        : null
+    ),
     publicBoardTheme,
     queueDay: {
       isClosed: Boolean(queueDayClosure),
+      isPaused: Boolean(queueDayPause) && !queueDayClosure,
       queueDateKey: dateKey,
       closedAt: queueDayClosure?.closedAt || queueDayClosure?.createdAt || null,
       reopenedAt: queueDayClosure?.reopenedAt || null,
-      closureReason: queueDayClosure?.closureReason || null
+      closureReason: queueDayClosure?.closureReason || null,
+      pausedAt: queueDayPause?.pausedAt || queueDayPause?.createdAt || null,
+      resumedAt: queueDayPause?.resumedAt || null,
+      pauseReason: queueDayPause?.pauseReason || null,
+      pauseMode: queueDayPause?.pauseMode || null
     },
+    queueIntake: getQueueIntakeState({
+      waitingCount: waitingTickets.length,
+      autoPauseEnabled: tenant.autoPauseEnabled,
+      autoPauseThreshold: tenant.autoPauseThreshold,
+      autoResumeEnabled: tenant.autoResumeEnabled,
+      autoResumeVacancyPercent: tenant.autoResumeVacancyPercent,
+      isPaused: Boolean(queueDayPause) && !queueDayClosure,
+      pauseMode: queueDayPause?.pauseMode || null
+    }),
     stats: {
       waitingCount: waitingTickets.length,
       servedToday,
@@ -288,12 +498,28 @@ async function getQueueSnapshot(tenant, options = {}) {
         }
       : null,
     nextUp,
-    history: history.map((ticket) => ({
+    overflow,
+    recovery: recoveryTickets.map((ticket) => ({
       id: String(ticket._id),
+      lookupCode: ticket.lookupCode,
       ticketNumber: ticket.ticketNumber,
       customerName: ticket.customerName,
       status: ticket.status,
-      updatedAt: ticket.updatedAt
+      createdAt: ticket.createdAt,
+      updatedAt: ticket.updatedAt,
+      rejoinDeadlineAt: ticket.rejoinDeadlineAt || null,
+      servicePriorityBand: ticket.servicePriorityBand || "normal"
+    })),
+    history: history.map((ticket) => ({
+      id: String(ticket._id),
+      lookupCode: ticket.lookupCode,
+      ticketNumber: ticket.ticketNumber,
+      customerName: ticket.customerName,
+      status: ticket.status,
+      createdAt: ticket.createdAt,
+      updatedAt: ticket.updatedAt,
+      rejoinDeadlineAt: ticket.rejoinDeadlineAt || null,
+      servicePriorityBand: ticket.servicePriorityBand || "normal"
     })),
     usage,
     focusTicket
@@ -315,6 +541,54 @@ async function assertQueueDayOpen(tenant, location, options = {}) {
   const error = new Error("This queue day is closed. Reopen the queue to continue operations.");
   error.statusCode = 409;
   error.code = "QUEUE_DAY_CLOSED";
+  throw error;
+}
+
+async function assertQueueIntakeOpen(tenant, location, options = {}) {
+  await assertQueueDayOpen(tenant, location, options);
+
+  const queueDateKey = options.queueDateKey || getDateKey();
+  const activePause = await queueDayPauseRepository.findActivePause(
+    tenant._id,
+    location._id,
+    queueDateKey,
+    { client: options.client }
+  );
+
+  if (!activePause) {
+    return;
+  }
+
+  const reasonText = activePause.pauseReason ? ` ${activePause.pauseReason}` : "";
+  const error = new Error(
+    `This queue is paused for new joins.${reasonText}`.trim()
+  );
+  error.statusCode = 409;
+  error.code = "QUEUE_INTAKE_PAUSED";
+  throw error;
+}
+
+async function assertRestoreCapacityAvailable(tenant, location, options = {}) {
+  if (!tenant.autoPauseEnabled || !tenant.autoPauseThreshold) {
+    return;
+  }
+
+  const queueDateKey = options.queueDateKey || getDateKey();
+  const waitingTickets = await ticketRepository.listWaitingTickets(tenant._id, {
+    client: options.client,
+    locationId: location._id,
+    dateKey: queueDateKey
+  });
+
+  if (waitingTickets.length < Number(tenant.autoPauseThreshold)) {
+    return;
+  }
+
+  const error = new Error(
+    `This queue is already at its intake threshold of ${tenant.autoPauseThreshold} waiting tickets. Resume or clear space before restoring a missed ticket.`
+  );
+  error.statusCode = 409;
+  error.code = "QUEUE_RESTORE_THRESHOLD_REACHED";
   throw error;
 }
 
@@ -356,6 +630,165 @@ async function maybeNotifyUpcomingTickets(tenant, options = {}) {
   }
 }
 
+async function maybeAutoPauseQueueDay(tenant, options = {}) {
+  const location = await resolveLocation(tenant, options);
+  if (!location || !tenant.autoPauseEnabled || !tenant.autoPauseThreshold) {
+    return null;
+  }
+
+  const queueDateKey = options.queueDateKey || getDateKey();
+  const queueDayClosure = await queueDayClosureRepository.findActiveClosure(
+    tenant._id,
+    location._id,
+    queueDateKey,
+    { client: options.client }
+  );
+  if (queueDayClosure) {
+    return null;
+  }
+
+  const existingPause = await queueDayPauseRepository.findActivePause(
+    tenant._id,
+    location._id,
+    queueDateKey,
+    { client: options.client }
+  );
+  if (existingPause) {
+    return existingPause;
+  }
+
+  const waitingTickets = await ticketRepository.listWaitingTickets(tenant._id, {
+    client: options.client,
+    locationId: location._id,
+    dateKey: queueDateKey
+  });
+
+  if (waitingTickets.length < Number(tenant.autoPauseThreshold)) {
+    return null;
+  }
+
+  const pause = await db.withTransaction(async (client) => {
+    const activePause = await queueDayPauseRepository.findActivePause(
+      tenant._id,
+      location._id,
+      queueDateKey,
+      { client }
+    );
+    if (activePause) {
+      return activePause;
+    }
+
+    const createdPause = await queueDayPauseRepository.createPause(
+      {
+        tenantId: tenant._id,
+        locationId: location._id,
+        queueDateKey,
+        pauseReason: `Auto-paused at ${waitingTickets.length}/${tenant.autoPauseThreshold} waiting tickets`,
+        pauseMode: "auto_threshold",
+        pausedByUserId: null
+      },
+      { client }
+    );
+
+    await appendScopedQueueEvent(client, {
+      tenantId: tenant._id,
+      locationId: location._id,
+      queueDateKey,
+      eventType: "queue_paused",
+      actorUserId: null,
+      actorRole: "system",
+      source: "system",
+      metadata: {
+        pauseMode: "auto_threshold",
+        waitingCount: waitingTickets.length,
+        autoPauseThreshold: tenant.autoPauseThreshold
+      }
+    });
+
+    return createdPause;
+  });
+
+  await publishSnapshot(tenant, { location, queueDateKey });
+  return pause;
+}
+
+async function maybeAutoResumeQueueDay(tenant, options = {}) {
+  const location = await resolveLocation(tenant, options);
+  if (!location) {
+    return null;
+  }
+
+  const resumeWaitingCount = getAutoResumeWaitingCount(tenant);
+  if (resumeWaitingCount === null) {
+    return null;
+  }
+
+  const queueDateKey = options.queueDateKey || getDateKey();
+  const activePause = await queueDayPauseRepository.findActivePause(
+    tenant._id,
+    location._id,
+    queueDateKey,
+    { client: options.client }
+  );
+
+  if (!activePause || activePause.pauseMode !== "auto_threshold") {
+    return null;
+  }
+
+  const waitingTickets = await ticketRepository.listWaitingTickets(tenant._id, {
+    client: options.client,
+    locationId: location._id,
+    dateKey: queueDateKey
+  });
+
+  if (waitingTickets.length > resumeWaitingCount) {
+    return null;
+  }
+
+  await db.withTransaction(async (client) => {
+    const currentPause = await queueDayPauseRepository.findActivePause(
+      tenant._id,
+      location._id,
+      queueDateKey,
+      { client }
+    );
+    if (!currentPause || currentPause.pauseMode !== "auto_threshold") {
+      return;
+    }
+
+    const currentWaitingTickets = await ticketRepository.listWaitingTickets(tenant._id, {
+      client,
+      locationId: location._id,
+      dateKey: queueDateKey
+    });
+    if (currentWaitingTickets.length > resumeWaitingCount) {
+      return;
+    }
+
+    await queueDayPauseRepository.resumePause(currentPause._id, null, { client });
+    await appendScopedQueueEvent(client, {
+      tenantId: tenant._id,
+      locationId: location._id,
+      queueDateKey,
+      eventType: "queue_resumed",
+      actorUserId: null,
+      actorRole: "system",
+      source: "system",
+      metadata: {
+        pauseMode: currentPause.pauseMode,
+        pauseReason: currentPause.pauseReason,
+        waitingCount: currentWaitingTickets.length,
+        autoPauseThreshold: tenant.autoPauseThreshold || null,
+        autoResumeVacancyPercent: tenant.autoResumeVacancyPercent || null,
+        resumeWaitingCount
+      }
+    });
+  });
+
+  await publishSnapshot(tenant, { location, queueDateKey });
+  return true;
+}
+
 async function createTicket({
   tenant,
   location,
@@ -371,7 +804,7 @@ async function createTicket({
   actorRole
 }) {
   const resolvedLocation = await resolveLocation(tenant, { location });
-  await assertQueueDayOpen(tenant, resolvedLocation);
+  await assertQueueIntakeOpen(tenant, resolvedLocation);
   const ticket = await db.withTransaction(async (client) => {
     const createdTicket = await createTicketForTenantInTransaction(client, {
       tenant,
@@ -405,6 +838,7 @@ async function createTicket({
   });
 
   await maybeNotifyUpcomingTickets(tenant, { location: resolvedLocation });
+  await maybeAutoPauseQueueDay(tenant, { location: resolvedLocation });
   const snapshot = await publishSnapshot(tenant, {
     lookupCode: ticket.lookupCode,
     location: resolvedLocation
@@ -510,6 +944,7 @@ async function callNextTicket(tenant, options = {}) {
     await notificationService.notifyCalled({ ticket, tenant });
   }
 
+  await maybeAutoResumeQueueDay(tenant, { location, queueDateKey: dateKey });
   await maybeNotifyUpcomingTickets(tenant, { location });
   const snapshot = await publishSnapshot(tenant, { location });
 
@@ -534,7 +969,8 @@ async function updateCurrentTicketStatus(tenant, status, options = {}) {
     const updatedTicket = await ticketRepository.updateCurrentCalledTicketStatus(tenant._id, status, {
       client,
       locationId: location?._id,
-      dateKey
+      dateKey,
+      rejoinDeadlineAt: status === "skipped" ? getRecoveryDeadline() : null
     });
     if (!updatedTicket) {
       return null;
@@ -567,6 +1003,9 @@ async function updateCurrentTicketStatus(tenant, status, options = {}) {
     return null;
   }
 
+  if (status === "served" || status === "cancelled") {
+    await maybeAutoResumeQueueDay(tenant, { location, queueDateKey: dateKey });
+  }
   await maybeNotifyUpcomingTickets(tenant, { location });
   const snapshot = await publishSnapshot(tenant, { location });
 
@@ -574,7 +1013,7 @@ async function updateCurrentTicketStatus(tenant, status, options = {}) {
 }
 
 async function cancelTicket(tenant, lookupCode, options = {}) {
-  const location = await resolveLocation(tenant, options);
+  const location = options.location || (await resolveLocation(tenant, options));
   const normalizedLookupCode = lookupCode.toUpperCase();
   const ticket = await db.withTransaction(async (client) => {
     const existingTicket = await ticketRepository.findTicketByTenantAndLookupCode(
@@ -619,6 +1058,7 @@ async function cancelTicket(tenant, lookupCode, options = {}) {
     return null;
   }
 
+  await maybeAutoResumeQueueDay(tenant, { location });
   await maybeNotifyUpcomingTickets(tenant, { location });
   const snapshot = await publishSnapshot(tenant, { location });
 
@@ -646,6 +1086,16 @@ async function closeQueueDay(tenant, options = {}) {
       const error = new Error("This queue day is already closed.");
       error.statusCode = 409;
       throw error;
+    }
+
+    const activePause = await queueDayPauseRepository.findActivePause(
+      tenant._id,
+      location._id,
+      queueDateKey,
+      { client }
+    );
+    if (activePause) {
+      await queueDayPauseRepository.resumePause(activePause._id, options.actorUserId || null, { client });
     }
 
     const affectedTickets = await ticketRepository.listTicketsForQueueClosure(tenant._id, {
@@ -768,19 +1218,29 @@ async function reopenQueueDay(tenant, options = {}) {
       throw error;
     }
 
-    const reopenedTickets = await ticketRepository.reopenTicketsFromClosure(tenant._id, {
+    const reopenedUnservedTickets = await ticketRepository.reopenTicketsFromClosure(tenant._id, {
       client,
       locationId: location._id,
       dateKey: queueDateKey,
       ticketIds: activeClosure.affectedTicketIds
     });
+    const restoredCarriedTickets = await ticketRepository.restoreCarriedOverTicketsFromClosure(
+      tenant._id,
+      {
+        client,
+        locationId: location._id,
+        fromDateKey: activeClosure.nextQueueDateKey,
+        toDateKey: queueDateKey,
+        ticketIds: activeClosure.affectedTicketIds
+      }
+    );
     const actor = buildQueueEventActor({
       actorUserId: options.actorUserId,
       actorRole: options.actorRole,
       source: options.source || "vendor"
     });
 
-    for (const ticket of reopenedTickets) {
+    for (const ticket of reopenedUnservedTickets) {
       await appendQueueEvent(client, ticket, "ticket_requeued", {
         fromStatus: "unserved",
         toStatus: "waiting",
@@ -789,6 +1249,22 @@ async function reopenQueueDay(tenant, options = {}) {
         source: actor.source,
         metadata: {
           reason: "queue_day_reopened"
+        }
+      });
+    }
+
+    for (const ticket of restoredCarriedTickets) {
+      await appendQueueEvent(client, ticket, "ticket_requeued", {
+        fromStatus: "waiting",
+        toStatus: "waiting",
+        actorUserId: actor.actorUserId,
+        actorRole: actor.actorRole,
+        source: actor.source,
+        metadata: {
+          reason: "queue_day_reopened",
+          fromQueueDateKey: activeClosure.nextQueueDateKey,
+          toQueueDateKey: queueDateKey,
+          restoredFromCarryOver: true
         }
       });
     }
@@ -806,13 +1282,224 @@ async function reopenQueueDay(tenant, options = {}) {
       actorRole: actor.actorRole,
       source: actor.source,
       metadata: {
-        affectedTicketIds: activeClosure.affectedTicketIds
+        affectedTicketIds: activeClosure.affectedTicketIds,
+        restoredCarriedTicketIds: restoredCarriedTickets.map((ticket) => ticket._id)
       }
     });
   });
 
   await maybeNotifyUpcomingTickets(tenant, { location });
   return publishSnapshot(tenant, { location });
+}
+
+async function pauseQueueDay(tenant, options = {}) {
+  const location = await resolveLocation(tenant, options);
+  if (!location) {
+    const error = new Error("A location is required to pause queue intake.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const queueDateKey = options.queueDateKey || getDateKey();
+  await db.withTransaction(async (client) => {
+    const activeClosure = await queueDayClosureRepository.findActiveClosure(
+      tenant._id,
+      location._id,
+      queueDateKey,
+      { client }
+    );
+    if (activeClosure) {
+      const error = new Error("This queue day is already closed.");
+      error.statusCode = 409;
+      throw error;
+    }
+
+    const activePause = await queueDayPauseRepository.findActivePause(
+      tenant._id,
+      location._id,
+      queueDateKey,
+      { client }
+    );
+    if (activePause) {
+      const error = new Error("This queue is already paused.");
+      error.statusCode = 409;
+      throw error;
+    }
+
+    const waitingTickets = await ticketRepository.listWaitingTickets(tenant._id, {
+      client,
+      locationId: location._id,
+      dateKey: queueDateKey
+    });
+
+    const pause = await queueDayPauseRepository.createPause(
+      {
+        tenantId: tenant._id,
+        locationId: location._id,
+        queueDateKey,
+        pauseReason: options.reason || "Paused from vendor dashboard",
+        pauseMode: options.pauseMode || "manual",
+        pausedByUserId: options.actorUserId || null
+      },
+      { client }
+    );
+
+    await appendScopedQueueEvent(client, {
+      tenantId: tenant._id,
+      locationId: location._id,
+      queueDateKey,
+      eventType: "queue_paused",
+      actorUserId: options.actorUserId || null,
+      actorRole: options.actorRole || null,
+      source: options.source || "vendor",
+      metadata: {
+        pauseMode: pause.pauseMode,
+        pauseReason: pause.pauseReason,
+        waitingCount: waitingTickets.length,
+        autoPauseThreshold: tenant.autoPauseThreshold || null
+      }
+    });
+  });
+
+  return publishSnapshot(tenant, { location, queueDateKey });
+}
+
+async function resumeQueueDay(tenant, options = {}) {
+  const location = await resolveLocation(tenant, options);
+  if (!location) {
+    const error = new Error("A location is required to resume queue intake.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const queueDateKey = options.queueDateKey || getDateKey();
+  await db.withTransaction(async (client) => {
+    const activePause = await queueDayPauseRepository.findActivePause(
+      tenant._id,
+      location._id,
+      queueDateKey,
+      { client }
+    );
+    if (!activePause) {
+      const error = new Error("This queue is not paused.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    await queueDayPauseRepository.resumePause(activePause._id, options.actorUserId || null, {
+      client
+    });
+
+    await appendScopedQueueEvent(client, {
+      tenantId: tenant._id,
+      locationId: location._id,
+      queueDateKey,
+      eventType: "queue_resumed",
+      actorUserId: options.actorUserId || null,
+      actorRole: options.actorRole || null,
+      source: options.source || "vendor",
+      metadata: {
+        pauseMode: activePause.pauseMode,
+        pauseReason: activePause.pauseReason
+      }
+    });
+  });
+
+  return publishSnapshot(tenant, { location, queueDateKey });
+}
+
+async function restoreSkippedTicket(tenant, ticketId, options = {}) {
+  const location = await resolveLocation(tenant, options);
+  const dateKey = options.queueDateKey || getDateKey();
+
+  const ticket = await db.withTransaction(async (client) => {
+    await assertQueueIntakeOpen(tenant, location, { client, queueDateKey: dateKey });
+    await assertRestoreCapacityAvailable(tenant, location, { client, queueDateKey: dateKey });
+
+    const targetTicket = await ticketRepository.findTicketById(ticketId, { client });
+
+    if (!targetTicket || String(targetTicket.tenantId) !== String(tenant._id)) {
+      const error = new Error("Skipped ticket not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    if (
+      options.lookupCode &&
+      String(targetTicket.lookupCode || "").toUpperCase() !==
+        String(options.lookupCode || "").toUpperCase()
+    ) {
+      const error = new Error("Skipped ticket not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    if (targetTicket.locationId && String(targetTicket.locationId) !== String(location._id)) {
+      const error = new Error("Skipped ticket not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    if (targetTicket.status !== "skipped") {
+      const error = new Error("Only skipped tickets can be restored.");
+      error.statusCode = 409;
+      throw error;
+    }
+
+    if (!targetTicket.skippedAt) {
+      const error = new Error("This skipped ticket is missing recovery metadata.");
+      error.statusCode = 409;
+      throw error;
+    }
+
+    const recoveryDeadline = targetTicket.rejoinDeadlineAt
+      ? new Date(targetTicket.rejoinDeadlineAt)
+      : null;
+    const servicePriorityBand =
+      recoveryDeadline && recoveryDeadline.getTime() > Date.now() ? "recovery" : "normal";
+
+    queueLifecycle.assertValidTransition(targetTicket.status, "waiting");
+    const restoredTicket = await ticketRepository.restoreSkippedTicket(tenant._id, ticketId, {
+      client,
+      locationId: location._id,
+      servicePriorityBand
+    });
+
+    if (!restoredTicket) {
+      return null;
+    }
+
+    const actor = buildQueueEventActor({
+      actorUserId: options.actorUserId,
+      actorRole: options.actorRole,
+      source: options.source || "vendor"
+    });
+
+    await appendQueueEvent(client, restoredTicket, "ticket_requeued", {
+      fromStatus: "skipped",
+      toStatus: "waiting",
+      actorUserId: actor.actorUserId,
+      actorRole: actor.actorRole,
+      source: actor.source,
+      metadata: {
+        reason: servicePriorityBand === "recovery" ? "missed_ticket_recovery" : "missed_ticket_rejoin_expired",
+        servicePriorityBand,
+        queueDateKey: dateKey
+      }
+    });
+
+    return restoredTicket;
+  });
+
+  if (!ticket) {
+    return null;
+  }
+
+  await maybeNotifyUpcomingTickets(tenant, { location });
+  await maybeAutoPauseQueueDay(tenant, { location, queueDateKey: dateKey });
+  const snapshot = await publishSnapshot(tenant, { location });
+
+  return { ticket, snapshot };
 }
 
 module.exports = {
@@ -825,6 +1512,9 @@ module.exports = {
   cancelTicket,
   closeQueueDay,
   reopenQueueDay,
+  pauseQueueDay,
+  resumeQueueDay,
+  restoreSkippedTicket,
   publishSnapshot,
   maybeNotifyUpcomingTickets
 };

@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   Alert,
+  Badge,
   Button,
   Checkbox,
+  Group,
   PinInput,
   Paper,
   SimpleGrid,
@@ -24,9 +26,10 @@ import type {
   TenantSummary,
   VerifyJoinOtpRequest
 } from "@shared";
-import { apiRequest } from "../api/client";
+import { API_BASE_URL, apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { buildJoinedQueuePathWithTicket, buildMonitorPath } from "../queuePaths";
+import { saveJoinedQueueAccess } from "../utils/joinedQueueAccess";
 import { getErrorMessage } from "../utils/errors";
 
 type JoinQueueFormState = Omit<JoinQueueRequest, "joinChannel" | "turnstileToken">;
@@ -87,6 +90,7 @@ export default function JoinQueuePage() {
   const turnstileWidgetIdRef = useRef<string | null>(null);
   const [tenantInfo, setTenantInfo] = useState<TenantSummary | null>(null);
   const [locationName, setLocationName] = useState("");
+  const [queueSnapshot, setQueueSnapshot] = useState<QueueSnapshot | null>(null);
   const [form, setForm] = useState<JoinQueueFormState>({
     customerName: "",
     customerEmail: "",
@@ -126,16 +130,32 @@ export default function JoinQueuePage() {
   const queueFeeEnabled = Boolean(tenantInfo?.queueFee?.enabled);
   const smsFeeApplies = Boolean(form.notifyBySms && queueFeeEnabled);
   const canSkipOtp = !form.notifyByEmail && !smsFeeApplies;
+  const queueIntakePaused = Boolean(queueSnapshot?.queueDay?.isPaused);
+  const queueDayClosed = Boolean(queueSnapshot?.queueDay?.isClosed);
+  const queueStateBadge = queueDayClosed
+    ? { color: "red", label: "Closed" }
+    : queueIntakePaused
+      ? { color: "yellow", label: "Paused" }
+      : { color: "teal", label: "Open" };
+  const queuePauseMessage =
+    queueSnapshot?.queueDay?.pauseReason ||
+    "This queue is temporarily paused while the team works through the current line.";
+  const queueClosedMessage =
+    queueSnapshot?.queueDay?.closureReason ||
+    "This queue is closed for the day. Please check back during the next service window.";
   const requiresPhone = form.notifyBySms;
   const requiresEmail = form.notifyByEmail;
   const pageTitle = tenantInfo?.name || tenantSlugValue;
-  const joinedQueueNavigationState = {
-    registrationPrefill: {
-      name: form.customerName,
-      email: form.customerEmail,
-      phone: form.customerPhone
-    }
-  };
+  const joinedQueueNavigationState = useMemo(
+    () => ({
+      registrationPrefill: {
+        name: form.customerName,
+        email: form.customerEmail,
+        phone: form.customerPhone
+      }
+    }),
+    [form.customerEmail, form.customerName, form.customerPhone]
+  );
 
   useEffect(() => {
     if (user) {
@@ -156,17 +176,45 @@ export default function JoinQueuePage() {
     const basePath = locationSlug
       ? `/public/tenant/${tenantSlug}/location/${locationSlug}`
       : `/public/tenant/${tenantSlug}`;
+    let active = true;
 
     apiRequest<QueueSnapshot>(`${basePath}/queue`)
       .then((data) => {
+        if (!active) {
+          return;
+        }
+        setQueueSnapshot(data);
         setTenantInfo({
           ...data.tenant
         });
         setLocationName(data.location?.name || "");
+        setError("");
       })
       .catch((loadError) => {
-        setError(getErrorMessage(loadError));
+        if (active) {
+          setError(getErrorMessage(loadError));
+        }
       });
+
+    const eventSource = new EventSource(`${API_BASE_URL}${basePath}/stream`);
+    eventSource.onmessage = (event) => {
+      const data = JSON.parse(event.data) as QueueSnapshot;
+      setQueueSnapshot(data);
+      setTenantInfo({
+        ...data.tenant
+      });
+      setLocationName(data.location?.name || "");
+      setError("");
+    };
+    eventSource.onerror = () => {
+      setError("Live queue updates disconnected. Refresh to reconnect.");
+      eventSource.close();
+    };
+
+    return () => {
+      active = false;
+      eventSource.close();
+    };
   }, [locationSlug, tenantSlug]);
 
   useEffect(() => {
@@ -212,6 +260,12 @@ export default function JoinQueuePage() {
         }
 
         if (data.paid && data.ticket?.lookupCode) {
+          const prefill = joinedQueueNavigationState.registrationPrefill;
+          saveJoinedQueueAccess(data.ticket.lookupCode, {
+            customerEmail: prefill.email,
+            customerPhone: prefill.phone,
+            customerName: prefill.name
+          });
           navigate(
             buildJoinedQueuePathWithTicket(tenantSlugValue, data.ticket.lookupCode, locationSlug),
             {
@@ -243,7 +297,7 @@ export default function JoinQueuePage() {
     return () => {
       active = false;
     };
-  }, [locationSlug, navigate, publicApiBase, searchParams, tenantSlugValue]);
+  }, [joinedQueueNavigationState, locationSlug, navigate, publicApiBase, searchParams, tenantSlugValue]);
 
   useEffect(() => {
     if (!otp || resendSecondsRemaining <= 0) {
@@ -349,6 +403,18 @@ export default function JoinQueuePage() {
     setError("");
 
     try {
+      if (queueDayClosed) {
+        setError(queueClosedMessage);
+        setSubmitting(false);
+        return;
+      }
+
+      if (queueIntakePaused) {
+        setError(queuePauseMessage);
+        setSubmitting(false);
+        return;
+      }
+
       if (shouldUseTurnstile && !turnstileToken) {
         setError("Please complete the security check before joining.");
         setSubmitting(false);
@@ -381,6 +447,18 @@ export default function JoinQueuePage() {
     setError("");
 
     try {
+      if (queueDayClosed) {
+        setError(queueClosedMessage);
+        setSubmitting(false);
+        return;
+      }
+
+      if (queueIntakePaused) {
+        setError(queuePauseMessage);
+        setSubmitting(false);
+        return;
+      }
+
       if (shouldUseTurnstile && !turnstileToken) {
         setError("Please complete the security check before joining.");
         setSubmitting(false);
@@ -397,6 +475,11 @@ export default function JoinQueuePage() {
       );
 
       if (data.ticket?.lookupCode) {
+        saveJoinedQueueAccess(data.ticket.lookupCode, {
+          customerEmail: form.customerEmail,
+          customerPhone: form.customerPhone,
+          customerName: form.customerName
+        });
         notifications.show({
           color: "teal",
           icon: <IconCheck size={18} />,
@@ -454,7 +537,7 @@ export default function JoinQueuePage() {
     await requestOtp();
   }
 
-  async function handleVerifyOtp(event: FormEvent<HTMLFormElement>) {
+  const handleVerifyOtp = useCallback(async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     if (!otp) {
@@ -488,6 +571,11 @@ export default function JoinQueuePage() {
       }
 
       if (data.ticket?.lookupCode) {
+        saveJoinedQueueAccess(data.ticket.lookupCode, {
+          customerEmail: form.customerEmail,
+          customerPhone: form.customerPhone,
+          customerName: form.customerName
+        });
         notifications.show({
           color: "teal",
           icon: <IconCheck size={18} />,
@@ -512,7 +600,7 @@ export default function JoinQueuePage() {
     } finally {
       setSubmitting(false);
     }
-  }
+  }, [form.customerEmail, form.customerName, form.customerPhone, joinedQueueNavigationState, locationSlug, navigate, otp, otpCode, publicApiBase, tenantSlugValue]);
 
   useEffect(() => {
     if (!otp || otpCode.length !== 6 || submitting || otpAutoSubmitRef.current) {
@@ -529,7 +617,7 @@ export default function JoinQueuePage() {
     handleVerifyOtp({ preventDefault() {} } as FormEvent<HTMLFormElement>).finally(() => {
       otpAutoSubmitRef.current = false;
     });
-  }, [otp, otpCode, submitting]);
+  }, [handleVerifyOtp, otp, otpCode, submitting]);
 
   return (
     <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xl" className="finazze-join-layout">
@@ -538,6 +626,18 @@ export default function JoinQueuePage() {
         <Text className="finazze-section-label">Join queue</Text>
         <Title order={1}>{pageTitle}</Title>
         {locationName ? <Text fw={700}>{locationName}</Text> : null}
+        <Group gap="xs">
+          <Badge color={queueStateBadge.color} radius="xl" size="lg" variant="light">
+            {queueStateBadge.label}
+          </Badge>
+          <Text c="dimmed" size="sm">
+            {queueDayClosed
+              ? "Queue closed for the day"
+              : queueIntakePaused
+                ? "New joins temporarily paused"
+                : "Now accepting joins"}
+          </Text>
+        </Group>
         <Text c="dimmed">
           Join online, then monitor your ticket live from the public board.
         </Text>
@@ -556,6 +656,20 @@ export default function JoinQueuePage() {
           <Alert color="blue" variant="light" radius="md">
             SMS updates are convenient, but they carry a small platform fee of{" "}
             {tenantInfo?.queueFee.displayAmount}. You will only be charged if you keep SMS alerts enabled.
+          </Alert>
+        ) : null}
+        {queueIntakePaused ? (
+          <Alert color="yellow" icon={<IconInfoCircle size={18} />} radius="md" variant="light">
+            We are temporarily pausing new joins for this queue while the team catches up with the current line.
+            {queueSnapshot?.queueDay?.pauseReason ? ` ${queueSnapshot.queueDay.pauseReason}.` : ""}
+            {" "}Please check back shortly.
+          </Alert>
+        ) : null}
+        {queueDayClosed ? (
+          <Alert color="red" icon={<IconInfoCircle size={18} />} radius="md" variant="light">
+            This queue is closed for the day.
+            {queueSnapshot?.queueDay?.closureReason ? ` ${queueSnapshot.queueDay.closureReason}.` : ""}
+            {" "}You can check the live board for updates on when service resumes.
           </Alert>
         ) : null}
         {otp ? (
@@ -578,6 +692,7 @@ export default function JoinQueuePage() {
               aria-label="OTP"
               inputMode="numeric"
               length={6}
+              name="otpCode"
               oneTimeCode
               size="lg"
               type="number"
@@ -585,7 +700,7 @@ export default function JoinQueuePage() {
               onChange={(value) => setOtpCode(value.replace(/\D/g, ""))}
             />
             {error ? <Alert color="red">{error}</Alert> : null}
-            <Button color="dark" disabled={submitting || otpCode.length !== 6} type="submit">
+            <Button color="dark" disabled={submitting || queueIntakePaused || queueDayClosed || otpCode.length !== 6} type="submit">
               {submitting
                 ? "Verifying..."
                   : smsFeeApplies
@@ -617,8 +732,9 @@ export default function JoinQueuePage() {
         ) : (
           <form onSubmit={handleSubmit}>
             <Stack gap="md">
-            <TextInput required label="Name" value={form.customerName} onChange={(event) => setForm((current) => ({ ...current, customerName: event.target.value }))} />
+            <TextInput name="customerName" required label="Name" value={form.customerName} onChange={(event) => setForm((current) => ({ ...current, customerName: event.target.value }))} />
             <TextInput
+              name="customerEmail"
               label="Email"
               required={requiresEmail}
               type="email"
@@ -626,18 +742,21 @@ export default function JoinQueuePage() {
               onChange={(event) => setForm((current) => ({ ...current, customerEmail: event.target.value }))}
             />
             <TextInput
+              name="customerPhone"
               label="Phone"
               required={requiresPhone}
               value={form.customerPhone}
               onChange={(event) => setForm((current) => ({ ...current, customerPhone: event.target.value }))}
             />
-            <Textarea label="Notes" minRows={3} value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} />
+            <Textarea name="notes" label="Notes" minRows={3} value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} />
             <Checkbox
+              name="notifyByEmail"
               checked={form.notifyByEmail}
               label="Email me when I am almost next in line"
               onChange={(event) => setForm((current) => ({ ...current, notifyByEmail: event.target.checked }))}
             />
             <Checkbox
+              name="notifyBySms"
               checked={form.notifyBySms}
               label="Send SMS alerts"
               onChange={(event) => setForm((current) => ({ ...current, notifyBySms: event.target.checked }))}
@@ -650,7 +769,7 @@ export default function JoinQueuePage() {
             {error ? <Alert color="red">{error}</Alert> : null}
             <Button
               color="dark"
-              disabled={submitting || (shouldUseTurnstile && !turnstileReady)}
+              disabled={submitting || queueIntakePaused || queueDayClosed || (shouldUseTurnstile && !turnstileReady)}
               type="submit"
             >
               {submitting

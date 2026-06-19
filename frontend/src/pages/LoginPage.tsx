@@ -120,6 +120,7 @@ export default function LoginPage() {
           <form onSubmit={handlePasswordResetConfirm}>
             <Stack gap="md">
               <PasswordInput
+                name="newPassword"
                 label="New password"
                 required
                 value={resetConfirmForm.newPassword}
@@ -154,6 +155,7 @@ export default function LoginPage() {
             <form onSubmit={handleSubmit}>
               <Stack gap="md">
                 <TextInput
+                  name="email"
                   label="Email"
                   required
                   type="email"
@@ -161,6 +163,7 @@ export default function LoginPage() {
                   onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))}
                 />
                 <PasswordInput
+                  name="password"
                   label="Password"
                   required
                   value={form.password}
@@ -197,6 +200,7 @@ export default function LoginPage() {
               <form onSubmit={handlePasswordResetRequest}>
                 <Stack gap="md">
                   <TextInput
+                    name="resetEmail"
                     label="Reset email"
                     required
                     type="email"

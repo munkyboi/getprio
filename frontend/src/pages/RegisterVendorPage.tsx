@@ -107,13 +107,13 @@ export default function RegisterVendorPage() {
         {!isAuthenticatedFlow ? <SocialAuthButtons intent="register_vendor" /> : null}
         <form onSubmit={handleSubmit}>
           <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
-            <TextInput label="Business name" required value={form.tenantName} onChange={(event) => setForm((current) => ({ ...current, tenantName: event.target.value }))} />
-            <TextInput label="Tenant slug" placeholder="acme-clinic" required value={form.tenantSlug} onChange={(event) => setForm((current) => ({ ...current, tenantSlug: event.target.value }))} />
-            <TextInput label="Owner name" required value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} />
-            <TextInput label="Email" required type="email" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} />
-            <TextInput label="Phone" value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} />
+            <TextInput name="tenantName" label="Business name" required value={form.tenantName} onChange={(event) => setForm((current) => ({ ...current, tenantName: event.target.value }))} />
+            <TextInput name="tenantSlug" label="Tenant slug" placeholder="acme-clinic" required value={form.tenantSlug} onChange={(event) => setForm((current) => ({ ...current, tenantSlug: event.target.value }))} />
+            <TextInput name="ownerName" label="Owner name" required value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} />
+            <TextInput name="email" label="Email" required type="email" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} />
+            <TextInput name="phone" label="Phone" value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} />
             {!isAuthenticatedFlow ? (
-              <PasswordInput label="Password" required value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} />
+              <PasswordInput name="password" label="Password" required value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} />
             ) : null}
           </SimpleGrid>
           <Stack gap="md" mt="md">

@@ -8,6 +8,10 @@ const TENANT_COLUMNS = `
   queue_prefix,
   average_service_minutes,
   notification_threshold,
+  auto_pause_enabled,
+  auto_pause_threshold,
+  auto_resume_enabled,
+  auto_resume_vacancy_percent,
   contact_email,
   contact_phone,
   is_active,
@@ -27,6 +31,10 @@ function mapTenant(row) {
     queuePrefix: row.queue_prefix,
     averageServiceMinutes: row.average_service_minutes,
     notificationThreshold: row.notification_threshold,
+    autoPauseEnabled: row.auto_pause_enabled,
+    autoPauseThreshold: row.auto_pause_threshold,
+    autoResumeEnabled: row.auto_resume_enabled,
+    autoResumeVacancyPercent: row.auto_resume_vacancy_percent,
     contactEmail: row.contact_email,
     contactPhone: row.contact_phone,
     isActive: row.is_active,
@@ -85,11 +93,15 @@ async function createTenant(data, options = {}) {
         queue_prefix,
         average_service_minutes,
         notification_threshold,
+        auto_pause_enabled,
+        auto_pause_threshold,
+        auto_resume_enabled,
+        auto_resume_vacancy_percent,
         contact_email,
         contact_phone,
         is_active
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
       RETURNING ${TENANT_COLUMNS}
     `,
     [
@@ -98,6 +110,10 @@ async function createTenant(data, options = {}) {
       data.queuePrefix || "P",
       data.averageServiceMinutes ?? 5,
       data.notificationThreshold ?? 2,
+      data.autoPauseEnabled ?? false,
+      data.autoPauseThreshold ?? null,
+      data.autoResumeEnabled ?? false,
+      data.autoResumeVacancyPercent ?? null,
       data.contactEmail || null,
       data.contactPhone || null,
       data.isActive ?? true
@@ -133,6 +149,10 @@ async function updateTenant(tenantId, changes, options = {}) {
     queuePrefix: "queue_prefix",
     averageServiceMinutes: "average_service_minutes",
     notificationThreshold: "notification_threshold",
+    autoPauseEnabled: "auto_pause_enabled",
+    autoPauseThreshold: "auto_pause_threshold",
+    autoResumeEnabled: "auto_resume_enabled",
+    autoResumeVacancyPercent: "auto_resume_vacancy_percent",
     contactEmail: "contact_email",
     contactPhone: "contact_phone",
     isActive: "is_active"
