@@ -7,7 +7,7 @@ dotenv.config({ path: rootEnvPath });
 const backendEnvPath = path.resolve(__dirname, "../../.env");
 dotenv.config({ path: backendEnvPath, override: false });
 
-export const port = Number(process.env.PORT || process.env.BACKEND_PORT || 5000);
+export const port = Number(process.env.PORT || process.env.BACKEND_PORT || 5001);
 const frontendPort = Number(process.env.FRONTEND_PORT || 5173);
 const platformDashboardPort = Number(process.env.PLATFORM_DASHBOARD_PORT || 7100);
 

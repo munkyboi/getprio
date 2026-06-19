@@ -147,8 +147,8 @@ export default function JoinQueuePage() {
   const requiresEmail = form.notifyByEmail;
   const pageTitle = tenantInfo?.name || tenantSlugValue;
   const signedInCustomer = Boolean(user?.roles?.includes("customer"));
-  const customerAccountName = signedInCustomer ? user.name || "Customer account" : "";
-  const customerAccountEmail = signedInCustomer ? user.email || "" : "";
+  const customerAccountName = signedInCustomer && user ? user.name || "Customer account" : "";
+  const customerAccountEmail = signedInCustomer && user ? user.email || "" : "";
   const joinedQueueNavigationState = useMemo(
     () => ({
       registrationPrefill: {
@@ -397,7 +397,7 @@ export default function JoinQueuePage() {
   }
 
   function restoreCustomerDetails() {
-    if (!signedInCustomer) {
+    if (!signedInCustomer || !user) {
       return;
     }
 

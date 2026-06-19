@@ -6,6 +6,7 @@ It is intentionally concise and should be updated as the implementation work mov
 ## Status Key
 
 - `Done` = the PRD scope is effectively complete for v1
+- `Mostly Complete` = the core scope is implemented, with only follow-on polish or edge-case work left
 - `Partial` = meaningful implementation exists, but some scope remains open
 - `Pending` = the PRD is still mostly planned work
 
@@ -13,13 +14,13 @@ It is intentionally concise and should be updated as the implementation work mov
 
 | PRD | Status | Notes |
 | --- | --- | --- |
-| Auth / Session / RBAC | Partial | Core auth/session/RBAC foundation is implemented, but MFA, cookie transport, CSRF, and logout-all are still open. |
-| Queue Lifecycle | Partial | Lifecycle rules, close/reopen, carry-over, and major tests are in place, but some edge-case and recovery work remains. |
-| Customer / Public Flow | Partial | Public/customer flow hardening plus customer account reuse parity is in place, but a few cleanup items remain before the PRD is complete. |
-| Vendor Operations | Partial | Vendor dashboard and operational flows exist, but the PRD still calls for completeness work around role boundaries, configuration, and operational polish. |
-| Payments / Billing | Partial | Queue-join payment handling is hardened, but subscription billing and broader reconciliation are still open. |
-| Data Integrity / Observability | Pending | Integrity and logging requirements are defined, but the PRD still needs broader observability and reconciliation work. |
-| High-Risk Test Coverage | Partial | Focused backend coverage exists, but the PRD still needs broader end-to-end and vendor-operations coverage. |
+| Auth / Session / RBAC | Partial | Core auth/session/RBAC foundation is in place, but MFA, cookie transport, CSRF, and logout-all are still open. |
+| Queue Lifecycle | Partial | Lifecycle rules, close/reopen, carry-over, recovery handling, and major tests are in place, but broader edge-case and replay coverage remains. |
+| Customer / Public Flow | Mostly Complete | Public/customer flow hardening plus customer account reuse parity is in place, and only follow-on stabilization items remain. |
+| Vendor Operations | Partial | Vendor dashboard and operational flows exist, but role boundaries, configuration, and operational polish still need completion. |
+| Payments / Billing | Partial | Queue-join payment handling is hardened, but subscription billing and reconciliation are still open. |
+| Data Integrity / Observability | Partial | Audit and integrity foundations exist, but broader observability and reconciliation work remain. |
+| High-Risk Test Coverage | Partial | Focused backend coverage exists for auth, queue, and customer/public flow, but broader end-to-end and vendor-operations coverage remains. |
 
 ## Source PRDs
 
