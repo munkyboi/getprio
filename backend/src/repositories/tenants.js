@@ -14,6 +14,11 @@ const TENANT_COLUMNS = `
   auto_resume_vacancy_percent,
   contact_email,
   contact_phone,
+  public_profile_enabled,
+  public_profile_description,
+  public_profile_category,
+  public_profile_image_url,
+  vendor_approval_status,
   is_active,
   created_at,
   updated_at
@@ -37,9 +42,35 @@ function mapTenant(row) {
     autoResumeVacancyPercent: row.auto_resume_vacancy_percent,
     contactEmail: row.contact_email,
     contactPhone: row.contact_phone,
+    publicProfileEnabled: row.public_profile_enabled,
+    publicProfileDescription: row.public_profile_description || "",
+    publicProfileCategory: row.public_profile_category || "",
+    publicProfileImageUrl: row.public_profile_image_url || "",
+    vendorApprovalStatus: row.vendor_approval_status || "approved",
     isActive: row.is_active,
     createdAt: row.created_at,
     updatedAt: row.updated_at
+  };
+}
+
+function mapPublicVendorProfile(row) {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    name: row.name,
+    slug: row.slug,
+    category: row.public_profile_category || "",
+    description: row.public_profile_description || "",
+    imageUrl: row.public_profile_image_url || "",
+    location: {
+      name: row.location_name || "",
+      slug: row.location_slug || "",
+      city: row.location_city || "",
+      province: row.location_province || "",
+      country: row.location_country || "Philippines"
+    }
   };
 }
 
@@ -99,9 +130,14 @@ async function createTenant(data, options = {}) {
         auto_resume_vacancy_percent,
         contact_email,
         contact_phone,
+        public_profile_enabled,
+        public_profile_description,
+        public_profile_category,
+        public_profile_image_url,
+        vendor_approval_status,
         is_active
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
       RETURNING ${TENANT_COLUMNS}
     `,
     [
@@ -116,6 +152,11 @@ async function createTenant(data, options = {}) {
       data.autoResumeVacancyPercent ?? null,
       data.contactEmail || null,
       data.contactPhone || null,
+      data.publicProfileEnabled ?? true,
+      data.publicProfileDescription || null,
+      data.publicProfileCategory || null,
+      data.publicProfileImageUrl || null,
+      data.vendorApprovalStatus || "approved",
       data.isActive ?? true
     ]
   );
@@ -155,6 +196,11 @@ async function updateTenant(tenantId, changes, options = {}) {
     autoResumeVacancyPercent: "auto_resume_vacancy_percent",
     contactEmail: "contact_email",
     contactPhone: "contact_phone",
+    publicProfileEnabled: "public_profile_enabled",
+    publicProfileDescription: "public_profile_description",
+    publicProfileCategory: "public_profile_category",
+    publicProfileImageUrl: "public_profile_image_url",
+    vendorApprovalStatus: "vendor_approval_status",
     isActive: "is_active"
   };
 
@@ -184,11 +230,106 @@ async function updateTenant(tenantId, changes, options = {}) {
   return mapTenant(result.rows[0]);
 }
 
+async function listPublicVendorProfiles(options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const search = String(options.search || "").trim();
+  const limit = Math.min(Math.max(Number(options.limit) || 24, 1), 50);
+  const values = [];
+  let searchClause = "";
+
+  if (search) {
+    values.push(`%${search.toLowerCase()}%`);
+    searchClause = `
+      AND (
+        LOWER(tenants.name) LIKE $${values.length}
+        OR LOWER(COALESCE(tenants.public_profile_category, '')) LIKE $${values.length}
+        OR LOWER(COALESCE(tenants.public_profile_description, '')) LIKE $${values.length}
+        OR LOWER(COALESCE(primary_location.city, '')) LIKE $${values.length}
+        OR LOWER(COALESCE(primary_location.province, '')) LIKE $${values.length}
+      )
+    `;
+  }
+
+  values.push(limit);
+
+  const result = await queryClient.query(
+    `
+      SELECT
+        tenants.name,
+        tenants.slug,
+        tenants.public_profile_description,
+        tenants.public_profile_category,
+        tenants.public_profile_image_url,
+        primary_location.name AS location_name,
+        primary_location.slug AS location_slug,
+        primary_location.city AS location_city,
+        primary_location.province AS location_province,
+        primary_location.country AS location_country
+      FROM tenants
+      LEFT JOIN LATERAL (
+        SELECT name, slug, city, province, country
+        FROM store_locations
+        WHERE store_locations.tenant_id = tenants.id
+          AND store_locations.is_active = TRUE
+        ORDER BY store_locations.is_primary DESC, store_locations.created_at ASC
+        LIMIT 1
+      ) primary_location ON TRUE
+      WHERE tenants.is_active = TRUE
+        AND tenants.public_profile_enabled = TRUE
+        AND tenants.vendor_approval_status = 'approved'
+        ${searchClause}
+      ORDER BY tenants.name ASC
+      LIMIT $${values.length}
+    `,
+    values
+  );
+
+  return result.rows.map(mapPublicVendorProfile);
+}
+
+async function findPublicVendorProfileBySlug(slug, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const result = await queryClient.query(
+    `
+      SELECT
+        tenants.name,
+        tenants.slug,
+        tenants.public_profile_description,
+        tenants.public_profile_category,
+        tenants.public_profile_image_url,
+        primary_location.name AS location_name,
+        primary_location.slug AS location_slug,
+        primary_location.city AS location_city,
+        primary_location.province AS location_province,
+        primary_location.country AS location_country
+      FROM tenants
+      LEFT JOIN LATERAL (
+        SELECT name, slug, city, province, country
+        FROM store_locations
+        WHERE store_locations.tenant_id = tenants.id
+          AND store_locations.is_active = TRUE
+        ORDER BY store_locations.is_primary DESC, store_locations.created_at ASC
+        LIMIT 1
+      ) primary_location ON TRUE
+      WHERE tenants.slug = $1
+        AND tenants.is_active = TRUE
+        AND tenants.public_profile_enabled = TRUE
+        AND tenants.vendor_approval_status = 'approved'
+      LIMIT 1
+    `,
+    [slug]
+  );
+
+  return mapPublicVendorProfile(result.rows[0]);
+}
+
 module.exports = {
   mapTenant,
   findTenantBySlug,
   findTenantById,
   findTenantsByIds,
+  findPublicVendorProfileBySlug,
+  listPublicVendorProfiles,
   createTenant,
   updateTenant
 };

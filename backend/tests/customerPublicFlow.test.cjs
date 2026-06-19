@@ -125,6 +125,39 @@ function buildPublicRouter(ticket, cancelTicketMock) {
     "../middleware/auth": buildPublicAuthMock(),
     "../middleware/asyncHandler": buildAsyncHandlerMock(),
     "../repositories/tenants": {
+      listPublicVendorProfiles: async () => [
+        {
+          name: "Demo Tenant",
+          slug: "demo",
+          category: "Clinic",
+          description: "Public queue and booking profile.",
+          imageUrl: "",
+          location: {
+            name: "Ayala",
+            slug: "ayala",
+            city: "Cebu City",
+            province: "Cebu",
+            country: "Philippines"
+          }
+        }
+      ],
+      findPublicVendorProfileBySlug: async (slug) =>
+        slug === "demo"
+          ? {
+              name: "Demo Tenant",
+              slug: "demo",
+              category: "Clinic",
+              description: "Public queue and booking profile.",
+              imageUrl: "",
+              location: {
+                name: "Ayala",
+                slug: "ayala",
+                city: "Cebu City",
+                province: "Cebu",
+                country: "Philippines"
+              }
+            }
+          : null,
       findTenantBySlug: async () => ({
         _id: "tenant-1",
         slug: "demo",
@@ -236,6 +269,47 @@ function buildPublicRouter(ticket, cancelTicketMock) {
     }
   });
 }
+
+test("public vendor discovery returns approved public profile cards", async () => {
+  const router = buildPublicRouter(null, async () => ({}));
+  const { server, baseUrl } = await startServer(router, "/api/public");
+
+  try {
+    const response = await fetch(`${baseUrl}/vendors?search=clinic`);
+
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.vendors.length, 1);
+    assert.deepEqual(Object.keys(body.vendors[0]).sort(), [
+      "category",
+      "description",
+      "imageUrl",
+      "location",
+      "name",
+      "slug"
+    ]);
+    assert.equal(body.vendors[0].slug, "demo");
+    assert.equal(body.vendors[0].location.city, "Cebu City");
+    assert.equal(body.vendors[0].contactEmail, undefined);
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("public vendor profile returns 404 for unavailable vendors", async () => {
+  const router = buildPublicRouter(null, async () => ({}));
+  const { server, baseUrl } = await startServer(router, "/api/public");
+
+  try {
+    const response = await fetch(`${baseUrl}/vendors/private-vendor`);
+
+    assert.equal(response.status, 404);
+    const body = await response.json();
+    assert.match(body.message, /vendor not found/i);
+  } finally {
+    await stopServer(server);
+  }
+});
 
 test("public cancellation rejects requests without matching ownership proof", async () => {
   const router = buildPublicRouter(

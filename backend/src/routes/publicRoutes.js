@@ -20,6 +20,35 @@ const {
 
 const router = express.Router();
 
+router.get(
+  "/vendors",
+  asyncHandler(async (req, res) => {
+    const vendors = await tenantRepository.listPublicVendorProfiles({
+      search: req.query.search,
+      limit: req.query.limit
+    });
+
+    res.json({ vendors });
+  })
+);
+
+router.get(
+  "/vendors/:tenantSlug",
+  asyncHandler(async (req, res) => {
+    const vendor = await tenantRepository.findPublicVendorProfileBySlug(
+      String(req.params.tenantSlug).toLowerCase()
+    );
+
+    if (!vendor) {
+      const error = new Error("Vendor not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    res.json({ vendor });
+  })
+);
+
 async function getTenantOrThrow(tenantSlug) {
   const tenant = await tenantRepository.findTenantBySlug(String(tenantSlug).toLowerCase(), {
     activeOnly: true

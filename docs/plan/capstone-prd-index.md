@@ -10,6 +10,7 @@ The older v1 stability PRDs remain useful implementation history for the queue p
 - [Role-Based HCI Screen PRD](/Users/carloabella/Projects/getprio/dev/docs/plan/capstone-role-based-hci-screens-prd.md)
 - [IAS Security and Privacy PRD](/Users/carloabella/Projects/getprio/dev/docs/plan/capstone-ias-security-privacy-prd.md)
 - [Implementation Transition PRD](/Users/carloabella/Projects/getprio/dev/docs/plan/capstone-implementation-transition-prd.md)
+- [Route and Role Inventory](/Users/carloabella/Projects/getprio/dev/docs/plan/capstone-route-role-inventory.md)
 
 ## Product Architecture Thread
 
