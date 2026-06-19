@@ -13,11 +13,13 @@ import {
   Text,
   Title
 } from "@mantine/core";
-import { Link, Navigate, useLocation, useParams, useSearchParams } from "react-router-dom";
-import type { CancelQueueTicketRequest, QueueSnapshot, StoreHourSummary } from "@shared";
+import { notifications } from "@mantine/notifications";
+import { IconCheck, IconInfoCircle } from "@tabler/icons-react";
+import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import type { CancelQueueTicketRequest, QueueJoinPaymentSyncResponse, QueueSnapshot, StoreHourSummary } from "@shared";
 import { API_BASE_URL, apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import { buildJoinPath, buildMonitorPath, buildMonitorPathWithTicket } from "../queuePaths";
+import { buildJoinPath, buildJoinedQueuePathWithTicket, buildMonitorPath, buildMonitorPathWithTicket } from "../queuePaths";
 import { clearJoinedQueueAccess, getJoinedQueueAccess } from "../utils/joinedQueueAccess";
 import { getErrorMessage } from "../utils/errors";
 import { getLocationStatusSummary, getQueueStateSummary, getTicketStateSummary } from "../utils/queueStatus";
@@ -107,13 +109,17 @@ function normalizeHours(hours: StoreHourSummary[] = []): StoreHourSummary[] {
 export default function JoinedQueuePage() {
   const { tenantSlug, locationSlug } = useParams<{ tenantSlug: string; locationSlug?: string }>();
   const location = useLocation();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { token, user } = useAuth();
   const [snapshot, setSnapshot] = useState<QueueSnapshot | null>(null);
   const [error, setError] = useState("");
+  const [paymentSyncing, setPaymentSyncing] = useState(false);
   const [cancelSubmitting, setCancelSubmitting] = useState(false);
   const [hoursOpened, setHoursOpened] = useState(false);
   const lookupCode = searchParams.get("ticket") || "";
+  const paymentId = searchParams.get("payment");
+  const paymentStatus = searchParams.get("payment_status");
   const tenantSlugValue = tenantSlug || "";
 
   const prefill = (location.state as { registrationPrefill?: { name?: string; email?: string; phone?: string } } | null)
@@ -126,7 +132,8 @@ export default function JoinedQueuePage() {
     [location.hash, location.pathname, location.search, prefill]
   );
   const missingTenant = !tenantSlugValue;
-  const missingLookupCode = !lookupCode;
+  const shouldAwaitPaymentSync = Boolean(paymentId) && paymentStatus !== "cancelled";
+  const missingLookupCode = !lookupCode && !shouldAwaitPaymentSync;
 
   const joinPath = buildJoinPath(tenantSlugValue, locationSlug);
   const publicBoardPath = buildMonitorPathWithTicket(tenantSlugValue, lookupCode, locationSlug);
@@ -264,6 +271,70 @@ export default function JoinedQueuePage() {
     };
   }, [locationSlug, lookupCode, missingLookupCode, missingTenant, tenantSlugValue]);
 
+  useEffect(() => {
+    if (!tenantSlugValue || !paymentId || paymentStatus === "cancelled") {
+      return;
+    }
+
+    let active = true;
+    setPaymentSyncing(true);
+    setError("");
+
+    notifications.show({
+      color: "blue",
+      icon: <IconInfoCircle size={18} />,
+      message: "Confirming your queue fee payment...",
+      title: "Payment received"
+    });
+
+    const basePath = locationSlug
+      ? `/public/tenant/${tenantSlugValue}/location/${locationSlug}`
+      : `/public/tenant/${tenantSlugValue}`;
+
+    apiRequest<QueueJoinPaymentSyncResponse>(`${basePath}/join-payments/${paymentId}/sync`, {
+      method: "POST"
+    })
+      .then((data) => {
+        if (!active) {
+          return;
+        }
+
+        if (data.paid && data.ticket?.lookupCode) {
+          notifications.show({
+            color: "teal",
+            icon: <IconCheck size={18} />,
+            message: "Your ticket has been issued.",
+            title: "Joined queue"
+          });
+          navigate(buildJoinedQueuePathWithTicket(tenantSlugValue, data.ticket.lookupCode, locationSlug), {
+            replace: true
+          });
+          return;
+        }
+
+        notifications.show({
+          color: "blue",
+          icon: <IconInfoCircle size={18} />,
+          message: "Payment is still being confirmed. Please refresh in a moment.",
+          title: "Payment pending"
+        });
+      })
+      .catch((syncError) => {
+        if (active) {
+          setError(getErrorMessage(syncError));
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setPaymentSyncing(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [locationSlug, navigate, paymentId, paymentStatus, tenantSlugValue]);
+
   if (missingTenant) {
     return <Navigate replace to="/" />;
   }
@@ -340,6 +411,11 @@ export default function JoinedQueuePage() {
             </Table>
           </Table.ScrollContainer>
         </Modal>
+        {shouldAwaitPaymentSync || paymentSyncing ? (
+          <Alert color="blue" title="Confirming payment">
+            We are confirming your queue fee payment and loading your ticket.
+          </Alert>
+        ) : null}
         <Paper p={{ base: "lg", md: "xl" }} shadow="xl" style={cardStyle}>
           <SimpleGrid cols={{ base: 1, md: 3 }} spacing="xl">
             <Stack gap="md" style={{ gridColumn: "span 2" }}>
