@@ -46,6 +46,11 @@ CREATE TABLE tenants (
   auto_resume_vacancy_percent INTEGER CHECK (auto_resume_vacancy_percent IS NULL OR auto_resume_vacancy_percent BETWEEN 5 AND 50),
   contact_email TEXT,
   contact_phone TEXT,
+  public_profile_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  public_profile_description TEXT,
+  public_profile_category TEXT,
+  public_profile_image_url TEXT,
+  vendor_approval_status TEXT NOT NULL DEFAULT 'approved' CHECK (vendor_approval_status IN ('pending', 'approved', 'rejected', 'suspended')),
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
