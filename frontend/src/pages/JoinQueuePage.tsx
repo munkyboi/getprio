@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   Alert,
   Badge,
@@ -146,13 +146,16 @@ export default function JoinQueuePage() {
   const requiresPhone = form.notifyBySms;
   const requiresEmail = form.notifyByEmail;
   const pageTitle = tenantInfo?.name || tenantSlugValue;
-  const joinedQueueNavigationState = {
-    registrationPrefill: {
-      name: form.customerName,
-      email: form.customerEmail,
-      phone: form.customerPhone
-    }
-  };
+  const joinedQueueNavigationState = useMemo(
+    () => ({
+      registrationPrefill: {
+        name: form.customerName,
+        email: form.customerEmail,
+        phone: form.customerPhone
+      }
+    }),
+    [form.customerEmail, form.customerName, form.customerPhone]
+  );
 
   useEffect(() => {
     if (user) {
@@ -256,11 +259,12 @@ export default function JoinQueuePage() {
           return;
         }
 
-      if (data.paid && data.ticket?.lookupCode) {
+        if (data.paid && data.ticket?.lookupCode) {
+          const prefill = joinedQueueNavigationState.registrationPrefill;
           saveJoinedQueueAccess(data.ticket.lookupCode, {
-            customerEmail: form.customerEmail,
-            customerPhone: form.customerPhone,
-            customerName: form.customerName
+            customerEmail: prefill.email,
+            customerPhone: prefill.phone,
+            customerName: prefill.name
           });
           navigate(
             buildJoinedQueuePathWithTicket(tenantSlugValue, data.ticket.lookupCode, locationSlug),
@@ -293,7 +297,7 @@ export default function JoinQueuePage() {
     return () => {
       active = false;
     };
-  }, [locationSlug, navigate, publicApiBase, searchParams, tenantSlugValue]);
+  }, [joinedQueueNavigationState, locationSlug, navigate, publicApiBase, searchParams, tenantSlugValue]);
 
   useEffect(() => {
     if (!otp || resendSecondsRemaining <= 0) {
@@ -533,7 +537,7 @@ export default function JoinQueuePage() {
     await requestOtp();
   }
 
-  async function handleVerifyOtp(event: FormEvent<HTMLFormElement>) {
+  const handleVerifyOtp = useCallback(async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     if (!otp) {
@@ -596,7 +600,7 @@ export default function JoinQueuePage() {
     } finally {
       setSubmitting(false);
     }
-  }
+  }, [form.customerEmail, form.customerName, form.customerPhone, joinedQueueNavigationState, locationSlug, navigate, otp, otpCode, publicApiBase, tenantSlugValue]);
 
   useEffect(() => {
     if (!otp || otpCode.length !== 6 || submitting || otpAutoSubmitRef.current) {
@@ -613,7 +617,7 @@ export default function JoinQueuePage() {
     handleVerifyOtp({ preventDefault() {} } as FormEvent<HTMLFormElement>).finally(() => {
       otpAutoSubmitRef.current = false;
     });
-  }, [otp, otpCode, submitting]);
+  }, [handleVerifyOtp, otp, otpCode, submitting]);
 
   return (
     <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xl" className="finazze-join-layout">

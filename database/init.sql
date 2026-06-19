@@ -153,7 +153,8 @@ CREATE TABLE tenant_memberships (
   id BIGSERIAL PRIMARY KEY,
   user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  role TEXT NOT NULL DEFAULT 'staff' CHECK (role IN ('owner', 'staff')),
+  role TEXT NOT NULL DEFAULT 'staff' CHECK (role IN ('owner', 'admin', 'staff')),
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
   UNIQUE (user_id, tenant_id)
 );
 

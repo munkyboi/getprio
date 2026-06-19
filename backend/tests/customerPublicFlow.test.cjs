@@ -143,15 +143,46 @@ function buildPublicRouter(ticket, cancelTicketMock) {
         isPrimary: true,
         isActive: true
       }),
-      findLocationById: async () => ({
-        _id: "location-1",
-        tenantId: "tenant-1",
-        slug: "ayala",
-        name: "Ayala",
-        timezone: "Asia/Manila",
-        isPrimary: true,
-        isActive: true
-      })
+      findLocationByTenantAndSlug: async (_tenantId, slug) =>
+        slug === "west"
+          ? {
+              _id: "location-2",
+              tenantId: "tenant-1",
+              slug: "west",
+              name: "West",
+              timezone: "Asia/Manila",
+              isPrimary: false,
+              isActive: true
+            }
+          : {
+              _id: "location-1",
+              tenantId: "tenant-1",
+              slug: "ayala",
+              name: "Ayala",
+              timezone: "Asia/Manila",
+              isPrimary: true,
+              isActive: true
+            },
+      findLocationById: async (locationId) =>
+        locationId === "location-2"
+          ? {
+              _id: "location-2",
+              tenantId: "tenant-1",
+              slug: "west",
+              name: "West",
+              timezone: "Asia/Manila",
+              isPrimary: false,
+              isActive: true
+            }
+          : {
+              _id: "location-1",
+              tenantId: "tenant-1",
+              slug: "ayala",
+              name: "Ayala",
+              timezone: "Asia/Manila",
+              isPrimary: true,
+              isActive: true
+            }
     },
     "../repositories/tickets": {
       findTicketByLookupCode: async () => ticket,
@@ -342,5 +373,293 @@ test("public cancellation returns 409 for non-waiting tickets", async () => {
     assert.match(body.message, /only waiting tickets can be cancelled/i);
   } finally {
     await stopServer(server);
+  }
+});
+
+test("public cancellation rejects a mismatched location URL for the ticket", async () => {
+  let cancelCalled = false;
+  const router = buildPublicRouter(
+    {
+      _id: "ticket-1",
+      tenantId: "tenant-1",
+      locationId: "location-2",
+      userId: null,
+      lookupCode: "ABC12345",
+      customerEmail: "owner@example.com",
+      customerPhone: "09998887777",
+      status: "waiting"
+    },
+    async () => {
+      cancelCalled = true;
+      throw new Error("cancelTicket should not run");
+    }
+  );
+  const { server, baseUrl } = await startServer(router, "/api/public");
+
+  try {
+    const response = await fetch(`${baseUrl}/tenant/demo/location/ayala/tickets/ABC12345`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ customerEmail: "owner@example.com" })
+    });
+
+    assert.equal(response.status, 404);
+    assert.equal(cancelCalled, false);
+    const body = await response.json();
+    assert.match(body.message, /waiting ticket not found/i);
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("public queue snapshots redact tenant and location contact details", async () => {
+  require("tsx/cjs");
+  const queueService = require("../src/services/queueService.js");
+  const billingRepository = require("../src/repositories/billing");
+  const notificationDeliveryRepository = require("../src/repositories/notificationDeliveries");
+  const publicBoardThemeRepository = require("../src/repositories/publicBoardThemes");
+  const queueDayClosureRepository = require("../src/repositories/queueDayClosures");
+  const queueDayPauseRepository = require("../src/repositories/queueDayPauses");
+  const storeLocationRepository = require("../src/repositories/storeLocations");
+  const ticketRepository = require("../src/repositories/tickets");
+  const queueFeeService = require("../src/services/queueFeeService");
+  const storeHoursService = require("../src/services/storeHoursService");
+
+  const originals = [
+    [billingRepository, "getActiveSubscriptionByTenantId"],
+    [notificationDeliveryRepository, "countSentTransactionalEmails"],
+    [publicBoardThemeRepository, "getResolvedTheme"],
+    [queueDayClosureRepository, "findActiveClosure"],
+    [queueDayPauseRepository, "findActivePause"],
+    [storeLocationRepository, "listHoursByLocationId"],
+    [storeLocationRepository, "findPrimaryLocationByTenantId"],
+    [ticketRepository, "findCurrentCalledTicket"],
+    [ticketRepository, "listWaitingTickets"],
+    [ticketRepository, "listSkippedTickets"],
+    [ticketRepository, "listHistoryTickets"],
+    [ticketRepository, "countServedToday"],
+    [ticketRepository, "findTicketByTenantAndLookupCode"],
+    [queueFeeService, "getQueueFeeForTenant"],
+    [queueFeeService, "getActiveTenantSubscription"],
+    [storeHoursService, "getOpenStatus"]
+  ].map(([moduleExports, key]) => [moduleExports, key, moduleExports[key]]);
+
+  try {
+    billingRepository.getActiveSubscriptionByTenantId = async () => null;
+    notificationDeliveryRepository.countSentTransactionalEmails = async () => 0;
+    publicBoardThemeRepository.getResolvedTheme = async () => ({ scope: "tenant", theme: {} });
+    queueDayClosureRepository.findActiveClosure = async () => null;
+    queueDayPauseRepository.findActivePause = async () => null;
+    storeLocationRepository.listHoursByLocationId = async () => [];
+    storeLocationRepository.findPrimaryLocationByTenantId = async () => null;
+    ticketRepository.findCurrentCalledTicket = async () => null;
+    ticketRepository.listWaitingTickets = async () => [];
+    ticketRepository.listSkippedTickets = async () => [];
+    ticketRepository.listHistoryTickets = async () => [];
+    ticketRepository.countServedToday = async () => 0;
+    ticketRepository.findTicketByTenantAndLookupCode = async () => null;
+    queueFeeService.getQueueFeeForTenant = async () => ({
+      enabled: false,
+      amountCents: 0,
+      currency: "PHP",
+      displayAmount: "PHP 0.00",
+      planSlug: "economical"
+    });
+    queueFeeService.getActiveTenantSubscription = async () => null;
+    storeHoursService.getOpenStatus = async () => ({
+      isOpen: true,
+      timezone: "Asia/Manila",
+      summary: "Open",
+      today: null,
+      nextOpenAt: null
+    });
+
+    const snapshot = await queueService.getQueueSnapshot(
+      {
+        _id: "tenant-1",
+        name: "Demo Tenant",
+        slug: "demo",
+        queuePrefix: "DMO",
+        averageServiceMinutes: 5,
+        notificationThreshold: 3,
+        autoPauseEnabled: false,
+        autoPauseThreshold: null,
+        autoResumeEnabled: false,
+        autoResumeVacancyPercent: null,
+        contactEmail: "ops@demo.test",
+        contactPhone: "09170000000"
+      },
+      {
+        location: {
+          _id: "location-2",
+          tenantId: "tenant-1",
+          name: "West",
+          slug: "west",
+          addressLine1: "123 Main",
+          addressLine2: "",
+          city: "Manila",
+          province: "Metro Manila",
+          postalCode: "1000",
+          country: "PH",
+          contactEmail: "west@demo.test",
+          contactPhone: "09171112222",
+          timezone: "Asia/Manila",
+          isPrimary: false,
+          isActive: true
+        }
+      }
+    );
+
+    assert.equal(snapshot.tenant.contactEmail, undefined);
+    assert.equal(snapshot.tenant.contactPhone, undefined);
+    assert.equal(snapshot.location.contactEmail, undefined);
+    assert.equal(snapshot.location.contactPhone, undefined);
+  } finally {
+    for (const [moduleExports, key, originalValue] of originals) {
+      moduleExports[key] = originalValue;
+    }
+  }
+});
+
+test("public queue snapshots use the ticket location for lookup-code requests", async () => {
+  require("tsx/cjs");
+  const queueService = require("../src/services/queueService.js");
+  const billingRepository = require("../src/repositories/billing");
+  const notificationDeliveryRepository = require("../src/repositories/notificationDeliveries");
+  const publicBoardThemeRepository = require("../src/repositories/publicBoardThemes");
+  const queueDayClosureRepository = require("../src/repositories/queueDayClosures");
+  const queueDayPauseRepository = require("../src/repositories/queueDayPauses");
+  const storeLocationRepository = require("../src/repositories/storeLocations");
+  const ticketRepository = require("../src/repositories/tickets");
+  const queueFeeService = require("../src/services/queueFeeService");
+  const storeHoursService = require("../src/services/storeHoursService");
+
+  const originals = [
+    [billingRepository, "getActiveSubscriptionByTenantId"],
+    [notificationDeliveryRepository, "countSentTransactionalEmails"],
+    [publicBoardThemeRepository, "getResolvedTheme"],
+    [queueDayClosureRepository, "findActiveClosure"],
+    [queueDayPauseRepository, "findActivePause"],
+    [storeLocationRepository, "listHoursByLocationId"],
+    [storeLocationRepository, "findPrimaryLocationByTenantId"],
+    [storeLocationRepository, "findLocationById"],
+    [ticketRepository, "findCurrentCalledTicket"],
+    [ticketRepository, "listWaitingTickets"],
+    [ticketRepository, "listSkippedTickets"],
+    [ticketRepository, "listHistoryTickets"],
+    [ticketRepository, "countServedToday"],
+    [ticketRepository, "findTicketByTenantAndLookupCode"],
+    [queueFeeService, "getQueueFeeForTenant"],
+    [queueFeeService, "getActiveTenantSubscription"],
+    [storeHoursService, "getOpenStatus"]
+  ].map(([moduleExports, key]) => [moduleExports, key, moduleExports[key]]);
+
+  try {
+    billingRepository.getActiveSubscriptionByTenantId = async () => null;
+    notificationDeliveryRepository.countSentTransactionalEmails = async () => 0;
+    publicBoardThemeRepository.getResolvedTheme = async () => ({ scope: "tenant", theme: {} });
+    queueDayClosureRepository.findActiveClosure = async () => null;
+    queueDayPauseRepository.findActivePause = async () => null;
+    storeLocationRepository.listHoursByLocationId = async () => [];
+    storeLocationRepository.findPrimaryLocationByTenantId = async () => ({
+      _id: "location-1",
+      tenantId: "tenant-1",
+      name: "Ayala",
+      slug: "ayala",
+      timezone: "Asia/Manila",
+      isPrimary: true,
+      isActive: true
+    });
+    storeLocationRepository.findLocationById = async (locationId) =>
+      locationId === "location-2"
+        ? {
+            _id: "location-2",
+            tenantId: "tenant-1",
+            name: "West",
+            slug: "west",
+            timezone: "Asia/Manila",
+            isPrimary: false,
+            isActive: true
+          }
+        : null;
+    ticketRepository.findCurrentCalledTicket = async () => null;
+    ticketRepository.listWaitingTickets = async (_tenantId, options = {}) =>
+      options.locationId === "location-2"
+        ? [
+            {
+              _id: "ticket-1",
+              ticketNumber: "DMO-001",
+              customerName: "Ticket Holder",
+              status: "waiting",
+              joinChannel: "online",
+              carriedOverAt: null,
+              carryOverCount: 0,
+              createdAt: new Date("2026-06-19T01:00:00.000Z")
+            }
+          ]
+        : [];
+    ticketRepository.listSkippedTickets = async () => [];
+    ticketRepository.listHistoryTickets = async () => [];
+    ticketRepository.countServedToday = async () => 0;
+    ticketRepository.findTicketByTenantAndLookupCode = async () => ({
+      _id: "ticket-1",
+      tenantId: "tenant-1",
+      locationId: "location-2",
+      ticketNumber: "DMO-001",
+      customerName: "Ticket Holder",
+      status: "waiting",
+      dateKey: "20260619",
+      lookupCode: "ABC12345",
+      createdAt: new Date("2026-06-19T01:00:00.000Z")
+    });
+    queueFeeService.getQueueFeeForTenant = async () => ({
+      enabled: false,
+      amountCents: 0,
+      currency: "PHP",
+      displayAmount: "PHP 0.00",
+      planSlug: "economical"
+    });
+    queueFeeService.getActiveTenantSubscription = async () => null;
+    storeHoursService.getOpenStatus = async () => ({
+      isOpen: true,
+      timezone: "Asia/Manila",
+      summary: "Open",
+      today: null,
+      nextOpenAt: null
+    });
+
+    const snapshot = await queueService.getQueueSnapshot(
+      {
+        _id: "tenant-1",
+        name: "Demo Tenant",
+        slug: "demo",
+        queuePrefix: "DMO",
+        averageServiceMinutes: 5,
+        notificationThreshold: 3,
+        autoPauseEnabled: false,
+        autoPauseThreshold: null,
+        autoResumeEnabled: false,
+        autoResumeVacancyPercent: null
+      },
+      {
+        location: {
+          _id: "location-1",
+          tenantId: "tenant-1",
+          name: "Ayala",
+          slug: "ayala",
+          timezone: "Asia/Manila",
+          isPrimary: true,
+          isActive: true
+        },
+        lookupCode: "ABC12345"
+      }
+    );
+
+    assert.equal(snapshot.location.slug, "west");
+    assert.equal(snapshot.focusTicket.position, 1);
+  } finally {
+    for (const [moduleExports, key, originalValue] of originals) {
+      moduleExports[key] = originalValue;
+    }
   }
 });

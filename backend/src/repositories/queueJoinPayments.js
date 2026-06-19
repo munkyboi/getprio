@@ -135,6 +135,30 @@ async function updateProviderData(paymentId, data, options = {}) {
   return mapPayment(result.rows[0]);
 }
 
+async function markFailed(paymentId, data = {}, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const result = await queryClient.query(
+    `
+      UPDATE queue_join_payments
+      SET
+        status = 'failed',
+        provider_checkout_session_id = COALESCE($2, provider_checkout_session_id),
+        checkout_url = COALESCE($3, checkout_url),
+        metadata = metadata || $4::jsonb
+      WHERE id = $1
+      RETURNING ${PAYMENT_COLUMNS}
+    `,
+    [
+      Number(paymentId),
+      data.providerCheckoutSessionId || null,
+      data.checkoutUrl || null,
+      JSON.stringify(data.metadata || {})
+    ]
+  );
+
+  return mapPayment(result.rows[0]);
+}
+
 async function findPaymentById(paymentId, options = {}) {
   const queryClient = buildQueryClient(options.client);
   const result = await queryClient.query(
@@ -246,6 +270,7 @@ module.exports = {
   mapPayment,
   createPayment,
   updateProviderData,
+  markFailed,
   findPaymentById,
   findPaymentByIdForUpdate,
   findPaymentByProviderId,

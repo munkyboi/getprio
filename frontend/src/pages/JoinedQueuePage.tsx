@@ -20,6 +20,7 @@ import { useAuth } from "../context/AuthContext";
 import { buildJoinPath, buildMonitorPath, buildMonitorPathWithTicket } from "../queuePaths";
 import { clearJoinedQueueAccess, getJoinedQueueAccess } from "../utils/joinedQueueAccess";
 import { getErrorMessage } from "../utils/errors";
+import { getLocationStatusSummary, getQueueStateSummary, getTicketStateSummary } from "../utils/queueStatus";
 
 function maskNamePart(namePart: string): string {
   if (!namePart) {
@@ -182,6 +183,21 @@ export default function JoinedQueuePage() {
   const locationName = snapshot?.location?.name || "Main location";
   const heroTitle = theme?.heroTitle || businessName;
   const heroSubtitle = theme?.heroSubtitle || locationName;
+  const queueState = getQueueStateSummary(snapshot);
+  const ticketState = getTicketStateSummary(snapshot?.focusTicket?.status);
+  const locationState = getLocationStatusSummary(snapshot);
+  const vendorIsInactive = snapshot ? !snapshot.tenant.isActive : false;
+  const locationIsClosed = snapshot?.location ? !snapshot.location.openStatus.isOpen : false;
+  const queueDayClosed = Boolean(snapshot?.queueDay?.isClosed);
+  const queueDayPaused = Boolean(snapshot?.queueDay?.isPaused);
+  const ticketIsWaiting = snapshot?.focusTicket?.status === "waiting";
+  const canJoinAgain =
+    Boolean(snapshot) &&
+    !ticketIsWaiting &&
+    !vendorIsInactive &&
+    !locationIsClosed &&
+    !queueDayClosed &&
+    !queueDayPaused;
   const queueProgressTickets = [
     ...(snapshot?.current
       ? [
@@ -344,6 +360,9 @@ export default function JoinedQueuePage() {
               <Title c={headerColor} order={2} style={{ fontSize: "clamp(2rem, 4vw, 3rem)" }}>
                 {heroSubtitle}
               </Title>
+              <Alert color={queueState.color} radius="md" variant="light">
+                {queueState.message}
+              </Alert>
               <Button
                 onClick={() => setHoursOpened(true)}
                 radius="xl"
@@ -353,20 +372,23 @@ export default function JoinedQueuePage() {
               >
                 View business hours
               </Button>
-              <Group mt="lg" gap="sm">
-                <Badge radius="xl" size="lg" variant="light">
-                  Ticket: {snapshot?.focusTicket?.ticketNumber || lookupCode}
-                </Badge>
-                <Badge radius="xl" size="lg" variant="light">
-                  Waiting: {snapshot?.stats?.waitingCount ?? 0}
-                </Badge>
-                <Badge radius="xl" size="lg" variant="light">
-                  ETA: {snapshot?.focusTicket?.estimatedWaitMinutes ?? snapshot?.stats?.estimatedWaitMinutes ?? 0} mins
-                </Badge>
-                <Badge color={snapshot?.location?.openStatus.isOpen ? "teal" : "red"} radius="xl" size="lg">
-                  {snapshot?.location?.openStatus.isOpen ? "Open" : "Closed"}
-                </Badge>
-              </Group>
+              <Stack gap="xs" mt="sm">
+                <Group gap="sm" wrap="wrap">
+                  <Badge color={queueState.color} radius="xl" size="lg" variant="light">
+                    {queueState.label}
+                  </Badge>
+                  <Badge radius="xl" size="lg" variant="light">
+                    Ticket: {snapshot?.focusTicket?.ticketNumber || lookupCode}
+                  </Badge>
+                  <Badge radius="xl" size="lg" variant="light">
+                    Waiting: {snapshot?.stats?.waitingCount ?? 0}
+                  </Badge>
+                  <Badge radius="xl" size="lg" variant="light">
+                    ETA: {snapshot?.focusTicket?.estimatedWaitMinutes ?? snapshot?.stats?.estimatedWaitMinutes ?? 0} mins
+                  </Badge>
+                </Group>
+              </Stack>
+              <Text c={bodyColor} size="sm">{locationState.message}</Text>
             </Stack>
 
             <Paper bg="white" p="lg" radius="xl" withBorder>
@@ -374,20 +396,27 @@ export default function JoinedQueuePage() {
                 <Text c={subheaderColor} fw={800} size="xs" tt="uppercase" lts={2}>
                   Ticket details
                 </Text>
-                <Title c={headerColor} order={2}>
-                  {snapshot?.focusTicket?.ticketNumber || "Loading..."}
-                </Title>
+                <Group gap="sm" align="center">
+                  <Title c={headerColor} order={2}>
+                    {snapshot?.focusTicket?.ticketNumber || "Loading..."}
+                  </Title>
+                  <Badge color={ticketState.color} radius="xl" size="lg" variant="light">
+                    {ticketState.label}
+                  </Badge>
+                </Group>
+                <Text c={bodyColor}>{ticketState.message}</Text>
                 <Text c={bodyColor}>
-                  Current status: <strong>{snapshot?.focusTicket?.status || "pending"}</strong>
-                </Text>
-                <Text c={bodyColor}>
-                  {snapshot?.focusTicket?.position
+                  {ticketIsWaiting && snapshot?.focusTicket?.position
                     ? `You are number ${snapshot.focusTicket.position} in line.`
-                    : "You are no longer in the waiting list."}
+                    : ticketIsWaiting
+                      ? "Your place in line is confirmed."
+                      : "This ticket is no longer active on the waiting list."}
                 </Text>
-                <Text c={bodyColor}>
-                  Joined at: {snapshot?.focusTicket?.joinedAt ? new Date(snapshot.focusTicket.joinedAt).toLocaleString() : "--"}
-                </Text>
+                {ticketIsWaiting ? (
+                  <Text c={bodyColor}>
+                    Estimated wait time: {snapshot?.focusTicket?.estimatedWaitMinutes ?? 0} mins
+                  </Text>
+                ) : null}
                 <Group mt="sm">
                   <Button component={Link} radius="xl" style={buttonStyle} to={publicBoardPath}>
                     View live board
@@ -403,9 +432,11 @@ export default function JoinedQueuePage() {
                       Cancel ticket
                     </Button>
                   ) : null}
-                  <Button component={Link} radius="xl" to={joinPath} variant="subtle">
-                    Join again
-                  </Button>
+                  {canJoinAgain ? (
+                    <Button component={Link} radius="xl" to={joinPath} variant="subtle">
+                      Join again
+                    </Button>
+                  ) : null}
                 </Group>
               </Stack>
             </Paper>

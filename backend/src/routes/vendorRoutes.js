@@ -217,6 +217,39 @@ router.post(
 );
 
 router.post(
+  "/tenant/:tenantSlug/public-board-theme/uploads/direct",
+  express.raw({ type: ["image/jpeg", "image/png", "image/webp"], limit: "8mb" }),
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.theme.manage");
+    if (!req.body || !Buffer.isBuffer(req.body) || !req.body.length) {
+      const error = new Error("Image upload payload is required.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const requestedLocationSlug = req.query.location;
+    const location = requestedLocationSlug
+      ? await getLocationForTenant(tenant, requestedLocationSlug)
+      : null;
+    const upload = await publicBoardThemeUploadService.uploadBinary({
+      tenant,
+      location,
+      user: req.user,
+      body: {
+        assetType: req.query.assetType,
+        fileName: req.query.fileName,
+        contentType: req.headers["content-type"],
+        sizeBytes: req.body.length
+      },
+      fileBuffer: req.body
+    });
+
+    res.status(201).json(upload);
+  })
+);
+
+router.post(
   "/tenant/:tenantSlug/locations",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
@@ -549,6 +582,11 @@ router.patch(
       contactEmail,
       contactPhone
     } = req.body;
+    const wantsToChangeContactDetails =
+      typeof contactEmail === "string" || typeof contactPhone === "string";
+    if (wantsToChangeContactDetails) {
+      assertTenantPermission(req.user, tenant._id, "tenant.settings.manage_contact");
+    }
 
     const normalizedAutoPauseEnabled = Boolean(autoPauseEnabled);
     const normalizedAutoPauseThreshold = normalizedAutoPauseEnabled
@@ -770,6 +808,7 @@ router.get(
           email: user.email,
           phone: user.phone,
           role: membership?.role || "staff",
+          isActive: membership?.isActive !== false,
           assignedCounterIds: assignedCountersByUserId.get(String(user._id)) || []
         };
       })
@@ -804,7 +843,36 @@ router.post(
       throw error;
     }
 
-    await userRepository.addTenantMembership(user._id, tenant._id, req.body.role || "staff");
+    const nextRole = ["owner", "admin", "staff"].includes(req.body.role) ? req.body.role : "staff";
+    const requesterMembership = req.user.tenantMemberships?.find(
+      (item) => String(item.tenantId) === String(tenant._id) && item.isActive !== false
+    );
+    const requesterRole = requesterMembership?.role || null;
+    const ownerCount = staff.filter((member) =>
+      member.tenantMemberships.some(
+        (item) => String(item.tenantId) === String(tenant._id) && item.role === "owner" && item.isActive !== false
+      )
+    ).length;
+
+    if (requesterRole === "admin" && nextRole !== "staff") {
+      const error = new Error("Tenant admins can only invite staff members.");
+      error.statusCode = 403;
+      throw error;
+    }
+
+    if ((nextRole === "admin" || nextRole === "owner") && requesterRole !== "owner") {
+      const error = new Error("Only tenant owners can assign admin or owner roles.");
+      error.statusCode = 403;
+      throw error;
+    }
+
+    if (nextRole === "owner" && ownerCount >= 1) {
+      const error = new Error("Only one tenant owner is allowed per vendor.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    await userRepository.addTenantMembership(user._id, tenant._id, nextRole);
     res.status(201).json({ userId: user._id });
   })
 );
@@ -814,6 +882,11 @@ router.patch(
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.staff.manage");
+    if (String(req.user._id) === String(req.params.userId)) {
+      const error = new Error("You cannot edit your own tenant staff account.");
+      error.statusCode = 400;
+      throw error;
+    }
     const user = await userRepository.findUserById(req.params.userId);
     if (!user || !user.tenantMemberships.some((item) => String(item.tenantId) === String(tenant._id))) {
       const error = new Error("Staff member not found.");
@@ -823,8 +896,26 @@ router.patch(
     const membership = user.tenantMemberships.find(
       (item) => String(item.tenantId) === String(tenant._id)
     );
+    const requesterMembership = req.user.tenantMemberships?.find(
+      (item) => String(item.tenantId) === String(tenant._id) && item.isActive !== false
+    );
+    const requesterRole = requesterMembership?.role || null;
+    const hasRoleChange = Object.prototype.hasOwnProperty.call(req.body, "role");
+    const hasStatusChange = Object.prototype.hasOwnProperty.call(req.body, "isActive");
 
-    if (membership.role === "owner" && req.body.role !== "owner") {
+    if (!hasRoleChange && !hasStatusChange) {
+      const error = new Error("No staff updates were provided.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    if (hasRoleChange && requesterRole !== "owner") {
+      const error = new Error("Only tenant owners can change staff roles.");
+      error.statusCode = 403;
+      throw error;
+    }
+
+    if (membership.role === "owner" && hasRoleChange && req.body.role !== "owner") {
       const staff = await userRepository.listUsersByTenantId(tenant._id);
       const ownerCount = staff.filter((member) =>
         member.tenantMemberships.some(
@@ -838,11 +929,32 @@ router.patch(
       }
     }
 
-    await userRepository.updateTenantMembershipRole(
-      user._id,
-      tenant._id,
-      req.body.role === "owner" ? "owner" : "staff"
-    );
+    if (membership.role === "owner" && hasStatusChange && req.body.isActive === false) {
+      const error = new Error("Tenant owners cannot be disabled from staff management.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    if (hasRoleChange) {
+      const nextRole = req.body.role === "owner"
+        ? "owner"
+        : req.body.role === "admin"
+          ? "admin"
+          : "staff";
+
+      if (nextRole === "owner" && membership.role !== "owner") {
+        const error = new Error("Only one tenant owner is allowed per vendor.");
+        error.statusCode = 400;
+        throw error;
+      }
+
+      await userRepository.updateTenantMembershipRole(user._id, tenant._id, nextRole);
+    }
+
+    if (hasStatusChange) {
+      await userRepository.updateTenantMembershipStatus(user._id, tenant._id, req.body.isActive !== false);
+    }
+
     res.json({ userId: user._id });
   })
 );
@@ -852,6 +964,19 @@ router.delete(
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.staff.manage");
+    const requesterMembership = req.user.tenantMemberships?.find(
+      (item) => String(item.tenantId) === String(tenant._id) && item.isActive !== false
+    );
+    if (requesterMembership?.role !== "owner") {
+      const error = new Error("Only tenant owners can remove staff members.");
+      error.statusCode = 403;
+      throw error;
+    }
+    if (String(req.user._id) === String(req.params.userId)) {
+      const error = new Error("You cannot remove your own tenant staff account.");
+      error.statusCode = 400;
+      throw error;
+    }
     const user = await userRepository.findUserById(req.params.userId);
     const membership = user?.tenantMemberships.find(
       (item) => String(item.tenantId) === String(tenant._id)

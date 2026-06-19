@@ -23,7 +23,9 @@ import {
   SimpleGrid,
   Slider,
   Stack,
+  Switch,
   Table,
+  Tabs,
   Text,
   TextInput,
   Textarea,
@@ -55,7 +57,6 @@ import type {
   QueueHistoryTicket,
   PublicBoardThemeResponse,
   PublicBoardThemeSettings,
-  PublicBoardThemeUploadRequest,
   PublicBoardThemeUploadResponse,
   SavePublicBoardThemeRequest,
   QueueSnapshot,
@@ -216,6 +217,24 @@ const navItems = [
   { section: "reports", label: "Reports", icon: IconChartBar },
   { section: "settings", label: "Settings", icon: IconSettings }
 ] as const;
+const dashboardSectionDescriptions: Record<DashboardSection, string> = {
+  queue: "Run the live queue, manage intake, and move customers through service.",
+  tenants: "Configure locations, counters, and the public entry points for each branch.",
+  staff: "Manage workspace access, roles, and operating status for your team.",
+  clients: "Review recent customer activity and returning queue visitors.",
+  history: "Inspect completed ticket activity and export queue records.",
+  reports: "Track queue usage, service pace, and plan consumption over time.",
+  settings: "Adjust subscription, contact details, and queue behavior for this workspace."
+};
+const adminAllowedSections = new Set<DashboardSection>([
+  "queue",
+  "tenants",
+  "staff",
+  "clients",
+  "history",
+  "reports",
+  "settings"
+]);
 const staffAllowedSections = new Set<DashboardSection>(["queue", "clients", "history"]);
 
 function getHistoryTimestamp(value: string | Date): number {
@@ -448,9 +467,15 @@ export default function VendorDashboardPage() {
   const selectedTenantRole =
     user?.tenants.find((tenant) => tenant.slug === selectedTenantSlug)?.role || null;
   const isOwner = selectedTenantRole === "owner";
+  const isAdmin = selectedTenantRole === "admin";
+  const canManageQueueDay = isOwner || isAdmin;
+  const canManageContactSettings = isOwner;
+  const canExportHistory = isOwner || isAdmin;
   const visibleNavItems = isOwner
     ? navItems
-    : navItems.filter((item) => staffAllowedSections.has(item.section));
+    : isAdmin
+      ? navItems.filter((item) => adminAllowedSections.has(item.section))
+      : navItems.filter((item) => staffAllowedSections.has(item.section));
   const locationQuery = selectedLocationSlug
     ? `?location=${encodeURIComponent(selectedLocationSlug)}`
     : "";
@@ -817,9 +842,11 @@ export default function VendorDashboardPage() {
       currentPlan?.entitlements.monthlyTransactionalEmails
     : 0;
   const emailUsage = snapshot?.usage?.emailsSentThisPeriod ?? 0;
+  const historyTickets = useMemo(() => history?.tickets || snapshot?.history || [], [history, snapshot]);
   const serviceTrendBars = useMemo(
     () =>
-      (snapshot?.history || [])
+      historyTickets
+        .filter((ticket) => ticket.status === "served")
         .slice(0, SERVICE_TREND_USER_LIMIT)
         .map((ticket, index, historyItems) => {
           const currentTime = getHistoryTimestamp(ticket.updatedAt);
@@ -834,7 +861,7 @@ export default function VendorDashboardPage() {
           };
         })
         .reverse(),
-    [snapshot]
+    [historyTickets, snapshot?.tenant.averageServiceMinutes]
   );
   const averageServiceMinutes = serviceTrendBars.length
     ? Math.round(
@@ -903,7 +930,6 @@ export default function VendorDashboardPage() {
   }, [clientsPage, filteredClients]);
   const clientsTotalPages = Math.max(1, Math.ceil(filteredClients.length / CLIENTS_PAGE_SIZE));
 
-  const historyTickets = history?.tickets || snapshot?.history || [];
   const filteredHistoryTickets = useMemo(() => {
     const query = historySearch.trim().toLowerCase();
     const items = [...historyTickets].filter((ticket) => {
@@ -1083,13 +1109,25 @@ export default function VendorDashboardPage() {
     }
   }
 
-  async function handleUpdateStaffRole(member: VendorStaffSummary, role: "owner" | "staff") {
+  async function handleUpdateStaffRole(member: VendorStaffSummary, role: "owner" | "admin" | "staff") {
     await apiRequest<{ userId: string }, UpdateVendorStaffRequest>(
       `/vendor/tenant/${selectedTenantSlug}/staff/${member.id}`,
       { method: "PATCH", token, body: { role } }
     );
     await reloadStaff();
     showSuccessNotification("Staff updated", `${member.name}'s role was updated.`);
+  }
+
+  async function handleUpdateStaffStatus(member: VendorStaffSummary, isActive: boolean) {
+    await apiRequest<{ userId: string }, UpdateVendorStaffRequest>(
+      `/vendor/tenant/${selectedTenantSlug}/staff/${member.id}`,
+      { method: "PATCH", token, body: { isActive } }
+    );
+    await reloadStaff();
+    showSuccessNotification(
+      isActive ? "Staff enabled" : "Staff disabled",
+      `${member.name} was ${isActive ? "enabled" : "disabled"} for this tenant.`
+    );
   }
 
   async function handleRemoveStaff(member: VendorStaffSummary) {
@@ -1099,6 +1137,61 @@ export default function VendorDashboardPage() {
     });
     await reloadStaff();
     showSuccessNotification("Staff removed", `${member.name} no longer has tenant access.`);
+  }
+
+  async function handleToggleLocationActive(locationItem: StoreLocationWithHours, isActive: boolean) {
+    setBusyAction(`location-status:${locationItem.slug}`);
+    setError("");
+    try {
+      const response = await apiRequest<{ location: StoreLocationWithHours }, { isActive: boolean }>(
+        `/vendor/tenant/${selectedTenantSlug}/locations/${locationItem.slug}`,
+        { method: "PATCH", token, body: { isActive } }
+      );
+      setLocations((current) =>
+        current
+          .map((item) => (item.id === response.location.id ? response.location : item))
+          .sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary) || a.name.localeCompare(b.name))
+      );
+      showSuccessNotification(
+        isActive ? "Location enabled" : "Location disabled",
+        `${response.location.name} is now ${isActive ? "active" : "inactive"}.`
+      );
+    } catch (toggleError) {
+      setError(getErrorMessage(toggleError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function handleToggleCounterActive(counter: ServiceCounterSummary, isActive: boolean) {
+    setBusyAction(`counter-status:${counter.slug}`);
+    setError("");
+    try {
+      const response = await apiRequest<{ counter: ServiceCounterSummary }, SaveServiceCounterRequest>(
+        `/vendor/tenant/${selectedTenantSlug}/counters/${counter.slug}?location=${encodeURIComponent(selectedLocationSlug)}`,
+        {
+          method: "PATCH",
+          token,
+          body: {
+            name: counter.name,
+            slug: counter.slug,
+            isActive,
+            assignedUserIds: counter.assignedUserIds
+          }
+        }
+      );
+      setServiceCounters((current) =>
+        current.map((item) => (item.id === response.counter.id ? response.counter : item))
+      );
+      showSuccessNotification(
+        isActive ? "Counter enabled" : "Counter disabled",
+        `${response.counter.name} is now ${isActive ? "active" : "inactive"}.`
+      );
+    } catch (toggleError) {
+      setError(getErrorMessage(toggleError));
+    } finally {
+      setBusyAction("");
+    }
   }
 
   async function handleSaveSettings(event: FormEvent<HTMLFormElement>) {
@@ -1211,28 +1304,26 @@ export default function VendorDashboardPage() {
     setBusyAction(`theme-upload:${assetType}`);
 
     try {
-      const data = await apiRequest<PublicBoardThemeUploadResponse, PublicBoardThemeUploadRequest>(
-        `/vendor/tenant/${selectedTenantSlug}/public-board-theme/uploads`,
+      const response = await fetch(
+        `${API_BASE_URL}/vendor/tenant/${selectedTenantSlug}/public-board-theme/uploads/direct?location=${encodeURIComponent(themeLocation.slug)}&assetType=${encodeURIComponent(assetType)}&fileName=${encodeURIComponent(file.name)}`,
         {
           method: "POST",
-          token,
-          body: {
-            assetType,
-            fileName: file.name,
-            contentType: file.type,
-            sizeBytes: file.size,
-            locationSlug: themeLocation.slug
-          }
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": file.type
+          },
+          body: file
         }
       );
-      const uploadResponse = await fetch(data.upload.url, {
-        method: data.upload.method,
-        headers: data.upload.headers,
-        body: file
-      });
 
-      if (!uploadResponse.ok) {
-        throw new Error("Upload failed. Check the Backblaze bucket CORS and credentials.");
+      if (!response.ok) {
+        throw new Error("Upload failed.");
+      }
+
+      const data = await response.json() as PublicBoardThemeUploadResponse;
+
+      if (!data.asset?.publicUrl) {
+        throw new Error("Upload completed without a usable asset URL.");
       }
 
       setThemeField(assetType === "logo" ? "logoUrl" : "backgroundImageUrl", data.asset.publicUrl);
@@ -1440,12 +1531,12 @@ export default function VendorDashboardPage() {
             />
           </SimpleGrid>
           <Group>
-            <Checkbox
+            <Switch
               name="isActiveLocation"
               checked={locationForm.isActive}
-              label="Active location"
+              label="Enable location"
               onChange={(event) =>
-                setLocationForm((current) => ({ ...current, isActive: event.target.checked }))
+                setLocationForm((current) => ({ ...current, isActive: event.currentTarget.checked }))
               }
             />
             <Checkbox
@@ -1720,7 +1811,7 @@ export default function VendorDashboardPage() {
                         {busyAction === "queue-pause" ? "Pausing..." : "Pause intake"}
                       </Button>
                     )}
-                  {isOwner ? (
+                  {canManageQueueDay ? (
                     queueDayClosed ? (
                       <Button
                         className="neura-primary-button"
@@ -2525,6 +2616,12 @@ export default function VendorDashboardPage() {
                   </Badge>
                 </Group>
               </Group>
+              <Switch
+                checked={locationItem.isActive}
+                disabled={busyAction === `location-status:${locationItem.slug}`}
+                label={locationItem.isActive ? "Location enabled" : "Location disabled"}
+                onChange={(event) => handleToggleLocationActive(locationItem, event.currentTarget.checked)}
+              />
               <Text size="sm" c="dimmed">{locationItem.openStatus.summary}</Text>
               <TextInput label="Join URL" readOnly value={locationItem.joinUrl} />
               <TextInput label="Monitor URL" readOnly value={locationItem.monitorUrl} />
@@ -2559,9 +2656,12 @@ export default function VendorDashboardPage() {
                 <Paper key={counter.id} p="md" withBorder>
                   <Group justify="space-between" mb="xs">
                     <Text fw={700}>{counter.name}</Text>
-                    <Badge color={counter.isActive ? "teal" : "gray"}>
-                      {counter.isActive ? "Active" : "Inactive"}
-                    </Badge>
+                    <Switch
+                      checked={counter.isActive}
+                      disabled={busyAction === `counter-status:${counter.slug}`}
+                      label={counter.isActive ? "Enabled" : "Disabled"}
+                      onChange={(event) => handleToggleCounterActive(counter, event.currentTarget.checked)}
+                    />
                   </Group>
                   <Text c="dimmed" size="sm">
                     {counter.assignedUserIds
@@ -2594,6 +2694,13 @@ export default function VendorDashboardPage() {
   }
 
   function renderStaffPage() {
+    const assignableRoles = isOwner
+      ? [
+          { label: "Admin", value: "admin" },
+          { label: "Staff", value: "staff" }
+        ]
+      : [{ label: "Staff", value: "staff" }];
+
     return (
       <Card className="neura-card" padding="lg">
         <Stack gap="md">
@@ -2603,13 +2710,15 @@ export default function VendorDashboardPage() {
               <Title order={3}>Tenant access</Title>
               <Text c="dimmed" size="sm">{staff.length}/{staffSeatLimit} staff seats used</Text>
             </div>
-            <Button
-              className="neura-primary-button"
-              disabled={staff.length >= staffSeatLimit}
-              onClick={() => setStaffDialogOpen(true)}
-            >
-              Add staff
-            </Button>
+            {isOwner || isAdmin ? (
+              <Button
+                className="neura-primary-button"
+                disabled={staff.length >= staffSeatLimit}
+                onClick={() => setStaffDialogOpen(true)}
+              >
+                Add staff
+              </Button>
+            ) : null}
           </Group>
           <Table.ScrollContainer minWidth={720}>
             <Table verticalSpacing="sm">
@@ -2618,42 +2727,61 @@ export default function VendorDashboardPage() {
                   <Table.Th>Name</Table.Th>
                   <Table.Th>Contact</Table.Th>
                   <Table.Th>Role</Table.Th>
+                  <Table.Th>Status</Table.Th>
                   <Table.Th>Counters</Table.Th>
                   <Table.Th />
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
-                {staff.map((member) => (
-                  <Table.Tr key={member.id}>
-                    <Table.Td fw={700}>{member.name}</Table.Td>
-                    <Table.Td>{member.email || member.phone || "--"}</Table.Td>
-                    <Table.Td>
-                      <Select
-                        data={[
-                          { label: "Owner", value: "owner" },
-                          { label: "Staff", value: "staff" }
-                        ]}
-                        value={member.role}
-                        onChange={(value) =>
-                          value && handleUpdateStaffRole(member, value as "owner" | "staff")
-                        }
-                      />
-                    </Table.Td>
-                    <Table.Td>
-                      {member.assignedCounterIds
-                        .map((counterId) => serviceCounters.find((counter) => counter.id === counterId)?.name)
-                        .filter(Boolean)
-                        .join(", ") || "--"}
-                    </Table.Td>
-                    <Table.Td>
-                      {member.role !== "owner" ? (
-                        <Button color="red" size="xs" variant="light" onClick={() => handleRemoveStaff(member)}>
-                          Remove
-                        </Button>
-                      ) : null}
-                    </Table.Td>
-                  </Table.Tr>
-                ))}
+                {staff.map((member) => {
+                  const isCurrentUser = member.id === user?.id;
+                  const roleOptions = member.role === "owner"
+                    ? [{ label: "Owner", value: "owner" }]
+                    : member.role === "admin"
+                      ? [{ label: "Admin", value: "admin" }]
+                      : [{ label: "Staff", value: "staff" }];
+
+                  return (
+                    <Table.Tr key={member.id}>
+                      <Table.Td fw={700}>{member.name}</Table.Td>
+                      <Table.Td>{member.email || member.phone || "--"}</Table.Td>
+                      <Table.Td>
+                        {member.role === "owner" || isCurrentUser || !isOwner ? (
+                          <Select data={roleOptions} disabled value={member.role} />
+                        ) : (
+                          <Select
+                            data={assignableRoles}
+                            value={member.role}
+                            onChange={(value) =>
+                              value && handleUpdateStaffRole(member, value as "owner" | "admin" | "staff")
+                            }
+                          />
+                        )}
+                      </Table.Td>
+                      <Table.Td>
+                        <Switch
+                          checked={member.isActive !== false}
+                          disabled={member.role === "owner" || isCurrentUser}
+                          label={member.isActive !== false ? "Enabled" : "Disabled"}
+                          onChange={(event) => handleUpdateStaffStatus(member, event.currentTarget.checked)}
+                        />
+                      </Table.Td>
+                      <Table.Td>
+                        {member.assignedCounterIds
+                          .map((counterId) => serviceCounters.find((counter) => counter.id === counterId)?.name)
+                          .filter(Boolean)
+                          .join(", ") || "--"}
+                      </Table.Td>
+                      <Table.Td>
+                        {isOwner && member.role !== "owner" && !isCurrentUser ? (
+                          <Button color="red" size="xs" variant="light" onClick={() => handleRemoveStaff(member)}>
+                            Remove
+                          </Button>
+                        ) : null}
+                      </Table.Td>
+                    </Table.Tr>
+                  );
+                })}
               </Table.Tbody>
             </Table>
           </Table.ScrollContainer>
@@ -2775,7 +2903,7 @@ export default function VendorDashboardPage() {
             </div>
             <Badge variant="light">{history?.historyLabel || "Recent history"}</Badge>
           </Group>
-          {isOwner && exportTypeOptions.length && historyRangeOptions.length ? (
+          {canExportHistory && exportTypeOptions.length && historyRangeOptions.length ? (
             <Group align="flex-end">
               <Select
                 data={exportTypeOptions}
@@ -2898,181 +3026,209 @@ export default function VendorDashboardPage() {
   function renderSettingsPage() {
     return (
       <Stack gap="md">
-        <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
-          <Card className="neura-card" padding="lg">
-            <Stack gap="md">
-              <Group justify="space-between" align="flex-start">
-                <div>
-                  <Text className="neura-label">Subscription</Text>
-                  <Title order={3}>{renderActivePlanName()}</Title>
-                  <Text c="dimmed" size="sm">
-                    {billing?.subscription
-                      ? `${billing.subscription.status} via ${billing.subscription.provider}`
-                      : "Choose a plan to unlock tenant entitlements."}
-                  </Text>
-                </div>
-                {billing?.subscription?.currentPeriodEnd ? (
-                  <Badge variant="light">Renews {formatDate(billing.subscription.currentPeriodEnd)}</Badge>
-                ) : null}
-              </Group>
-              <SimpleGrid cols={2}>
-                <MetricCard label="Tickets" value={`${ticketUsage}/${ticketLimit || "--"}`} detail="Current period" />
-                <MetricCard label="Emails" value={`${emailUsage}/${emailLimit ?? "--"}`} detail="Transactional" />
-              </SimpleGrid>
-            </Stack>
-          </Card>
+        <Card className="neura-card" padding="lg">
+          <Tabs defaultValue="subscription">
+            <Tabs.List>
+              <Tabs.Tab value="subscription">Subscription</Tabs.Tab>
+              <Tabs.Tab value="contact">Contact details</Tabs.Tab>
+              <Tabs.Tab value="queue">Queue settings</Tabs.Tab>
+            </Tabs.List>
 
-          <Card className="neura-card" padding="lg">
-            <form onSubmit={handleSaveSettings}>
+            <Tabs.Panel pt="lg" value="subscription">
               <Stack gap="md">
-                <div>
-                  <Text className="neura-label">Tenant settings</Text>
-                  <Title order={3}>Queue preferences</Title>
-                </div>
-                <TextInput
-                  name="queuePrefix"
-                  label="Queue prefix"
-                  maxLength={4}
-                  value={settings.queuePrefix}
-                  onChange={(event) =>
-                    setSettings((current) => ({
-                      ...current,
-                      queuePrefix: event.target.value.toUpperCase()
-                    }))
-                  }
-                />
-                <NumberInput
-                  name="averageServiceMinutes"
-                  label="Average service minutes"
-                  min={1}
-                  value={Number(settings.averageServiceMinutes)}
-                  onChange={(value) =>
-                    setSettings((current) => ({ ...current, averageServiceMinutes: value || 1 }))
-                  }
-                />
-                <NumberInput
-                  name="notificationThreshold"
-                  label="Notify when within"
-                  min={1}
-                  value={Number(settings.notificationThreshold)}
-                  onChange={(value) =>
-                    setSettings((current) => ({ ...current, notificationThreshold: value || 1 }))
-                  }
-                />
-                <Checkbox
-                  name="autoPauseEnabled"
-                  checked={settings.autoPauseEnabled}
-                  label="Enable auto-pause intake"
-                  onChange={(event) =>
-                    setSettings((current) => ({
-                      ...current,
-                      autoPauseEnabled: event.currentTarget.checked,
-                      autoPauseThreshold: event.currentTarget.checked
-                        ? Number(current.autoPauseThreshold) || 20
-                        : "",
-                      autoResumeEnabled: event.currentTarget.checked
-                        ? current.autoResumeEnabled
-                        : false,
-                      autoResumeVacancyPercent: event.currentTarget.checked
-                        ? Number(current.autoResumeVacancyPercent) || 20
-                        : ""
-                    }))
-                  }
-                />
-                <NumberInput
-                  name="autoPauseThreshold"
-                  label="Auto-pause threshold"
-                  min={1}
-                  max={500}
-                  disabled={!settings.autoPauseEnabled}
-                  description="When waiting tickets reach this number, new joins pause automatically until staff resumes intake."
-                  value={settings.autoPauseEnabled ? Number(settings.autoPauseThreshold) : undefined}
-                  onChange={(value) =>
-                    setSettings((current) => ({ ...current, autoPauseThreshold: value || 1 }))
-                  }
-                />
-                <Checkbox
-                  name="autoResumeEnabled"
-                  checked={settings.autoResumeEnabled}
-                  disabled={!settings.autoPauseEnabled}
-                  label="Enable auto-resume intake"
-                  onChange={(event) =>
-                    setSettings((current) => ({
-                      ...current,
-                      autoResumeEnabled: event.currentTarget.checked,
-                      autoResumeVacancyPercent: event.currentTarget.checked
-                        ? Number(current.autoResumeVacancyPercent) || 20
-                        : ""
-                    }))
-                  }
-                />
-                <Stack gap="sm">
-                  <Text fw={500} size="sm">Auto-resume vacancy percent</Text>
-                  {settings.autoPauseEnabled && settings.autoResumeEnabled ? (
-                    <Slider
-                      min={5}
-                      max={50}
-                      step={5}
-                      marks={[
-                        { value: 5, label: "5%" },
-                        { value: 15, label: "15%" },
-                        { value: 25, label: "25%" },
-                        { value: 35, label: "35%" },
-                        { value: 50, label: "50%" }
-                      ]}
-                      label={(value) => `${value}%`}
-                      value={Number(settings.autoResumeVacancyPercent) || 20}
-                      onChange={(value) =>
-                        setSettings((current) => ({ ...current, autoResumeVacancyPercent: value }))
-                      }
-                      styles={{
-                        markLabel: {
-                          marginTop: 10
-                        },
-                        root: {
-                          paddingBottom: 28
-                        }
-                      }}
-                    />
-                  ) : (
+                <Group justify="space-between" align="flex-start">
+                  <div>
+                    <Text className="neura-label">Subscription</Text>
+                    <Title order={3}>{renderActivePlanName()}</Title>
                     <Text c="dimmed" size="sm">
-                      Only applies to queues paused automatically by threshold.
+                      {billing?.subscription
+                        ? `${billing.subscription.status} via ${billing.subscription.provider}`
+                        : "Choose a plan to unlock tenant entitlements."}
                     </Text>
-                  )}
-                  <Text c="dimmed" size="sm">
-                    {settings.autoPauseEnabled && settings.autoResumeEnabled
-                      ? `With a threshold of ${Number(settings.autoPauseThreshold) || 0}, intake will reopen at ${
-                          Math.floor((Number(settings.autoPauseThreshold) || 0) * (1 - (Number(settings.autoResumeVacancyPercent) || 20) / 100))
-                        } waiting tickets or below.`
-                      : "Only applies to queues paused automatically by threshold."}
-                  </Text>
-                </Stack>
-                <TextInput
-                  name="contactEmail"
-                  label="Contact email"
-                  type="email"
-                  value={settings.contactEmail}
-                  onChange={(event) =>
-                    setSettings((current) => ({ ...current, contactEmail: event.target.value }))
-                  }
-                />
-                <TextInput
-                  name="contactPhone"
-                  label="Contact phone"
-                  value={settings.contactPhone}
-                  onChange={(event) =>
-                    setSettings((current) => ({ ...current, contactPhone: event.target.value }))
-                  }
-                />
-                <Button className="neura-secondary-button" disabled={busyAction === "settings"} type="submit">
-                  {busyAction === "settings" ? "Saving..." : "Save settings"}
-                </Button>
+                  </div>
+                  {billing?.subscription?.currentPeriodEnd ? (
+                    <Badge variant="light">Renews {formatDate(billing.subscription.currentPeriodEnd)}</Badge>
+                  ) : null}
+                </Group>
+                <SimpleGrid cols={{ base: 1, sm: 2 }}>
+                  <MetricCard label="Tickets" value={`${ticketUsage}/${ticketLimit || "--"}`} detail="Current period" />
+                  <MetricCard label="Emails" value={`${emailUsage}/${emailLimit ?? "--"}`} detail="Transactional" />
+                </SimpleGrid>
+                {!activeSubscription ? <div>{renderPlanCards()}</div> : null}
               </Stack>
-            </form>
-          </Card>
-        </SimpleGrid>
+            </Tabs.Panel>
 
-        {!activeSubscription ? <Card className="neura-card" padding="lg">{renderPlanCards()}</Card> : null}
+            <Tabs.Panel pt="lg" value="contact">
+              <form onSubmit={handleSaveSettings}>
+                <Stack gap="md">
+                  <div>
+                    <Text className="neura-label">Tenant settings</Text>
+                    <Title order={3}>Contact details</Title>
+                    <Text c="dimmed" size="sm">
+                      Contact details are used across the queue experience and tenant notifications.
+                    </Text>
+                  </div>
+                  <TextInput
+                    name="contactEmail"
+                    label="Contact email"
+                    description={!canManageContactSettings ? "Only tenant owners can update contact details." : undefined}
+                    disabled={!canManageContactSettings}
+                    type="email"
+                    value={settings.contactEmail}
+                    onChange={(event) =>
+                      setSettings((current) => ({ ...current, contactEmail: event.target.value }))
+                    }
+                  />
+                  <TextInput
+                    name="contactPhone"
+                    label="Contact phone"
+                    disabled={!canManageContactSettings}
+                    value={settings.contactPhone}
+                    onChange={(event) =>
+                      setSettings((current) => ({ ...current, contactPhone: event.target.value }))
+                    }
+                  />
+                  <Button className="neura-secondary-button" disabled={busyAction === "settings"} type="submit">
+                    {busyAction === "settings" ? "Saving..." : "Save contact details"}
+                  </Button>
+                </Stack>
+              </form>
+            </Tabs.Panel>
+
+            <Tabs.Panel pt="lg" value="queue">
+              <form onSubmit={handleSaveSettings}>
+                <Stack gap="md">
+                  <div>
+                    <Text className="neura-label">Tenant settings</Text>
+                    <Title order={3}>Queue preferences</Title>
+                  </div>
+                  <TextInput
+                    name="queuePrefix"
+                    label="Queue prefix"
+                    maxLength={4}
+                    value={settings.queuePrefix}
+                    onChange={(event) =>
+                      setSettings((current) => ({
+                        ...current,
+                        queuePrefix: event.target.value.toUpperCase()
+                      }))
+                    }
+                  />
+                  <NumberInput
+                    name="averageServiceMinutes"
+                    label="Average service minutes"
+                    min={1}
+                    value={Number(settings.averageServiceMinutes)}
+                    onChange={(value) =>
+                      setSettings((current) => ({ ...current, averageServiceMinutes: value || 1 }))
+                    }
+                  />
+                  <NumberInput
+                    name="notificationThreshold"
+                    label="Notify when within"
+                    min={1}
+                    value={Number(settings.notificationThreshold)}
+                    onChange={(value) =>
+                      setSettings((current) => ({ ...current, notificationThreshold: value || 1 }))
+                    }
+                  />
+                  <Checkbox
+                    name="autoPauseEnabled"
+                    checked={settings.autoPauseEnabled}
+                    label="Enable auto-pause intake"
+                    onChange={(event) =>
+                      setSettings((current) => ({
+                        ...current,
+                        autoPauseEnabled: event.currentTarget.checked,
+                        autoPauseThreshold: event.currentTarget.checked
+                          ? Number(current.autoPauseThreshold) || 20
+                          : "",
+                        autoResumeEnabled: event.currentTarget.checked
+                          ? current.autoResumeEnabled
+                          : false,
+                        autoResumeVacancyPercent: event.currentTarget.checked
+                          ? Number(current.autoResumeVacancyPercent) || 20
+                          : ""
+                      }))
+                    }
+                  />
+                  <NumberInput
+                    name="autoPauseThreshold"
+                    label="Auto-pause threshold"
+                    min={1}
+                    max={500}
+                    disabled={!settings.autoPauseEnabled}
+                    description="When waiting tickets reach this number, new joins pause automatically until staff resumes intake."
+                    value={settings.autoPauseEnabled ? Number(settings.autoPauseThreshold) : undefined}
+                    onChange={(value) =>
+                      setSettings((current) => ({ ...current, autoPauseThreshold: value || 1 }))
+                    }
+                  />
+                  <Checkbox
+                    name="autoResumeEnabled"
+                    checked={settings.autoResumeEnabled}
+                    disabled={!settings.autoPauseEnabled}
+                    label="Enable auto-resume intake"
+                    onChange={(event) =>
+                      setSettings((current) => ({
+                        ...current,
+                        autoResumeEnabled: event.currentTarget.checked,
+                        autoResumeVacancyPercent: event.currentTarget.checked
+                          ? Number(current.autoResumeVacancyPercent) || 20
+                          : ""
+                      }))
+                    }
+                  />
+                  <Stack gap="sm">
+                    <Text fw={500} size="sm">Auto-resume vacancy percent</Text>
+                    {settings.autoPauseEnabled && settings.autoResumeEnabled ? (
+                      <Slider
+                        min={5}
+                        max={50}
+                        step={5}
+                        marks={[
+                          { value: 5, label: "5%" },
+                          { value: 15, label: "15%" },
+                          { value: 25, label: "25%" },
+                          { value: 35, label: "35%" },
+                          { value: 50, label: "50%" }
+                        ]}
+                        label={(value) => `${value}%`}
+                        value={Number(settings.autoResumeVacancyPercent) || 20}
+                        onChange={(value) =>
+                          setSettings((current) => ({ ...current, autoResumeVacancyPercent: value }))
+                        }
+                        styles={{
+                          markLabel: {
+                            marginTop: 10
+                          },
+                          root: {
+                            paddingBottom: 28
+                          }
+                        }}
+                      />
+                    ) : (
+                      <Text c="dimmed" size="sm">
+                        Only applies to queues paused automatically by threshold.
+                      </Text>
+                    )}
+                    <Text c="dimmed" size="sm">
+                      {settings.autoPauseEnabled && settings.autoResumeEnabled
+                        ? `With a threshold of ${Number(settings.autoPauseThreshold) || 0}, intake will reopen at ${
+                            Math.floor((Number(settings.autoPauseThreshold) || 0) * (1 - (Number(settings.autoResumeVacancyPercent) || 20) / 100))
+                          } waiting tickets or below.`
+                        : "Only applies to queues paused automatically by threshold."}
+                    </Text>
+                  </Stack>
+                  <Button className="neura-secondary-button" disabled={busyAction === "settings"} type="submit">
+                    {busyAction === "settings" ? "Saving..." : "Save queue settings"}
+                  </Button>
+                </Stack>
+              </form>
+            </Tabs.Panel>
+          </Tabs>
+        </Card>
+
       </Stack>
     );
   }
@@ -3105,12 +3261,12 @@ export default function VendorDashboardPage() {
                 setCounterForm((current) => ({ ...current, slug: event.target.value }))
               }
             />
-            <Checkbox
+            <Switch
               name="counterIsActive"
               checked={counterForm.isActive}
-              label="Active counter"
+              label="Enable counter"
               onChange={(event) =>
-                setCounterForm((current) => ({ ...current, isActive: event.target.checked }))
+                setCounterForm((current) => ({ ...current, isActive: event.currentTarget.checked }))
               }
             />
             <MultiSelect
@@ -3153,16 +3309,20 @@ export default function VendorDashboardPage() {
             />
             <Select
               name="staffRole"
-              data={[
-                { label: "Staff", value: "staff" },
-                { label: "Owner", value: "owner" }
-              ]}
+              data={
+                isOwner
+                  ? [
+                      { label: "Staff", value: "staff" },
+                      { label: "Admin", value: "admin" }
+                    ]
+                  : [{ label: "Staff", value: "staff" }]
+              }
               label="Role"
               value={staffForm.role}
               onChange={(value) =>
                 setStaffForm((current) => ({
                   ...current,
-                  role: value === "owner" ? "owner" : "staff"
+                  role: value === "admin" ? "admin" : "staff"
                 }))
               }
             />
@@ -3223,6 +3383,16 @@ export default function VendorDashboardPage() {
               <Badge color={activeSubscription ? "teal" : "orange"} mt="sm">
                 {activeSubscription ? activeSubscription.planName : "No active plan"}
               </Badge>
+              <Divider my="sm" />
+              <Stack gap={2}>
+                <Text size="xs" c="dimmed">Logged in user:</Text>
+                <Text fw={600} size="sm">{user?.name || "Unknown user"}</Text>
+                <Text c="dimmed" size="xs">
+                  {selectedTenantRole
+                    ? selectedTenantRole.charAt(0).toUpperCase() + selectedTenantRole.slice(1)
+                    : "No tenant role"}
+                </Text>
+              </Stack>
             </div>
             <Tooltip label="Log out" withArrow>
               <ActionIcon
@@ -3283,7 +3453,10 @@ export default function VendorDashboardPage() {
     return <Navigate to="/dashboard/queue" replace />;
   }
 
-  if (selectedTenantRole === "staff" && !staffAllowedSections.has(currentSection)) {
+  if (
+    (selectedTenantRole === "staff" && !staffAllowedSections.has(currentSection)) ||
+    (selectedTenantRole === "admin" && !adminAllowedSections.has(currentSection))
+  ) {
     return <Navigate to="/dashboard/queue" replace />;
   }
 
@@ -3340,21 +3513,9 @@ export default function VendorDashboardPage() {
                   ? "Live queue"
                   : navItems.find((item) => item.section === currentSection)?.label}
               </Title>
-              <Text c="dimmed">Manage service flow, customers, reports, and subscription settings.</Text>
+              <Text c="dimmed">{dashboardSectionDescriptions[currentSection]}</Text>
             </div>
           </Group>
-          <Select
-            className="neura-tenant-select"
-            data={user.tenants.map((tenant) => ({ label: tenant.name, value: tenant.slug }))}
-            label="Tenant"
-            value={selectedTenantSlug}
-            onChange={(value) => {
-              if (value) {
-                setSelectedTenantSlug(value);
-                setSelectedLocationSlug("");
-              }
-            }}
-          />
           <Select
             className="neura-tenant-select"
             data={locations.map((locationItem) => ({

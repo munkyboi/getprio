@@ -338,6 +338,9 @@ router.delete(
   maybeAuthenticate,
   asyncHandler(async (req, res) => {
     const tenant = await getTenantOrThrow(req.params.tenantSlug);
+    const requestedLocation = req.params.locationSlug
+      ? await getLocationOrPrimary(tenant, req.params.locationSlug)
+      : null;
     const existingTicket = await ticketRepository.findTicketByTenantAndLookupCode(
       tenant._id,
       String(req.params.lookupCode).toUpperCase()
@@ -358,6 +361,19 @@ router.delete(
       throw error;
     }
 
+    if (
+      requestedLocation &&
+      String(existingTicket.locationId || "") !== String(requestedLocation._id)
+    ) {
+      const error = new Error("Waiting ticket not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const ticketLocation = existingTicket.locationId
+      ? await storeLocationRepository.findLocationById(existingTicket.locationId)
+      : requestedLocation;
+
     if (existingTicket.status !== "waiting") {
       const error = new Error("Only waiting tickets can be cancelled.");
       error.statusCode = 409;
@@ -367,7 +383,8 @@ router.delete(
     const result = await cancelTicket(tenant, req.params.lookupCode, {
       actorUserId: req.user?._id,
       actorRole: req.user ? "customer" : null,
-      source: "public"
+      source: "public",
+      location: ticketLocation || undefined
     });
 
     if (!result) {

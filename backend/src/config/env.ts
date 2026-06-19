@@ -21,6 +21,7 @@ export const clientUrl = process.env.CLIENT_URL || `http://localhost:${frontendP
 export const appBaseUrl = process.env.APP_BASE_URL || `http://localhost:${frontendPort}`;
 export const platformDashboardUrl =
   process.env.PLATFORM_DASHBOARD_URL || `http://localhost:${platformDashboardPort}`;
+export const appTimezone = process.env.APP_TIMEZONE || "Asia/Manila";
 export const oauthCallbackPath = process.env.OAUTH_CALLBACK_PATH || "/oauth/callback";
 export const oauthStateTtlMinutes = Number(process.env.OAUTH_STATE_TTL_MINUTES || 10);
 export const accessTokenTtlMinutes = Number(process.env.ACCESS_TOKEN_TTL_MINUTES || 15);
@@ -98,6 +99,7 @@ const env = {
   clientUrl,
   appBaseUrl,
   platformDashboardUrl,
+  appTimezone,
   oauthCallbackPath,
   oauthStateTtlMinutes,
   accessTokenTtlMinutes,

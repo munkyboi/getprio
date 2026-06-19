@@ -1,7 +1,7 @@
 export type OAuthProviderId = "google" | "facebook";
 export type AuthIntent = "login" | "register_customer" | "register_vendor";
 export type UserRole = "customer" | "vendor" | "platform_admin";
-export type TenantRole = "owner" | "staff";
+export type TenantRole = "owner" | "admin" | "staff";
 export type JoinChannel = "online" | "qr" | "vendor";
 export type TicketStatus = "waiting" | "called" | "served" | "skipped" | "cancelled" | "unserved";
 export type SubscriptionPlanSlug = "economical" | "pro" | "enterprise";
@@ -125,6 +125,7 @@ export interface TenantMembershipSummary {
   name: string;
   slug: string;
   role: TenantRole;
+  isActive?: boolean;
 }
 
 export interface UserSummary {
@@ -278,7 +279,7 @@ export interface PublicBoardThemeUploadResponse {
     contentType: string;
     sizeBytes: number;
   };
-  upload: {
+  upload?: {
     method: "PUT";
     url: string;
     headers: Record<string, string>;
@@ -605,6 +606,7 @@ export interface VendorStaffSummary {
   email: string | null;
   phone: string | null;
   role: TenantRole;
+  isActive?: boolean;
   assignedCounterIds: string[];
 }
 
@@ -619,7 +621,8 @@ export interface AddVendorStaffRequest {
 }
 
 export interface UpdateVendorStaffRequest {
-  role: TenantRole;
+  role?: TenantRole;
+  isActive?: boolean;
 }
 
 export interface SaveServiceCounterRequest {
@@ -693,6 +696,10 @@ export interface CustomerAccountOverviewResponse {
     phone: string | null;
     emailVerified: boolean;
   };
+  tickets: CustomerAccountTicketSummary[];
+}
+
+export interface CustomerAccountHistoryResponse {
   tickets: CustomerAccountTicketSummary[];
 }
 

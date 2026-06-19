@@ -1,7 +1,11 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Alert, Badge, Button, Card, PasswordInput, Stack, Table, Text, Title } from "@mantine/core";
 import { Navigate, Link, useNavigate } from "react-router-dom";
-import type { CustomerAccountOverviewResponse, PasswordChangeRequest } from "@shared";
+import type {
+  CustomerAccountHistoryResponse,
+  CustomerAccountOverviewResponse,
+  PasswordChangeRequest
+} from "@shared";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { buildJoinedQueuePathWithTicket } from "../queuePaths";
@@ -11,6 +15,7 @@ export default function CustomerAccountPage() {
   const navigate = useNavigate();
   const { changePassword, token, user, loading } = useAuth();
   const [account, setAccount] = useState<CustomerAccountOverviewResponse | null>(null);
+  const [history, setHistory] = useState<CustomerAccountHistoryResponse | null>(null);
   const [error, setError] = useState("");
   const [passwordError, setPasswordError] = useState("");
   const [passwordForm, setPasswordForm] = useState<PasswordChangeRequest>({
@@ -24,8 +29,14 @@ export default function CustomerAccountPage() {
       return;
     }
 
-    apiRequest<CustomerAccountOverviewResponse>("/account/overview", { token })
-      .then(setAccount)
+    Promise.all([
+      apiRequest<CustomerAccountOverviewResponse>("/account/overview", { token }),
+      apiRequest<CustomerAccountHistoryResponse>("/account/history", { token })
+    ])
+      .then(([overview, ticketHistory]) => {
+        setAccount(overview);
+        setHistory(ticketHistory);
+      })
       .catch((loadError) => setError(getErrorMessage(loadError)));
   }, [token]);
 
@@ -134,8 +145,8 @@ export default function CustomerAccountPage() {
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
-                {account?.tickets.length ? (
-                  account.tickets.map((ticket) => (
+                {(history?.tickets || account?.tickets || []).length ? (
+                  (history?.tickets || account?.tickets || []).map((ticket) => (
                     <Table.Tr key={ticket.id}>
                       <Table.Td fw={700}>{ticket.ticketNumber}</Table.Td>
                       <Table.Td>{ticket.tenantName}</Table.Td>

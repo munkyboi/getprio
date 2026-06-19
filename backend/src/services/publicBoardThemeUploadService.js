@@ -162,6 +162,67 @@ async function createUpload({ tenant, location, user, body }) {
   };
 }
 
+async function uploadBinary({ tenant, location, user, body, fileBuffer }) {
+  assertB2Configured();
+
+  const assetType = body.assetType === "logo" ? "logo" : "background";
+  const fileName = normalizeFileName(body.fileName);
+  const contentType = String(body.contentType || "").toLowerCase();
+  const sizeBytes = Number(body.sizeBytes || fileBuffer?.length || 0);
+
+  if (!ALLOWED_CONTENT_TYPES.has(contentType)) {
+    const error = new Error("Only JPEG, PNG, and WebP images are supported.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (!Buffer.isBuffer(fileBuffer) || !fileBuffer.length || fileBuffer.length > MAX_UPLOAD_BYTES) {
+    const error = new Error("Image must be between 1 byte and 8 MB.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const objectKey = buildObjectKey({
+    tenantId: tenant._id,
+    location,
+    assetType,
+    fileName,
+    contentType
+  });
+  const publicUrl = buildPublicUrl(objectKey);
+
+  await getS3Client().send(new PutObjectCommand({
+    Bucket: env.b2BucketPublicBoard,
+    Key: objectKey,
+    ContentType: contentType,
+    Body: fileBuffer
+  }));
+
+  const asset = await publicBoardThemeRepository.createAsset({
+    tenantId: tenant._id,
+    locationId: location?._id,
+    assetType,
+    objectKey,
+    publicUrl,
+    fileName,
+    contentType,
+    sizeBytes,
+    userId: user?._id
+  });
+
+  return {
+    asset: {
+      id: String(asset._id),
+      assetType: asset.assetType,
+      objectKey: asset.objectKey,
+      publicUrl: asset.publicUrl,
+      contentType: asset.contentType,
+      sizeBytes: asset.sizeBytes
+    }
+  };
+}
+
 module.exports = {
-  createUpload
+  createUpload,
+  uploadBinary
 };

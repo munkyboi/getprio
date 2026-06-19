@@ -164,90 +164,113 @@ async function createPayMongoCheckoutForJoin({ tenant, otpId, payload, queueFee 
     }
   });
 
-  if (payment.providerCheckoutSessionId && payment.checkoutUrl) {
-    return {
-      payment,
-      checkoutUrl: payment.checkoutUrl,
-      providerCheckoutSessionId: payment.providerCheckoutSessionId
+  let providerCheckoutSessionId = null;
+  let checkoutUrl = null;
+
+  try {
+    if (payment.providerCheckoutSessionId && payment.checkoutUrl) {
+      return {
+        payment,
+        checkoutUrl: payment.checkoutUrl,
+        providerCheckoutSessionId: payment.providerCheckoutSessionId
+      }
+    }
+
+    const successUrl = buildReturnUrl(tenant, payment, "success");
+    const cancelUrl = buildReturnUrl(tenant, payment, "cancelled");
+    const body = {
+      data: {
+        attributes: {
+          description: `GetPrio queue join fee for ${tenant.name}`,
+          line_items: [
+            {
+              currency: queueFee.currency,
+              amount: queueFee.amountCents,
+              name: "GetPrio queue join fee",
+              quantity: 1,
+              description: `Priority queue access for ${tenant.name}`
+            }
+          ],
+          payment_method_types: env.paymongoPaymentMethodTypes,
+          metadata: {
+            purpose: "queue_join_fee",
+            localQueueJoinPaymentId: payment._id,
+            tenantId: String(tenant._id),
+            tenantSlug: tenant.slug,
+            planSlug: queueFee.planSlug
+          },
+          send_email_receipt: true,
+          show_description: true,
+          show_line_items: true,
+          success_url: successUrl,
+          cancel_url: cancelUrl
+        }
+      }
     };
-  }
 
-  const successUrl = buildReturnUrl(tenant, payment, "success");
-  const cancelUrl = buildReturnUrl(tenant, payment, "cancelled");
-  const body = {
-    data: {
-      attributes: {
-        description: `GetPrio queue join fee for ${tenant.name}`,
-        line_items: [
-          {
-            currency: queueFee.currency,
-            amount: queueFee.amountCents,
-            name: "GetPrio queue join fee",
-            quantity: 1,
-            description: `Priority queue access for ${tenant.name}`
-          }
-        ],
-        payment_method_types: env.paymongoPaymentMethodTypes,
+    const response = await fetch(`${env.paymongoApiUrl.replace(/\/$/, "")}/checkout_sessions`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Basic ${buildBasicAuth(env.paymongoSecretKey)}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(body)
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const detail = data?.errors?.[0]?.detail || data?.errors?.[0]?.code || "Unable to create checkout session.";
+      const error = new Error(`PayMongo checkout failed: ${detail}`);
+      error.statusCode = 502;
+      throw error;
+    }
+
+    const attributes = data?.data?.attributes || {};
+    providerCheckoutSessionId = data?.data?.id;
+    checkoutUrl = attributes.checkout_url;
+
+    if (!providerCheckoutSessionId || !checkoutUrl) {
+      const error = new Error("PayMongo did not return a checkout URL.");
+      error.statusCode = 502;
+      throw error;
+    }
+
+    const updatedPayment = await paymentRepository.updateProviderData(payment._id, {
+      providerCheckoutSessionId,
+      checkoutUrl,
+      metadata: {
+        paymongoResponse: {
+          id: providerCheckoutSessionId,
+          clientKey: attributes.client_key || null
+        }
+      }
+    });
+
+    return {
+      payment: updatedPayment,
+      checkoutUrl,
+      providerCheckoutSessionId
+    };
+  } catch (error) {
+    try {
+      await paymentRepository.markFailed(payment._id, {
+        providerCheckoutSessionId: providerCheckoutSessionId || payment.providerCheckoutSessionId || null,
+        checkoutUrl: checkoutUrl || payment.checkoutUrl || null,
         metadata: {
-          purpose: "queue_join_fee",
-          localQueueJoinPaymentId: payment._id,
-          tenantId: String(tenant._id),
-          tenantSlug: tenant.slug,
-          planSlug: queueFee.planSlug
-        },
-        send_email_receipt: true,
-        show_description: true,
-        show_line_items: true,
-        success_url: successUrl,
-        cancel_url: cancelUrl
-      }
+          failureReason: error.message || "Checkout creation failed.",
+          failureStatusCode: error.statusCode || 500
+        }
+      });
+    } catch (markError) {
+      console.warn("Unable to mark queue join payment failed", {
+        paymentId: payment._id,
+        error: markError.message
+      });
     }
-  };
 
-  const response = await fetch(`${env.paymongoApiUrl.replace(/\/$/, "")}/checkout_sessions`, {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      Authorization: `Basic ${buildBasicAuth(env.paymongoSecretKey)}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(body)
-  });
-
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const detail = data?.errors?.[0]?.detail || data?.errors?.[0]?.code || "Unable to create checkout session.";
-    const error = new Error(`PayMongo checkout failed: ${detail}`);
-    error.statusCode = 502;
     throw error;
   }
-
-  const attributes = data?.data?.attributes || {};
-  const providerCheckoutSessionId = data?.data?.id;
-  const checkoutUrl = attributes.checkout_url;
-
-  if (!providerCheckoutSessionId || !checkoutUrl) {
-    const error = new Error("PayMongo did not return a checkout URL.");
-    error.statusCode = 502;
-    throw error;
-  }
-
-  const updatedPayment = await paymentRepository.updateProviderData(payment._id, {
-    providerCheckoutSessionId,
-    checkoutUrl,
-    metadata: {
-      paymongoResponse: {
-        id: providerCheckoutSessionId,
-        clientKey: attributes.client_key || null
-      }
-    }
-  });
-
-  return {
-    payment: updatedPayment,
-    checkoutUrl,
-    providerCheckoutSessionId
-  };
 }
 
 async function createQueueJoinCheckout({ tenant, otpId, payload, queueFee }) {

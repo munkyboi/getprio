@@ -1,5 +1,5 @@
 import { useEffect, useState, type CSSProperties } from "react";
-import { Badge, Box, Button, Group, Modal, Paper, SimpleGrid, Stack, Table, Text, Title } from "@mantine/core";
+import { Alert, Badge, Box, Button, Group, Modal, Paper, SimpleGrid, Stack, Table, Text, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { IconCheck, IconInfoCircle } from "@tabler/icons-react";
 import QRCode from "react-qr-code";
@@ -8,6 +8,7 @@ import type { QueueJoinPaymentSyncResponse, QueueSnapshot, StoreHourSummary } fr
 import { API_BASE_URL, apiRequest } from "../api/client";
 import { buildJoinPath, buildJoinUrl, buildJoinedQueuePathWithTicket } from "../queuePaths";
 import { getErrorMessage } from "../utils/errors";
+import { getLocationStatusSummary, getQueueStateSummary, getTicketStateSummary } from "../utils/queueStatus";
 
 function maskNamePart(namePart: string): string {
   if (!namePart) {
@@ -111,7 +112,6 @@ export default function PublicQueuePage() {
   const joinQrUrl = `${joinUrl}?source=qr`;
   const vendorIsInactive = snapshot ? !snapshot.tenant.isActive : false;
   const locationIsClosed = snapshot?.location ? !snapshot.location.openStatus.isOpen : false;
-  const publicBoardUnavailable = vendorIsInactive || locationIsClosed;
   const theme = snapshot?.publicBoardTheme.theme;
   const cardStyle: CSSProperties = theme
     ? {
@@ -163,8 +163,21 @@ export default function PublicQueuePage() {
   const locationName = snapshot?.location?.name || "Main location";
   const heroTitle = theme?.heroTitle || businessName;
   const heroSubtitle = theme?.heroSubtitle || locationName;
+  const queueState = getQueueStateSummary(snapshot);
+  const ticketState = getTicketStateSummary(snapshot?.focusTicket?.status);
+  const locationState = getLocationStatusSummary(snapshot);
   const locationHours = normalizeHours(snapshot?.location?.hours || []);
   const todayIndex = getTodayIndex(snapshot?.location?.timezone);
+  const queueDayClosed = Boolean(snapshot?.queueDay?.isClosed);
+  const queueDayPaused = Boolean(snapshot?.queueDay?.isPaused);
+  const canJoinQueue =
+    Boolean(snapshot) &&
+    !lookupCode &&
+    !snapshot?.focusTicket &&
+    !vendorIsInactive &&
+    !locationIsClosed &&
+    !queueDayClosed &&
+    !queueDayPaused;
   const queueProgressTickets = [
     ...(snapshot?.current
       ? [
@@ -331,8 +344,8 @@ export default function PublicQueuePage() {
           </Table.ScrollContainer>
         </Modal>
         <Paper p={{ base: "lg", md: "xl" }} shadow="xl" style={cardStyle}>
-          <SimpleGrid cols={{ base: 1, md: publicBoardUnavailable ? 1 : 3 }} spacing="xl">
-            <Stack gap="md" style={{ gridColumn: publicBoardUnavailable ? undefined : "span 2" }}>
+          <SimpleGrid cols={{ base: 1, md: canJoinQueue ? 3 : 2 }} spacing="xl">
+            <Stack gap="md" style={{ gridColumn: canJoinQueue ? "span 2" : undefined }}>
               {theme?.logoUrl ? (
                 <Box
                   alt={`${heroTitle} logo`}
@@ -350,16 +363,39 @@ export default function PublicQueuePage() {
               <Title c={headerColor} order={2} style={{ fontSize: "clamp(2rem, 4vw, 3rem)" }}>
                 {heroSubtitle}
               </Title>
+              <Alert color={queueState.color} radius="md" variant="light">
+                {queueState.message}
+              </Alert>
               {vendorIsInactive ? (
-                <Text c="red" fw={700}>Vendor is not yet active.</Text>
+                <Text c="red" fw={700}>
+                  This vendor is not yet active.
+                </Text>
               ) : locationIsClosed ? (
-                <Text c="red" fw={700}>This location is currently closed</Text>
+                <Text c="red" fw={700}>
+                  This location is currently closed.
+                </Text>
               ) : null}
-              {!publicBoardUnavailable ? (
-                <Group mt="lg" gap="sm">
-                  <Button component={Link} to={joinPath} radius="xl" size="md" style={buttonStyle}>
-                    Join this queue
-                  </Button>
+              <Stack gap="xs" mt="sm">
+                <Group gap="sm" wrap="wrap">
+                  <Badge color={queueState.color} radius="xl" size="lg" variant="light">
+                    {queueState.label}
+                  </Badge>
+                  <Badge radius="xl" size="lg" variant="light">
+                    Waiting: {snapshot?.stats?.waitingCount ?? 0}
+                  </Badge>
+                  <Badge radius="xl" size="lg" variant="light">
+                    ETA: {snapshot?.stats?.estimatedWaitMinutes ?? 0} mins
+                  </Badge>
+                  <Badge color={locationState.color} radius="xl" size="lg">
+                    {locationState.label}
+                  </Badge>
+                </Group>
+                <Group gap="sm">
+                  {canJoinQueue ? (
+                    <Button component={Link} to={joinPath} radius="xl" size="md" style={buttonStyle}>
+                      Join this queue
+                    </Button>
+                  ) : null}
                   <Button
                     onClick={() => setHoursOpened(true)}
                     radius="xl"
@@ -369,16 +405,11 @@ export default function PublicQueuePage() {
                   >
                     View business hours
                   </Button>
-                  <Badge radius="xl" size="lg" variant="light">Waiting: {snapshot?.stats?.waitingCount ?? 0}</Badge>
-                  <Badge radius="xl" size="lg" variant="light">ETA: {snapshot?.stats?.estimatedWaitMinutes ?? 0} mins</Badge>
-                  <Badge color={snapshot?.location?.openStatus.isOpen ? "teal" : "red"} radius="xl" size="lg">
-                    {snapshot?.location?.openStatus.isOpen ? "Open" : "Closed"}
-                  </Badge>
                 </Group>
-              ) : null}
+              </Stack>
             </Stack>
 
-            {!publicBoardUnavailable && !lookupCode && !snapshot?.focusTicket ? (
+            {canJoinQueue && !lookupCode && !snapshot?.focusTicket ? (
               <Stack align="center" gap="sm">
                 <Text c={bodyColor} fw={700}>Scan to join</Text>
                 <Paper bg="white" p="md" radius="lg" withBorder>
@@ -406,91 +437,102 @@ export default function PublicQueuePage() {
 
         {error ? <Text c="red" fw={700}>{error}</Text> : null}
 
-        {publicBoardUnavailable ? null : (
-          <>
-            {lookupCode && snapshot?.focusTicket ? (
-              <Paper p="xl" shadow="lg" style={cardStyle}>
-                <Stack gap="xs">
-                  <Text c={subheaderColor} fw={800} size="xs" tt="uppercase" lts={2}>Ticket details</Text>
-                  <Title c={headerColor} order={2}>{snapshot.focusTicket.ticketNumber}</Title>
-                  <Text c={bodyColor}>Current status: <strong>{snapshot.focusTicket.status}</strong></Text>
-                  <Text c={bodyColor}>
-                    {snapshot.focusTicket.position
-                      ? `You are number ${snapshot.focusTicket.position} in line.`
-                      : "You are no longer in the waiting list."}
-                  </Text>
-                  <Text c={bodyColor}>Estimated wait time: {snapshot.focusTicket.estimatedWaitMinutes} mins</Text>
-                </Stack>
-              </Paper>
-            ) : null}
+        {lookupCode && snapshot?.focusTicket ? (
+          <Paper p="xl" shadow="lg" style={cardStyle}>
+            <Stack gap="xs">
+              <Text c={subheaderColor} fw={800} size="xs" tt="uppercase" lts={2}>Ticket details</Text>
+              <Group gap="sm" align="center">
+                <Title c={headerColor} order={2}>{snapshot.focusTicket.ticketNumber}</Title>
+                <Badge color={ticketState.color} radius="xl" size="lg" variant="light">
+                  {ticketState.label}
+                </Badge>
+              </Group>
+              <Text c={bodyColor}>{ticketState.message}</Text>
+              <Text c={bodyColor}>
+                {snapshot.focusTicket.status === "waiting" && snapshot.focusTicket.position
+                  ? `You are number ${snapshot.focusTicket.position} in line.`
+                  : snapshot.focusTicket.status === "waiting"
+                    ? "Your place in line is confirmed."
+                    : "This ticket is no longer active on the waiting list."}
+              </Text>
+              {snapshot.focusTicket.status === "waiting" ? (
+                <Text c={bodyColor}>Estimated wait time: {snapshot.focusTicket.estimatedWaitMinutes} mins</Text>
+              ) : null}
+            </Stack>
+          </Paper>
+        ) : null}
 
-            <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
-              <Paper p="xl" shadow="lg" style={cardStyle}>
-                <Stack gap="md">
-                  <Text c={bodyColor}>Currently serving</Text>
-                  <Title c={headerColor} order={2}>{snapshot?.current?.ticketNumber || "--"}</Title>
-                  <Text c={bodyColor} size="sm">
-                    {snapshot?.current?.customerName
-                      ? maskCustomerName(snapshot.current.customerName)
-                      : "No active ticket"}
-                  </Text>
-                </Stack>
-              </Paper>
-              <Paper p="xl" shadow="lg" style={cardStyle}>
-                <Stack gap="md">
-                  <Text c={bodyColor}>Completed today</Text>
-                  <Title c={headerColor} order={2}>{snapshot?.stats?.servedToday ?? 0}</Title>
-                  <Text c={bodyColor} size="sm">Updated live for this location</Text>
-                </Stack>
-              </Paper>
-            </SimpleGrid>
+        <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
+          <Paper p="xl" shadow="lg" style={cardStyle}>
+            <Stack gap="md">
+              <Text c={bodyColor}>Currently serving</Text>
+              <Title c={headerColor} order={2}>{snapshot?.current?.ticketNumber || "--"}</Title>
+              <Text c={bodyColor} size="sm">
+                {snapshot?.current?.customerName
+                  ? maskCustomerName(snapshot.current.customerName)
+                  : "No active ticket"}
+              </Text>
+            </Stack>
+          </Paper>
+          <Paper p="xl" shadow="lg" style={cardStyle}>
+            <Stack gap="md">
+              <Text c={bodyColor}>Completed today</Text>
+              <Title c={headerColor} order={2}>{snapshot?.stats?.servedToday ?? 0}</Title>
+              <Text c={bodyColor} size="sm">Updated live for this location</Text>
+            </Stack>
+          </Paper>
+        </SimpleGrid>
 
-            <Paper p="xl" shadow="lg" style={cardStyle}>
-              <Stack gap="md">
-                <Group justify="space-between" align="flex-start">
-                  <div>
-                    <Text c={subheaderColor} fw={800} size="xs" tt="uppercase" lts={2}>Up next</Text>
-                    <Title c={headerColor} order={2}>Queue overview</Title>
-                  </div>
-                  <Button component={Link} to={joinPath} variant="subtle" style={{ color: theme?.buttonBackgroundColor || undefined }}>
-                    Join this queue
-                  </Button>
-                </Group>
-                <Table.ScrollContainer minWidth={560}>
-                  <Table verticalSpacing="sm">
-                    <Table.Thead>
-                      <Table.Tr>
-                        <Table.Th>Ticket</Table.Th>
-                        <Table.Th ta="right">Position</Table.Th>
+        <Paper p="xl" shadow="lg" style={cardStyle}>
+          <Stack gap="md">
+            <Group justify="space-between" align="flex-start">
+              <div>
+                <Text c={subheaderColor} fw={800} size="xs" tt="uppercase" lts={2}>Up next</Text>
+                <Title c={headerColor} order={2}>Queue overview</Title>
+              </div>
+              {canJoinQueue ? (
+                <Button component={Link} to={joinPath} variant="subtle" style={{ color: theme?.buttonBackgroundColor || undefined }}>
+                  Join this queue
+                </Button>
+              ) : (
+                <Text c={bodyColor} fw={600} size="sm">
+                  New joins are currently unavailable.
+                </Text>
+              )}
+            </Group>
+            <Table.ScrollContainer minWidth={560}>
+              <Table verticalSpacing="sm">
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Ticket</Table.Th>
+                    <Table.Th ta="right">Position</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {queueProgressTickets.length ? (
+                    queueProgressTickets.map((ticket) => (
+                      <Table.Tr key={ticket.id}>
+                        <Table.Td>
+                          <Text c={headerColor} fw={800}>{ticket.ticketNumber}</Text>
+                          <Text c={bodyColor} size="sm">{ticket.customerName}</Text>
+                        </Table.Td>
+                        <Table.Td ta="right">
+                          <Badge radius="xl" variant="light">{ticket.progressLabel}</Badge>
+                        </Table.Td>
                       </Table.Tr>
-                    </Table.Thead>
-                    <Table.Tbody>
-                      {queueProgressTickets.length ? (
-                        queueProgressTickets.map((ticket) => (
-                          <Table.Tr key={ticket.id}>
-                            <Table.Td>
-                              <Text c={headerColor} fw={800}>{ticket.ticketNumber}</Text>
-                              <Text c={bodyColor} size="sm">{ticket.customerName}</Text>
-                            </Table.Td>
-                            <Table.Td ta="right">
-                              <Badge radius="xl" variant="light">{ticket.progressLabel}</Badge>
-                            </Table.Td>
-                          </Table.Tr>
-                        ))
-                      ) : (
-                        <Table.Tr>
-                          <Table.Td colSpan={2}>
-                            <Text c={bodyColor}>The queue is currently empty.</Text>
-                          </Table.Td>
-                        </Table.Tr>
-                      )}
-                    </Table.Tbody>
-                  </Table>
-                </Table.ScrollContainer>
-              </Stack>
-            </Paper>
-          </>
-        )}
+                    ))
+                  ) : (
+                    <Table.Tr>
+                      <Table.Td colSpan={2}>
+                        <Text c={bodyColor}>The queue is currently empty.</Text>
+                      </Table.Td>
+                    </Table.Tr>
+                  )}
+                </Table.Tbody>
+              </Table>
+            </Table.ScrollContainer>
+          </Stack>
+        </Paper>
       </Stack>
     </Box>
   );

@@ -80,7 +80,7 @@ async function maybeAuthenticate(req, res, next) {
 
 function userHasTenantAccess(user, tenantId) {
   return (user.tenantMemberships || []).some(
-    (membership) => String(membership.tenantId) === String(tenantId)
+    (membership) => String(membership.tenantId) === String(tenantId) && membership.isActive !== false
   );
 }
 
@@ -89,11 +89,17 @@ function getTenantRole(user, tenantId) {
 }
 
 function userIsTenantOwner(user, tenantId) {
-  return permissions.userHasPermission(user, "tenant.settings.manage", { tenantId });
+  return permissions.getTenantRole(user, tenantId) === "owner";
 }
 
 function assertTenantOwner(user, tenantId) {
-  permissions.assertPermission(user, "tenant.settings.manage", { tenantId });
+  if (permissions.getTenantRole(user, tenantId) === "owner") {
+    return;
+  }
+
+  const error = new Error("You do not have permission to perform that action.");
+  error.statusCode = 403;
+  throw error;
 }
 
 function assertTenantPermission(user, tenantId, permission) {

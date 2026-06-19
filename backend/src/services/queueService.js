@@ -16,8 +16,15 @@ const queueFeeService = require("./queueFeeService");
 const storeHoursService = require("./storeHoursService");
 const { buildJoinUrl, buildMonitorUrl } = require("../publicLinks");
 
-function getDateKey(date = new Date()) {
-  return date.toISOString().slice(0, 10).replace(/-/g, "");
+function getDateKey(date = new Date(), timezone = env.appTimezone || "Asia/Manila") {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  });
+
+  return formatter.format(date).replace(/-/g, "");
 }
 
 function getRecoveryDeadline(date = new Date()) {
@@ -76,6 +83,15 @@ function formatTicketNumber(prefix, value) {
 
 function buildLookupCode() {
   return crypto.randomBytes(4).toString("hex").toUpperCase();
+}
+
+function redactPublicContactDetails(entity) {
+  if (!entity) {
+    return null;
+  }
+
+  const { contactEmail: _contactEmail, contactPhone: _contactPhone, ...publicEntity } = entity;
+  return publicEntity;
 }
 
 function getQueueIntakeState({
@@ -289,13 +305,32 @@ async function resolveLocation(tenant, options = {}) {
 
 async function getQueueSnapshot(tenant, options = {}) {
   const location = await resolveLocation(tenant, options);
-  const locationId = location?._id;
-  const dateKey = options.queueDateKey || getDateKey();
-  const queueDayClosure = location
-    ? await queueDayClosureRepository.findActiveClosure(tenant._id, location._id, dateKey)
+  let locationId = location?._id;
+  let snapshotLocation = location;
+  const lookupTicket = options.lookupCode
+    ? await ticketRepository.findTicketByTenantAndLookupCode(
+        tenant._id,
+        options.lookupCode.toUpperCase()
+      )
     : null;
-  const queueDayPause = location
-    ? await queueDayPauseRepository.findActivePause(tenant._id, location._id, dateKey)
+
+  if (lookupTicket?.locationId) {
+    const ticketLocation = await storeLocationRepository.findLocationById(lookupTicket.locationId);
+    if (ticketLocation && String(ticketLocation.tenantId) === String(tenant._id)) {
+      snapshotLocation = ticketLocation;
+      locationId = ticketLocation._id;
+    }
+  }
+
+  const locationToUse = snapshotLocation;
+  const dateKey =
+    options.queueDateKey ||
+    getDateKey(new Date(), locationToUse?.timezone || env.appTimezone || "Asia/Manila");
+  const queueDayClosure = locationToUse
+    ? await queueDayClosureRepository.findActiveClosure(tenant._id, locationToUse._id, dateKey)
+    : null;
+  const queueDayPause = locationToUse
+    ? await queueDayPauseRepository.findActivePause(tenant._id, locationToUse._id, dateKey)
     : null;
   const overflowDateKey = queueDayClosure?.nextQueueDateKey || dateKey;
   const current = await ticketRepository.findCurrentCalledTicket(tenant._id, { locationId, dateKey });
@@ -320,13 +355,13 @@ async function getQueueSnapshot(tenant, options = {}) {
   const usage = await getTenantUsage(tenant._id);
   const queueFee = await queueFeeService.getQueueFeeForTenant(tenant._id);
   const activeSubscription = await queueFeeService.getActiveTenantSubscription(tenant._id);
-  const openStatus = location
-    ? await storeHoursService.getOpenStatus(location)
+  const openStatus = locationToUse
+    ? await storeHoursService.getOpenStatus(locationToUse)
     : { isOpen: true, timezone: "Asia/Manila", summary: "Open 24 hours", today: null, nextOpenAt: null };
-  const hours = location ? await storeLocationRepository.listHoursByLocationId(location._id) : [];
+  const hours = locationToUse ? await storeLocationRepository.listHoursByLocationId(locationToUse._id) : [];
   const publicBoardTheme = await publicBoardThemeRepository.getResolvedTheme(
     tenant._id,
-    location?._id
+    locationToUse?._id
   );
 
   const nextUp = waitingTickets.slice(0, 10).map((ticket, index) => ({
@@ -356,41 +391,32 @@ async function getQueueSnapshot(tenant, options = {}) {
   }));
 
   let focusTicket = null;
-  if (options.lookupCode) {
-    const ticket = await ticketRepository.findTicketByTenantAndLookupCode(
-      tenant._id,
-      options.lookupCode.toUpperCase()
-    );
+  if (lookupTicket) {
+    const position =
+      lookupTicket.status === "waiting"
+        ? (
+            await ticketRepository.listWaitingTickets(tenant._id, {
+              locationId,
+              dateKey: lookupTicket.dateKey
+            })
+          ).findIndex((waitingTicket) => String(waitingTicket._id) === String(lookupTicket._id)) + 1
+        : null;
 
-    if (ticket) {
-      const position =
-        ticket.status === "waiting"
-          ? (
-              ticket.dateKey === dateKey
-                ? waitingTickets
-                : await ticketRepository.listWaitingTickets(tenant._id, {
-                    locationId,
-                    dateKey: ticket.dateKey
-                  })
-            ).findIndex((waitingTicket) => String(waitingTicket._id) === String(ticket._id)) + 1
-          : null;
-
-      focusTicket = {
-        id: String(ticket._id),
-        lookupCode: ticket.lookupCode,
-        ticketNumber: ticket.ticketNumber,
-        customerName: ticket.customerName,
-        status: ticket.status,
-        position: position || null,
-        estimatedWaitMinutes:
-          position && position > 0 ? position * tenant.averageServiceMinutes : 0,
-        joinedAt: ticket.createdAt
-      };
-    }
+    focusTicket = {
+      id: String(lookupTicket._id),
+      lookupCode: lookupTicket.lookupCode,
+      ticketNumber: lookupTicket.ticketNumber,
+      customerName: lookupTicket.customerName,
+      status: lookupTicket.status,
+      position: position || null,
+      estimatedWaitMinutes:
+        position && position > 0 ? position * tenant.averageServiceMinutes : 0,
+      joinedAt: lookupTicket.createdAt
+    };
   }
 
   return {
-    tenant: {
+    tenant: redactPublicContactDetails({
       id: String(tenant._id),
       name: tenant.name,
       slug: tenant.slug,
@@ -401,41 +427,39 @@ async function getQueueSnapshot(tenant, options = {}) {
       autoPauseThreshold: tenant.autoPauseThreshold ?? null,
       autoResumeEnabled: Boolean(tenant.autoResumeEnabled),
       autoResumeVacancyPercent: tenant.autoResumeVacancyPercent ?? null,
-      contactEmail: tenant.contactEmail || "",
-      contactPhone: tenant.contactPhone || "",
-      joinUrl: buildJoinUrl(env.appBaseUrl, tenant.slug, location?.slug),
-      monitorUrl: buildMonitorUrl(env.appBaseUrl, tenant.slug, location?.slug),
+      joinUrl: buildJoinUrl(env.appBaseUrl, tenant.slug, locationToUse?.slug),
+      monitorUrl: buildMonitorUrl(env.appBaseUrl, tenant.slug, locationToUse?.slug),
       isActive: Boolean(activeSubscription),
       queueFee
-    },
-    location: location
-      ? {
-          id: String(location._id),
-          tenantId: String(location.tenantId),
-          name: location.name,
-          slug: location.slug,
-          addressLine1: location.addressLine1,
-          addressLine2: location.addressLine2,
-          city: location.city,
-          province: location.province,
-          postalCode: location.postalCode,
-          country: location.country,
-          contactEmail: location.contactEmail,
-          contactPhone: location.contactPhone,
-          timezone: location.timezone,
-          isPrimary: location.isPrimary,
-          isActive: location.isActive,
-          joinUrl: buildJoinUrl(env.appBaseUrl, tenant.slug, location.slug),
-          monitorUrl: buildMonitorUrl(env.appBaseUrl, tenant.slug, location.slug),
-          openStatus,
-          hours: hours.map((hour) => ({
-            weekday: hour.weekday,
-            opensAt: hour.opensAt,
-            closesAt: hour.closesAt,
-            isClosed: hour.isClosed
-          }))
-        }
-      : null,
+    }),
+    location: redactPublicContactDetails(
+      locationToUse
+        ? {
+            id: String(locationToUse._id),
+            tenantId: String(locationToUse.tenantId),
+            name: locationToUse.name,
+            slug: locationToUse.slug,
+            addressLine1: locationToUse.addressLine1,
+            addressLine2: locationToUse.addressLine2,
+            city: locationToUse.city,
+            province: locationToUse.province,
+            postalCode: locationToUse.postalCode,
+            country: locationToUse.country,
+            timezone: locationToUse.timezone,
+            isPrimary: locationToUse.isPrimary,
+            isActive: locationToUse.isActive,
+            joinUrl: buildJoinUrl(env.appBaseUrl, tenant.slug, locationToUse.slug),
+            monitorUrl: buildMonitorUrl(env.appBaseUrl, tenant.slug, locationToUse.slug),
+            openStatus,
+            hours: hours.map((hour) => ({
+              weekday: hour.weekday,
+              opensAt: hour.opensAt,
+              closesAt: hour.closesAt,
+              isClosed: hour.isClosed
+            }))
+          }
+        : null
+    ),
     publicBoardTheme,
     queueDay: {
       isClosed: Boolean(queueDayClosure),
@@ -989,7 +1013,7 @@ async function updateCurrentTicketStatus(tenant, status, options = {}) {
 }
 
 async function cancelTicket(tenant, lookupCode, options = {}) {
-  const location = await resolveLocation(tenant, options);
+  const location = options.location || (await resolveLocation(tenant, options));
   const normalizedLookupCode = lookupCode.toUpperCase();
   const ticket = await db.withTransaction(async (client) => {
     const existingTicket = await ticketRepository.findTicketByTenantAndLookupCode(
