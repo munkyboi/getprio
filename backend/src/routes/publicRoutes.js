@@ -1,6 +1,7 @@
 const express = require("express");
 const tenantRepository = require("../repositories/tenants");
 const storeLocationRepository = require("../repositories/storeLocations");
+const publicBoardThemeRepository = require("../repositories/publicBoardThemes");
 const ticketRepository = require("../repositories/tickets");
 const asyncHandler = require("../middleware/asyncHandler");
 const { maybeAuthenticate } = require("../middleware/auth");
@@ -45,7 +46,23 @@ router.get(
       throw error;
     }
 
-    res.json({ vendor });
+    const tenant = await tenantRepository.findTenantBySlug(
+      String(req.params.tenantSlug).toLowerCase(),
+      { activeOnly: true }
+    );
+    const primaryLocation = vendor.location.slug && tenant
+      ? await storeLocationRepository.findLocationByTenantAndSlug(tenant._id, vendor.location.slug)
+      : null;
+    const publicBoardTheme = tenant
+      ? await publicBoardThemeRepository.getResolvedTheme(tenant._id, primaryLocation?._id)
+      : null;
+
+    res.json({
+      vendor: {
+        ...vendor,
+        publicBoardTheme
+      }
+    });
   })
 );
 

@@ -167,14 +167,14 @@ export default function JoinedQueuePage() {
         minHeight: "calc(100vh - 81px)",
         maxWidth: "100dvw",
         overflowX: "hidden",
-        padding: "3rem 2rem 4rem"
+        padding: "2rem 2rem 4rem"
       }
     : {
         margin: "0 calc(50% - 50dvw) -4rem",
         minHeight: "calc(100vh - 81px)",
         maxWidth: "100dvw",
         overflowX: "hidden",
-        padding: "3rem 2rem 4rem"
+        padding: "2rem 2rem 4rem"
       };
   const buttonStyle: CSSProperties | undefined = theme
     ? {
@@ -381,6 +381,16 @@ export default function JoinedQueuePage() {
 
   return (
     <Box style={pageStyle}>
+      {theme?.logoUrl ? (
+        <Box style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+          <Box
+            alt={`${heroTitle} logo`}
+            component="img"
+            src={theme.logoUrl}
+            style={{ width: 'min(240px, 20dvw)', objectFit: "contain", aspectRatio: 1.5 }}
+          />
+        </Box>
+      ) : null}
       <Stack gap="lg" maw={1180} mx="auto">
         <Modal
           centered
@@ -419,14 +429,6 @@ export default function JoinedQueuePage() {
         <Paper p={{ base: "lg", md: "xl" }} shadow="xl" style={cardStyle}>
           <SimpleGrid cols={{ base: 1, md: 3 }} spacing="xl">
             <Stack gap="md" style={{ gridColumn: "span 2" }}>
-              {theme?.logoUrl ? (
-                <Box
-                  alt={`${heroTitle} logo`}
-                  component="img"
-                  src={theme.logoUrl}
-                  style={{ maxHeight: 76, maxWidth: 180, objectFit: "contain" }}
-                />
-              ) : null}
               <Text c={subheaderColor} fw={800} size="xs" tt="uppercase" lts={2}>
                 Queue status
               </Text>

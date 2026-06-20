@@ -28,6 +28,16 @@ function getLocationLabel(vendor: PublicVendorProfile) {
   return parts.length ? parts.join(", ") : vendor.location.country || "Philippines";
 }
 
+function getBranchLabel(location: PublicVendorProfile["locations"][number]) {
+  const parts = [
+    location.name,
+    location.city,
+    location.province
+  ].filter(Boolean);
+
+  return parts.length ? parts.join(", ") : location.country || "Philippines";
+}
+
 export default function VendorDiscoveryPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const initialSearch = searchParams.get("search") || "";
@@ -160,6 +170,21 @@ export default function VendorDiscoveryPage() {
                   <Text c="dimmed" lineClamp={3}>
                     {vendor.description || "This vendor is preparing a public service profile."}
                   </Text>
+                  <Text c="dimmed" size="sm">
+                    {vendor.locations.length === 1 ? "1 active location" : `${vendor.locations.length} active locations`}
+                  </Text>
+                  <div className="vendor-card-branches">
+                    {vendor.locations.map((location) => (
+                      <Badge
+                        className="vendor-branch-chip"
+                        color={location.isPrimary ? "orange" : "gray"}
+                        key={location.slug}
+                        variant="light"
+                      >
+                        {getBranchLabel(location)}
+                      </Badge>
+                    ))}
+                  </div>
                   <Group mt="auto">
                     <Button color="dark" component={Link} to={`/vendors/${vendor.slug}`}>
                       View profile

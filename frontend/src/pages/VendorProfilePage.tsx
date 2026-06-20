@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import {
   Alert,
   Badge,
@@ -12,11 +12,27 @@ import {
   ThemeIcon,
   Title
 } from "@mantine/core";
-import { IconArrowLeft, IconCalendar, IconMapPin, IconTicket, IconUserPlus } from "@tabler/icons-react";
+import { IconArrowLeft, IconCalendar, IconClock, IconMapPin, IconTicket, IconUserPlus } from "@tabler/icons-react";
 import { Link, useParams } from "react-router-dom";
 import type { PublicVendorProfile, PublicVendorProfileResponse } from "@shared";
 import { apiRequest } from "../api/client";
 import { getErrorMessage } from "../utils/errors";
+
+const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function toMinutes(value: string) {
+  const [hours = "0", minutes = "0"] = value.split(":");
+  return Number(hours) * 60 + Number(minutes);
+}
+
+function formatTimeLabel(value: string) {
+  const [hours = "0", minutes = "0"] = value.split(":");
+  const hour = Number(hours);
+  const suffix = hour >= 12 ? "PM" : "AM";
+  const displayHour = hour % 12 || 12;
+
+  return `${displayHour}:${minutes.padStart(2, "0")} ${suffix}`;
+}
 
 function getLocationLabel(vendor: PublicVendorProfile) {
   const parts = [
@@ -28,11 +44,37 @@ function getLocationLabel(vendor: PublicVendorProfile) {
   return parts.length ? parts.join(", ") : vendor.location.country || "Philippines";
 }
 
+function getBranchLabel(location: PublicVendorProfile["locations"][number]) {
+  const parts = [location.city, location.province].filter(Boolean);
+  return parts.length ? parts.join(", ") : location.country || "Philippines";
+}
+
+function formatHourRange(location: PublicVendorProfile["locations"][number], weekday: number) {
+  const hour = location.hours.find((entry) => entry.weekday === weekday);
+
+  if (!hour || hour.isClosed) {
+    return "Closed";
+  }
+
+  if (hour.opensAt === hour.closesAt) {
+    return "Open 24 hours";
+  }
+
+  if (!hour.opensAt || !hour.closesAt) {
+    return "Hours unavailable";
+  }
+
+  const overnightLabel = toMinutes(hour.closesAt) < toMinutes(hour.opensAt) ? " next day" : "";
+
+  return `${formatTimeLabel(hour.opensAt)} - ${formatTimeLabel(hour.closesAt)}${overnightLabel}`;
+}
+
 export default function VendorProfilePage() {
   const { tenantSlug = "" } = useParams<{ tenantSlug: string }>();
   const [vendor, setVendor] = useState<PublicVendorProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const currentWeekday = new Date().getDay();
 
   useEffect(() => {
     if (!tenantSlug) {
@@ -69,6 +111,13 @@ export default function VendorProfilePage() {
   }, [tenantSlug]);
 
   const locationLabel = useMemo(() => (vendor ? getLocationLabel(vendor) : ""), [vendor]);
+  const theme = vendor?.publicBoardTheme?.theme;
+  const hasThemeMedia = Boolean(theme?.backgroundImageUrl || theme?.logoUrl);
+  const themedMediaStyle: CSSProperties | undefined = theme?.backgroundImageUrl
+    ? {
+        backgroundImage: `linear-gradient(rgba(255,255,255,0.18), rgba(255,255,255,0.18)), url(${theme.backgroundImageUrl})`
+      }
+    : undefined;
 
   return (
     <Stack className="vendor-profile-page" gap="xl">
@@ -115,8 +164,14 @@ export default function VendorProfilePage() {
               </Text>
 
               <Group>
-                <Button color="orange" component={Link} leftSection={<IconTicket size={18} />} size="lg" to={`/join/${vendor.slug}`}>
-                  Join same-day queue
+                <Button
+                  color="orange"
+                  component={Link}
+                  leftSection={<IconTicket size={18} />}
+                  size="lg"
+                  to={vendor.location.slug ? `/join/${vendor.slug}/${vendor.location.slug}` : `/join/${vendor.slug}`}
+                >
+                  Join primary queue
                 </Button>
                 <Button color="dark" component={Link} size="lg" to="/register/customer" variant="outline">
                   Create customer account
@@ -126,8 +181,19 @@ export default function VendorProfilePage() {
 
             <Paper className="vendor-profile-panel" p="xl">
               <Stack gap="lg">
-                <div className="vendor-profile-image">
-                  {vendor.imageUrl ? <img alt="" src={vendor.imageUrl} /> : <IconTicket size={54} />}
+                <div
+                  className={hasThemeMedia ? "vendor-profile-image vendor-profile-image-themed" : "vendor-profile-image"}
+                  style={themedMediaStyle}
+                >
+                  {theme?.logoUrl ? (
+                    <div className="vendor-profile-logo-frame">
+                      <img alt={`${vendor.name} logo`} src={theme.logoUrl} />
+                    </div>
+                  ) : vendor.imageUrl ? (
+                    <img alt="" src={vendor.imageUrl} />
+                  ) : (
+                    <IconTicket size={54} />
+                  )}
                 </div>
                 <SimpleGrid cols={{ base: 1, sm: 2 }}>
                   <Paper className="vendor-profile-action" p="lg">
@@ -149,6 +215,70 @@ export default function VendorProfilePage() {
                     </Text>
                   </Paper>
                 </SimpleGrid>
+                <Paper className="vendor-profile-action" p="lg">
+                  <Stack gap="md">
+                    <div>
+                      <Text fw={900}>Available locations</Text>
+                      <Text c="dimmed" size="sm">
+                        Choose a branch to continue into its same-day queue.
+                      </Text>
+                    </div>
+                    <SimpleGrid cols={1}>
+                      {vendor.locations.map((location) => (
+                        <Paper className="vendor-location-card" key={location.slug} p="md">
+                          <Stack gap="xs">
+                            <Group justify="space-between" wrap="nowrap">
+                              <Text fw={800}>{location.name}</Text>
+                              {location.isPrimary ? <Badge color="orange" variant="light">Primary</Badge> : null}
+                            </Group>
+                            <Group c="dimmed" gap={6} wrap="nowrap">
+                              <IconMapPin size={15} />
+                              <Text size="sm">{getBranchLabel(location)}</Text>
+                            </Group>
+                            <div className="vendor-hours-card">
+                              <Group gap={6} mb={6}>
+                                <IconClock size={15} />
+                                <Text fw={800} size="xs">Store hours</Text>
+                              </Group>
+                              <div className="vendor-hours-list">
+                                {WEEKDAY_LABELS.map((label, weekday) => {
+                                  const hoursLabel = formatHourRange(location, weekday);
+                                  const isClosed = hoursLabel === "Closed";
+                                  const isToday = weekday === currentWeekday;
+
+                                  return (
+                                    <div
+                                      aria-current={isToday ? "date" : undefined}
+                                      className={[
+                                        "vendor-hours-row",
+                                        isClosed ? "vendor-hours-row-muted" : "",
+                                        isToday ? "vendor-hours-row-today" : ""
+                                      ].filter(Boolean).join(" ")}
+                                      key={label}
+                                    >
+                                      <span className="vendor-hours-day">{label}</span>
+                                      <span className="vendor-hours-time">{hoursLabel}</span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                            <Button
+                              color="orange"
+                              component={Link}
+                              mt="xs"
+                              size="sm"
+                              to={`/join/${vendor.slug}/${location.slug}`}
+                              variant="light"
+                            >
+                              Join this queue
+                            </Button>
+                          </Stack>
+                        </Paper>
+                      ))}
+                    </SimpleGrid>
+                  </Stack>
+                </Paper>
                 <Paper className="vendor-profile-action" p="lg">
                   <Group gap="md" wrap="nowrap">
                     <ThemeIcon color="dark" radius="xl" size={46} variant="light">

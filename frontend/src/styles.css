@@ -233,7 +233,8 @@ body {
 .vendor-card,
 .vendor-empty-panel,
 .vendor-profile-panel,
-.vendor-profile-action {
+.vendor-profile-action,
+.vendor-location-card {
   border: 1px solid rgba(36, 30, 25, 0.09);
   background: rgba(255, 255, 255, 0.82);
   box-shadow: 0 24px 64px rgba(36, 30, 25, 0.08);
@@ -263,6 +264,16 @@ body {
   border-radius: 22px;
 }
 
+.vendor-card-branches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.vendor-branch-chip {
+  max-width: 100%;
+}
+
 .vendor-card-image img,
 .vendor-profile-image img {
   width: 100%;
@@ -279,9 +290,93 @@ body {
   border-radius: 24px;
 }
 
+.vendor-profile-image-themed {
+  min-height: 330px;
+  padding: clamp(1.5rem, 4vw, 3rem);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.vendor-profile-logo-frame {
+  display: flex;
+  /* place-items: center; */
+  justify-content: center;
+  align-items: center;
+  width: min(240px, 70%);
+  aspect-ratio: 1.5;
+  border-radius: 24px;
+  background: transparent;
+  overflow: hidden;
+}
+
+.vendor-profile-logo-frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
 .vendor-profile-action {
   min-height: 150px;
   border-radius: 20px;
+}
+
+.vendor-location-card {
+  min-height: 150px;
+  border-radius: 16px;
+  box-shadow: none;
+}
+
+.vendor-hours-card {
+  margin-top: 0.55rem;
+  color: #2f251f;
+}
+
+.vendor-hours-list {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.vendor-hours-row {
+  display: grid;
+  grid-template-columns: 3.2rem minmax(0, 1fr);
+  gap: 0.85rem;
+  align-items: center;
+  min-height: 2.1rem;
+  padding: 0.38rem 0.65rem;
+  border-radius: 10px;
+  border-bottom: 1px solid rgba(36, 30, 25, 0.06);
+  font-size: 0.82rem;
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.vendor-hours-day {
+  font-weight: 800;
+  color: #bb4d00;
+}
+
+.vendor-hours-time {
+  justify-self: end;
+  min-width: 0;
+  text-align: right;
+  color: #3f3027;
+}
+
+.vendor-hours-row-muted .vendor-hours-day,
+.vendor-hours-row-muted .vendor-hours-time {
+  color: #8f8175;
+}
+
+.vendor-hours-row-today {
+  border-bottom-color: transparent;
+  background: #ff7a1a;
+  color: #ffffff;
+  box-shadow: 0 12px 26px rgba(255, 122, 26, 0.2);
+}
+
+.vendor-hours-row-today .vendor-hours-day,
+.vendor-hours-row-today .vendor-hours-time {
+  color: #ffffff;
 }
 
 @media (max-width: 768px) {
@@ -341,6 +436,46 @@ button {
   border-bottom: 1px solid rgba(36, 30, 25, 0.08);
   background: rgba(251, 250, 247, 0.82);
   backdrop-filter: blur(18px);
+}
+
+.public-topbar-inner {
+  min-height: 42px;
+}
+
+.mobile-nav-trigger {
+  display: none;
+}
+
+.mobile-nav-drawer-content {
+  border-left: 1px solid rgba(36, 30, 25, 0.1);
+  background:
+    radial-gradient(circle at 20% 0%, rgba(216, 185, 95, 0.2), transparent 34%),
+    linear-gradient(180deg, rgba(251, 250, 247, 0.98), rgba(243, 238, 231, 0.98));
+}
+
+.mobile-nav-drawer-header {
+  padding: 1.1rem 1.1rem 0.25rem;
+}
+
+.mobile-nav-drawer-body {
+  padding-top: 1rem;
+}
+
+.mobile-nav-links .mantine-Button-root {
+  width: 100%;
+  justify-content: flex-start;
+  min-height: 46px;
+  border-radius: 14px;
+}
+
+@media (max-width: 768px) {
+  .desktop-nav-links {
+    display: none;
+  }
+
+  .mobile-nav-trigger {
+    display: block;
+  }
 }
 
 .finazze-page-wrap {

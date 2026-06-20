@@ -443,12 +443,24 @@ export interface CompleteVendorOnboardingRequest {
   phone: string;
 }
 
+export interface PublicVendorLocation {
+  name: string;
+  slug: string;
+  city: string;
+  province: string;
+  country: string;
+  isPrimary: boolean;
+  hours: StoreHourSummary[];
+}
+
 export interface PublicVendorProfile {
   name: string;
   slug: string;
   category: string;
   description: string;
   imageUrl: string;
+  locations: PublicVendorLocation[];
+  publicBoardTheme?: PublicBoardThemeResponse | null;
   location: {
     name: string;
     slug: string;

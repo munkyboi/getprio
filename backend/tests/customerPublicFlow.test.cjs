@@ -121,43 +121,58 @@ async function stopServer(server) {
 }
 
 function buildPublicRouter(ticket, cancelTicketMock) {
+  const vendorProfiles = [
+    {
+      name: "Demo Tenant",
+      slug: "demo",
+      category: "Clinic",
+      description: "Public queue and booking profile.",
+      imageUrl: "",
+      locations: [
+        {
+          name: "Ayala",
+          slug: "ayala",
+          city: "Cebu City",
+          province: "Cebu",
+          country: "Philippines",
+          isPrimary: true,
+          hours: [
+            { weekday: 0, opensAt: "08:00", closesAt: "17:00", isClosed: false },
+            { weekday: 1, opensAt: "", closesAt: "", isClosed: true }
+          ]
+        },
+        {
+          name: "West",
+          slug: "west",
+          city: "Mandaue",
+          province: "Cebu",
+          country: "Philippines",
+          isPrimary: false,
+          hours: [
+            { weekday: 0, opensAt: "10:00", closesAt: "19:00", isClosed: false }
+          ]
+        }
+      ],
+      location: {
+        name: "Ayala",
+        slug: "ayala",
+        city: "Cebu City",
+        province: "Cebu",
+        country: "Philippines"
+      }
+    }
+  ];
+
   return requireWithMocks("../src/routes/publicRoutes.js", {
     "../middleware/auth": buildPublicAuthMock(),
     "../middleware/asyncHandler": buildAsyncHandlerMock(),
     "../repositories/tenants": {
-      listPublicVendorProfiles: async () => [
-        {
-          name: "Demo Tenant",
-          slug: "demo",
-          category: "Clinic",
-          description: "Public queue and booking profile.",
-          imageUrl: "",
-          location: {
-            name: "Ayala",
-            slug: "ayala",
-            city: "Cebu City",
-            province: "Cebu",
-            country: "Philippines"
-          }
-        }
-      ],
+      listPublicVendorProfiles: async ({ search } = {}) =>
+        search && !JSON.stringify(vendorProfiles).toLowerCase().includes(String(search).toLowerCase())
+          ? []
+          : vendorProfiles,
       findPublicVendorProfileBySlug: async (slug) =>
-        slug === "demo"
-          ? {
-              name: "Demo Tenant",
-              slug: "demo",
-              category: "Clinic",
-              description: "Public queue and booking profile.",
-              imageUrl: "",
-              location: {
-                name: "Ayala",
-                slug: "ayala",
-                city: "Cebu City",
-                province: "Cebu",
-                country: "Philippines"
-              }
-            }
-          : null,
+        slug === "demo" ? vendorProfiles[0] : null,
       findTenantBySlug: async () => ({
         _id: "tenant-1",
         slug: "demo",
@@ -216,6 +231,30 @@ function buildPublicRouter(ticket, cancelTicketMock) {
               isPrimary: true,
               isActive: true
             }
+    },
+    "../repositories/publicBoardThemes": {
+      getResolvedTheme: async () => ({
+        scope: "location",
+        theme: {
+          presetId: "classic",
+          heroTitle: "Demo board",
+          heroSubtitle: "Ayala",
+          logoUrl: "https://cdn.example.test/logo.png",
+          backgroundImageUrl: "https://cdn.example.test/background.png",
+          pageBackgroundColor: "#f8efe3",
+          cardBackgroundColor: "#fffaf4",
+          cardAlpha: 0.9,
+          cardBorderSize: 1,
+          cardBorderRadius: 28,
+          cardBorderColor: "#eadccf",
+          headerColor: "#24160f",
+          subheaderColor: "#8a5c39",
+          bodyColor: "#3f3027",
+          buttonBackgroundColor: "#ea6a1f",
+          buttonTextColor: "#ffffff",
+          buttonBorderColor: "#ea6a1f"
+        }
+      })
     },
     "../repositories/tickets": {
       findTicketByLookupCode: async () => ticket,
@@ -285,12 +324,32 @@ test("public vendor discovery returns approved public profile cards", async () =
       "description",
       "imageUrl",
       "location",
+      "locations",
       "name",
       "slug"
     ]);
     assert.equal(body.vendors[0].slug, "demo");
     assert.equal(body.vendors[0].location.city, "Cebu City");
+    assert.equal(body.vendors[0].locations.length, 2);
+    assert.equal(body.vendors[0].locations[1].slug, "west");
+    assert.equal(body.vendors[0].locations[0].hours[0].opensAt, "08:00");
     assert.equal(body.vendors[0].contactEmail, undefined);
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("public vendor discovery can match non-primary branch locations", async () => {
+  const router = buildPublicRouter(null, async () => ({}));
+  const { server, baseUrl } = await startServer(router, "/api/public");
+
+  try {
+    const response = await fetch(`${baseUrl}/vendors?search=mandaue`);
+
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.vendors.length, 1);
+    assert.equal(body.vendors[0].locations[1].name, "West");
   } finally {
     await stopServer(server);
   }
@@ -306,6 +365,24 @@ test("public vendor profile returns 404 for unavailable vendors", async () => {
     assert.equal(response.status, 404);
     const body = await response.json();
     assert.match(body.message, /vendor not found/i);
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("public vendor profile includes the resolved public board theme", async () => {
+  const router = buildPublicRouter(null, async () => ({}));
+  const { server, baseUrl } = await startServer(router, "/api/public");
+
+  try {
+    const response = await fetch(`${baseUrl}/vendors/demo`);
+
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.vendor.publicBoardTheme.scope, "location");
+    assert.equal(body.vendor.publicBoardTheme.theme.logoUrl, "https://cdn.example.test/logo.png");
+    assert.equal(body.vendor.publicBoardTheme.theme.backgroundImageUrl, "https://cdn.example.test/background.png");
+    assert.equal(body.vendor.locations[0].hours[0].closesAt, "17:00");
   } finally {
     await stopServer(server);
   }

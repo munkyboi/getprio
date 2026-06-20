@@ -30,7 +30,8 @@ import {
   TextInput,
   Textarea,
   Title,
-  Tooltip
+  Tooltip,
+  Box
 } from "@mantine/core";
 import {
   IconChartBar,
@@ -2314,6 +2315,16 @@ export default function VendorDashboardPage() {
         }}
       >
         <Stack gap="md">
+            {themeForm?.logoUrl ? (
+              <Box style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                <Box
+                  alt="Company logo preview"
+                  component="img"
+                  src={themeForm.logoUrl}
+                  style={{ width: 'min(240px, 20dvw)', objectFit: "contain", aspectRatio: 1.5 }}
+                />
+              </Box>
+            ) : null}
           <Paper p="xl" style={cardStyle}>
             <Group justify="space-between" align="flex-start">
               <div>
@@ -2323,18 +2334,11 @@ export default function VendorDashboardPage() {
                 <Title order={1} c={themeForm.headerColor}>
                   {themeForm.heroTitle || previewLocation?.name || snapshot?.tenant.name || "Public board"}
                 </Title>
-                <Text c={themeForm.bodyColor} maw={620}>
-                  {themeForm.heroSubtitle ||
+                <Title c={themeForm.headerColor} order={2} style={{ fontSize: "clamp(2rem, 4vw, 3rem)" }}>
+                {themeForm.heroSubtitle ||
                     "Customers can monitor their turn remotely and join the line online."}
-                </Text>
+                </Title>
               </div>
-              {themeForm.logoUrl ? (
-                <img
-                  alt="Company logo preview"
-                  src={themeForm.logoUrl}
-                  style={{ maxHeight: 72, maxWidth: 140, objectFit: "contain" }}
-                />
-              ) : null}
             </Group>
             <Group mt="xl">
               <Button

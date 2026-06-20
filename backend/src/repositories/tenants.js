@@ -58,18 +58,46 @@ function mapPublicVendorProfile(row) {
     return null;
   }
 
+  const locations = Array.isArray(row.locations)
+    ? row.locations.map((location) => ({
+        name: location.name || "",
+        slug: location.slug || "",
+        city: location.city || "",
+        province: location.province || "",
+        country: location.country || "Philippines",
+        isPrimary: Boolean(location.isPrimary),
+        hours: Array.isArray(location.hours)
+          ? location.hours.map((hour) => ({
+              weekday: Number(hour.weekday),
+              opensAt: hour.opensAt || "",
+              closesAt: hour.closesAt || "",
+              isClosed: Boolean(hour.isClosed)
+            }))
+          : []
+      }))
+    : [];
+  const primaryLocation = locations.find((location) => location.isPrimary) || locations[0] || {
+    name: "",
+    slug: "",
+    city: "",
+    province: "",
+    country: "Philippines",
+    isPrimary: false
+  };
+
   return {
     name: row.name,
     slug: row.slug,
     category: row.public_profile_category || "",
     description: row.public_profile_description || "",
     imageUrl: row.public_profile_image_url || "",
+    locations,
     location: {
-      name: row.location_name || "",
-      slug: row.location_slug || "",
-      city: row.location_city || "",
-      province: row.location_province || "",
-      country: row.location_country || "Philippines"
+      name: primaryLocation.name,
+      slug: primaryLocation.slug,
+      city: primaryLocation.city,
+      province: primaryLocation.province,
+      country: primaryLocation.country
     }
   };
 }
@@ -244,8 +272,18 @@ async function listPublicVendorProfiles(options = {}) {
         LOWER(tenants.name) LIKE $${values.length}
         OR LOWER(COALESCE(tenants.public_profile_category, '')) LIKE $${values.length}
         OR LOWER(COALESCE(tenants.public_profile_description, '')) LIKE $${values.length}
-        OR LOWER(COALESCE(primary_location.city, '')) LIKE $${values.length}
-        OR LOWER(COALESCE(primary_location.province, '')) LIKE $${values.length}
+        OR EXISTS (
+          SELECT 1
+          FROM store_locations search_locations
+          WHERE search_locations.tenant_id = tenants.id
+            AND search_locations.is_active = TRUE
+            AND (
+              LOWER(search_locations.name) LIKE $${values.length}
+              OR LOWER(search_locations.slug) LIKE $${values.length}
+              OR LOWER(COALESCE(search_locations.city, '')) LIKE $${values.length}
+              OR LOWER(COALESCE(search_locations.province, '')) LIKE $${values.length}
+            )
+        )
       )
     `;
   }
@@ -260,20 +298,48 @@ async function listPublicVendorProfiles(options = {}) {
         tenants.public_profile_description,
         tenants.public_profile_category,
         tenants.public_profile_image_url,
-        primary_location.name AS location_name,
-        primary_location.slug AS location_slug,
-        primary_location.city AS location_city,
-        primary_location.province AS location_province,
-        primary_location.country AS location_country
+        COALESCE(active_locations.locations, '[]'::JSONB) AS locations
       FROM tenants
       LEFT JOIN LATERAL (
-        SELECT name, slug, city, province, country
-        FROM store_locations
-        WHERE store_locations.tenant_id = tenants.id
-          AND store_locations.is_active = TRUE
-        ORDER BY store_locations.is_primary DESC, store_locations.created_at ASC
-        LIMIT 1
-      ) primary_location ON TRUE
+        SELECT JSONB_AGG(
+          JSONB_BUILD_OBJECT(
+            'name', ordered_locations.name,
+            'slug', ordered_locations.slug,
+            'city', COALESCE(ordered_locations.city, ''),
+            'province', COALESCE(ordered_locations.province, ''),
+            'country', COALESCE(ordered_locations.country, 'Philippines'),
+            'isPrimary', ordered_locations.is_primary,
+            'hours', COALESCE(ordered_locations.hours, '[]'::JSONB)
+          )
+          ORDER BY ordered_locations.is_primary DESC, ordered_locations.name ASC
+        ) AS locations
+        FROM (
+          SELECT
+            store_locations.name,
+            store_locations.slug,
+            store_locations.city,
+            store_locations.province,
+            store_locations.country,
+            store_locations.is_primary,
+            (
+              SELECT JSONB_AGG(
+                JSONB_BUILD_OBJECT(
+                  'weekday', store_hours.weekday,
+                  'opensAt', COALESCE(TO_CHAR(store_hours.opens_at, 'HH24:MI'), ''),
+                  'closesAt', COALESCE(TO_CHAR(store_hours.closes_at, 'HH24:MI'), ''),
+                  'isClosed', store_hours.is_closed
+                )
+                ORDER BY store_hours.weekday ASC
+              )
+              FROM store_hours
+              WHERE store_hours.location_id = store_locations.id
+            ) AS hours
+          FROM store_locations
+          WHERE store_locations.tenant_id = tenants.id
+            AND store_locations.is_active = TRUE
+          ORDER BY store_locations.is_primary DESC, store_locations.name ASC
+        ) ordered_locations
+      ) active_locations ON TRUE
       WHERE tenants.is_active = TRUE
         AND tenants.public_profile_enabled = TRUE
         AND tenants.vendor_approval_status = 'approved'
@@ -297,20 +363,48 @@ async function findPublicVendorProfileBySlug(slug, options = {}) {
         tenants.public_profile_description,
         tenants.public_profile_category,
         tenants.public_profile_image_url,
-        primary_location.name AS location_name,
-        primary_location.slug AS location_slug,
-        primary_location.city AS location_city,
-        primary_location.province AS location_province,
-        primary_location.country AS location_country
+        COALESCE(active_locations.locations, '[]'::JSONB) AS locations
       FROM tenants
       LEFT JOIN LATERAL (
-        SELECT name, slug, city, province, country
-        FROM store_locations
-        WHERE store_locations.tenant_id = tenants.id
-          AND store_locations.is_active = TRUE
-        ORDER BY store_locations.is_primary DESC, store_locations.created_at ASC
-        LIMIT 1
-      ) primary_location ON TRUE
+        SELECT JSONB_AGG(
+          JSONB_BUILD_OBJECT(
+            'name', ordered_locations.name,
+            'slug', ordered_locations.slug,
+            'city', COALESCE(ordered_locations.city, ''),
+            'province', COALESCE(ordered_locations.province, ''),
+            'country', COALESCE(ordered_locations.country, 'Philippines'),
+            'isPrimary', ordered_locations.is_primary,
+            'hours', COALESCE(ordered_locations.hours, '[]'::JSONB)
+          )
+          ORDER BY ordered_locations.is_primary DESC, ordered_locations.name ASC
+        ) AS locations
+        FROM (
+          SELECT
+            store_locations.name,
+            store_locations.slug,
+            store_locations.city,
+            store_locations.province,
+            store_locations.country,
+            store_locations.is_primary,
+            (
+              SELECT JSONB_AGG(
+                JSONB_BUILD_OBJECT(
+                  'weekday', store_hours.weekday,
+                  'opensAt', COALESCE(TO_CHAR(store_hours.opens_at, 'HH24:MI'), ''),
+                  'closesAt', COALESCE(TO_CHAR(store_hours.closes_at, 'HH24:MI'), ''),
+                  'isClosed', store_hours.is_closed
+                )
+                ORDER BY store_hours.weekday ASC
+              )
+              FROM store_hours
+              WHERE store_hours.location_id = store_locations.id
+            ) AS hours
+          FROM store_locations
+          WHERE store_locations.tenant_id = tenants.id
+            AND store_locations.is_active = TRUE
+          ORDER BY store_locations.is_primary DESC, store_locations.name ASC
+        ) ordered_locations
+      ) active_locations ON TRUE
       WHERE tenants.slug = $1
         AND tenants.is_active = TRUE
         AND tenants.public_profile_enabled = TRUE

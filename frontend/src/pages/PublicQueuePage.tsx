@@ -313,6 +313,16 @@ export default function PublicQueuePage() {
 
   return (
     <Box style={pageStyle}>
+      {theme?.logoUrl ? (
+        <Box style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+          <Box
+            alt={`${heroTitle} logo`}
+            component="img"
+            src={theme.logoUrl}
+            style={{ width: 'min(240px, 20dvw)', objectFit: "contain", aspectRatio: 1.5 }}
+          />
+        </Box>
+      ) : null}
       <Stack gap="lg" maw={1180} mx="auto">
         <Modal
           centered
@@ -346,21 +356,13 @@ export default function PublicQueuePage() {
         <Paper p={{ base: "lg", md: "xl" }} shadow="xl" style={cardStyle}>
           <SimpleGrid cols={{ base: 1, md: canJoinQueue ? 3 : 2 }} spacing="xl">
             <Stack gap="md" style={{ gridColumn: canJoinQueue ? "span 2" : undefined }}>
-              {theme?.logoUrl ? (
-                <Box
-                  alt={`${heroTitle} logo`}
-                  component="img"
-                  src={theme.logoUrl}
-                  style={{ maxHeight: 76, maxWidth: 180, objectFit: "contain" }}
-                />
-              ) : null}
               <Text c={subheaderColor} fw={800} size="xs" tt="uppercase" lts={2}>
                 Live queue
               </Text>
-              <Title c={headerColor} order={1} style={{ fontSize: "clamp(3rem, 7vw, 4.5rem)" }}>
+              <Title c={headerColor} order={1} style={{ fontSize: "clamp(2rem, 4vw, 3rem)" }}>
                 {heroTitle}
               </Title>
-              <Title c={headerColor} order={2} style={{ fontSize: "clamp(2rem, 4vw, 3rem)" }}>
+              <Title c={headerColor} order={2} style={{ fontSize: "clamp(1rem, 3vw, 2rem)" }}>
                 {heroSubtitle}
               </Title>
               <Alert color={queueState.color} radius="md" variant="light">
@@ -413,7 +415,7 @@ export default function PublicQueuePage() {
               <Stack align="center" gap="sm">
                 <Text c={bodyColor} fw={700}>Scan to join</Text>
                 <Paper bg="white" p="md" radius="lg" withBorder>
-                  <QRCode size={256} value={joinQrUrl} />
+                  <QRCode size={180} value={joinQrUrl} />
                 </Paper>
                 <Text c={bodyColor} size="sm">Use your phone camera to open the queue form.</Text>
               </Stack>
@@ -488,7 +490,7 @@ export default function PublicQueuePage() {
             <Group justify="space-between" align="flex-start">
               <div>
                 <Text c={subheaderColor} fw={800} size="xs" tt="uppercase" lts={2}>Up next</Text>
-                <Title c={headerColor} order={2}>Queue overview</Title>
+                <Title c={headerColor} order={2} style={{ fontSize: "clamp(1rem, 3vw, 2rem)" }}>Queue overview</Title>
               </div>
               {canJoinQueue ? (
                 <Button component={Link} to={joinPath} variant="subtle" style={{ color: theme?.buttonBackgroundColor || undefined }}>
