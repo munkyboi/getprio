@@ -224,6 +224,66 @@ body {
   border-radius: 28px;
 }
 
+.vendor-discovery-page,
+.vendor-profile-page {
+  padding: clamp(2.5rem, 6vw, 5rem) 0;
+}
+
+.vendor-search-panel,
+.vendor-card,
+.vendor-empty-panel,
+.vendor-profile-panel,
+.vendor-profile-action {
+  border: 1px solid rgba(36, 30, 25, 0.09);
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 24px 64px rgba(36, 30, 25, 0.08);
+}
+
+.vendor-search-input {
+  flex: 1 1 320px;
+}
+
+.vendor-card {
+  min-height: 420px;
+}
+
+.vendor-card-image,
+.vendor-profile-image {
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  color: #bb4d00;
+  background:
+    radial-gradient(circle at 82% 12%, rgba(216, 185, 95, 0.22), transparent 32%),
+    linear-gradient(145deg, #fffdf9, #f2e7d8);
+}
+
+.vendor-card-image {
+  height: 150px;
+  border-radius: 22px;
+}
+
+.vendor-card-image img,
+.vendor-profile-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.vendor-profile-panel {
+  border-radius: 28px;
+}
+
+.vendor-profile-image {
+  min-height: 300px;
+  border-radius: 24px;
+}
+
+.vendor-profile-action {
+  min-height: 150px;
+  border-radius: 20px;
+}
+
 @media (max-width: 768px) {
   .prio-hero-grid {
     grid-template-columns: 1fr;

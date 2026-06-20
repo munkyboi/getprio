@@ -11,6 +11,8 @@ import RegisterVendorPage from "./pages/RegisterVendorPage";
 import RegisterCustomerPage from "./pages/RegisterCustomerPage";
 import CustomerAccountPage from "./pages/CustomerAccountPage";
 import VendorDashboardPage from "./pages/VendorDashboardPage";
+import VendorDiscoveryPage from "./pages/VendorDiscoveryPage";
+import VendorProfilePage from "./pages/VendorProfilePage";
 import PublicQueuePage from "./pages/PublicQueuePage";
 import JoinQueuePage from "./pages/JoinQueuePage";
 import JoinedQueuePage from "./pages/JoinedQueuePage";
@@ -38,6 +40,9 @@ function AppShell({ children }: { children: ReactNode }) {
             <Group component="nav" gap="xs">
               <Button component={Link} to="/#product" variant="subtle" color="dark">
                 Product
+              </Button>
+              <Button component={NavLink} to="/vendors" variant="subtle" color="dark">
+                Vendors
               </Button>
           {!user ? (
             <>
@@ -135,6 +140,8 @@ export default function App() {
       <Route path="/register/vendor" element={<AppShell><RegisterVendorPage /></AppShell>} />
       <Route path="/register/customer" element={<AppShell><RegisterCustomerPage /></AppShell>} />
       <Route path="/account" element={<AppShell><CustomerAccountPage /></AppShell>} />
+      <Route path="/vendors" element={<AppShell><VendorDiscoveryPage /></AppShell>} />
+      <Route path="/vendors/:tenantSlug" element={<AppShell><VendorProfilePage /></AppShell>} />
       <Route path="/dashboard" element={<DashboardRedirect />} />
       <Route path="/dashboard/:section" element={<AppShell><VendorDashboardPage /></AppShell>} />
       <Route path="/join/:tenantSlug/:locationSlug?" element={<AppShell><JoinQueuePage /></AppShell>} />

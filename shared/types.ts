@@ -443,6 +443,29 @@ export interface CompleteVendorOnboardingRequest {
   phone: string;
 }
 
+export interface PublicVendorProfile {
+  name: string;
+  slug: string;
+  category: string;
+  description: string;
+  imageUrl: string;
+  location: {
+    name: string;
+    slug: string;
+    city: string;
+    province: string;
+    country: string;
+  };
+}
+
+export interface PublicVendorListResponse {
+  vendors: PublicVendorProfile[];
+}
+
+export interface PublicVendorProfileResponse {
+  vendor: PublicVendorProfile;
+}
+
 export interface JoinQueueRequest {
   customerName: string;
   customerEmail: string;
