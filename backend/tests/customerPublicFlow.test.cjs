@@ -326,6 +326,7 @@ test("public vendor discovery returns approved public profile cards", async () =
       "location",
       "locations",
       "name",
+      "publicBoardTheme",
       "slug"
     ]);
     assert.equal(body.vendors[0].slug, "demo");
@@ -333,6 +334,7 @@ test("public vendor discovery returns approved public profile cards", async () =
     assert.equal(body.vendors[0].locations.length, 2);
     assert.equal(body.vendors[0].locations[1].slug, "west");
     assert.equal(body.vendors[0].locations[0].hours[0].opensAt, "08:00");
+    assert.equal(body.vendors[0].publicBoardTheme.theme.logoUrl, "https://cdn.example.test/logo.png");
     assert.equal(body.vendors[0].contactEmail, undefined);
   } finally {
     await stopServer(server);

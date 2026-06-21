@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
 import {
   Alert,
   Badge,
@@ -36,6 +36,18 @@ function getBranchLabel(location: PublicVendorProfile["locations"][number]) {
   ].filter(Boolean);
 
   return parts.length ? parts.join(", ") : location.country || "Philippines";
+}
+
+function getVendorMediaStyle(vendor: PublicVendorProfile): CSSProperties | undefined {
+  const backgroundImageUrl = vendor.publicBoardTheme?.theme.backgroundImageUrl;
+
+  if (!backgroundImageUrl) {
+    return undefined;
+  }
+
+  return {
+    backgroundImage: `linear-gradient(rgba(255,255,255,0.2), rgba(255,255,255,0.2)), url(${backgroundImageUrl})`
+  };
 }
 
 export default function VendorDiscoveryPage() {
@@ -156,8 +168,21 @@ export default function VendorDiscoveryPage() {
             {vendors.map((vendor) => (
               <Paper className="vendor-card" key={vendor.slug} p="lg">
                 <Stack gap="md" h="100%">
-                  <div className="vendor-card-image">
-                    {vendor.imageUrl ? <img alt="" src={vendor.imageUrl} /> : <IconTicket size={42} />}
+                  <div
+                    className={vendor.publicBoardTheme?.theme.backgroundImageUrl || vendor.publicBoardTheme?.theme.logoUrl
+                      ? "vendor-card-image vendor-card-image-themed"
+                      : "vendor-card-image"}
+                    style={getVendorMediaStyle(vendor)}
+                  >
+                    {vendor.publicBoardTheme?.theme.logoUrl ? (
+                      <div className="vendor-card-logo-frame">
+                        <img alt={`${vendor.name} logo`} src={vendor.publicBoardTheme.theme.logoUrl} />
+                      </div>
+                    ) : vendor.imageUrl ? (
+                      <img alt="" src={vendor.imageUrl} />
+                    ) : (
+                      <IconTicket size={42} />
+                    )}
                   </div>
                   <div>
                     {vendor.category ? <Badge color="orange" variant="light">{vendor.category}</Badge> : null}

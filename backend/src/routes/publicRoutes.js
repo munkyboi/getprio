@@ -28,8 +28,24 @@ router.get(
       search: req.query.search,
       limit: req.query.limit
     });
+    const vendorsWithThemes = await Promise.all(
+      vendors.map(async (vendor) => {
+        const tenant = await tenantRepository.findTenantBySlug(vendor.slug, { activeOnly: true });
+        const primaryLocation = vendor.location.slug && tenant
+          ? await storeLocationRepository.findLocationByTenantAndSlug(tenant._id, vendor.location.slug)
+          : null;
+        const publicBoardTheme = tenant
+          ? await publicBoardThemeRepository.getResolvedTheme(tenant._id, primaryLocation?._id)
+          : null;
 
-    res.json({ vendors });
+        return {
+          ...vendor,
+          publicBoardTheme
+        };
+      })
+    );
+
+    res.json({ vendors: vendorsWithThemes });
   })
 );
 

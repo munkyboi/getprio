@@ -1,34 +1,14 @@
-import { useEffect, useState, type CSSProperties } from "react";
-import { Alert, Badge, Box, Button, Group, Modal, Paper, SimpleGrid, Stack, Table, Text, Title } from "@mantine/core";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { Box, Text } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { IconCheck, IconInfoCircle } from "@tabler/icons-react";
 import QRCode from "react-qr-code";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import type { QueueJoinPaymentSyncResponse, QueueSnapshot, StoreHourSummary } from "@shared";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import type { QueueJoinPaymentSyncResponse, QueueListTicket, QueueSnapshot } from "@shared";
 import { API_BASE_URL, apiRequest } from "../api/client";
-import { buildJoinPath, buildJoinUrl, buildJoinedQueuePathWithTicket } from "../queuePaths";
+import { buildJoinUrl, buildJoinedQueuePathWithTicket } from "../queuePaths";
 import { getErrorMessage } from "../utils/errors";
 import { getLocationStatusSummary, getQueueStateSummary, getTicketStateSummary } from "../utils/queueStatus";
-
-function maskNamePart(namePart: string): string {
-  if (!namePart) {
-    return "";
-  }
-
-  if (namePart.length === 1) {
-    return `${namePart[0]}***`;
-  }
-
-  return `${namePart[0]}***${namePart[namePart.length - 1]}`;
-}
-
-function maskCustomerName(name: string): string {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .map(maskNamePart)
-    .join(" ");
-}
 
 function hexToRgba(hex: string, alpha: number): string {
   const normalized = /^#[0-9a-f]{6}$/i.test(hex) ? hex : "#ffffff";
@@ -40,56 +20,54 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${red}, ${green}, ${blue}, ${Math.min(1, Math.max(0, alpha))})`;
 }
 
-const weekdayLabels = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
-
-function getTodayIndex(timezone?: string): number {
-  const weekday = new Intl.DateTimeFormat("en-US", {
-    timeZone: timezone || "Asia/Manila",
-    weekday: "short"
+function formatClock(timezone?: string): string {
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: timezone || "Asia/Manila"
   }).format(new Date());
-
-  return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(weekday);
 }
 
-function formatDisplayTime(value: string): string {
-  const [hourValue = "0", minuteValue = "0"] = value.split(":");
-  const hour = Number(hourValue);
-  const minute = Number(minuteValue);
-  const period = hour >= 12 ? "PM" : "AM";
-  const displayHour = hour % 12 || 12;
+function getLocationSubtitle(snapshot: QueueSnapshot | null, fallback: string) {
+  const location = snapshot?.location;
 
-  return minute ? `${displayHour}:${String(minute).padStart(2, "0")}${period}` : `${displayHour}${period}`;
+  if (!location) {
+    return fallback || "Main location";
+  }
+
+  const address = [
+    location.name,
+    location.addressLine1,
+    location.city,
+    location.province
+  ].filter(Boolean);
+
+  return address.length ? address.join(" - ") : location.name || fallback;
 }
 
-function formatHoursLabel(hour: StoreHourSummary): string {
-  if (hour.isClosed) {
-    return "Closed";
-  }
-
-  if (!hour.opensAt || !hour.closesAt) {
-    return "--  •  --";
-  }
-
-  if (hour.opensAt === "00:00" && hour.closesAt === "00:00") {
-    return "Open 24h";
-  }
-
-  return `${formatDisplayTime(hour.opensAt)}  •  ${formatDisplayTime(hour.closesAt)}`;
+function getInitials(name: string) {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("") || "G";
 }
 
-function normalizeHours(hours: StoreHourSummary[] = []): StoreHourSummary[] {
-  return Array.from({ length: 7 }, (_, weekday) => {
-    const hour = hours.find((item) => item.weekday === weekday);
+function getEtaLabel(ticket: QueueListTicket, averageServiceMinutes: number) {
+  const minutes = Math.max(0, ticket.position * averageServiceMinutes);
 
-    return (
-      hour || {
-        weekday,
-        opensAt: "",
-        closesAt: "",
-        isClosed: false
-      }
-    );
-  });
+  if (!minutes) {
+    return "Soon";
+  }
+
+  if (minutes >= 60) {
+    const hours = Math.floor(minutes / 60);
+    const remainder = minutes % 60;
+    return remainder ? `${hours}h ${remainder}m` : `${hours}h`;
+  }
+
+  return `${minutes}m`;
 }
 
 export default function PublicQueuePage() {
@@ -99,12 +77,12 @@ export default function PublicQueuePage() {
   const [snapshot, setSnapshot] = useState<QueueSnapshot | null>(null);
   const [error, setError] = useState("");
   const [paymentSyncing, setPaymentSyncing] = useState(false);
-  const [hoursOpened, setHoursOpened] = useState(false);
+  const [clockLabel, setClockLabel] = useState(() => formatClock());
+  const hasSnapshotRef = useRef(false);
   const lookupCode = searchParams.get("ticket") || "";
   const paymentId = searchParams.get("payment");
   const paymentStatus = searchParams.get("payment_status");
   const tenantSlugValue = tenantSlug || "";
-  const joinPath = tenantSlug ? buildJoinPath(tenantSlug, locationSlug) : "/";
   const joinUrl =
     snapshot?.location?.joinUrl ||
     snapshot?.tenant?.joinUrl ||
@@ -112,90 +90,55 @@ export default function PublicQueuePage() {
   const joinQrUrl = `${joinUrl}?source=qr`;
   const vendorIsInactive = snapshot ? !snapshot.tenant.isActive : false;
   const locationIsClosed = snapshot?.location ? !snapshot.location.openStatus.isOpen : false;
+  const queueDayClosed = Boolean(snapshot?.queueDay?.isClosed);
+  const queueDayPaused = Boolean(snapshot?.queueDay?.isPaused);
   const theme = snapshot?.publicBoardTheme.theme;
-  const cardStyle: CSSProperties = theme
-    ? {
-        backgroundColor: hexToRgba(theme.cardBackgroundColor, theme.cardAlpha),
-        border: `${theme.cardBorderSize}px solid ${theme.cardBorderColor}`,
-        borderRadius: theme.cardBorderRadius,
-        color: theme.bodyColor
-      }
-    : {
-        backgroundColor: "rgba(255, 250, 244, 0.9)",
-        border: "1px solid rgba(234, 220, 207, 0.9)",
-        borderRadius: 28
-      };
-  const pageStyle: CSSProperties = theme
-    ? {
-        backgroundColor: theme.pageBackgroundColor,
-        backgroundImage: theme.backgroundImageUrl
-          ? `linear-gradient(rgba(255,255,255,0.35), rgba(255,255,255,0.35)), url(${theme.backgroundImageUrl})`
-          : undefined,
-        backgroundSize: "cover",
-        backgroundAttachment: "fixed",
-        backgroundPosition: "center",
-        backgroundRepeat: "no-repeat",
-        color: theme.bodyColor,
-        margin: "-2rem calc(50% - 50dvw) -4rem",
-        minHeight: "100vh",
-        maxWidth: "100dvw",
-        overflowX: "hidden",
-        padding: "2rem"
-      }
-    : {
-        margin: "-2rem calc(50% - 50dvw) -4rem",
-        minHeight: "100vh",
-        maxWidth: "100dvw",
-        overflowX: "hidden",
-        padding: "2rem"
-      };
-  const buttonStyle: CSSProperties | undefined = theme
-    ? {
-        background: theme.buttonBackgroundColor,
-        borderColor: theme.buttonBorderColor,
-        color: theme.buttonTextColor
-      }
-    : undefined;
-  const headerColor = theme?.headerColor || "#24160f";
-  const subheaderColor = theme?.subheaderColor || "#8a5c39";
-  const bodyColor = theme?.bodyColor || "#3f3027";
-  const businessName = snapshot?.tenant?.name || tenantSlugValue;
-  const locationName = snapshot?.location?.name || "Main location";
+  const businessName = snapshot?.tenant?.name || tenantSlugValue || "GetPrio";
   const heroTitle = theme?.heroTitle || businessName;
-  const heroSubtitle = theme?.heroSubtitle || locationName;
+  const heroSubtitle = getLocationSubtitle(snapshot, theme?.heroSubtitle || locationSlug || "Main location");
   const queueState = getQueueStateSummary(snapshot);
   const ticketState = getTicketStateSummary(snapshot?.focusTicket?.status);
   const locationState = getLocationStatusSummary(snapshot);
-  const locationHours = normalizeHours(snapshot?.location?.hours || []);
-  const todayIndex = getTodayIndex(snapshot?.location?.timezone);
-  const queueDayClosed = Boolean(snapshot?.queueDay?.isClosed);
-  const queueDayPaused = Boolean(snapshot?.queueDay?.isPaused);
   const canJoinQueue =
     Boolean(snapshot) &&
-    !lookupCode &&
-    !snapshot?.focusTicket &&
     !vendorIsInactive &&
     !locationIsClosed &&
     !queueDayClosed &&
     !queueDayPaused;
-  const queueProgressTickets = [
-    ...(snapshot?.current
-      ? [
-          {
-            id: `current-${snapshot.current.id}`,
-            ticketNumber: snapshot.current.ticketNumber,
-            customerName: maskCustomerName(snapshot.current.customerName),
-            progressLabel: "Now serving"
-          }
-        ]
-      : []),
-    ...((snapshot?.nextUp || []).map((ticket) => ({
-      id: ticket.id,
-      ticketNumber: ticket.ticketNumber,
-      customerName: maskCustomerName(ticket.customerName),
-      progressLabel: `#${ticket.position}`
-    })))
-  ].slice(0, 10);
+  const averageServiceMinutes = snapshot?.tenant.averageServiceMinutes || 5;
+  const visibleTickets = (snapshot?.nextUp || []).slice(0, 19);
+  const topTickets = visibleTickets.slice(0, 3);
+  const gridTickets = visibleTickets.slice(3, 19);
+  const pageStyle = useMemo(
+    () =>
+      ({
+        "--public-board-bg": theme?.pageBackgroundColor || "#f5efe6",
+        "--public-board-card": theme
+          ? hexToRgba(theme.cardBackgroundColor, theme.cardAlpha)
+          : "rgba(255, 250, 244, 0.9)",
+        "--public-board-border": theme?.cardBorderColor || "rgba(33, 25, 20, 0.12)",
+        "--public-board-ink": theme?.headerColor || "#211914",
+        "--public-board-body": theme?.bodyColor || "#3f3027",
+        "--public-board-muted": theme?.subheaderColor || "#786b61",
+        "--public-board-primary": theme?.buttonBackgroundColor || "#ff7a1a",
+        "--public-board-primary-ink": theme?.buttonTextColor || "#ffffff",
+        backgroundColor: theme?.pageBackgroundColor || undefined,
+        backgroundImage: theme?.backgroundImageUrl
+          ? `linear-gradient(rgba(255,255,255,0.36), rgba(255,255,255,0.36)), url(${theme.backgroundImageUrl})`
+          : undefined
+      }) as CSSProperties,
+    [theme]
+  );
+
+  useEffect(() => {
+    const intervalId = window.setInterval(
+      () => setClockLabel(formatClock(snapshot?.location?.timezone)),
+      30_000
+    );
+    setClockLabel(formatClock(snapshot?.location?.timezone));
+
+    return () => window.clearInterval(intervalId);
+  }, [snapshot?.location?.timezone]);
 
   useEffect(() => {
     if (!tenantSlugValue || !paymentId) {
@@ -286,6 +229,7 @@ export default function PublicQueuePage() {
     apiRequest<QueueSnapshot>(`${basePath}/queue${query}`)
       .then((data) => {
         if (active) {
+          hasSnapshotRef.current = true;
           setSnapshot(data);
         }
       })
@@ -297,11 +241,14 @@ export default function PublicQueuePage() {
 
     const eventSource = new EventSource(`${API_BASE_URL}${basePath}/stream${query}`);
     eventSource.onmessage = (event) => {
+      hasSnapshotRef.current = true;
       setSnapshot(JSON.parse(event.data) as QueueSnapshot);
       setError("");
     };
     eventSource.onerror = () => {
-      setError("Live updates disconnected. Refresh to reconnect.");
+      if (!hasSnapshotRef.current) {
+        setError("Live updates disconnected. Refresh to reconnect.");
+      }
       eventSource.close();
     };
 
@@ -312,230 +259,129 @@ export default function PublicQueuePage() {
   }, [locationSlug, lookupCode, tenantSlug]);
 
   return (
-    <Box style={pageStyle}>
-      {theme?.logoUrl ? (
-        <Box style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-          <Box
-            alt={`${heroTitle} logo`}
-            component="img"
-            src={theme.logoUrl}
-            style={{ width: 'min(240px, 20dvw)', objectFit: "contain", aspectRatio: 1.5 }}
-          />
-        </Box>
-      ) : null}
-      <Stack gap="lg" maw={1180} mx="auto">
-        <Modal
-          centered
-          opened={hoursOpened}
-          onClose={() => setHoursOpened(false)}
-          title="Business hours"
-          size="lg"
-        >
-          <Table.ScrollContainer minWidth={420}>
-            <Table verticalSpacing="sm">
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>Day</Table.Th>
-                  <Table.Th>Hours</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {locationHours.map((hour) => {
-                  const isToday = hour.weekday === todayIndex;
-                  return (
-                    <Table.Tr key={hour.weekday}>
-                      <Table.Td fw={isToday ? 700 : 500}>{weekdayLabels[hour.weekday]}</Table.Td>
-                      <Table.Td fw={isToday ? 700 : 400}>{formatHoursLabel(hour)}</Table.Td>
-                    </Table.Tr>
-                  );
-                })}
-              </Table.Tbody>
-            </Table>
-          </Table.ScrollContainer>
-        </Modal>
-        <Paper p={{ base: "lg", md: "xl" }} shadow="xl" style={cardStyle}>
-          <SimpleGrid cols={{ base: 1, md: canJoinQueue ? 3 : 2 }} spacing="xl">
-            <Stack gap="md" style={{ gridColumn: canJoinQueue ? "span 2" : undefined }}>
-              <Text c={subheaderColor} fw={800} size="xs" tt="uppercase" lts={2}>
-                Live queue
-              </Text>
-              <Title c={headerColor} order={1} style={{ fontSize: "clamp(2rem, 4vw, 3rem)" }}>
-                {heroTitle}
-              </Title>
-              <Title c={headerColor} order={2} style={{ fontSize: "clamp(1rem, 3vw, 2rem)" }}>
-                {heroSubtitle}
-              </Title>
-              <Alert color={queueState.color} radius="md" variant="light">
-                {queueState.message}
-              </Alert>
-              {vendorIsInactive ? (
-                <Text c="red" fw={700}>
-                  This vendor is not yet active.
-                </Text>
-              ) : locationIsClosed ? (
-                <Text c="red" fw={700}>
-                  This location is currently closed.
-                </Text>
-              ) : null}
-              <Stack gap="xs" mt="sm">
-                <Group gap="sm" wrap="wrap">
-                  <Badge color={queueState.color} radius="xl" size="lg" variant="light">
-                    {queueState.label}
-                  </Badge>
-                  <Badge radius="xl" size="lg" variant="light">
-                    Waiting: {snapshot?.stats?.waitingCount ?? 0}
-                  </Badge>
-                  <Badge radius="xl" size="lg" variant="light">
-                    ETA: {snapshot?.stats?.estimatedWaitMinutes ?? 0} mins
-                  </Badge>
-                  <Badge color={locationState.color} radius="xl" size="lg">
-                    {locationState.label}
-                  </Badge>
-                </Group>
-                <Group gap="sm">
-                  {canJoinQueue ? (
-                    <Button component={Link} to={joinPath} radius="xl" size="md" style={buttonStyle}>
-                      Join this queue
-                    </Button>
-                  ) : null}
-                  <Button
-                    onClick={() => setHoursOpened(true)}
-                    radius="xl"
-                    size="md"
-                    style={buttonStyle}
-                    variant={theme ? "outline" : "default"}
-                  >
-                    View business hours
-                  </Button>
-                </Group>
-              </Stack>
-            </Stack>
-
-            {canJoinQueue && !lookupCode && !snapshot?.focusTicket ? (
-              <Stack align="center" gap="sm">
-                <Text c={bodyColor} fw={700}>Scan to join</Text>
-                <Paper bg="white" p="md" radius="lg" withBorder>
-                  <QRCode size={180} value={joinQrUrl} />
-                </Paper>
-                <Text c={bodyColor} size="sm">Use your phone camera to open the queue form.</Text>
-              </Stack>
-            ) : null}
-          </SimpleGrid>
-        </Paper>
-
-        {paymentSyncing ? (
-          <Paper p="lg" shadow="md" style={cardStyle}>
-            <Stack gap="xs">
-              <Text c={subheaderColor} fw={800} size="xs" tt="uppercase" lts={2}>
-                Confirming payment
-              </Text>
-              <Title c={headerColor} order={3}>We are issuing your queue ticket.</Title>
-              <Text c={bodyColor}>
-                Please wait while we confirm your platform fee and activate your ticket.
-              </Text>
-            </Stack>
-          </Paper>
-        ) : null}
-
-        {error ? <Text c="red" fw={700}>{error}</Text> : null}
-
-        {lookupCode && snapshot?.focusTicket ? (
-          <Paper p="xl" shadow="lg" style={cardStyle}>
-            <Stack gap="xs">
-              <Text c={subheaderColor} fw={800} size="xs" tt="uppercase" lts={2}>Ticket details</Text>
-              <Group gap="sm" align="center">
-                <Title c={headerColor} order={2}>{snapshot.focusTicket.ticketNumber}</Title>
-                <Badge color={ticketState.color} radius="xl" size="lg" variant="light">
-                  {ticketState.label}
-                </Badge>
-              </Group>
-              <Text c={bodyColor}>{ticketState.message}</Text>
-              <Text c={bodyColor}>
-                {snapshot.focusTicket.status === "waiting" && snapshot.focusTicket.position
-                  ? `You are number ${snapshot.focusTicket.position} in line.`
-                  : snapshot.focusTicket.status === "waiting"
-                    ? "Your place in line is confirmed."
-                    : "This ticket is no longer active on the waiting list."}
-              </Text>
-              {snapshot.focusTicket.status === "waiting" ? (
-                <Text c={bodyColor}>Estimated wait time: {snapshot.focusTicket.estimatedWaitMinutes} mins</Text>
-              ) : null}
-            </Stack>
-          </Paper>
-        ) : null}
-
-        <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
-          <Paper p="xl" shadow="lg" style={cardStyle}>
-            <Stack gap="md">
-              <Text c={bodyColor}>Currently serving</Text>
-              <Title c={headerColor} order={2}>{snapshot?.current?.ticketNumber || "--"}</Title>
-              <Text c={bodyColor} size="sm">
-                {snapshot?.current?.customerName
-                  ? maskCustomerName(snapshot.current.customerName)
-                  : "No active ticket"}
-              </Text>
-            </Stack>
-          </Paper>
-          <Paper p="xl" shadow="lg" style={cardStyle}>
-            <Stack gap="md">
-              <Text c={bodyColor}>Completed today</Text>
-              <Title c={headerColor} order={2}>{snapshot?.stats?.servedToday ?? 0}</Title>
-              <Text c={bodyColor} size="sm">Updated live for this location</Text>
-            </Stack>
-          </Paper>
-        </SimpleGrid>
-
-        <Paper p="xl" shadow="lg" style={cardStyle}>
-          <Stack gap="md">
-            <Group justify="space-between" align="flex-start">
-              <div>
-                <Text c={subheaderColor} fw={800} size="xs" tt="uppercase" lts={2}>Up next</Text>
-                <Title c={headerColor} order={2} style={{ fontSize: "clamp(1rem, 3vw, 2rem)" }}>Queue overview</Title>
-              </div>
-              {canJoinQueue ? (
-                <Button component={Link} to={joinPath} variant="subtle" style={{ color: theme?.buttonBackgroundColor || undefined }}>
-                  Join this queue
-                </Button>
+    <Box className="public-board-tv-shell" style={pageStyle}>
+      <main className="public-board-tv-frame">
+        <section className="public-board-tv-screen">
+          <header className="public-board-tv-header">
+              {theme?.logoUrl ? (
+                <div className="public-board-tv-logo withImage">
+                  <img alt={`${heroTitle} logo`} src={theme.logoUrl} />
+                </div>
               ) : (
-                <Text c={bodyColor} fw={600} size="sm">
-                  New joins are currently unavailable.
-                </Text>
+                <div className="public-board-tv-logo">
+                  <span>{getInitials(heroTitle)}</span>
+                </div>
               )}
-            </Group>
-            <Table.ScrollContainer minWidth={560}>
-              <Table verticalSpacing="sm">
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th>Ticket</Table.Th>
-                    <Table.Th ta="right">Position</Table.Th>
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  {queueProgressTickets.length ? (
-                    queueProgressTickets.map((ticket) => (
-                      <Table.Tr key={ticket.id}>
-                        <Table.Td>
-                          <Text c={headerColor} fw={800}>{ticket.ticketNumber}</Text>
-                          <Text c={bodyColor} size="sm">{ticket.customerName}</Text>
-                        </Table.Td>
-                        <Table.Td ta="right">
-                          <Badge radius="xl" variant="light">{ticket.progressLabel}</Badge>
-                        </Table.Td>
-                      </Table.Tr>
-                    ))
-                  ) : (
-                    <Table.Tr>
-                      <Table.Td colSpan={2}>
-                        <Text c={bodyColor}>The queue is currently empty.</Text>
-                      </Table.Td>
-                    </Table.Tr>
-                  )}
-                </Table.Tbody>
-              </Table>
-            </Table.ScrollContainer>
-          </Stack>
-        </Paper>
-      </Stack>
+            <div className="public-board-tv-title">
+              <h1>{heroTitle}</h1>
+              <p>{heroSubtitle}</p>
+            </div>
+            <div className="public-board-tv-clock">
+              <strong>{clockLabel}</strong>
+              <span>{locationState.label} - {queueState.label}</span>
+            </div>
+          </header>
+
+          <section className="public-board-tv-main">
+            <aside className="public-board-tv-left">
+              <section className="public-board-tv-current">
+                <div className="public-board-tv-current-inner">
+                  <Text className="public-board-tv-eyebrow">Now serving</Text>
+                  <strong>{snapshot?.current?.ticketNumber || "--"}</strong>
+                  <span>{snapshot?.current ? "Please proceed when called" : "Waiting for next ticket"}</span>
+                </div>
+              </section>
+
+              <section className="public-board-tv-qr">
+                <div className="public-board-tv-qr-code">
+                  <QRCode size={124} value={joinQrUrl} />
+                </div>
+                <div>
+                  <Text className="public-board-tv-eyebrow">Join from phone</Text>
+                  <h2>{canJoinQueue ? "Scan to get a queue ticket" : "Queue joins unavailable"}</h2>
+                  <p>
+                    {canJoinQueue
+                      ? "No app install required. Customers can monitor their turn live."
+                      : queueState.message}
+                  </p>
+                </div>
+              </section>
+
+              <section className="public-board-tv-stats">
+                <div>
+                  <span>Tickets served today</span>
+                  <strong>{snapshot?.stats?.servedToday ?? 0}</strong>
+                </div>
+                <div>
+                  <span>Currently waiting</span>
+                  <strong>{snapshot?.stats?.waitingCount ?? 0}</strong>
+                </div>
+              </section>
+            </aside>
+
+            <section className="public-board-tv-queue">
+              <div className="public-board-tv-queue-heading">
+                <div>
+                  <Text className="public-board-tv-eyebrow">Public queue list</Text>
+                  <h2>Up next and waiting</h2>
+                  <p>Top tickets are emphasized; the rest use compact readable cards instead of a tall table.</p>
+                </div>
+                <div className="public-board-tv-count">
+                  <span>Next visible</span>
+                  <strong>{visibleTickets.length}</strong>
+                </div>
+              </div>
+
+              {paymentSyncing || error || (lookupCode && snapshot?.focusTicket) ? (
+                <div className="public-board-tv-alerts">
+                  {paymentSyncing ? <p>Confirming payment and issuing your queue ticket.</p> : null}
+                  {error ? <p>{error}</p> : null}
+                  {lookupCode && snapshot?.focusTicket ? (
+                    <p>
+                      Ticket {snapshot.focusTicket.ticketNumber}: {ticketState.message}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+
+              <div className="public-board-tv-next-strip">
+                {topTickets.length ? (
+                  topTickets.map((ticket) => (
+                    <article className="public-board-tv-next-card" key={ticket.id}>
+                      <div>{ticket.position}</div>
+                      <span>
+                        <strong>{ticket.ticketNumber}</strong>
+                        <em>{ticket.position === 1 ? "Next customer" : "On deck"}</em>
+                      </span>
+                    </article>
+                  ))
+                ) : (
+                  <article className="public-board-tv-next-card public-board-tv-empty-next">
+                    <div>0</div>
+                    <span>
+                      <strong>No tickets</strong>
+                      <em>The queue is currently empty</em>
+                    </span>
+                  </article>
+                )}
+              </div>
+
+              <div className="public-board-tv-ticket-grid">
+                {gridTickets.map((ticket) => (
+                  <article className="public-board-tv-ticket-card" key={ticket.id}>
+                    <div>{ticket.position}</div>
+                    <span>
+                      <strong>{ticket.ticketNumber}</strong>
+                      <em>Waiting</em>
+                    </span>
+                    <b>{getEtaLabel(ticket, averageServiceMinutes)}</b>
+                  </article>
+                ))}
+              </div>
+            </section>
+          </section>
+        </section>
+      </main>
     </Box>
   );
 }
