@@ -1,7 +1,9 @@
 const express = require("express");
 const asyncHandler = require("../middleware/asyncHandler");
 const { authenticate } = require("../middleware/auth");
+const bookingRepository = require("../repositories/bookings");
 const ticketRepository = require("../repositories/tickets");
+const bookingService = require("../services/bookingService");
 const passwordResetService = require("../services/passwordResetService");
 
 const router = express.Router();
@@ -20,6 +22,31 @@ function formatCustomerTicket(ticket) {
     status: ticket.status,
     createdAt: ticket.createdAt,
     updatedAt: ticket.updatedAt
+  };
+}
+
+function formatCustomerBooking(booking) {
+  return {
+    id: booking._id,
+    reference: booking.reference,
+    tenantId: booking.tenantId,
+    tenantName: booking.tenantName,
+    tenantSlug: booking.tenantSlug,
+    locationId: booking.locationId,
+    locationName: booking.locationName,
+    locationSlug: booking.locationSlug,
+    serviceId: booking.serviceId,
+    serviceName: booking.serviceName,
+    serviceSlug: booking.serviceSlug,
+    servicePriceDisplay: booking.servicePriceDisplay,
+    scheduledStartAt: booking.scheduledStartAt,
+    scheduledEndAt: booking.scheduledEndAt,
+    status: booking.status,
+    notes: booking.notes,
+    paymentReference: booking.paymentReference,
+    paymentStatus: booking.paymentStatus,
+    createdAt: booking.createdAt,
+    updatedAt: booking.updatedAt
   };
 }
 
@@ -49,6 +76,32 @@ router.get(
 
     res.json({
       tickets: tickets.map(formatCustomerTicket)
+    });
+  })
+);
+
+router.get(
+  "/bookings",
+  asyncHandler(async (req, res) => {
+    const limit = Math.min(Math.max(Number(req.query.limit || 50) || 50, 1), 100);
+    const bookings = await bookingRepository.listBookingsForCustomer(req.user._id, { limit });
+
+    res.json({
+      bookings: bookings.map(formatCustomerBooking)
+    });
+  })
+);
+
+router.post(
+  "/bookings",
+  asyncHandler(async (req, res) => {
+    const booking = await bookingService.createCustomerBooking({
+      user: req.user,
+      body: req.body || {}
+    });
+
+    res.status(201).json({
+      booking: formatCustomerBooking(booking)
     });
   })
 );

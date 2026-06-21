@@ -4,6 +4,8 @@ const storeLocationRepository = require("../repositories/storeLocations");
 const ticketRepository = require("../repositories/tickets");
 const publicBoardThemeRepository = require("../repositories/publicBoardThemes");
 const serviceCounterRepository = require("../repositories/serviceCounters");
+const vendorServiceRepository = require("../repositories/vendorServices");
+const vendorAvailabilityRepository = require("../repositories/vendorAvailability");
 const userRepository = require("../repositories/users");
 const asyncHandler = require("../middleware/asyncHandler");
 const {
@@ -101,6 +103,261 @@ function normalizeCounterSlug(value) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+function buildPriceDisplay(priceAmountCents, currency = "PHP") {
+  const amount = Number(priceAmountCents || 0) / 100;
+  return new Intl.NumberFormat("en-PH", {
+    style: "currency",
+    currency,
+    minimumFractionDigits: amount % 1 === 0 ? 0 : 2
+  }).format(amount);
+}
+
+function normalizeServicePayload(body, existingService = null) {
+  const hasName = Object.prototype.hasOwnProperty.call(body, "name");
+  const name = hasName ? String(body.name || "").trim() : existingService?.name;
+  if (!name) {
+    const error = new Error("name is required.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const durationMinutes = Object.prototype.hasOwnProperty.call(body, "durationMinutes")
+    ? Number(body.durationMinutes)
+    : existingService?.durationMinutes;
+  if (!Number.isInteger(durationMinutes) || durationMinutes < 5 || durationMinutes > 480) {
+    const error = new Error("durationMinutes must be between 5 and 480.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const priceAmountCents = Object.prototype.hasOwnProperty.call(body, "priceAmountCents")
+    ? Number(body.priceAmountCents)
+    : existingService?.priceAmountCents ?? 0;
+  if (!Number.isInteger(priceAmountCents) || priceAmountCents < 0) {
+    const error = new Error("priceAmountCents must be a non-negative integer.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const slugSource = Object.prototype.hasOwnProperty.call(body, "slug")
+    ? body.slug
+    : existingService?.slug || name;
+  const slug = vendorServiceRepository.normalizeServiceSlug(slugSource);
+  if (!slug) {
+    const error = new Error("slug must contain at least one letter or number.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const currency = "PHP";
+  const priceDisplay = typeof body.priceDisplay === "string" && body.priceDisplay.trim()
+    ? body.priceDisplay.trim()
+    : buildPriceDisplay(priceAmountCents, currency);
+
+  return {
+    name,
+    slug,
+    description: typeof body.description === "string"
+      ? body.description.trim()
+      : existingService?.description || "",
+    durationMinutes,
+    priceAmountCents,
+    currency,
+    priceDisplay,
+    isActive: Object.prototype.hasOwnProperty.call(body, "isActive")
+      ? body.isActive !== false
+      : existingService?.isActive ?? true,
+    sortOrder: Object.prototype.hasOwnProperty.call(body, "sortOrder")
+      ? Number(body.sortOrder || 0)
+      : existingService?.sortOrder || 0
+  };
+}
+
+function formatVendorService(service) {
+  return {
+    id: String(service._id),
+    tenantId: String(service.tenantId),
+    name: service.name,
+    slug: service.slug,
+    description: service.description,
+    durationMinutes: service.durationMinutes,
+    priceAmountCents: service.priceAmountCents,
+    currency: service.currency,
+    priceDisplay: service.priceDisplay,
+    isActive: service.isActive,
+    sortOrder: service.sortOrder,
+    createdAt: service.createdAt,
+    updatedAt: service.updatedAt
+  };
+}
+
+function isValidTime(value) {
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(String(value || ""));
+}
+
+function assertTimeRange(startsAt, endsAt, { allowEmpty = false } = {}) {
+  if (allowEmpty && !startsAt && !endsAt) {
+    return;
+  }
+
+  if (!isValidTime(startsAt) || !isValidTime(endsAt) || String(startsAt) >= String(endsAt)) {
+    const error = new Error("A valid start and end time are required.");
+    error.statusCode = 400;
+    throw error;
+  }
+}
+
+function formatAvailabilityBlock(block) {
+  return {
+    id: String(block._id),
+    tenantId: String(block.tenantId),
+    locationId: String(block.locationId),
+    serviceId: block.serviceId ? String(block.serviceId) : null,
+    weekday: block.weekday,
+    startsAt: block.startsAt,
+    endsAt: block.endsAt,
+    capacity: block.capacity,
+    isActive: block.isActive,
+    notes: block.notes,
+    createdAt: block.createdAt,
+    updatedAt: block.updatedAt
+  };
+}
+
+function formatAvailabilityException(exception) {
+  return {
+    id: String(exception._id),
+    tenantId: String(exception.tenantId),
+    locationId: String(exception.locationId),
+    serviceId: exception.serviceId ? String(exception.serviceId) : null,
+    exceptionDate: exception.exceptionDate,
+    startsAt: exception.startsAt,
+    endsAt: exception.endsAt,
+    isAvailable: exception.isAvailable,
+    capacity: exception.capacity,
+    reason: exception.reason,
+    createdAt: exception.createdAt,
+    updatedAt: exception.updatedAt
+  };
+}
+
+async function getOptionalServiceForTenant(tenant, serviceSlug) {
+  const normalizedServiceSlug = vendorServiceRepository.normalizeServiceSlug(serviceSlug);
+  if (!normalizedServiceSlug) {
+    return null;
+  }
+
+  const service = await vendorServiceRepository.findServiceByTenantAndSlug(
+    tenant._id,
+    normalizedServiceSlug
+  );
+  if (!service) {
+    const error = new Error("Service not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  return service;
+}
+
+async function normalizeAvailabilityBlockPayload(tenant, body, existingBlock = null) {
+  const location = body.locationSlug
+    ? await getLocationForTenant(tenant, body.locationSlug)
+    : null;
+  const service = Object.prototype.hasOwnProperty.call(body, "serviceSlug")
+    ? await getOptionalServiceForTenant(tenant, body.serviceSlug)
+    : null;
+  const startsAt = Object.prototype.hasOwnProperty.call(body, "startsAt")
+    ? String(body.startsAt || "")
+    : existingBlock?.startsAt;
+  const endsAt = Object.prototype.hasOwnProperty.call(body, "endsAt")
+    ? String(body.endsAt || "")
+    : existingBlock?.endsAt;
+  assertTimeRange(startsAt, endsAt);
+
+  const weekday = Object.prototype.hasOwnProperty.call(body, "weekday")
+    ? Number(body.weekday)
+    : existingBlock?.weekday;
+  if (!Number.isInteger(weekday) || weekday < 0 || weekday > 6) {
+    const error = new Error("weekday must be between 0 and 6.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const capacity = Object.prototype.hasOwnProperty.call(body, "capacity")
+    ? Number(body.capacity)
+    : existingBlock?.capacity || 1;
+  if (!Number.isInteger(capacity) || capacity < 1 || capacity > 100) {
+    const error = new Error("capacity must be between 1 and 100.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return {
+    locationId: location?._id || existingBlock?.locationId,
+    serviceId: Object.prototype.hasOwnProperty.call(body, "serviceSlug")
+      ? service?._id || null
+      : existingBlock?.serviceId || null,
+    weekday,
+    startsAt,
+    endsAt,
+    capacity,
+    isActive: Object.prototype.hasOwnProperty.call(body, "isActive")
+      ? body.isActive !== false
+      : existingBlock?.isActive ?? true,
+    notes: typeof body.notes === "string" ? body.notes.trim() : existingBlock?.notes || ""
+  };
+}
+
+async function normalizeAvailabilityExceptionPayload(tenant, body, existingException = null) {
+  const location = body.locationSlug
+    ? await getLocationForTenant(tenant, body.locationSlug)
+    : null;
+  const service = Object.prototype.hasOwnProperty.call(body, "serviceSlug")
+    ? await getOptionalServiceForTenant(tenant, body.serviceSlug)
+    : null;
+  const exceptionDate = Object.prototype.hasOwnProperty.call(body, "exceptionDate")
+    ? String(body.exceptionDate || "")
+    : existingException?.exceptionDate;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(exceptionDate || ""))) {
+    const error = new Error("exceptionDate must use YYYY-MM-DD format.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const startsAt = Object.prototype.hasOwnProperty.call(body, "startsAt")
+    ? String(body.startsAt || "")
+    : existingException?.startsAt || "";
+  const endsAt = Object.prototype.hasOwnProperty.call(body, "endsAt")
+    ? String(body.endsAt || "")
+    : existingException?.endsAt || "";
+  assertTimeRange(startsAt, endsAt, { allowEmpty: true });
+
+  const capacity = Object.prototype.hasOwnProperty.call(body, "capacity")
+    ? body.capacity === null || body.capacity === "" ? null : Number(body.capacity)
+    : existingException?.capacity ?? null;
+  if (capacity !== null && (!Number.isInteger(capacity) || capacity < 1 || capacity > 100)) {
+    const error = new Error("capacity must be between 1 and 100.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return {
+    locationId: location?._id || existingException?.locationId,
+    serviceId: Object.prototype.hasOwnProperty.call(body, "serviceSlug")
+      ? service?._id || null
+      : existingException?.serviceId || null,
+    exceptionDate,
+    startsAt,
+    endsAt,
+    isAvailable: Object.prototype.hasOwnProperty.call(body, "isAvailable")
+      ? body.isAvailable === true
+      : existingException?.isAvailable ?? false,
+    capacity,
+    reason: typeof body.reason === "string" ? body.reason.trim() : existingException?.reason || ""
+  };
 }
 
 async function getCounterForLocation(location, counterSlug) {
@@ -312,6 +569,222 @@ router.patch(
     const updatedLocation = await storeLocationRepository.findLocationById(location._id);
 
     res.json({ location: await formatLocation(updatedLocation, tenant) });
+  })
+);
+
+router.get(
+  "/tenant/:tenantSlug/services",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.service.manage");
+    const services = await vendorServiceRepository.listServicesByTenantId(tenant._id);
+
+    res.json({ services: services.map(formatVendorService) });
+  })
+);
+
+router.post(
+  "/tenant/:tenantSlug/services",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.service.manage");
+    const service = await vendorServiceRepository.createService({
+      tenantId: tenant._id,
+      ...normalizeServicePayload(req.body || {})
+    });
+
+    res.status(201).json({ service: formatVendorService(service) });
+  })
+);
+
+router.patch(
+  "/tenant/:tenantSlug/services/:serviceSlug",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.service.manage");
+    const service = await vendorServiceRepository.findServiceByTenantAndSlug(
+      tenant._id,
+      req.params.serviceSlug
+    );
+    if (!service) {
+      const error = new Error("Service not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const updatedService = await vendorServiceRepository.updateService(
+      service._id,
+      normalizeServicePayload(req.body || {}, service)
+    );
+
+    res.json({ service: formatVendorService(updatedService) });
+  })
+);
+
+router.delete(
+  "/tenant/:tenantSlug/services/:serviceSlug",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.service.manage");
+    const service = await vendorServiceRepository.findServiceByTenantAndSlug(
+      tenant._id,
+      req.params.serviceSlug
+    );
+    if (!service) {
+      const error = new Error("Service not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const deactivatedService = await vendorServiceRepository.deactivateService(service._id);
+
+    res.json({ service: formatVendorService(deactivatedService) });
+  })
+);
+
+router.get(
+  "/tenant/:tenantSlug/availability",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.availability.manage");
+    const location = await getLocationForTenant(tenant, req.query.location);
+    const availability = await vendorAvailabilityRepository.listAvailabilityByLocation(
+      tenant._id,
+      location._id
+    );
+
+    res.json({
+      blocks: availability.blocks.map(formatAvailabilityBlock),
+      exceptions: availability.exceptions.map(formatAvailabilityException)
+    });
+  })
+);
+
+router.post(
+  "/tenant/:tenantSlug/availability/blocks",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.availability.manage");
+    const location = await getLocationForTenant(tenant, req.body.locationSlug || req.query.location);
+    const payload = await normalizeAvailabilityBlockPayload(tenant, {
+      ...(req.body || {}),
+      locationSlug: location.slug
+    });
+    const block = await vendorAvailabilityRepository.createBlock({
+      tenantId: tenant._id,
+      ...payload
+    });
+
+    res.status(201).json({ block: formatAvailabilityBlock(block) });
+  })
+);
+
+router.patch(
+  "/tenant/:tenantSlug/availability/blocks/:blockId",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.availability.manage");
+    const block = await vendorAvailabilityRepository.findBlockByTenantAndId(
+      tenant._id,
+      req.params.blockId
+    );
+    if (!block) {
+      const error = new Error("Availability block not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const payload = await normalizeAvailabilityBlockPayload(tenant, req.body || {}, block);
+    const updatedBlock = await vendorAvailabilityRepository.updateBlock(block._id, payload);
+
+    res.json({ block: formatAvailabilityBlock(updatedBlock) });
+  })
+);
+
+router.delete(
+  "/tenant/:tenantSlug/availability/blocks/:blockId",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.availability.manage");
+    const block = await vendorAvailabilityRepository.findBlockByTenantAndId(
+      tenant._id,
+      req.params.blockId
+    );
+    if (!block) {
+      const error = new Error("Availability block not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const updatedBlock = await vendorAvailabilityRepository.updateBlock(block._id, {
+      isActive: false
+    });
+
+    res.json({ block: formatAvailabilityBlock(updatedBlock) });
+  })
+);
+
+router.post(
+  "/tenant/:tenantSlug/availability/exceptions",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.availability.manage");
+    const location = await getLocationForTenant(tenant, req.body.locationSlug || req.query.location);
+    const payload = await normalizeAvailabilityExceptionPayload(tenant, {
+      ...(req.body || {}),
+      locationSlug: location.slug
+    });
+    const exception = await vendorAvailabilityRepository.createException({
+      tenantId: tenant._id,
+      ...payload
+    });
+
+    res.status(201).json({ exception: formatAvailabilityException(exception) });
+  })
+);
+
+router.patch(
+  "/tenant/:tenantSlug/availability/exceptions/:exceptionId",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.availability.manage");
+    const exception = await vendorAvailabilityRepository.findExceptionByTenantAndId(
+      tenant._id,
+      req.params.exceptionId
+    );
+    if (!exception) {
+      const error = new Error("Availability exception not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const payload = await normalizeAvailabilityExceptionPayload(tenant, req.body || {}, exception);
+    const updatedException = await vendorAvailabilityRepository.updateException(
+      exception._id,
+      payload
+    );
+
+    res.json({ exception: formatAvailabilityException(updatedException) });
+  })
+);
+
+router.delete(
+  "/tenant/:tenantSlug/availability/exceptions/:exceptionId",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.availability.manage");
+    const exception = await vendorAvailabilityRepository.findExceptionByTenantAndId(
+      tenant._id,
+      req.params.exceptionId
+    );
+    if (!exception) {
+      const error = new Error("Availability exception not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    await vendorAvailabilityRepository.deleteException(exception._id);
+    res.status(204).send();
   })
 );
 

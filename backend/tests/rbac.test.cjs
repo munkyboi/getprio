@@ -169,15 +169,373 @@ test("permissions map keeps current owner, staff, and platform-admin boundaries"
   assert.equal(permissions.userHasPermission(staffUser, "tenant.billing.read", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(staffUser, "tenant.reports.read", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(staffUser, "tenant.settings.manage", { tenantId: "tenant-1" }), false);
+  assert.equal(permissions.userHasPermission(staffUser, "tenant.service.manage", { tenantId: "tenant-1" }), false);
+  assert.equal(permissions.userHasPermission(staffUser, "tenant.availability.manage", { tenantId: "tenant-1" }), false);
   assert.equal(permissions.userHasPermission(adminUser, "tenant.settings.manage", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(adminUser, "tenant.settings.manage_contact", { tenantId: "tenant-1" }), false);
   assert.equal(permissions.userHasPermission(adminUser, "tenant.staff.manage", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(adminUser, "tenant.location.manage", { tenantId: "tenant-1" }), true);
+  assert.equal(permissions.userHasPermission(adminUser, "tenant.service.manage", { tenantId: "tenant-1" }), true);
+  assert.equal(permissions.userHasPermission(adminUser, "tenant.availability.manage", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(ownerUser, "tenant.settings.manage", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(ownerUser, "tenant.settings.manage_contact", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(ownerUser, "tenant.billing.manage", { tenantId: "tenant-1" }), true);
+  assert.equal(permissions.userHasPermission(ownerUser, "tenant.service.manage", { tenantId: "tenant-1" }), true);
+  assert.equal(permissions.userHasPermission(ownerUser, "tenant.availability.manage", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(platformAdmin, "platform.users.read"), true);
   assert.equal(permissions.userHasPermission(platformAdmin, "platform.plans.manage"), true);
+});
+
+test("vendor availability is manageable by vendor admins but denied to staff", async () => {
+  const blocks = [
+    {
+      _id: "block-1",
+      tenantId: "tenant-1",
+      locationId: "location-1",
+      serviceId: "service-1",
+      weekday: 1,
+      startsAt: "09:00",
+      endsAt: "12:00",
+      capacity: 2,
+      isActive: true,
+      notes: "",
+      createdAt: new Date(),
+      updatedAt: new Date()
+    }
+  ];
+  let createdBlock = null;
+  let createdException = null;
+  let deletedExceptionId = null;
+
+  const vendorRouter = requireWithMocks("../src/routes/vendorRoutes.js", {
+    "../middleware/auth": buildAuthMock(),
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../repositories/tenants": {
+      findTenantBySlug: async () => ({ _id: "tenant-1", slug: "demo", name: "Demo Tenant" })
+    },
+    "../repositories/storeLocations": {
+      findPrimaryLocationByTenantId: async () => ({
+        _id: "location-1",
+        tenantId: "tenant-1",
+        name: "Main Branch",
+        slug: "main"
+      }),
+      findLocationByTenantAndSlug: async (_tenantId, slug) =>
+        slug === "main"
+          ? { _id: "location-1", tenantId: "tenant-1", name: "Main Branch", slug: "main" }
+          : null,
+      listHoursByLocationId: async () => []
+    },
+    "../repositories/tickets": {
+      listHistoryTickets: async () => [],
+      listClientTickets: async () => []
+    },
+    "../repositories/publicBoardThemes": {
+      getResolvedTheme: async () => ({ scope: "fallback", theme: {} })
+    },
+    "../repositories/serviceCounters": {
+      listCountersByLocationId: async () => [],
+      listAssignedCounterIdsByUserIds: async () => new Map()
+    },
+    "../repositories/vendorServices": {
+      normalizeServiceSlug: (value) => String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""),
+      listServicesByTenantId: async () => [],
+      findServiceByTenantAndSlug: async (_tenantId, slug) =>
+        slug === "consultation"
+          ? {
+              _id: "service-1",
+              tenantId: "tenant-1",
+              name: "Consultation",
+              slug: "consultation"
+            }
+          : null
+    },
+    "../repositories/vendorAvailability": {
+      listAvailabilityByLocation: async () => ({ blocks, exceptions: [] }),
+      findBlockByTenantAndId: async (_tenantId, blockId) => blocks.find((block) => block._id === blockId) || null,
+      createBlock: async (data) => {
+        createdBlock = {
+          _id: "block-2",
+          ...data,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+        return createdBlock;
+      },
+      updateBlock: async (blockId, changes) => ({
+        ...blocks[0],
+        _id: blockId,
+        ...changes
+      }),
+      findExceptionByTenantAndId: async (_tenantId, exceptionId) =>
+        exceptionId === "exception-1"
+          ? {
+              _id: "exception-1",
+              tenantId: "tenant-1",
+              locationId: "location-1",
+              serviceId: null,
+              exceptionDate: "2026-07-01",
+              startsAt: "",
+              endsAt: "",
+              isAvailable: false,
+              capacity: null,
+              reason: "Holiday",
+              createdAt: new Date(),
+              updatedAt: new Date()
+            }
+          : null,
+      createException: async (data) => {
+        createdException = {
+          _id: "exception-2",
+          ...data,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+        return createdException;
+      },
+      updateException: async (exceptionId, changes) => ({
+        _id: exceptionId,
+        tenantId: "tenant-1",
+        locationId: "location-1",
+        serviceId: null,
+        ...changes,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      }),
+      deleteException: async (exceptionId) => {
+        deletedExceptionId = exceptionId;
+      }
+    },
+    "../repositories/users": {
+      listUsersByTenantId: async () => []
+    },
+    "../services/billingService": {
+      getBillingOverview: async () => ({ subscription: { entitlements: { locations: 1 } }, plans: [] }),
+      getTenantEntitlements: async () => ({ staffSeats: 5, counters: 2, brandedQueuePages: true })
+    },
+    "../services/publicBoardThemeUploadService": {
+      createUpload: async () => ({})
+    },
+    "../services/storeHoursService": {
+      getOpenStatus: async () => ({ isOpen: true, timezone: "Asia/Manila", summary: "Open", today: null, nextOpenAt: null })
+    },
+    "../services/queueService": {
+      createTicket: async () => ({}),
+      getQueueSnapshot: async () => ({ tenant: { queuePrefix: "DMO", averageServiceMinutes: 5, notificationThreshold: 3 } }),
+      callNextTicket: async () => ({ ticket: null, snapshot: { queue: [] } }),
+      updateCurrentTicketStatus: async () => ({ ticket: null, snapshot: { queue: [] } })
+    },
+    pdfkit: function MockPdfDocument() {}
+  });
+
+  const { server, baseUrl } = await startServer(vendorRouter, "/api/vendor");
+
+  try {
+    const deniedResponse = await fetch(`${baseUrl}/tenant/demo/availability?location=main`, {
+      headers: {
+        "x-test-tenant-role": "staff"
+      }
+    });
+    assert.equal(deniedResponse.status, 403);
+
+    const listResponse = await fetch(`${baseUrl}/tenant/demo/availability?location=main`, {
+      headers: {
+        "x-test-tenant-role": "admin"
+      }
+    });
+    assert.equal(listResponse.status, 200);
+    assert.equal((await listResponse.json()).blocks.length, 1);
+
+    const createBlockResponse = await fetch(`${baseUrl}/tenant/demo/availability/blocks`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-test-tenant-role": "admin"
+      },
+      body: JSON.stringify({
+        locationSlug: "main",
+        serviceSlug: "consultation",
+        weekday: 2,
+        startsAt: "10:00",
+        endsAt: "15:00",
+        capacity: 3
+      })
+    });
+    assert.equal(createBlockResponse.status, 201);
+    assert.equal(createdBlock.serviceId, "service-1");
+    assert.equal(createdBlock.locationId, "location-1");
+
+    const createExceptionResponse = await fetch(`${baseUrl}/tenant/demo/availability/exceptions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-test-tenant-role": "owner"
+      },
+      body: JSON.stringify({
+        locationSlug: "main",
+        exceptionDate: "2026-07-01",
+        isAvailable: false,
+        reason: "Holiday"
+      })
+    });
+    assert.equal(createExceptionResponse.status, 201);
+    assert.equal(createdException.exceptionDate, "2026-07-01");
+
+    const deleteExceptionResponse = await fetch(`${baseUrl}/tenant/demo/availability/exceptions/exception-1`, {
+      method: "DELETE",
+      headers: {
+        "x-test-tenant-role": "owner"
+      }
+    });
+    assert.equal(deleteExceptionResponse.status, 204);
+    assert.equal(deletedExceptionId, "exception-1");
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("vendor service catalog is manageable by vendor admins but denied to staff", async () => {
+  const services = [
+    {
+      _id: "service-1",
+      tenantId: "tenant-1",
+      name: "Haircut",
+      slug: "haircut",
+      description: "Standard service",
+      durationMinutes: 30,
+      priceAmountCents: 25000,
+      currency: "PHP",
+      priceDisplay: "PHP 250",
+      isActive: true,
+      sortOrder: 0,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    }
+  ];
+  let createdService = null;
+  let deactivatedServiceId = null;
+
+  const vendorRouter = requireWithMocks("../src/routes/vendorRoutes.js", {
+    "../middleware/auth": buildAuthMock(),
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../repositories/tenants": {
+      findTenantBySlug: async () => ({ _id: "tenant-1", slug: "demo", name: "Demo Tenant" })
+    },
+    "../repositories/storeLocations": {
+      findPrimaryLocationByTenantId: async () => ({
+        _id: "location-1",
+        tenantId: "tenant-1",
+        name: "Main Branch",
+        slug: "main"
+      }),
+      listHoursByLocationId: async () => []
+    },
+    "../repositories/tickets": {
+      listHistoryTickets: async () => [],
+      listClientTickets: async () => []
+    },
+    "../repositories/publicBoardThemes": {
+      getResolvedTheme: async () => ({ scope: "fallback", theme: {} })
+    },
+    "../repositories/serviceCounters": {
+      listCountersByLocationId: async () => [],
+      listAssignedCounterIdsByUserIds: async () => new Map()
+    },
+    "../repositories/vendorServices": {
+      normalizeServiceSlug: (value) => String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""),
+      listServicesByTenantId: async () => services,
+      findServiceByTenantAndSlug: async (_tenantId, slug) => services.find((service) => service.slug === slug) || null,
+      createService: async (data) => {
+        createdService = {
+          _id: "service-2",
+          ...data,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+        return createdService;
+      },
+      updateService: async (serviceId, changes) => ({
+        ...services[0],
+        _id: serviceId,
+        ...changes
+      }),
+      deactivateService: async (serviceId) => {
+        deactivatedServiceId = serviceId;
+        return {
+          ...services[0],
+          _id: serviceId,
+          isActive: false
+        };
+      }
+    },
+    "../repositories/users": {
+      listUsersByTenantId: async () => []
+    },
+    "../services/billingService": {
+      getBillingOverview: async () => ({ subscription: { entitlements: { locations: 1 } }, plans: [] }),
+      getTenantEntitlements: async () => ({ staffSeats: 5, counters: 2, brandedQueuePages: true })
+    },
+    "../services/publicBoardThemeUploadService": {
+      createUpload: async () => ({})
+    },
+    "../services/storeHoursService": {
+      getOpenStatus: async () => ({ isOpen: true, timezone: "Asia/Manila", summary: "Open", today: null, nextOpenAt: null })
+    },
+    "../services/queueService": {
+      createTicket: async () => ({}),
+      getQueueSnapshot: async () => ({ tenant: { queuePrefix: "DMO", averageServiceMinutes: 5, notificationThreshold: 3 } }),
+      callNextTicket: async () => ({ ticket: null, snapshot: { queue: [] } }),
+      updateCurrentTicketStatus: async () => ({ ticket: null, snapshot: { queue: [] } })
+    },
+    pdfkit: function MockPdfDocument() {}
+  });
+
+  const { server, baseUrl } = await startServer(vendorRouter, "/api/vendor");
+
+  try {
+    const deniedResponse = await fetch(`${baseUrl}/tenant/demo/services`, {
+      headers: {
+        "x-test-tenant-role": "staff"
+      }
+    });
+    assert.equal(deniedResponse.status, 403);
+
+    const listResponse = await fetch(`${baseUrl}/tenant/demo/services`, {
+      headers: {
+        "x-test-tenant-role": "admin"
+      }
+    });
+    assert.equal(listResponse.status, 200);
+    assert.equal((await listResponse.json()).services.length, 1);
+
+    const createResponse = await fetch(`${baseUrl}/tenant/demo/services`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-test-tenant-role": "admin"
+      },
+      body: JSON.stringify({
+        name: "Consultation",
+        durationMinutes: 45,
+        priceAmountCents: 50000
+      })
+    });
+    assert.equal(createResponse.status, 201);
+    assert.equal(createdService.slug, "consultation");
+    assert.equal(createdService.priceDisplay, "₱500");
+
+    const deactivateResponse = await fetch(`${baseUrl}/tenant/demo/services/haircut`, {
+      method: "DELETE",
+      headers: {
+        "x-test-tenant-role": "owner"
+      }
+    });
+    assert.equal(deactivateResponse.status, 200);
+    assert.equal(deactivatedServiceId, "service-1");
+    assert.equal((await deactivateResponse.json()).service.isActive, false);
+  } finally {
+    await stopServer(server);
+  }
 });
 
 test("vendor staff is denied owner-only settings route but can operate queue and read staff, clients, and history", async () => {

@@ -164,3 +164,186 @@ test("customer account overview and history expose owned tickets only", async ()
     await stopServer(server);
   }
 });
+
+test("customer bookings can be created only inside vendor availability", async () => {
+  const bookings = [];
+  const router = requireWithMocks("../src/routes/accountRoutes.js", {
+    "../middleware/auth": buildAuthMock(),
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../repositories/tickets": {
+      listTicketsForCustomerAccount: async () => []
+    },
+    "../repositories/bookings": {
+      listBookingsForCustomer: async () => bookings,
+      createBooking: async (data) => {
+        const booking = {
+          _id: "booking-1",
+          reference: "BKG-TEST0001",
+          tenantId: "tenant-1",
+          tenantName: "Demo Tenant",
+          tenantSlug: "demo",
+          locationId: "location-1",
+          locationName: "Main Branch",
+          locationSlug: "main",
+          serviceId: "service-1",
+          serviceName: "Consultation",
+          serviceSlug: "consultation",
+          servicePriceDisplay: "PHP 500",
+          customerUserId: data.customerUserId,
+          customerName: data.customerName,
+          customerEmail: data.customerEmail,
+          customerPhone: data.customerPhone,
+          scheduledStartAt: data.scheduledStartAt,
+          scheduledEndAt: data.scheduledEndAt,
+          status: "pending",
+          notes: data.notes || "",
+          paymentReference: data.paymentReference || "",
+          paymentStatus: "unpaid",
+          createdAt: "2026-06-22T00:00:00.000Z",
+          updatedAt: "2026-06-22T00:00:00.000Z"
+        };
+        bookings.push(booking);
+        return booking;
+      }
+    },
+    "../services/bookingService": requireWithMocks("../src/services/bookingService.js", {
+      "../repositories/bookings": {
+        createBooking: async (data) => {
+          const booking = {
+            _id: "booking-1",
+            reference: "BKG-TEST0001",
+            tenantId: "tenant-1",
+            tenantName: "Demo Tenant",
+            tenantSlug: "demo",
+            locationId: "location-1",
+            locationName: "Main Branch",
+            locationSlug: "main",
+            serviceId: "service-1",
+            serviceName: "Consultation",
+            serviceSlug: "consultation",
+            servicePriceDisplay: "PHP 500",
+            customerUserId: data.customerUserId,
+            customerName: data.customerName,
+            customerEmail: data.customerEmail,
+            customerPhone: data.customerPhone,
+            scheduledStartAt: data.scheduledStartAt,
+            scheduledEndAt: data.scheduledEndAt,
+            status: "pending",
+            notes: data.notes || "",
+            paymentReference: data.paymentReference || "",
+            paymentStatus: "unpaid",
+            createdAt: "2026-06-22T00:00:00.000Z",
+            updatedAt: "2026-06-22T00:00:00.000Z"
+          };
+          bookings.push(booking);
+          return booking;
+        }
+      },
+      "../repositories/tenants": {
+        findTenantBySlug: async (slug) =>
+          slug === "demo"
+            ? {
+                _id: "tenant-1",
+                slug: "demo",
+                name: "Demo Tenant",
+                publicProfileEnabled: true,
+                vendorApprovalStatus: "approved"
+              }
+            : null
+      },
+      "../repositories/storeLocations": {
+        findLocationByTenantAndSlug: async (_tenantId, slug) =>
+          slug === "main"
+            ? {
+                _id: "location-1",
+                tenantId: "tenant-1",
+                slug: "main",
+                name: "Main Branch",
+                isActive: true
+              }
+            : null
+      },
+      "../repositories/vendorServices": {
+        normalizeServiceSlug: (value) => String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""),
+        findServiceByTenantAndSlug: async (_tenantId, slug) =>
+          slug === "consultation"
+            ? {
+                _id: "service-1",
+                tenantId: "tenant-1",
+                name: "Consultation",
+                slug: "consultation",
+                durationMinutes: 60,
+                isActive: true
+              }
+            : null
+      },
+      "../repositories/vendorAvailability": {
+        listAvailabilityByLocation: async () => ({
+          blocks: [
+            {
+              _id: "block-1",
+              tenantId: "tenant-1",
+              locationId: "location-1",
+              serviceId: "service-1",
+              weekday: 1,
+              startsAt: "09:00",
+              endsAt: "17:00",
+              capacity: 1,
+              isActive: true
+            }
+          ],
+          exceptions: []
+        })
+      }
+    }),
+    "../services/passwordResetService": {
+      changePassword: async () => {}
+    }
+  });
+
+  const { server, baseUrl } = await startServer(router, "/api/account");
+
+  try {
+    const acceptedResponse = await fetch(`${baseUrl}/bookings`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer token"
+      },
+      body: JSON.stringify({
+        tenantSlug: "demo",
+        locationSlug: "main",
+        serviceSlug: "consultation",
+        scheduledStartAt: "2026-06-29T02:00:00.000Z",
+        notes: "First visit"
+      })
+    });
+    assert.equal(acceptedResponse.status, 201);
+    const accepted = await acceptedResponse.json();
+    assert.equal(accepted.booking.reference, "BKG-TEST0001");
+    assert.equal(accepted.booking.status, "pending");
+
+    const rejectedResponse = await fetch(`${baseUrl}/bookings`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer token"
+      },
+      body: JSON.stringify({
+        tenantSlug: "demo",
+        locationSlug: "main",
+        serviceSlug: "consultation",
+        scheduledStartAt: "2026-06-29T23:00:00.000Z"
+      })
+    });
+    assert.equal(rejectedResponse.status, 409);
+
+    const listResponse = await fetch(`${baseUrl}/bookings`, {
+      headers: { Authorization: "Bearer token" }
+    });
+    assert.equal(listResponse.status, 200);
+    assert.equal((await listResponse.json()).bookings.length, 1);
+  } finally {
+    await stopServer(server);
+  }
+});

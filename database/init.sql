@@ -12,6 +12,10 @@ DROP TABLE IF EXISTS auth_security_events CASCADE;
 DROP TABLE IF EXISTS auth_login_attempts CASCADE;
 DROP TABLE IF EXISTS password_reset_tokens CASCADE;
 DROP TABLE IF EXISTS auth_sessions CASCADE;
+DROP TABLE IF EXISTS bookings CASCADE;
+DROP TABLE IF EXISTS vendor_availability_exceptions CASCADE;
+DROP TABLE IF EXISTS vendor_availability_blocks CASCADE;
+DROP TABLE IF EXISTS vendor_services CASCADE;
 DROP TABLE IF EXISTS service_counter_assignments CASCADE;
 DROP TABLE IF EXISTS service_counters CASCADE;
 DROP TABLE IF EXISTS subscription_plans CASCADE;
@@ -226,6 +230,98 @@ CREATE TABLE service_counter_assignments (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   PRIMARY KEY (counter_id, user_id)
 );
+
+CREATE TABLE vendor_services (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  slug TEXT NOT NULL,
+  description TEXT,
+  duration_minutes INTEGER NOT NULL CHECK (duration_minutes BETWEEN 5 AND 480),
+  price_amount_cents INTEGER NOT NULL DEFAULT 0 CHECK (price_amount_cents >= 0),
+  currency TEXT NOT NULL DEFAULT 'PHP' CHECK (currency IN ('PHP')),
+  price_display TEXT NOT NULL DEFAULT '',
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (tenant_id, slug)
+);
+
+CREATE INDEX vendor_services_tenant_active_sort_idx
+  ON vendor_services (tenant_id, is_active, sort_order, name);
+
+CREATE TABLE vendor_availability_blocks (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  location_id BIGINT NOT NULL REFERENCES store_locations(id) ON DELETE CASCADE,
+  service_id BIGINT REFERENCES vendor_services(id) ON DELETE SET NULL,
+  weekday INTEGER NOT NULL CHECK (weekday BETWEEN 0 AND 6),
+  starts_at TIME NOT NULL,
+  ends_at TIME NOT NULL,
+  capacity INTEGER NOT NULL DEFAULT 1 CHECK (capacity BETWEEN 1 AND 100),
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  notes TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CHECK (starts_at < ends_at)
+);
+
+CREATE INDEX vendor_availability_blocks_location_day_idx
+  ON vendor_availability_blocks (tenant_id, location_id, weekday, starts_at);
+
+CREATE TABLE vendor_availability_exceptions (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  location_id BIGINT NOT NULL REFERENCES store_locations(id) ON DELETE CASCADE,
+  service_id BIGINT REFERENCES vendor_services(id) ON DELETE SET NULL,
+  exception_date DATE NOT NULL,
+  starts_at TIME,
+  ends_at TIME,
+  is_available BOOLEAN NOT NULL DEFAULT FALSE,
+  capacity INTEGER CHECK (capacity IS NULL OR capacity BETWEEN 1 AND 100),
+  reason TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CHECK (
+    (starts_at IS NULL AND ends_at IS NULL)
+    OR (starts_at IS NOT NULL AND ends_at IS NOT NULL AND starts_at < ends_at)
+  )
+);
+
+CREATE INDEX vendor_availability_exceptions_location_date_idx
+  ON vendor_availability_exceptions (tenant_id, location_id, exception_date);
+
+CREATE TABLE bookings (
+  id BIGSERIAL PRIMARY KEY,
+  reference TEXT NOT NULL UNIQUE,
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  location_id BIGINT NOT NULL REFERENCES store_locations(id) ON DELETE RESTRICT,
+  service_id BIGINT NOT NULL REFERENCES vendor_services(id) ON DELETE RESTRICT,
+  customer_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  customer_name TEXT NOT NULL,
+  customer_email TEXT,
+  customer_phone TEXT,
+  scheduled_start_at TIMESTAMPTZ NOT NULL,
+  scheduled_end_at TIMESTAMPTZ NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (
+    status IN ('pending', 'confirmed', 'rescheduled', 'completed', 'canceled', 'disputed', 'reviewed')
+  ),
+  notes TEXT,
+  payment_reference TEXT,
+  payment_status TEXT NOT NULL DEFAULT 'unpaid' CHECK (
+    payment_status IN ('unpaid', 'pending', 'paid', 'failed', 'refunded')
+  ),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CHECK (scheduled_start_at < scheduled_end_at)
+);
+
+CREATE INDEX bookings_customer_schedule_idx
+  ON bookings (customer_user_id, scheduled_start_at DESC);
+
+CREATE INDEX bookings_vendor_schedule_idx
+  ON bookings (tenant_id, location_id, scheduled_start_at ASC);
 
 CREATE TABLE tickets (
   id BIGSERIAL PRIMARY KEY,
@@ -641,6 +737,26 @@ EXECUTE FUNCTION set_updated_at();
 
 CREATE TRIGGER set_store_hours_updated_at
 BEFORE UPDATE ON store_hours
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER set_vendor_services_updated_at
+BEFORE UPDATE ON vendor_services
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER set_vendor_availability_blocks_updated_at
+BEFORE UPDATE ON vendor_availability_blocks
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER set_vendor_availability_exceptions_updated_at
+BEFORE UPDATE ON vendor_availability_exceptions
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER set_bookings_updated_at
+BEFORE UPDATE ON bookings
 FOR EACH ROW
 EXECUTE FUNCTION set_updated_at();
 

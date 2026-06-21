@@ -35,6 +35,7 @@ import {
 } from "@mantine/core";
 import {
   IconChartBar,
+  IconBriefcase,
   IconChevronRight,
   IconClipboardList,
   IconCheck,
@@ -75,14 +76,25 @@ import type {
   SubscriptionPlanSlug,
   TicketMutationResponse,
   UpdateTenantSettingsRequest,
-  VendorClientsResponse
+  SaveVendorAvailabilityBlockRequest,
+  SaveVendorAvailabilityExceptionRequest,
+  SaveVendorServiceRequest,
+  VendorAvailabilityBlockResponse,
+  VendorAvailabilityBlockSummary,
+  VendorAvailabilityExceptionResponse,
+  VendorAvailabilityExceptionSummary,
+  VendorAvailabilityResponse,
+  VendorClientsResponse,
+  VendorServiceSummary,
+  VendorServicesResponse,
+  VendorServiceResponse
 } from "@shared";
 import { API_BASE_URL, apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { buildJoinUrl, buildMonitorUrl } from "../queuePaths";
 import { getErrorMessage } from "../utils/errors";
 
-const dashboardSections = new Set(["queue", "tenants", "staff", "clients", "history", "reports", "settings"]);
+const dashboardSections = new Set(["queue", "tenants", "services", "staff", "clients", "history", "reports", "settings"]);
 const SERVICE_TREND_USER_LIMIT = 30;
 
 const emptyWalkIn: CreateWalkInTicketRequest = {
@@ -129,6 +141,49 @@ const emptyLocationForm = {
   isActive: true,
   hours: defaultHours
 };
+
+const emptyServiceForm: SaveVendorServiceRequest = {
+  name: "",
+  slug: "",
+  description: "",
+  durationMinutes: 30,
+  priceAmountCents: 0,
+  priceDisplay: "",
+  isActive: true,
+  sortOrder: 0
+};
+
+const emptyAvailabilityBlockForm: SaveVendorAvailabilityBlockRequest = {
+  locationSlug: "",
+  serviceSlug: "",
+  weekday: 1,
+  startsAt: "09:00",
+  endsAt: "17:00",
+  capacity: 1,
+  isActive: true,
+  notes: ""
+};
+
+const emptyAvailabilityExceptionForm: SaveVendorAvailabilityExceptionRequest = {
+  locationSlug: "",
+  serviceSlug: "",
+  exceptionDate: "",
+  startsAt: "",
+  endsAt: "",
+  isAvailable: false,
+  capacity: null,
+  reason: ""
+};
+
+const weekdayOptions = [
+  { value: "0", label: "Sunday" },
+  { value: "1", label: "Monday" },
+  { value: "2", label: "Tuesday" },
+  { value: "3", label: "Wednesday" },
+  { value: "4", label: "Thursday" },
+  { value: "5", label: "Friday" },
+  { value: "6", label: "Saturday" }
+];
 
 const publicBoardThemePresets: Record<string, PublicBoardThemeSettings> = {
   classic: {
@@ -192,7 +247,7 @@ const publicBoardThemePresets: Record<string, PublicBoardThemeSettings> = {
 
 const defaultPublicBoardTheme = publicBoardThemePresets.classic;
 
-type DashboardSection = "queue" | "tenants" | "staff" | "clients" | "history" | "reports" | "settings";
+type DashboardSection = "queue" | "tenants" | "services" | "staff" | "clients" | "history" | "reports" | "settings";
 type QueueView = "current" | "overflow" | "recovery";
 type ClientSort = "latestVisitDesc" | "latestVisitAsc" | "nameAsc" | "nameDesc" | "visitsDesc" | "visitsAsc";
 type HistorySort = "updatedDesc" | "updatedAsc" | "ticketAsc" | "ticketDesc" | "customerAsc" | "customerDesc";
@@ -212,6 +267,7 @@ type VendorHistoryResponse = {
 const navItems = [
   { section: "queue", label: "Queue", icon: IconClipboardList },
   { section: "tenants", label: "Locations", icon: IconHomeStats },
+  { section: "services", label: "Services", icon: IconBriefcase },
   { section: "staff", label: "Staff", icon: IconUsersGroup },
   { section: "clients", label: "Clients", icon: IconUsersGroup },
   { section: "history", label: "History", icon: IconHistory },
@@ -221,6 +277,7 @@ const navItems = [
 const dashboardSectionDescriptions: Record<DashboardSection, string> = {
   queue: "Run the live queue, manage intake, and move customers through service.",
   tenants: "Configure locations, counters, and the public entry points for each branch.",
+  services: "Manage bookable services, durations, pricing, and public availability state.",
   staff: "Manage workspace access, roles, and operating status for your team.",
   clients: "Review recent customer activity and returning queue visitors.",
   history: "Inspect completed ticket activity and export queue records.",
@@ -230,6 +287,7 @@ const dashboardSectionDescriptions: Record<DashboardSection, string> = {
 const adminAllowedSections = new Set<DashboardSection>([
   "queue",
   "tenants",
+  "services",
   "staff",
   "clients",
   "history",
@@ -415,6 +473,9 @@ export default function VendorDashboardPage() {
   const [selectedLocationSlug, setSelectedLocationSlug] = useState("");
   const [snapshot, setSnapshot] = useState<QueueSnapshot | null>(null);
   const [locations, setLocations] = useState<StoreLocationWithHours[]>([]);
+  const [services, setServices] = useState<VendorServiceSummary[]>([]);
+  const [availabilityBlocks, setAvailabilityBlocks] = useState<VendorAvailabilityBlockSummary[]>([]);
+  const [availabilityExceptions, setAvailabilityExceptions] = useState<VendorAvailabilityExceptionSummary[]>([]);
   const [serviceCounters, setServiceCounters] = useState<ServiceCounterSummary[]>([]);
   const [staff, setStaff] = useState<VendorStaffSummary[]>([]);
   const [staffSeatLimit, setStaffSeatLimit] = useState(0);
@@ -423,6 +484,15 @@ export default function VendorDashboardPage() {
   const [locationDialogOpen, setLocationDialogOpen] = useState(false);
   const [editingLocationSlug, setEditingLocationSlug] = useState("");
   const [locationForm, setLocationForm] = useState(emptyLocationForm);
+  const [serviceDialogOpen, setServiceDialogOpen] = useState(false);
+  const [editingServiceSlug, setEditingServiceSlug] = useState("");
+  const [serviceForm, setServiceForm] = useState<SaveVendorServiceRequest>(emptyServiceForm);
+  const [availabilityBlockDialogOpen, setAvailabilityBlockDialogOpen] = useState(false);
+  const [editingAvailabilityBlockId, setEditingAvailabilityBlockId] = useState("");
+  const [availabilityBlockForm, setAvailabilityBlockForm] = useState<SaveVendorAvailabilityBlockRequest>(emptyAvailabilityBlockForm);
+  const [availabilityExceptionDialogOpen, setAvailabilityExceptionDialogOpen] = useState(false);
+  const [editingAvailabilityExceptionId, setEditingAvailabilityExceptionId] = useState("");
+  const [availabilityExceptionForm, setAvailabilityExceptionForm] = useState<SaveVendorAvailabilityExceptionRequest>(emptyAvailabilityExceptionForm);
   const [settings, setSettings] = useState<UpdateTenantSettingsRequest>(defaultSettings);
   const [walkInForm, setWalkInForm] = useState<CreateWalkInTicketRequest>(emptyWalkIn);
   const [billing, setBilling] = useState<BillingOverviewResponse | null>(null);
@@ -621,6 +691,42 @@ export default function VendorDashboardPage() {
         setStaffSeatLimit(0);
       });
   }, [selectedTenantSlug, token]);
+
+  useEffect(() => {
+    if (!selectedTenantSlug || !token || !(isOwner || isAdmin)) {
+      setServices([]);
+      return;
+    }
+
+    apiRequest<VendorServicesResponse>(`/vendor/tenant/${selectedTenantSlug}/services`, { token })
+      .then((data) => {
+        setServices(data.services);
+      })
+      .catch(() => {
+        setServices([]);
+      });
+  }, [isAdmin, isOwner, selectedTenantSlug, token]);
+
+  useEffect(() => {
+    if (!selectedTenantSlug || !selectedLocationSlug || !token || !(isOwner || isAdmin)) {
+      setAvailabilityBlocks([]);
+      setAvailabilityExceptions([]);
+      return;
+    }
+
+    apiRequest<VendorAvailabilityResponse>(
+      `/vendor/tenant/${selectedTenantSlug}/availability?location=${encodeURIComponent(selectedLocationSlug)}`,
+      { token }
+    )
+      .then((data) => {
+        setAvailabilityBlocks(data.blocks);
+        setAvailabilityExceptions(data.exceptions);
+      })
+      .catch(() => {
+        setAvailabilityBlocks([]);
+        setAvailabilityExceptions([]);
+      });
+  }, [isAdmin, isOwner, selectedLocationSlug, selectedTenantSlug, token]);
 
   useEffect(() => {
     if (!selectedTenantSlug || !token) {
@@ -976,6 +1082,23 @@ export default function VendorDashboardPage() {
       intakeState.autoPauseThreshold &&
       intakeState.currentWaitingCount >= intakeState.autoPauseThreshold
   );
+  const serviceOptions = useMemo(
+    () => [
+      { value: "", label: "All services" },
+      ...services
+        .filter((service) => service.isActive)
+        .map((service) => ({ value: service.slug, label: service.name }))
+    ],
+    [services]
+  );
+  const serviceSlugById = useMemo(
+    () => new Map(services.map((service) => [service.id, service.slug])),
+    [services]
+  );
+  const serviceNameById = useMemo(
+    () => new Map(services.map((service) => [service.id, service.name])),
+    [services]
+  );
 
   useEffect(() => {
     setClientsPage(1);
@@ -1041,6 +1164,270 @@ export default function VendorDashboardPage() {
     );
     setStaff(data.staff);
     setStaffSeatLimit(data.staffSeatLimit);
+  }
+
+  async function reloadServices() {
+    const data = await apiRequest<VendorServicesResponse>(
+      `/vendor/tenant/${selectedTenantSlug}/services`,
+      { token }
+    );
+    setServices(data.services);
+  }
+
+  async function reloadAvailability() {
+    if (!selectedLocationSlug) {
+      return;
+    }
+
+    const data = await apiRequest<VendorAvailabilityResponse>(
+      `/vendor/tenant/${selectedTenantSlug}/availability?location=${encodeURIComponent(selectedLocationSlug)}`,
+      { token }
+    );
+    setAvailabilityBlocks(data.blocks);
+    setAvailabilityExceptions(data.exceptions);
+  }
+
+  function openServiceDialog(service?: VendorServiceSummary) {
+    setEditingServiceSlug(service?.slug || "");
+    setServiceForm({
+      name: service?.name || "",
+      slug: service?.slug || "",
+      description: service?.description || "",
+      durationMinutes: service?.durationMinutes || 30,
+      priceAmountCents: service?.priceAmountCents || 0,
+      priceDisplay: service?.priceDisplay || "",
+      isActive: service?.isActive ?? true,
+      sortOrder: service?.sortOrder || 0
+    });
+    setServiceDialogOpen(true);
+  }
+
+  async function handleSaveService(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusyAction("service-save");
+    setError("");
+
+    try {
+      if (editingServiceSlug) {
+        await apiRequest<VendorServiceResponse, SaveVendorServiceRequest>(
+          `/vendor/tenant/${selectedTenantSlug}/services/${editingServiceSlug}`,
+          { method: "PATCH", token, body: serviceForm }
+        );
+      } else {
+        await apiRequest<VendorServiceResponse, SaveVendorServiceRequest>(
+          `/vendor/tenant/${selectedTenantSlug}/services`,
+          { method: "POST", token, body: serviceForm }
+        );
+      }
+      await reloadServices();
+      setServiceDialogOpen(false);
+      showSuccessNotification(
+        editingServiceSlug ? "Service updated" : "Service created",
+        `${serviceForm.name} is ready for booking setup.`
+      );
+    } catch (saveError) {
+      setError(getErrorMessage(saveError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function handleToggleServiceActive(service: VendorServiceSummary, isActive: boolean) {
+    setBusyAction(`service-status:${service.slug}`);
+    setError("");
+
+    try {
+      const response = await apiRequest<VendorServiceResponse, SaveVendorServiceRequest>(
+        `/vendor/tenant/${selectedTenantSlug}/services/${service.slug}`,
+        {
+          method: "PATCH",
+          token,
+          body: {
+            name: service.name,
+            slug: service.slug,
+            description: service.description,
+            durationMinutes: service.durationMinutes,
+            priceAmountCents: service.priceAmountCents,
+            priceDisplay: service.priceDisplay,
+            isActive,
+            sortOrder: service.sortOrder
+          }
+        }
+      );
+      setServices((current) =>
+        current.map((item) => (item.id === response.service.id ? response.service : item))
+      );
+      showSuccessNotification(
+        isActive ? "Service enabled" : "Service disabled",
+        `${response.service.name} is now ${isActive ? "active" : "inactive"}.`
+      );
+    } catch (toggleError) {
+      setError(getErrorMessage(toggleError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function handleDeactivateService(service: VendorServiceSummary) {
+    setBusyAction(`service-delete:${service.slug}`);
+    setError("");
+
+    try {
+      const response = await apiRequest<VendorServiceResponse>(
+        `/vendor/tenant/${selectedTenantSlug}/services/${service.slug}`,
+        { method: "DELETE", token }
+      );
+      setServices((current) =>
+        current.map((item) => (item.id === response.service.id ? response.service : item))
+      );
+      showSuccessNotification("Service disabled", `${service.name} is no longer active.`);
+    } catch (deleteError) {
+      setError(getErrorMessage(deleteError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  function getServiceLabel(serviceId: string | null) {
+    return serviceId ? serviceNameById.get(serviceId) || "Service-specific" : "All services";
+  }
+
+  function openAvailabilityBlockDialog(block?: VendorAvailabilityBlockSummary) {
+    setEditingAvailabilityBlockId(block?.id || "");
+    setAvailabilityBlockForm({
+      locationSlug: selectedLocationSlug,
+      serviceSlug: block?.serviceId ? serviceSlugById.get(block.serviceId) || "" : "",
+      weekday: block?.weekday ?? 1,
+      startsAt: block?.startsAt || "09:00",
+      endsAt: block?.endsAt || "17:00",
+      capacity: block?.capacity || 1,
+      isActive: block?.isActive ?? true,
+      notes: block?.notes || ""
+    });
+    setAvailabilityBlockDialogOpen(true);
+  }
+
+  async function handleSaveAvailabilityBlock(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusyAction("availability-block-save");
+    setError("");
+
+    try {
+      const body = {
+        ...availabilityBlockForm,
+        locationSlug: selectedLocationSlug
+      };
+      if (editingAvailabilityBlockId) {
+        await apiRequest<VendorAvailabilityBlockResponse, SaveVendorAvailabilityBlockRequest>(
+          `/vendor/tenant/${selectedTenantSlug}/availability/blocks/${editingAvailabilityBlockId}`,
+          { method: "PATCH", token, body }
+        );
+      } else {
+        await apiRequest<VendorAvailabilityBlockResponse, SaveVendorAvailabilityBlockRequest>(
+          `/vendor/tenant/${selectedTenantSlug}/availability/blocks`,
+          { method: "POST", token, body }
+        );
+      }
+      await reloadAvailability();
+      setAvailabilityBlockDialogOpen(false);
+      showSuccessNotification(
+        editingAvailabilityBlockId ? "Availability updated" : "Availability added",
+        "The weekly availability rule was saved."
+      );
+    } catch (saveError) {
+      setError(getErrorMessage(saveError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function handleDisableAvailabilityBlock(block: VendorAvailabilityBlockSummary) {
+    setBusyAction(`availability-block-delete:${block.id}`);
+    setError("");
+
+    try {
+      const response = await apiRequest<VendorAvailabilityBlockResponse>(
+        `/vendor/tenant/${selectedTenantSlug}/availability/blocks/${block.id}`,
+        { method: "DELETE", token }
+      );
+      setAvailabilityBlocks((current) =>
+        current.map((item) => (item.id === response.block.id ? response.block : item))
+      );
+      showSuccessNotification("Availability disabled", "The weekly rule is no longer active.");
+    } catch (deleteError) {
+      setError(getErrorMessage(deleteError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  function openAvailabilityExceptionDialog(exception?: VendorAvailabilityExceptionSummary) {
+    setEditingAvailabilityExceptionId(exception?.id || "");
+    setAvailabilityExceptionForm({
+      locationSlug: selectedLocationSlug,
+      serviceSlug: exception?.serviceId ? serviceSlugById.get(exception.serviceId) || "" : "",
+      exceptionDate: exception?.exceptionDate
+        ? new Date(exception.exceptionDate).toISOString().slice(0, 10)
+        : "",
+      startsAt: exception?.startsAt || "",
+      endsAt: exception?.endsAt || "",
+      isAvailable: exception?.isAvailable ?? false,
+      capacity: exception?.capacity ?? null,
+      reason: exception?.reason || ""
+    });
+    setAvailabilityExceptionDialogOpen(true);
+  }
+
+  async function handleSaveAvailabilityException(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusyAction("availability-exception-save");
+    setError("");
+
+    try {
+      const body = {
+        ...availabilityExceptionForm,
+        locationSlug: selectedLocationSlug
+      };
+      if (editingAvailabilityExceptionId) {
+        await apiRequest<VendorAvailabilityExceptionResponse, SaveVendorAvailabilityExceptionRequest>(
+          `/vendor/tenant/${selectedTenantSlug}/availability/exceptions/${editingAvailabilityExceptionId}`,
+          { method: "PATCH", token, body }
+        );
+      } else {
+        await apiRequest<VendorAvailabilityExceptionResponse, SaveVendorAvailabilityExceptionRequest>(
+          `/vendor/tenant/${selectedTenantSlug}/availability/exceptions`,
+          { method: "POST", token, body }
+        );
+      }
+      await reloadAvailability();
+      setAvailabilityExceptionDialogOpen(false);
+      showSuccessNotification(
+        editingAvailabilityExceptionId ? "Exception updated" : "Exception added",
+        "The date-specific availability rule was saved."
+      );
+    } catch (saveError) {
+      setError(getErrorMessage(saveError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function handleDeleteAvailabilityException(exception: VendorAvailabilityExceptionSummary) {
+    setBusyAction(`availability-exception-delete:${exception.id}`);
+    setError("");
+
+    try {
+      await apiRequest<void>(
+        `/vendor/tenant/${selectedTenantSlug}/availability/exceptions/${exception.id}`,
+        { method: "DELETE", token }
+      );
+      setAvailabilityExceptions((current) => current.filter((item) => item.id !== exception.id));
+      showSuccessNotification("Exception removed", "The date-specific rule was removed.");
+    } catch (deleteError) {
+      setError(getErrorMessage(deleteError));
+    } finally {
+      setBusyAction("");
+    }
   }
 
   function openCounterDialog(counter?: ServiceCounterSummary) {
@@ -2697,6 +3084,535 @@ export default function VendorDashboardPage() {
     );
   }
 
+  function renderServiceDialog() {
+    return (
+      <Modal
+        centered
+        opened={serviceDialogOpen}
+        onClose={() => setServiceDialogOpen(false)}
+        size="lg"
+        title={editingServiceSlug ? "Edit service" : "Add service"}
+      >
+        <form onSubmit={handleSaveService}>
+          <Stack gap="md">
+            <SimpleGrid cols={{ base: 1, md: 2 }}>
+              <TextInput
+                label="Service name"
+                required
+                value={serviceForm.name}
+                onChange={(event) =>
+                  setServiceForm((current) => ({ ...current, name: event.target.value }))
+                }
+              />
+              <TextInput
+                label="Slug"
+                value={serviceForm.slug || ""}
+                onChange={(event) =>
+                  setServiceForm((current) => ({ ...current, slug: event.target.value }))
+                }
+              />
+              <NumberInput
+                label="Duration"
+                min={5}
+                max={480}
+                required
+                suffix=" min"
+                value={serviceForm.durationMinutes}
+                onChange={(value) =>
+                  setServiceForm((current) => ({
+                    ...current,
+                    durationMinutes: Number(value) || 30
+                  }))
+                }
+              />
+              <NumberInput
+                decimalScale={2}
+                fixedDecimalScale
+                label="Price"
+                min={0}
+                prefix="PHP "
+                value={(serviceForm.priceAmountCents || 0) / 100}
+                onChange={(value) =>
+                  setServiceForm((current) => ({
+                    ...current,
+                    priceAmountCents: Math.max(0, Math.round((Number(value) || 0) * 100))
+                  }))
+                }
+              />
+              <TextInput
+                label="Price display override"
+                placeholder="Leave blank to auto-format"
+                value={serviceForm.priceDisplay || ""}
+                onChange={(event) =>
+                  setServiceForm((current) => ({ ...current, priceDisplay: event.target.value }))
+                }
+              />
+              <NumberInput
+                label="Display order"
+                value={serviceForm.sortOrder || 0}
+                onChange={(value) =>
+                  setServiceForm((current) => ({ ...current, sortOrder: Number(value) || 0 }))
+                }
+              />
+            </SimpleGrid>
+            <Textarea
+              autosize
+              label="Description"
+              minRows={3}
+              value={serviceForm.description || ""}
+              onChange={(event) =>
+                setServiceForm((current) => ({ ...current, description: event.target.value }))
+              }
+            />
+            <Switch
+              checked={serviceForm.isActive !== false}
+              label="Active service"
+              onChange={(event) =>
+                setServiceForm((current) => ({ ...current, isActive: event.currentTarget.checked }))
+              }
+            />
+            <Group justify="flex-end">
+              <Button variant="default" onClick={() => setServiceDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button className="neura-primary-button" disabled={busyAction === "service-save"} type="submit">
+                {busyAction === "service-save" ? "Saving..." : "Save service"}
+              </Button>
+            </Group>
+          </Stack>
+        </form>
+      </Modal>
+    );
+  }
+
+  function renderAvailabilityBlockDialog() {
+    return (
+      <Modal
+        centered
+        opened={availabilityBlockDialogOpen}
+        onClose={() => setAvailabilityBlockDialogOpen(false)}
+        size="lg"
+        title={editingAvailabilityBlockId ? "Edit weekly availability" : "Add weekly availability"}
+      >
+        <form onSubmit={handleSaveAvailabilityBlock}>
+          <Stack gap="md">
+            <SimpleGrid cols={{ base: 1, md: 2 }}>
+              <Select
+                data={weekdayOptions}
+                label="Day"
+                required
+                value={String(availabilityBlockForm.weekday)}
+                onChange={(value) =>
+                  setAvailabilityBlockForm((current) => ({ ...current, weekday: Number(value || 1) }))
+                }
+              />
+              <Select
+                data={serviceOptions}
+                label="Service"
+                value={availabilityBlockForm.serviceSlug || ""}
+                onChange={(value) =>
+                  setAvailabilityBlockForm((current) => ({ ...current, serviceSlug: value || "" }))
+                }
+              />
+              <TextInput
+                label="Starts"
+                required
+                type="time"
+                value={availabilityBlockForm.startsAt}
+                onChange={(event) =>
+                  setAvailabilityBlockForm((current) => ({ ...current, startsAt: event.target.value }))
+                }
+              />
+              <TextInput
+                label="Ends"
+                required
+                type="time"
+                value={availabilityBlockForm.endsAt}
+                onChange={(event) =>
+                  setAvailabilityBlockForm((current) => ({ ...current, endsAt: event.target.value }))
+                }
+              />
+              <NumberInput
+                label="Capacity"
+                min={1}
+                max={100}
+                value={availabilityBlockForm.capacity}
+                onChange={(value) =>
+                  setAvailabilityBlockForm((current) => ({ ...current, capacity: Number(value) || 1 }))
+                }
+              />
+              <Switch
+                checked={availabilityBlockForm.isActive !== false}
+                label="Active weekly rule"
+                mt="xl"
+                onChange={(event) =>
+                  setAvailabilityBlockForm((current) => ({
+                    ...current,
+                    isActive: event.currentTarget.checked
+                  }))
+                }
+              />
+            </SimpleGrid>
+            <Textarea
+              autosize
+              label="Notes"
+              minRows={2}
+              value={availabilityBlockForm.notes || ""}
+              onChange={(event) =>
+                setAvailabilityBlockForm((current) => ({ ...current, notes: event.target.value }))
+              }
+            />
+            <Group justify="flex-end">
+              <Button variant="default" onClick={() => setAvailabilityBlockDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button className="neura-primary-button" disabled={busyAction === "availability-block-save"} type="submit">
+                {busyAction === "availability-block-save" ? "Saving..." : "Save availability"}
+              </Button>
+            </Group>
+          </Stack>
+        </form>
+      </Modal>
+    );
+  }
+
+  function renderAvailabilityExceptionDialog() {
+    return (
+      <Modal
+        centered
+        opened={availabilityExceptionDialogOpen}
+        onClose={() => setAvailabilityExceptionDialogOpen(false)}
+        size="lg"
+        title={editingAvailabilityExceptionId ? "Edit date exception" : "Add date exception"}
+      >
+        <form onSubmit={handleSaveAvailabilityException}>
+          <Stack gap="md">
+            <SimpleGrid cols={{ base: 1, md: 2 }}>
+              <TextInput
+                label="Date"
+                required
+                type="date"
+                value={availabilityExceptionForm.exceptionDate}
+                onChange={(event) =>
+                  setAvailabilityExceptionForm((current) => ({
+                    ...current,
+                    exceptionDate: event.target.value
+                  }))
+                }
+              />
+              <Select
+                data={serviceOptions}
+                label="Service"
+                value={availabilityExceptionForm.serviceSlug || ""}
+                onChange={(value) =>
+                  setAvailabilityExceptionForm((current) => ({ ...current, serviceSlug: value || "" }))
+                }
+              />
+              <TextInput
+                label="Starts"
+                type="time"
+                value={availabilityExceptionForm.startsAt || ""}
+                onChange={(event) =>
+                  setAvailabilityExceptionForm((current) => ({ ...current, startsAt: event.target.value }))
+                }
+              />
+              <TextInput
+                label="Ends"
+                type="time"
+                value={availabilityExceptionForm.endsAt || ""}
+                onChange={(event) =>
+                  setAvailabilityExceptionForm((current) => ({ ...current, endsAt: event.target.value }))
+                }
+              />
+              <NumberInput
+                label="Capacity override"
+                min={1}
+                max={100}
+                value={availabilityExceptionForm.capacity ?? undefined}
+                onChange={(value) =>
+                  setAvailabilityExceptionForm((current) => ({
+                    ...current,
+                    capacity: value === "" || value === null ? null : Number(value)
+                  }))
+                }
+              />
+              <Switch
+                checked={availabilityExceptionForm.isAvailable}
+                label="Make this date available"
+                mt="xl"
+                onChange={(event) =>
+                  setAvailabilityExceptionForm((current) => ({
+                    ...current,
+                    isAvailable: event.currentTarget.checked
+                  }))
+                }
+              />
+            </SimpleGrid>
+            <Textarea
+              autosize
+              label="Reason"
+              minRows={2}
+              value={availabilityExceptionForm.reason || ""}
+              onChange={(event) =>
+                setAvailabilityExceptionForm((current) => ({ ...current, reason: event.target.value }))
+              }
+            />
+            <Group justify="flex-end">
+              <Button variant="default" onClick={() => setAvailabilityExceptionDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button className="neura-primary-button" disabled={busyAction === "availability-exception-save"} type="submit">
+                {busyAction === "availability-exception-save" ? "Saving..." : "Save exception"}
+              </Button>
+            </Group>
+          </Stack>
+        </form>
+      </Modal>
+    );
+  }
+
+  function renderServicesPage() {
+    const activeServices = services.filter((service) => service.isActive).length;
+
+    return (
+      <Stack gap="lg">
+        <SimpleGrid cols={{ base: 1, md: 3 }}>
+          <MetricCard
+            detail="Visible to future booking flows."
+            label="Active services"
+            value={activeServices}
+          />
+          <MetricCard
+            detail="Inactive services stay available for reporting history."
+            label="Draft or disabled"
+            value={services.length - activeServices}
+          />
+          <Card className="neura-card" padding="lg">
+            <Stack gap="md">
+              <Text className="neura-label">Catalog controls</Text>
+              <Title order={3}>Service setup</Title>
+              <Button className="neura-primary-button" onClick={() => openServiceDialog()}>
+                Add service
+              </Button>
+            </Stack>
+          </Card>
+        </SimpleGrid>
+
+        <Card className="neura-card" padding="lg">
+          <Group justify="space-between" mb="md">
+            <div>
+              <Text className="neura-label">Vendor Admin</Text>
+              <Title order={3}>Service catalog</Title>
+            </div>
+            <Button className="neura-secondary-button" onClick={() => openServiceDialog()}>
+              New service
+            </Button>
+          </Group>
+          {services.length ? (
+            <Table.ScrollContainer minWidth={820}>
+              <Table verticalSpacing="sm">
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Service</Table.Th>
+                    <Table.Th>Duration</Table.Th>
+                    <Table.Th>Price</Table.Th>
+                    <Table.Th>Status</Table.Th>
+                    <Table.Th>Order</Table.Th>
+                    <Table.Th>Actions</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {services.map((service) => (
+                    <Table.Tr key={service.id}>
+                      <Table.Td>
+                        <Stack gap={2}>
+                          <Text fw={700}>{service.name}</Text>
+                          <Text c="dimmed" size="sm">{service.description || service.slug}</Text>
+                        </Stack>
+                      </Table.Td>
+                      <Table.Td>{service.durationMinutes} min</Table.Td>
+                      <Table.Td>{service.priceDisplay || `PHP ${(service.priceAmountCents / 100).toLocaleString()}`}</Table.Td>
+                      <Table.Td>
+                        <Badge color={service.isActive ? "teal" : "gray"} variant="light">
+                          {service.isActive ? "Active" : "Inactive"}
+                        </Badge>
+                      </Table.Td>
+                      <Table.Td>{service.sortOrder}</Table.Td>
+                      <Table.Td>
+                        <Group gap="xs" wrap="nowrap">
+                          <Button size="xs" variant="default" onClick={() => openServiceDialog(service)}>
+                            Edit
+                          </Button>
+                          <Switch
+                            checked={service.isActive}
+                            disabled={busyAction === `service-status:${service.slug}`}
+                            onChange={(event) =>
+                              handleToggleServiceActive(service, event.currentTarget.checked)
+                            }
+                          />
+                          {service.isActive ? (
+                            <Button
+                              color="red"
+                              disabled={busyAction === `service-delete:${service.slug}`}
+                              size="xs"
+                              variant="subtle"
+                              onClick={() => handleDeactivateService(service)}
+                            >
+                              Disable
+                            </Button>
+                          ) : null}
+                        </Group>
+                      </Table.Td>
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            </Table.ScrollContainer>
+          ) : (
+            <DashboardEmptyState
+              title="No services yet"
+              text="Add services before building availability and customer booking flows."
+            />
+          )}
+        </Card>
+
+        <Card className="neura-card" padding="lg">
+          <Group justify="space-between" mb="md">
+            <div>
+              <Text className="neura-label">{selectedLocation?.name || "Selected location"}</Text>
+              <Title order={3}>Weekly availability</Title>
+            </div>
+            <Button className="neura-secondary-button" onClick={() => openAvailabilityBlockDialog()}>
+              Add weekly rule
+            </Button>
+          </Group>
+          {availabilityBlocks.length ? (
+            <Table.ScrollContainer minWidth={820}>
+              <Table verticalSpacing="sm">
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Day</Table.Th>
+                    <Table.Th>Time</Table.Th>
+                    <Table.Th>Service</Table.Th>
+                    <Table.Th>Capacity</Table.Th>
+                    <Table.Th>Status</Table.Th>
+                    <Table.Th>Actions</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {availabilityBlocks.map((block) => (
+                    <Table.Tr key={block.id}>
+                      <Table.Td>{weekdayOptions.find((day) => day.value === String(block.weekday))?.label}</Table.Td>
+                      <Table.Td>{block.startsAt} - {block.endsAt}</Table.Td>
+                      <Table.Td>{getServiceLabel(block.serviceId)}</Table.Td>
+                      <Table.Td>{block.capacity}</Table.Td>
+                      <Table.Td>
+                        <Badge color={block.isActive ? "teal" : "gray"} variant="light">
+                          {block.isActive ? "Active" : "Inactive"}
+                        </Badge>
+                      </Table.Td>
+                      <Table.Td>
+                        <Group gap="xs" wrap="nowrap">
+                          <Button size="xs" variant="default" onClick={() => openAvailabilityBlockDialog(block)}>
+                            Edit
+                          </Button>
+                          {block.isActive ? (
+                            <Button
+                              color="red"
+                              disabled={busyAction === `availability-block-delete:${block.id}`}
+                              size="xs"
+                              variant="subtle"
+                              onClick={() => handleDisableAvailabilityBlock(block)}
+                            >
+                              Disable
+                            </Button>
+                          ) : null}
+                        </Group>
+                      </Table.Td>
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            </Table.ScrollContainer>
+          ) : (
+            <DashboardEmptyState
+              title="No weekly availability"
+              text="Add recurring bookable hours for this branch."
+            />
+          )}
+        </Card>
+
+        <Card className="neura-card" padding="lg">
+          <Group justify="space-between" mb="md">
+            <div>
+              <Text className="neura-label">Date overrides</Text>
+              <Title order={3}>Availability exceptions</Title>
+            </div>
+            <Button className="neura-secondary-button" onClick={() => openAvailabilityExceptionDialog()}>
+              Add exception
+            </Button>
+          </Group>
+          {availabilityExceptions.length ? (
+            <Table.ScrollContainer minWidth={820}>
+              <Table verticalSpacing="sm">
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Date</Table.Th>
+                    <Table.Th>Time</Table.Th>
+                    <Table.Th>Service</Table.Th>
+                    <Table.Th>Mode</Table.Th>
+                    <Table.Th>Reason</Table.Th>
+                    <Table.Th>Actions</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {availabilityExceptions.map((exception) => (
+                    <Table.Tr key={exception.id}>
+                      <Table.Td>{formatDate(exception.exceptionDate)}</Table.Td>
+                      <Table.Td>
+                        {exception.startsAt && exception.endsAt
+                          ? `${exception.startsAt} - ${exception.endsAt}`
+                          : "Full day"}
+                      </Table.Td>
+                      <Table.Td>{getServiceLabel(exception.serviceId)}</Table.Td>
+                      <Table.Td>
+                        <Badge color={exception.isAvailable ? "teal" : "red"} variant="light">
+                          {exception.isAvailable ? "Available" : "Blocked"}
+                        </Badge>
+                      </Table.Td>
+                      <Table.Td>{exception.reason || "-"}</Table.Td>
+                      <Table.Td>
+                        <Group gap="xs" wrap="nowrap">
+                          <Button size="xs" variant="default" onClick={() => openAvailabilityExceptionDialog(exception)}>
+                            Edit
+                          </Button>
+                          <Button
+                            color="red"
+                            disabled={busyAction === `availability-exception-delete:${exception.id}`}
+                            size="xs"
+                            variant="subtle"
+                            onClick={() => handleDeleteAvailabilityException(exception)}
+                          >
+                            Remove
+                          </Button>
+                        </Group>
+                      </Table.Td>
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            </Table.ScrollContainer>
+          ) : (
+            <DashboardEmptyState
+              title="No exceptions"
+              text="Add holidays, special hours, or one-off availability overrides."
+            />
+          )}
+        </Card>
+      </Stack>
+    );
+  }
+
   function renderStaffPage() {
     const assignableRoles = isOwner
       ? [
@@ -3430,6 +4346,10 @@ export default function VendorDashboardPage() {
       return renderTenantsPage();
     }
 
+    if (currentSection === "services") {
+      return renderServicesPage();
+    }
+
     if (currentSection === "clients") {
       return renderClientsPage();
     }
@@ -3537,6 +4457,9 @@ export default function VendorDashboardPage() {
       </main>
       {renderPlanDialog()}
       {renderLocationDialog()}
+      {renderServiceDialog()}
+      {renderAvailabilityBlockDialog()}
+      {renderAvailabilityExceptionDialog()}
       {renderCounterDialog()}
       {renderStaffDialog()}
       {renderThemeDialog()}

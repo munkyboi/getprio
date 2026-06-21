@@ -228,6 +228,152 @@ export interface StoreLocationsResponse {
   activeLocationLimit: number;
 }
 
+export interface VendorServiceSummary {
+  id: string;
+  tenantId: string;
+  name: string;
+  slug: string;
+  description: string;
+  durationMinutes: number;
+  priceAmountCents: number;
+  currency: "PHP";
+  priceDisplay: string;
+  isActive: boolean;
+  sortOrder: number;
+  createdAt: string | Date;
+  updatedAt: string | Date;
+}
+
+export interface VendorServicesResponse {
+  services: VendorServiceSummary[];
+}
+
+export interface SaveVendorServiceRequest {
+  name: string;
+  slug?: string;
+  description?: string;
+  durationMinutes: number;
+  priceAmountCents: number;
+  priceDisplay?: string;
+  isActive?: boolean;
+  sortOrder?: number;
+}
+
+export interface VendorServiceResponse {
+  service: VendorServiceSummary;
+}
+
+export interface VendorAvailabilityBlockSummary {
+  id: string;
+  tenantId: string;
+  locationId: string;
+  serviceId: string | null;
+  weekday: number;
+  startsAt: string;
+  endsAt: string;
+  capacity: number;
+  isActive: boolean;
+  notes: string;
+  createdAt: string | Date;
+  updatedAt: string | Date;
+}
+
+export interface VendorAvailabilityExceptionSummary {
+  id: string;
+  tenantId: string;
+  locationId: string;
+  serviceId: string | null;
+  exceptionDate: string | Date;
+  startsAt: string;
+  endsAt: string;
+  isAvailable: boolean;
+  capacity: number | null;
+  reason: string;
+  createdAt: string | Date;
+  updatedAt: string | Date;
+}
+
+export interface VendorAvailabilityResponse {
+  blocks: VendorAvailabilityBlockSummary[];
+  exceptions: VendorAvailabilityExceptionSummary[];
+}
+
+export interface SaveVendorAvailabilityBlockRequest {
+  locationSlug?: string;
+  serviceSlug?: string;
+  weekday: number;
+  startsAt: string;
+  endsAt: string;
+  capacity: number;
+  isActive?: boolean;
+  notes?: string;
+}
+
+export interface SaveVendorAvailabilityExceptionRequest {
+  locationSlug?: string;
+  serviceSlug?: string;
+  exceptionDate: string;
+  startsAt?: string;
+  endsAt?: string;
+  isAvailable: boolean;
+  capacity?: number | null;
+  reason?: string;
+}
+
+export interface VendorAvailabilityBlockResponse {
+  block: VendorAvailabilityBlockSummary;
+}
+
+export interface VendorAvailabilityExceptionResponse {
+  exception: VendorAvailabilityExceptionSummary;
+}
+
+export type BookingStatus = "pending" | "confirmed" | "rescheduled" | "completed" | "canceled" | "disputed" | "reviewed";
+export type BookingPaymentStatus = "unpaid" | "pending" | "paid" | "failed" | "refunded";
+
+export interface CustomerBookingSummary {
+  id: string;
+  reference: string;
+  tenantId: string;
+  tenantName: string;
+  tenantSlug: string;
+  locationId: string;
+  locationName: string;
+  locationSlug: string;
+  serviceId: string;
+  serviceName: string;
+  serviceSlug: string;
+  servicePriceDisplay: string;
+  scheduledStartAt: string | Date;
+  scheduledEndAt: string | Date;
+  status: BookingStatus;
+  notes: string;
+  paymentReference: string;
+  paymentStatus: BookingPaymentStatus;
+  createdAt: string | Date;
+  updatedAt: string | Date;
+}
+
+export interface CustomerBookingsResponse {
+  bookings: CustomerBookingSummary[];
+}
+
+export interface CreateCustomerBookingRequest {
+  tenantSlug: string;
+  locationSlug: string;
+  serviceSlug: string;
+  scheduledStartAt: string;
+  customerName?: string;
+  customerEmail?: string;
+  customerPhone?: string;
+  notes?: string;
+  paymentReference?: string;
+}
+
+export interface CustomerBookingResponse {
+  booking: CustomerBookingSummary;
+}
+
 export type PublicBoardThemePresetId = "classic" | "neura" | "clinic";
 export type PublicBoardThemeAssetType = "background" | "logo";
 export type PublicBoardThemeScope = "fallback" | "tenant" | "location";

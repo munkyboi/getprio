@@ -23,6 +23,8 @@ const TENANT_PERMISSIONS = {
     "tenant.settings.manage",
     "tenant.settings.manage_contact",
     "tenant.theme.manage",
+    "tenant.service.manage",
+    "tenant.availability.manage",
     "tenant.billing.read",
     "tenant.billing.manage",
     "tenant.reports.read"
@@ -38,6 +40,8 @@ const TENANT_PERMISSIONS = {
     "tenant.staff.read",
     "tenant.staff.manage",
     "tenant.settings.manage",
+    "tenant.service.manage",
+    "tenant.availability.manage",
     "tenant.billing.read",
     "tenant.reports.read"
   ]),
