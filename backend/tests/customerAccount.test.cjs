@@ -347,3 +347,160 @@ test("customer bookings can be created only inside vendor availability", async (
     await stopServer(server);
   }
 });
+
+test("customer bookings use store hours when no booking availability is configured", async () => {
+  const bookings = [];
+  const router = requireWithMocks("../src/routes/accountRoutes.js", {
+    "../middleware/auth": buildAuthMock(),
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../repositories/tickets": {
+      listTicketsForCustomerAccount: async () => []
+    },
+    "../repositories/bookings": {
+      listBookingsForCustomer: async () => bookings,
+      createBooking: async (data) => {
+        const booking = {
+          _id: "booking-1",
+          reference: "BKG-TEST0002",
+          tenantId: "tenant-1",
+          tenantName: "Demo Tenant",
+          tenantSlug: "demo",
+          locationId: "location-1",
+          locationName: "Main Branch",
+          locationSlug: "main",
+          serviceId: "service-1",
+          serviceName: "Consultation",
+          serviceSlug: "consultation",
+          servicePriceDisplay: "PHP 500",
+          customerUserId: data.customerUserId,
+          customerName: data.customerName,
+          customerEmail: data.customerEmail,
+          customerPhone: data.customerPhone,
+          scheduledStartAt: data.scheduledStartAt,
+          scheduledEndAt: data.scheduledEndAt,
+          status: "pending",
+          notes: data.notes || "",
+          paymentReference: data.paymentReference || "",
+          paymentStatus: "unpaid",
+          createdAt: "2026-06-22T00:00:00.000Z",
+          updatedAt: "2026-06-22T00:00:00.000Z"
+        };
+        bookings.push(booking);
+        return booking;
+      }
+    },
+    "../services/bookingService": requireWithMocks("../src/services/bookingService.js", {
+      "../repositories/bookings": {
+        createBooking: async (data) => {
+          const booking = {
+            _id: "booking-1",
+            reference: "BKG-TEST0002",
+            tenantId: "tenant-1",
+            tenantName: "Demo Tenant",
+            tenantSlug: "demo",
+            locationId: "location-1",
+            locationName: "Main Branch",
+            locationSlug: "main",
+            serviceId: "service-1",
+            serviceName: "Consultation",
+            serviceSlug: "consultation",
+            servicePriceDisplay: "PHP 500",
+            customerUserId: data.customerUserId,
+            customerName: data.customerName,
+            customerEmail: data.customerEmail,
+            customerPhone: data.customerPhone,
+            scheduledStartAt: data.scheduledStartAt,
+            scheduledEndAt: data.scheduledEndAt,
+            status: "pending",
+            notes: data.notes || "",
+            paymentReference: data.paymentReference || "",
+            paymentStatus: "unpaid",
+            createdAt: "2026-06-22T00:00:00.000Z",
+            updatedAt: "2026-06-22T00:00:00.000Z"
+          };
+          bookings.push(booking);
+          return booking;
+        }
+      },
+      "../repositories/tenants": {
+        findTenantBySlug: async () => ({
+          _id: "tenant-1",
+          slug: "demo",
+          name: "Demo Tenant",
+          publicProfileEnabled: true,
+          vendorApprovalStatus: "approved"
+        })
+      },
+      "../repositories/storeLocations": {
+        findLocationByTenantAndSlug: async () => ({
+          _id: "location-1",
+          tenantId: "tenant-1",
+          slug: "main",
+          name: "Main Branch",
+          timezone: "Asia/Manila",
+          isActive: true
+        }),
+        listHoursByLocationId: async () => [
+          { weekday: 1, opensAt: "09:00", closesAt: "17:00", isClosed: false }
+        ]
+      },
+      "../repositories/vendorServices": {
+        normalizeServiceSlug: (value) => String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""),
+        findServiceByTenantAndSlug: async () => ({
+          _id: "service-1",
+          tenantId: "tenant-1",
+          name: "Consultation",
+          slug: "consultation",
+          durationMinutes: 60,
+          isActive: true
+        })
+      },
+      "../repositories/vendorAvailability": {
+        listAvailabilityByLocation: async () => ({
+          blocks: [],
+          exceptions: []
+        })
+      }
+    }),
+    "../services/passwordResetService": {
+      changePassword: async () => {}
+    }
+  });
+
+  const { server, baseUrl } = await startServer(router, "/api/account");
+
+  try {
+    const acceptedResponse = await fetch(`${baseUrl}/bookings`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer token"
+      },
+      body: JSON.stringify({
+        tenantSlug: "demo",
+        locationSlug: "main",
+        serviceSlug: "consultation",
+        scheduledStartAt: "2026-06-29T02:00:00.000Z"
+      })
+    });
+    assert.equal(acceptedResponse.status, 201);
+    assert.equal((await acceptedResponse.json()).booking.reference, "BKG-TEST0002");
+
+    const rejectedResponse = await fetch(`${baseUrl}/bookings`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer token"
+      },
+      body: JSON.stringify({
+        tenantSlug: "demo",
+        locationSlug: "main",
+        serviceSlug: "consultation",
+        scheduledStartAt: "2026-06-29T23:00:00.000Z"
+      })
+    });
+    assert.equal(rejectedResponse.status, 409);
+  } finally {
+    await stopServer(server);
+  }
+});

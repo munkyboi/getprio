@@ -4,6 +4,7 @@ import {
   Badge,
   Button,
   Container,
+  Divider,
   Group,
   Paper,
   SimpleGrid,
@@ -177,45 +178,9 @@ export default function VendorProfilePage() {
                   Create customer account
                 </Button>
               </Group>
-            </Stack>
 
-            <Paper className="vendor-profile-panel" p="xl">
-              <Stack gap="lg">
-                <div
-                  className={hasThemeMedia ? "vendor-profile-image vendor-profile-image-themed" : "vendor-profile-image"}
-                  style={themedMediaStyle}
-                >
-                  {theme?.logoUrl ? (
-                    <div className="vendor-profile-logo-frame">
-                      <img alt={`${vendor.name} logo`} src={theme.logoUrl} />
-                    </div>
-                  ) : vendor.imageUrl ? (
-                    <img alt="" src={vendor.imageUrl} />
-                  ) : (
-                    <IconTicket size={54} />
-                  )}
-                </div>
-                <SimpleGrid cols={{ base: 1, sm: 2 }}>
-                  <Paper className="vendor-profile-action" p="lg">
-                    <ThemeIcon color="orange" radius="xl" size={46} variant="light">
-                      <IconTicket size={23} />
-                    </ThemeIcon>
-                    <Title order={4} mt="md">Same-day queue</Title>
-                    <Text c="dimmed" size="sm" mt={6}>
-                      Continue into the existing GetPrio queue flow for this vendor.
-                    </Text>
-                  </Paper>
-                  <Paper className="vendor-profile-action" p="lg">
-                    <ThemeIcon color="teal" radius="xl" size={46} variant="light">
-                      <IconCalendar size={23} />
-                    </ThemeIcon>
-                    <Title order={4} mt="md">Bookings soon</Title>
-                    <Text c="dimmed" size="sm" mt={6}>
-                      Service catalog and booking request screens are the next capstone slice.
-                    </Text>
-                  </Paper>
-                </SimpleGrid>
-                <Paper className="vendor-profile-action" p="lg">
+              <Divider />
+
                   <Stack gap="md">
                     <div>
                       <Text fw={900}>Available locations</Text>
@@ -278,7 +243,99 @@ export default function VendorProfilePage() {
                       ))}
                     </SimpleGrid>
                   </Stack>
+
+            </Stack>
+
+            <Paper className="vendor-profile-panel" p="xl">
+              <Stack gap="lg">
+                <div
+                  className={hasThemeMedia ? "vendor-profile-image vendor-profile-image-themed" : "vendor-profile-image"}
+                  style={themedMediaStyle}
+                >
+                  {theme?.logoUrl ? (
+                    <div className="vendor-profile-logo-frame">
+                      <img alt={`${vendor.name} logo`} src={theme.logoUrl} />
+                    </div>
+                  ) : vendor.imageUrl ? (
+                    <img alt="" src={vendor.imageUrl} />
+                  ) : (
+                    <IconTicket size={54} />
+                  )}
+                </div>
+                <SimpleGrid cols={{ base: 1, sm: 2 }}>
+                  <Paper className="vendor-profile-action" p="lg">
+                    <ThemeIcon color="orange" radius="xl" size={46} variant="light">
+                      <IconTicket size={23} />
+                    </ThemeIcon>
+                    <Title order={4} mt="md">Same-day queue</Title>
+                    <Text c="dimmed" size="sm" mt={6}>
+                      Continue into the existing GetPrio queue flow for this vendor.
+                    </Text>
+                  </Paper>
+                  <Paper className="vendor-profile-action" p="lg">
+                    <ThemeIcon color="teal" radius="xl" size={46} variant="light">
+                      <IconCalendar size={23} />
+                    </ThemeIcon>
+                    <Title order={4} mt="md">Book ahead</Title>
+                    <Text c="dimmed" size="sm" mt={6}>
+                      Choose a published service and request a preferred schedule.
+                    </Text>
+                    <Button
+                      color="teal"
+                      component={Link}
+                      mt="md"
+                      to={`/vendors/${vendor.slug}/book`}
+                      variant="light"
+                    >
+                      Start booking
+                    </Button>
+                  </Paper>
+                </SimpleGrid>
+                <Paper className="vendor-profile-action" p="lg">
+                  <Stack gap="md">
+                    <div>
+                      <Text fw={900}>Bookable services</Text>
+                      <Text c="dimmed" size="sm">
+                        Select a service to continue into the customer booking request flow.
+                      </Text>
+                    </div>
+                    {vendor.services.length ? (
+                      <SimpleGrid cols={{ base: 1, sm: 2 }}>
+                        {vendor.services.map((service) => (
+                          <Paper className="vendor-location-card" key={service.slug} p="md">
+                            <Stack gap="xs">
+                              <Group justify="space-between" wrap="nowrap">
+                                <Text fw={800}>{service.name}</Text>
+                                <Badge color="teal" variant="light">{service.durationMinutes} min</Badge>
+                              </Group>
+                              <Text c="dimmed" size="sm">
+                                {service.description || "Service details available during booking."}
+                              </Text>
+                              <Group justify="space-between">
+                                <Text fw={800}>
+                                  {service.priceDisplay || `PHP ${(service.priceAmountCents / 100).toLocaleString()}`}
+                                </Text>
+                                <Button
+                                  component={Link}
+                                  size="xs"
+                                  to={`/vendors/${vendor.slug}/book/${service.slug}`}
+                                  variant="light"
+                                >
+                                  Book
+                                </Button>
+                              </Group>
+                            </Stack>
+                          </Paper>
+                        ))}
+                      </SimpleGrid>
+                    ) : (
+                      <Alert color="yellow" variant="light">
+                        This vendor has not published bookable services yet.
+                      </Alert>
+                    )}
+                  </Stack>
                 </Paper>
+                  
                 <Paper className="vendor-profile-action" p="lg">
                   <Group gap="md" wrap="nowrap">
                     <ThemeIcon color="dark" radius="xl" size={46} variant="light">

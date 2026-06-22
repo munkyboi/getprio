@@ -4,6 +4,8 @@ import { Navigate, Link, useNavigate } from "react-router-dom";
 import type {
   CustomerAccountHistoryResponse,
   CustomerAccountOverviewResponse,
+  CustomerBookingsResponse,
+  BookingStatus,
   PasswordChangeRequest,
   TicketStatus
 } from "@shared";
@@ -31,12 +33,33 @@ function getTicketBadgeColor(status: TicketStatus): "gray" | "red" | "yellow" | 
   }
 }
 
+function getBookingBadgeColor(status: BookingStatus): "gray" | "red" | "yellow" | "orange" | "teal" | "blue" {
+  switch (status) {
+    case "pending":
+      return "yellow";
+    case "confirmed":
+      return "teal";
+    case "rescheduled":
+      return "blue";
+    case "completed":
+    case "reviewed":
+      return "gray";
+    case "canceled":
+      return "red";
+    case "disputed":
+      return "orange";
+    default:
+      return "gray";
+  }
+}
+
 export default function CustomerAccountPage() {
   const navigate = useNavigate();
   const { changePassword, token, user, loading } = useAuth();
   const isCustomer = user?.roles?.includes("customer") ?? false;
   const [account, setAccount] = useState<CustomerAccountOverviewResponse | null>(null);
   const [history, setHistory] = useState<CustomerAccountHistoryResponse | null>(null);
+  const [bookingHistory, setBookingHistory] = useState<CustomerBookingsResponse | null>(null);
   const [error, setError] = useState("");
   const [passwordError, setPasswordError] = useState("");
   const [passwordForm, setPasswordForm] = useState<PasswordChangeRequest>({
@@ -45,6 +68,7 @@ export default function CustomerAccountPage() {
   });
   const [changingPassword, setChangingPassword] = useState(false);
   const tickets = history?.tickets || account?.tickets || [];
+  const bookings = bookingHistory?.bookings || [];
 
   useEffect(() => {
     if (!token) {
@@ -53,11 +77,13 @@ export default function CustomerAccountPage() {
 
     Promise.all([
       apiRequest<CustomerAccountOverviewResponse>("/account/overview", { token }),
-      apiRequest<CustomerAccountHistoryResponse>("/account/history", { token })
+      apiRequest<CustomerAccountHistoryResponse>("/account/history", { token }),
+      apiRequest<CustomerBookingsResponse>("/account/bookings", { token })
     ])
-      .then(([overview, ticketHistory]) => {
+      .then(([overview, ticketHistory, customerBookings]) => {
         setAccount(overview);
         setHistory(ticketHistory);
+        setBookingHistory(customerBookings);
       })
       .catch((loadError) => setError(getErrorMessage(loadError)));
   }, [token]);
@@ -129,6 +155,76 @@ export default function CustomerAccountPage() {
               <Text c="dimmed">{account?.user.phone || user.phone || "No phone on file"}</Text>
             </Stack>
           </Group>
+        </Stack>
+      </Card>
+
+      <Card className="finazze-auth-card customer-account-card" p="xl">
+        <Stack gap="md">
+          <div>
+            <Text className="finazze-section-label">My bookings</Text>
+            <Title order={2}>Service booking history</Title>
+          </div>
+          {isCustomer ? (
+            <Alert color="teal" variant="light">
+              Booking requests created from vendor profiles appear here with their current confirmation and payment state.
+            </Alert>
+          ) : null}
+          {error ? <Text c="red">{error}</Text> : null}
+          <Table.ScrollContainer minWidth={820}>
+            <Table verticalSpacing="sm">
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>Reference</Table.Th>
+                  <Table.Th>Vendor</Table.Th>
+                  <Table.Th>Service</Table.Th>
+                  <Table.Th>Schedule</Table.Th>
+                  <Table.Th>Status</Table.Th>
+                  <Table.Th>Payment</Table.Th>
+                  <Table.Th />
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {bookings.length ? (
+                  bookings.map((booking) => (
+                    <Table.Tr key={booking.id}>
+                      <Table.Td fw={700}>{booking.reference}</Table.Td>
+                      <Table.Td>{booking.tenantName}</Table.Td>
+                      <Table.Td>{booking.serviceName}</Table.Td>
+                      <Table.Td>{new Date(booking.scheduledStartAt).toLocaleString()}</Table.Td>
+                      <Table.Td>
+                        <Badge color={getBookingBadgeColor(booking.status)} variant="light">
+                          {booking.status}
+                        </Badge>
+                      </Table.Td>
+                      <Table.Td>
+                        <Badge color={booking.paymentStatus === "paid" ? "teal" : "gray"} variant="light">
+                          {booking.paymentStatus}
+                        </Badge>
+                      </Table.Td>
+                      <Table.Td>
+                        <Button
+                          component={Link}
+                          size="xs"
+                          to={`/vendors/${booking.tenantSlug}`}
+                          variant="light"
+                        >
+                          Open vendor
+                        </Button>
+                      </Table.Td>
+                    </Table.Tr>
+                  ))
+                ) : (
+                  <Table.Tr>
+                    <Table.Td colSpan={7}>
+                      <Text c="dimmed">
+                        Booking requests created from vendor profiles will appear here.
+                      </Text>
+                    </Table.Td>
+                  </Table.Tr>
+                )}
+              </Table.Tbody>
+            </Table>
+          </Table.ScrollContainer>
         </Stack>
       </Card>
 

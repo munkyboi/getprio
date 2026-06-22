@@ -2,6 +2,7 @@ const express = require("express");
 const tenantRepository = require("../repositories/tenants");
 const storeLocationRepository = require("../repositories/storeLocations");
 const publicBoardThemeRepository = require("../repositories/publicBoardThemes");
+const vendorServiceRepository = require("../repositories/vendorServices");
 const ticketRepository = require("../repositories/tickets");
 const asyncHandler = require("../middleware/asyncHandler");
 const { maybeAuthenticate } = require("../middleware/auth");
@@ -21,6 +22,39 @@ const {
 
 const router = express.Router();
 
+function formatPublicVendorService(service) {
+  return {
+    name: service.name,
+    slug: service.slug,
+    description: service.description,
+    durationMinutes: service.durationMinutes,
+    priceAmountCents: service.priceAmountCents,
+    currency: service.currency,
+    priceDisplay: service.priceDisplay
+  };
+}
+
+async function attachPublicVendorDetails(vendor) {
+  const tenant = await tenantRepository.findTenantBySlug(vendor.slug, { activeOnly: true });
+  const primaryLocation = vendor.location.slug && tenant
+    ? await storeLocationRepository.findLocationByTenantAndSlug(tenant._id, vendor.location.slug)
+    : null;
+  const publicBoardTheme = tenant
+    ? await publicBoardThemeRepository.getResolvedTheme(tenant._id, primaryLocation?._id)
+    : null;
+  const services = tenant
+    ? (await vendorServiceRepository.listServicesByTenantId(tenant._id))
+        .filter((service) => service.isActive)
+        .map(formatPublicVendorService)
+    : [];
+
+  return {
+    ...vendor,
+    services,
+    publicBoardTheme
+  };
+}
+
 router.get(
   "/vendors",
   asyncHandler(async (req, res) => {
@@ -28,24 +62,11 @@ router.get(
       search: req.query.search,
       limit: req.query.limit
     });
-    const vendorsWithThemes = await Promise.all(
-      vendors.map(async (vendor) => {
-        const tenant = await tenantRepository.findTenantBySlug(vendor.slug, { activeOnly: true });
-        const primaryLocation = vendor.location.slug && tenant
-          ? await storeLocationRepository.findLocationByTenantAndSlug(tenant._id, vendor.location.slug)
-          : null;
-        const publicBoardTheme = tenant
-          ? await publicBoardThemeRepository.getResolvedTheme(tenant._id, primaryLocation?._id)
-          : null;
-
-        return {
-          ...vendor,
-          publicBoardTheme
-        };
-      })
+    const vendorsWithDetails = await Promise.all(
+      vendors.map((vendor) => attachPublicVendorDetails(vendor))
     );
 
-    res.json({ vendors: vendorsWithThemes });
+    res.json({ vendors: vendorsWithDetails });
   })
 );
 
@@ -62,22 +83,8 @@ router.get(
       throw error;
     }
 
-    const tenant = await tenantRepository.findTenantBySlug(
-      String(req.params.tenantSlug).toLowerCase(),
-      { activeOnly: true }
-    );
-    const primaryLocation = vendor.location.slug && tenant
-      ? await storeLocationRepository.findLocationByTenantAndSlug(tenant._id, vendor.location.slug)
-      : null;
-    const publicBoardTheme = tenant
-      ? await publicBoardThemeRepository.getResolvedTheme(tenant._id, primaryLocation?._id)
-      : null;
-
     res.json({
-      vendor: {
-        ...vendor,
-        publicBoardTheme
-      }
+      vendor: await attachPublicVendorDetails(vendor)
     });
   })
 );

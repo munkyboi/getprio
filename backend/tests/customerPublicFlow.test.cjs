@@ -256,6 +256,40 @@ function buildPublicRouter(ticket, cancelTicketMock) {
         }
       })
     },
+    "../repositories/vendorServices": {
+      listServicesByTenantId: async () => [
+        {
+          _id: "service-1",
+          tenantId: "tenant-1",
+          name: "General consultation",
+          slug: "general-consultation",
+          description: "A bookable public service.",
+          durationMinutes: 30,
+          priceAmountCents: 50000,
+          currency: "PHP",
+          priceDisplay: "PHP 500",
+          isActive: true,
+          sortOrder: 1,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          _id: "service-2",
+          tenantId: "tenant-1",
+          name: "Hidden service",
+          slug: "hidden-service",
+          description: "Inactive services are not public.",
+          durationMinutes: 45,
+          priceAmountCents: 75000,
+          currency: "PHP",
+          priceDisplay: "PHP 750",
+          isActive: false,
+          sortOrder: 2,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }
+      ]
+    },
     "../repositories/tickets": {
       findTicketByLookupCode: async () => ticket,
       findTicketByTenantAndLookupCode: async () => ticket
@@ -327,6 +361,7 @@ test("public vendor discovery returns approved public profile cards", async () =
       "locations",
       "name",
       "publicBoardTheme",
+      "services",
       "slug"
     ]);
     assert.equal(body.vendors[0].slug, "demo");
@@ -334,6 +369,9 @@ test("public vendor discovery returns approved public profile cards", async () =
     assert.equal(body.vendors[0].locations.length, 2);
     assert.equal(body.vendors[0].locations[1].slug, "west");
     assert.equal(body.vendors[0].locations[0].hours[0].opensAt, "08:00");
+    assert.equal(body.vendors[0].services.length, 1);
+    assert.equal(body.vendors[0].services[0].slug, "general-consultation");
+    assert.equal(body.vendors[0].services[0].tenantId, undefined);
     assert.equal(body.vendors[0].publicBoardTheme.theme.logoUrl, "https://cdn.example.test/logo.png");
     assert.equal(body.vendors[0].contactEmail, undefined);
   } finally {
@@ -384,6 +422,7 @@ test("public vendor profile includes the resolved public board theme", async () 
     assert.equal(body.vendor.publicBoardTheme.scope, "location");
     assert.equal(body.vendor.publicBoardTheme.theme.logoUrl, "https://cdn.example.test/logo.png");
     assert.equal(body.vendor.publicBoardTheme.theme.backgroundImageUrl, "https://cdn.example.test/background.png");
+    assert.equal(body.vendor.services[0].slug, "general-consultation");
     assert.equal(body.vendor.locations[0].hours[0].closesAt, "17:00");
   } finally {
     await stopServer(server);

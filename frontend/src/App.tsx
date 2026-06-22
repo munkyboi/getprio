@@ -13,6 +13,7 @@ import CustomerAccountPage from "./pages/CustomerAccountPage";
 import VendorDashboardPage from "./pages/VendorDashboardPage";
 import VendorDiscoveryPage from "./pages/VendorDiscoveryPage";
 import VendorProfilePage from "./pages/VendorProfilePage";
+import BookingRequestPage from "./pages/BookingRequestPage";
 import PublicQueuePage from "./pages/PublicQueuePage";
 import JoinQueuePage from "./pages/JoinQueuePage";
 import JoinedQueuePage from "./pages/JoinedQueuePage";
@@ -187,6 +188,8 @@ export default function App() {
       <Route path="/register/customer" element={<AppShell><RegisterCustomerPage /></AppShell>} />
       <Route path="/account" element={<AppShell><CustomerAccountPage /></AppShell>} />
       <Route path="/vendors" element={<AppShell><VendorDiscoveryPage /></AppShell>} />
+      <Route path="/vendors/:tenantSlug/book" element={<AppShell><BookingRequestPage /></AppShell>} />
+      <Route path="/vendors/:tenantSlug/book/:serviceSlug" element={<AppShell><BookingRequestPage /></AppShell>} />
       <Route path="/vendors/:tenantSlug" element={<AppShell><VendorProfilePage /></AppShell>} />
       <Route path="/dashboard" element={<DashboardRedirect />} />
       <Route path="/dashboard/:section" element={<AppShell><VendorDashboardPage /></AppShell>} />

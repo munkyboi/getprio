@@ -599,12 +599,23 @@ export interface PublicVendorLocation {
   hours: StoreHourSummary[];
 }
 
+export interface PublicVendorService {
+  name: string;
+  slug: string;
+  description: string;
+  durationMinutes: number;
+  priceAmountCents: number;
+  currency: "PHP";
+  priceDisplay: string;
+}
+
 export interface PublicVendorProfile {
   name: string;
   slug: string;
   category: string;
   description: string;
   imageUrl: string;
+  services: PublicVendorService[];
   locations: PublicVendorLocation[];
   publicBoardTheme?: PublicBoardThemeResponse | null;
   location: {

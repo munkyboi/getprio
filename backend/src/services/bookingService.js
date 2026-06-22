@@ -43,11 +43,53 @@ function getLocalTimeMinutes(date) {
   return hour * 60 + minute;
 }
 
-function bookingFitsRule(rule, startMinutes, endMinutes) {
-  return startMinutes >= minutesFromTime(rule.startsAt) && endMinutes <= minutesFromTime(rule.endsAt);
+function bookingFitsTimeRange({ startsAt, endsAt }, startMinutes, endMinutes) {
+  const openMinutes = minutesFromTime(startsAt);
+  const closeMinutes = minutesFromTime(endsAt);
+
+  if (openMinutes === closeMinutes) {
+    return true;
+  }
+
+  if (openMinutes < closeMinutes) {
+    return startMinutes >= openMinutes && endMinutes <= closeMinutes;
+  }
+
+  return startMinutes >= openMinutes || endMinutes <= closeMinutes;
 }
 
-function assertAvailabilityAllowsBooking({ availability, service, scheduledStartAt, scheduledEndAt }) {
+function bookingFitsRule(rule, startMinutes, endMinutes) {
+  return bookingFitsTimeRange(
+    {
+      startsAt: rule.startsAt,
+      endsAt: rule.endsAt
+    },
+    startMinutes,
+    endMinutes
+  );
+}
+
+function storeHoursAllowBooking({ hours, scheduledStartAt, startMinutes, endMinutes }) {
+  const weekday = getWeekdayInManila(scheduledStartAt);
+  const hour = hours.find((entry) => entry.weekday === weekday);
+
+  return Boolean(
+    hour &&
+      !hour.isClosed &&
+      hour.opensAt &&
+      hour.closesAt &&
+      bookingFitsTimeRange(
+        {
+          startsAt: hour.opensAt,
+          endsAt: hour.closesAt
+        },
+        startMinutes,
+        endMinutes
+      )
+  );
+}
+
+async function assertAvailabilityAllowsBooking({ availability, location, service, scheduledStartAt, scheduledEndAt }) {
   const dateKey = getLocalDateKey(scheduledStartAt);
   const startMinutes = getLocalTimeMinutes(scheduledStartAt);
   const endMinutes = getLocalTimeMinutes(scheduledEndAt);
@@ -74,13 +116,20 @@ function assertAvailabilityAllowsBooking({ availability, service, scheduledStart
     return;
   }
 
+  const activeBlocks = availability.blocks.filter((block) => block.isActive);
   const weekday = getWeekdayInManila(scheduledStartAt);
-  const matchingBlock = availability.blocks.find((block) =>
-    block.isActive &&
+  const matchingBlock = activeBlocks.find((block) =>
       block.weekday === weekday &&
       (!block.serviceId || String(block.serviceId) === String(service._id)) &&
       bookingFitsRule(block, startMinutes, endMinutes)
   );
+
+  if (!activeBlocks.length) {
+    const hours = await storeLocationRepository.listHoursByLocationId(location._id);
+    if (storeHoursAllowBooking({ hours, scheduledStartAt, startMinutes, endMinutes })) {
+      return;
+    }
+  }
 
   if (!matchingBlock) {
     const error = new Error("The selected time is outside the vendor's availability.");
@@ -142,7 +191,7 @@ async function createCustomerBooking({ user, body }) {
     tenant._id,
     location._id
   );
-  assertAvailabilityAllowsBooking({ availability, service, scheduledStartAt, scheduledEndAt });
+  await assertAvailabilityAllowsBooking({ availability, location, service, scheduledStartAt, scheduledEndAt });
 
   return bookingRepository.createBooking({
     tenantId: tenant._id,
