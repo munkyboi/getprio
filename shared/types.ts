@@ -374,6 +374,29 @@ export interface CustomerBookingResponse {
   booking: CustomerBookingSummary;
 }
 
+export interface VendorBookingSummary extends CustomerBookingSummary {
+  customerUserId: string | null;
+  customerName: string;
+  customerEmail: string;
+  customerPhone: string;
+}
+
+export interface VendorBookingsResponse {
+  bookings: VendorBookingSummary[];
+}
+
+export interface UpdateVendorBookingStatusRequest {
+  status: Extract<BookingStatus, "confirmed" | "canceled">;
+}
+
+export interface RescheduleVendorBookingRequest {
+  scheduledStartAt: string;
+}
+
+export interface VendorBookingResponse {
+  booking: VendorBookingSummary;
+}
+
 export type PublicBoardThemePresetId = "classic" | "neura" | "clinic";
 export type PublicBoardThemeAssetType = "background" | "logo";
 export type PublicBoardThemeScope = "fallback" | "tenant" | "location";

@@ -208,6 +208,81 @@ async function createCustomerBooking({ user, body }) {
   });
 }
 
+async function updateVendorBookingStatus({ tenant, bookingId, status }) {
+  const allowedStatuses = new Set(["confirmed", "canceled"]);
+  if (!allowedStatuses.has(status)) {
+    const error = new Error("status must be confirmed or canceled.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const booking = await bookingRepository.findBookingById(bookingId);
+  if (!booking || String(booking.tenantId) !== String(tenant._id)) {
+    const error = new Error("Booking not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (["completed", "reviewed", "disputed"].includes(booking.status)) {
+    const error = new Error("This booking can no longer be changed.");
+    error.statusCode = 409;
+    throw error;
+  }
+
+  return bookingRepository.updateBooking(booking._id, { status });
+}
+
+async function rescheduleVendorBooking({ tenant, bookingId, scheduledStartAt: scheduledStartAtValue }) {
+  const booking = await bookingRepository.findBookingById(bookingId);
+  if (!booking || String(booking.tenantId) !== String(tenant._id)) {
+    const error = new Error("Booking not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (["completed", "reviewed", "disputed", "canceled"].includes(booking.status)) {
+    const error = new Error("This booking can no longer be rescheduled.");
+    error.statusCode = 409;
+    throw error;
+  }
+
+  const scheduledStartAt = normalizeDateTime(scheduledStartAtValue);
+  if (!scheduledStartAt || scheduledStartAt.getTime() <= Date.now()) {
+    const error = new Error("scheduledStartAt must be a future date and time.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const location = await storeLocationRepository.findLocationByTenantAndSlug(
+    tenant._id,
+    booking.locationSlug
+  );
+  const service = await vendorServiceRepository.findServiceByTenantAndSlug(
+    tenant._id,
+    booking.serviceSlug
+  );
+  if (!location || !service) {
+    const error = new Error("Booking location or service is no longer available.");
+    error.statusCode = 409;
+    throw error;
+  }
+
+  const scheduledEndAt = new Date(scheduledStartAt.getTime() + service.durationMinutes * 60 * 1000);
+  const availability = await vendorAvailabilityRepository.listAvailabilityByLocation(
+    tenant._id,
+    location._id
+  );
+  await assertAvailabilityAllowsBooking({ availability, location, service, scheduledStartAt, scheduledEndAt });
+
+  return bookingRepository.updateBooking(booking._id, {
+    scheduledStartAt: scheduledStartAt.toISOString(),
+    scheduledEndAt: scheduledEndAt.toISOString(),
+    status: "rescheduled"
+  });
+}
+
 module.exports = {
-  createCustomerBooking
+  createCustomerBooking,
+  rescheduleVendorBooking,
+  updateVendorBookingStatus
 };

@@ -36,6 +36,7 @@ import {
 import {
   IconChartBar,
   IconBriefcase,
+  IconCalendarCheck,
   IconChevronRight,
   IconClipboardList,
   IconCheck,
@@ -79,11 +80,16 @@ import type {
   SaveVendorAvailabilityBlockRequest,
   SaveVendorAvailabilityExceptionRequest,
   SaveVendorServiceRequest,
+  RescheduleVendorBookingRequest,
+  UpdateVendorBookingStatusRequest,
   VendorAvailabilityBlockResponse,
   VendorAvailabilityBlockSummary,
   VendorAvailabilityExceptionResponse,
   VendorAvailabilityExceptionSummary,
   VendorAvailabilityResponse,
+  VendorBookingResponse,
+  VendorBookingSummary,
+  VendorBookingsResponse,
   VendorClientsResponse,
   VendorServiceSummary,
   VendorServicesResponse,
@@ -94,7 +100,7 @@ import { useAuth } from "../context/AuthContext";
 import { buildJoinUrl, buildMonitorUrl } from "../queuePaths";
 import { getErrorMessage } from "../utils/errors";
 
-const dashboardSections = new Set(["queue", "tenants", "services", "staff", "clients", "history", "reports", "settings"]);
+const dashboardSections = new Set(["queue", "tenants", "services", "bookings", "staff", "clients", "history", "reports", "settings"]);
 const SERVICE_TREND_USER_LIMIT = 30;
 
 const emptyWalkIn: CreateWalkInTicketRequest = {
@@ -247,10 +253,11 @@ const publicBoardThemePresets: Record<string, PublicBoardThemeSettings> = {
 
 const defaultPublicBoardTheme = publicBoardThemePresets.classic;
 
-type DashboardSection = "queue" | "tenants" | "services" | "staff" | "clients" | "history" | "reports" | "settings";
+type DashboardSection = "queue" | "tenants" | "services" | "bookings" | "staff" | "clients" | "history" | "reports" | "settings";
 type QueueView = "current" | "overflow" | "recovery";
 type ClientSort = "latestVisitDesc" | "latestVisitAsc" | "nameAsc" | "nameDesc" | "visitsDesc" | "visitsAsc";
 type HistorySort = "updatedDesc" | "updatedAsc" | "ticketAsc" | "ticketDesc" | "customerAsc" | "customerDesc";
+type BookingStatusFilter = "all" | "pending" | "confirmed" | "rescheduled" | "canceled";
 
 const CLIENTS_PAGE_SIZE = 10;
 const HISTORY_PAGE_SIZE = 10;
@@ -268,6 +275,7 @@ const navItems = [
   { section: "queue", label: "Queue", icon: IconClipboardList },
   { section: "tenants", label: "Locations", icon: IconHomeStats },
   { section: "services", label: "Services", icon: IconBriefcase },
+  { section: "bookings", label: "Bookings", icon: IconCalendarCheck },
   { section: "staff", label: "Staff", icon: IconUsersGroup },
   { section: "clients", label: "Clients", icon: IconUsersGroup },
   { section: "history", label: "History", icon: IconHistory },
@@ -278,6 +286,7 @@ const dashboardSectionDescriptions: Record<DashboardSection, string> = {
   queue: "Run the live queue, manage intake, and move customers through service.",
   tenants: "Configure locations, counters, and the public entry points for each branch.",
   services: "Manage bookable services, durations, pricing, and public availability state.",
+  bookings: "Review incoming service requests and manage confirmation, rescheduling, or cancellation.",
   staff: "Manage workspace access, roles, and operating status for your team.",
   clients: "Review recent customer activity and returning queue visitors.",
   history: "Inspect completed ticket activity and export queue records.",
@@ -288,6 +297,7 @@ const adminAllowedSections = new Set<DashboardSection>([
   "queue",
   "tenants",
   "services",
+  "bookings",
   "staff",
   "clients",
   "history",
@@ -306,6 +316,31 @@ function formatDateTime(value: string | Date): string {
 
 function formatDate(value: string | Date | null): string {
   return value ? new Date(value).toLocaleDateString() : "";
+}
+
+function formatDateTimeInput(value: string | Date): string {
+  const date = new Date(value);
+  const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60 * 1000);
+  return offsetDate.toISOString().slice(0, 16);
+}
+
+function getBookingBadgeColor(status: VendorBookingSummary["status"]): "gray" | "red" | "yellow" | "orange" | "teal" | "blue" {
+  switch (status) {
+    case "pending":
+      return "yellow";
+    case "confirmed":
+      return "teal";
+    case "rescheduled":
+      return "blue";
+    case "canceled":
+      return "red";
+    case "disputed":
+      return "orange";
+    case "completed":
+    case "reviewed":
+    default:
+      return "gray";
+  }
 }
 
 function QueueIntakeGauge({
@@ -498,6 +533,7 @@ export default function VendorDashboardPage() {
   const [billing, setBilling] = useState<BillingOverviewResponse | null>(null);
   const [history, setHistory] = useState<VendorHistoryResponse | null>(null);
   const [clients, setClients] = useState<VendorClientsResponse | null>(null);
+  const [vendorBookings, setVendorBookings] = useState<VendorBookingSummary[]>([]);
   const [error, setError] = useState("");
   const [busyAction, setBusyAction] = useState("");
   const [planDialogOpen, setPlanDialogOpen] = useState(false);
@@ -530,6 +566,11 @@ export default function VendorDashboardPage() {
   const [historySearch, setHistorySearch] = useState("");
   const [historySort, setHistorySort] = useState<HistorySort>("updatedDesc");
   const [historyPage, setHistoryPage] = useState(1);
+  const [bookingSearch, setBookingSearch] = useState("");
+  const [bookingStatusFilter, setBookingStatusFilter] = useState<BookingStatusFilter>("all");
+  const [rescheduleDialogOpen, setRescheduleDialogOpen] = useState(false);
+  const [reschedulingBooking, setReschedulingBooking] = useState<VendorBookingSummary | null>(null);
+  const [rescheduleStartAt, setRescheduleStartAt] = useState("");
   const hasActiveSubscription = billing?.subscription?.status === "active";
   const selectedLocation =
     locations.find((locationItem) => locationItem.slug === selectedLocationSlug) ||
@@ -542,6 +583,7 @@ export default function VendorDashboardPage() {
   const canManageQueueDay = isOwner || isAdmin;
   const canManageContactSettings = isOwner;
   const canExportHistory = isOwner || isAdmin;
+  const canManageBookings = isOwner || isAdmin;
   const visibleNavItems = isOwner
     ? navItems
     : isAdmin
@@ -872,6 +914,37 @@ export default function VendorDashboardPage() {
     };
   }, [currentSection, hasActiveSubscription, locationQuery, selectedLocationSlug, selectedTenantSlug, token]);
 
+  useEffect(() => {
+    if (!selectedTenantSlug || !selectedLocationSlug || !token || currentSection !== "bookings" || !hasActiveSubscription || !canManageBookings) {
+      setVendorBookings([]);
+      return undefined;
+    }
+
+    let active = true;
+    const statusQuery = bookingStatusFilter === "all"
+      ? ""
+      : `&status=${encodeURIComponent(bookingStatusFilter)}`;
+
+    apiRequest<VendorBookingsResponse>(
+      `/vendor/tenant/${selectedTenantSlug}/bookings?limit=100&location=${encodeURIComponent(selectedLocationSlug)}${statusQuery}`,
+      { token }
+    )
+      .then((data) => {
+        if (active) {
+          setVendorBookings(data.bookings);
+        }
+      })
+      .catch((loadError) => {
+        if (active) {
+          setError(getErrorMessage(loadError));
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [bookingStatusFilter, canManageBookings, currentSection, hasActiveSubscription, selectedLocationSlug, selectedTenantSlug, token]);
+
   const activeSubscription =
     billing?.subscription?.status === "active" ? billing.subscription : null;
   const currentPlan = activeSubscription
@@ -1074,6 +1147,26 @@ export default function VendorDashboardPage() {
     return filteredHistoryTickets.slice(start, start + HISTORY_PAGE_SIZE);
   }, [filteredHistoryTickets, historyPage]);
   const historyTotalPages = Math.max(1, Math.ceil(filteredHistoryTickets.length / HISTORY_PAGE_SIZE));
+  const filteredBookings = useMemo(() => {
+    const query = bookingSearch.trim().toLowerCase();
+    if (!query) {
+      return vendorBookings;
+    }
+
+    return vendorBookings.filter((booking) =>
+      [
+        booking.reference,
+        booking.customerName,
+        booking.customerEmail,
+        booking.customerPhone,
+        booking.serviceName,
+        booking.status,
+        booking.paymentStatus
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(query))
+    );
+  }, [bookingSearch, vendorBookings]);
   const queueDayClosed = Boolean(snapshot?.queueDay?.isClosed);
   const queueDayPaused = Boolean(snapshot?.queueDay?.isPaused);
   const intakeState = snapshot?.queueIntake || null;
@@ -1185,6 +1278,86 @@ export default function VendorDashboardPage() {
     );
     setAvailabilityBlocks(data.blocks);
     setAvailabilityExceptions(data.exceptions);
+  }
+
+  async function reloadBookings() {
+    if (!selectedLocationSlug) {
+      return;
+    }
+
+    const statusQuery = bookingStatusFilter === "all"
+      ? ""
+      : `&status=${encodeURIComponent(bookingStatusFilter)}`;
+    const data = await apiRequest<VendorBookingsResponse>(
+      `/vendor/tenant/${selectedTenantSlug}/bookings?limit=100&location=${encodeURIComponent(selectedLocationSlug)}${statusQuery}`,
+      { token }
+    );
+    setVendorBookings(data.bookings);
+  }
+
+  async function handleUpdateBookingStatus(
+    booking: VendorBookingSummary,
+    status: UpdateVendorBookingStatusRequest["status"]
+  ) {
+    setBusyAction(`booking-status:${booking.id}:${status}`);
+    setError("");
+
+    try {
+      const response = await apiRequest<VendorBookingResponse, UpdateVendorBookingStatusRequest>(
+        `/vendor/tenant/${selectedTenantSlug}/bookings/${booking.id}/status`,
+        { method: "PATCH", token, body: { status } }
+      );
+      setVendorBookings((current) =>
+        current.map((item) => (item.id === response.booking.id ? response.booking : item))
+      );
+      showSuccessNotification(
+        status === "confirmed" ? "Booking confirmed" : "Booking canceled",
+        `${response.booking.reference} was ${status}.`
+      );
+    } catch (updateError) {
+      setError(getErrorMessage(updateError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  function openRescheduleDialog(booking: VendorBookingSummary) {
+    setReschedulingBooking(booking);
+    setRescheduleStartAt(formatDateTimeInput(booking.scheduledStartAt));
+    setRescheduleDialogOpen(true);
+  }
+
+  async function handleRescheduleBooking(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!reschedulingBooking || !rescheduleStartAt) {
+      return;
+    }
+
+    setBusyAction(`booking-reschedule:${reschedulingBooking.id}`);
+    setError("");
+
+    try {
+      const response = await apiRequest<VendorBookingResponse, RescheduleVendorBookingRequest>(
+        `/vendor/tenant/${selectedTenantSlug}/bookings/${reschedulingBooking.id}/reschedule`,
+        {
+          method: "PATCH",
+          token,
+          body: {
+            scheduledStartAt: new Date(rescheduleStartAt).toISOString()
+          }
+        }
+      );
+      setVendorBookings((current) =>
+        current.map((item) => (item.id === response.booking.id ? response.booking : item))
+      );
+      setRescheduleDialogOpen(false);
+      setReschedulingBooking(null);
+      showSuccessNotification("Booking rescheduled", `${response.booking.reference} has a new schedule.`);
+    } catch (rescheduleError) {
+      setError(getErrorMessage(rescheduleError));
+    } finally {
+      setBusyAction("");
+    }
   }
 
   function openServiceDialog(service?: VendorServiceSummary) {
@@ -3613,6 +3786,205 @@ export default function VendorDashboardPage() {
     );
   }
 
+  function renderBookingsPage() {
+    const pendingBookings = vendorBookings.filter((booking) => booking.status === "pending").length;
+    const actionableBookings = vendorBookings.filter((booking) =>
+      ["pending", "confirmed", "rescheduled"].includes(booking.status)
+    ).length;
+
+    return (
+      <Stack gap="lg">
+        <SimpleGrid cols={{ base: 1, md: 3 }}>
+          <MetricCard
+            detail="Awaiting vendor confirmation."
+            label="Pending requests"
+            value={pendingBookings}
+          />
+          <MetricCard
+            detail="Confirmed or waiting for a vendor decision."
+            label="Active bookings"
+            value={actionableBookings}
+          />
+          <Card className="neura-card" padding="lg">
+            <Stack gap="md">
+              <Text className="neura-label">{selectedLocation?.name || "Selected location"}</Text>
+              <Title order={3}>Booking queue</Title>
+              <Button className="neura-secondary-button" onClick={reloadBookings}>
+                Refresh bookings
+              </Button>
+            </Stack>
+          </Card>
+        </SimpleGrid>
+
+        <Card className="neura-card" padding="lg">
+          <Stack gap="md">
+            <Group justify="space-between" align="flex-end">
+              <div>
+                <Text className="neura-label">Vendor Admin</Text>
+                <Title order={3}>Incoming booking requests</Title>
+              </div>
+              <Group gap="sm">
+                <TextInput
+                  label="Search"
+                  placeholder="Reference, customer, service"
+                  value={bookingSearch}
+                  onChange={(event) => setBookingSearch(event.target.value)}
+                />
+                <Select
+                  data={[
+                    { label: "All statuses", value: "all" },
+                    { label: "Pending", value: "pending" },
+                    { label: "Confirmed", value: "confirmed" },
+                    { label: "Rescheduled", value: "rescheduled" },
+                    { label: "Canceled", value: "canceled" }
+                  ]}
+                  label="Status"
+                  value={bookingStatusFilter}
+                  onChange={(value) => setBookingStatusFilter((value || "all") as BookingStatusFilter)}
+                />
+              </Group>
+            </Group>
+
+            {filteredBookings.length ? (
+              <Table.ScrollContainer minWidth={1060}>
+                <Table verticalSpacing="sm">
+                  <Table.Thead>
+                    <Table.Tr>
+                      <Table.Th>Reference</Table.Th>
+                      <Table.Th>Customer</Table.Th>
+                      <Table.Th>Service</Table.Th>
+                      <Table.Th>Schedule</Table.Th>
+                      <Table.Th>Status</Table.Th>
+                      <Table.Th>Payment</Table.Th>
+                      <Table.Th>Actions</Table.Th>
+                    </Table.Tr>
+                  </Table.Thead>
+                  <Table.Tbody>
+                    {filteredBookings.map((booking) => {
+                      const canConfirm = booking.status === "pending" || booking.status === "rescheduled";
+                      const canChange = ["pending", "confirmed", "rescheduled"].includes(booking.status);
+
+                      return (
+                        <Table.Tr key={booking.id}>
+                          <Table.Td fw={700}>{booking.reference}</Table.Td>
+                          <Table.Td>
+                            <Stack gap={2}>
+                              <Text fw={700}>{booking.customerName}</Text>
+                              <Text c="dimmed" size="sm">{booking.customerEmail || booking.customerPhone || "No contact details"}</Text>
+                            </Stack>
+                          </Table.Td>
+                          <Table.Td>
+                            <Stack gap={2}>
+                              <Text>{booking.serviceName}</Text>
+                              <Text c="dimmed" size="sm">{booking.servicePriceDisplay || "-"}</Text>
+                            </Stack>
+                          </Table.Td>
+                          <Table.Td>
+                            <Stack gap={2}>
+                              <Text>{formatDateTime(booking.scheduledStartAt)}</Text>
+                              <Text c="dimmed" size="sm">Ends {formatDateTime(booking.scheduledEndAt)}</Text>
+                            </Stack>
+                          </Table.Td>
+                          <Table.Td>
+                            <Badge color={getBookingBadgeColor(booking.status)} variant="light">
+                              {booking.status}
+                            </Badge>
+                          </Table.Td>
+                          <Table.Td>
+                            <Badge color={booking.paymentStatus === "paid" ? "teal" : "gray"} variant="light">
+                              {booking.paymentStatus}
+                            </Badge>
+                          </Table.Td>
+                          <Table.Td>
+                            <Group gap="xs" wrap="nowrap">
+                              {canConfirm ? (
+                                <Button
+                                  className="neura-primary-button"
+                                  disabled={busyAction === `booking-status:${booking.id}:confirmed`}
+                                  size="xs"
+                                  onClick={() => handleUpdateBookingStatus(booking, "confirmed")}
+                                >
+                                  Confirm
+                                </Button>
+                              ) : null}
+                              {canChange ? (
+                                <Button size="xs" variant="default" onClick={() => openRescheduleDialog(booking)}>
+                                  Reschedule
+                                </Button>
+                              ) : null}
+                              {canChange ? (
+                                <Button
+                                  color="red"
+                                  disabled={busyAction === `booking-status:${booking.id}:canceled`}
+                                  size="xs"
+                                  variant="subtle"
+                                  onClick={() => handleUpdateBookingStatus(booking, "canceled")}
+                                >
+                                  Cancel
+                                </Button>
+                              ) : null}
+                            </Group>
+                          </Table.Td>
+                        </Table.Tr>
+                      );
+                    })}
+                  </Table.Tbody>
+                </Table>
+              </Table.ScrollContainer>
+            ) : (
+              <DashboardEmptyState
+                title="No booking requests"
+                text="Incoming service booking requests for this location will appear here."
+              />
+            )}
+          </Stack>
+        </Card>
+      </Stack>
+    );
+  }
+
+  function renderRescheduleDialog() {
+    return (
+      <Modal
+        centered
+        opened={rescheduleDialogOpen}
+        onClose={() => setRescheduleDialogOpen(false)}
+        title={reschedulingBooking ? `Reschedule ${reschedulingBooking.reference}` : "Reschedule booking"}
+      >
+        <form onSubmit={handleRescheduleBooking}>
+          <Stack gap="md">
+            {reschedulingBooking ? (
+              <Alert color="blue" variant="light">
+                {reschedulingBooking.customerName} requested {reschedulingBooking.serviceName}.
+              </Alert>
+            ) : null}
+            <TextInput
+              label="New schedule"
+              required
+              type="datetime-local"
+              value={rescheduleStartAt}
+              onChange={(event) => setRescheduleStartAt(event.target.value)}
+            />
+            <Group justify="flex-end">
+              <Button variant="default" onClick={() => setRescheduleDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                className="neura-primary-button"
+                disabled={Boolean(reschedulingBooking && busyAction === `booking-reschedule:${reschedulingBooking.id}`)}
+                type="submit"
+              >
+                {reschedulingBooking && busyAction === `booking-reschedule:${reschedulingBooking.id}`
+                  ? "Saving..."
+                  : "Save schedule"}
+              </Button>
+            </Group>
+          </Stack>
+        </form>
+      </Modal>
+    );
+  }
+
   function renderStaffPage() {
     const assignableRoles = isOwner
       ? [
@@ -4350,6 +4722,10 @@ export default function VendorDashboardPage() {
       return renderServicesPage();
     }
 
+    if (currentSection === "bookings") {
+      return renderBookingsPage();
+    }
+
     if (currentSection === "clients") {
       return renderClientsPage();
     }
@@ -4460,6 +4836,7 @@ export default function VendorDashboardPage() {
       {renderServiceDialog()}
       {renderAvailabilityBlockDialog()}
       {renderAvailabilityExceptionDialog()}
+      {renderRescheduleDialog()}
       {renderCounterDialog()}
       {renderStaffDialog()}
       {renderThemeDialog()}

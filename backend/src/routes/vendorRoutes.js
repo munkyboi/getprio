@@ -6,6 +6,7 @@ const publicBoardThemeRepository = require("../repositories/publicBoardThemes");
 const serviceCounterRepository = require("../repositories/serviceCounters");
 const vendorServiceRepository = require("../repositories/vendorServices");
 const vendorAvailabilityRepository = require("../repositories/vendorAvailability");
+const bookingRepository = require("../repositories/bookings");
 const userRepository = require("../repositories/users");
 const asyncHandler = require("../middleware/asyncHandler");
 const {
@@ -16,6 +17,7 @@ const {
 const billingService = require("../services/billingService");
 const publicBoardThemeUploadService = require("../services/publicBoardThemeUploadService");
 const storeHoursService = require("../services/storeHoursService");
+const bookingService = require("../services/bookingService");
 const PDFDocument = require("pdfkit");
 const {
   createTicket,
@@ -240,6 +242,35 @@ function formatAvailabilityException(exception) {
     reason: exception.reason,
     createdAt: exception.createdAt,
     updatedAt: exception.updatedAt
+  };
+}
+
+function formatVendorBooking(booking) {
+  return {
+    id: booking._id,
+    reference: booking.reference,
+    tenantId: booking.tenantId,
+    tenantName: booking.tenantName,
+    tenantSlug: booking.tenantSlug,
+    locationId: booking.locationId,
+    locationName: booking.locationName,
+    locationSlug: booking.locationSlug,
+    serviceId: booking.serviceId,
+    serviceName: booking.serviceName,
+    serviceSlug: booking.serviceSlug,
+    servicePriceDisplay: booking.servicePriceDisplay,
+    customerUserId: booking.customerUserId,
+    customerName: booking.customerName,
+    customerEmail: booking.customerEmail,
+    customerPhone: booking.customerPhone,
+    scheduledStartAt: booking.scheduledStartAt,
+    scheduledEndAt: booking.scheduledEndAt,
+    status: booking.status,
+    notes: booking.notes,
+    paymentReference: booking.paymentReference,
+    paymentStatus: booking.paymentStatus,
+    createdAt: booking.createdAt,
+    updatedAt: booking.updatedAt
   };
 }
 
@@ -639,6 +670,78 @@ router.delete(
     const deactivatedService = await vendorServiceRepository.deactivateService(service._id);
 
     res.json({ service: formatVendorService(deactivatedService) });
+  })
+);
+
+router.get(
+  "/tenant/:tenantSlug/bookings",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.booking.manage");
+    const location = req.query.location
+      ? await getLocationForTenant(tenant, req.query.location)
+      : null;
+    const status = String(req.query.status || "").trim();
+    const allowedStatuses = new Set([
+      "pending",
+      "confirmed",
+      "rescheduled",
+      "completed",
+      "canceled",
+      "disputed",
+      "reviewed"
+    ]);
+
+    if (status && !allowedStatuses.has(status)) {
+      const error = new Error("Unsupported booking status filter.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const limit = Math.min(Math.max(Number(req.query.limit || 100) || 100, 1), 200);
+    const bookings = await bookingRepository.listBookingsForTenant(tenant._id, {
+      limit,
+      locationId: location?._id,
+      status: status || null
+    });
+
+    res.json({
+      bookings: bookings.map(formatVendorBooking)
+    });
+  })
+);
+
+router.patch(
+  "/tenant/:tenantSlug/bookings/:bookingId/status",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.booking.manage");
+    const booking = await bookingService.updateVendorBookingStatus({
+      tenant,
+      bookingId: req.params.bookingId,
+      status: String(req.body.status || "").trim()
+    });
+
+    res.json({
+      booking: formatVendorBooking(booking)
+    });
+  })
+);
+
+router.patch(
+  "/tenant/:tenantSlug/bookings/:bookingId/reschedule",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.booking.manage");
+    const booking = await bookingService.rescheduleVendorBooking({
+      tenant,
+      bookingId: req.params.bookingId,
+      scheduledStartAt: req.body.scheduledStartAt
+    });
+
+    res.json({
+      booking: formatVendorBooking(booking)
+    });
   })
 );
 

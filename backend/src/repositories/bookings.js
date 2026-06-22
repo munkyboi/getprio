@@ -158,8 +158,79 @@ async function listBookingsForCustomer(userId, options = {}) {
   return result.rows.map(mapBooking);
 }
 
+async function listBookingsForTenant(tenantId, options = {}) {
+  const limit = Math.min(Math.max(Number(options.limit || 100) || 100, 1), 200);
+  const params = [Number(tenantId)];
+  const filters = ["bookings.tenant_id = $1"];
+
+  if (options.locationId) {
+    params.push(Number(options.locationId));
+    filters.push(`bookings.location_id = $${params.length}`);
+  }
+
+  if (options.status) {
+    params.push(String(options.status));
+    filters.push(`bookings.status = $${params.length}`);
+  }
+
+  params.push(limit);
+  const result = await buildQueryClient(options.client).query(
+    `
+      SELECT ${BOOKING_COLUMNS}
+      FROM bookings
+      INNER JOIN tenants ON tenants.id = bookings.tenant_id
+      INNER JOIN store_locations ON store_locations.id = bookings.location_id
+      INNER JOIN vendor_services ON vendor_services.id = bookings.service_id
+      WHERE ${filters.join(" AND ")}
+      ORDER BY
+        CASE WHEN bookings.status = 'pending' THEN 0 ELSE 1 END,
+        bookings.scheduled_start_at ASC,
+        bookings.created_at DESC
+      LIMIT $${params.length}
+    `,
+    params
+  );
+
+  return result.rows.map(mapBooking);
+}
+
+async function updateBooking(id, data, options = {}) {
+  const sets = [];
+  const values = [];
+
+  for (const [field, column] of [
+    ["status", "status"],
+    ["scheduledStartAt", "scheduled_start_at"],
+    ["scheduledEndAt", "scheduled_end_at"],
+    ["notes", "notes"]
+  ]) {
+    if (Object.prototype.hasOwnProperty.call(data, field)) {
+      values.push(data[field]);
+      sets.push(`${column} = $${values.length}`);
+    }
+  }
+
+  if (!sets.length) {
+    return findBookingById(id, options);
+  }
+
+  values.push(Number(id));
+  await buildQueryClient(options.client).query(
+    `
+      UPDATE bookings
+      SET ${sets.join(", ")}
+      WHERE id = $${values.length}
+    `,
+    values
+  );
+
+  return findBookingById(id, options);
+}
+
 module.exports = {
   createBooking,
   findBookingById,
-  listBookingsForCustomer
+  listBookingsForCustomer,
+  listBookingsForTenant,
+  updateBooking
 };
