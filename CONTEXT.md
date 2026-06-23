@@ -9,23 +9,43 @@ A customer's scheduled request for a vendor service at a selected future time. A
 _Avoid_: Appointment, reservation, queue ticket
 
 **Booking Slot**:
-A customer-selectable time option computed from vendor availability, date exceptions, service duration, slot capacity, and existing bookings. Booking slots use 30-minute customer-facing intervals by default and are not stored as standalone schedule records in the MVP.
+A customer-selectable time option computed from vendor availability, date exceptions, service duration, requested booking quantity, slot capacity, and existing bookings. Booking slots use the full requested duration as the customer-facing start interval, so a 60-minute service booked for two units advances in two-hour starts. Slots are not stored as standalone schedule records in the MVP.
 _Avoid_: Appointment slot, time record, calendar event
+
+**Booking Units**:
+A vendor-configured option on a service that lets customers request more than one unit of the base service duration. Vendors can enable units per service and set the customer-facing label, such as Hours or Courts. Services without units enabled always book one base-duration unit.
+_Avoid_: Global booking quantity, item count
 
 **Booking Availability**:
 The vendor-managed bookable service schedule for a branch, optionally narrowed by service and capacity. If booking availability is not configured, branch store hours define the default bookable window.
 _Avoid_: Store hours, calendar
 
 **Booking Alert**:
-A customer-enabled notification for booking status changes such as confirmation, reschedule, cancellation, and check-in readiness. Email alerts can be included by default, while SMS booking alerts require explicit customer opt-in and may carry a platform-managed fee; verified and paid booking alert choices carry forward to the linked queue ticket after check-in.
+A customer-enabled notification for booking status changes such as confirmation, reschedule, cancellation, and check-in readiness. Email alerts can be included by default, while SMS booking alerts require explicit customer opt-in and are limited by the vendor's current plan entitlements and SMS usage.
 _Avoid_: Queue alert, reminder, message blast
 
 **Booking Verification**:
 The OTP step that verifies a customer's booking contact details before a booking request is created. Booking verification carries forward to the linked queue ticket, so the customer does not repeat OTP verification at check-in.
 _Avoid_: Queue OTP, login verification
 
+**Manual Booking Payment**:
+A customer-to-vendor payment made outside GetPrio for a booking, using the vendor's accepted InstaPay QR wallet or bank payment channel. GetPrio records the payment state and evidence, but does not process or settle the money.
+_Avoid_: Checkout, gateway payment, platform payment
+
+**Location Payment QR**:
+The branch-specific InstaPay QR payment destination shown to customers for payment-required services at that location. A vendor can require payment per service while reusing the selected location's payment QR as the payment destination.
+_Avoid_: Vendor wallet, service QR, checkout QR
+
+**Payment-Required Service**:
+A vendor service that requires manual booking payment before the vendor can confirm the booking. Payment requirement is decided per service because different services from the same vendor can have different upfront payment rules.
+_Avoid_: Paid vendor, paid booking flow
+
+**Payment Evidence**:
+The customer-submitted reference number and proof image showing that a manual booking payment was sent. Payment evidence stops pending booking expiration, but the booking remains unconfirmed until a vendor-side user verifies payment.
+_Avoid_: Receipt validation, payment confirmation, proof of checkout
+
 **Pending Booking Expiration**:
-An optional post-MVP vendor setting that automatically cancels pending booking requests after a configured waiting period. In the MVP, pending bookings hold capacity until a vendor-side user confirms, reschedules, or cancels them.
+The time limit for unresolved pending booking requests. Pending bookings hold capacity until a vendor-side user confirms, reschedules, cancels them, or the pending booking expires.
 _Avoid_: Auto-reject, booking timeout
 
 **Checked-In Booking**:

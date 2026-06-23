@@ -21,7 +21,7 @@ GetPrio already has:
 - vendor availability blocks and exceptions
 - store-hours fallback when no booking availability is configured
 - queue ticket lifecycle, queue day close/reopen, carry-over, recovery, and queue events
-- queue join OTP and SMS-fee payment behavior
+- queue join OTP and vendor-plan SMS entitlement behavior
 - service counters for basic vendor operations
 
 The customer booking UI still uses a free datetime input. The next booking slice should replace that with computed booking slots and connect confirmed bookings to the live queue through vendor-side check-in.
@@ -44,16 +44,19 @@ Slots are generated from:
 - vendor-managed booking availability blocks when configured
 - date-specific availability exceptions
 - selected service duration
+- requested booking quantity
 - slot capacity
 - existing active bookings
 
-Customer-facing slots use 30-minute intervals by default. The backend must still validate that the full service duration fits the slot and capacity.
+Customer-facing slot starts use the full requested duration as the interval. Booking units are opt-in per service from the vendor service catalog. When enabled, the requested quantity multiplies the reserved duration, so a 60-minute court service booked with quantity `3` reserves a three-hour window and advances slot starts in three-hour increments. Services without units enabled always book one base-duration unit. The backend must still validate that the full multiplied duration fits the slot and capacity.
 
 ### Capacity
 
 Capacity belongs to the booking availability block. `pending`, `confirmed`, and `rescheduled` bookings consume capacity. Canceled, completed, reviewed, and disputed bookings do not make new customer slots unavailable.
 
-Pending bookings hold capacity until a vendor-side user confirms, reschedules, or cancels them. Auto-expiring pending bookings is post-MVP.
+Pending bookings hold capacity from booking creation until a vendor-side user confirms, reschedules, cancels them, or the pending booking expires. The default pending booking expiration is 15 minutes from booking creation and applies to all pending bookings, not only payment-required bookings.
+
+Expired pending bookings use the existing `canceled` booking status with an expiration reason instead of adding a separate `expired` booking status. Expiration releases the held slot capacity and should be presented to customers as an expired booking.
 
 ### Booking Verification
 
@@ -61,23 +64,59 @@ Every booking request requires OTP verification before creation. This verifies t
 
 Booking verification carries forward to the linked queue ticket. Once a booking becomes a ticket, the customer should not repeat OTP verification.
 
+### Manual Booking Payment
+
+Payment requirement belongs to the vendor service, not the whole vendor. A payment-required service uses manual booking payment: the customer pays through the selected location's accepted InstaPay QR wallet or bank payment channel, and GetPrio records payment state and evidence without processing or settling the money.
+
+Payment destination belongs to the selected location. A multi-branch vendor can require payment per service while each branch shows its own location payment QR.
+
+Each location payment QR must include a payment method label, account display name, QR image, and active state. Account identifier display, such as a masked mobile number or account suffix, is optional. GetPrio should label the destination as an accepted InstaPay QR wallet or bank payment channel, but automated QR standard validation is outside the MVP.
+
+Location payment QR images are customer-visible payment destinations, but they should not appear in public vendor search/profile payloads. Expose the active location payment QR only through booking/payment-specific routes after a customer is creating or managing a booking for a payment-required service.
+
+If a selected service requires manual payment and the selected location has no active payment QR, GetPrio must block booking creation for that service/location and show a clear payment-configuration unavailable message. Do not create a pending booking when the customer has no valid payment destination.
+
+Payment-required services should remain visible even when the selected branch lacks an active payment QR. The booking action is disabled for that service/location until payment instructions are configured, and vendor-side setup surfaces should warn the vendor about the missing branch payment QR.
+
+For the MVP, the customer payable amount is the selected service's unit price multiplied by the requested booking units. The booking flow must show the unit price, unit amount, and total payable before the customer submits payment evidence. Payment evidence requires both a customer-entered payment reference number and an uploaded proof image. Convenience fees, platform settlement, refunds, and automated gateway collection stay outside this manual QR payment slice.
+
+For payment-required services, a vendor-side user must verify payment before confirming the booking.
+
+Payment proof images are private booking evidence. They must be visible only to the customer who owns the booking, authorized vendor-side users for that booking, and platform administrators for governance, dispute, or compliance review. Public vendor/profile payloads must not expose payment proof object keys or URLs.
+
+The manual payment flow creates the booking before payment evidence upload. After OTP verification, GetPrio creates a `pending` booking with `payment_status = unpaid` and a 15-minute pending expiration. The customer then sees the vendor payment QR and total payable, submits the required reference number and proof image, and the booking moves to `payment_status = pending`. Submitted payment evidence stops pending expiration permanently for that booking; the booking remains pending vendor review until a vendor-side user verifies or rejects payment. Vendor-side payment verification is required before the booking can be confirmed.
+
+Payment verification and booking confirmation are separate state transitions. Vendor staff, vendor admin, and vendor owner roles can verify or reject manual booking payment evidence for vendor-owned bookings in the MVP. Vendor UI can provide a combined `Verify payment and confirm` action for speed, but the system should still preserve the distinction between verified payment and accepted schedule.
+
+Manual payment verification and rejection must be auditable. GetPrio should record the actor and timestamp for payment verification, and the actor, timestamp, and customer-visible rejection reason for payment rejection.
+
+After payment evidence is submitted, the customer booking detail page must stop showing the payment QR to reduce duplicate payments. The customer should instead see payment evidence status: awaiting vendor verification, payment verified, or rejected/canceled with reason.
+
+For the MVP, rejected payment evidence cancels the booking with a customer-visible reason. GetPrio does not support repeated payment-proof resubmission loops in the first manual QR payment slice; the customer can create a new booking if needed.
+
 ### Booking Alerts
 
 Email booking alerts are automatic when an email address is available.
 
-SMS booking alerts are customer-enabled during booking. If platform pricing requires payment for SMS alerts, payment must complete before the booking is created with SMS enabled.
+SMS booking alerts are customer-enabled during booking when the vendor's current plan entitlements allow SMS alerts and the vendor has remaining SMS allowance. SMS alert availability must be computed from platform-managed plan configuration and usage; it must not be hardcoded by plan name. Disabled or exhausted SMS allowance disables SMS opt-in only; it must not block booking submission. SMS allowance is consumed only when an SMS send is attempted, not when the customer opts in.
+
+SMS entitlement must be checked again at send time. If allowance is exhausted or SMS is no longer enabled when a booking status notification is sent, the booking action still succeeds, email/in-app status remains available, and the SMS attempt is skipped and tracked as skipped due to allowance.
+
+Customer-paid SMS payment behavior should be deprecated before it is removed. The replacement sequence is: stop showing SMS payment prompts, stop requiring SMS payment before booking or queue join, route SMS availability through vendor entitlements and usage, leave old SMS payment tables/services unused for one implementation slice, then remove dead payment code and tables after entitlement-based SMS behavior is stable.
+
+Customer-facing SMS unavailable messaging should be generic, such as `SMS alerts are not available for this vendor right now.` Vendor and platform dashboards can show detailed entitlement and usage reasons, including whether SMS is disabled by plan configuration or unavailable because allowance is exhausted.
 
 When a booking becomes a queue ticket:
 
 - email alerts remain enabled automatically
-- SMS alerts remain enabled automatically if selected and paid during booking
+- SMS alerts remain enabled automatically if selected during booking and still allowed by vendor entitlements
 - notification controls on the queue ticket page become read-only
-- no additional SMS fee is required
+- no customer-paid SMS fee is required
 
 Customer-facing inline alert for the checked-in queue ticket:
 
 ```txt
-SMS alerts are active for this visit. You already covered this during booking, so no additional SMS fee is needed.
+SMS alerts are active for this visit.
 ```
 
 This is UI copy, not an SMS message body.
@@ -139,9 +178,9 @@ The page must support:
 - customer contact fields
 - email alert disclosure
 - `Enable SMS alert` option
-- inline SMS fee/payment messaging similar to the queue join flow
+- inline SMS entitlement and remaining-allowance messaging
 - OTP verification before booking creation
-- SMS payment before booking creation when SMS alerts are enabled and fee applies
+- SMS alert opt-in only when vendor entitlements allow SMS alerts
 
 ### Customer Booking List
 
@@ -202,19 +241,19 @@ The endpoint must:
 - use booking availability blocks when configured
 - fall back to store hours when no booking availability exists
 - apply date exceptions
-- generate 30-minute slot starts
-- ensure the full service duration fits the available window
+- generate slot starts using the full requested duration as the interval
+- ensure the full requested duration fits the available window
 - subtract active booking capacity
 - reject past slots
 
 ### Booking Creation
 
-Booking creation must require prior OTP verification. When SMS alerts are enabled and a fee applies, payment must complete before creating the booking.
+Booking creation must require prior OTP verification. When SMS alerts are selected, vendor plan entitlements and remaining SMS allowance must allow SMS alerts before creating the booking with SMS enabled. If SMS alerts are disabled or exhausted, the booking can still be submitted without SMS.
 
 The booking record should preserve:
 
 - selected notification preferences
-- SMS payment/fee reference when applicable
+- SMS alert preference when allowed by vendor entitlements
 - verification evidence needed to skip queue OTP at check-in
 
 ### Booking Details
@@ -259,7 +298,7 @@ Send customer notifications for:
 - booking canceled
 - booking checked in
 
-Email is automatic when email exists. SMS follows the customer's booking alert opt-in and payment state.
+Email is automatic when email exists. SMS follows the customer's booking alert opt-in and the vendor's current plan entitlements and SMS usage.
 
 ## Data Model Notes
 
@@ -280,14 +319,14 @@ Avoid storing generated booking slots as durable rows in MVP.
 - Keep OTP attempts, payment state, and booking state transitions auditable.
 - Avoid exposing customer phone/email on public queue displays.
 - Use generic verification and payment errors where possible.
-- SMS opt-in and fee disclosure must be explicit before payment.
+- SMS opt-in availability and allowance messaging must be explicit before booking submission.
 
 ## Acceptance Criteria
 
 - Customers choose from available slots instead of typing datetime manually.
 - Slots disappear or become unavailable when capacity is consumed by active bookings.
 - A booking cannot be created without OTP verification.
-- SMS-enabled booking cannot be created until the SMS fee is paid when a fee applies.
+- SMS-enabled booking cannot be created when vendor plan entitlements disable SMS alerts or the remaining SMS allowance is exhausted.
 - Customer booking list links to booking details.
 - Booking details links to live queue status only after check-in.
 - Customer can cancel a booking before check-in.
@@ -298,12 +337,31 @@ Avoid storing generated booking slots as durable rows in MVP.
 - Queue ticket notification controls are read-only when inherited from a booking.
 - Queue OTP is not repeated for checked-in bookings.
 
+## Recommended Implementation Split
+
+### Slice A: SMS entitlement migration
+
+- Deprecate customer-paid SMS payment prompts and requirements across booking and queue join flows.
+- Keep SMS opt-in dynamic based on platform-managed vendor plan entitlements and current SMS usage.
+- Check SMS entitlement again at send time and track skipped sends when allowance is unavailable.
+- Preserve booking and queue join submission even when SMS is disabled or exhausted.
+- Leave old SMS payment tables/services unused for one slice before cleanup.
+
+### Slice B: Manual QR booking payment
+
+- Add service-level payment-required configuration.
+- Add location payment QR configuration and customer-visible booking/payment route exposure.
+- Add protected customer payment proof upload and role-scoped proof access.
+- Add payment evidence submission, vendor verification/rejection, and audit fields.
+- Add 15-minute pending booking expiration, stopped permanently by submitted payment evidence.
+
 ## Post-MVP
 
-- vendor-configurable pending booking expiration
+- vendor-configurable pending booking expiration, defaulting to 15 minutes from booking creation
 - customer-initiated reschedule requests
 - configurable slot interval
 - deposits, refunds, and cancellation penalties
+- vendor SMS credit top-ups
 - calendar sync
 - service workflow builder
 - multi-counter routing with the same ticket number
