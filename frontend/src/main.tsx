@@ -7,6 +7,7 @@ import App from "./App";
 import { AuthProvider } from "./context/AuthContext";
 import "@mantine/core/styles.css";
 import "@mantine/notifications/styles.css";
+import "@mantine/dates/styles.css";
 import "./styles.css";
 
 const theme = createTheme({

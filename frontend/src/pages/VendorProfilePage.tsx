@@ -14,6 +14,7 @@ import {
   Title
 } from "@mantine/core";
 import { IconArrowLeft, IconCalendar, IconClock, IconMapPin, IconTicket, IconUserPlus } from "@tabler/icons-react";
+import { getDay } from "date-fns";
 import { Link, useParams } from "react-router-dom";
 import type { PublicVendorProfile, PublicVendorProfileResponse } from "@shared";
 import { apiRequest } from "../api/client";
@@ -75,7 +76,7 @@ export default function VendorProfilePage() {
   const [vendor, setVendor] = useState<PublicVendorProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const currentWeekday = new Date().getDay();
+  const currentWeekday = getDay(new Date());
 
   useEffect(() => {
     if (!tenantSlug) {
@@ -300,13 +301,21 @@ export default function VendorProfilePage() {
                       </Text>
                     </div>
                     {vendor.services.length ? (
-                      <SimpleGrid cols={{ base: 1, sm: 2 }}>
+                      <SimpleGrid cols={1}>
                         {vendor.services.map((service) => (
                           <Paper className="vendor-location-card" key={service.slug} p="md">
                             <Stack gap="xs">
                               <Group justify="space-between" wrap="nowrap">
                                 <Text fw={800}>{service.name}</Text>
-                                <Badge color="teal" variant="light">{service.durationMinutes} min</Badge>
+                                <Group gap="xs" wrap="nowrap">
+                                  <Badge color="teal" variant="light">{service.durationMinutes} min</Badge>
+                                  {service.allowBookingQuantity ? (
+                                    <Badge color="blue" variant="light">{service.bookingQuantityLabel || "Units"}</Badge>
+                                  ) : null}
+                                  {service.manualPaymentRequired ? (
+                                    <Badge color="yellow" variant="light">Manual payment</Badge>
+                                  ) : null}
+                                </Group>
                               </Group>
                               <Text c="dimmed" size="sm">
                                 {service.description || "Service details available during booking."}

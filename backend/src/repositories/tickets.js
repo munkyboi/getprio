@@ -35,6 +35,8 @@ const TICKET_COLUMNS = `
   updated_at
 `;
 
+const WAITING_PRIORITY_ORDER = "CASE service_priority_band WHEN 'carry_over' THEN 0 WHEN 'recovery' THEN 1 WHEN 'checked_in_booking' THEN 2 ELSE 3 END ASC, carry_over_count DESC, created_at ASC";
+
 function mapTicket(row) {
   if (!row) {
     return null;
@@ -69,10 +71,23 @@ function mapTicket(row) {
     carriedOverAt: row.carried_over_at,
     carryOverCount: row.carry_over_count || 0,
     servicePriorityBand: row.service_priority_band || "normal",
+    linkedBookingReference: row.linked_booking_reference || null,
     rejoinDeadlineAt: row.rejoin_deadline_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
+}
+
+function withLinkedBookingReferenceSelect() {
+  return `
+    ${TICKET_COLUMNS},
+    (
+      SELECT bookings.reference
+      FROM bookings
+      WHERE bookings.queue_ticket_id = tickets.id
+      LIMIT 1
+    ) AS linked_booking_reference
+  `;
 }
 
 function buildQueryClient(client) {
@@ -188,7 +203,7 @@ async function listWaitingTickets(tenantId, options = {}) {
     carryOverFilter = "AND carried_over_at IS NULL AND COALESCE(carry_over_count, 0) = 0";
   }
 
-  let query = `SELECT ${TICKET_COLUMNS} FROM tickets WHERE tenant_id = $1 ${locationFilter} ${dateFilter} ${carryOverFilter} AND status = 'waiting' ORDER BY CASE service_priority_band WHEN 'carry_over' THEN 0 WHEN 'recovery' THEN 1 ELSE 2 END ASC, carry_over_count DESC, created_at ASC`;
+  let query = `SELECT ${withLinkedBookingReferenceSelect()} FROM tickets WHERE tenant_id = $1 ${locationFilter} ${dateFilter} ${carryOverFilter} AND status = 'waiting' ORDER BY ${WAITING_PRIORITY_ORDER}`;
 
   if (options.limit) {
     values.push(Number(options.limit));
@@ -419,7 +434,7 @@ async function findCurrentCalledTicket(tenantId, options = {}) {
 
   const result = await queryClient.query(
     `
-      SELECT ${TICKET_COLUMNS}
+      SELECT ${withLinkedBookingReferenceSelect()}
       FROM tickets
       WHERE tenant_id = $1 ${locationFilter} ${dateFilter} AND status = 'called'
       ORDER BY called_at ASC NULLS LAST, created_at ASC
@@ -439,7 +454,7 @@ async function callNextWaitingTicket(tenantId, options = {}) {
         SELECT id
         FROM tickets
         WHERE tenant_id = $1 AND location_id = $2 AND date_key = $4 AND status = 'waiting'
-        ORDER BY CASE service_priority_band WHEN 'carry_over' THEN 0 WHEN 'recovery' THEN 1 ELSE 2 END ASC, carry_over_count DESC, created_at ASC
+        ORDER BY ${WAITING_PRIORITY_ORDER}
         LIMIT 1
         FOR UPDATE SKIP LOCKED
       )

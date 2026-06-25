@@ -727,6 +727,43 @@ button {
   margin: 0;
 }
 
+.customer-account-hero {
+  margin-bottom: 0;
+}
+
+.customer-account-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.customer-account-sidebar {
+  position: sticky;
+  top: 92px;
+  width: 100%;
+  border: 1px solid rgba(95, 66, 42, 0.12);
+  box-shadow: none;
+}
+
+.customer-account-sidebar .mantine-Button-root {
+  min-height: 42px;
+}
+
+.customer-account-content {
+  min-width: 0;
+}
+
+@media (max-width: 860px) {
+  .customer-account-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .customer-account-sidebar {
+    position: static;
+  }
+}
+
 .finazze-join-layout {
   width: min(1120px, calc(100vw - 2rem));
   margin: clamp(2rem, 6vw, 5rem) auto;
@@ -736,6 +773,23 @@ button {
 .finazze-join-side {
   width: auto;
   margin: 0;
+}
+
+.join-account-summary {
+  border-radius: 18px;
+}
+
+.join-account-summary .mantine-Alert-body {
+  min-width: 0;
+  width: 100%;
+}
+
+.join-account-summary-item {
+  min-width: 0;
+}
+
+.join-account-summary-item .mantine-Text-root {
+  overflow-wrap: anywhere;
 }
 
 .public-board-hours-strip {

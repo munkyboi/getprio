@@ -9,6 +9,7 @@ const queueDayClosureRepository = require("../repositories/queueDayClosures");
 const queueDayPauseRepository = require("../repositories/queueDayPauses");
 const storeLocationRepository = require("../repositories/storeLocations");
 const ticketRepository = require("../repositories/tickets");
+const bookingRepository = require("../repositories/bookings");
 const queueEvents = require("./queueEvents");
 const queueLifecycle = require("./queueLifecycle");
 const notificationService = require("./notificationService");
@@ -374,7 +375,9 @@ async function getQueueSnapshot(tenant, options = {}) {
     createdAt: ticket.createdAt,
     isCarriedOver: Boolean(ticket.carriedOverAt || ticket.carryOverCount > 0),
     carryOverCount: ticket.carryOverCount || 0,
-    carriedOverAt: ticket.carriedOverAt || null
+    carriedOverAt: ticket.carriedOverAt || null,
+    servicePriorityBand: ticket.servicePriorityBand || "normal",
+    linkedBookingReference: ticket.linkedBookingReference || null
   }));
 
   const overflow = overflowTickets.map((ticket, index) => ({
@@ -387,7 +390,8 @@ async function getQueueSnapshot(tenant, options = {}) {
     createdAt: ticket.createdAt,
     isCarriedOver: true,
     carryOverCount: ticket.carryOverCount || 0,
-    carriedOverAt: ticket.carriedOverAt || null
+    carriedOverAt: ticket.carriedOverAt || null,
+    servicePriorityBand: ticket.servicePriorityBand || "normal"
   }));
 
   let focusTicket = null;
@@ -494,7 +498,9 @@ async function getQueueSnapshot(tenant, options = {}) {
           id: String(current._id),
           ticketNumber: current.ticketNumber,
           customerName: current.customerName,
-          calledAt: current.calledAt
+          calledAt: current.calledAt,
+          servicePriorityBand: current.servicePriorityBand || "normal",
+          linkedBookingReference: current.linkedBookingReference || null
         }
       : null,
     nextUp,
@@ -801,7 +807,8 @@ async function createTicket({
   joinChannel,
   notes,
   actorUserId,
-  actorRole
+  actorRole,
+  servicePriorityBand
 }) {
   const resolvedLocation = await resolveLocation(tenant, { location });
   await assertQueueIntakeOpen(tenant, resolvedLocation);
@@ -816,7 +823,8 @@ async function createTicket({
       notifyByEmail,
       notifyBySms,
       joinChannel,
-      notes
+      notes,
+      servicePriorityBand
     });
 
     const actor = buildQueueEventActor({
@@ -857,7 +865,8 @@ async function createTicketForTenantInTransaction(client, {
   notifyByEmail,
   notifyBySms,
   joinChannel,
-  notes
+  notes,
+  servicePriorityBand
 }) {
   const dateKey = getDateKey();
   const resolvedLocation = location || (await resolveLocation(tenant));
@@ -876,7 +885,8 @@ async function createTicketForTenantInTransaction(client, {
     notifyByEmail: Boolean(notifyByEmail && customerEmail),
     notifyBySms: Boolean(notifyBySms && customerPhone),
     joinChannel: joinChannel || "online",
-    notes
+    notes,
+    servicePriorityBand
   });
 }
 
@@ -974,6 +984,14 @@ async function updateCurrentTicketStatus(tenant, status, options = {}) {
     });
     if (!updatedTicket) {
       return null;
+    }
+
+    if (["served", "cancelled"].includes(status)) {
+      await bookingRepository.updateBookingByQueueTicketId(
+        updatedTicket._id,
+        { status: status === "served" ? "completed" : "canceled" },
+        { client }
+      );
     }
 
     const actor = buildQueueEventActor({
@@ -1506,6 +1524,7 @@ module.exports = {
   resolveLocation,
   createTicket,
   createTicketForTenantInTransaction,
+  assertQueueIntakeOpen,
   getQueueSnapshot,
   callNextTicket,
   updateCurrentTicketStatus,
@@ -1516,5 +1535,6 @@ module.exports = {
   resumeQueueDay,
   restoreSkippedTicket,
   publishSnapshot,
-  maybeNotifyUpcomingTickets
+  maybeNotifyUpcomingTickets,
+  maybeAutoPauseQueueDay
 };

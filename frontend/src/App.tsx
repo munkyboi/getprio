@@ -10,6 +10,7 @@ import OAuthCallbackPage from "./pages/OAuthCallbackPage";
 import RegisterVendorPage from "./pages/RegisterVendorPage";
 import RegisterCustomerPage from "./pages/RegisterCustomerPage";
 import CustomerAccountPage from "./pages/CustomerAccountPage";
+import CustomerBookingDetailPage from "./pages/CustomerBookingDetailPage";
 import VendorDashboardPage from "./pages/VendorDashboardPage";
 import VendorDiscoveryPage from "./pages/VendorDiscoveryPage";
 import VendorProfilePage from "./pages/VendorProfilePage";
@@ -63,7 +64,7 @@ function AppShell({ children }: { children: ReactNode }) {
         </Button>
       ) : null}
       {user?.roles?.includes("customer") ? (
-        <Button component={NavLink} to="/account" variant="subtle" color="dark">
+        <Button component={NavLink} to="/account/profile" variant="subtle" color="dark">
           Account
         </Button>
       ) : null}
@@ -186,7 +187,13 @@ export default function App() {
       <Route path="/oauth/callback" element={<AppShell><OAuthCallbackPage /></AppShell>} />
       <Route path="/register/vendor" element={<AppShell><RegisterVendorPage /></AppShell>} />
       <Route path="/register/customer" element={<AppShell><RegisterCustomerPage /></AppShell>} />
-      <Route path="/account" element={<AppShell><CustomerAccountPage /></AppShell>} />
+      <Route path="/account" element={<Navigate to="/account/profile" replace />} />
+      <Route path="/account/profile" element={<AppShell><CustomerAccountPage /></AppShell>} />
+      <Route path="/account/tickets" element={<AppShell><CustomerAccountPage /></AppShell>} />
+      <Route path="/account/bookings" element={<AppShell><CustomerAccountPage /></AppShell>} />
+      <Route path="/account/settings" element={<AppShell><CustomerAccountPage /></AppShell>} />
+      <Route path="/account/security" element={<AppShell><CustomerAccountPage /></AppShell>} />
+      <Route path="/account/bookings/:bookingId" element={<AppShell><CustomerBookingDetailPage /></AppShell>} />
       <Route path="/vendors" element={<AppShell><VendorDiscoveryPage /></AppShell>} />
       <Route path="/vendors/:tenantSlug/book" element={<AppShell><BookingRequestPage /></AppShell>} />
       <Route path="/vendors/:tenantSlug/book/:serviceSlug" element={<AppShell><BookingRequestPage /></AppShell>} />

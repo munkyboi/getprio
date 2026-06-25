@@ -1,10 +1,14 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   Alert,
   Badge,
   Button,
   Card,
+  Checkbox,
   Group,
+  Image,
+  NumberInput,
+  PinInput,
   Select,
   Stack,
   Text,
@@ -12,28 +16,37 @@ import {
   TextInput,
   Title
 } from "@mantine/core";
-import { IconArrowLeft, IconCalendarCheck, IconClock, IconMapPin } from "@tabler/icons-react";
-import { Link, Navigate, useParams } from "react-router-dom";
+import { DatePickerInput } from "@mantine/dates";
+import { notifications } from "@mantine/notifications";
+import { IconArrowLeft, IconCalendar, IconCalendarCheck, IconMapPin } from "@tabler/icons-react";
+import { addDays } from "date-fns";
+import { Link, Navigate, useParams, useSearchParams } from "react-router-dom";
 import type {
+  BookingOtpResponse,
+  BookingSlotsResponse,
+  BookingSmsFeeResponse,
+  BookingSmsPaymentResponse,
+  BookingSmsPaymentSyncResponse,
+  BookingSlotSummary,
+  CreateBookingSmsPaymentRequest,
   CreateCustomerBookingRequest,
   CustomerBookingResponse,
   PublicVendorProfile,
-  PublicVendorProfileResponse
+  PublicVendorProfileResponse,
+  VerifyBookingOtpRequest,
+  VerifyBookingOtpResponse
 } from "@shared";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
+import {
+  formatBookingScheduleDate,
+  formatBookingScheduleTimeRange,
+  formatDateInputValue
+} from "../utils/dates";
 import { getErrorMessage } from "../utils/errors";
 
-function formatDateTimeLocal(date: Date) {
-  const offsetMs = date.getTimezoneOffset() * 60 * 1000;
-  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
-}
-
-function getDefaultBookingTime() {
-  const date = new Date();
-  date.setDate(date.getDate() + 1);
-  date.setHours(9, 0, 0, 0);
-  return formatDateTimeLocal(date);
+function getDefaultBookingDate() {
+  return formatDateInputValue(addDays(new Date(), 1));
 }
 
 function getServiceLabel(service: PublicVendorProfile["services"][number]) {
@@ -41,21 +54,70 @@ function getServiceLabel(service: PublicVendorProfile["services"][number]) {
   return `${service.name} - ${service.durationMinutes} min - ${price}`;
 }
 
+function getBookingQuantityLabel(service: PublicVendorProfile["services"][number]) {
+  return service.bookingQuantityLabel || "Units";
+}
+
+function formatSlotLabel(slot: BookingSlotSummary) {
+  const timeLabel = formatBookingScheduleTimeRange(slot.startAt, slot.endAt);
+  return slot.isAvailable ? `${timeLabel} (${slot.remainingCapacity} left)` : `${timeLabel} (full)`;
+}
+
+function formatDuration(minutes: number) {
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  if (hours && remainder) {
+    return `${hours} hr ${remainder} min`;
+  }
+  if (hours) {
+    return `${hours} hr`;
+  }
+  return `${minutes} min`;
+}
+
+function formatPaymentAmount(amountCents: number, currency: string) {
+  return new Intl.NumberFormat("en-PH", {
+    style: "currency",
+    currency,
+    minimumFractionDigits: 2
+  }).format(amountCents / 100);
+}
+
+function getPendingStorageKey(tenantSlug: string) {
+  return `getprio:booking:${tenantSlug}:pending`;
+}
+
+interface PendingBookingPayload extends CreateCustomerBookingRequest {
+  bookingVerificationToken: string;
+}
+
 export default function BookingRequestPage() {
   const { tenantSlug = "", serviceSlug = "" } = useParams<{ tenantSlug: string; serviceSlug?: string }>();
+  const [searchParams] = useSearchParams();
   const { token, user, loading: authLoading } = useAuth();
+  const processedPaymentRef = useRef("");
   const [vendor, setVendor] = useState<PublicVendorProfile | null>(null);
   const [selectedLocationSlug, setSelectedLocationSlug] = useState("");
   const [selectedServiceSlug, setSelectedServiceSlug] = useState(serviceSlug);
-  const [scheduledStartAt, setScheduledStartAt] = useState(getDefaultBookingTime);
+  const [bookingDate, setBookingDate] = useState(getDefaultBookingDate);
+  const [bookingQuantity, setBookingQuantity] = useState(1);
+  const [slots, setSlots] = useState<BookingSlotSummary[]>([]);
+  const [selectedSlotStartAt, setSelectedSlotStartAt] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [customerEmail, setCustomerEmail] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [notes, setNotes] = useState("");
+  const [notifyBySms, setNotifyBySms] = useState(false);
+  const [otp, setOtp] = useState<BookingOtpResponse | null>(null);
+  const [otpCode, setOtpCode] = useState("");
+  const [bookingVerificationToken, setBookingVerificationToken] = useState("");
+  const [smsFee, setSmsFee] = useState<BookingSmsFeeResponse["queueFee"] | null>(null);
   const [loading, setLoading] = useState(true);
+  const [slotsLoading, setSlotsLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [booking, setBooking] = useState<CustomerBookingResponse["booking"] | null>(null);
+  const [manualPaymentConfirmed, setManualPaymentConfirmed] = useState(false);
 
   useEffect(() => {
     if (!tenantSlug) {
@@ -68,14 +130,18 @@ export default function BookingRequestPage() {
     setLoading(true);
     setError("");
 
-    apiRequest<PublicVendorProfileResponse>(`/public/vendors/${tenantSlug}`)
-      .then((data) => {
+    Promise.all([
+      apiRequest<PublicVendorProfileResponse>(`/public/vendors/${tenantSlug}`),
+      apiRequest<BookingSmsFeeResponse>(`/public/vendors/${tenantSlug}/booking-sms-fee`)
+    ])
+      .then(([vendorData, feeData]) => {
         if (!active) {
           return;
         }
-        setVendor(data.vendor);
-        setSelectedLocationSlug((current) => current || data.vendor.location.slug || data.vendor.locations[0]?.slug || "");
-        setSelectedServiceSlug((current) => current || data.vendor.services[0]?.slug || "");
+        setVendor(vendorData.vendor);
+        setSmsFee(feeData.queueFee);
+        setSelectedLocationSlug((current) => current || vendorData.vendor.location.slug || vendorData.vendor.locations[0]?.slug || "");
+        setSelectedServiceSlug((current) => current || vendorData.vendor.services[0]?.slug || "");
       })
       .catch((loadError) => {
         if (active) {
@@ -107,9 +173,53 @@ export default function BookingRequestPage() {
     () => vendor?.services.find((service) => service.slug === selectedServiceSlug) || null,
     [selectedServiceSlug, vendor]
   );
+  const allowBookingQuantity = selectedService?.allowBookingQuantity === true;
+  const quantityForRequest = allowBookingQuantity ? bookingQuantity : 1;
+
+  useEffect(() => {
+    if (!allowBookingQuantity && bookingQuantity !== 1) {
+      setBookingQuantity(1);
+    }
+  }, [allowBookingQuantity, bookingQuantity]);
+
+  useEffect(() => {
+    if (!vendor || !selectedLocationSlug || !selectedServiceSlug || !bookingDate) {
+      setSlots([]);
+      return;
+    }
+
+    const controller = new AbortController();
+    setSlotsLoading(true);
+    setSelectedSlotStartAt("");
+
+    apiRequest<BookingSlotsResponse>(
+      `/public/vendors/${vendor.slug}/locations/${selectedLocationSlug}/services/${selectedServiceSlug}/slots?date=${encodeURIComponent(bookingDate)}&bookingQuantity=${quantityForRequest}`,
+      { signal: controller.signal }
+    )
+      .then((data) => setSlots(data.slots))
+      .catch((slotError) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+        setSlots([]);
+        setError(getErrorMessage(slotError));
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setSlotsLoading(false);
+        }
+      });
+
+    return () => controller.abort();
+  }, [bookingDate, quantityForRequest, selectedLocationSlug, selectedServiceSlug, vendor]);
+
   const selectedLocation = useMemo(
     () => vendor?.locations.find((location) => location.slug === selectedLocationSlug) || null,
     [selectedLocationSlug, vendor]
+  );
+  const selectedSlot = useMemo(
+    () => slots.find((slot) => slot.startAt === selectedSlotStartAt) || null,
+    [selectedSlotStartAt, slots]
   );
   const serviceOptions = useMemo(
     () => vendor?.services.map((service) => ({
@@ -125,6 +235,94 @@ export default function BookingRequestPage() {
     })) || [],
     [vendor]
   );
+  const slotOptions = useMemo(
+    () => slots.map((slot) => ({
+      value: String(slot.startAt),
+      label: formatSlotLabel(slot),
+      disabled: !slot.isAvailable
+    })),
+    [slots]
+  );
+  const smsFeeApplies = Boolean(notifyBySms && smsFee?.enabled && Number(smsFee.amountCents) > 0);
+  const totalDurationMinutes = selectedService ? selectedService.durationMinutes * quantityForRequest : 0;
+
+  function buildBookingPayload(verificationToken: string, smsPaymentId?: string): PendingBookingPayload {
+    if (!vendor || !selectedSlot) {
+      throw new Error("Select an available booking slot.");
+    }
+
+    return {
+      tenantSlug: vendor.slug,
+      locationSlug: selectedLocationSlug,
+      serviceSlug: selectedServiceSlug,
+      scheduledStartAt: String(selectedSlot.startAt),
+      bookingQuantity: quantityForRequest,
+      customerName,
+      customerEmail,
+      customerPhone,
+      notes,
+      notifyBySms,
+      smsAlertFeePaymentId: smsPaymentId,
+      bookingVerificationToken: verificationToken
+    };
+  }
+
+  const submitBooking = useCallback(async (payload: PendingBookingPayload) => {
+    if (!token) {
+      return;
+    }
+
+    const response = await apiRequest<CustomerBookingResponse, CreateCustomerBookingRequest>("/account/bookings", {
+      method: "POST",
+      token,
+      body: payload
+    });
+    sessionStorage.removeItem(getPendingStorageKey(payload.tenantSlug));
+    setBooking(response.booking);
+  }, [token]);
+
+  useEffect(() => {
+    const paymentId = searchParams.get("booking_sms_payment");
+    const paymentStatus = searchParams.get("payment_status");
+    if (!paymentId || !vendor || !token || processedPaymentRef.current === paymentId) {
+      return;
+    }
+
+    processedPaymentRef.current = paymentId;
+
+    if (paymentStatus === "cancelled") {
+      setError("SMS alert payment was cancelled. You can continue without SMS alerts or try again.");
+      return;
+    }
+
+    const pendingRaw = sessionStorage.getItem(getPendingStorageKey(vendor.slug));
+    if (!pendingRaw) {
+      setError("Payment was returned but the booking draft was not found. Please verify again.");
+      return;
+    }
+
+    const pendingPayload = JSON.parse(pendingRaw) as PendingBookingPayload;
+    setSubmitting(true);
+    apiRequest<BookingSmsPaymentSyncResponse>(`/public/vendors/${vendor.slug}/booking-sms-payments/${paymentId}/sync`, {
+      method: "POST"
+    })
+      .then(async (sync) => {
+        if (!sync.paid) {
+          throw new Error("SMS alert payment is not complete yet.");
+        }
+        await submitBooking({
+          ...pendingPayload,
+          smsAlertFeePaymentId: sync.payment.id
+        });
+        notifications.show({
+          color: "teal",
+          title: "Booking submitted",
+          message: "Your SMS alert payment was confirmed."
+        });
+      })
+      .catch((syncError) => setError(getErrorMessage(syncError)))
+      .finally(() => setSubmitting(false));
+  }, [searchParams, submitBooking, token, vendor]);
 
   if (authLoading || loading) {
     return <Card className="finazze-auth-card">Loading booking flow...</Card>;
@@ -134,33 +332,89 @@ export default function BookingRequestPage() {
     return <Navigate to={`/login?next=${encodeURIComponent(`/vendors/${tenantSlug}/book/${serviceSlug}`)}`} replace />;
   }
 
+  async function continueAfterVerification(verificationToken: string) {
+    if (!vendor) {
+      return;
+    }
+
+    if (!smsFeeApplies) {
+      await submitBooking(buildBookingPayload(verificationToken));
+      return;
+    }
+
+    const pendingPayload = buildBookingPayload(verificationToken);
+    sessionStorage.setItem(getPendingStorageKey(vendor.slug), JSON.stringify(pendingPayload));
+
+    const payment = await apiRequest<BookingSmsPaymentResponse, CreateBookingSmsPaymentRequest>(
+      `/public/vendors/${vendor.slug}/booking-sms-payments`,
+      {
+        method: "POST",
+        body: { bookingVerificationToken: verificationToken }
+      }
+    );
+
+    if (payment.requiresPayment && payment.checkoutSession?.checkoutUrl) {
+      window.location.href = payment.checkoutSession.checkoutUrl;
+      return;
+    }
+
+    await submitBooking(pendingPayload);
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!vendor || !selectedServiceSlug || !selectedLocationSlug || !token) {
+    if (!vendor || !selectedServiceSlug || !selectedLocationSlug || !selectedSlot || !token) {
+      setError("Select an available booking slot.");
       return;
     }
 
     setSubmitting(true);
     setError("");
 
-    const payload: CreateCustomerBookingRequest = {
-      tenantSlug: vendor.slug,
-      locationSlug: selectedLocationSlug,
-      serviceSlug: selectedServiceSlug,
-      scheduledStartAt: new Date(scheduledStartAt).toISOString(),
-      customerName,
-      customerEmail,
-      customerPhone,
-      notes
-    };
-
     try {
-      const response = await apiRequest<CustomerBookingResponse, CreateCustomerBookingRequest>("/account/bookings", {
-        method: "POST",
-        token,
-        body: payload
-      });
-      setBooking(response.booking);
+      if (!otp) {
+        const otpResponse = await apiRequest<BookingOtpResponse>(
+          `/public/vendors/${vendor.slug}/booking-otp`,
+          {
+            method: "POST",
+            token,
+            body: {
+              tenantSlug: vendor.slug,
+              locationSlug: selectedLocationSlug,
+              serviceSlug: selectedServiceSlug,
+              scheduledStartAt: String(selectedSlot.startAt),
+              bookingQuantity: quantityForRequest,
+              customerName,
+              customerEmail,
+              customerPhone,
+              notifyBySms,
+              notes,
+              channel: notifyBySms && !customerEmail ? "sms" : "email"
+            }
+          }
+        );
+        setOtp(otpResponse);
+        setOtpCode("");
+        return;
+      }
+
+      if (!bookingVerificationToken) {
+        const verified = await apiRequest<VerifyBookingOtpResponse, VerifyBookingOtpRequest>(
+          `/public/vendors/${vendor.slug}/booking-otp/verify`,
+          {
+            method: "POST",
+            body: {
+              otpId: otp.otpId,
+              code: otpCode
+            }
+          }
+        );
+        setBookingVerificationToken(verified.bookingVerificationToken);
+        await continueAfterVerification(verified.bookingVerificationToken);
+        return;
+      }
+
+      await continueAfterVerification(bookingVerificationToken);
     } catch (submitError) {
       setError(getErrorMessage(submitError));
     } finally {
@@ -168,7 +422,30 @@ export default function BookingRequestPage() {
     }
   }
 
+  async function resendOtp() {
+    if (!otp || !vendor) {
+      return;
+    }
+
+    setSubmitting(true);
+    setError("");
+    try {
+      const nextOtp = await apiRequest<BookingOtpResponse>(
+        `/public/vendors/${vendor.slug}/booking-otp/${otp.otpId}/resend`,
+        { method: "POST" }
+      );
+      setOtp(nextOtp);
+      setOtpCode("");
+    } catch (resendError) {
+      setError(getErrorMessage(resendError));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   if (booking) {
+    const manualPaymentDestination = booking.manualPaymentDestination;
+
     return (
       <Stack className="customer-account-page" gap="lg">
         <Button component={Link} leftSection={<IconArrowLeft size={16} />} to={`/vendors/${booking.tenantSlug}`} variant="subtle" w="fit-content">
@@ -178,9 +455,7 @@ export default function BookingRequestPage() {
           <Stack gap="md">
             <Badge color="teal" w="fit-content">Booking request submitted</Badge>
             <Title order={1}>{booking.reference}</Title>
-            <Text c="dimmed">
-              Your booking request is pending vendor confirmation.
-            </Text>
+            <Text c="dimmed">Your booking request is pending vendor confirmation.</Text>
             <Group gap="xl" align="flex-start">
               <Stack gap={2}>
                 <Text fw={700}>Vendor</Text>
@@ -189,20 +464,78 @@ export default function BookingRequestPage() {
               <Stack gap={2}>
                 <Text fw={700}>Service</Text>
                 <Text c="dimmed">{booking.serviceName}</Text>
+                <Text c="dimmed" size="sm">Quantity {booking.bookingQuantity}</Text>
               </Stack>
               <Stack gap={2}>
                 <Text fw={700}>Schedule</Text>
-                <Text c="dimmed">{new Date(booking.scheduledStartAt).toLocaleString()}</Text>
+                <Text c="dimmed">{formatBookingScheduleDate(booking.scheduledStartAt)}</Text>
+                <Text c="dimmed" size="sm">
+                  {formatBookingScheduleTimeRange(booking.scheduledStartAt, booking.scheduledEndAt)}
+                </Text>
               </Stack>
               <Stack gap={2}>
                 <Text fw={700}>Status</Text>
                 <Badge color="yellow" variant="light">{booking.status}</Badge>
               </Stack>
             </Group>
+            {manualPaymentDestination ? (
+              <Card withBorder radius="md" p="md">
+                <Group align="flex-start" gap="lg">
+                  <Image
+                    alt={`${manualPaymentDestination.methodLabel} payment QR`}
+                    fit="contain"
+                    h={180}
+                    radius="sm"
+                    src={manualPaymentDestination.qrImageUrl}
+                    w={180}
+                  />
+                  <Stack gap={4}>
+                    <Badge color="yellow" variant="light" w="fit-content">Vendor payment QR</Badge>
+                    <Text fw={700}>Pay vendor through {manualPaymentDestination.methodLabel}</Text>
+                    <Text c="dimmed" size="sm">{manualPaymentDestination.accountDisplayName}</Text>
+                    {manualPaymentDestination.accountIdentifierDisplay ? (
+                      <Text c="dimmed" size="sm">{manualPaymentDestination.accountIdentifierDisplay}</Text>
+                    ) : null}
+                    <Text fw={700} mt="xs">
+                      Total payable: {formatPaymentAmount(manualPaymentDestination.amountCents, manualPaymentDestination.currency)}
+                    </Text>
+                    <Text c="dimmed" size="sm">
+                      {manualPaymentDestination.unitPriceDisplay} x {booking.bookingQuantity}
+                    </Text>
+                    <Text c="dimmed" size="sm">
+                      Submit your reference number and proof image from the booking detail page.
+                    </Text>
+                  </Stack>
+                </Group>
+              </Card>
+            ) : null}
+            {manualPaymentDestination ? (
+              <Checkbox
+                checked={manualPaymentConfirmed}
+                label={`I have already made the payment via ${manualPaymentDestination.methodLabel}`}
+                onChange={(event) => setManualPaymentConfirmed(event.currentTarget.checked)}
+              />
+            ) : null}
             <Group>
-              <Button component={Link} color="dark" to="/account">
-                View account history
-              </Button>
+              {manualPaymentDestination ? (
+                <Button
+                  color="dark"
+                  component={Link}
+                  disabled={!manualPaymentConfirmed}
+                  onClick={(event) => {
+                    if (!manualPaymentConfirmed) {
+                      event.preventDefault();
+                    }
+                  }}
+                  to={`/account/bookings/${booking.id}`}
+                >
+                  Submit payment proof
+                </Button>
+              ) : (
+                <Button component={Link} color="dark" to={`/account/bookings/${booking.id}`}>
+                  View booking detail
+                </Button>
+              )}
               <Button component={Link} to={`/vendors/${booking.tenantSlug}`} variant="light">
                 Back to vendor profile
               </Button>
@@ -224,7 +557,7 @@ export default function BookingRequestPage() {
           <Text className="finazze-section-label">Booking request</Text>
           <Title order={1}>{vendor?.name || "Book a service"}</Title>
           <Text c="dimmed">
-            Choose a service, branch, and preferred schedule. The vendor will review and confirm the request.
+            Choose a service, branch, and available slot. The vendor will review and confirm the request.
           </Text>
         </Stack>
       </Card>
@@ -239,7 +572,7 @@ export default function BookingRequestPage() {
 
             <Select
               data={serviceOptions}
-              disabled={!serviceOptions.length}
+              disabled={!serviceOptions.length || Boolean(otp)}
               label="Service"
               leftSection={<IconCalendarCheck size={16} />}
               onChange={(value) => setSelectedServiceSlug(value || "")}
@@ -248,13 +581,46 @@ export default function BookingRequestPage() {
             />
             {selectedService ? (
               <Alert color="teal" variant="light">
-                {selectedService.description || `${selectedService.durationMinutes} minute service`}
+                <Stack gap={4}>
+                  <Text size="sm">
+                    {selectedService.description || `${selectedService.durationMinutes} minute service`}
+                  </Text>
+                  {selectedService.manualPaymentRequired ? (
+                    <Text fw={700} size="sm">
+                      Manual payment proof is required for this service.
+                    </Text>
+                  ) : null}
+                </Stack>
               </Alert>
+            ) : null}
+
+            {selectedService && allowBookingQuantity ? (
+              <NumberInput
+                allowDecimal={false}
+                allowNegative={false}
+                clampBehavior="strict"
+                disabled={Boolean(otp)}
+                label={getBookingQuantityLabel(selectedService)}
+                min={1}
+                max={24}
+                onChange={(value) => {
+                  setSelectedSlotStartAt("");
+                  setBookingQuantity(Number(value) || 1);
+                }}
+                required
+                step={1}
+                value={bookingQuantity}
+              />
+            ) : null}
+            {selectedService && allowBookingQuantity ? (
+              <Text c="dimmed" size="sm">
+                Total booking time: {formatDuration(totalDurationMinutes)}.
+              </Text>
             ) : null}
 
             <Select
               data={locationOptions}
-              disabled={!locationOptions.length}
+              disabled={!locationOptions.length || Boolean(otp)}
               label="Branch"
               leftSection={<IconMapPin size={16} />}
               onChange={(value) => setSelectedLocationSlug(value || "")}
@@ -267,15 +633,28 @@ export default function BookingRequestPage() {
               </Text>
             ) : null}
 
-            <TextInput
-              label="Preferred date and time"
-              leftSection={<IconClock size={16} />}
-              min={formatDateTimeLocal(new Date())}
-              onChange={(event) => setScheduledStartAt(event.currentTarget.value)}
+            <DatePickerInput
+              clearable={false}
+              label="Date"
+              leftSection={<IconCalendar size={16} />}
+              minDate={formatDateInputValue()}
+              onChange={(value) => setBookingDate(value || "")}
               required
-              type="datetime-local"
-              value={scheduledStartAt}
+              value={bookingDate}
             />
+
+            <Select
+              data={slotOptions}
+              disabled={slotsLoading || !slotOptions.length || Boolean(otp)}
+              label="Available slot"
+              onChange={(value) => setSelectedSlotStartAt(value || "")}
+              placeholder={slotsLoading ? "Loading slots..." : "Select a time"}
+              required
+              value={selectedSlotStartAt}
+            />
+            {!slotsLoading && bookingDate && !slotOptions.length ? (
+              <Alert color="yellow">No available slots for this date.</Alert>
+            ) : null}
 
             <TextInput
               label="Name"
@@ -289,11 +668,28 @@ export default function BookingRequestPage() {
               type="email"
               value={customerEmail}
             />
+            <Alert color="blue" variant="light">
+              Email alerts are enabled automatically when an email address is available.
+            </Alert>
             <TextInput
               label="Mobile number"
               onChange={(event) => setCustomerPhone(event.currentTarget.value)}
               value={customerPhone}
             />
+            <Checkbox
+              checked={notifyBySms}
+              disabled={!customerPhone || Boolean(otp)}
+              label="Enable SMS alert"
+              onChange={(event) => setNotifyBySms(event.currentTarget.checked)}
+            />
+            {notifyBySms ? (
+              <Alert color={smsFeeApplies ? "orange" : "teal"} variant="light">
+                {smsFeeApplies
+                  ? `SMS alerts require ${smsFee?.displayAmount || "payment"} before this booking is submitted.`
+                  : "SMS alerts are available for this booking with no extra fee."}
+              </Alert>
+            ) : null}
+
             <Textarea
               label="Notes"
               minRows={3}
@@ -301,12 +697,43 @@ export default function BookingRequestPage() {
               value={notes}
             />
 
+            {otp ? (
+              <Card withBorder radius="md" p="md">
+                <Stack gap="sm">
+                  <Text fw={700}>Verification code</Text>
+                  <Text c="dimmed" size="sm">
+                    Sent by {otp.deliveryChannel} to {otp.deliveryTarget}.
+                  </Text>
+                  <PinInput
+                    length={6}
+                    onChange={(value) => setOtpCode(value.replace(/\D/g, ""))}
+                    oneTimeCode
+                    type="number"
+                    value={otpCode}
+                  />
+                  <Button disabled={submitting} onClick={resendOtp} variant="subtle" w="fit-content">
+                    Resend code
+                  </Button>
+                </Stack>
+              </Card>
+            ) : null}
+
             <Group justify="space-between">
               <Text c="dimmed" size="sm">
-                {selectedService ? getServiceLabel(selectedService) : "Select a service to continue."}
+                {selectedService
+                  ? allowBookingQuantity
+                    ? `${getServiceLabel(selectedService)} - ${formatDuration(totalDurationMinutes)} total`
+                    : getServiceLabel(selectedService)
+                  : "Select a service to continue."}
               </Text>
-              <Button color="dark" disabled={submitting || !vendor?.services.length} type="submit">
-                {submitting ? "Submitting..." : "Submit booking request"}
+              <Button color="dark" disabled={submitting || !vendor?.services.length || !selectedSlot} type="submit">
+                {submitting
+                  ? "Processing..."
+                  : otp
+                    ? smsFeeApplies
+                      ? "Verify and continue to payment"
+                      : "Verify and submit booking"
+                    : "Send verification code"}
               </Button>
             </Group>
           </Stack>

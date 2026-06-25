@@ -34,6 +34,110 @@ function normalizeSlug(value) {
     .replace(/^-+|-+$/g, "");
 }
 
+function validateTenantSlug(value) {
+  const tenantSlug = normalizeSlug(value);
+  if (!tenantSlug || !/^[a-z0-9](?:[a-z0-9-]{0,46}[a-z0-9])?$/.test(tenantSlug)) {
+    return {
+      tenantSlug,
+      valid: false,
+      message: "Tenant slug must be 1-48 characters using lowercase letters, numbers, or hyphens."
+    };
+  }
+
+  return {
+    tenantSlug,
+    valid: true,
+    message: ""
+  };
+}
+
+function normalizeUsername(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase();
+}
+
+function buildUsernameFromName(name, fallback = "user") {
+  const base = String(name || fallback || "user")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+
+  if (base.length >= 3) {
+    return base.slice(0, 30);
+  }
+
+  return "user";
+}
+
+function validateUsername(value) {
+  const username = normalizeUsername(value);
+  if (!username || !/^[a-z0-9_]{3,30}$/.test(username)) {
+    return {
+      username,
+      valid: false,
+      message: "Username must be 3-30 characters using lowercase letters, numbers, or underscores."
+    };
+  }
+
+  return {
+    username,
+    valid: true,
+    message: ""
+  };
+}
+
+async function assertUsernameAvailable(username, options = {}) {
+  const validation = validateUsername(username);
+  if (!validation.valid) {
+    const error = new Error(validation.message);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const existingUser = await userRepository.findUserByUsername(validation.username, options);
+  if (existingUser) {
+    const error = new Error("That username is already taken.");
+    error.statusCode = 409;
+    throw error;
+  }
+
+  return validation.username;
+}
+
+async function buildAvailableUsername(name, options = {}) {
+  const base = buildUsernameFromName(name);
+  const queryOptions = options.client ? { client: options.client } : {};
+  const excludeId = options.excludeId ? { excludeId: options.excludeId } : {};
+  const baseCandidate = base.slice(0, 30);
+  const existingBase = await userRepository.findUserByUsername(baseCandidate, {
+    ...queryOptions,
+    ...excludeId
+  });
+
+  if (!existingBase) {
+    return baseCandidate;
+  }
+
+  for (let suffix = 2; suffix < 10000; suffix += 1) {
+    const suffixText = `_${suffix}`;
+    const candidate = `${base.slice(0, 30 - suffixText.length)}${suffixText}`;
+    const existingUser = await userRepository.findUserByUsername(candidate, {
+      ...queryOptions,
+      ...excludeId
+    });
+
+    if (!existingUser) {
+      return candidate;
+    }
+  }
+
+  const error = new Error("Could not generate an available username.");
+  error.statusCode = 409;
+  throw error;
+}
+
 function buildAuthResponse(user, sessionResult) {
   return {
     token: sessionResult.accessToken,
@@ -112,6 +216,7 @@ async function buildUserPayload(user) {
   return {
     id: String(user._id),
     name: user.name,
+    username: user.username,
     email: user.email,
     phone: user.phone,
     roles: user.roles,
@@ -149,6 +254,7 @@ async function findOrCreateOauthUser(profile) {
   if (!user) {
     return userRepository.createUser({
       name: profile.name || buildFallbackName(profile.provider, normalizedEmail),
+      username: await buildAvailableUsername(profile.name || buildFallbackName(profile.provider, normalizedEmail)),
       email: normalizedEmail || undefined,
       emailVerified: Boolean(profile.emailVerified),
       lastLoginProvider: profile.provider,
@@ -179,6 +285,10 @@ async function findOrCreateOauthUser(profile) {
 
   user = await userRepository.updateUser(user._id, {
     name: user.name || profile.name || buildFallbackName(profile.provider, normalizedEmail || user.email),
+    username: user.username || (await buildAvailableUsername(
+      profile.name || user.name || buildFallbackName(profile.provider, normalizedEmail || user.email),
+      { excludeId: user._id }
+    )),
     email: user.email || normalizedEmail || null,
     emailVerified: user.emailVerified || Boolean(profile.emailVerified),
     lastLoginProvider: profile.provider,
@@ -215,6 +325,61 @@ router.get("/oauth/providers", (req, res) => {
     providers: buildProviderAvailability()
   });
 });
+
+router.get(
+  "/username-availability",
+  maybeAuthenticate,
+  asyncHandler(async (req, res) => {
+    const validation = validateUsername(req.query.username);
+
+    if (!validation.valid) {
+      res.json({
+        username: validation.username,
+        available: false,
+        valid: false,
+        message: validation.message
+      });
+      return;
+    }
+
+    const existingUser = await userRepository.findUserByUsername(validation.username, {
+      excludeId: req.user?._id
+    });
+
+    res.json({
+      username: validation.username,
+      available: !existingUser,
+      valid: true,
+      message: existingUser ? "That username is already taken." : "Username is available."
+    });
+  })
+);
+
+router.get(
+  "/tenant-slug-availability",
+  asyncHandler(async (req, res) => {
+    const validation = validateTenantSlug(req.query.tenantSlug);
+
+    if (!validation.valid) {
+      res.json({
+        tenantSlug: validation.tenantSlug,
+        available: false,
+        valid: false,
+        message: validation.message
+      });
+      return;
+    }
+
+    const existingTenant = await tenantRepository.findTenantBySlug(validation.tenantSlug);
+
+    res.json({
+      tenantSlug: validation.tenantSlug,
+      available: !existingTenant,
+      valid: true,
+      message: existingTenant ? "That tenant slug is already taken." : "Tenant slug is available."
+    });
+  })
+);
 
 router.get("/oauth/:provider/start", (req, res) => {
   const provider = String(req.params.provider || "").toLowerCase();
@@ -290,27 +455,36 @@ router.all("/oauth/:provider/callback", async (req, res) => {
 router.post(
   "/register/vendor",
   asyncHandler(async (req, res) => {
-    const { tenantName, tenantSlug, name, email, phone, password } = req.body;
+    const { tenantName, tenantSlug, name, username, email, phone, password } = req.body;
 
-    if (!tenantName || !tenantSlug || !name || !email || !password) {
-      const error = new Error("tenantName, tenantSlug, name, email, and password are required.");
+    if (!tenantName || !tenantSlug || !name || !username || !email || !password) {
+      const error = new Error("tenantName, tenantSlug, name, username, email, and password are required.");
       error.statusCode = 400;
       throw error;
     }
 
-    const normalizedSlug = normalizeSlug(tenantSlug);
+    const slugValidation = validateTenantSlug(tenantSlug);
+    const normalizedSlug = slugValidation.tenantSlug;
     const normalizedEmail = normalizeEmail(email);
+    const normalizedUsername = validateUsername(username);
 
-    if (!normalizedSlug) {
-      const error = new Error("tenantSlug must contain letters or numbers.");
+    if (!slugValidation.valid) {
+      const error = new Error(slugValidation.message);
+      error.statusCode = 400;
+      throw error;
+    }
+
+    if (!normalizedUsername.valid) {
+      const error = new Error(normalizedUsername.message);
       error.statusCode = 400;
       throw error;
     }
 
     const result = await db.withTransaction(async (client) => {
-      const [existingTenant, existingUser] = await Promise.all([
+      const [existingTenant, existingUser, existingUsername] = await Promise.all([
         tenantRepository.findTenantBySlug(normalizedSlug, { client }),
-        userRepository.findUserByEmail(normalizedEmail, { client })
+        userRepository.findUserByEmail(normalizedEmail, { client }),
+        userRepository.findUserByUsername(normalizedUsername.username, { client })
       ]);
 
       if (existingTenant) {
@@ -321,6 +495,12 @@ router.post(
 
       if (existingUser) {
         const error = new Error(buildExistingAccountMessage(existingUser));
+        error.statusCode = 409;
+        throw error;
+      }
+
+      if (existingUsername) {
+        const error = new Error("That username is already taken.");
         error.statusCode = 409;
         throw error;
       }
@@ -338,6 +518,7 @@ router.post(
       const user = await userRepository.createUser(
         {
           name,
+          username: normalizedUsername.username,
           email: normalizedEmail,
           phone,
           passwordHash: await bcrypt.hash(password, 10),
@@ -378,7 +559,7 @@ router.post(
   "/register/vendor/complete",
   authenticate,
   asyncHandler(async (req, res) => {
-    const { tenantName, tenantSlug, name, email, phone } = req.body;
+    const { tenantName, tenantSlug, name, username, email, phone } = req.body;
 
     if (!tenantName || !tenantSlug) {
       const error = new Error("tenantName and tenantSlug are required.");
@@ -386,11 +567,12 @@ router.post(
       throw error;
     }
 
-    const normalizedSlug = normalizeSlug(tenantSlug);
+    const slugValidation = validateTenantSlug(tenantSlug);
+    const normalizedSlug = slugValidation.tenantSlug;
     const normalizedEmail = normalizeEmail(email) || normalizeEmail(req.user.email);
 
-    if (!normalizedSlug) {
-      const error = new Error("tenantSlug must contain letters or numbers.");
+    if (!slugValidation.valid) {
+      const error = new Error(slugValidation.message);
       error.statusCode = 400;
       throw error;
     }
@@ -408,10 +590,22 @@ router.post(
       throw error;
     }
 
+    const resolvedUsernameInput = username || req.user.username || "";
+    const resolvedUsername = validateUsername(resolvedUsernameInput);
+    if (!resolvedUsername.valid) {
+      const error = new Error(resolvedUsername.message);
+      error.statusCode = 400;
+      throw error;
+    }
+
     const user = await db.withTransaction(async (client) => {
-      const [existingTenant, conflictingUser] = await Promise.all([
+      const [existingTenant, conflictingUser, conflictingUsername] = await Promise.all([
         tenantRepository.findTenantBySlug(normalizedSlug, { client }),
         userRepository.findUserByEmail(normalizedEmail, {
+          client,
+          excludeId: req.user._id
+        }),
+        userRepository.findUserByUsername(resolvedUsername.username, {
           client,
           excludeId: req.user._id
         })
@@ -425,6 +619,12 @@ router.post(
 
       if (conflictingUser) {
         const error = new Error("That email is already associated with another account.");
+        error.statusCode = 409;
+        throw error;
+      }
+
+      if (conflictingUsername) {
+        const error = new Error("That username is already taken.");
         error.statusCode = 409;
         throw error;
       }
@@ -445,6 +645,7 @@ router.post(
         req.user._id,
         {
           name: resolvedName,
+          username: resolvedUsername.username,
           email: normalizedEmail,
           phone: phone || req.user.phone,
           roles: [...new Set([...(req.user.roles || []), "customer", "vendor"])]
@@ -469,15 +670,16 @@ router.post(
 router.post(
   "/register/customer",
   asyncHandler(async (req, res) => {
-    const { name, email, phone, password } = req.body;
+    const { name, username, email, phone, password } = req.body;
 
-    if (!name || !email || !password) {
-      const error = new Error("name, email, and password are required.");
+    if (!name || !username || !email || !password) {
+      const error = new Error("name, username, email, and password are required.");
       error.statusCode = 400;
       throw error;
     }
 
     const normalizedEmail = normalizeEmail(email);
+    const normalizedUsername = await assertUsernameAvailable(username);
     const existingUser = await userRepository.findUserByEmail(normalizedEmail);
     if (existingUser) {
       const error = new Error(buildExistingAccountMessage(existingUser));
@@ -487,6 +689,7 @@ router.post(
 
     const user = await userRepository.createUser({
       name,
+      username: normalizedUsername,
       email: normalizedEmail,
       phone,
       passwordHash: await bcrypt.hash(password, 10),

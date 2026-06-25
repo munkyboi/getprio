@@ -265,6 +265,9 @@ function buildPublicRouter(ticket, cancelTicketMock) {
           slug: "general-consultation",
           description: "A bookable public service.",
           durationMinutes: 30,
+          allowBookingQuantity: false,
+          bookingQuantityLabel: "Units",
+          manualPaymentRequired: true,
           priceAmountCents: 50000,
           currency: "PHP",
           priceDisplay: "PHP 500",
@@ -280,6 +283,9 @@ function buildPublicRouter(ticket, cancelTicketMock) {
           slug: "hidden-service",
           description: "Inactive services are not public.",
           durationMinutes: 45,
+          allowBookingQuantity: false,
+          bookingQuantityLabel: "Units",
+          manualPaymentRequired: false,
           priceAmountCents: 75000,
           currency: "PHP",
           priceDisplay: "PHP 750",
@@ -371,6 +377,7 @@ test("public vendor discovery returns approved public profile cards", async () =
     assert.equal(body.vendors[0].locations[0].hours[0].opensAt, "08:00");
     assert.equal(body.vendors[0].services.length, 1);
     assert.equal(body.vendors[0].services[0].slug, "general-consultation");
+    assert.equal(body.vendors[0].services[0].manualPaymentRequired, true);
     assert.equal(body.vendors[0].services[0].tenantId, undefined);
     assert.equal(body.vendors[0].publicBoardTheme.theme.logoUrl, "https://cdn.example.test/logo.png");
     assert.equal(body.vendors[0].contactEmail, undefined);
@@ -423,6 +430,7 @@ test("public vendor profile includes the resolved public board theme", async () 
     assert.equal(body.vendor.publicBoardTheme.theme.logoUrl, "https://cdn.example.test/logo.png");
     assert.equal(body.vendor.publicBoardTheme.theme.backgroundImageUrl, "https://cdn.example.test/background.png");
     assert.equal(body.vendor.services[0].slug, "general-consultation");
+    assert.equal(body.vendor.services[0].manualPaymentRequired, true);
     assert.equal(body.vendor.locations[0].hours[0].closesAt, "17:00");
   } finally {
     await stopServer(server);

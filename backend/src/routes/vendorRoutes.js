@@ -16,6 +16,7 @@ const {
 } = require("../middleware/auth");
 const billingService = require("../services/billingService");
 const publicBoardThemeUploadService = require("../services/publicBoardThemeUploadService");
+const locationPaymentQrUploadService = require("../services/locationPaymentQrUploadService");
 const storeHoursService = require("../services/storeHoursService");
 const bookingService = require("../services/bookingService");
 const PDFDocument = require("pdfkit");
@@ -28,8 +29,10 @@ const {
   reopenQueueDay,
   pauseQueueDay,
   resumeQueueDay,
-  restoreSkippedTicket
+  restoreSkippedTicket,
+  publishSnapshot
 } = require("../services/queueService");
+const { parsePaginationParams, formatPaginationMetadata } = require("../utils/pagination");
 
 const router = express.Router();
 
@@ -85,6 +88,11 @@ async function formatLocation(location, tenant) {
     contactEmail: location.contactEmail,
     contactPhone: location.contactPhone,
     timezone: location.timezone,
+    paymentMethodLabel: location.paymentMethodLabel,
+    paymentAccountDisplayName: location.paymentAccountDisplayName,
+    paymentAccountIdentifierDisplay: location.paymentAccountIdentifierDisplay,
+    paymentQrImageUrl: location.paymentQrImageUrl,
+    paymentQrActive: location.paymentQrActive,
     isPrimary: location.isPrimary,
     isActive: location.isActive,
     joinUrl: `${process.env.APP_BASE_URL || "http://localhost:5173"}/join/${tenant.slug}/${location.slug}`,
@@ -97,6 +105,58 @@ async function formatLocation(location, tenant) {
       isClosed: hour.isClosed
     }))
   };
+}
+
+function normalizeLocationPayload(body, existingLocation = null) {
+  const next = { ...body };
+  const textFields = [
+    "name",
+    "slug",
+    "addressLine1",
+    "addressLine2",
+    "city",
+    "province",
+    "postalCode",
+    "country",
+    "contactEmail",
+    "contactPhone",
+    "timezone",
+    "paymentMethodLabel",
+    "paymentAccountDisplayName",
+    "paymentAccountIdentifierDisplay",
+    "paymentQrImageUrl"
+  ];
+
+  for (const field of textFields) {
+    if (Object.prototype.hasOwnProperty.call(next, field) && typeof next[field] === "string") {
+      next[field] = next[field].trim();
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(next, "paymentQrActive")) {
+    next.paymentQrActive = next.paymentQrActive === true;
+  }
+
+  const paymentQrActive = Object.prototype.hasOwnProperty.call(next, "paymentQrActive")
+    ? next.paymentQrActive
+    : existingLocation?.paymentQrActive ?? false;
+  const paymentMethodLabel = Object.prototype.hasOwnProperty.call(next, "paymentMethodLabel")
+    ? next.paymentMethodLabel
+    : existingLocation?.paymentMethodLabel || "";
+  const paymentAccountDisplayName = Object.prototype.hasOwnProperty.call(next, "paymentAccountDisplayName")
+    ? next.paymentAccountDisplayName
+    : existingLocation?.paymentAccountDisplayName || "";
+  const paymentQrImageUrl = Object.prototype.hasOwnProperty.call(next, "paymentQrImageUrl")
+    ? next.paymentQrImageUrl
+    : existingLocation?.paymentQrImageUrl || "";
+
+  if (paymentQrActive && (!paymentMethodLabel || !paymentAccountDisplayName || !paymentQrImageUrl)) {
+    const error = new Error("Active payment QR requires a method label, account display name, and QR image.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return next;
 }
 
 function normalizeCounterSlug(value) {
@@ -157,6 +217,15 @@ function normalizeServicePayload(body, existingService = null) {
   const priceDisplay = typeof body.priceDisplay === "string" && body.priceDisplay.trim()
     ? body.priceDisplay.trim()
     : buildPriceDisplay(priceAmountCents, currency);
+  const allowBookingQuantity = Object.prototype.hasOwnProperty.call(body, "allowBookingQuantity")
+    ? body.allowBookingQuantity === true
+    : existingService?.allowBookingQuantity ?? false;
+  const bookingQuantityLabel = typeof body.bookingQuantityLabel === "string" && body.bookingQuantityLabel.trim()
+    ? body.bookingQuantityLabel.trim().slice(0, 40)
+    : existingService?.bookingQuantityLabel || "Units";
+  const manualPaymentRequired = Object.prototype.hasOwnProperty.call(body, "manualPaymentRequired")
+    ? body.manualPaymentRequired === true
+    : existingService?.manualPaymentRequired ?? false;
 
   return {
     name,
@@ -165,6 +234,9 @@ function normalizeServicePayload(body, existingService = null) {
       ? body.description.trim()
       : existingService?.description || "",
     durationMinutes,
+    allowBookingQuantity,
+    bookingQuantityLabel,
+    manualPaymentRequired,
     priceAmountCents,
     currency,
     priceDisplay,
@@ -185,6 +257,9 @@ function formatVendorService(service) {
     slug: service.slug,
     description: service.description,
     durationMinutes: service.durationMinutes,
+    allowBookingQuantity: service.allowBookingQuantity,
+    bookingQuantityLabel: service.bookingQuantityLabel,
+    manualPaymentRequired: service.manualPaymentRequired,
     priceAmountCents: service.priceAmountCents,
     currency: service.currency,
     priceDisplay: service.priceDisplay,
@@ -258,7 +333,11 @@ function formatVendorBooking(booking) {
     serviceId: booking.serviceId,
     serviceName: booking.serviceName,
     serviceSlug: booking.serviceSlug,
+    serviceManualPaymentRequired: booking.serviceManualPaymentRequired,
+    servicePriceAmountCents: booking.servicePriceAmountCents,
+    serviceCurrency: booking.serviceCurrency,
     servicePriceDisplay: booking.servicePriceDisplay,
+    bookingQuantity: booking.bookingQuantity,
     customerUserId: booking.customerUserId,
     customerName: booking.customerName,
     customerEmail: booking.customerEmail,
@@ -269,6 +348,39 @@ function formatVendorBooking(booking) {
     notes: booking.notes,
     paymentReference: booking.paymentReference,
     paymentStatus: booking.paymentStatus,
+    paymentProof: booking.paymentProofObjectKey
+      ? {
+          fileName: booking.paymentProofFileName,
+          contentType: booking.paymentProofContentType,
+          sizeBytes: booking.paymentProofSizeBytes,
+          uploadedAt: booking.paymentProofUploadedAt
+        }
+      : null,
+    paymentVerifiedAt: booking.paymentVerifiedAt,
+    paymentVerifiedByUserId: booking.paymentVerifiedByUserId,
+    paymentRejectedAt: booking.paymentRejectedAt,
+    paymentRejectedByUserId: booking.paymentRejectedByUserId,
+    paymentRejectionReason: booking.paymentRejectionReason,
+    pendingExpiresAt: booking.pendingExpiresAt,
+    expiredAt: booking.expiredAt,
+    expirationReason: booking.expirationReason,
+    notifyByEmail: booking.notifyByEmail,
+    notifyBySms: booking.notifyBySms,
+    smsAlertFeePaymentId: booking.smsAlertFeePaymentId,
+    contactVerifiedAt: booking.contactVerifiedAt,
+    contactVerificationChannel: booking.contactVerificationChannel,
+    linkedTicket: booking.queueTicketId
+      ? {
+          id: booking.queueTicketId,
+          ticketNumber: booking.queueTicketNumber,
+          lookupCode: booking.queueTicketLookupCode,
+          status: booking.queueTicketStatus
+        }
+      : null,
+    checkedInAt: booking.checkedInAt,
+    checkedInByUserId: booking.checkedInByUserId,
+    noShowAt: booking.noShowAt,
+    noShowByUserId: booking.noShowByUserId,
     createdAt: booking.createdAt,
     updatedAt: booking.updatedAt
   };
@@ -553,10 +665,11 @@ router.post(
       throw error;
     }
 
+    const locationPayload = normalizeLocationPayload(req.body || {});
     const location = await storeLocationRepository.createLocation({
       tenantId: tenant._id,
-      ...req.body,
-      timezone: req.body.timezone || "Asia/Manila"
+      ...locationPayload,
+      timezone: locationPayload.timezone || "Asia/Manila"
     });
     await storeLocationRepository.createDefaultHours(location._id);
 
@@ -583,9 +696,77 @@ router.patch(
       }
     }
 
-    const updatedLocation = await storeLocationRepository.updateLocation(location._id, req.body);
+    const updatedLocation = await storeLocationRepository.updateLocation(
+      location._id,
+      normalizeLocationPayload(req.body || {}, location)
+    );
 
     res.json({ location: await formatLocation(updatedLocation, tenant) });
+  })
+);
+
+router.post(
+  "/tenant/:tenantSlug/location-payment-qrs/uploads/direct",
+  express.raw({ type: ["image/jpeg", "image/png", "image/webp"], limit: "8mb" }),
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.location.manage");
+    const locationSlug = String(req.query.locationSlug || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    if (!locationSlug) {
+      const error = new Error("locationSlug is required before uploading a payment QR.");
+      error.statusCode = 400;
+      throw error;
+    }
+    if (!req.body || !Buffer.isBuffer(req.body) || !req.body.length) {
+      const error = new Error("QR image upload payload is required.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const upload = await locationPaymentQrUploadService.uploadBinary({
+      tenant,
+      location: { slug: locationSlug },
+      body: {
+        fileName: req.query.fileName,
+        contentType: req.headers["content-type"],
+        sizeBytes: req.body.length
+      },
+      fileBuffer: req.body
+    });
+
+    res.status(201).json(upload);
+  })
+);
+
+router.post(
+  "/tenant/:tenantSlug/locations/:locationSlug/payment-qr/uploads/direct",
+  express.raw({ type: ["image/jpeg", "image/png", "image/webp"], limit: "8mb" }),
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.location.manage");
+    const location = await getLocationForTenant(tenant, req.params.locationSlug);
+    if (!req.body || !Buffer.isBuffer(req.body) || !req.body.length) {
+      const error = new Error("QR image upload payload is required.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const upload = await locationPaymentQrUploadService.uploadBinary({
+      tenant,
+      location,
+      body: {
+        fileName: req.query.fileName,
+        contentType: req.headers["content-type"],
+        sizeBytes: req.body.length
+      },
+      fileBuffer: req.body
+    });
+
+    res.status(201).json(upload);
   })
 );
 
@@ -678,10 +859,16 @@ router.get(
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.booking.manage");
+
+    const { page, pageSize } = parsePaginationParams(req.query);
+
     const location = req.query.location
       ? await getLocationForTenant(tenant, req.query.location)
       : null;
     const status = String(req.query.status || "").trim();
+    const scheduledDate = String(req.query.scheduledDate || "").trim();
+    const search = String(req.query.search || "").trim();
+
     const allowedStatuses = new Set([
       "pending",
       "confirmed",
@@ -698,15 +885,19 @@ router.get(
       throw error;
     }
 
-    const limit = Math.min(Math.max(Number(req.query.limit || 100) || 100, 1), 200);
-    const bookings = await bookingRepository.listBookingsForTenant(tenant._id, {
-      limit,
+    await bookingService.expirePendingBookingsForTenant(tenant._id);
+    const { bookings, totalItems } = await bookingRepository.listBookingsForTenant(tenant._id, {
+      page,
+      pageSize,
       locationId: location?._id,
-      status: status || null
+      status: status || null,
+      scheduledDate: scheduledDate || null,
+      search: search || null
     });
 
     res.json({
-      bookings: bookings.map(formatVendorBooking)
+      bookings: bookings.map(formatVendorBooking),
+      pagination: formatPaginationMetadata(totalItems, page, pageSize)
     });
   })
 );
@@ -721,6 +912,61 @@ router.patch(
       bookingId: req.params.bookingId,
       status: String(req.body.status || "").trim()
     });
+    const location = await getLocationForTenant(tenant, booking.locationSlug);
+    await publishSnapshot(tenant, { location });
+
+    res.json({
+      booking: formatVendorBooking(booking)
+    });
+  })
+);
+
+router.get(
+  "/tenant/:tenantSlug/bookings/:bookingId/payment-proof",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.booking.manage");
+    const proofAccess = await bookingService.createVendorPaymentProofAccess({
+      tenant,
+      bookingId: req.params.bookingId
+    });
+
+    res.json(proofAccess);
+  })
+);
+
+router.patch(
+  "/tenant/:tenantSlug/bookings/:bookingId/verify-payment",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.booking.manage");
+    const booking = await bookingService.verifyVendorBookingPayment({
+      tenant,
+      bookingId: req.params.bookingId,
+      user: req.user
+    });
+    const location = await getLocationForTenant(tenant, booking.locationSlug);
+    await publishSnapshot(tenant, { location });
+
+    res.json({
+      booking: formatVendorBooking(booking)
+    });
+  })
+);
+
+router.patch(
+  "/tenant/:tenantSlug/bookings/:bookingId/reject-payment",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.booking.manage");
+    const booking = await bookingService.rejectVendorBookingPayment({
+      tenant,
+      bookingId: req.params.bookingId,
+      user: req.user,
+      reason: req.body?.reason
+    });
+    const location = await getLocationForTenant(tenant, booking.locationSlug);
+    await publishSnapshot(tenant, { location });
 
     res.json({
       booking: formatVendorBooking(booking)
@@ -738,6 +984,50 @@ router.patch(
       bookingId: req.params.bookingId,
       scheduledStartAt: req.body.scheduledStartAt
     });
+    const location = await getLocationForTenant(tenant, booking.locationSlug);
+    await publishSnapshot(tenant, { location });
+
+    res.json({
+      booking: formatVendorBooking(booking)
+    });
+  })
+);
+
+router.post(
+  "/tenant/:tenantSlug/bookings/:bookingId/check-in",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.queue.operate");
+    const location = await getLocationForTenant(tenant, req.body.locationSlug || req.query.location);
+    const result = await bookingService.checkInVendorBooking({
+      tenant,
+      location,
+      bookingId: req.params.bookingId,
+      user: req.user,
+      overrideWindow: Boolean(req.body.overrideWindow),
+      overrideReason: req.body.overrideReason
+    });
+
+    res.status(201).json({
+      booking: formatVendorBooking(result.booking),
+      ticket: result.ticket
+    });
+  })
+);
+
+router.post(
+  "/tenant/:tenantSlug/bookings/:bookingId/no-show",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.queue.operate");
+    const location = await getLocationForTenant(tenant, req.body.locationSlug || req.query.location);
+    const booking = await bookingService.markVendorBookingNoShow({
+      tenant,
+      location,
+      bookingId: req.params.bookingId,
+      user: req.user
+    });
+    await publishSnapshot(tenant, { location });
 
     res.json({
       booking: formatVendorBooking(booking)

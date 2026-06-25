@@ -6,6 +6,14 @@ import SocialAuthButtons from "../components/SocialAuthButtons";
 import { useAuth } from "../context/AuthContext";
 import { getErrorMessage } from "../utils/errors";
 
+function getSafeRedirectPath(value: string | null): string | null {
+  if (!value || !value.startsWith("/") || value.startsWith("//")) {
+    return null;
+  }
+
+  return value;
+}
+
 export default function LoginPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -26,12 +34,13 @@ export default function LoginPage() {
   const resetToken = searchParams.get("resetToken") || "";
   const passwordChanged = searchParams.get("passwordChanged") === "1";
   const passwordResetSuccess = searchParams.get("reset") === "success";
+  const nextPath = getSafeRedirectPath(searchParams.get("next"));
 
   useEffect(() => {
     if (user?.tenants?.length) {
-      navigate("/dashboard", { replace: true });
+      navigate(nextPath || "/dashboard", { replace: true });
     }
-  }, [navigate, user]);
+  }, [navigate, nextPath, user]);
 
   useEffect(() => {
     setResetConfirmForm((current) => ({
@@ -45,7 +54,7 @@ export default function LoginPage() {
   }
 
   if (user && !user.tenants?.length) {
-    return <Navigate to="/" replace />;
+    return <Navigate to={nextPath || "/"} replace />;
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -55,7 +64,7 @@ export default function LoginPage() {
 
     try {
       const result = await login(form);
-      navigate(result.user.tenants.length ? "/dashboard" : "/", { replace: true });
+      navigate(nextPath || (result.user.tenants.length ? "/dashboard" : "/"), { replace: true });
     } catch (submitError) {
       setError(getErrorMessage(submitError));
     } finally {

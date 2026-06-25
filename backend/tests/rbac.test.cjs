@@ -189,6 +189,192 @@ test("permissions map keeps current owner, staff, and platform-admin boundaries"
   assert.equal(permissions.userHasPermission(platformAdmin, "platform.plans.manage"), true);
 });
 
+test("vendor location payment QR settings are private vendor-managed configuration", async () => {
+  const locations = [
+    {
+      _id: "location-1",
+      tenantId: "tenant-1",
+      name: "Main Branch",
+      slug: "main",
+      addressLine1: "123 Main",
+      addressLine2: "",
+      city: "Cebu City",
+      province: "Cebu",
+      postalCode: "",
+      country: "Philippines",
+      contactEmail: "main@getprio.test",
+      contactPhone: "09170000000",
+      timezone: "Asia/Manila",
+      paymentMethodLabel: "",
+      paymentAccountDisplayName: "",
+      paymentAccountIdentifierDisplay: "",
+      paymentQrImageUrl: "",
+      paymentQrActive: false,
+      isPrimary: true,
+      isActive: true
+    }
+  ];
+  let updatedLocation = null;
+
+  const vendorRouter = requireWithMocks("../src/routes/vendorRoutes.js", {
+    "../middleware/auth": buildAuthMock(),
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../repositories/tenants": {
+      findTenantBySlug: async () => ({ _id: "tenant-1", slug: "demo", name: "Demo Tenant" })
+    },
+    "../repositories/storeLocations": {
+      listLocationsByTenantId: async () => locations,
+      findPrimaryLocationByTenantId: async () => locations[0],
+      findLocationByTenantAndSlug: async (_tenantId, slug) =>
+        locations.find((location) => location.slug === slug) || null,
+      createLocation: async (data) => ({ _id: "location-2", ...data, createdAt: new Date(), updatedAt: new Date() }),
+      updateLocation: async (locationId, changes) => {
+        updatedLocation = {
+          ...locations[0],
+          _id: locationId,
+          ...changes
+        };
+        return updatedLocation;
+      },
+      createDefaultHours: async () => [],
+      listHoursByLocationId: async () => [],
+      replaceHours: async () => []
+    },
+    "../repositories/tickets": {
+      listHistoryTickets: async () => [],
+      listClientTickets: async () => []
+    },
+    "../repositories/publicBoardThemes": {
+      getResolvedTheme: async () => ({ scope: "fallback", theme: {} })
+    },
+    "../repositories/serviceCounters": {
+      listCountersByLocationId: async () => [],
+      listAssignedCounterIdsByUserIds: async () => new Map()
+    },
+    "../repositories/vendorServices": {
+      normalizeServiceSlug: (value) => String(value || "").trim().toLowerCase(),
+      listServicesByTenantId: async () => []
+    },
+    "../repositories/vendorAvailability": {
+      listAvailabilityByLocation: async () => ({ blocks: [], exceptions: [] })
+    },
+    "../repositories/bookings": {
+      listBookingsForTenant: async () => []
+    },
+    "../repositories/users": {
+      listUsersByTenantId: async () => []
+    },
+    "../services/billingService": {
+      getBillingOverview: async () => ({ subscription: { entitlements: { locations: 3 } }, plans: [] }),
+      getTenantEntitlements: async () => ({ staffSeats: 5, counters: 2, brandedQueuePages: true })
+    },
+    "../services/publicBoardThemeUploadService": {
+      createUpload: async () => ({})
+    },
+    "../services/locationPaymentQrUploadService": {
+      uploadBinary: async ({ location, fileBuffer }) => ({
+        asset: {
+          objectKey: `payment-qrs/tenants/tenant-1/locations/${location.slug}/test.png`,
+          publicUrl: `https://cdn.example.test/payment-qrs/${location.slug}/test.png`,
+          contentType: "image/png",
+          sizeBytes: fileBuffer.length
+        }
+      })
+    },
+    "../services/storeHoursService": {
+      getOpenStatus: async () => ({ isOpen: true, timezone: "Asia/Manila", summary: "Open", today: null, nextOpenAt: null })
+    },
+    "../services/bookingService": {
+      expirePendingBookingsForTenant: async () => {}
+    },
+    "../services/queueService": {
+      createTicket: async () => ({}),
+      getQueueSnapshot: async () => ({ tenant: { queuePrefix: "DMO", averageServiceMinutes: 5, notificationThreshold: 3 } }),
+      callNextTicket: async () => ({ ticket: null, snapshot: { queue: [] } }),
+      updateCurrentTicketStatus: async () => ({ ticket: null, snapshot: { queue: [] } }),
+      publishSnapshot: async () => ({})
+    },
+    pdfkit: function MockPdfDocument() {}
+  });
+
+  const { server, baseUrl } = await startServer(vendorRouter, "/api/vendor");
+
+  try {
+    const deniedResponse = await fetch(`${baseUrl}/tenant/demo/locations/main`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        "x-test-tenant-role": "staff"
+      },
+      body: JSON.stringify({ paymentQrActive: true })
+    });
+    assert.equal(deniedResponse.status, 403);
+
+    const invalidResponse = await fetch(`${baseUrl}/tenant/demo/locations/main`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        "x-test-tenant-role": "admin"
+      },
+      body: JSON.stringify({ paymentQrActive: true })
+    });
+    assert.equal(invalidResponse.status, 400);
+
+    const updateResponse = await fetch(`${baseUrl}/tenant/demo/locations/main`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        "x-test-tenant-role": "admin"
+      },
+      body: JSON.stringify({
+        paymentMethodLabel: "GCash InstaPay QR",
+        paymentAccountDisplayName: "Demo Clinic Main",
+        paymentAccountIdentifierDisplay: "0917 *** 1234",
+        paymentQrImageUrl: "https://cdn.example.test/payment-qr.png",
+        paymentQrActive: true
+      })
+    });
+    assert.equal(updateResponse.status, 200);
+    const updateBody = await updateResponse.json();
+    assert.equal(updatedLocation.paymentQrActive, true);
+    assert.equal(updatedLocation.paymentMethodLabel, "GCash InstaPay QR");
+    assert.equal(updateBody.location.paymentAccountDisplayName, "Demo Clinic Main");
+
+    const deniedUploadResponse = await fetch(`${baseUrl}/tenant/demo/location-payment-qrs/uploads/direct?locationSlug=main&fileName=qr.png`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "image/png",
+        "x-test-tenant-role": "staff"
+      },
+      body: Buffer.from("png")
+    });
+    assert.equal(deniedUploadResponse.status, 403);
+
+    const uploadResponse = await fetch(`${baseUrl}/tenant/demo/location-payment-qrs/uploads/direct?locationSlug=main&fileName=qr.png`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "image/png",
+        "x-test-tenant-role": "admin"
+      },
+      body: Buffer.from("png")
+    });
+    assert.equal(uploadResponse.status, 201);
+    const uploadBody = await uploadResponse.json();
+    assert.equal(uploadBody.asset.publicUrl, "https://cdn.example.test/payment-qrs/main/test.png");
+
+    const listResponse = await fetch(`${baseUrl}/tenant/demo/locations`, {
+      headers: {
+        "x-test-tenant-role": "admin"
+      }
+    });
+    assert.equal(listResponse.status, 200);
+    const listBody = await listResponse.json();
+    assert.equal(listBody.locations[0].paymentQrActive, false);
+  } finally {
+    await stopServer(server);
+  }
+});
+
 test("vendor availability is manageable by vendor admins but denied to staff", async () => {
   const blocks = [
     {
@@ -406,6 +592,9 @@ test("vendor service catalog is manageable by vendor admins but denied to staff"
       slug: "haircut",
       description: "Standard service",
       durationMinutes: 30,
+      allowBookingQuantity: false,
+      bookingQuantityLabel: "Units",
+      manualPaymentRequired: false,
       priceAmountCents: 25000,
       currency: "PHP",
       priceDisplay: "PHP 250",
@@ -509,7 +698,9 @@ test("vendor service catalog is manageable by vendor admins but denied to staff"
       }
     });
     assert.equal(listResponse.status, 200);
-    assert.equal((await listResponse.json()).services.length, 1);
+    const listBody = await listResponse.json();
+    assert.equal(listBody.services.length, 1);
+    assert.equal(listBody.services[0].manualPaymentRequired, false);
 
     const createResponse = await fetch(`${baseUrl}/tenant/demo/services`, {
       method: "POST",
@@ -520,11 +711,15 @@ test("vendor service catalog is manageable by vendor admins but denied to staff"
       body: JSON.stringify({
         name: "Consultation",
         durationMinutes: 45,
+        manualPaymentRequired: true,
         priceAmountCents: 50000
       })
     });
     assert.equal(createResponse.status, 201);
+    const createBody = await createResponse.json();
     assert.equal(createdService.slug, "consultation");
+    assert.equal(createdService.manualPaymentRequired, true);
+    assert.equal(createBody.service.manualPaymentRequired, true);
     assert.equal(createdService.priceDisplay, "₱500");
 
     const deactivateResponse = await fetch(`${baseUrl}/tenant/demo/services/haircut`, {

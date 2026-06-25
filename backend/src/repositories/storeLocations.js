@@ -14,6 +14,11 @@ const LOCATION_COLUMNS = `
   contact_email,
   contact_phone,
   timezone,
+  payment_method_label,
+  payment_account_display_name,
+  payment_account_identifier_display,
+  payment_qr_image_url,
+  payment_qr_active,
   is_primary,
   is_active,
   created_at,
@@ -50,6 +55,11 @@ function mapLocation(row) {
     contactEmail: row.contact_email || "",
     contactPhone: row.contact_phone || "",
     timezone: row.timezone || "Asia/Manila",
+    paymentMethodLabel: row.payment_method_label || "",
+    paymentAccountDisplayName: row.payment_account_display_name || "",
+    paymentAccountIdentifierDisplay: row.payment_account_identifier_display || "",
+    paymentQrImageUrl: row.payment_qr_image_url || "",
+    paymentQrActive: Boolean(row.payment_qr_active),
     isPrimary: Boolean(row.is_primary),
     isActive: Boolean(row.is_active),
     createdAt: row.created_at,
@@ -169,10 +179,15 @@ async function createLocation(data, options = {}) {
         contact_email,
         contact_phone,
         timezone,
+        payment_method_label,
+        payment_account_display_name,
+        payment_account_identifier_display,
+        payment_qr_image_url,
+        payment_qr_active,
         is_primary,
         is_active
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
       RETURNING ${LOCATION_COLUMNS}
     `,
     [
@@ -188,6 +203,11 @@ async function createLocation(data, options = {}) {
       data.contactEmail || null,
       data.contactPhone || null,
       data.timezone || "Asia/Manila",
+      data.paymentMethodLabel || null,
+      data.paymentAccountDisplayName || null,
+      data.paymentAccountIdentifierDisplay || null,
+      data.paymentQrImageUrl || null,
+      Boolean(data.paymentQrActive),
       isPrimary,
       data.isActive ?? true
     ]
@@ -212,6 +232,11 @@ async function updateLocation(locationId, changes, options = {}) {
     contactEmail: "contact_email",
     contactPhone: "contact_phone",
     timezone: "timezone",
+    paymentMethodLabel: "payment_method_label",
+    paymentAccountDisplayName: "payment_account_display_name",
+    paymentAccountIdentifierDisplay: "payment_account_identifier_display",
+    paymentQrImageUrl: "payment_qr_image_url",
+    paymentQrActive: "payment_qr_active",
     isPrimary: "is_primary",
     isActive: "is_active"
   };

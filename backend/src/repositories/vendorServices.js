@@ -7,6 +7,9 @@ const SERVICE_COLUMNS = `
   slug,
   description,
   duration_minutes,
+  allow_booking_quantity,
+  booking_quantity_label,
+  manual_payment_required,
   price_amount_cents,
   currency,
   price_display,
@@ -41,6 +44,9 @@ function mapVendorService(row) {
     slug: row.slug,
     description: row.description || "",
     durationMinutes: Number(row.duration_minutes),
+    allowBookingQuantity: Boolean(row.allow_booking_quantity),
+    bookingQuantityLabel: row.booking_quantity_label || "Units",
+    manualPaymentRequired: Boolean(row.manual_payment_required),
     priceAmountCents: Number(row.price_amount_cents),
     currency: row.currency || "PHP",
     priceDisplay: row.price_display || "",
@@ -88,13 +94,16 @@ async function createService(data, options = {}) {
         slug,
         description,
         duration_minutes,
+        allow_booking_quantity,
+        booking_quantity_label,
+        manual_payment_required,
         price_amount_cents,
         currency,
         price_display,
         is_active,
         sort_order
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
       RETURNING ${SERVICE_COLUMNS}
     `,
     [
@@ -103,6 +112,9 @@ async function createService(data, options = {}) {
       normalizeServiceSlug(data.slug || data.name),
       data.description || null,
       Number(data.durationMinutes),
+      Boolean(data.allowBookingQuantity),
+      data.bookingQuantityLabel || "Units",
+      Boolean(data.manualPaymentRequired),
       Number(data.priceAmountCents || 0),
       data.currency || "PHP",
       data.priceDisplay || "",
@@ -123,6 +135,9 @@ async function updateService(serviceId, changes, options = {}) {
     slug: "slug",
     description: "description",
     durationMinutes: "duration_minutes",
+    allowBookingQuantity: "allow_booking_quantity",
+    bookingQuantityLabel: "booking_quantity_label",
+    manualPaymentRequired: "manual_payment_required",
     priceAmountCents: "price_amount_cents",
     currency: "currency",
     priceDisplay: "price_display",

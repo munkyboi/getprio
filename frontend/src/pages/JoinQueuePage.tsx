@@ -29,6 +29,7 @@ import type {
 import { API_BASE_URL, apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { buildJoinedQueuePathWithTicket, buildMonitorPath } from "../queuePaths";
+import { formatDisplayTime, toTimestamp } from "../utils/dates";
 import { saveJoinedQueueAccess } from "../utils/joinedQueueAccess";
 import { getErrorMessage } from "../utils/errors";
 
@@ -116,7 +117,7 @@ export default function JoinQueuePage() {
   const joinSource = searchParams.get("source")?.toLowerCase() === "qr" ? "qr" : "online";
   const turnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY || "";
   const shouldUseTurnstile = joinSource === "qr" && Boolean(turnstileSiteKey);
-  const resendAvailableAtMs = otp ? new Date(otp.resendAvailableAt).getTime() : 0;
+  const resendAvailableAtMs = otp ? toTimestamp(otp.resendAvailableAt) : 0;
   const resendSecondsRemaining = Math.max(
     0,
     Math.ceil((resendAvailableAtMs - now) / 1000)
@@ -661,37 +662,34 @@ export default function JoinQueuePage() {
             Join online, then monitor your ticket live from the public board.
           </Text>
           {user?.roles?.includes("customer") ? (
-            <Alert color="teal" variant="light">
-              <Stack gap={4}>
-                <Text fw={700}>Signed in as {customerAccountName}</Text>
-                <Text size="sm">
-                  We will reuse your saved contact details when possible. You can review your account history anytime from the account page.
-                </Text>
-                <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="sm">
-                  <div>
-                    <Text c="dimmed" size="xs" tt="uppercase">
-                      Name
-                    </Text>
-                    <Text fw={600}>{user.name || "Customer account"}</Text>
-                  </div>
-                  <div>
-                    <Text c="dimmed" size="xs" tt="uppercase">
-                      Email
-                    </Text>
-                    <Text fw={600}>{customerAccountEmail || "No email on file"}</Text>
-                  </div>
-                  <div>
-                    <Text c="dimmed" size="xs" tt="uppercase">
-                      Phone
-                    </Text>
-                    <Text fw={600}>{user.phone || "No phone on file"}</Text>
-                  </div>
+            <Alert className="join-account-summary" color="teal" variant="light">
+              <Stack gap="md">
+                <div>
+                  <Text className="finazze-section-label">Profile details</Text>
+                  <Title order={3}>Signed in as {customerAccountName}</Title>
+                  <Text c="dimmed" mt={4} size="sm">
+                    We will reuse your saved contact details when possible. You can review your account history anytime from the account page.
+                  </Text>
+                </div>
+                <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+                  <Stack gap={2} className="join-account-summary-item">
+                    <Text fw={700}>Display name</Text>
+                    <Text c="dimmed">{user.name || "Customer account"}</Text>
+                  </Stack>
+                  <Stack gap={2} className="join-account-summary-item">
+                    <Text fw={700}>Email</Text>
+                    <Text c="dimmed">{customerAccountEmail || "No email on file"}</Text>
+                  </Stack>
+                  <Stack gap={2} className="join-account-summary-item">
+                    <Text fw={700}>Phone</Text>
+                    <Text c="dimmed">{user.phone || "No phone on file"}</Text>
+                  </Stack>
                 </SimpleGrid>
-                <Group gap="md">
+                <Group gap="sm" wrap="wrap">
                   <Button color="dark" size="xs" variant="light" onClick={restoreCustomerDetails} type="button">
                     Use account details
                   </Button>
-                  <Button component={Link} size="xs" to="/account" variant="light">
+                  <Button component={Link} size="xs" to="/account/profile" variant="light">
                     View account
                   </Button>
                 </Group>
@@ -739,10 +737,7 @@ export default function JoinQueuePage() {
                     {maskDeliveryTarget(otp.deliveryChannel, otp.deliveryTarget)}.
                   </Text>
                   <Text c="dimmed" size="sm">
-                    It expires at {new Date(otp.expiresAt).toLocaleTimeString([], {
-                      hour: "2-digit",
-                      minute: "2-digit"
-                    })}.
+                    It expires at {formatDisplayTime(otp.expiresAt)}.
                   </Text>
                 </Paper>
                 <PinInput

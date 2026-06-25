@@ -4,6 +4,7 @@ export type UserRole = "customer" | "vendor" | "platform_admin";
 export type TenantRole = "owner" | "admin" | "staff";
 export type JoinChannel = "online" | "qr" | "vendor";
 export type TicketStatus = "waiting" | "called" | "served" | "skipped" | "cancelled" | "unserved";
+export type QueuePriorityBand = "carry_over" | "recovery" | "checked_in_booking" | "normal";
 export type SubscriptionPlanSlug = "economical" | "pro" | "enterprise";
 export type SubscriptionStatus = "active" | "unpaid" | "past_due" | "canceled" | "expired";
 export type BillingInterval = "monthly" | "annual" | "custom";
@@ -131,6 +132,7 @@ export interface TenantMembershipSummary {
 export interface UserSummary {
   id: string;
   name: string;
+  username: string | null;
   email: string | null;
   phone: string | null;
   roles: UserRole[];
@@ -213,6 +215,11 @@ export interface StoreLocationSummary {
   contactEmail: string;
   contactPhone: string;
   timezone: string;
+  paymentMethodLabel: string;
+  paymentAccountDisplayName: string;
+  paymentAccountIdentifierDisplay: string;
+  paymentQrImageUrl: string;
+  paymentQrActive: boolean;
   isPrimary: boolean;
   isActive: boolean;
   joinUrl: string;
@@ -235,6 +242,9 @@ export interface VendorServiceSummary {
   slug: string;
   description: string;
   durationMinutes: number;
+  allowBookingQuantity: boolean;
+  bookingQuantityLabel: string;
+  manualPaymentRequired: boolean;
   priceAmountCents: number;
   currency: "PHP";
   priceDisplay: string;
@@ -253,6 +263,9 @@ export interface SaveVendorServiceRequest {
   slug?: string;
   description?: string;
   durationMinutes: number;
+  allowBookingQuantity?: boolean;
+  bookingQuantityLabel?: string;
+  manualPaymentRequired?: boolean;
   priceAmountCents: number;
   priceDisplay?: string;
   isActive?: boolean;
@@ -330,6 +343,31 @@ export interface VendorAvailabilityExceptionResponse {
 
 export type BookingStatus = "pending" | "confirmed" | "rescheduled" | "completed" | "canceled" | "disputed" | "reviewed";
 export type BookingPaymentStatus = "unpaid" | "pending" | "paid" | "failed" | "refunded";
+export type BookingContactVerificationChannel = "email" | "sms";
+
+export interface LinkedQueueTicketSummary {
+  id: string;
+  ticketNumber: string;
+  lookupCode: string;
+  status: TicketStatus;
+}
+
+export interface BookingPaymentProofSummary {
+  fileName: string;
+  contentType: string;
+  sizeBytes: number | null;
+  uploadedAt: string | Date | null;
+}
+
+export interface BookingManualPaymentDestination {
+  methodLabel: string;
+  accountDisplayName: string;
+  accountIdentifierDisplay: string;
+  qrImageUrl: string;
+  amountCents: number;
+  currency: "PHP";
+  unitPriceDisplay: string;
+}
 
 export interface CustomerBookingSummary {
   id: string;
@@ -343,13 +381,33 @@ export interface CustomerBookingSummary {
   serviceId: string;
   serviceName: string;
   serviceSlug: string;
+  serviceManualPaymentRequired: boolean;
+  servicePriceAmountCents: number;
+  serviceCurrency: "PHP";
   servicePriceDisplay: string;
+  bookingQuantity: number;
   scheduledStartAt: string | Date;
   scheduledEndAt: string | Date;
   status: BookingStatus;
   notes: string;
   paymentReference: string;
   paymentStatus: BookingPaymentStatus;
+  manualPaymentDestination: BookingManualPaymentDestination | null;
+  paymentProof: BookingPaymentProofSummary | null;
+  paymentVerifiedAt: string | Date | null;
+  paymentRejectedAt: string | Date | null;
+  paymentRejectionReason: string;
+  pendingExpiresAt: string | Date | null;
+  expiredAt: string | Date | null;
+  expirationReason: string;
+  notifyByEmail: boolean;
+  notifyBySms: boolean;
+  smsAlertFeePaymentId: string;
+  contactVerifiedAt: string | Date | null;
+  contactVerificationChannel: BookingContactVerificationChannel | null;
+  linkedTicket: LinkedQueueTicketSummary | null;
+  checkedInAt: string | Date | null;
+  noShowAt: string | Date | null;
   createdAt: string | Date;
   updatedAt: string | Date;
 }
@@ -363,15 +421,127 @@ export interface CreateCustomerBookingRequest {
   locationSlug: string;
   serviceSlug: string;
   scheduledStartAt: string;
+  bookingQuantity?: number;
   customerName?: string;
   customerEmail?: string;
   customerPhone?: string;
   notes?: string;
   paymentReference?: string;
+  notifyBySms?: boolean;
+  smsAlertFeePaymentId?: string;
+  bookingVerificationToken?: string;
 }
 
 export interface CustomerBookingResponse {
   booking: CustomerBookingSummary;
+}
+
+export interface CustomerBookingDetailResponse {
+  booking: CustomerBookingSummary;
+}
+
+export interface BookingSlotRequest {
+  tenantSlug: string;
+  locationSlug: string;
+  serviceSlug: string;
+  date: string;
+  bookingQuantity?: number;
+}
+
+export interface BookingSlotSummary {
+  startAt: string | Date;
+  endAt: string | Date;
+  remainingCapacity: number;
+  isAvailable: boolean;
+  disabledReason?: string;
+}
+
+export interface BookingSlotsResponse {
+  slots: BookingSlotSummary[];
+}
+
+export interface BookingOtpRequest {
+  tenantSlug: string;
+  locationSlug: string;
+  serviceSlug: string;
+  scheduledStartAt: string;
+  bookingQuantity?: number;
+  customerName: string;
+  customerEmail?: string;
+  customerPhone?: string;
+  notes?: string;
+  notifyBySms?: boolean;
+  channel: BookingContactVerificationChannel;
+}
+
+export interface BookingOtpResponse {
+  otpId: string;
+  expiresAt: string | Date;
+  resendAvailableAt: string | Date;
+  deliveryChannel: BookingContactVerificationChannel;
+  deliveryTarget: string;
+}
+
+export interface VerifyBookingOtpRequest {
+  otpId: string;
+  code: string;
+}
+
+export interface VerifyBookingOtpResponse {
+  verified: boolean;
+  bookingVerificationToken: string;
+  contactVerifiedAt: string | Date;
+  contactVerificationChannel: BookingContactVerificationChannel;
+}
+
+export interface CancelCustomerBookingRequest {
+  reason?: string;
+}
+
+export interface CancelCustomerBookingResponse {
+  booking: CustomerBookingSummary;
+}
+
+export interface BookingPaymentProofUploadRequest {
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+}
+
+export interface BookingPaymentProofUploadResponse {
+  proof: {
+    objectKey: string;
+    fileName: string;
+    contentType: string;
+    sizeBytes: number;
+  };
+  upload?: {
+    method: "PUT";
+    url: string;
+    headers: Record<string, string>;
+    expiresInSeconds: number;
+  };
+}
+
+export interface SubmitBookingPaymentProofRequest {
+  paymentReference: string;
+  objectKey: string;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+}
+
+export interface BookingPaymentProofAccessResponse {
+  proof: BookingPaymentProofSummary;
+  access: {
+    method: "GET";
+    url: string;
+    expiresInSeconds: number;
+  };
+}
+
+export interface RejectVendorBookingPaymentRequest {
+  reason: string;
 }
 
 export interface VendorBookingSummary extends CustomerBookingSummary {
@@ -379,10 +549,22 @@ export interface VendorBookingSummary extends CustomerBookingSummary {
   customerName: string;
   customerEmail: string;
   customerPhone: string;
+  paymentVerifiedByUserId: string | null;
+  paymentRejectedByUserId: string | null;
+  checkedInByUserId: string | null;
+  noShowByUserId: string | null;
+}
+
+export interface PaginationMetadata {
+  page: number;
+  pageSize: number;
+  totalItems: number;
+  totalPages: number;
 }
 
 export interface VendorBookingsResponse {
   bookings: VendorBookingSummary[];
+  pagination: PaginationMetadata;
 }
 
 export interface UpdateVendorBookingStatusRequest {
@@ -395,6 +577,60 @@ export interface RescheduleVendorBookingRequest {
 
 export interface VendorBookingResponse {
   booking: VendorBookingSummary;
+}
+
+export interface VendorCheckInBookingRequest {
+  overrideWindow?: boolean;
+  overrideReason?: string;
+}
+
+export interface VendorCheckInBookingResponse {
+  booking: VendorBookingSummary;
+  ticket: LinkedQueueTicketSummary;
+}
+
+export interface BookingSmsFeeResponse {
+  queueFee: QueueFeeSummary;
+}
+
+export interface CreateBookingSmsPaymentRequest {
+  bookingVerificationToken: string;
+}
+
+export interface BookingSmsPaymentSummary {
+  id: string;
+  tenantId: string;
+  bookingOtpId: string;
+  planSlug: SubscriptionPlanSlug;
+  provider: string;
+  providerCheckoutSessionId: string | null;
+  checkoutUrl: string | null;
+  amountCents: number;
+  currency: "PHP";
+  status: "pending" | "paid" | "failed" | "expired" | "canceled";
+  createdAt: string | Date;
+  updatedAt: string | Date;
+}
+
+export interface BookingSmsPaymentResponse {
+  requiresPayment: boolean;
+  queueFee: QueueFeeSummary;
+  payment?: BookingSmsPaymentSummary;
+  checkoutSession?: {
+    id: string;
+    provider: string;
+    providerCheckoutSessionId: string;
+    checkoutUrl: string;
+    status: string;
+    amountCents: number;
+    currency: "PHP";
+  };
+}
+
+export interface BookingSmsPaymentSyncResponse {
+  synced: boolean;
+  paid: boolean;
+  payment: BookingSmsPaymentSummary;
 }
 
 export type PublicBoardThemePresetId = "classic" | "neura" | "clinic";
@@ -456,6 +692,15 @@ export interface PublicBoardThemeUploadResponse {
   };
 }
 
+export interface LocationPaymentQrUploadResponse {
+  asset: {
+    objectKey: string;
+    publicUrl: string;
+    contentType: string;
+    sizeBytes: number;
+  };
+}
+
 export interface CreateStoreLocationRequest {
   name: string;
   slug: string;
@@ -496,6 +741,8 @@ export interface QueueCurrentTicket {
   ticketNumber: string;
   customerName: string;
   calledAt: string | Date | null;
+  servicePriorityBand?: QueuePriorityBand;
+  linkedBookingReference?: string | null;
 }
 
 export interface QueueListTicket {
@@ -509,6 +756,8 @@ export interface QueueListTicket {
   isCarriedOver?: boolean;
   carryOverCount?: number;
   carriedOverAt?: string | Date | null;
+  servicePriorityBand?: QueuePriorityBand;
+  linkedBookingReference?: string | null;
 }
 
 export interface QueueHistoryTicket {
@@ -521,7 +770,7 @@ export interface QueueHistoryTicket {
   updatedAt: string | Date;
   serviceCounterId?: string | null;
   rejoinDeadlineAt?: string | Date | null;
-  servicePriorityBand?: "carry_over" | "recovery" | "normal";
+  servicePriorityBand?: QueuePriorityBand;
 }
 
 export interface QueueFocusTicket {
@@ -590,6 +839,7 @@ export interface LoginRequest {
 
 export interface RegisterCustomerRequest {
   name: string;
+  username: string;
   email: string;
   phone: string;
   password: string;
@@ -599,6 +849,7 @@ export interface RegisterVendorRequest {
   tenantName: string;
   tenantSlug: string;
   name: string;
+  username: string;
   email: string;
   phone: string;
   password: string;
@@ -608,8 +859,23 @@ export interface CompleteVendorOnboardingRequest {
   tenantName: string;
   tenantSlug: string;
   name: string;
+  username?: string;
   email: string;
   phone: string;
+}
+
+export interface UsernameAvailabilityResponse {
+  username: string;
+  available: boolean;
+  valid: boolean;
+  message: string;
+}
+
+export interface TenantSlugAvailabilityResponse {
+  tenantSlug: string;
+  available: boolean;
+  valid: boolean;
+  message: string;
 }
 
 export interface PublicVendorLocation {
@@ -627,6 +893,9 @@ export interface PublicVendorService {
   slug: string;
   description: string;
   durationMinutes: number;
+  allowBookingQuantity: boolean;
+  bookingQuantityLabel: string;
+  manualPaymentRequired: boolean;
   priceAmountCents: number;
   currency: "PHP";
   priceDisplay: string;
@@ -907,11 +1176,22 @@ export interface CustomerAccountOverviewResponse {
   user: {
     id: string;
     name: string;
+    username: string | null;
     email: string | null;
     phone: string | null;
     emailVerified: boolean;
+    mfaEnabled: boolean;
+    mfaRequired: boolean;
   };
   tickets: CustomerAccountTicketSummary[];
+}
+
+export interface CustomerProfileUpdateRequest {
+  name: string;
+}
+
+export interface CustomerProfileUpdateResponse extends AuthActionResponse {
+  user: CustomerAccountOverviewResponse["user"];
 }
 
 export interface CustomerAccountHistoryResponse {

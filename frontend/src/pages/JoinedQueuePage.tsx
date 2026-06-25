@@ -19,7 +19,7 @@ import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } 
 import type { CancelQueueTicketRequest, QueueJoinPaymentSyncResponse, QueueSnapshot, StoreHourSummary } from "@shared";
 import { API_BASE_URL, apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import { buildJoinPath, buildJoinedQueuePathWithTicket, buildMonitorPath, buildMonitorPathWithTicket } from "../queuePaths";
+import { buildJoinPath, buildJoinedQueuePathWithTicket, buildMonitorPath } from "../queuePaths";
 import { clearJoinedQueueAccess, getJoinedQueueAccess } from "../utils/joinedQueueAccess";
 import { getErrorMessage } from "../utils/errors";
 import { getLocationStatusSummary, getQueueStateSummary, getTicketStateSummary } from "../utils/queueStatus";
@@ -136,7 +136,7 @@ export default function JoinedQueuePage() {
   const missingLookupCode = !lookupCode && !shouldAwaitPaymentSync;
 
   const joinPath = buildJoinPath(tenantSlugValue, locationSlug);
-  const publicBoardPath = buildMonitorPathWithTicket(tenantSlugValue, lookupCode, locationSlug);
+  const vendorDetailsPath = `/vendors/${tenantSlugValue}`;
   const locationHours = normalizeHours(snapshot?.location?.hours || []);
   const todayIndex = getTodayIndex(snapshot?.location?.timezone);
   const theme = snapshot?.publicBoardTheme.theme;
@@ -496,8 +496,8 @@ export default function JoinedQueuePage() {
                   </Text>
                 ) : null}
                 <Group mt="sm">
-                  <Button component={Link} radius="xl" style={buttonStyle} to={publicBoardPath}>
-                    View live board
+                  <Button component={Link} radius="xl" style={buttonStyle} to={vendorDetailsPath}>
+                    View vendor details
                   </Button>
                   {canCancelTicket ? (
                     <Button

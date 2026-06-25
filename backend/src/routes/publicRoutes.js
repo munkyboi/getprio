@@ -11,6 +11,9 @@ const turnstileService = require("../services/turnstileService");
 const queueJoinOtpService = require("../services/queueJoinOtpService");
 const queueJoinPaymentService = require("../services/queueJoinPaymentService");
 const queueFeeService = require("../services/queueFeeService");
+const bookingService = require("../services/bookingService");
+const bookingOtpService = require("../services/bookingOtpService");
+const bookingSmsAlertPaymentService = require("../services/bookingSmsAlertPaymentService");
 const storeHoursService = require("../services/storeHoursService");
 const notificationService = require("../services/notificationService");
 const platformRepository = require("../repositories/platform");
@@ -28,6 +31,9 @@ function formatPublicVendorService(service) {
     slug: service.slug,
     description: service.description,
     durationMinutes: service.durationMinutes,
+    allowBookingQuantity: service.allowBookingQuantity,
+    bookingQuantityLabel: service.bookingQuantityLabel,
+    manualPaymentRequired: service.manualPaymentRequired,
     priceAmountCents: service.priceAmountCents,
     currency: service.currency,
     priceDisplay: service.priceDisplay
@@ -86,6 +92,119 @@ router.get(
     res.json({
       vendor: await attachPublicVendorDetails(vendor)
     });
+  })
+);
+
+router.get(
+  "/vendors/:tenantSlug/locations/:locationSlug/services/:serviceSlug/slots",
+  asyncHandler(async (req, res) => {
+    const slots = await bookingService.listBookingSlots({
+      tenantSlug: req.params.tenantSlug,
+      locationSlug: req.params.locationSlug,
+      serviceSlug: req.params.serviceSlug,
+      date: req.query.date,
+      bookingQuantity: req.query.bookingQuantity
+    });
+
+    res.json({ slots });
+  })
+);
+
+async function getPublicBookableTenant(tenantSlug) {
+  const tenant = await tenantRepository.findTenantBySlug(String(tenantSlug).toLowerCase(), {
+    activeOnly: true
+  });
+
+  if (!tenant || !tenant.publicProfileEnabled || tenant.vendorApprovalStatus !== "approved") {
+    const error = new Error("Vendor not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  return tenant;
+}
+
+router.get(
+  "/vendors/:tenantSlug/booking-sms-fee",
+  asyncHandler(async (req, res) => {
+    const tenant = await getPublicBookableTenant(req.params.tenantSlug);
+    const queueFee = await bookingSmsAlertPaymentService.getBookingSmsFeeForTenant(tenant._id);
+    res.json({ queueFee });
+  })
+);
+
+router.post(
+  "/vendors/:tenantSlug/booking-otp",
+  maybeAuthenticate,
+  asyncHandler(async (req, res) => {
+    const tenant = await getPublicBookableTenant(req.params.tenantSlug);
+    const payload = {
+      ...(req.body || {}),
+      tenantSlug: tenant.slug,
+      customerName: req.body.customerName || req.user?.name,
+      customerEmail: req.body.customerEmail || req.user?.email,
+      customerPhone: req.body.customerPhone || req.user?.phone
+    };
+    const otp = await bookingOtpService.requestBookingOtp({
+      tenant,
+      payload,
+      channel: req.body.channel
+    });
+
+    res.status(201).json(otp);
+  })
+);
+
+router.post(
+  "/vendors/:tenantSlug/booking-otp/:otpId/resend",
+  asyncHandler(async (req, res) => {
+    const tenant = await getPublicBookableTenant(req.params.tenantSlug);
+    const otp = await bookingOtpService.resendBookingOtp({
+      tenant,
+      otpId: req.params.otpId
+    });
+
+    res.status(201).json(otp);
+  })
+);
+
+router.post(
+  "/vendors/:tenantSlug/booking-otp/verify",
+  asyncHandler(async (req, res) => {
+    const tenant = await getPublicBookableTenant(req.params.tenantSlug);
+    const result = await bookingOtpService.verifyBookingOtp({
+      tenant,
+      otpId: req.body.otpId,
+      code: req.body.code
+    });
+
+    res.json(result);
+  })
+);
+
+router.post(
+  "/vendors/:tenantSlug/booking-sms-payments",
+  asyncHandler(async (req, res) => {
+    const tenant = await getPublicBookableTenant(req.params.tenantSlug);
+    const result = await bookingSmsAlertPaymentService.createBookingSmsCheckout({
+      tenant,
+      bookingVerificationToken: req.body.bookingVerificationToken
+    });
+
+    res.status(result.requiresPayment ? 201 : 200).json(result);
+  })
+);
+
+router.post(
+  "/vendors/:tenantSlug/booking-sms-payments/:paymentId/sync",
+  asyncHandler(async (req, res) => {
+    const tenant = await getPublicBookableTenant(req.params.tenantSlug);
+    const result = await bookingSmsAlertPaymentService.syncBookingSmsPayment({
+      tenant,
+      paymentId: req.params.paymentId
+    });
+
+    res.json(result);
   })
 );
 
