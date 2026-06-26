@@ -456,6 +456,7 @@ CREATE TABLE queue_day_closures (
   waiting_carried_count INTEGER NOT NULL DEFAULT 0,
   called_unserved_count INTEGER NOT NULL DEFAULT 0,
   closed_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  closed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   reopened_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
   reopened_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
