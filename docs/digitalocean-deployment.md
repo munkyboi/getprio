@@ -107,6 +107,7 @@ For a brand new database, use the repo bootstrap script:
 ```bash
 cd /var/www/getprio
 export DATABASE_URL="postgresql://getprio:CHANGE_THIS_PASSWORD@localhost:5432/getprio"
+npm run db:status
 npm run db:bootstrap
 ```
 
@@ -115,6 +116,7 @@ For an existing database or a normal deploy update, use:
 ```bash
 cd /var/www/getprio
 export DATABASE_URL="postgresql://getprio:CHANGE_THIS_PASSWORD@localhost:5432/getprio"
+npm run db:status
 npm run db:migrate
 npm run db:verify
 ```
@@ -322,9 +324,12 @@ pm2 restart getprio-api
 If migrations were added:
 
 ```bash
+npm run db:status
 npm run db:migrate
 npm run db:verify
 ```
+
+If `db:status` reports pending migrations, apply them before restarting PM2. If it reports missing applied migrations, stop and restore the repo/database history mismatch first.
 
 ## 12. Useful Checks
 

@@ -102,10 +102,11 @@ The backend expects PostgreSQL. For a new deployment:
 
 1. Create a production database and user.
 2. Set `DATABASE_URL` in the shell or deployment environment.
-3. For a brand new database, run `npm run db:bootstrap`.
-4. For an existing database, run `npm run db:migrate`.
-5. Run `npm run db:verify`.
-6. Verify the backend can connect using `DATABASE_URL`.
+3. Run `npm run db:status`.
+4. For a brand new database, run `npm run db:bootstrap`.
+5. For an existing database, run `npm run db:migrate`.
+6. Run `npm run db:verify`.
+7. Verify the backend can connect using `DATABASE_URL`.
 
 Minimum database checklist:
 
@@ -113,7 +114,7 @@ Minimum database checklist:
 - Password is strong and unique
 - Backups are enabled before launch
 - You can restore a dump into a staging copy
-- The repo migration and verification scripts succeed before restart
+- The repo migration, status, and verification scripts succeed before restart
 
 ## 5. Configure Environment Variables
 

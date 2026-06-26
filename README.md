@@ -97,6 +97,7 @@ The safe repo-supported path is:
 
 ```bash
 export DATABASE_URL=postgresql://...
+npm run db:status
 npm run db:migrate
 npm run db:verify
 ```
@@ -104,6 +105,8 @@ npm run db:verify
 Use `npm run db:bootstrap` only for a brand new or disposable database. It runs `database/init.sql`, which drops existing tables, and then applies all migrations.
 
 For existing databases, do not run `database/init.sql` by hand. Use `npm run db:migrate` so upgrades stay additive and repeatable.
+
+`npm run db:status` is the deploy gate. It reports whether the database is clean, pending migrations exist, or a previously applied migration is missing from the repo.
 
 ## Main API routes
 
@@ -158,3 +161,4 @@ For existing databases, do not run `database/init.sql` by hand. Use `npm run db:
 - Ticket numbers are generated per tenant per day from the tenant queue prefix plus an incrementing sequence.
 - The public queue board still uses Server-Sent Events, so browsers do not need WebSockets.
 - Existing databases need the SQL files in `database/migrations/` applied in filename order.
+- Before restarting a deployed service, run `npm run db:status`, `npm run db:migrate`, and `npm run db:verify` in that order.

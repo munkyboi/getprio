@@ -14,6 +14,7 @@
     "dev:platform": "npm --workspace platform-dashboard run dev",
     "db:migrate": "bash scripts/db-apply.sh migrate",
     "db:bootstrap": "bash scripts/db-apply.sh bootstrap",
+    "db:status": "bash scripts/db-status.sh",
     "db:verify": "bash scripts/db-verify-schema.sh",
     "build": "npm --workspace frontend run build && npm --workspace platform-dashboard run build",
     "build:backend": "npm --workspace backend run build",
