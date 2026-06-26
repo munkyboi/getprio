@@ -8,6 +8,8 @@ GetPrio is a multi-tenant queue platform for vendors that want QR-based ticketin
 - `platform-dashboard/`: separate React + Vite platform operations dashboard.
 - `backend/`: Express API backed by PostgreSQL.
 - `database/init.sql`: database bootstrap schema for Dockerized PostgreSQL.
+- `scripts/db-apply.sh`: repo-supported SQL bootstrap and migration runner.
+- `scripts/db-verify-schema.sh`: deploy-time schema sanity check for critical tables/columns.
 - `.env`: shared environment variables for local and Docker-based runs.
 - `docker-compose.yml`: local stack orchestration for the frontend, backend, and database.
 
@@ -89,6 +91,23 @@ settings aligned with the backend notification service configuration.
 2. Start the full stack with `docker compose up --build`.
 3. Open the frontend at the URL configured by `APP_BASE_URL`.
 
+## Database updates
+
+The safe repo-supported path is:
+
+```bash
+export DATABASE_URL=postgresql://...
+npm run db:status
+npm run db:migrate
+npm run db:verify
+```
+
+Use `npm run db:bootstrap` only for a brand new or disposable database. It runs `database/init.sql`, which drops existing tables, and then applies all migrations.
+
+For existing databases, do not run `database/init.sql` by hand. Use `npm run db:migrate` so upgrades stay additive and repeatable.
+
+`npm run db:status` is the deploy gate. It reports whether the database is clean, pending migrations exist, or a previously applied migration is missing from the repo.
+
 ## Main API routes
 
 ### Auth
@@ -142,3 +161,4 @@ settings aligned with the backend notification service configuration.
 - Ticket numbers are generated per tenant per day from the tenant queue prefix plus an incrementing sequence.
 - The public queue board still uses Server-Sent Events, so browsers do not need WebSockets.
 - Existing databases need the SQL files in `database/migrations/` applied in filename order.
+- Before restarting a deployed service, run `npm run db:status`, `npm run db:migrate`, and `npm run db:verify` in that order.

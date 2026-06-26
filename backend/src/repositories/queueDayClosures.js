@@ -76,7 +76,6 @@ async function createClosure(data, options = {}) {
         location_id,
         queue_date_key,
         next_queue_date_key,
-        reason,
         closure_reason,
         affected_ticket_ids,
         waiting_carried_count,
@@ -84,11 +83,10 @@ async function createClosure(data, options = {}) {
         closed_by_user_id,
         closed_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7::BIGINT[], $8, $9, $10, NOW())
+      VALUES ($1, $2, $3, $4, $5, $6::BIGINT[], $7, $8, $9, NOW())
       ON CONFLICT (tenant_id, location_id, queue_date_key)
       DO UPDATE SET
         next_queue_date_key = EXCLUDED.next_queue_date_key,
-        reason = EXCLUDED.reason,
         closure_reason = EXCLUDED.closure_reason,
         affected_ticket_ids = EXCLUDED.affected_ticket_ids,
         waiting_carried_count = EXCLUDED.waiting_carried_count,
@@ -105,7 +103,6 @@ async function createClosure(data, options = {}) {
       Number(data.locationId),
       data.queueDateKey,
       data.nextQueueDateKey || data.queueDateKey,
-      data.closureReason || null,
       data.closureReason || null,
       (data.affectedTicketIds || []).map((value) => Number(value)),
       Number(data.waitingCarriedCount || 0),
