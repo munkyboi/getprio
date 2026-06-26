@@ -4,9 +4,9 @@ This guide targets the current MVP deployment path: a low-budget DigitalOcean Dr
 
 It matches the current codebase:
 
-- `frontend/dist` served at `app.yourdomain.com`
-- `platform-dashboard/dist` served at `platform.yourdomain.com`
-- backend proxied at `api.yourdomain.com`
+- `frontend/dist` served at `app.getprio.online`
+- `platform-dashboard/dist` served at `platform.getprio.online`
+- backend proxied at `api.getprio.online`
 - Backblaze B2 used for public assets, location QR images, and private payment proofs
 - Resend or SMTP used for email
 - Twilio used for SMS if SMS is enabled
@@ -14,9 +14,9 @@ It matches the current codebase:
 
 ## Recommended Shape
 
-- `app.yourdomain.com` serves `frontend/dist`
-- `platform.yourdomain.com` serves `platform-dashboard/dist`
-- `api.yourdomain.com` proxies to the backend on `127.0.0.1:5000`
+- `app.getprio.online` serves `frontend/dist`
+- `platform.getprio.online` serves `platform-dashboard/dist`
+- `api.getprio.online` proxies to the backend on `127.0.0.1:5000`
 - PostgreSQL runs locally on the Droplet, or on managed DigitalOcean Postgres if you prefer not to host the database on the app box
 - PM2 keeps the backend process alive
 - Nginx serves static assets and handles TLS
@@ -29,9 +29,9 @@ For a tiny MVP, start with a 1 GB Droplet and add swap. If the app feels tight, 
 2. Pick the closest region to your users, such as Singapore if available.
 3. Use SSH keys instead of password login.
 4. Point DNS A records to the Droplet IP:
-   - `app.yourdomain.com`
-   - `platform.yourdomain.com`
-   - `api.yourdomain.com`
+   - `app.getprio.online`
+   - `platform.getprio.online`
+   - `api.getprio.online`
 
 ## 2. Initial Server Setup
 
@@ -102,13 +102,22 @@ CREATE DATABASE getprio OWNER getprio;
 \q
 ```
 
-Load the schema:
+For a brand new database, use the repo bootstrap script:
 
 ```bash
-psql "postgresql://getprio:CHANGE_THIS_PASSWORD@localhost:5432/getprio" -f database/init.sql
+cd /var/www/getprio
+export DATABASE_URL="postgresql://getprio:CHANGE_THIS_PASSWORD@localhost:5432/getprio"
+npm run db:bootstrap
 ```
 
-For an existing database, apply files in `database/migrations/` in filename order.
+For an existing database or a normal deploy update, use:
+
+```bash
+cd /var/www/getprio
+export DATABASE_URL="postgresql://getprio:CHANGE_THIS_PASSWORD@localhost:5432/getprio"
+npm run db:migrate
+npm run db:verify
+```
 
 If you use managed DigitalOcean Postgres instead of local Postgres:
 
@@ -133,11 +142,11 @@ DATABASE_SSL=false
 
 JWT_SECRET=CHANGE_THIS_TO_A_LONG_RANDOM_SECRET
 
-SERVER_URL=https://api.yourdomain.com
-CLIENT_URL=https://app.yourdomain.com
-APP_BASE_URL=https://app.yourdomain.com
-PLATFORM_DASHBOARD_URL=https://platform.yourdomain.com
-VITE_API_URL=https://api.yourdomain.com/api
+SERVER_URL=https://api.getprio.online
+CLIENT_URL=https://app.getprio.online
+APP_BASE_URL=https://app.getprio.online
+PLATFORM_DASHBOARD_URL=https://platform.getprio.online
+VITE_API_URL=https://api.getprio.online/api
 
 OAUTH_CALLBACK_PATH=/oauth/callback
 GOOGLE_CLIENT_ID=
@@ -230,7 +239,7 @@ Create `/etc/nginx/sites-available/getprio`:
 ```nginx
 server {
   listen 80;
-  server_name app.yourdomain.com;
+  server_name app.getprio.online;
 
   root /var/www/getprio/frontend/dist;
   index index.html;
@@ -242,7 +251,7 @@ server {
 
 server {
   listen 80;
-  server_name platform.yourdomain.com;
+  server_name platform.getprio.online;
 
   root /var/www/getprio/platform-dashboard/dist;
   index index.html;
@@ -254,7 +263,7 @@ server {
 
 server {
   listen 80;
-  server_name api.yourdomain.com;
+  server_name api.getprio.online;
 
   location / {
     proxy_pass http://127.0.0.1:5000;
@@ -286,7 +295,7 @@ Install Certbot:
 
 ```bash
 apt install -y certbot python3-certbot-nginx
-certbot --nginx -d app.yourdomain.com -d platform.yourdomain.com -d api.yourdomain.com
+certbot --nginx -d app.getprio.online -d platform.getprio.online -d api.getprio.online
 ```
 
 ## 10. Payment Webhook URLs
@@ -294,7 +303,7 @@ certbot --nginx -d app.yourdomain.com -d platform.yourdomain.com -d api.yourdoma
 Set PayMongo webhooks to:
 
 ```text
-https://api.yourdomain.com/api/billing/webhooks/paymongo
+https://api.getprio.online/api/billing/webhooks/paymongo
 ```
 
 If you are only launching the booking/manual-QR flow first, this webhook is not part of the critical path. Keep it configured only if the queue-payment or billing flows are active in your release.
@@ -313,13 +322,14 @@ pm2 restart getprio-api
 If migrations were added:
 
 ```bash
-psql "$DATABASE_URL" -f database/migrations/MIGRATION_FILE.sql
+npm run db:migrate
+npm run db:verify
 ```
 
 ## 12. Useful Checks
 
 ```bash
-curl https://api.yourdomain.com/api/health
+curl https://api.getprio.online/api/health
 pm2 status
 pm2 logs getprio-api
 systemctl status nginx

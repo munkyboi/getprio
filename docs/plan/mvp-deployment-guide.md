@@ -101,9 +101,11 @@ Install the basic runtime tools:
 The backend expects PostgreSQL. For a new deployment:
 
 1. Create a production database and user.
-2. Load `database/init.sql`.
-3. Apply any files under `database/migrations/` in filename order.
-4. Verify the backend can connect using `DATABASE_URL`.
+2. Set `DATABASE_URL` in the shell or deployment environment.
+3. For a brand new database, run `npm run db:bootstrap`.
+4. For an existing database, run `npm run db:migrate`.
+5. Run `npm run db:verify`.
+6. Verify the backend can connect using `DATABASE_URL`.
 
 Minimum database checklist:
 
@@ -111,6 +113,7 @@ Minimum database checklist:
 - Password is strong and unique
 - Backups are enabled before launch
 - You can restore a dump into a staging copy
+- The repo migration and verification scripts succeed before restart
 
 ## 5. Configure Environment Variables
 
@@ -204,9 +207,9 @@ The companion guide in `docs/digitalocean-deployment.md` contains the concrete s
 
 Recommended routing:
 
-- `app.yourdomain.com` -> `frontend/dist`
-- `platform.yourdomain.com` -> `platform-dashboard/dist`
-- `api.yourdomain.com` -> backend reverse proxy
+- `app.getprio.online` -> `frontend/dist`
+- `platform.getprio.online` -> `platform-dashboard/dist`
+- `api.getprio.online` -> backend reverse proxy
 
 Keep the API on a separate subdomain. That makes auth, CORS, and future scaling cleaner.
 
