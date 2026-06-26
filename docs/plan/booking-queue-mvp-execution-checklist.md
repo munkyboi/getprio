@@ -95,6 +95,14 @@ Current status:
 - Slice 6: vendor dashboard/live queue done; customer ticket UI pending
 - Slice 7: automated verification passed; manual smoke tests pending
 
+Recent booking/payment additions already in scope for the MVP deployment:
+
+- manual QR booking payment with private proof upload through the backend
+- vendor payment-proof review and verify/reject actions
+- customer booking detail refresh on booking updates
+- 15-minute pending booking expiration that stops once proof is submitted
+- vendor dashboard booking pagination and section-gated live refresh
+
 Recommended first implementation milestone: **Slice 1 + Slice 2 backend tests passing before touching the customer slot UI.**
 
 ---
@@ -345,6 +353,10 @@ npm run build
 
 - [ ] Customer books from a computed slot with email only.
 - [ ] Customer books from a computed slot with browser notifications enabled.
+- [ ] Customer submits manual QR payment proof through the backend upload route.
+- [ ] Vendor reviews and verifies or rejects payment proof from the dashboard.
+- [ ] Customer booking detail refreshes after vendor-side updates without a manual reload.
+- [ ] Pending booking expires at 15 minutes when no proof was submitted.
 - [ ] Customer cancels before check-in.
 - [ ] Vendor confirms and reschedules booking.
 - [ ] Vendor checks in booking within the check-in window.
@@ -358,7 +370,6 @@ npm run build
 
 ## 10. Post-MVP Parking Lot
 
-- [ ] Vendor-configurable pending booking expiration.
 - [ ] Customer-initiated reschedule requests.
 - [ ] Configurable slot intervals.
 - [ ] Deposits, refunds, and cancellation penalties.

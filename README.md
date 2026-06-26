@@ -35,21 +35,16 @@ TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA
 
 Replace those with real Turnstile keys outside local development.
 
-Email delivery can use Resend before falling back to SendGrid, SMTP, or console logging:
+Email delivery uses Resend in the current MVP setup:
 
 ```env
 RESEND_API_KEY=
 RESEND_FROM_EMAIL=
 RESEND_FROM_NAME=GetPrio
 RESEND_API_URL=https://api.resend.com/emails
-
-SENDGRID_API_KEY=
-SENDGRID_FROM_EMAIL=
-SENDGRID_FROM_NAME=GetPrio
-SENDGRID_API_URL=https://api.sendgrid.com/v3/mail/send
 ```
 
-`RESEND_FROM_EMAIL` must use a verified Resend domain or sender. If Resend is not configured, SendGrid is used when configured.
+`RESEND_FROM_EMAIL` must use a verified Resend domain or sender.
 
 Platform dashboard access uses the normal auth API, but the signed-in user must include the
 `platform_admin` role. For local development, grant it manually in Postgres until a dedicated
@@ -84,6 +79,9 @@ for uploaded board assets.
 
 Manual booking payment proof uploads use `B2_BUCKET_PAYMENT_PROOF`. Keep that bucket private;
 the backend issues short-lived signed upload/view URLs from authenticated booking endpoints.
+
+SMS delivery is expected to use Semaphore in the MVP deployment. Keep the provider wiring and sender
+settings aligned with the backend notification service configuration.
 
 ## Docker Compose
 

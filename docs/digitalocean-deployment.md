@@ -1,13 +1,23 @@
 # GetPrio DigitalOcean Deployment Guide
 
-This guide targets a low-budget DigitalOcean Droplet where the frontend, platform dashboard, Express API, and PostgreSQL all run on one VPS.
+This guide targets the current MVP deployment path: a low-budget DigitalOcean Droplet where the frontend, platform dashboard, Express API, and optionally PostgreSQL all run on one VPS.
+
+It matches the current codebase:
+
+- `frontend/dist` served at `app.yourdomain.com`
+- `platform-dashboard/dist` served at `platform.yourdomain.com`
+- backend proxied at `api.yourdomain.com`
+- Backblaze B2 used for public assets, location QR images, and private payment proofs
+- Resend or SMTP used for email
+- Twilio used for SMS if SMS is enabled
+- PayMongo used only for the existing queue-payment and billing integrations
 
 ## Recommended Shape
 
 - `app.yourdomain.com` serves `frontend/dist`
 - `platform.yourdomain.com` serves `platform-dashboard/dist`
 - `api.yourdomain.com` proxies to the backend on `127.0.0.1:5000`
-- PostgreSQL runs locally on the Droplet
+- PostgreSQL runs locally on the Droplet, or on managed DigitalOcean Postgres if you prefer not to host the database on the app box
 - PM2 keeps the backend process alive
 - Nginx serves static assets and handles TLS
 
@@ -100,6 +110,12 @@ psql "postgresql://getprio:CHANGE_THIS_PASSWORD@localhost:5432/getprio" -f datab
 
 For an existing database, apply files in `database/migrations/` in filename order.
 
+If you use managed DigitalOcean Postgres instead of local Postgres:
+
+- Set `DATABASE_URL` to the managed connection string
+- Set `DATABASE_SSL=true`
+- Skip installing local PostgreSQL packages and the local `psql` bootstrap above
+
 ## 5. Configure Environment
 
 Create `/var/www/getprio/.env`:
@@ -137,6 +153,12 @@ RESEND_FROM_EMAIL=
 RESEND_FROM_NAME=GetPrio
 RESEND_API_URL=https://api.resend.com/emails
 
+SMTP_HOST=
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=
+SMTP_PASS=
+
 SENDGRID_API_KEY=
 SENDGRID_FROM_EMAIL=
 SENDGRID_FROM_NAME=GetPrio
@@ -166,12 +188,22 @@ Generate a strong JWT secret:
 openssl rand -base64 48
 ```
 
-## 6. Build the Frontends
+Notes:
+
+- `VITE_API_URL` should include `/api`.
+- `SERVER_URL` should not include `/api`.
+- `B2_BUCKET_PUBLIC_BOARD` is reused for public board assets and location payment QR images.
+- `B2_BUCKET_PAYMENT_PROOF` should stay private.
+- Payment proof uploads now go through the backend direct-upload route, not direct browser-to-B2 upload.
+
+## 6. Build the App
 
 ```bash
 cd /var/www/getprio
-npm --workspace frontend run build
-npm --workspace platform-dashboard run build
+npm run typecheck
+npm run test:backend
+npm run build
+npm run build:backend
 ```
 
 ## 7. Start the Backend
@@ -265,14 +297,16 @@ Set PayMongo webhooks to:
 https://api.yourdomain.com/api/billing/webhooks/paymongo
 ```
 
+If you are only launching the booking/manual-QR flow first, this webhook is not part of the critical path. Keep it configured only if the queue-payment or billing flows are active in your release.
+
 ## 11. Deploy Updates
 
 ```bash
 cd /var/www/getprio
 git pull
 npm install
-npm --workspace frontend run build
-npm --workspace platform-dashboard run build
+npm run build
+npm run build:backend
 pm2 restart getprio-api
 ```
 
@@ -292,3 +326,13 @@ systemctl status nginx
 df -h
 free -m
 ```
+
+Recommended post-deploy smoke checks:
+
+- landing page and platform dashboard load from the correct domains
+- login works for customer and vendor/admin roles
+- customer booking detail shows the manual QR and proof form when expected
+- payment proof upload succeeds through the backend
+- vendor payment review endpoints work
+- pending bookings expire when no proof is submitted
+- SSE-backed booking or queue refresh still works through Nginx
