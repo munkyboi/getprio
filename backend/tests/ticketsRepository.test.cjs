@@ -81,7 +81,7 @@ function createQueryClient(rows = []) {
   };
 }
 
-test("tickets repository orders waiting tickets by carry-over, recovery, then normal", async () => {
+test("tickets repository orders waiting tickets by carry-over, recovery, checked-in booking, then normal", async () => {
   const { calls, client } = createQueryClient();
   const ticketsRepository = requireWithMocks("../src/repositories/tickets.js", {
     "../config/db": { pool: client }
@@ -97,9 +97,30 @@ test("tickets repository orders waiting tickets by carry-over, recovery, then no
   assert.equal(calls.length, 1);
   assert.match(
     calls[0].query,
-    /ORDER BY CASE service_priority_band WHEN 'carry_over' THEN 0 WHEN 'recovery' THEN 1 ELSE 2 END ASC, carry_over_count DESC, created_at ASC/
+    /ORDER BY CASE service_priority_band WHEN 'carry_over' THEN 0 WHEN 'recovery' THEN 1 WHEN 'checked_in_booking' THEN 2 ELSE 3 END ASC, carry_over_count DESC, created_at ASC/
   );
   assert.deepEqual(calls[0].params, [1, 2, "20260606", 5]);
+});
+
+test("tickets repository calls checked-in booking tickets before normal tickets", async () => {
+  const { calls, client } = createQueryClient();
+  const ticketsRepository = requireWithMocks("../src/repositories/tickets.js", {
+    "../config/db": { pool: client }
+  });
+
+  await ticketsRepository.callNextWaitingTicket(1, {
+    client,
+    locationId: 2,
+    serviceCounterId: 3,
+    dateKey: "20260606"
+  });
+
+  assert.equal(calls.length, 1);
+  assert.match(
+    calls[0].query,
+    /ORDER BY CASE service_priority_band WHEN 'carry_over' THEN 0 WHEN 'recovery' THEN 1 WHEN 'checked_in_booking' THEN 2 ELSE 3 END ASC, carry_over_count DESC, created_at ASC/
+  );
+  assert.deepEqual(calls[0].params, [1, 2, 3, "20260606"]);
 });
 
 test("tickets repository applies carried-over filters for overflow and history views", async () => {

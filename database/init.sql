@@ -12,6 +12,12 @@ DROP TABLE IF EXISTS auth_security_events CASCADE;
 DROP TABLE IF EXISTS auth_login_attempts CASCADE;
 DROP TABLE IF EXISTS password_reset_tokens CASCADE;
 DROP TABLE IF EXISTS auth_sessions CASCADE;
+DROP TABLE IF EXISTS bookings CASCADE;
+DROP TABLE IF EXISTS booking_sms_alert_payments CASCADE;
+DROP TABLE IF EXISTS booking_otps CASCADE;
+DROP TABLE IF EXISTS vendor_availability_exceptions CASCADE;
+DROP TABLE IF EXISTS vendor_availability_blocks CASCADE;
+DROP TABLE IF EXISTS vendor_services CASCADE;
 DROP TABLE IF EXISTS service_counter_assignments CASCADE;
 DROP TABLE IF EXISTS service_counters CASCADE;
 DROP TABLE IF EXISTS subscription_plans CASCADE;
@@ -46,6 +52,12 @@ CREATE TABLE tenants (
   auto_resume_vacancy_percent INTEGER CHECK (auto_resume_vacancy_percent IS NULL OR auto_resume_vacancy_percent BETWEEN 5 AND 50),
   contact_email TEXT,
   contact_phone TEXT,
+  notification_settings JSONB NOT NULL DEFAULT '{"bookingIntake":true,"paymentProofReview":true,"bookingStatusChanges":true}'::JSONB,
+  public_profile_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  public_profile_description TEXT,
+  public_profile_category TEXT,
+  public_profile_image_url TEXT,
+  vendor_approval_status TEXT NOT NULL DEFAULT 'approved' CHECK (vendor_approval_status IN ('pending', 'approved', 'rejected', 'suspended')),
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -54,6 +66,7 @@ CREATE TABLE tenants (
 CREATE TABLE users (
   id BIGSERIAL PRIMARY KEY,
   name TEXT NOT NULL,
+  username TEXT UNIQUE,
   email TEXT UNIQUE,
   phone TEXT,
   password_hash TEXT,
@@ -67,6 +80,7 @@ CREATE TABLE users (
   last_password_changed_at TIMESTAMPTZ,
   mfa_enabled BOOLEAN NOT NULL DEFAULT FALSE,
   mfa_required BOOLEAN NOT NULL DEFAULT FALSE,
+  notification_settings JSONB NOT NULL DEFAULT '{"bookingAlerts":true,"queueAlerts":true}'::JSONB,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -172,6 +186,11 @@ CREATE TABLE store_locations (
   contact_email TEXT,
   contact_phone TEXT,
   timezone TEXT NOT NULL DEFAULT 'Asia/Manila',
+  payment_method_label TEXT,
+  payment_account_display_name TEXT,
+  payment_account_identifier_display TEXT,
+  payment_qr_image_url TEXT,
+  payment_qr_active BOOLEAN NOT NULL DEFAULT FALSE,
   is_primary BOOLEAN NOT NULL DEFAULT FALSE,
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -221,6 +240,155 @@ CREATE TABLE service_counter_assignments (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   PRIMARY KEY (counter_id, user_id)
 );
+
+CREATE TABLE vendor_services (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  slug TEXT NOT NULL,
+  description TEXT,
+  duration_minutes INTEGER NOT NULL CHECK (duration_minutes BETWEEN 5 AND 480),
+  allow_booking_quantity BOOLEAN NOT NULL DEFAULT FALSE,
+  booking_quantity_label TEXT NOT NULL DEFAULT 'Units',
+  manual_payment_required BOOLEAN NOT NULL DEFAULT FALSE,
+  price_amount_cents INTEGER NOT NULL DEFAULT 0 CHECK (price_amount_cents >= 0),
+  currency TEXT NOT NULL DEFAULT 'PHP' CHECK (currency IN ('PHP')),
+  price_display TEXT NOT NULL DEFAULT '',
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (tenant_id, slug)
+);
+
+CREATE INDEX vendor_services_tenant_active_sort_idx
+  ON vendor_services (tenant_id, is_active, sort_order, name);
+
+CREATE TABLE vendor_availability_blocks (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  location_id BIGINT NOT NULL REFERENCES store_locations(id) ON DELETE CASCADE,
+  service_id BIGINT REFERENCES vendor_services(id) ON DELETE SET NULL,
+  weekday INTEGER NOT NULL CHECK (weekday BETWEEN 0 AND 6),
+  starts_at TIME NOT NULL,
+  ends_at TIME NOT NULL,
+  capacity INTEGER NOT NULL DEFAULT 1 CHECK (capacity BETWEEN 1 AND 100),
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  notes TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CHECK (starts_at < ends_at)
+);
+
+CREATE INDEX vendor_availability_blocks_location_day_idx
+  ON vendor_availability_blocks (tenant_id, location_id, weekday, starts_at);
+
+CREATE TABLE vendor_availability_exceptions (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  location_id BIGINT NOT NULL REFERENCES store_locations(id) ON DELETE CASCADE,
+  service_id BIGINT REFERENCES vendor_services(id) ON DELETE SET NULL,
+  exception_date DATE NOT NULL,
+  starts_at TIME,
+  ends_at TIME,
+  is_available BOOLEAN NOT NULL DEFAULT FALSE,
+  capacity INTEGER CHECK (capacity IS NULL OR capacity BETWEEN 1 AND 100),
+  reason TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CHECK (
+    (starts_at IS NULL AND ends_at IS NULL)
+    OR (starts_at IS NOT NULL AND ends_at IS NOT NULL AND starts_at < ends_at)
+  )
+);
+
+CREATE INDEX vendor_availability_exceptions_location_date_idx
+  ON vendor_availability_exceptions (tenant_id, location_id, exception_date);
+
+CREATE TABLE bookings (
+  id BIGSERIAL PRIMARY KEY,
+  reference TEXT NOT NULL UNIQUE,
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  location_id BIGINT NOT NULL REFERENCES store_locations(id) ON DELETE RESTRICT,
+  service_id BIGINT NOT NULL REFERENCES vendor_services(id) ON DELETE RESTRICT,
+  customer_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  customer_name TEXT NOT NULL,
+  customer_email TEXT,
+  customer_phone TEXT,
+  booking_quantity INTEGER NOT NULL DEFAULT 1 CHECK (booking_quantity BETWEEN 1 AND 24),
+  scheduled_start_at TIMESTAMPTZ NOT NULL,
+  scheduled_end_at TIMESTAMPTZ NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (
+    status IN ('pending', 'confirmed', 'rescheduled', 'completed', 'canceled', 'disputed', 'reviewed')
+  ),
+  notes TEXT,
+  payment_reference TEXT,
+  payment_status TEXT NOT NULL DEFAULT 'unpaid' CHECK (
+    payment_status IN ('unpaid', 'pending', 'paid', 'failed', 'refunded')
+  ),
+  payment_proof_object_key TEXT,
+  payment_proof_file_name TEXT,
+  payment_proof_content_type TEXT,
+  payment_proof_size_bytes INTEGER CHECK (
+    payment_proof_size_bytes IS NULL OR payment_proof_size_bytes > 0
+  ),
+  payment_proof_uploaded_at TIMESTAMPTZ,
+  payment_verified_at TIMESTAMPTZ,
+  payment_verified_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  payment_rejected_at TIMESTAMPTZ,
+  payment_rejected_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  payment_rejection_reason TEXT,
+  pending_expires_at TIMESTAMPTZ,
+  expired_at TIMESTAMPTZ,
+  expiration_reason TEXT,
+  notify_by_email BOOLEAN NOT NULL DEFAULT TRUE,
+  notify_by_sms BOOLEAN NOT NULL DEFAULT FALSE,
+  sms_alert_fee_payment_id TEXT,
+  contact_verified_at TIMESTAMPTZ,
+  contact_verification_channel TEXT CHECK (
+    contact_verification_channel IS NULL OR contact_verification_channel IN ('email', 'sms')
+  ),
+  queue_ticket_id BIGINT,
+  checked_in_at TIMESTAMPTZ,
+  checked_in_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  no_show_at TIMESTAMPTZ,
+  no_show_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CHECK (scheduled_start_at < scheduled_end_at)
+);
+
+CREATE INDEX bookings_customer_schedule_idx
+  ON bookings (customer_user_id, scheduled_start_at DESC);
+
+CREATE INDEX bookings_vendor_schedule_idx
+  ON bookings (tenant_id, location_id, scheduled_start_at ASC);
+
+CREATE INDEX bookings_customer_detail_idx
+  ON bookings (customer_user_id, id);
+
+CREATE INDEX bookings_vendor_checkin_idx
+  ON bookings (tenant_id, location_id, scheduled_start_at, status)
+  WHERE queue_ticket_id IS NULL;
+
+CREATE INDEX bookings_queue_ticket_idx
+  ON bookings (queue_ticket_id)
+  WHERE queue_ticket_id IS NOT NULL;
+
+CREATE INDEX bookings_vendor_no_show_idx
+  ON bookings (tenant_id, location_id, no_show_at)
+  WHERE no_show_at IS NOT NULL;
+
+CREATE INDEX bookings_payment_proof_idx
+  ON bookings (tenant_id, payment_status, payment_proof_uploaded_at DESC)
+  WHERE payment_proof_object_key IS NOT NULL;
+
+CREATE INDEX bookings_payment_review_idx
+  ON bookings (tenant_id, payment_status, payment_verified_at, payment_rejected_at);
+
+CREATE INDEX bookings_pending_expiration_idx
+  ON bookings (pending_expires_at)
+  WHERE status = 'pending' AND payment_proof_object_key IS NULL;
 
 CREATE TABLE tickets (
   id BIGSERIAL PRIMARY KEY,
@@ -332,6 +500,21 @@ CREATE TABLE queue_join_otps (
   payload JSONB NOT NULL DEFAULT '{}'::JSONB,
   expires_at TIMESTAMPTZ NOT NULL,
   used_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE booking_otps (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  code_hash TEXT NOT NULL,
+  delivery_channel TEXT NOT NULL CHECK (delivery_channel IN ('email', 'sms')),
+  delivery_target TEXT NOT NULL,
+  payload JSONB NOT NULL DEFAULT '{}'::JSONB,
+  expires_at TIMESTAMPTZ NOT NULL,
+  verified_at TIMESTAMPTZ,
+  verification_token_hash TEXT UNIQUE,
+  consumed_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -488,6 +671,28 @@ CREATE TABLE queue_join_payments (
   UNIQUE (tenant_id, otp_id)
 );
 
+CREATE TABLE booking_sms_alert_payments (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  booking_otp_id BIGINT NOT NULL REFERENCES booking_otps(id) ON DELETE CASCADE,
+  plan_slug TEXT NOT NULL CHECK (plan_slug IN ('economical', 'pro', 'enterprise')),
+  provider TEXT NOT NULL DEFAULT 'paymongo',
+  provider_checkout_session_id TEXT UNIQUE,
+  provider_payment_id TEXT,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (
+    status IN ('pending', 'paid', 'failed', 'expired', 'canceled')
+  ),
+  amount_cents INTEGER NOT NULL CHECK (amount_cents >= 0),
+  currency TEXT NOT NULL DEFAULT 'PHP',
+  checkout_url TEXT,
+  payload JSONB NOT NULL DEFAULT '{}'::JSONB,
+  metadata JSONB NOT NULL DEFAULT '{}'::JSONB,
+  paid_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (tenant_id, booking_otp_id)
+);
+
 CREATE TABLE tenant_subscriptions (
   id BIGSERIAL PRIMARY KEY,
   tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
@@ -555,6 +760,10 @@ CREATE UNIQUE INDEX idx_store_locations_one_primary
   ON store_locations (tenant_id)
   WHERE is_primary = TRUE;
 
+ALTER TABLE bookings
+  ADD CONSTRAINT bookings_queue_ticket_id_fkey
+  FOREIGN KEY (queue_ticket_id) REFERENCES tickets(id) ON DELETE SET NULL;
+
 CREATE INDEX idx_store_locations_tenant_active
   ON store_locations (tenant_id, is_active);
 
@@ -572,6 +781,13 @@ CREATE INDEX idx_tickets_lookup_code
 
 CREATE INDEX idx_queue_join_otps_tenant_expires
   ON queue_join_otps (tenant_id, expires_at DESC);
+
+CREATE INDEX idx_booking_otps_tenant_expires
+  ON booking_otps (tenant_id, expires_at DESC);
+
+CREATE INDEX idx_booking_otps_verified_token
+  ON booking_otps (verification_token_hash)
+  WHERE verification_token_hash IS NOT NULL;
 
 CREATE INDEX idx_notification_deliveries_tenant_email_sent
   ON notification_deliveries (tenant_id, sent_at DESC)
@@ -599,6 +815,12 @@ CREATE INDEX idx_queue_join_payments_tenant_status
 
 CREATE INDEX idx_queue_join_payments_status_created
   ON queue_join_payments (status, created_at DESC);
+
+CREATE INDEX idx_booking_sms_alert_payments_tenant_status
+  ON booking_sms_alert_payments (tenant_id, status, created_at DESC);
+
+CREATE INDEX idx_booking_sms_alert_payments_status_created
+  ON booking_sms_alert_payments (status, created_at DESC);
 
 CREATE INDEX idx_billing_checkout_sessions_tenant_id
   ON billing_checkout_sessions (tenant_id);
@@ -639,6 +861,26 @@ BEFORE UPDATE ON store_hours
 FOR EACH ROW
 EXECUTE FUNCTION set_updated_at();
 
+CREATE TRIGGER set_vendor_services_updated_at
+BEFORE UPDATE ON vendor_services
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER set_vendor_availability_blocks_updated_at
+BEFORE UPDATE ON vendor_availability_blocks
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER set_vendor_availability_exceptions_updated_at
+BEFORE UPDATE ON vendor_availability_exceptions
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER set_bookings_updated_at
+BEFORE UPDATE ON bookings
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
 CREATE TRIGGER set_tickets_updated_at
 BEFORE UPDATE ON tickets
 FOR EACH ROW
@@ -646,6 +888,11 @@ EXECUTE FUNCTION set_updated_at();
 
 CREATE TRIGGER set_queue_join_otps_updated_at
 BEFORE UPDATE ON queue_join_otps
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER set_booking_otps_updated_at
+BEFORE UPDATE ON booking_otps
 FOR EACH ROW
 EXECUTE FUNCTION set_updated_at();
 
@@ -671,6 +918,11 @@ EXECUTE FUNCTION set_updated_at();
 
 CREATE TRIGGER set_queue_join_payments_updated_at
 BEFORE UPDATE ON queue_join_payments
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER set_booking_sms_alert_payments_updated_at
+BEFORE UPDATE ON booking_sms_alert_payments
 FOR EACH ROW
 EXECUTE FUNCTION set_updated_at();
 

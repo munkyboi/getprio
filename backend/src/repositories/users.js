@@ -3,6 +3,7 @@ const db = require("../config/db");
 const USER_COLUMNS = `
   id,
   name,
+  username,
   email,
   phone,
   password_hash,
@@ -16,6 +17,7 @@ const USER_COLUMNS = `
   last_password_changed_at,
   mfa_enabled,
   mfa_required,
+  notification_settings,
   created_at,
   updated_at
 `;
@@ -46,6 +48,7 @@ function mapUser(row, relationships = {}) {
   return {
     _id: String(row.id),
     name: row.name,
+    username: row.username,
     email: row.email,
     phone: row.phone,
     passwordHash: row.password_hash,
@@ -59,6 +62,7 @@ function mapUser(row, relationships = {}) {
     lastPasswordChangedAt: row.last_password_changed_at,
     mfaEnabled: row.mfa_enabled === true,
     mfaRequired: row.mfa_required === true,
+    notificationSettings: row.notification_settings || {},
     oauthAccounts: relationships.oauthAccounts || [],
     tenantMemberships: relationships.tenantMemberships || [],
     createdAt: row.created_at,
@@ -180,6 +184,28 @@ async function findUserByEmail(email, options = {}) {
   return users[0] || null;
 }
 
+async function findUserByUsername(username, options = {}) {
+  const normalizedUsername = String(username || "").trim().toLowerCase();
+  if (!normalizedUsername) {
+    return null;
+  }
+
+  const queryClient = buildQueryClient(options.client);
+  const values = [normalizedUsername];
+  let query = `SELECT ${USER_COLUMNS} FROM users WHERE LOWER(username) = $1`;
+
+  if (options.excludeId) {
+    values.push(Number(options.excludeId));
+    query += ` AND id <> $${values.length}`;
+  }
+
+  query += " LIMIT 1";
+
+  const result = await queryClient.query(query, values);
+  const users = await hydrateUsers(result.rows, queryClient);
+  return users[0] || null;
+}
+
 async function findUserByOauthAccount(provider, providerUserId, options = {}) {
   const queryClient = buildQueryClient(options.client);
   const result = await queryClient.query(
@@ -203,6 +229,7 @@ async function createUser(data, options = {}) {
     `
       INSERT INTO users (
         name,
+        username,
         email,
         phone,
         password_hash,
@@ -212,11 +239,12 @@ async function createUser(data, options = {}) {
         roles,
         last_password_changed_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING ${USER_COLUMNS}
     `,
     [
       data.name,
+      data.username || null,
       data.email || null,
       data.phone || null,
       data.passwordHash || null,
@@ -274,6 +302,7 @@ async function updateUser(userId, changes, options = {}) {
 
   const setters = {
     name: "name",
+    username: "username",
     email: "email",
     phone: "phone",
     passwordHash: "password_hash",
@@ -286,7 +315,8 @@ async function updateUser(userId, changes, options = {}) {
     lastFailedLoginAt: "last_failed_login_at",
     lastPasswordChangedAt: "last_password_changed_at",
     mfaEnabled: "mfa_enabled",
-    mfaRequired: "mfa_required"
+    mfaRequired: "mfa_required",
+    notificationSettings: "notification_settings"
   };
 
   for (const [key, column] of Object.entries(setters)) {
@@ -422,6 +452,7 @@ module.exports = {
   mapUser,
   findUserById,
   findUserByEmail,
+  findUserByUsername,
   findUserByOauthAccount,
   createUser,
   updateUser,

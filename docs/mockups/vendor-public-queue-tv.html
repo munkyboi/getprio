@@ -1,0 +1,620 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GetPrio Vendor Public Queue TV Mockup</title>
+    <style>
+      :root {
+        --bg: #f5efe6;
+        --panel: #fffaf4;
+        --panel-soft: #fbf5ec;
+        --ink: #211914;
+        --muted: #786b61;
+        --line: rgba(33, 25, 20, 0.12);
+        --primary: #ff7a1a;
+        --primary-dark: #cf5410;
+        --teal: #13b99a;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+        color: var(--ink);
+        background: #d8d0c2;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      .tv-frame {
+        width: 1920px;
+        height: 1080px;
+        padding: 32px;
+        background:
+          radial-gradient(circle at 18% 10%, rgba(255, 122, 26, 0.14), transparent 30%),
+          radial-gradient(circle at 84% 4%, rgba(19, 185, 154, 0.13), transparent 32%),
+          linear-gradient(145deg, #fffaf3, var(--bg));
+        transform-origin: center;
+      }
+
+      .screen {
+        width: 100%;
+        height: 100%;
+        display: grid;
+        grid-template-rows: 162px minmax(0, 1fr);
+        gap: 18px;
+      }
+
+      .header {
+        display: grid;
+        grid-template-columns: 118px minmax(0, 1fr) 380px;
+        gap: 28px;
+        align-items: center;
+        padding: 22px 28px;
+        border: 1px solid var(--line);
+        border-radius: 28px;
+        background: rgba(255, 250, 244, 0.78);
+        box-shadow: 0 24px 70px rgba(33, 25, 20, 0.08);
+      }
+
+      .logo {
+        width: 86px;
+        height: 86px;
+        display: grid;
+        place-items: center;
+        border-radius: 24px;
+        color: #ffffff;
+        font-size: 38px;
+        font-weight: 900;
+        background: linear-gradient(135deg, var(--primary), #ffc05b);
+        box-shadow: 0 18px 40px rgba(255, 122, 26, 0.28);
+      }
+
+      .eyebrow {
+        margin: 0 0 6px;
+        color: var(--primary-dark);
+        font-size: 17px;
+        font-weight: 900;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        font-size: 50px;
+        line-height: 1;
+        letter-spacing: 0;
+      }
+
+      .subtitle {
+        margin-top: 10px;
+        color: var(--muted);
+        font-size: 24px;
+        font-weight: 650;
+        line-height: 1.15;
+      }
+
+      .clock-card {
+        justify-self: end;
+        min-width: 340px;
+        padding: 18px 22px;
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        background: rgba(255, 255, 255, 0.64);
+        text-align: right;
+      }
+
+      .clock-card strong {
+        display: block;
+        font-size: 36px;
+        line-height: 1;
+      }
+
+      .clock-card span {
+        display: block;
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 19px;
+        font-weight: 750;
+      }
+
+      .main-grid {
+        min-height: 0;
+        display: grid;
+        grid-template-columns: 610px minmax(0, 1fr);
+        gap: 24px;
+      }
+
+      .left-rail {
+        min-height: 0;
+        display: grid;
+        grid-template-rows: minmax(0, 1fr) 184px 212px;
+        gap: 24px;
+      }
+
+      .hero-card,
+      .stat-card,
+      .qr-card,
+      .queue-panel {
+        border: 1px solid var(--line);
+        border-radius: 30px;
+        background: rgba(255, 250, 244, 0.88);
+        box-shadow: 0 26px 76px rgba(33, 25, 20, 0.09);
+      }
+
+      .hero-card {
+        position: relative;
+        display: grid;
+        align-content: center;
+        justify-items: center;
+        overflow: hidden;
+        padding: 42px;
+        text-align: center;
+      }
+
+      .hero-card::before {
+        content: "";
+        position: absolute;
+        inset: 28px;
+        border-radius: 28px;
+        background:
+          linear-gradient(160deg, rgba(255, 122, 26, 0.08), rgba(255, 255, 255, 0)),
+          var(--panel-soft);
+      }
+
+      .hero-content {
+        position: relative;
+        z-index: 1;
+      }
+
+      .hero-label {
+        color: var(--primary-dark);
+        font-size: 22px;
+        font-weight: 950;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      .current-ticket {
+        margin-top: 18px;
+        font-size: 138px;
+        line-height: 0.9;
+        font-weight: 950;
+        letter-spacing: 0;
+      }
+
+      .customer-label {
+        margin-top: 18px;
+        color: var(--muted);
+        font-size: 30px;
+        font-weight: 800;
+      }
+
+      .service-note {
+        margin-top: 16px;
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 20px;
+        border-radius: 999px;
+        color: #ffffff;
+        font-size: 20px;
+        font-weight: 900;
+        background: var(--primary);
+      }
+
+      .stat-card {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 18px;
+        padding: 26px;
+      }
+
+      .metric {
+        display: grid;
+        align-content: center;
+        padding: 24px;
+        border-radius: 24px;
+        background: rgba(255, 255, 255, 0.62);
+      }
+
+      .metric span {
+        color: var(--muted);
+        font-size: 20px;
+        font-weight: 800;
+      }
+
+      .metric strong {
+        margin-top: 8px;
+        font-size: 64px;
+        line-height: 1;
+      }
+
+      .qr-card {
+        display: grid;
+        grid-template-columns: 148px minmax(0, 1fr);
+        gap: 22px;
+        align-items: center;
+        padding: 20px 24px;
+      }
+
+      .qr-code {
+        width: 144px;
+        height: 144px;
+        padding: 10px;
+        border-radius: 20px;
+        background: #ffffff;
+        box-shadow: inset 0 0 0 1px rgba(33, 25, 20, 0.08);
+      }
+
+      .qr-grid {
+        width: 100%;
+        height: 100%;
+        display: grid;
+        grid-template-columns: repeat(9, 1fr);
+        grid-template-rows: repeat(9, 1fr);
+        gap: 4px;
+      }
+
+      .qr-grid span {
+        border-radius: 2px;
+        background: var(--ink);
+      }
+
+      .qr-grid span:nth-child(3n + 1),
+      .qr-grid span:nth-child(4n + 2),
+      .qr-grid span:nth-child(7n) {
+        background: transparent;
+      }
+
+      .qr-grid span:nth-child(1),
+      .qr-grid span:nth-child(2),
+      .qr-grid span:nth-child(3),
+      .qr-grid span:nth-child(10),
+      .qr-grid span:nth-child(12),
+      .qr-grid span:nth-child(19),
+      .qr-grid span:nth-child(20),
+      .qr-grid span:nth-child(21),
+      .qr-grid span:nth-child(7),
+      .qr-grid span:nth-child(8),
+      .qr-grid span:nth-child(9),
+      .qr-grid span:nth-child(16),
+      .qr-grid span:nth-child(18),
+      .qr-grid span:nth-child(25),
+      .qr-grid span:nth-child(26),
+      .qr-grid span:nth-child(27),
+      .qr-grid span:nth-child(55),
+      .qr-grid span:nth-child(56),
+      .qr-grid span:nth-child(57),
+      .qr-grid span:nth-child(64),
+      .qr-grid span:nth-child(66),
+      .qr-grid span:nth-child(73),
+      .qr-grid span:nth-child(74),
+      .qr-grid span:nth-child(75) {
+        background: var(--ink);
+      }
+
+      .qr-copy .eyebrow {
+        margin-bottom: 10px;
+        font-size: 15px;
+      }
+
+      .qr-copy h3 {
+        font-size: 31px;
+        line-height: 1.05;
+      }
+
+      .qr-copy p {
+        margin-top: 10px;
+        color: var(--muted);
+        font-size: 20px;
+        font-weight: 750;
+        line-height: 1.25;
+      }
+
+      .queue-panel {
+        min-height: 0;
+        display: grid;
+        grid-template-rows: auto 190px minmax(0, 1fr);
+        gap: 22px;
+        padding: 28px;
+      }
+
+      .panel-heading {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 24px;
+      }
+
+      .panel-heading h2 {
+        font-size: 42px;
+        line-height: 1;
+      }
+
+      .panel-heading p {
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 22px;
+        font-weight: 700;
+      }
+
+      .queue-count {
+        min-width: 200px;
+        padding: 14px 18px;
+        border-radius: 18px;
+        color: #ffffff;
+        background: var(--ink);
+        text-align: center;
+      }
+
+      .queue-count span {
+        display: block;
+        font-size: 17px;
+        font-weight: 800;
+        opacity: 0.78;
+      }
+
+      .queue-count strong {
+        display: block;
+        margin-top: 4px;
+        font-size: 42px;
+        line-height: 1;
+      }
+
+      .next-strip {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 18px;
+      }
+
+      .next-card {
+        display: grid;
+        grid-template-columns: 68px minmax(0, 1fr);
+        gap: 16px;
+        align-items: center;
+        padding: 22px;
+        border-radius: 24px;
+        color: #ffffff;
+        background: linear-gradient(135deg, var(--primary), #ff9a42);
+        box-shadow: 0 18px 42px rgba(255, 122, 26, 0.2);
+      }
+
+      .next-card:nth-child(2),
+      .next-card:nth-child(3) {
+        color: var(--ink);
+        background: rgba(255, 255, 255, 0.82);
+        box-shadow: none;
+      }
+
+      .position {
+        width: 68px;
+        height: 68px;
+        display: grid;
+        place-items: center;
+        border-radius: 20px;
+        color: inherit;
+        background: rgba(255, 255, 255, 0.22);
+        font-size: 28px;
+        font-weight: 950;
+      }
+
+      .next-card:nth-child(2) .position,
+      .next-card:nth-child(3) .position {
+        color: var(--primary-dark);
+        background: rgba(255, 122, 26, 0.12);
+      }
+
+      .next-ticket {
+        display: block;
+        font-size: 54px;
+        line-height: 0.95;
+        font-weight: 950;
+      }
+
+      .next-name {
+        display: block;
+        margin-top: 8px;
+        font-size: 19px;
+        font-weight: 800;
+        opacity: 0.78;
+      }
+
+      .waiting-grid {
+        min-height: 0;
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        grid-auto-rows: 1fr;
+        gap: 14px;
+      }
+
+      .ticket-card {
+        min-width: 0;
+        display: grid;
+        grid-template-columns: 56px minmax(0, 1fr) auto;
+        gap: 12px;
+        align-items: center;
+        padding: 15px 16px;
+        border: 1px solid rgba(33, 25, 20, 0.08);
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.7);
+      }
+
+      .ticket-pos {
+        width: 56px;
+        height: 50px;
+        display: grid;
+        place-items: center;
+        border-radius: 16px;
+        color: var(--muted);
+        background: rgba(33, 25, 20, 0.06);
+        font-size: 21px;
+        font-weight: 950;
+      }
+
+      .ticket-card strong {
+        display: block;
+        font-size: 31px;
+        line-height: 1;
+      }
+
+      .ticket-card span {
+        display: block;
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 16px;
+        font-weight: 700;
+      }
+
+      .eta {
+        justify-self: end;
+        padding: 10px 12px;
+        border-radius: 999px;
+        color: var(--primary-dark);
+        background: rgba(255, 122, 26, 0.1);
+        font-size: 17px;
+        font-weight: 900;
+        white-space: nowrap;
+      }
+
+      @media (max-width: 1920px), (max-height: 1080px) {
+        .tv-frame {
+          transform: scale(min(calc(100vw / 1920), calc(100vh / 1080)));
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="tv-frame" aria-label="Vendor public queue TV mockup">
+      <section class="screen">
+        <header class="header">
+          <div class="logo" aria-label="Vendor logo">M</div>
+          <div>
+            <p class="eyebrow">Live public queue</p>
+            <h1>Musashi Pastries</h1>
+            <p class="subtitle">Ayala Branch - Level 2, Ayala Center Cebu, Cebu City</p>
+          </div>
+          <div class="clock-card">
+            <strong>10:42 AM</strong>
+            <span>Now open - serving walk-ins</span>
+          </div>
+        </header>
+
+        <section class="main-grid">
+          <aside class="left-rail">
+            <section class="hero-card">
+              <div class="hero-content">
+                <p class="hero-label">Now serving</p>
+                <div class="current-ticket">A-018</div>
+                <p class="customer-label">Counter 2</p>
+                <p class="service-note">Please proceed when called</p>
+              </div>
+            </section>
+
+            <section class="qr-card">
+              <div class="qr-code" aria-label="QR code to join the queue">
+                <div class="qr-grid" aria-hidden="true">
+                  <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+                  <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+                  <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+                  <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+                  <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+                  <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+                  <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+                  <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+                  <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+                </div>
+              </div>
+              <div class="qr-copy">
+                <p class="eyebrow">Join from phone</p>
+                <h3>Scan to get a queue ticket</h3>
+                <p>No app install required. Customers can monitor their turn live.</p>
+              </div>
+            </section>
+
+            <section class="stat-card">
+              <div class="metric">
+                <span>Tickets served today</span>
+                <strong>126</strong>
+              </div>
+              <div class="metric">
+                <span>Currently waiting</span>
+                <strong>23</strong>
+              </div>
+            </section>
+          </aside>
+
+          <section class="queue-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Public queue list</p>
+                <h2>Up next and waiting</h2>
+                <p>Top tickets are emphasized; the rest use compact readable cards instead of a tall table.</p>
+              </div>
+              <div class="queue-count">
+                <span>Next visible</span>
+                <strong>19</strong>
+              </div>
+            </div>
+
+            <div class="next-strip" aria-label="Next tickets">
+              <article class="next-card">
+                <div class="position">1</div>
+                <div>
+                  <strong class="next-ticket">A-019</strong>
+                  <span class="next-name">Next customer</span>
+                </div>
+              </article>
+              <article class="next-card">
+                <div class="position">2</div>
+                <div>
+                  <strong class="next-ticket">A-020</strong>
+                  <span class="next-name">On deck</span>
+                </div>
+              </article>
+              <article class="next-card">
+                <div class="position">3</div>
+                <div>
+                  <strong class="next-ticket">A-021</strong>
+                  <span class="next-name">On deck</span>
+                </div>
+              </article>
+            </div>
+
+            <div class="waiting-grid" aria-label="Waiting tickets">
+              <article class="ticket-card"><div class="ticket-pos">4</div><div><strong>A-022</strong><span>Waiting</span></div><div class="eta">8m</div></article>
+              <article class="ticket-card"><div class="ticket-pos">5</div><div><strong>A-023</strong><span>Waiting</span></div><div class="eta">10m</div></article>
+              <article class="ticket-card"><div class="ticket-pos">6</div><div><strong>A-024</strong><span>Waiting</span></div><div class="eta">12m</div></article>
+              <article class="ticket-card"><div class="ticket-pos">7</div><div><strong>A-025</strong><span>Waiting</span></div><div class="eta">14m</div></article>
+              <article class="ticket-card"><div class="ticket-pos">8</div><div><strong>A-026</strong><span>Waiting</span></div><div class="eta">16m</div></article>
+              <article class="ticket-card"><div class="ticket-pos">9</div><div><strong>A-027</strong><span>Waiting</span></div><div class="eta">18m</div></article>
+              <article class="ticket-card"><div class="ticket-pos">10</div><div><strong>A-028</strong><span>Waiting</span></div><div class="eta">20m</div></article>
+              <article class="ticket-card"><div class="ticket-pos">11</div><div><strong>A-029</strong><span>Waiting</span></div><div class="eta">22m</div></article>
+              <article class="ticket-card"><div class="ticket-pos">12</div><div><strong>A-030</strong><span>Waiting</span></div><div class="eta">24m</div></article>
+              <article class="ticket-card"><div class="ticket-pos">13</div><div><strong>A-031</strong><span>Waiting</span></div><div class="eta">26m</div></article>
+              <article class="ticket-card"><div class="ticket-pos">14</div><div><strong>A-032</strong><span>Waiting</span></div><div class="eta">28m</div></article>
+              <article class="ticket-card"><div class="ticket-pos">15</div><div><strong>A-033</strong><span>Waiting</span></div><div class="eta">30m</div></article>
+              <article class="ticket-card"><div class="ticket-pos">16</div><div><strong>A-034</strong><span>Waiting</span></div><div class="eta">32m</div></article>
+              <article class="ticket-card"><div class="ticket-pos">17</div><div><strong>A-035</strong><span>Waiting</span></div><div class="eta">34m</div></article>
+              <article class="ticket-card"><div class="ticket-pos">18</div><div><strong>A-036</strong><span>Waiting</span></div><div class="eta">36m</div></article>
+              <article class="ticket-card"><div class="ticket-pos">19</div><div><strong>A-037</strong><span>Waiting</span></div><div class="eta">38m</div></article>
+            </div>
+          </section>
+        </section>
+      </section>
+    </main>
+  </body>
+</html>
