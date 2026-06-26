@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 300">
+  <!--
+    GetPrio · gp Monogram Logo
+    Clean SVG · Transparent background
+    ─────────────────────────────────────────
+    Geometry
+      Left  ring (g bowl)  : cx=110  cy=150  R=85  r=51
+      Right ring (p bowl)  : cx=230  cy=150  R=85  r=51
+      Centers 120 px apart; outer circles intersect at (170, 89.8) and (170, 210.2)
+      Inner circles are 18 px apart at their closest edges (x=161 to x=179)
+      — this gap forms the natural central connector bar between the two letters.
+
+    Winding convention (fill-rule="nonzero")
+      Outer circles : clockwise   → winding +1 ; overlap region = +2 → filled
+      Inner circles : counter-CW  → winding -1 ; ring interior    =  0 → hole
+  -->
+
+  <!-- Two overlapping donut shapes (g + p bowls) -->
+  <path
+    fill="#1a1a1a"
+    fill-rule="nonzero"
+    d="
+      M  25,150 A 85,85 0 1,1 195,150 A 85,85 0 1,1  25,150 Z
+      M 145,150 A 85,85 0 1,1 315,150 A 85,85 0 1,1 145,150 Z
+      M  59,150 A 51,51 0 1,0 161,150 A 51,51 0 1,0  59,150 Z
+      M 179,150 A 51,51 0 1,0 281,150 A 51,51 0 1,0 179,150 Z
+    "
+  />
+
+  <!-- p ascending stem: centered at x=230, width=34, rounded cap at top -->
+  <path
+    fill="#1a1a1a"
+    d="M 213,22 A 17,17 0 0,1 247,22 L 247,85 L 213,85 Z"
+  />
+
+  <!-- g descending/rightward tail: curved strip with rounded tip -->
+  <path
+    fill="#1a1a1a"
+    d="
+      M 170,210
+      C 205,200 263,222 281,244
+      A 17,17 0 0,1 281,278
+      C 251,289 201,283 168,265
+      C 149,253 147,231 156,218
+      Z
+    "
+  />
+</svg>
