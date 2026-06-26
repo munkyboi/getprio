@@ -207,7 +207,7 @@ The companion guide in `docs/digitalocean-deployment.md` contains the concrete s
 
 Recommended routing:
 
-- `app.getprio.online` -> `frontend/dist`
+- `getprio.online` -> `frontend/dist`
 - `platform.getprio.online` -> `platform-dashboard/dist`
 - `api.getprio.online` -> backend reverse proxy
 

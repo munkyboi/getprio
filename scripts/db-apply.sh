@@ -37,6 +37,13 @@ init_sql="$repo_root/database/init.sql"
 migrations_dir="$repo_root/database/migrations"
 mode="$1"
 
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  filename TEXT PRIMARY KEY,
+  applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+SQL
+
 run_sql_file() {
   local file="$1"
   echo "Applying $(basename "$file")"
@@ -56,8 +63,21 @@ case "$mode" in
     ;;
 esac
 
+applied_migrations="$(psql "$DATABASE_URL" -At -v ON_ERROR_STOP=1 -c "SELECT filename FROM schema_migrations ORDER BY filename")"
+
 while IFS= read -r file; do
+  filename="$(basename "$file")"
+  if printf '%s\n' "$applied_migrations" | grep -Fxq "$filename"; then
+    echo "Skipping already applied $filename"
+    continue
+  fi
+
   run_sql_file "$file"
+  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -v filename="$filename" <<'SQL'
+INSERT INTO schema_migrations (filename)
+VALUES (:'filename')
+ON CONFLICT (filename) DO NOTHING;
+SQL
 done < <(find "$migrations_dir" -maxdepth 1 -type f -name '*.sql' | sort)
 
 echo "Database SQL apply complete."

@@ -4,7 +4,7 @@ This guide targets the current MVP deployment path: a low-budget DigitalOcean Dr
 
 It matches the current codebase:
 
-- `frontend/dist` served at `app.getprio.online`
+- `frontend/dist` served at `getprio.online`
 - `platform-dashboard/dist` served at `platform.getprio.online`
 - backend proxied at `api.getprio.online`
 - Backblaze B2 used for public assets, location QR images, and private payment proofs
@@ -14,7 +14,7 @@ It matches the current codebase:
 
 ## Recommended Shape
 
-- `app.getprio.online` serves `frontend/dist`
+- `getprio.online` serves `frontend/dist`
 - `platform.getprio.online` serves `platform-dashboard/dist`
 - `api.getprio.online` proxies to the backend on `127.0.0.1:5000`
 - PostgreSQL runs locally on the Droplet, or on managed DigitalOcean Postgres if you prefer not to host the database on the app box
@@ -29,7 +29,7 @@ For a tiny MVP, start with a 1 GB Droplet and add swap. If the app feels tight, 
 2. Pick the closest region to your users, such as Singapore if available.
 3. Use SSH keys instead of password login.
 4. Point DNS A records to the Droplet IP:
-   - `app.getprio.online`
+   - `getprio.online`
    - `platform.getprio.online`
    - `api.getprio.online`
 
@@ -143,8 +143,8 @@ DATABASE_SSL=false
 JWT_SECRET=CHANGE_THIS_TO_A_LONG_RANDOM_SECRET
 
 SERVER_URL=https://api.getprio.online
-CLIENT_URL=https://app.getprio.online
-APP_BASE_URL=https://app.getprio.online
+CLIENT_URL=https://getprio.online
+APP_BASE_URL=https://getprio.online
 PLATFORM_DASHBOARD_URL=https://platform.getprio.online
 VITE_API_URL=https://api.getprio.online/api
 
@@ -239,7 +239,7 @@ Create `/etc/nginx/sites-available/getprio`:
 ```nginx
 server {
   listen 80;
-  server_name app.getprio.online;
+  server_name getprio.online;
 
   root /var/www/getprio/frontend/dist;
   index index.html;
@@ -295,7 +295,7 @@ Install Certbot:
 
 ```bash
 apt install -y certbot python3-certbot-nginx
-certbot --nginx -d app.getprio.online -d platform.getprio.online -d api.getprio.online
+certbot --nginx -d getprio.online -d platform.getprio.online -d api.getprio.online
 ```
 
 ## 10. Payment Webhook URLs

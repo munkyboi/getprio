@@ -7,6 +7,7 @@ BEGIN;
 DROP TABLE IF EXISTS billing_events CASCADE;
 DROP TABLE IF EXISTS billing_checkout_sessions CASCADE;
 DROP TABLE IF EXISTS tenant_subscriptions CASCADE;
+DROP TABLE IF EXISTS schema_migrations CASCADE;
 DROP TABLE IF EXISTS queue_events CASCADE;
 DROP TABLE IF EXISTS auth_security_events CASCADE;
 DROP TABLE IF EXISTS auth_login_attempts CASCADE;
@@ -61,6 +62,11 @@ CREATE TABLE tenants (
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE schema_migrations (
+  filename TEXT PRIMARY KEY,
+  applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE users (
