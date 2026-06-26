@@ -21,7 +21,7 @@ The vendor-managed bookable service schedule for a branch, optionally narrowed b
 _Avoid_: Store hours, calendar
 
 **Booking Alert**:
-A customer-enabled notification for booking status changes such as confirmation, reschedule, cancellation, and check-in readiness. Email alerts can be included by default, while SMS booking alerts require explicit customer opt-in and are limited by the vendor's current plan entitlements and SMS usage.
+A customer-facing notification for booking status changes such as confirmation, reschedule, cancellation, and check-in readiness. Email alerts are always available, while browser notifications use the browser's notification permission after login and can cover booking and queue updates.
 _Avoid_: Queue alert, reminder, message blast
 
 **Booking Verification**:

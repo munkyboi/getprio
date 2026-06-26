@@ -1023,6 +1023,29 @@ export interface UpdateTenantSettingsRequest {
   contactPhone: string;
 }
 
+export interface CustomerNotificationSettings {
+  bookingAlerts: boolean;
+  queueAlerts: boolean;
+}
+
+export interface TenantNotificationSettings {
+  bookingIntake: boolean;
+  paymentProofReview: boolean;
+  bookingStatusChanges: boolean;
+}
+
+export type UpdateCustomerNotificationSettingsRequest = CustomerNotificationSettings;
+
+export interface UpdateCustomerNotificationSettingsResponse {
+  notificationSettings: CustomerNotificationSettings;
+}
+
+export type UpdateTenantNotificationSettingsRequest = TenantNotificationSettings;
+
+export interface UpdateTenantNotificationSettingsResponse {
+  notificationSettings: TenantNotificationSettings;
+}
+
 export interface PlatformOverviewResponse {
   totals: {
     tenants: number;
@@ -1183,6 +1206,7 @@ export interface CustomerAccountOverviewResponse {
     mfaEnabled: boolean;
     mfaRequired: boolean;
   };
+  notificationSettings: CustomerNotificationSettings;
   tickets: CustomerAccountTicketSummary[];
 }
 

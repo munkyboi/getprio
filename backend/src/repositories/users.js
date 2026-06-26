@@ -17,6 +17,7 @@ const USER_COLUMNS = `
   last_password_changed_at,
   mfa_enabled,
   mfa_required,
+  notification_settings,
   created_at,
   updated_at
 `;
@@ -61,6 +62,7 @@ function mapUser(row, relationships = {}) {
     lastPasswordChangedAt: row.last_password_changed_at,
     mfaEnabled: row.mfa_enabled === true,
     mfaRequired: row.mfa_required === true,
+    notificationSettings: row.notification_settings || {},
     oauthAccounts: relationships.oauthAccounts || [],
     tenantMemberships: relationships.tenantMemberships || [],
     createdAt: row.created_at,
@@ -313,7 +315,8 @@ async function updateUser(userId, changes, options = {}) {
     lastFailedLoginAt: "last_failed_login_at",
     lastPasswordChangedAt: "last_password_changed_at",
     mfaEnabled: "mfa_enabled",
-    mfaRequired: "mfa_required"
+    mfaRequired: "mfa_required",
+    notificationSettings: "notification_settings"
   };
 
   for (const [key, column] of Object.entries(setters)) {

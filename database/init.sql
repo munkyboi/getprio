@@ -52,6 +52,7 @@ CREATE TABLE tenants (
   auto_resume_vacancy_percent INTEGER CHECK (auto_resume_vacancy_percent IS NULL OR auto_resume_vacancy_percent BETWEEN 5 AND 50),
   contact_email TEXT,
   contact_phone TEXT,
+  notification_settings JSONB NOT NULL DEFAULT '{"bookingIntake":true,"paymentProofReview":true,"bookingStatusChanges":true}'::JSONB,
   public_profile_enabled BOOLEAN NOT NULL DEFAULT TRUE,
   public_profile_description TEXT,
   public_profile_category TEXT,
@@ -79,6 +80,7 @@ CREATE TABLE users (
   last_password_changed_at TIMESTAMPTZ,
   mfa_enabled BOOLEAN NOT NULL DEFAULT FALSE,
   mfa_required BOOLEAN NOT NULL DEFAULT FALSE,
+  notification_settings JSONB NOT NULL DEFAULT '{"bookingAlerts":true,"queueAlerts":true}'::JSONB,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

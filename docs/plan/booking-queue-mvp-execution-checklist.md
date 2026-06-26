@@ -2,7 +2,7 @@
 
 This checklist converts `docs/plan/booking-queue-mvp-prd.md` into an implementation sequence for the current GetPrio codebase.
 
-The goal is to replace free-form booking datetime entry with computed slots, add booking OTP/SMS alert handling, and connect confirmed bookings to the live queue only when a vendor-side user checks the customer in.
+The goal is to replace free-form booking datetime entry with computed slots, add booking OTP and notification preference handling, and connect confirmed bookings to the live queue only when a vendor-side user checks the customer in.
 
 ---
 
@@ -40,7 +40,7 @@ The goal is to replace free-form booking datetime entry with computed slots, add
 - availability blocks and exceptions already exist
 - booking validation already falls back to store hours
 - queue lifecycle, carry-over, recovery, and queue events already exist
-- queue join OTP and SMS-fee behavior already exist
+- queue join OTP and notification preference behavior already exist
 
 ### Current risks
 
@@ -67,7 +67,7 @@ Computed booking slots and capacity enforcement.
 
 ### Slice 3
 
-Booking OTP, SMS alert fee/payment, and booking creation.
+Booking OTP, notification preferences, and booking creation.
 
 ### Slice 4
 
@@ -107,8 +107,8 @@ Recommended first implementation milestone: **Slice 1 + Slice 2 backend tests pa
 - [x] Mirror schema changes in `database/init.sql`.
 - [x] Add booking notification preferences:
   - `notify_by_email`
-  - `notify_by_sms`
-  - `sms_alert_fee_payment_id` or equivalent payment reference
+  - `notify_by_browser_notification`
+  - `browser_notification_opt_in_at`
   - `contact_verified_at`
   - `contact_verification_channel`
 - [x] Add queue linkage fields:
@@ -183,7 +183,7 @@ Recommended first implementation milestone: **Slice 1 + Slice 2 backend tests pa
 
 ---
 
-## 5. Slice 3: Booking OTP, SMS Alert Fee, And Creation
+## 5. Slice 3: Booking OTP, Notification Preferences, And Creation
 
 ### 5.1 Add booking OTP flow
 
@@ -194,14 +194,12 @@ Recommended first implementation milestone: **Slice 1 + Slice 2 backend tests pa
 - [x] Store verified booking payload or verification token server-side.
 - [x] Ensure booking creation requires verified contact evidence.
 
-### 5.2 Add booking SMS alert fee handling
+### 5.2 Add booking browser notification handling
 
-- [x] Decide whether to generalize `queue_fee_settings` into notification fee settings or add booking SMS fee settings.
-- [x] Expose platform-managed fee summary to the booking flow.
-- [x] If SMS is enabled and fee applies, require payment before booking creation.
-- [x] If payment is canceled or fails, do not create SMS-enabled booking.
-- [x] Preserve payment reference on the booking.
-- [x] Add platform dashboard follow-up item if fee management UI needs a new section.
+- [x] Expose browser notification permission state to the booking flow.
+- [x] If browser notifications are denied, keep booking creation working with email fallback.
+- [x] Preserve notification preference state on the booking.
+- [x] Add platform dashboard follow-up item if notification management UI needs a new section.
 
 ### 5.3 Update booking creation
 
@@ -210,7 +208,7 @@ Recommended first implementation milestone: **Slice 1 + Slice 2 backend tests pa
 - [x] Enforce slot availability and capacity inside booking creation.
 - [x] Send booking submitted notification.
 - [x] Keep booking status `pending` after creation.
-- [x] Add regression tests for booking creation without OTP, with OTP, and with SMS fee required.
+- [x] Add regression tests for booking creation without OTP, with OTP, and with notification preferences applied.
 
 ---
 
@@ -222,10 +220,10 @@ Recommended first implementation milestone: **Slice 1 + Slice 2 backend tests pa
 - [x] Fetch slots when vendor, branch, service, or date changes.
 - [x] Show empty/closed-day states clearly.
 - [x] Add automatic email alert disclosure.
-- [x] Add `Enable SMS alert` control.
-- [x] Show inline SMS fee messaging before OTP/payment.
+- [x] Add browser notification controls.
+- [x] Show inline browser notification messaging before OTP.
 - [x] Add OTP step similar to queue join flow.
-- [x] Add SMS payment redirect/sync behavior where needed.
+- [x] Remove SMS payment redirect/sync behavior from the booking flow.
 - [x] Submit booking only after OTP and payment requirements are satisfied.
 
 ### 6.2 Customer booking details
@@ -261,7 +259,7 @@ Recommended first implementation milestone: **Slice 1 + Slice 2 backend tests pa
 - [x] Support explicit late override.
 - [x] Create a queue ticket with normal ticket number generation.
 - [x] Set `service_priority_band = checked_in_booking`.
-- [x] Carry `notify_by_email` and `notify_by_sms` to the ticket.
+- [x] Carry `notify_by_email` and browser notification preference to the ticket.
 - [x] Skip queue OTP for checked-in booking tickets.
 - [x] Link the booking to the queue ticket.
 - [x] Return updated booking plus ticket summary.
@@ -303,14 +301,9 @@ Recommended first implementation milestone: **Slice 1 + Slice 2 backend tests pa
 
 ### 8.3 Queue ticket customer UI
 
-- [ ] Show inherited email/SMS alert settings as enabled and read-only.
-- [ ] Add inline SMS alert copy:
-
-```txt
-SMS alerts are active for this visit. You already covered this during booking, so no additional SMS fee is needed.
-```
-
-- [ ] Do not show booking SMS payment prompts after check-in.
+- [ ] Show inherited email/browser notification settings as enabled and read-only.
+- [ ] Add inline browser notification copy.
+- [ ] Do not show booking notification prompts after check-in.
 
 ---
 
@@ -351,7 +344,7 @@ npm run build
 ### 9.3 Manual smoke tests
 
 - [ ] Customer books from a computed slot with email only.
-- [ ] Customer books from a computed slot with SMS enabled and payment completed.
+- [ ] Customer books from a computed slot with browser notifications enabled.
 - [ ] Customer cancels before check-in.
 - [ ] Vendor confirms and reschedules booking.
 - [ ] Vendor checks in booking within the check-in window.
@@ -383,7 +376,7 @@ npm run build
 Stop and reassess if any of these happen:
 
 - Slot generation requires durable slot rows to avoid race conditions.
-- Booking SMS fees cannot reuse or cleanly generalize the current platform fee model.
+- Notification preferences should not depend on a fee model.
 - Staff check-in permissions conflict with existing tenant role boundaries.
 - Queue priority changes break carry-over or recovery semantics.
 - Booking-to-ticket linkage requires a broader queue lifecycle rewrite.

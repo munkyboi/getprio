@@ -70,6 +70,14 @@ async function getLocationForTenant(tenant, locationSlug) {
   return storeLocationRepository.findPrimaryLocationByTenantId(tenant._id);
 }
 
+function normalizeTenantNotificationSettings(settings = {}) {
+  return {
+    bookingIntake: settings.bookingIntake !== false,
+    paymentProofReview: settings.paymentProofReview !== false,
+    bookingStatusChanges: settings.bookingStatusChanges !== false
+  };
+}
+
 async function formatLocation(location, tenant) {
   const hours = await storeLocationRepository.listHoursByLocationId(location._id);
   const openStatus = await storeHoursService.getOpenStatus(location, { hours });
@@ -1494,6 +1502,35 @@ router.patch(
       snapshot: await getQueueSnapshot(updatedTenant, {
         location: await getLocationForTenant(updatedTenant, req.query.location)
       })
+    });
+  })
+);
+
+router.get(
+  "/tenant/:tenantSlug/notification-settings",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.settings.manage");
+
+    res.json({
+      notificationSettings: normalizeTenantNotificationSettings(tenant.notificationSettings)
+    });
+  })
+);
+
+router.patch(
+  "/tenant/:tenantSlug/notification-settings",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.settings.manage");
+
+    const notificationSettings = normalizeTenantNotificationSettings(req.body || {});
+    const updatedTenant = await tenantRepository.updateTenant(tenant._id, {
+      notificationSettings
+    });
+
+    res.json({
+      notificationSettings: normalizeTenantNotificationSettings(updatedTenant.notificationSettings)
     });
   })
 );

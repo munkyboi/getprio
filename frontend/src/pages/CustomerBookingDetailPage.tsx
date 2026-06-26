@@ -363,9 +363,9 @@ export default function CustomerBookingDetailPage() {
               </Badge>
             </Stack>
             <Stack gap={2}>
-              <Text fw={700}>SMS alerts</Text>
-              <Badge color={booking.notifyBySms ? "teal" : "gray"} variant="light">
-                {booking.notifyBySms ? "Enabled" : "Off"}
+              <Text fw={700}>Browser notifications</Text>
+              <Badge color={booking.notifyByEmail ? "teal" : "gray"} variant="light">
+                {booking.notifyByEmail ? "Email fallback on" : "Email fallback off"}
               </Badge>
             </Stack>
             <Stack gap={2}>

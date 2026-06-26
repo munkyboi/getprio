@@ -128,9 +128,7 @@ export default function JoinQueuePage() {
           resendSecondsRemaining % 60
         ).padStart(2, "0")}`
       : "Send new code";
-  const queueFeeEnabled = Boolean(tenantInfo?.queueFee?.enabled);
-  const smsFeeApplies = Boolean(form.notifyBySms && queueFeeEnabled);
-  const canSkipOtp = !form.notifyByEmail && !smsFeeApplies;
+  const canSkipOtp = !form.notifyByEmail;
   const queueIntakePaused = Boolean(queueSnapshot?.queueDay?.isPaused);
   const queueDayClosed = Boolean(queueSnapshot?.queueDay?.isClosed);
   const queueStateBadge = queueDayClosed
@@ -144,7 +142,6 @@ export default function JoinQueuePage() {
   const queueClosedMessage =
     queueSnapshot?.queueDay?.closureReason ||
     "This queue is closed for the day. Please check back during the next service window.";
-  const requiresPhone = form.notifyBySms;
   const requiresEmail = form.notifyByEmail;
   const pageTitle = tenantInfo?.name || tenantSlugValue;
   const signedInCustomer = Boolean(user?.roles?.includes("customer"));
@@ -696,22 +693,10 @@ export default function JoinQueuePage() {
               </Stack>
             </Alert>
           ) : null}
-          {tenantInfo?.queueFee?.enabled ? (
-            <Text c="dimmed">
-              SMS queue alerts may incur a platform fee of {tenantInfo.queueFee.displayAmount}.
-            </Text>
-          ) : null}
           {!form.notifyByEmail ? (
             <Text c="dimmed" size="sm">
               Email verification is skipped when almost-next email alerts are off.
-              {smsFeeApplies ? " SMS alerts still require verification before payment." : ""}
             </Text>
-          ) : null}
-          {smsFeeApplies ? (
-            <Alert color="blue" variant="light" radius="md">
-              SMS updates are convenient, but they carry a small platform fee of{" "}
-              {tenantInfo?.queueFee.displayAmount}. You will only be charged if you keep SMS alerts enabled.
-            </Alert>
           ) : null}
           {queueIntakePaused ? (
             <Alert color="yellow" icon={<IconInfoCircle size={18} />} radius="md" variant="light">
@@ -759,9 +744,7 @@ export default function JoinQueuePage() {
                 >
                   {submitting
                     ? "Verifying..."
-                    : smsFeeApplies
-                      ? "Verify and continue to payment"
-                      : "Verify and join queue"}
+                    : "Verify and join queue"}
                 </Button>
                 <SimpleGrid cols={{ base: 1, sm: 2 }}>
                   <Button
@@ -828,14 +811,6 @@ export default function JoinQueuePage() {
                     setForm((current) => ({ ...current, notifyByEmail: event.target.checked }))
                   }
                 />
-                <Checkbox
-                  name="notifyBySms"
-                  checked={form.notifyBySms}
-                  label="Send SMS alerts"
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, notifyBySms: event.target.checked }))
-                  }
-                />
                 {shouldUseTurnstile ? (
                   <Paper className="finazze-soft-panel" p="md">
                     <div ref={turnstileContainerRef} />
@@ -853,9 +828,7 @@ export default function JoinQueuePage() {
                       : "Sending code..."
                     : canSkipOtp
                       ? "Get priority number"
-                      : smsFeeApplies
-                        ? "Verify and continue"
-                        : "Send verification code"}
+                      : "Send verification code"}
                 </Button>
               </Stack>
             </form>
@@ -874,7 +847,7 @@ export default function JoinQueuePage() {
           {[
             ["1. Ticket issued instantly", "Your ticket number is generated immediately for this tenant."],
             ["2. Monitor online", "After joining, you are redirected to a live board with your ticket highlighted."],
-            ["3. Near-turn notification", "Email or SMS alerts are sent when your turn is getting close, based on tenant settings."]
+            ["3. Near-turn notification", "Email alerts are sent when your turn is getting close, and browser notifications can be enabled in account settings."]
           ].map(([title, text]) => (
             <div key={title}>
               <Title order={3}>{title}</Title>

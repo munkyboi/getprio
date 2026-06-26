@@ -6,6 +6,7 @@ import {
   Card,
   Divider,
   Group,
+  Checkbox,
   PasswordInput,
   SimpleGrid,
   Stack,
@@ -26,10 +27,13 @@ import type {
   BookingStatus,
   CustomerAccountHistoryResponse,
   CustomerAccountOverviewResponse,
+  CustomerNotificationSettings,
   CustomerBookingsResponse,
   CustomerProfileUpdateRequest,
   CustomerProfileUpdateResponse,
   PasswordChangeRequest,
+  UpdateCustomerNotificationSettingsRequest,
+  UpdateCustomerNotificationSettingsResponse,
   TicketStatus
 } from "@shared";
 import { apiRequest } from "../api/client";
@@ -42,7 +46,7 @@ import {
 } from "../utils/dates";
 import { getErrorMessage } from "../utils/errors";
 
-type AccountSection = "profile" | "tickets" | "bookings" | "settings" | "security";
+type AccountSection = "profile" | "tickets" | "bookings" | "settings" | "notifications" | "security";
 
 const ACCOUNT_SECTIONS: Array<{
   key: AccountSection;
@@ -54,6 +58,7 @@ const ACCOUNT_SECTIONS: Array<{
   { key: "tickets", label: "Queue Tickets", path: "/account/tickets", icon: IconListDetails },
   { key: "bookings", label: "Bookings", path: "/account/bookings", icon: IconCalendarEvent },
   { key: "settings", label: "Settings", path: "/account/settings", icon: IconSettings },
+  { key: "notifications", label: "Notifications", path: "/account/notifications", icon: IconSettings },
   { key: "security", label: "Security", path: "/account/security", icon: IconLock }
 ];
 
@@ -98,7 +103,7 @@ function getBookingBadgeColor(status: BookingStatus): "gray" | "red" | "yellow" 
 
 function getActiveSection(pathname: string): AccountSection {
   const [, , section] = pathname.split("/");
-  if (section === "tickets" || section === "bookings" || section === "settings" || section === "security") {
+  if (section === "tickets" || section === "bookings" || section === "settings" || section === "notifications" || section === "security") {
     return section;
   }
 
@@ -127,6 +132,19 @@ export default function CustomerAccountPage() {
     newPassword: ""
   });
   const [changingPassword, setChangingPassword] = useState(false);
+  const [browserPermission, setBrowserPermission] = useState<NotificationPermission>(
+    typeof window !== "undefined" && typeof window.Notification !== "undefined"
+      ? window.Notification.permission
+      : "default"
+  );
+  const [requestingBrowserPermission, setRequestingBrowserPermission] = useState(false);
+  const [notificationSettings, setNotificationSettings] = useState<CustomerNotificationSettings>({
+    bookingAlerts: true,
+    queueAlerts: true
+  });
+  const [savingNotificationSettings, setSavingNotificationSettings] = useState(false);
+  const browserNotificationsSupported = typeof window !== "undefined" && typeof window.Notification !== "undefined";
+  const browserNotificationsSecure = typeof window !== "undefined" ? window.isSecureContext : false;
   const tickets = history?.tickets || account?.tickets || [];
   const bookings = bookingHistory?.bookings || [];
   const accountUser = account?.user;
@@ -140,18 +158,87 @@ export default function CustomerAccountPage() {
     Promise.all([
       apiRequest<CustomerAccountOverviewResponse>("/account/overview", { token }),
       apiRequest<CustomerAccountHistoryResponse>("/account/history", { token }),
-      apiRequest<CustomerBookingsResponse>("/account/bookings", { token })
+      apiRequest<CustomerBookingsResponse>("/account/bookings", { token }),
+      apiRequest<{ notificationSettings: CustomerNotificationSettings }>("/account/notification-settings", { token })
     ])
-      .then(([overview, ticketHistory, customerBookings]) => {
+      .then(([overview, ticketHistory, customerBookings, notificationSettingsResponse]) => {
         setAccount(overview);
         setHistory(ticketHistory);
         setBookingHistory(customerBookings);
+        setNotificationSettings(notificationSettingsResponse.notificationSettings);
         setProfileForm({
           name: overview.user.name || ""
         });
       })
       .catch((loadError) => setError(getErrorMessage(loadError)));
   }, [token]);
+
+  useEffect(() => {
+    if (!browserNotificationsSupported) {
+      return;
+    }
+
+    setBrowserPermission(window.Notification.permission);
+  }, [browserNotificationsSupported]);
+
+  async function handleRequestBrowserPermission() {
+    if (!browserNotificationsSupported || !window.Notification) {
+      setError("This browser does not support browser notifications.");
+      return;
+    }
+
+    if (!browserNotificationsSecure) {
+      setError("Browser notifications require a secure context such as https:// or localhost.");
+      return;
+    }
+
+    setRequestingBrowserPermission(true);
+    try {
+      const permission = await window.Notification.requestPermission();
+      setBrowserPermission(permission);
+    } catch (permissionError) {
+      setError(getErrorMessage(permissionError));
+    } finally {
+      setRequestingBrowserPermission(false);
+    }
+  }
+
+  async function handleNotificationToggle(
+    key: keyof CustomerNotificationSettings,
+    checked: boolean
+  ) {
+    if (!token) {
+      return;
+    }
+
+    const nextSettings = {
+      ...notificationSettings,
+      [key]: checked
+    };
+
+    setNotificationSettings(nextSettings);
+    setSavingNotificationSettings(true);
+
+    try {
+      const response = await apiRequest<
+        UpdateCustomerNotificationSettingsResponse,
+        UpdateCustomerNotificationSettingsRequest
+      >("/account/notification-settings", {
+        method: "PATCH",
+        token,
+        body: nextSettings
+      });
+      setNotificationSettings(response.notificationSettings);
+    } catch (saveError) {
+      setError(getErrorMessage(saveError));
+      setNotificationSettings((current) => ({
+        ...current,
+        [key]: !checked
+      }));
+    } finally {
+      setSavingNotificationSettings(false);
+    }
+  }
 
   if (loading) {
     return <Card className="finazze-auth-card">Loading account...</Card>;
@@ -403,7 +490,8 @@ export default function CustomerAccountPage() {
   );
 
   const renderSettings = () => (
-    <Card className="finazze-auth-card customer-account-card" p="xl">
+    <Stack gap="md">
+      <Card className="finazze-auth-card customer-account-card" p="xl">
       <Stack gap="lg">
         <div>
           <Text className="finazze-section-label">Settings</Text>
@@ -455,8 +543,92 @@ export default function CustomerAccountPage() {
           </Stack>
         </form>
       </Stack>
-    </Card>
+      </Card>
+    </Stack>
   );
+
+  const renderNotifications = () => {
+    const browserNotificationsEnabled = browserPermission === "granted";
+
+    return (
+      <Card className="finazze-auth-card customer-account-card" p="xl">
+        <Stack gap="lg">
+          <div>
+            <Text className="finazze-section-label">Notifications</Text>
+            <Title order={2}>Browser notifications</Title>
+            <Text c="dimmed" mt="xs">
+              Email stays on by default. Browser notifications require permission after login and can deliver booking and queue alerts.
+            </Text>
+          </div>
+          <Alert color="blue" variant="light">
+            If browser permission is denied, booking and queue alerts will continue by email.
+          </Alert>
+          <Alert color={browserNotificationsSecure ? "teal" : "yellow"} variant="light">
+            {browserNotificationsSupported
+              ? browserNotificationsSecure
+                ? `Browser notifications are available in this browser. Current permission: ${browserPermission}.`
+                : "Browser notifications require a secure context such as https:// or localhost."
+              : "This browser does not support browser notifications."}
+          </Alert>
+          <Group gap="sm">
+            <Button
+              color="dark"
+              disabled={
+                !browserNotificationsSupported ||
+                !browserNotificationsSecure ||
+                browserPermission === "granted" ||
+                requestingBrowserPermission
+              }
+              onClick={handleRequestBrowserPermission}
+              type="button"
+              variant="light"
+            >
+              {browserPermission === "granted"
+                ? "Browser notifications enabled"
+                : requestingBrowserPermission
+                  ? "Requesting permission..."
+                  : "Allow browser notifications"}
+            </Button>
+            <Text c="dimmed" size="sm">
+              {!browserNotificationsSupported
+                ? "Use a browser that supports notifications."
+                : !browserNotificationsSecure
+                  ? "Open this page on https:// or localhost to request permission."
+                  : browserPermission === "granted"
+                    ? "This browser can receive booking and queue alerts."
+                    : browserPermission === "denied"
+                      ? "Permission was denied in this browser. You can change it in browser settings."
+                      : "Click the button to allow browser notifications for this account."}
+            </Text>
+          </Group>
+          <Checkbox
+            checked={browserNotificationsEnabled}
+            disabled={!browserNotificationsEnabled}
+            label="Browser notifications"
+            description={
+              browserNotificationsEnabled
+                ? "This browser can receive your booking and queue alerts."
+                : "Enable browser notifications after login to receive alerts here."
+            }
+            readOnly
+          />
+          <Divider label="Customer alerts" labelPosition="center" />
+          <Checkbox
+            checked={notificationSettings.bookingAlerts}
+            label="Booking alerts"
+            disabled={savingNotificationSettings}
+            onChange={(event) => handleNotificationToggle("bookingAlerts", event.currentTarget.checked)}
+          />
+          <Checkbox
+            checked={notificationSettings.queueAlerts}
+            label="Queue alerts"
+            disabled={savingNotificationSettings}
+            onChange={(event) => handleNotificationToggle("queueAlerts", event.currentTarget.checked)}
+          />
+        </Stack>
+      </Card>
+    );
+  };
 
   const renderSecurity = () => (
     <Stack gap="lg">
@@ -533,6 +705,8 @@ export default function CustomerAccountPage() {
         return renderBookings();
       case "settings":
         return renderSettings();
+      case "notifications":
+        return renderNotifications();
       case "security":
         return renderSecurity();
       default:

@@ -192,6 +192,7 @@ export default function App() {
       <Route path="/account/tickets" element={<AppShell><CustomerAccountPage /></AppShell>} />
       <Route path="/account/bookings" element={<AppShell><CustomerAccountPage /></AppShell>} />
       <Route path="/account/settings" element={<AppShell><CustomerAccountPage /></AppShell>} />
+      <Route path="/account/notifications" element={<AppShell><CustomerAccountPage /></AppShell>} />
       <Route path="/account/security" element={<AppShell><CustomerAccountPage /></AppShell>} />
       <Route path="/account/bookings/:bookingId" element={<AppShell><CustomerBookingDetailPage /></AppShell>} />
       <Route path="/vendors" element={<AppShell><VendorDiscoveryPage /></AppShell>} />

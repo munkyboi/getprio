@@ -19,6 +19,7 @@ const TENANT_COLUMNS = `
   public_profile_category,
   public_profile_image_url,
   vendor_approval_status,
+  notification_settings,
   is_active,
   created_at,
   updated_at
@@ -47,6 +48,7 @@ function mapTenant(row) {
     publicProfileCategory: row.public_profile_category || "",
     publicProfileImageUrl: row.public_profile_image_url || "",
     vendorApprovalStatus: row.vendor_approval_status || "approved",
+    notificationSettings: row.notification_settings || {},
     isActive: row.is_active,
     createdAt: row.created_at,
     updatedAt: row.updated_at
@@ -229,6 +231,7 @@ async function updateTenant(tenantId, changes, options = {}) {
     publicProfileCategory: "public_profile_category",
     publicProfileImageUrl: "public_profile_image_url",
     vendorApprovalStatus: "vendor_approval_status",
+    notificationSettings: "notification_settings",
     isActive: "is_active"
   };
 

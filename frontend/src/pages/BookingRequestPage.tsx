@@ -25,10 +25,8 @@ import type {
   BookingOtpResponse,
   BookingSlotsResponse,
   BookingSmsFeeResponse,
-  BookingSmsPaymentResponse,
   BookingSmsPaymentSyncResponse,
   BookingSlotSummary,
-  CreateBookingSmsPaymentRequest,
   CreateCustomerBookingRequest,
   CustomerBookingResponse,
   PublicVendorProfile,
@@ -107,11 +105,9 @@ export default function BookingRequestPage() {
   const [customerEmail, setCustomerEmail] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [notes, setNotes] = useState("");
-  const [notifyBySms, setNotifyBySms] = useState(false);
   const [otp, setOtp] = useState<BookingOtpResponse | null>(null);
   const [otpCode, setOtpCode] = useState("");
   const [bookingVerificationToken, setBookingVerificationToken] = useState("");
-  const [smsFee, setSmsFee] = useState<BookingSmsFeeResponse["queueFee"] | null>(null);
   const [loading, setLoading] = useState(true);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -243,10 +239,9 @@ export default function BookingRequestPage() {
     })),
     [slots]
   );
-  const smsFeeApplies = Boolean(notifyBySms && smsFee?.enabled && Number(smsFee.amountCents) > 0);
   const totalDurationMinutes = selectedService ? selectedService.durationMinutes * quantityForRequest : 0;
 
-  function buildBookingPayload(verificationToken: string, smsPaymentId?: string): PendingBookingPayload {
+  function buildBookingPayload(verificationToken: string): PendingBookingPayload {
     if (!vendor || !selectedSlot) {
       throw new Error("Select an available booking slot.");
     }
@@ -261,8 +256,8 @@ export default function BookingRequestPage() {
       customerEmail,
       customerPhone,
       notes,
-      notifyBySms,
-      smsAlertFeePaymentId: smsPaymentId,
+      notifyBySms: false,
+      smsAlertFeePaymentId: undefined,
       bookingVerificationToken: verificationToken
     };
   }
@@ -291,7 +286,7 @@ export default function BookingRequestPage() {
     processedPaymentRef.current = paymentId;
 
     if (paymentStatus === "cancelled") {
-      setError("SMS alert payment was cancelled. You can continue without SMS alerts or try again.");
+      setError("Notification setup was cancelled. You can continue or try again.");
       return;
     }
 
@@ -307,9 +302,6 @@ export default function BookingRequestPage() {
       method: "POST"
     })
       .then(async (sync) => {
-        if (!sync.paid) {
-          throw new Error("SMS alert payment is not complete yet.");
-        }
         await submitBooking({
           ...pendingPayload,
           smsAlertFeePaymentId: sync.payment.id
@@ -317,7 +309,7 @@ export default function BookingRequestPage() {
         notifications.show({
           color: "teal",
           title: "Booking submitted",
-          message: "Your SMS alert payment was confirmed."
+          message: "Your notification setup was confirmed."
         });
       })
       .catch((syncError) => setError(getErrorMessage(syncError)))
@@ -336,29 +328,7 @@ export default function BookingRequestPage() {
     if (!vendor) {
       return;
     }
-
-    if (!smsFeeApplies) {
-      await submitBooking(buildBookingPayload(verificationToken));
-      return;
-    }
-
-    const pendingPayload = buildBookingPayload(verificationToken);
-    sessionStorage.setItem(getPendingStorageKey(vendor.slug), JSON.stringify(pendingPayload));
-
-    const payment = await apiRequest<BookingSmsPaymentResponse, CreateBookingSmsPaymentRequest>(
-      `/public/vendors/${vendor.slug}/booking-sms-payments`,
-      {
-        method: "POST",
-        body: { bookingVerificationToken: verificationToken }
-      }
-    );
-
-    if (payment.requiresPayment && payment.checkoutSession?.checkoutUrl) {
-      window.location.href = payment.checkoutSession.checkoutUrl;
-      return;
-    }
-
-    await submitBooking(pendingPayload);
+    await submitBooking(buildBookingPayload(verificationToken));
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -387,9 +357,8 @@ export default function BookingRequestPage() {
               customerName,
               customerEmail,
               customerPhone,
-              notifyBySms,
               notes,
-              channel: notifyBySms && !customerEmail ? "sms" : "email"
+              channel: "email"
             }
           }
         );
@@ -676,19 +645,9 @@ export default function BookingRequestPage() {
               onChange={(event) => setCustomerPhone(event.currentTarget.value)}
               value={customerPhone}
             />
-            <Checkbox
-              checked={notifyBySms}
-              disabled={!customerPhone || Boolean(otp)}
-              label="Enable SMS alert"
-              onChange={(event) => setNotifyBySms(event.currentTarget.checked)}
-            />
-            {notifyBySms ? (
-              <Alert color={smsFeeApplies ? "orange" : "teal"} variant="light">
-                {smsFeeApplies
-                  ? `SMS alerts require ${smsFee?.displayAmount || "payment"} before this booking is submitted.`
-                  : "SMS alerts are available for this booking with no extra fee."}
-              </Alert>
-            ) : null}
+            <Alert color="gray" variant="light">
+              Browser notifications are configured after login in your account settings.
+            </Alert>
 
             <Textarea
               label="Notes"
@@ -726,15 +685,13 @@ export default function BookingRequestPage() {
                     : getServiceLabel(selectedService)
                   : "Select a service to continue."}
               </Text>
-              <Button color="dark" disabled={submitting || !vendor?.services.length || !selectedSlot} type="submit">
-                {submitting
-                  ? "Processing..."
-                  : otp
-                    ? smsFeeApplies
-                      ? "Verify and continue to payment"
-                      : "Verify and submit booking"
-                    : "Send verification code"}
-              </Button>
+                <Button color="dark" disabled={submitting || !vendor?.services.length || !selectedSlot} type="submit">
+                  {submitting
+                    ? "Processing..."
+                    : otp
+                      ? "Verify and submit booking"
+                      : "Send verification code"}
+                </Button>
             </Group>
           </Stack>
         </form>

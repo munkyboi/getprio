@@ -21,7 +21,7 @@ GetPrio already has:
 - vendor availability blocks and exceptions
 - store-hours fallback when no booking availability is configured
 - queue ticket lifecycle, queue day close/reopen, carry-over, recovery, and queue events
-- queue join OTP and vendor-plan SMS entitlement behavior
+- queue join OTP and notification preferences behavior
 - service counters for basic vendor operations
 
 The customer booking UI still uses a free datetime input. The next booking slice should replace that with computed booking slots and connect confirmed bookings to the live queue through vendor-side check-in.
@@ -98,28 +98,15 @@ For the MVP, rejected payment evidence cancels the booking with a customer-visib
 
 Email booking alerts are automatic when an email address is available.
 
-SMS booking alerts are customer-enabled during booking when the vendor's current plan entitlements allow SMS alerts and the vendor has remaining SMS allowance. SMS alert availability must be computed from platform-managed plan configuration and usage; it must not be hardcoded by plan name. Disabled or exhausted SMS allowance disables SMS opt-in only; it must not block booking submission. SMS allowance is consumed only when an SMS send is attempted, not when the customer opts in.
+Browser notifications are customer-enabled after login and cover booking status changes plus queue-day updates. Permission should be requested after login, with email remaining the fallback if browser notifications are denied or unavailable.
 
-SMS entitlement must be checked again at send time. If allowance is exhausted or SMS is no longer enabled when a booking status notification is sent, the booking action still succeeds, email/in-app status remains available, and the SMS attempt is skipped and tracked as skipped due to allowance.
-
-Customer-paid SMS payment behavior should be deprecated before it is removed. The replacement sequence is: stop showing SMS payment prompts, stop requiring SMS payment before booking or queue join, route SMS availability through vendor entitlements and usage, leave old SMS payment tables/services unused for one implementation slice, then remove dead payment code and tables after entitlement-based SMS behavior is stable.
-
-Customer-facing SMS unavailable messaging should be generic, such as `SMS alerts are not available for this vendor right now.` Vendor and platform dashboards can show detailed entitlement and usage reasons, including whether SMS is disabled by plan configuration or unavailable because allowance is exhausted.
+Browser notifications should also be available to vendor staff and vendor admins for booking intake, payment-proof review, and booking status changes relevant to their role.
 
 When a booking becomes a queue ticket:
 
 - email alerts remain enabled automatically
-- SMS alerts remain enabled automatically if selected during booking and still allowed by vendor entitlements
+- browser notification preferences carry forward
 - notification controls on the queue ticket page become read-only
-- no customer-paid SMS fee is required
-
-Customer-facing inline alert for the checked-in queue ticket:
-
-```txt
-SMS alerts are active for this visit.
-```
-
-This is UI copy, not an SMS message body.
 
 ### Customer Booking Lifecycle
 
@@ -177,10 +164,9 @@ The page must support:
 - computed slot selection
 - customer contact fields
 - email alert disclosure
-- `Enable SMS alert` option
-- inline SMS entitlement and remaining-allowance messaging
+- browser notification disclosure
+- notification settings access after login
 - OTP verification before booking creation
-- SMS alert opt-in only when vendor entitlements allow SMS alerts
 
 ### Customer Booking List
 
@@ -248,12 +234,12 @@ The endpoint must:
 
 ### Booking Creation
 
-Booking creation must require prior OTP verification. When SMS alerts are selected, vendor plan entitlements and remaining SMS allowance must allow SMS alerts before creating the booking with SMS enabled. If SMS alerts are disabled or exhausted, the booking can still be submitted without SMS.
+Booking creation must require prior OTP verification.
 
 The booking record should preserve:
 
 - selected notification preferences
-- SMS alert preference when allowed by vendor entitlements
+- browser notification preference where applicable
 - verification evidence needed to skip queue OTP at check-in
 
 ### Booking Details
@@ -298,7 +284,7 @@ Send customer notifications for:
 - booking canceled
 - booking checked in
 
-Email is automatic when email exists. SMS follows the customer's booking alert opt-in and the vendor's current plan entitlements and SMS usage.
+Email is automatic when email exists. Browser notifications follow the customer's notification settings and browser permission state.
 
 ## Data Model Notes
 
@@ -319,14 +305,14 @@ Avoid storing generated booking slots as durable rows in MVP.
 - Keep OTP attempts, payment state, and booking state transitions auditable.
 - Avoid exposing customer phone/email on public queue displays.
 - Use generic verification and payment errors where possible.
-- SMS opt-in availability and allowance messaging must be explicit before booking submission.
+- Browser notification permission and disabled-state messaging must be explicit before booking submission.
 
 ## Acceptance Criteria
 
 - Customers choose from available slots instead of typing datetime manually.
 - Slots disappear or become unavailable when capacity is consumed by active bookings.
 - A booking cannot be created without OTP verification.
-- SMS-enabled booking cannot be created when vendor plan entitlements disable SMS alerts or the remaining SMS allowance is exhausted.
+- Booking cannot proceed when required browser-notification permission is denied if the user has chosen browser alerts.
 - Customer booking list links to booking details.
 - Booking details links to live queue status only after check-in.
 - Customer can cancel a booking before check-in.
@@ -339,13 +325,12 @@ Avoid storing generated booking slots as durable rows in MVP.
 
 ## Recommended Implementation Split
 
-### Slice A: SMS entitlement migration
+### Slice A: Notification migration
 
 - Deprecate customer-paid SMS payment prompts and requirements across booking and queue join flows.
-- Keep SMS opt-in dynamic based on platform-managed vendor plan entitlements and current SMS usage.
-- Check SMS entitlement again at send time and track skipped sends when allowance is unavailable.
-- Preserve booking and queue join submission even when SMS is disabled or exhausted.
-- Leave old SMS payment tables/services unused for one slice before cleanup.
+- Replace SMS booking alerts with browser notifications and email fallback.
+- Request browser notification permission after login and preserve booking and queue submission when permission is denied.
+- Carry browser notification preferences through booking and queue flows.
 
 ### Slice B: Manual QR booking payment
 
@@ -361,7 +346,7 @@ Avoid storing generated booking slots as durable rows in MVP.
 - customer-initiated reschedule requests
 - configurable slot interval
 - deposits, refunds, and cancellation penalties
-- vendor SMS credit top-ups
+- notification configuration
 - calendar sync
 - service workflow builder
 - multi-counter routing with the same ticket number

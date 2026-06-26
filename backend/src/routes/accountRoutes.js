@@ -125,16 +125,47 @@ function formatAccountUser(user) {
   };
 }
 
+function normalizeCustomerNotificationSettings(settings = {}) {
+  return {
+    bookingAlerts: settings.bookingAlerts !== false,
+    queueAlerts: settings.queueAlerts !== false
+  };
+}
+
 router.get(
   "/overview",
   asyncHandler(async (req, res) => {
     const tickets = await ticketRepository.listTicketsForCustomerAccount(req.user, { limit: 50 });
 
     res.json({
-      user: {
-        ...formatAccountUser(req.user)
-      },
-      tickets: tickets.map(formatCustomerTicket)
+    user: {
+      ...formatAccountUser(req.user)
+    },
+    notificationSettings: normalizeCustomerNotificationSettings(req.user.notificationSettings),
+    tickets: tickets.map(formatCustomerTicket)
+  });
+})
+);
+
+router.get(
+  "/notification-settings",
+  asyncHandler(async (req, res) => {
+    res.json({
+      notificationSettings: normalizeCustomerNotificationSettings(req.user.notificationSettings)
+    });
+  })
+);
+
+router.patch(
+  "/notification-settings",
+  asyncHandler(async (req, res) => {
+    const notificationSettings = normalizeCustomerNotificationSettings(req.body || {});
+    const updatedUser = await userRepository.updateUser(req.user._id, {
+      notificationSettings
+    });
+
+    res.json({
+      notificationSettings: normalizeCustomerNotificationSettings(updatedUser.notificationSettings)
     });
   })
 );

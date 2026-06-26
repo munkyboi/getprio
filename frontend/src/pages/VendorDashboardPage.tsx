@@ -92,6 +92,9 @@ import type {
   RejectVendorBookingPaymentRequest,
   RescheduleVendorBookingRequest,
   UpdateVendorBookingStatusRequest,
+  TenantNotificationSettings,
+  UpdateTenantNotificationSettingsRequest,
+  UpdateTenantNotificationSettingsResponse,
   VendorCheckInBookingRequest,
   VendorCheckInBookingResponse,
   VendorAvailabilityBlockResponse,
@@ -143,6 +146,12 @@ const defaultSettings: UpdateTenantSettingsRequest = {
   autoResumeVacancyPercent: 20,
   contactEmail: "",
   contactPhone: ""
+};
+
+const defaultNotificationSettings = {
+  bookingIntake: true,
+  paymentProofReview: true,
+  bookingStatusChanges: true
 };
 
 const defaultHours: StoreHourSummary[] = Array.from({ length: 7 }, (_, weekday) => ({
@@ -589,6 +598,16 @@ export default function VendorDashboardPage() {
   const [editingAvailabilityExceptionId, setEditingAvailabilityExceptionId] = useState("");
   const [availabilityExceptionForm, setAvailabilityExceptionForm] = useState<SaveVendorAvailabilityExceptionRequest>(emptyAvailabilityExceptionForm);
   const [settings, setSettings] = useState<UpdateTenantSettingsRequest>(defaultSettings);
+  const [vendorNotificationSettings, setVendorNotificationSettings] = useState<TenantNotificationSettings>(defaultNotificationSettings);
+  const [browserPermission, setBrowserPermission] = useState<NotificationPermission>(
+    typeof window !== "undefined" && typeof window.Notification !== "undefined"
+      ? window.Notification.permission
+      : "default"
+  );
+  const [requestingBrowserPermission, setRequestingBrowserPermission] = useState(false);
+  const [savingNotificationSettings, setSavingNotificationSettings] = useState(false);
+  const browserNotificationsSupported = typeof window !== "undefined" && typeof window.Notification !== "undefined";
+  const browserNotificationsSecure = typeof window !== "undefined" ? window.isSecureContext : false;
   const [walkInForm, setWalkInForm] = useState<CreateWalkInTicketRequest>(emptyWalkIn);
   const [billing, setBilling] = useState<BillingOverviewResponse | null>(null);
   const [history, setHistory] = useState<VendorHistoryResponse | null>(null);
@@ -777,6 +796,110 @@ export default function VendorDashboardPage() {
       active = false;
     };
   }, [selectedTenantSlug, token]);
+
+  useEffect(() => {
+    if (!browserNotificationsSupported) {
+      return;
+    }
+
+    setBrowserPermission(window.Notification.permission);
+  }, [browserNotificationsSupported]);
+
+  useEffect(() => {
+    if (!selectedTenantSlug || !token) {
+      return undefined;
+    }
+
+    let active = true;
+    apiRequest<{ notificationSettings: TenantNotificationSettings }>(`/vendor/tenant/${selectedTenantSlug}/notification-settings`, {
+      token
+    })
+      .then((data) => {
+        if (active) {
+          setVendorNotificationSettings(data.notificationSettings);
+        }
+      })
+      .catch((loadError) => {
+        if (active) {
+          setError(getErrorMessage(loadError));
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [selectedTenantSlug, token]);
+
+  async function handleRequestBrowserPermission() {
+    if (!browserNotificationsSupported || !window.Notification) {
+      notifications.show({
+        color: "red",
+        title: "Browser notifications unavailable",
+        message: "This browser does not support notifications."
+      });
+      return;
+    }
+
+    if (!browserNotificationsSecure) {
+      notifications.show({
+        color: "yellow",
+        title: "Secure context required",
+        message: "Open this page on https:// or localhost to request browser notifications."
+      });
+      return;
+    }
+
+    setRequestingBrowserPermission(true);
+    try {
+      const permission = await window.Notification.requestPermission();
+      setBrowserPermission(permission);
+    } catch (permissionError) {
+      notifications.show({
+        color: "red",
+        title: "Permission request failed",
+        message: getErrorMessage(permissionError)
+      });
+    } finally {
+      setRequestingBrowserPermission(false);
+    }
+  }
+
+  async function handleVendorNotificationToggle(
+    key: keyof TenantNotificationSettings,
+    checked: boolean
+  ) {
+    if (!token || !selectedTenantSlug) {
+      return;
+    }
+
+    const nextSettings = {
+      ...vendorNotificationSettings,
+      [key]: checked
+    };
+
+    setVendorNotificationSettings(nextSettings);
+    setSavingNotificationSettings(true);
+
+    try {
+      const response = await apiRequest<
+        UpdateTenantNotificationSettingsResponse,
+        UpdateTenantNotificationSettingsRequest
+      >(`/vendor/tenant/${selectedTenantSlug}/notification-settings`, {
+        method: "PATCH",
+        token,
+        body: nextSettings
+      });
+      setVendorNotificationSettings(response.notificationSettings);
+    } catch (saveError) {
+      setError(getErrorMessage(saveError));
+      setVendorNotificationSettings((current) => ({
+        ...current,
+        [key]: !checked
+      }));
+    } finally {
+      setSavingNotificationSettings(false);
+    }
+  }
 
   useEffect(() => {
     if (!selectedTenantSlug || !selectedLocationSlug || !token) {
@@ -3261,15 +3384,6 @@ function isRecoveryWindowActive(value?: string | Date | null) {
                     setWalkInForm((current) => ({ ...current, notifyByEmail: event.target.checked }))
                   }
                 />
-                <Checkbox
-                  name="walkInNotifyBySms"
-                  disabled={queueDayClosed}
-                  checked={walkInForm.notifyBySms}
-                  label="Send SMS alerts"
-                  onChange={(event) =>
-                    setWalkInForm((current) => ({ ...current, notifyBySms: event.target.checked }))
-                  }
-                />
               </Group>
             </Stack>
           </form>
@@ -4962,6 +5076,7 @@ function isRecoveryWindowActive(value?: string | Date | null) {
               <Tabs.Tab value="subscription">Subscription</Tabs.Tab>
               <Tabs.Tab value="contact">Contact details</Tabs.Tab>
               <Tabs.Tab value="queue">Queue settings</Tabs.Tab>
+              <Tabs.Tab value="notifications">Notifications</Tabs.Tab>
             </Tabs.List>
 
             <Tabs.Panel pt="lg" value="subscription">
@@ -5155,6 +5270,84 @@ function isRecoveryWindowActive(value?: string | Date | null) {
                   </Button>
                 </Stack>
               </form>
+            </Tabs.Panel>
+
+            <Tabs.Panel pt="lg" value="notifications">
+              <Stack gap="md">
+                <div>
+                  <Text className="neura-label">Tenant settings</Text>
+                  <Title order={3}>Operational alerts</Title>
+                  <Text c="dimmed" size="sm">
+                    Browser notifications are used after login for vendor operational alerts. Email remains the fallback channel.
+                  </Text>
+                </div>
+                <Alert color="blue" variant="light">
+                  Vendor staff assigned to a booking and payment reviewers receive these alerts for the tenant.
+                </Alert>
+                <Alert color={browserNotificationsSecure ? "teal" : "yellow"} variant="light">
+                  {browserNotificationsSupported
+                    ? browserNotificationsSecure
+                      ? `Browser notifications are available in this browser. Current permission: ${browserPermission}.`
+                      : "Browser notifications require a secure context such as https:// or localhost."
+                    : "This browser does not support browser notifications."}
+                </Alert>
+                <Group gap="sm">
+                  <Button
+                    color="dark"
+                    disabled={
+                      !browserNotificationsSupported ||
+                      !browserNotificationsSecure ||
+                      browserPermission === "granted" ||
+                      requestingBrowserPermission
+                    }
+                    onClick={handleRequestBrowserPermission}
+                    type="button"
+                    variant="light"
+                  >
+                    {browserPermission === "granted"
+                      ? "Browser notifications enabled"
+                      : requestingBrowserPermission
+                        ? "Requesting permission..."
+                        : "Allow browser notifications"}
+                  </Button>
+                  <Text c="dimmed" size="sm">
+                    {browserNotificationsSupported
+                      ? browserNotificationsSecure
+                        ? browserPermission === "granted"
+                          ? "This browser can receive vendor alerts."
+                          : browserPermission === "denied"
+                            ? "Permission was denied in this browser. You can change it in browser settings."
+                            : "Click the button to allow browser notifications for this tenant."
+                        : "Open this page on https:// or localhost to request permission."
+                      : "Use a browser that supports notifications."}
+                  </Text>
+                </Group>
+                <Divider label="Operational alerts" labelPosition="center" />
+                <Checkbox
+                  checked={vendorNotificationSettings.bookingIntake}
+                  label="New booking intake"
+                  disabled={savingNotificationSettings}
+                  onChange={(event) =>
+                    handleVendorNotificationToggle("bookingIntake", event.currentTarget.checked)
+                  }
+                />
+                <Checkbox
+                  checked={vendorNotificationSettings.paymentProofReview}
+                  label="Payment proof review"
+                  disabled={savingNotificationSettings}
+                  onChange={(event) =>
+                    handleVendorNotificationToggle("paymentProofReview", event.currentTarget.checked)
+                  }
+                />
+                <Checkbox
+                  checked={vendorNotificationSettings.bookingStatusChanges}
+                  label="Booking status changes"
+                  disabled={savingNotificationSettings}
+                  onChange={(event) =>
+                    handleVendorNotificationToggle("bookingStatusChanges", event.currentTarget.checked)
+                  }
+                />
+              </Stack>
             </Tabs.Panel>
           </Tabs>
         </Card>
@@ -5520,7 +5713,7 @@ function isRecoveryWindowActive(value?: string | Date | null) {
                 </Paper>
                 <Paper withBorder radius="md" p="md">
                   <Text className="neura-label">Alerts</Text>
-                  <Text fw={700}>{detailBooking.notifyBySms ? "Email and SMS" : "Email"}</Text>
+                  <Text fw={700}>Email and browser notifications</Text>
                   <Text c="dimmed" size="sm">
                     {detailBooking.contactVerificationChannel
                       ? `Verified by ${detailBooking.contactVerificationChannel}`
