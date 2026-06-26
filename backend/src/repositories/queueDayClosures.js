@@ -84,7 +84,7 @@ async function createClosure(data, options = {}) {
         closed_at
       )
       VALUES ($1, $2, $3, $4, $5, $6::BIGINT[], $7, $8, $9, NOW())
-      ON CONFLICT (tenant_id, location_id, queue_date_key)
+      ON CONFLICT (tenant_id, location_id, queue_date_key) WHERE reopened_at IS NULL
       DO UPDATE SET
         next_queue_date_key = EXCLUDED.next_queue_date_key,
         closure_reason = EXCLUDED.closure_reason,
