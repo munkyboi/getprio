@@ -163,8 +163,8 @@ export default function LandingPage() {
                 <Button component={Link} to="/register/vendor" color="orange" size="lg">
                   Start free
                 </Button>
-                <Button component={Link} to="/register/customer" size="lg" variant="outline" color="dark">
-                  See how it works
+                <Button component={Link} to="/vendors" size="lg" variant="outline" color="dark">
+                  Browse vendors
                 </Button>
               </Group>
               <SimpleGrid className="prio-mini-proof" cols={{ base: 1, sm: 3 }}>
@@ -347,8 +347,8 @@ export default function LandingPage() {
                   <Button component={Link} to="/register/vendor" color="orange" size="lg">
                     Get started
                   </Button>
-                  <Button component={Link} to="/login" size="lg" variant="outline" color="dark">
-                    Sign in
+                  <Button component={Link} to="/vendors" size="lg" variant="outline" color="dark">
+                    Browse vendors
                   </Button>
                 </Group>
               </Stack>

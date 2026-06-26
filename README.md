@@ -73,6 +73,7 @@ Public board theme image and logo uploads use Backblaze B2 S3-compatible signed 
 B2_S3_ENDPOINT=
 B2_REGION=us-east-005
 B2_BUCKET_PUBLIC_BOARD=
+B2_BUCKET_PAYMENT_PROOF=
 B2_KEY_ID=
 B2_APPLICATION_KEY=
 B2_PUBLIC_BASE_URL=
@@ -80,6 +81,9 @@ B2_PUBLIC_BASE_URL=
 
 The B2 bucket must allow browser `PUT` requests from the frontend origin and public `GET` reads
 for uploaded board assets.
+
+Manual booking payment proof uploads use `B2_BUCKET_PAYMENT_PROOF`. Keep that bucket private;
+the backend issues short-lived signed upload/view URLs from authenticated booking endpoints.
 
 ## Docker Compose
 

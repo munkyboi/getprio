@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   Alert,
   ActionIcon,
@@ -10,11 +10,13 @@ import {
   Divider,
   Drawer,
   FileInput,
+  Image,
   Burger,
   Group,
   Modal,
   MultiSelect,
   NumberInput,
+  Notification,
   Pagination,
   Paper,
   ScrollArea,
@@ -30,13 +32,20 @@ import {
   TextInput,
   Textarea,
   Title,
-  Tooltip
+  Tooltip,
+  Box
 } from "@mantine/core";
+import { DatePickerInput } from "@mantine/dates";
 import {
+  IconBellRinging,
   IconChartBar,
+  IconBriefcase,
+  IconCalendar,
+  IconCalendarCheck,
   IconChevronRight,
   IconClipboardList,
   IconCheck,
+  IconExternalLink,
   IconHistory,
   IconHomeStats,
   IconInfoCircle,
@@ -46,6 +55,7 @@ import {
   IconUsersGroup
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
+import { differenceInMinutes } from "date-fns";
 import QRCode from "react-qr-code";
 import { Navigate, NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
 import type {
@@ -71,17 +81,50 @@ import type {
   AddVendorStaffRequest,
   UpdateVendorStaffRequest,
   HistoryExportRange,
+  LocationPaymentQrUploadResponse,
   SubscriptionPlanSlug,
   TicketMutationResponse,
   UpdateTenantSettingsRequest,
-  VendorClientsResponse
+  SaveVendorAvailabilityBlockRequest,
+  SaveVendorAvailabilityExceptionRequest,
+  SaveVendorServiceRequest,
+  BookingPaymentProofAccessResponse,
+  RejectVendorBookingPaymentRequest,
+  RescheduleVendorBookingRequest,
+  UpdateVendorBookingStatusRequest,
+  TenantNotificationSettings,
+  UpdateTenantNotificationSettingsRequest,
+  UpdateTenantNotificationSettingsResponse,
+  VendorCheckInBookingRequest,
+  VendorCheckInBookingResponse,
+  VendorAvailabilityBlockResponse,
+  VendorAvailabilityBlockSummary,
+  VendorAvailabilityExceptionResponse,
+  VendorAvailabilityExceptionSummary,
+  VendorAvailabilityResponse,
+  VendorBookingResponse,
+  VendorBookingSummary,
+  VendorBookingsResponse,
+  VendorClientsResponse,
+  VendorServiceSummary,
+  VendorServicesResponse,
+  VendorServiceResponse,
+  PaginationMetadata
 } from "@shared";
 import { API_BASE_URL, apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { buildJoinUrl, buildMonitorUrl } from "../queuePaths";
+import {
+  formatDateInputValue,
+  formatDateTime,
+  formatDateTimeInputValue,
+  formatBookingScheduleDateTime,
+  formatDisplayDate,
+  toTimestamp
+} from "../utils/dates";
 import { getErrorMessage } from "../utils/errors";
 
-const dashboardSections = new Set(["queue", "tenants", "staff", "clients", "history", "reports", "settings"]);
+const dashboardSections = new Set(["queue", "tenants", "services", "bookings", "staff", "clients", "history", "reports", "settings"]);
 const SERVICE_TREND_USER_LIMIT = 30;
 
 const emptyWalkIn: CreateWalkInTicketRequest = {
@@ -105,6 +148,12 @@ const defaultSettings: UpdateTenantSettingsRequest = {
   contactPhone: ""
 };
 
+const defaultNotificationSettings = {
+  bookingIntake: true,
+  paymentProofReview: true,
+  bookingStatusChanges: true
+};
+
 const defaultHours: StoreHourSummary[] = Array.from({ length: 7 }, (_, weekday) => ({
   weekday,
   opensAt: "09:00",
@@ -124,10 +173,61 @@ const emptyLocationForm = {
   contactEmail: "",
   contactPhone: "",
   timezone: "Asia/Manila",
+  paymentMethodLabel: "",
+  paymentAccountDisplayName: "",
+  paymentAccountIdentifierDisplay: "",
+  paymentQrImageUrl: "",
+  paymentQrActive: false,
   isPrimary: false,
   isActive: true,
   hours: defaultHours
 };
+
+const emptyServiceForm: SaveVendorServiceRequest = {
+  name: "",
+  slug: "",
+  description: "",
+  durationMinutes: 30,
+  allowBookingQuantity: false,
+  bookingQuantityLabel: "Units",
+  manualPaymentRequired: false,
+  priceAmountCents: 0,
+  priceDisplay: "",
+  isActive: true,
+  sortOrder: 0
+};
+
+const emptyAvailabilityBlockForm: SaveVendorAvailabilityBlockRequest = {
+  locationSlug: "",
+  serviceSlug: "",
+  weekday: 1,
+  startsAt: "09:00",
+  endsAt: "17:00",
+  capacity: 1,
+  isActive: true,
+  notes: ""
+};
+
+const emptyAvailabilityExceptionForm: SaveVendorAvailabilityExceptionRequest = {
+  locationSlug: "",
+  serviceSlug: "",
+  exceptionDate: "",
+  startsAt: "",
+  endsAt: "",
+  isAvailable: false,
+  capacity: null,
+  reason: ""
+};
+
+const weekdayOptions = [
+  { value: "0", label: "Sunday" },
+  { value: "1", label: "Monday" },
+  { value: "2", label: "Tuesday" },
+  { value: "3", label: "Wednesday" },
+  { value: "4", label: "Thursday" },
+  { value: "5", label: "Friday" },
+  { value: "6", label: "Saturday" }
+];
 
 const publicBoardThemePresets: Record<string, PublicBoardThemeSettings> = {
   classic: {
@@ -191,13 +291,15 @@ const publicBoardThemePresets: Record<string, PublicBoardThemeSettings> = {
 
 const defaultPublicBoardTheme = publicBoardThemePresets.classic;
 
-type DashboardSection = "queue" | "tenants" | "staff" | "clients" | "history" | "reports" | "settings";
+type DashboardSection = "queue" | "tenants" | "services" | "bookings" | "staff" | "clients" | "history" | "reports" | "settings";
 type QueueView = "current" | "overflow" | "recovery";
 type ClientSort = "latestVisitDesc" | "latestVisitAsc" | "nameAsc" | "nameDesc" | "visitsDesc" | "visitsAsc";
 type HistorySort = "updatedDesc" | "updatedAsc" | "ticketAsc" | "ticketDesc" | "customerAsc" | "customerDesc";
+type BookingStatusFilter = "all" | "pending" | "confirmed" | "rescheduled" | "canceled";
 
 const CLIENTS_PAGE_SIZE = 10;
 const HISTORY_PAGE_SIZE = 10;
+
 type DashboardActionResponse = Partial<TicketMutationResponse> & {
   message?: string;
   snapshot?: QueueSnapshot;
@@ -211,6 +313,8 @@ type VendorHistoryResponse = {
 const navItems = [
   { section: "queue", label: "Queue", icon: IconClipboardList },
   { section: "tenants", label: "Locations", icon: IconHomeStats },
+  { section: "services", label: "Services", icon: IconBriefcase },
+  { section: "bookings", label: "Bookings", icon: IconCalendarCheck },
   { section: "staff", label: "Staff", icon: IconUsersGroup },
   { section: "clients", label: "Clients", icon: IconUsersGroup },
   { section: "history", label: "History", icon: IconHistory },
@@ -220,6 +324,8 @@ const navItems = [
 const dashboardSectionDescriptions: Record<DashboardSection, string> = {
   queue: "Run the live queue, manage intake, and move customers through service.",
   tenants: "Configure locations, counters, and the public entry points for each branch.",
+  services: "Manage bookable services, durations, pricing, and public availability state.",
+  bookings: "Review incoming service requests and manage confirmation, rescheduling, or cancellation.",
   staff: "Manage workspace access, roles, and operating status for your team.",
   clients: "Review recent customer activity and returning queue visitors.",
   history: "Inspect completed ticket activity and export queue records.",
@@ -229,24 +335,80 @@ const dashboardSectionDescriptions: Record<DashboardSection, string> = {
 const adminAllowedSections = new Set<DashboardSection>([
   "queue",
   "tenants",
+  "services",
+  "bookings",
   "staff",
   "clients",
   "history",
   "reports",
   "settings"
 ]);
-const staffAllowedSections = new Set<DashboardSection>(["queue", "clients", "history"]);
+const staffAllowedSections = new Set<DashboardSection>(["queue", "bookings", "clients", "history"]);
 
 function getHistoryTimestamp(value: string | Date): number {
-  return new Date(value).getTime();
-}
-
-function formatDateTime(value: string | Date): string {
-  return new Date(value).toLocaleString();
+  return toTimestamp(value);
 }
 
 function formatDate(value: string | Date | null): string {
-  return value ? new Date(value).toLocaleDateString() : "";
+  return formatDisplayDate(value);
+}
+
+function formatBytes(sizeBytes: number | null): string {
+  if (!sizeBytes) {
+    return "Unknown size";
+  }
+
+  if (sizeBytes < 1024 * 1024) {
+    return `${Math.max(1, Math.round(sizeBytes / 1024))} KB`;
+  }
+
+  return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function getTodayDateInputValue(): string {
+  return formatDateInputValue();
+}
+
+const formatDateTimeInput = formatDateTimeInputValue;
+
+function getBookingBadgeColor(status: VendorBookingSummary["status"]): "gray" | "red" | "yellow" | "orange" | "teal" | "blue" {
+  switch (status) {
+    case "pending":
+      return "yellow";
+    case "confirmed":
+      return "teal";
+    case "rescheduled":
+      return "blue";
+    case "canceled":
+      return "red";
+    case "disputed":
+      return "orange";
+    case "completed":
+    case "reviewed":
+    default:
+      return "gray";
+  }
+}
+
+function isCheckedInBookingTicket(ticket: {
+  servicePriorityBand?: string;
+  linkedBookingReference?: string | null;
+}) {
+  return ticket.servicePriorityBand === "checked_in_booking" || Boolean(ticket.linkedBookingReference);
+}
+
+function getMinutesFromNow(value: string | Date): number {
+  return differenceInMinutes(new Date(), new Date(value));
+}
+
+function getBookingCheckInState(booking: VendorBookingSummary) {
+  const minutesFromStart = getMinutesFromNow(booking.scheduledStartAt);
+  return {
+    isTooEarly: minutesFromStart < -15,
+    isLate: minutesFromStart > 15,
+    isEligibleStatus: ["confirmed", "rescheduled"].includes(booking.status),
+    minutesFromStart
+  };
 }
 
 function QueueIntakeGauge({
@@ -414,6 +576,9 @@ export default function VendorDashboardPage() {
   const [selectedLocationSlug, setSelectedLocationSlug] = useState("");
   const [snapshot, setSnapshot] = useState<QueueSnapshot | null>(null);
   const [locations, setLocations] = useState<StoreLocationWithHours[]>([]);
+  const [services, setServices] = useState<VendorServiceSummary[]>([]);
+  const [availabilityBlocks, setAvailabilityBlocks] = useState<VendorAvailabilityBlockSummary[]>([]);
+  const [availabilityExceptions, setAvailabilityExceptions] = useState<VendorAvailabilityExceptionSummary[]>([]);
   const [serviceCounters, setServiceCounters] = useState<ServiceCounterSummary[]>([]);
   const [staff, setStaff] = useState<VendorStaffSummary[]>([]);
   const [staffSeatLimit, setStaffSeatLimit] = useState(0);
@@ -422,11 +587,36 @@ export default function VendorDashboardPage() {
   const [locationDialogOpen, setLocationDialogOpen] = useState(false);
   const [editingLocationSlug, setEditingLocationSlug] = useState("");
   const [locationForm, setLocationForm] = useState(emptyLocationForm);
+  const [paymentQrUploadFile, setPaymentQrUploadFile] = useState<File | null>(null);
+  const [serviceDialogOpen, setServiceDialogOpen] = useState(false);
+  const [editingServiceSlug, setEditingServiceSlug] = useState("");
+  const [serviceForm, setServiceForm] = useState<SaveVendorServiceRequest>(emptyServiceForm);
+  const [availabilityBlockDialogOpen, setAvailabilityBlockDialogOpen] = useState(false);
+  const [editingAvailabilityBlockId, setEditingAvailabilityBlockId] = useState("");
+  const [availabilityBlockForm, setAvailabilityBlockForm] = useState<SaveVendorAvailabilityBlockRequest>(emptyAvailabilityBlockForm);
+  const [availabilityExceptionDialogOpen, setAvailabilityExceptionDialogOpen] = useState(false);
+  const [editingAvailabilityExceptionId, setEditingAvailabilityExceptionId] = useState("");
+  const [availabilityExceptionForm, setAvailabilityExceptionForm] = useState<SaveVendorAvailabilityExceptionRequest>(emptyAvailabilityExceptionForm);
   const [settings, setSettings] = useState<UpdateTenantSettingsRequest>(defaultSettings);
+  const [vendorNotificationSettings, setVendorNotificationSettings] = useState<TenantNotificationSettings>(defaultNotificationSettings);
+  const [browserPermission, setBrowserPermission] = useState<NotificationPermission>(
+    typeof window !== "undefined" && typeof window.Notification !== "undefined"
+      ? window.Notification.permission
+      : "default"
+  );
+  const [requestingBrowserPermission, setRequestingBrowserPermission] = useState(false);
+  const [savingNotificationSettings, setSavingNotificationSettings] = useState(false);
+  const browserNotificationsSupported = typeof window !== "undefined" && typeof window.Notification !== "undefined";
+  const browserNotificationsSecure = typeof window !== "undefined" ? window.isSecureContext : false;
   const [walkInForm, setWalkInForm] = useState<CreateWalkInTicketRequest>(emptyWalkIn);
   const [billing, setBilling] = useState<BillingOverviewResponse | null>(null);
   const [history, setHistory] = useState<VendorHistoryResponse | null>(null);
   const [clients, setClients] = useState<VendorClientsResponse | null>(null);
+  const [vendorBookings, setVendorBookings] = useState<VendorBookingSummary[]>([]);
+  const knownBookingIdsRef = useRef<Set<string> | null>(null);
+  const [bookingAlertIds, setBookingAlertIds] = useState<string[]>([]);
+  const [bookingDetailModalId, setBookingDetailModalId] = useState<string | null>(null);
+  const [paymentRejectionReason, setPaymentRejectionReason] = useState("");
   const [error, setError] = useState("");
   const [busyAction, setBusyAction] = useState("");
   const [planDialogOpen, setPlanDialogOpen] = useState(false);
@@ -459,6 +649,30 @@ export default function VendorDashboardPage() {
   const [historySearch, setHistorySearch] = useState("");
   const [historySort, setHistorySort] = useState<HistorySort>("updatedDesc");
   const [historyPage, setHistoryPage] = useState(1);
+  const [bookingSearch, setBookingSearch] = useState("");
+  const [bookingStatusFilter, setBookingStatusFilter] = useState<BookingStatusFilter>("all");
+  const [bookingDateFilter, setBookingDateFilter] = useState(getTodayDateInputValue);
+  const [bookingPage, setBookingPage] = useState(1);
+  const [bookingPagination, setBookingPagination] = useState<PaginationMetadata | null>(null);
+  const bookingParamsRef = useRef({
+    page: 1,
+    search: "",
+    status: "all" as BookingStatusFilter,
+    date: getTodayDateInputValue()
+  });
+
+  useEffect(() => {
+    bookingParamsRef.current = {
+      page: bookingPage,
+      search: bookingSearch,
+      status: bookingStatusFilter,
+      date: bookingDateFilter
+    };
+  }, [bookingPage, bookingSearch, bookingStatusFilter, bookingDateFilter]);
+
+  const [rescheduleDialogOpen, setRescheduleDialogOpen] = useState(false);
+  const [reschedulingBooking, setReschedulingBooking] = useState<VendorBookingSummary | null>(null);
+  const [rescheduleStartAt, setRescheduleStartAt] = useState("");
   const hasActiveSubscription = billing?.subscription?.status === "active";
   const selectedLocation =
     locations.find((locationItem) => locationItem.slug === selectedLocationSlug) ||
@@ -471,6 +685,8 @@ export default function VendorDashboardPage() {
   const canManageQueueDay = isOwner || isAdmin;
   const canManageContactSettings = isOwner;
   const canExportHistory = isOwner || isAdmin;
+  const canAdminBookings = isOwner || isAdmin;
+  const canOperateBookingQueue = Boolean(selectedTenantRole);
   const visibleNavItems = isOwner
     ? navItems
     : isAdmin
@@ -582,6 +798,110 @@ export default function VendorDashboardPage() {
   }, [selectedTenantSlug, token]);
 
   useEffect(() => {
+    if (!browserNotificationsSupported) {
+      return;
+    }
+
+    setBrowserPermission(window.Notification.permission);
+  }, [browserNotificationsSupported]);
+
+  useEffect(() => {
+    if (!selectedTenantSlug || !token) {
+      return undefined;
+    }
+
+    let active = true;
+    apiRequest<{ notificationSettings: TenantNotificationSettings }>(`/vendor/tenant/${selectedTenantSlug}/notification-settings`, {
+      token
+    })
+      .then((data) => {
+        if (active) {
+          setVendorNotificationSettings(data.notificationSettings);
+        }
+      })
+      .catch((loadError) => {
+        if (active) {
+          setError(getErrorMessage(loadError));
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [selectedTenantSlug, token]);
+
+  async function handleRequestBrowserPermission() {
+    if (!browserNotificationsSupported || !window.Notification) {
+      notifications.show({
+        color: "red",
+        title: "Browser notifications unavailable",
+        message: "This browser does not support notifications."
+      });
+      return;
+    }
+
+    if (!browserNotificationsSecure) {
+      notifications.show({
+        color: "yellow",
+        title: "Secure context required",
+        message: "Open this page on https:// or localhost to request browser notifications."
+      });
+      return;
+    }
+
+    setRequestingBrowserPermission(true);
+    try {
+      const permission = await window.Notification.requestPermission();
+      setBrowserPermission(permission);
+    } catch (permissionError) {
+      notifications.show({
+        color: "red",
+        title: "Permission request failed",
+        message: getErrorMessage(permissionError)
+      });
+    } finally {
+      setRequestingBrowserPermission(false);
+    }
+  }
+
+  async function handleVendorNotificationToggle(
+    key: keyof TenantNotificationSettings,
+    checked: boolean
+  ) {
+    if (!token || !selectedTenantSlug) {
+      return;
+    }
+
+    const nextSettings = {
+      ...vendorNotificationSettings,
+      [key]: checked
+    };
+
+    setVendorNotificationSettings(nextSettings);
+    setSavingNotificationSettings(true);
+
+    try {
+      const response = await apiRequest<
+        UpdateTenantNotificationSettingsResponse,
+        UpdateTenantNotificationSettingsRequest
+      >(`/vendor/tenant/${selectedTenantSlug}/notification-settings`, {
+        method: "PATCH",
+        token,
+        body: nextSettings
+      });
+      setVendorNotificationSettings(response.notificationSettings);
+    } catch (saveError) {
+      setError(getErrorMessage(saveError));
+      setVendorNotificationSettings((current) => ({
+        ...current,
+        [key]: !checked
+      }));
+    } finally {
+      setSavingNotificationSettings(false);
+    }
+  }
+
+  useEffect(() => {
     if (!selectedTenantSlug || !selectedLocationSlug || !token) {
       return;
     }
@@ -620,6 +940,42 @@ export default function VendorDashboardPage() {
         setStaffSeatLimit(0);
       });
   }, [selectedTenantSlug, token]);
+
+  useEffect(() => {
+    if (!selectedTenantSlug || !token || !(isOwner || isAdmin)) {
+      setServices([]);
+      return;
+    }
+
+    apiRequest<VendorServicesResponse>(`/vendor/tenant/${selectedTenantSlug}/services`, { token })
+      .then((data) => {
+        setServices(data.services);
+      })
+      .catch(() => {
+        setServices([]);
+      });
+  }, [isAdmin, isOwner, selectedTenantSlug, token]);
+
+  useEffect(() => {
+    if (!selectedTenantSlug || !selectedLocationSlug || !token || !(isOwner || isAdmin)) {
+      setAvailabilityBlocks([]);
+      setAvailabilityExceptions([]);
+      return;
+    }
+
+    apiRequest<VendorAvailabilityResponse>(
+      `/vendor/tenant/${selectedTenantSlug}/availability?location=${encodeURIComponent(selectedLocationSlug)}`,
+      { token }
+    )
+      .then((data) => {
+        setAvailabilityBlocks(data.blocks);
+        setAvailabilityExceptions(data.exceptions);
+      })
+      .catch(() => {
+        setAvailabilityBlocks([]);
+        setAvailabilityExceptions([]);
+      });
+  }, [isAdmin, isOwner, selectedLocationSlug, selectedTenantSlug, token]);
 
   useEffect(() => {
     if (!selectedTenantSlug || !token) {
@@ -701,6 +1057,24 @@ export default function VendorDashboardPage() {
     eventSource.onmessage = (event) => {
       const payload = JSON.parse(event.data) as QueueSnapshot;
       setSnapshot(payload);
+      if (currentSection === "bookings" && token && hasActiveSubscription && canOperateBookingQueue) {
+        const { page, search, status, date } = bookingParamsRef.current;
+        const statusQuery = status !== "all" ? `&status=${encodeURIComponent(status)}` : "";
+        const dateQuery = date ? `&scheduledDate=${encodeURIComponent(date)}` : "";
+        const searchQuery = search.trim() ? `&search=${encodeURIComponent(search.trim())}` : "";
+
+        void apiRequest<VendorBookingsResponse>(
+          `/vendor/tenant/${selectedTenantSlug}/bookings?page=${page}&pageSize=10&location=${encodeURIComponent(selectedLocationSlug)}${statusQuery}${dateQuery}${searchQuery}`,
+          { token }
+        )
+          .then((data) => {
+            syncVendorBookings(data.bookings, { detectNew: true });
+            setBookingPagination(data.pagination || null);
+          })
+          .catch((loadError) => {
+            setError(getErrorMessage(loadError));
+          });
+      }
     };
     eventSource.onerror = () => {
       eventSource.close();
@@ -709,7 +1083,14 @@ export default function VendorDashboardPage() {
     return () => {
       eventSource.close();
     };
-  }, [selectedLocationSlug, selectedTenantSlug]);
+  }, [
+    canOperateBookingQueue,
+    currentSection,
+    hasActiveSubscription,
+    selectedLocationSlug,
+    selectedTenantSlug,
+    token
+  ]);
 
   useEffect(() => {
     if (!selectedTenantSlug || !selectedLocationSlug || !token || currentSection !== "history" || !hasActiveSubscription) {
@@ -765,6 +1146,53 @@ export default function VendorDashboardPage() {
     };
   }, [currentSection, hasActiveSubscription, locationQuery, selectedLocationSlug, selectedTenantSlug, token]);
 
+  useEffect(() => {
+    if (!selectedTenantSlug || !selectedLocationSlug || !token || currentSection !== "bookings" || !hasActiveSubscription || !canOperateBookingQueue) {
+      if (!canOperateBookingQueue) {
+        setVendorBookings([]);
+        setBookingAlertIds([]);
+        knownBookingIdsRef.current = null;
+      }
+      return undefined;
+    }
+
+    let active = true;
+    const statusQuery = bookingStatusFilter !== "all" ? `&status=${encodeURIComponent(bookingStatusFilter)}` : "";
+    const dateQuery = bookingDateFilter ? `&scheduledDate=${encodeURIComponent(bookingDateFilter)}` : "";
+    const searchQuery = bookingSearch.trim() ? `&search=${encodeURIComponent(bookingSearch.trim())}` : "";
+
+    apiRequest<VendorBookingsResponse>(
+      `/vendor/tenant/${selectedTenantSlug}/bookings?page=${bookingPage}&pageSize=10&location=${encodeURIComponent(selectedLocationSlug)}${statusQuery}${dateQuery}${searchQuery}`,
+      { token }
+    )
+      .then((data) => {
+        if (active) {
+          syncVendorBookings(data.bookings);
+          setBookingPagination(data.pagination || null);
+        }
+      })
+      .catch((loadError) => {
+        if (active) {
+          setError(getErrorMessage(loadError));
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [
+    canOperateBookingQueue,
+    currentSection,
+    hasActiveSubscription,
+    selectedLocationSlug,
+    selectedTenantSlug,
+    token,
+    bookingPage,
+    bookingSearch,
+    bookingStatusFilter,
+    bookingDateFilter
+  ]);
+
   const activeSubscription =
     billing?.subscription?.status === "active" ? billing.subscription : null;
   const currentPlan = activeSubscription
@@ -803,6 +1231,38 @@ export default function VendorDashboardPage() {
     });
   }
 
+  function syncVendorBookings(bookings: VendorBookingSummary[], options: { detectNew?: boolean } = {}) {
+    const nextIds = new Set(bookings.map((booking) => booking.id));
+    const previousIds = knownBookingIdsRef.current;
+
+    setVendorBookings(bookings);
+
+    if (options.detectNew && previousIds) {
+      const newPendingIds = bookings
+        .filter((booking) => booking.status === "pending" && !previousIds.has(booking.id))
+        .map((booking) => booking.id);
+
+      if (newPendingIds.length) {
+        setBookingAlertIds((current) => [...new Set([...current, ...newPendingIds])]);
+      }
+    }
+
+    setBookingAlertIds((current) =>
+      current.filter((bookingId) => {
+        const found = bookings.find((booking) => booking.id === bookingId);
+        if (found) {
+          return found.status === "pending";
+        }
+        return true;
+      })
+    );
+    knownBookingIdsRef.current = nextIds;
+  }
+
+  function clearBookingAlert(bookingId: string) {
+    setBookingAlertIds((current) => current.filter((item) => item !== bookingId));
+  }
+
   function showInfoNotification(title: string, message: string) {
     notifications.show({
       color: "blue",
@@ -812,13 +1272,13 @@ export default function VendorDashboardPage() {
     });
   }
 
-  function isRecoveryWindowActive(value?: string | Date | null) {
-    if (!value) {
-      return false;
-    }
-
-    return new Date(value).getTime() > Date.now();
+function isRecoveryWindowActive(value?: string | Date | null) {
+  if (!value) {
+    return false;
   }
+
+  return toTimestamp(value) > Date.now();
+}
 
   const joinUrl =
     snapshot?.location?.joinUrl ||
@@ -967,6 +1427,14 @@ export default function VendorDashboardPage() {
     return filteredHistoryTickets.slice(start, start + HISTORY_PAGE_SIZE);
   }, [filteredHistoryTickets, historyPage]);
   const historyTotalPages = Math.max(1, Math.ceil(filteredHistoryTickets.length / HISTORY_PAGE_SIZE));
+  const filteredBookings = vendorBookings;
+  const activeBookingAlerts = useMemo(
+    () =>
+      bookingAlertIds
+        .map((bookingId) => vendorBookings.find((booking) => booking.id === bookingId))
+        .filter((booking): booking is VendorBookingSummary => Boolean(booking && booking.status === "pending")),
+    [bookingAlertIds, vendorBookings]
+  );
   const queueDayClosed = Boolean(snapshot?.queueDay?.isClosed);
   const queueDayPaused = Boolean(snapshot?.queueDay?.isPaused);
   const intakeState = snapshot?.queueIntake || null;
@@ -974,6 +1442,23 @@ export default function VendorDashboardPage() {
     intakeState?.autoPauseEnabled &&
       intakeState.autoPauseThreshold &&
       intakeState.currentWaitingCount >= intakeState.autoPauseThreshold
+  );
+  const serviceOptions = useMemo(
+    () => [
+      { value: "", label: "All services" },
+      ...services
+        .filter((service) => service.isActive)
+        .map((service) => ({ value: service.slug, label: service.name }))
+    ],
+    [services]
+  );
+  const serviceSlugById = useMemo(
+    () => new Map(services.map((service) => [service.id, service.slug])),
+    [services]
+  );
+  const serviceNameById = useMemo(
+    () => new Map(services.map((service) => [service.id, service.name])),
+    [services]
   );
 
   useEffect(() => {
@@ -983,6 +1468,10 @@ export default function VendorDashboardPage() {
   useEffect(() => {
     setHistoryPage(1);
   }, [historySearch, historySort, history]);
+
+  useEffect(() => {
+    setBookingPage(1);
+  }, [bookingSearch, bookingStatusFilter, bookingDateFilter]);
 
   async function runAction(
     actionName: string,
@@ -1040,6 +1529,494 @@ export default function VendorDashboardPage() {
     );
     setStaff(data.staff);
     setStaffSeatLimit(data.staffSeatLimit);
+  }
+
+  async function reloadServices() {
+    const data = await apiRequest<VendorServicesResponse>(
+      `/vendor/tenant/${selectedTenantSlug}/services`,
+      { token }
+    );
+    setServices(data.services);
+  }
+
+  async function reloadAvailability() {
+    if (!selectedLocationSlug) {
+      return;
+    }
+
+    const data = await apiRequest<VendorAvailabilityResponse>(
+      `/vendor/tenant/${selectedTenantSlug}/availability?location=${encodeURIComponent(selectedLocationSlug)}`,
+      { token }
+    );
+    setAvailabilityBlocks(data.blocks);
+    setAvailabilityExceptions(data.exceptions);
+  }
+
+  async function reloadBookings() {
+    if (!selectedLocationSlug) {
+      return;
+    }
+
+    const { page, search, status, date } = bookingParamsRef.current;
+    const statusQuery = status !== "all" ? `&status=${encodeURIComponent(status)}` : "";
+    const dateQuery = date ? `&scheduledDate=${encodeURIComponent(date)}` : "";
+    const searchQuery = search.trim() ? `&search=${encodeURIComponent(search.trim())}` : "";
+
+    const data = await apiRequest<VendorBookingsResponse>(
+      `/vendor/tenant/${selectedTenantSlug}/bookings?page=${page}&pageSize=10&location=${encodeURIComponent(selectedLocationSlug)}${statusQuery}${dateQuery}${searchQuery}`,
+      { token }
+    );
+    syncVendorBookings(data.bookings);
+    setBookingPagination(data.pagination || null);
+  }
+
+  async function reloadDashboardSnapshot() {
+    if (!selectedTenantSlug || !selectedLocationSlug) {
+      return;
+    }
+
+    const data = await apiRequest<QueueSnapshot>(
+      `/vendor/tenant/${selectedTenantSlug}/dashboard${locationQuery}`,
+      { token }
+    );
+    setSnapshot(data);
+  }
+
+  async function handleUpdateBookingStatus(
+    booking: VendorBookingSummary,
+    status: UpdateVendorBookingStatusRequest["status"]
+  ) {
+    setBusyAction(`booking-status:${booking.id}:${status}`);
+    setError("");
+
+    try {
+      const response = await apiRequest<VendorBookingResponse, UpdateVendorBookingStatusRequest>(
+        `/vendor/tenant/${selectedTenantSlug}/bookings/${booking.id}/status`,
+        { method: "PATCH", token, body: { status } }
+      );
+      setVendorBookings((current) =>
+        current.map((item) => (item.id === response.booking.id ? response.booking : item))
+      );
+      clearBookingAlert(response.booking.id);
+      showSuccessNotification(
+        status === "confirmed" ? "Booking confirmed" : "Booking canceled",
+        `${response.booking.reference} was ${status}.`
+      );
+    } catch (updateError) {
+      setError(getErrorMessage(updateError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  function openRescheduleDialog(booking: VendorBookingSummary) {
+    setReschedulingBooking(booking);
+    setRescheduleStartAt(formatDateTimeInput(booking.scheduledStartAt));
+    setRescheduleDialogOpen(true);
+  }
+
+  async function handleRescheduleBooking(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!reschedulingBooking || !rescheduleStartAt) {
+      return;
+    }
+
+    setBusyAction(`booking-reschedule:${reschedulingBooking.id}`);
+    setError("");
+
+    try {
+      const response = await apiRequest<VendorBookingResponse, RescheduleVendorBookingRequest>(
+        `/vendor/tenant/${selectedTenantSlug}/bookings/${reschedulingBooking.id}/reschedule`,
+        {
+          method: "PATCH",
+          token,
+          body: {
+            scheduledStartAt: new Date(rescheduleStartAt).toISOString()
+          }
+        }
+      );
+      setVendorBookings((current) =>
+        current.map((item) => (item.id === response.booking.id ? response.booking : item))
+      );
+      clearBookingAlert(response.booking.id);
+      setRescheduleDialogOpen(false);
+      setReschedulingBooking(null);
+      showSuccessNotification("Booking rescheduled", `${response.booking.reference} has a new schedule.`);
+    } catch (rescheduleError) {
+      setError(getErrorMessage(rescheduleError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function handleCheckInBooking(booking: VendorBookingSummary, overrideWindow = false) {
+    setBusyAction(`booking-check-in:${booking.id}${overrideWindow ? ":override" : ""}`);
+    setError("");
+
+    try {
+      const response = await apiRequest<VendorCheckInBookingResponse, VendorCheckInBookingRequest>(
+        `/vendor/tenant/${selectedTenantSlug}/bookings/${booking.id}/check-in${locationQuery}`,
+        {
+          method: "POST",
+          token,
+          body: {
+            overrideWindow,
+            overrideReason: overrideWindow ? "Late check-in override from vendor dashboard" : undefined
+          }
+        }
+      );
+      setVendorBookings((current) =>
+        current.map((item) => (item.id === response.booking.id ? response.booking : item))
+      );
+      clearBookingAlert(response.booking.id);
+      await reloadDashboardSnapshot();
+      showSuccessNotification(
+        "Booking checked in",
+        `${response.booking.reference} is now live as ticket ${response.ticket.ticketNumber}.`
+      );
+    } catch (checkInError) {
+      setError(getErrorMessage(checkInError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function handleMarkBookingNoShow(booking: VendorBookingSummary) {
+    setBusyAction(`booking-no-show:${booking.id}`);
+    setError("");
+
+    try {
+      const response = await apiRequest<VendorBookingResponse>(
+        `/vendor/tenant/${selectedTenantSlug}/bookings/${booking.id}/no-show${locationQuery}`,
+        { method: "POST", token }
+      );
+      setVendorBookings((current) =>
+        current.map((item) => (item.id === response.booking.id ? response.booking : item))
+      );
+      clearBookingAlert(response.booking.id);
+      showSuccessNotification("Booking marked no-show", `${response.booking.reference} was canceled as a no-show.`);
+    } catch (noShowError) {
+      setError(getErrorMessage(noShowError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function handleViewBookingPaymentProof(booking: VendorBookingSummary) {
+    if (!booking.paymentProof) {
+      return;
+    }
+
+    setBusyAction(`booking-proof:${booking.id}`);
+    setError("");
+
+    try {
+      const response = await apiRequest<BookingPaymentProofAccessResponse>(
+        `/vendor/tenant/${selectedTenantSlug}/bookings/${booking.id}/payment-proof`,
+        { token }
+      );
+      window.open(response.access.url, "_blank", "noopener,noreferrer");
+    } catch (proofError) {
+      setError(getErrorMessage(proofError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function handleVerifyBookingPayment(booking: VendorBookingSummary) {
+    setBusyAction(`booking-payment-verify:${booking.id}`);
+    setError("");
+
+    try {
+      const response = await apiRequest<VendorBookingResponse>(
+        `/vendor/tenant/${selectedTenantSlug}/bookings/${booking.id}/verify-payment`,
+        { method: "PATCH", token }
+      );
+      setVendorBookings((current) =>
+        current.map((item) => (item.id === response.booking.id ? response.booking : item))
+      );
+      setBookingDetailModalId(null);
+      setPaymentRejectionReason("");
+      showSuccessNotification("Payment verified", `${response.booking.reference} can now be confirmed.`);
+    } catch (verifyError) {
+      setError(getErrorMessage(verifyError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function handleRejectBookingPayment(booking: VendorBookingSummary) {
+    const reason = paymentRejectionReason.trim();
+    if (!reason) {
+      setError("A customer-visible rejection reason is required.");
+      return;
+    }
+
+    setBusyAction(`booking-payment-reject:${booking.id}`);
+    setError("");
+
+    try {
+      const response = await apiRequest<VendorBookingResponse, RejectVendorBookingPaymentRequest>(
+        `/vendor/tenant/${selectedTenantSlug}/bookings/${booking.id}/reject-payment`,
+        { method: "PATCH", token, body: { reason } }
+      );
+      setVendorBookings((current) =>
+        current.map((item) => (item.id === response.booking.id ? response.booking : item))
+      );
+      setPaymentRejectionReason("");
+      clearBookingAlert(response.booking.id);
+      showSuccessNotification("Payment rejected", `${response.booking.reference} was canceled.`);
+    } catch (rejectError) {
+      setError(getErrorMessage(rejectError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  function openServiceDialog(service?: VendorServiceSummary) {
+    setEditingServiceSlug(service?.slug || "");
+    setServiceForm({
+      name: service?.name || "",
+      slug: service?.slug || "",
+      description: service?.description || "",
+      durationMinutes: service?.durationMinutes || 30,
+      allowBookingQuantity: service?.allowBookingQuantity || false,
+      bookingQuantityLabel: service?.bookingQuantityLabel || "Units",
+      manualPaymentRequired: service?.manualPaymentRequired || false,
+      priceAmountCents: service?.priceAmountCents || 0,
+      priceDisplay: service?.priceDisplay || "",
+      isActive: service?.isActive ?? true,
+      sortOrder: service?.sortOrder || 0
+    });
+    setServiceDialogOpen(true);
+  }
+
+  async function handleSaveService(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusyAction("service-save");
+    setError("");
+
+    try {
+      if (editingServiceSlug) {
+        await apiRequest<VendorServiceResponse, SaveVendorServiceRequest>(
+          `/vendor/tenant/${selectedTenantSlug}/services/${editingServiceSlug}`,
+          { method: "PATCH", token, body: serviceForm }
+        );
+      } else {
+        await apiRequest<VendorServiceResponse, SaveVendorServiceRequest>(
+          `/vendor/tenant/${selectedTenantSlug}/services`,
+          { method: "POST", token, body: serviceForm }
+        );
+      }
+      await reloadServices();
+      setServiceDialogOpen(false);
+      showSuccessNotification(
+        editingServiceSlug ? "Service updated" : "Service created",
+        `${serviceForm.name} is ready for booking setup.`
+      );
+    } catch (saveError) {
+      setError(getErrorMessage(saveError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function handleToggleServiceActive(service: VendorServiceSummary, isActive: boolean) {
+    setBusyAction(`service-status:${service.slug}`);
+    setError("");
+
+    try {
+      const response = await apiRequest<VendorServiceResponse, SaveVendorServiceRequest>(
+        `/vendor/tenant/${selectedTenantSlug}/services/${service.slug}`,
+        {
+          method: "PATCH",
+          token,
+          body: {
+            name: service.name,
+            slug: service.slug,
+            description: service.description,
+            durationMinutes: service.durationMinutes,
+            allowBookingQuantity: service.allowBookingQuantity,
+            bookingQuantityLabel: service.bookingQuantityLabel,
+            priceAmountCents: service.priceAmountCents,
+            priceDisplay: service.priceDisplay,
+            isActive,
+            sortOrder: service.sortOrder
+          }
+        }
+      );
+      setServices((current) =>
+        current.map((item) => (item.id === response.service.id ? response.service : item))
+      );
+      showSuccessNotification(
+        isActive ? "Service enabled" : "Service disabled",
+        `${response.service.name} is now ${isActive ? "active" : "inactive"}.`
+      );
+    } catch (toggleError) {
+      setError(getErrorMessage(toggleError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function handleDeactivateService(service: VendorServiceSummary) {
+    setBusyAction(`service-delete:${service.slug}`);
+    setError("");
+
+    try {
+      const response = await apiRequest<VendorServiceResponse>(
+        `/vendor/tenant/${selectedTenantSlug}/services/${service.slug}`,
+        { method: "DELETE", token }
+      );
+      setServices((current) =>
+        current.map((item) => (item.id === response.service.id ? response.service : item))
+      );
+      showSuccessNotification("Service disabled", `${service.name} is no longer active.`);
+    } catch (deleteError) {
+      setError(getErrorMessage(deleteError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  function getServiceLabel(serviceId: string | null) {
+    return serviceId ? serviceNameById.get(serviceId) || "Service-specific" : "All services";
+  }
+
+  function openAvailabilityBlockDialog(block?: VendorAvailabilityBlockSummary) {
+    setEditingAvailabilityBlockId(block?.id || "");
+    setAvailabilityBlockForm({
+      locationSlug: selectedLocationSlug,
+      serviceSlug: block?.serviceId ? serviceSlugById.get(block.serviceId) || "" : "",
+      weekday: block?.weekday ?? 1,
+      startsAt: block?.startsAt || "09:00",
+      endsAt: block?.endsAt || "17:00",
+      capacity: block?.capacity || 1,
+      isActive: block?.isActive ?? true,
+      notes: block?.notes || ""
+    });
+    setAvailabilityBlockDialogOpen(true);
+  }
+
+  async function handleSaveAvailabilityBlock(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusyAction("availability-block-save");
+    setError("");
+
+    try {
+      const body = {
+        ...availabilityBlockForm,
+        locationSlug: selectedLocationSlug
+      };
+      if (editingAvailabilityBlockId) {
+        await apiRequest<VendorAvailabilityBlockResponse, SaveVendorAvailabilityBlockRequest>(
+          `/vendor/tenant/${selectedTenantSlug}/availability/blocks/${editingAvailabilityBlockId}`,
+          { method: "PATCH", token, body }
+        );
+      } else {
+        await apiRequest<VendorAvailabilityBlockResponse, SaveVendorAvailabilityBlockRequest>(
+          `/vendor/tenant/${selectedTenantSlug}/availability/blocks`,
+          { method: "POST", token, body }
+        );
+      }
+      await reloadAvailability();
+      setAvailabilityBlockDialogOpen(false);
+      showSuccessNotification(
+        editingAvailabilityBlockId ? "Availability updated" : "Availability added",
+        "The weekly availability rule was saved."
+      );
+    } catch (saveError) {
+      setError(getErrorMessage(saveError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function handleDisableAvailabilityBlock(block: VendorAvailabilityBlockSummary) {
+    setBusyAction(`availability-block-delete:${block.id}`);
+    setError("");
+
+    try {
+      const response = await apiRequest<VendorAvailabilityBlockResponse>(
+        `/vendor/tenant/${selectedTenantSlug}/availability/blocks/${block.id}`,
+        { method: "DELETE", token }
+      );
+      setAvailabilityBlocks((current) =>
+        current.map((item) => (item.id === response.block.id ? response.block : item))
+      );
+      showSuccessNotification("Availability disabled", "The weekly rule is no longer active.");
+    } catch (deleteError) {
+      setError(getErrorMessage(deleteError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  function openAvailabilityExceptionDialog(exception?: VendorAvailabilityExceptionSummary) {
+    setEditingAvailabilityExceptionId(exception?.id || "");
+    setAvailabilityExceptionForm({
+      locationSlug: selectedLocationSlug,
+      serviceSlug: exception?.serviceId ? serviceSlugById.get(exception.serviceId) || "" : "",
+      exceptionDate: exception?.exceptionDate ? formatDateInputValue(exception.exceptionDate) : "",
+      startsAt: exception?.startsAt || "",
+      endsAt: exception?.endsAt || "",
+      isAvailable: exception?.isAvailable ?? false,
+      capacity: exception?.capacity ?? null,
+      reason: exception?.reason || ""
+    });
+    setAvailabilityExceptionDialogOpen(true);
+  }
+
+  async function handleSaveAvailabilityException(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusyAction("availability-exception-save");
+    setError("");
+
+    try {
+      const body = {
+        ...availabilityExceptionForm,
+        locationSlug: selectedLocationSlug
+      };
+      if (editingAvailabilityExceptionId) {
+        await apiRequest<VendorAvailabilityExceptionResponse, SaveVendorAvailabilityExceptionRequest>(
+          `/vendor/tenant/${selectedTenantSlug}/availability/exceptions/${editingAvailabilityExceptionId}`,
+          { method: "PATCH", token, body }
+        );
+      } else {
+        await apiRequest<VendorAvailabilityExceptionResponse, SaveVendorAvailabilityExceptionRequest>(
+          `/vendor/tenant/${selectedTenantSlug}/availability/exceptions`,
+          { method: "POST", token, body }
+        );
+      }
+      await reloadAvailability();
+      setAvailabilityExceptionDialogOpen(false);
+      showSuccessNotification(
+        editingAvailabilityExceptionId ? "Exception updated" : "Exception added",
+        "The date-specific availability rule was saved."
+      );
+    } catch (saveError) {
+      setError(getErrorMessage(saveError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function handleDeleteAvailabilityException(exception: VendorAvailabilityExceptionSummary) {
+    setBusyAction(`availability-exception-delete:${exception.id}`);
+    setError("");
+
+    try {
+      await apiRequest<void>(
+        `/vendor/tenant/${selectedTenantSlug}/availability/exceptions/${exception.id}`,
+        { method: "DELETE", token }
+      );
+      setAvailabilityExceptions((current) => current.filter((item) => item.id !== exception.id));
+      showSuccessNotification("Exception removed", "The date-specific rule was removed.");
+    } catch (deleteError) {
+      setError(getErrorMessage(deleteError));
+    } finally {
+      setBusyAction("");
+    }
   }
 
   function openCounterDialog(counter?: ServiceCounterSummary) {
@@ -1338,6 +2315,55 @@ export default function VendorDashboardPage() {
     }
   }
 
+  async function uploadLocationPaymentQr(file: File | null) {
+    if (!file || !token) {
+      return;
+    }
+
+    const locationSlug = locationForm.slug.trim();
+    if (!locationSlug) {
+      setError("Location slug is required before uploading a payment QR.");
+      setPaymentQrUploadFile(null);
+      return;
+    }
+
+    setError("");
+    setBusyAction("payment-qr-upload");
+
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/vendor/tenant/${selectedTenantSlug}/location-payment-qrs/uploads/direct?locationSlug=${encodeURIComponent(locationSlug)}&fileName=${encodeURIComponent(file.name)}`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": file.type
+          },
+          body: file
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Payment QR upload failed.");
+      }
+
+      const data = await response.json() as LocationPaymentQrUploadResponse;
+      if (!data.asset?.publicUrl) {
+        throw new Error("Payment QR upload completed without a usable image URL.");
+      }
+
+      setLocationForm((current) => ({
+        ...current,
+        paymentQrImageUrl: data.asset.publicUrl
+      }));
+      showSuccessNotification("Payment QR uploaded", "The QR image is ready to save with this location.");
+    } catch (uploadError) {
+      setError(getErrorMessage(uploadError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
   async function handleSaveTheme() {
     if (!themeLocation || !token) {
       return;
@@ -1530,6 +2556,72 @@ export default function VendorDashboardPage() {
               }
             />
           </SimpleGrid>
+          <Divider label="Manual payment QR" labelPosition="left" />
+          <SimpleGrid cols={{ base: 1, md: 2 }}>
+            <TextInput
+              name="paymentMethodLabel"
+              label="Payment method"
+              placeholder="GCash, Maya, BPI InstaPay"
+              value={locationForm.paymentMethodLabel}
+              onChange={(event) =>
+                setLocationForm((current) => ({ ...current, paymentMethodLabel: event.target.value }))
+              }
+            />
+            <TextInput
+              name="paymentAccountDisplayName"
+              label="Account display name"
+              placeholder="Business or account name"
+              value={locationForm.paymentAccountDisplayName}
+              onChange={(event) =>
+                setLocationForm((current) => ({ ...current, paymentAccountDisplayName: event.target.value }))
+              }
+            />
+            <TextInput
+              name="paymentAccountIdentifierDisplay"
+              label="Masked account identifier"
+              placeholder="0917 *** 1234 or account suffix"
+              value={locationForm.paymentAccountIdentifierDisplay}
+              onChange={(event) =>
+                setLocationForm((current) => ({
+                  ...current,
+                  paymentAccountIdentifierDisplay: event.target.value
+                }))
+              }
+            />
+            <Stack gap="xs">
+              <FileInput
+                accept="image/jpeg,image/png,image/webp"
+                clearable
+                disabled={busyAction === "payment-qr-upload"}
+                label="QR image"
+                leftSection={<IconQrcode size={16} />}
+                onChange={(file) => {
+                  setPaymentQrUploadFile(file);
+                  void uploadLocationPaymentQr(file);
+                }}
+                placeholder={locationForm.paymentQrImageUrl ? "Replace QR image" : "Upload QR image"}
+                value={paymentQrUploadFile}
+              />
+              {locationForm.paymentQrImageUrl ? (
+                <Image
+                  alt="Payment QR preview"
+                  fit="contain"
+                  h={120}
+                  radius="sm"
+                  src={locationForm.paymentQrImageUrl}
+                  w={120}
+                />
+              ) : null}
+            </Stack>
+          </SimpleGrid>
+          <Switch
+            name="paymentQrActive"
+            checked={locationForm.paymentQrActive}
+            label="Enable manual payment QR for this location"
+            onChange={(event) =>
+              setLocationForm((current) => ({ ...current, paymentQrActive: event.currentTarget.checked }))
+            }
+          />
           <Group>
             <Switch
               name="isActiveLocation"
@@ -1932,10 +3024,20 @@ export default function VendorDashboardPage() {
                   <SimpleGrid cols={{ base: 1, sm: intakeState?.autoPauseEnabled ? 3 : 2 }} spacing="md">
                     <Paper withBorder radius="md" p="md">
                       <Text className="neura-label">Now serving</Text>
-                      <Title order={3}>{activeTicket?.ticketNumber || "--"}</Title>
+                      <Group gap="xs">
+                        <Title order={3}>{activeTicket?.ticketNumber || "--"}</Title>
+                        {activeTicket && isCheckedInBookingTicket(activeTicket) ? (
+                          <Badge color="blue" variant="light">Booking</Badge>
+                        ) : null}
+                      </Group>
                       <Text c="dimmed" size="sm">
                         {activeTicket?.customerName || "No active ticket"}
                       </Text>
+                      {activeTicket?.linkedBookingReference ? (
+                        <Text c="dimmed" size="xs">
+                          Booking {activeTicket.linkedBookingReference}
+                        </Text>
+                      ) : null}
                     </Paper>
                     <Paper withBorder radius="md" p="md">
                       <Text className="neura-label">Queue day</Text>
@@ -1971,7 +3073,7 @@ export default function VendorDashboardPage() {
                         <Table.Tr>
                           <Table.Th>Up next</Table.Th>
                           <Table.Th>Channel</Table.Th>
-                          <Table.Th>Carry-over</Table.Th>
+                          <Table.Th>Source</Table.Th>
                           <Table.Th>Joined</Table.Th>
                         </Table.Tr>
                       </Table.Thead>
@@ -1982,12 +3084,20 @@ export default function VendorDashboardPage() {
                               <Table.Td>
                                 <Text fw={700}>{ticket.ticketNumber}</Text>
                                 <Text c="dimmed" size="sm">{ticket.customerName}</Text>
+                                {ticket.linkedBookingReference ? (
+                                  <Text c="dimmed" size="xs">Booking {ticket.linkedBookingReference}</Text>
+                                ) : null}
                               </Table.Td>
                               <Table.Td><Badge variant="light">{ticket.joinChannel}</Badge></Table.Td>
                               <Table.Td>
-                                <Badge color={ticket.isCarriedOver ? "orange" : "gray"} variant="light">
-                                  {ticket.isCarriedOver ? "Yes" : "No"}
-                                </Badge>
+                                <Group gap={6}>
+                                  {isCheckedInBookingTicket(ticket) ? (
+                                    <Badge color="blue" variant="light">Booking</Badge>
+                                  ) : null}
+                                  <Badge color={ticket.isCarriedOver ? "orange" : "gray"} variant="light">
+                                    {ticket.isCarriedOver ? "Carry-over" : "Same-day"}
+                                  </Badge>
+                                </Group>
                               </Table.Td>
                               <Table.Td>{formatDateTime(ticket.createdAt)}</Table.Td>
                             </Table.Tr>
@@ -2274,15 +3384,6 @@ export default function VendorDashboardPage() {
                     setWalkInForm((current) => ({ ...current, notifyByEmail: event.target.checked }))
                   }
                 />
-                <Checkbox
-                  name="walkInNotifyBySms"
-                  disabled={queueDayClosed}
-                  checked={walkInForm.notifyBySms}
-                  label="Send SMS alerts"
-                  onChange={(event) =>
-                    setWalkInForm((current) => ({ ...current, notifyBySms: event.target.checked }))
-                  }
-                />
               </Group>
             </Stack>
           </form>
@@ -2314,6 +3415,16 @@ export default function VendorDashboardPage() {
         }}
       >
         <Stack gap="md">
+            {themeForm?.logoUrl ? (
+              <Box style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                <Box
+                  alt="Company logo preview"
+                  component="img"
+                  src={themeForm.logoUrl}
+                  style={{ width: 'min(240px, 20dvw)', objectFit: "contain", aspectRatio: 1.5 }}
+                />
+              </Box>
+            ) : null}
           <Paper p="xl" style={cardStyle}>
             <Group justify="space-between" align="flex-start">
               <div>
@@ -2323,18 +3434,11 @@ export default function VendorDashboardPage() {
                 <Title order={1} c={themeForm.headerColor}>
                   {themeForm.heroTitle || previewLocation?.name || snapshot?.tenant.name || "Public board"}
                 </Title>
-                <Text c={themeForm.bodyColor} maw={620}>
-                  {themeForm.heroSubtitle ||
+                <Title c={themeForm.headerColor} order={2} style={{ fontSize: "clamp(2rem, 4vw, 3rem)" }}>
+                {themeForm.heroSubtitle ||
                     "Customers can monitor their turn remotely and join the line online."}
-                </Text>
+                </Title>
               </div>
-              {themeForm.logoUrl ? (
-                <img
-                  alt="Company logo preview"
-                  src={themeForm.logoUrl}
-                  style={{ maxHeight: 72, maxWidth: 140, objectFit: "contain" }}
-                />
-              ) : null}
             </Group>
             <Group mt="xl">
               <Button
@@ -2495,6 +3599,7 @@ export default function VendorDashboardPage() {
   }
 
   function openLocationDialog(locationItem?: StoreLocationWithHours) {
+    setPaymentQrUploadFile(null);
     if (locationItem) {
       setEditingLocationSlug(locationItem.slug);
       setLocationForm({
@@ -2509,6 +3614,11 @@ export default function VendorDashboardPage() {
         contactEmail: locationItem.contactEmail,
         contactPhone: locationItem.contactPhone,
         timezone: locationItem.timezone,
+        paymentMethodLabel: locationItem.paymentMethodLabel,
+        paymentAccountDisplayName: locationItem.paymentAccountDisplayName,
+        paymentAccountIdentifierDisplay: locationItem.paymentAccountIdentifierDisplay,
+        paymentQrImageUrl: locationItem.paymentQrImageUrl,
+        paymentQrActive: locationItem.paymentQrActive,
         isPrimary: locationItem.isPrimary,
         isActive: locationItem.isActive,
         hours: locationItem.hours.length ? locationItem.hours : defaultHours
@@ -2538,6 +3648,11 @@ export default function VendorDashboardPage() {
         contactEmail: locationForm.contactEmail,
         contactPhone: locationForm.contactPhone,
         timezone: locationForm.timezone,
+        paymentMethodLabel: locationForm.paymentMethodLabel,
+        paymentAccountDisplayName: locationForm.paymentAccountDisplayName,
+        paymentAccountIdentifierDisplay: locationForm.paymentAccountIdentifierDisplay,
+        paymentQrImageUrl: locationForm.paymentQrImageUrl,
+        paymentQrActive: locationForm.paymentQrActive,
         isPrimary: locationForm.isPrimary,
         isActive: locationForm.isActive
       };
@@ -2569,6 +3684,7 @@ export default function VendorDashboardPage() {
       });
       setSelectedLocationSlug(hoursResponse.location.slug);
       setLocationDialogOpen(false);
+      setPaymentQrUploadFile(null);
       showSuccessNotification(
         editingLocationSlug ? "Location updated" : "Location created",
         `${hoursResponse.location.name} is ready in your vendor dashboard.`
@@ -2614,8 +3730,16 @@ export default function VendorDashboardPage() {
                   <Badge color={locationItem.openStatus.isOpen ? "teal" : "red"}>
                     {locationItem.openStatus.isOpen ? "Open" : "Closed"}
                   </Badge>
+                  {locationItem.paymentQrActive ? (
+                    <Badge color="yellow" variant="light">Payment QR</Badge>
+                  ) : null}
                 </Group>
               </Group>
+              {locationItem.paymentQrActive ? (
+                <Text size="sm" c="dimmed">
+                  {locationItem.paymentMethodLabel} · {locationItem.paymentAccountDisplayName}
+                </Text>
+              ) : null}
               <Switch
                 checked={locationItem.isActive}
                 disabled={busyAction === `location-status:${locationItem.slug}`}
@@ -2690,6 +3814,926 @@ export default function VendorDashboardPage() {
           </Stack>
         </Card>
       </Stack>
+    );
+  }
+
+  function renderServiceDialog() {
+    return (
+      <Modal
+        centered
+        opened={serviceDialogOpen}
+        onClose={() => setServiceDialogOpen(false)}
+        size="lg"
+        title={editingServiceSlug ? "Edit service" : "Add service"}
+      >
+        <form onSubmit={handleSaveService}>
+          <Stack gap="md">
+            <SimpleGrid cols={{ base: 1, md: 2 }}>
+              <TextInput
+                label="Service name"
+                required
+                value={serviceForm.name}
+                onChange={(event) =>
+                  setServiceForm((current) => ({ ...current, name: event.target.value }))
+                }
+              />
+              <TextInput
+                label="Slug"
+                value={serviceForm.slug || ""}
+                onChange={(event) =>
+                  setServiceForm((current) => ({ ...current, slug: event.target.value }))
+                }
+              />
+              <NumberInput
+                label="Duration"
+                min={5}
+                max={480}
+                required
+                suffix=" min"
+                value={serviceForm.durationMinutes}
+                onChange={(value) =>
+                  setServiceForm((current) => ({
+                    ...current,
+                    durationMinutes: Number(value) || 30
+                  }))
+                }
+              />
+              <Switch
+                checked={serviceForm.allowBookingQuantity === true}
+                label="Allow units"
+                onChange={(event) =>
+                  setServiceForm((current) => ({
+                    ...current,
+                    allowBookingQuantity: event.currentTarget.checked,
+                    bookingQuantityLabel: event.currentTarget.checked
+                      ? current.bookingQuantityLabel || "Units"
+                      : current.bookingQuantityLabel
+                  }))
+                }
+              />
+              {serviceForm.allowBookingQuantity ? (
+                <TextInput
+                  label="Unit label"
+                  maxLength={40}
+                  required
+                  value={serviceForm.bookingQuantityLabel || "Units"}
+                  onChange={(event) =>
+                    setServiceForm((current) => ({
+                      ...current,
+                      bookingQuantityLabel: event.target.value
+                    }))
+                  }
+                />
+              ) : null}
+              <Switch
+                checked={serviceForm.manualPaymentRequired === true}
+                label="Require manual payment"
+                description="Customers must submit payment reference and proof before vendor confirmation."
+                onChange={(event) =>
+                  setServiceForm((current) => ({
+                    ...current,
+                    manualPaymentRequired: event.currentTarget.checked
+                  }))
+                }
+              />
+              <NumberInput
+                decimalScale={2}
+                fixedDecimalScale
+                label="Price"
+                min={0}
+                prefix="PHP "
+                value={(serviceForm.priceAmountCents || 0) / 100}
+                onChange={(value) =>
+                  setServiceForm((current) => ({
+                    ...current,
+                    priceAmountCents: Math.max(0, Math.round((Number(value) || 0) * 100))
+                  }))
+                }
+              />
+              <TextInput
+                label="Price display override"
+                placeholder="Leave blank to auto-format"
+                value={serviceForm.priceDisplay || ""}
+                onChange={(event) =>
+                  setServiceForm((current) => ({ ...current, priceDisplay: event.target.value }))
+                }
+              />
+              <NumberInput
+                label="Display order"
+                value={serviceForm.sortOrder || 0}
+                onChange={(value) =>
+                  setServiceForm((current) => ({ ...current, sortOrder: Number(value) || 0 }))
+                }
+              />
+            </SimpleGrid>
+            <Textarea
+              autosize
+              label="Description"
+              minRows={3}
+              value={serviceForm.description || ""}
+              onChange={(event) =>
+                setServiceForm((current) => ({ ...current, description: event.target.value }))
+              }
+            />
+            <Switch
+              checked={serviceForm.isActive !== false}
+              label="Active service"
+              onChange={(event) =>
+                setServiceForm((current) => ({ ...current, isActive: event.currentTarget.checked }))
+              }
+            />
+            <Group justify="flex-end">
+              <Button variant="default" onClick={() => setServiceDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button className="neura-primary-button" disabled={busyAction === "service-save"} type="submit">
+                {busyAction === "service-save" ? "Saving..." : "Save service"}
+              </Button>
+            </Group>
+          </Stack>
+        </form>
+      </Modal>
+    );
+  }
+
+  function renderAvailabilityBlockDialog() {
+    return (
+      <Modal
+        centered
+        opened={availabilityBlockDialogOpen}
+        onClose={() => setAvailabilityBlockDialogOpen(false)}
+        size="lg"
+        title={editingAvailabilityBlockId ? "Edit weekly availability" : "Add weekly availability"}
+      >
+        <form onSubmit={handleSaveAvailabilityBlock}>
+          <Stack gap="md">
+            <SimpleGrid cols={{ base: 1, md: 2 }}>
+              <Select
+                data={weekdayOptions}
+                label="Day"
+                required
+                value={String(availabilityBlockForm.weekday)}
+                onChange={(value) =>
+                  setAvailabilityBlockForm((current) => ({ ...current, weekday: Number(value || 1) }))
+                }
+              />
+              <Select
+                data={serviceOptions}
+                label="Service"
+                value={availabilityBlockForm.serviceSlug || ""}
+                onChange={(value) =>
+                  setAvailabilityBlockForm((current) => ({ ...current, serviceSlug: value || "" }))
+                }
+              />
+              <TextInput
+                label="Starts"
+                required
+                type="time"
+                value={availabilityBlockForm.startsAt}
+                onChange={(event) =>
+                  setAvailabilityBlockForm((current) => ({ ...current, startsAt: event.target.value }))
+                }
+              />
+              <TextInput
+                label="Ends"
+                required
+                type="time"
+                value={availabilityBlockForm.endsAt}
+                onChange={(event) =>
+                  setAvailabilityBlockForm((current) => ({ ...current, endsAt: event.target.value }))
+                }
+              />
+              <NumberInput
+                label="Capacity"
+                min={1}
+                max={100}
+                value={availabilityBlockForm.capacity}
+                onChange={(value) =>
+                  setAvailabilityBlockForm((current) => ({ ...current, capacity: Number(value) || 1 }))
+                }
+              />
+              <Switch
+                checked={availabilityBlockForm.isActive !== false}
+                label="Active weekly rule"
+                mt="xl"
+                onChange={(event) =>
+                  setAvailabilityBlockForm((current) => ({
+                    ...current,
+                    isActive: event.currentTarget.checked
+                  }))
+                }
+              />
+            </SimpleGrid>
+            <Textarea
+              autosize
+              label="Notes"
+              minRows={2}
+              value={availabilityBlockForm.notes || ""}
+              onChange={(event) =>
+                setAvailabilityBlockForm((current) => ({ ...current, notes: event.target.value }))
+              }
+            />
+            <Group justify="flex-end">
+              <Button variant="default" onClick={() => setAvailabilityBlockDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button className="neura-primary-button" disabled={busyAction === "availability-block-save"} type="submit">
+                {busyAction === "availability-block-save" ? "Saving..." : "Save availability"}
+              </Button>
+            </Group>
+          </Stack>
+        </form>
+      </Modal>
+    );
+  }
+
+  function renderAvailabilityExceptionDialog() {
+    return (
+      <Modal
+        centered
+        opened={availabilityExceptionDialogOpen}
+        onClose={() => setAvailabilityExceptionDialogOpen(false)}
+        size="lg"
+        title={editingAvailabilityExceptionId ? "Edit date exception" : "Add date exception"}
+      >
+        <form onSubmit={handleSaveAvailabilityException}>
+          <Stack gap="md">
+            <SimpleGrid cols={{ base: 1, md: 2 }}>
+              <DatePickerInput
+                label="Date"
+                clearable={false}
+                leftSection={<IconCalendar size={16} />}
+                placeholder="Select date"
+                required
+                value={availabilityExceptionForm.exceptionDate || null}
+                onChange={(value) =>
+                  setAvailabilityExceptionForm((current) => ({
+                    ...current,
+                    exceptionDate: value || ""
+                  }))
+                }
+              />
+              <Select
+                data={serviceOptions}
+                label="Service"
+                value={availabilityExceptionForm.serviceSlug || ""}
+                onChange={(value) =>
+                  setAvailabilityExceptionForm((current) => ({ ...current, serviceSlug: value || "" }))
+                }
+              />
+              <TextInput
+                label="Starts"
+                type="time"
+                value={availabilityExceptionForm.startsAt || ""}
+                onChange={(event) =>
+                  setAvailabilityExceptionForm((current) => ({ ...current, startsAt: event.target.value }))
+                }
+              />
+              <TextInput
+                label="Ends"
+                type="time"
+                value={availabilityExceptionForm.endsAt || ""}
+                onChange={(event) =>
+                  setAvailabilityExceptionForm((current) => ({ ...current, endsAt: event.target.value }))
+                }
+              />
+              <NumberInput
+                label="Capacity override"
+                min={1}
+                max={100}
+                value={availabilityExceptionForm.capacity ?? undefined}
+                onChange={(value) =>
+                  setAvailabilityExceptionForm((current) => ({
+                    ...current,
+                    capacity: value === "" || value === null ? null : Number(value)
+                  }))
+                }
+              />
+              <Switch
+                checked={availabilityExceptionForm.isAvailable}
+                label="Make this date available"
+                mt="xl"
+                onChange={(event) =>
+                  setAvailabilityExceptionForm((current) => ({
+                    ...current,
+                    isAvailable: event.currentTarget.checked
+                  }))
+                }
+              />
+            </SimpleGrid>
+            <Textarea
+              autosize
+              label="Reason"
+              minRows={2}
+              value={availabilityExceptionForm.reason || ""}
+              onChange={(event) =>
+                setAvailabilityExceptionForm((current) => ({ ...current, reason: event.target.value }))
+              }
+            />
+            <Group justify="flex-end">
+              <Button variant="default" onClick={() => setAvailabilityExceptionDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button className="neura-primary-button" disabled={busyAction === "availability-exception-save"} type="submit">
+                {busyAction === "availability-exception-save" ? "Saving..." : "Save exception"}
+              </Button>
+            </Group>
+          </Stack>
+        </form>
+      </Modal>
+    );
+  }
+
+  function renderServicesPage() {
+    const activeServices = services.filter((service) => service.isActive).length;
+
+    return (
+      <Stack gap="lg">
+        <SimpleGrid cols={{ base: 1, md: 3 }}>
+          <MetricCard
+            detail="Visible to future booking flows."
+            label="Active services"
+            value={activeServices}
+          />
+          <MetricCard
+            detail="Inactive services stay available for reporting history."
+            label="Draft or disabled"
+            value={services.length - activeServices}
+          />
+          <Card className="neura-card" padding="lg">
+            <Stack gap="md">
+              <Text className="neura-label">Catalog controls</Text>
+              <Title order={3}>Service setup</Title>
+              <Button className="neura-primary-button" onClick={() => openServiceDialog()}>
+                Add service
+              </Button>
+            </Stack>
+          </Card>
+        </SimpleGrid>
+
+        <Card className="neura-card" padding="lg">
+          <Group justify="space-between" mb="md">
+            <div>
+              <Text className="neura-label">Vendor Admin</Text>
+              <Title order={3}>Service catalog</Title>
+            </div>
+            <Button className="neura-secondary-button" onClick={() => openServiceDialog()}>
+              New service
+            </Button>
+          </Group>
+          {services.length ? (
+            <Table.ScrollContainer minWidth={820}>
+              <Table verticalSpacing="sm">
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Service</Table.Th>
+                    <Table.Th>Duration</Table.Th>
+                    <Table.Th>Price</Table.Th>
+                    <Table.Th>Status</Table.Th>
+                    <Table.Th>Order</Table.Th>
+                    <Table.Th>Actions</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {services.map((service) => (
+                    <Table.Tr key={service.id}>
+                      <Table.Td>
+                        <Stack gap={2}>
+                          <Text fw={700}>{service.name}</Text>
+                          <Text c="dimmed" size="sm">{service.description || service.slug}</Text>
+                        </Stack>
+                      </Table.Td>
+                      <Table.Td>
+                        <Text>{service.durationMinutes} min</Text>
+                        {service.allowBookingQuantity ? (
+                          <Text c="dimmed" size="sm">{service.bookingQuantityLabel}</Text>
+                        ) : null}
+                        {service.manualPaymentRequired ? (
+                          <Badge color="yellow" variant="light">Manual payment</Badge>
+                        ) : null}
+                      </Table.Td>
+                      <Table.Td>{service.priceDisplay || `PHP ${(service.priceAmountCents / 100).toLocaleString()}`}</Table.Td>
+                      <Table.Td>
+                        <Badge color={service.isActive ? "teal" : "gray"} variant="light">
+                          {service.isActive ? "Active" : "Inactive"}
+                        </Badge>
+                      </Table.Td>
+                      <Table.Td>{service.sortOrder}</Table.Td>
+                      <Table.Td>
+                        <Group gap="xs" wrap="nowrap">
+                          <Button size="xs" variant="default" onClick={() => openServiceDialog(service)}>
+                            Edit
+                          </Button>
+                          <Switch
+                            checked={service.isActive}
+                            disabled={busyAction === `service-status:${service.slug}`}
+                            onChange={(event) =>
+                              handleToggleServiceActive(service, event.currentTarget.checked)
+                            }
+                          />
+                          {service.isActive ? (
+                            <Button
+                              color="red"
+                              disabled={busyAction === `service-delete:${service.slug}`}
+                              size="xs"
+                              variant="subtle"
+                              onClick={() => handleDeactivateService(service)}
+                            >
+                              Disable
+                            </Button>
+                          ) : null}
+                        </Group>
+                      </Table.Td>
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            </Table.ScrollContainer>
+          ) : (
+            <DashboardEmptyState
+              title="No services yet"
+              text="Add services before building availability and customer booking flows."
+            />
+          )}
+        </Card>
+
+        <Card className="neura-card" padding="lg">
+          <Group justify="space-between" mb="md">
+            <div>
+              <Text className="neura-label">{selectedLocation?.name || "Selected location"}</Text>
+              <Title order={3}>Weekly availability</Title>
+            </div>
+            <Button className="neura-secondary-button" onClick={() => openAvailabilityBlockDialog()}>
+              Add weekly rule
+            </Button>
+          </Group>
+          {availabilityBlocks.length ? (
+            <Table.ScrollContainer minWidth={820}>
+              <Table verticalSpacing="sm">
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Day</Table.Th>
+                    <Table.Th>Time</Table.Th>
+                    <Table.Th>Service</Table.Th>
+                    <Table.Th>Capacity</Table.Th>
+                    <Table.Th>Status</Table.Th>
+                    <Table.Th>Actions</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {availabilityBlocks.map((block) => (
+                    <Table.Tr key={block.id}>
+                      <Table.Td>{weekdayOptions.find((day) => day.value === String(block.weekday))?.label}</Table.Td>
+                      <Table.Td>{block.startsAt} - {block.endsAt}</Table.Td>
+                      <Table.Td>{getServiceLabel(block.serviceId)}</Table.Td>
+                      <Table.Td>{block.capacity}</Table.Td>
+                      <Table.Td>
+                        <Badge color={block.isActive ? "teal" : "gray"} variant="light">
+                          {block.isActive ? "Active" : "Inactive"}
+                        </Badge>
+                      </Table.Td>
+                      <Table.Td>
+                        <Group gap="xs" wrap="nowrap">
+                          <Button size="xs" variant="default" onClick={() => openAvailabilityBlockDialog(block)}>
+                            Edit
+                          </Button>
+                          {block.isActive ? (
+                            <Button
+                              color="red"
+                              disabled={busyAction === `availability-block-delete:${block.id}`}
+                              size="xs"
+                              variant="subtle"
+                              onClick={() => handleDisableAvailabilityBlock(block)}
+                            >
+                              Disable
+                            </Button>
+                          ) : null}
+                        </Group>
+                      </Table.Td>
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            </Table.ScrollContainer>
+          ) : (
+            <DashboardEmptyState
+              title="No weekly availability"
+              text="Add recurring bookable hours for this branch."
+            />
+          )}
+        </Card>
+
+        <Card className="neura-card" padding="lg">
+          <Group justify="space-between" mb="md">
+            <div>
+              <Text className="neura-label">Date overrides</Text>
+              <Title order={3}>Availability exceptions</Title>
+            </div>
+            <Button className="neura-secondary-button" onClick={() => openAvailabilityExceptionDialog()}>
+              Add exception
+            </Button>
+          </Group>
+          {availabilityExceptions.length ? (
+            <Table.ScrollContainer minWidth={820}>
+              <Table verticalSpacing="sm">
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Date</Table.Th>
+                    <Table.Th>Time</Table.Th>
+                    <Table.Th>Service</Table.Th>
+                    <Table.Th>Mode</Table.Th>
+                    <Table.Th>Reason</Table.Th>
+                    <Table.Th>Actions</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {availabilityExceptions.map((exception) => (
+                    <Table.Tr key={exception.id}>
+                      <Table.Td>{formatDate(exception.exceptionDate)}</Table.Td>
+                      <Table.Td>
+                        {exception.startsAt && exception.endsAt
+                          ? `${exception.startsAt} - ${exception.endsAt}`
+                          : "Full day"}
+                      </Table.Td>
+                      <Table.Td>{getServiceLabel(exception.serviceId)}</Table.Td>
+                      <Table.Td>
+                        <Badge color={exception.isAvailable ? "teal" : "red"} variant="light">
+                          {exception.isAvailable ? "Available" : "Blocked"}
+                        </Badge>
+                      </Table.Td>
+                      <Table.Td>{exception.reason || "-"}</Table.Td>
+                      <Table.Td>
+                        <Group gap="xs" wrap="nowrap">
+                          <Button size="xs" variant="default" onClick={() => openAvailabilityExceptionDialog(exception)}>
+                            Edit
+                          </Button>
+                          <Button
+                            color="red"
+                            disabled={busyAction === `availability-exception-delete:${exception.id}`}
+                            size="xs"
+                            variant="subtle"
+                            onClick={() => handleDeleteAvailabilityException(exception)}
+                          >
+                            Remove
+                          </Button>
+                        </Group>
+                      </Table.Td>
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            </Table.ScrollContainer>
+          ) : (
+            <DashboardEmptyState
+              title="No exceptions"
+              text="Add holidays, special hours, or one-off availability overrides."
+            />
+          )}
+        </Card>
+      </Stack>
+    );
+  }
+
+  function renderBookingsPage() {
+    const pendingBookings = vendorBookings.filter((booking) => booking.status === "pending").length;
+    const actionableBookings = vendorBookings.filter((booking) =>
+      ["pending", "confirmed", "rescheduled"].includes(booking.status)
+    ).length;
+
+    return (
+      <Stack gap="lg">
+        <SimpleGrid cols={{ base: 1, md: 3 }}>
+          <MetricCard
+            detail="Awaiting vendor confirmation."
+            label="Pending requests"
+            value={pendingBookings}
+          />
+          <MetricCard
+            detail="Confirmed or waiting for a vendor decision."
+            label="Active bookings"
+            value={actionableBookings}
+          />
+          <Card className="neura-card" padding="lg">
+            <Stack gap="md">
+              <Text className="neura-label">{selectedLocation?.name || "Selected location"}</Text>
+              <Title order={3}>Booking queue</Title>
+              <Button className="neura-secondary-button" onClick={reloadBookings}>
+                Refresh bookings
+              </Button>
+            </Stack>
+          </Card>
+        </SimpleGrid>
+
+        <Card className="neura-card" padding="lg">
+          <Stack gap="md">
+            <Group justify="space-between" align="flex-end">
+              <div>
+                <Text className="neura-label">{canAdminBookings ? "Vendor Admin" : "Vendor Staff"}</Text>
+                <Title order={3}>{canAdminBookings ? "Incoming booking requests" : "Booking check-in queue"}</Title>
+              </div>
+              <Group gap="sm">
+                <TextInput
+                  label="Search"
+                  placeholder="Reference, customer, service"
+                  value={bookingSearch}
+                  onChange={(event) => setBookingSearch(event.target.value)}
+                />
+                <Select
+                  data={[
+                    { label: "All statuses", value: "all" },
+                    { label: "Pending", value: "pending" },
+                    { label: "Confirmed", value: "confirmed" },
+                    { label: "Rescheduled", value: "rescheduled" },
+                    { label: "Canceled", value: "canceled" }
+                  ]}
+                  label="Status"
+                  value={bookingStatusFilter}
+                  onChange={(value) => setBookingStatusFilter((value || "all") as BookingStatusFilter)}
+                />
+                <DatePickerInput
+                  clearable
+                  label="Booking date"
+                  leftSection={<IconCalendar size={16} />}
+                  placeholder="Select date"
+                  value={bookingDateFilter || null}
+                  onChange={(value) => setBookingDateFilter(value || "")}
+                />
+                {bookingDateFilter ? (
+                  <Button
+                    className="neura-secondary-button"
+                    mt={24}
+                    onClick={() => setBookingDateFilter("")}
+                  >
+                    Clear date
+                  </Button>
+                ) : null}
+              </Group>
+            </Group>
+
+            {filteredBookings.length ? (
+              <>
+                <Table.ScrollContainer minWidth={1180}>
+                  <Table verticalSpacing="sm">
+                    <Table.Thead>
+                      <Table.Tr>
+                        <Table.Th>Reference</Table.Th>
+                        <Table.Th>Customer</Table.Th>
+                        <Table.Th>Service</Table.Th>
+                        <Table.Th>Schedule</Table.Th>
+                        <Table.Th>Status</Table.Th>
+                        <Table.Th>Payment</Table.Th>
+                        <Table.Th>Actions</Table.Th>
+                      </Table.Tr>
+                    </Table.Thead>
+                    <Table.Tbody>
+                      {filteredBookings.map((booking) => {
+                      const paymentReviewPending = booking.paymentStatus === "pending";
+                      const canConfirm = (booking.status === "pending" || booking.status === "rescheduled") && !paymentReviewPending;
+                      const canChange = ["pending", "confirmed", "rescheduled"].includes(booking.status);
+                      const checkInState = getBookingCheckInState(booking);
+                      const hasLinkedTicket = Boolean(booking.linkedTicket || booking.checkedInAt);
+                      const canCheckIn =
+                        canOperateBookingQueue &&
+                        checkInState.isEligibleStatus &&
+                        !checkInState.isTooEarly &&
+                        !hasLinkedTicket &&
+                        !booking.noShowAt;
+                      const canNoShow =
+                        canOperateBookingQueue &&
+                        checkInState.isEligibleStatus &&
+                        checkInState.isLate &&
+                        !hasLinkedTicket &&
+                        !booking.noShowAt;
+                      const hasExpired = Boolean(booking.expiredAt);
+
+                      return (
+                        <Table.Tr key={booking.id}>
+                          <Table.Td>
+                            <Stack gap={2}>
+                              <Text fw={700}>{booking.reference}</Text>
+                              <Text c="dimmed" size="sm">Requested {formatDateTime(booking.createdAt)}</Text>
+                            </Stack>
+                          </Table.Td>
+                          <Table.Td>
+                            <Stack gap={2}>
+                              <Text fw={700}>{booking.customerName}</Text>
+                              <Text c="dimmed" size="sm">{booking.customerEmail || booking.customerPhone || "No contact details"}</Text>
+                            </Stack>
+                          </Table.Td>
+                          <Table.Td>
+                            <Stack gap={2}>
+                              <Text>{booking.serviceName}</Text>
+                              <Text c="dimmed" size="sm">Quantity {booking.bookingQuantity}</Text>
+                              <Text c="dimmed" size="sm">{booking.servicePriceDisplay || "-"}</Text>
+                            </Stack>
+                          </Table.Td>
+                          <Table.Td>
+                            <Stack gap={2}>
+                              <Text>{formatBookingScheduleDateTime(booking.scheduledStartAt)}</Text>
+                              <Text c="dimmed" size="sm">Ends {formatBookingScheduleDateTime(booking.scheduledEndAt)}</Text>
+                            </Stack>
+                          </Table.Td>
+                          <Table.Td>
+                            <Stack gap={4}>
+                              <Group gap={6}>
+                                <Badge color={getBookingBadgeColor(booking.status)} variant="light">
+                                  {hasExpired ? "expired" : booking.status}
+                                </Badge>
+                                {booking.checkedInAt || booking.linkedTicket ? (
+                                  <Badge color="blue" variant="light">Checked in</Badge>
+                                ) : null}
+                                {booking.noShowAt ? (
+                                  <Badge color="red" variant="light">No-show</Badge>
+                                ) : null}
+                                {hasExpired ? (
+                                  <Badge color="orange" variant="light">Pending timeout</Badge>
+                                ) : null}
+                              </Group>
+                              {booking.linkedTicket ? (
+                                <Text c="dimmed" size="xs">
+                                  Ticket {booking.linkedTicket.ticketNumber}
+                                </Text>
+                              ) : null}
+                              {hasExpired && booking.expirationReason ? (
+                                <Text c="dimmed" size="xs">{booking.expirationReason}</Text>
+                              ) : null}
+                            </Stack>
+                          </Table.Td>
+                          <Table.Td>
+                            <Badge color={booking.paymentStatus === "paid" ? "teal" : "gray"} variant="light">
+                              {booking.paymentStatus}
+                            </Badge>
+                          </Table.Td>
+                          <Table.Td>
+                            <Group gap="xs" wrap="wrap">
+                              {canAdminBookings && canConfirm ? (
+                                <Button
+                                  className="neura-primary-button"
+                                  disabled={busyAction === `booking-status:${booking.id}:confirmed`}
+                                  size="xs"
+                                  onClick={() => handleUpdateBookingStatus(booking, "confirmed")}
+                                >
+                                  Confirm
+                                </Button>
+                              ) : null}
+                              {canAdminBookings && canChange ? (
+                                <Button size="xs" variant="default" onClick={() => openRescheduleDialog(booking)}>
+                                  Reschedule
+                                </Button>
+                              ) : null}
+                              {canAdminBookings && canChange ? (
+                                <Button
+                                  color="red"
+                                  disabled={busyAction === `booking-status:${booking.id}:canceled`}
+                                  size="xs"
+                                  variant="subtle"
+                                  onClick={() => handleUpdateBookingStatus(booking, "canceled")}
+                                >
+                                  Cancel
+                                </Button>
+                              ) : null}
+                              {canCheckIn && !checkInState.isLate ? (
+                                <Button
+                                  className="neura-primary-button"
+                                  disabled={busyAction === `booking-check-in:${booking.id}`}
+                                  size="xs"
+                                  onClick={() => handleCheckInBooking(booking)}
+                                >
+                                  Check in
+                                </Button>
+                              ) : null}
+                              {canCheckIn && checkInState.isLate ? (
+                                <Tooltip label="Late check-in override: customer is more than 15 minutes past the scheduled start.">
+                                  <Button
+                                    color="orange"
+                                    disabled={busyAction === `booking-check-in:${booking.id}:override`}
+                                    size="xs"
+                                    variant="light"
+                                    onClick={() => handleCheckInBooking(booking, true)}
+                                  >
+                                    Late check-in
+                                  </Button>
+                                </Tooltip>
+                              ) : null}
+                              {canNoShow ? (
+                                <Button
+                                  color="red"
+                                  disabled={busyAction === `booking-no-show:${booking.id}`}
+                                  size="xs"
+                                  variant="subtle"
+                                  onClick={() => handleMarkBookingNoShow(booking)}
+                                >
+                                  No-show
+                                </Button>
+                              ) : null}
+                              {canAdminBookings && paymentReviewPending && booking.paymentProof ? (
+                                <Button
+                                  className="neura-primary-button"
+                                  size="xs"
+                                  onClick={() => {
+                                    setPaymentRejectionReason("");
+                                    setBookingDetailModalId(booking.id);
+                                  }}
+                                >
+                                  Review payment
+                                </Button>
+                              ) : null}
+                              {canAdminBookings && paymentReviewPending && booking.paymentProof ? (
+                                <Button
+                                  leftSection={<IconExternalLink size={14} />}
+                                  loading={busyAction === `booking-proof:${booking.id}`}
+                                  onClick={() => handleViewBookingPaymentProof(booking)}
+                                  size="xs"
+                                  variant="light"
+                                >
+                                  View proof
+                                </Button>
+                              ) : null}
+                              {checkInState.isTooEarly && checkInState.isEligibleStatus && !hasLinkedTicket ? (
+                                <Text c="dimmed" size="xs">
+                                  Check-in opens 15 minutes before schedule.
+                                </Text>
+                              ) : null}
+                              {paymentReviewPending && !booking.paymentProof ? (
+                                <Text c="dimmed" size="xs">
+                                  Waiting for customer payment proof.
+                                </Text>
+                              ) : null}
+                            </Group>
+                          </Table.Td>
+                        </Table.Tr>
+                      );
+                      })}
+                    </Table.Tbody>
+                  </Table>
+                </Table.ScrollContainer>
+                {bookingPagination && bookingPagination.totalItems > 0 ? (
+                  <Group justify="space-between" mt="md">
+                    <Text size="sm" c="dimmed">
+                      Showing {vendorBookings.length ? (bookingPage - 1) * 10 + 1 : 0}-
+                      {Math.min(bookingPage * 10, bookingPagination.totalItems)} of {bookingPagination.totalItems}
+                    </Text>
+                    {bookingPagination.totalPages > 1 ? (
+                      <Pagination
+                        total={bookingPagination.totalPages}
+                        value={bookingPage}
+                        onChange={setBookingPage}
+                      />
+                    ) : null}
+                  </Group>
+                ) : null}
+              </>
+            ) : (
+              <DashboardEmptyState
+                title="No booking requests"
+                text="Incoming service booking requests for this location will appear here."
+              />
+            )}
+          </Stack>
+        </Card>
+      </Stack>
+    );
+  }
+
+  function renderRescheduleDialog() {
+    return (
+      <Modal
+        centered
+        opened={rescheduleDialogOpen}
+        onClose={() => setRescheduleDialogOpen(false)}
+        title={reschedulingBooking ? `Reschedule ${reschedulingBooking.reference}` : "Reschedule booking"}
+      >
+        <form onSubmit={handleRescheduleBooking}>
+          <Stack gap="md">
+            {reschedulingBooking ? (
+              <Alert color="blue" variant="light">
+                {reschedulingBooking.customerName} requested {reschedulingBooking.serviceName}.
+              </Alert>
+            ) : null}
+            <TextInput
+              label="New schedule"
+              required
+              type="datetime-local"
+              value={rescheduleStartAt}
+              onChange={(event) => setRescheduleStartAt(event.target.value)}
+            />
+            <Group justify="flex-end">
+              <Button variant="default" onClick={() => setRescheduleDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                className="neura-primary-button"
+                disabled={Boolean(reschedulingBooking && busyAction === `booking-reschedule:${reschedulingBooking.id}`)}
+                type="submit"
+              >
+                {reschedulingBooking && busyAction === `booking-reschedule:${reschedulingBooking.id}`
+                  ? "Saving..."
+                  : "Save schedule"}
+              </Button>
+            </Group>
+          </Stack>
+        </form>
+      </Modal>
     );
   }
 
@@ -3032,6 +5076,7 @@ export default function VendorDashboardPage() {
               <Tabs.Tab value="subscription">Subscription</Tabs.Tab>
               <Tabs.Tab value="contact">Contact details</Tabs.Tab>
               <Tabs.Tab value="queue">Queue settings</Tabs.Tab>
+              <Tabs.Tab value="notifications">Notifications</Tabs.Tab>
             </Tabs.List>
 
             <Tabs.Panel pt="lg" value="subscription">
@@ -3226,6 +5271,84 @@ export default function VendorDashboardPage() {
                 </Stack>
               </form>
             </Tabs.Panel>
+
+            <Tabs.Panel pt="lg" value="notifications">
+              <Stack gap="md">
+                <div>
+                  <Text className="neura-label">Tenant settings</Text>
+                  <Title order={3}>Operational alerts</Title>
+                  <Text c="dimmed" size="sm">
+                    Browser notifications are used after login for vendor operational alerts. Email remains the fallback channel.
+                  </Text>
+                </div>
+                <Alert color="blue" variant="light">
+                  Vendor staff assigned to a booking and payment reviewers receive these alerts for the tenant.
+                </Alert>
+                <Alert color={browserNotificationsSecure ? "teal" : "yellow"} variant="light">
+                  {browserNotificationsSupported
+                    ? browserNotificationsSecure
+                      ? `Browser notifications are available in this browser. Current permission: ${browserPermission}.`
+                      : "Browser notifications require a secure context such as https:// or localhost."
+                    : "This browser does not support browser notifications."}
+                </Alert>
+                <Group gap="sm">
+                  <Button
+                    color="dark"
+                    disabled={
+                      !browserNotificationsSupported ||
+                      !browserNotificationsSecure ||
+                      browserPermission === "granted" ||
+                      requestingBrowserPermission
+                    }
+                    onClick={handleRequestBrowserPermission}
+                    type="button"
+                    variant="light"
+                  >
+                    {browserPermission === "granted"
+                      ? "Browser notifications enabled"
+                      : requestingBrowserPermission
+                        ? "Requesting permission..."
+                        : "Allow browser notifications"}
+                  </Button>
+                  <Text c="dimmed" size="sm">
+                    {browserNotificationsSupported
+                      ? browserNotificationsSecure
+                        ? browserPermission === "granted"
+                          ? "This browser can receive vendor alerts."
+                          : browserPermission === "denied"
+                            ? "Permission was denied in this browser. You can change it in browser settings."
+                            : "Click the button to allow browser notifications for this tenant."
+                        : "Open this page on https:// or localhost to request permission."
+                      : "Use a browser that supports notifications."}
+                  </Text>
+                </Group>
+                <Divider label="Operational alerts" labelPosition="center" />
+                <Checkbox
+                  checked={vendorNotificationSettings.bookingIntake}
+                  label="New booking intake"
+                  disabled={savingNotificationSettings}
+                  onChange={(event) =>
+                    handleVendorNotificationToggle("bookingIntake", event.currentTarget.checked)
+                  }
+                />
+                <Checkbox
+                  checked={vendorNotificationSettings.paymentProofReview}
+                  label="Payment proof review"
+                  disabled={savingNotificationSettings}
+                  onChange={(event) =>
+                    handleVendorNotificationToggle("paymentProofReview", event.currentTarget.checked)
+                  }
+                />
+                <Checkbox
+                  checked={vendorNotificationSettings.bookingStatusChanges}
+                  label="Booking status changes"
+                  disabled={savingNotificationSettings}
+                  onChange={(event) =>
+                    handleVendorNotificationToggle("bookingStatusChanges", event.currentTarget.checked)
+                  }
+                />
+              </Stack>
+            </Tabs.Panel>
           </Tabs>
         </Card>
 
@@ -3413,6 +5536,246 @@ export default function VendorDashboardPage() {
     );
   }
 
+  function renderBookingAlertOverlay() {
+    const primaryAlert = activeBookingAlerts[0] || null;
+    const detailBooking = bookingDetailModalId
+      ? vendorBookings.find((booking) => booking.id === bookingDetailModalId) || null
+      : null;
+    const detailPaymentReviewable = Boolean(
+      detailBooking &&
+      detailBooking.paymentProof &&
+      detailBooking.paymentStatus === "pending" &&
+      detailBooking.status === "pending"
+    );
+    const detailBookingExpired = Boolean(detailBooking?.expiredAt);
+
+    return (
+      <>
+        {primaryAlert ? (
+          <Box
+            style={{
+              bottom: 24,
+              left: "50%",
+              maxWidth: "min(692px, calc(100vw - 32px))",
+              position: "fixed",
+              transform: "translateX(-50%)",
+              width: "calc(100vw - 64px)",
+              zIndex: 320
+            }}
+          >
+            <Notification
+              color="blue"
+              icon={<IconBellRinging size={20} />}
+              onClose={() => clearBookingAlert(primaryAlert.id)}
+              radius="md"
+              style={{ boxShadow: "0 12px 32px rgba(15, 23, 42, 0.16)" }}
+              withBorder
+            >
+              <Group justify="space-between" align="center" gap="md">
+                <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
+                  <Text fw={800}>New booking</Text>
+                  <Text style={{ overflowWrap: "anywhere" }}>
+                    {primaryAlert.customerName} sent a new booking{" "}
+                    <Text component="span" fw={900}>{primaryAlert.reference}</Text>
+                  </Text>
+                </Stack>
+                <Button
+                  color="dark"
+                  radius="xl"
+                  onClick={() => {
+                    setBookingDetailModalId(primaryAlert.id);
+                    clearBookingAlert(primaryAlert.id);
+                  }}
+                  style={{ flex: "0 0 auto" }}
+                >
+                  View booking details
+                </Button>
+              </Group>
+            </Notification>
+          </Box>
+        ) : null}
+
+        <Modal
+          centered
+          opened={Boolean(detailBooking)}
+          onClose={() => {
+            setBookingDetailModalId(null);
+            setPaymentRejectionReason("");
+          }}
+          title={detailBooking ? `Booking ${detailBooking.reference}` : "Booking details"}
+          size="lg"
+          closeButtonProps={{ "aria-label": "Close booking details" }}
+        >
+          {detailBooking ? (
+            <Stack gap="md">
+              <Group justify="space-between" align="flex-start">
+                <Stack gap={4}>
+                  <Text fw={800}>{detailBooking.customerName}</Text>
+                  <Text c="dimmed">{detailBooking.customerEmail || detailBooking.customerPhone || "No contact details"}</Text>
+                </Stack>
+                <Stack gap={4} align="flex-end">
+                  <Badge color={getBookingBadgeColor(detailBooking.status)} variant="light">
+                    {detailBookingExpired ? "expired" : detailBooking.status}
+                  </Badge>
+                  {detailBookingExpired ? (
+                    <Badge color="orange" variant="light">Pending timeout</Badge>
+                  ) : null}
+                </Stack>
+              </Group>
+
+              {detailBookingExpired ? (
+                <Alert color="orange" variant="light">
+                  {detailBooking.expirationReason || "This pending booking expired before vendor confirmation or payment evidence submission."}
+                </Alert>
+              ) : null}
+
+              <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+                <Paper withBorder radius="md" p="md">
+                  <Text className="neura-label">Service</Text>
+                  <Text fw={700}>{detailBooking.serviceName}</Text>
+                  <Text c="dimmed" size="sm">Quantity {detailBooking.bookingQuantity}</Text>
+                  <Text c="dimmed" size="sm">{detailBooking.servicePriceDisplay || "-"}</Text>
+                </Paper>
+                <Paper withBorder radius="md" p="md">
+                  <Text className="neura-label">Schedule</Text>
+                  <Text fw={700}>{formatBookingScheduleDateTime(detailBooking.scheduledStartAt)}</Text>
+                  <Text c="dimmed" size="sm">Ends {formatBookingScheduleDateTime(detailBooking.scheduledEndAt)}</Text>
+                </Paper>
+                <Paper withBorder radius="md" p="md">
+                  <Text className="neura-label">Payment</Text>
+                  <Text fw={700}>{detailBooking.paymentStatus}</Text>
+                  <Text c="dimmed" size="sm">{detailBooking.paymentReference || "No reference"}</Text>
+                  {detailBooking.paymentVerifiedAt ? (
+                    <Badge color="teal" mt="xs" variant="light" w="fit-content">
+                      Verified {formatDateTime(detailBooking.paymentVerifiedAt)}
+                    </Badge>
+                  ) : null}
+                  {detailBooking.paymentRejectedAt ? (
+                    <Stack gap={4} mt="xs">
+                      <Badge color="red" variant="light" w="fit-content">
+                        Rejected {formatDateTime(detailBooking.paymentRejectedAt)}
+                      </Badge>
+                      {detailBooking.paymentRejectionReason ? (
+                        <Text c="dimmed" size="sm">{detailBooking.paymentRejectionReason}</Text>
+                      ) : null}
+                    </Stack>
+                  ) : null}
+                  {detailBooking.paymentProof ? (
+                    <Stack gap={4} mt="xs">
+                      <Text c="dimmed" size="sm">
+                        {detailBooking.paymentProof.fileName} · {formatBytes(detailBooking.paymentProof.sizeBytes)}
+                      </Text>
+                      <Button
+                        leftSection={<IconExternalLink size={14} />}
+                        loading={busyAction === `booking-proof:${detailBooking.id}`}
+                        onClick={() => handleViewBookingPaymentProof(detailBooking)}
+                        size="xs"
+                        variant="light"
+                        w="fit-content"
+                      >
+                        View proof
+                      </Button>
+                    </Stack>
+                  ) : (
+                    <Text c="dimmed" size="sm">No proof submitted</Text>
+                  )}
+                  {detailPaymentReviewable ? (
+                    <Stack gap="xs" mt="sm">
+                      <Button
+                        className="neura-primary-button"
+                        loading={busyAction === `booking-payment-verify:${detailBooking.id}`}
+                        onClick={() => handleVerifyBookingPayment(detailBooking)}
+                        size="xs"
+                        w="fit-content"
+                      >
+                        Verify payment
+                      </Button>
+                      <Textarea
+                        label="Rejection reason"
+                        minRows={2}
+                        onChange={(event) => setPaymentRejectionReason(event.currentTarget.value)}
+                        placeholder="Customer-visible reason"
+                        value={paymentRejectionReason}
+                      />
+                      <Button
+                        color="red"
+                        disabled={!paymentRejectionReason.trim()}
+                        loading={busyAction === `booking-payment-reject:${detailBooking.id}`}
+                        onClick={() => handleRejectBookingPayment(detailBooking)}
+                        size="xs"
+                        variant="subtle"
+                        w="fit-content"
+                      >
+                        Reject payment and cancel
+                      </Button>
+                    </Stack>
+                  ) : null}
+                </Paper>
+                <Paper withBorder radius="md" p="md">
+                  <Text className="neura-label">Alerts</Text>
+                  <Text fw={700}>Email and browser notifications</Text>
+                  <Text c="dimmed" size="sm">
+                    {detailBooking.contactVerificationChannel
+                      ? `Verified by ${detailBooking.contactVerificationChannel}`
+                      : "Verification not recorded"}
+                  </Text>
+                </Paper>
+              </SimpleGrid>
+
+              {detailBooking.notes ? (
+                <Paper withBorder radius="md" p="md">
+                  <Text className="neura-label">Customer notes</Text>
+                  <Text>{detailBooking.notes}</Text>
+                </Paper>
+              ) : null}
+
+              <Group justify="space-between">
+                <Button variant="default" onClick={() => setBookingDetailModalId(null)}>
+                  Close
+                </Button>
+                <Group gap="xs">
+                  <Button
+                    variant="default"
+                    onClick={() => {
+                      setBookingStatusFilter("pending");
+                      setBookingDateFilter("");
+                      setBookingDetailModalId(null);
+                      navigate("/dashboard/bookings");
+                    }}
+                  >
+                    Open booking queue
+                  </Button>
+                  {canAdminBookings && detailBooking.status === "pending" ? (
+                    <>
+                      <Button
+                        className="neura-primary-button"
+                        disabled={
+                          detailBooking.paymentStatus === "pending" ||
+                          busyAction === `booking-status:${detailBooking.id}:confirmed`
+                        }
+                        onClick={() => handleUpdateBookingStatus(detailBooking, "confirmed")}
+                      >
+                        Confirm
+                      </Button>
+                      <Button
+                        color="red"
+                        disabled={busyAction === `booking-status:${detailBooking.id}:canceled`}
+                        variant="subtle"
+                        onClick={() => handleUpdateBookingStatus(detailBooking, "canceled")}
+                      >
+                        Cancel
+                      </Button>
+                    </>
+                  ) : null}
+                </Group>
+              </Group>
+            </Stack>
+          ) : null}
+        </Modal>
+      </>
+    );
+  }
+
   function renderCurrentSection() {
     if (!activeSubscription && currentSection !== "settings") {
       return <ActivationPanel onViewPlans={() => setPlanDialogOpen(true)} />;
@@ -3424,6 +5787,14 @@ export default function VendorDashboardPage() {
 
     if (currentSection === "tenants") {
       return renderTenantsPage();
+    }
+
+    if (currentSection === "services") {
+      return renderServicesPage();
+    }
+
+    if (currentSection === "bookings") {
+      return renderBookingsPage();
     }
 
     if (currentSection === "clients") {
@@ -3533,9 +5904,14 @@ export default function VendorDashboardPage() {
       </main>
       {renderPlanDialog()}
       {renderLocationDialog()}
+      {renderServiceDialog()}
+      {renderAvailabilityBlockDialog()}
+      {renderAvailabilityExceptionDialog()}
+      {renderRescheduleDialog()}
       {renderCounterDialog()}
       {renderStaffDialog()}
       {renderThemeDialog()}
+      {renderBookingAlertOverlay()}
       <Drawer
         classNames={{ body: "neura-drawer-body", content: "neura-drawer-content", header: "neura-drawer-header" }}
         hiddenFrom="lg"

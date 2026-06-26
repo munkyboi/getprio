@@ -1,0 +1,6 @@
+BEGIN;
+
+ALTER TABLE bookings
+  ADD COLUMN IF NOT EXISTS booking_quantity INTEGER NOT NULL DEFAULT 1 CHECK (booking_quantity BETWEEN 1 AND 24);
+
+COMMIT;

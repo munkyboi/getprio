@@ -72,6 +72,7 @@ const queueRecoveryGraceMinutes = Number(process.env.QUEUE_RECOVERY_GRACE_MINUTE
 const b2S3Endpoint = process.env.B2_S3_ENDPOINT || "";
 const b2Region = process.env.B2_REGION || "us-east-005";
 const b2BucketPublicBoard = process.env.B2_BUCKET_PUBLIC_BOARD || "";
+const b2BucketPaymentProof = process.env.B2_BUCKET_PAYMENT_PROOF || "";
 const b2KeyId = process.env.B2_KEY_ID || "";
 const b2ApplicationKey = process.env.B2_APPLICATION_KEY || "";
 const b2PublicBaseUrl = process.env.B2_PUBLIC_BASE_URL || "";
@@ -128,6 +129,7 @@ const env = {
   b2S3Endpoint,
   b2Region,
   b2BucketPublicBoard,
+  b2BucketPaymentProof,
   b2KeyId,
   b2ApplicationKey,
   b2PublicBaseUrl

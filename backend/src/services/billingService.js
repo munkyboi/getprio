@@ -9,6 +9,7 @@ const {
   listPlans
 } = require("./subscriptionPlans");
 const queueJoinPaymentService = require("./queueJoinPaymentService");
+const bookingSmsAlertPaymentService = require("./bookingSmsAlertPaymentService");
 
 const PAYMONGO_PROVIDER = "paymongo";
 
@@ -525,6 +526,18 @@ async function handlePayMongoWebhook(rawBody, signatureHeader) {
     return {
       eventType,
       queueJoinPayment
+    };
+  }
+
+  const bookingSmsPayment = await bookingSmsAlertPaymentService.handlePayMongoPaidCheckout(
+    resource,
+    event
+  );
+
+  if (bookingSmsPayment.handled) {
+    return {
+      eventType,
+      bookingSmsPayment
     };
   }
 

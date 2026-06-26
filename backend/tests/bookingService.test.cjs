@@ -1,0 +1,977 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const path = require("node:path");
+
+function resolveMockPath(requestPath, baseDir) {
+  if (!requestPath.startsWith(".")) {
+    return require.resolve(requestPath, { paths: [baseDir] });
+  }
+
+  const absoluteBase = path.resolve(baseDir, requestPath);
+  const candidates = [
+    absoluteBase,
+    `${absoluteBase}.js`,
+    `${absoluteBase}.ts`,
+    path.join(absoluteBase, "index.js"),
+    path.join(absoluteBase, "index.ts")
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      return require.resolve(candidate);
+    } catch {
+      // Try the next candidate.
+    }
+  }
+
+  throw new Error(`Unable to resolve mock path: ${requestPath}`);
+}
+
+function requireWithMocks(targetPath, mocks) {
+  const resolvedTarget = require.resolve(targetPath);
+  const originals = new Map();
+
+  try {
+    for (const [requestPath, mockExports] of Object.entries(mocks)) {
+      const resolvedDependency = resolveMockPath(requestPath, path.dirname(resolvedTarget));
+      originals.set(resolvedDependency, require.cache[resolvedDependency]);
+      require.cache[resolvedDependency] = {
+        id: resolvedDependency,
+        filename: resolvedDependency,
+        loaded: true,
+        exports: mockExports
+      };
+    }
+
+    delete require.cache[resolvedTarget];
+    return require(resolvedTarget);
+  } finally {
+    delete require.cache[resolvedTarget];
+    for (const [resolvedDependency, originalEntry] of originals.entries()) {
+      if (originalEntry) {
+        require.cache[resolvedDependency] = originalEntry;
+      } else {
+        delete require.cache[resolvedDependency];
+      }
+    }
+  }
+}
+
+const tenant = {
+  _id: "tenant-1",
+  slug: "demo",
+  name: "Demo Tenant",
+  publicProfileEnabled: true,
+  vendorApprovalStatus: "approved"
+};
+
+const location = {
+  _id: "location-1",
+  tenantId: "tenant-1",
+  slug: "main",
+  name: "Main Branch",
+  timezone: "Asia/Manila",
+  isActive: true
+};
+
+const service = {
+  _id: "service-1",
+  tenantId: "tenant-1",
+  name: "Consultation",
+  slug: "consultation",
+  durationMinutes: 60,
+  allowBookingQuantity: false,
+  bookingQuantityLabel: "Units",
+  isActive: true
+};
+
+function buildBookingService({
+  serviceOverride = {},
+  locationOverride = {},
+  availability,
+  hours = [],
+  countOverlappingActiveBookings = async () => 0,
+  expirePendingBookings = async () => [],
+  createBooking = async () => ({ _id: "booking-1", reference: "BKG-TEST", customerEmail: "customer@example.com", notifyBySms: false }),
+  findBookingById = async () => null,
+  findBookingByIdForUpdate = async () => null,
+  updateBooking = async () => null,
+  getVerifiedBookingPayload = async () => ({
+    otpId: "booking-otp-1",
+    contactVerifiedAt: "2026-07-06T00:30:00.000Z",
+    contactVerificationChannel: "email",
+    payload: {
+      tenantSlug: "demo",
+      locationSlug: "main",
+      serviceSlug: "consultation",
+      scheduledStartAt: "2026-07-06T01:00:00.000Z",
+      customerName: "Customer One",
+      customerEmail: "customer@example.com",
+      customerPhone: "09171234567",
+      notifyBySms: false,
+      notes: ""
+    }
+  }),
+  getBookingSmsFeeForTenant = async () => ({ enabled: false, amountCents: 0, currency: "PHP", displayAmount: "PHP 0.00", planSlug: "economical" }),
+  shouldChargeBookingSmsFee = () => false,
+  assertPaidBookingSmsPayment = async () => {},
+  createTicketForTenantInTransaction = async () => ({
+    _id: "ticket-1",
+    ticketNumber: "D001",
+    lookupCode: "LOOKUP1",
+    status: "waiting"
+  }),
+  assertQueueIntakeOpen = async () => {},
+  maybeNotifyUpcomingTickets = async () => {},
+  maybeAutoPauseQueueDay = async () => {},
+  publishSnapshot = async () => ({})
+}) {
+  const queueServiceMock = {
+    assertQueueIntakeOpen,
+    createTicketForTenantInTransaction,
+    maybeNotifyUpcomingTickets,
+    maybeAutoPauseQueueDay,
+    publishSnapshot
+  };
+  const bookingService = requireWithMocks("../src/services/bookingService.js", {
+    "../config/db": {
+      withTransaction: async (callback) => callback({ query: async () => ({ rows: [] }) })
+    },
+    "../repositories/bookings": {
+      createBooking,
+      countOverlappingActiveBookings,
+      expirePendingBookings,
+      findBookingById,
+      findBookingByIdForUpdate,
+      updateBooking
+    },
+    "../repositories/tenants": {
+      findTenantBySlug: async (slug) => (slug === "demo" ? tenant : null)
+    },
+    "../repositories/storeLocations": {
+      findLocationByTenantAndSlug: async (_tenantId, slug) => (slug === "main" ? { ...location, ...locationOverride } : null),
+      listHoursByLocationId: async () => hours
+    },
+    "../repositories/vendorServices": {
+      normalizeServiceSlug: (value) => String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""),
+      findServiceByTenantAndSlug: async (_tenantId, slug) => (slug === "consultation" ? { ...service, ...serviceOverride } : null)
+    },
+    "../repositories/vendorAvailability": {
+      listAvailabilityByLocation: async () => availability
+    },
+    "./bookingOtpService": {
+      getVerifiedBookingPayload,
+      consumeBookingVerificationToken: async () => {}
+    },
+    "./bookingSmsAlertPaymentService": {
+      getBookingSmsFeeForTenant,
+      shouldChargeBookingSmsFee,
+      assertPaidBookingSmsPayment
+    },
+    "./notificationService": {
+      sendEmail: async () => {},
+      sendSms: async () => {}
+    },
+    "./queueService": queueServiceMock
+  });
+  bookingService._setQueueServiceForTest(queueServiceMock);
+  return bookingService;
+}
+
+test("booking slots generate service-duration Asia/Manila starts that fit explicit availability", async () => {
+  const bookingService = buildBookingService({
+    availability: {
+      blocks: [
+        {
+          _id: "block-1",
+          serviceId: "service-1",
+          weekday: 1,
+          startsAt: "09:00",
+          endsAt: "11:00",
+          capacity: 2,
+          isActive: true
+        }
+      ],
+      exceptions: []
+    }
+  });
+
+  const slots = await bookingService.listBookingSlots({
+    tenantSlug: "demo",
+    locationSlug: "main",
+    serviceSlug: "consultation",
+    date: "2026-07-06"
+  });
+
+  assert.deepEqual(slots.map((slot) => slot.startAt), [
+    "2026-07-06T01:00:00.000Z",
+    "2026-07-06T02:00:00.000Z"
+  ]);
+  assert.equal(slots.every((slot) => slot.isAvailable && slot.remainingCapacity === 2), true);
+});
+
+test("booking slots use the selected service duration as the interval", async () => {
+  const bookingService = buildBookingService({
+    serviceOverride: {
+      durationMinutes: 45
+    },
+    availability: {
+      blocks: [
+        {
+          _id: "block-1",
+          serviceId: "service-1",
+          weekday: 1,
+          startsAt: "09:00",
+          endsAt: "12:00",
+          capacity: 2,
+          isActive: true
+        }
+      ],
+      exceptions: []
+    }
+  });
+
+  const slots = await bookingService.listBookingSlots({
+    tenantSlug: "demo",
+    locationSlug: "main",
+    serviceSlug: "consultation",
+    date: "2026-07-06"
+  });
+
+  assert.deepEqual(
+    slots.map((slot) => [slot.startAt, slot.endAt]),
+    [
+      ["2026-07-06T01:00:00.000Z", "2026-07-06T01:45:00.000Z"],
+      ["2026-07-06T01:45:00.000Z", "2026-07-06T02:30:00.000Z"],
+      ["2026-07-06T02:30:00.000Z", "2026-07-06T03:15:00.000Z"],
+      ["2026-07-06T03:15:00.000Z", "2026-07-06T04:00:00.000Z"]
+    ]
+  );
+});
+
+test("booking slots use booking quantity to set the customer-facing interval", async () => {
+  const bookingService = buildBookingService({
+    serviceOverride: {
+      allowBookingQuantity: true,
+      bookingQuantityLabel: "Hours"
+    },
+    availability: {
+      blocks: [
+        {
+          _id: "block-1",
+          serviceId: "service-1",
+          weekday: 1,
+          startsAt: "09:00",
+          endsAt: "13:00",
+          capacity: 2,
+          isActive: true
+        }
+      ],
+      exceptions: []
+    }
+  });
+
+  const slots = await bookingService.listBookingSlots({
+    tenantSlug: "demo",
+    locationSlug: "main",
+    serviceSlug: "consultation",
+    date: "2026-07-06",
+    bookingQuantity: 2
+  });
+
+  assert.deepEqual(
+    slots.map((slot) => [slot.startAt, slot.endAt]),
+    [
+      ["2026-07-06T01:00:00.000Z", "2026-07-06T03:00:00.000Z"],
+      ["2026-07-06T03:00:00.000Z", "2026-07-06T05:00:00.000Z"]
+    ]
+  );
+});
+
+test("booking slots apply unavailable exceptions before available exception windows", async () => {
+  const bookingService = buildBookingService({
+    availability: {
+      blocks: [
+        {
+          _id: "block-1",
+          serviceId: null,
+          weekday: 1,
+          startsAt: "09:00",
+          endsAt: "12:00",
+          capacity: 2,
+          isActive: true
+        }
+      ],
+      exceptions: [
+        {
+          serviceId: null,
+          exceptionDate: "2026-07-06",
+          startsAt: "10:00",
+          endsAt: "11:00",
+          isAvailable: false,
+          capacity: null
+        },
+        {
+          serviceId: "service-1",
+          exceptionDate: "2026-07-06",
+          startsAt: "13:00",
+          endsAt: "14:00",
+          isAvailable: true,
+          capacity: 1
+        }
+      ]
+    }
+  });
+
+  const slots = await bookingService.listBookingSlots({
+    tenantSlug: "demo",
+    locationSlug: "main",
+    serviceSlug: "consultation",
+    date: "2026-07-06"
+  });
+
+  assert.deepEqual(slots.map((slot) => slot.startAt), [
+    "2026-07-06T01:00:00.000Z",
+    "2026-07-06T03:00:00.000Z",
+    "2026-07-06T05:00:00.000Z"
+  ]);
+});
+
+test("booking slots fall back to store hours when no booking availability exists", async () => {
+  const bookingService = buildBookingService({
+    availability: {
+      blocks: [],
+      exceptions: []
+    },
+    hours: [
+      { weekday: 1, opensAt: "09:00", closesAt: "10:00", isClosed: false }
+    ]
+  });
+
+  const slots = await bookingService.listBookingSlots({
+    tenantSlug: "demo",
+    locationSlug: "main",
+    serviceSlug: "consultation",
+    date: "2026-07-06"
+  });
+
+  assert.deepEqual(slots, [
+    {
+      startAt: "2026-07-06T01:00:00.000Z",
+      endAt: "2026-07-06T02:00:00.000Z",
+      remainingCapacity: 1,
+      isAvailable: true
+    }
+  ]);
+});
+
+test("booking slots omit past slot starts", async () => {
+  const bookingService = buildBookingService({
+    availability: {
+      blocks: [
+        {
+          _id: "block-1",
+          serviceId: "service-1",
+          weekday: 1,
+          startsAt: "09:00",
+          endsAt: "17:00",
+          capacity: 1,
+          isActive: true
+        }
+      ],
+      exceptions: []
+    }
+  });
+
+  const slots = await bookingService.listBookingSlots({
+    tenantSlug: "demo",
+    locationSlug: "main",
+    serviceSlug: "consultation",
+    date: "2020-07-06"
+  });
+
+  assert.deepEqual(slots, []);
+});
+
+test("booking slots subtract active overlapping booking capacity", async () => {
+  const bookingService = buildBookingService({
+    availability: {
+      blocks: [
+        {
+          _id: "block-1",
+          serviceId: "service-1",
+          weekday: 1,
+          startsAt: "09:00",
+          endsAt: "10:00",
+          capacity: 1,
+          isActive: true
+        }
+      ],
+      exceptions: []
+    },
+    countOverlappingActiveBookings: async (_tenantId, options) =>
+      options.startsAt === "2026-07-06T01:00:00.000Z" ? 1 : 0
+  });
+
+  const slots = await bookingService.listBookingSlots({
+    tenantSlug: "demo",
+    locationSlug: "main",
+    serviceSlug: "consultation",
+    date: "2026-07-06"
+  });
+
+  assert.equal(slots.length, 1);
+  assert.equal(slots[0].remainingCapacity, 0);
+  assert.equal(slots[0].isAvailable, false);
+  assert.equal(slots[0].disabledReason, "capacity_full");
+});
+
+test("customer booking creation rejects a selected slot when active bookings fill capacity", async () => {
+  const bookingService = buildBookingService({
+    availability: {
+      blocks: [
+        {
+          _id: "block-1",
+          serviceId: "service-1",
+          weekday: 1,
+          startsAt: "09:00",
+          endsAt: "10:00",
+          capacity: 1,
+          isActive: true
+        }
+      ],
+      exceptions: []
+    },
+    countOverlappingActiveBookings: async () => 1,
+    createBooking: async () => {
+      throw new Error("createBooking should not be called");
+    }
+  });
+
+  await assert.rejects(
+    () =>
+      bookingService.createCustomerBooking({
+        user: {
+          _id: "user-1",
+          name: "Customer One",
+          email: "customer@example.com",
+          phone: "09171234567"
+        },
+        body: {
+          tenantSlug: "demo",
+          locationSlug: "main",
+          serviceSlug: "consultation",
+          scheduledStartAt: "2026-07-06T01:00:00.000Z",
+          bookingVerificationToken: "verified-token"
+        }
+      }),
+    (error) => error.statusCode === 409 && /slot is no longer available/i.test(error.message)
+  );
+});
+
+test("customer booking creation blocks manual-payment service when branch QR is inactive", async () => {
+  const bookingService = buildBookingService({
+    serviceOverride: {
+      manualPaymentRequired: true
+    },
+    locationOverride: {
+      paymentQrActive: false,
+      paymentMethodLabel: "",
+      paymentAccountDisplayName: "",
+      paymentQrImageUrl: ""
+    },
+    availability: {
+      blocks: [],
+      exceptions: []
+    },
+    hours: [
+      { weekday: 1, opensAt: "09:00", closesAt: "10:00", isClosed: false }
+    ],
+    createBooking: async () => {
+      throw new Error("createBooking should not be called");
+    }
+  });
+
+  await assert.rejects(
+    () =>
+      bookingService.createCustomerBooking({
+        user: {
+          _id: "user-1",
+          name: "Customer One",
+          email: "customer@example.com",
+          phone: "09171234567"
+        },
+        body: {
+          tenantSlug: "demo",
+          locationSlug: "main",
+          serviceSlug: "consultation",
+          scheduledStartAt: "2026-07-06T01:00:00.000Z",
+          bookingVerificationToken: "verified-token"
+        }
+      }),
+    (error) => error.statusCode === 409 && /manual payment is not available/i.test(error.message)
+  );
+});
+
+test("customer booking creation stores quantity and reserves the multiplied service duration", async () => {
+  let capturedBooking = null;
+  const bookingService = buildBookingService({
+    serviceOverride: {
+      allowBookingQuantity: true,
+      bookingQuantityLabel: "Hours"
+    },
+    availability: {
+      blocks: [
+        {
+          _id: "block-1",
+          serviceId: "service-1",
+          weekday: 1,
+          startsAt: "09:00",
+          endsAt: "12:00",
+          capacity: 1,
+          isActive: true
+        }
+      ],
+      exceptions: []
+    },
+    getVerifiedBookingPayload: async () => ({
+      otpId: "booking-otp-1",
+      contactVerifiedAt: "2026-07-06T00:30:00.000Z",
+      contactVerificationChannel: "email",
+      payload: {
+        tenantSlug: "demo",
+        locationSlug: "main",
+        serviceSlug: "consultation",
+        scheduledStartAt: "2026-07-06T01:00:00.000Z",
+        bookingQuantity: 2,
+        customerName: "Customer One",
+        customerEmail: "customer@example.com",
+        customerPhone: "09171234567",
+        notifyBySms: false,
+        notes: ""
+      }
+    }),
+    createBooking: async (data) => {
+      capturedBooking = data;
+      return { ...data, _id: "booking-1", reference: "BKG-TEST", notifyBySms: false };
+    }
+  });
+
+  await bookingService.createCustomerBooking({
+    user: {
+      _id: "user-1",
+      name: "Customer One",
+      email: "customer@example.com",
+      phone: "09171234567"
+    },
+    body: {
+      tenantSlug: "demo",
+      locationSlug: "main",
+      serviceSlug: "consultation",
+      scheduledStartAt: "2026-07-06T01:00:00.000Z",
+      bookingQuantity: 2,
+      bookingVerificationToken: "verified-token"
+    }
+  });
+
+  assert.equal(capturedBooking.bookingQuantity, 2);
+  assert.equal(capturedBooking.scheduledStartAt, "2026-07-06T01:00:00.000Z");
+  assert.equal(capturedBooking.scheduledEndAt, "2026-07-06T03:00:00.000Z");
+  assert.ok(capturedBooking.pendingExpiresAt);
+  const pendingExpiresInMinutes = Math.round((new Date(capturedBooking.pendingExpiresAt).getTime() - Date.now()) / 60_000);
+  assert.equal(pendingExpiresInMinutes, 15);
+});
+
+test("customer booking creation rejects quantity when the service does not allow units", async () => {
+  const bookingService = buildBookingService({
+    availability: {
+      blocks: [
+        {
+          _id: "block-1",
+          serviceId: "service-1",
+          weekday: 1,
+          startsAt: "09:00",
+          endsAt: "12:00",
+          capacity: 1,
+          isActive: true
+        }
+      ],
+      exceptions: []
+    }
+  });
+
+  await assert.rejects(
+    () =>
+      bookingService.createCustomerBooking({
+        user: {
+          _id: "user-1",
+          name: "Customer One",
+          email: "customer@example.com",
+          phone: "09171234567"
+        },
+        body: {
+          tenantSlug: "demo",
+          locationSlug: "main",
+          serviceSlug: "consultation",
+          scheduledStartAt: "2026-07-06T01:00:00.000Z",
+          bookingQuantity: 2,
+          bookingVerificationToken: "verified-token"
+        }
+      }),
+    (error) => error.statusCode === 400 && /does not allow booking multiple units/i.test(error.message)
+  );
+});
+
+test("customer booking creation requires verified booking contact evidence", async () => {
+  const bookingService = buildBookingService({
+    availability: {
+      blocks: [],
+      exceptions: []
+    },
+    hours: [
+      { weekday: 1, opensAt: "09:00", closesAt: "10:00", isClosed: false }
+    ]
+  });
+
+  await assert.rejects(
+    () =>
+      bookingService.createCustomerBooking({
+        user: {
+          _id: "user-1",
+          name: "Customer One",
+          email: "customer@example.com",
+          phone: "09171234567"
+        },
+        body: {
+          tenantSlug: "demo",
+          locationSlug: "main",
+          serviceSlug: "consultation",
+          scheduledStartAt: "2026-07-06T01:00:00.000Z"
+        }
+      }),
+    (error) => error.statusCode === 400 && /verification is required/i.test(error.message)
+  );
+});
+
+test("customer booking creation requires paid SMS fee when SMS alerts are enabled and fee applies", async () => {
+  const bookingService = buildBookingService({
+    availability: {
+      blocks: [],
+      exceptions: []
+    },
+    hours: [
+      { weekday: 1, opensAt: "09:00", closesAt: "10:00", isClosed: false }
+    ],
+    getVerifiedBookingPayload: async () => ({
+      otpId: "booking-otp-1",
+      contactVerifiedAt: "2026-07-06T00:30:00.000Z",
+      contactVerificationChannel: "sms",
+      payload: {
+        tenantSlug: "demo",
+        locationSlug: "main",
+        serviceSlug: "consultation",
+        scheduledStartAt: "2026-07-06T01:00:00.000Z",
+        customerName: "Customer One",
+        customerEmail: "customer@example.com",
+        customerPhone: "09171234567",
+        notifyBySms: true,
+        notes: ""
+      }
+    }),
+    getBookingSmsFeeForTenant: async () => ({ enabled: true, amountCents: 5000, currency: "PHP", displayAmount: "PHP 50.00", planSlug: "economical" }),
+    shouldChargeBookingSmsFee: () => true,
+    assertPaidBookingSmsPayment: async () => {
+      const error = new Error("Paid SMS alert payment is required before creating this booking.");
+      error.statusCode = 409;
+      throw error;
+    }
+  });
+
+  await assert.rejects(
+    () =>
+      bookingService.createCustomerBooking({
+        user: {
+          _id: "user-1",
+          name: "Customer One",
+          email: "customer@example.com",
+          phone: "09171234567"
+        },
+        body: {
+          tenantSlug: "demo",
+          locationSlug: "main",
+          serviceSlug: "consultation",
+          scheduledStartAt: "2026-07-06T01:00:00.000Z",
+          bookingVerificationToken: "verified-token"
+        }
+      }),
+    (error) => error.statusCode === 409 && /paid sms alert payment/i.test(error.message)
+  );
+});
+
+function buildVendorBooking(overrides = {}) {
+  const scheduledStartAt = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+  const scheduledEndAt = new Date(Date.now() + 55 * 60 * 1000).toISOString();
+
+  return {
+    _id: "booking-1",
+    reference: "BKG-CHECKIN",
+    tenantId: tenant._id,
+    tenantName: tenant.name,
+    tenantSlug: tenant.slug,
+    locationId: location._id,
+    locationName: location.name,
+    locationSlug: location.slug,
+    serviceId: service._id,
+    serviceName: service.name,
+    serviceSlug: service.slug,
+    customerUserId: "customer-1",
+    customerName: "Customer One",
+    customerEmail: "customer@example.com",
+    customerPhone: "09171234567",
+    scheduledStartAt,
+    scheduledEndAt,
+    status: "confirmed",
+    notes: "",
+    paymentReference: "",
+    paymentStatus: "unpaid",
+    paymentProofObjectKey: "",
+    paymentProofFileName: "",
+    paymentProofContentType: "",
+    paymentProofSizeBytes: null,
+    paymentProofUploadedAt: null,
+    paymentVerifiedAt: null,
+    paymentVerifiedByUserId: null,
+    paymentRejectedAt: null,
+    paymentRejectedByUserId: null,
+    paymentRejectionReason: "",
+    notifyByEmail: true,
+    notifyBySms: true,
+    queueTicketId: null,
+    checkedInAt: null,
+    checkedInByUserId: null,
+    noShowAt: null,
+    noShowByUserId: null,
+    createdAt: scheduledStartAt,
+    updatedAt: scheduledStartAt,
+    ...overrides
+  };
+}
+
+test("vendor check-in creates a checked-in booking queue ticket and links it once", async () => {
+  const calls = {
+    ticketPayload: null,
+    updatedBooking: null,
+    intakeChecked: false,
+    snapshotPublished: false
+  };
+  const booking = buildVendorBooking();
+  const bookingService = buildBookingService({
+    availability: { blocks: [], exceptions: [] },
+    findBookingByIdForUpdate: async () => booking,
+    updateBooking: async (_bookingId, data) => {
+      calls.updatedBooking = data;
+      return {
+        ...booking,
+        ...data,
+        queueTicketNumber: "D001",
+        queueTicketLookupCode: "LOOKUP1",
+        queueTicketStatus: "waiting"
+      };
+    },
+    assertQueueIntakeOpen: async () => {
+      calls.intakeChecked = true;
+    },
+    createTicketForTenantInTransaction: async (_client, payload) => {
+      calls.ticketPayload = payload;
+      return {
+        _id: "ticket-1",
+        ticketNumber: "D001",
+        lookupCode: "LOOKUP1",
+        status: "waiting"
+      };
+    },
+    publishSnapshot: async () => {
+      calls.snapshotPublished = true;
+      return {};
+    }
+  });
+
+  const result = await bookingService.checkInVendorBooking({
+    tenant,
+    location,
+    bookingId: "booking-1",
+    user: { _id: "vendor-user-1" },
+    overrideWindow: false
+  });
+
+  assert.equal(calls.intakeChecked, true);
+  assert.equal(calls.snapshotPublished, true);
+  assert.equal(calls.ticketPayload.servicePriorityBand, "checked_in_booking");
+  assert.equal(calls.ticketPayload.notifyByEmail, true);
+  assert.equal(calls.ticketPayload.notifyBySms, true);
+  assert.equal(calls.ticketPayload.userId, "customer-1");
+  assert.equal(calls.updatedBooking.queueTicketId, "ticket-1");
+  assert.equal(calls.updatedBooking.checkedInByUserId, "vendor-user-1");
+  assert.equal(result.ticket.ticketNumber, "D001");
+  assert.equal(result.booking.linkedTicket, undefined);
+});
+
+test("vendor check-in rejects duplicate linked bookings", async () => {
+  const bookingService = buildBookingService({
+    availability: { blocks: [], exceptions: [] },
+    findBookingByIdForUpdate: async () => buildVendorBooking({
+      queueTicketId: "ticket-1",
+      checkedInAt: new Date().toISOString()
+    })
+  });
+
+  await assert.rejects(
+    () =>
+      bookingService.checkInVendorBooking({
+        tenant,
+        location,
+        bookingId: "booking-1",
+        user: { _id: "vendor-user-1" }
+      }),
+    (error) => error.statusCode === 409 && /already been checked in/i.test(error.message)
+  );
+});
+
+test("vendor check-in requires late override outside the check-in window", async () => {
+  const bookingService = buildBookingService({
+    availability: { blocks: [], exceptions: [] },
+    findBookingByIdForUpdate: async () => buildVendorBooking({
+      scheduledStartAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+      scheduledEndAt: new Date(Date.now() + 30 * 60 * 1000).toISOString()
+    })
+  });
+
+  await assert.rejects(
+    () =>
+      bookingService.checkInVendorBooking({
+        tenant,
+        location,
+        bookingId: "booking-1",
+        user: { _id: "vendor-user-1" },
+        overrideWindow: false
+      }),
+    (error) => error.statusCode === 409 && /late check-in override/i.test(error.message)
+  );
+});
+
+test("vendor no-show cancels late confirmed booking and records actor", async () => {
+  const booking = buildVendorBooking({
+    scheduledStartAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+    scheduledEndAt: new Date(Date.now() + 30 * 60 * 1000).toISOString()
+  });
+  let updatedBooking;
+  const bookingService = buildBookingService({
+    availability: { blocks: [], exceptions: [] },
+    findBookingById: async () => booking,
+    updateBooking: async (_bookingId, data) => {
+      updatedBooking = data;
+      return { ...booking, ...data };
+    }
+  });
+
+  const result = await bookingService.markVendorBookingNoShow({
+    tenant,
+    location,
+    bookingId: "booking-1",
+    user: { _id: "vendor-user-1" }
+  });
+
+  assert.equal(updatedBooking.status, "canceled");
+  assert.equal(updatedBooking.noShowByUserId, "vendor-user-1");
+  assert.equal(result.status, "canceled");
+});
+
+test("vendor payment verification marks submitted proof as paid with actor audit", async () => {
+  const booking = buildVendorBooking({
+    status: "pending",
+    paymentStatus: "pending",
+    paymentProofObjectKey: "payment-proofs/tenants/tenant-1/bookings/booking-1/proof.jpg"
+  });
+  let updatedBooking;
+  const bookingService = buildBookingService({
+    availability: { blocks: [], exceptions: [] },
+    findBookingById: async () => booking,
+    updateBooking: async (_bookingId, data) => {
+      updatedBooking = data;
+      return { ...booking, ...data };
+    }
+  });
+
+  const result = await bookingService.verifyVendorBookingPayment({
+    tenant,
+    bookingId: "booking-1",
+    user: { _id: "vendor-user-1" }
+  });
+
+  assert.equal(updatedBooking.paymentStatus, "paid");
+  assert.equal(updatedBooking.paymentVerifiedByUserId, "vendor-user-1");
+  assert.equal(updatedBooking.paymentRejectedAt, null);
+  assert.equal(result.paymentStatus, "paid");
+});
+
+test("vendor payment rejection cancels booking and requires customer-visible reason", async () => {
+  const booking = buildVendorBooking({
+    status: "pending",
+    paymentStatus: "pending",
+    paymentProofObjectKey: "payment-proofs/tenants/tenant-1/bookings/booking-1/proof.jpg"
+  });
+  let updatedBooking;
+  const bookingService = buildBookingService({
+    availability: { blocks: [], exceptions: [] },
+    findBookingById: async () => booking,
+    updateBooking: async (_bookingId, data) => {
+      updatedBooking = data;
+      return { ...booking, ...data };
+    }
+  });
+
+  await assert.rejects(
+    () =>
+      bookingService.rejectVendorBookingPayment({
+        tenant,
+        bookingId: "booking-1",
+        user: { _id: "vendor-user-1" },
+        reason: ""
+      }),
+    (error) => error.statusCode === 400 && /rejection reason/i.test(error.message)
+  );
+
+  const result = await bookingService.rejectVendorBookingPayment({
+    tenant,
+    bookingId: "booking-1",
+    user: { _id: "vendor-user-1" },
+    reason: "Reference number does not match the receipt."
+  });
+
+  assert.equal(updatedBooking.status, "canceled");
+  assert.equal(updatedBooking.paymentStatus, "failed");
+  assert.equal(updatedBooking.paymentRejectedByUserId, "vendor-user-1");
+  assert.equal(updatedBooking.paymentRejectionReason, "Reference number does not match the receipt.");
+  assert.equal(result.status, "canceled");
+});
+
+test("vendor cannot confirm booking while submitted payment proof is awaiting verification", async () => {
+  const bookingService = buildBookingService({
+    availability: { blocks: [], exceptions: [] },
+    findBookingById: async () => buildVendorBooking({
+      status: "pending",
+      paymentStatus: "pending",
+      paymentProofObjectKey: "payment-proofs/tenants/tenant-1/bookings/booking-1/proof.jpg"
+    })
+  });
+
+  await assert.rejects(
+    () =>
+      bookingService.updateVendorBookingStatus({
+        tenant,
+        bookingId: "booking-1",
+        status: "confirmed"
+      }),
+    (error) => error.statusCode === 409 && /verified before/i.test(error.message)
+  );
+});

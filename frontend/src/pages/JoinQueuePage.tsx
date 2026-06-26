@@ -29,6 +29,7 @@ import type {
 import { API_BASE_URL, apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { buildJoinedQueuePathWithTicket, buildMonitorPath } from "../queuePaths";
+import { formatDisplayTime, toTimestamp } from "../utils/dates";
 import { saveJoinedQueueAccess } from "../utils/joinedQueueAccess";
 import { getErrorMessage } from "../utils/errors";
 
@@ -116,7 +117,7 @@ export default function JoinQueuePage() {
   const joinSource = searchParams.get("source")?.toLowerCase() === "qr" ? "qr" : "online";
   const turnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY || "";
   const shouldUseTurnstile = joinSource === "qr" && Boolean(turnstileSiteKey);
-  const resendAvailableAtMs = otp ? new Date(otp.resendAvailableAt).getTime() : 0;
+  const resendAvailableAtMs = otp ? toTimestamp(otp.resendAvailableAt) : 0;
   const resendSecondsRemaining = Math.max(
     0,
     Math.ceil((resendAvailableAtMs - now) / 1000)
@@ -127,9 +128,7 @@ export default function JoinQueuePage() {
           resendSecondsRemaining % 60
         ).padStart(2, "0")}`
       : "Send new code";
-  const queueFeeEnabled = Boolean(tenantInfo?.queueFee?.enabled);
-  const smsFeeApplies = Boolean(form.notifyBySms && queueFeeEnabled);
-  const canSkipOtp = !form.notifyByEmail && !smsFeeApplies;
+  const canSkipOtp = !form.notifyByEmail;
   const queueIntakePaused = Boolean(queueSnapshot?.queueDay?.isPaused);
   const queueDayClosed = Boolean(queueSnapshot?.queueDay?.isClosed);
   const queueStateBadge = queueDayClosed
@@ -143,7 +142,6 @@ export default function JoinQueuePage() {
   const queueClosedMessage =
     queueSnapshot?.queueDay?.closureReason ||
     "This queue is closed for the day. Please check back during the next service window.";
-  const requiresPhone = form.notifyBySms;
   const requiresEmail = form.notifyByEmail;
   const pageTitle = tenantInfo?.name || tenantSlugValue;
   const signedInCustomer = Boolean(user?.roles?.includes("customer"));
@@ -661,59 +659,44 @@ export default function JoinQueuePage() {
             Join online, then monitor your ticket live from the public board.
           </Text>
           {user?.roles?.includes("customer") ? (
-            <Alert color="teal" variant="light">
-              <Stack gap={4}>
-                <Text fw={700}>Signed in as {customerAccountName}</Text>
-                <Text size="sm">
-                  We will reuse your saved contact details when possible. You can review your account history anytime from the account page.
-                </Text>
-                <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="sm">
-                  <div>
-                    <Text c="dimmed" size="xs" tt="uppercase">
-                      Name
-                    </Text>
-                    <Text fw={600}>{user.name || "Customer account"}</Text>
-                  </div>
-                  <div>
-                    <Text c="dimmed" size="xs" tt="uppercase">
-                      Email
-                    </Text>
-                    <Text fw={600}>{customerAccountEmail || "No email on file"}</Text>
-                  </div>
-                  <div>
-                    <Text c="dimmed" size="xs" tt="uppercase">
-                      Phone
-                    </Text>
-                    <Text fw={600}>{user.phone || "No phone on file"}</Text>
-                  </div>
+            <Alert className="join-account-summary" color="teal" variant="light">
+              <Stack gap="md">
+                <div>
+                  <Text className="finazze-section-label">Profile details</Text>
+                  <Title order={3}>Signed in as {customerAccountName}</Title>
+                  <Text c="dimmed" mt={4} size="sm">
+                    We will reuse your saved contact details when possible. You can review your account history anytime from the account page.
+                  </Text>
+                </div>
+                <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+                  <Stack gap={2} className="join-account-summary-item">
+                    <Text fw={700}>Display name</Text>
+                    <Text c="dimmed">{user.name || "Customer account"}</Text>
+                  </Stack>
+                  <Stack gap={2} className="join-account-summary-item">
+                    <Text fw={700}>Email</Text>
+                    <Text c="dimmed">{customerAccountEmail || "No email on file"}</Text>
+                  </Stack>
+                  <Stack gap={2} className="join-account-summary-item">
+                    <Text fw={700}>Phone</Text>
+                    <Text c="dimmed">{user.phone || "No phone on file"}</Text>
+                  </Stack>
                 </SimpleGrid>
-                <Group gap="md">
+                <Group gap="sm" wrap="wrap">
                   <Button color="dark" size="xs" variant="light" onClick={restoreCustomerDetails} type="button">
                     Use account details
                   </Button>
-                  <Button component={Link} size="xs" to="/account" variant="light">
+                  <Button component={Link} size="xs" to="/account/profile" variant="light">
                     View account
                   </Button>
                 </Group>
               </Stack>
             </Alert>
           ) : null}
-          {tenantInfo?.queueFee?.enabled ? (
-            <Text c="dimmed">
-              SMS queue alerts may incur a platform fee of {tenantInfo.queueFee.displayAmount}.
-            </Text>
-          ) : null}
           {!form.notifyByEmail ? (
             <Text c="dimmed" size="sm">
               Email verification is skipped when almost-next email alerts are off.
-              {smsFeeApplies ? " SMS alerts still require verification before payment." : ""}
             </Text>
-          ) : null}
-          {smsFeeApplies ? (
-            <Alert color="blue" variant="light" radius="md">
-              SMS updates are convenient, but they carry a small platform fee of{" "}
-              {tenantInfo?.queueFee.displayAmount}. You will only be charged if you keep SMS alerts enabled.
-            </Alert>
           ) : null}
           {queueIntakePaused ? (
             <Alert color="yellow" icon={<IconInfoCircle size={18} />} radius="md" variant="light">
@@ -739,10 +722,7 @@ export default function JoinQueuePage() {
                     {maskDeliveryTarget(otp.deliveryChannel, otp.deliveryTarget)}.
                   </Text>
                   <Text c="dimmed" size="sm">
-                    It expires at {new Date(otp.expiresAt).toLocaleTimeString([], {
-                      hour: "2-digit",
-                      minute: "2-digit"
-                    })}.
+                    It expires at {formatDisplayTime(otp.expiresAt)}.
                   </Text>
                 </Paper>
                 <PinInput
@@ -764,9 +744,7 @@ export default function JoinQueuePage() {
                 >
                   {submitting
                     ? "Verifying..."
-                    : smsFeeApplies
-                      ? "Verify and continue to payment"
-                      : "Verify and join queue"}
+                    : "Verify and join queue"}
                 </Button>
                 <SimpleGrid cols={{ base: 1, sm: 2 }}>
                   <Button
@@ -833,14 +811,6 @@ export default function JoinQueuePage() {
                     setForm((current) => ({ ...current, notifyByEmail: event.target.checked }))
                   }
                 />
-                <Checkbox
-                  name="notifyBySms"
-                  checked={form.notifyBySms}
-                  label="Send SMS alerts"
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, notifyBySms: event.target.checked }))
-                  }
-                />
                 {shouldUseTurnstile ? (
                   <Paper className="finazze-soft-panel" p="md">
                     <div ref={turnstileContainerRef} />
@@ -858,9 +828,7 @@ export default function JoinQueuePage() {
                       : "Sending code..."
                     : canSkipOtp
                       ? "Get priority number"
-                      : smsFeeApplies
-                        ? "Verify and continue"
-                        : "Send verification code"}
+                      : "Send verification code"}
                 </Button>
               </Stack>
             </form>
@@ -879,7 +847,7 @@ export default function JoinQueuePage() {
           {[
             ["1. Ticket issued instantly", "Your ticket number is generated immediately for this tenant."],
             ["2. Monitor online", "After joining, you are redirected to a live board with your ticket highlighted."],
-            ["3. Near-turn notification", "Email or SMS alerts are sent when your turn is getting close, based on tenant settings."]
+            ["3. Near-turn notification", "Email alerts are sent when your turn is getting close, and browser notifications can be enabled in account settings."]
           ].map(([title, text]) => (
             <div key={title}>
               <Title order={3}>{title}</Title>

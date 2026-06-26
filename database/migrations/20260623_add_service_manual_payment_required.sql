@@ -1,0 +1,6 @@
+BEGIN;
+
+ALTER TABLE vendor_services
+  ADD COLUMN IF NOT EXISTS manual_payment_required BOOLEAN NOT NULL DEFAULT FALSE;
+
+COMMIT;

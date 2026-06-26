@@ -1,6 +1,8 @@
 const express = require("express");
 const tenantRepository = require("../repositories/tenants");
 const storeLocationRepository = require("../repositories/storeLocations");
+const publicBoardThemeRepository = require("../repositories/publicBoardThemes");
+const vendorServiceRepository = require("../repositories/vendorServices");
 const ticketRepository = require("../repositories/tickets");
 const asyncHandler = require("../middleware/asyncHandler");
 const { maybeAuthenticate } = require("../middleware/auth");
@@ -9,6 +11,9 @@ const turnstileService = require("../services/turnstileService");
 const queueJoinOtpService = require("../services/queueJoinOtpService");
 const queueJoinPaymentService = require("../services/queueJoinPaymentService");
 const queueFeeService = require("../services/queueFeeService");
+const bookingService = require("../services/bookingService");
+const bookingOtpService = require("../services/bookingOtpService");
+const bookingSmsAlertPaymentService = require("../services/bookingSmsAlertPaymentService");
 const storeHoursService = require("../services/storeHoursService");
 const notificationService = require("../services/notificationService");
 const platformRepository = require("../repositories/platform");
@@ -20,6 +25,42 @@ const {
 
 const router = express.Router();
 
+function formatPublicVendorService(service) {
+  return {
+    name: service.name,
+    slug: service.slug,
+    description: service.description,
+    durationMinutes: service.durationMinutes,
+    allowBookingQuantity: service.allowBookingQuantity,
+    bookingQuantityLabel: service.bookingQuantityLabel,
+    manualPaymentRequired: service.manualPaymentRequired,
+    priceAmountCents: service.priceAmountCents,
+    currency: service.currency,
+    priceDisplay: service.priceDisplay
+  };
+}
+
+async function attachPublicVendorDetails(vendor) {
+  const tenant = await tenantRepository.findTenantBySlug(vendor.slug, { activeOnly: true });
+  const primaryLocation = vendor.location.slug && tenant
+    ? await storeLocationRepository.findLocationByTenantAndSlug(tenant._id, vendor.location.slug)
+    : null;
+  const publicBoardTheme = tenant
+    ? await publicBoardThemeRepository.getResolvedTheme(tenant._id, primaryLocation?._id)
+    : null;
+  const services = tenant
+    ? (await vendorServiceRepository.listServicesByTenantId(tenant._id))
+        .filter((service) => service.isActive)
+        .map(formatPublicVendorService)
+    : [];
+
+  return {
+    ...vendor,
+    services,
+    publicBoardTheme
+  };
+}
+
 router.get(
   "/vendors",
   asyncHandler(async (req, res) => {
@@ -27,8 +68,11 @@ router.get(
       search: req.query.search,
       limit: req.query.limit
     });
+    const vendorsWithDetails = await Promise.all(
+      vendors.map((vendor) => attachPublicVendorDetails(vendor))
+    );
 
-    res.json({ vendors });
+    res.json({ vendors: vendorsWithDetails });
   })
 );
 
@@ -45,7 +89,122 @@ router.get(
       throw error;
     }
 
-    res.json({ vendor });
+    res.json({
+      vendor: await attachPublicVendorDetails(vendor)
+    });
+  })
+);
+
+router.get(
+  "/vendors/:tenantSlug/locations/:locationSlug/services/:serviceSlug/slots",
+  asyncHandler(async (req, res) => {
+    const slots = await bookingService.listBookingSlots({
+      tenantSlug: req.params.tenantSlug,
+      locationSlug: req.params.locationSlug,
+      serviceSlug: req.params.serviceSlug,
+      date: req.query.date,
+      bookingQuantity: req.query.bookingQuantity
+    });
+
+    res.json({ slots });
+  })
+);
+
+async function getPublicBookableTenant(tenantSlug) {
+  const tenant = await tenantRepository.findTenantBySlug(String(tenantSlug).toLowerCase(), {
+    activeOnly: true
+  });
+
+  if (!tenant || !tenant.publicProfileEnabled || tenant.vendorApprovalStatus !== "approved") {
+    const error = new Error("Vendor not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  return tenant;
+}
+
+router.get(
+  "/vendors/:tenantSlug/booking-sms-fee",
+  asyncHandler(async (req, res) => {
+    const tenant = await getPublicBookableTenant(req.params.tenantSlug);
+    const queueFee = await bookingSmsAlertPaymentService.getBookingSmsFeeForTenant(tenant._id);
+    res.json({ queueFee });
+  })
+);
+
+router.post(
+  "/vendors/:tenantSlug/booking-otp",
+  maybeAuthenticate,
+  asyncHandler(async (req, res) => {
+    const tenant = await getPublicBookableTenant(req.params.tenantSlug);
+    const payload = {
+      ...(req.body || {}),
+      tenantSlug: tenant.slug,
+      customerName: req.body.customerName || req.user?.name,
+      customerEmail: req.body.customerEmail || req.user?.email,
+      customerPhone: req.body.customerPhone || req.user?.phone
+    };
+    const otp = await bookingOtpService.requestBookingOtp({
+      tenant,
+      payload,
+      channel: req.body.channel
+    });
+
+    res.status(201).json(otp);
+  })
+);
+
+router.post(
+  "/vendors/:tenantSlug/booking-otp/:otpId/resend",
+  asyncHandler(async (req, res) => {
+    const tenant = await getPublicBookableTenant(req.params.tenantSlug);
+    const otp = await bookingOtpService.resendBookingOtp({
+      tenant,
+      otpId: req.params.otpId
+    });
+
+    res.status(201).json(otp);
+  })
+);
+
+router.post(
+  "/vendors/:tenantSlug/booking-otp/verify",
+  asyncHandler(async (req, res) => {
+    const tenant = await getPublicBookableTenant(req.params.tenantSlug);
+    const result = await bookingOtpService.verifyBookingOtp({
+      tenant,
+      otpId: req.body.otpId,
+      code: req.body.code
+    });
+
+    res.json(result);
+  })
+);
+
+router.post(
+  "/vendors/:tenantSlug/booking-sms-payments",
+  asyncHandler(async (req, res) => {
+    const tenant = await getPublicBookableTenant(req.params.tenantSlug);
+    const result = await bookingSmsAlertPaymentService.createBookingSmsCheckout({
+      tenant,
+      bookingVerificationToken: req.body.bookingVerificationToken
+    });
+
+    res.status(result.requiresPayment ? 201 : 200).json(result);
+  })
+);
+
+router.post(
+  "/vendors/:tenantSlug/booking-sms-payments/:paymentId/sync",
+  asyncHandler(async (req, res) => {
+    const tenant = await getPublicBookableTenant(req.params.tenantSlug);
+    const result = await bookingSmsAlertPaymentService.syncBookingSmsPayment({
+      tenant,
+      paymentId: req.params.paymentId
+    });
+
+    res.json(result);
   })
 );
 
