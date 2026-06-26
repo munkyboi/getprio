@@ -130,12 +130,11 @@ export default function BookingRequestPage() {
       apiRequest<PublicVendorProfileResponse>(`/public/vendors/${tenantSlug}`),
       apiRequest<BookingSmsFeeResponse>(`/public/vendors/${tenantSlug}/booking-sms-fee`)
     ])
-      .then(([vendorData, feeData]) => {
+      .then(([vendorData]) => {
         if (!active) {
           return;
         }
         setVendor(vendorData.vendor);
-        setSmsFee(feeData.queueFee);
         setSelectedLocationSlug((current) => current || vendorData.vendor.location.slug || vendorData.vendor.locations[0]?.slug || "");
         setSelectedServiceSlug((current) => current || vendorData.vendor.services[0]?.slug || "");
       })

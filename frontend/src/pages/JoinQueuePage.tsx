@@ -147,6 +147,7 @@ export default function JoinQueuePage() {
   const signedInCustomer = Boolean(user?.roles?.includes("customer"));
   const customerAccountName = signedInCustomer && user ? user.name || "Customer account" : "";
   const customerAccountEmail = signedInCustomer && user ? user.email || "" : "";
+  const requiresPhone = false;
   const joinedQueueNavigationState = useMemo(
     () => ({
       registrationPrefill: {
