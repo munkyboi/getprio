@@ -12,6 +12,16 @@ The repository currently contains:
 
 Use this guide as the main launch checklist when moving from local development to a live MVP.
 
+Current MVP scope now includes the booking and payment proof flow that has already been implemented locally:
+
+- customer booking creation and booking history
+- vendor booking management
+- manual QR booking payment with private payment proof upload
+- vendor payment-proof review and verification
+- pending booking expiration after 15 minutes unless payment evidence is submitted
+- live booking status refresh on the customer booking detail page
+- vendor dashboard booking pagination and live refresh gating
+
 ## 1. Define the MVP Scope
 
 Before deploying, freeze the first release scope. For this repo, a realistic MVP is:
@@ -22,40 +32,45 @@ Before deploying, freeze the first release scope. For this repo, a realistic MVP
 - Vendor dashboard for operational management
 - Platform dashboard for admin oversight
 - Email/SMS notifications where configured
-- File uploads for board assets or payment proofs where applicable
+- File uploads for board assets, payment QR images, or private payment proofs where applicable
 
 Leave out or defer anything that does not support the first launch:
 
 - Advanced analytics
 - Full monetization automation
+- Automated payment settlement or gateway checkout
 - Multi-region infrastructure
 - Native mobile apps
 - Broad third-party OAuth unless already wired and tested
 
 ## 2. Choose the Hosting Model
 
-For the MVP, use one of these two deployment shapes:
+For this project, the recommended MVP path is a single DigitalOcean VPS.
 
-### Option A: Single VPS
+### Recommended: DigitalOcean single host
 
-Best when you want the lowest operational cost and fastest path to launch.
+Best when you want the lowest-friction deployment that still matches the current repo shape.
 
-- Nginx serves the built frontend and dashboard bundles
-- The backend runs as a process manager service
-- PostgreSQL runs on the same server
-- TLS is terminated at Nginx
+- One DigitalOcean Droplet runs Nginx, the frontend build, the platform dashboard build, and the backend process
+- PostgreSQL runs either on the same Droplet for the smallest MVP or on a managed DigitalOcean PostgreSQL instance if you want safer backups and easier scaling
+- TLS is terminated at Nginx on the Droplet
+- External services stay split by responsibility:
+  - Resend or SMTP for email
+  - Twilio for SMS if SMS is enabled
+  - Backblaze B2 for public board assets, location QR images, and private payment proofs
+  - PayMongo only for the queue-payment and billing integrations that are already wired
 
-This is the approach described in `docs/digitalocean-deployment.md`.
+This is the deployment shape the rest of this guide assumes.
 
-### Option B: Dockerized Single Host
+### Alternative: Dockerized single host
 
-Best if you want the local compose model to stay close to production.
+Use this only if you specifically want production to stay close to `docker-compose.yml`.
 
-- Use Docker Compose for app containers
-- Keep PostgreSQL persistent with a named volume
-- Put Nginx or a cloud load balancer in front of the app
+- Run app containers on one Droplet
+- Keep PostgreSQL persistent with a named volume or a separate managed instance
+- Put Nginx in front of the containers
 
-For a small MVP, Option A is usually easier to maintain after launch.
+The Docker shape is valid, but the plain VPS path is simpler for the current MVP.
 
 ## 3. Prepare the Production Environment
 
@@ -76,10 +91,10 @@ Install the basic runtime tools:
 
 - `git`
 - `curl`
-- `nginx`
-- `postgresql`
+- `nginx` if you terminate traffic on the host
+- `postgresql` only if you are not using a managed DigitalOcean database
 - Node.js 20
-- `pm2`
+- `pm2` or your preferred process manager
 
 ## 4. Set Up the Database
 
@@ -110,6 +125,7 @@ Core variables to set:
 - `POSTGRES_USER`
 - `POSTGRES_PASSWORD`
 - `DATABASE_URL`
+- `DATABASE_SSL`
 - `JWT_SECRET`
 - `SERVER_URL`
 - `CLIENT_URL`
@@ -119,14 +135,33 @@ Core variables to set:
 
 If you use booking, payment, upload, or notification features, also configure:
 
+- `VITE_TURNSTILE_SITE_KEY`
 - `TURNSTILE_SECRET_KEY`
-- `RESEND_API_KEY` or `SENDGRID_API_KEY`
+- `RESEND_API_KEY`
+- `RESEND_FROM_EMAIL`
+- `RESEND_FROM_NAME`
+- `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS` if you use SMTP instead of Resend
 - `TWILIO_ACCOUNT_SID`
 - `TWILIO_AUTH_TOKEN`
 - `TWILIO_FROM_NUMBER`
 - `PAYMONGO_SECRET_KEY`
 - `PAYMONGO_WEBHOOK_SECRET`
-- `B2_*` upload settings
+- `B2_*` upload settings for Backblaze storage
+- `B2_BUCKET_PUBLIC_BOARD`
+- `B2_BUCKET_PAYMENT_PROOF`
+
+Current MVP provider map:
+
+- Email delivery: Resend or SMTP
+- SMS delivery: Twilio
+- File uploads and object storage: Backblaze B2
+- Compute, VPS networking, and optionally database: DigitalOcean
+
+Operational note:
+
+- Payment proof uploads should use the backend direct-upload route, not a browser-to-B2 upload path.
+- Location payment QR images are customer-visible only inside booking/payment flows and should not be exposed in public vendor discovery payloads.
+- Pending bookings now expire after 15 minutes by default, but payment evidence stops that expiration from firing.
 
 Production rules:
 
@@ -140,6 +175,7 @@ Production rules:
 The root `package.json` shows the current workspace scripts:
 
 - `npm run build` builds the frontend and platform dashboard
+- `npm run build:backend` runs the backend TypeScript build
 - `npm run start` starts the backend workspace
 
 Typical release flow:
@@ -157,13 +193,14 @@ Suggested pre-deploy checks:
 npm run typecheck
 npm run test:backend
 npm run build
+npm run build:backend
 ```
 
-If the backend has a production build step in your workflow, run it before starting the process manager.
+The backend currently starts with `tsx src/server.ts`, so a compiled backend build is not required for the MVP runtime. `npm run build:backend` is still useful as a compile check before release.
 
 ## 7. Serve the Frontends
 
-The deployment guide in `docs/digitalocean-deployment.md` uses Nginx to serve static bundles.
+The companion guide in `docs/digitalocean-deployment.md` contains the concrete single-host DigitalOcean steps that match this plan.
 
 Recommended routing:
 
@@ -183,7 +220,7 @@ For the API reverse proxy:
 
 ## 8. Start the Backend
 
-The backend uses `tsx` in development and can be started the same way in production for an MVP, although a compiled Node build is preferable later.
+The backend uses `tsx` for both development and the current MVP start path.
 
 Current backend scripts:
 
@@ -201,6 +238,7 @@ Minimum runtime expectations:
 - Backend restarts automatically after crashes
 - Logs are retained and reviewable
 - Health checks are available
+- Nginx forwards SSE requests without buffering
 
 ## 9. Validate Security Before Launch
 
@@ -214,6 +252,7 @@ Check these items:
 - Platform admin screens are not reachable by normal users
 - Customer data is not leaked across tenants or users
 - File uploads are restricted and stored safely
+- Manual QR payment proof uploads stay private and are only readable by the booking owner, authorized vendor staff/admins, and platform admins
 - Session cookies are secure in production
 - CSRF protection is in place for state-changing requests
 
@@ -234,11 +273,16 @@ After deployment, verify these paths manually:
 - Customer registration works
 - Public vendor discovery works
 - Booking creation works
+- Customer booking detail shows the vendor payment QR and proof upload flow when the service requires manual payment
+- Pending bookings expire after the configured timeout when no proof was submitted
+- Vendor payment-proof review and verification works
 - Booking history loads only the current user’s records
 - Vendor dashboard loads for vendor roles
+- Vendor dashboard booking pagination works and only refreshes bookings while the bookings section is active
 - Platform dashboard loads only for `platform_admin`
 - SSE/public live queue updates work if enabled
 - Uploads work if configured
+- PayMongo webhook endpoints respond if queue-payment flows are enabled
 
 If any of those fail, do not announce launch yet.
 
@@ -251,6 +295,7 @@ Keep:
 - Daily PostgreSQL backups
 - A copy of the `.env` values in a secret manager or secure vault
 - Release tags or deployment snapshots
+- A record of the manual QR payment proof and private upload flow so future deploys can verify it after migrations
 - An emergency rollback path to the previous build
 
 At minimum, be able to restore:
@@ -304,10 +349,10 @@ If the traffic is light, daily log checks are enough. If not, add alerting for:
 
 For this codebase, the simplest production path is:
 
-- Single VPS
-- PostgreSQL on the same host
+- Single DigitalOcean VPS
+- PostgreSQL on the same host for the smallest launch, or managed DigitalOcean Postgres if you want safer recovery
 - Nginx for TLS and static hosting
 - PM2 for backend uptime
-- External email/SMS/upload providers only if configured and tested
+- External email, SMS, payment, and upload providers only if configured and tested
 
 That gives you a deployment path that is cheap, understandable, and easy to demo for a capstone.
