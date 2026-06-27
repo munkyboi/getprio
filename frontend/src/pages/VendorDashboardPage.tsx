@@ -65,6 +65,7 @@ import type {
   CreateCheckoutRequest,
   CreateWalkInTicketRequest,
   QueueHistoryTicket,
+  QueueListTicket,
   PublicBoardThemeResponse,
   PublicBoardThemeSettings,
   PublicBoardThemeUploadResponse,
@@ -615,6 +616,12 @@ export default function VendorDashboardPage() {
   const [vendorBookings, setVendorBookings] = useState<VendorBookingSummary[]>([]);
   const knownBookingIdsRef = useRef<Set<string> | null>(null);
   const [bookingAlertIds, setBookingAlertIds] = useState<string[]>([]);
+  const knownBookingAlertIdsRef = useRef<Set<string> | null>(null);
+  const [bookingAlertBookings, setBookingAlertBookings] = useState<VendorBookingSummary[]>([]);
+  const dismissedBookingAlertIdsRef = useRef<Set<string>>(new Set());
+  const knownQueueTicketIdsRef = useRef<Set<string> | null>(null);
+  const [queueAlertIds, setQueueAlertIds] = useState<string[]>([]);
+  const dismissedQueueAlertIdsRef = useRef<Set<string>>(new Set());
   const [bookingDetailModalId, setBookingDetailModalId] = useState<string | null>(null);
   const [paymentRejectionReason, setPaymentRejectionReason] = useState("");
   const [error, setError] = useState("");
@@ -1057,6 +1064,7 @@ export default function VendorDashboardPage() {
     eventSource.onmessage = (event) => {
       const payload = JSON.parse(event.data) as QueueSnapshot;
       setSnapshot(payload);
+      syncQueueAlerts(payload.nextUp || [], { detectNew: true });
       if (currentSection === "bookings" && token && hasActiveSubscription && canOperateBookingQueue) {
         const { page, search, status, date } = bookingParamsRef.current;
         const statusQuery = status !== "all" ? `&status=${encodeURIComponent(status)}` : "";
@@ -1152,6 +1160,8 @@ export default function VendorDashboardPage() {
         setVendorBookings([]);
         setBookingAlertIds([]);
         knownBookingIdsRef.current = null;
+        setBookingAlertBookings([]);
+        knownBookingAlertIdsRef.current = null;
       }
       return undefined;
     }
@@ -1193,6 +1203,44 @@ export default function VendorDashboardPage() {
     bookingDateFilter
   ]);
 
+  useEffect(() => {
+    if (!selectedTenantSlug || !selectedLocationSlug || !token || !hasActiveSubscription || !canOperateBookingQueue) {
+      return undefined;
+    }
+
+    let active = true;
+    let pollTimer: number | null = null;
+
+    const pollBookingAlerts = async () => {
+      try {
+        const data = await apiRequest<VendorBookingsResponse>(
+          `/vendor/tenant/${selectedTenantSlug}/bookings?page=1&pageSize=10&location=${encodeURIComponent(selectedLocationSlug)}&status=pending`,
+          { token }
+        );
+
+        if (active) {
+          syncBookingAlerts(data.bookings, { detectNew: true });
+        }
+      } catch (loadError) {
+        if (active) {
+          console.warn("[booking-alert-poll-failed]", getErrorMessage(loadError));
+        }
+      }
+    };
+
+    void pollBookingAlerts();
+    pollTimer = window.setInterval(() => {
+      void pollBookingAlerts();
+    }, 15000);
+
+    return () => {
+      active = false;
+      if (pollTimer !== null) {
+        window.clearInterval(pollTimer);
+      }
+    };
+  }, [canOperateBookingQueue, hasActiveSubscription, selectedLocationSlug, selectedTenantSlug, token]);
+
   const activeSubscription =
     billing?.subscription?.status === "active" ? billing.subscription : null;
   const currentPlan = activeSubscription
@@ -1221,6 +1269,65 @@ export default function VendorDashboardPage() {
         : effectiveEntitlements.allowedHistoryExportRanges[0] || null
     );
   }, [effectiveEntitlements]);
+
+  useEffect(() => {
+    setBookingAlertIds([]);
+    setBookingAlertBookings([]);
+    knownBookingAlertIdsRef.current = null;
+    setQueueAlertIds([]);
+    knownQueueTicketIdsRef.current = null;
+    dismissedBookingAlertIdsRef.current = new Set();
+    dismissedQueueAlertIdsRef.current = new Set();
+  }, [selectedLocationSlug, selectedTenantSlug]);
+
+  useEffect(() => {
+    if (!selectedTenantSlug) {
+      return;
+    }
+
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const storageKey = getDismissedAlertStorageKey(selectedTenantSlug, selectedLocationSlug || null);
+    const rawValue = window.sessionStorage.getItem(storageKey);
+    if (!rawValue) {
+      dismissedBookingAlertIdsRef.current = new Set();
+      dismissedQueueAlertIdsRef.current = new Set();
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(rawValue) as {
+        booking?: string[];
+        queue?: string[];
+      };
+
+      dismissedBookingAlertIdsRef.current = new Set(
+        Array.isArray(parsed.booking) ? parsed.booking.filter((value) => typeof value === "string") : []
+      );
+      dismissedQueueAlertIdsRef.current = new Set(
+        Array.isArray(parsed.queue) ? parsed.queue.filter((value) => typeof value === "string") : []
+      );
+    } catch {
+      dismissedBookingAlertIdsRef.current = new Set();
+      dismissedQueueAlertIdsRef.current = new Set();
+    }
+  }, [selectedLocationSlug, selectedTenantSlug]);
+
+  function persistDismissedAlerts() {
+    if (typeof window === "undefined" || !selectedTenantSlug) {
+      return;
+    }
+
+    const storageKey = getDismissedAlertStorageKey(selectedTenantSlug, selectedLocationSlug || null);
+    const payload = {
+      booking: Array.from(dismissedBookingAlertIdsRef.current),
+      queue: Array.from(dismissedQueueAlertIdsRef.current)
+    };
+
+    window.sessionStorage.setItem(storageKey, JSON.stringify(payload));
+  }
 
   function showSuccessNotification(title: string, message: string) {
     notifications.show({
@@ -1260,7 +1367,83 @@ export default function VendorDashboardPage() {
   }
 
   function clearBookingAlert(bookingId: string) {
+    dismissedBookingAlertIdsRef.current.add(bookingId);
     setBookingAlertIds((current) => current.filter((item) => item !== bookingId));
+    persistDismissedAlerts();
+  }
+
+  function syncBookingAlerts(bookings: VendorBookingSummary[], options: { detectNew?: boolean } = {}) {
+    const nextIds = new Set(bookings.map((booking) => booking.id));
+    const previousIds = knownBookingAlertIdsRef.current;
+    const dismissedIds = dismissedBookingAlertIdsRef.current;
+
+    setBookingAlertBookings(bookings);
+
+    if (options.detectNew && previousIds) {
+      const newPendingIds = bookings
+        .filter(
+          (booking) =>
+            booking.status === "pending" &&
+            !previousIds.has(booking.id) &&
+            !dismissedIds.has(booking.id)
+        )
+        .map((booking) => booking.id);
+
+      if (newPendingIds.length) {
+        setBookingAlertIds((current) => [...new Set([...current, ...newPendingIds])]);
+      }
+    }
+
+    setBookingAlertIds((current) =>
+      current.filter((bookingId) => {
+        const found = bookings.find((booking) => booking.id === bookingId);
+        if (found) {
+          return found.status === "pending";
+        }
+        return true;
+      })
+    );
+
+    knownBookingAlertIdsRef.current = nextIds;
+  }
+
+  function syncQueueAlerts(nextUp: QueueListTicket[], options: { detectNew?: boolean } = {}) {
+    const nextIds = new Set(nextUp.map((ticket) => ticket.id));
+    const previousIds = knownQueueTicketIdsRef.current;
+    const dismissedIds = dismissedQueueAlertIdsRef.current;
+
+    if (options.detectNew && previousIds) {
+      const newWaitingIds = nextUp
+        .filter(
+          (ticket) =>
+            ticket.status === "waiting" &&
+            !previousIds.has(ticket.id) &&
+            !dismissedIds.has(ticket.id)
+        )
+        .map((ticket) => ticket.id);
+
+      if (newWaitingIds.length) {
+        setQueueAlertIds((current) => [...new Set([...current, ...newWaitingIds])]);
+      }
+    }
+
+    setQueueAlertIds((current) =>
+      current.filter((ticketId) => {
+        const found = nextUp.find((ticket) => ticket.id === ticketId);
+        if (found) {
+          return found.status === "waiting";
+        }
+        return true;
+      })
+    );
+
+    knownQueueTicketIdsRef.current = nextIds;
+  }
+
+  function clearQueueAlert(ticketId: string) {
+    dismissedQueueAlertIdsRef.current.add(ticketId);
+    setQueueAlertIds((current) => current.filter((item) => item !== ticketId));
+    persistDismissedAlerts();
   }
 
   function showInfoNotification(title: string, message: string) {
@@ -1278,6 +1461,10 @@ function isRecoveryWindowActive(value?: string | Date | null) {
   }
 
   return toTimestamp(value) > Date.now();
+}
+
+function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | null): string {
+  return `getprio.vendor-dashboard.dismissed-alerts:${tenantSlug}:${locationSlug || "primary"}`;
 }
 
   const joinUrl =
@@ -1431,9 +1618,16 @@ function isRecoveryWindowActive(value?: string | Date | null) {
   const activeBookingAlerts = useMemo(
     () =>
       bookingAlertIds
-        .map((bookingId) => vendorBookings.find((booking) => booking.id === bookingId))
+        .map((bookingId) => bookingAlertBookings.find((booking) => booking.id === bookingId))
         .filter((booking): booking is VendorBookingSummary => Boolean(booking && booking.status === "pending")),
-    [bookingAlertIds, vendorBookings]
+    [bookingAlertBookings, bookingAlertIds]
+  );
+  const activeQueueAlerts = useMemo(
+    () =>
+      queueAlertIds
+        .map((ticketId) => snapshot?.nextUp.find((ticket) => ticket.id === ticketId))
+        .filter((ticket): ticket is QueueListTicket => Boolean(ticket && ticket.status === "waiting")),
+    [queueAlertIds, snapshot?.nextUp]
   );
   const queueDayClosed = Boolean(snapshot?.queueDay?.isClosed);
   const queueDayPaused = Boolean(snapshot?.queueDay?.isPaused);
@@ -5536,8 +5730,37 @@ function isRecoveryWindowActive(value?: string | Date | null) {
     );
   }
 
-  function renderBookingAlertOverlay() {
-    const primaryAlert = activeBookingAlerts[0] || null;
+  function renderDashboardAlertOverlay() {
+    const overlayAlerts = [
+      ...activeQueueAlerts.map((ticket) => ({
+        actionLabel: "Open queue",
+        body: (
+          <>
+            {ticket.customerName} joined the queue as{" "}
+            <Text component="span" fw={900}>
+              #{ticket.ticketNumber}
+            </Text>
+          </>
+        ),
+        id: ticket.id,
+        kind: "queue" as const,
+        title: "New queue join"
+      })),
+      ...activeBookingAlerts.map((booking) => ({
+        actionLabel: "View booking details",
+        body: (
+          <>
+            {booking.customerName} sent a new booking{" "}
+            <Text component="span" fw={900}>
+              {booking.reference}
+            </Text>
+          </>
+        ),
+        id: booking.id,
+        kind: "booking" as const,
+        title: "New booking"
+      }))
+    ];
     const detailBooking = bookingDetailModalId
       ? vendorBookings.find((booking) => booking.id === bookingDetailModalId) || null
       : null;
@@ -5551,7 +5774,7 @@ function isRecoveryWindowActive(value?: string | Date | null) {
 
     return (
       <>
-        {primaryAlert ? (
+        {overlayAlerts.length ? (
           <Box
             style={{
               bottom: 24,
@@ -5560,38 +5783,57 @@ function isRecoveryWindowActive(value?: string | Date | null) {
               position: "fixed",
               transform: "translateX(-50%)",
               width: "calc(100vw - 64px)",
+              pointerEvents: "none",
               zIndex: 320
             }}
           >
-            <Notification
-              color="blue"
-              icon={<IconBellRinging size={20} />}
-              onClose={() => clearBookingAlert(primaryAlert.id)}
-              radius="md"
-              style={{ boxShadow: "0 12px 32px rgba(15, 23, 42, 0.16)" }}
-              withBorder
-            >
-              <Group justify="space-between" align="center" gap="md">
-                <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
-                  <Text fw={800}>New booking</Text>
-                  <Text style={{ overflowWrap: "anywhere" }}>
-                    {primaryAlert.customerName} sent a new booking{" "}
-                    <Text component="span" fw={900}>{primaryAlert.reference}</Text>
-                  </Text>
-                </Stack>
-                <Button
-                  color="dark"
-                  radius="xl"
-                  onClick={() => {
-                    setBookingDetailModalId(primaryAlert.id);
-                    clearBookingAlert(primaryAlert.id);
+            <Stack gap="sm" style={{ pointerEvents: "none" }}>
+              {overlayAlerts.map((alert) => (
+                <Notification
+                  color="blue"
+                  icon={<IconBellRinging size={20} />}
+                  key={alert.id}
+                  onClose={() => {
+                    if (alert.kind === "queue") {
+                      clearQueueAlert(alert.id);
+                      return;
+                    }
+
+                    clearBookingAlert(alert.id);
                   }}
-                  style={{ flex: "0 0 auto" }}
+                  radius="md"
+                  style={{
+                    boxShadow: "0 12px 32px rgba(15, 23, 42, 0.16)",
+                    pointerEvents: "auto"
+                  }}
+                  withBorder
                 >
-                  View booking details
-                </Button>
-              </Group>
-            </Notification>
+                  <Group justify="space-between" align="center" gap="md">
+                    <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
+                      <Text fw={800}>{alert.title}</Text>
+                      <Text style={{ overflowWrap: "anywhere" }}>{alert.body}</Text>
+                    </Stack>
+                    <Button
+                      color="dark"
+                      radius="xl"
+                      onClick={() => {
+                        if (alert.kind === "queue") {
+                          clearQueueAlert(alert.id);
+                          navigate("/dashboard/queue");
+                          return;
+                        }
+
+                        setBookingDetailModalId(alert.id);
+                        clearBookingAlert(alert.id);
+                      }}
+                      style={{ flex: "0 0 auto" }}
+                    >
+                      {alert.actionLabel}
+                    </Button>
+                  </Group>
+                </Notification>
+              ))}
+            </Stack>
           </Box>
         ) : null}
 
@@ -5911,7 +6153,7 @@ function isRecoveryWindowActive(value?: string | Date | null) {
       {renderCounterDialog()}
       {renderStaffDialog()}
       {renderThemeDialog()}
-      {renderBookingAlertOverlay()}
+      {renderDashboardAlertOverlay()}
       <Drawer
         classNames={{ body: "neura-drawer-body", content: "neura-drawer-content", header: "neura-drawer-header" }}
         hiddenFrom="lg"
