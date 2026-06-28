@@ -26,9 +26,20 @@ ALTER TABLE queue_day_closures
 ALTER TABLE queue_day_closures
   ADD COLUMN IF NOT EXISTS affected_ticket_ids BIGINT[] NOT NULL DEFAULT ARRAY[]::BIGINT[];
 
-UPDATE queue_day_closures
-SET closure_reason = COALESCE(closure_reason, reason)
-WHERE closure_reason IS NULL;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'queue_day_closures'
+      AND column_name = 'reason'
+  ) THEN
+    EXECUTE 'UPDATE queue_day_closures
+      SET closure_reason = COALESCE(closure_reason, reason)
+      WHERE closure_reason IS NULL';
+  END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS queue_day_closures_scope_created_idx
   ON queue_day_closures (tenant_id, location_id, queue_date_key, created_at DESC);
