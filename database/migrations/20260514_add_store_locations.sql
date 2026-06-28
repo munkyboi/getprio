@@ -95,16 +95,34 @@ ALTER TABLE counters
 ALTER TABLE tickets
   DROP CONSTRAINT IF EXISTS tickets_tenant_id_date_key_sequence_key;
 
-ALTER TABLE tickets
-  ADD CONSTRAINT tickets_tenant_location_date_sequence_key
-  UNIQUE (tenant_id, location_id, date_key, sequence);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'tickets_tenant_location_date_sequence_key'
+  ) THEN
+    ALTER TABLE tickets
+      ADD CONSTRAINT tickets_tenant_location_date_sequence_key
+      UNIQUE (tenant_id, location_id, date_key, sequence);
+  END IF;
+END $$;
 
 ALTER TABLE counters
   DROP CONSTRAINT IF EXISTS counters_tenant_id_key_date_key_key;
 
-ALTER TABLE counters
-  ADD CONSTRAINT counters_tenant_location_key_date_key
-  UNIQUE (tenant_id, location_id, key, date_key);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'counters_tenant_location_key_date_key'
+  ) THEN
+    ALTER TABLE counters
+      ADD CONSTRAINT counters_tenant_location_key_date_key
+      UNIQUE (tenant_id, location_id, key, date_key);
+  END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_store_locations_tenant_active
   ON store_locations (tenant_id, is_active);

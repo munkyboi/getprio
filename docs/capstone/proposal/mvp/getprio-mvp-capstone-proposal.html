@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GetPrio MVP Capstone Proposal</title>
+    <style>
+      @page {
+        size: A4;
+        margin: 0.8in;
+      }
+
+      :root {
+        --ink: #18212b;
+        --muted: #566577;
+        --line: #cfd7e2;
+        --soft: #f5f8fb;
+        --soft-2: #edf3f8;
+        --accent: #123a5c;
+        --accent-2: #2f5f86;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: #ffffff;
+        color: var(--ink);
+        font-family: "Times New Roman", Times, serif;
+        font-size: 11.5pt;
+        line-height: 1.52;
+      }
+
+      main {
+        max-width: 7.15in;
+        margin: 0 auto;
+      }
+
+      h1,
+      h2,
+      h3 {
+        margin: 0;
+        font-weight: 700;
+        color: var(--accent);
+      }
+
+      h1 {
+        font-size: 19pt;
+        line-height: 1.28;
+      }
+
+      h2 {
+        font-size: 13.5pt;
+        margin-bottom: 0.14in;
+      }
+
+      h3 {
+        font-size: 11.75pt;
+        margin-bottom: 0.08in;
+      }
+
+      p {
+        margin: 0 0 0.16in;
+        text-align: justify;
+      }
+
+      ul,
+      ol {
+        margin: 0 0 0.14in 0.28in;
+        padding: 0;
+      }
+
+      li {
+        margin-bottom: 0.08in;
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      .page {
+        min-height: calc(100vh - 1.6in);
+      }
+
+      .page-break {
+        break-before: page;
+        page-break-before: always;
+      }
+
+      .cover {
+        min-height: calc(100vh - 1.6in);
+        display: flex;
+        align-items: center;
+      }
+
+      .cover-inner {
+        width: 100%;
+        text-align: center;
+        padding: 0.15in 0.05in;
+      }
+
+      .eyebrow {
+        color: var(--accent-2);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-size: 10.5pt;
+        font-weight: 700;
+        margin-bottom: 0.14in;
+      }
+
+      .subtitle {
+        color: var(--muted);
+        font-size: 12pt;
+        margin-top: 0.16in;
+      }
+
+      .meta-stack {
+        margin-top: 0.42in;
+      }
+
+      .meta-stack p {
+        text-align: center;
+        margin-bottom: 0.08in;
+      }
+
+      .section {
+        margin-bottom: 0.28in;
+      }
+
+      .section-intro {
+        color: var(--muted);
+        margin-bottom: 0.16in;
+      }
+
+      .panel {
+        border: 1px solid var(--line);
+        background: linear-gradient(180deg, #ffffff 0%, #fbfcfe 100%);
+        padding: 0.16in 0.18in;
+        margin-bottom: 0.16in;
+      }
+
+      .summary-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.14in;
+        margin-bottom: 0.16in;
+      }
+
+      .summary-card {
+        border: 1px solid var(--line);
+        background: var(--soft);
+        padding: 0.16in 0.18in;
+      }
+
+      .summary-card strong {
+        display: block;
+        margin-bottom: 0.06in;
+        color: var(--accent);
+      }
+
+      .tag-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.07in;
+        margin-top: 0.08in;
+      }
+
+      .tag {
+        display: inline-block;
+        padding: 0.04in 0.08in;
+        border: 1px solid #9eb0c3;
+        border-radius: 999px;
+        background: #f8fbfe;
+        color: #2c4f72;
+        font-size: 10pt;
+      }
+
+      .info-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 0.1in 0 0.18in;
+      }
+
+      .info-table th,
+      .info-table td {
+        border: 1px solid var(--line);
+        padding: 0.1in 0.11in;
+        vertical-align: top;
+      }
+
+      .info-table th {
+        width: 28%;
+        background: var(--soft-2);
+        color: var(--accent);
+        text-align: left;
+      }
+
+      .two-col {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.16in;
+      }
+
+      .note-box {
+        border-left: 4px solid var(--accent);
+        background: #f7fafc;
+        padding: 0.16in 0.18in;
+        margin: 0.08in 0 0.16in;
+      }
+
+      .note-box p:last-child {
+        margin-bottom: 0;
+      }
+
+      .small {
+        font-size: 10.5pt;
+      }
+
+      @media print {
+        body {
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+
+        .page {
+          break-inside: avoid;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="page cover">
+        <div class="cover-inner">
+          <div class="eyebrow">GetPrio Capstone</div>
+          <h1>GetPrio MVP Capstone Proposal</h1>
+          <p class="subtitle">Service Marketplace and Booking Platform</p>
+
+          <div class="meta-stack">
+            <p>A concise proposal for the MVP slice of the GetPrio capstone.</p>
+            <p>Prepared for implementation, presentation, and IAS documentation alignment.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="page-break section">
+        <h2>Project Overview</h2>
+        <p>
+          GetPrio is a service marketplace and booking platform that connects customers with
+          vendors, supports public vendor discovery, enables service bookings, and preserves a
+          queue-based operational workflow for same-day service execution. The MVP focuses on the
+          core product slice needed to demonstrate a working capstone: public discovery,
+          role-aware booking, vendor operations, manual payment proof handling, notifications, and
+          security-conscious access control.
+        </p>
+
+        <h2>Problem Statement</h2>
+        <p>
+          Current local service discovery is fragmented. Customers need a single place to browse
+          vendors, view services, schedule bookings, and receive booking updates, while vendors
+          need a controlled dashboard to manage services, availability, bookings, and live
+          operations. The capstone MVP addresses this by combining marketplace discovery with
+          booking and queue execution in one coherent platform.
+        </p>
+
+        <div class="summary-grid">
+          <div class="summary-card">
+            <strong>MVP Focus</strong>
+            Public discovery, booking creation, vendor operations, and queue handoff.
+          </div>
+          <div class="summary-card">
+            <strong>Security Focus</strong>
+            Role-aware access, manual payment proof handling, and IAS traceability.
+          </div>
+        </div>
+
+        <h2>MVP Goals</h2>
+        <ul>
+          <li>Provide a public-facing vendor discovery experience for guests and customers.</li>
+          <li>Allow customers to create bookings from valid service slots instead of free-form datetime entry.</li>
+          <li>Support vendor-side booking review, payment proof verification, and check-in.</li>
+          <li>Preserve the queue lifecycle as the source of truth for live service-day execution.</li>
+          <li>Enforce role-aware access for Guest, Customer, Vendor Staff, Vendor Admin, and Platform Admin.</li>
+          <li>Support the IAS deliverables with traceable screens, forms, endpoints, and data handling rules.</li>
+        </ul>
+      </section>
+
+      <section class="section">
+        <h2>MVP Scope</h2>
+
+        <div class="two-col">
+          <div class="panel">
+            <h3>Public and Guest Experience</h3>
+            <ul>
+              <li>Landing page</li>
+              <li>Vendor search and discovery</li>
+              <li>Vendor profile and service details</li>
+              <li>Login, register, forgot password, and reset password</li>
+            </ul>
+          </div>
+
+          <div class="panel">
+            <h3>Customer Experience</h3>
+            <ul>
+              <li>Customer dashboard</li>
+              <li>Booking request flow</li>
+              <li>Booking confirmation and booking history</li>
+              <li>Payment placeholder for manual QR-based proof submission</li>
+              <li>Reviews and notifications</li>
+              <li>Profile and account settings</li>
+            </ul>
+          </div>
+
+          <div class="panel">
+            <h3>Vendor Experience</h3>
+            <ul>
+              <li>Vendor dashboard</li>
+              <li>Service catalog management</li>
+              <li>Booking management</li>
+              <li>Availability and scheduling</li>
+              <li>Assigned operational work for staff</li>
+              <li>Live queue handling after customer check-in</li>
+            </ul>
+          </div>
+
+          <div class="panel">
+            <h3>Platform Admin Experience</h3>
+            <ul>
+              <li>Platform admin dashboard</li>
+              <li>Vendor approval queue</li>
+              <li>User management and moderation</li>
+              <li>Disputes, audit logs, and compliance reporting</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>Core Product Decisions</h2>
+        <ul>
+          <li>Bookings reserve future service intent and do not automatically create queue tickets.</li>
+          <li>Queue tickets are created or linked when a vendor-side user checks in the customer.</li>
+          <li>Booking slots are computed from availability, service duration, and capacity.</li>
+          <li>Payment-required services use manual proof upload and vendor verification instead of full payment gateway processing.</li>
+          <li>Privileged roles require stronger authentication and server-side authorization, not just hidden UI.</li>
+        </ul>
+      </section>
+
+      <section class="section">
+        <h2>Security and Privacy Direction</h2>
+        <div class="note-box">
+          <p>
+            The MVP is also an IAS-ready prototype. The proposal must align product screens with
+            CIA and IAAA mapping, privacy impact assessment and data classification, authentication
+            and session management, RBAC design, and attack surface mapping.
+          </p>
+          <p class="small">
+            The implementation should avoid insecure shortcuts such as plaintext password storage
+            or token storage in localStorage.
+          </p>
+        </div>
+
+        <h2>Expected Deliverables</h2>
+        <ol>
+          <li>A working MVP prototype that demonstrates discovery, booking, vendor operations, and queue handoff.</li>
+          <li>A role-based screen inventory that maps to the capstone HCI requirements.</li>
+          <li>IAS module outputs grounded in the same screens, data fields, and workflows.</li>
+          <li>Supporting technical documentation that describes the implemented scope and security controls.</li>
+        </ol>
+      </section>
+
+      <section class="section">
+        <h2>Out of Scope for the MVP</h2>
+        <ul>
+          <li>Full production payment processing</li>
+          <li>Native mobile applications</li>
+          <li>External penetration testing without written authorization</li>
+          <li>Complex monetization features beyond the manual payment-proof flow</li>
+          <li>Rewriting the queue platform from scratch</li>
+        </ul>
+      </section>
+
+      <section class="section">
+        <h2>Success Criteria</h2>
+        <p>
+          The MVP is successful if a reviewer can discover a vendor publicly, create a valid
+          booking request, see vendor-side booking handling, confirm the booking lifecycle into the
+          queue flow, and trace the same product through the IAS documentation.
+        </p>
+      </section>
+
+      <section class="section">
+        <h2>Suggested Next Step</h2>
+        <p>
+          Use this document as the standalone MVP proposal reference, while keeping the existing
+          modified capstone proposal as the broader project narrative.
+        </p>
+      </section>
+    </main>
+  </body>
+</html>

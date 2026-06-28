@@ -313,7 +313,14 @@ function getPostOauthPath(intent, provider, user) {
 }
 
 function redirectOauthError(res, message) {
-  res.redirect(buildClientCallbackUrl({ error: message }));
+  const callbackUrl = buildClientCallbackUrl({ error: message });
+  if (!callbackUrl) {
+    const error = new Error("Unable to build OAuth callback URL.");
+    error.statusCode = 500;
+    throw error;
+  }
+
+  res.redirect(callbackUrl);
 }
 
 function getAuthMethodForProvider(provider) {
