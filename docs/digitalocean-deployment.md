@@ -193,6 +193,23 @@ B2_APPLICATION_KEY=
 B2_PUBLIC_BASE_URL=
 ```
 
+OAuth deployment checklist:
+
+1. Create OAuth apps in Google and/or Facebook developer consoles.
+2. Register the backend callback redirect URI exactly as:
+   - `https://api.getprio.online/api/auth/oauth/google/callback`
+   - `https://api.getprio.online/api/auth/oauth/facebook/callback`
+3. Set `SERVER_URL` to the API origin and `APP_BASE_URL` to the frontend origin.
+4. Populate `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `FACEBOOK_APP_ID`, and `FACEBOOK_APP_SECRET`.
+5. Verify `GET /api/auth/oauth/providers` returns the providers you intend to expose.
+6. Test `GET /api/auth/oauth/:provider/start` and the callback flow with a real provider account.
+
+OAuth behavior in this repo:
+
+- Provider availability is driven by the env vars above.
+- The backend completes the provider exchange and issues the app session tokens.
+- The frontend consumes the callback hash at `/oauth/callback`.
+
 Generate a strong JWT secret:
 
 ```bash
