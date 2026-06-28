@@ -1,12 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 912" role="img" aria-labelledby="logo-title logo-desc">
-  <title id="logo-title">GetPrio logo</title>
-  <desc id="logo-desc">A stylized lowercase gp monogram with a black g and orange p.</desc>
+  <title id="logo-title">GetPrio dark mode logo</title>
+  <desc id="logo-desc">A stylized lowercase gp monogram with a translucent white g and white p.</desc>
   <defs>
-    <linearGradient id="getprio-orange" x1="521" y1="70" x2="1048" y2="812" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#ff9f18"/>
-      <stop offset="0.48" stop-color="#ff7a0a"/>
-      <stop offset="1" stop-color="#ff6a00"/>
-    </linearGradient>
     <mask id="getprio-g-counter" maskUnits="userSpaceOnUse">
       <rect width="1180" height="912" fill="#fff"/>
       <ellipse cx="360" cy="363" rx="100" ry="96" fill="#000"/>
@@ -15,7 +10,7 @@
 
   <g mask="url(#getprio-g-counter)">
     <path
-      fill="#1f1d1b"
+      fill="rgba(255,255,255,0.5)"
       d="M 365 69
          C 202 69 84 188 84 363
          C 84 542 209 635 365 635
@@ -31,7 +26,7 @@
     />
 
     <path
-      fill="#1f1d1b"
+      fill="rgba(255,255,255,0.5)"
       d="M 497 650
          L 497 798
          C 448 840 391 861 323 855
@@ -44,7 +39,7 @@
   </g>
 
   <path
-    fill="url(#getprio-orange)"
+    fill="#ffffff"
     fill-rule="evenodd"
     d="M 790 69
        C 633 69 515 177 515 328

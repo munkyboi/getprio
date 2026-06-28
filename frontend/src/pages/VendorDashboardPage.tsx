@@ -5664,9 +5664,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     return (
       <Stack className={compact ? "neura-sidebar-content" : undefined} gap="lg" h="100%">
         <Group gap="sm" className="neura-brand">
-          <div className="neura-logo">P</div>
+          <img className="neura-logo" src="/logo-dark.svg" alt="" aria-hidden="true" />
           <div>
-            <Text fw={800}>Prio</Text>
+            <Text fw={800}>GetPrio</Text>
             <Text size="xs" c="dimmed">Queue Platform</Text>
           </div>
         </Group>

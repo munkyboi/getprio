@@ -508,16 +508,11 @@ button {
   min-height: calc(100vh - 81px);
 }
 
-.finazze-brand-mark {
-  display: grid;
-  place-items: center;
-  width: 42px;
-  height: 42px;
-  border-radius: 14px;
-  color: #16120f;
-  font-weight: 900;
-  background: linear-gradient(135deg, #fffaf0, #d8b95f);
-  box-shadow: 0 16px 35px rgba(36, 30, 25, 0.16);
+.getprio-brand-logo {
+  display: block;
+  width: 58px;
+  height: 45px;
+  object-fit: contain;
 }
 
 .finazze-hero {
@@ -2271,14 +2266,10 @@ h2 {
 }
 
 .neura-logo {
-  width: 42px;
-  height: 42px;
-  border-radius: 14px;
-  display: grid;
-  place-items: center;
-  background: linear-gradient(135deg, #f2f5f9, #8f9db4);
-  color: #11151c;
-  font-weight: 900;
+  width: 58px;
+  height: 45px;
+  display: block;
+  object-fit: contain;
 }
 
 .neura-nav-scroll {
