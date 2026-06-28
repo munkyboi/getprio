@@ -1,6 +1,7 @@
 import { StrictMode, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import {
   AppShell,
+  ActionIcon,
   Badge,
   Burger,
   Button,
@@ -32,7 +33,9 @@ import {
   IconReceipt,
   IconCalendarDollar,
   IconListDetails,
-  IconChevronRight
+  IconChevronRight,
+  IconMoon,
+  IconSun
 } from "@tabler/icons-react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
@@ -57,7 +60,9 @@ import "@mantine/notifications/styles.css";
 import "./styles.css";
 
 const STORAGE_KEY = "prio-platform-auth";
+const APPEARANCE_KEY = "prio-platform-appearance";
 const PHP = new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" });
+type PortalAppearance = "dark" | "light";
 type GenericRecord = Record<string, unknown>;
 
 const theme = createTheme({
@@ -90,8 +95,35 @@ function readToken() {
   return localStorage.getItem(STORAGE_KEY) || "";
 }
 
+function readAppearance(): PortalAppearance {
+  return localStorage.getItem(APPEARANCE_KEY) === "light" ? "light" : "dark";
+}
+
 function showSaved(title: string) {
   notifications.show({ color: "teal", title, message: "Changes saved successfully." });
+}
+
+function AppearanceToggle({
+  appearance,
+  onToggle
+}: {
+  appearance: PortalAppearance;
+  onToggle: () => void;
+}) {
+  const isDark = appearance === "dark";
+  const Icon = isDark ? IconSun : IconMoon;
+  return (
+    <ActionIcon
+      aria-label={isDark ? "Switch platform portal to light mode" : "Switch platform portal to dark mode"}
+      className="portal-appearance-toggle"
+      onClick={onToggle}
+      radius="xl"
+      size="lg"
+      variant="subtle"
+    >
+      <Icon size={18} />
+    </ActionIcon>
+  );
 }
 
 function StatusBadge({ value }: { value: unknown }) {
@@ -135,7 +167,15 @@ function DataTable({
   );
 }
 
-function LoginPanel({ onLogin }: { onLogin: (token: string, user: UserSummary) => void }) {
+function LoginPanel({
+  appearance,
+  onAppearanceToggle,
+  onLogin
+}: {
+  appearance: PortalAppearance;
+  onAppearanceToggle: () => void;
+  onLogin: (token: string, user: UserSummary) => void;
+}) {
   const [form, setForm] = useState<LoginRequest>({ email: "", password: "" });
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -163,10 +203,21 @@ function LoginPanel({ onLogin }: { onLogin: (token: string, user: UserSummary) =
       <Paper className="portal-card portal-login-card" p="xl">
         <form onSubmit={handleSubmit}>
           <Stack gap="lg">
-            <div>
-              <Text className="portal-label">GetPrio Platform</Text>
-              <Title order={1}>Operations portal</Title>
-            </div>
+            <Group align="flex-start" justify="space-between" gap="md">
+              <div>
+                <Group className="portal-brand" gap="sm">
+                  <img
+                    className="portal-logo"
+                    src={appearance === "dark" ? "/logo-dark.svg" : "/logo.svg"}
+                    alt=""
+                    aria-hidden="true"
+                  />
+                  <Text className="portal-label">GetPrio Platform</Text>
+                </Group>
+                <Title order={1}>Operations portal</Title>
+              </div>
+              <AppearanceToggle appearance={appearance} onToggle={onAppearanceToggle} />
+            </Group>
             <TextInput label="Email" type="email" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} />
             <PasswordInput label="Password" value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} />
             {error ? <Text c="red">{error}</Text> : null}
@@ -341,7 +392,13 @@ function RecordsPage({ token, endpoint, columns, emptyLabel }: { token: string; 
   return <DataTable rows={rows} columns={columns} emptyLabel={emptyLabel} />;
 }
 
-function PortalApp() {
+function PortalApp({
+  appearance,
+  onAppearanceToggle
+}: {
+  appearance: PortalAppearance;
+  onAppearanceToggle: () => void;
+}) {
   const [token, setToken] = useState(readToken);
   const [user, setUser] = useState<UserSummary | null>(null);
   const [opened, { toggle, close }] = useDisclosure(false);
@@ -359,7 +416,13 @@ function PortalApp() {
   }, [token]);
 
   if (!token || !user) {
-    return <LoginPanel onLogin={(nextToken, nextUser) => { setToken(nextToken); setUser(nextUser); }} />;
+    return (
+      <LoginPanel
+        appearance={appearance}
+        onAppearanceToggle={onAppearanceToggle}
+        onLogin={(nextToken, nextUser) => { setToken(nextToken); setUser(nextUser); }}
+      />
+    );
   }
 
   const pageTitle = navItems.find((item) => item.to === location.pathname)?.label || "Overview";
@@ -373,7 +436,15 @@ function PortalApp() {
         <Stack h="100%" justify="space-between">
           <Stack>
             <div>
-              <Text className="portal-label">GetPrio</Text>
+              <Group className="portal-brand" gap="sm">
+                <img
+                  className="portal-logo"
+                  src={appearance === "dark" ? "/logo-dark.svg" : "/logo.svg"}
+                  alt=""
+                  aria-hidden="true"
+                />
+                <Text className="portal-label">GetPrio</Text>
+              </Group>
               <Title order={2}>Platform</Title>
             </div>
             <Paper className="portal-profile-card" p="md">
@@ -422,7 +493,10 @@ function PortalApp() {
                   <Title order={1}>{pageTitle}</Title>
                 </div>
               </Group>
-              <Text c="dimmed">{user.email}</Text>
+              <Group gap="sm">
+                <Text c="dimmed">{user.email}</Text>
+                <AppearanceToggle appearance={appearance} onToggle={onAppearanceToggle} />
+              </Group>
             </Group>
             <Routes>
               <Route path="/" element={<Navigate to="/overview" replace />} />
@@ -454,11 +528,22 @@ function PortalApp() {
 }
 
 function Root() {
+  const [appearance, setAppearance] = useState<PortalAppearance>(readAppearance);
+
+  useEffect(() => {
+    localStorage.setItem(APPEARANCE_KEY, appearance);
+    document.documentElement.dataset.portalTheme = appearance;
+  }, [appearance]);
+
+  const toggleAppearance = () => {
+    setAppearance((current) => current === "dark" ? "light" : "dark");
+  };
+
   return (
-    <MantineProvider theme={theme} forceColorScheme="dark">
+    <MantineProvider theme={theme} forceColorScheme={appearance}>
       <Notifications position="top-right" />
       <BrowserRouter>
-        <PortalApp />
+        <PortalApp appearance={appearance} onAppearanceToggle={toggleAppearance} />
       </BrowserRouter>
     </MantineProvider>
   );
