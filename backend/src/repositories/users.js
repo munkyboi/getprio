@@ -1,25 +1,25 @@
 const db = require("../config/db");
 
 const USER_COLUMNS = `
-  id,
-  name,
-  username,
-  email,
-  phone,
-  password_hash,
-  password_hash_algorithm,
-  email_verified,
-  last_login_provider,
-  roles,
-  account_locked_until,
-  failed_login_count,
-  last_failed_login_at,
-  last_password_changed_at,
-  mfa_enabled,
-  mfa_required,
-  notification_settings,
-  created_at,
-  updated_at
+  users.id,
+  users.name,
+  users.username,
+  users.email,
+  users.phone,
+  users.password_hash,
+  users.password_hash_algorithm,
+  users.email_verified,
+  users.last_login_provider,
+  users.roles,
+  users.account_locked_until,
+  users.failed_login_count,
+  users.last_failed_login_at,
+  users.last_password_changed_at,
+  users.mfa_enabled,
+  users.mfa_required,
+  users.notification_settings,
+  users.created_at,
+  users.updated_at
 `;
 
 function mapOauthAccount(row) {
