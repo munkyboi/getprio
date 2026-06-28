@@ -1,0 +1,743 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GetPrio Platform Technologies</title>
+    <style>
+      @page {
+        size: A4;
+        margin: 0.78in;
+      }
+
+      :root {
+        --ink: #17212b;
+        --muted: #5a6878;
+        --line: #d3dbe4;
+        --surface: #f6f8fb;
+        --surface-2: #eef4f8;
+        --accent: #12395b;
+        --accent-2: #2f5f86;
+        --accent-3: #8c5a16;
+        --success: #2f7d5f;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at top left, rgba(211, 231, 245, 0.55), transparent 34%),
+          radial-gradient(circle at 92% 12%, rgba(255, 232, 186, 0.55), transparent 24%),
+          linear-gradient(180deg, #ffffff 0%, #fbfcfe 100%);
+        font-family: "Times New Roman", Times, serif;
+        font-size: 11.5pt;
+        line-height: 1.52;
+      }
+
+      main {
+        width: min(7.2in, calc(100vw - 1.4in));
+        margin: 0 auto;
+        padding: 0.12in 0 0.36in;
+      }
+
+      h1,
+      h2,
+      h3 {
+        margin: 0;
+        font-weight: 700;
+        color: var(--accent);
+      }
+
+      h1 {
+        font-size: 19.5pt;
+        line-height: 1.22;
+        letter-spacing: 0.01em;
+      }
+
+      h2 {
+        font-size: 14pt;
+        margin-bottom: 0.14in;
+      }
+
+      h3 {
+        font-size: 11.9pt;
+        margin-bottom: 0.08in;
+      }
+
+      p {
+        margin: 0 0 0.16in;
+        text-align: justify;
+      }
+
+      ul,
+      ol {
+        margin: 0 0 0.14in 0.28in;
+        padding: 0;
+      }
+
+      li {
+        margin-bottom: 0.08in;
+      }
+
+      .hero {
+        margin: 0.08in 0 0.22in;
+        padding: 0.28in 0.28in 0.24in;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: linear-gradient(180deg, #ffffff 0%, #fcfdff 100%);
+        box-shadow: 0 16px 34px rgba(25, 38, 55, 0.06);
+      }
+
+      .eyebrow {
+        color: var(--accent-2);
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        font-size: 10.25pt;
+        font-weight: 700;
+        margin-bottom: 0.12in;
+      }
+
+      .subtitle {
+        color: var(--muted);
+        margin-top: 0.1in;
+        max-width: 6.2in;
+      }
+
+      .meta-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 0.12in;
+        margin-top: 0.18in;
+      }
+
+      .meta-card {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 0.14in 0.16in;
+      }
+
+      .meta-card strong {
+        display: block;
+        margin-bottom: 0.05in;
+        color: var(--accent);
+      }
+
+      .section {
+        margin: 0 0 0.28in;
+      }
+
+      .section-note {
+        color: var(--muted);
+        margin-bottom: 0.14in;
+      }
+
+      .panel {
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        background: linear-gradient(180deg, #ffffff 0%, #fbfcfe 100%);
+        padding: 0.18in 0.2in;
+      }
+
+      .stack-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 0.12in;
+      }
+
+      .stack-card {
+        border: 1px solid var(--line);
+        background: var(--surface);
+        border-radius: 14px;
+        padding: 0.14in 0.16in;
+      }
+
+      .stack-card strong {
+        display: block;
+        color: var(--accent);
+        margin-bottom: 0.04in;
+      }
+
+      .tag-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.07in;
+        margin-top: 0.08in;
+      }
+
+      .tag {
+        display: inline-block;
+        border-radius: 999px;
+        padding: 0.04in 0.08in;
+        border: 1px solid #aebdca;
+        background: #f8fbfe;
+        color: #315173;
+        font-size: 9.9pt;
+      }
+
+      .diagram {
+        margin-top: 0.1in;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        overflow: hidden;
+        background: #ffffff;
+      }
+
+      .diagram svg {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+
+      .caption {
+        margin-top: 0.09in;
+        color: var(--muted);
+        font-size: 10.4pt;
+        text-align: center;
+      }
+
+      .two-col {
+        display: grid;
+        grid-template-columns: 1.05fr 0.95fr;
+        gap: 0.16in;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 0.08in;
+      }
+
+      th,
+      td {
+        border: 1px solid var(--line);
+        padding: 0.1in 0.11in;
+        vertical-align: top;
+      }
+
+      th {
+        background: var(--surface-2);
+        color: var(--accent);
+        text-align: left;
+      }
+
+      .note-box {
+        border-left: 4px solid var(--accent);
+        background: #f7fbfd;
+        padding: 0.16in 0.18in;
+        border-radius: 0 14px 14px 0;
+      }
+
+      .flow-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.16in;
+        margin-top: 0.14in;
+      }
+
+      .note-box p:last-child {
+        margin-bottom: 0;
+      }
+
+      .small {
+        font-size: 10.3pt;
+      }
+
+      .page-break {
+        break-before: page;
+        page-break-before: always;
+      }
+
+      @media print {
+        body {
+          background: #ffffff;
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+
+        .hero,
+        .panel,
+        .stack-card,
+        .meta-card,
+        .diagram,
+        .note-box {
+          box-shadow: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="hero">
+        <div class="eyebrow">GetPrio Capstone Technology Brief</div>
+        <h1>Platform Technologies and Architecture</h1>
+        <p class="subtitle">
+          A repository-grounded overview of the GetPrio stack, showing the frontend and platform
+          interfaces, Express API, PostgreSQL data layer, supporting services, and the main data
+          flows used by the MVP and capstone deliverables.
+        </p>
+
+        <div class="meta-grid">
+          <div class="meta-card">
+            <strong>Primary Stack</strong>
+            React + Vite, Express, PostgreSQL, TypeScript
+          </div>
+          <div class="meta-card">
+            <strong>Operational Pattern</strong>
+            Multi-tenant API with role-aware dashboards and live updates
+          </div>
+          <div class="meta-card">
+            <strong>Deployment Shape</strong>
+            Workspace-based monorepo with Docker Compose support
+          </div>
+        </div>
+      </section>
+
+      <section class="section panel">
+        <h2>Technology Stack</h2>
+        <p class="section-note">
+          The repo is organized as a monorepo with a customer frontend, a platform operations
+          dashboard, and an Express backend backed by PostgreSQL.
+        </p>
+
+        <div class="stack-grid">
+          <div class="stack-card">
+            <strong>Frontend Client</strong>
+            <p>React 18 + Vite + TypeScript</p>
+            <p class="small">Used for the customer-facing app in <code>frontend/</code>.</p>
+            <div class="tag-row">
+              <span class="tag">React Router</span>
+              <span class="tag">Mantine UI</span>
+              <span class="tag">Tabler Icons</span>
+              <span class="tag">Notifications</span>
+            </div>
+          </div>
+
+          <div class="stack-card">
+            <strong>Platform Dashboard</strong>
+            <p>Separate React + Vite app for platform administration</p>
+            <p class="small">Runs independently in <code>platform-dashboard/</code>.</p>
+            <div class="tag-row">
+              <span class="tag">Mantine UI</span>
+              <span class="tag">React Router</span>
+              <span class="tag">Auth token storage</span>
+            </div>
+          </div>
+
+          <div class="stack-card">
+            <strong>Backend API</strong>
+            <p>Express 4 API written in TypeScript</p>
+            <p class="small">Implements auth, account, billing, platform, public, and vendor routes.</p>
+            <div class="tag-row">
+              <span class="tag">JWT</span>
+              <span class="tag">bcryptjs</span>
+              <span class="tag">CORS</span>
+              <span class="tag">Morgan</span>
+            </div>
+          </div>
+
+          <div class="stack-card">
+            <strong>Data Layer</strong>
+            <p>PostgreSQL with schema migrations</p>
+            <p class="small">Database bootstrap and migration scripts live in <code>database/</code> and <code>scripts/</code>.</p>
+            <div class="tag-row">
+              <span class="tag">SQL migrations</span>
+              <span class="tag">Atomic counters</span>
+              <span class="tag">Role tables</span>
+            </div>
+          </div>
+
+          <div class="stack-card">
+            <strong>Storage and Media</strong>
+            <p>Backblaze B2 S3-compatible object storage</p>
+            <p class="small">Used for public assets, payment proof uploads, and signed URLs.</p>
+            <div class="tag-row">
+              <span class="tag">AWS SDK S3</span>
+              <span class="tag">Private proofs</span>
+              <span class="tag">Public board assets</span>
+            </div>
+          </div>
+
+          <div class="stack-card">
+            <strong>Messaging and Notifications</strong>
+            <p>Email and queue notifications through service integrations</p>
+            <p class="small">The codebase includes Resend/SMTP-style email wiring and SMS-oriented notification flows.</p>
+            <div class="tag-row">
+              <span class="tag">Nodemailer</span>
+              <span class="tag">Resend</span>
+              <span class="tag">Semaphore-ready SMS</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section panel">
+        <h2>Technical Architecture Diagram</h2>
+        <p class="section-note">
+          The architecture uses separate browser apps that talk to the same Express API, which
+          orchestrates authentication, queue operations, bookings, billing, and platform
+          administration.
+        </p>
+
+        <div class="diagram">
+          <svg viewBox="0 0 1320 620" role="img" aria-labelledby="archTitle archDesc">
+            <title id="archTitle">GetPrio technical architecture diagram</title>
+            <desc id="archDesc">Customers, vendors, and administrators use browser applications that connect to an Express API, which serves business services and persists state in PostgreSQL while integrating with storage and notification providers.</desc>
+            <defs>
+              <style>
+                .bg { fill: #fbfcfe; }
+                .lane { fill: #ffffff; stroke: #d7dfe8; stroke-width: 1.4; }
+                .box { fill: #ffffff; stroke: #cad4de; stroke-width: 1.4; }
+                .client { fill: #fff4de; stroke: #e4a235; }
+                .api { fill: #eef7ff; stroke: #64a2d9; }
+                .svc { fill: #effaf2; stroke: #6bb886; }
+                .data { fill: #f3efff; stroke: #8f70d4; }
+                .ext { fill: #fff0f0; stroke: #d06c6c; }
+                .title { font: 700 24px "Times New Roman", serif; fill: #12395b; }
+                .label { font: 700 16px "Times New Roman", serif; fill: #12395b; }
+                .text { font: 14px "Times New Roman", serif; fill: #425468; }
+                .small { font: 12px "Times New Roman", serif; fill: #627385; }
+                .flow { fill: none; stroke: #5d6876; stroke-width: 2.1; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+                .flow-soft { fill: none; stroke: #97a2af; stroke-width: 1.8; stroke-dasharray: 7 6; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrowSoft); }
+                .chip { fill: #fff4df; stroke: #f0cb80; }
+                .chip-text { font: 700 12px "Times New Roman", serif; fill: #7e5210; }
+              </style>
+              <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#5d6876" />
+              </marker>
+              <marker id="arrowSoft" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#97a2af" />
+              </marker>
+            </defs>
+
+            <rect class="bg" x="0" y="0" width="1320" height="620" rx="20" />
+            <text class="title" x="34" y="42">GetPrio Technical Architecture</text>
+            <text class="small" x="36" y="66">Browser apps, API services, data persistence, and external integrations share one deployment boundary in the current MVP.</text>
+
+            <rect class="lane" x="26" y="98" width="240" height="438" rx="18" />
+            <text class="label" x="48" y="130">Client Apps</text>
+
+            <rect class="box client" x="46" y="154" width="198" height="76" rx="14" />
+            <text class="label" x="66" y="184">Customer Frontend</text>
+            <text class="text" x="66" y="205">React + Vite + Mantine</text>
+
+            <rect class="box client" x="46" y="250" width="198" height="76" rx="14" />
+            <text class="label" x="66" y="280">Platform Dashboard</text>
+            <text class="text" x="66" y="301">Separate React + Vite app</text>
+
+            <rect class="box client" x="46" y="346" width="198" height="76" rx="14" />
+            <text class="label" x="66" y="376">Public Views</text>
+            <text class="text" x="66" y="397">Queue board and public pages</text>
+
+            <rect class="box client" x="46" y="442" width="198" height="76" rx="14" />
+            <text class="label" x="66" y="472">Role-Based Access</text>
+            <text class="text" x="66" y="493">Customer, vendor, admin UI</text>
+
+            <rect class="lane" x="300" y="98" width="330" height="438" rx="18" />
+            <text class="label" x="322" y="130">Express API</text>
+
+            <rect class="box api" x="322" y="154" width="286" height="70" rx="14" />
+            <text class="label" x="344" y="182">Authentication</text>
+            <text class="text" x="344" y="203">JWT login, password hashing, session-aware routes</text>
+
+            <rect class="box api" x="322" y="240" width="286" height="70" rx="14" />
+            <text class="label" x="344" y="268">Business Routes</text>
+            <text class="text" x="344" y="289">Public, account, vendor, billing, platform APIs</text>
+
+            <rect class="box api" x="322" y="326" width="286" height="70" rx="14" />
+            <text class="label" x="344" y="354">Middleware</text>
+            <text class="text" x="344" y="375">CORS, JSON parsing, logging, error handling</text>
+
+            <rect class="box api" x="322" y="412" width="286" height="70" rx="14" />
+            <text class="label" x="344" y="440">Queue and Booking Logic</text>
+            <text class="text" x="344" y="461">State transitions, live queue updates, payment checks</text>
+
+            <rect class="lane" x="666" y="98" width="284" height="438" rx="18" />
+            <text class="label" x="688" y="130">Services</text>
+
+            <rect class="box svc" x="688" y="154" width="240" height="66" rx="14" />
+            <text class="label" x="708" y="181">Queue Service</text>
+            <text class="text" x="708" y="202">Ticket generation and workflow state</text>
+
+            <rect class="box svc" x="688" y="235" width="240" height="66" rx="14" />
+            <text class="label" x="708" y="262">Notification Service</text>
+            <text class="text" x="708" y="283">Email, SMS, and browser notification hooks</text>
+
+            <rect class="box svc" x="688" y="316" width="240" height="66" rx="14" />
+            <text class="label" x="708" y="343">Storage Services</text>
+            <text class="text" x="708" y="364">Signed uploads for payment proof and assets</text>
+
+            <rect class="box svc" x="688" y="397" width="240" height="66" rx="14" />
+            <text class="label" x="708" y="424">Payment and Billing</text>
+            <text class="text" x="708" y="445">Queue fees, join payments, proof review</text>
+
+            <rect class="lane" x="982" y="98" width="312" height="438" rx="18" />
+            <text class="label" x="1004" y="130">Data and Integrations</text>
+
+            <rect class="box data" x="1004" y="154" width="268" height="70" rx="14" />
+            <text class="label" x="1024" y="182">PostgreSQL</text>
+            <text class="text" x="1024" y="203">Users, tenants, queue state, bookings, logs</text>
+
+            <rect class="box data" x="1004" y="240" width="268" height="70" rx="14" />
+            <text class="label" x="1024" y="268">Migration Scripts</text>
+            <text class="text" x="1024" y="289">Schema bootstrap and repeatable migrations</text>
+
+            <rect class="box ext" x="1004" y="326" width="268" height="70" rx="14" />
+            <text class="label" x="1024" y="354">Backblaze B2</text>
+            <text class="text" x="1024" y="375">Public media and private proof objects</text>
+
+            <rect class="box ext" x="1004" y="412" width="268" height="70" rx="14" />
+            <text class="label" x="1024" y="440">Email / SMS Providers</text>
+            <text class="text" x="1024" y="461">Resend, SMTP, Semaphore-ready delivery</text>
+
+            <path class="flow" d="M 244 195 C 272 195, 278 195, 300 195" />
+            <path class="flow" d="M 244 291 C 272 291, 278 291, 300 291" />
+            <path class="flow" d="M 244 387 C 272 387, 278 387, 300 387" />
+            <path class="flow" d="M 244 483 C 272 483, 278 483, 300 483" />
+
+            <path class="flow" d="M 630 189 C 650 189, 655 189, 688 189" />
+            <path class="flow" d="M 630 275 C 650 275, 655 275, 688 275" />
+            <path class="flow" d="M 630 361 C 650 361, 655 361, 688 361" />
+            <path class="flow" d="M 630 447 C 650 447, 655 447, 688 447" />
+
+            <path class="flow" d="M 928 189 C 954 189, 962 189, 1004 189" />
+            <path class="flow" d="M 928 275 C 954 275, 962 275, 1004 275" />
+            <path class="flow" d="M 928 361 C 954 361, 962 361, 1004 361" />
+            <path class="flow" d="M 928 447 C 954 447, 962 447, 1004 447" />
+
+            <rect class="chip" x="38" y="558" width="1244" height="34" rx="999" />
+            <text class="chip-text" x="62" y="580">Shared security boundary</text>
+            <text class="chip-text" x="235" y="580">JWT-protected routes</text>
+            <text class="chip-text" x="410" y="580">Role-aware dashboards</text>
+            <text class="chip-text" x="622" y="580">SSE/live updates in queue surfaces</text>
+            <text class="chip-text" x="920" y="580">Private payment proof storage</text>
+          </svg>
+        </div>
+
+        <p class="caption">
+          Figure 1. The current deployment pattern uses separate browser apps, one Express API, a
+          PostgreSQL data layer, and external services for media and notifications.
+        </p>
+      </section>
+
+      <section class="section panel">
+        <h2>Data Flow Diagram</h2>
+        <p class="section-note">
+          This diagram shows the movement of data in the capstone project, starting from customer
+          input, moving through the application layer, then into storage, notifications, and live
+          queue updates.
+        </p>
+
+        <div class="diagram">
+          <svg viewBox="0 0 1320 560" role="img" aria-labelledby="dfdTitle dfdDesc">
+            <title id="dfdTitle">GetPrio data flow diagram</title>
+            <desc id="dfdDesc">A customer submits booking details through the frontend, the API validates and persists the request in PostgreSQL, signed proof uploads flow to Backblaze B2, and vendor or administrator users review the booking lifecycle and notifications.</desc>
+            <defs>
+              <style>
+                .bg { fill: #fcfdff; }
+                .node { fill: #ffffff; stroke: #cad4de; stroke-width: 1.4; }
+                .client { fill: #fff4de; stroke: #e4a235; }
+                .api { fill: #eef7ff; stroke: #64a2d9; }
+                .store { fill: #f3efff; stroke: #8f70d4; }
+                .ext { fill: #fff0f0; stroke: #d06c6c; }
+                .stage { fill: #f4fbf5; stroke: #72ba8b; }
+                .text-title { font: 700 18px "Times New Roman", serif; fill: #12395b; }
+                .text { font: 14px "Times New Roman", serif; fill: #415263; }
+                .small { font: 12px "Times New Roman", serif; fill: #627385; }
+                .flow { fill: none; stroke: #5d6876; stroke-width: 2.1; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow2); }
+                .flow-soft { fill: none; stroke: #97a2af; stroke-width: 1.7; stroke-dasharray: 7 6; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrowSoft2); }
+                .badge { fill: #fff6e1; stroke: #f0cb80; }
+                .badge-text { font: 700 12px "Times New Roman", serif; fill: #7e5210; }
+              </style>
+              <marker id="arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#5d6876" />
+              </marker>
+              <marker id="arrowSoft2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#97a2af" />
+              </marker>
+            </defs>
+
+            <rect class="bg" x="0" y="0" width="1320" height="560" rx="20" />
+            <text class="text-title" x="34" y="42">Data Flow: Booking, Proof Upload, and Queue Update</text>
+            <text class="small" x="36" y="65">The flow separates user input, application processing, database storage, private object storage, and outward notifications.</text>
+
+            <rect class="node client" x="50" y="120" width="208" height="84" rx="14" />
+            <text class="text-title" x="72" y="153">Customer</text>
+            <text class="text" x="72" y="176">Searches vendors, selects a</text>
+            <text class="text" x="72" y="194">slot, and submits a booking</text>
+
+            <rect class="node client" x="50" y="244" width="208" height="84" rx="14" />
+            <text class="text-title" x="72" y="277">Vendor / Staff</text>
+            <text class="text" x="72" y="300">Reviews bookings, verifies</text>
+            <text class="text" x="72" y="318">payment, checks in customer</text>
+
+            <rect class="node client" x="50" y="368" width="208" height="84" rx="14" />
+            <text class="text-title" x="72" y="401">Platform Admin</text>
+            <text class="text" x="72" y="424">Reviews governance, audit,</text>
+            <text class="text" x="72" y="442">and dispute records</text>
+
+            <rect class="node api" x="324" y="100" width="260" height="104" rx="16" />
+            <text class="text-title" x="348" y="136">Frontend Booking UI</text>
+            <text class="text" x="348" y="160">Collects form input, slot choice,</text>
+            <text class="text" x="348" y="180">OTP result, and payment proof actions</text>
+
+            <rect class="node api" x="324" y="244" width="260" height="104" rx="16" />
+            <text class="text-title" x="348" y="280">Express Booking API</text>
+            <text class="text" x="348" y="304">Receives requests, validates data,</text>
+            <text class="text" x="348" y="324">applies business rules, returns results</text>
+
+            <rect class="node stage" x="654" y="100" width="240" height="104" rx="16" />
+            <text class="text-title" x="678" y="136">Business Services</text>
+            <text class="text" x="678" y="160">Transforms request data into</text>
+            <text class="text" x="678" y="180">booking, queue, storage, and alert actions</text>
+
+            <rect class="node store" x="654" y="244" width="240" height="104" rx="16" />
+            <text class="text-title" x="678" y="280">PostgreSQL</text>
+            <text class="text" x="678" y="304">Stores accounts, vendors, bookings,</text>
+            <text class="text" x="678" y="324">queue state, audit logs, and settings</text>
+
+            <rect class="node ext" x="980" y="100" width="248" height="104" rx="16" />
+            <text class="text-title" x="1004" y="136">Backblaze B2</text>
+            <text class="text" x="1004" y="160">Receives uploaded proof images and</text>
+            <text class="text" x="1004" y="180">stores them behind signed access rules</text>
+
+            <rect class="node ext" x="980" y="244" width="248" height="104" rx="16" />
+            <text class="text-title" x="1004" y="280">Notification Providers</text>
+            <text class="text" x="1004" y="304">Receive outgoing email or SMS payloads</text>
+            <text class="text" x="1004" y="324">for status updates and reminders</text>
+
+            <rect class="node ext" x="980" y="388" width="248" height="84" rx="16" />
+            <text class="text-title" x="1004" y="421">Queue Live Updates</text>
+            <text class="text" x="1004" y="445">SSE sends current queue changes to clients</text>
+
+            <path class="flow" d="M 258 162 C 292 162, 302 150, 324 150" />
+            <path class="flow" d="M 584 152 C 616 152, 622 150, 654 150" />
+            <path class="flow" d="M 894 150 C 926 150, 944 150, 980 150" />
+
+            <path class="flow" d="M 584 296 C 616 296, 624 296, 654 296" />
+            <path class="flow" d="M 894 296 C 926 296, 944 296, 980 296" />
+
+            <path class="flow-soft" d="M 258 286 C 292 286, 302 286, 324 286" />
+            <path class="flow-soft" d="M 258 410 C 292 410, 302 410, 324 410" />
+            <path class="flow-soft" d="M 894 416 C 920 416, 944 416, 980 416" />
+
+            <path class="flow-soft" d="M 734 348 C 734 378, 734 390, 734 420" />
+            <path class="flow-soft" d="M 894 348 C 928 348, 944 348, 980 348" />
+            <path class="flow-soft" d="M 560 348 C 612 348, 620 348, 654 348" />
+
+            <rect class="badge" x="110" y="486" width="1110" height="34" rx="999" />
+            <text class="badge-text" x="132" y="508">1. Customer enters data</text>
+            <text class="badge-text" x="330" y="508">2. Frontend sends request</text>
+            <text class="badge-text" x="552" y="508">3. API validates and processes</text>
+            <text class="badge-text" x="828" y="508">4. Database and storage persist data</text>
+            <text class="badge-text" x="1112" y="508">5. Updates are sent back out</text>
+          </svg>
+        </div>
+
+        <p class="caption">
+          Figure 2. Data moves from user input, into the frontend, through the backend and service
+          layer, then into storage and outbound update channels.
+        </p>
+
+        <div class="flow-grid">
+          <div class="note-box">
+            <h3>How the Data Moves</h3>
+            <ol>
+              <li>The customer enters booking information in the frontend interface.</li>
+              <li>The frontend sends the request to the Express API.</li>
+              <li>The API validates the request and applies booking, queue, and payment rules.</li>
+              <li>Validated records are stored in PostgreSQL, while proof files are uploaded to Backblaze B2.</li>
+              <li>The system then sends results to vendors, administrators, and customer-facing live views through notifications or SSE updates.</li>
+            </ol>
+          </div>
+
+          <div class="note-box">
+            <h3>Blocks or Items in the Diagram</h3>
+            <ul>
+              <li>`Customer`, `Vendor / Staff`, and `Platform Admin` are the people who create, review, or monitor system data.</li>
+              <li>`Frontend Booking UI` is the point where user input is collected and turned into API requests.</li>
+              <li>`Express Booking API` is the controller layer that receives, checks, and responds to requests.</li>
+              <li>`Business Services` are the internal modules that execute booking, queue, notification, and storage logic.</li>
+              <li>`PostgreSQL` is the structured data store for transactions and operational records.</li>
+              <li>`Backblaze B2`, `Notification Providers`, and `Queue Live Updates` are outbound destinations for file storage and real-time communication.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="section two-col">
+        <div class="panel">
+          <h2>Operational Notes</h2>
+          <ul>
+            <li>The monorepo uses workspace scripts from the root `package.json` to start and build the apps together.</li>
+            <li>The backend boots by connecting to PostgreSQL first, then starts the Express server.</li>
+            <li>Allowed browser origins are assembled from environment settings so the customer app, platform dashboard, and API can coexist locally and in deployment.</li>
+            <li>Queue updates use SSE for live public board behavior rather than WebSockets.</li>
+            <li>Private booking payment proofs are stored separately from public assets and are only exposed through authenticated routes.</li>
+          </ul>
+        </div>
+
+        <div class="panel">
+          <h2>Why This Stack Fits the MVP</h2>
+          <div class="note-box">
+            <p>
+              React and Vite keep the customer and admin interfaces fast to develop, Express keeps
+              the API simple to reason about, and PostgreSQL gives the project transactional
+              consistency for bookings, queue state, and audit data.
+            </p>
+            <p class="small">
+              The result is a capstone-friendly stack that is small enough to demo, but still
+              realistic enough to support security, privacy, and architecture documentation.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section panel">
+        <h2>Reference Files in This Repo</h2>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 28%">Area</th>
+              <th>Evidence in the codebase</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Frontend</td>
+              <td><code>frontend/src/main.tsx</code>, <code>frontend/package.json</code></td>
+            </tr>
+            <tr>
+              <td>Platform dashboard</td>
+              <td><code>platform-dashboard/src/main.tsx</code>, <code>platform-dashboard/package.json</code></td>
+            </tr>
+            <tr>
+              <td>Backend API</td>
+              <td><code>backend/src/app.ts</code>, <code>backend/src/server.ts</code>, <code>backend/package.json</code></td>
+            </tr>
+            <tr>
+              <td>Database</td>
+              <td><code>database/init.sql</code>, <code>database/migrations/</code>, <code>scripts/db-apply.sh</code></td>
+            </tr>
+            <tr>
+              <td>Architecture docs</td>
+              <td><code>docs/getprio-high-level-architecture.svg</code>, <code>docs/plan/capstone-implementation-transition-prd.md</code></td>
+            </tr>
+            <tr>
+              <td>MVP documentation</td>
+              <td><code>docs/plan/booking-queue-mvp-prd.md</code>, <code>docs/plan/mvp-deployment-guide.md</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+    </main>
+  </body>
+</html>

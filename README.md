@@ -48,6 +48,32 @@ RESEND_API_URL=https://api.resend.com/emails
 
 `RESEND_FROM_EMAIL` must use a verified Resend domain or sender.
 
+OAuth login is supported for Google and Facebook when provider credentials are present:
+
+```env
+OAUTH_CALLBACK_PATH=/oauth/callback
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+FACEBOOK_APP_ID=
+FACEBOOK_APP_SECRET=
+```
+
+The backend exposes these redirect URIs:
+
+- `https://<your-server>/api/auth/oauth/google/callback`
+- `https://<your-server>/api/auth/oauth/facebook/callback`
+
+Set the provider console redirect URI to the backend callback above, then point `APP_BASE_URL`
+and `SERVER_URL` at the frontend and API origins that will be used in production. The OAuth
+callback returns to the app at `APP_BASE_URL + OAUTH_CALLBACK_PATH`.
+
+Current OAuth behavior:
+
+- `GET /api/auth/oauth/providers` returns which providers are enabled by env vars.
+- `GET /api/auth/oauth/:provider/start` starts the authorization redirect.
+- `ALL /api/auth/oauth/:provider/callback` completes sign-in and redirects to the app callback.
+- OAuth-created users are assigned a username if they do not already have one.
+
 Platform dashboard access uses the normal auth API, but the signed-in user must include the
 `platform_admin` role. For local development, grant it manually in Postgres until a dedicated
 admin-user management flow exists:

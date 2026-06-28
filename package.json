@@ -16,6 +16,7 @@
     "db:bootstrap": "bash scripts/db-apply.sh bootstrap",
     "db:status": "bash scripts/db-status.sh",
     "db:verify": "bash scripts/db-verify-schema.sh",
+    "oauth:smoke": "node scripts/oauth-smoke.mjs",
     "build": "npm --workspace frontend run build && npm --workspace platform-dashboard run build",
     "build:backend": "npm --workspace backend run build",
     "start": "npm --workspace backend run start",
@@ -26,6 +27,7 @@
     "typecheck:platform": "npm --workspace platform-dashboard run typecheck",
     "typecheck:backend": "npm --workspace backend run typecheck",
     "test:backend": "npm --workspace backend run test",
+    "test:backend:coverage": "npm --workspace backend run test:coverage",
     "prepare": "husky"
   },
   "lint-staged": {
@@ -51,6 +53,7 @@
     "@types/pg": "^8.20.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "c8": "^10.1.3",
     "concurrently": "^9.2.3",
     "eslint": "^9.7.0",
     "eslint-plugin-react": "^7.37.5",

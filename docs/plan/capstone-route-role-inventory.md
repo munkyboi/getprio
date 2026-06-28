@@ -44,7 +44,7 @@ Current implementation sources:
 | --- | --- | --- | --- | --- | --- |
 | `/` | Landing page | Public | Guest | Product/pricing landing page for the queue platform. | Revise copy over time to marketplace/booking while preserving queue as same-day operation. |
 | `/login` | Login page | Public | Guest | Email/password login plus OAuth provider entry. | Extend for MFA-required and locked account states. |
-| `/oauth/callback` | OAuth callback page | Public/auth callback | Guest, Customer, Vendor Admin | Completes OAuth login or registration callback. | Keep as optional/future auth enhancement in capstone docs. |
+| `/oauth/callback` | OAuth callback page | Public/auth callback | Guest, Customer, Vendor Admin | Completes OAuth login or registration callback. | Current implementation is live in repo; keep as an optional provider-backed entry point in capstone docs. |
 | `/register/vendor` | Vendor registration page | Public or authenticated setup | Vendor Admin | Creates vendor tenant/workspace and owner account. | Treat as vendor onboarding; later add approval/compliance state. |
 | `/register/customer` | Customer registration page | Public | Customer | Creates customer profile. | Extend toward booking history, reviews, notifications, and profile settings. |
 | `/account` | Customer account page | Authenticated user; customer UI intent | Customer | Customer profile, ticket/account reuse, password controls. | Add route guard/unauthorized state and expand to full profile/account settings. |
@@ -91,7 +91,7 @@ All platform dashboard routes require successful login and `platform_admin` in t
 | Endpoint | Current Access | Capstone Role / Flow | Notes |
 | --- | --- | --- | --- |
 | `GET /api/auth/oauth/providers` | Public | Guest | Lists enabled OAuth providers. |
-| `GET /api/auth/oauth/:provider/start` | Public | Guest | Starts optional OAuth login/registration. |
+| `GET /api/auth/oauth/:provider/start` | Public | Guest | Starts optional OAuth login/registration. Current live providers are Google and Facebook when configured. |
 | `POST /api/auth/register/vendor` | Public | Vendor Admin onboarding | Creates tenant owner flow. |
 | `POST /api/auth/register/vendor/complete` | Authenticated | Vendor Admin onboarding | Completes vendor setup for an authenticated account. |
 | `POST /api/auth/register/customer` | Public | Customer registration | Creates customer account. |
