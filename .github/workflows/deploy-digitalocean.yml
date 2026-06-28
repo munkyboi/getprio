@@ -67,7 +67,15 @@ jobs:
           git pull --ff-only origin main
 
           npm ci --include=dev
-          npm run db:status
+          set +e
+          db_status_output="$(npm run db:status 2>&1)"
+          db_status_code=$?
+          set -e
+          printf '%s\n' "$db_status_output"
+          if [ "$db_status_code" -ne 0 ] && printf '%s\n' "$db_status_output" | grep -q "Applied migrations not present in the repo"; then
+            echo "Applied migrations are missing from the repo. Refusing to deploy."
+            exit 1
+          fi
           npm run db:migrate
           npm run db:verify
           npm run build
