@@ -1,0 +1,72 @@
+name: Deploy DigitalOcean
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy over SSH
+        env:
+          DO_HOST: ${{ secrets.DO_HOST }}
+          DO_USER: ${{ secrets.DO_USER }}
+          DO_SSH_KEY: ${{ secrets.DO_SSH_KEY }}
+          DO_PORT: ${{ secrets.DO_PORT || '22' }}
+          DO_APP_DIR: ${{ secrets.DO_APP_DIR || '/var/www/getprio' }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${DO_HOST}" ] || [ -z "${DO_USER}" ] || [ -z "${DO_SSH_KEY}" ]; then
+            echo "Missing one of required secrets: DO_HOST, DO_USER, DO_SSH_KEY"
+            exit 1
+          fi
+
+          mkdir -p ~/.ssh
+          printf '%s\n' "${DO_SSH_KEY}" > ~/.ssh/digitalocean_deploy_key
+          chmod 600 ~/.ssh/digitalocean_deploy_key
+          ssh-keyscan -p "${DO_PORT}" -H "${DO_HOST}" >> ~/.ssh/known_hosts
+
+          ssh \
+            -i ~/.ssh/digitalocean_deploy_key \
+            -p "${DO_PORT}" \
+            "${DO_USER}@${DO_HOST}" \
+            "DO_APP_DIR='${DO_APP_DIR}' bash -s" <<'REMOTE'
+          set -euo pipefail
+
+          cd "${DO_APP_DIR}"
+
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "Server working tree has local changes. Refusing to deploy."
+            git status --short
+            exit 1
+          fi
+
+          git fetch origin main
+
+          if git show-ref --verify --quiet refs/heads/main; then
+            git checkout main
+          else
+            git checkout -b main origin/main
+          fi
+
+          git pull --ff-only origin main
+
+          npm ci
+          npm run db:status
+          npm run db:migrate
+          npm run db:verify
+          npm run build
+          npm run build:backend
+
+          pm2 restart getprio-api --update-env
+          pm2 save
+          REMOTE
