@@ -44,6 +44,12 @@ jobs:
 
           cd "${DO_APP_DIR}"
 
+          if [ -f .env ]; then
+            set -a
+            . ./.env
+            set +a
+          fi
+
           if [ -n "$(git status --porcelain)" ]; then
             echo "Server working tree has local changes. Refusing to deploy."
             git status --short
