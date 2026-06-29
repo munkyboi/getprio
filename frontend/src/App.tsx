@@ -7,6 +7,7 @@ import { useAuth } from "./context/AuthContext";
 import LandingPage from "./pages/LandingPage";
 import LoginPage from "./pages/LoginPage";
 import OAuthCallbackPage from "./pages/OAuthCallbackPage";
+import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
 import RegisterVendorPage from "./pages/RegisterVendorPage";
 import RegisterCustomerPage from "./pages/RegisterCustomerPage";
 import CustomerAccountPage from "./pages/CustomerAccountPage";
@@ -18,6 +19,8 @@ import BookingRequestPage from "./pages/BookingRequestPage";
 import PublicQueuePage from "./pages/PublicQueuePage";
 import JoinQueuePage from "./pages/JoinQueuePage";
 import JoinedQueuePage from "./pages/JoinedQueuePage";
+import TermsPage from "./pages/TermsPage";
+import SiteFooter from "./components/SiteFooter";
 import {
   JOINED_QUEUE_ROUTE_PATH,
   buildMonitorPath,
@@ -137,6 +140,8 @@ function AppShell({ children }: { children: ReactNode }) {
       >
         {children}
       </Box>
+
+      {!isDashboardRoute ? <SiteFooter /> : null}
     </Box>
   );
 }
@@ -185,6 +190,8 @@ export default function App() {
       <Route path="/" element={<AppShell><LandingPage /></AppShell>} />
       <Route path="/login" element={<AppShell><LoginPage /></AppShell>} />
       <Route path="/oauth/callback" element={<AppShell><OAuthCallbackPage /></AppShell>} />
+      <Route path="/privacy-policy" element={<AppShell><PrivacyPolicyPage /></AppShell>} />
+      <Route path="/terms" element={<AppShell><TermsPage /></AppShell>} />
       <Route path="/register/vendor" element={<AppShell><RegisterVendorPage /></AppShell>} />
       <Route path="/register/customer" element={<AppShell><RegisterCustomerPage /></AppShell>} />
       <Route path="/account" element={<Navigate to="/account/profile" replace />} />
