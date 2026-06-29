@@ -564,19 +564,12 @@ async function createCustomerBooking({ user, body }) {
   const locationSlug = String(body.locationSlug || "").trim().toLowerCase();
   const serviceSlug = vendorServiceRepository.normalizeServiceSlug(body.serviceSlug);
   const scheduledStartAt = normalizeDateTime(body.scheduledStartAt);
-  const customerName = String(body.customerName || user.name || "").trim();
   const customerEmail = String(body.customerEmail || user.email || "").trim().toLowerCase();
   const customerPhone = String(body.customerPhone || user.phone || "").trim();
   const bookingVerificationToken = String(body.bookingVerificationToken || "").trim();
 
   if (!tenantSlug || !locationSlug || !serviceSlug) {
     const error = new Error("tenantSlug, locationSlug, and serviceSlug are required.");
-    error.statusCode = 400;
-    throw error;
-  }
-
-  if (!customerName) {
-    const error = new Error("customerName is required.");
     error.statusCode = 400;
     throw error;
   }
@@ -623,7 +616,13 @@ async function createCustomerBooking({ user, body }) {
   });
   assertVerifiedPayloadMatchesRequest(verifiedBooking.payload, body);
 
-  const verifiedCustomerName = verifiedBooking.payload.customerName || customerName;
+  const verifiedCustomerName = String(body.customerName || verifiedBooking.payload.customerName || user.name || "").trim();
+  if (!verifiedCustomerName) {
+    const error = new Error("customerName is required.");
+    error.statusCode = 400;
+    throw error;
+  }
+
   const verifiedCustomerEmail = verifiedBooking.payload.customerEmail || customerEmail;
   const verifiedCustomerPhone = verifiedBooking.payload.customerPhone || customerPhone;
   const notifyBySms = Boolean(verifiedBooking.payload.notifyBySms);
