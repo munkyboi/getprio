@@ -58,6 +58,19 @@ function resolveMockPath(requestPath, baseDir) {
   throw new Error(`Unable to resolve mock path: ${requestPath}`);
 }
 
+function buildFutureManilaSlot(weeksAhead = 1, weekday = 1, hour = 10, minute = 0) {
+  const now = new Date();
+  const manilaNow = new Date(now.getTime() + 8 * 60 * 60 * 1000);
+  const currentWeekday = manilaNow.getUTCDay();
+  const daysUntilWeekday = (7 + weekday - currentWeekday) % 7 || 7;
+  const targetManila = new Date(manilaNow);
+
+  targetManila.setUTCDate(manilaNow.getUTCDate() + daysUntilWeekday + (weeksAhead - 1) * 7);
+  targetManila.setUTCHours(hour, minute, 0, 0);
+
+  return new Date(targetManila.getTime() - 8 * 60 * 60 * 1000).toISOString();
+}
+
 function requireWithMocks(targetPath, mocks) {
   const resolvedTarget = require.resolve(targetPath);
   const originals = new Map();
@@ -488,8 +501,8 @@ test("customer booking detail exposes manual payment destination before proof su
 
 test("customer bookings can be created only inside vendor availability", async () => {
   const bookings = [];
-  const initialScheduledStartAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-  const rejectedScheduledStartAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000 + 12 * 60 * 60 * 1000).toISOString();
+  const initialScheduledStartAt = buildFutureManilaSlot(1, 1, 10, 0);
+  const rejectedScheduledStartAt = buildFutureManilaSlot(1, 1, 18, 0);
   let verifiedScheduledStartAt = initialScheduledStartAt;
   const router = requireWithMocks("../src/routes/accountRoutes.js", {
     "../middleware/auth": buildAuthMock(),
@@ -706,8 +719,8 @@ test("customer bookings can be created only inside vendor availability", async (
 
 test("customer bookings use store hours when no booking availability is configured", async () => {
   const bookings = [];
-  const initialScheduledStartAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-  const rejectedScheduledStartAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000 + 12 * 60 * 60 * 1000).toISOString();
+  const initialScheduledStartAt = buildFutureManilaSlot(1, 1, 10, 0);
+  const rejectedScheduledStartAt = buildFutureManilaSlot(1, 1, 18, 0);
   let verifiedScheduledStartAt = initialScheduledStartAt;
   const router = requireWithMocks("../src/routes/accountRoutes.js", {
     "../middleware/auth": buildAuthMock(),
