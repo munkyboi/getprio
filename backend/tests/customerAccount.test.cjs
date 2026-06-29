@@ -58,6 +58,19 @@ function resolveMockPath(requestPath, baseDir) {
   throw new Error(`Unable to resolve mock path: ${requestPath}`);
 }
 
+function buildFutureManilaSlot(weeksAhead = 1, weekday = 1, hour = 10, minute = 0) {
+  const now = new Date();
+  const manilaNow = new Date(now.getTime() + 8 * 60 * 60 * 1000);
+  const currentWeekday = manilaNow.getUTCDay();
+  const daysUntilWeekday = (7 + weekday - currentWeekday) % 7 || 7;
+  const targetManila = new Date(manilaNow);
+
+  targetManila.setUTCDate(manilaNow.getUTCDate() + daysUntilWeekday + (weeksAhead - 1) * 7);
+  targetManila.setUTCHours(hour, minute, 0, 0);
+
+  return new Date(targetManila.getTime() - 8 * 60 * 60 * 1000).toISOString();
+}
+
 function requireWithMocks(targetPath, mocks) {
   const resolvedTarget = require.resolve(targetPath);
   const originals = new Map();
@@ -488,7 +501,9 @@ test("customer booking detail exposes manual payment destination before proof su
 
 test("customer bookings can be created only inside vendor availability", async () => {
   const bookings = [];
-  let verifiedScheduledStartAt = "2026-06-29T02:00:00.000Z";
+  const initialScheduledStartAt = buildFutureManilaSlot(1, 1, 10, 0);
+  const rejectedScheduledStartAt = buildFutureManilaSlot(1, 1, 18, 0);
+  let verifiedScheduledStartAt = initialScheduledStartAt;
   const router = requireWithMocks("../src/routes/accountRoutes.js", {
     "../middleware/auth": buildAuthMock(),
     "../middleware/asyncHandler": buildAsyncHandlerMock(),
@@ -623,11 +638,11 @@ test("customer bookings can be created only inside vendor availability", async (
           otpId: "booking-otp-1",
           contactVerifiedAt: "2026-06-29T01:55:00.000Z",
           contactVerificationChannel: "email",
-          payload: {
-            tenantSlug: "demo",
-            locationSlug: "main",
-            serviceSlug: "consultation",
-            scheduledStartAt: verifiedScheduledStartAt,
+      payload: {
+        tenantSlug: "demo",
+        locationSlug: "main",
+        serviceSlug: "consultation",
+        scheduledStartAt: verifiedScheduledStartAt,
             customerName: "Customer One",
             customerEmail: "customer@example.com",
             customerPhone: "09171234567",
@@ -665,7 +680,7 @@ test("customer bookings can be created only inside vendor availability", async (
         tenantSlug: "demo",
         locationSlug: "main",
         serviceSlug: "consultation",
-        scheduledStartAt: "2026-06-29T02:00:00.000Z",
+        scheduledStartAt: initialScheduledStartAt,
         bookingVerificationToken: "verified-token",
         notes: "First visit"
       })
@@ -675,7 +690,7 @@ test("customer bookings can be created only inside vendor availability", async (
     assert.equal(accepted.booking.reference, "BKG-TEST0001");
     assert.equal(accepted.booking.status, "pending");
 
-    verifiedScheduledStartAt = "2026-06-29T23:00:00.000Z";
+    verifiedScheduledStartAt = rejectedScheduledStartAt;
     const rejectedResponse = await fetch(`${baseUrl}/bookings`, {
       method: "POST",
       headers: {
@@ -686,7 +701,7 @@ test("customer bookings can be created only inside vendor availability", async (
         tenantSlug: "demo",
         locationSlug: "main",
         serviceSlug: "consultation",
-        scheduledStartAt: "2026-06-29T23:00:00.000Z",
+        scheduledStartAt: rejectedScheduledStartAt,
         bookingVerificationToken: "verified-token"
       })
     });
@@ -704,7 +719,9 @@ test("customer bookings can be created only inside vendor availability", async (
 
 test("customer bookings use store hours when no booking availability is configured", async () => {
   const bookings = [];
-  let verifiedScheduledStartAt = "2026-06-29T02:00:00.000Z";
+  const initialScheduledStartAt = buildFutureManilaSlot(1, 1, 10, 0);
+  const rejectedScheduledStartAt = buildFutureManilaSlot(1, 1, 18, 0);
+  let verifiedScheduledStartAt = initialScheduledStartAt;
   const router = requireWithMocks("../src/routes/accountRoutes.js", {
     "../middleware/auth": buildAuthMock(),
     "../middleware/asyncHandler": buildAsyncHandlerMock(),
@@ -864,14 +881,14 @@ test("customer bookings use store hours when no booking availability is configur
         tenantSlug: "demo",
         locationSlug: "main",
         serviceSlug: "consultation",
-        scheduledStartAt: "2026-06-29T02:00:00.000Z",
+        scheduledStartAt: initialScheduledStartAt,
         bookingVerificationToken: "verified-token"
       })
     });
     assert.equal(acceptedResponse.status, 201);
     assert.equal((await acceptedResponse.json()).booking.reference, "BKG-TEST0002");
 
-    verifiedScheduledStartAt = "2026-06-29T23:00:00.000Z";
+    verifiedScheduledStartAt = rejectedScheduledStartAt;
     const rejectedResponse = await fetch(`${baseUrl}/bookings`, {
       method: "POST",
       headers: {
@@ -882,7 +899,7 @@ test("customer bookings use store hours when no booking availability is configur
         tenantSlug: "demo",
         locationSlug: "main",
         serviceSlug: "consultation",
-        scheduledStartAt: "2026-06-29T23:00:00.000Z",
+        scheduledStartAt: rejectedScheduledStartAt,
         bookingVerificationToken: "verified-token"
       })
     });
