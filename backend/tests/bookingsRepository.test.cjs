@@ -164,3 +164,232 @@ test("pending booking expiration excludes bookings with submitted payment proof"
     1
   ]);
 });
+
+test("booking creation retries once on duplicate reference and then reloads the inserted booking", async () => {
+  const calls = [];
+  let insertAttempts = 0;
+  const bookingsRepository = requireWithMocks("../src/repositories/bookings.js", {
+    "../config/db": {
+      pool: {
+        query: async (query, params) => {
+          calls.push({ query, params });
+
+          if (String(query).includes("INSERT INTO bookings")) {
+            insertAttempts += 1;
+            if (insertAttempts === 1) {
+              const error = new Error("duplicate key");
+              error.code = "23505";
+              throw error;
+            }
+
+            return { rows: [{ id: 77 }] };
+          }
+
+          if (String(query).includes("WHERE bookings.id = $1")) {
+            return {
+              rows: [
+                {
+                  id: 77,
+                  reference: "BKG-RETRY",
+                  tenant_id: 1,
+                  location_id: 2,
+                  service_id: 3,
+                  customer_user_id: null,
+                  customer_name: "Retry Customer",
+                  customer_email: null,
+                  customer_phone: null,
+                  booking_quantity: 1,
+                  scheduled_start_at: new Date("2026-06-23T08:00:00.000Z"),
+                  scheduled_end_at: new Date("2026-06-23T09:00:00.000Z"),
+                  status: "pending",
+                  notes: null,
+                  payment_reference: null,
+                  payment_status: "unpaid",
+                  payment_proof_object_key: null,
+                  payment_proof_file_name: null,
+                  payment_proof_content_type: null,
+                  payment_proof_size_bytes: null,
+                  payment_proof_uploaded_at: null,
+                  payment_verified_at: null,
+                  payment_verified_by_user_id: null,
+                  payment_rejected_at: null,
+                  payment_rejected_by_user_id: null,
+                  payment_rejection_reason: null,
+                  pending_expires_at: null,
+                  expired_at: null,
+                  expiration_reason: null,
+                  notify_by_email: true,
+                  notify_by_sms: false,
+                  sms_alert_fee_payment_id: null,
+                  contact_verified_at: null,
+                  contact_verification_channel: null,
+                  queue_ticket_id: null,
+                  checked_in_at: null,
+                  checked_in_by_user_id: null,
+                  no_show_at: null,
+                  no_show_by_user_id: null,
+                  created_at: new Date("2026-06-23T08:00:00.000Z"),
+                  updated_at: new Date("2026-06-23T08:00:00.000Z"),
+                  tenant_name: "Tenant",
+                  tenant_slug: "tenant",
+                  location_name: "Main",
+                  location_slug: "main",
+                  service_name: "Consultation",
+                  service_slug: "consultation",
+                  service_manual_payment_required: false,
+                  service_price_amount_cents: 0,
+                  service_currency: "PHP",
+                  service_price_display: "Free",
+                  location_payment_method_label: "",
+                  location_payment_account_display_name: "",
+                  location_payment_account_identifier_display: "",
+                  location_payment_qr_image_url: "",
+                  location_payment_qr_active: false,
+                  queue_ticket_number: null,
+                  queue_ticket_lookup_code: null,
+                  queue_ticket_status: null
+                }
+              ]
+            };
+          }
+
+          throw new Error(`Unexpected query: ${String(query)}`);
+        }
+      }
+    }
+  });
+
+  const booking = await bookingsRepository.createBooking({
+    tenantId: 1,
+    locationId: 2,
+    serviceId: 3,
+    customerName: "Retry Customer",
+    scheduledStartAt: "2026-06-23T08:00:00.000Z",
+    scheduledEndAt: "2026-06-23T09:00:00.000Z"
+  });
+
+  assert.equal(insertAttempts, 2);
+  assert.equal(booking._id, "77");
+  assert.equal(calls.filter((call) => String(call.query).includes("INSERT INTO bookings")).length, 2);
+  assert.equal(calls.filter((call) => String(call.query).includes("WHERE bookings.id = $1")).length, 1);
+});
+
+test("booking updates return the current booking when no fields change and skip queue-ticket updates with no data", async () => {
+  const calls = [];
+  const client = {
+    query: async (query, params) => {
+      calls.push({ query, params });
+      return {
+        rows: [
+          {
+            id: 10,
+            reference: "BKG-10",
+            tenant_id: 1,
+            location_id: 2,
+            service_id: 3,
+            customer_user_id: null,
+            customer_name: "Customer",
+            customer_email: null,
+            customer_phone: null,
+            booking_quantity: 1,
+            scheduled_start_at: new Date("2026-06-23T08:00:00.000Z"),
+            scheduled_end_at: new Date("2026-06-23T09:00:00.000Z"),
+            status: "pending",
+            notes: null,
+            payment_reference: null,
+            payment_status: "unpaid",
+            payment_proof_object_key: null,
+            payment_proof_file_name: null,
+            payment_proof_content_type: null,
+            payment_proof_size_bytes: null,
+            payment_proof_uploaded_at: null,
+            payment_verified_at: null,
+            payment_verified_by_user_id: null,
+            payment_rejected_at: null,
+            payment_rejected_by_user_id: null,
+            payment_rejection_reason: null,
+            pending_expires_at: null,
+            expired_at: null,
+            expiration_reason: null,
+            notify_by_email: true,
+            notify_by_sms: false,
+            sms_alert_fee_payment_id: null,
+            contact_verified_at: null,
+            contact_verification_channel: null,
+            queue_ticket_id: null,
+            checked_in_at: null,
+            checked_in_by_user_id: null,
+            no_show_at: null,
+            no_show_by_user_id: null,
+            created_at: new Date("2026-06-23T08:00:00.000Z"),
+            updated_at: new Date("2026-06-23T08:00:00.000Z"),
+            tenant_name: "Tenant",
+            tenant_slug: "tenant",
+            location_name: "Main",
+            location_slug: "main",
+            service_name: "Consultation",
+            service_slug: "consultation",
+            service_manual_payment_required: false,
+            service_price_amount_cents: 0,
+            service_currency: "PHP",
+            service_price_display: "Free",
+            location_payment_method_label: "",
+            location_payment_account_display_name: "",
+            location_payment_account_identifier_display: "",
+            location_payment_qr_image_url: "",
+            location_payment_qr_active: false,
+            queue_ticket_number: null,
+            queue_ticket_lookup_code: null,
+            queue_ticket_status: null
+          }
+        ]
+      };
+    }
+  };
+  const bookingsRepository = requireWithMocks("../src/repositories/bookings.js", {
+    "../config/db": {
+      pool: client
+    }
+  });
+
+  const booking = await bookingsRepository.updateBooking(10, {}, { client });
+  const queueTicketUpdate = await bookingsRepository.updateBookingByQueueTicketId(5, {}, { client });
+
+  assert.equal(booking._id, "10");
+  assert.equal(queueTicketUpdate, null);
+  assert.equal(calls.length, 1);
+});
+
+test("count overlapping active bookings uses the expected time window and exclusion id", async () => {
+  const calls = [];
+  const bookingsRepository = requireWithMocks("../src/repositories/bookings.js", {
+    "../config/db": {
+      pool: {
+        query: async (query, params) => {
+          calls.push({ query, params });
+          return { rows: [{ count: 3 }] };
+        }
+      }
+    }
+  });
+
+  const count = await bookingsRepository.countOverlappingActiveBookings(1, {
+    client: {
+      query: async (query, params) => {
+        calls.push({ query, params });
+        return { rows: [{ count: 3 }] };
+      }
+    },
+    locationId: 2,
+    serviceId: 3,
+    startsAt: "2026-06-23T08:00:00.000Z",
+    endsAt: "2026-06-23T09:00:00.000Z",
+    excludeBookingId: 4
+  });
+
+  assert.equal(count, 3);
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].query, /scheduled_start_at < \$6::timestamptz/);
+  assert.match(calls[0].query, /\(\$7::bigint IS NULL OR id <> \$7::bigint\)/);
+  assert.deepEqual(calls[0].params, [1, 2, 3, ["pending", "confirmed", "rescheduled"], "2026-06-23T08:00:00.000Z", "2026-06-23T09:00:00.000Z", 4]);
+});
