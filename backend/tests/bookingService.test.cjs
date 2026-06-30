@@ -708,6 +708,51 @@ test("customer booking creation requires paid SMS fee when SMS alerts are enable
   );
 });
 
+test("vendor reschedule clears linked ticket and check-in state", async () => {
+  const updates = [];
+  const bookingService = buildBookingService({
+    findBookingById: async () => ({
+      _id: "booking-1",
+      tenantId: "tenant-1",
+      locationSlug: "main",
+      serviceSlug: "consultation",
+      bookingQuantity: 1,
+      status: "confirmed",
+      scheduledStartAt: "2026-07-06T01:00:00.000Z"
+    }),
+    updateBooking: async (_id, data) => {
+      updates.push(data);
+      return { _id: "booking-1", reference: "BKG-1" };
+    },
+    availability: {
+      blocks: [
+        {
+          _id: "block-1",
+          serviceId: "service-1",
+          weekday: 1,
+          startsAt: "09:00",
+          endsAt: "12:00",
+          capacity: 1,
+          isActive: true
+        }
+      ],
+      exceptions: []
+    }
+  });
+
+  await bookingService.rescheduleVendorBooking({
+    tenant,
+    bookingId: "booking-1",
+    scheduledStartAt: "2026-07-06T03:00:00.000Z"
+  });
+
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0].status, "rescheduled");
+  assert.equal(updates[0].queueTicketId, null);
+  assert.equal(updates[0].checkedInAt, null);
+  assert.equal(updates[0].checkedInByUserId, null);
+});
+
 function buildVendorBooking(overrides = {}) {
   const scheduledStartAt = new Date(Date.now() - 5 * 60 * 1000).toISOString();
   const scheduledEndAt = new Date(Date.now() + 55 * 60 * 1000).toISOString();

@@ -9,24 +9,34 @@ const {
 
 test("vendor booking handler lists bookings through injected repositories", async () => {
   const response = { body: null, json(payload) { this.body = payload; } };
+  let capturedOptions = null;
   await handleListBookings({
-    req: { user: {}, params: { tenantSlug: "tenant" }, query: { location: "main", status: "pending" } },
+    req: {
+      user: {},
+      params: { tenantSlug: "tenant" },
+      query: { location: "main", status: "pending", scheduledDateFrom: "2026-07-01", scheduledDateTo: "2026-07-15" }
+    },
     res: response,
     getAuthorizedTenant: async () => ({ _id: 1 }),
     assertTenantPermission: () => {},
     getLocationForTenant: async () => ({ _id: 2 }),
     bookingService: { expirePendingBookingsForTenant: async () => {} },
     bookingRepository: {
-      listBookingsForTenant: async () => ({
+      listBookingsForTenant: async (_tenantId, options) => {
+        capturedOptions = options;
+        return {
         bookings: [{ _id: 7, reference: "BKG-1", locationSlug: "main" }],
         totalItems: 1
-      })
+        };
+      }
     },
     formatPaginationMetadata: () => ({ totalItems: 1 }),
     parsePaginationParams: () => ({ page: 1, pageSize: 10 })
   });
 
   assert.equal(response.body.bookings[0].reference, "BKG-1");
+  assert.equal(capturedOptions.scheduledDateFrom, "2026-07-01");
+  assert.equal(capturedOptions.scheduledDateTo, "2026-07-15");
 });
 
 test("vendor availability handler creates blocks and updates exceptions", async () => {

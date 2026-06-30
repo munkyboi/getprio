@@ -19,6 +19,7 @@ import {
   Notification,
   Pagination,
   Paper,
+  Portal,
   ScrollArea,
   Select,
   SegmentedControl,
@@ -56,7 +57,7 @@ import {
   IconUsersGroup
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
-import { differenceInMinutes, subDays } from "date-fns";
+import { addDays, differenceInMinutes } from "date-fns";
 import QRCode from "react-qr-code";
 import { Navigate, NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
 import type {
@@ -648,8 +649,8 @@ export default function VendorDashboardPage() {
   const [bookingSearch, setBookingSearch] = useState("");
   const [bookingStatusFilter, setBookingStatusFilter] = useState<BookingStatusFilter>("all");
   const [bookingDateRange, setBookingDateRange] = useState<[Date | null, Date | null]>(() => [
-    subDays(new Date(`${getTodayDateInputValue()}T00:00:00`), 14),
-    new Date(`${getTodayDateInputValue()}T00:00:00`)
+    new Date(`${getTodayDateInputValue()}T00:00:00`),
+    addDays(new Date(`${getTodayDateInputValue()}T00:00:00`), 14)
   ]);
   const [bookingPage, setBookingPage] = useState(1);
   const [bookingPagination, setBookingPagination] = useState<PaginationMetadata | null>(null);
@@ -657,6 +658,7 @@ export default function VendorDashboardPage() {
   const [rescheduleDialogOpen, setRescheduleDialogOpen] = useState(false);
   const [reschedulingBooking, setReschedulingBooking] = useState<VendorBookingSummary | null>(null);
   const [rescheduleStartAt, setRescheduleStartAt] = useState("");
+  const [rescheduleBlockModalOpen, setRescheduleBlockModalOpen] = useState(false);
   const hasActiveSubscription = billing?.subscription?.status === "active";
   const selectedLocation =
     locations.find((locationItem) => locationItem.slug === selectedLocationSlug) ||
@@ -1602,7 +1604,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     return filteredHistoryTickets.slice(start, start + HISTORY_PAGE_SIZE);
   }, [filteredHistoryTickets, historyPage]);
   const historyTotalPages = Math.max(1, Math.ceil(filteredHistoryTickets.length / HISTORY_PAGE_SIZE));
-  const filteredBookings = vendorBookings;
+  const filteredBookings = useMemo(() => vendorBookings, [vendorBookings]);
   const activeBookingAlerts = useMemo(
     () =>
       bookingAlertIds
@@ -1756,6 +1758,11 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   function openRescheduleDialog(booking: VendorBookingSummary) {
+    if (booking.status === "pending" && booking.paymentStatus === "pending") {
+      setRescheduleBlockModalOpen(true);
+      return;
+    }
+
     setReschedulingBooking(booking);
     setRescheduleStartAt(formatDateTimeInput(booking.scheduledStartAt));
     setRescheduleDialogOpen(true);
@@ -1871,7 +1878,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       setVendorBookings((current) =>
         current.map((item) => (item.id === response.booking.id ? response.booking : item))
       );
-      setBookingDetailModalId(null);
+      setBookingDetailBooking(response.booking);
       setPaymentRejectionReason("");
       await reloadBookings();
       showSuccessNotification("Payment verified", `${response.booking.reference} can now be confirmed.`);
@@ -4506,29 +4513,207 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     <Table.Tbody>
                       {filteredBookings.map((booking) => {
                       const paymentReviewPending = booking.paymentStatus === "pending";
-                      const canConfirm = (booking.status === "pending" || booking.status === "rescheduled") && !paymentReviewPending;
-                      const canChange = ["pending", "confirmed", "rescheduled"].includes(booking.status);
+                      const paymentVerified = booking.paymentStatus === "paid";
                       const checkInState = getBookingCheckInState(booking);
-                      const hasLinkedTicket = Boolean(booking.linkedTicket || booking.checkedInAt);
-                      const canCheckIn =
-                        canOperateBookingQueue &&
-                        checkInState.isEligibleStatus &&
-                        !checkInState.isTooEarly &&
-                        !hasLinkedTicket &&
-                        !booking.noShowAt;
-                      const canNoShow =
-                        canOperateBookingQueue &&
-                        checkInState.isEligibleStatus &&
-                        checkInState.isLate &&
-                        !hasLinkedTicket &&
-                        !booking.noShowAt;
                       const hasExpired = Boolean(booking.expiredAt);
+                      if (booking.status === "completed") {
+                        return (
+                          <Table.Tr key={booking.id}>
+                            <Table.Td>
+                              <Stack gap={2}>
+                                <Button
+                                  className="neura-inline-link-button"
+                                  onClick={() => {
+                                    setPaymentRejectionReason("");
+                                    setBookingDetailModalId(booking.id);
+                                    setBookingDetailOpen(true);
+                                  }}
+                                  p={0}
+                                  size="xs"
+                                  variant="subtle"
+                                >
+                                  {booking.reference}
+                                </Button>
+                                <Text c="dimmed" size="sm">Requested {formatDateTime(booking.createdAt)}</Text>
+                              </Stack>
+                            </Table.Td>
+                            <Table.Td>
+                              <Stack gap={2}>
+                                <Text fw={700}>{booking.customerName}</Text>
+                                <Text c="dimmed" size="sm">{booking.customerEmail || booking.customerPhone || "No contact details"}</Text>
+                              </Stack>
+                            </Table.Td>
+                            <Table.Td>
+                              <Stack gap={2}>
+                                <Text>{booking.serviceName}</Text>
+                                <Text c="dimmed" size="sm">Quantity {booking.bookingQuantity}</Text>
+                                <Text c="dimmed" size="sm">{booking.servicePriceDisplay || "-"}</Text>
+                              </Stack>
+                            </Table.Td>
+                            <Table.Td>
+                              <Stack gap={2}>
+                                <Text>{formatBookingScheduleDateTime(booking.scheduledStartAt)}</Text>
+                                <Text c="dimmed" size="sm">Ends {formatBookingScheduleDateTime(booking.scheduledEndAt)}</Text>
+                              </Stack>
+                            </Table.Td>
+                            <Table.Td>
+                              <Stack gap={4}>
+                                <Group gap={6}>
+                                  <Badge color={getBookingBadgeColor(booking.status)} variant="light">
+                                    {hasExpired ? "expired" : booking.status}
+                                  </Badge>
+                                  {booking.checkedInAt || booking.linkedTicket ? (
+                                    <Badge color="blue" variant="light">Checked in</Badge>
+                                  ) : null}
+                                  {booking.noShowAt ? (
+                                    <Badge color="red" variant="light">No-show</Badge>
+                                  ) : null}
+                                  {hasExpired ? (
+                                    <Badge color="orange" variant="light">Pending timeout</Badge>
+                                  ) : null}
+                                </Group>
+                                {booking.linkedTicket ? (
+                                  <Text c="dimmed" size="xs">
+                                    Ticket {booking.linkedTicket.ticketNumber}
+                                  </Text>
+                                ) : null}
+                                {hasExpired && booking.expirationReason ? (
+                                  <Text c="dimmed" size="xs">{booking.expirationReason}</Text>
+                                ) : null}
+                              </Stack>
+                            </Table.Td>
+                            <Table.Td>
+                              <Badge color={booking.paymentStatus === "paid" ? "teal" : "gray"} variant="light">
+                                {booking.paymentStatus}
+                              </Badge>
+                            </Table.Td>
+                            <Table.Td />
+                          </Table.Tr>
+                        );
+                      }
+                      const actionButtons = (() => {
+                        if (canAdminBookings && paymentReviewPending && booking.paymentProof) {
+                          return (
+                            <>
+                              <Button
+                                className="neura-primary-button"
+                                size="xs"
+                                onClick={() => {
+                                  setPaymentRejectionReason("");
+                                  setBookingDetailModalId(booking.id);
+                                  setBookingDetailOpen(true);
+                                }}
+                              >
+                                Review payment
+                              </Button>
+                              <Button size="xs" variant="outline" onClick={() => openRescheduleDialog(booking)}>
+                                Reschedule
+                              </Button>
+                              <Button
+                                color="red"
+                                disabled={busyAction === `booking-status:${booking.id}:canceled`}
+                                size="xs"
+                                variant="subtle"
+                                onClick={() => handleUpdateBookingStatus(booking, "canceled")}
+                              >
+                                Cancel
+                              </Button>
+                            </>
+                          );
+                        }
+
+                        if (canAdminBookings && paymentReviewPending && !booking.paymentProof) {
+                          return <Text c="dimmed" size="xs">Waiting for customer payment proof.</Text>;
+                        }
+
+                        if (canAdminBookings && paymentVerified) {
+                          return (
+                            <>
+                              <Button size="xs" variant="outline" onClick={() => openRescheduleDialog(booking)}>
+                                Reschedule
+                              </Button>
+                              <Button
+                                color="red"
+                                disabled={busyAction === `booking-status:${booking.id}:canceled`}
+                                size="xs"
+                                variant="subtle"
+                                onClick={() => handleUpdateBookingStatus(booking, "canceled")}
+                              >
+                                Cancel
+                              </Button>
+                            </>
+                          );
+                        }
+
+                        if (canAdminBookings && booking.status === "confirmed" && checkInState.isTooEarly) {
+                          return (
+                            <>
+                              <Button size="xs" variant="outline" onClick={() => openRescheduleDialog(booking)}>
+                                Reschedule
+                              </Button>
+                              <Button
+                                color="red"
+                                disabled={busyAction === `booking-status:${booking.id}:canceled`}
+                                size="xs"
+                                variant="subtle"
+                                onClick={() => handleUpdateBookingStatus(booking, "canceled")}
+                              >
+                                Cancel
+                              </Button>
+                            </>
+                          );
+                        }
+
+                        if (canAdminBookings && booking.status === "confirmed" && checkInState.isLate) {
+                          return (
+                            <>
+                              <Button size="xs" variant="outline" onClick={() => openRescheduleDialog(booking)}>
+                                Reschedule
+                              </Button>
+                              <Tooltip label="Late check-in override: customer is more than 15 minutes past the scheduled start.">
+                                <Button
+                                  color="orange"
+                                  disabled={busyAction === `booking-check-in:${booking.id}:override`}
+                                  size="xs"
+                                  variant="outline"
+                                  onClick={() => handleCheckInBooking(booking, true)}
+                                >
+                                  Late check-in
+                                </Button>
+                              </Tooltip>
+                              <Button
+                                color="red"
+                                disabled={busyAction === `booking-no-show:${booking.id}`}
+                                size="xs"
+                                variant="subtle"
+                                onClick={() => handleMarkBookingNoShow(booking)}
+                              >
+                                No-show
+                              </Button>
+                            </>
+                          );
+                        }
+
+                        return null;
+                      })();
 
                       return (
                         <Table.Tr key={booking.id}>
                           <Table.Td>
                             <Stack gap={2}>
-                              <Text fw={700}>{booking.reference}</Text>
+                              <Button
+                                className="neura-inline-link-button"
+                                onClick={() => {
+                                  setPaymentRejectionReason("");
+                                  setBookingDetailModalId(booking.id);
+                                  setBookingDetailOpen(true);
+                                }}
+                                p={0}
+                                size="xs"
+                                variant="subtle"
+                              >
+                                {booking.reference}
+                              </Button>
                               <Text c="dimmed" size="sm">Requested {formatDateTime(booking.createdAt)}</Text>
                             </Stack>
                           </Table.Td>
@@ -4583,101 +4768,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                             </Badge>
                           </Table.Td>
                           <Table.Td>
-                            <Group gap="xs" wrap="wrap">
-                              {canAdminBookings && canConfirm ? (
-                                <Button
-                                  className="neura-primary-button"
-                                  disabled={busyAction === `booking-status:${booking.id}:confirmed`}
-                                  size="xs"
-                                  onClick={() => handleUpdateBookingStatus(booking, "confirmed")}
-                                >
-                                  Confirm
-                                </Button>
-                              ) : null}
-                              {canAdminBookings && canChange ? (
-                                <Button size="xs" variant="default" onClick={() => openRescheduleDialog(booking)}>
-                                  Reschedule
-                                </Button>
-                              ) : null}
-                              {canAdminBookings && canChange ? (
-                                <Button
-                                  color="red"
-                                  disabled={busyAction === `booking-status:${booking.id}:canceled`}
-                                  size="xs"
-                                  variant="subtle"
-                                  onClick={() => handleUpdateBookingStatus(booking, "canceled")}
-                                >
-                                  Cancel
-                                </Button>
-                              ) : null}
-                              {canCheckIn && !checkInState.isLate ? (
-                                <Button
-                                  className="neura-primary-button"
-                                  disabled={busyAction === `booking-check-in:${booking.id}`}
-                                  size="xs"
-                                  onClick={() => handleCheckInBooking(booking)}
-                                >
-                                  Check in
-                                </Button>
-                              ) : null}
-                              {canCheckIn && checkInState.isLate ? (
-                                <Tooltip label="Late check-in override: customer is more than 15 minutes past the scheduled start.">
-                                  <Button
-                                    color="orange"
-                                    disabled={busyAction === `booking-check-in:${booking.id}:override`}
-                                    size="xs"
-                                    variant="light"
-                                    onClick={() => handleCheckInBooking(booking, true)}
-                                  >
-                                    Late check-in
-                                  </Button>
-                                </Tooltip>
-                              ) : null}
-                              {canNoShow ? (
-                                <Button
-                                  color="red"
-                                  disabled={busyAction === `booking-no-show:${booking.id}`}
-                                  size="xs"
-                                  variant="subtle"
-                                  onClick={() => handleMarkBookingNoShow(booking)}
-                                >
-                                  No-show
-                                </Button>
-                              ) : null}
-                              {canAdminBookings && paymentReviewPending && booking.paymentProof ? (
-                                <Button
-                                  className="neura-primary-button"
-                                  size="xs"
-                                  onClick={() => {
-                                    setPaymentRejectionReason("");
-                                    setBookingDetailModalId(booking.id);
-                                  }}
-                                >
-                                  Review payment
-                                </Button>
-                              ) : null}
-                              {canAdminBookings && paymentReviewPending && booking.paymentProof ? (
-                                <Button
-                                  leftSection={<IconExternalLink size={14} />}
-                                  loading={busyAction === `booking-proof:${booking.id}`}
-                                  onClick={() => handleViewBookingPaymentProof(booking)}
-                                  size="xs"
-                                  variant="light"
-                                >
-                                  View proof
-                                </Button>
-                              ) : null}
-                              {checkInState.isTooEarly && checkInState.isEligibleStatus && !hasLinkedTicket ? (
-                                <Text c="dimmed" size="xs">
-                                  Check-in opens 15 minutes before schedule.
-                                </Text>
-                              ) : null}
-                              {paymentReviewPending && !booking.paymentProof ? (
-                                <Text c="dimmed" size="xs">
-                                  Waiting for customer payment proof.
-                                </Text>
-                              ) : null}
-                            </Group>
+                            <Group gap="xs" wrap="wrap">{actionButtons}</Group>
                           </Table.Td>
                         </Table.Tr>
                       );
@@ -4751,6 +4842,28 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             </Group>
           </Stack>
         </form>
+      </Modal>
+    );
+  }
+
+  function renderRescheduleBlockedModal() {
+    return (
+      <Modal
+        centered
+        opened={rescheduleBlockModalOpen}
+        onClose={() => setRescheduleBlockModalOpen(false)}
+        title="Reschedule blocked"
+      >
+        <Stack gap="md">
+          <Alert color="orange" variant="light">
+            Review payment first before rescheduling
+          </Alert>
+          <Group justify="flex-end">
+            <Button className="neura-primary-button" onClick={() => setRescheduleBlockModalOpen(false)}>
+              OK
+            </Button>
+          </Group>
+        </Stack>
       </Modal>
     );
   }
@@ -5590,12 +5703,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       detailBooking &&
       detailBooking.paymentProof &&
       detailBooking.paymentStatus === "pending" &&
-      detailBooking.status === "pending"
+      (detailBooking.status === "pending" || detailBooking.status === "rescheduled")
     );
     const detailBookingExpired = Boolean(detailBooking?.expiredAt);
 
     return (
-      <>
+      <Portal>
         {overlayAlerts.length ? (
           <Box
             style={{
@@ -5850,7 +5963,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             </Stack>
           ) : null}
         </Modal>
-      </>
+      </Portal>
     );
   }
 
@@ -5986,6 +6099,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       {renderStaffDialog()}
       {renderThemeDialog()}
       {renderDashboardAlertOverlay()}
+      {renderRescheduleBlockedModal()}
       <Drawer
         classNames={{ body: "neura-drawer-body", content: "neura-drawer-content", header: "neura-drawer-header" }}
         hiddenFrom="lg"

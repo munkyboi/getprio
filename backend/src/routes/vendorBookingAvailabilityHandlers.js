@@ -208,7 +208,8 @@ async function handleListBookings({ req, res, getAuthorizedTenant, assertTenantP
   const { page, pageSize } = parsePaginationParams(req.query);
   const location = req.query.location ? await getLocationForTenant(tenant, req.query.location) : null;
   const status = String(req.query.status || "").trim();
-  const scheduledDate = String(req.query.scheduledDate || "").trim();
+  const scheduledDateFrom = String(req.query.scheduledDateFrom || req.query.scheduledDate || "").trim();
+  const scheduledDateTo = String(req.query.scheduledDateTo || req.query.scheduledDate || "").trim();
   const search = String(req.query.search || "").trim();
   const allowedStatuses = new Set(["pending", "confirmed", "rescheduled", "completed", "canceled", "disputed", "reviewed"]);
   if (status && !allowedStatuses.has(status)) {
@@ -218,7 +219,13 @@ async function handleListBookings({ req, res, getAuthorizedTenant, assertTenantP
   }
   await bookingService.expirePendingBookingsForTenant(tenant._id);
   const { bookings, totalItems } = await bookingRepository.listBookingsForTenant(tenant._id, {
-    page, pageSize, locationId: location?._id, status: status || null, scheduledDate: scheduledDate || null, search: search || null
+    page,
+    pageSize,
+    locationId: location?._id,
+    status: status || null,
+    scheduledDateFrom: scheduledDateFrom || null,
+    scheduledDateTo: scheduledDateTo || null,
+    search: search || null
   });
   res.json({ bookings: bookings.map(formatVendorBooking), pagination: formatPaginationMetadata(totalItems, page, pageSize) });
 }

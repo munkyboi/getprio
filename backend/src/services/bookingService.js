@@ -1040,7 +1040,10 @@ async function rescheduleVendorBooking({ tenant, bookingId, scheduledStartAt: sc
   return bookingRepository.updateBooking(booking._id, {
     scheduledStartAt: scheduledStartAt.toISOString(),
     scheduledEndAt: scheduledEndAt.toISOString(),
-    status: "rescheduled"
+    status: "rescheduled",
+    queueTicketId: null,
+    checkedInAt: null,
+    checkedInByUserId: null
   });
 }
 
