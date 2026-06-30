@@ -6,7 +6,6 @@ import { Alert, Button, Paper, PasswordInput, SimpleGrid, Stack, Text, TextInput
 import { useNavigate, useSearchParams } from "react-router-dom";
 import type {
   OAuthProviderId,
-  RegisterVendorRequest,
   TenantSlugAvailabilityResponse,
   UsernameAvailabilityResponse
 } from "@shared";

@@ -61,59 +61,34 @@ import QRCode from "react-qr-code";
 import { Navigate, NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
 import type {
   BillingOverviewResponse,
-  CheckoutSessionResponse,
-  CheckoutSyncResponse,
-  CreateCheckoutRequest,
   CreateWalkInTicketRequest,
   QueueHistoryTicket,
   QueueListTicket,
-  PublicBoardThemeResponse,
   PublicBoardThemeSettings,
-  PublicBoardThemeUploadResponse,
-  SavePublicBoardThemeRequest,
   QueueSnapshot,
   StoreHourSummary,
   StoreLocationWithHours,
-  StoreLocationsResponse,
-  ServiceCountersResponse,
   ServiceCounterSummary,
   SaveServiceCounterRequest,
-  VendorStaffResponse,
   VendorStaffSummary,
   AddVendorStaffRequest,
-  UpdateVendorStaffRequest,
   HistoryExportRange,
-  LocationPaymentQrUploadResponse,
   SubscriptionPlanSlug,
   TicketMutationResponse,
   UpdateTenantSettingsRequest,
   SaveVendorAvailabilityBlockRequest,
   SaveVendorAvailabilityExceptionRequest,
   SaveVendorServiceRequest,
-  BookingPaymentProofAccessResponse,
-  RejectVendorBookingPaymentRequest,
-  RescheduleVendorBookingRequest,
-  UpdateVendorBookingStatusRequest,
   TenantNotificationSettings,
-  UpdateTenantNotificationSettingsRequest,
-  UpdateTenantNotificationSettingsResponse,
-  VendorCheckInBookingRequest,
-  VendorCheckInBookingResponse,
-  VendorAvailabilityBlockResponse,
   VendorAvailabilityBlockSummary,
-  VendorAvailabilityExceptionResponse,
   VendorAvailabilityExceptionSummary,
-  VendorAvailabilityResponse,
-  VendorBookingResponse,
   VendorBookingSummary,
-  VendorBookingsResponse,
   VendorClientsResponse,
   VendorServiceSummary,
-  VendorServicesResponse,
-  VendorServiceResponse,
+  UpdateVendorBookingStatusRequest,
   PaginationMetadata
 } from "@shared";
-import { API_BASE_URL, apiRequest } from "../api/client";
+import { API_BASE_URL } from "../api/client";
 import * as vendorDashboardBookings from "../api/vendorDashboardBookings";
 import * as vendorDashboardQueue from "../api/vendorDashboardQueue";
 import * as vendorDashboardCatalog from "../api/vendorDashboardCatalog";
@@ -788,10 +763,6 @@ export default function VendorDashboardPage() {
       if (!token || !selectedTenantSlug || !selectedLocationSlug) {
         throw new Error("Missing dashboard context.");
       }
-
-      const statusQuery = bookingStatusFilter !== "all" ? `&status=${encodeURIComponent(bookingStatusFilter)}` : "";
-      const dateQuery = bookingDateFilter ? `&scheduledDate=${encodeURIComponent(bookingDateFilter)}` : "";
-      const searchQuery = bookingSearch.trim() ? `&search=${encodeURIComponent(bookingSearch.trim())}` : "";
 
       return vendorDashboardBookings.getBookings(token, selectedTenantSlug, selectedLocationSlug, bookingPage, bookingSearch, bookingStatusFilter, bookingDateFilter);
     },

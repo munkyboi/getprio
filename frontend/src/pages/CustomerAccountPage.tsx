@@ -31,7 +31,6 @@ import type {
   CustomerNotificationSettings,
   CustomerBookingsResponse,
   CustomerProfileUpdateRequest,
-  CustomerProfileUpdateResponse,
   PasswordChangeRequest,
   UpdateCustomerNotificationSettingsRequest,
   UpdateCustomerNotificationSettingsResponse,
