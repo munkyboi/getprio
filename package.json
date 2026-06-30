@@ -27,6 +27,8 @@
     "typecheck:frontend": "npm --workspace frontend run typecheck",
     "typecheck:platform": "npm --workspace platform-dashboard run typecheck",
     "typecheck:backend": "npm --workspace backend run typecheck",
+    "test:frontend": "npm --workspace frontend run test",
+    "test:frontend:coverage": "npm --workspace frontend run test:coverage",
     "test:backend": "npm --workspace backend run test",
     "test:backend:coverage": "npm --workspace backend run test:coverage",
     "prepare": "husky"
