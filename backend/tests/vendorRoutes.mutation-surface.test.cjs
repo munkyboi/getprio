@@ -125,7 +125,63 @@ test("vendor routes queue mutations invoke the queue service helpers", async () 
       markVendorBookingNoShow: async () => ({ _id: "booking-1", reference: "BKG-1", locationSlug: "main" })
     },
     "../repositories/bookings": {
-      listBookingsForTenant: async () => ({ bookings: [], totalItems: 0 })
+      listBookingsForTenant: async () => ({ bookings: [], totalItems: 0 }),
+      findBookingById: async (bookingId) => ({
+        _id: String(bookingId),
+        reference: "BKG-DETAIL",
+        tenantId: "tenant-1",
+        tenantName: "Demo Tenant",
+        tenantSlug: "demo",
+        locationId: "location-1",
+        locationName: "Main",
+        locationSlug: "main",
+        serviceId: "service-1",
+        serviceName: "Consultation",
+        serviceSlug: "consultation",
+        serviceManualPaymentRequired: false,
+        servicePriceAmountCents: 0,
+        serviceCurrency: "PHP",
+        servicePriceDisplay: "Free",
+        bookingQuantity: 1,
+        customerUserId: null,
+        customerName: "Alex",
+        customerEmail: "alex@example.com",
+        customerPhone: "",
+        scheduledStartAt: new Date("2026-06-23T08:00:00.000Z"),
+        scheduledEndAt: new Date("2026-06-23T08:30:00.000Z"),
+        status: "pending",
+        notes: "Test booking",
+        paymentReference: "",
+        paymentStatus: "unpaid",
+        paymentProofObjectKey: null,
+        paymentProofFileName: "",
+        paymentProofContentType: "",
+        paymentProofSizeBytes: null,
+        paymentProofUploadedAt: null,
+        paymentVerifiedAt: null,
+        paymentVerifiedByUserId: null,
+        paymentRejectedAt: null,
+        paymentRejectedByUserId: null,
+        paymentRejectionReason: "",
+        pendingExpiresAt: null,
+        expiredAt: null,
+        expirationReason: "",
+        notifyByEmail: true,
+        notifyBySms: false,
+        smsAlertFeePaymentId: "",
+        contactVerifiedAt: null,
+        contactVerificationChannel: null,
+        queueTicketId: null,
+        queueTicketNumber: "",
+        queueTicketLookupCode: "",
+        queueTicketStatus: null,
+        checkedInAt: null,
+        checkedInByUserId: null,
+        noShowAt: null,
+        noShowByUserId: null,
+        createdAt: new Date("2026-06-23T08:00:00.000Z"),
+        updatedAt: new Date("2026-06-23T08:00:00.000Z")
+      })
     },
     "../repositories/vendorServices": { listServicesByTenantId: async () => [] },
     "../repositories/vendorAvailability": { listAvailabilityByLocation: async () => ({ blocks: [], exceptions: [] }) },
@@ -160,6 +216,13 @@ test("vendor routes queue mutations invoke the queue service helpers", async () 
       body: JSON.stringify({ lookupCode: "LOOKUP1" })
     });
     assert.equal(restoreRes.status, 200);
+
+    const bookingDetailRes = await fetch(`${baseUrl}/tenant/demo/bookings/booking-1?location=main`);
+    const bookingDetailText = await bookingDetailRes.text();
+    assert.equal(bookingDetailRes.status, 200, bookingDetailText);
+    const bookingDetail = JSON.parse(bookingDetailText);
+    assert.equal(bookingDetail.booking.id, "booking-1");
+    assert.equal(bookingDetail.booking.reference, "BKG-DETAIL");
 
     assert.equal(calls.some(([name]) => name === "callNextTicket"), true);
     assert.equal(calls.some(([name]) => name === "restoreSkippedTicket"), true);
