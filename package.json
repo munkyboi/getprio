@@ -20,6 +20,7 @@
     "build": "npm --workspace frontend run build && npm --workspace platform-dashboard run build",
     "build:backend": "npm --workspace backend run build",
     "start": "npm --workspace backend run start",
+    "smoke": "node scripts/smoke-test.mjs",
     "lint": "eslint backend/src frontend/src platform-dashboard/src shared",
     "lint:fix": "eslint backend/src frontend/src platform-dashboard/src shared --fix",
     "typecheck": "npm run typecheck:frontend && npm run typecheck:platform && npm run typecheck:backend",

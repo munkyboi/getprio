@@ -12,7 +12,6 @@ import {
   Drawer,
   FileInput,
   Image,
-  Burger,
   Group,
   Modal,
   MultiSelect,
@@ -51,6 +50,7 @@ import {
   IconHomeStats,
   IconInfoCircle,
   IconLogout,
+  IconMenu2,
   IconQrcode,
   IconSettings,
   IconUsersGroup
@@ -5882,19 +5882,15 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         {renderDashboardSidebar()}
       </aside>
 
-      <Button
+      <ActionIcon
         aria-label="Toggle dashboard navigation"
         className="neura-floating-sidebar-toggle"
         onClick={() => setSidebarOpen((current) => !current)}
         variant="filled"
+        size="xl"
       >
-        <Burger
-          aria-hidden
-          color="#ffffff"
-          opened={sidebarOpen}
-          size="sm"
-        />
-      </Button>
+        <IconMenu2 aria-hidden size={18} stroke={2.2} />
+      </ActionIcon>
 
       <main className="neura-main">
         <header className="neura-header">
