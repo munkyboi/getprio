@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert,
   ActionIcon,
@@ -113,7 +114,14 @@ import type {
   PaginationMetadata
 } from "@shared";
 import { API_BASE_URL, apiRequest } from "../api/client";
+import * as vendorDashboardBookings from "../api/vendorDashboardBookings";
+import * as vendorDashboardQueue from "../api/vendorDashboardQueue";
+import * as vendorDashboardCatalog from "../api/vendorDashboardCatalog";
+import * as vendorDashboardOperations from "../api/vendorDashboardOperations";
+import * as vendorDashboardReads from "../api/vendorDashboardReads";
+import * as vendorDashboardBilling from "../api/vendorDashboardBilling";
 import { useAuth } from "../context/AuthContext";
+import { shouldEnableVendorDashboardBootstrap } from "../lib/vendorDashboardBootstrap";
 import { buildJoinUrl, buildMonitorUrl } from "../queuePaths";
 import {
   formatDateInputValue,
@@ -569,6 +577,7 @@ export default function VendorDashboardPage() {
   const { section } = useParams<{ section: string }>();
   const location = useLocation();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const currentSection = (
     section && dashboardSections.has(section) ? section : "queue"
   ) as DashboardSection;
@@ -661,21 +670,6 @@ export default function VendorDashboardPage() {
   const [bookingDateFilter, setBookingDateFilter] = useState(getTodayDateInputValue);
   const [bookingPage, setBookingPage] = useState(1);
   const [bookingPagination, setBookingPagination] = useState<PaginationMetadata | null>(null);
-  const bookingParamsRef = useRef({
-    page: 1,
-    search: "",
-    status: "all" as BookingStatusFilter,
-    date: getTodayDateInputValue()
-  });
-
-  useEffect(() => {
-    bookingParamsRef.current = {
-      page: bookingPage,
-      search: bookingSearch,
-      status: bookingStatusFilter,
-      date: bookingDateFilter
-    };
-  }, [bookingPage, bookingSearch, bookingStatusFilter, bookingDateFilter]);
 
   const [rescheduleDialogOpen, setRescheduleDialogOpen] = useState(false);
   const [reschedulingBooking, setReschedulingBooking] = useState<VendorBookingSummary | null>(null);
@@ -702,6 +696,119 @@ export default function VendorDashboardPage() {
   const locationQuery = selectedLocationSlug
     ? `?location=${encodeURIComponent(selectedLocationSlug)}`
     : "";
+  const dashboardBootstrapQuery = useQuery({
+    queryKey: ["vendor-dashboard-bootstrap", token, selectedTenantSlug, selectedLocationSlug, locationQuery],
+    queryFn: async () => {
+      if (!token || !selectedTenantSlug) {
+        throw new Error("Missing dashboard context.");
+      }
+
+      return vendorDashboardReads.getBootstrap(token, selectedTenantSlug, locationQuery);
+    },
+    enabled: shouldEnableVendorDashboardBootstrap(token, selectedTenantSlug)
+  });
+  const staffQuery = useQuery({
+    queryKey: ["vendor-dashboard-staff", token, selectedTenantSlug],
+    queryFn: async () => {
+      if (!token || !selectedTenantSlug) {
+        throw new Error("Missing dashboard context.");
+      }
+
+      return vendorDashboardOperations.getStaff(token, selectedTenantSlug);
+    },
+    enabled: Boolean(token && selectedTenantSlug)
+  });
+  const servicesQuery = useQuery({
+    queryKey: ["vendor-dashboard-services", token, selectedTenantSlug, isOwner, isAdmin],
+    queryFn: async () => {
+      if (!token || !selectedTenantSlug) {
+        throw new Error("Missing dashboard context.");
+      }
+
+      return vendorDashboardCatalog.getServices(token, selectedTenantSlug);
+    },
+    enabled: Boolean(token && selectedTenantSlug && (isOwner || isAdmin))
+  });
+  const availabilityQuery = useQuery({
+    queryKey: ["vendor-dashboard-availability", token, selectedTenantSlug, selectedLocationSlug, isOwner, isAdmin],
+    queryFn: async () => {
+      if (!token || !selectedTenantSlug || !selectedLocationSlug) {
+        throw new Error("Missing dashboard context.");
+      }
+
+      return vendorDashboardCatalog.getAvailability(token, selectedTenantSlug, selectedLocationSlug);
+    },
+    enabled: Boolean(token && selectedTenantSlug && selectedLocationSlug && (isOwner || isAdmin))
+  });
+  const countersQuery = useQuery({
+    queryKey: ["vendor-dashboard-counters", token, selectedTenantSlug, selectedLocationSlug],
+    queryFn: async () => {
+      if (!token || !selectedTenantSlug || !selectedLocationSlug) {
+        throw new Error("Missing dashboard context.");
+      }
+
+      return vendorDashboardCatalog.getCounters(token, selectedTenantSlug, selectedLocationSlug);
+    },
+    enabled: Boolean(token && selectedTenantSlug && selectedLocationSlug)
+  });
+  const historyQuery = useQuery({
+    queryKey: ["vendor-dashboard-history", token, selectedTenantSlug, selectedLocationSlug, currentSection, hasActiveSubscription],
+    queryFn: async () => {
+      if (!token || !selectedTenantSlug || !selectedLocationSlug) {
+        throw new Error("Missing dashboard context.");
+      }
+
+      return vendorDashboardOperations.getHistory(token, selectedTenantSlug, selectedLocationSlug);
+    },
+    enabled: Boolean(token && selectedTenantSlug && selectedLocationSlug && currentSection === "history" && hasActiveSubscription)
+  });
+  const clientsQuery = useQuery({
+    queryKey: ["vendor-dashboard-clients", token, selectedTenantSlug, selectedLocationSlug, currentSection, hasActiveSubscription, locationQuery],
+    queryFn: async () => {
+      if (!token || !selectedTenantSlug || !selectedLocationSlug) {
+        throw new Error("Missing dashboard context.");
+      }
+
+      return vendorDashboardOperations.getClients(token, selectedTenantSlug, locationQuery);
+    },
+    enabled: Boolean(token && selectedTenantSlug && selectedLocationSlug && currentSection === "clients" && hasActiveSubscription)
+  });
+  const bookingListQuery = useQuery({
+    queryKey: [
+      "vendor-dashboard-bookings",
+      token,
+      selectedTenantSlug,
+      selectedLocationSlug,
+      bookingPage,
+      bookingSearch,
+      bookingStatusFilter,
+      bookingDateFilter
+    ],
+    queryFn: async () => {
+      if (!token || !selectedTenantSlug || !selectedLocationSlug) {
+        throw new Error("Missing dashboard context.");
+      }
+
+      const statusQuery = bookingStatusFilter !== "all" ? `&status=${encodeURIComponent(bookingStatusFilter)}` : "";
+      const dateQuery = bookingDateFilter ? `&scheduledDate=${encodeURIComponent(bookingDateFilter)}` : "";
+      const searchQuery = bookingSearch.trim() ? `&search=${encodeURIComponent(bookingSearch.trim())}` : "";
+
+      return vendorDashboardBookings.getBookings(token, selectedTenantSlug, selectedLocationSlug, bookingPage, bookingSearch, bookingStatusFilter, bookingDateFilter);
+    },
+    enabled: Boolean(token && selectedTenantSlug && selectedLocationSlug && currentSection === "bookings" && hasActiveSubscription && canOperateBookingQueue)
+  });
+  const bookingAlertsQuery = useQuery({
+    queryKey: ["vendor-dashboard-booking-alerts", token, selectedTenantSlug, selectedLocationSlug],
+    queryFn: async () => {
+      if (!token || !selectedTenantSlug || !selectedLocationSlug) {
+        throw new Error("Missing dashboard context.");
+      }
+
+      return vendorDashboardBookings.getBookingAlerts(token, selectedTenantSlug, selectedLocationSlug);
+    },
+    enabled: Boolean(token && selectedTenantSlug && selectedLocationSlug && hasActiveSubscription && canOperateBookingQueue),
+    refetchInterval: 15000
+  });
 
   useEffect(() => {
     if (!selectedTenantSlug && user?.tenants?.length) {
@@ -710,99 +817,106 @@ export default function VendorDashboardPage() {
   }, [selectedTenantSlug, user]);
 
   useEffect(() => {
-    if (!selectedTenantSlug || !token) {
-      return undefined;
+    if (!dashboardBootstrapQuery.data) {
+      return;
     }
 
-    let active = true;
-
-    apiRequest<StoreLocationsResponse>(`/vendor/tenant/${selectedTenantSlug}/locations`, {
-      token
-    })
-      .then((data) => {
-        if (!active) {
-          return;
-        }
-
-        setLocations(data.locations);
-        setActiveLocationLimit(data.activeLocationLimit);
-        if (!selectedLocationSlug || !data.locations.some((item) => item.slug === selectedLocationSlug)) {
-          setSelectedLocationSlug(data.locations.find((item) => item.isPrimary)?.slug || data.locations[0]?.slug || "");
-        }
-      })
-      .catch((loadError) => {
-        if (active) {
-          setError(getErrorMessage(loadError));
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [selectedLocationSlug, selectedTenantSlug, token]);
-
-  useEffect(() => {
-    if (!selectedTenantSlug || !token || !selectedLocationSlug) {
-      return undefined;
-    }
-
-    let active = true;
+    const { locationsResponse, snapshotResponse, billingResponse, notificationSettings } = dashboardBootstrapQuery.data;
     setError("");
-
-    apiRequest<QueueSnapshot>(`/vendor/tenant/${selectedTenantSlug}/dashboard${locationQuery}`, { token })
-      .then((data) => {
-        if (!active) {
-          return;
-        }
-        setSnapshot(data);
-        setSettings({
-          queuePrefix: data.tenant.queuePrefix,
-          averageServiceMinutes: data.tenant.averageServiceMinutes,
-          notificationThreshold: data.tenant.notificationThreshold,
-          autoPauseEnabled: data.tenant.autoPauseEnabled,
-          autoPauseThreshold: data.tenant.autoPauseThreshold ?? 20,
-          autoResumeEnabled: data.tenant.autoResumeEnabled,
-          autoResumeVacancyPercent: data.tenant.autoResumeVacancyPercent ?? 20,
-          contactEmail: data.tenant.contactEmail || "",
-          contactPhone: data.tenant.contactPhone || ""
-        });
-      })
-      .catch((loadError) => {
-        if (active) {
-          setError(getErrorMessage(loadError));
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [locationQuery, selectedLocationSlug, selectedTenantSlug, token]);
+    setLocations(locationsResponse.locations);
+    setActiveLocationLimit(locationsResponse.activeLocationLimit);
+    if (!selectedLocationSlug || !locationsResponse.locations.some((item) => item.slug === selectedLocationSlug)) {
+      setSelectedLocationSlug(locationsResponse.locations.find((item) => item.isPrimary)?.slug || locationsResponse.locations[0]?.slug || "");
+    }
+    setSnapshot(snapshotResponse);
+    setSettings({
+      queuePrefix: snapshotResponse.tenant.queuePrefix,
+      averageServiceMinutes: snapshotResponse.tenant.averageServiceMinutes,
+      notificationThreshold: snapshotResponse.tenant.notificationThreshold,
+      autoPauseEnabled: snapshotResponse.tenant.autoPauseEnabled,
+      autoPauseThreshold: snapshotResponse.tenant.autoPauseThreshold ?? 20,
+      autoResumeEnabled: snapshotResponse.tenant.autoResumeEnabled,
+      autoResumeVacancyPercent: snapshotResponse.tenant.autoResumeVacancyPercent ?? 20,
+      contactEmail: snapshotResponse.tenant.contactEmail || "",
+      contactPhone: snapshotResponse.tenant.contactPhone || ""
+    });
+    setBilling(billingResponse);
+    setVendorNotificationSettings(notificationSettings);
+  }, [dashboardBootstrapQuery.data, selectedLocationSlug]);
 
   useEffect(() => {
-    if (!selectedTenantSlug || !token) {
-      return undefined;
+    if (dashboardBootstrapQuery.error) {
+      setError(getErrorMessage(dashboardBootstrapQuery.error));
+    }
+  }, [dashboardBootstrapQuery.error]);
+
+  useEffect(() => {
+    if (!staffQuery.data) {
+      return;
     }
 
-    let active = true;
+    setStaff(staffQuery.data.staff);
+    setStaffSeatLimit(staffQuery.data.staffSeatLimit);
+  }, [staffQuery.data]);
 
-    apiRequest<BillingOverviewResponse>(`/billing/tenant/${selectedTenantSlug}/subscription`, {
-      token
-    })
-      .then((data) => {
-        if (active) {
-          setBilling(data);
-        }
-      })
-      .catch((loadError) => {
-        if (active) {
-          setError(getErrorMessage(loadError));
-        }
-      });
+  useEffect(() => {
+    if (!servicesQuery.data) {
+      return;
+    }
 
-    return () => {
-      active = false;
-    };
-  }, [selectedTenantSlug, token]);
+    setServices(servicesQuery.data.services);
+  }, [servicesQuery.data]);
+
+  useEffect(() => {
+    if (!availabilityQuery.data) {
+      return;
+    }
+
+    setAvailabilityBlocks(availabilityQuery.data.blocks);
+    setAvailabilityExceptions(availabilityQuery.data.exceptions);
+  }, [availabilityQuery.data]);
+
+  useEffect(() => {
+    if (!countersQuery.data) {
+      return;
+    }
+
+    setServiceCounters(countersQuery.data.counters);
+    setCounterLimit(countersQuery.data.counterLimit);
+  }, [countersQuery.data]);
+
+  useEffect(() => {
+    if (!historyQuery.data) {
+      return;
+    }
+
+    setHistory(historyQuery.data);
+  }, [historyQuery.data]);
+
+  useEffect(() => {
+    if (!clientsQuery.data) {
+      return;
+    }
+
+    setClients(clientsQuery.data);
+  }, [clientsQuery.data]);
+
+  useEffect(() => {
+    if (!bookingListQuery.data) {
+      return;
+    }
+
+    syncVendorBookings(bookingListQuery.data.bookings);
+    setBookingPagination(bookingListQuery.data.pagination || null);
+  }, [bookingListQuery.data]);
+
+  useEffect(() => {
+    if (!bookingAlertsQuery.data) {
+      return;
+    }
+
+    syncBookingAlerts(bookingAlertsQuery.data.bookings, { detectNew: true });
+  }, [bookingAlertsQuery.data]);
 
   useEffect(() => {
     if (!browserNotificationsSupported) {
@@ -811,31 +925,6 @@ export default function VendorDashboardPage() {
 
     setBrowserPermission(window.Notification.permission);
   }, [browserNotificationsSupported]);
-
-  useEffect(() => {
-    if (!selectedTenantSlug || !token) {
-      return undefined;
-    }
-
-    let active = true;
-    apiRequest<{ notificationSettings: TenantNotificationSettings }>(`/vendor/tenant/${selectedTenantSlug}/notification-settings`, {
-      token
-    })
-      .then((data) => {
-        if (active) {
-          setVendorNotificationSettings(data.notificationSettings);
-        }
-      })
-      .catch((loadError) => {
-        if (active) {
-          setError(getErrorMessage(loadError));
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [selectedTenantSlug, token]);
 
   async function handleRequestBrowserPermission() {
     if (!browserNotificationsSupported || !window.Notification) {
@@ -888,14 +977,7 @@ export default function VendorDashboardPage() {
     setSavingNotificationSettings(true);
 
     try {
-      const response = await apiRequest<
-        UpdateTenantNotificationSettingsResponse,
-        UpdateTenantNotificationSettingsRequest
-      >(`/vendor/tenant/${selectedTenantSlug}/notification-settings`, {
-        method: "PATCH",
-        token,
-        body: nextSettings
-      });
+      const response = await vendorDashboardOperations.updateNotificationSettings(token, selectedTenantSlug, nextSettings);
       setVendorNotificationSettings(response.notificationSettings);
     } catch (saveError) {
       setError(getErrorMessage(saveError));
@@ -913,10 +995,7 @@ export default function VendorDashboardPage() {
       return;
     }
 
-    apiRequest<ServiceCountersResponse>(
-      `/vendor/tenant/${selectedTenantSlug}/counters?location=${encodeURIComponent(selectedLocationSlug)}`,
-      { token }
-    )
+    vendorDashboardCatalog.getCounters(token, selectedTenantSlug, selectedLocationSlug)
       .then((data) => {
         setServiceCounters(data.counters);
         setCounterLimit(data.counterLimit);
@@ -937,7 +1016,7 @@ export default function VendorDashboardPage() {
       return;
     }
 
-    apiRequest<VendorStaffResponse>(`/vendor/tenant/${selectedTenantSlug}/staff`, { token })
+    vendorDashboardOperations.getStaff(token, selectedTenantSlug)
       .then((data) => {
         setStaff(data.staff);
         setStaffSeatLimit(data.staffSeatLimit);
@@ -954,7 +1033,7 @@ export default function VendorDashboardPage() {
       return;
     }
 
-    apiRequest<VendorServicesResponse>(`/vendor/tenant/${selectedTenantSlug}/services`, { token })
+    vendorDashboardCatalog.getServices(token, selectedTenantSlug)
       .then((data) => {
         setServices(data.services);
       })
@@ -970,10 +1049,7 @@ export default function VendorDashboardPage() {
       return;
     }
 
-    apiRequest<VendorAvailabilityResponse>(
-      `/vendor/tenant/${selectedTenantSlug}/availability?location=${encodeURIComponent(selectedLocationSlug)}`,
-      { token }
-    )
+    vendorDashboardCatalog.getAvailability(token, selectedTenantSlug, selectedLocationSlug)
       .then((data) => {
         setAvailabilityBlocks(data.blocks);
         setAvailabilityExceptions(data.exceptions);
@@ -1014,13 +1090,7 @@ export default function VendorDashboardPage() {
     );
     setBusyAction("billing-sync");
 
-    apiRequest<CheckoutSyncResponse>(
-      `/billing/tenant/${selectedTenantSlug}/checkout/${checkoutId}/sync`,
-      {
-        method: "POST",
-        token
-      }
-    )
+    vendorDashboardOperations.syncCheckout(token, selectedTenantSlug, checkoutId)
       .then((data) => {
         if (!active) {
           return;
@@ -1066,22 +1136,18 @@ export default function VendorDashboardPage() {
       setSnapshot(payload);
       syncQueueAlerts(payload.nextUp || [], { detectNew: true });
       if (currentSection === "bookings" && token && hasActiveSubscription && canOperateBookingQueue) {
-        const { page, search, status, date } = bookingParamsRef.current;
-        const statusQuery = status !== "all" ? `&status=${encodeURIComponent(status)}` : "";
-        const dateQuery = date ? `&scheduledDate=${encodeURIComponent(date)}` : "";
-        const searchQuery = search.trim() ? `&search=${encodeURIComponent(search.trim())}` : "";
-
-        void apiRequest<VendorBookingsResponse>(
-          `/vendor/tenant/${selectedTenantSlug}/bookings?page=${page}&pageSize=10&location=${encodeURIComponent(selectedLocationSlug)}${statusQuery}${dateQuery}${searchQuery}`,
-          { token }
-        )
-          .then((data) => {
-            syncVendorBookings(data.bookings, { detectNew: true });
-            setBookingPagination(data.pagination || null);
-          })
-          .catch((loadError) => {
-            setError(getErrorMessage(loadError));
-          });
+        void queryClient.invalidateQueries({
+          queryKey: [
+            "vendor-dashboard-bookings",
+            token,
+            selectedTenantSlug,
+            selectedLocationSlug,
+            bookingPage,
+            bookingSearch,
+            bookingStatusFilter,
+            bookingDateFilter
+          ]
+        });
       }
     };
     eventSource.onerror = () => {
@@ -1107,10 +1173,7 @@ export default function VendorDashboardPage() {
 
     let active = true;
 
-    apiRequest<VendorHistoryResponse>(
-      `/vendor/tenant/${selectedTenantSlug}/history?limit=50&location=${encodeURIComponent(selectedLocationSlug)}`,
-      { token }
-    )
+    vendorDashboardOperations.getHistory(token, selectedTenantSlug, selectedLocationSlug)
       .then((data) => {
         if (active) {
           setHistory(data);
@@ -1134,10 +1197,7 @@ export default function VendorDashboardPage() {
 
     let active = true;
 
-    apiRequest<VendorClientsResponse>(
-      `/vendor/tenant/${selectedTenantSlug}/clients${locationQuery}`,
-      { token }
-    )
+    vendorDashboardOperations.getClients(token, selectedTenantSlug, locationQuery)
       .then((data) => {
         if (active) {
           setClients(data);
@@ -1153,93 +1213,6 @@ export default function VendorDashboardPage() {
       active = false;
     };
   }, [currentSection, hasActiveSubscription, locationQuery, selectedLocationSlug, selectedTenantSlug, token]);
-
-  useEffect(() => {
-    if (!selectedTenantSlug || !selectedLocationSlug || !token || currentSection !== "bookings" || !hasActiveSubscription || !canOperateBookingQueue) {
-      if (!canOperateBookingQueue) {
-        setVendorBookings([]);
-        setBookingAlertIds([]);
-        knownBookingIdsRef.current = null;
-        setBookingAlertBookings([]);
-        knownBookingAlertIdsRef.current = null;
-      }
-      return undefined;
-    }
-
-    let active = true;
-    const statusQuery = bookingStatusFilter !== "all" ? `&status=${encodeURIComponent(bookingStatusFilter)}` : "";
-    const dateQuery = bookingDateFilter ? `&scheduledDate=${encodeURIComponent(bookingDateFilter)}` : "";
-    const searchQuery = bookingSearch.trim() ? `&search=${encodeURIComponent(bookingSearch.trim())}` : "";
-
-    apiRequest<VendorBookingsResponse>(
-      `/vendor/tenant/${selectedTenantSlug}/bookings?page=${bookingPage}&pageSize=10&location=${encodeURIComponent(selectedLocationSlug)}${statusQuery}${dateQuery}${searchQuery}`,
-      { token }
-    )
-      .then((data) => {
-        if (active) {
-          syncVendorBookings(data.bookings);
-          setBookingPagination(data.pagination || null);
-        }
-      })
-      .catch((loadError) => {
-        if (active) {
-          setError(getErrorMessage(loadError));
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [
-    canOperateBookingQueue,
-    currentSection,
-    hasActiveSubscription,
-    selectedLocationSlug,
-    selectedTenantSlug,
-    token,
-    bookingPage,
-    bookingSearch,
-    bookingStatusFilter,
-    bookingDateFilter
-  ]);
-
-  useEffect(() => {
-    if (!selectedTenantSlug || !selectedLocationSlug || !token || !hasActiveSubscription || !canOperateBookingQueue) {
-      return undefined;
-    }
-
-    let active = true;
-    let pollTimer: number | null = null;
-
-    const pollBookingAlerts = async () => {
-      try {
-        const data = await apiRequest<VendorBookingsResponse>(
-          `/vendor/tenant/${selectedTenantSlug}/bookings?page=1&pageSize=10&location=${encodeURIComponent(selectedLocationSlug)}&status=pending`,
-          { token }
-        );
-
-        if (active) {
-          syncBookingAlerts(data.bookings, { detectNew: true });
-        }
-      } catch (loadError) {
-        if (active) {
-          console.warn("[booking-alert-poll-failed]", getErrorMessage(loadError));
-        }
-      }
-    };
-
-    void pollBookingAlerts();
-    pollTimer = window.setInterval(() => {
-      void pollBookingAlerts();
-    }, 15000);
-
-    return () => {
-      active = false;
-      if (pollTimer !== null) {
-        window.clearInterval(pollTimer);
-      }
-    };
-  }, [canOperateBookingQueue, hasActiveSubscription, selectedLocationSlug, selectedTenantSlug, token]);
 
   const activeSubscription =
     billing?.subscription?.status === "active" ? billing.subscription : null;
@@ -1691,14 +1664,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   async function handleCreateWalkIn(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const success = await runAction("walk-in", () =>
-      apiRequest<TicketMutationResponse, CreateWalkInTicketRequest>(
-        `/vendor/tenant/${selectedTenantSlug}/tickets${locationQuery}`,
-        {
-          method: "POST",
-          token,
-          body: walkInForm
-        }
-      )
+      vendorDashboardQueue.createWalkInTicket(token, selectedTenantSlug, locationQuery, walkInForm)
     );
 
     if (success) {
@@ -1708,72 +1674,46 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   async function reloadCounters() {
-    const data = await apiRequest<ServiceCountersResponse>(
-      `/vendor/tenant/${selectedTenantSlug}/counters?location=${encodeURIComponent(selectedLocationSlug)}`,
-      { token }
-    );
-    setServiceCounters(data.counters);
-    setCounterLimit(data.counterLimit);
+    await queryClient.invalidateQueries({
+      queryKey: ["vendor-dashboard-counters", token, selectedTenantSlug, selectedLocationSlug]
+    });
   }
 
   async function reloadStaff() {
-    const data = await apiRequest<VendorStaffResponse>(
-      `/vendor/tenant/${selectedTenantSlug}/staff`,
-      { token }
-    );
-    setStaff(data.staff);
-    setStaffSeatLimit(data.staffSeatLimit);
+    await queryClient.invalidateQueries({ queryKey: ["vendor-dashboard-staff", token, selectedTenantSlug] });
   }
 
   async function reloadServices() {
-    const data = await apiRequest<VendorServicesResponse>(
-      `/vendor/tenant/${selectedTenantSlug}/services`,
-      { token }
-    );
-    setServices(data.services);
+    await queryClient.invalidateQueries({
+      queryKey: ["vendor-dashboard-services", token, selectedTenantSlug, isOwner, isAdmin]
+    });
   }
 
   async function reloadAvailability() {
-    if (!selectedLocationSlug) {
-      return;
-    }
-
-    const data = await apiRequest<VendorAvailabilityResponse>(
-      `/vendor/tenant/${selectedTenantSlug}/availability?location=${encodeURIComponent(selectedLocationSlug)}`,
-      { token }
-    );
-    setAvailabilityBlocks(data.blocks);
-    setAvailabilityExceptions(data.exceptions);
+    await queryClient.invalidateQueries({
+      queryKey: ["vendor-dashboard-availability", token, selectedTenantSlug, selectedLocationSlug, isOwner, isAdmin]
+    });
   }
 
   async function reloadBookings() {
-    if (!selectedLocationSlug) {
-      return;
-    }
-
-    const { page, search, status, date } = bookingParamsRef.current;
-    const statusQuery = status !== "all" ? `&status=${encodeURIComponent(status)}` : "";
-    const dateQuery = date ? `&scheduledDate=${encodeURIComponent(date)}` : "";
-    const searchQuery = search.trim() ? `&search=${encodeURIComponent(search.trim())}` : "";
-
-    const data = await apiRequest<VendorBookingsResponse>(
-      `/vendor/tenant/${selectedTenantSlug}/bookings?page=${page}&pageSize=10&location=${encodeURIComponent(selectedLocationSlug)}${statusQuery}${dateQuery}${searchQuery}`,
-      { token }
-    );
-    syncVendorBookings(data.bookings);
-    setBookingPagination(data.pagination || null);
+    await queryClient.invalidateQueries({
+      queryKey: [
+        "vendor-dashboard-bookings",
+        token,
+        selectedTenantSlug,
+        selectedLocationSlug,
+        bookingPage,
+        bookingSearch,
+        bookingStatusFilter,
+        bookingDateFilter
+      ]
+    });
   }
 
   async function reloadDashboardSnapshot() {
-    if (!selectedTenantSlug || !selectedLocationSlug) {
-      return;
-    }
-
-    const data = await apiRequest<QueueSnapshot>(
-      `/vendor/tenant/${selectedTenantSlug}/dashboard${locationQuery}`,
-      { token }
-    );
-    setSnapshot(data);
+    await queryClient.invalidateQueries({
+      queryKey: ["vendor-dashboard-bootstrap", token, selectedTenantSlug, selectedLocationSlug, locationQuery]
+    });
   }
 
   async function handleUpdateBookingStatus(
@@ -1784,10 +1724,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     setError("");
 
     try {
-      const response = await apiRequest<VendorBookingResponse, UpdateVendorBookingStatusRequest>(
-        `/vendor/tenant/${selectedTenantSlug}/bookings/${booking.id}/status`,
-        { method: "PATCH", token, body: { status } }
-      );
+      const response = await vendorDashboardBookings.updateBookingStatus(token, selectedTenantSlug, booking.id, status);
       setVendorBookings((current) =>
         current.map((item) => (item.id === response.booking.id ? response.booking : item))
       );
@@ -1819,15 +1756,11 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     setError("");
 
     try {
-      const response = await apiRequest<VendorBookingResponse, RescheduleVendorBookingRequest>(
-        `/vendor/tenant/${selectedTenantSlug}/bookings/${reschedulingBooking.id}/reschedule`,
-        {
-          method: "PATCH",
-          token,
-          body: {
-            scheduledStartAt: new Date(rescheduleStartAt).toISOString()
-          }
-        }
+      const response = await vendorDashboardBookings.rescheduleBooking(
+        token,
+        selectedTenantSlug,
+        reschedulingBooking.id,
+        new Date(rescheduleStartAt).toISOString()
       );
       setVendorBookings((current) =>
         current.map((item) => (item.id === response.booking.id ? response.booking : item))
@@ -1835,6 +1768,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       clearBookingAlert(response.booking.id);
       setRescheduleDialogOpen(false);
       setReschedulingBooking(null);
+      await reloadBookings();
+      await reloadDashboardSnapshot();
       showSuccessNotification("Booking rescheduled", `${response.booking.reference} has a new schedule.`);
     } catch (rescheduleError) {
       setError(getErrorMessage(rescheduleError));
@@ -1848,22 +1783,22 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     setError("");
 
     try {
-      const response = await apiRequest<VendorCheckInBookingResponse, VendorCheckInBookingRequest>(
-        `/vendor/tenant/${selectedTenantSlug}/bookings/${booking.id}/check-in${locationQuery}`,
+      const response = await vendorDashboardBookings.checkInBooking(
+        token,
+        selectedTenantSlug,
+        booking.id,
         {
-          method: "POST",
-          token,
-          body: {
-            overrideWindow,
-            overrideReason: overrideWindow ? "Late check-in override from vendor dashboard" : undefined
-          }
-        }
+          overrideWindow,
+          overrideReason: overrideWindow ? "Late check-in override from vendor dashboard" : undefined
+        },
+        locationQuery
       );
       setVendorBookings((current) =>
         current.map((item) => (item.id === response.booking.id ? response.booking : item))
       );
       clearBookingAlert(response.booking.id);
       await reloadDashboardSnapshot();
+      await reloadBookings();
       showSuccessNotification(
         "Booking checked in",
         `${response.booking.reference} is now live as ticket ${response.ticket.ticketNumber}.`
@@ -1880,14 +1815,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     setError("");
 
     try {
-      const response = await apiRequest<VendorBookingResponse>(
-        `/vendor/tenant/${selectedTenantSlug}/bookings/${booking.id}/no-show${locationQuery}`,
-        { method: "POST", token }
-      );
+      const response = await vendorDashboardBookings.markBookingNoShow(token, selectedTenantSlug, booking.id, locationQuery);
       setVendorBookings((current) =>
         current.map((item) => (item.id === response.booking.id ? response.booking : item))
       );
       clearBookingAlert(response.booking.id);
+      await reloadBookings();
       showSuccessNotification("Booking marked no-show", `${response.booking.reference} was canceled as a no-show.`);
     } catch (noShowError) {
       setError(getErrorMessage(noShowError));
@@ -1905,10 +1838,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     setError("");
 
     try {
-      const response = await apiRequest<BookingPaymentProofAccessResponse>(
-        `/vendor/tenant/${selectedTenantSlug}/bookings/${booking.id}/payment-proof`,
-        { token }
-      );
+      const response = await vendorDashboardBookings.getBookingPaymentProof(token, selectedTenantSlug, booking.id);
       window.open(response.access.url, "_blank", "noopener,noreferrer");
     } catch (proofError) {
       setError(getErrorMessage(proofError));
@@ -1922,15 +1852,13 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     setError("");
 
     try {
-      const response = await apiRequest<VendorBookingResponse>(
-        `/vendor/tenant/${selectedTenantSlug}/bookings/${booking.id}/verify-payment`,
-        { method: "PATCH", token }
-      );
+      const response = await vendorDashboardBookings.verifyBookingPayment(token, selectedTenantSlug, booking.id);
       setVendorBookings((current) =>
         current.map((item) => (item.id === response.booking.id ? response.booking : item))
       );
       setBookingDetailModalId(null);
       setPaymentRejectionReason("");
+      await reloadBookings();
       showSuccessNotification("Payment verified", `${response.booking.reference} can now be confirmed.`);
     } catch (verifyError) {
       setError(getErrorMessage(verifyError));
@@ -1950,15 +1878,13 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     setError("");
 
     try {
-      const response = await apiRequest<VendorBookingResponse, RejectVendorBookingPaymentRequest>(
-        `/vendor/tenant/${selectedTenantSlug}/bookings/${booking.id}/reject-payment`,
-        { method: "PATCH", token, body: { reason } }
-      );
+      const response = await vendorDashboardBookings.rejectBookingPayment(token, selectedTenantSlug, booking.id, { reason });
       setVendorBookings((current) =>
         current.map((item) => (item.id === response.booking.id ? response.booking : item))
       );
       setPaymentRejectionReason("");
       clearBookingAlert(response.booking.id);
+      await reloadBookings();
       showSuccessNotification("Payment rejected", `${response.booking.reference} was canceled.`);
     } catch (rejectError) {
       setError(getErrorMessage(rejectError));
@@ -1992,17 +1918,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
     try {
       if (editingServiceSlug) {
-        await apiRequest<VendorServiceResponse, SaveVendorServiceRequest>(
-          `/vendor/tenant/${selectedTenantSlug}/services/${editingServiceSlug}`,
-          { method: "PATCH", token, body: serviceForm }
-        );
+        await vendorDashboardCatalog.saveService(token, selectedTenantSlug, editingServiceSlug, serviceForm);
       } else {
-        await apiRequest<VendorServiceResponse, SaveVendorServiceRequest>(
-          `/vendor/tenant/${selectedTenantSlug}/services`,
-          { method: "POST", token, body: serviceForm }
-        );
+        await vendorDashboardCatalog.saveService(token, selectedTenantSlug, null, serviceForm);
       }
       await reloadServices();
+      await reloadBookings();
       setServiceDialogOpen(false);
       showSuccessNotification(
         editingServiceSlug ? "Service updated" : "Service created",
@@ -2020,28 +1941,22 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     setError("");
 
     try {
-      const response = await apiRequest<VendorServiceResponse, SaveVendorServiceRequest>(
-        `/vendor/tenant/${selectedTenantSlug}/services/${service.slug}`,
-        {
-          method: "PATCH",
-          token,
-          body: {
-            name: service.name,
-            slug: service.slug,
-            description: service.description,
-            durationMinutes: service.durationMinutes,
-            allowBookingQuantity: service.allowBookingQuantity,
-            bookingQuantityLabel: service.bookingQuantityLabel,
-            priceAmountCents: service.priceAmountCents,
-            priceDisplay: service.priceDisplay,
-            isActive,
-            sortOrder: service.sortOrder
-          }
-        }
-      );
+      const response = await vendorDashboardCatalog.saveService(token, selectedTenantSlug, service.slug, {
+        name: service.name,
+        slug: service.slug,
+        description: service.description,
+        durationMinutes: service.durationMinutes,
+        allowBookingQuantity: service.allowBookingQuantity,
+        bookingQuantityLabel: service.bookingQuantityLabel,
+        priceAmountCents: service.priceAmountCents,
+        priceDisplay: service.priceDisplay,
+        isActive,
+        sortOrder: service.sortOrder
+      });
       setServices((current) =>
         current.map((item) => (item.id === response.service.id ? response.service : item))
       );
+      await reloadBookings();
       showSuccessNotification(
         isActive ? "Service enabled" : "Service disabled",
         `${response.service.name} is now ${isActive ? "active" : "inactive"}.`
@@ -2058,13 +1973,11 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     setError("");
 
     try {
-      const response = await apiRequest<VendorServiceResponse>(
-        `/vendor/tenant/${selectedTenantSlug}/services/${service.slug}`,
-        { method: "DELETE", token }
-      );
+      const response = await vendorDashboardCatalog.deactivateService(token, selectedTenantSlug, service.slug);
       setServices((current) =>
         current.map((item) => (item.id === response.service.id ? response.service : item))
       );
+      await reloadBookings();
       showSuccessNotification("Service disabled", `${service.name} is no longer active.`);
     } catch (deleteError) {
       setError(getErrorMessage(deleteError));
@@ -2103,17 +2016,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         locationSlug: selectedLocationSlug
       };
       if (editingAvailabilityBlockId) {
-        await apiRequest<VendorAvailabilityBlockResponse, SaveVendorAvailabilityBlockRequest>(
-          `/vendor/tenant/${selectedTenantSlug}/availability/blocks/${editingAvailabilityBlockId}`,
-          { method: "PATCH", token, body }
-        );
+        await vendorDashboardCatalog.saveAvailabilityBlock(token, selectedTenantSlug, editingAvailabilityBlockId, body);
       } else {
-        await apiRequest<VendorAvailabilityBlockResponse, SaveVendorAvailabilityBlockRequest>(
-          `/vendor/tenant/${selectedTenantSlug}/availability/blocks`,
-          { method: "POST", token, body }
-        );
+        await vendorDashboardCatalog.saveAvailabilityBlock(token, selectedTenantSlug, null, body);
       }
       await reloadAvailability();
+      await reloadBookings();
       setAvailabilityBlockDialogOpen(false);
       showSuccessNotification(
         editingAvailabilityBlockId ? "Availability updated" : "Availability added",
@@ -2131,13 +2039,11 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     setError("");
 
     try {
-      const response = await apiRequest<VendorAvailabilityBlockResponse>(
-        `/vendor/tenant/${selectedTenantSlug}/availability/blocks/${block.id}`,
-        { method: "DELETE", token }
-      );
+      const response = await vendorDashboardCatalog.deleteAvailabilityBlock(token, selectedTenantSlug, block.id);
       setAvailabilityBlocks((current) =>
         current.map((item) => (item.id === response.block.id ? response.block : item))
       );
+      await reloadBookings();
       showSuccessNotification("Availability disabled", "The weekly rule is no longer active.");
     } catch (deleteError) {
       setError(getErrorMessage(deleteError));
@@ -2172,17 +2078,17 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         locationSlug: selectedLocationSlug
       };
       if (editingAvailabilityExceptionId) {
-        await apiRequest<VendorAvailabilityExceptionResponse, SaveVendorAvailabilityExceptionRequest>(
-          `/vendor/tenant/${selectedTenantSlug}/availability/exceptions/${editingAvailabilityExceptionId}`,
-          { method: "PATCH", token, body }
+        await vendorDashboardCatalog.saveAvailabilityException(
+          token,
+          selectedTenantSlug,
+          editingAvailabilityExceptionId,
+          body
         );
       } else {
-        await apiRequest<VendorAvailabilityExceptionResponse, SaveVendorAvailabilityExceptionRequest>(
-          `/vendor/tenant/${selectedTenantSlug}/availability/exceptions`,
-          { method: "POST", token, body }
-        );
+        await vendorDashboardCatalog.saveAvailabilityException(token, selectedTenantSlug, null, body);
       }
       await reloadAvailability();
+      await reloadBookings();
       setAvailabilityExceptionDialogOpen(false);
       showSuccessNotification(
         editingAvailabilityExceptionId ? "Exception updated" : "Exception added",
@@ -2200,11 +2106,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     setError("");
 
     try {
-      await apiRequest<void>(
-        `/vendor/tenant/${selectedTenantSlug}/availability/exceptions/${exception.id}`,
-        { method: "DELETE", token }
-      );
+      await vendorDashboardCatalog.deleteAvailabilityException(token, selectedTenantSlug, exception.id);
       setAvailabilityExceptions((current) => current.filter((item) => item.id !== exception.id));
+      await reloadBookings();
       showSuccessNotification("Exception removed", "The date-specific rule was removed.");
     } catch (deleteError) {
       setError(getErrorMessage(deleteError));
@@ -2228,18 +2132,15 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     event.preventDefault();
     setBusyAction("counter-save");
     try {
-      if (editingCounterSlug) {
-        await apiRequest<{ counter: ServiceCounterSummary }, SaveServiceCounterRequest>(
-          `/vendor/tenant/${selectedTenantSlug}/counters/${editingCounterSlug}?location=${encodeURIComponent(selectedLocationSlug)}`,
-          { method: "PATCH", token, body: counterForm }
-        );
-      } else {
-        await apiRequest<{ counter: ServiceCounterSummary }, SaveServiceCounterRequest>(
-          `/vendor/tenant/${selectedTenantSlug}/counters?location=${encodeURIComponent(selectedLocationSlug)}`,
-          { method: "POST", token, body: counterForm }
-        );
-      }
+      await vendorDashboardCatalog.saveCounter(
+        token,
+        selectedTenantSlug,
+        selectedLocationSlug,
+        editingCounterSlug || null,
+        counterForm
+      );
       await reloadCounters();
+      await reloadBookings();
       setCounterDialogOpen(false);
       showSuccessNotification(
         editingCounterSlug ? "Counter updated" : "Counter created",
@@ -2253,11 +2154,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   async function handleDeleteCounter(counter: ServiceCounterSummary) {
-    await apiRequest<void>(
-      `/vendor/tenant/${selectedTenantSlug}/counters/${counter.slug}?location=${encodeURIComponent(selectedLocationSlug)}`,
-      { method: "DELETE", token }
-    );
+    await vendorDashboardCatalog.deleteCounter(token, selectedTenantSlug, selectedLocationSlug, counter.slug);
     await reloadCounters();
+    await reloadBookings();
     showSuccessNotification("Counter removed", `${counter.name} was removed from this location.`);
   }
 
@@ -2265,11 +2164,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     event.preventDefault();
     setBusyAction("staff-save");
     try {
-      await apiRequest<{ userId: string }, AddVendorStaffRequest>(
-        `/vendor/tenant/${selectedTenantSlug}/staff`,
-        { method: "POST", token, body: staffForm }
-      );
+      await vendorDashboardOperations.addStaff(token, selectedTenantSlug, staffForm);
       await reloadStaff();
+      await reloadBookings();
       setStaffDialogOpen(false);
       setStaffForm({ email: "", role: "staff" });
       showSuccessNotification("Staff added", "The staff member now has access to this tenant.");
@@ -2281,20 +2178,16 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   async function handleUpdateStaffRole(member: VendorStaffSummary, role: "owner" | "admin" | "staff") {
-    await apiRequest<{ userId: string }, UpdateVendorStaffRequest>(
-      `/vendor/tenant/${selectedTenantSlug}/staff/${member.id}`,
-      { method: "PATCH", token, body: { role } }
-    );
+    await vendorDashboardOperations.updateStaff(token, selectedTenantSlug, member.id, { role });
     await reloadStaff();
+    await reloadBookings();
     showSuccessNotification("Staff updated", `${member.name}'s role was updated.`);
   }
 
   async function handleUpdateStaffStatus(member: VendorStaffSummary, isActive: boolean) {
-    await apiRequest<{ userId: string }, UpdateVendorStaffRequest>(
-      `/vendor/tenant/${selectedTenantSlug}/staff/${member.id}`,
-      { method: "PATCH", token, body: { isActive } }
-    );
+    await vendorDashboardOperations.updateStaff(token, selectedTenantSlug, member.id, { isActive });
     await reloadStaff();
+    await reloadBookings();
     showSuccessNotification(
       isActive ? "Staff enabled" : "Staff disabled",
       `${member.name} was ${isActive ? "enabled" : "disabled"} for this tenant.`
@@ -2302,11 +2195,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   async function handleRemoveStaff(member: VendorStaffSummary) {
-    await apiRequest<void>(`/vendor/tenant/${selectedTenantSlug}/staff/${member.id}`, {
-      method: "DELETE",
-      token
-    });
+    await vendorDashboardOperations.removeStaff(token, selectedTenantSlug, member.id);
     await reloadStaff();
+    await reloadBookings();
     showSuccessNotification("Staff removed", `${member.name} no longer has tenant access.`);
   }
 
@@ -2314,10 +2205,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     setBusyAction(`location-status:${locationItem.slug}`);
     setError("");
     try {
-      const response = await apiRequest<{ location: StoreLocationWithHours }, { isActive: boolean }>(
-        `/vendor/tenant/${selectedTenantSlug}/locations/${locationItem.slug}`,
-        { method: "PATCH", token, body: { isActive } }
-      );
+      const response = await vendorDashboardOperations.updateLocation(token, selectedTenantSlug, locationItem.slug, { isActive });
       setLocations((current) =>
         current
           .map((item) => (item.id === response.location.id ? response.location : item))
@@ -2338,17 +2226,16 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     setBusyAction(`counter-status:${counter.slug}`);
     setError("");
     try {
-      const response = await apiRequest<{ counter: ServiceCounterSummary }, SaveServiceCounterRequest>(
-        `/vendor/tenant/${selectedTenantSlug}/counters/${counter.slug}?location=${encodeURIComponent(selectedLocationSlug)}`,
+      const response = await vendorDashboardCatalog.saveCounter(
+        token,
+        selectedTenantSlug,
+        selectedLocationSlug,
+        counter.slug,
         {
-          method: "PATCH",
-          token,
-          body: {
-            name: counter.name,
-            slug: counter.slug,
-            isActive,
-            assignedUserIds: counter.assignedUserIds
-          }
+          name: counter.name,
+          slug: counter.slug,
+          isActive,
+          assignedUserIds: counter.assignedUserIds
         }
       );
       setServiceCounters((current) =>
@@ -2367,16 +2254,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   async function handleSaveSettings(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const success = await runAction("settings", () =>
-      apiRequest<DashboardActionResponse, UpdateTenantSettingsRequest>(
-        `/vendor/tenant/${selectedTenantSlug}/settings`,
-        {
-          method: "PATCH",
-          token,
-          body: settings
-        }
-      )
-    );
+    const success = await runAction("settings", () => vendorDashboardOperations.updateSettings(token, selectedTenantSlug, settings));
 
     if (success) {
       showSuccessNotification("Settings saved", "Tenant queue settings were updated.");
@@ -2388,14 +2266,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     setBusyAction(`checkout:${planSlug}`);
 
     try {
-      const data = await apiRequest<CheckoutSessionResponse, CreateCheckoutRequest>(
-        `/billing/tenant/${selectedTenantSlug}/checkout`,
-        {
-          method: "POST",
-          token,
-          body: { planSlug, billingInterval }
-        }
-      );
+      const data = await vendorDashboardBilling.startCheckout(token, selectedTenantSlug, {
+        planSlug,
+        billingInterval
+      });
       window.location.href = data.checkoutSession.checkoutUrl;
     } catch (checkoutError) {
       setError(getErrorMessage(checkoutError));
@@ -2404,13 +2278,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   async function handleHistoryExport(range: string, format: "csv" | "pdf") {
-    const response = await fetch(
-      `${API_BASE_URL}/vendor/tenant/${selectedTenantSlug}/history/export?location=${encodeURIComponent(selectedLocationSlug)}&range=${range}&format=${format}`,
-      {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      }
+    const response = await vendorDashboardReads.exportHistory(
+      token,
+      selectedTenantSlug,
+      selectedLocationSlug,
+      range,
+      format
     );
     if (!response.ok) {
       throw new Error("Unable to export history.");
@@ -2436,10 +2309,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
     setBusyAction("theme-load");
     try {
-      const data = await apiRequest<PublicBoardThemeResponse>(
-        `/vendor/tenant/${selectedTenantSlug}/public-board-theme?location=${encodeURIComponent(locationItem.slug)}`,
-        { token }
-      );
+      const data = await vendorDashboardOperations.getTheme(token, selectedTenantSlug, locationItem.slug);
       setThemeForm(mergeTheme(data.theme));
     } catch (themeError) {
       setError(getErrorMessage(themeError));
@@ -2475,23 +2345,13 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     setBusyAction(`theme-upload:${assetType}`);
 
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/vendor/tenant/${selectedTenantSlug}/public-board-theme/uploads/direct?location=${encodeURIComponent(themeLocation.slug)}&assetType=${encodeURIComponent(assetType)}&fileName=${encodeURIComponent(file.name)}`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": file.type
-          },
-          body: file
-        }
+      const data = await vendorDashboardOperations.uploadThemeAsset(
+        token,
+        selectedTenantSlug,
+        themeLocation.slug,
+        assetType,
+        file
       );
-
-      if (!response.ok) {
-        throw new Error("Upload failed.");
-      }
-
-      const data = await response.json() as PublicBoardThemeUploadResponse;
 
       if (!data.asset?.publicUrl) {
         throw new Error("Upload completed without a usable asset URL.");
@@ -2525,23 +2385,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     setBusyAction("payment-qr-upload");
 
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/vendor/tenant/${selectedTenantSlug}/location-payment-qrs/uploads/direct?locationSlug=${encodeURIComponent(locationSlug)}&fileName=${encodeURIComponent(file.name)}`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": file.type
-          },
-          body: file
-        }
+      const data = await vendorDashboardOperations.uploadLocationPaymentQr(
+        token,
+        selectedTenantSlug,
+        locationSlug,
+        file
       );
-
-      if (!response.ok) {
-        throw new Error("Payment QR upload failed.");
-      }
-
-      const data = await response.json() as LocationPaymentQrUploadResponse;
       if (!data.asset?.publicUrl) {
         throw new Error("Payment QR upload completed without a usable image URL.");
       }
@@ -2567,17 +2416,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     setBusyAction("theme-save");
 
     try {
-      const data = await apiRequest<PublicBoardThemeResponse, SavePublicBoardThemeRequest>(
-        `/vendor/tenant/${selectedTenantSlug}/public-board-theme?location=${encodeURIComponent(themeLocation.slug)}`,
-        {
-          method: "PATCH",
-          token,
-          body: {
-            theme: themeForm,
-            applyToAllLocations: applyThemeToAllLocations
-          }
-        }
-      );
+      const data = await vendorDashboardOperations.saveTheme(token, selectedTenantSlug, themeLocation.slug, {
+        theme: themeForm,
+        applyToAllLocations: applyThemeToAllLocations
+      });
       setThemeForm(mergeTheme(data.theme));
       setSnapshot((current) =>
         current && current.location?.slug === themeLocation.slug
@@ -3061,10 +2903,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         disabled={busyAction === "queue-resume"}
                         onClick={async () => {
                           const success = await runAction("queue-resume", () =>
-                            apiRequest<DashboardActionResponse>(
-                              `/vendor/tenant/${selectedTenantSlug}/queue/resume${locationQuery}`,
-                              { method: "POST", token }
-                            )
+                            vendorDashboardQueue.resumeQueueDay(token, selectedTenantSlug, locationQuery)
                           );
                           if (success) {
                             showSuccessNotification("Queue resumed", "Customers can join this queue again.");
@@ -3080,14 +2919,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         disabled={busyAction === "queue-pause"}
                         onClick={async () => {
                           const success = await runAction("queue-pause", () =>
-                            apiRequest<DashboardActionResponse, { reason: string }>(
-                              `/vendor/tenant/${selectedTenantSlug}/queue/pause${locationQuery}`,
-                              {
-                                method: "POST",
-                                token,
-                                body: { reason: "Paused from vendor dashboard" }
-                              }
-                            )
+                            vendorDashboardQueue.pauseQueueDay(token, selectedTenantSlug, locationQuery)
                           );
                           if (success) {
                             showSuccessNotification("Queue paused", "New joins are paused while staff continues serving the active queue.");
@@ -3104,10 +2936,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         disabled={busyAction === "queue-reopen"}
                         onClick={async () => {
                           const success = await runAction("queue-reopen", () =>
-                            apiRequest<DashboardActionResponse>(
-                              `/vendor/tenant/${selectedTenantSlug}/queue/reopen${locationQuery}`,
-                              { method: "POST", token }
-                            )
+                            vendorDashboardQueue.reopenQueueDay(token, selectedTenantSlug, locationQuery)
                           );
                           if (success) {
                             showSuccessNotification("Queue reopened", "Customers can join and staff can resume service.");
@@ -3124,10 +2953,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         disabled={busyAction === "queue-close"}
                         onClick={async () => {
                           const success = await runAction("queue-close", () =>
-                            apiRequest<DashboardActionResponse, { reason: string }>(
-                              `/vendor/tenant/${selectedTenantSlug}/queue/close${locationQuery}`,
-                              { method: "POST", token, body: { reason: "Closed from vendor dashboard" } }
-                            )
+                            vendorDashboardQueue.closeQueueDay(token, selectedTenantSlug, locationQuery)
                           );
                           if (success) {
                             showSuccessNotification("Queue closed", "Waiting tickets were carried over and active tickets were marked unserved.");
@@ -3167,10 +2993,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       disabled={busyAction === "call-next" || !selectedCounterSlug || queueDayClosed}
                       onClick={async () => {
                         const success = await runAction("call-next", () =>
-                          apiRequest<DashboardActionResponse>(
-                            `/vendor/tenant/${selectedTenantSlug}/queue/call-next${locationQuery}`,
-                            { method: "POST", token, body: { counterSlug: selectedCounterSlug } }
-                          )
+                          vendorDashboardQueue.callNextTicket(token, selectedTenantSlug, locationQuery, selectedCounterSlug)
                         );
                         if (success) {
                           showSuccessNotification("Customer called", "The next ticket is now being served.");
@@ -3184,10 +3007,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       disabled={busyAction === "serve-current" || !activeTicket}
                       onClick={async () => {
                         const success = await runAction("serve-current", () =>
-                          apiRequest<DashboardActionResponse>(
-                            `/vendor/tenant/${selectedTenantSlug}/queue/current/serve${locationQuery}`,
-                            { method: "POST", token }
-                          )
+                          vendorDashboardQueue.serveCurrentTicket(token, selectedTenantSlug, locationQuery)
                         );
                         if (success) {
                           showSuccessNotification("Ticket served", "The current ticket was marked as served.");
@@ -3201,10 +3021,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       disabled={busyAction === "skip-current" || !activeTicket}
                       onClick={async () => {
                         const success = await runAction("skip-current", () =>
-                          apiRequest<DashboardActionResponse>(
-                            `/vendor/tenant/${selectedTenantSlug}/queue/current/skip${locationQuery}`,
-                            { method: "POST", token }
-                          )
+                          vendorDashboardQueue.skipCurrentTicket(token, selectedTenantSlug, locationQuery)
                         );
                         if (success) {
                           showSuccessNotification("Ticket skipped", "The current ticket was skipped.");
@@ -3429,13 +3246,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                     }
                                     onClick={async () => {
                                       const success = await runAction(`restore-${ticket.id}`, () =>
-                                        apiRequest<DashboardActionResponse, { lookupCode: string }>(
-                                          `/vendor/tenant/${selectedTenantSlug}/queue/tickets/${ticket.id}/restore${locationQuery}`,
-                                          {
-                                            method: "POST",
-                                            token,
-                                            body: { lookupCode: ticket.lookupCode || "" }
-                                          }
+                                        vendorDashboardQueue.restoreSkippedTicket(
+                                          token,
+                                          selectedTenantSlug,
+                                          ticket.id,
+                                          locationQuery,
+                                          ticket.lookupCode || ""
                                         )
                                       );
 
@@ -3850,26 +3666,18 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         isPrimary: locationForm.isPrimary,
         isActive: locationForm.isActive
       };
-      const locationResponse = editingLocationSlug
-        ? await apiRequest<{ location: StoreLocationWithHours }, typeof payload>(
-            `/vendor/tenant/${selectedTenantSlug}/locations/${editingLocationSlug}`,
-            { method: "PATCH", token, body: payload }
-          )
-        : await apiRequest<{ location: StoreLocationWithHours }, typeof payload>(
-            `/vendor/tenant/${selectedTenantSlug}/locations`,
-            { method: "POST", token, body: payload }
-          );
+      const locationResponse = await vendorDashboardOperations.saveLocation(
+        token,
+        selectedTenantSlug,
+        editingLocationSlug || null,
+        payload
+      );
 
-      const hoursResponse = await apiRequest<
-        { location: StoreLocationWithHours },
-        { hours: StoreHourSummary[] }
-      >(
-        `/vendor/tenant/${selectedTenantSlug}/locations/${locationResponse.location.slug}/hours`,
-        {
-          method: "PATCH",
-          token,
-          body: { hours: locationForm.hours }
-        }
+      const hoursResponse = await vendorDashboardOperations.saveLocationHours(
+        token,
+        selectedTenantSlug,
+        locationResponse.location.slug,
+        locationForm.hours
       );
 
       setLocations((current) => {

@@ -8,6 +8,7 @@ import LandingPage from "./pages/LandingPage";
 import LoginPage from "./pages/LoginPage";
 import OAuthCallbackPage from "./pages/OAuthCallbackPage";
 import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
+import ContactPage from "./pages/ContactPage";
 import RegisterVendorPage from "./pages/RegisterVendorPage";
 import RegisterCustomerPage from "./pages/RegisterCustomerPage";
 import CustomerAccountPage from "./pages/CustomerAccountPage";
@@ -191,6 +192,7 @@ export default function App() {
       <Route path="/login" element={<AppShell><LoginPage /></AppShell>} />
       <Route path="/oauth/callback" element={<AppShell><OAuthCallbackPage /></AppShell>} />
       <Route path="/privacy-policy" element={<AppShell><PrivacyPolicyPage /></AppShell>} />
+      <Route path="/contact" element={<AppShell><ContactPage /></AppShell>} />
       <Route path="/terms" element={<AppShell><TermsPage /></AppShell>} />
       <Route path="/register/vendor" element={<AppShell><RegisterVendorPage /></AppShell>} />
       <Route path="/register/customer" element={<AppShell><RegisterCustomerPage /></AppShell>} />

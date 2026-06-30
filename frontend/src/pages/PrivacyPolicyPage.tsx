@@ -2,7 +2,7 @@ import { Container, List, Stack, Text } from "@mantine/core";
 import LegalArticleLayout from "../components/LegalArticleLayout";
 import LegalSection from "../components/LegalSection";
 
-const lastUpdated = "June 29, 2026";
+const lastUpdated = "June 30, 2026";
 
 export default function PrivacyPolicyPage() {
   return (
@@ -134,7 +134,7 @@ export default function PrivacyPolicyPage() {
           <LegalSection id="contact" title="11. Contact us">
             <Text lh={1.8}>
               If you have questions about this policy or your personal data, contact the GetPrio team
-              through the contact flow or via the support channels in the app.
+              through the public contact page or via the support channels in the app.
             </Text>
           </LegalSection>
 

@@ -44,6 +44,14 @@ _Avoid_: Paid vendor, paid booking flow
 The customer-submitted reference number and proof image showing that a manual booking payment was sent. Payment evidence stops pending booking expiration, but the booking remains unconfirmed until a vendor-side user verifies payment.
 _Avoid_: Receipt validation, payment confirmation, proof of checkout
 
+**Booking Cancellation**:
+The customer or vendor action that ends a booking before service completion. Customers may cancel before check-in while the booking is still eligible, but cancellations after vendor acceptance or confirmation forfeit customer payment under the current policy. Late check-in and no-show outcomes are non-refundable, and manual refunds are handled by the vendor rather than by GetPrio.
+_Avoid_: Refund request, void, queue cancel
+
+**Refund Policy**:
+The customer-facing rules that explain when a booking payment is refunded, forfeited, or handled case-by-case. For the current booking flow, vendor-initiated cancellation before service delivery gets a full refund, customer cancellation after vendor acceptance or confirmation forfeits payment, and any manual refund is processed by the vendor.
+_Avoid_: Chargeback policy, platform settlement rule
+
 **Pending Booking Expiration**:
 The time limit for unresolved pending booking requests. Pending bookings hold capacity until a vendor-side user confirms, reschedules, cancels them, or the pending booking expires.
 _Avoid_: Auto-reject, booking timeout
