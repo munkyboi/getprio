@@ -369,3 +369,100 @@ test("queue join payment sync returns the issued ticket lookup code for paid pay
   assert.equal(publishSnapshotCalls[0].lookupCode, "ABC12345");
   assert.equal(publishSnapshotCalls[0].locationSlug, "main");
 });
+
+test("queue join payment formats payment payloads and resolves monitor urls", async () => {
+  const queueJoinPaymentService = requireWithMocks("../src/services/queueJoinPaymentService.js", {
+    "../repositories/tenants": {
+      findTenantById: async () => ({ slug: "demo" })
+    },
+    "../repositories/queueJoinPayments": {},
+    "../repositories/billing": {
+      recordBillingEvent: async () => null
+    },
+    "../repositories/storeLocations": {},
+    "../services/queueFeeService": {},
+    "./queueService": {}
+  });
+
+  const formatted = queueJoinPaymentService.formatPayment({
+    _id: "payment-1",
+    tenantId: "tenant-1",
+    tenantName: "Demo",
+    tenantSlug: "demo",
+    otpId: "otp-1",
+    planSlug: "economical",
+    provider: "paymongo",
+    providerCheckoutSessionId: "checkout-1",
+    checkoutUrl: "https://checkout.example.test",
+    amountCents: 1000,
+    currency: "PHP",
+    status: "pending",
+    ticketId: null,
+    ticketLookupCode: null,
+    createdAt: "2026-07-01T00:00:00Z",
+    updatedAt: "2026-07-01T00:00:00Z"
+  });
+  assert.equal(formatted.id, "payment-1");
+
+  const monitorUrl = await queueJoinPaymentService.getMonitorUrlForPayment({
+    tenantId: "tenant-1",
+    ticketLookupCode: "ABC123",
+    payload: { locationSlug: "main" }
+  });
+  assert.match(monitorUrl, /ticket=ABC123/);
+});
+
+test("queue join payment ignores duplicate paid-webhook events and missing payments", async () => {
+  const recordBillingEventCalls = [];
+  const queueJoinPaymentService = requireWithMocks("../src/services/queueJoinPaymentService.js", {
+    "../repositories/queueJoinPayments": {
+      findPaymentByProviderId: async (providerCheckoutSessionId) =>
+        providerCheckoutSessionId === "checkout-1"
+          ? {
+              _id: "payment-1",
+              tenantId: "tenant-1",
+              status: "pending"
+            }
+          : null,
+      updateProviderData: async () => ({
+        _id: "payment-1",
+        tenantId: "tenant-1",
+        status: "paid",
+        payload: {},
+        amountCents: 1000,
+        currency: "PHP"
+      }),
+      markFailed: async () => {}
+    },
+    "../repositories/billing": {
+      recordBillingEvent: async (...args) => {
+        recordBillingEventCalls.push(args);
+        return null;
+      }
+    },
+    "../repositories/tenants": { findTenantById: async () => ({ slug: "demo" }) },
+    "../repositories/storeLocations": {},
+    "../services/queueFeeService": {},
+    "./queueService": {
+      createTicketForTenantInTransaction: async () => ({
+        ticket: { _id: "ticket-1", lookupCode: "ABC123" },
+        snapshot: { focusTicket: { id: "ticket-1", lookupCode: "ABC123", ticketNumber: "Q001", customerName: "Jane", status: "waiting" } }
+      }),
+      maybeNotifyUpcomingTickets: async () => {},
+      publishSnapshot: async () => ({})
+    }
+  });
+
+  const duplicate = await queueJoinPaymentService.handlePayMongoPaidCheckout(
+    { id: "checkout-1", attributes: { payments: [{ id: "payment-1", attributes: { paid_at: "2026-07-01T00:00:00Z" } }] } },
+    { data: { id: "event-1", attributes: { type: "checkout_session.payment.paid" } } }
+  );
+  assert.equal(duplicate.handled, true);
+
+  const missing = await queueJoinPaymentService.handlePayMongoPaidCheckout(
+    { id: "checkout-missing", attributes: { payments: [{ id: "payment-1", attributes: { paid_at: "2026-07-01T00:00:00Z" } }] } },
+    { data: { id: "event-2", attributes: { type: "checkout_session.payment.paid" } } }
+  );
+  assert.equal(missing.handled, false);
+  assert.equal(recordBillingEventCalls.length >= 1, true);
+});

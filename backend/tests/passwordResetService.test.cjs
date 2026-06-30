@@ -70,6 +70,20 @@ test("password reset service issues tokens, resets passwords, and rejects invali
       }
     ]
   ]);
+  resetTokens.set("used-token", {
+    id: "used-token",
+    user_id: "user-1",
+    tokenHash: "used-token-hash",
+    expires_at: new Date("2026-07-01T01:00:00.000Z"),
+    used_at: new Date("2026-07-01T00:10:00.000Z")
+  });
+  resetTokens.set("expired-token", {
+    id: "expired-token",
+    user_id: "user-1",
+    tokenHash: "expired-token-hash",
+    expires_at: new Date("2026-06-30T23:00:00.000Z"),
+    used_at: null
+  });
   const invalidatedUsers = [];
   const createdTokens = [];
   const markedUsed = [];
@@ -99,7 +113,14 @@ test("password reset service issues tokens, resets passwords, and rejects invali
       createResetToken: async (data) => {
         createdTokens.push(data);
       },
-      findByTokenHash: async (hash) => (hash === validTokenHash ? resetTokens.get("token-row") : null),
+      findByTokenHash: async (hash) =>
+        hash === validTokenHash
+          ? resetTokens.get("token-row")
+          : hash === "used-token-hash"
+            ? resetTokens.get("used-token")
+            : hash === "expired-token-hash"
+              ? resetTokens.get("expired-token")
+              : null,
       markTokenUsed: async (id) => {
         markedUsed.push(String(id));
       }
@@ -137,6 +158,9 @@ test("password reset service issues tokens, resets passwords, and rejects invali
       passwordResetService.buildPasswordResetUrl("abc/123?x=y"),
       "https://app.example.com/login?resetToken=abc%2F123%3Fx%3Dy"
     );
+
+    assert.equal(await passwordResetService.resolveValidResetToken("used-token"), null);
+    assert.equal(await passwordResetService.resolveValidResetToken("expired-token"), null);
 
     const issued = await passwordResetService.issuePasswordResetToken({
       user: { _id: "user-1", roles: ["customer"], email: "customer@example.com" },

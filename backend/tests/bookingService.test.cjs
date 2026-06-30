@@ -975,3 +975,69 @@ test("vendor cannot confirm booking while submitted payment proof is awaiting ve
     (error) => error.statusCode === 409 && /verified before/i.test(error.message)
   );
 });
+
+test("booking payment proof helpers require ownership and accept submission payloads", async () => {
+  const bookingService = buildBookingService({
+    findBookingById: async (bookingId) =>
+      bookingId === "booking-1"
+        ? {
+            _id: "booking-1",
+            customerUserId: "user-1",
+            tenantId: "tenant-1",
+            locationId: "location-1",
+            serviceManualPaymentRequired: true,
+            locationPaymentQrActive: true,
+            status: "pending",
+            customerEmail: "customer@example.com",
+            customerPhone: "09171234567",
+            tenantName: "Demo Tenant",
+            reference: "BKG-TEST"
+          }
+        : null,
+    updateBooking: async (_bookingId, data) => ({
+      _id: "booking-1",
+      customerUserId: "user-1",
+      tenantId: "tenant-1",
+      locationId: "location-1",
+      serviceManualPaymentRequired: true,
+      locationPaymentQrActive: true,
+      status: "pending",
+      customerEmail: "customer@example.com",
+      customerPhone: "09171234567",
+      tenantName: "Demo Tenant",
+      reference: "BKG-TEST",
+      ...data
+    })
+  });
+
+  await assert.rejects(
+    () =>
+      bookingService.createCustomerPaymentProofUpload({
+        user: { _id: "user-2" },
+        bookingId: "booking-1",
+        body: { fileName: "proof.png", contentType: "image/png", sizeBytes: 10 }
+      }),
+    (error) => error.statusCode === 404
+  );
+
+  const upload = await bookingService.createCustomerPaymentProofUpload({
+    user: { _id: "user-1" },
+    bookingId: "booking-1",
+    body: { fileName: "proof.png", contentType: "image/png", sizeBytes: 10 }
+  });
+  assert.equal(upload.proof.fileName, "proof.png");
+
+  const submitted = await bookingService.submitCustomerPaymentProof({
+    user: { _id: "user-1" },
+    bookingId: "booking-1",
+    body: {
+      paymentReference: "GCASH-123",
+      objectKey: "payment-proofs/tenants/tenant-1/bookings/booking-1/proof.png",
+      fileName: "proof.png",
+      contentType: "image/png",
+      sizeBytes: 10
+    }
+  });
+  assert.equal(submitted.paymentReference, "GCASH-123");
+  assert.equal(submitted.paymentStatus, "pending");
+});

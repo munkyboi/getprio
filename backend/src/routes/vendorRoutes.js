@@ -34,253 +34,49 @@ const {
 const { parsePaginationParams, formatPaginationMetadata } = require("../utils/pagination");
 const {
   formatLocation,
-  formatVendorService,
   getAuthorizedTenant: getAuthorizedTenantHelper,
   getLocationForTenant,
   normalizeCounterSlug,
-  normalizeLocationPayload,
-  normalizeServicePayload,
-  normalizeTenantNotificationSettings
+  normalizeLocationPayload
 } = require("./vendorRouteHelpers");
 const { handleCreateTicket } = require("./vendorQueueHandlers");
+const { handleCreateLocation, handleUpdateLocation } = require("./vendorLocationHandlers");
+const {
+  handleListServices,
+  handleCreateService,
+  handleUpdateService,
+  handleDeleteService
+} = require("./vendorServiceHandlers");
+const {
+  handleListBookings,
+  handleBookingMutation,
+  handleCheckInBooking,
+  handleMarkNoShow,
+  handleListAvailability,
+  handleCreateAvailabilityBlock,
+  handleUpdateAvailabilityBlock,
+  handleDeleteAvailabilityBlock,
+  handleCreateAvailabilityException,
+  handleUpdateAvailabilityException,
+  handleDeleteAvailabilityException
+} = require("./vendorBookingAvailabilityHandlers");
+const {
+  handleUpdateSettings,
+  handleGetNotificationSettings,
+  handleUpdateNotificationSettings,
+  handleListHistory,
+  handleListClients,
+  handleListCounters,
+  handleUpdateCounter,
+  handleDeleteCounter,
+  handleListStaff,
+  handleInviteStaff
+} = require("./vendorManagementHandlers");
 
 const router = express.Router();
 
 async function getAuthorizedTenant(user, tenantSlug) {
   return getAuthorizedTenantHelper(user, tenantSlug, tenantRepository, userHasTenantAccess);
-}
-
-function isValidTime(value) {
-  return /^([01]\d|2[0-3]):[0-5]\d$/.test(String(value || ""));
-}
-
-function assertTimeRange(startsAt, endsAt, { allowEmpty = false } = {}) {
-  if (allowEmpty && !startsAt && !endsAt) {
-    return;
-  }
-
-  if (!isValidTime(startsAt) || !isValidTime(endsAt) || String(startsAt) >= String(endsAt)) {
-    const error = new Error("A valid start and end time are required.");
-    error.statusCode = 400;
-    throw error;
-  }
-}
-
-function formatAvailabilityBlock(block) {
-  return {
-    id: String(block._id),
-    tenantId: String(block.tenantId),
-    locationId: String(block.locationId),
-    serviceId: block.serviceId ? String(block.serviceId) : null,
-    weekday: block.weekday,
-    startsAt: block.startsAt,
-    endsAt: block.endsAt,
-    capacity: block.capacity,
-    isActive: block.isActive,
-    notes: block.notes,
-    createdAt: block.createdAt,
-    updatedAt: block.updatedAt
-  };
-}
-
-function formatAvailabilityException(exception) {
-  return {
-    id: String(exception._id),
-    tenantId: String(exception.tenantId),
-    locationId: String(exception.locationId),
-    serviceId: exception.serviceId ? String(exception.serviceId) : null,
-    exceptionDate: exception.exceptionDate,
-    startsAt: exception.startsAt,
-    endsAt: exception.endsAt,
-    isAvailable: exception.isAvailable,
-    capacity: exception.capacity,
-    reason: exception.reason,
-    createdAt: exception.createdAt,
-    updatedAt: exception.updatedAt
-  };
-}
-
-function formatVendorBooking(booking) {
-  return {
-    id: booking._id,
-    reference: booking.reference,
-    tenantId: booking.tenantId,
-    tenantName: booking.tenantName,
-    tenantSlug: booking.tenantSlug,
-    locationId: booking.locationId,
-    locationName: booking.locationName,
-    locationSlug: booking.locationSlug,
-    serviceId: booking.serviceId,
-    serviceName: booking.serviceName,
-    serviceSlug: booking.serviceSlug,
-    serviceManualPaymentRequired: booking.serviceManualPaymentRequired,
-    servicePriceAmountCents: booking.servicePriceAmountCents,
-    serviceCurrency: booking.serviceCurrency,
-    servicePriceDisplay: booking.servicePriceDisplay,
-    bookingQuantity: booking.bookingQuantity,
-    customerUserId: booking.customerUserId,
-    customerName: booking.customerName,
-    customerEmail: booking.customerEmail,
-    customerPhone: booking.customerPhone,
-    scheduledStartAt: booking.scheduledStartAt,
-    scheduledEndAt: booking.scheduledEndAt,
-    status: booking.status,
-    notes: booking.notes,
-    paymentReference: booking.paymentReference,
-    paymentStatus: booking.paymentStatus,
-    paymentProof: booking.paymentProofObjectKey
-      ? {
-          fileName: booking.paymentProofFileName,
-          contentType: booking.paymentProofContentType,
-          sizeBytes: booking.paymentProofSizeBytes,
-          uploadedAt: booking.paymentProofUploadedAt
-        }
-      : null,
-    paymentVerifiedAt: booking.paymentVerifiedAt,
-    paymentVerifiedByUserId: booking.paymentVerifiedByUserId,
-    paymentRejectedAt: booking.paymentRejectedAt,
-    paymentRejectedByUserId: booking.paymentRejectedByUserId,
-    paymentRejectionReason: booking.paymentRejectionReason,
-    pendingExpiresAt: booking.pendingExpiresAt,
-    expiredAt: booking.expiredAt,
-    expirationReason: booking.expirationReason,
-    notifyByEmail: booking.notifyByEmail,
-    notifyBySms: booking.notifyBySms,
-    smsAlertFeePaymentId: booking.smsAlertFeePaymentId,
-    contactVerifiedAt: booking.contactVerifiedAt,
-    contactVerificationChannel: booking.contactVerificationChannel,
-    linkedTicket: booking.queueTicketId
-      ? {
-          id: booking.queueTicketId,
-          ticketNumber: booking.queueTicketNumber,
-          lookupCode: booking.queueTicketLookupCode,
-          status: booking.queueTicketStatus
-        }
-      : null,
-    checkedInAt: booking.checkedInAt,
-    checkedInByUserId: booking.checkedInByUserId,
-    noShowAt: booking.noShowAt,
-    noShowByUserId: booking.noShowByUserId,
-    createdAt: booking.createdAt,
-    updatedAt: booking.updatedAt
-  };
-}
-
-async function getOptionalServiceForTenant(tenant, serviceSlug) {
-  const normalizedServiceSlug = vendorServiceRepository.normalizeServiceSlug(serviceSlug);
-  if (!normalizedServiceSlug) {
-    return null;
-  }
-
-  const service = await vendorServiceRepository.findServiceByTenantAndSlug(
-    tenant._id,
-    normalizedServiceSlug
-  );
-  if (!service) {
-    const error = new Error("Service not found.");
-    error.statusCode = 404;
-    throw error;
-  }
-
-  return service;
-}
-
-async function normalizeAvailabilityBlockPayload(tenant, body, existingBlock = null) {
-  const location = body.locationSlug
-    ? await getLocationForTenant(tenant, body.locationSlug)
-    : null;
-  const service = Object.prototype.hasOwnProperty.call(body, "serviceSlug")
-    ? await getOptionalServiceForTenant(tenant, body.serviceSlug)
-    : null;
-  const startsAt = Object.prototype.hasOwnProperty.call(body, "startsAt")
-    ? String(body.startsAt || "")
-    : existingBlock?.startsAt;
-  const endsAt = Object.prototype.hasOwnProperty.call(body, "endsAt")
-    ? String(body.endsAt || "")
-    : existingBlock?.endsAt;
-  assertTimeRange(startsAt, endsAt);
-
-  const weekday = Object.prototype.hasOwnProperty.call(body, "weekday")
-    ? Number(body.weekday)
-    : existingBlock?.weekday;
-  if (!Number.isInteger(weekday) || weekday < 0 || weekday > 6) {
-    const error = new Error("weekday must be between 0 and 6.");
-    error.statusCode = 400;
-    throw error;
-  }
-
-  const capacity = Object.prototype.hasOwnProperty.call(body, "capacity")
-    ? Number(body.capacity)
-    : existingBlock?.capacity || 1;
-  if (!Number.isInteger(capacity) || capacity < 1 || capacity > 100) {
-    const error = new Error("capacity must be between 1 and 100.");
-    error.statusCode = 400;
-    throw error;
-  }
-
-  return {
-    locationId: location?._id || existingBlock?.locationId,
-    serviceId: Object.prototype.hasOwnProperty.call(body, "serviceSlug")
-      ? service?._id || null
-      : existingBlock?.serviceId || null,
-    weekday,
-    startsAt,
-    endsAt,
-    capacity,
-    isActive: Object.prototype.hasOwnProperty.call(body, "isActive")
-      ? body.isActive !== false
-      : existingBlock?.isActive ?? true,
-    notes: typeof body.notes === "string" ? body.notes.trim() : existingBlock?.notes || ""
-  };
-}
-
-async function normalizeAvailabilityExceptionPayload(tenant, body, existingException = null) {
-  const location = body.locationSlug
-    ? await getLocationForTenant(tenant, body.locationSlug)
-    : null;
-  const service = Object.prototype.hasOwnProperty.call(body, "serviceSlug")
-    ? await getOptionalServiceForTenant(tenant, body.serviceSlug)
-    : null;
-  const exceptionDate = Object.prototype.hasOwnProperty.call(body, "exceptionDate")
-    ? String(body.exceptionDate || "")
-    : existingException?.exceptionDate;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(exceptionDate || ""))) {
-    const error = new Error("exceptionDate must use YYYY-MM-DD format.");
-    error.statusCode = 400;
-    throw error;
-  }
-
-  const startsAt = Object.prototype.hasOwnProperty.call(body, "startsAt")
-    ? String(body.startsAt || "")
-    : existingException?.startsAt || "";
-  const endsAt = Object.prototype.hasOwnProperty.call(body, "endsAt")
-    ? String(body.endsAt || "")
-    : existingException?.endsAt || "";
-  assertTimeRange(startsAt, endsAt, { allowEmpty: true });
-
-  const capacity = Object.prototype.hasOwnProperty.call(body, "capacity")
-    ? body.capacity === null || body.capacity === "" ? null : Number(body.capacity)
-    : existingException?.capacity ?? null;
-  if (capacity !== null && (!Number.isInteger(capacity) || capacity < 1 || capacity > 100)) {
-    const error = new Error("capacity must be between 1 and 100.");
-    error.statusCode = 400;
-    throw error;
-  }
-
-  return {
-    locationId: location?._id || existingException?.locationId,
-    serviceId: Object.prototype.hasOwnProperty.call(body, "serviceSlug")
-      ? service?._id || null
-      : existingException?.serviceId || null,
-    exceptionDate,
-    startsAt,
-    endsAt,
-    isAvailable: Object.prototype.hasOwnProperty.call(body, "isAvailable")
-      ? body.isAvailable === true
-      : existingException?.isAvailable ?? false,
-    capacity,
-    reason: typeof body.reason === "string" ? body.reason.trim() : existingException?.reason || ""
-  };
 }
 
 async function getCounterForLocation(location, counterSlug) {
@@ -431,58 +227,36 @@ router.post(
 
 router.post(
   "/tenant/:tenantSlug/locations",
-  asyncHandler(async (req, res) => {
-    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantPermission(req.user, tenant._id, "tenant.location.manage");
-    const billing = await billingService.getBillingOverview(tenant._id);
-    const activeLocationLimit = billing.subscription?.entitlements?.locations || 1;
-    const existingLocations = await storeLocationRepository.listLocationsByTenantId(tenant._id);
-    const activeCount = existingLocations.filter((location) => location.isActive).length;
-
-    if (req.body.isActive !== false && activeCount >= activeLocationLimit) {
-      const error = new Error("Active location limit exceeded for this subscription plan.");
-      error.statusCode = 403;
-      throw error;
-    }
-
-    const locationPayload = normalizeLocationPayload(req.body || {});
-    const location = await storeLocationRepository.createLocation({
-      tenantId: tenant._id,
-      ...locationPayload,
-      timezone: locationPayload.timezone || "Asia/Manila"
-    });
-    await storeLocationRepository.createDefaultHours(location._id);
-
-    res.status(201).json({ location: await formatLocation(location, tenant) });
-  })
+  asyncHandler((req, res) =>
+    handleCreateLocation({
+      req,
+      res,
+      getAuthorizedTenant,
+      assertTenantPermission,
+      billingService,
+      storeLocationRepository,
+      normalizeLocationPayload,
+      formatLocation,
+      getLocationForTenant
+    })
+  )
 );
 
 router.patch(
   "/tenant/:tenantSlug/locations/:locationSlug",
-  asyncHandler(async (req, res) => {
-    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantPermission(req.user, tenant._id, "tenant.location.manage");
-    const location = await getLocationForTenant(tenant, req.params.locationSlug);
-    if (req.body.isActive === true && !location.isActive) {
-      const billing = await billingService.getBillingOverview(tenant._id);
-      const activeLocationLimit = billing.subscription?.entitlements?.locations || 1;
-      const existingLocations = await storeLocationRepository.listLocationsByTenantId(tenant._id);
-      const activeCount = existingLocations.filter((locationItem) => locationItem.isActive).length;
-
-      if (activeCount >= activeLocationLimit) {
-        const error = new Error("Active location limit exceeded for this subscription plan.");
-        error.statusCode = 403;
-        throw error;
-      }
-    }
-
-    const updatedLocation = await storeLocationRepository.updateLocation(
-      location._id,
-      normalizeLocationPayload(req.body || {}, location)
-    );
-
-    res.json({ location: await formatLocation(updatedLocation, tenant) });
-  })
+  asyncHandler((req, res) =>
+    handleUpdateLocation({
+      req,
+      res,
+      getAuthorizedTenant,
+      assertTenantPermission,
+      billingService,
+      storeLocationRepository,
+      normalizeLocationPayload,
+      formatLocation,
+      getLocationForTenant
+    })
+  )
 );
 
 router.post(
@@ -564,141 +338,51 @@ router.patch(
   })
 );
 
-router.get(
-  "/tenant/:tenantSlug/services",
-  asyncHandler(async (req, res) => {
-    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantPermission(req.user, tenant._id, "tenant.service.manage");
-    const services = await vendorServiceRepository.listServicesByTenantId(tenant._id);
+router.get("/tenant/:tenantSlug/services", asyncHandler((req, res) => handleListServices({ req, res, getAuthorizedTenant, assertTenantPermission, vendorServiceRepository })));
 
-    res.json({ services: services.map(formatVendorService) });
-  })
-);
+router.post("/tenant/:tenantSlug/services", asyncHandler((req, res) => handleCreateService({ req, res, getAuthorizedTenant, assertTenantPermission, vendorServiceRepository })));
 
-router.post(
-  "/tenant/:tenantSlug/services",
-  asyncHandler(async (req, res) => {
-    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantPermission(req.user, tenant._id, "tenant.service.manage");
-    const service = await vendorServiceRepository.createService({
-      tenantId: tenant._id,
-      ...normalizeServicePayload(req.body || {})
-    });
+router.patch("/tenant/:tenantSlug/services/:serviceSlug", asyncHandler((req, res) => handleUpdateService({ req, res, getAuthorizedTenant, assertTenantPermission, vendorServiceRepository })));
 
-    res.status(201).json({ service: formatVendorService(service) });
-  })
-);
-
-router.patch(
-  "/tenant/:tenantSlug/services/:serviceSlug",
-  asyncHandler(async (req, res) => {
-    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantPermission(req.user, tenant._id, "tenant.service.manage");
-    const service = await vendorServiceRepository.findServiceByTenantAndSlug(
-      tenant._id,
-      req.params.serviceSlug
-    );
-    if (!service) {
-      const error = new Error("Service not found.");
-      error.statusCode = 404;
-      throw error;
-    }
-
-    const updatedService = await vendorServiceRepository.updateService(
-      service._id,
-      normalizeServicePayload(req.body || {}, service)
-    );
-
-    res.json({ service: formatVendorService(updatedService) });
-  })
-);
-
-router.delete(
-  "/tenant/:tenantSlug/services/:serviceSlug",
-  asyncHandler(async (req, res) => {
-    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantPermission(req.user, tenant._id, "tenant.service.manage");
-    const service = await vendorServiceRepository.findServiceByTenantAndSlug(
-      tenant._id,
-      req.params.serviceSlug
-    );
-    if (!service) {
-      const error = new Error("Service not found.");
-      error.statusCode = 404;
-      throw error;
-    }
-
-    const deactivatedService = await vendorServiceRepository.deactivateService(service._id);
-
-    res.json({ service: formatVendorService(deactivatedService) });
-  })
-);
+router.delete("/tenant/:tenantSlug/services/:serviceSlug", asyncHandler((req, res) => handleDeleteService({ req, res, getAuthorizedTenant, assertTenantPermission, vendorServiceRepository })));
 
 router.get(
   "/tenant/:tenantSlug/bookings",
-  asyncHandler(async (req, res) => {
-    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantPermission(req.user, tenant._id, "tenant.booking.manage");
-
-    const { page, pageSize } = parsePaginationParams(req.query);
-
-    const location = req.query.location
-      ? await getLocationForTenant(tenant, req.query.location)
-      : null;
-    const status = String(req.query.status || "").trim();
-    const scheduledDate = String(req.query.scheduledDate || "").trim();
-    const search = String(req.query.search || "").trim();
-
-    const allowedStatuses = new Set([
-      "pending",
-      "confirmed",
-      "rescheduled",
-      "completed",
-      "canceled",
-      "disputed",
-      "reviewed"
-    ]);
-
-    if (status && !allowedStatuses.has(status)) {
-      const error = new Error("Unsupported booking status filter.");
-      error.statusCode = 400;
-      throw error;
-    }
-
-    await bookingService.expirePendingBookingsForTenant(tenant._id);
-    const { bookings, totalItems } = await bookingRepository.listBookingsForTenant(tenant._id, {
-      page,
-      pageSize,
-      locationId: location?._id,
-      status: status || null,
-      scheduledDate: scheduledDate || null,
-      search: search || null
-    });
-
-    res.json({
-      bookings: bookings.map(formatVendorBooking),
-      pagination: formatPaginationMetadata(totalItems, page, pageSize)
-    });
-  })
+  asyncHandler((req, res) =>
+    handleListBookings({
+      req,
+      res,
+      getAuthorizedTenant,
+      assertTenantPermission,
+      getLocationForTenant,
+      bookingService,
+      bookingRepository,
+      formatPaginationMetadata,
+      parsePaginationParams
+    })
+  )
 );
 
 router.patch(
   "/tenant/:tenantSlug/bookings/:bookingId/status",
-  asyncHandler(async (req, res) => {
-    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantPermission(req.user, tenant._id, "tenant.booking.manage");
-    const booking = await bookingService.updateVendorBookingStatus({
-      tenant,
-      bookingId: req.params.bookingId,
-      status: String(req.body.status || "").trim()
-    });
-    const location = await getLocationForTenant(tenant, booking.locationSlug);
-    await publishSnapshot(tenant, { location });
-
-    res.json({
-      booking: formatVendorBooking(booking)
-    });
-  })
+  asyncHandler((req, res) =>
+    handleBookingMutation({
+      req,
+      res,
+      getAuthorizedTenant,
+      assertTenantPermission,
+      getLocationForTenant,
+      bookingService,
+      publishSnapshot,
+      permission: "tenant.booking.manage",
+      action: async ({ tenant }) =>
+        bookingService.updateVendorBookingStatus({
+          tenant,
+          bookingId: req.params.bookingId,
+          status: String(req.body.status || "").trim()
+        })
+    })
+  )
 );
 
 router.get(
@@ -706,259 +390,207 @@ router.get(
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.booking.manage");
-    const proofAccess = await bookingService.createVendorPaymentProofAccess({
-      tenant,
-      bookingId: req.params.bookingId
-    });
-
-    res.json(proofAccess);
+    res.json(
+      await bookingService.createVendorPaymentProofAccess({
+        tenant,
+        bookingId: req.params.bookingId
+      })
+    );
   })
 );
 
 router.patch(
   "/tenant/:tenantSlug/bookings/:bookingId/verify-payment",
-  asyncHandler(async (req, res) => {
-    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantPermission(req.user, tenant._id, "tenant.booking.manage");
-    const booking = await bookingService.verifyVendorBookingPayment({
-      tenant,
-      bookingId: req.params.bookingId,
-      user: req.user
-    });
-    const location = await getLocationForTenant(tenant, booking.locationSlug);
-    await publishSnapshot(tenant, { location });
-
-    res.json({
-      booking: formatVendorBooking(booking)
-    });
-  })
+  asyncHandler((req, res) =>
+    handleBookingMutation({
+      req,
+      res,
+      getAuthorizedTenant,
+      assertTenantPermission,
+      getLocationForTenant,
+      bookingService,
+      publishSnapshot,
+      permission: "tenant.booking.manage",
+      action: async ({ tenant }) =>
+        bookingService.verifyVendorBookingPayment({
+          tenant,
+          bookingId: req.params.bookingId,
+          user: req.user
+        })
+    })
+  )
 );
 
 router.patch(
   "/tenant/:tenantSlug/bookings/:bookingId/reject-payment",
-  asyncHandler(async (req, res) => {
-    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantPermission(req.user, tenant._id, "tenant.booking.manage");
-    const booking = await bookingService.rejectVendorBookingPayment({
-      tenant,
-      bookingId: req.params.bookingId,
-      user: req.user,
-      reason: req.body?.reason
-    });
-    const location = await getLocationForTenant(tenant, booking.locationSlug);
-    await publishSnapshot(tenant, { location });
-
-    res.json({
-      booking: formatVendorBooking(booking)
-    });
-  })
+  asyncHandler((req, res) =>
+    handleBookingMutation({
+      req,
+      res,
+      getAuthorizedTenant,
+      assertTenantPermission,
+      getLocationForTenant,
+      bookingService,
+      publishSnapshot,
+      permission: "tenant.booking.manage",
+      action: async ({ tenant }) =>
+        bookingService.rejectVendorBookingPayment({
+          tenant,
+          bookingId: req.params.bookingId,
+          user: req.user,
+          reason: req.body?.reason
+        })
+    })
+  )
 );
 
 router.patch(
   "/tenant/:tenantSlug/bookings/:bookingId/reschedule",
-  asyncHandler(async (req, res) => {
-    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantPermission(req.user, tenant._id, "tenant.booking.manage");
-    const booking = await bookingService.rescheduleVendorBooking({
-      tenant,
-      bookingId: req.params.bookingId,
-      scheduledStartAt: req.body.scheduledStartAt
-    });
-    const location = await getLocationForTenant(tenant, booking.locationSlug);
-    await publishSnapshot(tenant, { location });
-
-    res.json({
-      booking: formatVendorBooking(booking)
-    });
-  })
+  asyncHandler((req, res) =>
+    handleBookingMutation({
+      req,
+      res,
+      getAuthorizedTenant,
+      assertTenantPermission,
+      getLocationForTenant,
+      bookingService,
+      publishSnapshot,
+      permission: "tenant.booking.manage",
+      action: async ({ tenant }) =>
+        bookingService.rescheduleVendorBooking({
+          tenant,
+          bookingId: req.params.bookingId,
+          scheduledStartAt: req.body.scheduledStartAt
+        })
+    })
+  )
 );
 
 router.post(
   "/tenant/:tenantSlug/bookings/:bookingId/check-in",
-  asyncHandler(async (req, res) => {
-    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantPermission(req.user, tenant._id, "tenant.queue.operate");
-    const location = await getLocationForTenant(tenant, req.body.locationSlug || req.query.location);
-    const result = await bookingService.checkInVendorBooking({
-      tenant,
-      location,
-      bookingId: req.params.bookingId,
-      user: req.user,
-      overrideWindow: Boolean(req.body.overrideWindow),
-      overrideReason: req.body.overrideReason
-    });
-
-    res.status(201).json({
-      booking: formatVendorBooking(result.booking),
-      ticket: result.ticket
-    });
-  })
+  asyncHandler((req, res) =>
+    handleCheckInBooking({
+      req,
+      res,
+      getAuthorizedTenant,
+      assertTenantPermission,
+      getLocationForTenant,
+      bookingService
+    })
+  )
 );
 
 router.post(
   "/tenant/:tenantSlug/bookings/:bookingId/no-show",
-  asyncHandler(async (req, res) => {
-    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantPermission(req.user, tenant._id, "tenant.queue.operate");
-    const location = await getLocationForTenant(tenant, req.body.locationSlug || req.query.location);
-    const booking = await bookingService.markVendorBookingNoShow({
-      tenant,
-      location,
-      bookingId: req.params.bookingId,
-      user: req.user
-    });
-    await publishSnapshot(tenant, { location });
-
-    res.json({
-      booking: formatVendorBooking(booking)
-    });
-  })
+  asyncHandler((req, res) =>
+    handleMarkNoShow({
+      req,
+      res,
+      getAuthorizedTenant,
+      assertTenantPermission,
+      getLocationForTenant,
+      bookingService,
+      publishSnapshot
+    })
+  )
 );
 
 router.get(
   "/tenant/:tenantSlug/availability",
-  asyncHandler(async (req, res) => {
-    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantPermission(req.user, tenant._id, "tenant.availability.manage");
-    const location = await getLocationForTenant(tenant, req.query.location);
-    const availability = await vendorAvailabilityRepository.listAvailabilityByLocation(
-      tenant._id,
-      location._id
-    );
-
-    res.json({
-      blocks: availability.blocks.map(formatAvailabilityBlock),
-      exceptions: availability.exceptions.map(formatAvailabilityException)
-    });
-  })
+  asyncHandler((req, res) =>
+    handleListAvailability({
+      req,
+      res,
+      getAuthorizedTenant,
+      assertTenantPermission,
+      getLocationForTenant,
+      vendorAvailabilityRepository
+    })
+  )
 );
 
 router.post(
   "/tenant/:tenantSlug/availability/blocks",
-  asyncHandler(async (req, res) => {
-    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantPermission(req.user, tenant._id, "tenant.availability.manage");
-    const location = await getLocationForTenant(tenant, req.body.locationSlug || req.query.location);
-    const payload = await normalizeAvailabilityBlockPayload(tenant, {
-      ...(req.body || {}),
-      locationSlug: location.slug
-    });
-    const block = await vendorAvailabilityRepository.createBlock({
-      tenantId: tenant._id,
-      ...payload
-    });
-
-    res.status(201).json({ block: formatAvailabilityBlock(block) });
-  })
+  asyncHandler((req, res) =>
+    handleCreateAvailabilityBlock({
+      req,
+      res,
+      getAuthorizedTenant,
+      assertTenantPermission,
+      getLocationForTenant,
+      vendorAvailabilityRepository,
+      vendorServiceRepository
+    })
+  )
 );
 
 router.patch(
   "/tenant/:tenantSlug/availability/blocks/:blockId",
-  asyncHandler(async (req, res) => {
-    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantPermission(req.user, tenant._id, "tenant.availability.manage");
-    const block = await vendorAvailabilityRepository.findBlockByTenantAndId(
-      tenant._id,
-      req.params.blockId
-    );
-    if (!block) {
-      const error = new Error("Availability block not found.");
-      error.statusCode = 404;
-      throw error;
-    }
-
-    const payload = await normalizeAvailabilityBlockPayload(tenant, req.body || {}, block);
-    const updatedBlock = await vendorAvailabilityRepository.updateBlock(block._id, payload);
-
-    res.json({ block: formatAvailabilityBlock(updatedBlock) });
-  })
+  asyncHandler((req, res) =>
+    handleUpdateAvailabilityBlock({
+      req,
+      res,
+      getAuthorizedTenant,
+      assertTenantPermission,
+      vendorAvailabilityRepository,
+      vendorServiceRepository
+    })
+  )
 );
 
 router.delete(
   "/tenant/:tenantSlug/availability/blocks/:blockId",
-  asyncHandler(async (req, res) => {
-    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantPermission(req.user, tenant._id, "tenant.availability.manage");
-    const block = await vendorAvailabilityRepository.findBlockByTenantAndId(
-      tenant._id,
-      req.params.blockId
-    );
-    if (!block) {
-      const error = new Error("Availability block not found.");
-      error.statusCode = 404;
-      throw error;
-    }
-
-    const updatedBlock = await vendorAvailabilityRepository.updateBlock(block._id, {
-      isActive: false
-    });
-
-    res.json({ block: formatAvailabilityBlock(updatedBlock) });
-  })
+  asyncHandler((req, res) =>
+    handleDeleteAvailabilityBlock({
+      req,
+      res,
+      getAuthorizedTenant,
+      assertTenantPermission,
+      vendorAvailabilityRepository
+    })
+  )
 );
 
 router.post(
   "/tenant/:tenantSlug/availability/exceptions",
-  asyncHandler(async (req, res) => {
-    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantPermission(req.user, tenant._id, "tenant.availability.manage");
-    const location = await getLocationForTenant(tenant, req.body.locationSlug || req.query.location);
-    const payload = await normalizeAvailabilityExceptionPayload(tenant, {
-      ...(req.body || {}),
-      locationSlug: location.slug
-    });
-    const exception = await vendorAvailabilityRepository.createException({
-      tenantId: tenant._id,
-      ...payload
-    });
-
-    res.status(201).json({ exception: formatAvailabilityException(exception) });
-  })
+  asyncHandler((req, res) =>
+    handleCreateAvailabilityException({
+      req,
+      res,
+      getAuthorizedTenant,
+      assertTenantPermission,
+      getLocationForTenant,
+      vendorAvailabilityRepository,
+      vendorServiceRepository
+    })
+  )
 );
 
 router.patch(
   "/tenant/:tenantSlug/availability/exceptions/:exceptionId",
-  asyncHandler(async (req, res) => {
-    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantPermission(req.user, tenant._id, "tenant.availability.manage");
-    const exception = await vendorAvailabilityRepository.findExceptionByTenantAndId(
-      tenant._id,
-      req.params.exceptionId
-    );
-    if (!exception) {
-      const error = new Error("Availability exception not found.");
-      error.statusCode = 404;
-      throw error;
-    }
-
-    const payload = await normalizeAvailabilityExceptionPayload(tenant, req.body || {}, exception);
-    const updatedException = await vendorAvailabilityRepository.updateException(
-      exception._id,
-      payload
-    );
-
-    res.json({ exception: formatAvailabilityException(updatedException) });
-  })
+  asyncHandler((req, res) =>
+    handleUpdateAvailabilityException({
+      req,
+      res,
+      getAuthorizedTenant,
+      assertTenantPermission,
+      vendorAvailabilityRepository,
+      vendorServiceRepository
+    })
+  )
 );
 
 router.delete(
   "/tenant/:tenantSlug/availability/exceptions/:exceptionId",
-  asyncHandler(async (req, res) => {
-    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantPermission(req.user, tenant._id, "tenant.availability.manage");
-    const exception = await vendorAvailabilityRepository.findExceptionByTenantAndId(
-      tenant._id,
-      req.params.exceptionId
-    );
-    if (!exception) {
-      const error = new Error("Availability exception not found.");
-      error.statusCode = 404;
-      throw error;
-    }
-
-    await vendorAvailabilityRepository.deleteException(exception._id);
-    res.status(204).send();
-  })
+  asyncHandler((req, res) =>
+    handleDeleteAvailabilityException({
+      req,
+      res,
+      getAuthorizedTenant,
+      assertTenantPermission,
+      vendorAvailabilityRepository
+    })
+  )
 );
 
 router.post(
@@ -1185,346 +817,33 @@ router.post(
   })
 );
 
-router.patch(
-  "/tenant/:tenantSlug/settings",
-  asyncHandler(async (req, res) => {
-    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantPermission(req.user, tenant._id, "tenant.settings.manage");
-    await getLocationForTenant(tenant, req.query.location);
-    const {
-      queuePrefix,
-      averageServiceMinutes,
-      notificationThreshold,
-      autoPauseEnabled,
-      autoPauseThreshold,
-      autoResumeEnabled,
-      autoResumeVacancyPercent,
-      contactEmail,
-      contactPhone
-    } = req.body;
-    const wantsToChangeContactDetails =
-      typeof contactEmail === "string" || typeof contactPhone === "string";
-    if (wantsToChangeContactDetails) {
-      assertTenantPermission(req.user, tenant._id, "tenant.settings.manage_contact");
-    }
+router.patch("/tenant/:tenantSlug/settings", asyncHandler((req, res) => handleUpdateSettings({
+  req,
+  res,
+  getAuthorizedTenant,
+  assertTenantPermission,
+  getLocationForTenant,
+  tenantRepository,
+  getQueueSnapshot
+})));
 
-    const normalizedAutoPauseEnabled = Boolean(autoPauseEnabled);
-    const normalizedAutoPauseThreshold = normalizedAutoPauseEnabled
-      ? Math.max(1, Number(autoPauseThreshold || 1))
-      : null;
-    const normalizedAutoResumeEnabled = normalizedAutoPauseEnabled && Boolean(autoResumeEnabled);
-    const normalizedAutoResumeVacancyPercent =
-      normalizedAutoResumeEnabled
-        ? Math.max(5, Math.min(50, Number(autoResumeVacancyPercent || 20)))
-        : null;
+router.get("/tenant/:tenantSlug/notification-settings", asyncHandler((req, res) => handleGetNotificationSettings({ req, res, getAuthorizedTenant, assertTenantPermission })));
 
-    const updatedTenant = await tenantRepository.updateTenant(tenant._id, {
-      queuePrefix: queuePrefix ? String(queuePrefix).slice(0, 4).toUpperCase() : tenant.queuePrefix,
-      averageServiceMinutes: averageServiceMinutes ? Number(averageServiceMinutes) : tenant.averageServiceMinutes,
-      notificationThreshold: notificationThreshold ? Number(notificationThreshold) : tenant.notificationThreshold,
-      autoPauseEnabled: normalizedAutoPauseEnabled,
-      autoPauseThreshold: normalizedAutoPauseThreshold,
-      autoResumeEnabled: normalizedAutoResumeEnabled,
-      autoResumeVacancyPercent: normalizedAutoResumeVacancyPercent,
-      contactEmail: typeof contactEmail === "string" ? contactEmail : tenant.contactEmail,
-      contactPhone: typeof contactPhone === "string" ? contactPhone : tenant.contactPhone
-    });
+router.patch("/tenant/:tenantSlug/notification-settings", asyncHandler((req, res) => handleUpdateNotificationSettings({ req, res, getAuthorizedTenant, assertTenantPermission, tenantRepository })));
 
-    res.json({
-      tenant: {
-        id: String(updatedTenant._id),
-        name: updatedTenant.name,
-        slug: updatedTenant.slug,
-        queuePrefix: updatedTenant.queuePrefix,
-        averageServiceMinutes: updatedTenant.averageServiceMinutes,
-        notificationThreshold: updatedTenant.notificationThreshold,
-        autoPauseEnabled: updatedTenant.autoPauseEnabled,
-        autoPauseThreshold: updatedTenant.autoPauseThreshold,
-        autoResumeEnabled: updatedTenant.autoResumeEnabled,
-        autoResumeVacancyPercent: updatedTenant.autoResumeVacancyPercent,
-        contactEmail: updatedTenant.contactEmail,
-        contactPhone: updatedTenant.contactPhone
-      },
-      snapshot: await getQueueSnapshot(updatedTenant, {
-        location: await getLocationForTenant(updatedTenant, req.query.location)
-      })
-    });
-  })
-);
+router.get("/tenant/:tenantSlug/history", asyncHandler((req, res) => handleListHistory({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, billingService, ticketRepository })));
 
-router.get(
-  "/tenant/:tenantSlug/notification-settings",
-  asyncHandler(async (req, res) => {
-    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantPermission(req.user, tenant._id, "tenant.settings.manage");
+router.get("/tenant/:tenantSlug/clients", asyncHandler((req, res) => handleListClients({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, billingService, ticketRepository })));
 
-    res.json({
-      notificationSettings: normalizeTenantNotificationSettings(tenant.notificationSettings)
-    });
-  })
-);
+router.get("/tenant/:tenantSlug/counters", asyncHandler((req, res) => handleListCounters({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, billingService, serviceCounterRepository })));
 
-router.patch(
-  "/tenant/:tenantSlug/notification-settings",
-  asyncHandler(async (req, res) => {
-    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantPermission(req.user, tenant._id, "tenant.settings.manage");
+router.patch("/tenant/:tenantSlug/counters/:counterSlug", asyncHandler((req, res) => handleUpdateCounter({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, billingService, serviceCounterRepository, getCounterForLocation })));
 
-    const notificationSettings = normalizeTenantNotificationSettings(req.body || {});
-    const updatedTenant = await tenantRepository.updateTenant(tenant._id, {
-      notificationSettings
-    });
+router.delete("/tenant/:tenantSlug/counters/:counterSlug", asyncHandler((req, res) => handleDeleteCounter({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, serviceCounterRepository, getCounterForLocation })));
 
-    res.json({
-      notificationSettings: normalizeTenantNotificationSettings(updatedTenant.notificationSettings)
-    });
-  })
-);
+router.get("/tenant/:tenantSlug/staff", asyncHandler((req, res) => handleListStaff({ req, res, getAuthorizedTenant, assertTenantPermission, billingService, userRepository, serviceCounterRepository })));
 
-router.get(
-  "/tenant/:tenantSlug/history",
-  asyncHandler(async (req, res) => {
-    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantPermission(req.user, tenant._id, "tenant.reports.read");
-    const location = await getLocationForTenant(tenant, req.query.location);
-    const limit = Math.min(Number(req.query.limit || 20), 50);
-    const entitlements = await billingService.getTenantEntitlements(tenant._id);
-    const tickets = await ticketRepository.listHistoryTickets(tenant._id, {
-      limit,
-      historyDays: entitlements.historyDays,
-      locationId: location?._id
-    });
-
-    res.json({
-      historyDays: entitlements.historyDays,
-      historyLabel: entitlements.historyLabel,
-      tickets: tickets.map((ticket) => ({
-        id: String(ticket._id),
-        lookupCode: ticket.lookupCode,
-        ticketNumber: ticket.ticketNumber,
-        customerName: ticket.customerName,
-        status: ticket.status,
-        updatedAt: ticket.updatedAt,
-        rejoinDeadlineAt: ticket.rejoinDeadlineAt || null,
-        servicePriorityBand: ticket.servicePriorityBand || "normal"
-      }))
-    });
-  })
-);
-
-router.get(
-  "/tenant/:tenantSlug/clients",
-  asyncHandler(async (req, res) => {
-    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantPermission(req.user, tenant._id, "tenant.reports.read");
-    const location = await getLocationForTenant(tenant, req.query.location);
-    const entitlements = await billingService.getTenantEntitlements(tenant._id);
-    const tickets = await ticketRepository.listClientTickets(tenant._id, {
-      limit: 500,
-      historyDays: entitlements.historyDays,
-      locationId: location?._id
-    });
-    const clientsByKey = new Map();
-
-    tickets.forEach((ticket) => {
-      const email = ticket.customerEmail || "";
-      const phone = ticket.customerPhone || "";
-      const name = ticket.customerName || "Unknown customer";
-      const key = (email || phone || name).trim().toLowerCase();
-
-      if (!key) {
-        return;
-      }
-
-      const existing = clientsByKey.get(key);
-      if (existing) {
-        existing.visitCount += 1;
-        existing.notifyByEmail = existing.notifyByEmail || Boolean(ticket.notifyByEmail);
-        existing.notifyBySms = existing.notifyBySms || Boolean(ticket.notifyBySms);
-        return;
-      }
-
-      clientsByKey.set(key, {
-        id: key,
-        customerName: name,
-        customerEmail: email,
-        customerPhone: phone,
-        visitCount: 1,
-        latestTicketNumber: ticket.ticketNumber,
-        latestStatus: ticket.status,
-        latestVisitAt: ticket.updatedAt,
-        notifyByEmail: Boolean(ticket.notifyByEmail),
-        notifyBySms: Boolean(ticket.notifyBySms)
-      });
-    });
-
-    res.json({
-      historyDays: entitlements.historyDays,
-      historyLabel: entitlements.historyLabel,
-      clients: Array.from(clientsByKey.values())
-    });
-  })
-);
-
-router.get(
-  "/tenant/:tenantSlug/counters",
-  asyncHandler(async (req, res) => {
-    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantPermission(req.user, tenant._id, "tenant.queue.read");
-    const location = await getLocationForTenant(tenant, req.query.location);
-    const entitlements = await billingService.getTenantEntitlements(tenant._id);
-    const counters = await serviceCounterRepository.listCountersByLocationId(location._id);
-
-    res.json({
-      counterLimit: entitlements.counters || 0,
-      counters: counters.map((counter) => ({
-        id: counter._id,
-        tenantId: counter.tenantId,
-        locationId: counter.locationId,
-        name: counter.name,
-        slug: counter.slug,
-        isActive: counter.isActive,
-        assignedUserIds: counter.assignedUserIds
-      }))
-    });
-  })
-);
-
-router.patch(
-  "/tenant/:tenantSlug/counters/:counterSlug",
-  asyncHandler(async (req, res) => {
-    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantPermission(req.user, tenant._id, "tenant.counter.manage");
-    const location = await getLocationForTenant(tenant, req.query.location);
-    const counter = await getCounterForLocation(location, req.params.counterSlug);
-    const entitlements = await billingService.getTenantEntitlements(tenant._id);
-    const counters = await serviceCounterRepository.listCountersByLocationId(location._id);
-    if (req.body.isActive === true && !counter.isActive) {
-      if (counters.filter((item) => item.isActive).length >= Number(entitlements.counters || 0)) {
-        const error = new Error("Counter limit exceeded for this subscription plan.");
-        error.statusCode = 403;
-        throw error;
-      }
-    }
-
-    const slug = normalizeCounterSlug(req.body.slug || req.body.name);
-    const updatedCounter = await serviceCounterRepository.updateCounter(counter._id, {
-      name: req.body.name,
-      slug,
-      isActive: req.body.isActive !== false
-    });
-    await serviceCounterRepository.replaceAssignments(
-      updatedCounter._id,
-      req.body.assignedUserIds || []
-    );
-
-    res.json({ counter: updatedCounter });
-  })
-);
-
-router.delete(
-  "/tenant/:tenantSlug/counters/:counterSlug",
-  asyncHandler(async (req, res) => {
-    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantPermission(req.user, tenant._id, "tenant.counter.manage");
-    const location = await getLocationForTenant(tenant, req.query.location);
-    const counter = await getCounterForLocation(location, req.params.counterSlug);
-    await serviceCounterRepository.deleteCounter(counter._id);
-    res.status(204).send();
-  })
-);
-
-router.get(
-  "/tenant/:tenantSlug/staff",
-  asyncHandler(async (req, res) => {
-    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantPermission(req.user, tenant._id, "tenant.staff.read");
-    const entitlements = await billingService.getTenantEntitlements(tenant._id);
-    const staff = await userRepository.listUsersByTenantId(tenant._id);
-    const assignedCountersByUserId = await serviceCounterRepository.listAssignedCounterIdsByUserIds(
-      staff.map((user) => user._id)
-    );
-
-    res.json({
-      staffSeatLimit: entitlements.staffSeats || 0,
-      staff: staff.map((user) => {
-        const membership = user.tenantMemberships.find(
-          (item) => String(item.tenantId) === String(tenant._id)
-        );
-        return {
-          id: user._id,
-          name: user.name,
-          email: user.email,
-          phone: user.phone,
-          role: membership?.role || "staff",
-          isActive: membership?.isActive !== false,
-          assignedCounterIds: assignedCountersByUserId.get(String(user._id)) || []
-        };
-      })
-    });
-  })
-);
-
-router.post(
-  "/tenant/:tenantSlug/staff",
-  asyncHandler(async (req, res) => {
-    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantPermission(req.user, tenant._id, "tenant.staff.invite");
-    const entitlements = await billingService.getTenantEntitlements(tenant._id);
-    const staff = await userRepository.listUsersByTenantId(tenant._id);
-    if (staff.length >= Number(entitlements.staffSeats || 0)) {
-      const error = new Error("Staff seat limit exceeded for this subscription plan.");
-      error.statusCode = 403;
-      throw error;
-    }
-
-    const email = String(req.body.email || "").trim().toLowerCase();
-    if (!email) {
-      const error = new Error("email is required.");
-      error.statusCode = 400;
-      throw error;
-    }
-
-    const user = await userRepository.findUserByEmail(email);
-    if (!user) {
-      const error = new Error("Staff must already have a GetPrio account before being added.");
-      error.statusCode = 404;
-      throw error;
-    }
-
-    const nextRole = ["owner", "admin", "staff"].includes(req.body.role) ? req.body.role : "staff";
-    const requesterMembership = req.user.tenantMemberships?.find(
-      (item) => String(item.tenantId) === String(tenant._id) && item.isActive !== false
-    );
-    const requesterRole = requesterMembership?.role || null;
-    const ownerCount = staff.filter((member) =>
-      member.tenantMemberships.some(
-        (item) => String(item.tenantId) === String(tenant._id) && item.role === "owner" && item.isActive !== false
-      )
-    ).length;
-
-    if (requesterRole === "admin" && nextRole !== "staff") {
-      const error = new Error("Tenant admins can only invite staff members.");
-      error.statusCode = 403;
-      throw error;
-    }
-
-    if ((nextRole === "admin" || nextRole === "owner") && requesterRole !== "owner") {
-      const error = new Error("Only tenant owners can assign admin or owner roles.");
-      error.statusCode = 403;
-      throw error;
-    }
-
-    if (nextRole === "owner" && ownerCount >= 1) {
-      const error = new Error("Only one tenant owner is allowed per vendor.");
-      error.statusCode = 400;
-      throw error;
-    }
-
-    await userRepository.addTenantMembership(user._id, tenant._id, nextRole);
-    res.status(201).json({ userId: user._id });
-  })
-);
+router.post("/tenant/:tenantSlug/staff", asyncHandler((req, res) => handleInviteStaff({ req, res, getAuthorizedTenant, assertTenantPermission, billingService, userRepository })));
 
 router.patch(
   "/tenant/:tenantSlug/staff/:userId",
