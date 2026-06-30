@@ -75,6 +75,72 @@ const {
 
 const router = express.Router();
 
+function formatVendorBooking(booking) {
+  return {
+    id: booking._id,
+    reference: booking.reference,
+    tenantId: booking.tenantId,
+    tenantName: booking.tenantName,
+    tenantSlug: booking.tenantSlug,
+    locationId: booking.locationId,
+    locationName: booking.locationName,
+    locationSlug: booking.locationSlug,
+    serviceId: booking.serviceId,
+    serviceName: booking.serviceName,
+    serviceSlug: booking.serviceSlug,
+    serviceManualPaymentRequired: booking.serviceManualPaymentRequired,
+    servicePriceAmountCents: booking.servicePriceAmountCents,
+    serviceCurrency: booking.serviceCurrency,
+    servicePriceDisplay: booking.servicePriceDisplay,
+    bookingQuantity: booking.bookingQuantity,
+    customerUserId: booking.customerUserId,
+    customerName: booking.customerName,
+    customerEmail: booking.customerEmail,
+    customerPhone: booking.customerPhone,
+    scheduledStartAt: booking.scheduledStartAt,
+    scheduledEndAt: booking.scheduledEndAt,
+    status: booking.status,
+    notes: booking.notes,
+    paymentReference: booking.paymentReference,
+    paymentStatus: booking.paymentStatus,
+    paymentProof: booking.paymentProofObjectKey
+      ? {
+          fileName: booking.paymentProofFileName,
+          contentType: booking.paymentProofContentType,
+          sizeBytes: booking.paymentProofSizeBytes,
+          uploadedAt: booking.paymentProofUploadedAt
+        }
+      : null,
+    paymentVerifiedAt: booking.paymentVerifiedAt,
+    paymentVerifiedByUserId: booking.paymentVerifiedByUserId,
+    paymentRejectedAt: booking.paymentRejectedAt,
+    paymentRejectedByUserId: booking.paymentRejectedByUserId,
+    paymentRejectionReason: booking.paymentRejectionReason,
+    pendingExpiresAt: booking.pendingExpiresAt,
+    expiredAt: booking.expiredAt,
+    expirationReason: booking.expirationReason,
+    notifyByEmail: booking.notifyByEmail,
+    notifyBySms: booking.notifyBySms,
+    smsAlertFeePaymentId: booking.smsAlertFeePaymentId,
+    contactVerifiedAt: booking.contactVerifiedAt,
+    contactVerificationChannel: booking.contactVerificationChannel,
+    linkedTicket: booking.queueTicketId
+      ? {
+          id: booking.queueTicketId,
+          ticketNumber: booking.queueTicketNumber,
+          lookupCode: booking.queueTicketLookupCode,
+          status: booking.queueTicketStatus
+        }
+      : null,
+    checkedInAt: booking.checkedInAt,
+    checkedInByUserId: booking.checkedInByUserId,
+    noShowAt: booking.noShowAt,
+    noShowByUserId: booking.noShowByUserId,
+    createdAt: booking.createdAt,
+    updatedAt: booking.updatedAt
+  };
+}
+
 async function getAuthorizedTenant(user, tenantSlug) {
   return getAuthorizedTenantHelper(user, tenantSlug, tenantRepository, userHasTenantAccess);
 }
@@ -361,6 +427,32 @@ router.get(
       parsePaginationParams
     })
   )
+);
+
+router.get(
+  "/tenant/:tenantSlug/bookings/:bookingId",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.booking.manage");
+    const booking = await bookingRepository.findBookingById(req.params.bookingId);
+
+    if (!booking || String(booking.tenantId) !== String(tenant._id)) {
+      const error = new Error("Booking not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    if (req.query.location) {
+      const location = await getLocationForTenant(tenant, req.query.location);
+      if (String(booking.locationId) !== String(location._id)) {
+        const error = new Error("Booking not found for this location.");
+        error.statusCode = 404;
+        throw error;
+      }
+    }
+
+    res.json({ booking: formatVendorBooking(booking) });
+  })
 );
 
 router.patch(

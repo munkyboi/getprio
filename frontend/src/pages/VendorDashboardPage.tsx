@@ -608,6 +608,10 @@ export default function VendorDashboardPage() {
   const [queueAlertIds, setQueueAlertIds] = useState<string[]>([]);
   const dismissedQueueAlertIdsRef = useRef<Set<string>>(new Set());
   const [bookingDetailModalId, setBookingDetailModalId] = useState<string | null>(null);
+  const [bookingDetailOpen, setBookingDetailOpen] = useState(false);
+  const [bookingDetailLoading, setBookingDetailLoading] = useState(false);
+  const [bookingDetailBooking, setBookingDetailBooking] = useState<VendorBookingSummary | null>(null);
+  const [bookingDetailError, setBookingDetailError] = useState("");
   const [paymentRejectionReason, setPaymentRejectionReason] = useState("");
   const [error, setError] = useState("");
   const [busyAction, setBusyAction] = useState("");
@@ -787,6 +791,39 @@ export default function VendorDashboardPage() {
     enabled: Boolean(token && selectedTenantSlug && selectedLocationSlug && hasActiveSubscription && canOperateBookingQueue),
     refetchInterval: 15000
   });
+
+  useEffect(() => {
+    if (!bookingDetailOpen || !bookingDetailModalId || !token || !selectedTenantSlug) {
+      return;
+    }
+
+    let active = true;
+    setBookingDetailLoading(true);
+    setBookingDetailError("");
+    setBookingDetailBooking(null);
+
+    vendorDashboardBookings
+      .getBookingDetail(token, selectedTenantSlug, bookingDetailModalId, selectedLocationSlug || undefined)
+      .then((response) => {
+        if (active) {
+          setBookingDetailBooking(response.booking);
+        }
+      })
+      .catch((detailError) => {
+        if (active) {
+          setBookingDetailError(getErrorMessage(detailError));
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setBookingDetailLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [bookingDetailModalId, bookingDetailOpen, selectedLocationSlug, selectedTenantSlug, token]);
 
   useEffect(() => {
     if (!selectedTenantSlug && user?.tenants?.length) {
@@ -5548,9 +5585,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         title: "New booking"
       }))
     ];
-    const detailBooking = bookingDetailModalId
-      ? vendorBookings.find((booking) => booking.id === bookingDetailModalId) || null
-      : null;
+    const detailBooking = bookingDetailBooking;
     const detailPaymentReviewable = Boolean(
       detailBooking &&
       detailBooking.paymentProof &&
@@ -5611,6 +5646,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         }
 
                         setBookingDetailModalId(alert.id);
+                        setBookingDetailOpen(true);
                         clearBookingAlert(alert.id);
                       }}
                       style={{ flex: "0 0 auto" }}
@@ -5626,16 +5662,26 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
         <Modal
           centered
-          opened={Boolean(detailBooking)}
+          opened={bookingDetailOpen}
           onClose={() => {
             setBookingDetailModalId(null);
+            setBookingDetailOpen(false);
+            setBookingDetailLoading(false);
+            setBookingDetailBooking(null);
+            setBookingDetailError("");
             setPaymentRejectionReason("");
           }}
           title={detailBooking ? `Booking ${detailBooking.reference}` : "Booking details"}
           size="lg"
           closeButtonProps={{ "aria-label": "Close booking details" }}
         >
-          {detailBooking ? (
+          {bookingDetailLoading ? (
+            <Text c="dimmed">Loading booking details...</Text>
+          ) : bookingDetailError ? (
+            <Alert color="red" variant="light">
+              {bookingDetailError}
+            </Alert>
+          ) : detailBooking ? (
             <Stack gap="md">
               <Group justify="space-between" align="flex-start">
                 <Stack gap={4}>
@@ -5769,6 +5815,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       setBookingStatusFilter("pending");
                       setBookingDateRange([null, null]);
                       setBookingDetailModalId(null);
+                      setBookingDetailOpen(false);
+                      setBookingDetailBooking(null);
+                      setBookingDetailError("");
                       navigate("/dashboard/bookings");
                     }}
                   >

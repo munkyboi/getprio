@@ -34,6 +34,13 @@ export function getBookings(
   );
 }
 
+export function getBookingDetail(token: string, tenantSlug: string, bookingId: string, locationSlug?: string) {
+  const locationQuery = locationSlug ? `?location=${encodeURIComponent(locationSlug)}` : "";
+  return apiRequest<VendorBookingResponse>(`/vendor/tenant/${tenantSlug}/bookings/${bookingId}${locationQuery}`, {
+    token
+  });
+}
+
 export function getBookingAlerts(token: string, tenantSlug: string, locationSlug: string) {
   return apiRequest<VendorBookingsResponse>(
     `/vendor/tenant/${tenantSlug}/bookings?page=1&pageSize=10&location=${encodeURIComponent(locationSlug)}&status=pending`,
