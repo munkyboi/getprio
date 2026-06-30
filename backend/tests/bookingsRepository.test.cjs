@@ -91,7 +91,7 @@ test("vendor booking list orders incoming requests by newest created date", asyn
   assert.equal(result.totalItems, 0);
 });
 
-test("vendor booking list applies search filters and timezone-aware scheduled date filters", async () => {
+test("vendor booking list applies search filters and timezone-aware scheduled date range filters", async () => {
   const calls = [];
   const bookingsRepository = requireWithMocks("../src/repositories/bookings.js", {
     "../config/db": {
@@ -112,7 +112,8 @@ test("vendor booking list applies search filters and timezone-aware scheduled da
     page: 2,
     pageSize: 15,
     status: "confirmed",
-    scheduledDate: "2026-06-25",
+    scheduledDateFrom: "2026-06-25",
+    scheduledDateTo: "2026-06-28",
     search: "Alice"
   });
 
@@ -121,16 +122,16 @@ test("vendor booking list applies search filters and timezone-aware scheduled da
   assert.match(calls[0].query, /SELECT COUNT\(\*\)/);
   assert.match(
     calls[0].query,
-    /\(bookings\.scheduled_start_at AT TIME ZONE store_locations\.timezone\)::date = \$4::date/
+    /\(bookings\.scheduled_start_at AT TIME ZONE store_locations\.timezone\)::date BETWEEN \$4::date AND \$5::date/
   );
-  assert.match(calls[0].query, /bookings\.customer_name ILIKE \$5/);
-  assert.deepEqual(calls[0].params, [1, 2, "confirmed", "2026-06-25", "%Alice%"]);
+  assert.match(calls[0].query, /bookings\.customer_name ILIKE \$6/);
+  assert.deepEqual(calls[0].params, [1, 2, "confirmed", "2026-06-25", "2026-06-28", "%Alice%"]);
 
   assert.match(
     calls[1].query,
-    /LIMIT \$6 OFFSET \$7/
+    /LIMIT \$7 OFFSET \$8/
   );
-  assert.deepEqual(calls[1].params, [1, 2, "confirmed", "2026-06-25", "%Alice%", 15, 15]);
+  assert.deepEqual(calls[1].params, [1, 2, "confirmed", "2026-06-25", "2026-06-28", "%Alice%", 15, 15]);
   assert.equal(result.totalItems, 42);
 });
 

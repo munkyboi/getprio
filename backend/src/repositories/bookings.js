@@ -292,9 +292,16 @@ async function listBookingsForTenant(tenantId, options = {}) {
     filters.push(`bookings.status = $${params.length}`);
   }
 
-  if (options.scheduledDate) {
-    params.push(String(options.scheduledDate));
-    filters.push(`(bookings.scheduled_start_at AT TIME ZONE store_locations.timezone)::date = $${params.length}::date`);
+  if (options.scheduledDateFrom && options.scheduledDateTo) {
+    params.push(String(options.scheduledDateFrom));
+    params.push(String(options.scheduledDateTo));
+    filters.push(`(bookings.scheduled_start_at AT TIME ZONE store_locations.timezone)::date BETWEEN $${params.length - 1}::date AND $${params.length}::date`);
+  } else if (options.scheduledDateFrom) {
+    params.push(String(options.scheduledDateFrom));
+    filters.push(`(bookings.scheduled_start_at AT TIME ZONE store_locations.timezone)::date >= $${params.length}::date`);
+  } else if (options.scheduledDateTo) {
+    params.push(String(options.scheduledDateTo));
+    filters.push(`(bookings.scheduled_start_at AT TIME ZONE store_locations.timezone)::date <= $${params.length}::date`);
   }
 
   if (options.search) {

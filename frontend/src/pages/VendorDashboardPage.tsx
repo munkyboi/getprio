@@ -56,7 +56,7 @@ import {
   IconUsersGroup
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
-import { differenceInMinutes } from "date-fns";
+import { differenceInMinutes, subDays } from "date-fns";
 import QRCode from "react-qr-code";
 import { Navigate, NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
 import type {
@@ -643,7 +643,10 @@ export default function VendorDashboardPage() {
   const [historyPage, setHistoryPage] = useState(1);
   const [bookingSearch, setBookingSearch] = useState("");
   const [bookingStatusFilter, setBookingStatusFilter] = useState<BookingStatusFilter>("all");
-  const [bookingDateFilter, setBookingDateFilter] = useState(getTodayDateInputValue);
+  const [bookingDateRange, setBookingDateRange] = useState<[Date | null, Date | null]>(() => [
+    subDays(new Date(`${getTodayDateInputValue()}T00:00:00`), 14),
+    new Date(`${getTodayDateInputValue()}T00:00:00`)
+  ]);
   const [bookingPage, setBookingPage] = useState(1);
   const [bookingPagination, setBookingPagination] = useState<PaginationMetadata | null>(null);
 
@@ -758,14 +761,17 @@ export default function VendorDashboardPage() {
       bookingPage,
       bookingSearch,
       bookingStatusFilter,
-      bookingDateFilter
+      bookingDateRange
     ],
     queryFn: async () => {
       if (!token || !selectedTenantSlug || !selectedLocationSlug) {
         throw new Error("Missing dashboard context.");
       }
 
-      return vendorDashboardBookings.getBookings(token, selectedTenantSlug, selectedLocationSlug, bookingPage, bookingSearch, bookingStatusFilter, bookingDateFilter);
+      return vendorDashboardBookings.getBookings(token, selectedTenantSlug, selectedLocationSlug, bookingPage, bookingSearch, bookingStatusFilter, [
+        bookingDateRange[0] ? formatDateInputValue(bookingDateRange[0]) : null,
+        bookingDateRange[1] ? formatDateInputValue(bookingDateRange[1]) : null
+      ]);
     },
     enabled: Boolean(token && selectedTenantSlug && selectedLocationSlug && currentSection === "bookings" && hasActiveSubscription && canOperateBookingQueue)
   });
@@ -1117,7 +1123,7 @@ export default function VendorDashboardPage() {
             bookingPage,
             bookingSearch,
             bookingStatusFilter,
-            bookingDateFilter
+            bookingDateRange
           ]
         });
       }
@@ -1610,7 +1616,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   useEffect(() => {
     setBookingPage(1);
-  }, [bookingSearch, bookingStatusFilter, bookingDateFilter]);
+  }, [bookingSearch, bookingStatusFilter, bookingDateRange]);
 
   async function runAction(
     actionName: string,
@@ -1677,7 +1683,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         bookingPage,
         bookingSearch,
         bookingStatusFilter,
-        bookingDateFilter
+        bookingDateRange
       ]
     });
   }
@@ -4425,20 +4431,21 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   onChange={(value) => setBookingStatusFilter((value || "all") as BookingStatusFilter)}
                 />
                 <DatePickerInput
+                  type="range"
                   clearable
                   label="Booking date"
                   leftSection={<IconCalendar size={16} />}
-                  placeholder="Select date"
-                  value={bookingDateFilter || null}
-                  onChange={(value) => setBookingDateFilter(value || "")}
+                  placeholder="Select date range"
+                  value={bookingDateRange}
+                  onChange={(value) => setBookingDateRange(value as [Date | null, Date | null])}
                 />
-                {bookingDateFilter ? (
+                {bookingDateRange[0] || bookingDateRange[1] ? (
                   <Button
                     className="neura-secondary-button"
                     mt={24}
-                    onClick={() => setBookingDateFilter("")}
+                    onClick={() => setBookingDateRange([null, null])}
                   >
-                    Clear date
+                    Clear range
                   </Button>
                 ) : null}
               </Group>
@@ -5760,7 +5767,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     variant="default"
                     onClick={() => {
                       setBookingStatusFilter("pending");
-                      setBookingDateFilter("");
+                      setBookingDateRange([null, null]);
                       setBookingDetailModalId(null);
                       navigate("/dashboard/bookings");
                     }}

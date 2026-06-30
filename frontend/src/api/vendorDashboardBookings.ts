@@ -17,13 +17,19 @@ export function getBookings(
   page: number,
   search: string,
   status: string,
-  date: string
+  dateRange: [string | null, string | null]
 ) {
   const statusQuery = status !== "all" ? `&status=${encodeURIComponent(status)}` : "";
-  const dateQuery = date ? `&scheduledDate=${encodeURIComponent(date)}` : "";
+  const [dateFrom, dateTo] = dateRange;
+  const dateQuery = [
+    dateFrom ? `scheduledDateFrom=${encodeURIComponent(dateFrom)}` : "",
+    dateTo ? `scheduledDateTo=${encodeURIComponent(dateTo)}` : ""
+  ]
+    .filter(Boolean)
+    .join("&");
   const searchQuery = search.trim() ? `&search=${encodeURIComponent(search.trim())}` : "";
   return apiRequest<VendorBookingsResponse>(
-    `/vendor/tenant/${tenantSlug}/bookings?page=${page}&pageSize=10&location=${encodeURIComponent(locationSlug)}${statusQuery}${dateQuery}${searchQuery}`,
+    `/vendor/tenant/${tenantSlug}/bookings?page=${page}&pageSize=10&location=${encodeURIComponent(locationSlug)}${statusQuery}${dateQuery ? `&${dateQuery}` : ""}${searchQuery}`,
     { token }
   );
 }
