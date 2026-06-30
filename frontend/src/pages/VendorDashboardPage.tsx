@@ -93,8 +93,9 @@ import * as vendorDashboardBookings from "../api/vendorDashboardBookings";
 import * as vendorDashboardQueue from "../api/vendorDashboardQueue";
 import * as vendorDashboardCatalog from "../api/vendorDashboardCatalog";
 import * as vendorDashboardOperations from "../api/vendorDashboardOperations";
-import * as vendorDashboardReads from "../api/vendorDashboardReads";
 import * as vendorDashboardBilling from "../api/vendorDashboardBilling";
+import * as vendorDashboardBootstrap from "../api/vendorDashboardBootstrap";
+import * as vendorDashboardExport from "../api/vendorDashboardExport";
 import { useAuth } from "../context/AuthContext";
 import { shouldEnableVendorDashboardBootstrap } from "../lib/vendorDashboardBootstrap";
 import { buildJoinUrl, buildMonitorUrl } from "../queuePaths";
@@ -678,7 +679,7 @@ export default function VendorDashboardPage() {
         throw new Error("Missing dashboard context.");
       }
 
-      return vendorDashboardReads.getBootstrap(token, selectedTenantSlug, locationQuery);
+      return vendorDashboardBootstrap.getBootstrap(token, selectedTenantSlug, locationQuery);
     },
     enabled: shouldEnableVendorDashboardBootstrap(token, selectedTenantSlug)
   });
@@ -2249,7 +2250,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   async function handleHistoryExport(range: string, format: "csv" | "pdf") {
-    const response = await vendorDashboardReads.exportHistory(
+    const response = await vendorDashboardExport.exportHistory(
       token,
       selectedTenantSlug,
       selectedLocationSlug,
