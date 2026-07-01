@@ -2768,6 +2768,65 @@ h2 {
   border: 1px solid #e5e9f0;
 }
 
+.neura-bookings-table {
+  min-width: 1240px;
+}
+
+.neura-bookings-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: #f8fafc;
+  color: #1f2937;
+}
+
+.neura-bookings-table tbody td {
+  background: #ffffff;
+  white-space: nowrap;
+  color: #1f2937;
+}
+
+.neura-bookings-table tbody tr:nth-of-type(even) td {
+  background: #f8fafc;
+}
+
+.neura-bookings-table tbody tr:hover td {
+  background: #f1f5f9;
+}
+
+.neura-bookings-table__sticky {
+  position: sticky;
+  z-index: 2;
+  background: #ffffff;
+}
+
+.neura-bookings-table__sticky-first {
+  left: 0;
+  box-shadow: 10px 0 18px rgba(0, 0, 0, 0.08);
+}
+
+.neura-bookings-table__sticky-last {
+  right: 0;
+  box-shadow: -10px 0 18px rgba(0, 0, 0, 0.08);
+}
+
+.neura-bookings-table tbody .neura-bookings-table__sticky {
+  background-clip: padding-box;
+}
+
+.neura-bookings-table tbody tr:nth-of-type(even) .neura-bookings-table__sticky {
+  background: #f8fafc;
+}
+
+.neura-bookings-table tbody tr:hover .neura-bookings-table__sticky {
+  background: #f1f5f9;
+}
+
+.neura-bookings-table tbody td,
+.neura-bookings-table thead th {
+  border-color: #e2e8f0;
+}
+
 @media (max-width: 1180px) {
   .neura-shell {
     grid-template-columns: 1fr;

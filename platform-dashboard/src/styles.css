@@ -231,3 +231,73 @@ body {
 .subscription-editor__submit {
   min-width: 180px;
 }
+
+.portal-data-table {
+  --portal-table-row-base: #231f28;
+  --portal-table-row-alt: #2e241d;
+  --portal-table-row-hover: #3b2a1a;
+}
+
+:root[data-portal-theme="light"] .portal-data-table {
+  --portal-table-row-base: #fffaf4;
+  --portal-table-row-alt: #fde8d0;
+  --portal-table-row-hover: #fbd9af;
+}
+
+.portal-data-table thead th {
+  color: var(--portal-text);
+  background: rgba(251, 146, 60, 0.08);
+  position: sticky;
+  top: 0;
+  z-index: 3;
+}
+
+.portal-data-table tbody tr:nth-of-type(even) td {
+  background: var(--portal-table-row-alt);
+}
+
+.portal-data-table tbody td {
+  background: var(--portal-table-row-base);
+}
+
+.portal-data-table tbody tr:hover td {
+  background: var(--portal-table-row-hover);
+}
+
+.portal-data-table__sticky {
+  position: sticky;
+  z-index: 2;
+  background: var(--portal-table-row-base);
+}
+
+.portal-data-table__sticky-first {
+  left: 0;
+  box-shadow: 10px 0 18px rgba(0, 0, 0, 0.08);
+}
+
+.portal-data-table__sticky-last {
+  right: 0;
+  box-shadow: -10px 0 18px rgba(0, 0, 0, 0.08);
+}
+
+.portal-data-table thead .portal-data-table__sticky {
+  z-index: 4;
+}
+
+.portal-data-table thead .portal-data-table__sticky,
+.portal-data-table tbody .portal-data-table__sticky {
+  background-clip: padding-box;
+}
+
+.portal-data-table tbody tr:nth-of-type(even) .portal-data-table__sticky {
+  background: var(--portal-table-row-alt);
+}
+
+.portal-data-table tbody tr:hover .portal-data-table__sticky {
+  background: var(--portal-table-row-hover);
+}
+
+.portal-data-table__sticky-last,
+.portal-data-table__sticky-last :is(button, .mantine-Group-root) {
+  white-space: nowrap;
+}

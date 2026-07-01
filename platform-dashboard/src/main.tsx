@@ -15,9 +15,9 @@ import {
   PasswordInput,
   SimpleGrid,
   Stack,
-  Table,
   Modal,
   Select,
+  Tooltip,
   Text,
   TextInput,
   Title,
@@ -37,7 +37,13 @@ import {
   IconListDetails,
   IconChevronRight,
   IconMoon,
-  IconSun
+  IconSun,
+  IconPencil,
+  IconPower,
+  IconAlertTriangle,
+  IconTrash,
+  IconPlus,
+  IconBellRinging
 } from "@tabler/icons-react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
@@ -57,6 +63,7 @@ import type {
   UserSummary
 } from "@shared";
 import { apiRequest } from "./api";
+import { PortalDataTable } from "./components/PortalDataTable";
 import { ConfirmActionModal } from "../../frontend/src/components/ConfirmActionModal";
 import "@mantine/core/styles.css";
 import "@mantine/notifications/styles.css";
@@ -66,13 +73,12 @@ const STORAGE_KEY = "prio-platform-auth";
 const APPEARANCE_KEY = "prio-platform-appearance";
 const PHP = new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" });
 type PortalAppearance = "dark" | "light";
-type GenericRecord = Record<string, unknown>;
-
 const theme = createTheme({
   primaryColor: "orange",
   fontFamily: 'Inter, Aptos, "Segoe UI", sans-serif',
   defaultRadius: "lg"
 });
+type GenericRecord = Record<string, unknown>;
 
 const navItems = [
   { to: "/overview", label: "Overview", icon: IconChartBar },
@@ -134,38 +140,40 @@ function StatusBadge({ value }: { value: unknown }) {
   return <Badge color={color}>{status}</Badge>;
 }
 
-function DataTable({
-  rows,
-  columns,
-  emptyLabel
+function mergeSubscriptionRow(existing: GenericRecord | undefined, updated: GenericRecord) {
+  return {
+    ...(existing || {}),
+    ...updated,
+    tenantName: updated.tenantName ?? existing?.tenantName,
+    tenantSlug: updated.tenantSlug ?? existing?.tenantSlug
+  };
+}
+
+function IconActionButton({
+  label,
+  children,
+  color = "gray",
+  onClick,
+  disabled = false
 }: {
-  rows: GenericRecord[];
-  columns: Array<{ key: string; label: string; render?: (row: GenericRecord) => ReactNode }>;
-  emptyLabel: string;
+  label: string;
+  children: ReactNode;
+  color?: string;
+  onClick: () => void;
+  disabled?: boolean;
 }) {
   return (
-    <Paper className="portal-card" p="lg">
-      <Table.ScrollContainer minWidth={680}>
-        <Table verticalSpacing="sm">
-          <Table.Thead>
-            <Table.Tr>
-              {columns.map((column) => <Table.Th key={column.key}>{column.label}</Table.Th>)}
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {rows.length ? rows.map((row, index) => (
-              <Table.Tr key={String(row.id || index)}>
-                {columns.map((column) => (
-                  <Table.Td key={column.key}>{column.render ? column.render(row) : String(row[column.key] ?? "--")}</Table.Td>
-                ))}
-              </Table.Tr>
-            )) : (
-              <Table.Tr><Table.Td colSpan={columns.length}><Text c="dimmed">{emptyLabel}</Text></Table.Td></Table.Tr>
-            )}
-          </Table.Tbody>
-        </Table>
-      </Table.ScrollContainer>
-    </Paper>
+    <Tooltip label={label} withArrow>
+      <ActionIcon
+        aria-label={label}
+        color={color}
+        disabled={disabled}
+        onClick={onClick}
+        variant="light"
+      >
+        {children}
+      </ActionIcon>
+    </Tooltip>
   );
 }
 
@@ -266,7 +274,7 @@ function OverviewPage({ token }: { token: string }) {
         <MetricCard label="Paid joins" value={totals?.paidQueueJoinPayments ?? "--"} values={data?.analytics.paymentStatusMix.map((item) => item.count)} />
         <MetricCard label="Failed joins" value={totals?.failedQueueJoinPayments ?? "--"} />
       </SimpleGrid>
-      <DataTable
+      <PortalDataTable
         rows={(data?.recentPayments || []) as unknown as GenericRecord[]}
         emptyLabel="No recent payments."
         columns={[
@@ -391,7 +399,7 @@ function SettingsPage({ token }: { token: string }) {
 function RecordsPage({ token, endpoint, columns, emptyLabel }: { token: string; endpoint: string; columns: Array<{ key: string; label: string; render?: (row: GenericRecord) => ReactNode }>; emptyLabel: string }) {
   const [rows, setRows] = useState<GenericRecord[]>([]);
   useEffect(() => { apiRequest<PlatformListResponse<GenericRecord>>(endpoint, { token }).then((data) => setRows(data.items)); }, [endpoint, token]);
-  return <DataTable rows={rows} columns={columns} emptyLabel={emptyLabel} />;
+  return <PortalDataTable rows={rows} columns={columns} emptyLabel={emptyLabel} />;
 }
 
 function SubscriptionsPage({ token }: { token: string }) {
@@ -487,7 +495,11 @@ function SubscriptionsPage({ token }: { token: string }) {
           body
         }
       );
-      setRows((current) => current.map((item) => String(item.id) === editingSubscriptionId ? subscription.subscription : item));
+      setRows((current) =>
+        current.map((item) =>
+          String(item.id) === editingSubscriptionId ? mergeSubscriptionRow(item, subscription.subscription) : item
+        )
+      );
       showSaved("Subscription updated");
     } else {
       const subscription = await apiRequest<{ subscription: GenericRecord }, GenericRecord>("/platform/subscriptions", {
@@ -495,7 +507,11 @@ function SubscriptionsPage({ token }: { token: string }) {
         token,
         body
       });
-      setRows((current) => [subscription.subscription, ...current]);
+      const tenant = tenants.find((item) => String(item.id) === String(body.tenantId));
+      setRows((current) => [
+        mergeSubscriptionRow(tenant as GenericRecord | undefined, subscription.subscription),
+        ...current
+      ]);
       showSaved("Subscription added");
     }
     setEditorOpen(false);
@@ -507,7 +523,9 @@ function SubscriptionsPage({ token }: { token: string }) {
       token,
       body: nextStatus ? { status: nextStatus } : {}
     });
-    setRows((current) => current.map((item) => String(item.id) === subscriptionId ? subscription.subscription : item));
+    setRows((current) =>
+      current.map((item) => String(item.id) === subscriptionId ? mergeSubscriptionRow(item, subscription.subscription) : item)
+    );
     showSaved("Subscription updated");
   }
 
@@ -530,81 +548,94 @@ function SubscriptionsPage({ token }: { token: string }) {
             Create, edit, suspend, or remove tenant subscriptions from one place.
           </Text>
         </div>
-        <Button className="subscription-editor__submit" onClick={openNewSubscription}>
-          Add subscription
-        </Button>
+        <Tooltip label="Add subscription" withArrow>
+          <Button className="subscription-editor__submit" leftSection={<IconPlus size={16} />} onClick={openNewSubscription}>
+            Add subscription
+          </Button>
+        </Tooltip>
       </Group>
-      <DataTable
+      <PortalDataTable
         rows={rows}
         emptyLabel="No subscriptions."
+        pinFirstColumn
+        pinLastColumn
         columns={[
+          { key: "id", label: "ID", width: 56 },
           {
-            key: "tenantName",
-            label: "Tenant",
-            render: (row) => (
-              <Button
-                className="subscription-tenant-link"
-                variant="subtle"
-                onClick={() => openEditSubscription(row)}
-                p={0}
-              >
-                {String(row.tenantName || row.tenantSlug || "--")}
-              </Button>
-            )
-          },
-          { key: "planSlug", label: "Plan" },
-          { key: "status", label: "Status", render: (row) => <StatusBadge value={row.status} /> },
-          { key: "provider", label: "Provider" },
-          { key: "currentPeriodEnd", label: "Renews", render: (row) => formatDate(row.currentPeriodEnd) },
+              key: "tenantName",
+              label: "Tenant",
+              width: 260,
+              render: (row) => (
+              <Tooltip label="Edit subscription" withArrow>
+                <Button
+                  className="subscription-tenant-link"
+                  leftSection={<IconPencil size={16} />}
+                  variant="subtle"
+                  onClick={() => openEditSubscription(row)}
+                  p={0}
+                >
+                  {String(row.tenantName || row.tenantSlug || "--")}
+                </Button>
+              </Tooltip>
+              )
+            },
+          { key: "planSlug", label: "Plan", width: 120 },
+          { key: "status", label: "Status", width: 120, render: (row) => <StatusBadge value={row.status} /> },
+          { key: "provider", label: "Provider", width: 140 },
+          { key: "currentPeriodEnd", label: "Renews", width: 160, render: (row) => formatDate(row.currentPeriodEnd) },
           {
             key: "actions",
-            label: "Actions",
-            render: (row) => (
-              <Group gap="xs">
-                <Button
-                  size="xs"
-                  variant="light"
-                  onClick={() =>
-                    setConfirmAction({
-                      title: row.status === "suspended" ? "Resume subscription?" : "Suspend subscription?",
-                      description:
-                        row.status === "suspended"
-                          ? "This will reactivate the subscription for the tenant."
-                          : "This will suspend the subscription and limit tenant access according to subscription checks.",
-                      confirmLabel: row.status === "suspended" ? "Resume subscription" : "Suspend subscription",
-                      confirmColor: row.status === "suspended" ? "blue" : "orange",
-                      onConfirm: async () => {
-                        await updateSubscription(String(row.id), row.status === "suspended" ? "active" : "suspended");
-                      }
-                    })
-                  }
-                >
-                  {row.status === "suspended" ? "Resume" : "Suspend"}
-                </Button>
-                <Button size="xs" variant="light" color="orange" onClick={() => updateSubscription(String(row.id), "past_due")}>
-                  Mark due
-                </Button>
-                <Button
-                  size="xs"
-                  variant="light"
-                  color="red"
-                  onClick={() =>
-                    setConfirmAction({
-                      title: "Remove subscription?",
-                      description: "This permanently deletes the subscription record from the platform dashboard.",
-                      confirmLabel: "Remove subscription",
-                      confirmColor: "red",
-                      onConfirm: async () => {
-                        await removeSubscription(String(row.id));
-                      }
-                    })
-                  }
-                >
-                  Remove
-                </Button>
-              </Group>
-            )
-          }
+              label: "Actions",
+              width: 132,
+              render: (row) => (
+                <Group gap="xs" justify="flex-end" wrap="nowrap">
+                  <IconActionButton
+                    label={row.status === "suspended" ? "Resume subscription" : "Suspend subscription"}
+                    color={row.status === "suspended" ? "blue" : "orange"}
+                    onClick={() =>
+                      setConfirmAction({
+                        title: row.status === "suspended" ? "Resume subscription?" : "Suspend subscription?",
+                        description:
+                          row.status === "suspended"
+                            ? "This will reactivate the subscription for the tenant."
+                            : "This will suspend the subscription and limit tenant access according to subscription checks.",
+                        confirmLabel: row.status === "suspended" ? "Resume subscription" : "Suspend subscription",
+                        confirmColor: row.status === "suspended" ? "blue" : "orange",
+                        onConfirm: async () => {
+                          await updateSubscription(String(row.id), row.status === "suspended" ? "active" : "suspended");
+                        }
+                      })
+                    }
+                  >
+                    {row.status === "suspended" ? <IconPower size={16} /> : <IconAlertTriangle size={16} />}
+                  </IconActionButton>
+                  <IconActionButton
+                    label="Mark subscription past due"
+                    color="orange"
+                    onClick={() => updateSubscription(String(row.id), "past_due")}
+                  >
+                    <IconBellRinging size={16} />
+                  </IconActionButton>
+                  <IconActionButton
+                    label="Remove subscription"
+                    color="red"
+                    onClick={() =>
+                      setConfirmAction({
+                        title: "Remove subscription?",
+                        description: "This permanently deletes the subscription record from the platform dashboard.",
+                        confirmLabel: "Remove subscription",
+                        confirmColor: "red",
+                        onConfirm: async () => {
+                          await removeSubscription(String(row.id));
+                        }
+                      })
+                    }
+                  >
+                    <IconTrash size={16} />
+                  </IconActionButton>
+                </Group>
+              )
+            }
         ]}
       />
       <Modal

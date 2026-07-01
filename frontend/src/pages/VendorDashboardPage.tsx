@@ -44,6 +44,7 @@ import {
   IconCalendar,
   IconCalendarCheck,
   IconChevronRight,
+  IconAlertTriangle,
   IconClipboardList,
   IconCheck,
   IconExternalLink,
@@ -53,6 +54,7 @@ import {
   IconLogout,
   IconMenu2,
   IconQrcode,
+  IconX,
   IconSettings,
   IconUsersGroup
 } from "@tabler/icons-react";
@@ -113,6 +115,28 @@ import { getErrorMessage } from "../utils/errors";
 
 const dashboardSections = new Set(["queue", "tenants", "services", "bookings", "staff", "clients", "history", "reports", "settings"]);
 const SERVICE_TREND_USER_LIMIT = 30;
+
+function IconActionButton({
+  label,
+  color = "gray",
+  onClick,
+  children,
+  disabled = false
+}: {
+  label: string;
+  color?: string;
+  onClick: () => void;
+  children: React.ReactNode;
+  disabled?: boolean;
+}) {
+  return (
+    <Tooltip label={label} withArrow>
+      <ActionIcon aria-label={label} color={color} disabled={disabled} onClick={onClick} variant="light">
+        {children}
+      </ActionIcon>
+    </Tooltip>
+  );
+}
 
 const emptyWalkIn: CreateWalkInTicketRequest = {
   customerName: "",
@@ -4514,8 +4538,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
             {filteredBookings.length ? (
               <>
-                <Table.ScrollContainer minWidth={1180}>
-                  <Table verticalSpacing="sm">
+                <Table.ScrollContainer minWidth={1240}>
+                  <Table className="neura-bookings-table" verticalSpacing="sm">
                     <Table.Thead>
                       <Table.Tr>
                         <Table.Th>Reference</Table.Th>
@@ -4611,26 +4635,28 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       const actionButtons = (() => {
                         if (canAdminBookings && paymentReviewPending && booking.paymentProof) {
                           return (
-                            <>
-                              <Button
-                                className="neura-primary-button"
-                                size="xs"
+                            <Group gap="xs" justify="flex-end" wrap="nowrap">
+                              <IconActionButton
+                                label="Review payment"
+                                color="blue"
                                 onClick={() => {
                                   setPaymentRejectionReason("");
                                   setBookingDetailModalId(booking.id);
                                   setBookingDetailOpen(true);
                                 }}
                               >
-                                Review payment
-                              </Button>
-                              <Button size="xs" variant="outline" onClick={() => openRescheduleDialog(booking)}>
-                                Reschedule
-                              </Button>
-                              <Button
+                                <IconClipboardList size={16} />
+                              </IconActionButton>
+                              <IconActionButton
+                                label="Reschedule booking"
+                                color="orange"
+                                onClick={() => openRescheduleDialog(booking)}
+                              >
+                                <IconCalendar size={16} />
+                              </IconActionButton>
+                              <IconActionButton
+                                label="Cancel booking"
                                 color="red"
-                                disabled={busyAction === `booking-status:${booking.id}:canceled`}
-                                size="xs"
-                                variant="subtle"
                                 onClick={() =>
                                   openConfirmAction({
                                     title: "Cancel booking?",
@@ -4643,30 +4669,32 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                   })
                                 }
                               >
-                                Cancel
-                              </Button>
-                            </>
+                                <IconX size={16} />
+                              </IconActionButton>
+                            </Group>
                           );
                         }
 
                         if (canAdminBookings && booking.status === "pending" && paymentVerified) {
                           return (
-                            <>
-                              <Button
-                                className="neura-primary-button"
-                                size="xs"
+                            <Group gap="xs" justify="flex-end" wrap="nowrap">
+                              <IconActionButton
+                                label="Confirm booking"
+                                color="teal"
                                 onClick={() => handleUpdateBookingStatus(booking, "confirmed")}
                               >
-                                Confirm
-                              </Button>
-                              <Button size="xs" variant="outline" onClick={() => openRescheduleDialog(booking)}>
-                                Reschedule
-                              </Button>
-                              <Button
+                                <IconCheck size={16} />
+                              </IconActionButton>
+                              <IconActionButton
+                                label="Reschedule booking"
+                                color="orange"
+                                onClick={() => openRescheduleDialog(booking)}
+                              >
+                                <IconCalendar size={16} />
+                              </IconActionButton>
+                              <IconActionButton
+                                label="Cancel booking"
                                 color="red"
-                                disabled={busyAction === `booking-status:${booking.id}:canceled`}
-                                size="xs"
-                                variant="subtle"
                                 onClick={() =>
                                   openConfirmAction({
                                     title: "Cancel booking?",
@@ -4679,9 +4707,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                   })
                                 }
                               >
-                                Cancel
-                              </Button>
-                            </>
+                                <IconX size={16} />
+                              </IconActionButton>
+                            </Group>
                           );
                         }
 
@@ -4691,15 +4719,17 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
                         if (canAdminBookings && paymentVerified) {
                           return (
-                            <>
-                              <Button size="xs" variant="outline" onClick={() => openRescheduleDialog(booking)}>
-                                Reschedule
-                              </Button>
-                              <Button
+                            <Group gap="xs" justify="flex-end" wrap="nowrap">
+                              <IconActionButton
+                                label="Reschedule booking"
+                                color="orange"
+                                onClick={() => openRescheduleDialog(booking)}
+                              >
+                                <IconCalendar size={16} />
+                              </IconActionButton>
+                              <IconActionButton
+                                label="Cancel booking"
                                 color="red"
-                                disabled={busyAction === `booking-status:${booking.id}:canceled`}
-                                size="xs"
-                                variant="subtle"
                                 onClick={() =>
                                   openConfirmAction({
                                     title: "Cancel booking?",
@@ -4712,23 +4742,25 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                   })
                                 }
                               >
-                                Cancel
-                              </Button>
-                            </>
+                                <IconX size={16} />
+                              </IconActionButton>
+                            </Group>
                           );
                         }
 
                         if (canAdminBookings && booking.status === "confirmed" && checkInState.isTooEarly) {
                           return (
-                            <>
-                              <Button size="xs" variant="outline" onClick={() => openRescheduleDialog(booking)}>
-                                Reschedule
-                              </Button>
-                              <Button
+                            <Group gap="xs" justify="flex-end" wrap="nowrap">
+                              <IconActionButton
+                                label="Reschedule booking"
+                                color="orange"
+                                onClick={() => openRescheduleDialog(booking)}
+                              >
+                                <IconCalendar size={16} />
+                              </IconActionButton>
+                              <IconActionButton
+                                label="Cancel booking"
                                 color="red"
-                                disabled={busyAction === `booking-status:${booking.id}:canceled`}
-                                size="xs"
-                                variant="subtle"
                                 onClick={() =>
                                   openConfirmAction({
                                     title: "Cancel booking?",
@@ -4741,39 +4773,42 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                   })
                                 }
                               >
-                                Cancel
-                              </Button>
-                            </>
+                                <IconX size={16} />
+                              </IconActionButton>
+                            </Group>
                           );
                         }
 
                         if (canAdminBookings && booking.status === "confirmed" && checkInState.isLate) {
                           return (
-                            <>
-                              <Button size="xs" variant="outline" onClick={() => openRescheduleDialog(booking)}>
-                                Reschedule
-                              </Button>
-                              <Tooltip label="Late check-in override: customer is more than 15 minutes past the scheduled start.">
-                                <Button
+                            <Group gap="xs" justify="flex-end" wrap="nowrap">
+                              <IconActionButton
+                                label="Reschedule booking"
+                                color="orange"
+                                onClick={() => openRescheduleDialog(booking)}
+                              >
+                                <IconCalendar size={16} />
+                              </IconActionButton>
+                              <Tooltip label="Late check-in override: customer is more than 15 minutes past the scheduled start." withArrow>
+                                <ActionIcon
+                                  aria-label="Late check-in"
                                   color="orange"
                                   disabled={busyAction === `booking-check-in:${booking.id}:override`}
-                                  size="xs"
-                                  variant="outline"
                                   onClick={() => handleCheckInBooking(booking, true)}
+                                  variant="light"
                                 >
-                                  Late check-in
-                                </Button>
+                                  <IconCalendarCheck size={16} />
+                                </ActionIcon>
                               </Tooltip>
-                              <Button
+                              <IconActionButton
+                                label="Mark no-show"
                                 color="red"
                                 disabled={busyAction === `booking-no-show:${booking.id}`}
-                                size="xs"
-                                variant="subtle"
                                 onClick={() => handleMarkBookingNoShow(booking)}
                               >
-                                No-show
-                              </Button>
-                            </>
+                                <IconAlertTriangle size={16} />
+                              </IconActionButton>
+                            </Group>
                           );
                         }
 
@@ -4782,7 +4817,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
                       return (
                         <Table.Tr key={booking.id}>
-                          <Table.Td>
+                          <Table.Td className="neura-bookings-table__sticky neura-bookings-table__sticky-first">
                             <Stack gap={2}>
                               <Button
                                 className="neura-inline-link-button"
