@@ -1,0 +1,325 @@
+require("tsx/cjs");
+
+const test = require("node:test");
+const assert = require("node:assert/strict");
+
+const { ApiError, apiRequest, setAuthHandlers, API_BASE_URL } = require("../src/api/client.ts");
+const { getErrorMessage } = require("../src/utils/errors.ts");
+const {
+  buildTenantSlugFromName,
+  buildUsernameFromName,
+  isTenantSlugFormatValid,
+  isUsernameFormatValid,
+  normalizeTenantSlugInput,
+  normalizeUsernameInput
+} = require("../src/utils/usernames.ts");
+const {
+  buildJoinPath,
+  buildJoinUrl,
+  buildJoinedQueuePath,
+  buildJoinedQueuePathWithTicket,
+  buildMonitorPath,
+  buildMonitorPathWithTicket,
+  buildMonitorUrl
+} = require("../src/queuePaths.ts");
+const {
+  formatBookingScheduleDateTime,
+  formatBookingScheduleTimeRange,
+  formatDateInputValue,
+  formatDateTime,
+  formatDateTimeInputValue,
+  formatDisplayDate,
+  formatDisplayTime,
+  toDate,
+  toTimestamp
+} = require("../src/utils/dates.ts");
+const {
+  clearJoinedQueueAccess,
+  getJoinedQueueAccess,
+  saveJoinedQueueAccess
+} = require("../src/utils/joinedQueueAccess.ts");
+const {
+  getLocationStatusSummary,
+  getQueueStateSummary,
+  getTicketStateSummary
+} = require("../src/utils/queueStatus.ts");
+const { getBootstrap } = require("../src/api/vendorDashboardBootstrap.ts");
+const {
+  getAvailability,
+  deleteAvailabilityBlock,
+  deleteAvailabilityException,
+  getCounters,
+  getServices,
+  deleteCounter,
+  saveAvailabilityBlock,
+  saveAvailabilityException,
+  saveCounter,
+  deactivateService,
+  saveService,
+  uploadLocationPaymentQr
+} = require("../src/api/vendorDashboardCatalog.ts");
+const {
+  addStaff,
+  getClients,
+  getHistory,
+  getStaff,
+  removeStaff,
+  saveLocation,
+  saveLocationHours,
+  saveTheme,
+  uploadLocationPaymentQr: uploadLocationPaymentQrOperation,
+  uploadThemeAsset,
+  syncCheckout,
+  updateLocation,
+  updateNotificationSettings,
+  updateSettings
+} = require("../src/api/vendorDashboardOperations.ts");
+
+function mockResponse(status, body) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    async json() {
+      return body;
+    }
+  };
+}
+
+function withFetch(handler, fn) {
+  const originalFetch = global.fetch;
+  global.fetch = handler;
+  return Promise.resolve()
+    .then(fn)
+    .finally(() => {
+      global.fetch = originalFetch;
+    });
+}
+
+function withWindow(fn) {
+  const originalWindow = global.window;
+  const storage = new Map();
+  global.window = {
+    localStorage: {
+      getItem(key) {
+        return storage.has(key) ? storage.get(key) : null;
+      },
+      setItem(key, value) {
+        storage.set(key, String(value));
+      },
+      removeItem(key) {
+        storage.delete(key);
+      }
+    }
+  };
+
+  return Promise.resolve()
+    .then(() => fn(storage))
+    .finally(() => {
+      global.window = originalWindow;
+    });
+}
+
+test("utility formatters and validators cover common cases", () => {
+  assert.equal(API_BASE_URL, "http://localhost:5001/api");
+  assert.equal(getErrorMessage(new Error("boom")), "boom");
+  assert.equal(getErrorMessage("nope", "fallback"), "fallback");
+
+  assert.equal(buildUsernameFromName("Jane Doe!"), "jane_doe");
+  assert.equal(normalizeUsernameInput("  Jane.Doe_99  "), "janedoe_99");
+  assert.equal(isUsernameFormatValid("abc_123"), true);
+  assert.equal(isUsernameFormatValid("ab"), false);
+
+  assert.equal(buildTenantSlugFromName("Fresh Cuts Spa"), "fresh-cuts-spa");
+  assert.equal(normalizeTenantSlugInput("  Fresh Cuts Spa "), "fresh-cuts-spa");
+  assert.equal(isTenantSlugFormatValid("fresh-cuts-spa"), true);
+  assert.equal(isTenantSlugFormatValid("-bad-"), false);
+
+  assert.equal(buildJoinPath("tenant-1"), "/join/tenant-1");
+  assert.equal(buildJoinPath("tenant-1", "main"), "/join/tenant-1/main");
+  assert.equal(buildMonitorPath("tenant-1"), "/monitor/tenant-1");
+  assert.equal(buildMonitorPath("tenant-1", "main"), "/monitor/tenant-1/main");
+  assert.equal(buildJoinedQueuePath("tenant-1"), "/ticket/tenant-1");
+  assert.equal(buildJoinedQueuePath("tenant-1", "main"), "/ticket/tenant-1/main");
+  assert.equal(buildMonitorPathWithTicket("tenant-1", "abc"), "/monitor/tenant-1?ticket=abc");
+  assert.equal(buildJoinedQueuePathWithTicket("tenant-1", "abc", "main"), "/ticket/tenant-1/main?ticket=abc");
+  assert.equal(buildJoinUrl("https://example.com", "tenant-1"), "https://example.com/join/tenant-1");
+  assert.equal(buildMonitorUrl("https://example.com", "tenant-1", "main"), "https://example.com/monitor/tenant-1/main");
+
+  const localDate = new Date(2026, 5, 30, 8, 30, 0);
+  const localDateLater = new Date(2026, 5, 30, 9, 30, 0);
+
+  assert.equal(formatDateTime(localDate), "6/30/2026, 8:30:00 AM");
+  assert.equal(formatDisplayDate(localDate), "30 Jun 2026");
+  assert.equal(formatDisplayTime(localDate), "8:30 am");
+  assert.equal(formatBookingScheduleDateTime(localDate), "30 Jun 2026 8:30 am");
+  assert.equal(formatBookingScheduleTimeRange(localDate, localDateLater), "8:30 am - 9:30 am");
+  assert.equal(formatDateInputValue(localDate), "2026-06-30");
+  assert.equal(formatDateTimeInputValue(localDate), "2026-06-30T08:30");
+  assert.equal(toDate("bad value"), null);
+  assert.equal(Number.isNaN(toTimestamp("bad value")), true);
+});
+
+test("joined queue access persists normalized payloads", async () => {
+  await withWindow(async (storage) => {
+    saveJoinedQueueAccess("  abc123  ", {
+      customerEmail: "  user@example.com ",
+      customerPhone: "",
+      customerName: " Jane Doe "
+    });
+
+    assert.equal(storage.size, 1);
+    assert.deepEqual(getJoinedQueueAccess("abc123"), {
+      customerEmail: "user@example.com",
+      customerName: "Jane Doe"
+    });
+
+    clearJoinedQueueAccess("abc123");
+    assert.equal(getJoinedQueueAccess("abc123"), null);
+  });
+});
+
+test("joined queue access tolerates invalid storage and missing lookup codes", async () => {
+  const originalWindow = global.window;
+  delete global.window;
+  assert.equal(getJoinedQueueAccess(""), null);
+  saveJoinedQueueAccess("", { customerEmail: "x" });
+  clearJoinedQueueAccess("");
+  global.window = originalWindow;
+
+  await withWindow(async () => {
+    global.window.localStorage.setItem("getprio.joined-queue-access", "not-json");
+    assert.equal(getJoinedQueueAccess("abc123"), null);
+    clearJoinedQueueAccess("abc123");
+  });
+
+  await withWindow(async () => {
+    global.window.localStorage.setItem("getprio.joined-queue-access", JSON.stringify({}));
+    clearJoinedQueueAccess("abc123");
+    assert.equal(getJoinedQueueAccess("abc123"), null);
+  });
+});
+
+test("queue status summaries cover loading, state, and ticket variants", () => {
+  assert.equal(getQueueStateSummary(null).label, "Loading");
+  assert.equal(getQueueStateSummary({ queueDay: { isClosed: true }, queueIntake: { state: "open" }, location: { openStatus: { isOpen: true } } }).label, "Closed");
+  assert.equal(getQueueStateSummary({ queueDay: { isClosed: false, isPaused: true }, queueIntake: { state: "open" }, location: { openStatus: { isOpen: true } } }).label, "Paused");
+  assert.equal(getQueueStateSummary({ queueDay: { isClosed: false, isPaused: false }, queueIntake: { state: "near_limit" }, location: { openStatus: { isOpen: true } } }).label, "Near limit");
+  assert.equal(getQueueStateSummary({ queueDay: { isClosed: false, isPaused: false }, queueIntake: { state: "open" }, location: { openStatus: { isOpen: true } } }).label, "Open");
+  assert.equal(getLocationStatusSummary(null).label, "Loading");
+  assert.equal(getLocationStatusSummary({ queueDay: { isClosed: false, isPaused: false }, queueIntake: { state: "open" }, location: { openStatus: { isOpen: false } } }).label, "Closed");
+  assert.equal(getLocationStatusSummary({ queueDay: { isClosed: false, isPaused: false }, queueIntake: { state: "open" }, location: { openStatus: { isOpen: true } } }).label, "Open");
+  assert.equal(getTicketStateSummary("waiting").label, "Joined");
+  assert.equal(getTicketStateSummary("unknown").label, "Unknown");
+});
+
+test("apiRequest handles auth refresh and errors", async () => {
+  let refreshCalls = 0;
+  let failureCalls = 0;
+
+  setAuthHandlers({
+    refreshToken: async () => {
+      refreshCalls += 1;
+      return "next-token";
+    },
+    onAuthFailure: () => {
+      failureCalls += 1;
+    }
+  });
+
+  await withFetch(
+    async (url, options) => {
+      if (String(url).includes("/refresh")) {
+        return mockResponse(200, { token: "next-token", refreshToken: "next-refresh", user: { id: "u1" } });
+      }
+
+      const auth = options.headers.Authorization;
+      if (auth === "Bearer old-token") {
+        return mockResponse(401, { message: "expired" });
+      }
+
+      return mockResponse(200, { ok: true });
+    },
+    async () => {
+      const value = await apiRequest("/example", { token: "old-token" });
+      assert.deepEqual(value, { ok: true });
+      assert.equal(refreshCalls, 1);
+      assert.equal(failureCalls, 0);
+    }
+  );
+
+  await withFetch(
+    async () => mockResponse(401, { message: "unauthorized" }),
+    async () => {
+      await assert.rejects(() => apiRequest("/private", { skipAuthRefresh: true }), (error) => {
+        assert.equal(error instanceof ApiError, true);
+        assert.equal(error.status, 401);
+        return true;
+      });
+      assert.equal(failureCalls, 1);
+    }
+  );
+
+  setAuthHandlers({ refreshToken: null, onAuthFailure: null });
+});
+
+test("vendor dashboard api helpers build the expected paths", async () => {
+  const calls = [];
+
+  await withFetch(async (url, options) => {
+    calls.push([String(url), options]);
+    if (String(url).includes("/uploads/direct")) {
+      return mockResponse(200, { uploaded: true });
+    }
+
+    return mockResponse(200, { ok: true });
+  }, async () => {
+    await getBootstrap("token", "tenant", "?location=main");
+    await getServices("token", "tenant");
+    await getHistory("token", "tenant", "main");
+    await getClients("token", "tenant", "?q=foo");
+    await getStaff("token", "tenant");
+    await syncCheckout("token", "tenant", "chk_1");
+    await updateSettings("token", "tenant", { name: "New" });
+    await updateNotificationSettings("token", "tenant", { sms: true });
+    await addStaff("token", "tenant", { email: "staff@example.com" });
+    await updateLocation("token", "tenant", "main", { isActive: true });
+    await saveLocation("token", "tenant", null, { name: "Main" });
+    await saveLocationHours("token", "tenant", "main", []);
+    await saveTheme("token", "tenant", "main", { title: "Theme" });
+    await saveService("token", "tenant", null, { name: "Service" });
+    await saveService("token", "tenant", "svc-1", { name: "Service" });
+    await deactivateService("token", "tenant", "svc-1");
+    await saveAvailabilityBlock("token", "tenant", null, { label: "Block" });
+    await saveAvailabilityBlock("token", "tenant", "block-1", { label: "Block" });
+    await deleteAvailabilityBlock("token", "tenant", "block-1");
+    await saveAvailabilityException("token", "tenant", "exc_1", { label: "Exception" });
+    await saveAvailabilityException("token", "tenant", null, { label: "Exception" });
+    await deleteAvailabilityException("token", "tenant", "exc_1");
+    await saveCounter("token", "tenant", "main", null, { name: "Front" });
+    await saveCounter("token", "tenant", "main", "counter-1", { name: "Front" });
+    await deleteCounter("token", "tenant", "main", "counter-1");
+    await removeStaff("token", "tenant", "staff_1");
+    await getAvailability("token", "tenant", "main");
+    await getCounters("token", "tenant", "main");
+    await uploadThemeAsset("token", "tenant", "main", "logo", { name: "logo.png", type: "image/png" });
+    await uploadLocationPaymentQrOperation("token", "tenant", "main", { name: "qr.png", type: "image/png" });
+  });
+
+  assert.ok(calls.some(([url]) => url.includes("/vendor/tenant/tenant/locations")));
+  assert.ok(calls.some(([url]) => url.includes("/vendor/tenant/tenant/dashboard?location=main")));
+  assert.ok(calls.some(([url]) => url.includes("/billing/tenant/tenant/subscription")));
+  assert.ok(calls.some(([url]) => url.includes("/vendor/tenant/tenant/clients?q=foo")));
+  assert.ok(calls.some(([url]) => url.includes("/vendor/tenant/tenant/staff")));
+  assert.ok(calls.some(([url]) => url.includes("/billing/tenant/tenant/checkout/chk_1/sync")));
+  assert.ok(calls.some(([url, options]) => url.endsWith("/vendor/tenant/tenant/settings") && options.method === "PATCH"));
+  assert.ok(calls.some(([url, options]) => url.endsWith("/vendor/tenant/tenant/notification-settings") && options.method === "PATCH"));
+  assert.ok(calls.some(([url, options]) => url.endsWith("/vendor/tenant/tenant/staff") && options.method === "POST"));
+  assert.ok(calls.some(([url, options]) => url.endsWith("/vendor/tenant/tenant/locations/main") && options.method === "PATCH"));
+  assert.ok(calls.some(([url, options]) => url.endsWith("/vendor/tenant/tenant/locations") && options.method === "POST"));
+  assert.ok(calls.some(([url]) => url.includes("/vendor/tenant/tenant/public-board-theme?location=main")));
+  assert.ok(calls.some(([url]) => url.includes("/vendor/tenant/tenant/services")));
+  assert.ok(calls.some(([url]) => url.includes("/vendor/tenant/tenant/availability")));
+  assert.ok(calls.some(([url]) => url.includes("/vendor/tenant/tenant/counters")));
+  assert.ok(calls.some(([url]) => url.includes("/uploads/direct?location=main&assetType=logo&fileName=logo.png")));
+  assert.ok(calls.some(([url]) => url.includes("/location-payment-qrs/uploads/direct?locationSlug=main&fileName=qr.png")));
+});

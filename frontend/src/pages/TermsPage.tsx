@@ -1,8 +1,8 @@
-import { Container, List, Stack, Text } from "@mantine/core";
+import { Alert, Container, List, Stack, Text } from "@mantine/core";
 import LegalArticleLayout from "../components/LegalArticleLayout";
 import LegalSection from "../components/LegalSection";
 
-const lastUpdated = "June 29, 2026";
+const lastUpdated = "June 30, 2026";
 
 export default function TermsPage() {
   return (
@@ -17,6 +17,7 @@ export default function TermsPage() {
           { id: "role-based-access", label: "Role-based access" },
           { id: "bookings-and-service-use", label: "Bookings and service use" },
           { id: "payment-and-proof", label: "Payment and proof handling" },
+          { id: "cancellations-and-refunds", label: "Cancellations and refunds" },
           { id: "user-conduct", label: "User content and conduct" },
           { id: "vendor-and-staff", label: "Vendor and staff obligations" },
           { id: "service-availability", label: "Service availability" },
@@ -87,7 +88,44 @@ export default function TermsPage() {
             </Text>
           </LegalSection>
 
-          <LegalSection id="user-conduct" title="7. User content and conduct">
+          <LegalSection id="cancellations-and-refunds" title="7. Cancellations and refunds">
+            <Text lh={1.8}>
+              Booking cancellation rules depend on the booking status at the time you cancel and on
+              who initiates the cancellation. The current policy is designed for booking-only use
+              and does not create a platform-managed refund processor.
+            </Text>
+            <List spacing="xs">
+              <List.Item>
+                Customers may cancel a booking before check-in while the booking is still pending
+                vendor acceptance or confirmation.
+              </List.Item>
+              <List.Item>
+                If a customer cancels after the vendor has already accepted or confirmed the
+                booking, any collected payment is forfeited to cover financial losses.
+              </List.Item>
+              <List.Item>
+                Late check-in and no-show bookings are non-refundable.
+              </List.Item>
+              <List.Item>
+                If a vendor cancels before service delivery, the vendor is responsible for issuing
+                a full refund of any collected booking payment.
+              </List.Item>
+              <List.Item>
+                Refunds are handled by the vendor, not by GetPrio, and any manual refund timing or
+                payment-method details must be confirmed directly with the vendor.
+              </List.Item>
+              <List.Item>
+                If service has already started or if a cancellation involves partial performance,
+                the outcome is handled case by case.
+              </List.Item>
+            </List>
+            <Alert color="yellow" variant="light">
+              Customers should expect to lose the booking payment once they cancel after vendor
+              acceptance or confirmation.
+            </Alert>
+          </LegalSection>
+
+          <LegalSection id="user-conduct" title="8. User content and conduct">
             <Text lh={1.8}>
               You agree not to submit unlawful, abusive, misleading, or harmful content. You must not
               attempt to exploit the platform, interfere with other users, upload malware, scrape data
@@ -100,7 +138,7 @@ export default function TermsPage() {
             </List>
           </LegalSection>
 
-          <LegalSection id="vendor-and-staff" title="8. Vendor and staff obligations">
+          <LegalSection id="vendor-and-staff" title="9. Vendor and staff obligations">
             <Text lh={1.8}>
               Vendors are responsible for maintaining accurate business information, assigning staff
               appropriately, and handling customer data only for legitimate operational purposes.
@@ -109,7 +147,7 @@ export default function TermsPage() {
             </Text>
           </LegalSection>
 
-          <LegalSection id="service-availability" title="9. Service availability">
+          <LegalSection id="service-availability" title="10. Service availability">
             <Text lh={1.8}>
               We aim to keep GetPrio available, but the service may be interrupted for maintenance,
               updates, outages, or events beyond our control. We do not guarantee uninterrupted or
@@ -117,7 +155,7 @@ export default function TermsPage() {
             </Text>
           </LegalSection>
 
-          <LegalSection id="suspension-and-termination" title="10. Suspension and termination">
+          <LegalSection id="suspension-and-termination" title="11. Suspension and termination">
             <Text lh={1.8}>
               We may suspend or terminate access if we believe a user has violated these Terms,
               created a security risk, abused the platform, or otherwise acted in a way that harms
@@ -125,7 +163,7 @@ export default function TermsPage() {
             </Text>
           </LegalSection>
 
-          <LegalSection id="intellectual-property" title="11. Intellectual property">
+          <LegalSection id="intellectual-property" title="12. Intellectual property">
             <Text lh={1.8}>
               The GetPrio name, logo, interface design, and related content are protected by
               intellectual property laws. You may not copy, resell, or reuse them without permission,
@@ -133,7 +171,7 @@ export default function TermsPage() {
             </Text>
           </LegalSection>
 
-          <LegalSection id="disclaimers" title="12. Disclaimers and limitation of liability">
+          <LegalSection id="disclaimers" title="13. Disclaimers and limitation of liability">
             <Text lh={1.8}>
               GetPrio is provided on an &quot;as is&quot; and &quot;as available&quot; basis. To the extent allowed by
               law, we disclaim warranties of merchantability, fitness for a particular purpose, and
@@ -142,7 +180,7 @@ export default function TermsPage() {
             </Text>
           </LegalSection>
 
-          <LegalSection id="changes" title="13. Changes to these terms">
+          <LegalSection id="changes" title="14. Changes to these terms">
             <Text lh={1.8}>
               We may update these Terms from time to time. If changes are material, we may display an
               in-app notice or update the last modified date. Continued use of GetPrio after changes
@@ -150,10 +188,10 @@ export default function TermsPage() {
             </Text>
           </LegalSection>
 
-          <LegalSection id="contact" title="14. Contact">
+          <LegalSection id="contact" title="15. Contact">
             <Text lh={1.8}>
               If you have questions about these Terms, contact the GetPrio team through the support
-              channels in the app.
+              channels in the app or the public contact page.
             </Text>
           </LegalSection>
 

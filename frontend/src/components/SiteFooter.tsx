@@ -28,7 +28,7 @@ const footerGroups = [
       { label: "Safety Center", to: "/login" },
       { label: "Booking Guide", to: "/vendors" },
       { label: "Payment & Refunds", to: "/login" },
-      { label: "Contact Us", to: "/register/vendor" },
+      { label: "Contact Us", to: "/contact" },
       { label: "Report an Issue", to: "/login" }
     ]
   },

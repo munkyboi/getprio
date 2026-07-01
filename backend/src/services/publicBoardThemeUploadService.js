@@ -69,7 +69,8 @@ function getExtension(fileName, contentType) {
 }
 
 function normalizeFileName(fileName) {
-  return String(fileName || "public-board-image")
+  const normalized = Array.isArray(fileName) ? fileName[0] : fileName;
+  return String(normalized || "public-board-image")
     .trim()
     .replace(/[^\w.\- ]+/g, "")
     .slice(0, 160) || "public-board-image";

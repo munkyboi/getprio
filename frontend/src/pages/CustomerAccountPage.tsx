@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert,
   Badge,
@@ -30,13 +31,13 @@ import type {
   CustomerNotificationSettings,
   CustomerBookingsResponse,
   CustomerProfileUpdateRequest,
-  CustomerProfileUpdateResponse,
   PasswordChangeRequest,
   UpdateCustomerNotificationSettingsRequest,
   UpdateCustomerNotificationSettingsResponse,
   TicketStatus
 } from "@shared";
 import { apiRequest } from "../api/client";
+import { customerAccountApi } from "../api/customerAccount";
 import { useAuth } from "../context/AuthContext";
 import { buildJoinPath, buildJoinedQueuePathWithTicket } from "../queuePaths";
 import {
@@ -113,12 +114,10 @@ function getActiveSection(pathname: string): AccountSection {
 export default function CustomerAccountPage() {
   const location = useLocation();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { changePassword, token, user, loading } = useAuth();
   const activeSection = getActiveSection(location.pathname);
   const isCustomer = user?.roles?.includes("customer") ?? false;
-  const [account, setAccount] = useState<CustomerAccountOverviewResponse | null>(null);
-  const [history, setHistory] = useState<CustomerAccountHistoryResponse | null>(null);
-  const [bookingHistory, setBookingHistory] = useState<CustomerBookingsResponse | null>(null);
   const [error, setError] = useState("");
   const [profileMessage, setProfileMessage] = useState("");
   const [profileError, setProfileError] = useState("");
@@ -145,33 +144,41 @@ export default function CustomerAccountPage() {
   const [savingNotificationSettings, setSavingNotificationSettings] = useState(false);
   const browserNotificationsSupported = typeof window !== "undefined" && typeof window.Notification !== "undefined";
   const browserNotificationsSecure = typeof window !== "undefined" ? window.isSecureContext : false;
+  const accountQuery = useQuery({
+    queryKey: ["customer-account", token],
+    queryFn: async () => {
+      if (!token) {
+        throw new Error("Missing authentication token.");
+      }
+
+      return customerAccountApi.getOverview(token);
+    },
+    enabled: Boolean(token)
+  });
+  const account = accountQuery.data?.overview ?? null;
+  const history = accountQuery.data?.ticketHistory ?? null;
+  const bookingHistory = accountQuery.data?.customerBookings ?? null;
   const tickets = history?.tickets || account?.tickets || [];
   const bookings = bookingHistory?.bookings || [];
   const accountUser = account?.user;
 
   useEffect(() => {
-    if (!token) {
+    if (!accountQuery.data) {
       return;
     }
 
     setError("");
-    Promise.all([
-      apiRequest<CustomerAccountOverviewResponse>("/account/overview", { token }),
-      apiRequest<CustomerAccountHistoryResponse>("/account/history", { token }),
-      apiRequest<CustomerBookingsResponse>("/account/bookings", { token }),
-      apiRequest<{ notificationSettings: CustomerNotificationSettings }>("/account/notification-settings", { token })
-    ])
-      .then(([overview, ticketHistory, customerBookings, notificationSettingsResponse]) => {
-        setAccount(overview);
-        setHistory(ticketHistory);
-        setBookingHistory(customerBookings);
-        setNotificationSettings(notificationSettingsResponse.notificationSettings);
-        setProfileForm({
-          name: overview.user.name || ""
-        });
-      })
-      .catch((loadError) => setError(getErrorMessage(loadError)));
-  }, [token]);
+    setNotificationSettings(accountQuery.data.notificationSettings);
+    setProfileForm({
+      name: accountQuery.data.overview.user.name || ""
+    });
+  }, [accountQuery.data]);
+
+  useEffect(() => {
+    if (accountQuery.error) {
+      setError(getErrorMessage(accountQuery.error));
+    }
+  }, [accountQuery.error]);
 
   useEffect(() => {
     if (!browserNotificationsSupported) {
@@ -259,15 +266,25 @@ export default function CustomerAccountPage() {
     setSavingProfile(true);
 
     try {
-      const response = await apiRequest<CustomerProfileUpdateResponse, CustomerProfileUpdateRequest>(
-        "/account/profile",
+      const response = await customerAccountApi.updateProfile(token, profileForm);
+      queryClient.setQueryData<
         {
-          method: "PATCH",
-          body: profileForm,
-          token
+          overview: CustomerAccountOverviewResponse;
+          ticketHistory: CustomerAccountHistoryResponse;
+          customerBookings: CustomerBookingsResponse;
+          notificationSettings: CustomerNotificationSettings;
         }
+      >(["customer-account", token], (current) =>
+        current
+          ? {
+              ...current,
+              overview: {
+                ...current.overview,
+                user: response.user
+              }
+            }
+          : current
       );
-      setAccount((current) => current ? { ...current, user: response.user } : current);
       setProfileForm({
         name: response.user.name || ""
       });

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   Alert,
   Badge,
@@ -6,9 +7,11 @@ import {
   Container,
   Divider,
   Group,
+  Modal,
   Paper,
   SimpleGrid,
   Stack,
+  Tabs,
   Text,
   ThemeIcon,
   Title
@@ -18,6 +21,7 @@ import { getDay } from "date-fns";
 import { Link, useParams } from "react-router-dom";
 import type { PublicVendorProfile, PublicVendorProfileResponse } from "@shared";
 import { apiRequest } from "../api/client";
+import ContactForm from "../components/ContactForm";
 import { getErrorMessage } from "../utils/errors";
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -73,46 +77,38 @@ function formatHourRange(location: PublicVendorProfile["locations"][number], wee
 
 export default function VendorProfilePage() {
   const { tenantSlug = "" } = useParams<{ tenantSlug: string }>();
-  const [vendor, setVendor] = useState<PublicVendorProfile | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [contactOpen, setContactOpen] = useState(false);
+  const [selectedLocationSlug, setSelectedLocationSlug] = useState("");
   const currentWeekday = getDay(new Date());
+  const {
+    data: vendor,
+    isPending: loading,
+    error
+  } = useQuery({
+    queryKey: ["public-vendor", tenantSlug],
+    queryFn: async () => {
+      if (!tenantSlug) {
+        throw new Error("Vendor not found.");
+      }
 
-  useEffect(() => {
-    if (!tenantSlug) {
-      setError("Vendor not found.");
-      setLoading(false);
-      return;
-    }
-
-    let active = true;
-    setLoading(true);
-    setError("");
-
-    apiRequest<PublicVendorProfileResponse>(`/public/vendors/${tenantSlug}`)
-      .then((data) => {
-        if (!active) {
-          return;
-        }
-        setVendor(data.vendor);
-      })
-      .catch((loadError) => {
-        if (active) {
-          setError(getErrorMessage(loadError));
-        }
-      })
-      .finally(() => {
-        if (active) {
-          setLoading(false);
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [tenantSlug]);
+      const data = await apiRequest<PublicVendorProfileResponse>(`/public/vendors/${tenantSlug}`);
+      return data.vendor;
+    },
+    enabled: Boolean(tenantSlug)
+  });
 
   const locationLabel = useMemo(() => (vendor ? getLocationLabel(vendor) : ""), [vendor]);
+  const selectedLocation = useMemo(() => {
+    if (!vendor?.locations.length) {
+      return null;
+    }
+
+    return (
+      vendor.locations.find((location) => location.slug === selectedLocationSlug) ||
+      vendor.locations.find((location) => location.isPrimary) ||
+      vendor.locations[0]
+    );
+  }, [selectedLocationSlug, vendor]);
   const theme = vendor?.publicBoardTheme?.theme;
   const hasThemeMedia = Boolean(theme?.backgroundImageUrl || theme?.logoUrl);
   const themedMediaStyle: CSSProperties | undefined = theme?.backgroundImageUrl
@@ -120,6 +116,20 @@ export default function VendorProfilePage() {
         backgroundImage: `linear-gradient(rgba(255,255,255,0.18), rgba(255,255,255,0.18)), url(${theme.backgroundImageUrl})`
       }
     : undefined;
+
+  useEffect(() => {
+    if (!vendor?.locations.length) {
+      return;
+    }
+
+    setSelectedLocationSlug((current) => {
+      if (current && vendor.locations.some((location) => location.slug === current)) {
+        return current;
+      }
+
+      return vendor.locations.find((location) => location.isPrimary)?.slug || vendor.locations[0].slug;
+    });
+  }, [vendor]);
 
   return (
     <Stack className="vendor-profile-page" gap="xl">
@@ -141,7 +151,7 @@ export default function VendorProfilePage() {
           </Paper>
         ) : null}
 
-        {error ? <Alert color="red">{error}</Alert> : null}
+        {error ? <Alert color="red">{getErrorMessage(error)}</Alert> : null}
 
         {vendor ? (
           <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="xl">
@@ -178,72 +188,93 @@ export default function VendorProfilePage() {
                 <Button color="dark" component={Link} size="lg" to="/register/customer" variant="outline">
                   Create customer account
                 </Button>
+                <Button color="teal" onClick={() => setContactOpen(true)} size="lg" variant="light">
+                  Contact vendor
+                </Button>
               </Group>
 
               <Divider />
 
-                  <Stack gap="md">
-                    <div>
-                      <Text fw={900}>Available locations</Text>
-                      <Text c="dimmed" size="sm">
-                        Choose a branch to continue into its same-day queue.
-                      </Text>
-                    </div>
-                    <SimpleGrid cols={1}>
-                      {vendor.locations.map((location) => (
-                        <Paper className="vendor-location-card" key={location.slug} p="md">
-                          <Stack gap="xs">
-                            <Group justify="space-between" wrap="nowrap">
-                              <Text fw={800}>{location.name}</Text>
+              <Stack gap="md">
+                <div>
+                  <Text fw={900}>Available locations</Text>
+                  <Text c="dimmed" size="sm">
+                    Choose a branch to continue into its same-day queue.
+                  </Text>
+                </div>
+                <Tabs
+                  className="vendor-location-tabs"
+                  keepMounted={false}
+                  onChange={(value) => setSelectedLocationSlug(value || "")}
+                  value={selectedLocation?.slug || null}
+                  variant="pills"
+                >
+                  <Tabs.List>
+                    {vendor.locations.map((location) => (
+                      <Tabs.Tab className="vendor-location-tab" key={location.slug} value={location.slug}>
+                        {location.name}
+                      </Tabs.Tab>
+                    ))}
+                  </Tabs.List>
+
+                  {vendor.locations.map((location) => (
+                    <Tabs.Panel key={location.slug} value={location.slug} pt="md">
+                      <Paper className="vendor-location-card" data-selected={location.slug === selectedLocation?.slug ? "true" : undefined} p="md">
+                        <Stack gap="xs">
+                          <Group justify="space-between" wrap="nowrap">
+                            <Text fw={800}>{location.name}</Text>
+                            <Group gap="xs" wrap="nowrap">
                               {location.isPrimary ? <Badge color="orange" variant="light">Primary</Badge> : null}
                             </Group>
-                            <Group c="dimmed" gap={6} wrap="nowrap">
-                              <IconMapPin size={15} />
-                              <Text size="sm">{getBranchLabel(location)}</Text>
+                          </Group>
+                          <Group c="dimmed" gap={6} wrap="nowrap">
+                            <IconMapPin size={15} />
+                            <Text size="sm">{getBranchLabel(location)}</Text>
+                          </Group>
+                          <div className="vendor-hours-card">
+                            <Group gap={6} mb={6}>
+                              <IconClock size={15} />
+                              <Text fw={800} size="xs">Store hours</Text>
                             </Group>
-                            <div className="vendor-hours-card">
-                              <Group gap={6} mb={6}>
-                                <IconClock size={15} />
-                                <Text fw={800} size="xs">Store hours</Text>
-                              </Group>
-                              <div className="vendor-hours-list">
-                                {WEEKDAY_LABELS.map((label, weekday) => {
-                                  const hoursLabel = formatHourRange(location, weekday);
-                                  const isClosed = hoursLabel === "Closed";
-                                  const isToday = weekday === currentWeekday;
+                            <div className="vendor-hours-list">
+                              {WEEKDAY_LABELS.map((label, weekday) => {
+                                const hoursLabel = formatHourRange(location, weekday);
+                                const isClosed = hoursLabel === "Closed";
+                                const isToday = weekday === currentWeekday;
 
-                                  return (
-                                    <div
-                                      aria-current={isToday ? "date" : undefined}
-                                      className={[
-                                        "vendor-hours-row",
-                                        isClosed ? "vendor-hours-row-muted" : "",
-                                        isToday ? "vendor-hours-row-today" : ""
-                                      ].filter(Boolean).join(" ")}
-                                      key={label}
-                                    >
-                                      <span className="vendor-hours-day">{label}</span>
-                                      <span className="vendor-hours-time">{hoursLabel}</span>
-                                    </div>
-                                  );
-                                })}
-                              </div>
+                                return (
+                                  <div
+                                    aria-current={isToday ? "date" : undefined}
+                                    className={[
+                                      "vendor-hours-row",
+                                      isClosed ? "vendor-hours-row-muted" : "",
+                                      isToday ? "vendor-hours-row-today" : ""
+                                    ].filter(Boolean).join(" ")}
+                                    key={label}
+                                  >
+                                    <span className="vendor-hours-day">{label}</span>
+                                    <span className="vendor-hours-time">{hoursLabel}</span>
+                                  </div>
+                                );
+                              })}
                             </div>
-                            <Button
-                              color="orange"
-                              component={Link}
-                              mt="xs"
-                              size="sm"
-                              to={`/join/${vendor.slug}/${location.slug}`}
-                              variant="light"
-                            >
-                              Join this queue
-                            </Button>
-                          </Stack>
-                        </Paper>
-                      ))}
-                    </SimpleGrid>
-                  </Stack>
+                          </div>
+                          <Button
+                            color="orange"
+                            component={Link}
+                            mt="xs"
+                            size="sm"
+                            to={`/join/${vendor.slug}/${location.slug}`}
+                            variant="light"
+                          >
+                            Join this queue
+                          </Button>
+                        </Stack>
+                      </Paper>
+                    </Tabs.Panel>
+                  ))}
+                </Tabs>
+              </Stack>
 
             </Stack>
 
@@ -292,58 +323,56 @@ export default function VendorProfilePage() {
                     </Button>
                   </Paper>
                 </SimpleGrid>
-                <Paper className="vendor-profile-action" p="lg">
-                  <Stack gap="md">
-                    <div>
-                      <Text fw={900}>Bookable services</Text>
-                      <Text c="dimmed" size="sm">
-                        Select a service to continue into the customer booking request flow.
-                      </Text>
-                    </div>
-                    {vendor.services.length ? (
-                      <SimpleGrid cols={1}>
-                        {vendor.services.map((service) => (
-                          <Paper className="vendor-location-card" key={service.slug} p="md">
-                            <Stack gap="xs">
-                              <Group justify="space-between" wrap="nowrap">
-                                <Text fw={800}>{service.name}</Text>
-                                <Group gap="xs" wrap="nowrap">
-                                  <Badge color="teal" variant="light">{service.durationMinutes} min</Badge>
-                                  {service.allowBookingQuantity ? (
-                                    <Badge color="blue" variant="light">{service.bookingQuantityLabel || "Units"}</Badge>
-                                  ) : null}
-                                  {service.manualPaymentRequired ? (
-                                    <Badge color="yellow" variant="light">Manual payment</Badge>
-                                  ) : null}
-                                </Group>
+                <Stack gap="md">
+                  <div>
+                    <Text fw={900}>Bookable services</Text>
+                    <Text c="dimmed" size="sm">
+                      Select a service to continue into the customer booking request flow.
+                    </Text>
+                  </div>
+                  {vendor.services.length ? (
+                    <SimpleGrid cols={1}>
+                      {vendor.services.map((service) => (
+                        <Paper className="vendor-location-card" key={service.slug} p="md">
+                          <Stack gap="xs">
+                            <Group justify="space-between" wrap="nowrap">
+                              <Text fw={800}>{service.name}</Text>
+                              <Group gap="xs" wrap="nowrap">
+                                <Badge color="teal" variant="light">{service.durationMinutes} min</Badge>
+                                {service.allowBookingQuantity ? (
+                                  <Badge color="blue" variant="light">{service.bookingQuantityLabel || "Units"}</Badge>
+                                ) : null}
+                                {service.manualPaymentRequired ? (
+                                  <Badge color="yellow" variant="light">Manual payment</Badge>
+                                ) : null}
                               </Group>
-                              <Text c="dimmed" size="sm">
-                                {service.description || "Service details available during booking."}
+                            </Group>
+                            <Text c="dimmed" size="sm">
+                              {service.description || "Service details available during booking."}
+                            </Text>
+                            <Group justify="space-between">
+                              <Text fw={800}>
+                                {service.priceDisplay || `PHP ${(service.priceAmountCents / 100).toLocaleString()}`}
                               </Text>
-                              <Group justify="space-between">
-                                <Text fw={800}>
-                                  {service.priceDisplay || `PHP ${(service.priceAmountCents / 100).toLocaleString()}`}
-                                </Text>
-                                <Button
-                                  component={Link}
-                                  size="xs"
-                                  to={`/vendors/${vendor.slug}/book/${service.slug}`}
-                                  variant="light"
-                                >
-                                  Book
-                                </Button>
-                              </Group>
-                            </Stack>
-                          </Paper>
-                        ))}
-                      </SimpleGrid>
-                    ) : (
-                      <Alert color="yellow" variant="light">
-                        This vendor has not published bookable services yet.
-                      </Alert>
-                    )}
-                  </Stack>
-                </Paper>
+                              <Button
+                                component={Link}
+                                size="xs"
+                                to={`/vendors/${vendor.slug}/book/${service.slug}`}
+                                variant="light"
+                              >
+                                Book
+                              </Button>
+                            </Group>
+                          </Stack>
+                        </Paper>
+                      ))}
+                    </SimpleGrid>
+                  ) : (
+                    <Alert color="yellow" variant="light">
+                      This vendor has not published bookable services yet.
+                    </Alert>
+                  )}
+                </Stack>
                   
                 <Paper className="vendor-profile-action" p="lg">
                   <Group gap="md" wrap="nowrap">
@@ -363,6 +392,23 @@ export default function VendorProfilePage() {
           </SimpleGrid>
         ) : null}
       </Container>
+
+      <Modal
+        centered
+        onClose={() => setContactOpen(false)}
+        opened={contactOpen}
+        size="lg"
+        title={vendor ? `Contact ${vendor.name}` : "Contact vendor"}
+      >
+        {vendor ? (
+          <ContactForm
+            scope="vendor"
+            recipientName={vendor.name}
+            title="Send the vendor a message"
+            intro="Use this form to ask about this vendor's services, booking details, or public profile."
+          />
+        ) : null}
+      </Modal>
     </Stack>
   );
 }

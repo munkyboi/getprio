@@ -562,6 +562,68 @@ test("password reset confirm resets the password", async () => {
   }
 });
 
+test("oauth start rejects invalid intents and oauth callback rejects provider mismatches", async () => {
+  const router = requireWithMocks("../src/routes/authRoutes.js", {
+    "../config/db": {
+      withTransaction: async (callback) => callback({})
+    },
+    "../repositories/tenants": {},
+    "../repositories/authSessions": {},
+    "../repositories/users": {
+      findUserByEmail: async () => null,
+      findUserByUsername: async () => null,
+      createUser: async () => ({ _id: "user-1", roles: ["customer"], tenantMemberships: [] }),
+      addOauthAccount: async (_id, account) => ({ _id, oauthAccounts: [account], roles: ["customer"], tenantMemberships: [] }),
+      updateUser: async (userId) => ({ _id: userId, roles: ["customer"], tenantMemberships: [] })
+    },
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../middleware/auth": buildAuthMock(),
+    "../services/authService": {
+      normalizeEmail: (value) => String(value || "").trim().toLowerCase(),
+      getRequestIp: () => null,
+      getUserAgent: () => null,
+      recordLoginAttempt: async () => {},
+      isUserLocked: () => false,
+      verifyPasswordLogin: async () => true,
+      handleFailedPasswordLogin: async () => ({}),
+      handleSuccessfulPasswordLogin: async ({ user }) => user
+    },
+    "../services/oauthService": {
+      buildAuthorizationUrl: () => "https://oauth.example.com",
+      buildClientCallbackUrl: ({ error }) => `https://app.example/oauth/callback#error=${encodeURIComponent(error)}`,
+      buildProviderAvailability: () => ({ google: true, facebook: false }),
+      createOAuthState: () => "state",
+      exchangeCodeForProfile: async () => ({ provider: "google", providerUserId: "1" }),
+      ensureSupportedProvider: () => {},
+      getProviderLabel: (provider) => provider,
+      readOAuthState: () => ({ provider: "facebook", intent: "login" })
+    },
+    "../services/notificationService": {},
+    "../services/passwordResetService": {},
+    "../services/securityEventService": { logSecurityEvent: async () => {} },
+    "../services/sessionService": {
+      createAuthSession: async () => ({ accessToken: "token", refreshToken: "refresh", session: { _id: "session-1" } })
+    }
+  });
+
+  const { server, baseUrl } = await startServer(router, "/api/auth");
+  try {
+    const startResponse = await fetch(`${baseUrl}/oauth/google/start?intent=invalid`, {
+      redirect: "manual"
+    });
+    assert.equal(startResponse.status, 302);
+    assert.ok((startResponse.headers.get("location") || "").includes("/oauth/callback#error="));
+
+    const callbackResponse = await fetch(`${baseUrl}/oauth/google/callback?state=state&code=abc`, {
+      redirect: "manual"
+    });
+    assert.equal(callbackResponse.status, 302);
+    assert.ok((callbackResponse.headers.get("location") || "").includes("/oauth/callback#error="));
+  } finally {
+    await stopServer(server);
+  }
+});
+
 test("register customer returns a tracked session and normalized username", async () => {
   let createdUser = null;
   let sessionPayload = null;

@@ -28,6 +28,12 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Frontend tests
+        run: npm run test:frontend
+
+      - name: Frontend coverage
+        run: npm run test:frontend:coverage
+
       - name: Backend coverage
         run: npm run test:backend:coverage
 
@@ -53,7 +59,7 @@ jobs:
             const conclusion = "${{ needs.quality-gate.result }}";
             const summary =
               conclusion === "success"
-                ? "CI passed: lint, typecheck, backend coverage, and builds succeeded."
+                ? "CI passed: lint, typecheck, frontend coverage, backend coverage, and builds succeeded."
                 : `CI ${conclusion}: one or more quality checks failed.`;
 
             const marker = "<!-- getprio-ci-summary -->";

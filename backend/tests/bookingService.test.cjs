@@ -172,6 +172,23 @@ function buildBookingService({
       sendEmail: async () => {},
       sendSms: async () => {}
     },
+    "./paymentProofStorageService": {
+      assertUploadMetadata: () => {},
+      assertObjectKeyBelongsToBooking: (_booking, objectKey) => objectKey,
+      createUpload: async ({ booking, body }) => ({
+        bookingId: booking._id,
+        proof: body
+      }),
+      uploadBinary: async ({ booking, body, fileBuffer }) => ({
+        bookingId: booking._id,
+        proof: body,
+        fileBufferLength: fileBuffer.length
+      }),
+      createViewAccess: async ({ booking }) => ({
+        bookingId: booking._id,
+        objectKey: `payment-proofs/tenants/${booking.tenantId}/bookings/${booking._id}/proof.png`
+      })
+    },
     "./queueService": queueServiceMock
   });
   bookingService._setQueueServiceForTest(queueServiceMock);
@@ -708,6 +725,51 @@ test("customer booking creation requires paid SMS fee when SMS alerts are enable
   );
 });
 
+test("vendor reschedule clears linked ticket and check-in state", async () => {
+  const updates = [];
+  const bookingService = buildBookingService({
+    findBookingById: async () => ({
+      _id: "booking-1",
+      tenantId: "tenant-1",
+      locationSlug: "main",
+      serviceSlug: "consultation",
+      bookingQuantity: 1,
+      status: "confirmed",
+      scheduledStartAt: "2026-07-06T01:00:00.000Z"
+    }),
+    updateBooking: async (_id, data) => {
+      updates.push(data);
+      return { _id: "booking-1", reference: "BKG-1" };
+    },
+    availability: {
+      blocks: [
+        {
+          _id: "block-1",
+          serviceId: "service-1",
+          weekday: 1,
+          startsAt: "09:00",
+          endsAt: "12:00",
+          capacity: 1,
+          isActive: true
+        }
+      ],
+      exceptions: []
+    }
+  });
+
+  await bookingService.rescheduleVendorBooking({
+    tenant,
+    bookingId: "booking-1",
+    scheduledStartAt: "2026-07-06T03:00:00.000Z"
+  });
+
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0].status, "rescheduled");
+  assert.equal(updates[0].queueTicketId, null);
+  assert.equal(updates[0].checkedInAt, null);
+  assert.equal(updates[0].checkedInByUserId, null);
+});
+
 function buildVendorBooking(overrides = {}) {
   const scheduledStartAt = new Date(Date.now() - 5 * 60 * 1000).toISOString();
   const scheduledEndAt = new Date(Date.now() + 55 * 60 * 1000).toISOString();
@@ -974,4 +1036,70 @@ test("vendor cannot confirm booking while submitted payment proof is awaiting ve
       }),
     (error) => error.statusCode === 409 && /verified before/i.test(error.message)
   );
+});
+
+test("booking payment proof helpers require ownership and accept submission payloads", async () => {
+  const bookingService = buildBookingService({
+    findBookingById: async (bookingId) =>
+      bookingId === "booking-1"
+        ? {
+            _id: "booking-1",
+            customerUserId: "user-1",
+            tenantId: "tenant-1",
+            locationId: "location-1",
+            serviceManualPaymentRequired: true,
+            locationPaymentQrActive: true,
+            status: "pending",
+            customerEmail: "customer@example.com",
+            customerPhone: "09171234567",
+            tenantName: "Demo Tenant",
+            reference: "BKG-TEST"
+          }
+        : null,
+    updateBooking: async (_bookingId, data) => ({
+      _id: "booking-1",
+      customerUserId: "user-1",
+      tenantId: "tenant-1",
+      locationId: "location-1",
+      serviceManualPaymentRequired: true,
+      locationPaymentQrActive: true,
+      status: "pending",
+      customerEmail: "customer@example.com",
+      customerPhone: "09171234567",
+      tenantName: "Demo Tenant",
+      reference: "BKG-TEST",
+      ...data
+    })
+  });
+
+  await assert.rejects(
+    () =>
+      bookingService.createCustomerPaymentProofUpload({
+        user: { _id: "user-2" },
+        bookingId: "booking-1",
+        body: { fileName: "proof.png", contentType: "image/png", sizeBytes: 10 }
+      }),
+    (error) => error.statusCode === 404
+  );
+
+  const upload = await bookingService.createCustomerPaymentProofUpload({
+    user: { _id: "user-1" },
+    bookingId: "booking-1",
+    body: { fileName: "proof.png", contentType: "image/png", sizeBytes: 10 }
+  });
+  assert.equal(upload.proof.fileName, "proof.png");
+
+  const submitted = await bookingService.submitCustomerPaymentProof({
+    user: { _id: "user-1" },
+    bookingId: "booking-1",
+    body: {
+      paymentReference: "GCASH-123",
+      objectKey: "payment-proofs/tenants/tenant-1/bookings/booking-1/proof.png",
+      fileName: "proof.png",
+      contentType: "image/png",
+      sizeBytes: 10
+    }
+  });
+  assert.equal(submitted.paymentReference, "GCASH-123");
+  assert.equal(submitted.paymentStatus, "pending");
 });
