@@ -3,6 +3,8 @@ const asyncHandler = require("../middleware/asyncHandler");
 const { authenticate, requirePlatformPermission } = require("../middleware/auth");
 const platformRepository = require("../repositories/platform");
 const queueJoinPaymentRepository = require("../repositories/queueJoinPayments");
+const tenantRepository = require("../repositories/tenants");
+const billingRepository = require("../repositories/billing");
 const queueFeeService = require("../services/queueFeeService");
 const queueJoinPaymentService = require("../services/queueJoinPaymentService");
 const subscriptionPlanRepository = require("../repositories/subscriptionPlans");
@@ -149,8 +151,93 @@ router.get(
   requirePlatformPermission("platform.billing.read"),
   asyncHandler(async (req, res) => {
     res.json({
-      items: await platformRepository.listSubscriptions({ limit: req.query.limit })
+      items: await billingRepository.listSubscriptions({ limit: req.query.limit })
     });
+  })
+);
+
+router.post(
+  "/subscriptions",
+  requirePlatformPermission("platform.billing.manage"),
+  asyncHandler(async (req, res) => {
+    const { tenantId, planSlug, status, provider, providerCustomerId, providerSubscriptionId, providerCheckoutSessionId, billingInterval, currentPeriodStart, currentPeriodEnd, entitlements, metadata } = req.body || {};
+    const tenant = await tenantRepository.findTenantById(tenantId);
+    if (!tenant) {
+      const error = new Error("Tenant not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const plan = await subscriptionPlanRepository.findPlanBySlug(planSlug);
+    if (!plan) {
+      const error = new Error("Subscription plan not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const subscription = await billingRepository.createTenantSubscription({
+      tenantId: tenant._id,
+      planSlug: plan.slug,
+      status,
+      provider,
+      providerCustomerId,
+      providerSubscriptionId,
+      providerCheckoutSessionId,
+      billingInterval,
+      currentPeriodStart,
+      currentPeriodEnd,
+      entitlements: entitlements || plan.entitlements,
+      metadata
+    });
+
+    res.status(201).json({ subscription });
+  })
+);
+
+router.patch(
+  "/subscriptions/:subscriptionId",
+  requirePlatformPermission("platform.billing.manage"),
+  asyncHandler(async (req, res) => {
+    const subscription = await billingRepository.updateTenantSubscription(req.params.subscriptionId, req.body || {});
+    if (!subscription) {
+      const error = new Error("Subscription not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    res.json({ subscription });
+  })
+);
+
+router.post(
+  "/subscriptions/:subscriptionId/suspend",
+  requirePlatformPermission("platform.billing.manage"),
+  asyncHandler(async (req, res) => {
+    const subscription = await billingRepository.updateTenantSubscription(req.params.subscriptionId, {
+      status: "suspended"
+    });
+    if (!subscription) {
+      const error = new Error("Subscription not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    res.json({ subscription });
+  })
+);
+
+router.delete(
+  "/subscriptions/:subscriptionId",
+  requirePlatformPermission("platform.billing.manage"),
+  asyncHandler(async (req, res) => {
+    const subscription = await billingRepository.deleteTenantSubscription(req.params.subscriptionId);
+    if (!subscription) {
+      const error = new Error("Subscription not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    res.json({ subscription });
   })
 );
 

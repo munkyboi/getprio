@@ -50,7 +50,6 @@ const platformPages = [
   { path: "/queue-fees", label: "platform queue fees" },
   { path: "/plans", label: "platform plans" },
   { path: "/settings", label: "platform settings" },
-  { path: "/join-payments", label: "platform join payments" },
   { path: "/tenants", label: "platform tenants" },
   { path: "/subscriptions", label: "platform subscriptions" },
   { path: "/users", label: "platform users" },

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   Alert,
   Badge,
@@ -17,15 +17,12 @@ import {
   Title
 } from "@mantine/core";
 import { DatePickerInput } from "@mantine/dates";
-import { notifications } from "@mantine/notifications";
 import { IconArrowLeft, IconCalendar, IconCalendarCheck, IconMapPin } from "@tabler/icons-react";
 import { addDays } from "date-fns";
-import { Link, Navigate, useParams, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useParams } from "react-router-dom";
 import type {
   BookingOtpResponse,
   BookingSlotsResponse,
-  BookingSmsFeeResponse,
-  BookingSmsPaymentSyncResponse,
   BookingSlotSummary,
   CreateCustomerBookingRequest,
   CustomerBookingResponse,
@@ -91,9 +88,7 @@ interface PendingBookingPayload extends CreateCustomerBookingRequest {
 
 export default function BookingRequestPage() {
   const { tenantSlug = "", serviceSlug = "" } = useParams<{ tenantSlug: string; serviceSlug?: string }>();
-  const [searchParams] = useSearchParams();
   const { token, user, loading: authLoading } = useAuth();
-  const processedPaymentRef = useRef("");
   const [vendor, setVendor] = useState<PublicVendorProfile | null>(null);
   const [selectedLocationSlug, setSelectedLocationSlug] = useState("");
   const [selectedServiceSlug, setSelectedServiceSlug] = useState(serviceSlug);
@@ -127,8 +122,7 @@ export default function BookingRequestPage() {
     setError("");
 
     Promise.all([
-      apiRequest<PublicVendorProfileResponse>(`/public/vendors/${tenantSlug}`),
-      apiRequest<BookingSmsFeeResponse>(`/public/vendors/${tenantSlug}/booking-sms-fee`)
+      apiRequest<PublicVendorProfileResponse>(`/public/vendors/${tenantSlug}`)
     ])
       .then(([vendorData]) => {
         if (!active) {
@@ -255,8 +249,6 @@ export default function BookingRequestPage() {
       customerEmail,
       customerPhone,
       notes,
-      notifyBySms: false,
-      smsAlertFeePaymentId: undefined,
       bookingVerificationToken: verificationToken
     };
   }
@@ -274,46 +266,6 @@ export default function BookingRequestPage() {
     sessionStorage.removeItem(getPendingStorageKey(payload.tenantSlug));
     setBooking(response.booking);
   }, [token]);
-
-  useEffect(() => {
-    const paymentId = searchParams.get("booking_sms_payment");
-    const paymentStatus = searchParams.get("payment_status");
-    if (!paymentId || !vendor || !token || processedPaymentRef.current === paymentId) {
-      return;
-    }
-
-    processedPaymentRef.current = paymentId;
-
-    if (paymentStatus === "cancelled") {
-      setError("Notification setup was cancelled. You can continue or try again.");
-      return;
-    }
-
-    const pendingRaw = sessionStorage.getItem(getPendingStorageKey(vendor.slug));
-    if (!pendingRaw) {
-      setError("Payment was returned but the booking draft was not found. Please verify again.");
-      return;
-    }
-
-    const pendingPayload = JSON.parse(pendingRaw) as PendingBookingPayload;
-    setSubmitting(true);
-    apiRequest<BookingSmsPaymentSyncResponse>(`/public/vendors/${vendor.slug}/booking-sms-payments/${paymentId}/sync`, {
-      method: "POST"
-    })
-      .then(async (sync) => {
-        await submitBooking({
-          ...pendingPayload,
-          smsAlertFeePaymentId: sync.payment.id
-        });
-        notifications.show({
-          color: "teal",
-          title: "Booking submitted",
-          message: "Your notification setup was confirmed."
-        });
-      })
-      .catch((syncError) => setError(getErrorMessage(syncError)))
-      .finally(() => setSubmitting(false));
-  }, [searchParams, submitBooking, token, vendor]);
 
   if (authLoading || loading) {
     return <Card className="finazze-auth-card">Loading booking flow...</Card>;

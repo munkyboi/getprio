@@ -5,7 +5,8 @@ const PLATFORM_PERMISSIONS = {
     "platform.settings.manage",
     "platform.plans.manage",
     "platform.queue_fees.manage",
-    "platform.billing.read"
+    "platform.billing.read",
+    "platform.billing.manage"
   ])
 };
 

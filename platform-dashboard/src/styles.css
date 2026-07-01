@@ -200,3 +200,34 @@ body {
   border-radius: 999px;
   background: linear-gradient(180deg, #fb923c, #f97316);
 }
+
+.subscription-editor {
+  border-radius: 28px;
+  overflow: hidden;
+}
+
+.subscription-editor__header {
+  padding-bottom: 0.25rem;
+}
+
+.subscription-editor__panel {
+  background:
+    linear-gradient(180deg, rgba(251, 146, 60, 0.08), transparent 48%),
+    var(--portal-card-muted-bg);
+}
+
+.subscription-editor__label {
+  color: #fb923c;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.subscription-editor__footer {
+  padding-top: 0.25rem;
+}
+
+.subscription-editor__submit {
+  min-width: 180px;
+}

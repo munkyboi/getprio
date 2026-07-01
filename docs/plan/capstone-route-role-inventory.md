@@ -67,7 +67,6 @@ All platform dashboard routes require successful login and `platform_admin` in t
 | `/queue-fees` | Queue fee policy | Platform Admin | Configure queue join fees. | Keep as billing policy; later generalize to marketplace transaction fees if needed. |
 | `/plans` | Plan management | Platform Admin | Manage subscription plans. | Preserve. |
 | `/settings` | Platform settings | Platform Admin | Platform-level settings such as enterprise inquiry email. | Preserve and extend for compliance settings. |
-| `/join-payments` | Queue join payments | Platform Admin | View queue join payment records. | Extend to booking payment references. |
 | `/tenants` | Tenant listing | Platform Admin | View tenants/vendors. | Extend to vendor approval queue and verification state. |
 | `/subscriptions` | Subscription records | Platform Admin | View tenant subscriptions. | Preserve. |
 | `/users` | User listing | Platform Admin | View users and roles. | Extend to moderation/suspension workflow. |

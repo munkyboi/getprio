@@ -1,6 +1,5 @@
 import { apiRequest } from "./client";
 import type {
-  BookingSmsFeeResponse,
   BookingSlotsResponse,
   CancelCustomerBookingResponse,
   CreateCustomerBookingRequest,
@@ -12,9 +11,6 @@ import type {
 export const bookingApi = {
   getVendorProfile(tenantSlug: string) {
     return apiRequest<PublicVendorProfileResponse>(`/public/vendors/${tenantSlug}`);
-  },
-  getBookingSmsFee(tenantSlug: string) {
-    return apiRequest<BookingSmsFeeResponse>(`/public/vendors/${tenantSlug}/booking-sms-fee`);
   },
   getBookingSlots(token: string | undefined, path: string) {
     return apiRequest<BookingSlotsResponse>(path, token ? { token } : {});

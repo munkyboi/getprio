@@ -98,6 +98,7 @@ import * as vendorDashboardBilling from "../api/vendorDashboardBilling";
 import * as vendorDashboardBootstrap from "../api/vendorDashboardBootstrap";
 import * as vendorDashboardExport from "../api/vendorDashboardExport";
 import { useAuth } from "../context/AuthContext";
+import { ConfirmActionModal } from "../components/ConfirmActionModal";
 import { shouldEnableVendorDashboardBootstrap } from "../lib/vendorDashboardBootstrap";
 import { buildJoinUrl, buildMonitorUrl } from "../queuePaths";
 import {
@@ -614,6 +615,13 @@ export default function VendorDashboardPage() {
   const [bookingDetailBooking, setBookingDetailBooking] = useState<VendorBookingSummary | null>(null);
   const [bookingDetailError, setBookingDetailError] = useState("");
   const [paymentRejectionReason, setPaymentRejectionReason] = useState("");
+  const [confirmAction, setConfirmAction] = useState<null | {
+    title: string;
+    description: string;
+    confirmLabel: string;
+    confirmColor?: "red" | "orange" | "blue" | "dark";
+    onConfirm: () => Promise<void>;
+  }>(null);
   const [error, setError] = useState("");
   const [busyAction, setBusyAction] = useState("");
   const [planDialogOpen, setPlanDialogOpen] = useState(false);
@@ -673,6 +681,7 @@ export default function VendorDashboardPage() {
   const canExportHistory = isOwner || isAdmin;
   const canAdminBookings = isOwner || isAdmin;
   const canOperateBookingQueue = Boolean(selectedTenantRole);
+  const confirmBusy = Boolean(confirmAction && busyAction);
   const visibleNavItems = isOwner
     ? navItems
     : isAdmin
@@ -2221,6 +2230,14 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     await reloadStaff();
     await reloadBookings();
     showSuccessNotification("Staff removed", `${member.name} no longer has tenant access.`);
+  }
+
+  function openConfirmAction(action: NonNullable<typeof confirmAction>) {
+    setConfirmAction(action);
+  }
+
+  function closeConfirmAction() {
+    setConfirmAction(null);
   }
 
   async function handleToggleLocationActive(locationItem: StoreLocationWithHours, isActive: boolean) {
@@ -4614,7 +4631,53 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                 disabled={busyAction === `booking-status:${booking.id}:canceled`}
                                 size="xs"
                                 variant="subtle"
-                                onClick={() => handleUpdateBookingStatus(booking, "canceled")}
+                                onClick={() =>
+                                  openConfirmAction({
+                                    title: "Cancel booking?",
+                                    description: "Are you sure you want to cancel this booking?",
+                                    confirmLabel: "Cancel booking",
+                                    confirmColor: "red",
+                                    onConfirm: async () => {
+                                      await handleUpdateBookingStatus(booking, "canceled");
+                                    }
+                                  })
+                                }
+                              >
+                                Cancel
+                              </Button>
+                            </>
+                          );
+                        }
+
+                        if (canAdminBookings && booking.status === "pending" && paymentVerified) {
+                          return (
+                            <>
+                              <Button
+                                className="neura-primary-button"
+                                size="xs"
+                                onClick={() => handleUpdateBookingStatus(booking, "confirmed")}
+                              >
+                                Confirm
+                              </Button>
+                              <Button size="xs" variant="outline" onClick={() => openRescheduleDialog(booking)}>
+                                Reschedule
+                              </Button>
+                              <Button
+                                color="red"
+                                disabled={busyAction === `booking-status:${booking.id}:canceled`}
+                                size="xs"
+                                variant="subtle"
+                                onClick={() =>
+                                  openConfirmAction({
+                                    title: "Cancel booking?",
+                                    description: "Are you sure you want to cancel this booking?",
+                                    confirmLabel: "Cancel booking",
+                                    confirmColor: "red",
+                                    onConfirm: async () => {
+                                      await handleUpdateBookingStatus(booking, "canceled");
+                                    }
+                                  })
+                                }
                               >
                                 Cancel
                               </Button>
@@ -4637,7 +4700,17 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                 disabled={busyAction === `booking-status:${booking.id}:canceled`}
                                 size="xs"
                                 variant="subtle"
-                                onClick={() => handleUpdateBookingStatus(booking, "canceled")}
+                                onClick={() =>
+                                  openConfirmAction({
+                                    title: "Cancel booking?",
+                                    description: "Are you sure you want to cancel this booking?",
+                                    confirmLabel: "Cancel booking",
+                                    confirmColor: "red",
+                                    onConfirm: async () => {
+                                      await handleUpdateBookingStatus(booking, "canceled");
+                                    }
+                                  })
+                                }
                               >
                                 Cancel
                               </Button>
@@ -4656,7 +4729,17 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                 disabled={busyAction === `booking-status:${booking.id}:canceled`}
                                 size="xs"
                                 variant="subtle"
-                                onClick={() => handleUpdateBookingStatus(booking, "canceled")}
+                                onClick={() =>
+                                  openConfirmAction({
+                                    title: "Cancel booking?",
+                                    description: "Are you sure you want to cancel this booking?",
+                                    confirmLabel: "Cancel booking",
+                                    confirmColor: "red",
+                                    onConfirm: async () => {
+                                      await handleUpdateBookingStatus(booking, "canceled");
+                                    }
+                                  })
+                                }
                               >
                                 Cancel
                               </Button>
@@ -5706,6 +5789,14 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       (detailBooking.status === "pending" || detailBooking.status === "rescheduled")
     );
     const detailBookingExpired = Boolean(detailBooking?.expiredAt);
+    const closeBookingDetailModal = () => {
+      setBookingDetailModalId(null);
+      setBookingDetailOpen(false);
+      setBookingDetailLoading(false);
+      setBookingDetailBooking(null);
+      setBookingDetailError("");
+      setPaymentRejectionReason("");
+    };
 
     return (
       <Portal>
@@ -5719,7 +5810,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               transform: "translateX(-50%)",
               width: "calc(100vw - 64px)",
               pointerEvents: "none",
-              zIndex: 320
+              zIndex: 1200
             }}
           >
             <Stack gap="sm" style={{ pointerEvents: "none" }}>
@@ -5776,14 +5867,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         <Modal
           centered
           opened={bookingDetailOpen}
-          onClose={() => {
-            setBookingDetailModalId(null);
-            setBookingDetailOpen(false);
-            setBookingDetailLoading(false);
-            setBookingDetailBooking(null);
-            setBookingDetailError("");
-            setPaymentRejectionReason("");
-          }}
+          onClose={closeBookingDetailModal}
           title={detailBooking ? `Booking ${detailBooking.reference}` : "Booking details"}
           size="lg"
           closeButtonProps={{ "aria-label": "Close booking details" }}
@@ -5918,7 +6002,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               ) : null}
 
               <Group justify="space-between">
-                <Button variant="default" onClick={() => setBookingDetailModalId(null)}>
+                <Button variant="default" onClick={closeBookingDetailModal}>
                   Close
                 </Button>
                 <Group gap="xs">
@@ -5927,10 +6011,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     onClick={() => {
                       setBookingStatusFilter("pending");
                       setBookingDateRange([null, null]);
-                      setBookingDetailModalId(null);
-                      setBookingDetailOpen(false);
-                      setBookingDetailBooking(null);
-                      setBookingDetailError("");
+                      closeBookingDetailModal();
                       navigate("/dashboard/bookings");
                     }}
                   >
@@ -5948,11 +6029,24 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       >
                         Confirm
                       </Button>
+                      <Button size="xs" variant="outline" onClick={() => openRescheduleDialog(detailBooking)}>
+                        Reschedule
+                      </Button>
                       <Button
                         color="red"
                         disabled={busyAction === `booking-status:${detailBooking.id}:canceled`}
                         variant="subtle"
-                        onClick={() => handleUpdateBookingStatus(detailBooking, "canceled")}
+                        onClick={() =>
+                          openConfirmAction({
+                            title: "Cancel booking?",
+                            description: "Are you sure you want to cancel this booking?",
+                            confirmLabel: "Cancel booking",
+                            confirmColor: "red",
+                            onConfirm: async () => {
+                              await handleUpdateBookingStatus(detailBooking, "canceled");
+                            }
+                          })
+                        }
                       >
                         Cancel
                       </Button>
@@ -5963,6 +6057,23 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             </Stack>
           ) : null}
         </Modal>
+        <ConfirmActionModal
+          opened={Boolean(confirmAction)}
+          title={confirmAction?.title || ""}
+          description={confirmAction?.description || ""}
+          confirmLabel={confirmAction?.confirmLabel || "Confirm"}
+          confirmColor={confirmAction?.confirmColor || "red"}
+          loading={confirmBusy}
+          onClose={closeConfirmAction}
+          onConfirm={async () => {
+            const action = confirmAction;
+            if (!action) {
+              return;
+            }
+            await action.onConfirm();
+            closeConfirmAction();
+          }}
+        />
       </Portal>
     );
   }
