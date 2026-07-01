@@ -19,11 +19,26 @@ async function getAuthorizedTenant(user, tenantSlug, tenantRepository, userHasTe
   return tenant;
 }
 
+function normalizeRequestText(value, fallback = "") {
+  if (Array.isArray(value)) {
+    return normalizeRequestText(value[0], fallback);
+  }
+
+  if (typeof value === "string") {
+    const text = value.trim();
+    return text || fallback;
+  }
+
+  return fallback;
+}
+
 async function getLocationForTenant(tenant, locationSlug) {
-  if (locationSlug) {
+  const normalizedLocationSlug = normalizeRequestText(locationSlug);
+
+  if (normalizedLocationSlug) {
     const location = await storeLocationRepository.findLocationByTenantAndSlug(
       tenant._id,
-      locationSlug
+      normalizedLocationSlug
     );
     if (!location) {
       const error = new Error("Location not found.");
@@ -253,5 +268,6 @@ module.exports = {
   normalizeCounterSlug,
   normalizeLocationPayload,
   normalizeServicePayload,
+  normalizeRequestText,
   normalizeTenantNotificationSettings
 };

@@ -11,6 +11,19 @@ const router = express.Router();
 
 router.use(authenticate);
 
+function normalizeRequestText(value, fallback = "") {
+  if (Array.isArray(value)) {
+    return normalizeRequestText(value[0], fallback);
+  }
+
+  if (typeof value === "string") {
+    const text = value.trim();
+    return text || fallback;
+  }
+
+  return fallback;
+}
+
 function formatCustomerTicket(ticket) {
   return {
     id: ticket._id,
@@ -263,7 +276,7 @@ router.post(
       user: req.user,
       bookingId: req.params.bookingId,
       body: {
-        fileName: req.query.fileName,
+        fileName: normalizeRequestText(req.query.fileName),
         contentType: req.headers["content-type"],
         sizeBytes: req.body.length
       },

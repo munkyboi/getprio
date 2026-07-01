@@ -37,7 +37,8 @@ const {
   getAuthorizedTenant: getAuthorizedTenantHelper,
   getLocationForTenant,
   normalizeCounterSlug,
-  normalizeLocationPayload
+  normalizeLocationPayload,
+  normalizeRequestText
 } = require("./vendorRouteHelpers");
 const { handleCreateTicket } = require("./vendorQueueHandlers");
 const { handleCreateLocation, handleUpdateLocation } = require("./vendorLocationHandlers");
@@ -169,7 +170,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.queue.read");
-    const location = await getLocationForTenant(tenant, req.query.location);
+    const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
     const snapshot = await getQueueSnapshot(tenant, { location });
 
     res.json(snapshot);
@@ -200,7 +201,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.queue.read");
-    const location = await getLocationForTenant(tenant, req.query.location);
+    const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
     const theme = await publicBoardThemeRepository.getResolvedTheme(tenant._id, location?._id);
 
     res.json(theme);
@@ -212,7 +213,7 @@ router.patch(
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.theme.manage");
-    const location = await getLocationForTenant(tenant, req.query.location);
+    const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
 
     if (!location && !req.body.applyToAllLocations) {
       const error = new Error("A location is required when saving a location theme.");
@@ -243,7 +244,7 @@ router.post(
       error.statusCode = 403;
       throw error;
     }
-    const requestedLocationSlug = req.body.locationSlug || req.query.location;
+    const requestedLocationSlug = normalizeRequestText(req.body.locationSlug || req.query.location);
     const location = requestedLocationSlug
       ? await getLocationForTenant(tenant, requestedLocationSlug)
       : null;
@@ -270,7 +271,7 @@ router.post(
       throw error;
     }
 
-    const requestedLocationSlug = req.query.location;
+    const requestedLocationSlug = normalizeRequestText(req.query.location);
     const location = requestedLocationSlug
       ? await getLocationForTenant(tenant, requestedLocationSlug)
       : null;
@@ -279,8 +280,8 @@ router.post(
       location,
       user: req.user,
       body: {
-        assetType: req.query.assetType,
-        fileName: req.query.fileName,
+        assetType: normalizeRequestText(req.query.assetType),
+        fileName: normalizeRequestText(req.query.fileName),
         contentType: req.headers["content-type"],
         sizeBytes: req.body.length
       },
@@ -331,8 +332,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.location.manage");
-    const locationSlug = String(req.query.locationSlug || "")
-      .trim()
+    const locationSlug = normalizeRequestText(req.query.locationSlug)
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "");
@@ -351,7 +351,7 @@ router.post(
       tenant,
       location: { slug: locationSlug },
       body: {
-        fileName: req.query.fileName,
+        fileName: normalizeRequestText(req.query.fileName),
         contentType: req.headers["content-type"],
         sizeBytes: req.body.length
       },
@@ -379,7 +379,7 @@ router.post(
       tenant,
       location,
       body: {
-        fileName: req.query.fileName,
+        fileName: normalizeRequestText(req.query.fileName),
         contentType: req.headers["content-type"],
         sizeBytes: req.body.length
       },
@@ -442,8 +442,8 @@ router.get(
       throw error;
     }
 
-    if (req.query.location) {
-      const location = await getLocationForTenant(tenant, req.query.location);
+    if (normalizeRequestText(req.query.location)) {
+      const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
       if (String(booking.locationId) !== String(location._id)) {
         const error = new Error("Booking not found for this location.");
         error.statusCode = 404;
@@ -530,7 +530,7 @@ router.patch(
           tenant,
           bookingId: req.params.bookingId,
           user: req.user,
-          reason: req.body?.reason
+          reason: normalizeRequestText(req.body?.reason)
         })
     })
   )
@@ -704,13 +704,13 @@ router.post(
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.queue.operate");
-    const location = await getLocationForTenant(tenant, req.query.location);
+    const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
     const snapshot = await pauseQueueDay(tenant, {
       location,
       actorUserId: req.user?._id,
       actorRole: "vendor",
       source: "vendor",
-      reason: typeof req.body?.reason === "string" ? req.body.reason : "Paused from vendor dashboard",
+      reason: normalizeRequestText(req.body?.reason, "Paused from vendor dashboard"),
       pauseMode: "manual"
     });
 
@@ -723,7 +723,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.queue.operate");
-    const location = await getLocationForTenant(tenant, req.query.location);
+    const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
     const snapshot = await resumeQueueDay(tenant, {
       location,
       actorUserId: req.user?._id,
@@ -740,10 +740,10 @@ router.post(
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.queue.operate");
-    const location = await getLocationForTenant(tenant, req.query.location);
+    const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
     const snapshot = await closeQueueDay(tenant, {
       location,
-      reason: typeof req.body.reason === "string" ? req.body.reason.trim() : "",
+      reason: normalizeRequestText(req.body?.reason),
       actorUserId: req.user?._id,
       actorRole: "vendor",
       source: "vendor"
@@ -761,7 +761,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.queue.operate");
-    const location = await getLocationForTenant(tenant, req.query.location);
+    const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
     const snapshot = await reopenQueueDay(tenant, {
       location,
       actorUserId: req.user?._id,
@@ -781,8 +781,8 @@ router.post(
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.queue.operate");
-    const location = await getLocationForTenant(tenant, req.query.location);
-    const serviceCounter = await getCounterForLocation(location, req.body.counterSlug);
+    const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
+    const serviceCounter = await getCounterForLocation(location, normalizeRequestText(req.body.counterSlug));
     const result = await callNextTicket(tenant, {
       location,
       serviceCounter,
@@ -815,7 +815,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.ticket.update_state");
-    const location = await getLocationForTenant(tenant, req.query.location);
+    const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
     const lookupCode = String(req.body.lookupCode || "").trim().toUpperCase();
 
     if (!lookupCode) {
@@ -854,7 +854,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.ticket.update_state");
-    const location = await getLocationForTenant(tenant, req.query.location);
+    const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
     const result = await updateCurrentTicketStatus(tenant, "served", {
       location,
       actorUserId: req.user?._id,
@@ -884,7 +884,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.ticket.update_state");
-    const location = await getLocationForTenant(tenant, req.query.location);
+    const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
     const result = await updateCurrentTicketStatus(tenant, "skipped", {
       location,
       actorUserId: req.user?._id,
@@ -1062,7 +1062,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.counter.manage");
-    const location = await getLocationForTenant(tenant, req.query.location);
+    const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
     const entitlements = await billingService.getTenantEntitlements(tenant._id);
     const counters = await serviceCounterRepository.listCountersByLocationId(location._id);
     if (counters.filter((counter) => counter.isActive).length >= Number(entitlements.counters || 0)) {
@@ -1101,7 +1101,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.reports.read");
-    const location = await getLocationForTenant(tenant, req.query.location);
+    const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
     const entitlements = await billingService.getTenantEntitlements(tenant._id);
     const range = String(req.query.range || "today");
     const format = String(req.query.format || "csv");

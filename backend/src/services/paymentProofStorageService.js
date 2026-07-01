@@ -68,7 +68,8 @@ function getExtension(fileName, contentType) {
 }
 
 function normalizeFileName(fileName) {
-  return String(fileName || "payment-proof")
+  const normalized = Array.isArray(fileName) ? fileName[0] : fileName;
+  return String(normalized || "payment-proof")
     .trim()
     .replace(/[^\w.\- ]+/g, "")
     .slice(0, 160) || "payment-proof";
