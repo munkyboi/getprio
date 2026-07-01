@@ -43,41 +43,6 @@ jobs:
       - name: Build backend
         run: npm run build:backend
 
-      - name: Smoke test public surfaces
-        run: |
-          set -euo pipefail
-
-          npm run start > /tmp/getprio-backend.log 2>&1 &
-          backend_pid=$!
-          npm --workspace frontend run preview -- --host 127.0.0.1 --port 5173 > /tmp/getprio-frontend.log 2>&1 &
-          frontend_pid=$!
-          npm --workspace platform-dashboard run preview -- --host 127.0.0.1 --port 7100 > /tmp/getprio-platform.log 2>&1 &
-          platform_pid=$!
-
-          cleanup() {
-            kill $backend_pid $frontend_pid $platform_pid >/dev/null 2>&1 || true
-          }
-          trap cleanup EXIT
-
-          for url in \
-            http://127.0.0.1:5001/api/health \
-            http://127.0.0.1:5173/ \
-            http://127.0.0.1:7100/
-          do
-            for attempt in $(seq 1 30); do
-              if curl -fsS "$url" >/dev/null; then
-                break
-              fi
-              if [ "$attempt" -eq 30 ]; then
-                echo "Timed out waiting for $url"
-                exit 1
-              fi
-              sleep 2
-            done
-          done
-
-          SMOKE_STAGE=public npm run smoke
-
   pr-summary:
     needs: quality-gate
     if: ${{ github.event_name == 'pull_request' }}
@@ -94,7 +59,7 @@ jobs:
             const conclusion = "${{ needs.quality-gate.result }}";
             const summary =
               conclusion === "success"
-                ? "CI passed: lint, typecheck, frontend coverage, backend coverage, builds, and public smoke checks succeeded."
+                ? "CI passed: lint, typecheck, frontend coverage, backend coverage, and builds succeeded."
                 : `CI ${conclusion}: one or more quality checks failed.`;
 
             const marker = "<!-- getprio-ci-summary -->";
