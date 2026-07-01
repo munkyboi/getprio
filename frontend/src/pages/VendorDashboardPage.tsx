@@ -53,6 +53,7 @@ import {
   IconInfoCircle,
   IconLogout,
   IconMenu2,
+  IconPencil,
   IconQrcode,
   IconX,
   IconSettings,
@@ -2023,24 +2024,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     }
   }
 
-  async function handleDeactivateService(service: VendorServiceSummary) {
-    setBusyAction(`service-delete:${service.slug}`);
-    setError("");
-
-    try {
-      const response = await vendorDashboardCatalog.deactivateService(token, selectedTenantSlug, service.slug);
-      setServices((current) =>
-        current.map((item) => (item.id === response.service.id ? response.service : item))
-      );
-      await reloadBookings();
-      showSuccessNotification("Service disabled", `${service.name} is no longer active.`);
-    } catch (deleteError) {
-      setError(getErrorMessage(deleteError));
-    } finally {
-      setBusyAction("");
-    }
-  }
-
   function getServiceLabel(serviceId: string | null) {
     return serviceId ? serviceNameById.get(serviceId) || "Service-specific" : "All services";
   }
@@ -3862,7 +3845,22 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     <Button size="xs" variant="default" onClick={() => openCounterDialog(counter)}>
                       Edit
                     </Button>
-                    <Button color="red" size="xs" variant="light" onClick={() => handleDeleteCounter(counter)}>
+                    <Button
+                      color="red"
+                      size="xs"
+                      variant="light"
+                      onClick={() =>
+                        openConfirmAction({
+                          title: "Remove counter?",
+                          description: "This will permanently remove the counter from the location.",
+                          confirmLabel: "Remove counter",
+                          confirmColor: "red",
+                          onConfirm: async () => {
+                            await handleDeleteCounter(counter);
+                          }
+                        })
+                      }
+                    >
                       Remove
                     </Button>
                   </Group>
@@ -3888,132 +3886,186 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         centered
         opened={serviceDialogOpen}
         onClose={() => setServiceDialogOpen(false)}
-        size="lg"
-        title={editingServiceSlug ? "Edit service" : "Add service"}
+        size="xl"
+        title={
+          <Stack gap={2}>
+            <Text className="service-dialog__modal-eyebrow">{editingServiceSlug ? "EDIT" : "ADD"} SERVICE</Text>
+            <Text className="service-dialog__modal-title">
+              {serviceForm.name ? `Service: ${serviceForm.name}` : "Service: New service"}
+            </Text>
+          </Stack>
+        }
+        overlayProps={{ blur: 6, backgroundOpacity: 0.35 }}
+        scrollAreaComponent={ScrollArea.Autosize}
       >
         <form onSubmit={handleSaveService}>
-          <Stack gap="md">
-            <SimpleGrid cols={{ base: 1, md: 2 }}>
-              <TextInput
-                label="Service name"
-                required
-                value={serviceForm.name}
-                onChange={(event) =>
-                  setServiceForm((current) => ({ ...current, name: event.target.value }))
-                }
-              />
-              <TextInput
-                label="Slug"
-                value={serviceForm.slug || ""}
-                onChange={(event) =>
-                  setServiceForm((current) => ({ ...current, slug: event.target.value }))
-                }
-              />
-              <NumberInput
-                label="Duration"
-                min={5}
-                max={480}
-                required
-                suffix=" min"
-                value={serviceForm.durationMinutes}
-                onChange={(value) =>
-                  setServiceForm((current) => ({
-                    ...current,
-                    durationMinutes: Number(value) || 30
-                  }))
-                }
-              />
-              <Switch
-                checked={serviceForm.allowBookingQuantity === true}
-                label="Allow units"
-                onChange={(event) =>
-                  setServiceForm((current) => ({
-                    ...current,
-                    allowBookingQuantity: event.currentTarget.checked,
-                    bookingQuantityLabel: event.currentTarget.checked
-                      ? current.bookingQuantityLabel || "Units"
-                      : current.bookingQuantityLabel
-                  }))
-                }
-              />
-              {serviceForm.allowBookingQuantity ? (
-                <TextInput
-                  label="Unit label"
-                  maxLength={40}
-                  required
-                  value={serviceForm.bookingQuantityLabel || "Units"}
+          <Stack gap="lg">
+            <Group justify="space-between" align="flex-start" className="service-dialog__header">
+              <div>
+                <Text c="dimmed" size="sm">
+                  Configure booking details, pricing, and the service&apos;s availability state.
+                </Text>
+              </div>
+              <Badge variant="light" color="orange">
+                Vendor admin
+              </Badge>
+            </Group>
+
+            <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
+              <Card className="service-dialog__panel" withBorder radius="xl" p="md">
+                <Stack gap="md">
+                  <div>
+                    <Text className="service-dialog__label">Basics</Text>
+                    <Text fw={700}>Identity and timing</Text>
+                  </div>
+                  <TextInput
+                    label="Service name"
+                    required
+                    value={serviceForm.name}
+                    onChange={(event) =>
+                      setServiceForm((current) => ({ ...current, name: event.target.value }))
+                    }
+                  />
+                  <TextInput
+                    label="Slug"
+                    value={serviceForm.slug || ""}
+                    onChange={(event) =>
+                      setServiceForm((current) => ({ ...current, slug: event.target.value }))
+                    }
+                  />
+                  <NumberInput
+                    label="Duration"
+                    min={5}
+                    max={480}
+                    required
+                    suffix=" min"
+                    value={serviceForm.durationMinutes}
+                    onChange={(value) =>
+                      setServiceForm((current) => ({
+                        ...current,
+                        durationMinutes: Number(value) || 30
+                      }))
+                    }
+                  />
+                  <NumberInput
+                    label="Display order"
+                    value={serviceForm.sortOrder || 0}
+                    onChange={(value) =>
+                      setServiceForm((current) => ({ ...current, sortOrder: Number(value) || 0 }))
+                    }
+                  />
+                </Stack>
+              </Card>
+
+              <Card className="service-dialog__panel" withBorder radius="xl" p="md">
+                <Stack gap="md">
+                  <div>
+                    <Text className="service-dialog__label">Pricing</Text>
+                    <Text fw={700}>Payment and display rules</Text>
+                  </div>
+                  <NumberInput
+                    decimalScale={2}
+                    fixedDecimalScale
+                    label="Price"
+                    min={0}
+                    prefix="PHP "
+                    value={(serviceForm.priceAmountCents || 0) / 100}
+                    onChange={(value) =>
+                      setServiceForm((current) => ({
+                        ...current,
+                        priceAmountCents: Math.max(0, Math.round((Number(value) || 0) * 100))
+                      }))
+                    }
+                  />
+                  <TextInput
+                    label="Price display override"
+                    placeholder="Leave blank to auto-format"
+                    value={serviceForm.priceDisplay || ""}
+                    onChange={(event) =>
+                      setServiceForm((current) => ({ ...current, priceDisplay: event.target.value }))
+                    }
+                  />
+                  <Switch
+                    checked={serviceForm.manualPaymentRequired === true}
+                    label="Require manual payment"
+                    description="Customers must submit payment reference and proof before vendor confirmation."
+                    onChange={(event) =>
+                      setServiceForm((current) => ({
+                        ...current,
+                        manualPaymentRequired: event.currentTarget.checked
+                      }))
+                    }
+                  />
+                  <Switch
+                    checked={serviceForm.allowBookingQuantity === true}
+                    label="Allow units"
+                    onChange={(event) =>
+                      setServiceForm((current) => ({
+                        ...current,
+                        allowBookingQuantity: event.currentTarget.checked,
+                        bookingQuantityLabel: event.currentTarget.checked
+                          ? current.bookingQuantityLabel || "Units"
+                          : current.bookingQuantityLabel
+                      }))
+                    }
+                  />
+                  {serviceForm.allowBookingQuantity ? (
+                    <TextInput
+                      label="Unit label"
+                      maxLength={40}
+                      required
+                      value={serviceForm.bookingQuantityLabel || "Units"}
+                      onChange={(event) =>
+                        setServiceForm((current) => ({
+                          ...current,
+                          bookingQuantityLabel: event.target.value
+                        }))
+                      }
+                    />
+                  ) : null}
+                </Stack>
+              </Card>
+            </SimpleGrid>
+
+            <Card className="service-dialog__panel" withBorder radius="xl" p="md">
+              <Stack gap="md">
+                <div>
+                  <Text className="service-dialog__label">Notes</Text>
+                  <Text fw={700}>Description and activation</Text>
+                </div>
+                <Textarea
+                  autosize
+                  label="Description"
+                  minRows={4}
+                  value={serviceForm.description || ""}
                   onChange={(event) =>
-                    setServiceForm((current) => ({
-                      ...current,
-                      bookingQuantityLabel: event.target.value
-                    }))
+                    setServiceForm((current) => ({ ...current, description: event.target.value }))
                   }
                 />
-              ) : null}
-              <Switch
-                checked={serviceForm.manualPaymentRequired === true}
-                label="Require manual payment"
-                description="Customers must submit payment reference and proof before vendor confirmation."
-                onChange={(event) =>
-                  setServiceForm((current) => ({
-                    ...current,
-                    manualPaymentRequired: event.currentTarget.checked
-                  }))
-                }
-              />
-              <NumberInput
-                decimalScale={2}
-                fixedDecimalScale
-                label="Price"
-                min={0}
-                prefix="PHP "
-                value={(serviceForm.priceAmountCents || 0) / 100}
-                onChange={(value) =>
-                  setServiceForm((current) => ({
-                    ...current,
-                    priceAmountCents: Math.max(0, Math.round((Number(value) || 0) * 100))
-                  }))
-                }
-              />
-              <TextInput
-                label="Price display override"
-                placeholder="Leave blank to auto-format"
-                value={serviceForm.priceDisplay || ""}
-                onChange={(event) =>
-                  setServiceForm((current) => ({ ...current, priceDisplay: event.target.value }))
-                }
-              />
-              <NumberInput
-                label="Display order"
-                value={serviceForm.sortOrder || 0}
-                onChange={(value) =>
-                  setServiceForm((current) => ({ ...current, sortOrder: Number(value) || 0 }))
-                }
-              />
-            </SimpleGrid>
-            <Textarea
-              autosize
-              label="Description"
-              minRows={3}
-              value={serviceForm.description || ""}
-              onChange={(event) =>
-                setServiceForm((current) => ({ ...current, description: event.target.value }))
-              }
-            />
-            <Switch
-              checked={serviceForm.isActive !== false}
-              label="Active service"
-              onChange={(event) =>
-                setServiceForm((current) => ({ ...current, isActive: event.currentTarget.checked }))
-              }
-            />
-            <Group justify="flex-end">
-              <Button variant="default" onClick={() => setServiceDialogOpen(false)}>
-                Cancel
-              </Button>
-              <Button className="neura-primary-button" disabled={busyAction === "service-save"} type="submit">
-                {busyAction === "service-save" ? "Saving..." : "Save service"}
-              </Button>
+                <Switch
+                  checked={serviceForm.isActive !== false}
+                  label="Active service"
+                  onChange={(event) =>
+                    setServiceForm((current) => ({ ...current, isActive: event.currentTarget.checked }))
+                  }
+                />
+              </Stack>
+            </Card>
+
+            <Group justify="space-between" align="center" className="service-dialog__footer">
+              <Text c="dimmed" size="sm">
+                {editingServiceSlug
+                  ? "Update this service and keep the catalog ready for booking flows."
+                  : "Create the service before exposing it to customers and queue scheduling."}
+              </Text>
+              <Group gap="sm">
+                <Button variant="default" onClick={() => setServiceDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button className="neura-primary-button" disabled={busyAction === "service-save"} type="submit">
+                  {busyAction === "service-save" ? "Saving..." : "Save service"}
+                </Button>
+              </Group>
             </Group>
           </Stack>
         </form>
@@ -4027,84 +4079,141 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         centered
         opened={availabilityBlockDialogOpen}
         onClose={() => setAvailabilityBlockDialogOpen(false)}
-        size="lg"
-        title={editingAvailabilityBlockId ? "Edit weekly availability" : "Add weekly availability"}
+        size="xl"
+        title={
+          <Stack gap={2}>
+            <Text className="service-dialog__modal-eyebrow">WEEKLY AVAILABILITY</Text>
+            <Text className="service-dialog__modal-title">
+              {availabilityBlockForm.weekday
+                ? `Rule: ${weekdayOptions.find((day) => day.value === String(availabilityBlockForm.weekday))?.label || "New rule"}`
+                : "Rule: New availability"}
+            </Text>
+          </Stack>
+        }
+        overlayProps={{ blur: 6, backgroundOpacity: 0.35 }}
+        scrollAreaComponent={ScrollArea.Autosize}
       >
         <form onSubmit={handleSaveAvailabilityBlock}>
-          <Stack gap="md">
-            <SimpleGrid cols={{ base: 1, md: 2 }}>
-              <Select
-                data={weekdayOptions}
-                label="Day"
-                required
-                value={String(availabilityBlockForm.weekday)}
-                onChange={(value) =>
-                  setAvailabilityBlockForm((current) => ({ ...current, weekday: Number(value || 1) }))
-                }
-              />
-              <Select
-                data={serviceOptions}
-                label="Service"
-                value={availabilityBlockForm.serviceSlug || ""}
-                onChange={(value) =>
-                  setAvailabilityBlockForm((current) => ({ ...current, serviceSlug: value || "" }))
-                }
-              />
-              <TextInput
-                label="Starts"
-                required
-                type="time"
-                value={availabilityBlockForm.startsAt}
-                onChange={(event) =>
-                  setAvailabilityBlockForm((current) => ({ ...current, startsAt: event.target.value }))
-                }
-              />
-              <TextInput
-                label="Ends"
-                required
-                type="time"
-                value={availabilityBlockForm.endsAt}
-                onChange={(event) =>
-                  setAvailabilityBlockForm((current) => ({ ...current, endsAt: event.target.value }))
-                }
-              />
-              <NumberInput
-                label="Capacity"
-                min={1}
-                max={100}
-                value={availabilityBlockForm.capacity}
-                onChange={(value) =>
-                  setAvailabilityBlockForm((current) => ({ ...current, capacity: Number(value) || 1 }))
-                }
-              />
-              <Switch
-                checked={availabilityBlockForm.isActive !== false}
-                label="Active weekly rule"
-                mt="xl"
-                onChange={(event) =>
-                  setAvailabilityBlockForm((current) => ({
-                    ...current,
-                    isActive: event.currentTarget.checked
-                  }))
-                }
-              />
+          <Stack gap="lg">
+            <Group justify="space-between" align="flex-start" className="service-dialog__header">
+              <div>
+                <Text c="dimmed" size="sm">
+                  Define recurring weekly hours for a location, with optional service scoping and notes.
+                </Text>
+              </div>
+              <Badge variant="light" color="orange">
+                Vendor admin
+              </Badge>
+            </Group>
+
+            <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
+              <Card className="service-dialog__panel" withBorder radius="xl" p="md">
+                <Stack gap="md">
+                  <div>
+                    <Text className="service-dialog__label">Schedule</Text>
+                    <Text fw={700}>Day and time range</Text>
+                  </div>
+                  <Select
+                    data={weekdayOptions}
+                    label="Day"
+                    required
+                    value={String(availabilityBlockForm.weekday)}
+                    onChange={(value) =>
+                      setAvailabilityBlockForm((current) => ({ ...current, weekday: Number(value || 1) }))
+                    }
+                  />
+                  <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+                    <TextInput
+                      label="Starts"
+                      required
+                      type="time"
+                      value={availabilityBlockForm.startsAt}
+                      onChange={(event) =>
+                        setAvailabilityBlockForm((current) => ({ ...current, startsAt: event.target.value }))
+                      }
+                    />
+                    <TextInput
+                      label="Ends"
+                      required
+                      type="time"
+                      value={availabilityBlockForm.endsAt}
+                      onChange={(event) =>
+                        setAvailabilityBlockForm((current) => ({ ...current, endsAt: event.target.value }))
+                      }
+                    />
+                  </SimpleGrid>
+                  <NumberInput
+                    label="Capacity"
+                    min={1}
+                    max={100}
+                    value={availabilityBlockForm.capacity}
+                    onChange={(value) =>
+                      setAvailabilityBlockForm((current) => ({ ...current, capacity: Number(value) || 1 }))
+                    }
+                  />
+                </Stack>
+              </Card>
+
+              <Card className="service-dialog__panel" withBorder radius="xl" p="md">
+                <Stack gap="md">
+                  <div>
+                    <Text className="service-dialog__label">Scope</Text>
+                    <Text fw={700}>Service and state</Text>
+                  </div>
+                  <Select
+                    data={serviceOptions}
+                    label="Service"
+                    value={availabilityBlockForm.serviceSlug || ""}
+                    onChange={(value) =>
+                      setAvailabilityBlockForm((current) => ({ ...current, serviceSlug: value || "" }))
+                    }
+                  />
+                  <Switch
+                    checked={availabilityBlockForm.isActive !== false}
+                    label="Active weekly rule"
+                    onChange={(event) =>
+                      setAvailabilityBlockForm((current) => ({
+                        ...current,
+                        isActive: event.currentTarget.checked
+                      }))
+                    }
+                  />
+                </Stack>
+              </Card>
             </SimpleGrid>
-            <Textarea
-              autosize
-              label="Notes"
-              minRows={2}
-              value={availabilityBlockForm.notes || ""}
-              onChange={(event) =>
-                setAvailabilityBlockForm((current) => ({ ...current, notes: event.target.value }))
-              }
-            />
-            <Group justify="flex-end">
-              <Button variant="default" onClick={() => setAvailabilityBlockDialogOpen(false)}>
-                Cancel
-              </Button>
-              <Button className="neura-primary-button" disabled={busyAction === "availability-block-save"} type="submit">
-                {busyAction === "availability-block-save" ? "Saving..." : "Save availability"}
-              </Button>
+
+            <Card className="service-dialog__panel" withBorder radius="xl" p="md">
+              <Stack gap="md">
+                <div>
+                  <Text className="service-dialog__label">Notes</Text>
+                  <Text fw={700}>Internal guidance</Text>
+                </div>
+                <Textarea
+                  autosize
+                  label="Notes"
+                  minRows={3}
+                  value={availabilityBlockForm.notes || ""}
+                  onChange={(event) =>
+                    setAvailabilityBlockForm((current) => ({ ...current, notes: event.target.value }))
+                  }
+                />
+              </Stack>
+            </Card>
+
+            <Group justify="space-between" align="center" className="service-dialog__footer">
+              <Text c="dimmed" size="sm">
+                {editingAvailabilityBlockId
+                  ? "Update the weekly rule and keep the schedule aligned with the current location."
+                  : "Create the rule before exposing it in the weekly availability table."}
+              </Text>
+              <Group gap="sm">
+                <Button variant="default" onClick={() => setAvailabilityBlockDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button className="neura-primary-button" disabled={busyAction === "availability-block-save"} type="submit">
+                  {busyAction === "availability-block-save" ? "Saving..." : "Save availability"}
+                </Button>
+              </Group>
             </Group>
           </Stack>
         </form>
@@ -4120,6 +4229,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         onClose={() => setAvailabilityExceptionDialogOpen(false)}
         size="lg"
         title={editingAvailabilityExceptionId ? "Edit date exception" : "Add date exception"}
+        scrollAreaComponent={ScrollArea.Autosize}
       >
         <form onSubmit={handleSaveAvailabilityException}>
           <Stack gap="md">
@@ -4247,8 +4357,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             </Button>
           </Group>
           {services.length ? (
-            <Table.ScrollContainer minWidth={820}>
-              <Table verticalSpacing="sm">
+            <Table.ScrollContainer minWidth={900}>
+              <Table className="neura-services-table" verticalSpacing="sm">
                 <Table.Thead>
                   <Table.Tr>
                     <Table.Th>Service</Table.Th>
@@ -4262,7 +4372,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 <Table.Tbody>
                   {services.map((service) => (
                     <Table.Tr key={service.id}>
-                      <Table.Td>
+                      <Table.Td className="neura-services-table__sticky neura-services-table__sticky-first">
                         <Stack gap={2}>
                           <Text fw={700}>{service.name}</Text>
                           <Text c="dimmed" size="sm">{service.description || service.slug}</Text>
@@ -4284,11 +4394,13 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         </Badge>
                       </Table.Td>
                       <Table.Td>{service.sortOrder}</Table.Td>
-                      <Table.Td>
+                      <Table.Td className="neura-services-table__sticky neura-services-table__sticky-last">
                         <Group gap="xs" wrap="nowrap">
-                          <Button size="xs" variant="default" onClick={() => openServiceDialog(service)}>
-                            Edit
-                          </Button>
+                          <Tooltip label="Edit service" withArrow>
+                            <ActionIcon aria-label="Edit service" onClick={() => openServiceDialog(service)} variant="light">
+                              <IconPencil size={16} />
+                            </ActionIcon>
+                          </Tooltip>
                           <Switch
                             checked={service.isActive}
                             disabled={busyAction === `service-status:${service.slug}`}
@@ -4296,17 +4408,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                               handleToggleServiceActive(service, event.currentTarget.checked)
                             }
                           />
-                          {service.isActive ? (
-                            <Button
-                              color="red"
-                              disabled={busyAction === `service-delete:${service.slug}`}
-                              size="xs"
-                              variant="subtle"
-                              onClick={() => handleDeactivateService(service)}
-                            >
-                              Disable
-                            </Button>
-                          ) : null}
                         </Group>
                       </Table.Td>
                     </Table.Tr>
@@ -4333,8 +4434,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             </Button>
           </Group>
           {availabilityBlocks.length ? (
-            <Table.ScrollContainer minWidth={820}>
-              <Table verticalSpacing="sm">
+            <Table.ScrollContainer minWidth={900}>
+              <Table className="neura-availability-table" verticalSpacing="sm">
                 <Table.Thead>
                   <Table.Tr>
                     <Table.Th>Day</Table.Th>
@@ -4348,7 +4449,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 <Table.Tbody>
                   {availabilityBlocks.map((block) => (
                     <Table.Tr key={block.id}>
-                      <Table.Td>{weekdayOptions.find((day) => day.value === String(block.weekday))?.label}</Table.Td>
+                      <Table.Td className="neura-availability-table__sticky neura-availability-table__sticky-first">
+                        {weekdayOptions.find((day) => day.value === String(block.weekday))?.label}
+                      </Table.Td>
                       <Table.Td>{block.startsAt} - {block.endsAt}</Table.Td>
                       <Table.Td>{getServiceLabel(block.serviceId)}</Table.Td>
                       <Table.Td>{block.capacity}</Table.Td>
@@ -4357,21 +4460,35 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           {block.isActive ? "Active" : "Inactive"}
                         </Badge>
                       </Table.Td>
-                      <Table.Td>
+                      <Table.Td className="neura-availability-table__sticky neura-availability-table__sticky-last">
                         <Group gap="xs" wrap="nowrap">
-                          <Button size="xs" variant="default" onClick={() => openAvailabilityBlockDialog(block)}>
-                            Edit
-                          </Button>
+                          <Tooltip label="Edit weekly rule" withArrow>
+                            <ActionIcon aria-label="Edit weekly rule" onClick={() => openAvailabilityBlockDialog(block)} variant="light">
+                              <IconPencil size={16} />
+                            </ActionIcon>
+                          </Tooltip>
                           {block.isActive ? (
-                            <Button
-                              color="red"
-                              disabled={busyAction === `availability-block-delete:${block.id}`}
-                              size="xs"
-                              variant="subtle"
-                              onClick={() => handleDisableAvailabilityBlock(block)}
-                            >
-                              Disable
-                            </Button>
+                            <Tooltip label="Disable weekly rule" withArrow>
+                              <ActionIcon
+                                aria-label="Disable weekly rule"
+                                color="red"
+                                disabled={busyAction === `availability-block-delete:${block.id}`}
+                                onClick={() =>
+                                  openConfirmAction({
+                                    title: "Disable weekly rule?",
+                                    description: "This will remove the recurring availability rule from the schedule.",
+                                    confirmLabel: "Disable rule",
+                                    confirmColor: "red",
+                                    onConfirm: async () => {
+                                      await handleDisableAvailabilityBlock(block);
+                                    }
+                                  })
+                                }
+                                variant="light"
+                              >
+                                <IconX size={16} />
+                              </ActionIcon>
+                            </Tooltip>
                           ) : null}
                         </Group>
                       </Table.Td>
@@ -4437,7 +4554,17 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                             disabled={busyAction === `availability-exception-delete:${exception.id}`}
                             size="xs"
                             variant="subtle"
-                            onClick={() => handleDeleteAvailabilityException(exception)}
+                            onClick={() =>
+                              openConfirmAction({
+                                title: "Delete availability exception?",
+                                description: "This will permanently remove the exception from the schedule.",
+                                confirmLabel: "Delete exception",
+                                confirmColor: "red",
+                                onConfirm: async () => {
+                                  await handleDeleteAvailabilityException(exception);
+                                }
+                              })
+                            }
                           >
                             Remove
                           </Button>
@@ -4929,6 +5056,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         opened={rescheduleDialogOpen}
         onClose={() => setRescheduleDialogOpen(false)}
         title={reschedulingBooking ? `Reschedule ${reschedulingBooking.reference}` : "Reschedule booking"}
+        scrollAreaComponent={ScrollArea.Autosize}
       >
         <form onSubmit={handleRescheduleBooking}>
           <Stack gap="md">
@@ -4971,6 +5099,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         opened={rescheduleBlockModalOpen}
         onClose={() => setRescheduleBlockModalOpen(false)}
         title="Reschedule blocked"
+        scrollAreaComponent={ScrollArea.Autosize}
       >
         <Stack gap="md">
           <Alert color="orange" variant="light">
@@ -5067,7 +5196,22 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       </Table.Td>
                       <Table.Td>
                         {isOwner && member.role !== "owner" && !isCurrentUser ? (
-                          <Button color="red" size="xs" variant="light" onClick={() => handleRemoveStaff(member)}>
+                          <Button
+                            color="red"
+                            size="xs"
+                            variant="light"
+                            onClick={() =>
+                              openConfirmAction({
+                                title: "Remove staff member?",
+                                description: "This will revoke the staff member's access to this tenant.",
+                                confirmLabel: "Remove staff",
+                                confirmColor: "red",
+                                onConfirm: async () => {
+                                  await handleRemoveStaff(member);
+                                }
+                              })
+                            }
+                          >
                             Remove
                           </Button>
                         ) : null}
@@ -5612,6 +5756,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         opened={counterDialogOpen}
         onClose={() => setCounterDialogOpen(false)}
         title={editingCounterSlug ? "Edit counter" : "Add counter"}
+        scrollAreaComponent={ScrollArea.Autosize}
       >
         <form onSubmit={handleSaveCounter}>
           <Stack gap="md">
@@ -5666,7 +5811,13 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   function renderStaffDialog() {
     return (
-      <Modal centered opened={staffDialogOpen} onClose={() => setStaffDialogOpen(false)} title="Add staff">
+      <Modal
+        centered
+        opened={staffDialogOpen}
+        onClose={() => setStaffDialogOpen(false)}
+        title="Add staff"
+        scrollAreaComponent={ScrollArea.Autosize}
+      >
         <form onSubmit={handleAddStaff}>
           <Stack gap="md">
             <TextInput
@@ -5906,6 +6057,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           title={detailBooking ? `Booking ${detailBooking.reference}` : "Booking details"}
           size="lg"
           closeButtonProps={{ "aria-label": "Close booking details" }}
+          scrollAreaComponent={ScrollArea.Autosize}
         >
           {bookingDetailLoading ? (
             <Text c="dimmed">Loading booking details...</Text>

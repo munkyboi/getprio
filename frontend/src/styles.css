@@ -2822,9 +2822,153 @@ h2 {
   background: #f1f5f9;
 }
 
+.neura-services-table {
+  min-width: 900px;
+}
+
+.neura-services-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: #f8fafc;
+  color: #1f2937;
+}
+
+.neura-services-table tbody td {
+  background: #ffffff;
+  white-space: nowrap;
+  color: #1f2937;
+}
+
+.neura-services-table tbody tr:nth-of-type(even) td {
+  background: #f8fafc;
+}
+
+.neura-services-table tbody tr:hover td {
+  background: #f1f5f9;
+}
+
+.neura-services-table__sticky {
+  position: sticky;
+  z-index: 2;
+  background: #ffffff;
+}
+
+.neura-services-table__sticky-first {
+  left: 0;
+  box-shadow: 10px 0 18px rgba(0, 0, 0, 0.06);
+}
+
+.neura-services-table__sticky-last {
+  right: 0;
+  box-shadow: -10px 0 18px rgba(0, 0, 0, 0.06);
+}
+
+.neura-services-table tbody .neura-services-table__sticky {
+  background-clip: padding-box;
+}
+
+.neura-services-table tbody tr:nth-of-type(even) .neura-services-table__sticky {
+  background: #f8fafc;
+}
+
+.neura-services-table tbody tr:hover .neura-services-table__sticky {
+  background: #f1f5f9;
+}
+
+.neura-availability-table {
+  min-width: 900px;
+}
+
+.neura-availability-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: #f8fafc;
+  color: #1f2937;
+}
+
+.neura-availability-table tbody td {
+  background: #ffffff;
+  white-space: nowrap;
+  color: #1f2937;
+}
+
+.neura-availability-table tbody tr:nth-of-type(even) td {
+  background: #f8fafc;
+}
+
+.neura-availability-table tbody tr:hover td {
+  background: #f1f5f9;
+}
+
+.neura-availability-table__sticky {
+  position: sticky;
+  z-index: 2;
+  background: #ffffff;
+}
+
+.neura-availability-table__sticky-first {
+  left: 0;
+  box-shadow: 10px 0 18px rgba(0, 0, 0, 0.06);
+}
+
+.neura-availability-table__sticky-last {
+  right: 0;
+  box-shadow: -10px 0 18px rgba(0, 0, 0, 0.06);
+}
+
+.neura-availability-table tbody .neura-availability-table__sticky {
+  background-clip: padding-box;
+}
+
+.neura-availability-table tbody tr:nth-of-type(even) .neura-availability-table__sticky {
+  background: #f8fafc;
+}
+
+.neura-availability-table tbody tr:hover .neura-availability-table__sticky {
+  background: #f1f5f9;
+}
+
 .neura-bookings-table tbody td,
 .neura-bookings-table thead th {
   border-color: #e2e8f0;
+}
+
+.service-dialog__header {
+  padding-bottom: 0.25rem;
+}
+
+.service-dialog__modal-eyebrow {
+  color: #bb4d00;
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.service-dialog__modal-title {
+  color: #1f2937;
+  font-size: 1.15rem;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.service-dialog__panel {
+  background: #ffffff;
+  border-color: #e2e8f0;
+}
+
+.service-dialog__label {
+  color: #bb4d00;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.service-dialog__footer {
+  padding-top: 0.25rem;
 }
 
 @media (max-width: 1180px) {
