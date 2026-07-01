@@ -9,6 +9,7 @@ import {
   Group,
   Modal,
   Paper,
+  ScrollArea,
   SimpleGrid,
   Stack,
   Tabs,
@@ -16,6 +17,7 @@ import {
   ThemeIcon,
   Title
 } from "@mantine/core";
+import { useMediaQuery } from "@mantine/hooks";
 import { IconArrowLeft, IconCalendar, IconClock, IconMapPin, IconTicket, IconUserPlus } from "@tabler/icons-react";
 import { getDay } from "date-fns";
 import { Link, useParams } from "react-router-dom";
@@ -77,6 +79,7 @@ function formatHourRange(location: PublicVendorProfile["locations"][number], wee
 
 export default function VendorProfilePage() {
   const { tenantSlug = "" } = useParams<{ tenantSlug: string }>();
+  const isMobile = useMediaQuery("(max-width: 48em)");
   const [contactOpen, setContactOpen] = useState(false);
   const [selectedLocationSlug, setSelectedLocationSlug] = useState("");
   const currentWeekday = getDay(new Date());
@@ -395,16 +398,46 @@ export default function VendorProfilePage() {
 
       <Modal
         centered
+        fullScreen={isMobile}
         onClose={() => setContactOpen(false)}
         opened={contactOpen}
+        radius={isMobile ? 0 : "xl"}
         size="lg"
-        title={vendor ? `Contact ${vendor.name}` : "Contact vendor"}
+        title={
+          <Stack gap={2} className="contact-modal-title">
+            <Text className="contact-form-eyebrow contact-modal-eyebrow">CONTACT VENDOR</Text>
+            <Text className="contact-form-title">Send {vendor?.name || "the vendor"} a Message</Text>
+          </Stack>
+        }
+        className="vendor-contact-dialog"
+        scrollAreaComponent={ScrollArea.Autosize}
+        styles={{
+          header: {
+            alignItems: "flex-start",
+            padding: "1.25rem 1.25rem 0.75rem"
+          },
+          title: {
+            flex: 1,
+            marginRight: "1rem",
+            minWidth: 0
+          },
+          close: {
+            marginTop: "0.1rem"
+          },
+          body: {
+            display: "flex",
+            flexDirection: "column",
+            height: "100%",
+            padding: "0 1.25rem 1.25rem",
+            overflow: "hidden"
+          }
+        }}
+        transitionProps={{ transition: "fade", duration: 200 }}
       >
         {vendor ? (
           <ContactForm
             scope="vendor"
             recipientName={vendor.name}
-            title="Send the vendor a message"
             intro="Use this form to ask about this vendor's services, booking details, or public profile."
           />
         ) : null}

@@ -21,7 +21,6 @@ export default function ContactPage() {
           <ContactForm
             scope="platform"
             recipientName="GetPrio Support"
-            title="Platform support"
             intro="Reach the GetPrio team for account help, dispute review, refund escalations, policy interpretation, and technical issues."
           />
 
@@ -29,7 +28,6 @@ export default function ContactPage() {
             <ContactForm
               scope="vendor"
               recipientName="Vendor contact"
-              title="Contact a vendor"
               intro="Use the vendor button on a public profile when you need help with a specific business, service, or booking question."
             />
 

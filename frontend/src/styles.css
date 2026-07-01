@@ -696,26 +696,83 @@ button {
   max-width: 760px;
 }
 
-.contact-form-card {
-  border: 1px solid rgba(36, 30, 25, 0.08);
-  background: rgba(255, 255, 255, 0.88);
-  box-shadow: 0 22px 60px rgba(36, 30, 25, 0.08);
-}
-
 .contact-form-eyebrow {
   color: #bb4d00;
-  font-size: 0.74rem;
+  font-size: 0.7rem;
   font-weight: 900;
   letter-spacing: 0.18em;
   text-transform: uppercase;
 }
 
 .contact-form-title {
-  margin-top: 0.25rem;
-  font-size: clamp(1.6rem, 3vw, 2.2rem);
+  margin-top: 0;
+  font-size: clamp(1.8rem, 3.6vw, 2.4rem);
   font-weight: 900;
-  line-height: 1.05;
+  line-height: 1;
   letter-spacing: -0.04em;
+}
+
+.contact-modal-title {
+  padding-top: 0.1rem;
+}
+
+.contact-modal-eyebrow {
+  margin-bottom: 0.15rem;
+}
+
+.contact-form-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  flex: 1;
+}
+
+.vendor-contact-dialog .mantine-Modal-content {
+  position: relative;
+}
+
+.contact-form-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding-bottom: 52px;
+}
+
+.contact-form-main {
+  flex: 1;
+  min-height: 0;
+  padding-right: 0.25rem;
+}
+
+.contact-form-footer {
+  flex-shrink: 0;
+  background: var(--mantine-color-body, #fff);
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 0.5rem 1rem;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.contact-form-footer-copy {
+  max-width: 28rem;
+}
+
+@media (max-width: 48em) {
+  .contact-form-shell {
+    min-height: 100dvh;
+  }
+
+  .contact-form-title {
+    font-size: clamp(1.7rem, 8vw, 2.3rem);
+  }
+
+  .contact-form-footer-copy {
+    max-width: none;
+  }
 }
 
 .contact-form-honeypot {
