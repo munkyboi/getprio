@@ -172,6 +172,23 @@ function buildBookingService({
       sendEmail: async () => {},
       sendSms: async () => {}
     },
+    "./paymentProofStorageService": {
+      assertUploadMetadata: () => {},
+      assertObjectKeyBelongsToBooking: (_booking, objectKey) => objectKey,
+      createUpload: async ({ booking, body }) => ({
+        bookingId: booking._id,
+        proof: body
+      }),
+      uploadBinary: async ({ booking, body, fileBuffer }) => ({
+        bookingId: booking._id,
+        proof: body,
+        fileBufferLength: fileBuffer.length
+      }),
+      createViewAccess: async ({ booking }) => ({
+        bookingId: booking._id,
+        objectKey: `payment-proofs/tenants/${booking.tenantId}/bookings/${booking._id}/proof.png`
+      })
+    },
     "./queueService": queueServiceMock
   });
   bookingService._setQueueServiceForTest(queueServiceMock);
