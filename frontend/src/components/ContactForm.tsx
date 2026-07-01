@@ -2,7 +2,7 @@ import { useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
-import { Alert, Button, Group, Select, SimpleGrid, Stack, Text, Textarea, TextInput } from "@mantine/core";
+import { Alert, Box, Button, Group, ScrollArea, Select, SimpleGrid, Stack, Text, Textarea, TextInput } from "@mantine/core";
 import { useMediaQuery } from "@mantine/hooks";
 import { IconMessageDots, IconShieldCheck } from "@tabler/icons-react";
 
@@ -71,76 +71,84 @@ export default function ContactForm({ scope, recipientName, intro }: ContactForm
             : "Use this form to contact the vendor about a public service or booking question. The vendor will reply directly by email.")}
       </Text>
 
-      <Stack component="form" gap="lg" className="contact-form-body" onSubmit={onSubmit}>
-        <Stack gap="lg" pr="sm">
-          <Alert color="teal" icon={<IconShieldCheck size={18} />} variant="light">
-            Protected with Turnstile-style anti-abuse checks, rate limiting, and hidden honeypot fields.
-          </Alert>
-
-          <SimpleGrid cols={isMobile ? 1 : 2}>
-            <TextInput
-              label="Your name"
-              placeholder="Maria Santos"
-              error={errors.name?.message}
-              {...register("name")}
-            />
-            <TextInput
-              label="Email address"
-              placeholder="maria@example.com"
-              error={errors.email?.message}
-              {...register("email")}
-            />
-          </SimpleGrid>
-          <Controller
-            control={control}
-            name="reason"
-            render={({ field }) => (
-              <Select
-                label="What can we help you with?"
-                data={reasonOptions.map((reason) => ({ label: reason, value: reason }))}
-                error={errors.reason?.message}
-                placeholder="Choose a topic"
-                {...field}
-              />
-            )}
-          />
-          <TextInput
-            label="Subject"
-            placeholder={scope === "platform" ? "Help with a booking refund" : "Question about this vendor"}
-            error={errors.subject?.message}
-            {...register("subject")}
-          />
-          <Textarea
-            autosize
-            minRows={isMobile ? 5 : 6}
-            label="Message"
-            placeholder="Tell us what happened, including dates, booking reference numbers, or other helpful details."
-            error={errors.message?.message}
-            {...register("message")}
-          />
-          <TextInput className="contact-form-honeypot" tabIndex={-1} aria-hidden="true" {...register("honeypot")} />
-
-          {submitted ? (
-            <Alert color="orange" variant="light">
-              This is a capstone draft form. Wire it to your support intake backend before using it in production.
+      <Box component="form" className="contact-form-body" onSubmit={onSubmit}>
+        <ScrollArea
+          className="contact-form-main"
+          offsetScrollbars
+          scrollbarSize={8}
+          styles={{
+            root: { flex: 1, minHeight: 0 },
+            viewport: { height: "100%" }
+          }}
+          type="hover"
+        >
+          <Stack gap="lg" pr="sm">
+            <Alert color="teal" icon={<IconShieldCheck size={18} />} variant="light">
+              Protected with Turnstile-style anti-abuse checks, rate limiting, and hidden honeypot fields.
             </Alert>
-          ) : null}
-        </Stack>
 
-        <Group justify="space-between" align="center" wrap="wrap" className="contact-form-footnote">
+            <SimpleGrid cols={isMobile ? 1 : 2}>
+              <TextInput
+                label="Your name"
+                placeholder="Maria Santos"
+                error={errors.name?.message}
+                {...register("name")}
+              />
+              <TextInput
+                label="Email address"
+                placeholder="maria@example.com"
+                error={errors.email?.message}
+                {...register("email")}
+              />
+            </SimpleGrid>
+            <Controller
+              control={control}
+              name="reason"
+              render={({ field }) => (
+                <Select
+                  label="What can we help you with?"
+                  data={reasonOptions.map((reason) => ({ label: reason, value: reason }))}
+                  error={errors.reason?.message}
+                  placeholder="Choose a topic"
+                  {...field}
+                />
+              )}
+            />
+            <TextInput
+              label="Subject"
+              placeholder={scope === "platform" ? "Help with a booking refund" : "Question about this vendor"}
+              error={errors.subject?.message}
+              {...register("subject")}
+            />
+            <Textarea
+              autosize
+              minRows={isMobile ? 5 : 6}
+              label="Message"
+              placeholder="Tell us what happened, including dates, booking reference numbers, or other helpful details."
+              error={errors.message?.message}
+              {...register("message")}
+            />
+            <TextInput className="contact-form-honeypot" tabIndex={-1} aria-hidden="true" {...register("honeypot")} />
+
+            {submitted ? (
+              <Alert color="orange" variant="light">
+                This is a capstone draft form. Wire it to your support intake backend before using it in production.
+              </Alert>
+            ) : null}
+          </Stack>
+        </ScrollArea>
+
+        <Group justify="space-between" align="center" wrap="wrap" className="contact-form-footer">
           <Text c="dimmed" size="sm" className="contact-form-footer-copy">
             {scope === "platform"
               ? "Platform support will assign a reference number after submission."
               : `Your message goes to ${recipientName} and is not sent to GetPrio support automatically.`}
           </Text>
-        </Group>
-
-        <Group justify="space-between" align="center" wrap="wrap" className="contact-form-footer">
           <Button leftSection={<IconMessageDots size={16} />} loading={isSubmitting} type="submit" color="dark">
             Send message
           </Button>
         </Group>
-      </Stack>
+      </Box>
     </Stack>
   );
 }

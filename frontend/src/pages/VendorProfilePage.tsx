@@ -409,7 +409,6 @@ export default function VendorProfilePage() {
             <Text className="contact-form-title">Send {vendor?.name || "the vendor"} a Message</Text>
           </Stack>
         }
-        className="vendor-contact-dialog"
         scrollAreaComponent={ScrollArea.Autosize}
         styles={{
           header: {
@@ -423,13 +422,6 @@ export default function VendorProfilePage() {
           },
           close: {
             marginTop: "0.1rem"
-          },
-          body: {
-            display: "flex",
-            flexDirection: "column",
-            height: "100%",
-            padding: "0 1.25rem 1.25rem",
-            overflow: "hidden"
           }
         }}
         transitionProps={{ transition: "fade", duration: 200 }}
