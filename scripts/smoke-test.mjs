@@ -4,8 +4,8 @@ const API_BASE_URL = process.env.SMOKE_API_URL || process.env.VITE_API_URL || "h
 const APP_BASE_URL = process.env.SMOKE_APP_URL || process.env.APP_BASE_URL || "http://localhost:5173";
 const PLATFORM_BASE_URL = process.env.SMOKE_PLATFORM_URL || process.env.PLATFORM_BASE_URL || "http://localhost:7100";
 
-const SMOKE_EMAIL = process.env.SMOKE_EMAIL || "";
-const SMOKE_PASSWORD = process.env.SMOKE_PASSWORD || "";
+const SMOKE_EMAIL = process.env.SMOKE_EMAIL || "carlo.abella+store4@gmail.com";
+const SMOKE_PASSWORD = process.env.SMOKE_PASSWORD || "asdfasdf";
 const PLATFORM_SMOKE_EMAIL = process.env.PLATFORM_SMOKE_EMAIL || "getprio-smoke@getprio.local";
 const PLATFORM_SMOKE_PASSWORD = process.env.PLATFORM_SMOKE_PASSWORD || "Smoke1234!";
 
@@ -253,6 +253,15 @@ async function smokeBookingStage() {
   }
   log("booking sms fee ok");
 
+  const bookingSlots = await requestJson(
+    `${API_BASE_URL}/public/vendors/${vendor.slug}/locations/${firstLocationSlug}/services/${firstServiceSlug}/slots?date=${new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10)}&bookingQuantity=1`
+  );
+  assertOk(bookingSlots.response, "booking slots");
+  if (!Array.isArray(bookingSlots.body?.slots)) {
+    fail("booking slots response missing slots array");
+  }
+  log("booking slots ok");
+
   const otpRequest = await requestJson(`${API_BASE_URL}/public/vendors/${vendor.slug}/booking-otp`, {
     method: "POST",
     headers: {
@@ -324,6 +333,16 @@ async function smokeVendorStage() {
     fail("vendor services missing services array");
   }
   log("vendor services ok");
+
+  const availability = await requestJson(
+    `${API_BASE_URL}/vendor/tenant/${tenant.slug}/availability?location=${encodeURIComponent(locationSlug)}`,
+    { headers }
+  );
+  assertOk(availability.response, "vendor availability");
+  if (!Array.isArray(availability.body?.blocks) || !Array.isArray(availability.body?.exceptions)) {
+    fail("vendor availability missing blocks or exceptions arrays");
+  }
+  log("vendor availability ok");
 }
 
 async function smokePlatformStage() {

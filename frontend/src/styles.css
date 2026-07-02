@@ -2930,6 +2930,60 @@ h2 {
   background: #f1f5f9;
 }
 
+.neura-exceptions-table {
+  min-width: 920px;
+}
+
+.neura-exceptions-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: #f8fafc;
+  color: #1f2937;
+}
+
+.neura-exceptions-table tbody td {
+  background: #ffffff;
+  white-space: nowrap;
+  color: #1f2937;
+}
+
+.neura-exceptions-table tbody tr:nth-of-type(even) td {
+  background: #f8fafc;
+}
+
+.neura-exceptions-table tbody tr:hover td {
+  background: #f1f5f9;
+}
+
+.neura-exceptions-table__sticky {
+  position: sticky;
+  z-index: 2;
+  background: #ffffff;
+}
+
+.neura-exceptions-table__sticky-first {
+  left: 0;
+  box-shadow: 10px 0 18px rgba(0, 0, 0, 0.06);
+}
+
+.neura-exceptions-table__sticky-last {
+  right: 0;
+  box-shadow: -10px 0 18px rgba(0, 0, 0, 0.06);
+}
+
+.neura-exceptions-table tbody .neura-exceptions-table__sticky {
+  background-clip: padding-box;
+}
+
+.neura-exceptions-table tbody tr:nth-of-type(even) .neura-exceptions-table__sticky {
+  background: #f8fafc;
+}
+
+.neura-exceptions-table tbody tr:hover .neura-exceptions-table__sticky {
+  background: #f1f5f9;
+}
+
 .neura-bookings-table tbody td,
 .neura-bookings-table thead th {
   border-color: #e2e8f0;

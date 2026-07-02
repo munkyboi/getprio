@@ -211,6 +211,14 @@ function getLocalDateKey(date) {
   }).format(date);
 }
 
+function getAvailabilityExceptionDateKey(exceptionDate) {
+  if (!exceptionDate) {
+    return "";
+  }
+
+  return getLocalDateKey(new Date(exceptionDate));
+}
+
 function parseDateKey(value) {
   const dateKey = String(value || "").trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) {
@@ -329,7 +337,7 @@ async function getBookingAvailabilityDecision({ availability, location, service,
   const startMinutes = getLocalTimeMinutes(scheduledStartAt);
   const endMinutes = getLocalTimeMinutes(scheduledEndAt);
   const matchingExceptions = availability.exceptions.filter((exception) =>
-    String(exception.exceptionDate).slice(0, 10) === dateKey &&
+    getAvailabilityExceptionDateKey(exception.exceptionDate) === dateKey &&
       (!exception.serviceId || String(exception.serviceId) === String(service._id))
   );
 
@@ -418,7 +426,7 @@ function buildAvailabilityWindows({ availability, hours, service, location, date
 
   for (const exception of availability.exceptions) {
     if (
-      String(exception.exceptionDate).slice(0, 10) !== dateKey ||
+      getAvailabilityExceptionDateKey(exception.exceptionDate) !== dateKey ||
       !exception.isAvailable ||
       (exception.serviceId && String(exception.serviceId) !== String(service._id)) ||
       !exception.startsAt ||

@@ -55,6 +55,7 @@ import {
   IconMenu2,
   IconPencil,
   IconQrcode,
+  IconTrash,
   IconX,
   IconSettings,
   IconUsersGroup
@@ -604,12 +605,14 @@ export default function VendorDashboardPage() {
   const [serviceDialogOpen, setServiceDialogOpen] = useState(false);
   const [editingServiceSlug, setEditingServiceSlug] = useState("");
   const [serviceForm, setServiceForm] = useState<SaveVendorServiceRequest>(emptyServiceForm);
+  const [servicesTab, setServicesTab] = useState<"catalog" | "weekly" | "exceptions">("catalog");
   const [availabilityBlockDialogOpen, setAvailabilityBlockDialogOpen] = useState(false);
   const [editingAvailabilityBlockId, setEditingAvailabilityBlockId] = useState("");
   const [availabilityBlockForm, setAvailabilityBlockForm] = useState<SaveVendorAvailabilityBlockRequest>(emptyAvailabilityBlockForm);
   const [availabilityExceptionDialogOpen, setAvailabilityExceptionDialogOpen] = useState(false);
   const [editingAvailabilityExceptionId, setEditingAvailabilityExceptionId] = useState("");
   const [availabilityExceptionForm, setAvailabilityExceptionForm] = useState<SaveVendorAvailabilityExceptionRequest>(emptyAvailabilityExceptionForm);
+  const [availabilityExceptionBlockEntireDay, setAvailabilityExceptionBlockEntireDay] = useState(false);
   const [settings, setSettings] = useState<UpdateTenantSettingsRequest>(defaultSettings);
   const [vendorNotificationSettings, setVendorNotificationSettings] = useState<TenantNotificationSettings>(defaultNotificationSettings);
   const [browserPermission, setBrowserPermission] = useState<NotificationPermission>(
@@ -2024,6 +2027,22 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     }
   }
 
+  async function handleDeleteService(service: VendorServiceSummary) {
+    setBusyAction(`service-delete:${service.slug}`);
+    setError("");
+
+    try {
+      await vendorDashboardCatalog.deactivateService(token, selectedTenantSlug, service.slug);
+      setServices((current) => current.filter((item) => item.slug !== service.slug));
+      await reloadBookings();
+      showSuccessNotification("Service deleted", `${service.name} was removed from the catalog.`);
+    } catch (deleteError) {
+      setError(getErrorMessage(deleteError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
   function getServiceLabel(serviceId: string | null) {
     return serviceId ? serviceNameById.get(serviceId) || "Service-specific" : "All services";
   }
@@ -2072,17 +2091,78 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     }
   }
 
-  async function handleDisableAvailabilityBlock(block: VendorAvailabilityBlockSummary) {
-    setBusyAction(`availability-block-delete:${block.id}`);
+  async function handleToggleAvailabilityBlockActive(block: VendorAvailabilityBlockSummary, isActive: boolean) {
+    setBusyAction(`availability-block-status:${block.id}`);
     setError("");
 
     try {
-      const response = await vendorDashboardCatalog.deleteAvailabilityBlock(token, selectedTenantSlug, block.id);
+      const response = await vendorDashboardCatalog.saveAvailabilityBlock(token, selectedTenantSlug, block.id, {
+        locationSlug: selectedLocationSlug,
+        serviceSlug: block.serviceId ? serviceSlugById.get(block.serviceId) || "" : "",
+        weekday: block.weekday,
+        startsAt: block.startsAt,
+        endsAt: block.endsAt,
+        capacity: block.capacity,
+        isActive,
+        notes: block.notes
+      });
       setAvailabilityBlocks((current) =>
         current.map((item) => (item.id === response.block.id ? response.block : item))
       );
       await reloadBookings();
-      showSuccessNotification("Availability disabled", "The weekly rule is no longer active.");
+      showSuccessNotification(
+        isActive ? "Availability enabled" : "Availability disabled",
+        `${response.block.notes || "The weekly rule"} is now ${isActive ? "active" : "inactive"}.`
+      );
+    } catch (toggleError) {
+      setError(getErrorMessage(toggleError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function handleToggleAvailabilityExceptionActive(
+    exception: VendorAvailabilityExceptionSummary,
+    isAvailable: boolean
+  ) {
+    setBusyAction(`availability-exception-status:${exception.id}`);
+    setError("");
+
+    try {
+      const response = await vendorDashboardCatalog.saveAvailabilityException(token, selectedTenantSlug, exception.id, {
+        locationSlug: selectedLocationSlug,
+        serviceSlug: exception.serviceId ? serviceSlugById.get(exception.serviceId) || "" : "",
+        exceptionDate: formatDateInputValue(exception.exceptionDate),
+        startsAt: exception.startsAt,
+        endsAt: exception.endsAt,
+        isAvailable,
+        capacity: exception.capacity,
+        reason: exception.reason
+      });
+      setAvailabilityExceptions((current) =>
+        current.map((item) => (item.id === response.exception.id ? response.exception : item))
+      );
+      await reloadBookings();
+      showSuccessNotification(
+        isAvailable ? "Exception enabled" : "Exception blocked",
+        `${response.exception.reason || "The availability exception"} is now ${isAvailable ? "available" : "blocked"}.`
+      );
+    } catch (toggleError) {
+      setError(getErrorMessage(toggleError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function handleDeleteAvailabilityBlock(block: VendorAvailabilityBlockSummary) {
+    setBusyAction(`availability-block-delete:${block.id}`);
+    setError("");
+
+    try {
+      await vendorDashboardCatalog.deleteAvailabilityBlock(token, selectedTenantSlug, block.id);
+      setAvailabilityBlocks((current) => current.filter((item) => item.id !== block.id));
+      await reloadBookings();
+      showSuccessNotification("Weekly rule deleted", "The recurring availability rule was removed.");
     } catch (deleteError) {
       setError(getErrorMessage(deleteError));
     } finally {
@@ -2092,16 +2172,23 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   function openAvailabilityExceptionDialog(exception?: VendorAvailabilityExceptionSummary) {
     setEditingAvailabilityExceptionId(exception?.id || "");
+    const blockEntireDay = Boolean(
+      exception &&
+        !exception.isAvailable &&
+        !exception.startsAt &&
+        !exception.endsAt
+    );
     setAvailabilityExceptionForm({
       locationSlug: selectedLocationSlug,
       serviceSlug: exception?.serviceId ? serviceSlugById.get(exception.serviceId) || "" : "",
       exceptionDate: exception?.exceptionDate ? formatDateInputValue(exception.exceptionDate) : "",
-      startsAt: exception?.startsAt || "",
-      endsAt: exception?.endsAt || "",
+      startsAt: blockEntireDay ? "" : exception?.startsAt || "",
+      endsAt: blockEntireDay ? "" : exception?.endsAt || "",
       isAvailable: exception?.isAvailable ?? false,
       capacity: exception?.capacity ?? null,
       reason: exception?.reason || ""
     });
+    setAvailabilityExceptionBlockEntireDay(blockEntireDay);
     setAvailabilityExceptionDialogOpen(true);
   }
 
@@ -2111,8 +2198,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     setError("");
 
     try {
+      const startsAt = availabilityExceptionBlockEntireDay ? "" : availabilityExceptionForm.startsAt;
+      const endsAt = availabilityExceptionBlockEntireDay ? "" : availabilityExceptionForm.endsAt;
       const body = {
         ...availabilityExceptionForm,
+        startsAt,
+        endsAt,
         locationSlug: selectedLocationSlug
       };
       if (editingAvailabilityExceptionId) {
@@ -4227,91 +4318,187 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         centered
         opened={availabilityExceptionDialogOpen}
         onClose={() => setAvailabilityExceptionDialogOpen(false)}
-        size="lg"
-        title={editingAvailabilityExceptionId ? "Edit date exception" : "Add date exception"}
+        size="xl"
+        title={
+          <Stack gap={2}>
+            <Text className="service-dialog__modal-eyebrow">DATE EXCEPTION</Text>
+            <Text className="service-dialog__modal-title">
+              {availabilityExceptionForm.exceptionDate
+                ? `Exception: ${formatDate(availabilityExceptionForm.exceptionDate)}`
+                : "Exception: New exception"}
+            </Text>
+          </Stack>
+        }
+        overlayProps={{ blur: 6, backgroundOpacity: 0.35 }}
         scrollAreaComponent={ScrollArea.Autosize}
       >
         <form onSubmit={handleSaveAvailabilityException}>
-          <Stack gap="md">
-            <SimpleGrid cols={{ base: 1, md: 2 }}>
-              <DatePickerInput
-                label="Date"
-                clearable={false}
-                leftSection={<IconCalendar size={16} />}
-                placeholder="Select date"
-                required
-                value={availabilityExceptionForm.exceptionDate || null}
-                onChange={(value) =>
-                  setAvailabilityExceptionForm((current) => ({
-                    ...current,
-                    exceptionDate: value || ""
-                  }))
-                }
-              />
-              <Select
-                data={serviceOptions}
-                label="Service"
-                value={availabilityExceptionForm.serviceSlug || ""}
-                onChange={(value) =>
-                  setAvailabilityExceptionForm((current) => ({ ...current, serviceSlug: value || "" }))
-                }
-              />
-              <TextInput
-                label="Starts"
-                type="time"
-                value={availabilityExceptionForm.startsAt || ""}
-                onChange={(event) =>
-                  setAvailabilityExceptionForm((current) => ({ ...current, startsAt: event.target.value }))
-                }
-              />
-              <TextInput
-                label="Ends"
-                type="time"
-                value={availabilityExceptionForm.endsAt || ""}
-                onChange={(event) =>
-                  setAvailabilityExceptionForm((current) => ({ ...current, endsAt: event.target.value }))
-                }
-              />
-              <NumberInput
-                label="Capacity override"
-                min={1}
-                max={100}
-                value={availabilityExceptionForm.capacity ?? undefined}
-                onChange={(value) =>
-                  setAvailabilityExceptionForm((current) => ({
-                    ...current,
-                    capacity: value === "" || value === null ? null : Number(value)
-                  }))
-                }
-              />
-              <Switch
-                checked={availabilityExceptionForm.isAvailable}
-                label="Make this date available"
-                mt="xl"
-                onChange={(event) =>
-                  setAvailabilityExceptionForm((current) => ({
-                    ...current,
-                    isAvailable: event.currentTarget.checked
-                  }))
-                }
-              />
+          <Stack gap="lg">
+            <Group justify="space-between" align="flex-start" className="service-dialog__header">
+              <div>
+                <Text c="dimmed" size="sm">
+                  Override recurring availability for a specific date with optional time and capacity changes.
+                </Text>
+              </div>
+              <Badge variant="light" color="orange">
+                Vendor admin
+              </Badge>
+            </Group>
+
+            <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
+              <Card className="service-dialog__panel" withBorder radius="xl" p="md">
+                <Stack gap="md">
+                  <div>
+                    <Text className="service-dialog__label">Schedule</Text>
+                    <Text fw={700}>Date and timing</Text>
+                  </div>
+                  <DatePickerInput
+                    label="Date"
+                    clearable={false}
+                    leftSection={<IconCalendar size={16} />}
+                    placeholder="Select date"
+                    required
+                    value={availabilityExceptionForm.exceptionDate || null}
+                    onChange={(value) =>
+                      setAvailabilityExceptionForm((current) => ({
+                        ...current,
+                        exceptionDate: value || ""
+                      }))
+                    }
+                  />
+                  <Checkbox
+                    checked={availabilityExceptionBlockEntireDay}
+                    label={
+                      <Group gap={6} align="center" wrap="nowrap">
+                        <Text span size="sm">
+                          Block entire day
+                        </Text>
+                        <Tooltip label="Marks the selected date as unavailable for every service and time slot." withArrow>
+                          <ActionIcon aria-label="Block entire day help" variant="subtle">
+                            <IconInfoCircle size={16} />
+                          </ActionIcon>
+                        </Tooltip>
+                      </Group>
+                    }
+                    onChange={(event) =>
+                      setAvailabilityExceptionBlockEntireDay(event.currentTarget.checked)
+                    }
+                  />
+                  <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+                    <div>
+                      <TextInput
+                        label="Starts"
+                        type="time"
+                        disabled={availabilityExceptionBlockEntireDay}
+                        value={availabilityExceptionForm.startsAt || ""}
+                        onChange={(event) =>
+                          setAvailabilityExceptionForm((current) => ({ ...current, startsAt: event.target.value }))
+                        }
+                      />
+                    </div>
+                    <div>
+                      <TextInput
+                        label="Ends"
+                        type="time"
+                        disabled={availabilityExceptionBlockEntireDay}
+                        value={availabilityExceptionForm.endsAt || ""}
+                        onChange={(event) =>
+                          setAvailabilityExceptionForm((current) => ({ ...current, endsAt: event.target.value }))
+                        }
+                      />
+                    </div>
+                  </SimpleGrid>
+                  <NumberInput
+                    label="Capacity override"
+                    min={1}
+                    max={100}
+                    labelProps={{
+                      children: (
+                        <Group gap={6} wrap="nowrap">
+                          <span>Capacity override</span>
+                          <Tooltip label="Overrides the normal capacity for this date or time window." withArrow>
+                            <ActionIcon aria-label="Capacity override help" variant="subtle">
+                              <IconInfoCircle size={16} />
+                            </ActionIcon>
+                          </Tooltip>
+                        </Group>
+                      )
+                    }}
+                    value={availabilityExceptionForm.capacity ?? undefined}
+                    onChange={(value) =>
+                      setAvailabilityExceptionForm((current) => ({
+                        ...current,
+                        capacity: value === "" || value === null ? null : Number(value)
+                      }))
+                    }
+                  />
+                </Stack>
+              </Card>
+
+              <Card className="service-dialog__panel" withBorder radius="xl" p="md">
+                <Stack gap="md">
+                  <div>
+                    <Text className="service-dialog__label">Scope</Text>
+                    <Text fw={700}>Service and availability</Text>
+                  </div>
+                  <Select
+                    data={serviceOptions}
+                    label="Service"
+                    value={availabilityExceptionForm.serviceSlug || ""}
+                    onChange={(value) =>
+                      setAvailabilityExceptionForm((current) => ({ ...current, serviceSlug: value || "" }))
+                    }
+                  />
+                  <Divider />
+                  <Text c="dimmed" size="sm">
+                    Choose whether this exception blocks availability or opens a specific date for booking.
+                  </Text>
+                  <Switch
+                    checked={availabilityExceptionForm.isAvailable}
+                    label="Allow bookings on this date"
+                    onChange={(event) =>
+                      setAvailabilityExceptionForm((current) => ({
+                        ...current,
+                        isAvailable: event.currentTarget.checked
+                      }))
+                    }
+                  />
+                </Stack>
+              </Card>
             </SimpleGrid>
-            <Textarea
-              autosize
-              label="Reason"
-              minRows={2}
-              value={availabilityExceptionForm.reason || ""}
-              onChange={(event) =>
-                setAvailabilityExceptionForm((current) => ({ ...current, reason: event.target.value }))
-              }
-            />
-            <Group justify="flex-end">
-              <Button variant="default" onClick={() => setAvailabilityExceptionDialogOpen(false)}>
-                Cancel
-              </Button>
-              <Button className="neura-primary-button" disabled={busyAction === "availability-exception-save"} type="submit">
-                {busyAction === "availability-exception-save" ? "Saving..." : "Save exception"}
-              </Button>
+
+            <Card className="service-dialog__panel" withBorder radius="xl" p="md">
+              <Stack gap="md">
+                <div>
+                  <Text className="service-dialog__label">Notes</Text>
+                  <Text fw={700}>Reason and context</Text>
+                </div>
+                <Textarea
+                  autosize
+                  label="Reason"
+                  minRows={3}
+                  value={availabilityExceptionForm.reason || ""}
+                  onChange={(event) =>
+                    setAvailabilityExceptionForm((current) => ({ ...current, reason: event.target.value }))
+                  }
+                />
+              </Stack>
+            </Card>
+
+            <Group justify="space-between" align="center" className="service-dialog__footer">
+              <Text c="dimmed" size="sm">
+                {editingAvailabilityExceptionId
+                  ? "Update the exception and keep the date-specific availability aligned."
+                  : "Create the exception before exposing it in the availability exceptions table."}
+              </Text>
+              <Group gap="sm">
+                <Button variant="default" onClick={() => setAvailabilityExceptionDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button className="neura-primary-button" disabled={busyAction === "availability-exception-save"} type="submit">
+                  {busyAction === "availability-exception-save" ? "Saving..." : "Save exception"}
+                </Button>
+              </Group>
             </Group>
           </Stack>
         </form>
@@ -4347,240 +4534,326 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         </SimpleGrid>
 
         <Card className="neura-card" padding="lg">
-          <Group justify="space-between" mb="md">
-            <div>
-              <Text className="neura-label">Vendor Admin</Text>
-              <Title order={3}>Service catalog</Title>
-            </div>
-            <Button className="neura-secondary-button" onClick={() => openServiceDialog()}>
-              New service
-            </Button>
-          </Group>
-          {services.length ? (
-            <Table.ScrollContainer minWidth={900}>
-              <Table className="neura-services-table" verticalSpacing="sm">
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th>Service</Table.Th>
-                    <Table.Th>Duration</Table.Th>
-                    <Table.Th>Price</Table.Th>
-                    <Table.Th>Status</Table.Th>
-                    <Table.Th>Order</Table.Th>
-                    <Table.Th>Actions</Table.Th>
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  {services.map((service) => (
-                    <Table.Tr key={service.id}>
-                      <Table.Td className="neura-services-table__sticky neura-services-table__sticky-first">
-                        <Stack gap={2}>
-                          <Text fw={700}>{service.name}</Text>
-                          <Text c="dimmed" size="sm">{service.description || service.slug}</Text>
-                        </Stack>
-                      </Table.Td>
-                      <Table.Td>
-                        <Text>{service.durationMinutes} min</Text>
-                        {service.allowBookingQuantity ? (
-                          <Text c="dimmed" size="sm">{service.bookingQuantityLabel}</Text>
-                        ) : null}
-                        {service.manualPaymentRequired ? (
-                          <Badge color="yellow" variant="light">Manual payment</Badge>
-                        ) : null}
-                      </Table.Td>
-                      <Table.Td>{service.priceDisplay || `PHP ${(service.priceAmountCents / 100).toLocaleString()}`}</Table.Td>
-                      <Table.Td>
-                        <Badge color={service.isActive ? "teal" : "gray"} variant="light">
-                          {service.isActive ? "Active" : "Inactive"}
-                        </Badge>
-                      </Table.Td>
-                      <Table.Td>{service.sortOrder}</Table.Td>
-                      <Table.Td className="neura-services-table__sticky neura-services-table__sticky-last">
-                        <Group gap="xs" wrap="nowrap">
-                          <Tooltip label="Edit service" withArrow>
-                            <ActionIcon aria-label="Edit service" onClick={() => openServiceDialog(service)} variant="light">
-                              <IconPencil size={16} />
-                            </ActionIcon>
-                          </Tooltip>
-                          <Switch
-                            checked={service.isActive}
-                            disabled={busyAction === `service-status:${service.slug}`}
-                            onChange={(event) =>
-                              handleToggleServiceActive(service, event.currentTarget.checked)
-                            }
-                          />
-                        </Group>
-                      </Table.Td>
-                    </Table.Tr>
-                  ))}
-                </Table.Tbody>
-              </Table>
-            </Table.ScrollContainer>
-          ) : (
-            <DashboardEmptyState
-              title="No services yet"
-              text="Add services before building availability and customer booking flows."
-            />
-          )}
-        </Card>
+          <Tabs value={servicesTab} onChange={(value) => setServicesTab((value as typeof servicesTab) || "catalog")}>
+            <Tabs.List>
+              <Tabs.Tab value="catalog">Service catalog</Tabs.Tab>
+              <Tabs.Tab value="weekly">Weekly availability</Tabs.Tab>
+              <Tabs.Tab value="exceptions">Availability exceptions</Tabs.Tab>
+            </Tabs.List>
 
-        <Card className="neura-card" padding="lg">
-          <Group justify="space-between" mb="md">
-            <div>
-              <Text className="neura-label">{selectedLocation?.name || "Selected location"}</Text>
-              <Title order={3}>Weekly availability</Title>
-            </div>
-            <Button className="neura-secondary-button" onClick={() => openAvailabilityBlockDialog()}>
-              Add weekly rule
-            </Button>
-          </Group>
-          {availabilityBlocks.length ? (
-            <Table.ScrollContainer minWidth={900}>
-              <Table className="neura-availability-table" verticalSpacing="sm">
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th>Day</Table.Th>
-                    <Table.Th>Time</Table.Th>
-                    <Table.Th>Service</Table.Th>
-                    <Table.Th>Capacity</Table.Th>
-                    <Table.Th>Status</Table.Th>
-                    <Table.Th>Actions</Table.Th>
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  {availabilityBlocks.map((block) => (
-                    <Table.Tr key={block.id}>
-                      <Table.Td className="neura-availability-table__sticky neura-availability-table__sticky-first">
-                        {weekdayOptions.find((day) => day.value === String(block.weekday))?.label}
-                      </Table.Td>
-                      <Table.Td>{block.startsAt} - {block.endsAt}</Table.Td>
-                      <Table.Td>{getServiceLabel(block.serviceId)}</Table.Td>
-                      <Table.Td>{block.capacity}</Table.Td>
-                      <Table.Td>
-                        <Badge color={block.isActive ? "teal" : "gray"} variant="light">
-                          {block.isActive ? "Active" : "Inactive"}
-                        </Badge>
-                      </Table.Td>
-                      <Table.Td className="neura-availability-table__sticky neura-availability-table__sticky-last">
-                        <Group gap="xs" wrap="nowrap">
-                          <Tooltip label="Edit weekly rule" withArrow>
-                            <ActionIcon aria-label="Edit weekly rule" onClick={() => openAvailabilityBlockDialog(block)} variant="light">
-                              <IconPencil size={16} />
-                            </ActionIcon>
-                          </Tooltip>
-                          {block.isActive ? (
-                            <Tooltip label="Disable weekly rule" withArrow>
-                              <ActionIcon
-                                aria-label="Disable weekly rule"
-                                color="red"
-                                disabled={busyAction === `availability-block-delete:${block.id}`}
-                                onClick={() =>
-                                  openConfirmAction({
-                                    title: "Disable weekly rule?",
-                                    description: "This will remove the recurring availability rule from the schedule.",
-                                    confirmLabel: "Disable rule",
-                                    confirmColor: "red",
-                                    onConfirm: async () => {
-                                      await handleDisableAvailabilityBlock(block);
+            <Tabs.Panel pt="lg" value="catalog">
+              <Stack gap="md">
+                <Group justify="space-between">
+                  <div>
+                    <Text className="neura-label">Vendor Admin</Text>
+                    <Title order={3}>Service catalog</Title>
+                  </div>
+                  <Button className="neura-secondary-button" onClick={() => openServiceDialog()}>
+                    New service
+                  </Button>
+                </Group>
+                {services.length ? (
+                  <Table.ScrollContainer minWidth={900}>
+                    <Table className="neura-services-table" verticalSpacing="sm">
+                      <Table.Thead>
+                        <Table.Tr>
+                          <Table.Th>Service</Table.Th>
+                          <Table.Th>Duration</Table.Th>
+                          <Table.Th>Price</Table.Th>
+                          <Table.Th>Status</Table.Th>
+                          <Table.Th>Order</Table.Th>
+                          <Table.Th style={{ width: 1, whiteSpace: "nowrap" }}>Actions</Table.Th>
+                        </Table.Tr>
+                      </Table.Thead>
+                      <Table.Tbody>
+                        {services.map((service) => (
+                          <Table.Tr key={service.id}>
+                            <Table.Td className="neura-services-table__sticky neura-services-table__sticky-first">
+                              <Stack gap={2}>
+                                <Text fw={700} c={service.isActive ? undefined : "dimmed"}>
+                                  {service.name}
+                                </Text>
+                                <Text c={service.isActive ? "dimmed" : "gray"} size="sm">
+                                  {service.description || service.slug}
+                                </Text>
+                              </Stack>
+                            </Table.Td>
+                            <Table.Td>
+                              <Text c={service.isActive ? undefined : "dimmed"}>{service.durationMinutes} min</Text>
+                              {service.allowBookingQuantity ? (
+                                <Text c={service.isActive ? "dimmed" : "gray"} size="sm">
+                                  {service.bookingQuantityLabel}
+                                </Text>
+                              ) : null}
+                              {service.manualPaymentRequired ? (
+                                <Badge color="yellow" variant="light">Manual payment</Badge>
+                              ) : null}
+                            </Table.Td>
+                            <Table.Td>
+                              <Text c={service.isActive ? undefined : "dimmed"}>
+                                {service.priceDisplay || `PHP ${(service.priceAmountCents / 100).toLocaleString()}`}
+                              </Text>
+                            </Table.Td>
+                            <Table.Td>
+                              <Badge color={service.isActive ? "teal" : "gray"} variant="light">
+                                {service.isActive ? "Active" : "Inactive"}
+                              </Badge>
+                            </Table.Td>
+                            <Table.Td>
+                              <Text c={service.isActive ? undefined : "dimmed"}>{service.sortOrder}</Text>
+                            </Table.Td>
+                            <Table.Td
+                              className="neura-services-table__sticky neura-services-table__sticky-last"
+                              style={{ width: 1, whiteSpace: "nowrap" }}
+                            >
+                              <Group gap="xs" wrap="nowrap">
+                                <Tooltip label="Edit service" withArrow>
+                                  <ActionIcon aria-label="Edit service" onClick={() => openServiceDialog(service)} variant="light">
+                                    <IconPencil size={16} />
+                                  </ActionIcon>
+                                </Tooltip>
+                                <Switch
+                                  checked={service.isActive}
+                                  disabled={busyAction === `service-status:${service.slug}`}
+                                  onChange={(event) =>
+                                    handleToggleServiceActive(service, event.currentTarget.checked)
+                                  }
+                                />
+                                <Tooltip label="Delete service" withArrow>
+                                  <ActionIcon
+                                    aria-label="Delete service"
+                                    color="red"
+                                    variant="light"
+                                    disabled={busyAction === `service-delete:${service.slug}`}
+                                    onClick={() =>
+                                      openConfirmAction({
+                                        title: "Delete service?",
+                                        description: "This will permanently remove the service from the catalog.",
+                                        confirmLabel: "Delete service",
+                                        confirmColor: "red",
+                                        onConfirm: async () => {
+                                          await handleDeleteService(service);
+                                        }
+                                      })
                                     }
-                                  })
-                                }
-                                variant="light"
-                              >
-                                <IconX size={16} />
-                              </ActionIcon>
-                            </Tooltip>
-                          ) : null}
-                        </Group>
-                      </Table.Td>
-                    </Table.Tr>
-                  ))}
-                </Table.Tbody>
-              </Table>
-            </Table.ScrollContainer>
-          ) : (
-            <DashboardEmptyState
-              title="No weekly availability"
-              text="Add recurring bookable hours for this branch."
-            />
-          )}
-        </Card>
+                                  >
+                                    <IconTrash size={16} />
+                                  </ActionIcon>
+                                </Tooltip>
+                              </Group>
+                            </Table.Td>
+                          </Table.Tr>
+                        ))}
+                      </Table.Tbody>
+                    </Table>
+                  </Table.ScrollContainer>
+                ) : (
+                  <DashboardEmptyState
+                    title="No services yet"
+                    text="Add services before building availability and customer booking flows."
+                  />
+                )}
+              </Stack>
+            </Tabs.Panel>
 
-        <Card className="neura-card" padding="lg">
-          <Group justify="space-between" mb="md">
-            <div>
-              <Text className="neura-label">Date overrides</Text>
-              <Title order={3}>Availability exceptions</Title>
-            </div>
-            <Button className="neura-secondary-button" onClick={() => openAvailabilityExceptionDialog()}>
-              Add exception
-            </Button>
-          </Group>
-          {availabilityExceptions.length ? (
-            <Table.ScrollContainer minWidth={820}>
-              <Table verticalSpacing="sm">
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th>Date</Table.Th>
-                    <Table.Th>Time</Table.Th>
-                    <Table.Th>Service</Table.Th>
-                    <Table.Th>Mode</Table.Th>
-                    <Table.Th>Reason</Table.Th>
-                    <Table.Th>Actions</Table.Th>
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  {availabilityExceptions.map((exception) => (
-                    <Table.Tr key={exception.id}>
-                      <Table.Td>{formatDate(exception.exceptionDate)}</Table.Td>
-                      <Table.Td>
-                        {exception.startsAt && exception.endsAt
-                          ? `${exception.startsAt} - ${exception.endsAt}`
-                          : "Full day"}
-                      </Table.Td>
-                      <Table.Td>{getServiceLabel(exception.serviceId)}</Table.Td>
-                      <Table.Td>
-                        <Badge color={exception.isAvailable ? "teal" : "red"} variant="light">
-                          {exception.isAvailable ? "Available" : "Blocked"}
-                        </Badge>
-                      </Table.Td>
-                      <Table.Td>{exception.reason || "-"}</Table.Td>
-                      <Table.Td>
-                        <Group gap="xs" wrap="nowrap">
-                          <Button size="xs" variant="default" onClick={() => openAvailabilityExceptionDialog(exception)}>
-                            Edit
-                          </Button>
-                          <Button
-                            color="red"
-                            disabled={busyAction === `availability-exception-delete:${exception.id}`}
-                            size="xs"
-                            variant="subtle"
-                            onClick={() =>
-                              openConfirmAction({
-                                title: "Delete availability exception?",
-                                description: "This will permanently remove the exception from the schedule.",
-                                confirmLabel: "Delete exception",
-                                confirmColor: "red",
-                                onConfirm: async () => {
-                                  await handleDeleteAvailabilityException(exception);
-                                }
-                              })
-                            }
-                          >
-                            Remove
-                          </Button>
-                        </Group>
-                      </Table.Td>
-                    </Table.Tr>
-                  ))}
-                </Table.Tbody>
-              </Table>
-            </Table.ScrollContainer>
-          ) : (
-            <DashboardEmptyState
-              title="No exceptions"
-              text="Add holidays, special hours, or one-off availability overrides."
-            />
-          )}
+            <Tabs.Panel pt="lg" value="weekly">
+              <Stack gap="md">
+                <Group justify="space-between">
+                  <div>
+                    <Text className="neura-label">{selectedLocation?.name || "Selected location"}</Text>
+                    <Title order={3}>Weekly availability</Title>
+                  </div>
+                  <Button className="neura-secondary-button" onClick={() => openAvailabilityBlockDialog()}>
+                    Add weekly rule
+                  </Button>
+                </Group>
+                {availabilityBlocks.length ? (
+                  <Table.ScrollContainer minWidth={900}>
+                    <Table className="neura-availability-table" verticalSpacing="sm">
+                      <Table.Thead>
+                        <Table.Tr>
+                          <Table.Th>Day</Table.Th>
+                          <Table.Th>Time</Table.Th>
+                          <Table.Th>Service</Table.Th>
+                          <Table.Th>Capacity</Table.Th>
+                          <Table.Th>Status</Table.Th>
+                          <Table.Th style={{ width: 1, whiteSpace: "nowrap" }}>Actions</Table.Th>
+                        </Table.Tr>
+                      </Table.Thead>
+                      <Table.Tbody>
+                        {availabilityBlocks.map((block) => (
+                          <Table.Tr key={block.id}>
+                            <Table.Td className="neura-availability-table__sticky neura-availability-table__sticky-first">
+                              <Text c={block.isActive ? undefined : "dimmed"}>
+                                {weekdayOptions.find((day) => day.value === String(block.weekday))?.label}
+                              </Text>
+                            </Table.Td>
+                            <Table.Td>
+                              <Text c={block.isActive ? undefined : "dimmed"}>{block.startsAt} - {block.endsAt}</Text>
+                            </Table.Td>
+                            <Table.Td>
+                              <Text c={block.isActive ? undefined : "dimmed"}>{getServiceLabel(block.serviceId)}</Text>
+                            </Table.Td>
+                            <Table.Td>
+                              <Text c={block.isActive ? undefined : "dimmed"}>{block.capacity}</Text>
+                            </Table.Td>
+                            <Table.Td>
+                              <Badge color={block.isActive ? "teal" : "gray"} variant="light">
+                                {block.isActive ? "Active" : "Inactive"}
+                              </Badge>
+                            </Table.Td>
+                            <Table.Td
+                              className="neura-availability-table__sticky neura-availability-table__sticky-last"
+                              style={{ width: 1, whiteSpace: "nowrap" }}
+                            >
+                              <Group gap="xs" wrap="nowrap">
+                                <Tooltip label="Edit weekly rule" withArrow>
+                                  <ActionIcon aria-label="Edit weekly rule" onClick={() => openAvailabilityBlockDialog(block)} variant="light">
+                                    <IconPencil size={16} />
+                                  </ActionIcon>
+                                </Tooltip>
+                                <Switch
+                                  checked={block.isActive}
+                                  disabled={busyAction === `availability-block-status:${block.id}`}
+                                  onChange={(event) => handleToggleAvailabilityBlockActive(block, event.currentTarget.checked)}
+                                />
+                                <Tooltip label="Delete weekly rule" withArrow>
+                                  <ActionIcon
+                                    aria-label="Delete weekly rule"
+                                    color="red"
+                                    variant="light"
+                                    disabled={busyAction === `availability-block-delete:${block.id}`}
+                                    onClick={() =>
+                                      openConfirmAction({
+                                        title: "Delete weekly rule?",
+                                        description: "This will permanently remove the recurring availability rule from the schedule.",
+                                        confirmLabel: "Delete rule",
+                                        confirmColor: "red",
+                                        onConfirm: async () => {
+                                          await handleDeleteAvailabilityBlock(block);
+                                        }
+                                      })
+                                    }
+                                  >
+                                    <IconTrash size={16} />
+                                  </ActionIcon>
+                                </Tooltip>
+                              </Group>
+                            </Table.Td>
+                          </Table.Tr>
+                        ))}
+                      </Table.Tbody>
+                    </Table>
+                  </Table.ScrollContainer>
+                ) : (
+                  <DashboardEmptyState
+                    title="No weekly availability"
+                    text="Add recurring bookable hours for this branch."
+                  />
+                )}
+              </Stack>
+            </Tabs.Panel>
+
+            <Tabs.Panel pt="lg" value="exceptions">
+              <Stack gap="md">
+                <Group justify="space-between">
+                  <div>
+                    <Text className="neura-label">Date overrides</Text>
+                    <Title order={3}>Availability exceptions</Title>
+                  </div>
+                  <Button className="neura-secondary-button" onClick={() => openAvailabilityExceptionDialog()}>
+                    Add exception
+                  </Button>
+                </Group>
+                {availabilityExceptions.length ? (
+                  <Table.ScrollContainer minWidth={820}>
+                    <Table className="neura-availability-table" verticalSpacing="sm">
+                      <Table.Thead>
+                        <Table.Tr>
+                          <Table.Th>Date</Table.Th>
+                          <Table.Th>Time</Table.Th>
+                          <Table.Th>Service</Table.Th>
+                          <Table.Th>Mode</Table.Th>
+                          <Table.Th>Reason</Table.Th>
+                          <Table.Th style={{ width: 1, whiteSpace: "nowrap" }}>Actions</Table.Th>
+                        </Table.Tr>
+                      </Table.Thead>
+                      <Table.Tbody>
+                        {availabilityExceptions.map((exception) => (
+                          <Table.Tr key={exception.id}>
+                            <Table.Td className="neura-availability-table__sticky neura-availability-table__sticky-first">
+                              <Text c={exception.isAvailable ? undefined : "dimmed"}>{formatDate(exception.exceptionDate)}</Text>
+                            </Table.Td>
+                            <Table.Td>
+                              <Text c={exception.isAvailable ? undefined : "dimmed"}>
+                                {exception.startsAt && exception.endsAt ? `${exception.startsAt} - ${exception.endsAt}` : "Full day"}
+                              </Text>
+                            </Table.Td>
+                            <Table.Td>
+                              <Text c={exception.isAvailable ? undefined : "dimmed"}>{getServiceLabel(exception.serviceId)}</Text>
+                            </Table.Td>
+                            <Table.Td>
+                              <Badge color={exception.isAvailable ? "teal" : "red"} variant="light">
+                                {exception.isAvailable ? "Available" : "Blocked"}
+                              </Badge>
+                            </Table.Td>
+                            <Table.Td>
+                              <Text c={exception.isAvailable ? undefined : "dimmed"}>{exception.reason || "-"}</Text>
+                            </Table.Td>
+                            <Table.Td
+                              className="neura-availability-table__sticky neura-availability-table__sticky-last"
+                              style={{ width: 1, whiteSpace: "nowrap" }}
+                            >
+                              <Group gap="xs" wrap="nowrap">
+                                <Tooltip label="Edit exception" withArrow>
+                                  <ActionIcon aria-label="Edit exception" onClick={() => openAvailabilityExceptionDialog(exception)} variant="light">
+                                    <IconPencil size={16} />
+                                  </ActionIcon>
+                                </Tooltip>
+                                <Switch
+                                  checked={exception.isAvailable}
+                                  disabled={busyAction === `availability-exception-status:${exception.id}`}
+                                  onChange={(event) =>
+                                    handleToggleAvailabilityExceptionActive(exception, event.currentTarget.checked)
+                                  }
+                                />
+                                <Tooltip label="Remove exception" withArrow>
+                                  <ActionIcon
+                                    aria-label="Remove exception"
+                                    color="red"
+                                    disabled={busyAction === `availability-exception-delete:${exception.id}`}
+                                    onClick={() =>
+                                      openConfirmAction({
+                                        title: "Delete availability exception?",
+                                        description: "This will permanently remove the exception from the schedule.",
+                                        confirmLabel: "Delete exception",
+                                        confirmColor: "red",
+                                        onConfirm: async () => {
+                                          await handleDeleteAvailabilityException(exception);
+                                        }
+                                      })
+                                    }
+                                    variant="light"
+                                  >
+                                    <IconTrash size={16} />
+                                  </ActionIcon>
+                                </Tooltip>
+                              </Group>
+                            </Table.Td>
+                          </Table.Tr>
+                        ))}
+                      </Table.Tbody>
+                    </Table>
+                  </Table.ScrollContainer>
+                ) : (
+                  <DashboardEmptyState
+                    title="No exceptions"
+                    text="Add holidays, special hours, or one-off availability overrides."
+                  />
+                )}
+              </Stack>
+            </Tabs.Panel>
+          </Tabs>
         </Card>
       </Stack>
     );
