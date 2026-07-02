@@ -15,7 +15,9 @@ import {
   PasswordInput,
   SimpleGrid,
   Stack,
-  Table,
+  Modal,
+  Select,
+  Tooltip,
   Text,
   TextInput,
   Title,
@@ -35,7 +37,13 @@ import {
   IconListDetails,
   IconChevronRight,
   IconMoon,
-  IconSun
+  IconSun,
+  IconPencil,
+  IconPower,
+  IconAlertTriangle,
+  IconTrash,
+  IconPlus,
+  IconBellRinging
 } from "@tabler/icons-react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
@@ -55,6 +63,8 @@ import type {
   UserSummary
 } from "@shared";
 import { apiRequest } from "./api";
+import { PortalDataTable } from "./components/PortalDataTable";
+import { ConfirmActionModal } from "../../frontend/src/components/ConfirmActionModal";
 import "@mantine/core/styles.css";
 import "@mantine/notifications/styles.css";
 import "./styles.css";
@@ -63,19 +73,17 @@ const STORAGE_KEY = "prio-platform-auth";
 const APPEARANCE_KEY = "prio-platform-appearance";
 const PHP = new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" });
 type PortalAppearance = "dark" | "light";
-type GenericRecord = Record<string, unknown>;
-
 const theme = createTheme({
   primaryColor: "orange",
   fontFamily: 'Inter, Aptos, "Segoe UI", sans-serif',
   defaultRadius: "lg"
 });
+type GenericRecord = Record<string, unknown>;
 
 const navItems = [
   { to: "/overview", label: "Overview", icon: IconChartBar },
   { to: "/queue-fees", label: "Queue fees", icon: IconCreditCard },
   { to: "/plans", label: "Plans", icon: IconCalendarDollar },
-  { to: "/join-payments", label: "Join payments", icon: IconReceipt },
   { to: "/tenants", label: "Tenants", icon: IconBuildingStore },
   { to: "/subscriptions", label: "Subscriptions", icon: IconListDetails },
   { to: "/users", label: "Users", icon: IconUsers },
@@ -128,42 +136,44 @@ function AppearanceToggle({
 
 function StatusBadge({ value }: { value: unknown }) {
   const status = String(value || "unknown");
-  const color = ["paid", "active"].includes(status) ? "teal" : ["failed", "expired", "canceled"].includes(status) ? "red" : "yellow";
+  const color = ["paid", "active"].includes(status) ? "teal" : ["failed", "expired", "canceled", "suspended"].includes(status) ? "red" : "yellow";
   return <Badge color={color}>{status}</Badge>;
 }
 
-function DataTable({
-  rows,
-  columns,
-  emptyLabel
+function mergeSubscriptionRow(existing: GenericRecord | undefined, updated: GenericRecord) {
+  return {
+    ...(existing || {}),
+    ...updated,
+    tenantName: updated.tenantName ?? existing?.tenantName,
+    tenantSlug: updated.tenantSlug ?? existing?.tenantSlug
+  };
+}
+
+function IconActionButton({
+  label,
+  children,
+  color = "gray",
+  onClick,
+  disabled = false
 }: {
-  rows: GenericRecord[];
-  columns: Array<{ key: string; label: string; render?: (row: GenericRecord) => ReactNode }>;
-  emptyLabel: string;
+  label: string;
+  children: ReactNode;
+  color?: string;
+  onClick: () => void;
+  disabled?: boolean;
 }) {
   return (
-    <Paper className="portal-card" p="lg">
-      <Table.ScrollContainer minWidth={680}>
-        <Table verticalSpacing="sm">
-          <Table.Thead>
-            <Table.Tr>
-              {columns.map((column) => <Table.Th key={column.key}>{column.label}</Table.Th>)}
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {rows.length ? rows.map((row, index) => (
-              <Table.Tr key={String(row.id || index)}>
-                {columns.map((column) => (
-                  <Table.Td key={column.key}>{column.render ? column.render(row) : String(row[column.key] ?? "--")}</Table.Td>
-                ))}
-              </Table.Tr>
-            )) : (
-              <Table.Tr><Table.Td colSpan={columns.length}><Text c="dimmed">{emptyLabel}</Text></Table.Td></Table.Tr>
-            )}
-          </Table.Tbody>
-        </Table>
-      </Table.ScrollContainer>
-    </Paper>
+    <Tooltip label={label} withArrow>
+      <ActionIcon
+        aria-label={label}
+        color={color}
+        disabled={disabled}
+        onClick={onClick}
+        variant="light"
+      >
+        {children}
+      </ActionIcon>
+    </Tooltip>
   );
 }
 
@@ -264,7 +274,7 @@ function OverviewPage({ token }: { token: string }) {
         <MetricCard label="Paid joins" value={totals?.paidQueueJoinPayments ?? "--"} values={data?.analytics.paymentStatusMix.map((item) => item.count)} />
         <MetricCard label="Failed joins" value={totals?.failedQueueJoinPayments ?? "--"} />
       </SimpleGrid>
-      <DataTable
+      <PortalDataTable
         rows={(data?.recentPayments || []) as unknown as GenericRecord[]}
         emptyLabel="No recent payments."
         columns={[
@@ -389,7 +399,410 @@ function SettingsPage({ token }: { token: string }) {
 function RecordsPage({ token, endpoint, columns, emptyLabel }: { token: string; endpoint: string; columns: Array<{ key: string; label: string; render?: (row: GenericRecord) => ReactNode }>; emptyLabel: string }) {
   const [rows, setRows] = useState<GenericRecord[]>([]);
   useEffect(() => { apiRequest<PlatformListResponse<GenericRecord>>(endpoint, { token }).then((data) => setRows(data.items)); }, [endpoint, token]);
-  return <DataTable rows={rows} columns={columns} emptyLabel={emptyLabel} />;
+  return <PortalDataTable rows={rows} columns={columns} emptyLabel={emptyLabel} />;
+}
+
+function SubscriptionsPage({ token }: { token: string }) {
+  const [rows, setRows] = useState<GenericRecord[]>([]);
+  const [tenants, setTenants] = useState<GenericRecord[]>([]);
+  const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
+  const [confirmAction, setConfirmAction] = useState<null | {
+    title: string;
+    description: string;
+    confirmLabel: string;
+    confirmColor?: "red" | "orange" | "yellow" | "blue" | "dark";
+    loadingKey?: string;
+    onConfirm: () => Promise<void>;
+  }>(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editingSubscriptionId, setEditingSubscriptionId] = useState<string | null>(null);
+  const [form, setForm] = useState({
+    tenantId: "",
+    planSlug: "economical",
+    status: "active",
+    provider: "manual",
+    billingInterval: "monthly",
+    providerCustomerId: "",
+    providerSubscriptionId: "",
+    providerCheckoutSessionId: ""
+  });
+  const tenantOptions = tenants.map((tenant) => ({
+    value: String(tenant.id),
+    label: String(tenant.name || tenant.slug || tenant.id)
+  }));
+  const planOptions = plans.map((plan) => ({
+    value: plan.slug,
+    label: `${plan.name} · ${plan.price.monthlyDisplay}`
+  }));
+  const editorTitle = editingSubscriptionId ? "Edit subscription" : "Add subscription";
+
+  const load = async () => {
+    const [subscriptionData, tenantData, planData] = await Promise.all([
+      apiRequest<PlatformListResponse<GenericRecord>>("/platform/subscriptions", { token }),
+      apiRequest<PlatformListResponse<GenericRecord>>("/platform/tenants", { token }),
+      apiRequest<{ plans: SubscriptionPlan[] }>("/platform/plans", { token })
+    ]);
+    setRows(subscriptionData.items);
+    setTenants(tenantData.items);
+    setPlans(planData.plans);
+  };
+
+  useEffect(() => { load(); }, [token]);
+
+  function openNewSubscription() {
+    setEditingSubscriptionId(null);
+    setForm({
+      tenantId: "",
+      planSlug: plans[0]?.slug || "economical",
+      status: "active",
+      provider: "manual",
+      billingInterval: "monthly",
+      providerCustomerId: "",
+      providerSubscriptionId: "",
+      providerCheckoutSessionId: ""
+    });
+    setEditorOpen(true);
+  }
+
+  function openEditSubscription(subscription: GenericRecord) {
+    setEditingSubscriptionId(String(subscription.id));
+    setForm({
+      tenantId: String(subscription.tenantId || ""),
+      planSlug: String(subscription.planSlug || "economical") as typeof form.planSlug,
+      status: String(subscription.status || "active") as typeof form.status,
+      provider: String(subscription.provider || "manual"),
+      billingInterval: String(subscription.billingInterval || "monthly") as typeof form.billingInterval,
+      providerCustomerId: String(subscription.providerCustomerId || ""),
+      providerSubscriptionId: String(subscription.providerSubscriptionId || ""),
+      providerCheckoutSessionId: String(subscription.providerCheckoutSessionId || "")
+    });
+    setEditorOpen(true);
+  }
+
+  async function createSubscription(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const body = {
+      ...form,
+      tenantId: Number(form.tenantId)
+    };
+    if (editingSubscriptionId) {
+      const subscription = await apiRequest<{ subscription: GenericRecord }, GenericRecord>(
+        `/platform/subscriptions/${editingSubscriptionId}`,
+        {
+          method: "PATCH",
+          token,
+          body
+        }
+      );
+      setRows((current) =>
+        current.map((item) =>
+          String(item.id) === editingSubscriptionId ? mergeSubscriptionRow(item, subscription.subscription) : item
+        )
+      );
+      showSaved("Subscription updated");
+    } else {
+      const subscription = await apiRequest<{ subscription: GenericRecord }, GenericRecord>("/platform/subscriptions", {
+        method: "POST",
+        token,
+        body
+      });
+      const tenant = tenants.find((item) => String(item.id) === String(body.tenantId));
+      setRows((current) => [
+        mergeSubscriptionRow(tenant as GenericRecord | undefined, subscription.subscription),
+        ...current
+      ]);
+      showSaved("Subscription added");
+    }
+    setEditorOpen(false);
+  }
+
+  async function updateSubscription(subscriptionId: string, nextStatus?: string) {
+    const subscription = await apiRequest<{ subscription: GenericRecord }, GenericRecord>(`/platform/subscriptions/${subscriptionId}`, {
+      method: "PATCH",
+      token,
+      body: nextStatus ? { status: nextStatus } : {}
+    });
+    setRows((current) =>
+      current.map((item) => String(item.id) === subscriptionId ? mergeSubscriptionRow(item, subscription.subscription) : item)
+    );
+    showSaved("Subscription updated");
+  }
+
+  async function removeSubscription(subscriptionId: string) {
+    await apiRequest<{ subscription: GenericRecord }>(`/platform/subscriptions/${subscriptionId}`, {
+      method: "DELETE",
+      token
+    });
+    setRows((current) => current.filter((item) => String(item.id) !== subscriptionId));
+    showSaved("Subscription removed");
+  }
+
+  return (
+    <Stack gap="lg">
+      <Group justify="space-between" align="center">
+        <div>
+          <Text className="portal-label">Subscriptions</Text>
+          <Title order={2}>Tenant subscription records</Title>
+          <Text c="dimmed" size="sm">
+            Create, edit, suspend, or remove tenant subscriptions from one place.
+          </Text>
+        </div>
+        <Tooltip label="Add subscription" withArrow>
+          <Button className="subscription-editor__submit" leftSection={<IconPlus size={16} />} onClick={openNewSubscription}>
+            Add subscription
+          </Button>
+        </Tooltip>
+      </Group>
+      <PortalDataTable
+        rows={rows}
+        emptyLabel="No subscriptions."
+        pinFirstColumn
+        pinLastColumn
+        columns={[
+          { key: "id", label: "ID", width: 56 },
+          {
+              key: "tenantName",
+              label: "Tenant",
+              width: 260,
+              render: (row) => (
+              <Tooltip label="Edit subscription" withArrow>
+                <Button
+                  className="subscription-tenant-link"
+                  leftSection={<IconPencil size={16} />}
+                  variant="subtle"
+                  onClick={() => openEditSubscription(row)}
+                  p={0}
+                >
+                  {String(row.tenantName || row.tenantSlug || "--")}
+                </Button>
+              </Tooltip>
+              )
+            },
+          { key: "planSlug", label: "Plan", width: 120 },
+          { key: "status", label: "Status", width: 120, render: (row) => <StatusBadge value={row.status} /> },
+          { key: "provider", label: "Provider", width: 140 },
+          { key: "currentPeriodEnd", label: "Renews", width: 160, render: (row) => formatDate(row.currentPeriodEnd) },
+          {
+            key: "actions",
+              label: "Actions",
+              width: 132,
+              render: (row) => (
+                <Group gap="xs" justify="flex-end" wrap="nowrap">
+                  <IconActionButton
+                    label={row.status === "suspended" ? "Resume subscription" : "Suspend subscription"}
+                    color={row.status === "suspended" ? "blue" : "orange"}
+                    onClick={() =>
+                      setConfirmAction({
+                        title: row.status === "suspended" ? "Resume subscription?" : "Suspend subscription?",
+                        description:
+                          row.status === "suspended"
+                            ? "This will reactivate the subscription for the tenant."
+                            : "This will suspend the subscription and limit tenant access according to subscription checks.",
+                        confirmLabel: row.status === "suspended" ? "Resume subscription" : "Suspend subscription",
+                        confirmColor: row.status === "suspended" ? "blue" : "orange",
+                        onConfirm: async () => {
+                          await updateSubscription(String(row.id), row.status === "suspended" ? "active" : "suspended");
+                        }
+                      })
+                    }
+                  >
+                    {row.status === "suspended" ? <IconPower size={16} /> : <IconAlertTriangle size={16} />}
+                  </IconActionButton>
+                  <IconActionButton
+                    label="Mark subscription past due"
+                    color="orange"
+                    onClick={() => updateSubscription(String(row.id), "past_due")}
+                  >
+                    <IconBellRinging size={16} />
+                  </IconActionButton>
+                  <IconActionButton
+                    label="Remove subscription"
+                    color="red"
+                    onClick={() =>
+                      setConfirmAction({
+                        title: "Remove subscription?",
+                        description: "This permanently deletes the subscription record from the platform dashboard.",
+                        confirmLabel: "Remove subscription",
+                        confirmColor: "red",
+                        onConfirm: async () => {
+                          await removeSubscription(String(row.id));
+                        }
+                      })
+                    }
+                  >
+                    <IconTrash size={16} />
+                  </IconActionButton>
+                </Group>
+              )
+            }
+        ]}
+      />
+      <Modal
+        centered
+        opened={editorOpen}
+        onClose={() => setEditorOpen(false)}
+        size="xl"
+        title={editorTitle}
+        overlayProps={{ blur: 6, backgroundOpacity: 0.35 }}
+      >
+        <form onSubmit={createSubscription}>
+          <Stack gap="lg">
+            <Group justify="space-between" align="flex-start" className="subscription-editor__header">
+              <div>
+                <Text className="portal-label">Subscription editor</Text>
+                <Title order={3}>{editorTitle}</Title>
+                <Text c="dimmed" size="sm">
+                  {editingSubscriptionId
+                    ? "Update the tenant subscription settings and provider references."
+                    : "Create or stage a tenant subscription record before billing reconciliation or manual activation."}
+                </Text>
+              </div>
+              <Badge variant="light" color="orange">
+                Admin only
+              </Badge>
+            </Group>
+
+            <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
+              <Card className="subscription-editor__panel" withBorder radius="xl" p="md">
+                <Stack gap="md">
+                  <div>
+                    <Text className="subscription-editor__label">Assignment</Text>
+                    <Text fw={700}>Tenant and plan</Text>
+                  </div>
+                  <Select
+                    searchable
+                    data={tenantOptions}
+                    label="Tenant"
+                    placeholder="Search tenant"
+                    value={form.tenantId}
+                    onChange={(value: string | null) => setForm((current) => ({ ...current, tenantId: value || "" }))}
+                    nothingFoundMessage="No tenants found"
+                  />
+                  <Select
+                    data={planOptions}
+                    label="Plan"
+                    value={form.planSlug}
+                    onChange={(value: string | null) =>
+                      setForm((current) => ({ ...current, planSlug: (value as typeof current.planSlug) || "economical" }))
+                    }
+                  />
+                  <Select
+                    data={[
+                      { value: "active", label: "Active" },
+                      { value: "unpaid", label: "Unpaid" },
+                      { value: "past_due", label: "Past due" },
+                      { value: "suspended", label: "Suspended" },
+                      { value: "canceled", label: "Canceled" },
+                      { value: "expired", label: "Expired" }
+                    ]}
+                    label="Status"
+                    value={form.status}
+                    onChange={(value: string | null) =>
+                      setForm((current) => ({ ...current, status: (value as typeof current.status) || "active" }))
+                    }
+                  />
+                  <Select
+                    data={[
+                      { value: "monthly", label: "Monthly" },
+                      { value: "annual", label: "Annual" },
+                      { value: "custom", label: "Custom" }
+                    ]}
+                    label="Billing interval"
+                    value={form.billingInterval}
+                    onChange={(value: string | null) =>
+                      setForm((current) => ({
+                        ...current,
+                        billingInterval: (value as typeof current.billingInterval) || "monthly"
+                      }))
+                    }
+                  />
+                </Stack>
+              </Card>
+
+              <Card className="subscription-editor__panel" withBorder radius="xl" p="md">
+                <Stack gap="md">
+                  <div>
+                    <Text className="subscription-editor__label">Identifiers</Text>
+                    <Text fw={700}>Provider references</Text>
+                  </div>
+                  <TextInput
+                    label="Provider"
+                    value={form.provider}
+                    onChange={(event) => setForm((current) => ({ ...current, provider: event.target.value }))}
+                  />
+                  <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+                    <TextInput
+                      label="Provider customer ID"
+                      value={form.providerCustomerId}
+                      onChange={(event) => setForm((current) => ({ ...current, providerCustomerId: event.target.value }))}
+                    />
+                    <TextInput
+                      label="Provider subscription ID"
+                      value={form.providerSubscriptionId}
+                      onChange={(event) => setForm((current) => ({ ...current, providerSubscriptionId: event.target.value }))}
+                    />
+                  </SimpleGrid>
+                  <TextInput
+                    label="Provider checkout session ID"
+                    value={form.providerCheckoutSessionId}
+                    onChange={(event) => setForm((current) => ({ ...current, providerCheckoutSessionId: event.target.value }))}
+                  />
+                </Stack>
+              </Card>
+            </SimpleGrid>
+
+            <Group justify="space-between" align="center" className="subscription-editor__footer">
+              <Text c="dimmed" size="sm">
+                {editingSubscriptionId ? "Update the existing record and return to the table." : "Saved records will appear in the list below after creation."}
+              </Text>
+              <Group gap="sm">
+                <Button variant="default" onClick={() => setEditorOpen(false)}>
+                  Cancel
+                </Button>
+                <Button className="subscription-editor__submit" type="submit">
+                  {editingSubscriptionId ? "Save changes" : "Add subscription"}
+                </Button>
+              </Group>
+            </Group>
+          </Stack>
+        </form>
+      </Modal>
+      <ConfirmActionModal
+        opened={Boolean(confirmAction)}
+        title={confirmAction?.title || ""}
+        description={confirmAction?.description || ""}
+        confirmLabel={confirmAction?.confirmLabel || "Confirm"}
+        confirmColor={confirmAction?.confirmColor || "red"}
+        loading={confirmBusy}
+        onClose={() => {
+          if (!confirmBusy) {
+            setConfirmAction(null);
+          }
+        }}
+        onConfirm={async () => {
+          const action = confirmAction;
+          if (!action || confirmBusy) {
+            return;
+          }
+
+          setConfirmBusy(true);
+          try {
+            await action.onConfirm();
+            setConfirmAction(null);
+          } catch (error) {
+            notifications.show({
+              color: "red",
+              title: "Subscription removal failed",
+              message: error instanceof Error ? error.message : "Unable to remove the subscription."
+            });
+          } finally {
+            setConfirmBusy(false);
+          }
+        }}
+      />
+    </Stack>
+  );
 }
 
 function PortalApp({
@@ -504,15 +917,10 @@ function PortalApp({
               <Route path="/queue-fees" element={<QueueFeesPage token={token} />} />
               <Route path="/plans" element={<PlansPage token={token} />} />
               <Route path="/settings" element={<SettingsPage token={token} />} />
-              <Route path="/join-payments" element={<RecordsPage token={token} endpoint="/platform/queue-join-payments" emptyLabel="No join payments." columns={[
-                { key: "tenantName", label: "Tenant" }, { key: "planSlug", label: "Plan" }, { key: "status", label: "Status", render: (row) => <StatusBadge value={row.status} /> }, { key: "amountCents", label: "Amount", render: (row) => formatPhp(Number(row.amountCents || 0)) }, { key: "createdAt", label: "Created", render: (row) => formatDate(row.createdAt) }
-              ]} />} />
               <Route path="/tenants" element={<RecordsPage token={token} endpoint="/platform/tenants" emptyLabel="No tenants." columns={[
                 { key: "name", label: "Tenant" }, { key: "slug", label: "Slug" }, { key: "planSlug", label: "Plan" }, { key: "ticketCount", label: "Tickets" }, { key: "createdAt", label: "Created", render: (row) => formatDate(row.createdAt) }
               ]} />} />
-              <Route path="/subscriptions" element={<RecordsPage token={token} endpoint="/platform/subscriptions" emptyLabel="No subscriptions." columns={[
-                { key: "tenantName", label: "Tenant" }, { key: "planSlug", label: "Plan" }, { key: "status", label: "Status", render: (row) => <StatusBadge value={row.status} /> }, { key: "provider", label: "Provider" }, { key: "currentPeriodEnd", label: "Renews", render: (row) => formatDate(row.currentPeriodEnd) }
-              ]} />} />
+              <Route path="/subscriptions" element={<SubscriptionsPage token={token} />} />
               <Route path="/users" element={<RecordsPage token={token} endpoint="/platform/users" emptyLabel="No users." columns={[
                 { key: "name", label: "Name" }, { key: "email", label: "Email" }, { key: "roles", label: "Roles", render: (row) => (row.roles as string[] || []).join(", ") }, { key: "createdAt", label: "Created", render: (row) => formatDate(row.createdAt) }
               ]} />} />

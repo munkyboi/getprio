@@ -13,6 +13,7 @@ import type {
   SubmitBookingPaymentProofRequest
 } from "@shared";
 import { API_BASE_URL, apiRequest } from "../api/client";
+import { ConfirmActionModal } from "../components/ConfirmActionModal";
 import { useAuth } from "../context/AuthContext";
 import { buildJoinedQueuePathWithTicket } from "../queuePaths";
 import {
@@ -83,6 +84,7 @@ export default function CustomerBookingDetailPage() {
   const [proofBusy, setProofBusy] = useState(false);
   const [proofViewBusy, setProofViewBusy] = useState(false);
   const [error, setError] = useState("");
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
 
   const loadBooking = useCallback(async (options: { showLoading?: boolean } = {}) => {
     if (!token || !bookingId) {
@@ -525,12 +527,25 @@ export default function CustomerBookingDetailPage() {
               onChange={(event) => setReason(event.currentTarget.value)}
               value={reason}
             />
-            <Button color="red" disabled={busy} onClick={handleCancel} w="fit-content">
+            <Button color="red" disabled={busy} onClick={() => setCancelConfirmOpen(true)} w="fit-content">
               {busy ? "Cancelling..." : "Cancel booking"}
             </Button>
           </Stack>
         </Card>
       ) : null}
+      <ConfirmActionModal
+        opened={cancelConfirmOpen}
+        title="Cancel booking?"
+        description="This will cancel the booking immediately. The customer will need to make a new booking if they still want the service."
+        confirmLabel="Yes, cancel booking"
+        confirmColor="red"
+        loading={busy}
+        onClose={() => setCancelConfirmOpen(false)}
+        onConfirm={async () => {
+          setCancelConfirmOpen(false);
+          await handleCancel();
+        }}
+      />
     </Stack>
   );
 }

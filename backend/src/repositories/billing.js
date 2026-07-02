@@ -10,6 +10,7 @@ function mapSubscription(row) {
   }
 
   return {
+    id: String(row.id),
     _id: String(row.id),
     tenantId: String(row.tenant_id),
     planSlug: row.plan_slug,
@@ -25,6 +26,13 @@ function mapSubscription(row) {
     metadata: row.metadata || {},
     createdAt: row.created_at,
     updatedAt: row.updated_at
+  };
+}
+
+function parseSubscriptionTimestamps(data = {}) {
+  return {
+    currentPeriodStart: data.currentPeriodStart || null,
+    currentPeriodEnd: data.currentPeriodEnd || null
   };
 }
 
@@ -278,6 +286,127 @@ async function activateTenantSubscription(data, options = {}) {
   return mapSubscription(result.rows[0]);
 }
 
+async function listSubscriptions(options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const limit = Math.min(Number(options.limit || 100), 250);
+  const result = await queryClient.query(
+    `
+      SELECT
+        tenant_subscriptions.*,
+        tenants.name AS tenant_name,
+        tenants.slug AS tenant_slug
+      FROM tenant_subscriptions
+      INNER JOIN tenants ON tenants.id = tenant_subscriptions.tenant_id
+      ORDER BY updated_at DESC
+      LIMIT $1
+    `,
+    [limit]
+  );
+
+  return result.rows.map((row) => ({
+    ...mapSubscription(row),
+    tenantName: row.tenant_name,
+    tenantSlug: row.tenant_slug
+  }));
+}
+
+async function createTenantSubscription(data, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const timestamps = parseSubscriptionTimestamps(data);
+  const result = await queryClient.query(
+    `
+      INSERT INTO tenant_subscriptions (
+        tenant_id,
+        plan_slug,
+        status,
+        provider,
+        provider_customer_id,
+        provider_subscription_id,
+        provider_checkout_session_id,
+        billing_interval,
+        current_period_start,
+        current_period_end,
+        entitlements,
+        metadata
+      )
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+      RETURNING *
+    `,
+    [
+      Number(data.tenantId),
+      data.planSlug,
+      data.status || "unpaid",
+      data.provider || "manual",
+      data.providerCustomerId || null,
+      data.providerSubscriptionId || null,
+      data.providerCheckoutSessionId || null,
+      data.billingInterval || "monthly",
+      timestamps.currentPeriodStart,
+      timestamps.currentPeriodEnd,
+      JSON.stringify(data.entitlements || {}),
+      JSON.stringify(data.metadata || {})
+    ]
+  );
+
+  return mapSubscription(result.rows[0]);
+}
+
+async function updateTenantSubscription(subscriptionId, changes, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const result = await queryClient.query(
+    `
+      UPDATE tenant_subscriptions
+      SET
+        tenant_id = COALESCE($2, tenant_id),
+        plan_slug = COALESCE($3, plan_slug),
+        status = COALESCE($4, status),
+        provider = COALESCE($5, provider),
+        provider_customer_id = $6,
+        provider_subscription_id = $7,
+        provider_checkout_session_id = $8,
+        billing_interval = COALESCE($9, billing_interval),
+        current_period_start = $10,
+        current_period_end = $11,
+        entitlements = COALESCE($12, entitlements),
+        metadata = COALESCE($13, metadata),
+        updated_at = NOW()
+      WHERE id = $1
+      RETURNING *
+    `,
+    [
+      Number(subscriptionId),
+      changes.tenantId ? Number(changes.tenantId) : null,
+      changes.planSlug || null,
+      changes.status || null,
+      changes.provider || null,
+      changes.providerCustomerId ?? null,
+      changes.providerSubscriptionId ?? null,
+      changes.providerCheckoutSessionId ?? null,
+      changes.billingInterval || null,
+      changes.currentPeriodStart ?? null,
+      changes.currentPeriodEnd ?? null,
+      changes.entitlements ? JSON.stringify(changes.entitlements) : null,
+      changes.metadata ? JSON.stringify(changes.metadata) : null
+    ]
+  );
+
+  return mapSubscription(result.rows[0]);
+}
+
+async function deleteTenantSubscription(subscriptionId, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const result = await queryClient.query(
+    `
+      DELETE FROM tenant_subscriptions
+      WHERE id = $1
+      RETURNING *
+    `,
+    [Number(subscriptionId)]
+  );
+
+  return mapSubscription(result.rows[0]);
+}
+
 module.exports = {
   getActiveSubscriptionByTenantId,
   createCheckoutSession,
@@ -286,5 +415,9 @@ module.exports = {
   findCheckoutSessionById,
   markCheckoutSessionPaid,
   recordBillingEvent,
-  activateTenantSubscription
+  activateTenantSubscription,
+  listSubscriptions,
+  createTenantSubscription,
+  updateTenantSubscription,
+  deleteTenantSubscription
 };

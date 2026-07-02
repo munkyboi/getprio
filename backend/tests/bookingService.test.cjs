@@ -354,6 +354,70 @@ test("booking slots apply unavailable exceptions before available exception wind
   ]);
 });
 
+test("booking creation rejects a blocked availability exception even when the stored date is a Date object", async () => {
+  const bookingService = buildBookingService({
+    getVerifiedBookingPayload: async () => ({
+      otpId: "booking-otp-1",
+      contactVerifiedAt: "2026-07-23T00:30:00.000Z",
+      contactVerificationChannel: "email",
+      payload: {
+        tenantSlug: "demo",
+        locationSlug: "main",
+        serviceSlug: "consultation",
+        scheduledStartAt: "2026-07-23T05:00:00.000Z",
+        bookingQuantity: 1,
+        customerName: "Customer One",
+        customerEmail: "customer@example.com",
+        customerPhone: "09171234567",
+        notifyBySms: false,
+        notes: ""
+      }
+    }),
+    availability: {
+      blocks: [
+        {
+          _id: "block-1",
+          serviceId: null,
+          weekday: 4,
+          startsAt: "09:00",
+          endsAt: "17:00",
+          capacity: 2,
+          isActive: true
+        }
+      ],
+      exceptions: [
+        {
+          serviceId: null,
+          exceptionDate: new Date("2026-07-23T00:00:00.000Z"),
+          startsAt: "13:00",
+          endsAt: "15:00",
+          isAvailable: false,
+          capacity: null
+        }
+      ]
+    }
+  });
+
+  await assert.rejects(
+    () =>
+      bookingService.createCustomerBooking({
+        user: { _id: "user-1", email: "customer@example.com", name: "Customer One" },
+        body: {
+          tenantSlug: "demo",
+          locationSlug: "main",
+          serviceSlug: "consultation",
+          scheduledStartAt: "2026-07-23T05:00:00.000Z",
+          bookingQuantity: 1,
+          customerName: "Customer One",
+          customerEmail: "customer@example.com",
+          customerPhone: "09171234567",
+          bookingVerificationToken: "token"
+        }
+      }),
+    (error) => error.statusCode === 409 && /not available for booking/i.test(error.message)
+  );
+});
+
 test("booking slots fall back to store hours when no booking availability exists", async () => {
   const bookingService = buildBookingService({
     availability: {

@@ -705,7 +705,7 @@ CREATE TABLE tenant_subscriptions (
   tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   plan_slug TEXT NOT NULL CHECK (plan_slug IN ('economical', 'pro', 'enterprise')),
   status TEXT NOT NULL DEFAULT 'unpaid' CHECK (
-    status IN ('active', 'unpaid', 'past_due', 'canceled', 'expired')
+    status IN ('active', 'unpaid', 'past_due', 'suspended', 'canceled', 'expired')
   ),
   provider TEXT NOT NULL DEFAULT 'manual',
   provider_customer_id TEXT,

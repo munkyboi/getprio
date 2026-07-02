@@ -2768,6 +2768,263 @@ h2 {
   border: 1px solid #e5e9f0;
 }
 
+.neura-bookings-table {
+  min-width: 1240px;
+}
+
+.neura-bookings-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: #f8fafc;
+  color: #1f2937;
+}
+
+.neura-bookings-table tbody td {
+  background: #ffffff;
+  white-space: nowrap;
+  color: #1f2937;
+}
+
+.neura-bookings-table tbody tr:nth-of-type(even) td {
+  background: #f8fafc;
+}
+
+.neura-bookings-table tbody tr:hover td {
+  background: #f1f5f9;
+}
+
+.neura-bookings-table__sticky {
+  position: sticky;
+  z-index: 2;
+  background: #ffffff;
+}
+
+.neura-bookings-table__sticky-first {
+  left: 0;
+  box-shadow: 10px 0 18px rgba(0, 0, 0, 0.08);
+}
+
+.neura-bookings-table__sticky-last {
+  right: 0;
+  box-shadow: -10px 0 18px rgba(0, 0, 0, 0.08);
+}
+
+.neura-bookings-table tbody .neura-bookings-table__sticky {
+  background-clip: padding-box;
+}
+
+.neura-bookings-table tbody tr:nth-of-type(even) .neura-bookings-table__sticky {
+  background: #f8fafc;
+}
+
+.neura-bookings-table tbody tr:hover .neura-bookings-table__sticky {
+  background: #f1f5f9;
+}
+
+.neura-services-table {
+  min-width: 900px;
+}
+
+.neura-services-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: #f8fafc;
+  color: #1f2937;
+}
+
+.neura-services-table tbody td {
+  background: #ffffff;
+  white-space: nowrap;
+  color: #1f2937;
+}
+
+.neura-services-table tbody tr:nth-of-type(even) td {
+  background: #f8fafc;
+}
+
+.neura-services-table tbody tr:hover td {
+  background: #f1f5f9;
+}
+
+.neura-services-table__sticky {
+  position: sticky;
+  z-index: 2;
+  background: #ffffff;
+}
+
+.neura-services-table__sticky-first {
+  left: 0;
+  box-shadow: 10px 0 18px rgba(0, 0, 0, 0.06);
+}
+
+.neura-services-table__sticky-last {
+  right: 0;
+  box-shadow: -10px 0 18px rgba(0, 0, 0, 0.06);
+}
+
+.neura-services-table tbody .neura-services-table__sticky {
+  background-clip: padding-box;
+}
+
+.neura-services-table tbody tr:nth-of-type(even) .neura-services-table__sticky {
+  background: #f8fafc;
+}
+
+.neura-services-table tbody tr:hover .neura-services-table__sticky {
+  background: #f1f5f9;
+}
+
+.neura-availability-table {
+  min-width: 900px;
+}
+
+.neura-availability-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: #f8fafc;
+  color: #1f2937;
+}
+
+.neura-availability-table tbody td {
+  background: #ffffff;
+  white-space: nowrap;
+  color: #1f2937;
+}
+
+.neura-availability-table tbody tr:nth-of-type(even) td {
+  background: #f8fafc;
+}
+
+.neura-availability-table tbody tr:hover td {
+  background: #f1f5f9;
+}
+
+.neura-availability-table__sticky {
+  position: sticky;
+  z-index: 2;
+  background: #ffffff;
+}
+
+.neura-availability-table__sticky-first {
+  left: 0;
+  box-shadow: 10px 0 18px rgba(0, 0, 0, 0.06);
+}
+
+.neura-availability-table__sticky-last {
+  right: 0;
+  box-shadow: -10px 0 18px rgba(0, 0, 0, 0.06);
+}
+
+.neura-availability-table tbody .neura-availability-table__sticky {
+  background-clip: padding-box;
+}
+
+.neura-availability-table tbody tr:nth-of-type(even) .neura-availability-table__sticky {
+  background: #f8fafc;
+}
+
+.neura-availability-table tbody tr:hover .neura-availability-table__sticky {
+  background: #f1f5f9;
+}
+
+.neura-exceptions-table {
+  min-width: 920px;
+}
+
+.neura-exceptions-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: #f8fafc;
+  color: #1f2937;
+}
+
+.neura-exceptions-table tbody td {
+  background: #ffffff;
+  white-space: nowrap;
+  color: #1f2937;
+}
+
+.neura-exceptions-table tbody tr:nth-of-type(even) td {
+  background: #f8fafc;
+}
+
+.neura-exceptions-table tbody tr:hover td {
+  background: #f1f5f9;
+}
+
+.neura-exceptions-table__sticky {
+  position: sticky;
+  z-index: 2;
+  background: #ffffff;
+}
+
+.neura-exceptions-table__sticky-first {
+  left: 0;
+  box-shadow: 10px 0 18px rgba(0, 0, 0, 0.06);
+}
+
+.neura-exceptions-table__sticky-last {
+  right: 0;
+  box-shadow: -10px 0 18px rgba(0, 0, 0, 0.06);
+}
+
+.neura-exceptions-table tbody .neura-exceptions-table__sticky {
+  background-clip: padding-box;
+}
+
+.neura-exceptions-table tbody tr:nth-of-type(even) .neura-exceptions-table__sticky {
+  background: #f8fafc;
+}
+
+.neura-exceptions-table tbody tr:hover .neura-exceptions-table__sticky {
+  background: #f1f5f9;
+}
+
+.neura-bookings-table tbody td,
+.neura-bookings-table thead th {
+  border-color: #e2e8f0;
+}
+
+.service-dialog__header {
+  padding-bottom: 0.25rem;
+}
+
+.service-dialog__modal-eyebrow {
+  color: #bb4d00;
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.service-dialog__modal-title {
+  color: #1f2937;
+  font-size: 1.15rem;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.service-dialog__panel {
+  background: #ffffff;
+  border-color: #e2e8f0;
+}
+
+.service-dialog__label {
+  color: #bb4d00;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.service-dialog__footer {
+  padding-top: 0.25rem;
+}
+
 @media (max-width: 1180px) {
   .neura-shell {
     grid-template-columns: 1fr;

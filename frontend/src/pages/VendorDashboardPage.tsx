@@ -44,6 +44,7 @@ import {
   IconCalendar,
   IconCalendarCheck,
   IconChevronRight,
+  IconAlertTriangle,
   IconClipboardList,
   IconCheck,
   IconExternalLink,
@@ -52,7 +53,10 @@ import {
   IconInfoCircle,
   IconLogout,
   IconMenu2,
+  IconPencil,
   IconQrcode,
+  IconTrash,
+  IconX,
   IconSettings,
   IconUsersGroup
 } from "@tabler/icons-react";
@@ -98,6 +102,7 @@ import * as vendorDashboardBilling from "../api/vendorDashboardBilling";
 import * as vendorDashboardBootstrap from "../api/vendorDashboardBootstrap";
 import * as vendorDashboardExport from "../api/vendorDashboardExport";
 import { useAuth } from "../context/AuthContext";
+import { ConfirmActionModal } from "../components/ConfirmActionModal";
 import { shouldEnableVendorDashboardBootstrap } from "../lib/vendorDashboardBootstrap";
 import { buildJoinUrl, buildMonitorUrl } from "../queuePaths";
 import {
@@ -112,6 +117,28 @@ import { getErrorMessage } from "../utils/errors";
 
 const dashboardSections = new Set(["queue", "tenants", "services", "bookings", "staff", "clients", "history", "reports", "settings"]);
 const SERVICE_TREND_USER_LIMIT = 30;
+
+function IconActionButton({
+  label,
+  color = "gray",
+  onClick,
+  children,
+  disabled = false
+}: {
+  label: string;
+  color?: string;
+  onClick: () => void;
+  children: React.ReactNode;
+  disabled?: boolean;
+}) {
+  return (
+    <Tooltip label={label} withArrow>
+      <ActionIcon aria-label={label} color={color} disabled={disabled} onClick={onClick} variant="light">
+        {children}
+      </ActionIcon>
+    </Tooltip>
+  );
+}
 
 const emptyWalkIn: CreateWalkInTicketRequest = {
   customerName: "",
@@ -578,12 +605,14 @@ export default function VendorDashboardPage() {
   const [serviceDialogOpen, setServiceDialogOpen] = useState(false);
   const [editingServiceSlug, setEditingServiceSlug] = useState("");
   const [serviceForm, setServiceForm] = useState<SaveVendorServiceRequest>(emptyServiceForm);
+  const [servicesTab, setServicesTab] = useState<"catalog" | "weekly" | "exceptions">("catalog");
   const [availabilityBlockDialogOpen, setAvailabilityBlockDialogOpen] = useState(false);
   const [editingAvailabilityBlockId, setEditingAvailabilityBlockId] = useState("");
   const [availabilityBlockForm, setAvailabilityBlockForm] = useState<SaveVendorAvailabilityBlockRequest>(emptyAvailabilityBlockForm);
   const [availabilityExceptionDialogOpen, setAvailabilityExceptionDialogOpen] = useState(false);
   const [editingAvailabilityExceptionId, setEditingAvailabilityExceptionId] = useState("");
   const [availabilityExceptionForm, setAvailabilityExceptionForm] = useState<SaveVendorAvailabilityExceptionRequest>(emptyAvailabilityExceptionForm);
+  const [availabilityExceptionBlockEntireDay, setAvailabilityExceptionBlockEntireDay] = useState(false);
   const [settings, setSettings] = useState<UpdateTenantSettingsRequest>(defaultSettings);
   const [vendorNotificationSettings, setVendorNotificationSettings] = useState<TenantNotificationSettings>(defaultNotificationSettings);
   const [browserPermission, setBrowserPermission] = useState<NotificationPermission>(
@@ -614,6 +643,13 @@ export default function VendorDashboardPage() {
   const [bookingDetailBooking, setBookingDetailBooking] = useState<VendorBookingSummary | null>(null);
   const [bookingDetailError, setBookingDetailError] = useState("");
   const [paymentRejectionReason, setPaymentRejectionReason] = useState("");
+  const [confirmAction, setConfirmAction] = useState<null | {
+    title: string;
+    description: string;
+    confirmLabel: string;
+    confirmColor?: "red" | "orange" | "blue" | "dark";
+    onConfirm: () => Promise<void>;
+  }>(null);
   const [error, setError] = useState("");
   const [busyAction, setBusyAction] = useState("");
   const [planDialogOpen, setPlanDialogOpen] = useState(false);
@@ -673,6 +709,7 @@ export default function VendorDashboardPage() {
   const canExportHistory = isOwner || isAdmin;
   const canAdminBookings = isOwner || isAdmin;
   const canOperateBookingQueue = Boolean(selectedTenantRole);
+  const confirmBusy = Boolean(confirmAction && busyAction);
   const visibleNavItems = isOwner
     ? navItems
     : isAdmin
@@ -1990,17 +2027,15 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     }
   }
 
-  async function handleDeactivateService(service: VendorServiceSummary) {
+  async function handleDeleteService(service: VendorServiceSummary) {
     setBusyAction(`service-delete:${service.slug}`);
     setError("");
 
     try {
-      const response = await vendorDashboardCatalog.deactivateService(token, selectedTenantSlug, service.slug);
-      setServices((current) =>
-        current.map((item) => (item.id === response.service.id ? response.service : item))
-      );
+      await vendorDashboardCatalog.deactivateService(token, selectedTenantSlug, service.slug);
+      setServices((current) => current.filter((item) => item.slug !== service.slug));
       await reloadBookings();
-      showSuccessNotification("Service disabled", `${service.name} is no longer active.`);
+      showSuccessNotification("Service deleted", `${service.name} was removed from the catalog.`);
     } catch (deleteError) {
       setError(getErrorMessage(deleteError));
     } finally {
@@ -2056,17 +2091,78 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     }
   }
 
-  async function handleDisableAvailabilityBlock(block: VendorAvailabilityBlockSummary) {
-    setBusyAction(`availability-block-delete:${block.id}`);
+  async function handleToggleAvailabilityBlockActive(block: VendorAvailabilityBlockSummary, isActive: boolean) {
+    setBusyAction(`availability-block-status:${block.id}`);
     setError("");
 
     try {
-      const response = await vendorDashboardCatalog.deleteAvailabilityBlock(token, selectedTenantSlug, block.id);
+      const response = await vendorDashboardCatalog.saveAvailabilityBlock(token, selectedTenantSlug, block.id, {
+        locationSlug: selectedLocationSlug,
+        serviceSlug: block.serviceId ? serviceSlugById.get(block.serviceId) || "" : "",
+        weekday: block.weekday,
+        startsAt: block.startsAt,
+        endsAt: block.endsAt,
+        capacity: block.capacity,
+        isActive,
+        notes: block.notes
+      });
       setAvailabilityBlocks((current) =>
         current.map((item) => (item.id === response.block.id ? response.block : item))
       );
       await reloadBookings();
-      showSuccessNotification("Availability disabled", "The weekly rule is no longer active.");
+      showSuccessNotification(
+        isActive ? "Availability enabled" : "Availability disabled",
+        `${response.block.notes || "The weekly rule"} is now ${isActive ? "active" : "inactive"}.`
+      );
+    } catch (toggleError) {
+      setError(getErrorMessage(toggleError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function handleToggleAvailabilityExceptionActive(
+    exception: VendorAvailabilityExceptionSummary,
+    isAvailable: boolean
+  ) {
+    setBusyAction(`availability-exception-status:${exception.id}`);
+    setError("");
+
+    try {
+      const response = await vendorDashboardCatalog.saveAvailabilityException(token, selectedTenantSlug, exception.id, {
+        locationSlug: selectedLocationSlug,
+        serviceSlug: exception.serviceId ? serviceSlugById.get(exception.serviceId) || "" : "",
+        exceptionDate: formatDateInputValue(exception.exceptionDate),
+        startsAt: exception.startsAt,
+        endsAt: exception.endsAt,
+        isAvailable,
+        capacity: exception.capacity,
+        reason: exception.reason
+      });
+      setAvailabilityExceptions((current) =>
+        current.map((item) => (item.id === response.exception.id ? response.exception : item))
+      );
+      await reloadBookings();
+      showSuccessNotification(
+        isAvailable ? "Exception enabled" : "Exception blocked",
+        `${response.exception.reason || "The availability exception"} is now ${isAvailable ? "available" : "blocked"}.`
+      );
+    } catch (toggleError) {
+      setError(getErrorMessage(toggleError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function handleDeleteAvailabilityBlock(block: VendorAvailabilityBlockSummary) {
+    setBusyAction(`availability-block-delete:${block.id}`);
+    setError("");
+
+    try {
+      await vendorDashboardCatalog.deleteAvailabilityBlock(token, selectedTenantSlug, block.id);
+      setAvailabilityBlocks((current) => current.filter((item) => item.id !== block.id));
+      await reloadBookings();
+      showSuccessNotification("Weekly rule deleted", "The recurring availability rule was removed.");
     } catch (deleteError) {
       setError(getErrorMessage(deleteError));
     } finally {
@@ -2076,16 +2172,23 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   function openAvailabilityExceptionDialog(exception?: VendorAvailabilityExceptionSummary) {
     setEditingAvailabilityExceptionId(exception?.id || "");
+    const blockEntireDay = Boolean(
+      exception &&
+        !exception.isAvailable &&
+        !exception.startsAt &&
+        !exception.endsAt
+    );
     setAvailabilityExceptionForm({
       locationSlug: selectedLocationSlug,
       serviceSlug: exception?.serviceId ? serviceSlugById.get(exception.serviceId) || "" : "",
       exceptionDate: exception?.exceptionDate ? formatDateInputValue(exception.exceptionDate) : "",
-      startsAt: exception?.startsAt || "",
-      endsAt: exception?.endsAt || "",
+      startsAt: blockEntireDay ? "" : exception?.startsAt || "",
+      endsAt: blockEntireDay ? "" : exception?.endsAt || "",
       isAvailable: exception?.isAvailable ?? false,
       capacity: exception?.capacity ?? null,
       reason: exception?.reason || ""
     });
+    setAvailabilityExceptionBlockEntireDay(blockEntireDay);
     setAvailabilityExceptionDialogOpen(true);
   }
 
@@ -2095,8 +2198,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     setError("");
 
     try {
+      const startsAt = availabilityExceptionBlockEntireDay ? "" : availabilityExceptionForm.startsAt;
+      const endsAt = availabilityExceptionBlockEntireDay ? "" : availabilityExceptionForm.endsAt;
       const body = {
         ...availabilityExceptionForm,
+        startsAt,
+        endsAt,
         locationSlug: selectedLocationSlug
       };
       if (editingAvailabilityExceptionId) {
@@ -2221,6 +2328,14 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     await reloadStaff();
     await reloadBookings();
     showSuccessNotification("Staff removed", `${member.name} no longer has tenant access.`);
+  }
+
+  function openConfirmAction(action: NonNullable<typeof confirmAction>) {
+    setConfirmAction(action);
+  }
+
+  function closeConfirmAction() {
+    setConfirmAction(null);
   }
 
   async function handleToggleLocationActive(locationItem: StoreLocationWithHours, isActive: boolean) {
@@ -3821,7 +3936,22 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     <Button size="xs" variant="default" onClick={() => openCounterDialog(counter)}>
                       Edit
                     </Button>
-                    <Button color="red" size="xs" variant="light" onClick={() => handleDeleteCounter(counter)}>
+                    <Button
+                      color="red"
+                      size="xs"
+                      variant="light"
+                      onClick={() =>
+                        openConfirmAction({
+                          title: "Remove counter?",
+                          description: "This will permanently remove the counter from the location.",
+                          confirmLabel: "Remove counter",
+                          confirmColor: "red",
+                          onConfirm: async () => {
+                            await handleDeleteCounter(counter);
+                          }
+                        })
+                      }
+                    >
                       Remove
                     </Button>
                   </Group>
@@ -3847,132 +3977,186 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         centered
         opened={serviceDialogOpen}
         onClose={() => setServiceDialogOpen(false)}
-        size="lg"
-        title={editingServiceSlug ? "Edit service" : "Add service"}
+        size="xl"
+        title={
+          <Stack gap={2}>
+            <Text className="service-dialog__modal-eyebrow">{editingServiceSlug ? "EDIT" : "ADD"} SERVICE</Text>
+            <Text className="service-dialog__modal-title">
+              {serviceForm.name ? `Service: ${serviceForm.name}` : "Service: New service"}
+            </Text>
+          </Stack>
+        }
+        overlayProps={{ blur: 6, backgroundOpacity: 0.35 }}
+        scrollAreaComponent={ScrollArea.Autosize}
       >
         <form onSubmit={handleSaveService}>
-          <Stack gap="md">
-            <SimpleGrid cols={{ base: 1, md: 2 }}>
-              <TextInput
-                label="Service name"
-                required
-                value={serviceForm.name}
-                onChange={(event) =>
-                  setServiceForm((current) => ({ ...current, name: event.target.value }))
-                }
-              />
-              <TextInput
-                label="Slug"
-                value={serviceForm.slug || ""}
-                onChange={(event) =>
-                  setServiceForm((current) => ({ ...current, slug: event.target.value }))
-                }
-              />
-              <NumberInput
-                label="Duration"
-                min={5}
-                max={480}
-                required
-                suffix=" min"
-                value={serviceForm.durationMinutes}
-                onChange={(value) =>
-                  setServiceForm((current) => ({
-                    ...current,
-                    durationMinutes: Number(value) || 30
-                  }))
-                }
-              />
-              <Switch
-                checked={serviceForm.allowBookingQuantity === true}
-                label="Allow units"
-                onChange={(event) =>
-                  setServiceForm((current) => ({
-                    ...current,
-                    allowBookingQuantity: event.currentTarget.checked,
-                    bookingQuantityLabel: event.currentTarget.checked
-                      ? current.bookingQuantityLabel || "Units"
-                      : current.bookingQuantityLabel
-                  }))
-                }
-              />
-              {serviceForm.allowBookingQuantity ? (
-                <TextInput
-                  label="Unit label"
-                  maxLength={40}
-                  required
-                  value={serviceForm.bookingQuantityLabel || "Units"}
+          <Stack gap="lg">
+            <Group justify="space-between" align="flex-start" className="service-dialog__header">
+              <div>
+                <Text c="dimmed" size="sm">
+                  Configure booking details, pricing, and the service&apos;s availability state.
+                </Text>
+              </div>
+              <Badge variant="light" color="orange">
+                Vendor admin
+              </Badge>
+            </Group>
+
+            <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
+              <Card className="service-dialog__panel" withBorder radius="xl" p="md">
+                <Stack gap="md">
+                  <div>
+                    <Text className="service-dialog__label">Basics</Text>
+                    <Text fw={700}>Identity and timing</Text>
+                  </div>
+                  <TextInput
+                    label="Service name"
+                    required
+                    value={serviceForm.name}
+                    onChange={(event) =>
+                      setServiceForm((current) => ({ ...current, name: event.target.value }))
+                    }
+                  />
+                  <TextInput
+                    label="Slug"
+                    value={serviceForm.slug || ""}
+                    onChange={(event) =>
+                      setServiceForm((current) => ({ ...current, slug: event.target.value }))
+                    }
+                  />
+                  <NumberInput
+                    label="Duration"
+                    min={5}
+                    max={480}
+                    required
+                    suffix=" min"
+                    value={serviceForm.durationMinutes}
+                    onChange={(value) =>
+                      setServiceForm((current) => ({
+                        ...current,
+                        durationMinutes: Number(value) || 30
+                      }))
+                    }
+                  />
+                  <NumberInput
+                    label="Display order"
+                    value={serviceForm.sortOrder || 0}
+                    onChange={(value) =>
+                      setServiceForm((current) => ({ ...current, sortOrder: Number(value) || 0 }))
+                    }
+                  />
+                </Stack>
+              </Card>
+
+              <Card className="service-dialog__panel" withBorder radius="xl" p="md">
+                <Stack gap="md">
+                  <div>
+                    <Text className="service-dialog__label">Pricing</Text>
+                    <Text fw={700}>Payment and display rules</Text>
+                  </div>
+                  <NumberInput
+                    decimalScale={2}
+                    fixedDecimalScale
+                    label="Price"
+                    min={0}
+                    prefix="PHP "
+                    value={(serviceForm.priceAmountCents || 0) / 100}
+                    onChange={(value) =>
+                      setServiceForm((current) => ({
+                        ...current,
+                        priceAmountCents: Math.max(0, Math.round((Number(value) || 0) * 100))
+                      }))
+                    }
+                  />
+                  <TextInput
+                    label="Price display override"
+                    placeholder="Leave blank to auto-format"
+                    value={serviceForm.priceDisplay || ""}
+                    onChange={(event) =>
+                      setServiceForm((current) => ({ ...current, priceDisplay: event.target.value }))
+                    }
+                  />
+                  <Switch
+                    checked={serviceForm.manualPaymentRequired === true}
+                    label="Require manual payment"
+                    description="Customers must submit payment reference and proof before vendor confirmation."
+                    onChange={(event) =>
+                      setServiceForm((current) => ({
+                        ...current,
+                        manualPaymentRequired: event.currentTarget.checked
+                      }))
+                    }
+                  />
+                  <Switch
+                    checked={serviceForm.allowBookingQuantity === true}
+                    label="Allow units"
+                    onChange={(event) =>
+                      setServiceForm((current) => ({
+                        ...current,
+                        allowBookingQuantity: event.currentTarget.checked,
+                        bookingQuantityLabel: event.currentTarget.checked
+                          ? current.bookingQuantityLabel || "Units"
+                          : current.bookingQuantityLabel
+                      }))
+                    }
+                  />
+                  {serviceForm.allowBookingQuantity ? (
+                    <TextInput
+                      label="Unit label"
+                      maxLength={40}
+                      required
+                      value={serviceForm.bookingQuantityLabel || "Units"}
+                      onChange={(event) =>
+                        setServiceForm((current) => ({
+                          ...current,
+                          bookingQuantityLabel: event.target.value
+                        }))
+                      }
+                    />
+                  ) : null}
+                </Stack>
+              </Card>
+            </SimpleGrid>
+
+            <Card className="service-dialog__panel" withBorder radius="xl" p="md">
+              <Stack gap="md">
+                <div>
+                  <Text className="service-dialog__label">Notes</Text>
+                  <Text fw={700}>Description and activation</Text>
+                </div>
+                <Textarea
+                  autosize
+                  label="Description"
+                  minRows={4}
+                  value={serviceForm.description || ""}
                   onChange={(event) =>
-                    setServiceForm((current) => ({
-                      ...current,
-                      bookingQuantityLabel: event.target.value
-                    }))
+                    setServiceForm((current) => ({ ...current, description: event.target.value }))
                   }
                 />
-              ) : null}
-              <Switch
-                checked={serviceForm.manualPaymentRequired === true}
-                label="Require manual payment"
-                description="Customers must submit payment reference and proof before vendor confirmation."
-                onChange={(event) =>
-                  setServiceForm((current) => ({
-                    ...current,
-                    manualPaymentRequired: event.currentTarget.checked
-                  }))
-                }
-              />
-              <NumberInput
-                decimalScale={2}
-                fixedDecimalScale
-                label="Price"
-                min={0}
-                prefix="PHP "
-                value={(serviceForm.priceAmountCents || 0) / 100}
-                onChange={(value) =>
-                  setServiceForm((current) => ({
-                    ...current,
-                    priceAmountCents: Math.max(0, Math.round((Number(value) || 0) * 100))
-                  }))
-                }
-              />
-              <TextInput
-                label="Price display override"
-                placeholder="Leave blank to auto-format"
-                value={serviceForm.priceDisplay || ""}
-                onChange={(event) =>
-                  setServiceForm((current) => ({ ...current, priceDisplay: event.target.value }))
-                }
-              />
-              <NumberInput
-                label="Display order"
-                value={serviceForm.sortOrder || 0}
-                onChange={(value) =>
-                  setServiceForm((current) => ({ ...current, sortOrder: Number(value) || 0 }))
-                }
-              />
-            </SimpleGrid>
-            <Textarea
-              autosize
-              label="Description"
-              minRows={3}
-              value={serviceForm.description || ""}
-              onChange={(event) =>
-                setServiceForm((current) => ({ ...current, description: event.target.value }))
-              }
-            />
-            <Switch
-              checked={serviceForm.isActive !== false}
-              label="Active service"
-              onChange={(event) =>
-                setServiceForm((current) => ({ ...current, isActive: event.currentTarget.checked }))
-              }
-            />
-            <Group justify="flex-end">
-              <Button variant="default" onClick={() => setServiceDialogOpen(false)}>
-                Cancel
-              </Button>
-              <Button className="neura-primary-button" disabled={busyAction === "service-save"} type="submit">
-                {busyAction === "service-save" ? "Saving..." : "Save service"}
-              </Button>
+                <Switch
+                  checked={serviceForm.isActive !== false}
+                  label="Active service"
+                  onChange={(event) =>
+                    setServiceForm((current) => ({ ...current, isActive: event.currentTarget.checked }))
+                  }
+                />
+              </Stack>
+            </Card>
+
+            <Group justify="space-between" align="center" className="service-dialog__footer">
+              <Text c="dimmed" size="sm">
+                {editingServiceSlug
+                  ? "Update this service and keep the catalog ready for booking flows."
+                  : "Create the service before exposing it to customers and queue scheduling."}
+              </Text>
+              <Group gap="sm">
+                <Button variant="default" onClick={() => setServiceDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button className="neura-primary-button" disabled={busyAction === "service-save"} type="submit">
+                  {busyAction === "service-save" ? "Saving..." : "Save service"}
+                </Button>
+              </Group>
             </Group>
           </Stack>
         </form>
@@ -3986,84 +4170,141 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         centered
         opened={availabilityBlockDialogOpen}
         onClose={() => setAvailabilityBlockDialogOpen(false)}
-        size="lg"
-        title={editingAvailabilityBlockId ? "Edit weekly availability" : "Add weekly availability"}
+        size="xl"
+        title={
+          <Stack gap={2}>
+            <Text className="service-dialog__modal-eyebrow">WEEKLY AVAILABILITY</Text>
+            <Text className="service-dialog__modal-title">
+              {availabilityBlockForm.weekday
+                ? `Rule: ${weekdayOptions.find((day) => day.value === String(availabilityBlockForm.weekday))?.label || "New rule"}`
+                : "Rule: New availability"}
+            </Text>
+          </Stack>
+        }
+        overlayProps={{ blur: 6, backgroundOpacity: 0.35 }}
+        scrollAreaComponent={ScrollArea.Autosize}
       >
         <form onSubmit={handleSaveAvailabilityBlock}>
-          <Stack gap="md">
-            <SimpleGrid cols={{ base: 1, md: 2 }}>
-              <Select
-                data={weekdayOptions}
-                label="Day"
-                required
-                value={String(availabilityBlockForm.weekday)}
-                onChange={(value) =>
-                  setAvailabilityBlockForm((current) => ({ ...current, weekday: Number(value || 1) }))
-                }
-              />
-              <Select
-                data={serviceOptions}
-                label="Service"
-                value={availabilityBlockForm.serviceSlug || ""}
-                onChange={(value) =>
-                  setAvailabilityBlockForm((current) => ({ ...current, serviceSlug: value || "" }))
-                }
-              />
-              <TextInput
-                label="Starts"
-                required
-                type="time"
-                value={availabilityBlockForm.startsAt}
-                onChange={(event) =>
-                  setAvailabilityBlockForm((current) => ({ ...current, startsAt: event.target.value }))
-                }
-              />
-              <TextInput
-                label="Ends"
-                required
-                type="time"
-                value={availabilityBlockForm.endsAt}
-                onChange={(event) =>
-                  setAvailabilityBlockForm((current) => ({ ...current, endsAt: event.target.value }))
-                }
-              />
-              <NumberInput
-                label="Capacity"
-                min={1}
-                max={100}
-                value={availabilityBlockForm.capacity}
-                onChange={(value) =>
-                  setAvailabilityBlockForm((current) => ({ ...current, capacity: Number(value) || 1 }))
-                }
-              />
-              <Switch
-                checked={availabilityBlockForm.isActive !== false}
-                label="Active weekly rule"
-                mt="xl"
-                onChange={(event) =>
-                  setAvailabilityBlockForm((current) => ({
-                    ...current,
-                    isActive: event.currentTarget.checked
-                  }))
-                }
-              />
+          <Stack gap="lg">
+            <Group justify="space-between" align="flex-start" className="service-dialog__header">
+              <div>
+                <Text c="dimmed" size="sm">
+                  Define recurring weekly hours for a location, with optional service scoping and notes.
+                </Text>
+              </div>
+              <Badge variant="light" color="orange">
+                Vendor admin
+              </Badge>
+            </Group>
+
+            <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
+              <Card className="service-dialog__panel" withBorder radius="xl" p="md">
+                <Stack gap="md">
+                  <div>
+                    <Text className="service-dialog__label">Schedule</Text>
+                    <Text fw={700}>Day and time range</Text>
+                  </div>
+                  <Select
+                    data={weekdayOptions}
+                    label="Day"
+                    required
+                    value={String(availabilityBlockForm.weekday)}
+                    onChange={(value) =>
+                      setAvailabilityBlockForm((current) => ({ ...current, weekday: Number(value || 1) }))
+                    }
+                  />
+                  <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+                    <TextInput
+                      label="Starts"
+                      required
+                      type="time"
+                      value={availabilityBlockForm.startsAt}
+                      onChange={(event) =>
+                        setAvailabilityBlockForm((current) => ({ ...current, startsAt: event.target.value }))
+                      }
+                    />
+                    <TextInput
+                      label="Ends"
+                      required
+                      type="time"
+                      value={availabilityBlockForm.endsAt}
+                      onChange={(event) =>
+                        setAvailabilityBlockForm((current) => ({ ...current, endsAt: event.target.value }))
+                      }
+                    />
+                  </SimpleGrid>
+                  <NumberInput
+                    label="Capacity"
+                    min={1}
+                    max={100}
+                    value={availabilityBlockForm.capacity}
+                    onChange={(value) =>
+                      setAvailabilityBlockForm((current) => ({ ...current, capacity: Number(value) || 1 }))
+                    }
+                  />
+                </Stack>
+              </Card>
+
+              <Card className="service-dialog__panel" withBorder radius="xl" p="md">
+                <Stack gap="md">
+                  <div>
+                    <Text className="service-dialog__label">Scope</Text>
+                    <Text fw={700}>Service and state</Text>
+                  </div>
+                  <Select
+                    data={serviceOptions}
+                    label="Service"
+                    value={availabilityBlockForm.serviceSlug || ""}
+                    onChange={(value) =>
+                      setAvailabilityBlockForm((current) => ({ ...current, serviceSlug: value || "" }))
+                    }
+                  />
+                  <Switch
+                    checked={availabilityBlockForm.isActive !== false}
+                    label="Active weekly rule"
+                    onChange={(event) =>
+                      setAvailabilityBlockForm((current) => ({
+                        ...current,
+                        isActive: event.currentTarget.checked
+                      }))
+                    }
+                  />
+                </Stack>
+              </Card>
             </SimpleGrid>
-            <Textarea
-              autosize
-              label="Notes"
-              minRows={2}
-              value={availabilityBlockForm.notes || ""}
-              onChange={(event) =>
-                setAvailabilityBlockForm((current) => ({ ...current, notes: event.target.value }))
-              }
-            />
-            <Group justify="flex-end">
-              <Button variant="default" onClick={() => setAvailabilityBlockDialogOpen(false)}>
-                Cancel
-              </Button>
-              <Button className="neura-primary-button" disabled={busyAction === "availability-block-save"} type="submit">
-                {busyAction === "availability-block-save" ? "Saving..." : "Save availability"}
-              </Button>
+
+            <Card className="service-dialog__panel" withBorder radius="xl" p="md">
+              <Stack gap="md">
+                <div>
+                  <Text className="service-dialog__label">Notes</Text>
+                  <Text fw={700}>Internal guidance</Text>
+                </div>
+                <Textarea
+                  autosize
+                  label="Notes"
+                  minRows={3}
+                  value={availabilityBlockForm.notes || ""}
+                  onChange={(event) =>
+                    setAvailabilityBlockForm((current) => ({ ...current, notes: event.target.value }))
+                  }
+                />
+              </Stack>
+            </Card>
+
+            <Group justify="space-between" align="center" className="service-dialog__footer">
+              <Text c="dimmed" size="sm">
+                {editingAvailabilityBlockId
+                  ? "Update the weekly rule and keep the schedule aligned with the current location."
+                  : "Create the rule before exposing it in the weekly availability table."}
+              </Text>
+              <Group gap="sm">
+                <Button variant="default" onClick={() => setAvailabilityBlockDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button className="neura-primary-button" disabled={busyAction === "availability-block-save"} type="submit">
+                  {busyAction === "availability-block-save" ? "Saving..." : "Save availability"}
+                </Button>
+              </Group>
             </Group>
           </Stack>
         </form>
@@ -4077,90 +4318,187 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         centered
         opened={availabilityExceptionDialogOpen}
         onClose={() => setAvailabilityExceptionDialogOpen(false)}
-        size="lg"
-        title={editingAvailabilityExceptionId ? "Edit date exception" : "Add date exception"}
+        size="xl"
+        title={
+          <Stack gap={2}>
+            <Text className="service-dialog__modal-eyebrow">DATE EXCEPTION</Text>
+            <Text className="service-dialog__modal-title">
+              {availabilityExceptionForm.exceptionDate
+                ? `Exception: ${formatDate(availabilityExceptionForm.exceptionDate)}`
+                : "Exception: New exception"}
+            </Text>
+          </Stack>
+        }
+        overlayProps={{ blur: 6, backgroundOpacity: 0.35 }}
+        scrollAreaComponent={ScrollArea.Autosize}
       >
         <form onSubmit={handleSaveAvailabilityException}>
-          <Stack gap="md">
-            <SimpleGrid cols={{ base: 1, md: 2 }}>
-              <DatePickerInput
-                label="Date"
-                clearable={false}
-                leftSection={<IconCalendar size={16} />}
-                placeholder="Select date"
-                required
-                value={availabilityExceptionForm.exceptionDate || null}
-                onChange={(value) =>
-                  setAvailabilityExceptionForm((current) => ({
-                    ...current,
-                    exceptionDate: value || ""
-                  }))
-                }
-              />
-              <Select
-                data={serviceOptions}
-                label="Service"
-                value={availabilityExceptionForm.serviceSlug || ""}
-                onChange={(value) =>
-                  setAvailabilityExceptionForm((current) => ({ ...current, serviceSlug: value || "" }))
-                }
-              />
-              <TextInput
-                label="Starts"
-                type="time"
-                value={availabilityExceptionForm.startsAt || ""}
-                onChange={(event) =>
-                  setAvailabilityExceptionForm((current) => ({ ...current, startsAt: event.target.value }))
-                }
-              />
-              <TextInput
-                label="Ends"
-                type="time"
-                value={availabilityExceptionForm.endsAt || ""}
-                onChange={(event) =>
-                  setAvailabilityExceptionForm((current) => ({ ...current, endsAt: event.target.value }))
-                }
-              />
-              <NumberInput
-                label="Capacity override"
-                min={1}
-                max={100}
-                value={availabilityExceptionForm.capacity ?? undefined}
-                onChange={(value) =>
-                  setAvailabilityExceptionForm((current) => ({
-                    ...current,
-                    capacity: value === "" || value === null ? null : Number(value)
-                  }))
-                }
-              />
-              <Switch
-                checked={availabilityExceptionForm.isAvailable}
-                label="Make this date available"
-                mt="xl"
-                onChange={(event) =>
-                  setAvailabilityExceptionForm((current) => ({
-                    ...current,
-                    isAvailable: event.currentTarget.checked
-                  }))
-                }
-              />
+          <Stack gap="lg">
+            <Group justify="space-between" align="flex-start" className="service-dialog__header">
+              <div>
+                <Text c="dimmed" size="sm">
+                  Override recurring availability for a specific date with optional time and capacity changes.
+                </Text>
+              </div>
+              <Badge variant="light" color="orange">
+                Vendor admin
+              </Badge>
+            </Group>
+
+            <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
+              <Card className="service-dialog__panel" withBorder radius="xl" p="md">
+                <Stack gap="md">
+                  <div>
+                    <Text className="service-dialog__label">Schedule</Text>
+                    <Text fw={700}>Date and timing</Text>
+                  </div>
+                  <DatePickerInput
+                    label="Date"
+                    clearable={false}
+                    leftSection={<IconCalendar size={16} />}
+                    placeholder="Select date"
+                    required
+                    value={availabilityExceptionForm.exceptionDate || null}
+                    onChange={(value) =>
+                      setAvailabilityExceptionForm((current) => ({
+                        ...current,
+                        exceptionDate: value || ""
+                      }))
+                    }
+                  />
+                  <Checkbox
+                    checked={availabilityExceptionBlockEntireDay}
+                    label={
+                      <Group gap={6} align="center" wrap="nowrap">
+                        <Text span size="sm">
+                          Block entire day
+                        </Text>
+                        <Tooltip label="Marks the selected date as unavailable for every service and time slot." withArrow>
+                          <ActionIcon aria-label="Block entire day help" variant="subtle">
+                            <IconInfoCircle size={16} />
+                          </ActionIcon>
+                        </Tooltip>
+                      </Group>
+                    }
+                    onChange={(event) =>
+                      setAvailabilityExceptionBlockEntireDay(event.currentTarget.checked)
+                    }
+                  />
+                  <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+                    <div>
+                      <TextInput
+                        label="Starts"
+                        type="time"
+                        disabled={availabilityExceptionBlockEntireDay}
+                        value={availabilityExceptionForm.startsAt || ""}
+                        onChange={(event) =>
+                          setAvailabilityExceptionForm((current) => ({ ...current, startsAt: event.target.value }))
+                        }
+                      />
+                    </div>
+                    <div>
+                      <TextInput
+                        label="Ends"
+                        type="time"
+                        disabled={availabilityExceptionBlockEntireDay}
+                        value={availabilityExceptionForm.endsAt || ""}
+                        onChange={(event) =>
+                          setAvailabilityExceptionForm((current) => ({ ...current, endsAt: event.target.value }))
+                        }
+                      />
+                    </div>
+                  </SimpleGrid>
+                  <NumberInput
+                    label="Capacity override"
+                    min={1}
+                    max={100}
+                    labelProps={{
+                      children: (
+                        <Group gap={6} wrap="nowrap">
+                          <span>Capacity override</span>
+                          <Tooltip label="Overrides the normal capacity for this date or time window." withArrow>
+                            <ActionIcon aria-label="Capacity override help" variant="subtle">
+                              <IconInfoCircle size={16} />
+                            </ActionIcon>
+                          </Tooltip>
+                        </Group>
+                      )
+                    }}
+                    value={availabilityExceptionForm.capacity ?? undefined}
+                    onChange={(value) =>
+                      setAvailabilityExceptionForm((current) => ({
+                        ...current,
+                        capacity: value === "" || value === null ? null : Number(value)
+                      }))
+                    }
+                  />
+                </Stack>
+              </Card>
+
+              <Card className="service-dialog__panel" withBorder radius="xl" p="md">
+                <Stack gap="md">
+                  <div>
+                    <Text className="service-dialog__label">Scope</Text>
+                    <Text fw={700}>Service and availability</Text>
+                  </div>
+                  <Select
+                    data={serviceOptions}
+                    label="Service"
+                    value={availabilityExceptionForm.serviceSlug || ""}
+                    onChange={(value) =>
+                      setAvailabilityExceptionForm((current) => ({ ...current, serviceSlug: value || "" }))
+                    }
+                  />
+                  <Divider />
+                  <Text c="dimmed" size="sm">
+                    Choose whether this exception blocks availability or opens a specific date for booking.
+                  </Text>
+                  <Switch
+                    checked={availabilityExceptionForm.isAvailable}
+                    label="Allow bookings on this date"
+                    onChange={(event) =>
+                      setAvailabilityExceptionForm((current) => ({
+                        ...current,
+                        isAvailable: event.currentTarget.checked
+                      }))
+                    }
+                  />
+                </Stack>
+              </Card>
             </SimpleGrid>
-            <Textarea
-              autosize
-              label="Reason"
-              minRows={2}
-              value={availabilityExceptionForm.reason || ""}
-              onChange={(event) =>
-                setAvailabilityExceptionForm((current) => ({ ...current, reason: event.target.value }))
-              }
-            />
-            <Group justify="flex-end">
-              <Button variant="default" onClick={() => setAvailabilityExceptionDialogOpen(false)}>
-                Cancel
-              </Button>
-              <Button className="neura-primary-button" disabled={busyAction === "availability-exception-save"} type="submit">
-                {busyAction === "availability-exception-save" ? "Saving..." : "Save exception"}
-              </Button>
+
+            <Card className="service-dialog__panel" withBorder radius="xl" p="md">
+              <Stack gap="md">
+                <div>
+                  <Text className="service-dialog__label">Notes</Text>
+                  <Text fw={700}>Reason and context</Text>
+                </div>
+                <Textarea
+                  autosize
+                  label="Reason"
+                  minRows={3}
+                  value={availabilityExceptionForm.reason || ""}
+                  onChange={(event) =>
+                    setAvailabilityExceptionForm((current) => ({ ...current, reason: event.target.value }))
+                  }
+                />
+              </Stack>
+            </Card>
+
+            <Group justify="space-between" align="center" className="service-dialog__footer">
+              <Text c="dimmed" size="sm">
+                {editingAvailabilityExceptionId
+                  ? "Update the exception and keep the date-specific availability aligned."
+                  : "Create the exception before exposing it in the availability exceptions table."}
+              </Text>
+              <Group gap="sm">
+                <Button variant="default" onClick={() => setAvailabilityExceptionDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button className="neura-primary-button" disabled={busyAction === "availability-exception-save"} type="submit">
+                  {busyAction === "availability-exception-save" ? "Saving..." : "Save exception"}
+                </Button>
+              </Group>
             </Group>
           </Stack>
         </form>
@@ -4196,223 +4534,326 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         </SimpleGrid>
 
         <Card className="neura-card" padding="lg">
-          <Group justify="space-between" mb="md">
-            <div>
-              <Text className="neura-label">Vendor Admin</Text>
-              <Title order={3}>Service catalog</Title>
-            </div>
-            <Button className="neura-secondary-button" onClick={() => openServiceDialog()}>
-              New service
-            </Button>
-          </Group>
-          {services.length ? (
-            <Table.ScrollContainer minWidth={820}>
-              <Table verticalSpacing="sm">
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th>Service</Table.Th>
-                    <Table.Th>Duration</Table.Th>
-                    <Table.Th>Price</Table.Th>
-                    <Table.Th>Status</Table.Th>
-                    <Table.Th>Order</Table.Th>
-                    <Table.Th>Actions</Table.Th>
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  {services.map((service) => (
-                    <Table.Tr key={service.id}>
-                      <Table.Td>
-                        <Stack gap={2}>
-                          <Text fw={700}>{service.name}</Text>
-                          <Text c="dimmed" size="sm">{service.description || service.slug}</Text>
-                        </Stack>
-                      </Table.Td>
-                      <Table.Td>
-                        <Text>{service.durationMinutes} min</Text>
-                        {service.allowBookingQuantity ? (
-                          <Text c="dimmed" size="sm">{service.bookingQuantityLabel}</Text>
-                        ) : null}
-                        {service.manualPaymentRequired ? (
-                          <Badge color="yellow" variant="light">Manual payment</Badge>
-                        ) : null}
-                      </Table.Td>
-                      <Table.Td>{service.priceDisplay || `PHP ${(service.priceAmountCents / 100).toLocaleString()}`}</Table.Td>
-                      <Table.Td>
-                        <Badge color={service.isActive ? "teal" : "gray"} variant="light">
-                          {service.isActive ? "Active" : "Inactive"}
-                        </Badge>
-                      </Table.Td>
-                      <Table.Td>{service.sortOrder}</Table.Td>
-                      <Table.Td>
-                        <Group gap="xs" wrap="nowrap">
-                          <Button size="xs" variant="default" onClick={() => openServiceDialog(service)}>
-                            Edit
-                          </Button>
-                          <Switch
-                            checked={service.isActive}
-                            disabled={busyAction === `service-status:${service.slug}`}
-                            onChange={(event) =>
-                              handleToggleServiceActive(service, event.currentTarget.checked)
-                            }
-                          />
-                          {service.isActive ? (
-                            <Button
-                              color="red"
-                              disabled={busyAction === `service-delete:${service.slug}`}
-                              size="xs"
-                              variant="subtle"
-                              onClick={() => handleDeactivateService(service)}
-                            >
-                              Disable
-                            </Button>
-                          ) : null}
-                        </Group>
-                      </Table.Td>
-                    </Table.Tr>
-                  ))}
-                </Table.Tbody>
-              </Table>
-            </Table.ScrollContainer>
-          ) : (
-            <DashboardEmptyState
-              title="No services yet"
-              text="Add services before building availability and customer booking flows."
-            />
-          )}
-        </Card>
+          <Tabs value={servicesTab} onChange={(value) => setServicesTab((value as typeof servicesTab) || "catalog")}>
+            <Tabs.List>
+              <Tabs.Tab value="catalog">Service catalog</Tabs.Tab>
+              <Tabs.Tab value="weekly">Weekly availability</Tabs.Tab>
+              <Tabs.Tab value="exceptions">Availability exceptions</Tabs.Tab>
+            </Tabs.List>
 
-        <Card className="neura-card" padding="lg">
-          <Group justify="space-between" mb="md">
-            <div>
-              <Text className="neura-label">{selectedLocation?.name || "Selected location"}</Text>
-              <Title order={3}>Weekly availability</Title>
-            </div>
-            <Button className="neura-secondary-button" onClick={() => openAvailabilityBlockDialog()}>
-              Add weekly rule
-            </Button>
-          </Group>
-          {availabilityBlocks.length ? (
-            <Table.ScrollContainer minWidth={820}>
-              <Table verticalSpacing="sm">
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th>Day</Table.Th>
-                    <Table.Th>Time</Table.Th>
-                    <Table.Th>Service</Table.Th>
-                    <Table.Th>Capacity</Table.Th>
-                    <Table.Th>Status</Table.Th>
-                    <Table.Th>Actions</Table.Th>
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  {availabilityBlocks.map((block) => (
-                    <Table.Tr key={block.id}>
-                      <Table.Td>{weekdayOptions.find((day) => day.value === String(block.weekday))?.label}</Table.Td>
-                      <Table.Td>{block.startsAt} - {block.endsAt}</Table.Td>
-                      <Table.Td>{getServiceLabel(block.serviceId)}</Table.Td>
-                      <Table.Td>{block.capacity}</Table.Td>
-                      <Table.Td>
-                        <Badge color={block.isActive ? "teal" : "gray"} variant="light">
-                          {block.isActive ? "Active" : "Inactive"}
-                        </Badge>
-                      </Table.Td>
-                      <Table.Td>
-                        <Group gap="xs" wrap="nowrap">
-                          <Button size="xs" variant="default" onClick={() => openAvailabilityBlockDialog(block)}>
-                            Edit
-                          </Button>
-                          {block.isActive ? (
-                            <Button
-                              color="red"
-                              disabled={busyAction === `availability-block-delete:${block.id}`}
-                              size="xs"
-                              variant="subtle"
-                              onClick={() => handleDisableAvailabilityBlock(block)}
+            <Tabs.Panel pt="lg" value="catalog">
+              <Stack gap="md">
+                <Group justify="space-between">
+                  <div>
+                    <Text className="neura-label">Vendor Admin</Text>
+                    <Title order={3}>Service catalog</Title>
+                  </div>
+                  <Button className="neura-secondary-button" onClick={() => openServiceDialog()}>
+                    New service
+                  </Button>
+                </Group>
+                {services.length ? (
+                  <Table.ScrollContainer minWidth={900}>
+                    <Table className="neura-services-table" verticalSpacing="sm">
+                      <Table.Thead>
+                        <Table.Tr>
+                          <Table.Th>Service</Table.Th>
+                          <Table.Th>Duration</Table.Th>
+                          <Table.Th>Price</Table.Th>
+                          <Table.Th>Status</Table.Th>
+                          <Table.Th>Order</Table.Th>
+                          <Table.Th style={{ width: 1, whiteSpace: "nowrap" }}>Actions</Table.Th>
+                        </Table.Tr>
+                      </Table.Thead>
+                      <Table.Tbody>
+                        {services.map((service) => (
+                          <Table.Tr key={service.id}>
+                            <Table.Td className="neura-services-table__sticky neura-services-table__sticky-first">
+                              <Stack gap={2}>
+                                <Text fw={700} c={service.isActive ? undefined : "dimmed"}>
+                                  {service.name}
+                                </Text>
+                                <Text c={service.isActive ? "dimmed" : "gray"} size="sm">
+                                  {service.description || service.slug}
+                                </Text>
+                              </Stack>
+                            </Table.Td>
+                            <Table.Td>
+                              <Text c={service.isActive ? undefined : "dimmed"}>{service.durationMinutes} min</Text>
+                              {service.allowBookingQuantity ? (
+                                <Text c={service.isActive ? "dimmed" : "gray"} size="sm">
+                                  {service.bookingQuantityLabel}
+                                </Text>
+                              ) : null}
+                              {service.manualPaymentRequired ? (
+                                <Badge color="yellow" variant="light">Manual payment</Badge>
+                              ) : null}
+                            </Table.Td>
+                            <Table.Td>
+                              <Text c={service.isActive ? undefined : "dimmed"}>
+                                {service.priceDisplay || `PHP ${(service.priceAmountCents / 100).toLocaleString()}`}
+                              </Text>
+                            </Table.Td>
+                            <Table.Td>
+                              <Badge color={service.isActive ? "teal" : "gray"} variant="light">
+                                {service.isActive ? "Active" : "Inactive"}
+                              </Badge>
+                            </Table.Td>
+                            <Table.Td>
+                              <Text c={service.isActive ? undefined : "dimmed"}>{service.sortOrder}</Text>
+                            </Table.Td>
+                            <Table.Td
+                              className="neura-services-table__sticky neura-services-table__sticky-last"
+                              style={{ width: 1, whiteSpace: "nowrap" }}
                             >
-                              Disable
-                            </Button>
-                          ) : null}
-                        </Group>
-                      </Table.Td>
-                    </Table.Tr>
-                  ))}
-                </Table.Tbody>
-              </Table>
-            </Table.ScrollContainer>
-          ) : (
-            <DashboardEmptyState
-              title="No weekly availability"
-              text="Add recurring bookable hours for this branch."
-            />
-          )}
-        </Card>
+                              <Group gap="xs" wrap="nowrap">
+                                <Tooltip label="Edit service" withArrow>
+                                  <ActionIcon aria-label="Edit service" onClick={() => openServiceDialog(service)} variant="light">
+                                    <IconPencil size={16} />
+                                  </ActionIcon>
+                                </Tooltip>
+                                <Switch
+                                  checked={service.isActive}
+                                  disabled={busyAction === `service-status:${service.slug}`}
+                                  onChange={(event) =>
+                                    handleToggleServiceActive(service, event.currentTarget.checked)
+                                  }
+                                />
+                                <Tooltip label="Delete service" withArrow>
+                                  <ActionIcon
+                                    aria-label="Delete service"
+                                    color="red"
+                                    variant="light"
+                                    disabled={busyAction === `service-delete:${service.slug}`}
+                                    onClick={() =>
+                                      openConfirmAction({
+                                        title: "Delete service?",
+                                        description: "This will permanently remove the service from the catalog.",
+                                        confirmLabel: "Delete service",
+                                        confirmColor: "red",
+                                        onConfirm: async () => {
+                                          await handleDeleteService(service);
+                                        }
+                                      })
+                                    }
+                                  >
+                                    <IconTrash size={16} />
+                                  </ActionIcon>
+                                </Tooltip>
+                              </Group>
+                            </Table.Td>
+                          </Table.Tr>
+                        ))}
+                      </Table.Tbody>
+                    </Table>
+                  </Table.ScrollContainer>
+                ) : (
+                  <DashboardEmptyState
+                    title="No services yet"
+                    text="Add services before building availability and customer booking flows."
+                  />
+                )}
+              </Stack>
+            </Tabs.Panel>
 
-        <Card className="neura-card" padding="lg">
-          <Group justify="space-between" mb="md">
-            <div>
-              <Text className="neura-label">Date overrides</Text>
-              <Title order={3}>Availability exceptions</Title>
-            </div>
-            <Button className="neura-secondary-button" onClick={() => openAvailabilityExceptionDialog()}>
-              Add exception
-            </Button>
-          </Group>
-          {availabilityExceptions.length ? (
-            <Table.ScrollContainer minWidth={820}>
-              <Table verticalSpacing="sm">
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th>Date</Table.Th>
-                    <Table.Th>Time</Table.Th>
-                    <Table.Th>Service</Table.Th>
-                    <Table.Th>Mode</Table.Th>
-                    <Table.Th>Reason</Table.Th>
-                    <Table.Th>Actions</Table.Th>
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  {availabilityExceptions.map((exception) => (
-                    <Table.Tr key={exception.id}>
-                      <Table.Td>{formatDate(exception.exceptionDate)}</Table.Td>
-                      <Table.Td>
-                        {exception.startsAt && exception.endsAt
-                          ? `${exception.startsAt} - ${exception.endsAt}`
-                          : "Full day"}
-                      </Table.Td>
-                      <Table.Td>{getServiceLabel(exception.serviceId)}</Table.Td>
-                      <Table.Td>
-                        <Badge color={exception.isAvailable ? "teal" : "red"} variant="light">
-                          {exception.isAvailable ? "Available" : "Blocked"}
-                        </Badge>
-                      </Table.Td>
-                      <Table.Td>{exception.reason || "-"}</Table.Td>
-                      <Table.Td>
-                        <Group gap="xs" wrap="nowrap">
-                          <Button size="xs" variant="default" onClick={() => openAvailabilityExceptionDialog(exception)}>
-                            Edit
-                          </Button>
-                          <Button
-                            color="red"
-                            disabled={busyAction === `availability-exception-delete:${exception.id}`}
-                            size="xs"
-                            variant="subtle"
-                            onClick={() => handleDeleteAvailabilityException(exception)}
-                          >
-                            Remove
-                          </Button>
-                        </Group>
-                      </Table.Td>
-                    </Table.Tr>
-                  ))}
-                </Table.Tbody>
-              </Table>
-            </Table.ScrollContainer>
-          ) : (
-            <DashboardEmptyState
-              title="No exceptions"
-              text="Add holidays, special hours, or one-off availability overrides."
-            />
-          )}
+            <Tabs.Panel pt="lg" value="weekly">
+              <Stack gap="md">
+                <Group justify="space-between">
+                  <div>
+                    <Text className="neura-label">{selectedLocation?.name || "Selected location"}</Text>
+                    <Title order={3}>Weekly availability</Title>
+                  </div>
+                  <Button className="neura-secondary-button" onClick={() => openAvailabilityBlockDialog()}>
+                    Add weekly rule
+                  </Button>
+                </Group>
+                {availabilityBlocks.length ? (
+                  <Table.ScrollContainer minWidth={900}>
+                    <Table className="neura-availability-table" verticalSpacing="sm">
+                      <Table.Thead>
+                        <Table.Tr>
+                          <Table.Th>Day</Table.Th>
+                          <Table.Th>Time</Table.Th>
+                          <Table.Th>Service</Table.Th>
+                          <Table.Th>Capacity</Table.Th>
+                          <Table.Th>Status</Table.Th>
+                          <Table.Th style={{ width: 1, whiteSpace: "nowrap" }}>Actions</Table.Th>
+                        </Table.Tr>
+                      </Table.Thead>
+                      <Table.Tbody>
+                        {availabilityBlocks.map((block) => (
+                          <Table.Tr key={block.id}>
+                            <Table.Td className="neura-availability-table__sticky neura-availability-table__sticky-first">
+                              <Text c={block.isActive ? undefined : "dimmed"}>
+                                {weekdayOptions.find((day) => day.value === String(block.weekday))?.label}
+                              </Text>
+                            </Table.Td>
+                            <Table.Td>
+                              <Text c={block.isActive ? undefined : "dimmed"}>{block.startsAt} - {block.endsAt}</Text>
+                            </Table.Td>
+                            <Table.Td>
+                              <Text c={block.isActive ? undefined : "dimmed"}>{getServiceLabel(block.serviceId)}</Text>
+                            </Table.Td>
+                            <Table.Td>
+                              <Text c={block.isActive ? undefined : "dimmed"}>{block.capacity}</Text>
+                            </Table.Td>
+                            <Table.Td>
+                              <Badge color={block.isActive ? "teal" : "gray"} variant="light">
+                                {block.isActive ? "Active" : "Inactive"}
+                              </Badge>
+                            </Table.Td>
+                            <Table.Td
+                              className="neura-availability-table__sticky neura-availability-table__sticky-last"
+                              style={{ width: 1, whiteSpace: "nowrap" }}
+                            >
+                              <Group gap="xs" wrap="nowrap">
+                                <Tooltip label="Edit weekly rule" withArrow>
+                                  <ActionIcon aria-label="Edit weekly rule" onClick={() => openAvailabilityBlockDialog(block)} variant="light">
+                                    <IconPencil size={16} />
+                                  </ActionIcon>
+                                </Tooltip>
+                                <Switch
+                                  checked={block.isActive}
+                                  disabled={busyAction === `availability-block-status:${block.id}`}
+                                  onChange={(event) => handleToggleAvailabilityBlockActive(block, event.currentTarget.checked)}
+                                />
+                                <Tooltip label="Delete weekly rule" withArrow>
+                                  <ActionIcon
+                                    aria-label="Delete weekly rule"
+                                    color="red"
+                                    variant="light"
+                                    disabled={busyAction === `availability-block-delete:${block.id}`}
+                                    onClick={() =>
+                                      openConfirmAction({
+                                        title: "Delete weekly rule?",
+                                        description: "This will permanently remove the recurring availability rule from the schedule.",
+                                        confirmLabel: "Delete rule",
+                                        confirmColor: "red",
+                                        onConfirm: async () => {
+                                          await handleDeleteAvailabilityBlock(block);
+                                        }
+                                      })
+                                    }
+                                  >
+                                    <IconTrash size={16} />
+                                  </ActionIcon>
+                                </Tooltip>
+                              </Group>
+                            </Table.Td>
+                          </Table.Tr>
+                        ))}
+                      </Table.Tbody>
+                    </Table>
+                  </Table.ScrollContainer>
+                ) : (
+                  <DashboardEmptyState
+                    title="No weekly availability"
+                    text="Add recurring bookable hours for this branch."
+                  />
+                )}
+              </Stack>
+            </Tabs.Panel>
+
+            <Tabs.Panel pt="lg" value="exceptions">
+              <Stack gap="md">
+                <Group justify="space-between">
+                  <div>
+                    <Text className="neura-label">Date overrides</Text>
+                    <Title order={3}>Availability exceptions</Title>
+                  </div>
+                  <Button className="neura-secondary-button" onClick={() => openAvailabilityExceptionDialog()}>
+                    Add exception
+                  </Button>
+                </Group>
+                {availabilityExceptions.length ? (
+                  <Table.ScrollContainer minWidth={820}>
+                    <Table className="neura-availability-table" verticalSpacing="sm">
+                      <Table.Thead>
+                        <Table.Tr>
+                          <Table.Th>Date</Table.Th>
+                          <Table.Th>Time</Table.Th>
+                          <Table.Th>Service</Table.Th>
+                          <Table.Th>Mode</Table.Th>
+                          <Table.Th>Reason</Table.Th>
+                          <Table.Th style={{ width: 1, whiteSpace: "nowrap" }}>Actions</Table.Th>
+                        </Table.Tr>
+                      </Table.Thead>
+                      <Table.Tbody>
+                        {availabilityExceptions.map((exception) => (
+                          <Table.Tr key={exception.id}>
+                            <Table.Td className="neura-availability-table__sticky neura-availability-table__sticky-first">
+                              <Text c={exception.isAvailable ? undefined : "dimmed"}>{formatDate(exception.exceptionDate)}</Text>
+                            </Table.Td>
+                            <Table.Td>
+                              <Text c={exception.isAvailable ? undefined : "dimmed"}>
+                                {exception.startsAt && exception.endsAt ? `${exception.startsAt} - ${exception.endsAt}` : "Full day"}
+                              </Text>
+                            </Table.Td>
+                            <Table.Td>
+                              <Text c={exception.isAvailable ? undefined : "dimmed"}>{getServiceLabel(exception.serviceId)}</Text>
+                            </Table.Td>
+                            <Table.Td>
+                              <Badge color={exception.isAvailable ? "teal" : "red"} variant="light">
+                                {exception.isAvailable ? "Available" : "Blocked"}
+                              </Badge>
+                            </Table.Td>
+                            <Table.Td>
+                              <Text c={exception.isAvailable ? undefined : "dimmed"}>{exception.reason || "-"}</Text>
+                            </Table.Td>
+                            <Table.Td
+                              className="neura-availability-table__sticky neura-availability-table__sticky-last"
+                              style={{ width: 1, whiteSpace: "nowrap" }}
+                            >
+                              <Group gap="xs" wrap="nowrap">
+                                <Tooltip label="Edit exception" withArrow>
+                                  <ActionIcon aria-label="Edit exception" onClick={() => openAvailabilityExceptionDialog(exception)} variant="light">
+                                    <IconPencil size={16} />
+                                  </ActionIcon>
+                                </Tooltip>
+                                <Switch
+                                  checked={exception.isAvailable}
+                                  disabled={busyAction === `availability-exception-status:${exception.id}`}
+                                  onChange={(event) =>
+                                    handleToggleAvailabilityExceptionActive(exception, event.currentTarget.checked)
+                                  }
+                                />
+                                <Tooltip label="Remove exception" withArrow>
+                                  <ActionIcon
+                                    aria-label="Remove exception"
+                                    color="red"
+                                    disabled={busyAction === `availability-exception-delete:${exception.id}`}
+                                    onClick={() =>
+                                      openConfirmAction({
+                                        title: "Delete availability exception?",
+                                        description: "This will permanently remove the exception from the schedule.",
+                                        confirmLabel: "Delete exception",
+                                        confirmColor: "red",
+                                        onConfirm: async () => {
+                                          await handleDeleteAvailabilityException(exception);
+                                        }
+                                      })
+                                    }
+                                    variant="light"
+                                  >
+                                    <IconTrash size={16} />
+                                  </ActionIcon>
+                                </Tooltip>
+                              </Group>
+                            </Table.Td>
+                          </Table.Tr>
+                        ))}
+                      </Table.Tbody>
+                    </Table>
+                  </Table.ScrollContainer>
+                ) : (
+                  <DashboardEmptyState
+                    title="No exceptions"
+                    text="Add holidays, special hours, or one-off availability overrides."
+                  />
+                )}
+              </Stack>
+            </Tabs.Panel>
+          </Tabs>
         </Card>
       </Stack>
     );
@@ -4497,8 +4938,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
             {filteredBookings.length ? (
               <>
-                <Table.ScrollContainer minWidth={1180}>
-                  <Table verticalSpacing="sm">
+                <Table.ScrollContainer minWidth={1240}>
+                  <Table className="neura-bookings-table" verticalSpacing="sm">
                     <Table.Thead>
                       <Table.Tr>
                         <Table.Th>Reference</Table.Th>
@@ -4594,31 +5035,81 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       const actionButtons = (() => {
                         if (canAdminBookings && paymentReviewPending && booking.paymentProof) {
                           return (
-                            <>
-                              <Button
-                                className="neura-primary-button"
-                                size="xs"
+                            <Group gap="xs" justify="flex-end" wrap="nowrap">
+                              <IconActionButton
+                                label="Review payment"
+                                color="blue"
                                 onClick={() => {
                                   setPaymentRejectionReason("");
                                   setBookingDetailModalId(booking.id);
                                   setBookingDetailOpen(true);
                                 }}
                               >
-                                Review payment
-                              </Button>
-                              <Button size="xs" variant="outline" onClick={() => openRescheduleDialog(booking)}>
-                                Reschedule
-                              </Button>
-                              <Button
-                                color="red"
-                                disabled={busyAction === `booking-status:${booking.id}:canceled`}
-                                size="xs"
-                                variant="subtle"
-                                onClick={() => handleUpdateBookingStatus(booking, "canceled")}
+                                <IconClipboardList size={16} />
+                              </IconActionButton>
+                              <IconActionButton
+                                label="Reschedule booking"
+                                color="orange"
+                                onClick={() => openRescheduleDialog(booking)}
                               >
-                                Cancel
-                              </Button>
-                            </>
+                                <IconCalendar size={16} />
+                              </IconActionButton>
+                              <IconActionButton
+                                label="Cancel booking"
+                                color="red"
+                                onClick={() =>
+                                  openConfirmAction({
+                                    title: "Cancel booking?",
+                                    description: "Are you sure you want to cancel this booking?",
+                                    confirmLabel: "Cancel booking",
+                                    confirmColor: "red",
+                                    onConfirm: async () => {
+                                      await handleUpdateBookingStatus(booking, "canceled");
+                                    }
+                                  })
+                                }
+                              >
+                                <IconX size={16} />
+                              </IconActionButton>
+                            </Group>
+                          );
+                        }
+
+                        if (canAdminBookings && booking.status === "pending" && paymentVerified) {
+                          return (
+                            <Group gap="xs" justify="flex-end" wrap="nowrap">
+                              <IconActionButton
+                                label="Confirm booking"
+                                color="teal"
+                                onClick={() => handleUpdateBookingStatus(booking, "confirmed")}
+                              >
+                                <IconCheck size={16} />
+                              </IconActionButton>
+                              <IconActionButton
+                                label="Reschedule booking"
+                                color="orange"
+                                onClick={() => openRescheduleDialog(booking)}
+                              >
+                                <IconCalendar size={16} />
+                              </IconActionButton>
+                              <IconActionButton
+                                label="Cancel booking"
+                                color="red"
+                                onClick={() =>
+                                  openConfirmAction({
+                                    title: "Cancel booking?",
+                                    description: "Are you sure you want to cancel this booking?",
+                                    confirmLabel: "Cancel booking",
+                                    confirmColor: "red",
+                                    onConfirm: async () => {
+                                      await handleUpdateBookingStatus(booking, "canceled");
+                                    }
+                                  })
+                                }
+                              >
+                                <IconX size={16} />
+                              </IconActionButton>
+                            </Group>
                           );
                         }
 
@@ -4628,69 +5119,96 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
                         if (canAdminBookings && paymentVerified) {
                           return (
-                            <>
-                              <Button size="xs" variant="outline" onClick={() => openRescheduleDialog(booking)}>
-                                Reschedule
-                              </Button>
-                              <Button
-                                color="red"
-                                disabled={busyAction === `booking-status:${booking.id}:canceled`}
-                                size="xs"
-                                variant="subtle"
-                                onClick={() => handleUpdateBookingStatus(booking, "canceled")}
+                            <Group gap="xs" justify="flex-end" wrap="nowrap">
+                              <IconActionButton
+                                label="Reschedule booking"
+                                color="orange"
+                                onClick={() => openRescheduleDialog(booking)}
                               >
-                                Cancel
-                              </Button>
-                            </>
+                                <IconCalendar size={16} />
+                              </IconActionButton>
+                              <IconActionButton
+                                label="Cancel booking"
+                                color="red"
+                                onClick={() =>
+                                  openConfirmAction({
+                                    title: "Cancel booking?",
+                                    description: "Are you sure you want to cancel this booking?",
+                                    confirmLabel: "Cancel booking",
+                                    confirmColor: "red",
+                                    onConfirm: async () => {
+                                      await handleUpdateBookingStatus(booking, "canceled");
+                                    }
+                                  })
+                                }
+                              >
+                                <IconX size={16} />
+                              </IconActionButton>
+                            </Group>
                           );
                         }
 
                         if (canAdminBookings && booking.status === "confirmed" && checkInState.isTooEarly) {
                           return (
-                            <>
-                              <Button size="xs" variant="outline" onClick={() => openRescheduleDialog(booking)}>
-                                Reschedule
-                              </Button>
-                              <Button
-                                color="red"
-                                disabled={busyAction === `booking-status:${booking.id}:canceled`}
-                                size="xs"
-                                variant="subtle"
-                                onClick={() => handleUpdateBookingStatus(booking, "canceled")}
+                            <Group gap="xs" justify="flex-end" wrap="nowrap">
+                              <IconActionButton
+                                label="Reschedule booking"
+                                color="orange"
+                                onClick={() => openRescheduleDialog(booking)}
                               >
-                                Cancel
-                              </Button>
-                            </>
+                                <IconCalendar size={16} />
+                              </IconActionButton>
+                              <IconActionButton
+                                label="Cancel booking"
+                                color="red"
+                                onClick={() =>
+                                  openConfirmAction({
+                                    title: "Cancel booking?",
+                                    description: "Are you sure you want to cancel this booking?",
+                                    confirmLabel: "Cancel booking",
+                                    confirmColor: "red",
+                                    onConfirm: async () => {
+                                      await handleUpdateBookingStatus(booking, "canceled");
+                                    }
+                                  })
+                                }
+                              >
+                                <IconX size={16} />
+                              </IconActionButton>
+                            </Group>
                           );
                         }
 
                         if (canAdminBookings && booking.status === "confirmed" && checkInState.isLate) {
                           return (
-                            <>
-                              <Button size="xs" variant="outline" onClick={() => openRescheduleDialog(booking)}>
-                                Reschedule
-                              </Button>
-                              <Tooltip label="Late check-in override: customer is more than 15 minutes past the scheduled start.">
-                                <Button
+                            <Group gap="xs" justify="flex-end" wrap="nowrap">
+                              <IconActionButton
+                                label="Reschedule booking"
+                                color="orange"
+                                onClick={() => openRescheduleDialog(booking)}
+                              >
+                                <IconCalendar size={16} />
+                              </IconActionButton>
+                              <Tooltip label="Late check-in override: customer is more than 15 minutes past the scheduled start." withArrow>
+                                <ActionIcon
+                                  aria-label="Late check-in"
                                   color="orange"
                                   disabled={busyAction === `booking-check-in:${booking.id}:override`}
-                                  size="xs"
-                                  variant="outline"
                                   onClick={() => handleCheckInBooking(booking, true)}
+                                  variant="light"
                                 >
-                                  Late check-in
-                                </Button>
+                                  <IconCalendarCheck size={16} />
+                                </ActionIcon>
                               </Tooltip>
-                              <Button
+                              <IconActionButton
+                                label="Mark no-show"
                                 color="red"
                                 disabled={busyAction === `booking-no-show:${booking.id}`}
-                                size="xs"
-                                variant="subtle"
                                 onClick={() => handleMarkBookingNoShow(booking)}
                               >
-                                No-show
-                              </Button>
-                            </>
+                                <IconAlertTriangle size={16} />
+                              </IconActionButton>
+                            </Group>
                           );
                         }
 
@@ -4699,7 +5217,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
                       return (
                         <Table.Tr key={booking.id}>
-                          <Table.Td>
+                          <Table.Td className="neura-bookings-table__sticky neura-bookings-table__sticky-first">
                             <Stack gap={2}>
                               <Button
                                 className="neura-inline-link-button"
@@ -4811,6 +5329,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         opened={rescheduleDialogOpen}
         onClose={() => setRescheduleDialogOpen(false)}
         title={reschedulingBooking ? `Reschedule ${reschedulingBooking.reference}` : "Reschedule booking"}
+        scrollAreaComponent={ScrollArea.Autosize}
       >
         <form onSubmit={handleRescheduleBooking}>
           <Stack gap="md">
@@ -4853,6 +5372,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         opened={rescheduleBlockModalOpen}
         onClose={() => setRescheduleBlockModalOpen(false)}
         title="Reschedule blocked"
+        scrollAreaComponent={ScrollArea.Autosize}
       >
         <Stack gap="md">
           <Alert color="orange" variant="light">
@@ -4949,7 +5469,22 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       </Table.Td>
                       <Table.Td>
                         {isOwner && member.role !== "owner" && !isCurrentUser ? (
-                          <Button color="red" size="xs" variant="light" onClick={() => handleRemoveStaff(member)}>
+                          <Button
+                            color="red"
+                            size="xs"
+                            variant="light"
+                            onClick={() =>
+                              openConfirmAction({
+                                title: "Remove staff member?",
+                                description: "This will revoke the staff member's access to this tenant.",
+                                confirmLabel: "Remove staff",
+                                confirmColor: "red",
+                                onConfirm: async () => {
+                                  await handleRemoveStaff(member);
+                                }
+                              })
+                            }
+                          >
                             Remove
                           </Button>
                         ) : null}
@@ -5494,6 +6029,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         opened={counterDialogOpen}
         onClose={() => setCounterDialogOpen(false)}
         title={editingCounterSlug ? "Edit counter" : "Add counter"}
+        scrollAreaComponent={ScrollArea.Autosize}
       >
         <form onSubmit={handleSaveCounter}>
           <Stack gap="md">
@@ -5548,7 +6084,13 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   function renderStaffDialog() {
     return (
-      <Modal centered opened={staffDialogOpen} onClose={() => setStaffDialogOpen(false)} title="Add staff">
+      <Modal
+        centered
+        opened={staffDialogOpen}
+        onClose={() => setStaffDialogOpen(false)}
+        title="Add staff"
+        scrollAreaComponent={ScrollArea.Autosize}
+      >
         <form onSubmit={handleAddStaff}>
           <Stack gap="md">
             <TextInput
@@ -5706,6 +6248,14 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       (detailBooking.status === "pending" || detailBooking.status === "rescheduled")
     );
     const detailBookingExpired = Boolean(detailBooking?.expiredAt);
+    const closeBookingDetailModal = () => {
+      setBookingDetailModalId(null);
+      setBookingDetailOpen(false);
+      setBookingDetailLoading(false);
+      setBookingDetailBooking(null);
+      setBookingDetailError("");
+      setPaymentRejectionReason("");
+    };
 
     return (
       <Portal>
@@ -5719,7 +6269,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               transform: "translateX(-50%)",
               width: "calc(100vw - 64px)",
               pointerEvents: "none",
-              zIndex: 320
+              zIndex: 1200
             }}
           >
             <Stack gap="sm" style={{ pointerEvents: "none" }}>
@@ -5776,17 +6326,11 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         <Modal
           centered
           opened={bookingDetailOpen}
-          onClose={() => {
-            setBookingDetailModalId(null);
-            setBookingDetailOpen(false);
-            setBookingDetailLoading(false);
-            setBookingDetailBooking(null);
-            setBookingDetailError("");
-            setPaymentRejectionReason("");
-          }}
+          onClose={closeBookingDetailModal}
           title={detailBooking ? `Booking ${detailBooking.reference}` : "Booking details"}
           size="lg"
           closeButtonProps={{ "aria-label": "Close booking details" }}
+          scrollAreaComponent={ScrollArea.Autosize}
         >
           {bookingDetailLoading ? (
             <Text c="dimmed">Loading booking details...</Text>
@@ -5918,7 +6462,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               ) : null}
 
               <Group justify="space-between">
-                <Button variant="default" onClick={() => setBookingDetailModalId(null)}>
+                <Button variant="default" onClick={closeBookingDetailModal}>
                   Close
                 </Button>
                 <Group gap="xs">
@@ -5927,10 +6471,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     onClick={() => {
                       setBookingStatusFilter("pending");
                       setBookingDateRange([null, null]);
-                      setBookingDetailModalId(null);
-                      setBookingDetailOpen(false);
-                      setBookingDetailBooking(null);
-                      setBookingDetailError("");
+                      closeBookingDetailModal();
                       navigate("/dashboard/bookings");
                     }}
                   >
@@ -5948,11 +6489,24 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       >
                         Confirm
                       </Button>
+                      <Button size="xs" variant="outline" onClick={() => openRescheduleDialog(detailBooking)}>
+                        Reschedule
+                      </Button>
                       <Button
                         color="red"
                         disabled={busyAction === `booking-status:${detailBooking.id}:canceled`}
                         variant="subtle"
-                        onClick={() => handleUpdateBookingStatus(detailBooking, "canceled")}
+                        onClick={() =>
+                          openConfirmAction({
+                            title: "Cancel booking?",
+                            description: "Are you sure you want to cancel this booking?",
+                            confirmLabel: "Cancel booking",
+                            confirmColor: "red",
+                            onConfirm: async () => {
+                              await handleUpdateBookingStatus(detailBooking, "canceled");
+                            }
+                          })
+                        }
                       >
                         Cancel
                       </Button>
@@ -5963,6 +6517,23 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             </Stack>
           ) : null}
         </Modal>
+        <ConfirmActionModal
+          opened={Boolean(confirmAction)}
+          title={confirmAction?.title || ""}
+          description={confirmAction?.description || ""}
+          confirmLabel={confirmAction?.confirmLabel || "Confirm"}
+          confirmColor={confirmAction?.confirmColor || "red"}
+          loading={confirmBusy}
+          onClose={closeConfirmAction}
+          onConfirm={async () => {
+            const action = confirmAction;
+            if (!action) {
+              return;
+            }
+            await action.onConfirm();
+            closeConfirmAction();
+          }}
+        />
       </Portal>
     );
   }
