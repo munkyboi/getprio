@@ -54,6 +54,8 @@ Customer-facing slot starts use the full requested duration as the interval. Boo
 
 Capacity belongs to the booking availability block. `pending`, `confirmed`, and `rescheduled` bookings consume capacity. Canceled, completed, reviewed, and disputed bookings do not make new customer slots unavailable.
 
+Services can choose how booking capacity is consumed. The default `service` scope keeps capacity isolated to bookings for the same service, except when the matching availability block or exception applies to all services. All-service availability blocks and exceptions share branch capacity across services by definition. The `location` scope also treats active bookings for any service at the selected branch as consuming the same slot capacity, which prevents mixed-duration services from overlapping when they compete for the same staff, counter, room, or equipment pool. Slot starts are still generated from the selected service's duration; conflict checks compare the candidate start/end interval against active booking start/end intervals in the selected capacity scope.
+
 Pending bookings hold capacity from booking creation until a vendor-side user confirms, reschedules, cancels them, or the pending booking expires. The default pending booking expiration is 15 minutes from booking creation and applies to all pending bookings, not only payment-required bookings.
 
 Expired pending bookings use the existing `canceled` booking status with an expiration reason instead of adding a separate `expired` booking status. Expiration releases the held slot capacity and should be presented to customers as an expired booking.

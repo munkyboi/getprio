@@ -1,5 +1,6 @@
 import type {
   BookingPaymentProofAccessResponse,
+  BookingSlotsResponse,
   RejectVendorBookingPaymentRequest,
   RescheduleVendorBookingRequest,
   UpdateVendorBookingStatusRequest,
@@ -64,6 +65,13 @@ export function rescheduleBooking(token: string, tenantSlug: string, bookingId: 
   return apiRequest<VendorBookingResponse, RescheduleVendorBookingRequest>(
     `/vendor/tenant/${tenantSlug}/bookings/${bookingId}/reschedule`,
     { method: "PATCH", token, body: { scheduledStartAt } }
+  );
+}
+
+export function getRescheduleSlots(token: string, tenantSlug: string, bookingId: string, date: string) {
+  return apiRequest<BookingSlotsResponse>(
+    `/vendor/tenant/${tenantSlug}/bookings/${bookingId}/reschedule-slots?date=${encodeURIComponent(date)}`,
+    { token }
   );
 }
 

@@ -2,6 +2,8 @@ const storeLocationRepository = require("../repositories/storeLocations");
 const vendorServiceRepository = require("../repositories/vendorServices");
 const storeHoursService = require("../services/storeHoursService");
 
+const BOOKING_CAPACITY_SCOPES = new Set(["service", "location"]);
+
 async function getAuthorizedTenant(user, tenantSlug, tenantRepository, userHasTenantAccess) {
   const tenant = await tenantRepository.findTenantBySlug(String(tenantSlug).toLowerCase());
   if (!tenant) {
@@ -215,6 +217,14 @@ function normalizeServicePayload(body, existingService = null) {
   const manualPaymentRequired = Object.prototype.hasOwnProperty.call(body, "manualPaymentRequired")
     ? body.manualPaymentRequired === true
     : existingService?.manualPaymentRequired ?? false;
+  const bookingCapacityScope = Object.prototype.hasOwnProperty.call(body, "bookingCapacityScope")
+    ? String(body.bookingCapacityScope || "").trim()
+    : existingService?.bookingCapacityScope || "service";
+  if (!BOOKING_CAPACITY_SCOPES.has(bookingCapacityScope)) {
+    const error = new Error("bookingCapacityScope must be service or location.");
+    error.statusCode = 400;
+    throw error;
+  }
 
   return {
     name,
@@ -226,6 +236,7 @@ function normalizeServicePayload(body, existingService = null) {
     allowBookingQuantity,
     bookingQuantityLabel,
     manualPaymentRequired,
+    bookingCapacityScope,
     priceAmountCents,
     currency,
     priceDisplay,
@@ -249,6 +260,7 @@ function formatVendorService(service) {
     allowBookingQuantity: service.allowBookingQuantity,
     bookingQuantityLabel: service.bookingQuantityLabel,
     manualPaymentRequired: service.manualPaymentRequired,
+    bookingCapacityScope: service.bookingCapacityScope || "service",
     priceAmountCents: service.priceAmountCents,
     currency: service.currency,
     priceDisplay: service.priceDisplay,

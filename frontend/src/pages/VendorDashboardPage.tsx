@@ -4,6 +4,7 @@ import {
   Alert,
   ActionIcon,
   Badge,
+  Burger,
   Button,
   Card,
   Checkbox,
@@ -52,7 +53,6 @@ import {
   IconHomeStats,
   IconInfoCircle,
   IconLogout,
-  IconMenu2,
   IconPencil,
   IconQrcode,
   IconTrash,
@@ -88,6 +88,7 @@ import type {
   VendorAvailabilityBlockSummary,
   VendorAvailabilityExceptionSummary,
   VendorBookingSummary,
+  BookingSlotSummary,
   VendorClientsResponse,
   VendorServiceSummary,
   UpdateVendorBookingStatusRequest,
@@ -108,8 +109,8 @@ import { buildJoinUrl, buildMonitorUrl } from "../queuePaths";
 import {
   formatDateInputValue,
   formatDateTime,
-  formatDateTimeInputValue,
   formatBookingScheduleDateTime,
+  formatBookingScheduleTimeRange,
   formatDisplayDate,
   toTimestamp
 } from "../utils/dates";
@@ -204,6 +205,7 @@ const emptyServiceForm: SaveVendorServiceRequest = {
   allowBookingQuantity: false,
   bookingQuantityLabel: "Units",
   manualPaymentRequired: false,
+  bookingCapacityScope: "service",
   priceAmountCents: 0,
   priceDisplay: "",
   isActive: true,
@@ -381,8 +383,6 @@ function formatBytes(sizeBytes: number | null): string {
 function getTodayDateInputValue(): string {
   return formatDateInputValue();
 }
-
-const formatDateTimeInput = formatDateTimeInputValue;
 
 function getBookingBadgeColor(status: VendorBookingSummary["status"]): "gray" | "red" | "yellow" | "orange" | "teal" | "blue" {
   switch (status) {
@@ -694,6 +694,10 @@ export default function VendorDashboardPage() {
   const [rescheduleDialogOpen, setRescheduleDialogOpen] = useState(false);
   const [reschedulingBooking, setReschedulingBooking] = useState<VendorBookingSummary | null>(null);
   const [rescheduleStartAt, setRescheduleStartAt] = useState("");
+  const [rescheduleDate, setRescheduleDate] = useState("");
+  const [rescheduleSlots, setRescheduleSlots] = useState<BookingSlotSummary[]>([]);
+  const [rescheduleSlotsLoading, setRescheduleSlotsLoading] = useState(false);
+  const [rescheduleSlotsError, setRescheduleSlotsError] = useState("");
   const [rescheduleBlockModalOpen, setRescheduleBlockModalOpen] = useState(false);
   const hasActiveSubscription = billing?.subscription?.status === "active";
   const selectedLocation =
@@ -863,6 +867,43 @@ export default function VendorDashboardPage() {
       active = false;
     };
   }, [bookingDetailModalId, bookingDetailOpen, selectedLocationSlug, selectedTenantSlug, token]);
+
+  useEffect(() => {
+    if (!rescheduleDialogOpen || !reschedulingBooking || !rescheduleDate || !token || !selectedTenantSlug) {
+      return;
+    }
+
+    let active = true;
+    setRescheduleSlotsLoading(true);
+    setRescheduleSlotsError("");
+
+    vendorDashboardBookings
+      .getRescheduleSlots(token, selectedTenantSlug, reschedulingBooking.id, rescheduleDate)
+      .then((response) => {
+        if (!active) {
+          return;
+        }
+        setRescheduleSlots(response.slots);
+        if (!response.slots.some((slot) => String(slot.startAt) === rescheduleStartAt)) {
+          setRescheduleStartAt("");
+        }
+      })
+      .catch((slotsError) => {
+        if (active) {
+          setRescheduleSlots([]);
+          setRescheduleSlotsError(getErrorMessage(slotsError));
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setRescheduleSlotsLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [rescheduleDate, rescheduleDialogOpen, rescheduleStartAt, reschedulingBooking, selectedTenantSlug, token]);
 
   useEffect(() => {
     if (!selectedTenantSlug && user?.tenants?.length) {
@@ -1803,7 +1844,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     }
 
     setReschedulingBooking(booking);
-    setRescheduleStartAt(formatDateTimeInput(booking.scheduledStartAt));
+    setRescheduleDate(formatDateInputValue(booking.scheduledStartAt));
+    setRescheduleStartAt(String(booking.scheduledStartAt));
+    setRescheduleSlots([]);
+    setRescheduleSlotsError("");
     setRescheduleDialogOpen(true);
   }
 
@@ -1829,6 +1873,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       clearBookingAlert(response.booking.id);
       setRescheduleDialogOpen(false);
       setReschedulingBooking(null);
+      setRescheduleDate("");
+      setRescheduleStartAt("");
+      setRescheduleSlots([]);
       await reloadBookings();
       await reloadDashboardSnapshot();
       showSuccessNotification("Booking rescheduled", `${response.booking.reference} has a new schedule.`);
@@ -1967,6 +2014,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       allowBookingQuantity: service?.allowBookingQuantity || false,
       bookingQuantityLabel: service?.bookingQuantityLabel || "Units",
       manualPaymentRequired: service?.manualPaymentRequired || false,
+      bookingCapacityScope: service?.bookingCapacityScope || "service",
       priceAmountCents: service?.priceAmountCents || 0,
       priceDisplay: service?.priceDisplay || "",
       isActive: service?.isActive ?? true,
@@ -2012,6 +2060,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         durationMinutes: service.durationMinutes,
         allowBookingQuantity: service.allowBookingQuantity,
         bookingQuantityLabel: service.bookingQuantityLabel,
+        manualPaymentRequired: service.manualPaymentRequired,
+        bookingCapacityScope: service.bookingCapacityScope,
         priceAmountCents: service.priceAmountCents,
         priceDisplay: service.priceDisplay,
         isActive,
@@ -4119,6 +4169,28 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       }
                     />
                   ) : null}
+                  <Select
+                    allowDeselect={false}
+                    data={[
+                      {
+                        value: "service",
+                        label: "Same service only"
+                      },
+                      {
+                        value: "location",
+                        label: "All services at this branch"
+                      }
+                    ]}
+                    label="Booking capacity"
+                    description="Controls whether overlapping bookings from other services can consume this service's slot capacity."
+                    value={serviceForm.bookingCapacityScope || "service"}
+                    onChange={(value) =>
+                      setServiceForm((current) => ({
+                        ...current,
+                        bookingCapacityScope: value === "location" ? "location" : "service"
+                      }))
+                    }
+                  />
                 </Stack>
               </Card>
             </SimpleGrid>
@@ -4593,6 +4665,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                               {service.manualPaymentRequired ? (
                                 <Badge color="yellow" variant="light">Manual payment</Badge>
                               ) : null}
+                              <Text c={service.isActive ? "dimmed" : "gray"} size="sm">
+                                {service.bookingCapacityScope === "location" ? "Branch-wide capacity" : "Service-only capacity"}
+                              </Text>
                             </Table.Td>
                             <Table.Td>
                               <Text c={service.isActive ? undefined : "dimmed"}>
@@ -5328,11 +5403,25 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   function renderRescheduleDialog() {
+    const rescheduleSlotOptions = rescheduleSlots.map((slot) => ({
+      value: String(slot.startAt),
+      label: `${formatBookingScheduleTimeRange(slot.startAt, slot.endAt)} (${slot.remainingCapacity} left)`,
+      disabled: !slot.isAvailable
+    }));
+    const closeRescheduleDialog = () => {
+      setRescheduleDialogOpen(false);
+      setReschedulingBooking(null);
+      setRescheduleDate("");
+      setRescheduleStartAt("");
+      setRescheduleSlots([]);
+      setRescheduleSlotsError("");
+    };
+
     return (
       <Modal
         centered
         opened={rescheduleDialogOpen}
-        onClose={() => setRescheduleDialogOpen(false)}
+        onClose={closeRescheduleDialog}
         title={reschedulingBooking ? `Reschedule ${reschedulingBooking.reference}` : "Reschedule booking"}
         scrollAreaComponent={ScrollArea.Autosize}
       >
@@ -5344,19 +5433,54 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               </Alert>
             ) : null}
             <TextInput
-              label="New schedule"
-              required
-              type="datetime-local"
-              value={rescheduleStartAt}
-              onChange={(event) => setRescheduleStartAt(event.target.value)}
+              label="Service"
+              value={reschedulingBooking ? `${reschedulingBooking.serviceName} - ${formatBookingScheduleTimeRange(reschedulingBooking.scheduledStartAt, reschedulingBooking.scheduledEndAt)}` : ""}
+              readOnly
             />
+            <TextInput
+              label="Branch"
+              value={reschedulingBooking?.locationName || ""}
+              readOnly
+            />
+            <DatePickerInput
+              clearable={false}
+              label="Date"
+              leftSection={<IconCalendar size={16} />}
+              placeholder="Select date"
+              required
+              value={rescheduleDate || null}
+              onChange={(value) => {
+                setRescheduleDate(value || "");
+                setRescheduleStartAt("");
+              }}
+            />
+            <Select
+              allowDeselect={false}
+              data={rescheduleSlotOptions}
+              disabled={rescheduleSlotsLoading || !rescheduleDate}
+              label="Available slot"
+              required
+              placeholder={rescheduleSlotsLoading ? "Loading slots..." : "Select a time"}
+              value={rescheduleStartAt}
+              onChange={(value) => setRescheduleStartAt(value || "")}
+            />
+            {rescheduleSlotsError ? (
+              <Alert color="red">{rescheduleSlotsError}</Alert>
+            ) : null}
+            {!rescheduleSlotsLoading && rescheduleDate && !rescheduleSlotOptions.length && !rescheduleSlotsError ? (
+              <Alert color="yellow">No available slots for this date.</Alert>
+            ) : null}
             <Group justify="flex-end">
-              <Button variant="default" onClick={() => setRescheduleDialogOpen(false)}>
+              <Button variant="default" onClick={closeRescheduleDialog}>
                 Cancel
               </Button>
               <Button
                 className="neura-primary-button"
-                disabled={Boolean(reschedulingBooking && busyAction === `booking-reschedule:${reschedulingBooking.id}`)}
+                disabled={Boolean(
+                  !rescheduleStartAt ||
+                    rescheduleSlotsLoading ||
+                    (reschedulingBooking && busyAction === `booking-reschedule:${reschedulingBooking.id}`)
+                )}
                 type="submit"
               >
                 {reschedulingBooking && busyAction === `booking-reschedule:${reschedulingBooking.id}`
@@ -6640,15 +6764,21 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         {renderDashboardSidebar()}
       </aside>
 
-      <ActionIcon
-        aria-label="Toggle dashboard navigation"
-        className="neura-floating-sidebar-toggle"
-        onClick={() => setSidebarOpen((current) => !current)}
-        variant="filled"
-        size="xl"
-      >
-        <IconMenu2 aria-hidden size={18} stroke={2.2} />
-      </ActionIcon>
+      <header className="neura-mobile-header">
+        <Group gap="sm" className="neura-mobile-brand">
+          <Burger
+            aria-label="Open dashboard navigation"
+            opened={sidebarOpen}
+            onClick={() => setSidebarOpen((current) => !current)}
+            size="sm"
+          />
+          <img className="neura-mobile-logo" src="/logo.svg" alt="" aria-hidden="true" />
+          <div>
+            <Text fw={800}>GetPrio</Text>
+            <Text size="xs" c="dimmed">Vendor Dashboard</Text>
+          </div>
+        </Group>
+      </header>
 
       <main className="neura-main">
         <header className="neura-header">
@@ -6699,7 +6829,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         size={300}
         title="Dashboard"
       >
-        {renderDashboardSidebar({ compact: true })}
+        <ScrollArea h="100%" scrollbars="y">
+          {renderDashboardSidebar({ compact: true })}
+        </ScrollArea>
       </Drawer>
     </div>
   );

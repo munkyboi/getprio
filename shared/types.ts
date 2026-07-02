@@ -235,6 +235,8 @@ export interface StoreLocationsResponse {
   activeLocationLimit: number;
 }
 
+export type BookingCapacityScope = "service" | "location";
+
 export interface VendorServiceSummary {
   id: string;
   tenantId: string;
@@ -245,6 +247,7 @@ export interface VendorServiceSummary {
   allowBookingQuantity: boolean;
   bookingQuantityLabel: string;
   manualPaymentRequired: boolean;
+  bookingCapacityScope: BookingCapacityScope;
   priceAmountCents: number;
   currency: "PHP";
   priceDisplay: string;
@@ -266,6 +269,7 @@ export interface SaveVendorServiceRequest {
   allowBookingQuantity?: boolean;
   bookingQuantityLabel?: string;
   manualPaymentRequired?: boolean;
+  bookingCapacityScope?: BookingCapacityScope;
   priceAmountCents: number;
   priceDisplay?: string;
   isActive?: boolean;
