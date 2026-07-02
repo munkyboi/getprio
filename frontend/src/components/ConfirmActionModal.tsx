@@ -9,7 +9,8 @@ export function ConfirmActionModal({
   confirmColor = "red",
   loading = false,
   onConfirm,
-  onClose
+  onClose,
+  className
 }: {
   opened: boolean;
   title: string;
@@ -20,9 +21,11 @@ export function ConfirmActionModal({
   loading?: boolean;
   onConfirm: () => void;
   onClose: () => void;
+  className?: string;
 }) {
   return (
     <Modal
+      className={className}
       centered
       opened={opened}
       onClose={onClose}

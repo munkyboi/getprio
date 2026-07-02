@@ -388,3 +388,19 @@ test("web app metadata points crawlers and installed apps at committed assets", 
     assert.ok(stats.size > 0, `${asset} should not be empty`);
   }
 });
+
+test("confirm action modal supports a mobile-specific class hook", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const confirmModalSource = fs.readFileSync(
+    path.join(frontendRoot, "src", "components", "ConfirmActionModal.tsx"),
+    "utf8"
+  );
+  const vendorDashboardSource = fs.readFileSync(
+    path.join(frontendRoot, "src", "pages", "VendorDashboardPage.tsx"),
+    "utf8"
+  );
+
+  assert.match(confirmModalSource, /className\?: string;/);
+  assert.match(confirmModalSource, /<Modal\s+className=\{className\}/);
+  assert.match(vendorDashboardSource, /<ConfirmActionModal\s+className="confirm-action-modal"/);
+});

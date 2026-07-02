@@ -5525,6 +5525,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         centered
         opened={rescheduleBlockModalOpen}
         onClose={() => setRescheduleBlockModalOpen(false)}
+        className="reschedule-blocked-modal"
         title="Reschedule blocked"
         scrollAreaComponent={ScrollArea.Autosize}
       >
@@ -6691,6 +6692,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           ) : null}
         </Modal>
         <ConfirmActionModal
+          className="confirm-action-modal"
           opened={Boolean(confirmAction)}
           title={confirmAction?.title || ""}
           description={confirmAction?.description || ""}
