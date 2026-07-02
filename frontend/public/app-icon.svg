@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">GetPrio app icon</title>
+  <desc id="desc">GetPrio logo on a warm orange and charcoal gradient background.</desc>
+  <defs>
+    <linearGradient id="app-bg" x1="128" y1="96" x2="896" y2="928" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff7ed"/>
+      <stop offset="0.38" stop-color="#ff8a1f"/>
+      <stop offset="0.72" stop-color="#111827"/>
+      <stop offset="1" stop-color="#05070b"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="34%" cy="24%" r="76%">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.72"/>
+      <stop offset="0.44" stop-color="#ffffff" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="icon-shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="28" stdDeviation="34" flood-color="#030712" flood-opacity="0.36"/>
+    </filter>
+    <mask id="getprio-g-counter" maskUnits="userSpaceOnUse">
+      <rect width="1180" height="912" fill="#fff"/>
+      <ellipse cx="360" cy="363" rx="100" ry="96" fill="#000"/>
+    </mask>
+  </defs>
+
+  <rect width="1024" height="1024" rx="220" fill="url(#app-bg)"/>
+  <rect width="1024" height="1024" rx="220" fill="url(#glow)"/>
+  <circle cx="786" cy="204" r="156" fill="#ffffff" opacity="0.1"/>
+  <circle cx="214" cy="812" r="198" fill="#ffedd5" opacity="0.12"/>
+
+  <g filter="url(#icon-shadow)" transform="translate(114 180) scale(0.68)">
+    <g mask="url(#getprio-g-counter)">
+      <path
+        fill="#ffffff"
+        d="M 365 69
+           C 202 69 84 188 84 363
+           C 84 542 209 635 365 635
+           C 414 635 460 624 498 603
+           L 498 427
+           C 469 484 421 519 359 519
+           C 279 519 223 456 223 363
+           C 223 268 280 207 366 207
+           C 445 207 505 249 531 319
+           C 535 251 548 197 568 149
+           C 518 96 447 69 365 69
+           Z"
+      />
+      <path
+        fill="#ffffff"
+        d="M 497 650
+           L 497 798
+           C 448 840 391 861 323 855
+           C 263 850 210 823 169 775
+           L 263 678
+           C 291 707 327 727 375 727
+           C 426 727 467 701 497 650
+           Z"
+      />
+    </g>
+
+    <path
+      fill="#ff7a0a"
+      fill-rule="evenodd"
+      d="M 790 69
+         C 633 69 515 177 515 328
+         L 515 812
+         C 603 768 650 706 650 623
+         L 650 485
+         C 686 579 776 635 889 622
+         C 1012 608 1096 500 1096 361
+         C 1096 189 968 69 790 69
+         Z
+         M 791 206
+         C 700 206 650 266 650 361
+         C 650 457 700 518 791 518
+         C 879 518 941 455 941 361
+         C 941 268 879 206 791 206
+         Z"
+    />
+  </g>
+</svg>
