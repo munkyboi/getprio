@@ -147,6 +147,77 @@ test("tickets repository applies carried-over filters for overflow and history v
   assert.match(calls[1].query, /AND carried_over_at IS NULL AND COALESCE\(carry_over_count, 0\) = 0/);
 });
 
+test("customer account ticket history supports pagination metadata", async () => {
+  const calls = [];
+  const client = {
+    query: async (query, params) => {
+      calls.push({ query, params });
+      if (/SELECT COUNT\(\*\)/.test(query)) {
+        return { rows: [{ count: 1 }] };
+      }
+      return {
+        rows: [
+          {
+            id: 7,
+            tenant_id: 1,
+            tenant_name: "Demo Tenant",
+            tenant_slug: "demo",
+            location_id: 2,
+            location_name: "Main Branch",
+            location_slug: "main",
+            user_id: 11,
+            ticket_number: "DMO-007",
+            sequence: 7,
+            date_key: "20260606",
+            queue_date_key: "20260606",
+            lookup_code: "ABC123",
+            customer_name: "Pat",
+            customer_email: "pat@example.com",
+            customer_phone: "09170000000",
+            notify_by_email: true,
+            notify_by_sms: false,
+            join_channel: "online",
+            status: "waiting",
+            notes: null,
+            notified_almost_there_at: null,
+            notified_called_at: null,
+            called_at: null,
+            served_at: null,
+            skipped_at: null,
+            cancelled_at: null,
+            unserved_at: null,
+            carried_over_at: null,
+            carry_over_count: 0,
+            service_priority_band: "normal",
+            rejoin_deadline_at: null,
+            created_at: new Date("2026-06-06T02:00:00.000Z"),
+            updated_at: new Date("2026-06-06T02:00:00.000Z")
+          }
+        ]
+      };
+    }
+  };
+  const ticketsRepository = requireWithMocks("../src/repositories/tickets.js", {
+    "../config/db": { pool: client }
+  });
+
+  const result = await ticketsRepository.listTicketsForCustomerAccount(
+    { _id: 11, email: "pat@example.com", phone: "09170000000" },
+    {
+      pageSize: 5,
+      offset: 10
+    }
+  );
+
+  assert.equal(calls.length, 2);
+  assert.match(calls[0].query, /SELECT COUNT\(\*\)/);
+  assert.deepEqual(calls[0].params, [11, "pat@example.com", "09170000000"]);
+  assert.match(calls[1].query, /LIMIT \$4 OFFSET \$5/);
+  assert.deepEqual(calls[1].params, [11, "pat@example.com", "09170000000", 5, 10]);
+  assert.equal(result.totalItems, 1);
+  assert.equal(result.tickets[0].ticketNumber, "DMO-007");
+});
+
 test("tickets repository restores skipped tickets into the requested priority band", async () => {
   const { calls, client } = createQueryClient([
     {

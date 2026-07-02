@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
-import { Alert, Badge, Button, Card, FileInput, Group, Image, SimpleGrid, Stack, Text, Textarea, TextInput, Title } from "@mantine/core";
+import { type FormEvent, useCallback, useEffect, useState } from "react";
+import { Alert, Badge, Button, Card, FileInput, Group, Image, Modal, Paper, SimpleGrid, Stack, Text, Textarea, TextInput, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
-import { IconArrowLeft, IconExternalLink, IconTicket, IconUpload } from "@tabler/icons-react";
+import { IconArrowLeft, IconExternalLink, IconReceipt, IconTicket, IconUpload, IconX } from "@tabler/icons-react";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import type {
   BookingPaymentProofAccessResponse,
@@ -13,7 +13,6 @@ import type {
   SubmitBookingPaymentProofRequest
 } from "@shared";
 import { API_BASE_URL, apiRequest } from "../api/client";
-import { ConfirmActionModal } from "../components/ConfirmActionModal";
 import { useAuth } from "../context/AuthContext";
 import { buildJoinedQueuePathWithTicket } from "../queuePaths";
 import {
@@ -83,8 +82,10 @@ export default function CustomerBookingDetailPage() {
   const [busy, setBusy] = useState(false);
   const [proofBusy, setProofBusy] = useState(false);
   const [proofViewBusy, setProofViewBusy] = useState(false);
+  const [proofModalOpen, setProofModalOpen] = useState(false);
+  const [proofAccessUrl, setProofAccessUrl] = useState("");
   const [error, setError] = useState("");
-  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
+  const [cancelModalOpen, setCancelModalOpen] = useState(false);
 
   const loadBooking = useCallback(async (options: { showLoading?: boolean } = {}) => {
     if (!token || !bookingId) {
@@ -167,7 +168,8 @@ export default function CustomerBookingDetailPage() {
     return <Navigate to="/login" replace />;
   }
 
-  async function handleCancel() {
+  async function handleCancel(event?: FormEvent<HTMLFormElement>) {
+    event?.preventDefault();
     if (!token || !booking) {
       return;
     }
@@ -184,6 +186,8 @@ export default function CustomerBookingDetailPage() {
         }
       );
       setBooking(data.booking);
+      setReason("");
+      setCancelModalOpen(false);
       notifications.show({
         color: "teal",
         title: "Booking cancelled",
@@ -274,7 +278,8 @@ export default function CustomerBookingDetailPage() {
         `/account/bookings/${booking.id}/payment-proof`,
         { token }
       );
-      window.open(data.access.url, "_blank", "noopener,noreferrer");
+      setProofAccessUrl(data.access.url);
+      setProofModalOpen(true);
     } catch (viewError) {
       setError(getErrorMessage(viewError));
     } finally {
@@ -308,6 +313,14 @@ export default function CustomerBookingDetailPage() {
         : { color: "yellow" as const, label: "Awaiting vendor verification" };
   const hasExpired = Boolean(booking.expiredAt);
   const manualPaymentDestination = booking.manualPaymentDestination;
+  const linkedQueuePath = booking.linkedTicket
+    ? buildJoinedQueuePathWithTicket(
+      booking.tenantSlug,
+      booking.linkedTicket.lookupCode,
+      booking.locationSlug
+    )
+    : "";
+  const checkInAvailable = Boolean(booking.linkedTicket);
 
   return (
     <Stack className="customer-account-page" gap="lg">
@@ -334,55 +347,92 @@ export default function CustomerBookingDetailPage() {
             </Alert>
           ) : null}
 
-          <Group gap="xl" align="flex-start">
-            <Stack gap={2}>
-              <Text fw={700}>Vendor</Text>
-              <Text c="dimmed">{booking.tenantName}</Text>
-            </Stack>
-            <Stack gap={2}>
-              <Text fw={700}>Branch</Text>
-              <Text c="dimmed">{booking.locationName}</Text>
-            </Stack>
-            <Stack gap={2}>
-              <Text fw={700}>Service</Text>
-              <Text c="dimmed">{booking.serviceName}</Text>
+          <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} spacing="md">
+            <Paper withBorder radius="md" p="md">
+              <Text className="finazze-section-label">Vendor</Text>
+              <Text fw={800}>{booking.tenantName}</Text>
+              <Text c="dimmed" size="sm">{booking.locationName}</Text>
+            </Paper>
+            <Paper withBorder radius="md" p="md">
+              <Text className="finazze-section-label">Service</Text>
+              <Text fw={800}>{booking.serviceName}</Text>
               <Text c="dimmed" size="sm">Quantity {booking.bookingQuantity}</Text>
-            </Stack>
-            <Stack gap={2}>
-              <Text fw={700}>Schedule</Text>
-              <Text c="dimmed">{formatBookingScheduleDate(booking.scheduledStartAt)}</Text>
+              <Text c="dimmed" size="sm">{booking.servicePriceDisplay}</Text>
+            </Paper>
+            <Paper withBorder radius="md" p="md">
+              <Text className="finazze-section-label">Schedule</Text>
+              <Text fw={800}>{formatBookingScheduleDate(booking.scheduledStartAt)}</Text>
               <Text c="dimmed" size="sm">
                 {formatBookingScheduleTimeRange(booking.scheduledStartAt, booking.scheduledEndAt)}
               </Text>
-            </Stack>
-          </Group>
-
-          <Group gap="xl" align="flex-start">
-            <Stack gap={2}>
-              <Text fw={700}>Email alerts</Text>
-              <Badge color={booking.notifyByEmail ? "teal" : "gray"} variant="light">
-                {booking.notifyByEmail ? "Enabled" : "Off"}
-              </Badge>
-            </Stack>
-            <Stack gap={2}>
-              <Text fw={700}>Browser notifications</Text>
-              <Badge color={booking.notifyByEmail ? "teal" : "gray"} variant="light">
-                {booking.notifyByEmail ? "Email fallback on" : "Email fallback off"}
-              </Badge>
-            </Stack>
-            <Stack gap={2}>
-              <Text fw={700}>Payment</Text>
+            </Paper>
+            <Paper withBorder radius="md" p="md">
+              <Text className="finazze-section-label">Payment</Text>
               <Badge color={booking.paymentStatus === "paid" ? "teal" : "gray"} variant="light">
                 {booking.paymentStatus}
               </Badge>
-            </Stack>
-          </Group>
+              {booking.paymentProof ? (
+                <Text c="dimmed" mt="xs" size="sm">{paymentProofStatus.label}</Text>
+              ) : null}
+            </Paper>
+          </SimpleGrid>
 
           {booking.status === "confirmed" || booking.status === "rescheduled" ? (
             <Alert color="blue" variant="light">
               Arrive near your scheduled time. A queue ticket appears here only after vendor check-in.
             </Alert>
           ) : null}
+
+          <Paper withBorder radius="lg" p="md">
+            <Stack gap="sm">
+              <Group justify="space-between" align="flex-start">
+                <Stack gap={2}>
+                  <Text fw={800}>Actions</Text>
+                  <Text c="dimmed" size="sm">
+                    Check in when the vendor has created your queue ticket, review proof, or cancel before check-in.
+                  </Text>
+                </Stack>
+                {booking.checkedInAt ? (
+                  <Badge color="teal" variant="light">
+                    Checked in {formatDateTime(booking.checkedInAt)}
+                  </Badge>
+                ) : (
+                  <Badge color={checkInAvailable ? "blue" : "gray"} variant="light">
+                    {checkInAvailable ? "Queue ticket ready" : "Check-in not available"}
+                  </Badge>
+                )}
+              </Group>
+              <Group gap="sm">
+                {checkInAvailable ? (
+                  <Button component={Link} leftSection={<IconTicket size={16} />} to={linkedQueuePath}>
+                    Check-in
+                  </Button>
+                ) : (
+                  <Button disabled leftSection={<IconTicket size={16} />} variant="default">
+                    Check-in
+                  </Button>
+                )}
+                <Button
+                  disabled={!booking.paymentProof}
+                  leftSection={<IconReceipt size={16} />}
+                  loading={proofViewBusy}
+                  onClick={handleViewPaymentProof}
+                  variant="light"
+                >
+                  View payment proof
+                </Button>
+                <Button
+                  color="red"
+                  disabled={!cancellationAllowed}
+                  leftSection={<IconX size={16} />}
+                  onClick={() => setCancelModalOpen(true)}
+                  variant="subtle"
+                >
+                  Cancel booking
+                </Button>
+              </Group>
+            </Stack>
+          </Paper>
 
           {booking.linkedTicket ? (
             <Card withBorder radius="md" p="md">
@@ -394,11 +444,7 @@ export default function CustomerBookingDetailPage() {
                 <Button
                   component={Link}
                   leftSection={<IconTicket size={16} />}
-                  to={buildJoinedQueuePathWithTicket(
-                    booking.tenantSlug,
-                    booking.linkedTicket.lookupCode,
-                    booking.locationSlug
-                  )}
+                  to={linkedQueuePath}
                   variant="light"
                 >
                   Open live queue status
@@ -409,41 +455,15 @@ export default function CustomerBookingDetailPage() {
         </Stack>
       </Card>
 
-      <Card className="finazze-auth-card customer-account-card" p="xl">
+      {!booking.paymentProof && proofSubmissionAllowed ? (
+        <Card className="finazze-auth-card customer-account-card" p="xl">
         <Stack gap="md">
           <div>
             <Text className="finazze-section-label">Payment proof</Text>
-            <Title order={2}>Manual payment evidence</Title>
+            <Title order={2}>Submit manual payment evidence</Title>
           </div>
 
-          {booking.paymentProof ? (
-            <Group justify="space-between" align="center">
-              <Stack gap={2}>
-                <Text fw={700}>{booking.paymentProof.fileName}</Text>
-                <Text c="dimmed" size="sm">
-                  {formatBytes(booking.paymentProof.sizeBytes)} uploaded{" "}
-                  {booking.paymentProof.uploadedAt ? formatDateTime(booking.paymentProof.uploadedAt) : ""}
-                </Text>
-                <Badge color={paymentProofStatus.color} variant="light" w="fit-content">
-                  {paymentProofStatus.label}
-                </Badge>
-                {booking.paymentRejectedAt && booking.paymentRejectionReason ? (
-                  <Alert color="red" variant="light" mt="xs">
-                    {booking.paymentRejectionReason}
-                  </Alert>
-                ) : null}
-              </Stack>
-              <Button
-                leftSection={<IconExternalLink size={16} />}
-                loading={proofViewBusy}
-                onClick={handleViewPaymentProof}
-                variant="light"
-              >
-                View proof
-              </Button>
-            </Group>
-          ) : proofSubmissionAllowed ? (
-            <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xl" verticalSpacing="lg">
+          <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xl" verticalSpacing="lg">
               <Card withBorder radius="md" p="md">
                 {manualPaymentDestination ? (
                   <Stack gap="md">
@@ -506,46 +526,97 @@ export default function CustomerBookingDetailPage() {
                 </Button>
               </Stack>
             </SimpleGrid>
-          ) : (
-            <Alert color="gray" variant="light">
-              Payment proof is not available for this booking state.
-            </Alert>
-          )}
         </Stack>
-      </Card>
-
-      {cancellationAllowed ? (
-        <Card className="finazze-auth-card customer-account-card" p="xl">
-          <Stack gap="md">
-            <div>
-              <Text className="finazze-section-label">Cancel booking</Text>
-              <Title order={2}>Cancel before check-in</Title>
-            </div>
-            <Textarea
-              label="Cancellation reason"
-              minRows={3}
-              onChange={(event) => setReason(event.currentTarget.value)}
-              value={reason}
-            />
-            <Button color="red" disabled={busy} onClick={() => setCancelConfirmOpen(true)} w="fit-content">
-              {busy ? "Cancelling..." : "Cancel booking"}
-            </Button>
-          </Stack>
         </Card>
       ) : null}
-      <ConfirmActionModal
-        opened={cancelConfirmOpen}
-        title="Cancel booking?"
-        description="This will cancel the booking immediately. The customer will need to make a new booking if they still want the service."
-        confirmLabel="Yes, cancel booking"
-        confirmColor="red"
-        loading={busy}
-        onClose={() => setCancelConfirmOpen(false)}
-        onConfirm={async () => {
-          setCancelConfirmOpen(false);
-          await handleCancel();
-        }}
-      />
+
+      <Modal
+        centered
+        onClose={() => setProofModalOpen(false)}
+        opened={proofModalOpen}
+        size="lg"
+        title="Payment proof"
+      >
+        {booking.paymentProof ? (
+          <Stack gap="md">
+            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+              <Paper withBorder radius="md" p="md">
+                <Text className="finazze-section-label">File</Text>
+                <Text fw={700}>{booking.paymentProof.fileName}</Text>
+                <Text c="dimmed" size="sm">{formatBytes(booking.paymentProof.sizeBytes)}</Text>
+                <Text c="dimmed" size="sm">
+                  {booking.paymentProof.uploadedAt ? formatDateTime(booking.paymentProof.uploadedAt) : "Upload time unavailable"}
+                </Text>
+              </Paper>
+              <Paper withBorder radius="md" p="md">
+                <Text className="finazze-section-label">Status</Text>
+                <Badge color={paymentProofStatus.color} variant="light" w="fit-content">
+                  {paymentProofStatus.label}
+                </Badge>
+                <Text c="dimmed" mt="xs" size="sm">
+                  Reference: {booking.paymentReference || "No reference"}
+                </Text>
+              </Paper>
+            </SimpleGrid>
+            {booking.paymentRejectedAt && booking.paymentRejectionReason ? (
+              <Alert color="red" variant="light">
+                {booking.paymentRejectionReason}
+              </Alert>
+            ) : null}
+            {proofAccessUrl ? (
+              <Image alt="Uploaded payment proof" fit="contain" mah={520} radius="md" src={proofAccessUrl} />
+            ) : (
+              <Alert color="gray" variant="light">Open the proof again to refresh the private image link.</Alert>
+            )}
+            {proofAccessUrl ? (
+              <Button
+                component="a"
+                href={proofAccessUrl}
+                leftSection={<IconExternalLink size={16} />}
+                rel="noopener noreferrer"
+                target="_blank"
+                variant="light"
+                w="fit-content"
+              >
+                Open image in new tab
+              </Button>
+            ) : null}
+          </Stack>
+        ) : (
+          <Alert color="gray" variant="light">No payment proof has been uploaded for this booking.</Alert>
+        )}
+      </Modal>
+
+      <Modal
+        centered
+        onClose={() => setCancelModalOpen(false)}
+        opened={cancelModalOpen}
+        size="md"
+        title="Cancel booking"
+      >
+        <form onSubmit={handleCancel}>
+          <Stack gap="md">
+            <Alert color="red" variant="light">
+              This will cancel the booking immediately. You will need to make a new booking if you still want the service.
+            </Alert>
+            <Textarea
+              label="Cancellation reason"
+              minRows={4}
+              onChange={(event) => setReason(event.currentTarget.value)}
+              placeholder="Tell the vendor why you are cancelling"
+              value={reason}
+            />
+            <Group justify="flex-end">
+              <Button disabled={busy} onClick={() => setCancelModalOpen(false)} variant="default">
+                Keep booking
+              </Button>
+              <Button color="red" loading={busy} type="submit">
+                Cancel booking
+              </Button>
+            </Group>
+          </Stack>
+        </form>
+      </Modal>
     </Stack>
   );
 }

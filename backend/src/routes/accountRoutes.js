@@ -6,6 +6,7 @@ const ticketRepository = require("../repositories/tickets");
 const userRepository = require("../repositories/users");
 const bookingService = require("../services/bookingService");
 const passwordResetService = require("../services/passwordResetService");
+const { formatPaginationMetadata, parsePaginationParams } = require("../utils/pagination");
 
 const router = express.Router();
 
@@ -209,11 +210,14 @@ router.patch(
 router.get(
   "/history",
   asyncHandler(async (req, res) => {
-    const limit = Math.min(Math.max(Number(req.query.limit || 50) || 50, 1), 100);
-    const tickets = await ticketRepository.listTicketsForCustomerAccount(req.user, { limit });
+    const { page, pageSize, offset } = parsePaginationParams(req.query);
+    const result = await ticketRepository.listTicketsForCustomerAccount(req.user, { page, pageSize, offset });
+    const tickets = Array.isArray(result) ? result : result.tickets;
+    const totalItems = Array.isArray(result) ? result.length : result.totalItems;
 
     res.json({
-      tickets: tickets.map(formatCustomerTicket)
+      tickets: tickets.map(formatCustomerTicket),
+      pagination: formatPaginationMetadata(totalItems, page, pageSize)
     });
   })
 );
@@ -221,12 +225,15 @@ router.get(
 router.get(
   "/bookings",
   asyncHandler(async (req, res) => {
-    const limit = Math.min(Math.max(Number(req.query.limit || 50) || 50, 1), 100);
+    const { page, pageSize, offset } = parsePaginationParams(req.query);
     await bookingService.expirePendingBookingsForCustomer(req.user._id);
-    const bookings = await bookingRepository.listBookingsForCustomer(req.user._id, { limit });
+    const result = await bookingRepository.listBookingsForCustomer(req.user._id, { page, pageSize, offset });
+    const bookings = Array.isArray(result) ? result : result.bookings;
+    const totalItems = Array.isArray(result) ? result.length : result.totalItems;
 
     res.json({
-      bookings: bookings.map(formatCustomerBooking)
+      bookings: bookings.map(formatCustomerBooking),
+      pagination: formatPaginationMetadata(totalItems, page, pageSize)
     });
   })
 );

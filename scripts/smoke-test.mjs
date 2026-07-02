@@ -211,10 +211,13 @@ async function smokeCustomerStage() {
   assertOk(notificationSettingsRestore.response, "notification settings restore");
   log("notification settings restore ok");
 
-  const bookings = await requestJson(`${API_BASE_URL}/account/bookings?limit=1`, { headers });
+  const bookings = await requestJson(`${API_BASE_URL}/account/bookings?page=1&pageSize=1`, { headers });
   assertOk(bookings.response, "account bookings");
   if (!Array.isArray(bookings.body?.bookings)) {
     fail("account bookings missing bookings array");
+  }
+  if (!bookings.body?.pagination || typeof bookings.body.pagination.page !== "number") {
+    fail("account bookings missing pagination metadata");
   }
   log("account bookings ok");
 

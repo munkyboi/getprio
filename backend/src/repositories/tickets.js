@@ -351,7 +351,6 @@ async function listTicketsByUserId(userId, options = {}) {
 
 async function listTicketsForCustomerAccount(user, options = {}) {
   const queryClient = buildQueryClient(options.client);
-  const limit = Number(options.limit || 50);
   const values = [Number(user._id)];
   const identityFilters = [`tickets.user_id = $1`];
 
@@ -365,6 +364,51 @@ async function listTicketsForCustomerAccount(user, options = {}) {
     identityFilters.push(`tickets.customer_phone = $${values.length}`);
   }
 
+  const whereClause = identityFilters.map((filter) => `(${filter})`).join(" OR ");
+
+  if (options.page || options.pageSize || options.offset !== undefined) {
+    const pageSize = Math.min(Math.max(Number(options.pageSize || options.limit || 10) || 10, 1), 100);
+    const offset = Math.max(Number(options.offset || 0) || 0, 0);
+    const countResult = await queryClient.query(
+      `
+        SELECT COUNT(*)::int AS count
+        FROM tickets
+        WHERE ${whereClause}
+      `,
+      values
+    );
+    const listValues = [...values, pageSize, offset];
+    const result = await queryClient.query(
+      `
+        SELECT
+          tickets.*,
+          tenants.name AS tenant_name,
+          tenants.slug AS tenant_slug,
+          store_locations.name AS location_name,
+          store_locations.slug AS location_slug
+        FROM tickets
+        INNER JOIN tenants ON tenants.id = tickets.tenant_id
+        INNER JOIN store_locations ON store_locations.id = tickets.location_id
+        WHERE ${whereClause}
+        ORDER BY tickets.created_at DESC
+        LIMIT $${listValues.length - 1} OFFSET $${listValues.length}
+      `,
+      listValues
+    );
+
+    return {
+      tickets: result.rows.map((row) => ({
+        ...mapTicket(row),
+        tenantName: row.tenant_name,
+        tenantSlug: row.tenant_slug,
+        locationName: row.location_name,
+        locationSlug: row.location_slug
+      })),
+      totalItems: Number(countResult.rows[0]?.count || 0)
+    };
+  }
+
+  const limit = Number(options.limit || 50);
   values.push(limit);
 
   const result = await queryClient.query(
@@ -378,7 +422,7 @@ async function listTicketsForCustomerAccount(user, options = {}) {
       FROM tickets
       INNER JOIN tenants ON tenants.id = tickets.tenant_id
       INNER JOIN store_locations ON store_locations.id = tickets.location_id
-      WHERE ${identityFilters.map((filter) => `(${filter})`).join(" OR ")}
+      WHERE ${whereClause}
       ORDER BY tickets.created_at DESC
       LIMIT $${values.length}
     `,

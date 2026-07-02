@@ -414,6 +414,7 @@ export interface CustomerBookingSummary {
 
 export interface CustomerBookingsResponse {
   bookings: CustomerBookingSummary[];
+  pagination?: PaginationMetadata;
 }
 
 export interface CreateCustomerBookingRequest {
@@ -1220,6 +1221,7 @@ export interface CustomerProfileUpdateResponse extends AuthActionResponse {
 
 export interface CustomerAccountHistoryResponse {
   tickets: CustomerAccountTicketSummary[];
+  pagination?: PaginationMetadata;
 }
 
 export interface OAuthProvidersResponse {

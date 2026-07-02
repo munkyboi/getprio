@@ -244,6 +244,39 @@ async function findBookingByIdForUpdate(id, options = {}) {
 }
 
 async function listBookingsForCustomer(userId, options = {}) {
+  if (options.page || options.pageSize || options.offset !== undefined) {
+    const pageSize = Math.min(Math.max(Number(options.pageSize || options.limit || 10) || 10, 1), 100);
+    const offset = Math.max(Number(options.offset || 0) || 0, 0);
+    const queryClient = buildQueryClient(options.client);
+    const countResult = await queryClient.query(
+      `
+        SELECT COUNT(*)::int AS count
+        FROM bookings
+        WHERE bookings.customer_user_id = $1
+      `,
+      [Number(userId)]
+    );
+    const result = await queryClient.query(
+      `
+        SELECT ${BOOKING_COLUMNS}
+        FROM bookings
+        INNER JOIN tenants ON tenants.id = bookings.tenant_id
+        INNER JOIN store_locations ON store_locations.id = bookings.location_id
+        INNER JOIN vendor_services ON vendor_services.id = bookings.service_id
+        LEFT JOIN tickets ON tickets.id = bookings.queue_ticket_id
+        WHERE bookings.customer_user_id = $1
+        ORDER BY bookings.scheduled_start_at DESC, bookings.created_at DESC
+        LIMIT $2 OFFSET $3
+      `,
+      [Number(userId), pageSize, offset]
+    );
+
+    return {
+      bookings: result.rows.map(mapBooking),
+      totalItems: Number(countResult.rows[0]?.count || 0)
+    };
+  }
+
   const limit = Math.min(Math.max(Number(options.limit || 50) || 50, 1), 100);
   const result = await buildQueryClient(options.client).query(
     `
