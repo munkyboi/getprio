@@ -2,6 +2,8 @@ require("tsx/cjs");
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 
 const { ApiError, apiRequest, setAuthHandlers, API_BASE_URL } = require("../src/api/client.ts");
 const { getErrorMessage } = require("../src/utils/errors.ts");
@@ -74,6 +76,12 @@ const {
   updateNotificationSettings,
   updateSettings
 } = require("../src/api/vendorDashboardOperations.ts");
+const {
+  getBookingDetail,
+  getBookings,
+  getRescheduleSlots,
+  rescheduleBooking
+} = require("../src/api/vendorDashboardBookings.ts");
 
 function mockResponse(status, body) {
   return {
@@ -303,6 +311,10 @@ test("vendor dashboard api helpers build the expected paths", async () => {
     await getCounters("token", "tenant", "main");
     await uploadThemeAsset("token", "tenant", "main", "logo", { name: "logo.png", type: "image/png" });
     await uploadLocationPaymentQrOperation("token", "tenant", "main", { name: "qr.png", type: "image/png" });
+    await getBookings("token", "tenant", "main", 2, " alex ", "pending", ["2026-07-01", "2026-07-31"]);
+    await getBookingDetail("token", "tenant", "booking-1", "main");
+    await getRescheduleSlots("token", "tenant", "booking-1", "2026-07-07");
+    await rescheduleBooking("token", "tenant", "booking-1", "2026-07-07T01:00:00.000Z");
   });
 
   assert.ok(calls.some(([url]) => url.includes("/vendor/tenant/tenant/locations")));
@@ -322,4 +334,53 @@ test("vendor dashboard api helpers build the expected paths", async () => {
   assert.ok(calls.some(([url]) => url.includes("/vendor/tenant/tenant/counters")));
   assert.ok(calls.some(([url]) => url.includes("/uploads/direct?location=main&assetType=logo&fileName=logo.png")));
   assert.ok(calls.some(([url]) => url.includes("/location-payment-qrs/uploads/direct?locationSlug=main&fileName=qr.png")));
+  assert.ok(
+    calls.some(([url]) =>
+      url.includes(
+        "/vendor/tenant/tenant/bookings?page=2&pageSize=10&location=main&status=pending&scheduledDateFrom=2026-07-01&scheduledDateTo=2026-07-31&search=alex"
+      )
+    )
+  );
+  assert.ok(calls.some(([url]) => url.includes("/vendor/tenant/tenant/bookings/booking-1?location=main")));
+  assert.ok(
+    calls.some(([url]) =>
+      url.includes("/vendor/tenant/tenant/bookings/booking-1/reschedule-slots?date=2026-07-07")
+    )
+  );
+  assert.ok(
+    calls.some(
+      ([url, options]) =>
+        url.endsWith("/vendor/tenant/tenant/bookings/booking-1/reschedule") && options.method === "PATCH"
+    )
+  );
+});
+
+test("web app metadata points crawlers and installed apps at committed assets", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const indexHtml = fs.readFileSync(path.join(frontendRoot, "index.html"), "utf8");
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(frontendRoot, "public", "manifest.webmanifest"), "utf8")
+  );
+
+  assert.match(indexHtml, /<link rel="manifest" href="\/manifest\.webmanifest" \/>/);
+  assert.match(indexHtml, /<link rel="apple-touch-icon" href="\/apple-touch-icon\.png" \/>/);
+  assert.match(indexHtml, /<meta property="og:image" content="https:\/\/getprio\.online\/hero_image\.png" \/>/);
+  assert.match(indexHtml, /<meta name="twitter:card" content="summary_large_image" \/>/);
+
+  assert.equal(manifest.name, "GetPrio");
+  assert.equal(manifest.start_url, "/");
+  assert.equal(manifest.display, "standalone");
+  assert.deepEqual(
+    manifest.icons.map((icon) => [icon.src, icon.sizes, icon.type]),
+    [
+      ["/app-icon-192.png", "192x192", "image/png"],
+      ["/app-icon-512.png", "512x512", "image/png"]
+    ]
+  );
+
+  for (const asset of ["apple-touch-icon.png", "app-icon-192.png", "app-icon-512.png", "app-icon-1024.png"]) {
+    const stats = fs.statSync(path.join(frontendRoot, "public", asset));
+    assert.equal(stats.isFile(), true);
+    assert.ok(stats.size > 0, `${asset} should not be empty`);
+  }
 });

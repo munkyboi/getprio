@@ -144,8 +144,26 @@ async function smokePublicStage() {
     const { response, text } = await requestText(`${APP_BASE_URL}${page.path}`);
     assertOk(response, `${page.label} page`);
     assertContains(text, "<div id=\"root\">", `${page.label} page`);
+    if (page.path === "/") {
+      assertContains(text, "href=\"/manifest.webmanifest\"", "landing metadata");
+      assertContains(text, "href=\"/apple-touch-icon.png\"", "landing metadata");
+      assertContains(text, "property=\"og:image\"", "landing metadata");
+      assertContains(text, "name=\"twitter:card\"", "landing metadata");
+    }
     log(`${page.label} page ok`);
   }
+
+  const manifest = await requestJson(`${APP_BASE_URL}/manifest.webmanifest`);
+  assertOk(manifest.response, "web app manifest");
+  if (manifest.body?.name !== "GetPrio" || !Array.isArray(manifest.body?.icons)) {
+    fail("web app manifest missing name or icons");
+  }
+  for (const iconSrc of ["/app-icon-192.png", "/app-icon-512.png"]) {
+    if (!manifest.body.icons.some((icon) => icon?.src === iconSrc && icon?.type === "image/png")) {
+      fail(`web app manifest missing icon: ${iconSrc}`);
+    }
+  }
+  log("web app manifest ok");
 
   const platform = await requestText(PLATFORM_BASE_URL);
   assertOk(platform.response, "platform dashboard shell");
@@ -335,6 +353,12 @@ async function smokeVendorStage() {
   if (!Array.isArray(services.body?.services)) {
     fail("vendor services missing services array");
   }
+  if (
+    services.body.services.length > 0 &&
+    !services.body.services.every((service) => ["service", "location"].includes(service.bookingCapacityScope))
+  ) {
+    fail("vendor services missing valid bookingCapacityScope values");
+  }
   log("vendor services ok");
 
   const availability = await requestJson(
@@ -346,6 +370,32 @@ async function smokeVendorStage() {
     fail("vendor availability missing blocks or exceptions arrays");
   }
   log("vendor availability ok");
+
+  const bookings = await requestJson(
+    `${API_BASE_URL}/vendor/tenant/${tenant.slug}/bookings?page=1&pageSize=1&location=${encodeURIComponent(locationSlug)}`,
+    { headers }
+  );
+  assertOk(bookings.response, "vendor bookings");
+  if (!Array.isArray(bookings.body?.bookings)) {
+    fail("vendor bookings missing bookings array");
+  }
+  log("vendor bookings ok");
+
+  const firstBookingId = bookings.body.bookings[0]?.id;
+  if (firstBookingId) {
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const rescheduleSlots = await requestJson(
+      `${API_BASE_URL}/vendor/tenant/${tenant.slug}/bookings/${firstBookingId}/reschedule-slots?date=${tomorrow}`,
+      { headers }
+    );
+    assertOk(rescheduleSlots.response, "vendor booking reschedule slots");
+    if (!Array.isArray(rescheduleSlots.body?.slots)) {
+      fail("vendor booking reschedule slots missing slots array");
+    }
+    log("vendor booking reschedule slots ok");
+  } else {
+    log("vendor booking reschedule slots skipped (no vendor booking fixture)");
+  }
 }
 
 async function smokePlatformStage() {
