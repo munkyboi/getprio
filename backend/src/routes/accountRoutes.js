@@ -52,6 +52,10 @@ function formatManualPaymentDestination(booking) {
     return null;
   }
 
+  if (!booking.serviceManualPaymentRequired) {
+    return null;
+  }
+
   if (!booking.locationPaymentQrActive || !booking.locationPaymentQrImageUrl) {
     return null;
   }

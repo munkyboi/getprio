@@ -313,7 +313,6 @@ export default function BookingRequestPage() {
   const totalDurationMinutes = selectedService ? selectedService.durationMinutes * quantityForRequest : 0;
   const requiresPaymentProof = Boolean(
     booking?.serviceManualPaymentRequired ||
-    booking?.manualPaymentDestination ||
     selectedService?.manualPaymentRequired
   );
   const vendorDecision = getVendorDecision(booking);

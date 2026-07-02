@@ -46,8 +46,14 @@ function canCancel(status: BookingStatus, checkedInAt: string | Date | null, lin
   return ["pending", "confirmed", "rescheduled"].includes(status) && !checkedInAt && !linkedTicket;
 }
 
-function canSubmitPaymentProof(status: BookingStatus, checkedInAt: string | Date | null, linkedTicket: unknown, hasProof: boolean) {
-  return ["pending", "confirmed", "rescheduled"].includes(status) && !checkedInAt && !linkedTicket && !hasProof;
+function canSubmitPaymentProof(
+  status: BookingStatus,
+  checkedInAt: string | Date | null,
+  linkedTicket: unknown,
+  hasProof: boolean,
+  serviceManualPaymentRequired: boolean
+) {
+  return serviceManualPaymentRequired && ["pending", "confirmed", "rescheduled"].includes(status) && !checkedInAt && !linkedTicket && !hasProof;
 }
 
 function formatBytes(sizeBytes: number | null) {
@@ -303,7 +309,8 @@ export default function CustomerBookingDetailPage() {
     booking.status,
     booking.checkedInAt,
     booking.linkedTicket,
-    Boolean(booking.paymentProof)
+    Boolean(booking.paymentProof),
+    booking.serviceManualPaymentRequired
   );
   const paymentProofStatus =
     booking.paymentVerifiedAt

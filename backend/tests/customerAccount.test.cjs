@@ -499,6 +499,85 @@ test("customer booking detail exposes manual payment destination before proof su
   }
 });
 
+test("customer booking detail hides manual payment destination when service does not require proof", async () => {
+  const booking = {
+    _id: "booking-2",
+    reference: "BKG-NOPAY",
+    tenantId: "tenant-1",
+    tenantName: "Demo Tenant",
+    tenantSlug: "demo",
+    locationId: "location-1",
+    locationName: "Main Branch",
+    locationSlug: "main",
+    serviceId: "service-1",
+    serviceName: "Haircut",
+    serviceSlug: "haircut",
+    serviceManualPaymentRequired: false,
+    servicePriceAmountCents: 30000,
+    serviceCurrency: "PHP",
+    servicePriceDisplay: "PHP 300",
+    locationPaymentMethodLabel: "GCash InstaPay QR",
+    locationPaymentAccountDisplayName: "Demo Tenant Main Branch",
+    locationPaymentAccountIdentifierDisplay: "0917 *** 4567",
+    locationPaymentQrImageUrl: "https://cdn.example.test/payment-qr.png",
+    locationPaymentQrActive: true,
+    bookingQuantity: 1,
+    customerUserId: "user-1",
+    customerName: "Customer One",
+    customerEmail: "customer@example.com",
+    customerPhone: "09171234567",
+    scheduledStartAt: "2026-06-29T02:00:00.000Z",
+    scheduledEndAt: "2026-06-29T04:00:00.000Z",
+    status: "pending",
+    notes: "",
+    paymentReference: "",
+    paymentStatus: "unpaid",
+    paymentProofObjectKey: "",
+    paymentVerifiedAt: null,
+    paymentRejectedAt: null,
+    paymentRejectionReason: "",
+    notifyByEmail: true,
+    notifyBySms: false,
+    smsAlertFeePaymentId: "",
+    contactVerifiedAt: "2026-06-23T05:30:00.000Z",
+    contactVerificationChannel: "email",
+    queueTicketId: null,
+    checkedInAt: null,
+    noShowAt: null,
+    createdAt: "2026-06-23T05:00:00.000Z",
+    updatedAt: "2026-06-23T05:00:00.000Z"
+  };
+  const router = requireWithMocks("../src/routes/accountRoutes.js", {
+    "../middleware/auth": buildAuthMock(),
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../repositories/tickets": {
+      listTicketsForCustomerAccount: async () => []
+    },
+    "../repositories/bookings": {
+      findBookingById: async () => booking
+    },
+    "../services/bookingService": {
+      expirePendingBookingsForCustomer: async () => []
+    },
+    "../services/passwordResetService": {
+      changePassword: async () => {}
+    }
+  });
+
+  const { server, baseUrl } = await startServer(router, "/api/account");
+
+  try {
+    const response = await fetch(`${baseUrl}/bookings/booking-2`, {
+      headers: { Authorization: "Bearer token" }
+    });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.booking.manualPaymentDestination, null);
+  } finally {
+    await stopServer(server);
+  }
+});
+
 test("customer bookings can be created only inside vendor availability", async () => {
   const bookings = [];
   const initialScheduledStartAt = buildFutureManilaSlot(1, 1, 10, 0);
