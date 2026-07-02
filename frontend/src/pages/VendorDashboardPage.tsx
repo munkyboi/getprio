@@ -3274,6 +3274,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     <Table verticalSpacing="sm">
                       <Table.Thead>
                         <Table.Tr>
+                          <Table.Th>ID</Table.Th>
                           <Table.Th>Up next</Table.Th>
                           <Table.Th>Channel</Table.Th>
                           <Table.Th>Source</Table.Th>
@@ -3284,6 +3285,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         {currentQueueTickets.length ? (
                           currentQueueTickets.map((ticket) => (
                             <Table.Tr key={ticket.id}>
+                              <Table.Td fw={700}>{ticket.id}</Table.Td>
                               <Table.Td>
                                 <Text fw={700}>{ticket.ticketNumber}</Text>
                                 <Text c="dimmed" size="sm">{ticket.customerName}</Text>
@@ -3307,7 +3309,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           ))
                         ) : (
                           <Table.Tr>
-                            <Table.Td colSpan={4}>
+                            <Table.Td colSpan={5}>
                               <DashboardEmptyState
                                 title="No one is waiting right now."
                                 text="Fresh same-day joins will appear here once the carry-over backlog is cleared."
@@ -3334,6 +3336,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     <Table verticalSpacing="sm">
                       <Table.Thead>
                         <Table.Tr>
+                          <Table.Th>ID</Table.Th>
                           <Table.Th>Ticket</Table.Th>
                           <Table.Th>Channel</Table.Th>
                           <Table.Th>Priority</Table.Th>
@@ -3345,6 +3348,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         {overflowTickets.length ? (
                           overflowTickets.map((ticket) => (
                             <Table.Tr key={ticket.id}>
+                              <Table.Td fw={700}>{ticket.id}</Table.Td>
                               <Table.Td>
                                 <Text fw={700}>{ticket.ticketNumber}</Text>
                                 <Text c="dimmed" size="sm">{ticket.customerName}</Text>
@@ -3361,7 +3365,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           ))
                         ) : (
                           <Table.Tr>
-                            <Table.Td colSpan={5}>
+                            <Table.Td colSpan={6}>
                               <DashboardEmptyState
                                 title="No overflow tickets."
                                 text="Waiting tickets carried over from a previous queue day will appear here."
@@ -3397,6 +3401,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     <Table verticalSpacing="sm">
                       <Table.Thead>
                         <Table.Tr>
+                          <Table.Th>ID</Table.Th>
                           <Table.Th>Ticket</Table.Th>
                           <Table.Th>Joined</Table.Th>
                           <Table.Th>Recovery</Table.Th>
@@ -3410,6 +3415,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
                             return (
                               <Table.Tr key={ticket.id}>
+                                <Table.Td fw={700}>{ticket.id}</Table.Td>
                                 <Table.Td>
                                   <Text fw={700}>{ticket.ticketNumber}</Text>
                                   <Text c="dimmed" size="sm">{ticket.customerName}</Text>
@@ -3468,7 +3474,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           })
                         ) : (
                           <Table.Tr>
-                            <Table.Td colSpan={4}>
+                            <Table.Td colSpan={5}>
                               <DashboardEmptyState
                                 title="No skipped tickets to recover."
                                 text="Skipped tickets will appear here while they are still relevant for operator recovery."
@@ -4634,6 +4640,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     <Table className="neura-services-table" verticalSpacing="sm">
                       <Table.Thead>
                         <Table.Tr>
+                          <Table.Th>ID</Table.Th>
                           <Table.Th>Service</Table.Th>
                           <Table.Th>Duration</Table.Th>
                           <Table.Th>Price</Table.Th>
@@ -4645,7 +4652,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       <Table.Tbody>
                         {services.map((service) => (
                           <Table.Tr key={service.id}>
-                            <Table.Td className="neura-services-table__sticky neura-services-table__sticky-first">
+                            <Table.Td fw={700} className="neura-services-table__sticky neura-services-table__sticky-first">
+                              {service.id}
+                            </Table.Td>
+                            <Table.Td>
                               <Stack gap={2}>
                                 <Text fw={700} c={service.isActive ? undefined : "dimmed"}>
                                   {service.name}
@@ -4752,6 +4762,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     <Table className="neura-availability-table" verticalSpacing="sm">
                       <Table.Thead>
                         <Table.Tr>
+                          <Table.Th>ID</Table.Th>
                           <Table.Th>Day</Table.Th>
                           <Table.Th>Time</Table.Th>
                           <Table.Th>Service</Table.Th>
@@ -4763,7 +4774,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       <Table.Tbody>
                         {availabilityBlocks.map((block) => (
                           <Table.Tr key={block.id}>
-                            <Table.Td className="neura-availability-table__sticky neura-availability-table__sticky-first">
+                            <Table.Td fw={700} className="neura-availability-table__sticky neura-availability-table__sticky-first">
+                              {block.id}
+                            </Table.Td>
+                            <Table.Td>
                               <Text c={block.isActive ? undefined : "dimmed"}>
                                 {weekdayOptions.find((day) => day.value === String(block.weekday))?.label}
                               </Text>
@@ -4850,6 +4864,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     <Table className="neura-availability-table" verticalSpacing="sm">
                       <Table.Thead>
                         <Table.Tr>
+                          <Table.Th>ID</Table.Th>
                           <Table.Th>Date</Table.Th>
                           <Table.Th>Time</Table.Th>
                           <Table.Th>Service</Table.Th>
@@ -4861,7 +4876,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       <Table.Tbody>
                         {availabilityExceptions.map((exception) => (
                           <Table.Tr key={exception.id}>
-                            <Table.Td className="neura-availability-table__sticky neura-availability-table__sticky-first">
+                            <Table.Td fw={700} className="neura-availability-table__sticky neura-availability-table__sticky-first">
+                              {exception.id}
+                            </Table.Td>
+                            <Table.Td>
                               <Text c={exception.isAvailable ? undefined : "dimmed"}>{formatDate(exception.exceptionDate)}</Text>
                             </Table.Td>
                             <Table.Td>
@@ -5020,13 +5038,14 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               <>
                 <Table.ScrollContainer minWidth={1240}>
                   <Table className="neura-bookings-table" verticalSpacing="sm">
-                    <Table.Thead>
-                      <Table.Tr>
-                        <Table.Th>Reference</Table.Th>
-                        <Table.Th>Customer</Table.Th>
-                        <Table.Th>Service</Table.Th>
-                        <Table.Th>Schedule</Table.Th>
-                        <Table.Th>Status</Table.Th>
+                      <Table.Thead>
+                        <Table.Tr>
+                          <Table.Th>ID</Table.Th>
+                          <Table.Th>Reference</Table.Th>
+                          <Table.Th>Customer</Table.Th>
+                          <Table.Th>Service</Table.Th>
+                          <Table.Th>Schedule</Table.Th>
+                          <Table.Th>Status</Table.Th>
                         <Table.Th>Payment</Table.Th>
                         <Table.Th>Actions</Table.Th>
                       </Table.Tr>
@@ -5037,12 +5056,15 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       const paymentVerified = booking.paymentStatus === "paid";
                       const checkInState = getBookingCheckInState(booking);
                       const hasExpired = Boolean(booking.expiredAt);
-                      if (booking.status === "completed") {
-                        return (
-                          <Table.Tr key={booking.id}>
-                            <Table.Td>
-                              <Stack gap={2}>
-                                <Button
+                        if (booking.status === "completed") {
+                          return (
+                            <Table.Tr key={booking.id}>
+                              <Table.Td fw={700}>
+                                {booking.id}
+                              </Table.Td>
+                              <Table.Td>
+                                <Stack gap={2}>
+                                  <Button
                                   className="neura-inline-link-button"
                                   onClick={() => {
                                     setPaymentRejectionReason("");
@@ -5295,9 +5317,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         return null;
                       })();
 
-                      return (
+                        return (
                         <Table.Tr key={booking.id}>
-                          <Table.Td className="neura-bookings-table__sticky neura-bookings-table__sticky-first">
+                          <Table.Td fw={700} className="neura-bookings-table__sticky neura-bookings-table__sticky-first">
+                            {booking.id}
+                          </Table.Td>
+                          <Table.Td>
                             <Stack gap={2}>
                               <Button
                                 className="neura-inline-link-button"
@@ -5548,6 +5573,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             <Table verticalSpacing="sm">
               <Table.Thead>
                 <Table.Tr>
+                  <Table.Th>ID</Table.Th>
                   <Table.Th>Name</Table.Th>
                   <Table.Th>Contact</Table.Th>
                   <Table.Th>Role</Table.Th>
@@ -5567,6 +5593,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
                   return (
                     <Table.Tr key={member.id}>
+                      <Table.Td fw={700}>{member.id}</Table.Td>
                       <Table.Td fw={700}>{member.name}</Table.Td>
                       <Table.Td>{member.email || member.phone || "--"}</Table.Td>
                       <Table.Td>
@@ -5665,6 +5692,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             <Table verticalSpacing="sm">
               <Table.Thead>
                 <Table.Tr>
+                  <Table.Th>ID</Table.Th>
                   <Table.Th>Customer</Table.Th>
                   <Table.Th>Contact</Table.Th>
                   <Table.Th>Visits</Table.Th>
@@ -5676,6 +5704,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 {paginatedClients.length ? (
                   paginatedClients.map((client) => (
                     <Table.Tr key={client.id}>
+                      <Table.Td fw={700}>{client.id}</Table.Td>
                       <Table.Td fw={700}>{client.customerName}</Table.Td>
                       <Table.Td>{[client.customerEmail, client.customerPhone].filter(Boolean).join(" | ") || "—"}</Table.Td>
                       <Table.Td>{client.visitCount}</Table.Td>
@@ -5685,7 +5714,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   ))
                 ) : (
                   <Table.Tr>
-                    <Table.Td colSpan={5}>
+                    <Table.Td colSpan={6}>
                       <DashboardEmptyState
                         title={clientsSearch ? "No matching clients." : "No client history yet."}
                         text={
@@ -5794,6 +5823,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             <Table verticalSpacing="sm">
               <Table.Thead>
                 <Table.Tr>
+                  <Table.Th>ID</Table.Th>
                   <Table.Th>Ticket</Table.Th>
                   <Table.Th>Customer</Table.Th>
                   <Table.Th>Status</Table.Th>
@@ -5804,6 +5834,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 {paginatedHistoryTickets.length ? (
                   paginatedHistoryTickets.map((ticket) => (
                     <Table.Tr key={ticket.id}>
+                      <Table.Td fw={700}>{ticket.id}</Table.Td>
                       <Table.Td fw={700}>{ticket.ticketNumber}</Table.Td>
                       <Table.Td>{ticket.customerName}</Table.Td>
                       <Table.Td><Badge variant="light">{ticket.status}</Badge></Table.Td>
@@ -5812,7 +5843,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   ))
                 ) : (
                   <Table.Tr>
-                    <Table.Td colSpan={4}>
+                    <Table.Td colSpan={5}>
                       <DashboardEmptyState
                         title={historySearch ? "No matching history records." : "No completed queue activity yet."}
                         text={
