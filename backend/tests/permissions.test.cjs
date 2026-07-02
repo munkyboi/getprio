@@ -16,6 +16,7 @@ test("permissions helpers resolve tenant roles, ignore inactive memberships, and
   assert.deepEqual(Array.from(permissions.getGlobalPermissions(user)).sort(), [
     "account.change_password",
     "account.read_self",
+    "platform.billing.manage",
     "platform.billing.read",
     "platform.plans.manage",
     "platform.queue_fees.manage",
