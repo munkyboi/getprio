@@ -402,7 +402,7 @@ async function countOverlappingActiveBookings(tenantId, options = {}) {
       FROM bookings
       WHERE tenant_id = $1
         AND location_id = $2
-        AND service_id = $3
+        AND ($3::bigint IS NULL OR service_id = $3::bigint)
         AND status = ANY($4::text[])
         AND scheduled_start_at < $6::timestamptz
         AND scheduled_end_at > $5::timestamptz
@@ -411,7 +411,7 @@ async function countOverlappingActiveBookings(tenantId, options = {}) {
     [
       Number(tenantId),
       Number(options.locationId),
-      Number(options.serviceId),
+      options.serviceId ? Number(options.serviceId) : null,
       ["pending", "confirmed", "rescheduled"],
       options.startsAt,
       options.endsAt,

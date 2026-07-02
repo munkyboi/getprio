@@ -455,6 +455,21 @@ router.get(
   })
 );
 
+router.get(
+  "/tenant/:tenantSlug/bookings/:bookingId/reschedule-slots",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.booking.manage");
+    const slots = await bookingService.listVendorBookingRescheduleSlots({
+      tenant,
+      bookingId: req.params.bookingId,
+      date: normalizeRequestText(req.query.date)
+    });
+
+    res.json({ slots });
+  })
+);
+
 router.patch(
   "/tenant/:tenantSlug/bookings/:bookingId/status",
   asyncHandler((req, res) =>

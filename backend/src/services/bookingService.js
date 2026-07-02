@@ -62,6 +62,10 @@ function getBookingDurationMinutes(service, bookingQuantity) {
   return getServiceDurationMinutes(service) * bookingQuantity;
 }
 
+function getBookingCapacityServiceId(service, capacityScope = "service") {
+  return service.bookingCapacityScope === "location" || capacityScope === "location" ? null : service._id;
+}
+
 function normalizeServiceBookingQuantity(service, value) {
   const bookingQuantity = normalizeBookingQuantity(value);
   if (!service.allowBookingQuantity && bookingQuantity !== 1) {
@@ -359,7 +363,8 @@ async function getBookingAvailabilityDecision({ availability, location, service,
   if (availableException) {
     return {
       allowed: true,
-      capacity: availableException.capacity || 1
+      capacity: availableException.capacity || 1,
+      capacityScope: availableException.serviceId ? "service" : "location"
     };
   }
 
@@ -376,7 +381,8 @@ async function getBookingAvailabilityDecision({ availability, location, service,
     if (storeHoursAllowBooking({ hours, scheduledStartAt, startMinutes, endMinutes })) {
       return {
         allowed: true,
-        capacity: 1
+        capacity: 1,
+        capacityScope: "service"
       };
     }
   }
@@ -390,7 +396,8 @@ async function getBookingAvailabilityDecision({ availability, location, service,
 
   return {
     allowed: true,
-    capacity: matchingBlock.capacity || 1
+    capacity: matchingBlock.capacity || 1,
+    capacityScope: matchingBlock.serviceId ? "service" : "location"
   };
 }
 
@@ -410,7 +417,8 @@ function buildAvailabilityWindows({ availability, hours, service, location, date
       windows.push({
         startsAt: block.startsAt,
         endsAt: block.endsAt,
-        capacity: block.capacity || 1
+        capacity: block.capacity || 1,
+        capacityScope: block.serviceId ? "service" : "location"
       });
     }
   } else {
@@ -419,7 +427,8 @@ function buildAvailabilityWindows({ availability, hours, service, location, date
       windows.push({
         startsAt: hour.opensAt,
         endsAt: hour.closesAt,
-        capacity: 1
+        capacity: 1,
+        capacityScope: "service"
       });
     }
   }
@@ -438,7 +447,8 @@ function buildAvailabilityWindows({ availability, hours, service, location, date
     windows.push({
       startsAt: exception.startsAt,
       endsAt: exception.endsAt,
-      capacity: exception.capacity || 1
+      capacity: exception.capacity || 1,
+      capacityScope: exception.serviceId ? "service" : "location"
     });
   }
 
@@ -447,12 +457,21 @@ function buildAvailabilityWindows({ availability, hours, service, location, date
       startMinutes: minutesFromTime(window.startsAt),
       endMinutes: minutesFromTime(window.endsAt),
       capacity: window.capacity,
+      capacityScope: window.capacityScope,
       locationId: location._id
     }))
     .filter((window) => window.startMinutes < window.endMinutes);
 }
 
-async function listBookingSlots({ tenantSlug: tenantSlugValue, locationSlug: locationSlugValue, serviceSlug: serviceSlugValue, date, bookingQuantity: bookingQuantityValue }) {
+async function listBookingSlots({
+  tenantSlug: tenantSlugValue,
+  locationSlug: locationSlugValue,
+  serviceSlug: serviceSlugValue,
+  date,
+  bookingQuantity: bookingQuantityValue,
+  excludeBookingId,
+  requirePublicVendor = true
+}) {
   const tenantSlug = String(tenantSlugValue || "").trim().toLowerCase();
   const locationSlug = String(locationSlugValue || "").trim().toLowerCase();
   const serviceSlug = vendorServiceRepository.normalizeServiceSlug(serviceSlugValue);
@@ -465,7 +484,10 @@ async function listBookingSlots({ tenantSlug: tenantSlugValue, locationSlug: loc
   }
 
   const tenant = await tenantRepository.findTenantBySlug(tenantSlug, { activeOnly: true });
-  if (!tenant || !tenant.publicProfileEnabled || tenant.vendorApprovalStatus !== "approved") {
+  if (
+    !tenant ||
+    (requirePublicVendor && (!tenant.publicProfileEnabled || tenant.vendorApprovalStatus !== "approved"))
+  ) {
     const error = new Error("Vendor not found.");
     error.statusCode = 404;
     throw error;
@@ -525,11 +547,13 @@ async function listBookingSlots({ tenantSlug: tenantSlugValue, locationSlug: loc
       }
 
       const capacity = decision.capacity || window.capacity || 1;
+      const capacityScope = decision.capacityScope || window.capacityScope || "service";
       const activeCount = await bookingRepository.countOverlappingActiveBookings(tenant._id, {
         locationId: location._id,
-        serviceId: service._id,
+        serviceId: getBookingCapacityServiceId(service, capacityScope),
         startsAt: scheduledStartAt.toISOString(),
-        endsAt: scheduledEndAt.toISOString()
+        endsAt: scheduledEndAt.toISOString(),
+        excludeBookingId
       });
       const remainingCapacity = Math.max(capacity - activeCount, 0);
       const slot = {
@@ -549,12 +573,33 @@ async function listBookingSlots({ tenantSlug: tenantSlugValue, locationSlug: loc
   return [...slotsByStart.values()].sort((left, right) => left.startAt.localeCompare(right.startAt));
 }
 
-async function assertSlotCapacityAvailable({ tenant, location, service, scheduledStartAt, scheduledEndAt, capacity, excludeBookingId }) {
+async function listVendorBookingRescheduleSlots({ tenant, bookingId, date }) {
+  const booking = await bookingRepository.findBookingById(bookingId);
+  assertBookingBelongsToTenantLocation(booking, tenant);
+
+  if (!["pending", "confirmed", "rescheduled"].includes(booking.status)) {
+    const error = new Error("This booking can no longer be rescheduled.");
+    error.statusCode = 409;
+    throw error;
+  }
+
+  return listBookingSlots({
+    tenantSlug: tenant.slug,
+    locationSlug: booking.locationSlug,
+    serviceSlug: booking.serviceSlug,
+    date,
+    bookingQuantity: booking.bookingQuantity,
+    excludeBookingId: booking._id,
+    requirePublicVendor: false
+  });
+}
+
+async function assertSlotCapacityAvailable({ tenant, location, service, scheduledStartAt, scheduledEndAt, capacity, capacityScope = "service", excludeBookingId }) {
   await expirePendingBookingsForTenant(tenant._id);
 
   const activeCount = await bookingRepository.countOverlappingActiveBookings(tenant._id, {
     locationId: location._id,
-    serviceId: service._id,
+    serviceId: getBookingCapacityServiceId(service, capacityScope),
     startsAt: scheduledStartAt.toISOString(),
     endsAt: scheduledEndAt.toISOString(),
     excludeBookingId
@@ -647,7 +692,8 @@ async function createCustomerBooking({ user, body }) {
     service,
     scheduledStartAt,
     scheduledEndAt,
-    capacity: decision.capacity || 1
+    capacity: decision.capacity || 1,
+    capacityScope: decision.capacityScope || "service"
   });
 
   const smsFee = await bookingSmsAlertPaymentService.getBookingSmsFeeForTenant(tenant._id);
@@ -1042,6 +1088,7 @@ async function rescheduleVendorBooking({ tenant, bookingId, scheduledStartAt: sc
     scheduledStartAt,
     scheduledEndAt,
     capacity: decision.capacity || 1,
+    capacityScope: decision.capacityScope || "service",
     excludeBookingId: booking._id
   });
 
@@ -1193,6 +1240,7 @@ module.exports = {
   expirePendingBookingsForCustomer,
   expirePendingBookingsForTenant,
   listBookingSlots,
+  listVendorBookingRescheduleSlots,
   markVendorBookingNoShow,
   rejectVendorBookingPayment,
   submitCustomerPaymentProof,

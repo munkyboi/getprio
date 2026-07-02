@@ -470,7 +470,34 @@ test("count overlapping active bookings uses the expected time window and exclus
 
   assert.equal(count, 3);
   assert.equal(calls.length, 1);
+  assert.match(calls[0].query, /\(\$3::bigint IS NULL OR service_id = \$3::bigint\)/);
   assert.match(calls[0].query, /scheduled_start_at < \$6::timestamptz/);
   assert.match(calls[0].query, /\(\$7::bigint IS NULL OR id <> \$7::bigint\)/);
   assert.deepEqual(calls[0].params, [1, 2, 3, ["pending", "confirmed", "rescheduled"], "2026-06-23T08:00:00.000Z", "2026-06-23T09:00:00.000Z", 4]);
+});
+
+test("count overlapping active bookings can count branch-wide capacity across services", async () => {
+  const calls = [];
+  const bookingsRepository = requireWithMocks("../src/repositories/bookings.js", {
+    "../config/db": {
+      pool: {
+        query: async (query, params) => {
+          calls.push({ query, params });
+          return { rows: [{ count: 1 }] };
+        }
+      }
+    }
+  });
+
+  const count = await bookingsRepository.countOverlappingActiveBookings(1, {
+    locationId: 2,
+    serviceId: null,
+    startsAt: "2026-06-23T08:00:00.000Z",
+    endsAt: "2026-06-23T09:30:00.000Z"
+  });
+
+  assert.equal(count, 1);
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].query, /\(\$3::bigint IS NULL OR service_id = \$3::bigint\)/);
+  assert.deepEqual(calls[0].params, [1, 2, null, ["pending", "confirmed", "rescheduled"], "2026-06-23T08:00:00.000Z", "2026-06-23T09:30:00.000Z", null]);
 });

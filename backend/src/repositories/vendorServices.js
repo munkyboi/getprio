@@ -10,6 +10,7 @@ const SERVICE_COLUMNS = `
   allow_booking_quantity,
   booking_quantity_label,
   manual_payment_required,
+  booking_capacity_scope,
   price_amount_cents,
   currency,
   price_display,
@@ -47,6 +48,7 @@ function mapVendorService(row) {
     allowBookingQuantity: Boolean(row.allow_booking_quantity),
     bookingQuantityLabel: row.booking_quantity_label || "Units",
     manualPaymentRequired: Boolean(row.manual_payment_required),
+    bookingCapacityScope: row.booking_capacity_scope || "service",
     priceAmountCents: Number(row.price_amount_cents),
     currency: row.currency || "PHP",
     priceDisplay: row.price_display || "",
@@ -97,13 +99,14 @@ async function createService(data, options = {}) {
         allow_booking_quantity,
         booking_quantity_label,
         manual_payment_required,
+        booking_capacity_scope,
         price_amount_cents,
         currency,
         price_display,
         is_active,
         sort_order
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
       RETURNING ${SERVICE_COLUMNS}
     `,
     [
@@ -115,6 +118,7 @@ async function createService(data, options = {}) {
       Boolean(data.allowBookingQuantity),
       data.bookingQuantityLabel || "Units",
       Boolean(data.manualPaymentRequired),
+      data.bookingCapacityScope || "service",
       Number(data.priceAmountCents || 0),
       data.currency || "PHP",
       data.priceDisplay || "",
@@ -138,6 +142,7 @@ async function updateService(serviceId, changes, options = {}) {
     allowBookingQuantity: "allow_booking_quantity",
     bookingQuantityLabel: "booking_quantity_label",
     manualPaymentRequired: "manual_payment_required",
+    bookingCapacityScope: "booking_capacity_scope",
     priceAmountCents: "price_amount_cents",
     currency: "currency",
     priceDisplay: "price_display",

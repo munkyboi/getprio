@@ -2550,35 +2550,23 @@ h2 {
 
 .neura-sidebar-content {
   min-height: calc(100dvh - 84px);
+  padding: 0 1rem 1rem;
   color: #f7f8fb;
 }
 
-.neura-floating-sidebar-toggle {
+.neura-mobile-header {
   display: none;
-  position: fixed;
-  left: 0;
-  top: 50%;
-  z-index: 80;
-  width: 42px;
-  height: 72px;
-  padding: 0;
-  border-radius: 0 18px 18px 0;
-  background: linear-gradient(135deg, var(--primary), #ff8d4d);
-  border: 1px solid rgba(187, 77, 0, 0.25);
-  border-left: 0;
-  color: #fff;
-  box-shadow: 0 18px 40px rgba(187, 77, 0, 0.28);
-  transform: translateY(-50%) scale(0.7);
-  transform-origin: left center;
 }
 
-.neura-floating-sidebar-toggle:hover {
-  background: linear-gradient(135deg, var(--primary-strong), #f97316);
+.neura-mobile-brand {
+  min-width: 0;
 }
 
-.neura-floating-sidebar-toggle:active,
-.neura-floating-sidebar-toggle[data-active] {
-  transform: translateY(-50%) translateX(-4px) scale(0.7);
+.neura-mobile-logo {
+  width: 44px;
+  height: 34px;
+  display: block;
+  object-fit: contain;
 }
 
 .neura-drawer-content,
@@ -2586,6 +2574,29 @@ h2 {
 .neura-drawer-body {
   background: #11151c;
   color: #f7f8fb;
+}
+
+.neura-drawer-content {
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.neura-drawer-body {
+  height: calc(100dvh - 61px);
+  padding: 0;
+  overflow: hidden;
+}
+
+.neura-drawer-body .mantine-ScrollArea-scrollbar {
+  background: transparent;
+}
+
+.neura-drawer-body .mantine-ScrollArea-thumb {
+  background: rgba(226, 232, 240, 0.45);
+}
+
+.neura-drawer-body .mantine-ScrollArea-thumb:hover {
+  background: rgba(226, 232, 240, 0.68);
 }
 
 .neura-drawer-header {
@@ -3141,8 +3152,19 @@ h2 {
     display: none;
   }
 
-  .neura-floating-sidebar-toggle {
-    display: block;
+  .neura-mobile-header {
+    position: sticky;
+    top: 0;
+    z-index: 70;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    min-height: 64px;
+    padding: 0.75rem 1rem;
+    background: rgba(255, 255, 255, 0.94);
+    border-bottom: 1px solid #dce3eb;
+    backdrop-filter: blur(16px);
+    box-shadow: 0 10px 24px rgba(17, 24, 39, 0.08);
   }
 
   .neura-nav-link {
@@ -3169,5 +3191,61 @@ h2 {
 
   .neura-tenant-select {
     width: 100%;
+  }
+}
+
+@media (max-width: 48em) {
+  .mantine-Modal-root {
+    --modal-size: 100dvw !important;
+  }
+
+  .mantine-Modal-root .mantine-Modal-inner {
+    inset: 0 !important;
+    width: 100dvw !important;
+    min-width: 100dvw !important;
+    max-width: 100dvw !important;
+    height: 100dvh !important;
+    padding: 0;
+    align-items: stretch !important;
+    justify-content: stretch !important;
+  }
+
+  .mantine-Modal-root .mantine-Modal-content {
+    width: 100dvw !important;
+    max-width: 100dvw !important;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+    margin: 0;
+    flex: 1 1 100%;
+    border-radius: 0 !important;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .mantine-Modal-root .mantine-Modal-header {
+    flex: 0 0 auto;
+    border-radius: 0;
+  }
+
+  .mantine-Modal-root .mantine-Modal-body {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+
+  .mantine-Modal-root .mantine-Modal-body > form {
+    min-height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .mantine-Modal-root .mantine-Modal-body > form > .mantine-Stack-root {
+    flex: 1 1 auto;
+  }
+
+  .service-dialog__footer {
+    margin-top: auto;
+    padding-top: 1rem;
+    padding-bottom: env(safe-area-inset-bottom);
   }
 }

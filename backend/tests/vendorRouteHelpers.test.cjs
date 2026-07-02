@@ -72,11 +72,25 @@ test("vendor route helpers normalize payloads and format entities", async () => 
   const normalizedService = helpers.normalizeServicePayload({
     name: "  Cut  ",
     durationMinutes: 30,
+    bookingCapacityScope: "location",
     priceAmountCents: 500
   });
   assert.equal(normalizedService.name, "Cut");
   assert.equal(normalizedService.slug, "cut");
+  assert.equal(normalizedService.bookingCapacityScope, "location");
 
-  const formattedService = helpers.formatVendorService({ _id: 1, tenantId: 10, name: "Cut", slug: "cut" });
+  assert.throws(
+    () =>
+      helpers.normalizeServicePayload({
+        name: "Cut",
+        durationMinutes: 30,
+        bookingCapacityScope: "staff",
+        priceAmountCents: 500
+      }),
+    /bookingCapacityScope must be service or location/
+  );
+
+  const formattedService = helpers.formatVendorService({ _id: 1, tenantId: 10, name: "Cut", slug: "cut", bookingCapacityScope: "location" });
   assert.equal(formattedService.slug, "cut");
+  assert.equal(formattedService.bookingCapacityScope, "location");
 });
