@@ -78,8 +78,8 @@ jobs:
           fi
           npm run db:migrate
           npm run db:verify
-          npm run build
-          npm run build:backend
+          NODE_OPTIONS="--max-old-space-size=4096" npm run build
+          NODE_OPTIONS="--max-old-space-size=4096" npm run build:backend
 
           pm2 restart getprio-api --update-env
           pm2 save
