@@ -121,6 +121,17 @@ test("vendor routes queue mutations invoke the queue service helpers", async () 
       verifyVendorBookingPayment: async () => ({ _id: "booking-1", reference: "BKG-1", locationSlug: "main" }),
       rejectVendorBookingPayment: async () => ({ _id: "booking-1", reference: "BKG-1", locationSlug: "main" }),
       rescheduleVendorBooking: async () => ({ _id: "booking-1", reference: "BKG-1", locationSlug: "main" }),
+      listVendorBookingRescheduleSlots: async ({ tenant, bookingId, date }) => {
+        calls.push(["listVendorBookingRescheduleSlots", [tenant, bookingId, date]]);
+        return [
+          {
+            startAt: "2026-06-24T01:00:00.000Z",
+            endAt: "2026-06-24T01:30:00.000Z",
+            remainingCapacity: 1,
+            isAvailable: true
+          }
+        ];
+      },
       checkInVendorBooking: async () => ({ booking: { _id: "booking-1", reference: "BKG-1", locationSlug: "main" }, ticket: { ticketNumber: "A100" } }),
       markVendorBookingNoShow: async () => ({ _id: "booking-1", reference: "BKG-1", locationSlug: "main" })
     },
@@ -224,8 +235,26 @@ test("vendor routes queue mutations invoke the queue service helpers", async () 
     assert.equal(bookingDetail.booking.id, "booking-1");
     assert.equal(bookingDetail.booking.reference, "BKG-DETAIL");
 
+    const rescheduleSlotsRes = await fetch(`${baseUrl}/tenant/demo/bookings/booking-1/reschedule-slots?date=2026-06-24`);
+    const rescheduleSlotsText = await rescheduleSlotsRes.text();
+    assert.equal(rescheduleSlotsRes.status, 200, rescheduleSlotsText);
+    assert.deepEqual(JSON.parse(rescheduleSlotsText), {
+      slots: [
+        {
+          startAt: "2026-06-24T01:00:00.000Z",
+          endAt: "2026-06-24T01:30:00.000Z",
+          remainingCapacity: 1,
+          isAvailable: true
+        }
+      ]
+    });
+
     assert.equal(calls.some(([name]) => name === "callNextTicket"), true);
     assert.equal(calls.some(([name]) => name === "restoreSkippedTicket"), true);
+    assert.deepEqual(calls.find(([name]) => name === "listVendorBookingRescheduleSlots"), [
+      "listVendorBookingRescheduleSlots",
+      [{ _id: "tenant-1", slug: "demo" }, "booking-1", "2026-06-24"]
+    ]);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
