@@ -2,34 +2,38 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert,
+  ActionIcon,
   Badge,
   Button,
   Card,
   Divider,
   Group,
   Checkbox,
+  Pagination,
   PasswordInput,
   SimpleGrid,
   Stack,
   Table,
   Text,
   TextInput,
-  Title
+  Title,
+  Tooltip
 } from "@mantine/core";
 import {
   IconCalendarEvent,
+  IconExternalLink,
+  IconEye,
   IconId,
   IconListDetails,
   IconLock,
+  IconRepeat,
   IconSettings
 } from "@tabler/icons-react";
 import { Navigate, Link, useLocation, useNavigate } from "react-router-dom";
 import type {
   BookingStatus,
-  CustomerAccountHistoryResponse,
   CustomerAccountOverviewResponse,
   CustomerNotificationSettings,
-  CustomerBookingsResponse,
   CustomerProfileUpdateRequest,
   PasswordChangeRequest,
   UpdateCustomerNotificationSettingsRequest,
@@ -48,6 +52,7 @@ import {
 import { getErrorMessage } from "../utils/errors";
 
 type AccountSection = "profile" | "tickets" | "bookings" | "settings" | "notifications" | "security";
+const CUSTOMER_TABLE_PAGE_SIZE = 10;
 
 const ACCOUNT_SECTIONS: Array<{
   key: AccountSection;
@@ -142,6 +147,8 @@ export default function CustomerAccountPage() {
     queueAlerts: true
   });
   const [savingNotificationSettings, setSavingNotificationSettings] = useState(false);
+  const [ticketPage, setTicketPage] = useState(1);
+  const [bookingPage, setBookingPage] = useState(1);
   const browserNotificationsSupported = typeof window !== "undefined" && typeof window.Notification !== "undefined";
   const browserNotificationsSecure = typeof window !== "undefined" ? window.isSecureContext : false;
   const accountQuery = useQuery({
@@ -156,10 +163,32 @@ export default function CustomerAccountPage() {
     enabled: Boolean(token)
   });
   const account = accountQuery.data?.overview ?? null;
-  const history = accountQuery.data?.ticketHistory ?? null;
-  const bookingHistory = accountQuery.data?.customerBookings ?? null;
-  const tickets = history?.tickets || account?.tickets || [];
-  const bookings = bookingHistory?.bookings || [];
+  const ticketQuery = useQuery({
+    queryKey: ["customer-account-tickets", token, ticketPage, CUSTOMER_TABLE_PAGE_SIZE],
+    queryFn: async () => {
+      if (!token) {
+        throw new Error("Missing authentication token.");
+      }
+
+      return customerAccountApi.getTickets(token, ticketPage, CUSTOMER_TABLE_PAGE_SIZE);
+    },
+    enabled: Boolean(token && activeSection === "tickets")
+  });
+  const bookingQuery = useQuery({
+    queryKey: ["customer-account-bookings", token, bookingPage, CUSTOMER_TABLE_PAGE_SIZE],
+    queryFn: async () => {
+      if (!token) {
+        throw new Error("Missing authentication token.");
+      }
+
+      return customerAccountApi.getBookings(token, bookingPage, CUSTOMER_TABLE_PAGE_SIZE);
+    },
+    enabled: Boolean(token && activeSection === "bookings")
+  });
+  const tickets = ticketQuery.data?.tickets || [];
+  const ticketPagination = ticketQuery.data?.pagination || null;
+  const bookings = bookingQuery.data?.bookings || [];
+  const bookingPagination = bookingQuery.data?.pagination || null;
   const accountUser = account?.user;
 
   useEffect(() => {
@@ -177,8 +206,18 @@ export default function CustomerAccountPage() {
   useEffect(() => {
     if (accountQuery.error) {
       setError(getErrorMessage(accountQuery.error));
+      return;
     }
-  }, [accountQuery.error]);
+
+    if (ticketQuery.error && activeSection === "tickets") {
+      setError(getErrorMessage(ticketQuery.error));
+      return;
+    }
+
+    if (bookingQuery.error && activeSection === "bookings") {
+      setError(getErrorMessage(bookingQuery.error));
+    }
+  }, [accountQuery.error, activeSection, bookingQuery.error, ticketQuery.error]);
 
   useEffect(() => {
     if (!browserNotificationsSupported) {
@@ -270,8 +309,6 @@ export default function CustomerAccountPage() {
       queryClient.setQueryData<
         {
           overview: CustomerAccountOverviewResponse;
-          ticketHistory: CustomerAccountHistoryResponse;
-          customerBookings: CustomerBookingsResponse;
           notificationSettings: CustomerNotificationSettings;
         }
       >(["customer-account", token], (current) =>
@@ -360,8 +397,9 @@ export default function CustomerAccountPage() {
           <Title order={2}>Recent queue activity</Title>
         </div>
         {error ? <Alert color="red">{error}</Alert> : null}
-        <Table.ScrollContainer minWidth={720}>
-          <Table verticalSpacing="sm">
+        {ticketQuery.isFetching ? <Text c="dimmed" size="sm">Loading queue tickets...</Text> : null}
+        <Table.ScrollContainer minWidth={760}>
+          <Table className="neura-customer-table" verticalSpacing="sm">
             <Table.Thead>
               <Table.Tr>
                 <Table.Th>Ticket</Table.Th>
@@ -376,7 +414,12 @@ export default function CustomerAccountPage() {
               {tickets.length ? (
                 tickets.map((ticket) => (
                   <Table.Tr key={ticket.id}>
-                    <Table.Td fw={700}>{ticket.ticketNumber}</Table.Td>
+                    <Table.Td className="neura-customer-table__sticky neura-customer-table__sticky-first">
+                      <Stack gap={2}>
+                        <Text fw={700}>{ticket.ticketNumber}</Text>
+                        <Text c="dimmed" size="sm">Joined queue</Text>
+                      </Stack>
+                    </Table.Td>
                     <Table.Td>
                       <Button component={Link} size="compact-sm" to={`/vendors/${ticket.tenantSlug}`} variant="subtle">
                         {ticket.tenantName}
@@ -389,28 +432,35 @@ export default function CustomerAccountPage() {
                       </Badge>
                     </Table.Td>
                     <Table.Td>{formatDateTime(ticket.createdAt)}</Table.Td>
-                    <Table.Td>
+                    <Table.Td
+                      className="neura-customer-table__sticky neura-customer-table__sticky-last"
+                      style={{ width: 1, whiteSpace: "nowrap" }}
+                    >
                       <Group gap="xs" wrap="nowrap">
-                        <Button
-                          component={Link}
-                          size="xs"
-                          to={buildJoinedQueuePathWithTicket(
-                            ticket.tenantSlug,
-                            ticket.lookupCode,
-                            ticket.locationSlug
-                          )}
-                          variant="light"
-                        >
-                          Open ticket
-                        </Button>
-                        <Button
-                          component={Link}
-                          size="xs"
-                          to={buildJoinPath(ticket.tenantSlug, ticket.locationSlug)}
-                          variant="subtle"
-                        >
-                          Join again
-                        </Button>
+                        <Tooltip label="Open ticket" withArrow>
+                          <ActionIcon
+                            aria-label={`Open ticket ${ticket.ticketNumber}`}
+                            component={Link}
+                            to={buildJoinedQueuePathWithTicket(
+                              ticket.tenantSlug,
+                              ticket.lookupCode,
+                              ticket.locationSlug
+                            )}
+                            variant="light"
+                          >
+                            <IconExternalLink size={16} />
+                          </ActionIcon>
+                        </Tooltip>
+                        <Tooltip label="Join again" withArrow>
+                          <ActionIcon
+                            aria-label={`Join ${ticket.tenantName} again`}
+                            component={Link}
+                            to={buildJoinPath(ticket.tenantSlug, ticket.locationSlug)}
+                            variant="subtle"
+                          >
+                            <IconRepeat size={16} />
+                          </ActionIcon>
+                        </Tooltip>
                       </Group>
                     </Table.Td>
                   </Table.Tr>
@@ -425,6 +475,22 @@ export default function CustomerAccountPage() {
             </Table.Tbody>
           </Table>
         </Table.ScrollContainer>
+        {ticketPagination && ticketPagination.totalItems > 0 ? (
+          <Group justify="space-between" align="center">
+            <Text c="dimmed" size="sm">
+              Showing {(ticketPagination.page - 1) * ticketPagination.pageSize + 1}-
+              {Math.min(ticketPagination.page * ticketPagination.pageSize, ticketPagination.totalItems)} of{" "}
+              {ticketPagination.totalItems}
+            </Text>
+            {ticketPagination.totalPages > 1 ? (
+              <Pagination
+                onChange={setTicketPage}
+                total={ticketPagination.totalPages}
+                value={ticketPage}
+              />
+            ) : null}
+          </Group>
+        ) : null}
       </Stack>
     </Card>
   );
@@ -437,8 +503,9 @@ export default function CustomerAccountPage() {
           <Title order={2}>Service booking history</Title>
         </div>
         {error ? <Alert color="red">{error}</Alert> : null}
-        <Table.ScrollContainer minWidth={820}>
-          <Table verticalSpacing="sm">
+        {bookingQuery.isFetching ? <Text c="dimmed" size="sm">Loading service bookings...</Text> : null}
+        <Table.ScrollContainer minWidth={920}>
+          <Table className="neura-customer-table" verticalSpacing="sm">
             <Table.Thead>
               <Table.Tr>
                 <Table.Th>Reference</Table.Th>
@@ -454,7 +521,12 @@ export default function CustomerAccountPage() {
               {bookings.length ? (
                 bookings.map((booking) => (
                   <Table.Tr key={booking.id}>
-                    <Table.Td fw={700}>{booking.reference}</Table.Td>
+                    <Table.Td className="neura-customer-table__sticky neura-customer-table__sticky-first">
+                      <Stack gap={2}>
+                        <Text fw={700}>{booking.reference}</Text>
+                        <Text c="dimmed" size="sm">Booking request</Text>
+                      </Stack>
+                    </Table.Td>
                     <Table.Td>
                       <Button component={Link} size="compact-sm" to={`/vendors/${booking.tenantSlug}`} variant="subtle">
                         {booking.tenantName}
@@ -480,15 +552,20 @@ export default function CustomerAccountPage() {
                         {booking.paymentStatus}
                       </Badge>
                     </Table.Td>
-                    <Table.Td>
-                      <Button
-                        component={Link}
-                        size="xs"
-                        to={`/account/bookings/${booking.id}`}
-                        variant="light"
-                      >
-                        View booking
-                      </Button>
+                    <Table.Td
+                      className="neura-customer-table__sticky neura-customer-table__sticky-last"
+                      style={{ width: 1, whiteSpace: "nowrap" }}
+                    >
+                      <Tooltip label="View booking" withArrow>
+                        <ActionIcon
+                          aria-label={`View booking ${booking.reference}`}
+                          component={Link}
+                          to={`/account/bookings/${booking.id}`}
+                          variant="light"
+                        >
+                          <IconEye size={16} />
+                        </ActionIcon>
+                      </Tooltip>
                     </Table.Td>
                   </Table.Tr>
                 ))
@@ -502,6 +579,22 @@ export default function CustomerAccountPage() {
             </Table.Tbody>
           </Table>
         </Table.ScrollContainer>
+        {bookingPagination && bookingPagination.totalItems > 0 ? (
+          <Group justify="space-between" align="center">
+            <Text c="dimmed" size="sm">
+              Showing {(bookingPagination.page - 1) * bookingPagination.pageSize + 1}-
+              {Math.min(bookingPagination.page * bookingPagination.pageSize, bookingPagination.totalItems)} of{" "}
+              {bookingPagination.totalItems}
+            </Text>
+            {bookingPagination.totalPages > 1 ? (
+              <Pagination
+                onChange={setBookingPage}
+                total={bookingPagination.totalPages}
+                value={bookingPage}
+              />
+            ) : null}
+          </Group>
+        ) : null}
       </Stack>
     </Card>
   );

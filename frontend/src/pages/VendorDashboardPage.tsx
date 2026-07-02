@@ -1787,8 +1787,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         status === "confirmed" ? "Booking confirmed" : "Booking canceled",
         `${response.booking.reference} was ${status}.`
       );
+      return true;
     } catch (updateError) {
       setError(getErrorMessage(updateError));
+      return false;
     } finally {
       setBusyAction("");
     }
@@ -1930,7 +1932,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     const reason = paymentRejectionReason.trim();
     if (!reason) {
       setError("A customer-visible rejection reason is required.");
-      return;
+      return false;
     }
 
     setBusyAction(`booking-payment-reject:${booking.id}`);
@@ -1941,12 +1943,15 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       setVendorBookings((current) =>
         current.map((item) => (item.id === response.booking.id ? response.booking : item))
       );
+      setBookingDetailBooking(response.booking);
       setPaymentRejectionReason("");
       clearBookingAlert(response.booking.id);
       await reloadBookings();
       showSuccessNotification("Payment rejected", `${response.booking.reference} was canceled.`);
+      return true;
     } catch (rejectError) {
       setError(getErrorMessage(rejectError));
+      return false;
     } finally {
       setBusyAction("");
     }
@@ -6433,7 +6438,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         color="red"
                         disabled={!paymentRejectionReason.trim()}
                         loading={busyAction === `booking-payment-reject:${detailBooking.id}`}
-                        onClick={() => handleRejectBookingPayment(detailBooking)}
+                        onClick={async () => {
+                          const rejected = await handleRejectBookingPayment(detailBooking);
+                          if (rejected) {
+                            closeBookingDetailModal();
+                          }
+                        }}
                         size="xs"
                         variant="subtle"
                         w="fit-content"
@@ -6485,7 +6495,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           detailBooking.paymentStatus === "pending" ||
                           busyAction === `booking-status:${detailBooking.id}:confirmed`
                         }
-                        onClick={() => handleUpdateBookingStatus(detailBooking, "confirmed")}
+                        onClick={async () => {
+                          const updated = await handleUpdateBookingStatus(detailBooking, "confirmed");
+                          if (updated) {
+                            closeBookingDetailModal();
+                          }
+                        }}
                       >
                         Confirm
                       </Button>
@@ -6503,7 +6518,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                             confirmLabel: "Cancel booking",
                             confirmColor: "red",
                             onConfirm: async () => {
-                              await handleUpdateBookingStatus(detailBooking, "canceled");
+                              const updated = await handleUpdateBookingStatus(detailBooking, "canceled");
+                              if (updated) {
+                                closeBookingDetailModal();
+                              }
                             }
                           })
                         }

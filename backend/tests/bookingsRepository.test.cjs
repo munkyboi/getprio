@@ -91,6 +91,86 @@ test("vendor booking list orders incoming requests by newest created date", asyn
   assert.equal(result.totalItems, 0);
 });
 
+test("customer booking list supports pagination metadata", async () => {
+  const calls = [];
+  const bookingsRepository = requireWithMocks("../src/repositories/bookings.js", {
+    "../config/db": {
+      pool: {
+        query: async (query, params) => {
+          calls.push({ query, params });
+          if (/SELECT COUNT\(\*\)/.test(query)) {
+            return { rows: [{ count: 7 }] };
+          }
+          return {
+            rows: [
+              {
+                id: 11,
+                reference: "BKG-11",
+                tenant_id: 1,
+                tenant_name: "Demo Tenant",
+                tenant_slug: "demo",
+                location_id: 2,
+                location_name: "Main",
+                location_slug: "main",
+                service_id: 3,
+                service_name: "Consultation",
+                service_slug: "consultation",
+                booking_quantity: 1,
+                customer_user_id: 9,
+                customer_name: "Customer",
+                customer_email: "customer@example.com",
+                customer_phone: "09170000000",
+                scheduled_start_at: new Date("2026-06-29T02:00:00.000Z"),
+                scheduled_end_at: new Date("2026-06-29T03:00:00.000Z"),
+                status: "pending",
+                notes: null,
+                payment_reference: null,
+                payment_status: "unpaid",
+                payment_proof_object_key: null,
+                payment_proof_file_name: null,
+                payment_proof_content_type: null,
+                payment_proof_size_bytes: null,
+                payment_proof_uploaded_at: null,
+                payment_verified_at: null,
+                payment_verified_by_user_id: null,
+                payment_rejected_at: null,
+                payment_rejected_by_user_id: null,
+                payment_rejection_reason: null,
+                pending_expires_at: null,
+                expired_at: null,
+                expiration_reason: null,
+                contact_verified_at: null,
+                contact_verification_channel: null,
+                notify_by_email: true,
+                notify_by_sms: false,
+                sms_alert_fee_payment_id: null,
+                queue_ticket_id: null,
+                checked_in_at: null,
+                no_show_at: null,
+                created_at: new Date("2026-06-28T02:00:00.000Z"),
+                updated_at: new Date("2026-06-28T02:00:00.000Z")
+              }
+            ]
+          };
+        }
+      }
+    }
+  });
+
+  const result = await bookingsRepository.listBookingsForCustomer(11, {
+    pageSize: 5,
+    offset: 5
+  });
+
+  assert.equal(calls.length, 2);
+  assert.match(calls[0].query, /SELECT COUNT\(\*\)/);
+  assert.deepEqual(calls[0].params, [11]);
+  assert.match(calls[1].query, /LIMIT \$2 OFFSET \$3/);
+  assert.deepEqual(calls[1].params, [11, 5, 5]);
+  assert.equal(result.totalItems, 7);
+  assert.equal(result.bookings[0]._id, "11");
+});
+
 test("vendor booking list applies search filters and timezone-aware scheduled date range filters", async () => {
   const calls = [];
   const bookingsRepository = requireWithMocks("../src/repositories/bookings.js", {

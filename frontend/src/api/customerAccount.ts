@@ -15,15 +15,23 @@ export const customerAccountApi = {
   getOverview(token: string) {
     return Promise.all([
       apiRequest<CustomerAccountOverviewResponse>("/account/overview", { token }),
-      apiRequest<CustomerAccountHistoryResponse>("/account/history", { token }),
-      apiRequest<CustomerBookingsResponse>("/account/bookings", { token }),
       apiRequest<{ notificationSettings: CustomerNotificationSettings }>("/account/notification-settings", { token })
-    ]).then(([overview, ticketHistory, customerBookings, notificationSettingsResponse]) => ({
+    ]).then(([overview, notificationSettingsResponse]) => ({
       overview,
-      ticketHistory,
-      customerBookings,
       notificationSettings: notificationSettingsResponse.notificationSettings
     }));
+  },
+  getTickets(token: string, page: number, pageSize: number) {
+    return apiRequest<CustomerAccountHistoryResponse>(
+      `/account/history?page=${page}&pageSize=${pageSize}`,
+      { token }
+    );
+  },
+  getBookings(token: string, page: number, pageSize: number) {
+    return apiRequest<CustomerBookingsResponse>(
+      `/account/bookings?page=${page}&pageSize=${pageSize}`,
+      { token }
+    );
   },
   updateProfile(token: string, body: CustomerProfileUpdateRequest) {
     return apiRequest<CustomerProfileUpdateResponse, CustomerProfileUpdateRequest>("/account/profile", {

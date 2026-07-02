@@ -240,6 +240,59 @@ body {
   box-shadow: 0 24px 64px rgba(36, 30, 25, 0.08);
 }
 
+.booking-flow-layout {
+  display: block;
+}
+
+.booking-flow-main {
+  min-width: 0;
+  width: 100%;
+}
+
+.booking-flow-stepper {
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid rgba(36, 30, 25, 0.08);
+}
+
+.booking-flow-stepper :where(.mantine-Stepper-stepBody) {
+  padding-inline-start: 0.75rem;
+}
+
+.booking-flow-stepper :where(.mantine-Stepper-stepDescription) {
+  color: #7a6858;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.booking-flow-stepper :where(.mantine-Stepper-stepLabel) {
+  font-size: 0.92rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.booking-flow-panel {
+  border-color: rgba(36, 30, 25, 0.08);
+  background: rgba(255, 251, 246, 0.88);
+}
+
+.booking-flow-actions {
+  padding-top: 0.5rem;
+}
+
+@media (max-width: 640px) {
+  .booking-flow-stepper :where(.mantine-Stepper-steps) {
+    gap: 0.4rem;
+  }
+
+  .booking-flow-actions {
+    align-items: stretch;
+  }
+
+  .booking-flow-actions > * {
+    width: 100%;
+  }
+}
+
 .vendor-search-input {
   flex: 1 1 320px;
 }
@@ -2873,6 +2926,60 @@ h2 {
 }
 
 .neura-services-table tbody tr:hover .neura-services-table__sticky {
+  background: #f1f5f9;
+}
+
+.neura-customer-table {
+  min-width: 760px;
+}
+
+.neura-customer-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: #f8fafc;
+  color: #1f2937;
+}
+
+.neura-customer-table tbody td {
+  background: #ffffff;
+  white-space: nowrap;
+  color: #1f2937;
+}
+
+.neura-customer-table tbody tr:nth-of-type(even) td {
+  background: #f8fafc;
+}
+
+.neura-customer-table tbody tr:hover td {
+  background: #f1f5f9;
+}
+
+.neura-customer-table__sticky {
+  position: sticky;
+  z-index: 2;
+  background: #ffffff;
+}
+
+.neura-customer-table__sticky-first {
+  left: 0;
+  box-shadow: 10px 0 18px rgba(0, 0, 0, 0.06);
+}
+
+.neura-customer-table__sticky-last {
+  right: 0;
+  box-shadow: -10px 0 18px rgba(0, 0, 0, 0.06);
+}
+
+.neura-customer-table tbody .neura-customer-table__sticky {
+  background-clip: padding-box;
+}
+
+.neura-customer-table tbody tr:nth-of-type(even) .neura-customer-table__sticky {
+  background: #f8fafc;
+}
+
+.neura-customer-table tbody tr:hover .neura-customer-table__sticky {
   background: #f1f5f9;
 }
 
