@@ -1167,3 +1167,31 @@ test("booking payment proof helpers require ownership and accept submission payl
   assert.equal(submitted.paymentReference, "GCASH-123");
   assert.equal(submitted.paymentStatus, "pending");
 });
+
+test("booking payment proof helpers reject services that do not require manual payment", async () => {
+  const bookingService = buildBookingService({
+    findBookingById: async () => ({
+      _id: "booking-1",
+      customerUserId: "user-1",
+      tenantId: "tenant-1",
+      locationId: "location-1",
+      serviceManualPaymentRequired: false,
+      locationPaymentQrActive: true,
+      status: "pending",
+      customerEmail: "customer@example.com",
+      customerPhone: "09171234567",
+      tenantName: "Demo Tenant",
+      reference: "BKG-TEST"
+    })
+  });
+
+  await assert.rejects(
+    () =>
+      bookingService.createCustomerPaymentProofUpload({
+        user: { _id: "user-1" },
+        bookingId: "booking-1",
+        body: { fileName: "proof.png", contentType: "image/png", sizeBytes: 10 }
+      }),
+    (error) => error.statusCode === 409
+  );
+});
