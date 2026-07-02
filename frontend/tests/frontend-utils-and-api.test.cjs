@@ -364,6 +364,10 @@ test("web app metadata points crawlers and installed apps at committed assets", 
 
   assert.match(indexHtml, /<link rel="manifest" href="\/manifest\.webmanifest" \/>/);
   assert.match(indexHtml, /<link rel="apple-touch-icon" href="\/apple-touch-icon\.png" \/>/);
+  assert.match(
+    indexHtml,
+    /<meta name="viewport" content="width=device-width, initial-scale=1\.0, maximum-scale=1\.0, user-scalable=no" \/>/
+  );
   assert.match(indexHtml, /<meta property="og:image" content="https:\/\/getprio\.online\/hero_image\.png" \/>/);
   assert.match(indexHtml, /<meta name="twitter:card" content="summary_large_image" \/>/);
 
