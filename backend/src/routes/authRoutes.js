@@ -1,5 +1,6 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
+const { rateLimit } = require("express-rate-limit");
 const db = require("../config/db");
 const tenantRepository = require("../repositories/tenants");
 const authSessionRepository = require("../repositories/authSessions");
@@ -25,6 +26,15 @@ const sessionService = require("../services/sessionService");
 const router = express.Router();
 const OAUTH_INTENTS = new Set(["login", "register_customer", "register_vendor"]);
 const normalizeEmail = authService.normalizeEmail;
+const authAttemptLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    error: "Too many authentication attempts. Please try again later."
+  }
+});
 
 function normalizeSlug(value) {
   return String(value || "")
@@ -729,6 +739,7 @@ router.post(
 
 router.post(
   "/login",
+  authAttemptLimiter,
   asyncHandler(async (req, res) => {
     const { password } = req.body;
     const loginIdentifier = authService.normalizeLoginIdentifier(req.body.identifier || req.body.email);
@@ -858,6 +869,7 @@ router.post(
 
 router.post(
   "/password-reset/request",
+  authAttemptLimiter,
   asyncHandler(async (req, res) => {
     const email = normalizeEmail(req.body.email);
     if (!email) {
@@ -902,6 +914,7 @@ router.post(
 
 router.post(
   "/password-reset/confirm",
+  authAttemptLimiter,
   asyncHandler(async (req, res) => {
     const token = String(req.body.token || "").trim();
     const newPassword = String(req.body.newPassword || "");
