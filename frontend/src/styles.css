@@ -530,7 +530,7 @@ button {
   position: sticky;
   top: 0;
   z-index: 30;
-  padding: 1rem 0;
+  padding: calc(1rem + env(safe-area-inset-top)) 0 1rem;
   border-bottom: 1px solid rgba(36, 30, 25, 0.08);
   background: rgba(251, 250, 247, 0.82);
   backdrop-filter: blur(18px);
