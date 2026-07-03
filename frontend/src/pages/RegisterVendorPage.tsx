@@ -47,9 +47,11 @@ export default function RegisterVendorPage() {
   const [usernameMessage, setUsernameMessage] = useState("");
   const [usernameAvailable, setUsernameAvailable] = useState(false);
   const [checkingUsername, setCheckingUsername] = useState(false);
+  const [usernameManuallyEdited, setUsernameManuallyEdited] = useState(false);
   const [tenantSlugMessage, setTenantSlugMessage] = useState("");
   const [tenantSlugAvailable, setTenantSlugAvailable] = useState(false);
   const [checkingTenantSlug, setCheckingTenantSlug] = useState(false);
+  const [tenantSlugManuallyEdited, setTenantSlugManuallyEdited] = useState(false);
 
   const form = useForm<VendorFormValues>({
     resolver: zodResolver(vendorSchema),
@@ -75,26 +77,34 @@ export default function RegisterVendorPage() {
     }
 
     form.setValue("name", form.getValues("name") || user.name || "", { shouldValidate: true });
-    form.setValue("username", form.getValues("username") || user.username || buildUsernameFromName(user.name || ""), {
-      shouldValidate: true
-    });
+    if (!form.getValues("username")) {
+      form.setValue("username", user.username || buildUsernameFromName(user.name || ""), {
+        shouldDirty: false,
+        shouldValidate: true
+      });
+    }
+    if (user.username) {
+      setUsernameManuallyEdited(true);
+    }
     form.setValue("email", form.getValues("email") || user.email || "", { shouldValidate: true });
     form.setValue("phone", form.getValues("phone") || user.phone || "", { shouldValidate: true });
   }, [form, user]);
 
   useEffect(() => {
-    if (form.formState.dirtyFields.tenantSlug) {
+    if (tenantSlugManuallyEdited) {
       return;
     }
-    form.setValue("tenantSlug", buildTenantSlugFromName(tenantName), { shouldValidate: true, shouldDirty: false });
-  }, [tenantName, form]);
+    const nextTenantSlug = buildTenantSlugFromName(tenantName);
+    form.setValue("tenantSlug", nextTenantSlug, { shouldValidate: Boolean(nextTenantSlug), shouldDirty: false });
+  }, [form, tenantName, tenantSlugManuallyEdited]);
 
   useEffect(() => {
-    if (form.formState.dirtyFields.username) {
+    if (usernameManuallyEdited) {
       return;
     }
-    form.setValue("username", buildUsernameFromName(ownerName), { shouldValidate: true, shouldDirty: false });
-  }, [ownerName, form]);
+    const nextUsername = buildUsernameFromName(ownerName);
+    form.setValue("username", nextUsername, { shouldValidate: Boolean(nextUsername), shouldDirty: false });
+  }, [form, ownerName, usernameManuallyEdited]);
 
   useEffect(() => {
     const nextTenantSlug = tenantSlug.trim();
@@ -279,14 +289,7 @@ export default function RegisterVendorPage() {
                 label="Business name"
                 required
                 error={form.formState.errors.tenantName?.message}
-                {...form.register("tenantName", {
-                  onChange: (event) => {
-                    if (form.formState.dirtyFields.tenantSlug) {
-                      return;
-                    }
-                    form.setValue("tenantSlug", buildTenantSlugFromName(event.target.value), { shouldValidate: true });
-                  }
-                })}
+                {...form.register("tenantName")}
               />
               <TextInput
                 description={checkingTenantSlug ? "Checking tenant slug..." : tenantSlugMessage}
@@ -296,6 +299,7 @@ export default function RegisterVendorPage() {
                 required
                 {...form.register("tenantSlug", {
                   onChange: (event) => {
+                    setTenantSlugManuallyEdited(true);
                     form.setValue("tenantSlug", normalizeTenantSlugInput(event.target.value), { shouldValidate: true });
                   }
                 })}
@@ -304,14 +308,7 @@ export default function RegisterVendorPage() {
                 label="Owner name"
                 required
                 error={form.formState.errors.name?.message}
-                {...form.register("name", {
-                  onChange: (event) => {
-                    if (form.formState.dirtyFields.username) {
-                      return;
-                    }
-                    form.setValue("username", buildUsernameFromName(event.target.value), { shouldValidate: true });
-                  }
-                })}
+                {...form.register("name")}
               />
               <TextInput
                 description={checkingUsername ? "Checking username..." : usernameMessage}
@@ -321,6 +318,7 @@ export default function RegisterVendorPage() {
                 required
                 {...form.register("username", {
                   onChange: (event) => {
+                    setUsernameManuallyEdited(true);
                     form.setValue("username", normalizeUsernameInput(event.target.value), { shouldValidate: true });
                   }
                 })}
@@ -350,7 +348,7 @@ export default function RegisterVendorPage() {
               {error ? <Alert color="red">{error}</Alert> : null}
               <Button
                 color="dark"
-                loading={form.formState.isSubmitting || checkingUsername || checkingTenantSlug || !usernameAvailable || !tenantSlugAvailable}
+                loading={form.formState.isSubmitting || checkingUsername || checkingTenantSlug}
                 type="submit"
               >
                 {isAuthenticatedFlow

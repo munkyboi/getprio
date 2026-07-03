@@ -95,6 +95,8 @@ function buildBookingService({
   createBooking = async () => ({ _id: "booking-1", reference: "BKG-TEST", customerEmail: "customer@example.com", notifyBySms: false }),
   findBookingById = async () => null,
   findBookingByIdForUpdate = async () => null,
+  listBookingsForCheckInReminder,
+  markBookingCheckInReminderSent,
   updateBooking = async () => null,
   getVerifiedBookingPayload = async () => ({
     otpId: "booking-otp-1",
@@ -124,7 +126,12 @@ function buildBookingService({
   assertQueueIntakeOpen = async () => {},
   maybeNotifyUpcomingTickets = async () => {},
   maybeAutoPauseQueueDay = async () => {},
-  publishSnapshot = async () => ({})
+  publishSnapshot = async () => ({}),
+  pushNotificationService = {
+    notifyVendorBookingIntake: async () => ({}),
+    notifyVendorPaymentProofReview: async () => ({}),
+    notifyCustomerBookingUpdate: async () => ({})
+  }
 }) {
   const queueServiceMock = {
     assertQueueIntakeOpen,
@@ -143,6 +150,8 @@ function buildBookingService({
       expirePendingBookings,
       findBookingById,
       findBookingByIdForUpdate,
+      ...(listBookingsForCheckInReminder ? { listBookingsForCheckInReminder } : {}),
+      ...(markBookingCheckInReminderSent ? { markBookingCheckInReminderSent } : {}),
       updateBooking
     },
     "../repositories/tenants": {
@@ -172,6 +181,7 @@ function buildBookingService({
       sendEmail: async () => {},
       sendSms: async () => {}
     },
+    "./pushNotificationService": pushNotificationService,
     "./paymentProofStorageService": {
       assertUploadMetadata: () => {},
       assertObjectKeyBelongsToBooking: (_booking, objectKey) => objectKey,
@@ -1266,6 +1276,144 @@ test("vendor payment verification marks submitted proof as paid with actor audit
   assert.equal(updatedBooking.paymentVerifiedByUserId, "vendor-user-1");
   assert.equal(updatedBooking.paymentRejectedAt, null);
   assert.equal(result.paymentStatus, "paid");
+});
+
+test("vendor payment verification sends a customer payment-verified push", async () => {
+  const booking = buildVendorBooking({
+    status: "pending",
+    paymentStatus: "pending",
+    paymentProofObjectKey: "payment-proofs/tenants/tenant-1/bookings/booking-1/proof.jpg"
+  });
+  const pushedActions = [];
+  const bookingService = buildBookingService({
+    availability: { blocks: [], exceptions: [] },
+    findBookingById: async () => booking,
+    updateBooking: async (_bookingId, data) => ({ ...booking, ...data }),
+    pushNotificationService: {
+      notifyVendorBookingIntake: async () => ({}),
+      notifyVendorPaymentProofReview: async () => ({}),
+      notifyCustomerBookingUpdate: async ({ action }) => {
+        pushedActions.push(action);
+        return { attempted: 1, sent: 1 };
+      }
+    }
+  });
+
+  await bookingService.verifyVendorBookingPayment({
+    tenant,
+    bookingId: "booking-1",
+    user: { _id: "vendor-user-1" }
+  });
+
+  assert.deepEqual(pushedActions, ["payment_verified"]);
+});
+
+test("pending booking expiration sends customer push notifications", async () => {
+  const expiredBooking = buildVendorBooking({
+    status: "canceled",
+    expiredAt: "2026-07-03T02:00:00.000Z"
+  });
+  const pushedActions = [];
+  const bookingService = buildBookingService({
+    availability: { blocks: [], exceptions: [] },
+    expirePendingBookings: async () => ["booking-1"],
+    findBookingById: async () => expiredBooking,
+    pushNotificationService: {
+      notifyVendorBookingIntake: async () => ({}),
+      notifyVendorPaymentProofReview: async () => ({}),
+      notifyCustomerBookingUpdate: async ({ action }) => {
+        pushedActions.push(action);
+        return { attempted: 1, sent: 1 };
+      }
+    }
+  });
+
+  const expired = await bookingService.expirePendingBookingsForTenant("tenant-1");
+
+  assert.deepEqual(expired, ["booking-1"]);
+  assert.deepEqual(pushedActions, ["pending_expired"]);
+});
+
+test("check-in reminder scan sends opening and closing customer pushes once", async () => {
+  const marked = [];
+  const pushedActions = [];
+  const windowBooking = buildVendorBooking({ _id: "booking-window" });
+  const closingBooking = buildVendorBooking({ _id: "booking-closing" });
+  const bookingService = buildBookingService({
+    availability: { blocks: [], exceptions: [] },
+    listBookingsForCheckInReminder: async ({ type }) =>
+      type === "closing" ? [closingBooking] : [windowBooking],
+    markBookingCheckInReminderSent: async (bookingId, type) => {
+      marked.push([bookingId, type]);
+    },
+    pushNotificationService: {
+      notifyVendorBookingIntake: async () => ({}),
+      notifyVendorPaymentProofReview: async () => ({}),
+      notifyCustomerBookingUpdate: async ({ action }) => {
+        pushedActions.push(action);
+        return { attempted: 1, sent: 1 };
+      }
+    }
+  });
+
+  await bookingService.notifyDueCheckInReminderBookings({ tenantId: "tenant-1" });
+
+  assert.deepEqual(pushedActions, ["check_in_window_open", "check_in_closing"]);
+  assert.deepEqual(marked, [
+    ["booking-window", "window"],
+    ["booking-closing", "closing"]
+  ]);
+});
+
+test("customer payment proof submission notifies vendor reviewers when enabled", async () => {
+  const notifications = [];
+  const booking = buildVendorBooking({
+    customerUserId: "customer-1",
+    status: "pending",
+    serviceManualPaymentRequired: true,
+    paymentStatus: "unpaid",
+    paymentProofObjectKey: ""
+  });
+  const updatedBooking = {
+    ...booking,
+    paymentReference: "REF-123",
+    paymentStatus: "pending",
+    paymentProofObjectKey: "payment-proofs/tenants/tenant-1/bookings/booking-1/proof.jpg",
+    paymentProofFileName: "proof.jpg",
+    paymentProofContentType: "image/jpeg",
+    paymentProofSizeBytes: 1024,
+    paymentProofUploadedAt: "2026-07-03T02:00:00.000Z"
+  };
+  const bookingService = buildBookingService({
+    availability: { blocks: [], exceptions: [] },
+    findBookingById: async () => booking,
+    updateBooking: async () => updatedBooking,
+    pushNotificationService: {
+      notifyVendorBookingIntake: async () => ({}),
+      notifyVendorPaymentProofReview: async (input) => {
+        notifications.push(input);
+        return { attempted: 1, sent: 1 };
+      },
+      notifyCustomerBookingUpdate: async () => ({})
+    }
+  });
+
+  const result = await bookingService.submitCustomerPaymentProof({
+    user: { _id: "customer-1" },
+    bookingId: "booking-1",
+    body: {
+      paymentReference: "REF-123",
+      objectKey: "payment-proofs/tenants/tenant-1/bookings/booking-1/proof.jpg",
+      fileName: "proof.jpg",
+      contentType: "image/jpeg",
+      sizeBytes: 1024
+    }
+  });
+
+  assert.equal(result.paymentStatus, "pending");
+  assert.equal(notifications.length, 1);
+  assert.equal(notifications[0].tenant._id, "tenant-1");
+  assert.equal(notifications[0].booking._id, "booking-1");
 });
 
 test("vendor payment rejection cancels booking and requires customer-visible reason", async () => {

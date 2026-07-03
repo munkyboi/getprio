@@ -199,6 +199,7 @@ test("login route returns tracked session tokens", async () => {
       findUserByEmail: async () => ({
         _id: "user-1",
         email: "customer@example.com",
+        username: "customer_one",
         passwordHash: "hash",
         failedLoginCount: 0,
         lastFailedLoginAt: null,
@@ -207,12 +208,20 @@ test("login route returns tracked session tokens", async () => {
         roles: ["customer"],
         oauthAccounts: [],
         tenantMemberships: []
-      })
+      }),
+      findUserByUsername: async () => null
     },
     "../middleware/asyncHandler": buildAsyncHandlerMock(),
     "../middleware/auth": buildAuthMock(),
     "../services/authService": {
       normalizeEmail: (value) => String(value || "").trim().toLowerCase(),
+      normalizeLoginIdentifier: (value) => {
+        const identifierValue = String(value || "").trim().toLowerCase();
+        return {
+          identifierType: identifierValue.includes("@") ? "email" : "username",
+          identifierValue
+        };
+      },
       getRequestIp: () => "127.0.0.1",
       getUserAgent: () => "test-agent",
       recordLoginAttempt: async () => {},
@@ -262,6 +271,107 @@ test("login route returns tracked session tokens", async () => {
     assert.deepEqual(authSessionPayload.authMethod, "password");
     assert.deepEqual(authSessionPayload.ipAddress, "127.0.0.1");
     assert.deepEqual(authSessionPayload.userAgent, "test-agent");
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("login route accepts a unique username as the sign-in identifier", async () => {
+  const sessionResult = {
+    accessToken: "access-token",
+    refreshToken: "refresh-token",
+    session: { _id: "session-username" }
+  };
+  const lookups = [];
+  let authSessionPayload = null;
+  const router = requireWithMocks("../src/routes/authRoutes.js", {
+    "../config/db": {
+      withTransaction: async (callback) => callback({})
+    },
+    "../repositories/tenants": {
+      findTenantsByIds: async () => []
+    },
+    "../repositories/authSessions": {},
+    "../repositories/users": {
+      findUserByEmail: async (email) => {
+        lookups.push(["email", email]);
+        return null;
+      },
+      findUserByUsername: async (username) => {
+        lookups.push(["username", username]);
+        return {
+          _id: "user-1",
+          email: "customer@example.com",
+          username: "customer_one",
+          passwordHash: "hash",
+          failedLoginCount: 0,
+          lastFailedLoginAt: null,
+          accountLockedUntil: null,
+          lastLoginProvider: "password",
+          roles: ["customer"],
+          oauthAccounts: [],
+          tenantMemberships: []
+        };
+      }
+    },
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../middleware/auth": buildAuthMock(),
+    "../services/authService": {
+      normalizeEmail: (value) => String(value || "").trim().toLowerCase(),
+      normalizeLoginIdentifier: (value) => {
+        const identifierValue = String(value || "").trim().toLowerCase();
+        return {
+          identifierType: identifierValue.includes("@") ? "email" : "username",
+          identifierValue
+        };
+      },
+      getRequestIp: () => "127.0.0.1",
+      getUserAgent: () => "test-agent",
+      recordLoginAttempt: async () => {},
+      isUserLocked: () => false,
+      verifyPasswordLogin: async () => true,
+      handleFailedPasswordLogin: async () => ({}),
+      handleSuccessfulPasswordLogin: async ({ user }) => user
+    },
+    "../services/oauthService": {
+      buildAuthorizationUrl: () => "",
+      buildClientCallbackUrl: ({ error }) =>
+        `https://app.example/oauth/callback#error=${encodeURIComponent(error)}`,
+      buildProviderAvailability: () => ({ google: false, facebook: false }),
+      createOAuthState: () => "",
+      exchangeCodeForProfile: async () => ({}),
+      ensureSupportedProvider: () => {},
+      getProviderLabel: (provider) => provider,
+      readOAuthState: () => ({ provider: "google", intent: "login" })
+    },
+    "../services/notificationService": {},
+    "../services/passwordResetService": {},
+    "../services/securityEventService": { logSecurityEvent: async () => {} },
+    "../services/sessionService": {
+      createAuthSession: async (payload) => {
+        authSessionPayload = payload;
+        return sessionResult;
+      }
+    }
+  });
+
+  const { server, baseUrl } = await startServer(router, "/api/auth");
+  try {
+    const response = await fetch(`${baseUrl}/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        identifier: "Customer_One",
+        password: "secret"
+      })
+    });
+
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.token, "access-token");
+    assert.equal(body.user.username, "customer_one");
+    assert.deepEqual(lookups, [["username", "customer_one"]]);
+    assert.equal(authSessionPayload.user.username, "customer_one");
   } finally {
     await stopServer(server);
   }

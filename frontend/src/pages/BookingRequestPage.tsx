@@ -40,7 +40,8 @@ import { useAuth } from "../context/AuthContext";
 import {
   formatBookingScheduleDate,
   formatBookingScheduleTimeRange,
-  formatDateInputValue
+  formatDateInputValue,
+  toTimestamp
 } from "../utils/dates";
 import { getErrorMessage } from "../utils/errors";
 
@@ -159,6 +160,7 @@ export default function BookingRequestPage() {
   const [notes, setNotes] = useState("");
   const [otp, setOtp] = useState<BookingOtpResponse | null>(null);
   const [otpCode, setOtpCode] = useState("");
+  const [now, setNow] = useState(() => Date.now());
   const [bookingVerificationToken, setBookingVerificationToken] = useState("");
   const [booking, setBooking] = useState<CustomerBookingResponse["booking"] | null>(null);
   const [paymentReference, setPaymentReference] = useState("");
@@ -318,6 +320,26 @@ export default function BookingRequestPage() {
   const vendorDecision = getVendorDecision(booking);
   const currentFlowStep = getBookingFlowStep(booking, otp, requiresPaymentProof, Boolean(vendorDecision));
   const manualPaymentDestination = booking?.manualPaymentDestination || null;
+  const resendAvailableAtMs = otp ? toTimestamp(otp.resendAvailableAt) : 0;
+  const resendSecondsRemaining = Math.max(0, Math.ceil((resendAvailableAtMs - now) / 1000));
+  const resendOtpLabel =
+    resendSecondsRemaining > 0
+      ? `Resend code in ${Math.floor(resendSecondsRemaining / 60)}:${String(resendSecondsRemaining % 60).padStart(2, "0")}`
+      : "Resend code";
+
+  useEffect(() => {
+    if (!otp || resendSecondsRemaining <= 0) {
+      return undefined;
+    }
+
+    const interval = window.setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [otp, resendSecondsRemaining]);
 
   function buildBookingPayload(verificationToken: string): PendingBookingPayload {
     if (!vendor || !selectedSlot) {
@@ -691,8 +713,13 @@ export default function BookingRequestPage() {
                         value={otpCode}
                       />
                       <Group justify="space-between">
-                        <Button disabled={submitting} onClick={resendOtp} variant="subtle" w="fit-content">
-                          Resend code
+                        <Button
+                          disabled={submitting || resendSecondsRemaining > 0}
+                          onClick={resendOtp}
+                          variant="subtle"
+                          w="fit-content"
+                        >
+                          {resendOtpLabel}
                         </Button>
                         <Button color="dark" disabled={submitting || otpCode.length !== 6} type="submit">
                           {submitting ? "Processing..." : "Verify and submit booking"}

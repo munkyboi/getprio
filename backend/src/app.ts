@@ -8,6 +8,7 @@ import billingRoutes from "./routes/billingRoutes";
 import paymongoWebhookRoutes from "./routes/paymongoWebhookRoutes";
 import platformRoutes from "./routes/platformRoutes";
 import publicRoutes from "./routes/publicRoutes";
+import pushRoutes from "./routes/pushRoutes";
 import vendorRoutes from "./routes/vendorRoutes";
 import errorHandler from "./middleware/errorHandler";
 
@@ -72,6 +73,7 @@ app.use("/api/account", accountRoutes);
 app.use("/api/billing", billingRoutes);
 app.use("/api/platform", platformRoutes);
 app.use("/api/public", publicRoutes);
+app.use("/api/push", pushRoutes);
 app.use("/api/vendor", vendorRoutes);
 
 app.use(errorHandler);

@@ -50,6 +50,7 @@ import {
   formatDateTime
 } from "../utils/dates";
 import { getErrorMessage } from "../utils/errors";
+import { isBrowserPushSupported, subscribeToBrowserPush } from "../utils/pushNotifications";
 
 type AccountSection = "profile" | "tickets" | "bookings" | "settings" | "notifications" | "security";
 const CUSTOMER_TABLE_PAGE_SIZE = 10;
@@ -142,6 +143,7 @@ export default function CustomerAccountPage() {
       : "default"
   );
   const [requestingBrowserPermission, setRequestingBrowserPermission] = useState(false);
+  const [browserPushSubscribed, setBrowserPushSubscribed] = useState(false);
   const [notificationSettings, setNotificationSettings] = useState<CustomerNotificationSettings>({
     bookingAlerts: true,
     queueAlerts: true
@@ -149,7 +151,7 @@ export default function CustomerAccountPage() {
   const [savingNotificationSettings, setSavingNotificationSettings] = useState(false);
   const [ticketPage, setTicketPage] = useState(1);
   const [bookingPage, setBookingPage] = useState(1);
-  const browserNotificationsSupported = typeof window !== "undefined" && typeof window.Notification !== "undefined";
+  const browserNotificationsSupported = isBrowserPushSupported();
   const browserNotificationsSecure = typeof window !== "undefined" ? window.isSecureContext : false;
   const accountQuery = useQuery({
     queryKey: ["customer-account", token],
@@ -228,6 +230,11 @@ export default function CustomerAccountPage() {
   }, [browserNotificationsSupported]);
 
   async function handleRequestBrowserPermission() {
+    if (!token) {
+      setError("Sign in before enabling browser notifications.");
+      return;
+    }
+
     if (!browserNotificationsSupported || !window.Notification) {
       setError("This browser does not support browser notifications.");
       return;
@@ -240,9 +247,11 @@ export default function CustomerAccountPage() {
 
     setRequestingBrowserPermission(true);
     try {
-      const permission = await window.Notification.requestPermission();
+      const { permission } = await subscribeToBrowserPush({ token });
       setBrowserPermission(permission);
+      setBrowserPushSubscribed(true);
     } catch (permissionError) {
+      setBrowserPermission(window.Notification.permission);
       setError(getErrorMessage(permissionError));
     } finally {
       setRequestingBrowserPermission(false);
@@ -686,18 +695,20 @@ export default function CustomerAccountPage() {
               disabled={
                 !browserNotificationsSupported ||
                 !browserNotificationsSecure ||
-                browserPermission === "granted" ||
+                browserPushSubscribed ||
                 requestingBrowserPermission
               }
               onClick={handleRequestBrowserPermission}
               type="button"
               variant="light"
             >
-              {browserPermission === "granted"
-                ? "Browser notifications enabled"
+              {browserPushSubscribed
+                ? "Browser notifications synced"
                 : requestingBrowserPermission
-                  ? "Requesting permission..."
-                  : "Allow browser notifications"}
+                  ? "Syncing browser notifications..."
+                  : browserPermission === "granted"
+                    ? "Sync browser notifications"
+                    : "Allow browser notifications"}
             </Button>
             <Text c="dimmed" size="sm">
               {!browserNotificationsSupported

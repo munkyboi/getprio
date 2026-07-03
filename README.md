@@ -1,6 +1,6 @@
 # GetPrio
 
-GetPrio is a multi-tenant queue platform for vendors that want QR-based ticketing, remote queue joins, live queue monitoring, and near-turn notifications by email or SMS.
+GetPrio is a multi-tenant queue platform for vendors that want QR-based ticketing, remote queue joins, live queue monitoring, and booking/queue notifications through email, in-app alerts, and planned browser Web Push.
 
 ## Project layout
 
@@ -19,7 +19,7 @@ GetPrio is a multi-tenant queue platform for vendors that want QR-based ticketin
 - Customer registration and authenticated queue joins.
 - Public queue monitoring over Server-Sent Events.
 - Daily per-tenant ticket numbering with atomic Postgres counters.
-- Email and SMS notification hooks with console fallbacks for local development.
+- Email notification hooks, live in-app operational alerts, and planned browser Web Push support with console fallbacks for local development.
 
 ## Local development
 
@@ -118,8 +118,27 @@ for uploaded board assets.
 Manual booking payment proof uploads use `B2_BUCKET_PAYMENT_PROOF`. Keep that bucket private;
 the backend issues short-lived signed upload/view URLs from authenticated booking endpoints.
 
-SMS delivery is expected to use Semaphore in the MVP deployment. Keep the provider wiring and sender
-settings aligned with the backend notification service configuration.
+Browser Web Push delivery uses VAPID keys. Generate a local key pair with:
+
+```bash
+npm exec web-push -- generate-vapid-keys
+```
+
+Then set:
+
+```env
+VAPID_PUBLIC_KEY=
+VAPID_PRIVATE_KEY=
+VAPID_SUBJECT=mailto:admin@example.com
+```
+
+The frontend must run on `localhost` or `https://` for service worker registration and Push API
+subscription. The implementation checklist remains in `docs/plan/web-push-notifications-execution-checklist.md`.
+
+To roll back Web Push sends without disabling in-app alerts or email fallback, remove or blank the
+VAPID environment variables and redeploy the backend. The push service treats missing VAPID keys as
+a no-op, while SSE/in-app dashboard alerts and email notifications continue through their existing
+paths.
 
 ## Docker Compose
 

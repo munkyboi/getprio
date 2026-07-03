@@ -209,6 +209,8 @@ Recommended first implementation milestone: **Slice 1 + Slice 2 backend tests pa
 - [x] Preserve notification preference state on the booking.
 - [x] Add platform dashboard follow-up item if notification management UI needs a new section.
 
+Note: this section covers booking-flow permission and preference handling only. The true OS/browser Web Push delivery pipeline is tracked separately in `docs/plan/web-push-notifications-execution-checklist.md`.
+
 ### 5.3 Update booking creation
 
 - [x] Accept verified booking payload or verification token.
@@ -312,6 +314,14 @@ Recommended first implementation milestone: **Slice 1 + Slice 2 backend tests pa
 - [ ] Show inherited email/browser notification settings as enabled and read-only.
 - [ ] Add inline browser notification copy.
 - [ ] Do not show booking notification prompts after check-in.
+
+### 8.4 Vendor operational alert overlay
+
+- [x] Keep live in-app alerts for new queue joins while the vendor dashboard is open.
+- [x] Keep live in-app alerts for new pending bookings while the vendor dashboard is open.
+- [x] Stack queue and booking alerts in the same bottom-center dashboard overlay.
+- [x] Persist dismissed queue and booking alert IDs per tenant/location for the browser session.
+- [ ] Keep this in-app overlay active after true Web Push delivery is added.
 
 ---
 

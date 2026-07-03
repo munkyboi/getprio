@@ -33,13 +33,14 @@ export default function RegisterCustomerPage() {
   const [usernameMessage, setUsernameMessage] = useState("");
   const [usernameAvailable, setUsernameAvailable] = useState(false);
   const [checkingUsername, setCheckingUsername] = useState(false);
+  const [usernameManuallyEdited, setUsernameManuallyEdited] = useState(Boolean(registrationState?.prefill?.username));
   const [error, setError] = useState("");
 
   const form = useForm<CustomerFormValues>({
     resolver: zodResolver(customerSchema),
     defaultValues: {
       name: registrationState?.prefill?.name || "",
-      username: buildUsernameFromName(registrationState?.prefill?.name || ""),
+      username: registrationState?.prefill?.username || buildUsernameFromName(registrationState?.prefill?.name || ""),
       email: registrationState?.prefill?.email || "",
       phone: registrationState?.prefill?.phone || "",
       password: ""
@@ -108,12 +109,13 @@ export default function RegisterCustomerPage() {
   }, [username]);
 
   useEffect(() => {
-    if (form.formState.isDirty) {
+    if (usernameManuallyEdited) {
       return;
     }
 
-    form.setValue("username", buildUsernameFromName(name), { shouldDirty: false, shouldValidate: true });
-  }, [name]);
+    const nextUsername = buildUsernameFromName(name);
+    form.setValue("username", nextUsername, { shouldDirty: false, shouldValidate: Boolean(nextUsername) });
+  }, [form, name, usernameManuallyEdited]);
 
   if (loading) {
     return <Paper className="finazze-auth-card" p="xl">Loading session...</Paper>;
@@ -158,14 +160,7 @@ export default function RegisterCustomerPage() {
                 label="Name"
                 required
                 error={form.formState.errors.name?.message}
-                {...form.register("name", {
-                  onChange: (event) => {
-                    const nextName = event.target.value;
-                    if (!form.formState.dirtyFields.username) {
-                      form.setValue("username", buildUsernameFromName(nextName), { shouldValidate: true });
-                    }
-                  }
-                })}
+                {...form.register("name")}
               />
               <TextInput
                 description={checkingUsername ? "Checking username..." : usernameMessage}
@@ -174,7 +169,10 @@ export default function RegisterCustomerPage() {
                 placeholder="customer_name"
                 required
                 {...form.register("username", {
-                  onChange: (event) => form.setValue("username", normalizeUsernameInput(event.target.value), { shouldValidate: true })
+                  onChange: (event) => {
+                    setUsernameManuallyEdited(true);
+                    form.setValue("username", normalizeUsernameInput(event.target.value), { shouldValidate: true });
+                  }
                 })}
               />
               <TextInput
@@ -196,7 +194,7 @@ export default function RegisterCustomerPage() {
                 {...form.register("password")}
               />
               {error ? <Alert color="red">{error}</Alert> : null}
-              <Button color="dark" loading={form.formState.isSubmitting || checkingUsername || !usernameAvailable} type="submit">
+              <Button color="dark" loading={form.formState.isSubmitting || checkingUsername} type="submit">
                 Create account
               </Button>
             </Stack>

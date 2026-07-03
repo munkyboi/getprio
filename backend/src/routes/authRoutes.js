@@ -1,5 +1,6 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
+const { rateLimit } = require("express-rate-limit");
 const db = require("../config/db");
 const tenantRepository = require("../repositories/tenants");
 const authSessionRepository = require("../repositories/authSessions");
@@ -25,6 +26,15 @@ const sessionService = require("../services/sessionService");
 const router = express.Router();
 const OAUTH_INTENTS = new Set(["login", "register_customer", "register_vendor"]);
 const normalizeEmail = authService.normalizeEmail;
+const authAttemptLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    error: "Too many authentication attempts. Please try again later."
+  }
+});
 
 function normalizeSlug(value) {
   return String(value || "")
@@ -729,29 +739,34 @@ router.post(
 
 router.post(
   "/login",
+  authAttemptLimiter,
   asyncHandler(async (req, res) => {
-    const { email, password } = req.body;
+    const { password } = req.body;
+    const loginIdentifier = authService.normalizeLoginIdentifier(req.body.identifier || req.body.email);
 
-    if (!email || !password) {
-      const error = new Error("email and password are required.");
+    if (!loginIdentifier.identifierValue || !password) {
+      const error = new Error("email or username and password are required.");
       error.statusCode = 400;
       throw error;
     }
 
-    const normalizedEmail = normalizeEmail(email);
-    const user = await userRepository.findUserByEmail(normalizedEmail);
+    const user = loginIdentifier.identifierType === "email"
+      ? await userRepository.findUserByEmail(loginIdentifier.identifierValue)
+      : await userRepository.findUserByUsername(loginIdentifier.identifierValue);
     if (!user) {
       await authService.recordLoginAttempt({
-        email: normalizedEmail,
+        identifierType: loginIdentifier.identifierType,
+        identifierValue: loginIdentifier.identifierValue,
         success: false,
         failureReason: "invalid_credentials",
         req
       });
-      const error = new Error("Invalid email or password.");
+      const error = new Error("Invalid email/username or password.");
       error.statusCode = 401;
       throw error;
     }
 
+    const normalizedEmail = normalizeEmail(user.email);
     if (authService.isUserLocked(user)) {
       await authService.recordLockedLoginAttempt({
         email: normalizedEmail,
@@ -778,7 +793,7 @@ router.post(
       const error = new Error(
         failureResult.updatedUser?.accountLockedUntil
           ? "Your account is temporarily locked. Please try again later."
-          : "Invalid email or password."
+          : "Invalid email/username or password."
       );
       error.statusCode = failureResult.updatedUser?.accountLockedUntil ? 423 : 401;
       throw error;
@@ -854,6 +869,7 @@ router.post(
 
 router.post(
   "/password-reset/request",
+  authAttemptLimiter,
   asyncHandler(async (req, res) => {
     const email = normalizeEmail(req.body.email);
     if (!email) {
@@ -898,6 +914,7 @@ router.post(
 
 router.post(
   "/password-reset/confirm",
+  authAttemptLimiter,
   asyncHandler(async (req, res) => {
     const token = String(req.body.token || "").trim();
     const newPassword = String(req.body.newPassword || "");

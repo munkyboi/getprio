@@ -4,6 +4,7 @@ const queueDayClosureRepository = require("../repositories/queueDayClosures");
 const queueDayPauseRepository = require("../repositories/queueDayPauses");
 const ticketRepository = require("../repositories/tickets");
 const notificationService = require("./notificationService");
+const pushNotificationService = require("./pushNotificationService");
 const { getDateKey, getAutoResumeWaitingCount } = require("./queueHelpers");
 const { resolveLocation } = require("./queueSnapshotHelpers");
 
@@ -25,14 +26,24 @@ async function maybeNotifyUpcomingTickets(tenant, options = {}) {
       continue;
     }
 
-    if (!(ticket.notifyByEmail || ticket.notifyBySms)) {
+    if (!(ticket.notifyByEmail || ticket.notifyBySms || ticket.userId)) {
       continue;
     }
 
-    await notificationService.notifyAlmostThere({
-      ticket,
+    if (ticket.notifyByEmail || ticket.notifyBySms) {
+      await notificationService.notifyAlmostThere({
+        ticket,
+        tenant,
+        position: index + 1
+      });
+    }
+
+    pushNotificationService.notifyCustomerQueueUpdate({
       tenant,
-      position: index + 1
+      ticket,
+      action: "near_turn"
+    }).catch((error) => {
+      console.warn("[web-push-customer-queue-near-turn-skipped]", error.message);
     });
 
     await ticketRepository.markTicketNotifiedAlmostThere(ticket._id);
@@ -102,6 +113,15 @@ async function maybeAutoPauseQueueDay(tenant, options = {}) {
     return createdPause;
   });
 
+  pushNotificationService.notifyVendorQueueLifecycle({
+    tenant,
+    location,
+    action: "auto_paused",
+    stats: { waitingCount: waitingTickets.length }
+  }).catch((error) => {
+    console.warn("[web-push-vendor-queue-auto-pause-skipped]", error.message);
+  });
+
   return pause;
 }
 
@@ -159,6 +179,14 @@ async function maybeAutoResumeQueueDay(tenant, options = {}) {
     }
 
     await queueDayPauseRepository.resumePause(currentPause._id, null, { client });
+  });
+
+  pushNotificationService.notifyVendorQueueLifecycle({
+    tenant,
+    location,
+    action: "auto_resumed"
+  }).catch((error) => {
+    console.warn("[web-push-vendor-queue-auto-resume-skipped]", error.message);
   });
 
   return true;

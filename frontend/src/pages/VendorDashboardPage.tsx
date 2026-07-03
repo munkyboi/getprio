@@ -115,6 +115,7 @@ import {
   toTimestamp
 } from "../utils/dates";
 import { getErrorMessage } from "../utils/errors";
+import { isBrowserPushSupported, subscribeToBrowserPush } from "../utils/pushNotifications";
 
 const dashboardSections = new Set(["queue", "tenants", "services", "bookings", "staff", "clients", "history", "reports", "settings"]);
 const SERVICE_TREND_USER_LIMIT = 30;
@@ -163,6 +164,7 @@ const defaultSettings: UpdateTenantSettingsRequest = {
 };
 
 const defaultNotificationSettings = {
+  queueJoin: true,
   bookingIntake: true,
   paymentProofReview: true,
   bookingStatusChanges: true
@@ -621,8 +623,9 @@ export default function VendorDashboardPage() {
       : "default"
   );
   const [requestingBrowserPermission, setRequestingBrowserPermission] = useState(false);
+  const [browserPushSubscribed, setBrowserPushSubscribed] = useState(false);
   const [savingNotificationSettings, setSavingNotificationSettings] = useState(false);
-  const browserNotificationsSupported = typeof window !== "undefined" && typeof window.Notification !== "undefined";
+  const browserNotificationsSupported = isBrowserPushSupported();
   const browserNotificationsSecure = typeof window !== "undefined" ? window.isSecureContext : false;
   const [walkInForm, setWalkInForm] = useState<CreateWalkInTicketRequest>(emptyWalkIn);
   const [billing, setBilling] = useState<BillingOverviewResponse | null>(null);
@@ -1022,6 +1025,15 @@ export default function VendorDashboardPage() {
   }, [browserNotificationsSupported]);
 
   async function handleRequestBrowserPermission() {
+    if (!token || !selectedTenantSlug) {
+      notifications.show({
+        color: "red",
+        title: "Sign in required",
+        message: "Sign in and select a tenant before enabling browser notifications."
+      });
+      return;
+    }
+
     if (!browserNotificationsSupported || !window.Notification) {
       notifications.show({
         color: "red",
@@ -1042,12 +1054,19 @@ export default function VendorDashboardPage() {
 
     setRequestingBrowserPermission(true);
     try {
-      const permission = await window.Notification.requestPermission();
+      const { permission } = await subscribeToBrowserPush({ token, tenantSlug: selectedTenantSlug });
       setBrowserPermission(permission);
+      setBrowserPushSubscribed(true);
+      notifications.show({
+        color: "teal",
+        title: "Browser notifications enabled",
+        message: "This browser is subscribed to vendor operational alerts."
+      });
     } catch (permissionError) {
+      setBrowserPermission(window.Notification.permission);
       notifications.show({
         color: "red",
-        title: "Permission request failed",
+        title: "Browser notifications unavailable",
         message: getErrorMessage(permissionError)
       });
     } finally {
@@ -6124,18 +6143,20 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     disabled={
                       !browserNotificationsSupported ||
                       !browserNotificationsSecure ||
-                      browserPermission === "granted" ||
+                      browserPushSubscribed ||
                       requestingBrowserPermission
                     }
                     onClick={handleRequestBrowserPermission}
                     type="button"
                     variant="light"
                   >
-                    {browserPermission === "granted"
-                      ? "Browser notifications enabled"
+                    {browserPushSubscribed
+                      ? "Browser notifications synced"
                       : requestingBrowserPermission
-                        ? "Requesting permission..."
-                        : "Allow browser notifications"}
+                        ? "Syncing browser notifications..."
+                        : browserPermission === "granted"
+                          ? "Sync browser notifications"
+                          : "Allow browser notifications"}
                   </Button>
                   <Text c="dimmed" size="sm">
                     {browserNotificationsSupported
@@ -6150,6 +6171,14 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   </Text>
                 </Group>
                 <Divider label="Operational alerts" labelPosition="center" />
+                <Checkbox
+                  checked={vendorNotificationSettings.queueJoin}
+                  label="New queue joins"
+                  disabled={savingNotificationSettings}
+                  onChange={(event) =>
+                    handleVendorNotificationToggle("queueJoin", event.currentTarget.checked)
+                  }
+                />
                 <Checkbox
                   checked={vendorNotificationSettings.bookingIntake}
                   label="New booking intake"

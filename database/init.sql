@@ -27,6 +27,7 @@ DROP TABLE IF EXISTS queue_fee_settings CASCADE;
 DROP TABLE IF EXISTS platform_settings CASCADE;
 DROP TABLE IF EXISTS public_board_themes CASCADE;
 DROP TABLE IF EXISTS public_board_assets CASCADE;
+DROP TABLE IF EXISTS push_subscriptions CASCADE;
 DROP TABLE IF EXISTS notification_deliveries CASCADE;
 DROP TABLE IF EXISTS queue_join_otps CASCADE;
 DROP TABLE IF EXISTS tickets CASCADE;
@@ -53,7 +54,7 @@ CREATE TABLE tenants (
   auto_resume_vacancy_percent INTEGER CHECK (auto_resume_vacancy_percent IS NULL OR auto_resume_vacancy_percent BETWEEN 5 AND 50),
   contact_email TEXT,
   contact_phone TEXT,
-  notification_settings JSONB NOT NULL DEFAULT '{"bookingIntake":true,"paymentProofReview":true,"bookingStatusChanges":true}'::JSONB,
+  notification_settings JSONB NOT NULL DEFAULT '{"queueJoin":true,"bookingIntake":true,"paymentProofReview":true,"bookingStatusChanges":true}'::JSONB,
   public_profile_enabled BOOLEAN NOT NULL DEFAULT TRUE,
   public_profile_description TEXT,
   public_profile_category TEXT,
@@ -123,9 +124,31 @@ CREATE TABLE auth_sessions (
 CREATE INDEX auth_sessions_user_status_idx ON auth_sessions (user_id, status);
 CREATE INDEX auth_sessions_expires_at_idx ON auth_sessions (expires_at);
 
+CREATE TABLE push_subscriptions (
+  id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  tenant_id BIGINT REFERENCES tenants(id) ON DELETE CASCADE,
+  endpoint TEXT NOT NULL,
+  p256dh TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  user_agent TEXT,
+  last_success_at TIMESTAMPTZ,
+  last_failure_at TIMESTAMPTZ,
+  failure_count INTEGER NOT NULL DEFAULT 0,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX push_subscriptions_active_endpoint_idx
+  ON push_subscriptions (endpoint)
+  WHERE is_active = TRUE;
+CREATE INDEX push_subscriptions_user_idx ON push_subscriptions (user_id, is_active);
+CREATE INDEX push_subscriptions_tenant_idx ON push_subscriptions (tenant_id, is_active);
+
 CREATE TABLE auth_login_attempts (
   id BIGSERIAL PRIMARY KEY,
-  identifier_type TEXT NOT NULL CHECK (identifier_type IN ('email')),
+  identifier_type TEXT NOT NULL CHECK (identifier_type IN ('email', 'username')),
   identifier_value TEXT NOT NULL,
   ip_address TEXT,
   user_agent TEXT,
@@ -359,6 +382,8 @@ CREATE TABLE bookings (
   checked_in_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
   no_show_at TIMESTAMPTZ,
   no_show_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  check_in_window_notified_at TIMESTAMPTZ,
+  check_in_closing_notified_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CHECK (scheduled_start_at < scheduled_end_at)
@@ -395,6 +420,18 @@ CREATE INDEX bookings_payment_review_idx
 CREATE INDEX bookings_pending_expiration_idx
   ON bookings (pending_expires_at)
   WHERE status = 'pending' AND payment_proof_object_key IS NULL;
+
+CREATE INDEX bookings_check_in_window_notify_idx
+  ON bookings (scheduled_start_at)
+  WHERE status IN ('confirmed', 'rescheduled')
+    AND queue_ticket_id IS NULL
+    AND check_in_window_notified_at IS NULL;
+
+CREATE INDEX bookings_check_in_closing_notify_idx
+  ON bookings (scheduled_start_at)
+  WHERE status IN ('confirmed', 'rescheduled')
+    AND queue_ticket_id IS NULL
+    AND check_in_closing_notified_at IS NULL;
 
 CREATE TABLE tickets (
   id BIGSERIAL PRIMARY KEY,
