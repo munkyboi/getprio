@@ -41,6 +41,10 @@ const {
   saveJoinedQueueAccess
 } = require("../src/utils/joinedQueueAccess.ts");
 const {
+  isBrowserPushSupported,
+  subscribeToBrowserPush
+} = require("../src/utils/pushNotifications.ts");
+const {
   getLocationStatusSummary,
   getQueueStateSummary,
   getTicketStateSummary
@@ -124,6 +128,88 @@ function withWindow(fn) {
     .then(() => fn(storage))
     .finally(() => {
       global.window = originalWindow;
+    });
+}
+
+function withBrowserPushEnvironment(options, fn) {
+  const originalWindow = global.window;
+  const originalNavigator = global.navigator;
+  const originalAtob = global.atob;
+  const pushSubscription = {
+    toJSON: () => ({
+      endpoint: "https://push.example.test/subscription-1",
+      keys: {
+        p256dh: "p256dh-key",
+        auth: "auth-key"
+      }
+    })
+  };
+  const calls = {
+    permissionRequests: 0,
+    serviceWorkerRegistrations: [],
+    pushSubscribes: []
+  };
+  const permission = options.permission || "default";
+  let currentPermission = permission;
+
+  global.window = {
+    isSecureContext: options.isSecureContext !== false,
+    atob: (value) => Buffer.from(value, "base64").toString("binary"),
+    Notification: options.withNotifications === false
+      ? undefined
+      : {
+          get permission() {
+            return currentPermission;
+          },
+          requestPermission: async () => {
+            calls.permissionRequests += 1;
+            currentPermission = options.requestedPermission || "granted";
+            return currentPermission;
+          }
+        }
+  };
+  if (options.withPushManager !== false) {
+    global.window.PushManager = function PushManager() {};
+  }
+  global.atob = global.window.atob;
+
+  Object.defineProperty(global, "navigator", {
+    configurable: true,
+    writable: true,
+    value: options.withServiceWorker === false
+      ? {}
+      : {
+          serviceWorker: {
+            register: async (scriptUrl) => {
+              calls.serviceWorkerRegistrations.push(scriptUrl);
+              return {
+                pushManager: {
+                  subscribe: async (subscribeOptions) => {
+                    calls.pushSubscribes.push(subscribeOptions);
+                    return pushSubscription;
+                  }
+                }
+              };
+            },
+            ready: Promise.resolve({
+              pushManager: {
+                getSubscription: async () => options.existingSubscription || null
+              }
+            })
+          }
+        }
+  });
+
+  return Promise.resolve()
+    .then(() => fn(calls))
+    .finally(() => {
+      global.window = originalWindow;
+      global.atob = originalAtob;
+      Object.defineProperty(global, "navigator", {
+        configurable: true,
+        writable: true,
+        value: originalNavigator
+      });
     });
 }
 
@@ -218,6 +304,105 @@ test("queue status summaries cover loading, state, and ticket variants", () => {
   assert.equal(getLocationStatusSummary({ queueDay: { isClosed: false, isPaused: false }, queueIntake: { state: "open" }, location: { openStatus: { isOpen: true } } }).label, "Open");
   assert.equal(getTicketStateSummary("waiting").label, "Joined");
   assert.equal(getTicketStateSummary("unknown").label, "Unknown");
+});
+
+test("browser push capability detection requires notifications, service workers, and PushManager", async () => {
+  await withBrowserPushEnvironment({}, async () => {
+    assert.equal(isBrowserPushSupported(), true);
+  });
+
+  await withBrowserPushEnvironment({ withNotifications: false }, async () => {
+    assert.equal(isBrowserPushSupported(), false);
+  });
+
+  await withBrowserPushEnvironment({ withServiceWorker: false }, async () => {
+    assert.equal(isBrowserPushSupported(), false);
+  });
+
+  await withBrowserPushEnvironment({ withPushManager: false }, async () => {
+    assert.equal(isBrowserPushSupported(), false);
+  });
+});
+
+test("browser push subscription requests permission and saves the browser subscription", async () => {
+  const fetchCalls = [];
+  await withBrowserPushEnvironment({ requestedPermission: "granted" }, async (browserCalls) => {
+    await withFetch(
+      async (url, options = {}) => {
+        fetchCalls.push([String(url), options]);
+        if (String(url).endsWith("/push/vapid-public-key")) {
+          return mockResponse(200, {
+            publicKey: Buffer.from("public-key").toString("base64url"),
+            configured: true
+          });
+        }
+        if (String(url).endsWith("/account/push-subscriptions")) {
+          return mockResponse(200, {
+            subscription: {
+              _id: "subscription-1",
+              userId: "user-1",
+              tenantId: "tenant-1",
+              endpoint: "https://push.example.test/subscription-1",
+              userAgent: "node-test",
+              isActive: true
+            }
+          });
+        }
+        return mockResponse(404, { message: "not found" });
+      },
+      async () => {
+        const result = await subscribeToBrowserPush({ token: "token-1", tenantSlug: "demo" });
+
+        assert.equal(result.permission, "granted");
+        assert.equal(result.subscription.endpoint, "https://push.example.test/subscription-1");
+        assert.equal(browserCalls.permissionRequests, 1);
+        assert.deepEqual(browserCalls.serviceWorkerRegistrations, ["/service-worker.js"]);
+        assert.equal(browserCalls.pushSubscribes.length, 1);
+      }
+    );
+  });
+
+  const saveCall = fetchCalls.find(([url]) => url.endsWith("/account/push-subscriptions"));
+  assert.equal(saveCall[1].method, "POST");
+  assert.equal(saveCall[1].headers.Authorization, "Bearer token-1");
+  assert.deepEqual(JSON.parse(saveCall[1].body), {
+    tenantSlug: "demo",
+    subscription: {
+      endpoint: "https://push.example.test/subscription-1",
+      keys: {
+        p256dh: "p256dh-key",
+        auth: "auth-key"
+      }
+    }
+  });
+});
+
+test("browser push subscription reports permission and configuration failures", async () => {
+  await withBrowserPushEnvironment({ requestedPermission: "denied" }, async () => {
+    await assert.rejects(
+      () => subscribeToBrowserPush({ token: "token-1" }),
+      /permission was not granted/i
+    );
+  });
+
+  await withBrowserPushEnvironment({ isSecureContext: false }, async () => {
+    await assert.rejects(
+      () => subscribeToBrowserPush({ token: "token-1" }),
+      /secure context|https/i
+    );
+  });
+
+  await withBrowserPushEnvironment({ requestedPermission: "granted" }, async () => {
+    await withFetch(
+      async () => mockResponse(200, { publicKey: "", configured: false }),
+      async () => {
+        await assert.rejects(
+          () => subscribeToBrowserPush({ token: "token-1" }),
+          /not configured/i
+        );
+      }
+    );
+  });
 });
 
 test("apiRequest handles auth refresh and errors", async () => {

@@ -10,6 +10,14 @@ function normalizeEmail(value) {
     .toLowerCase();
 }
 
+function normalizeLoginIdentifier(value) {
+  const identifierValue = String(value || "").trim().toLowerCase();
+  return {
+    identifierType: identifierValue.includes("@") ? "email" : "username",
+    identifierValue
+  };
+}
+
 function getRequestIp(req) {
   return (
     req.headers["cf-connecting-ip"] ||
@@ -55,15 +63,27 @@ async function verifyPasswordLogin(user, password) {
   return bcrypt.compare(password, user.passwordHash);
 }
 
-async function recordLoginAttempt({ email, success, failureReason, user, sessionId, req, client }) {
+async function recordLoginAttempt({
+  email,
+  identifierType,
+  identifierValue,
+  success,
+  failureReason,
+  user,
+  sessionId,
+  req,
+  client
+}) {
   const normalizedEmail = normalizeEmail(email);
+  const normalizedIdentifierValue = String(identifierValue || normalizedEmail).trim().toLowerCase();
+  const normalizedIdentifierType = identifierType || "email";
   const ipAddress = getRequestIp(req);
   const userAgent = getUserAgent(req);
 
   await authLoginAttemptRepository.createAttempt(
     {
-      identifierType: "email",
-      identifierValue: normalizedEmail,
+      identifierType: normalizedIdentifierType,
+      identifierValue: normalizedIdentifierValue,
       ipAddress,
       userAgent,
       success,
@@ -81,8 +101,8 @@ async function recordLoginAttempt({ email, success, failureReason, user, session
       ipAddress,
       userAgent,
       metadata: {
-        identifierType: "email",
-        identifierValue: normalizedEmail,
+        identifierType: normalizedIdentifierType,
+        identifierValue: normalizedIdentifierValue,
         failureReason: failureReason || null
       }
     },
@@ -212,6 +232,7 @@ module.exports = {
   handleSuccessfulPasswordLogin,
   isUserLocked,
   normalizeEmail,
+  normalizeLoginIdentifier,
   recordLockedLoginAttempt,
   recordLoginAttempt,
   verifyPasswordLogin

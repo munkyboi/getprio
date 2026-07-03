@@ -8,6 +8,7 @@ const bookingOtpService = require("./bookingOtpService");
 const bookingSmsAlertPaymentService = require("./bookingSmsAlertPaymentService");
 const notificationService = require("./notificationService");
 const paymentProofStorageService = require("./paymentProofStorageService");
+const pushNotificationService = require("./pushNotificationService");
 
 const CHECK_IN_WINDOW_MINUTES = 15;
 const PENDING_BOOKING_EXPIRATION_MINUTES = 15;
@@ -144,18 +145,75 @@ async function expirePendingBookings(options = {}) {
     return [];
   }
 
-  return bookingRepository.expirePendingBookings({
+  const expiredIds = await bookingRepository.expirePendingBookings({
     ...options,
     reason: PENDING_BOOKING_EXPIRATION_REASON
   });
+
+  for (const bookingId of expiredIds) {
+    const booking = await bookingRepository.findBookingById(bookingId);
+    if (!booking) {
+      continue;
+    }
+
+    pushNotificationService.notifyCustomerBookingUpdate({
+      booking,
+      action: "pending_expired"
+    }).catch((error) => {
+      console.warn("[web-push-customer-booking-expired-skipped]", error.message);
+    });
+  }
+
+  return expiredIds;
 }
 
 async function expirePendingBookingsForTenant(tenantId) {
-  return expirePendingBookings({ tenantId });
+  const expired = await expirePendingBookings({ tenantId });
+  await notifyDueCheckInReminderBookings({ tenantId });
+  return expired;
 }
 
 async function expirePendingBookingsForCustomer(customerUserId) {
-  return expirePendingBookings({ customerUserId });
+  const expired = await expirePendingBookings({ customerUserId });
+  await notifyDueCheckInReminderBookings({ customerUserId });
+  return expired;
+}
+
+async function notifyDueCheckInReminderBookings(options = {}) {
+  if (
+    !bookingRepository.listBookingsForCheckInReminder ||
+    !bookingRepository.markBookingCheckInReminderSent
+  ) {
+    return;
+  }
+
+  const windowBookings = await bookingRepository.listBookingsForCheckInReminder({
+    ...options,
+    type: "window"
+  });
+  for (const booking of windowBookings) {
+    pushNotificationService.notifyCustomerBookingUpdate({
+      booking,
+      action: "check_in_window_open"
+    }).catch((error) => {
+      console.warn("[web-push-customer-booking-check-in-window-skipped]", error.message);
+    });
+    await bookingRepository.markBookingCheckInReminderSent(booking._id, "window");
+  }
+
+  const closingBookings = await bookingRepository.listBookingsForCheckInReminder({
+    ...options,
+    type: "closing"
+  });
+  for (const booking of closingBookings) {
+    pushNotificationService.notifyCustomerBookingUpdate({
+      booking,
+      action: "check_in_closing"
+    }).catch((error) => {
+      console.warn("[web-push-customer-booking-check-in-closing-skipped]", error.message);
+    });
+    await bookingRepository.markBookingCheckInReminderSent(booking._id, "closing");
+  }
 }
 
 function assertVerifiedPayloadMatchesRequest(verifiedPayload, requestBody) {
@@ -731,6 +789,11 @@ async function createCustomerBooking({ user, body }) {
   await bookingOtpService.consumeBookingVerificationToken(verifiedBooking.otpId);
   await sendBookingSubmittedNotification({ tenant, booking });
   await publishBookingSnapshot(tenant, location);
+  if (tenant.notificationSettings?.bookingIntake !== false) {
+    pushNotificationService.notifyVendorBookingIntake({ tenant, booking }).catch((error) => {
+      console.warn("[web-push-booking-intake-skipped]", error.message);
+    });
+  }
 
   return booking;
 }
@@ -829,6 +892,11 @@ async function submitCustomerPaymentProof({ user, bookingId, body }) {
     : null;
   if (tenant && location) {
     await publishBookingSnapshot(tenant, location);
+    if (tenant.notificationSettings?.paymentProofReview !== false) {
+      pushNotificationService.notifyVendorPaymentProofReview({ tenant, booking: updated }).catch((error) => {
+        console.warn("[web-push-payment-proof-review-skipped]", error.message);
+      });
+    }
   }
 
   return updated;
@@ -879,7 +947,15 @@ async function updateVendorBookingStatus({ tenant, bookingId, status }) {
     throw error;
   }
 
-  return bookingRepository.updateBooking(booking._id, { status });
+  const updated = await bookingRepository.updateBooking(booking._id, { status });
+  pushNotificationService.notifyCustomerBookingUpdate({
+    booking: updated,
+    action: status
+  }).catch((error) => {
+    console.warn("[web-push-customer-booking-status-skipped]", error.message);
+  });
+
+  return updated;
 }
 
 function assertVendorCanReviewBookingPayment(booking, tenant) {
@@ -925,7 +1001,7 @@ async function verifyVendorBookingPayment({ tenant, bookingId, user }) {
     throw error;
   }
 
-  return bookingRepository.updateBooking(booking._id, {
+  const updated = await bookingRepository.updateBooking(booking._id, {
     paymentStatus: "paid",
     paymentVerifiedAt: new Date().toISOString(),
     paymentVerifiedByUserId: user?._id || null,
@@ -933,6 +1009,15 @@ async function verifyVendorBookingPayment({ tenant, bookingId, user }) {
     paymentRejectedByUserId: null,
     paymentRejectionReason: ""
   });
+
+  pushNotificationService.notifyCustomerBookingUpdate({
+    booking: updated,
+    action: "payment_verified"
+  }).catch((error) => {
+    console.warn("[web-push-customer-payment-verified-skipped]", error.message);
+  });
+
+  return updated;
 }
 
 async function rejectVendorBookingPayment({ tenant, bookingId, user, reason }) {
@@ -978,6 +1063,12 @@ async function rejectVendorBookingPayment({ tenant, bookingId, user, reason }) {
       body: message
     });
   }
+  pushNotificationService.notifyCustomerBookingUpdate({
+    booking: updated,
+    action: "payment_rejected"
+  }).catch((error) => {
+    console.warn("[web-push-customer-payment-rejected-skipped]", error.message);
+  });
 
   return updated;
 }
@@ -1025,6 +1116,12 @@ async function cancelCustomerBooking({ user, bookingId, reason }) {
       body: message
     });
   }
+  pushNotificationService.notifyCustomerBookingUpdate({
+    booking: updated,
+    action: "canceled"
+  }).catch((error) => {
+    console.warn("[web-push-customer-booking-cancel-skipped]", error.message);
+  });
   const tenant = tenantRepository.findTenantBySlug
     ? await tenantRepository.findTenantBySlug(updated.tenantSlug)
     : null;
@@ -1092,7 +1189,7 @@ async function rescheduleVendorBooking({ tenant, bookingId, scheduledStartAt: sc
     excludeBookingId: booking._id
   });
 
-  return bookingRepository.updateBooking(booking._id, {
+  const updated = await bookingRepository.updateBooking(booking._id, {
     scheduledStartAt: scheduledStartAt.toISOString(),
     scheduledEndAt: scheduledEndAt.toISOString(),
     status: "rescheduled",
@@ -1100,6 +1197,14 @@ async function rescheduleVendorBooking({ tenant, bookingId, scheduledStartAt: sc
     checkedInAt: null,
     checkedInByUserId: null
   });
+  pushNotificationService.notifyCustomerBookingUpdate({
+    booking: updated,
+    action: "rescheduled"
+  }).catch((error) => {
+    console.warn("[web-push-customer-booking-reschedule-skipped]", error.message);
+  });
+
+  return updated;
 }
 
 async function checkInVendorBooking({ tenant, location, bookingId, user, overrideWindow, overrideReason }) {
@@ -1170,6 +1275,12 @@ async function checkInVendorBooking({ tenant, location, bookingId, user, overrid
     lookupCode: result.ticket.lookupCode,
     location
   });
+  pushNotificationService.notifyCustomerBookingUpdate({
+    booking: result.booking,
+    action: "checked_in"
+  }).catch((error) => {
+    console.warn("[web-push-customer-booking-check-in-skipped]", error.message);
+  });
 
   return {
     booking: result.booking,
@@ -1224,6 +1335,12 @@ async function markVendorBookingNoShow({ tenant, location, bookingId, user }) {
       body: message
     });
   }
+  pushNotificationService.notifyCustomerBookingUpdate({
+    booking: updated,
+    action: "no_show"
+  }).catch((error) => {
+    console.warn("[web-push-customer-booking-no-show-skipped]", error.message);
+  });
 
   return updated;
 }
@@ -1239,6 +1356,7 @@ module.exports = {
   createVendorPaymentProofAccess,
   expirePendingBookingsForCustomer,
   expirePendingBookingsForTenant,
+  notifyDueCheckInReminderBookings,
   listBookingSlots,
   listVendorBookingRescheduleSlots,
   markVendorBookingNoShow,

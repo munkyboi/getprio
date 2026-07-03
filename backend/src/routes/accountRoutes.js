@@ -3,9 +3,12 @@ const asyncHandler = require("../middleware/asyncHandler");
 const { authenticate } = require("../middleware/auth");
 const bookingRepository = require("../repositories/bookings");
 const ticketRepository = require("../repositories/tickets");
+const tenantRepository = require("../repositories/tenants");
 const userRepository = require("../repositories/users");
 const bookingService = require("../services/bookingService");
 const passwordResetService = require("../services/passwordResetService");
+const pushNotificationService = require("../services/pushNotificationService");
+const { assertTenantPermission } = require("../middleware/auth");
 const { formatPaginationMetadata, parsePaginationParams } = require("../utils/pagination");
 
 const router = express.Router();
@@ -185,6 +188,52 @@ router.patch(
     res.json({
       notificationSettings: normalizeCustomerNotificationSettings(updatedUser.notificationSettings)
     });
+  })
+);
+
+router.post(
+  "/push-subscriptions",
+  asyncHandler(async (req, res) => {
+    let tenant = null;
+    const tenantSlug = String(req.body?.tenantSlug || "").trim();
+
+    if (tenantSlug) {
+      tenant = await tenantRepository.findTenantBySlug(tenantSlug, { activeOnly: true });
+      if (!tenant) {
+        const error = new Error("Tenant not found.");
+        error.statusCode = 404;
+        throw error;
+      }
+
+      assertTenantPermission(req.user, tenant._id, "tenant.queue.read");
+    }
+
+    const subscription = await pushNotificationService.saveSubscription({
+      user: req.user,
+      tenant,
+      payload: req.body?.subscription || req.body,
+      userAgent: req.headers["user-agent"] || ""
+    });
+
+    res.status(201).json({ subscription });
+  })
+);
+
+router.delete(
+  "/push-subscriptions/:subscriptionId",
+  asyncHandler(async (req, res) => {
+    const subscription = await pushNotificationService.deleteSubscription({
+      user: req.user,
+      subscriptionId: req.params.subscriptionId
+    });
+
+    if (!subscription) {
+      const error = new Error("Push subscription not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    res.json({ subscription });
   })
 );
 

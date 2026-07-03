@@ -21,8 +21,16 @@ The vendor-managed bookable service schedule for a branch, optionally narrowed b
 _Avoid_: Store hours, calendar
 
 **Booking Alert**:
-A customer-facing notification for booking status changes such as confirmation, reschedule, cancellation, and check-in readiness. Email alerts are always available, while browser notifications use the browser's notification permission after login and can cover booking and queue updates.
+A customer-facing notification for booking status changes such as confirmation, reschedule, cancellation, and check-in readiness. Email alerts are always available. Browser notification preferences and in-app alerts are separate from true Web Push delivery, which requires a service worker, Push API subscription, and backend Web Push send pipeline.
 _Avoid_: Queue alert, reminder, message blast
+
+**In-App Operational Alert**:
+A dashboard or account-page alert shown while the web app is open, such as a vendor overlay for a new queue join or new booking. These alerts can be driven by SSE and background queries and must remain available even after OS/browser Web Push is implemented.
+_Avoid_: Web Push, SMS, email
+
+**Web Push Notification**:
+An OS/browser notification delivered through the browser Push API after a logged-in user grants permission and the backend stores a push subscription. Web Push is best-effort and should route users back into authenticated GetPrio pages for sensitive details.
+_Avoid_: In-app alert, toast, SMS
 
 **Booking Verification**:
 The OTP step that verifies a customer's booking contact details before a booking request is created. Booking verification carries forward to the linked queue ticket, so the customer does not repeat OTP verification at check-in.

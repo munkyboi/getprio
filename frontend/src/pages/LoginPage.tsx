@@ -17,7 +17,7 @@ function getSafeRedirectPath(value: string | null): string | null {
 }
 
 const signInSchema = z.object({
-  email: z.string().trim().email("Enter a valid email address."),
+  identifier: z.string().trim().min(1, "Enter your email address or username."),
   password: z.string().min(1, "Enter your password.")
 });
 
@@ -49,7 +49,7 @@ export default function LoginPage() {
 
   const signInForm = useForm<SignInValues>({
     resolver: zodResolver(signInSchema),
-    defaultValues: { email: "", password: "" }
+    defaultValues: { identifier: "", password: "" }
   });
   const resetRequestForm = useForm<ResetRequestValues>({
     resolver: zodResolver(resetRequestSchema),
@@ -158,11 +158,11 @@ export default function LoginPage() {
             <form onSubmit={handleSignIn}>
               <Stack gap="md">
                 <TextInput
-                  label="Email"
+                  label="Email or username"
                   required
-                  type="email"
-                  error={signInForm.formState.errors.email?.message}
-                  {...signInForm.register("email")}
+                  autoComplete="username"
+                  error={signInForm.formState.errors.identifier?.message}
+                  {...signInForm.register("identifier")}
                 />
                 <PasswordInput
                   label="Password"
@@ -178,7 +178,8 @@ export default function LoginPage() {
                     setShowResetRequest((current) => !current);
                     setError("");
                     setResetRequestMessage("");
-                    resetRequestForm.setValue("email", signInForm.getValues("email"));
+                    const identifier = signInForm.getValues("identifier").trim();
+                    resetRequestForm.setValue("email", identifier.includes("@") ? identifier : "");
                   }}
                 >
                   Forgot password?

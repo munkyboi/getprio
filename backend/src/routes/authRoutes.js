@@ -730,28 +730,32 @@ router.post(
 router.post(
   "/login",
   asyncHandler(async (req, res) => {
-    const { email, password } = req.body;
+    const { password } = req.body;
+    const loginIdentifier = authService.normalizeLoginIdentifier(req.body.identifier || req.body.email);
 
-    if (!email || !password) {
-      const error = new Error("email and password are required.");
+    if (!loginIdentifier.identifierValue || !password) {
+      const error = new Error("email or username and password are required.");
       error.statusCode = 400;
       throw error;
     }
 
-    const normalizedEmail = normalizeEmail(email);
-    const user = await userRepository.findUserByEmail(normalizedEmail);
+    const user = loginIdentifier.identifierType === "email"
+      ? await userRepository.findUserByEmail(loginIdentifier.identifierValue)
+      : await userRepository.findUserByUsername(loginIdentifier.identifierValue);
     if (!user) {
       await authService.recordLoginAttempt({
-        email: normalizedEmail,
+        identifierType: loginIdentifier.identifierType,
+        identifierValue: loginIdentifier.identifierValue,
         success: false,
         failureReason: "invalid_credentials",
         req
       });
-      const error = new Error("Invalid email or password.");
+      const error = new Error("Invalid email/username or password.");
       error.statusCode = 401;
       throw error;
     }
 
+    const normalizedEmail = normalizeEmail(user.email);
     if (authService.isUserLocked(user)) {
       await authService.recordLockedLoginAttempt({
         email: normalizedEmail,
@@ -778,7 +782,7 @@ router.post(
       const error = new Error(
         failureResult.updatedUser?.accountLockedUntil
           ? "Your account is temporarily locked. Please try again later."
-          : "Invalid email or password."
+          : "Invalid email/username or password."
       );
       error.statusCode = failureResult.updatedUser?.accountLockedUntil ? 423 : 401;
       throw error;

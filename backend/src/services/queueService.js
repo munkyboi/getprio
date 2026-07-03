@@ -9,6 +9,7 @@ const bookingRepository = require("../repositories/bookings");
 const queueEvents = require("./queueEvents");
 const queueLifecycle = require("./queueLifecycle");
 const notificationService = require("./notificationService");
+const pushNotificationService = require("./pushNotificationService");
 const {
   buildQueueEventActor,
   formatTicketNumber,
@@ -220,6 +221,12 @@ async function createTicket({
     location: resolvedLocation
   });
 
+  if (tenant.notificationSettings?.queueJoin !== false) {
+    pushNotificationService.notifyVendorQueueJoin({ tenant, ticket }).catch((error) => {
+      console.warn("[web-push-queue-join-skipped]", error.message);
+    });
+  }
+
   return { ticket, snapshot };
 }
 
@@ -325,6 +332,13 @@ async function callNextTicket(tenant, options = {}) {
   await maybeAutoResumeQueueDay(tenant, { location, queueDateKey: dateKey });
   await maybeNotifyUpcomingTickets(tenant, { location });
   const snapshot = await publishSnapshot(tenant, { location });
+  pushNotificationService.notifyCustomerQueueUpdate({
+    tenant,
+    ticket,
+    action: "called"
+  }).catch((error) => {
+    console.warn("[web-push-customer-queue-called-skipped]", error.message);
+  });
 
   return { ticket, snapshot };
 }
@@ -394,6 +408,13 @@ async function updateCurrentTicketStatus(tenant, status, options = {}) {
   }
   await maybeNotifyUpcomingTickets(tenant, { location });
   const snapshot = await publishSnapshot(tenant, { location });
+  pushNotificationService.notifyCustomerQueueUpdate({
+    tenant,
+    ticket,
+    action: status
+  }).catch((error) => {
+    console.warn("[web-push-customer-queue-status-skipped]", error.message);
+  });
 
   return { ticket, snapshot };
 }
@@ -447,6 +468,13 @@ async function cancelTicket(tenant, lookupCode, options = {}) {
   await maybeAutoResumeQueueDay(tenant, { location });
   await maybeNotifyUpcomingTickets(tenant, { location });
   const snapshot = await publishSnapshot(tenant, { location });
+  pushNotificationService.notifyCustomerQueueUpdate({
+    tenant,
+    ticket,
+    action: "cancelled"
+  }).catch((error) => {
+    console.warn("[web-push-customer-queue-cancel-skipped]", error.message);
+  });
 
   return { ticket, snapshot };
 }
@@ -461,6 +489,8 @@ async function closeQueueDay(tenant, options = {}) {
 
   const queueDateKey = options.queueDateKey || getDateKey();
   const nextQueueDateKey = options.nextQueueDateKey || getDateKey(new Date(Date.now() + 24 * 60 * 60 * 1000));
+  let unservedTicketsForPush = [];
+  let carriedTicketsForPush = [];
   await db.withTransaction(async (client) => {
     const existingClosure = await queueDayClosureRepository.findActiveClosure(
       tenant._id,
@@ -506,6 +536,8 @@ async function closeQueueDay(tenant, options = {}) {
       toDateKey: nextQueueDateKey,
       ticketIds: waitingTicketIds
     });
+    unservedTicketsForPush = updatedTickets;
+    carriedTicketsForPush = carriedTickets;
     const actor = buildQueueEventActor({
       actorUserId: options.actorUserId,
       actorRole: options.actorRole,
@@ -579,6 +611,34 @@ async function closeQueueDay(tenant, options = {}) {
     });
   });
 
+  for (const ticket of unservedTicketsForPush) {
+    pushNotificationService.notifyCustomerQueueUpdate({
+      tenant,
+      ticket,
+      action: "unserved"
+    }).catch((error) => {
+      console.warn("[web-push-customer-queue-unserved-skipped]", error.message);
+    });
+  }
+
+  for (const ticket of carriedTicketsForPush) {
+    pushNotificationService.notifyCustomerQueueUpdate({
+      tenant,
+      ticket,
+      action: "carried_over"
+    }).catch((error) => {
+      console.warn("[web-push-customer-queue-carried-over-skipped]", error.message);
+    });
+  }
+
+  pushNotificationService.notifyVendorQueueLifecycle({
+    tenant,
+    location,
+    action: "closed"
+  }).catch((error) => {
+    console.warn("[web-push-vendor-queue-closed-skipped]", error.message);
+  });
+
   return publishSnapshot(tenant, { location });
 }
 
@@ -591,6 +651,7 @@ async function reopenQueueDay(tenant, options = {}) {
   }
 
   const queueDateKey = options.queueDateKey || getDateKey();
+  let reopenedTicketsForPush = [];
   await db.withTransaction(async (client) => {
     const activeClosure = await queueDayClosureRepository.findActiveClosure(
       tenant._id,
@@ -620,6 +681,7 @@ async function reopenQueueDay(tenant, options = {}) {
         ticketIds: activeClosure.affectedTicketIds
       }
     );
+    reopenedTicketsForPush = [...reopenedUnservedTickets, ...restoredCarriedTickets];
     const actor = buildQueueEventActor({
       actorUserId: options.actorUserId,
       actorRole: options.actorRole,
@@ -675,6 +737,22 @@ async function reopenQueueDay(tenant, options = {}) {
   });
 
   await maybeNotifyUpcomingTickets(tenant, { location });
+  for (const ticket of reopenedTicketsForPush) {
+    pushNotificationService.notifyCustomerQueueUpdate({
+      tenant,
+      ticket,
+      action: "requeued"
+    }).catch((error) => {
+      console.warn("[web-push-customer-queue-reopened-skipped]", error.message);
+    });
+  }
+  pushNotificationService.notifyVendorQueueLifecycle({
+    tenant,
+    location,
+    action: "reopened"
+  }).catch((error) => {
+    console.warn("[web-push-vendor-queue-reopened-skipped]", error.message);
+  });
   return publishSnapshot(tenant, { location });
 }
 
@@ -747,6 +825,14 @@ async function pauseQueueDay(tenant, options = {}) {
     });
   });
 
+  pushNotificationService.notifyVendorQueueLifecycle({
+    tenant,
+    location,
+    action: "paused"
+  }).catch((error) => {
+    console.warn("[web-push-vendor-queue-paused-skipped]", error.message);
+  });
+
   return publishSnapshot(tenant, { location, queueDateKey });
 }
 
@@ -789,6 +875,14 @@ async function resumeQueueDay(tenant, options = {}) {
         pauseReason: activePause.pauseReason
       }
     });
+  });
+
+  pushNotificationService.notifyVendorQueueLifecycle({
+    tenant,
+    location,
+    action: "resumed"
+  }).catch((error) => {
+    console.warn("[web-push-vendor-queue-resumed-skipped]", error.message);
   });
 
   return publishSnapshot(tenant, { location, queueDateKey });
@@ -884,6 +978,13 @@ async function restoreSkippedTicket(tenant, ticketId, options = {}) {
   await maybeNotifyUpcomingTickets(tenant, { location });
   await maybeAutoPauseQueueDay(tenant, { location, queueDateKey: dateKey });
   const snapshot = await publishSnapshot(tenant, { location });
+  pushNotificationService.notifyCustomerQueueUpdate({
+    tenant,
+    ticket,
+    action: "requeued"
+  }).catch((error) => {
+    console.warn("[web-push-customer-queue-requeued-skipped]", error.message);
+  });
 
   return { ticket, snapshot };
 }

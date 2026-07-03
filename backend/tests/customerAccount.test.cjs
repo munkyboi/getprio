@@ -7,7 +7,7 @@ function buildAsyncHandlerMock() {
   return (handler) => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
 }
 
-function buildAuthMock() {
+function buildAuthMock(options = {}) {
   return {
     authenticate(req, _res, next) {
       req.user = {
@@ -21,7 +21,8 @@ function buildAuthMock() {
         mfaRequired: false
       };
       next();
-    }
+    },
+    assertTenantPermission: options.assertTenantPermission || (() => {})
   };
 }
 
@@ -239,6 +240,232 @@ test("customer can update profile name without changing username", async () => {
       })
     });
     assert.equal(invalidResponse.status, 400);
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("account push subscription route creates and updates tenant-scoped subscriptions", async () => {
+  const permissionChecks = [];
+  const saves = [];
+  const router = requireWithMocks("../src/routes/accountRoutes.js", {
+    "../middleware/auth": buildAuthMock({
+      assertTenantPermission: (user, tenantId, permission) => {
+        permissionChecks.push({ userId: user._id, tenantId, permission });
+      }
+    }),
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../repositories/tickets": {
+      listTicketsForCustomerAccount: async () => []
+    },
+    "../repositories/tenants": {
+      findTenantBySlug: async (slug, options) => {
+        assert.deepEqual(options, { activeOnly: true });
+        return { _id: "tenant-1", slug };
+      }
+    },
+    "../services/pushNotificationService": {
+      saveSubscription: async (input) => {
+        saves.push(input);
+        return {
+          _id: "subscription-1",
+          userId: input.user._id,
+          tenantId: input.tenant._id,
+          endpoint: input.payload.endpoint,
+          p256dh: input.payload.keys.p256dh,
+          auth: input.payload.keys.auth,
+          userAgent: input.userAgent,
+          isActive: true
+        };
+      }
+    },
+    "../services/passwordResetService": {
+      changePassword: async () => {}
+    }
+  });
+
+  const { server, baseUrl } = await startServer(router, "/api/account");
+
+  try {
+    const createResponse = await fetch(`${baseUrl}/push-subscriptions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer token",
+        "User-Agent": "node-test-agent"
+      },
+      body: JSON.stringify({
+        tenantSlug: "demo-vendor",
+        subscription: {
+          endpoint: "https://push.example.test/subscription-1",
+          keys: {
+            p256dh: "p256dh-key-1",
+            auth: "auth-key-1"
+          }
+        }
+      })
+    });
+    assert.equal(createResponse.status, 201);
+    const created = await createResponse.json();
+    assert.equal(created.subscription.endpoint, "https://push.example.test/subscription-1");
+    assert.equal(created.subscription.p256dh, "p256dh-key-1");
+
+    const updateResponse = await fetch(`${baseUrl}/push-subscriptions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer token",
+        "User-Agent": "node-test-agent"
+      },
+      body: JSON.stringify({
+        tenantSlug: "demo-vendor",
+        subscription: {
+          endpoint: "https://push.example.test/subscription-1",
+          keys: {
+            p256dh: "p256dh-key-2",
+            auth: "auth-key-2"
+          }
+        }
+      })
+    });
+    assert.equal(updateResponse.status, 201);
+    const updated = await updateResponse.json();
+    assert.equal(updated.subscription.p256dh, "p256dh-key-2");
+    assert.equal(updated.subscription.auth, "auth-key-2");
+
+    assert.deepEqual(permissionChecks, [
+      { userId: "user-1", tenantId: "tenant-1", permission: "tenant.queue.read" },
+      { userId: "user-1", tenantId: "tenant-1", permission: "tenant.queue.read" }
+    ]);
+    assert.equal(saves.length, 2);
+    assert.equal(saves[0].user._id, "user-1");
+    assert.equal(saves[0].tenant._id, "tenant-1");
+    assert.equal(saves[0].payload.keys.auth, "auth-key-1");
+    assert.equal(saves[1].payload.keys.auth, "auth-key-2");
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("account push subscription route rejects invalid payloads and unauthorized tenant scope", async () => {
+  const router = requireWithMocks("../src/routes/accountRoutes.js", {
+    "../middleware/auth": buildAuthMock({
+      assertTenantPermission: () => {
+        const error = new Error("Forbidden.");
+        error.statusCode = 403;
+        throw error;
+      }
+    }),
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../repositories/tickets": {
+      listTicketsForCustomerAccount: async () => []
+    },
+    "../repositories/tenants": {
+      findTenantBySlug: async () => ({ _id: "tenant-2", slug: "other-vendor" })
+    },
+    "../services/pushNotificationService": {
+      saveSubscription: async ({ payload }) => {
+        if (!payload?.endpoint || !payload?.keys?.p256dh || !payload?.keys?.auth) {
+          const error = new Error("A valid browser push subscription is required.");
+          error.statusCode = 400;
+          throw error;
+        }
+
+        return { _id: "subscription-1" };
+      }
+    },
+    "../services/passwordResetService": {
+      changePassword: async () => {}
+    }
+  });
+
+  const { server, baseUrl } = await startServer(router, "/api/account");
+
+  try {
+    const invalidResponse = await fetch(`${baseUrl}/push-subscriptions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer token" },
+      body: JSON.stringify({
+        subscription: {
+          endpoint: "https://push.example.test/missing-keys"
+        }
+      })
+    });
+    assert.equal(invalidResponse.status, 400);
+    const invalidBody = await invalidResponse.json();
+    assert.match(invalidBody.message, /valid browser push subscription/);
+
+    const forbiddenResponse = await fetch(`${baseUrl}/push-subscriptions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer token" },
+      body: JSON.stringify({
+        tenantSlug: "other-vendor",
+        subscription: {
+          endpoint: "https://push.example.test/subscription-2",
+          keys: {
+            p256dh: "p256dh-key",
+            auth: "auth-key"
+          }
+        }
+      })
+    });
+    assert.equal(forbiddenResponse.status, 403);
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("account push subscription route deactivates only the authenticated user's subscription", async () => {
+  const deletions = [];
+  const router = requireWithMocks("../src/routes/accountRoutes.js", {
+    "../middleware/auth": buildAuthMock(),
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../repositories/tickets": {
+      listTicketsForCustomerAccount: async () => []
+    },
+    "../services/pushNotificationService": {
+      deleteSubscription: async (input) => {
+        deletions.push(input);
+        if (input.subscriptionId === "missing") {
+          return null;
+        }
+
+        return {
+          _id: input.subscriptionId,
+          userId: input.user._id,
+          isActive: false
+        };
+      }
+    },
+    "../services/passwordResetService": {
+      changePassword: async () => {}
+    }
+  });
+
+  const { server, baseUrl } = await startServer(router, "/api/account");
+
+  try {
+    const deleteResponse = await fetch(`${baseUrl}/push-subscriptions/subscription-1`, {
+      method: "DELETE",
+      headers: { Authorization: "Bearer token" }
+    });
+    assert.equal(deleteResponse.status, 200);
+    const body = await deleteResponse.json();
+    assert.equal(body.subscription._id, "subscription-1");
+    assert.equal(body.subscription.userId, "user-1");
+    assert.equal(body.subscription.isActive, false);
+
+    const missingResponse = await fetch(`${baseUrl}/push-subscriptions/missing`, {
+      method: "DELETE",
+      headers: { Authorization: "Bearer token" }
+    });
+    assert.equal(missingResponse.status, 404);
+
+    assert.equal(deletions.length, 2);
+    assert.equal(deletions[0].user._id, "user-1");
+    assert.equal(deletions[0].subscriptionId, "subscription-1");
+    assert.equal(deletions[1].user._id, "user-1");
+    assert.equal(deletions[1].subscriptionId, "missing");
   } finally {
     await stopServer(server);
   }

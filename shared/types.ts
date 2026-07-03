@@ -838,7 +838,8 @@ export interface AuthResponse {
 }
 
 export interface LoginRequest {
-  email: string;
+  identifier: string;
+  email?: string;
   password: string;
 }
 
@@ -1034,6 +1035,7 @@ export interface CustomerNotificationSettings {
 }
 
 export interface TenantNotificationSettings {
+  queueJoin: boolean;
   bookingIntake: boolean;
   paymentProofReview: boolean;
   bookingStatusChanges: boolean;

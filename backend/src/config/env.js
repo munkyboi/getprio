@@ -76,6 +76,9 @@ const b2BucketPaymentProof = process.env.B2_BUCKET_PAYMENT_PROOF || "";
 const b2KeyId = process.env.B2_KEY_ID || "";
 const b2ApplicationKey = process.env.B2_APPLICATION_KEY || "";
 const b2PublicBaseUrl = process.env.B2_PUBLIC_BASE_URL || "";
+const vapidPublicKey = process.env.VAPID_PUBLIC_KEY || "";
+const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY || "";
+const vapidSubject = process.env.VAPID_SUBJECT || "mailto:admin@getprio.local";
 
 const env = {
   nodeEnv,
@@ -132,7 +135,10 @@ const env = {
   b2BucketPaymentProof,
   b2KeyId,
   b2ApplicationKey,
-  b2PublicBaseUrl
+  b2PublicBaseUrl,
+  vapidPublicKey,
+  vapidPrivateKey,
+  vapidSubject
 };
 
 module.exports = env;

@@ -186,7 +186,7 @@ function LoginPanel({
   onAppearanceToggle: () => void;
   onLogin: (token: string, user: UserSummary) => void;
 }) {
-  const [form, setForm] = useState<LoginRequest>({ email: "", password: "" });
+  const [form, setForm] = useState<LoginRequest>({ identifier: "", password: "" });
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -228,7 +228,7 @@ function LoginPanel({
               </div>
               <AppearanceToggle appearance={appearance} onToggle={onAppearanceToggle} />
             </Group>
-            <TextInput label="Email" type="email" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} />
+            <TextInput label="Email or username" value={form.identifier} onChange={(event) => setForm((current) => ({ ...current, identifier: event.target.value }))} />
             <PasswordInput label="Password" value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} />
             {error ? <Text c="red">{error}</Text> : null}
             <Button type="submit" loading={submitting}>Sign in</Button>

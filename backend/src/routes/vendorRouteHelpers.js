@@ -55,6 +55,7 @@ async function getLocationForTenant(tenant, locationSlug) {
 
 function normalizeTenantNotificationSettings(settings = {}) {
   return {
+    queueJoin: settings.queueJoin !== false,
     bookingIntake: settings.bookingIntake !== false,
     paymentProofReview: settings.paymentProofReview !== false,
     bookingStatusChanges: settings.bookingStatusChanges !== false

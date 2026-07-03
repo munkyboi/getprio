@@ -140,6 +140,13 @@ async function smokePublicStage() {
   }
   log("oauth provider metadata ok");
 
+  const vapid = await requestJson(`${API_BASE_URL}/push/vapid-public-key`);
+  assertOk(vapid.response, "web push vapid metadata");
+  if (!vapid.body || typeof vapid.body.configured !== "boolean" || typeof vapid.body.publicKey !== "string") {
+    fail("web push vapid metadata missing configured/publicKey fields");
+  }
+  log("web push vapid metadata ok");
+
   for (const page of publicPages) {
     const { response, text } = await requestText(`${APP_BASE_URL}${page.path}`);
     assertOk(response, `${page.label} page`);
@@ -152,6 +159,12 @@ async function smokePublicStage() {
     }
     log(`${page.label} page ok`);
   }
+
+  const serviceWorker = await requestText(`${APP_BASE_URL}/service-worker.js`);
+  assertOk(serviceWorker.response, "web push service worker");
+  assertContains(serviceWorker.text, "self.addEventListener(\"push\"", "web push service worker");
+  assertContains(serviceWorker.text, "notificationclick", "web push service worker");
+  log("web push service worker ok");
 
   const manifest = await requestJson(`${APP_BASE_URL}/manifest.webmanifest`);
   assertOk(manifest.response, "web app manifest");
@@ -198,6 +211,12 @@ async function smokeCustomerStage() {
   assertOk(notificationSettingsBefore.response, "notification settings read");
   if (!notificationSettingsBefore.body?.notificationSettings) {
     fail("notification settings read missing payload");
+  }
+  if (
+    typeof notificationSettingsBefore.body.notificationSettings.bookingAlerts !== "boolean" ||
+    typeof notificationSettingsBefore.body.notificationSettings.queueAlerts !== "boolean"
+  ) {
+    fail("notification settings read missing Web Push status booleans");
   }
   log("notification settings read ok");
 
@@ -348,6 +367,20 @@ async function smokeVendorStage() {
   }
   log("vendor staff ok");
 
+  const vendorNotificationSettings = await requestJson(
+    `${API_BASE_URL}/vendor/tenant/${tenant.slug}/notification-settings`,
+    { headers }
+  );
+  assertOk(vendorNotificationSettings.response, "vendor notification settings");
+  if (
+    typeof vendorNotificationSettings.body?.notificationSettings?.queueJoin !== "boolean" ||
+    typeof vendorNotificationSettings.body?.notificationSettings?.bookingIntake !== "boolean" ||
+    typeof vendorNotificationSettings.body?.notificationSettings?.paymentProofReview !== "boolean"
+  ) {
+    fail("vendor notification settings missing Web Push status booleans");
+  }
+  log("vendor notification settings ok");
+
   const services = await requestJson(`${API_BASE_URL}/vendor/tenant/${tenant.slug}/services`, { headers });
   assertOk(services.response, "vendor services");
   if (!Array.isArray(services.body?.services)) {
@@ -388,6 +421,10 @@ async function smokeVendorStage() {
       `${API_BASE_URL}/vendor/tenant/${tenant.slug}/bookings/${firstBookingId}/reschedule-slots?date=${tomorrow}`,
       { headers }
     );
+    if (rescheduleSlots.response.status === 409) {
+      log("vendor booking reschedule slots skipped (fixture booking is not reschedulable)");
+      return;
+    }
     assertOk(rescheduleSlots.response, "vendor booking reschedule slots");
     if (!Array.isArray(rescheduleSlots.body?.slots)) {
       fail("vendor booking reschedule slots missing slots array");

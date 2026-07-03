@@ -60,6 +60,8 @@ test("vendor route helpers normalize payloads and format entities", async () => 
   assert.equal(formatted.hours.length, 1);
 
   assert.equal(helpers.normalizeTenantNotificationSettings({ bookingIntake: false }).bookingIntake, false);
+  assert.equal(helpers.normalizeTenantNotificationSettings({ queueJoin: false }).queueJoin, false);
+  assert.equal(helpers.normalizeTenantNotificationSettings({}).queueJoin, true);
   assert.equal(helpers.normalizeCounterSlug("Front Desk"), "front-desk");
   assert.equal(helpers.buildPriceDisplay(1234), "₱12.34");
 

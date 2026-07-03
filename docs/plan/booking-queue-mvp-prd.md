@@ -104,6 +104,8 @@ Browser notifications are customer-enabled after login and cover booking status 
 
 Browser notifications should also be available to vendor staff and vendor admins for booking intake, payment-proof review, and booking status changes relevant to their role.
 
+Implementation note: the current product has browser-permission and preference UI plus live in-app operational alerts. True OS/browser Web Push delivery still requires the service worker, Push API subscription storage, VAPID configuration, and backend send pipeline tracked in `docs/plan/web-push-notifications-execution-checklist.md`.
+
 When a booking becomes a queue ticket:
 
 - email alerts remain enabled automatically
@@ -333,6 +335,7 @@ Avoid storing generated booking slots as durable rows in MVP.
 - Replace SMS booking alerts with browser notifications and email fallback.
 - Request browser notification permission after login and preserve booking and queue submission when permission is denied.
 - Carry browser notification preferences through booking and queue flows.
+- Implement true OS/browser Web Push delivery using `docs/plan/web-push-notifications-execution-checklist.md`; do not count permission UI alone as complete push delivery.
 
 ### Slice B: Manual QR booking payment
 

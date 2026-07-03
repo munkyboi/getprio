@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Anchor, Box, Burger, Button, Container, Drawer, Group, Stack } from "@mantine/core";
 import { Link, Navigate, NavLink, Route, Routes, useLocation, useParams } from "react-router-dom";
 import { IconLogout } from "@tabler/icons-react";
@@ -182,36 +182,60 @@ function DashboardRedirect() {
   );
 }
 
+function ScrollToTop() {
+  const location = useLocation();
+  const previousRouteRef = useRef(`${location.pathname}${location.search}`);
+
+  useEffect(() => {
+    const currentRoute = `${location.pathname}${location.search}`;
+    if (previousRouteRef.current === currentRoute) {
+      return;
+    }
+
+    previousRouteRef.current = currentRoute;
+    if (location.hash) {
+      return;
+    }
+
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }, [location.hash, location.pathname, location.search]);
+
+  return null;
+}
+
 export default function App() {
   return (
-    <Routes>
-      <Route path={MONITOR_ROUTE_PATH} element={<BarePage><PublicQueuePage /></BarePage>} />
-      <Route path={JOINED_QUEUE_ROUTE_PATH} element={<AppShell><JoinedQueuePage /></AppShell>} />
-      <Route path={LEGACY_MONITOR_ROUTE_PATH} element={<LegacyMonitorRedirect />} />
-      <Route path="/" element={<AppShell><LandingPage /></AppShell>} />
-      <Route path="/login" element={<AppShell><LoginPage /></AppShell>} />
-      <Route path="/oauth/callback" element={<AppShell><OAuthCallbackPage /></AppShell>} />
-      <Route path="/privacy-policy" element={<AppShell><PrivacyPolicyPage /></AppShell>} />
-      <Route path="/contact" element={<AppShell><ContactPage /></AppShell>} />
-      <Route path="/terms" element={<AppShell><TermsPage /></AppShell>} />
-      <Route path="/register/vendor" element={<AppShell><RegisterVendorPage /></AppShell>} />
-      <Route path="/register/customer" element={<AppShell><RegisterCustomerPage /></AppShell>} />
-      <Route path="/account" element={<Navigate to="/account/profile" replace />} />
-      <Route path="/account/profile" element={<AppShell><CustomerAccountPage /></AppShell>} />
-      <Route path="/account/tickets" element={<AppShell><CustomerAccountPage /></AppShell>} />
-      <Route path="/account/bookings" element={<AppShell><CustomerAccountPage /></AppShell>} />
-      <Route path="/account/settings" element={<AppShell><CustomerAccountPage /></AppShell>} />
-      <Route path="/account/notifications" element={<AppShell><CustomerAccountPage /></AppShell>} />
-      <Route path="/account/security" element={<AppShell><CustomerAccountPage /></AppShell>} />
-      <Route path="/account/bookings/:bookingId" element={<AppShell><CustomerBookingDetailPage /></AppShell>} />
-      <Route path="/vendors" element={<AppShell><VendorDiscoveryPage /></AppShell>} />
-      <Route path="/vendors/:tenantSlug/book" element={<AppShell><BookingRequestPage /></AppShell>} />
-      <Route path="/vendors/:tenantSlug/book/:serviceSlug" element={<AppShell><BookingRequestPage /></AppShell>} />
-      <Route path="/vendors/:tenantSlug" element={<AppShell><VendorProfilePage /></AppShell>} />
-      <Route path="/dashboard" element={<DashboardRedirect />} />
-      <Route path="/dashboard/:section" element={<AppShell><VendorDashboardPage /></AppShell>} />
-      <Route path="/join/:tenantSlug/:locationSlug?" element={<AppShell><JoinQueuePage /></AppShell>} />
-      <Route path="*" element={<AppShell><LandingPage /></AppShell>} />
-    </Routes>
+    <>
+      <ScrollToTop />
+      <Routes>
+        <Route path={MONITOR_ROUTE_PATH} element={<BarePage><PublicQueuePage /></BarePage>} />
+        <Route path={JOINED_QUEUE_ROUTE_PATH} element={<AppShell><JoinedQueuePage /></AppShell>} />
+        <Route path={LEGACY_MONITOR_ROUTE_PATH} element={<LegacyMonitorRedirect />} />
+        <Route path="/" element={<AppShell><LandingPage /></AppShell>} />
+        <Route path="/login" element={<AppShell><LoginPage /></AppShell>} />
+        <Route path="/oauth/callback" element={<AppShell><OAuthCallbackPage /></AppShell>} />
+        <Route path="/privacy-policy" element={<AppShell><PrivacyPolicyPage /></AppShell>} />
+        <Route path="/contact" element={<AppShell><ContactPage /></AppShell>} />
+        <Route path="/terms" element={<AppShell><TermsPage /></AppShell>} />
+        <Route path="/register/vendor" element={<AppShell><RegisterVendorPage /></AppShell>} />
+        <Route path="/register/customer" element={<AppShell><RegisterCustomerPage /></AppShell>} />
+        <Route path="/account" element={<Navigate to="/account/profile" replace />} />
+        <Route path="/account/profile" element={<AppShell><CustomerAccountPage /></AppShell>} />
+        <Route path="/account/tickets" element={<AppShell><CustomerAccountPage /></AppShell>} />
+        <Route path="/account/bookings" element={<AppShell><CustomerAccountPage /></AppShell>} />
+        <Route path="/account/settings" element={<AppShell><CustomerAccountPage /></AppShell>} />
+        <Route path="/account/notifications" element={<AppShell><CustomerAccountPage /></AppShell>} />
+        <Route path="/account/security" element={<AppShell><CustomerAccountPage /></AppShell>} />
+        <Route path="/account/bookings/:bookingId" element={<AppShell><CustomerBookingDetailPage /></AppShell>} />
+        <Route path="/vendors" element={<AppShell><VendorDiscoveryPage /></AppShell>} />
+        <Route path="/vendors/:tenantSlug/book" element={<AppShell><BookingRequestPage /></AppShell>} />
+        <Route path="/vendors/:tenantSlug/book/:serviceSlug" element={<AppShell><BookingRequestPage /></AppShell>} />
+        <Route path="/vendors/:tenantSlug" element={<AppShell><VendorProfilePage /></AppShell>} />
+        <Route path="/dashboard" element={<DashboardRedirect />} />
+        <Route path="/dashboard/:section" element={<AppShell><VendorDashboardPage /></AppShell>} />
+        <Route path="/join/:tenantSlug/:locationSlug?" element={<AppShell><JoinQueuePage /></AppShell>} />
+        <Route path="*" element={<AppShell><LandingPage /></AppShell>} />
+      </Routes>
+    </>
   );
 }

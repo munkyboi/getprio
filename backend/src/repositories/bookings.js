@@ -41,6 +41,8 @@ const BOOKING_COLUMNS = `
   bookings.checked_in_by_user_id,
   bookings.no_show_at,
   bookings.no_show_by_user_id,
+  bookings.check_in_window_notified_at,
+  bookings.check_in_closing_notified_at,
   bookings.created_at,
   bookings.updated_at,
   tenants.name AS tenant_name,
@@ -130,6 +132,8 @@ function mapBooking(row) {
     checkedInByUserId: row.checked_in_by_user_id ? String(row.checked_in_by_user_id) : null,
     noShowAt: row.no_show_at || null,
     noShowByUserId: row.no_show_by_user_id ? String(row.no_show_by_user_id) : null,
+    checkInWindowNotifiedAt: row.check_in_window_notified_at || null,
+    checkInClosingNotifiedAt: row.check_in_closing_notified_at || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -455,7 +459,9 @@ async function updateBooking(id, data, options = {}) {
     ["checkedInAt", "checked_in_at"],
     ["checkedInByUserId", "checked_in_by_user_id"],
     ["noShowAt", "no_show_at"],
-    ["noShowByUserId", "no_show_by_user_id"]
+    ["noShowByUserId", "no_show_by_user_id"],
+    ["checkInWindowNotifiedAt", "check_in_window_notified_at"],
+    ["checkInClosingNotifiedAt", "check_in_closing_notified_at"]
   ]) {
     if (Object.prototype.hasOwnProperty.call(data, field)) {
       values.push(data[field]);
@@ -478,6 +484,69 @@ async function updateBooking(id, data, options = {}) {
   );
 
   return findBookingById(id, options);
+}
+
+async function listBookingsForCheckInReminder(options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const now = options.now || new Date().toISOString();
+  const type = options.type === "closing" ? "closing" : "window";
+  const filters = [
+    "bookings.status IN ('confirmed', 'rescheduled')",
+    "bookings.queue_ticket_id IS NULL",
+    "bookings.checked_in_at IS NULL"
+  ];
+  const values = [now];
+
+  if (type === "closing") {
+    filters.push("bookings.check_in_closing_notified_at IS NULL");
+    filters.push("bookings.scheduled_start_at + INTERVAL '10 minutes' <= $1::timestamptz");
+    filters.push("bookings.scheduled_start_at + INTERVAL '15 minutes' >= $1::timestamptz");
+  } else {
+    filters.push("bookings.check_in_window_notified_at IS NULL");
+    filters.push("bookings.scheduled_start_at - INTERVAL '15 minutes' <= $1::timestamptz");
+    filters.push("bookings.scheduled_start_at + INTERVAL '15 minutes' >= $1::timestamptz");
+  }
+
+  if (options.tenantId) {
+    values.push(Number(options.tenantId));
+    filters.push(`bookings.tenant_id = $${values.length}`);
+  }
+
+  if (options.customerUserId) {
+    values.push(Number(options.customerUserId));
+    filters.push(`bookings.customer_user_id = $${values.length}`);
+  }
+
+  const result = await queryClient.query(
+    `
+      SELECT ${BOOKING_COLUMNS}
+      FROM bookings
+      INNER JOIN tenants ON tenants.id = bookings.tenant_id
+      INNER JOIN store_locations ON store_locations.id = bookings.location_id
+      INNER JOIN vendor_services ON vendor_services.id = bookings.service_id
+      LEFT JOIN tickets ON tickets.id = bookings.queue_ticket_id
+      WHERE ${filters.join(" AND ")}
+      ORDER BY bookings.scheduled_start_at ASC
+      LIMIT 100
+    `,
+    values
+  );
+
+  return result.rows.map(mapBooking);
+}
+
+async function markBookingCheckInReminderSent(id, type, options = {}) {
+  const column = type === "closing"
+    ? "check_in_closing_notified_at"
+    : "check_in_window_notified_at";
+  await buildQueryClient(options.client).query(
+    `
+      UPDATE bookings
+      SET ${column} = NOW()
+      WHERE id = $1
+    `,
+    [Number(id)]
+  );
 }
 
 async function updateBookingByQueueTicketId(queueTicketId, data, options = {}) {
@@ -563,6 +632,8 @@ module.exports = {
   listBookingsForTenant,
   countOverlappingActiveBookings,
   expirePendingBookings,
+  listBookingsForCheckInReminder,
+  markBookingCheckInReminderSent,
   updateBooking,
   updateBookingByQueueTicketId
 };
