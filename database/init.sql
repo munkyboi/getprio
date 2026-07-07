@@ -8,6 +8,8 @@ DROP TABLE IF EXISTS billing_events CASCADE;
 DROP TABLE IF EXISTS billing_checkout_sessions CASCADE;
 DROP TABLE IF EXISTS tenant_subscriptions CASCADE;
 DROP TABLE IF EXISTS schema_migrations CASCADE;
+DROP TABLE IF EXISTS queue_day_pauses CASCADE;
+DROP TABLE IF EXISTS queue_day_closures CASCADE;
 DROP TABLE IF EXISTS queue_events CASCADE;
 DROP TABLE IF EXISTS auth_security_events CASCADE;
 DROP TABLE IF EXISTS auth_login_attempts CASCADE;

@@ -2,6 +2,17 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
 
+const FIXED_NOW = Date.parse("2026-07-05T00:00:00.000Z");
+const originalDateNow = Date.now;
+
+test.before(() => {
+  Date.now = () => FIXED_NOW;
+});
+
+test.after(() => {
+  Date.now = originalDateNow;
+});
+
 function resolveMockPath(requestPath, baseDir) {
   if (!requestPath.startsWith(".")) {
     return require.resolve(requestPath, { paths: [baseDir] });
@@ -1122,62 +1133,69 @@ function buildVendorBooking(overrides = {}) {
 }
 
 test("vendor check-in creates a checked-in booking queue ticket and links it once", async () => {
-  const calls = {
-    ticketPayload: null,
-    updatedBooking: null,
-    intakeChecked: false,
-    snapshotPublished: false
-  };
-  const booking = buildVendorBooking();
-  const bookingService = buildBookingService({
-    availability: { blocks: [], exceptions: [] },
-    findBookingByIdForUpdate: async () => booking,
-    updateBooking: async (_bookingId, data) => {
-      calls.updatedBooking = data;
-      return {
-        ...booking,
-        ...data,
-        queueTicketNumber: "D001",
-        queueTicketLookupCode: "LOOKUP1",
-        queueTicketStatus: "waiting"
-      };
-    },
-    assertQueueIntakeOpen: async () => {
-      calls.intakeChecked = true;
-    },
-    createTicketForTenantInTransaction: async (_client, payload) => {
-      calls.ticketPayload = payload;
-      return {
-        _id: "ticket-1",
-        ticketNumber: "D001",
-        lookupCode: "LOOKUP1",
-        status: "waiting"
-      };
-    },
-    publishSnapshot: async () => {
-      calls.snapshotPublished = true;
-      return {};
-    }
-  });
+  const previousDateNow = Date.now;
+  Date.now = () => Date.parse("2026-07-06T01:05:00.000Z");
+  try {
+    const calls = {
+      ticketPayload: null,
+      updatedBooking: null,
+      intakeChecked: false,
+      snapshotPublished: false
+    };
+    const booking = buildVendorBooking();
+    const bookingService = buildBookingService({
+      availability: { blocks: [], exceptions: [] },
+      findBookingByIdForUpdate: async () => booking,
+      updateBooking: async (_bookingId, data) => {
+        calls.updatedBooking = data;
+        return {
+          ...booking,
+          ...data,
+          queueTicketNumber: "D001",
+          queueTicketLookupCode: "LOOKUP1",
+          queueTicketStatus: "waiting"
+        };
+      },
+      assertQueueIntakeOpen: async () => {
+        calls.intakeChecked = true;
+      },
+      createTicketForTenantInTransaction: async (_client, payload) => {
+        calls.ticketPayload = payload;
+        return {
+          _id: "ticket-1",
+          ticketNumber: "D001",
+          lookupCode: "LOOKUP1",
+          status: "waiting"
+        };
+      },
+      publishSnapshot: async () => {
+        calls.snapshotPublished = true;
+        return {};
+      }
+    });
 
-  const result = await bookingService.checkInVendorBooking({
-    tenant,
-    location,
-    bookingId: "booking-1",
-    user: { _id: "vendor-user-1" },
-    overrideWindow: false
-  });
+    const result = await bookingService.checkInVendorBooking({
+      tenant,
+      location,
+      bookingId: "booking-1",
+      user: { _id: "vendor-user-1" },
+      overrideWindow: true,
+      overrideReason: "Unit test override"
+    });
 
-  assert.equal(calls.intakeChecked, true);
-  assert.equal(calls.snapshotPublished, true);
-  assert.equal(calls.ticketPayload.servicePriorityBand, "checked_in_booking");
-  assert.equal(calls.ticketPayload.notifyByEmail, true);
-  assert.equal(calls.ticketPayload.notifyBySms, true);
-  assert.equal(calls.ticketPayload.userId, "customer-1");
-  assert.equal(calls.updatedBooking.queueTicketId, "ticket-1");
-  assert.equal(calls.updatedBooking.checkedInByUserId, "vendor-user-1");
-  assert.equal(result.ticket.ticketNumber, "D001");
-  assert.equal(result.booking.linkedTicket, undefined);
+    assert.equal(calls.intakeChecked, true);
+    assert.equal(calls.snapshotPublished, true);
+    assert.equal(calls.ticketPayload.servicePriorityBand, "checked_in_booking");
+    assert.equal(calls.ticketPayload.notifyByEmail, true);
+    assert.equal(calls.ticketPayload.notifyBySms, true);
+    assert.equal(calls.ticketPayload.userId, "customer-1");
+    assert.equal(calls.updatedBooking.queueTicketId, "ticket-1");
+    assert.equal(calls.updatedBooking.checkedInByUserId, "vendor-user-1");
+    assert.equal(result.ticket.ticketNumber, "D001");
+    assert.equal(result.booking.linkedTicket, undefined);
+  } finally {
+    Date.now = previousDateNow;
+  }
 });
 
 test("vendor check-in rejects duplicate linked bookings", async () => {

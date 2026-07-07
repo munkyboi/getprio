@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
+const { normalizePhilippineMobileNumber } = require("../src/utils/phone.js");
 
 function resolveMockPath(requestPath, baseDir) {
   if (!requestPath.startsWith(".")) {
@@ -134,6 +135,12 @@ test("booking OTP request and verify returns a server-side booking verification 
   assert.equal(typeof verified.bookingVerificationToken, "string");
   assert.equal(verified.bookingVerificationToken.length, 64);
   assert.equal(verified.contactVerificationChannel, "email");
+});
+
+test("philippine phone normalization converts common international and local forms", () => {
+  assert.equal(normalizePhilippineMobileNumber("+639171234567"), "09171234567");
+  assert.equal(normalizePhilippineMobileNumber("9171234567"), "09171234567");
+  assert.equal(normalizePhilippineMobileNumber("09171234567"), "09171234567");
 });
 
 test("booking OTP service rejects invalid payloads, resend cooldowns, and verification mismatches", async () => {

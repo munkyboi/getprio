@@ -2449,6 +2449,20 @@ h2 {
   h1 {
     line-height: 1.05;
   }
+
+  .dashboard-notification-stack {
+    bottom: 12px !important;
+    width: calc(100vw - 24px) !important;
+  }
+
+  .dashboard-notification {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .dashboard-notification .mantine-Button-root {
+    width: 100%;
+  }
 }
 
 .auth-divider {
@@ -2967,34 +2981,6 @@ h2 {
   background: #f1f5f9;
 }
 
-.neura-customer-table__sticky {
-  position: sticky;
-  z-index: 2;
-  background: #ffffff;
-}
-
-.neura-customer-table__sticky-first {
-  left: 0;
-  box-shadow: 10px 0 18px rgba(0, 0, 0, 0.06);
-}
-
-.neura-customer-table__sticky-last {
-  right: 0;
-  box-shadow: -10px 0 18px rgba(0, 0, 0, 0.06);
-}
-
-.neura-customer-table tbody .neura-customer-table__sticky {
-  background-clip: padding-box;
-}
-
-.neura-customer-table tbody tr:nth-of-type(even) .neura-customer-table__sticky {
-  background: #f8fafc;
-}
-
-.neura-customer-table tbody tr:hover .neura-customer-table__sticky {
-  background: #f1f5f9;
-}
-
 .neura-availability-table {
   min-width: 900px;
 }
@@ -3185,6 +3171,14 @@ h2 {
   margin-left: -1.4rem;
   padding: 0.95rem 1.4rem 0;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.82) 0%, #ffffff 42%);
+}
+
+.dashboard-notification-stack {
+  width: calc(100vw - 64px);
+}
+
+.dashboard-notification {
+  align-items: center;
 }
 
 .service-dialog__header {

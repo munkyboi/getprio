@@ -252,13 +252,49 @@ async function listBookingsForCustomer(userId, options = {}) {
     const pageSize = Math.min(Math.max(Number(options.pageSize || options.limit || 10) || 10, 1), 100);
     const offset = Math.max(Number(options.offset || 0) || 0, 0);
     const queryClient = buildQueryClient(options.client);
+    const params = [Number(userId)];
+    const filters = ["bookings.customer_user_id = $1"];
+
+    if (options.status && options.status !== "all") {
+      params.push(String(options.status));
+      filters.push(`bookings.status = $${params.length}`);
+    }
+
+    if (options.scheduledDateFrom && options.scheduledDateTo) {
+      params.push(String(options.scheduledDateFrom));
+      params.push(String(options.scheduledDateTo));
+      filters.push(`(bookings.scheduled_start_at AT TIME ZONE store_locations.timezone)::date BETWEEN $${params.length - 1}::date AND $${params.length}::date`);
+    } else if (options.scheduledDateFrom) {
+      params.push(String(options.scheduledDateFrom));
+      filters.push(`(bookings.scheduled_start_at AT TIME ZONE store_locations.timezone)::date >= $${params.length}::date`);
+    } else if (options.scheduledDateTo) {
+      params.push(String(options.scheduledDateTo));
+      filters.push(`(bookings.scheduled_start_at AT TIME ZONE store_locations.timezone)::date <= $${params.length}::date`);
+    }
+
+    if (options.search) {
+      const searchPattern = `%${options.search}%`;
+      params.push(searchPattern);
+      filters.push(`(
+        bookings.reference ILIKE $${params.length} OR
+        bookings.customer_name ILIKE $${params.length} OR
+        bookings.customer_email ILIKE $${params.length} OR
+        vendor_services.name ILIKE $${params.length} OR
+        tenants.name ILIKE $${params.length}
+      )`);
+    }
+
+    const whereClause = filters.join(" AND ");
     const countResult = await queryClient.query(
       `
         SELECT COUNT(*)::int AS count
         FROM bookings
-        WHERE bookings.customer_user_id = $1
+        INNER JOIN tenants ON tenants.id = bookings.tenant_id
+        INNER JOIN store_locations ON store_locations.id = bookings.location_id
+        INNER JOIN vendor_services ON vendor_services.id = bookings.service_id
+        WHERE ${whereClause}
       `,
-      [Number(userId)]
+      params
     );
     const result = await queryClient.query(
       `
@@ -268,11 +304,11 @@ async function listBookingsForCustomer(userId, options = {}) {
         INNER JOIN store_locations ON store_locations.id = bookings.location_id
         INNER JOIN vendor_services ON vendor_services.id = bookings.service_id
         LEFT JOIN tickets ON tickets.id = bookings.queue_ticket_id
-        WHERE bookings.customer_user_id = $1
-        ORDER BY bookings.scheduled_start_at DESC, bookings.created_at DESC
+        WHERE ${whereClause}
+        ORDER BY bookings.scheduled_start_at ASC, bookings.created_at ASC
         LIMIT $2 OFFSET $3
       `,
-      [Number(userId), pageSize, offset]
+      [...params, pageSize, offset]
     );
 
     return {
@@ -291,7 +327,7 @@ async function listBookingsForCustomer(userId, options = {}) {
       INNER JOIN vendor_services ON vendor_services.id = bookings.service_id
       LEFT JOIN tickets ON tickets.id = bookings.queue_ticket_id
       WHERE bookings.customer_user_id = $1
-      ORDER BY bookings.scheduled_start_at DESC, bookings.created_at DESC
+      ORDER BY bookings.scheduled_start_at ASC, bookings.created_at ASC
       LIMIT $2
     `,
     [Number(userId), limit]
@@ -385,8 +421,9 @@ async function listBookingsForTenant(tenantId, options = {}) {
     LEFT JOIN tickets ON tickets.id = bookings.queue_ticket_id
     WHERE ${whereClause}
     ORDER BY
-      bookings.created_at DESC,
-      bookings.id DESC
+      bookings.scheduled_start_at ASC,
+      bookings.created_at ASC,
+      bookings.id ASC
     LIMIT $${limitPlaceholder} OFFSET $${offsetPlaceholder}
   `;
 

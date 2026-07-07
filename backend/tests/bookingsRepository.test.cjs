@@ -84,7 +84,7 @@ test("vendor booking list orders incoming requests by newest created date", asyn
 
   assert.match(
     calls[1].query,
-    /ORDER BY\s+bookings\.created_at DESC,\s+bookings\.id DESC\s+LIMIT \$3 OFFSET \$4/s
+    /ORDER BY\s+bookings\.scheduled_start_at ASC,\s+bookings\.created_at ASC,\s+bookings\.id ASC\s+LIMIT \$3 OFFSET \$4/s
   );
   assert.deepEqual(calls[1].params, [1, 2, 100, 0]);
   assert.deepEqual(result.bookings, []);

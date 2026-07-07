@@ -10,6 +10,7 @@ import {
   Group,
   Checkbox,
   Pagination,
+  Select,
   PasswordInput,
   SimpleGrid,
   Stack,
@@ -19,6 +20,7 @@ import {
   Title,
   Tooltip
 } from "@mantine/core";
+import { DatePickerInput } from "@mantine/dates";
 import {
   IconCalendarEvent,
   IconExternalLink,
@@ -47,7 +49,8 @@ import { buildJoinPath, buildJoinedQueuePathWithTicket } from "../queuePaths";
 import {
   formatBookingScheduleDate,
   formatBookingScheduleTimeRange,
-  formatDateTime
+  formatDateTime,
+  formatDateInputValue
 } from "../utils/dates";
 import { getErrorMessage } from "../utils/errors";
 import { isBrowserPushSupported, subscribeToBrowserPush } from "../utils/pushNotifications";
@@ -151,6 +154,9 @@ export default function CustomerAccountPage() {
   const [savingNotificationSettings, setSavingNotificationSettings] = useState(false);
   const [ticketPage, setTicketPage] = useState(1);
   const [bookingPage, setBookingPage] = useState(1);
+  const [bookingSearch, setBookingSearch] = useState("");
+  const [bookingStatusFilter, setBookingStatusFilter] = useState<"all" | BookingStatus>("all");
+  const [bookingDateRange, setBookingDateRange] = useState<[Date | null, Date | null]>([null, null]);
   const browserNotificationsSupported = isBrowserPushSupported();
   const browserNotificationsSecure = typeof window !== "undefined" ? window.isSecureContext : false;
   const accountQuery = useQuery({
@@ -177,13 +183,27 @@ export default function CustomerAccountPage() {
     enabled: Boolean(token && activeSection === "tickets")
   });
   const bookingQuery = useQuery({
-    queryKey: ["customer-account-bookings", token, bookingPage, CUSTOMER_TABLE_PAGE_SIZE],
+    queryKey: [
+      "customer-account-bookings",
+      token,
+      bookingPage,
+      CUSTOMER_TABLE_PAGE_SIZE,
+      bookingSearch,
+      bookingStatusFilter,
+      bookingDateRange[0]?.toISOString() || "",
+      bookingDateRange[1]?.toISOString() || ""
+    ],
     queryFn: async () => {
       if (!token) {
         throw new Error("Missing authentication token.");
       }
 
-      return customerAccountApi.getBookings(token, bookingPage, CUSTOMER_TABLE_PAGE_SIZE);
+      return customerAccountApi.getBookings(token, bookingPage, CUSTOMER_TABLE_PAGE_SIZE, {
+        search: bookingSearch,
+        status: bookingStatusFilter,
+        scheduledDateFrom: bookingDateRange[0] ? formatDateInputValue(bookingDateRange[0]) : "",
+        scheduledDateTo: bookingDateRange[1] ? formatDateInputValue(bookingDateRange[1]) : ""
+      });
     },
     enabled: Boolean(token && activeSection === "bookings")
   });
@@ -220,6 +240,14 @@ export default function CustomerAccountPage() {
       setError(getErrorMessage(bookingQuery.error));
     }
   }, [accountQuery.error, activeSection, bookingQuery.error, ticketQuery.error]);
+
+  useEffect(() => {
+    if (activeSection !== "bookings") {
+      return;
+    }
+
+    setBookingPage(1);
+  }, [bookingSearch, bookingStatusFilter, bookingDateRange, activeSection]);
 
   useEffect(() => {
     if (!browserNotificationsSupported) {
@@ -423,7 +451,7 @@ export default function CustomerAccountPage() {
               {tickets.length ? (
                 tickets.map((ticket) => (
                   <Table.Tr key={ticket.id}>
-                    <Table.Td className="neura-customer-table__sticky neura-customer-table__sticky-first">
+                    <Table.Td>
                       <Stack gap={2}>
                         <Text fw={700}>{ticket.ticketNumber}</Text>
                         <Text c="dimmed" size="sm">Joined queue</Text>
@@ -441,10 +469,7 @@ export default function CustomerAccountPage() {
                       </Badge>
                     </Table.Td>
                     <Table.Td>{formatDateTime(ticket.createdAt)}</Table.Td>
-                    <Table.Td
-                      className="neura-customer-table__sticky neura-customer-table__sticky-last"
-                      style={{ width: 1, whiteSpace: "nowrap" }}
-                    >
+                    <Table.Td style={{ width: 1, whiteSpace: "nowrap" }}>
                       <Group gap="xs" wrap="nowrap">
                         <Tooltip label="Open ticket" withArrow>
                           <ActionIcon
@@ -513,6 +538,47 @@ export default function CustomerAccountPage() {
         </div>
         {error ? <Alert color="red">{error}</Alert> : null}
         {bookingQuery.isFetching ? <Text c="dimmed" size="sm">Loading service bookings...</Text> : null}
+        <Group align="flex-end" gap="sm">
+          <TextInput
+            label="Search"
+            placeholder="Reference, vendor, service"
+            value={bookingSearch}
+            onChange={(event) => setBookingSearch(event.target.value)}
+          />
+          <Select
+            data={[
+              { label: "All statuses", value: "all" },
+              { label: "Pending", value: "pending" },
+              { label: "Confirmed", value: "confirmed" },
+              { label: "Rescheduled", value: "rescheduled" },
+              { label: "Canceled", value: "canceled" },
+              { label: "Completed", value: "completed" }
+            ]}
+            label="Status"
+            value={bookingStatusFilter}
+            onChange={(value) => setBookingStatusFilter((value || "all") as "all" | BookingStatus)}
+          />
+          <DatePickerInput
+            clearable
+            label="Booking date"
+            placeholder="Select date range"
+            type="range"
+            value={bookingDateRange}
+            onChange={(value) => setBookingDateRange(value as [Date | null, Date | null])}
+          />
+          {bookingDateRange[0] || bookingDateRange[1] || bookingSearch || bookingStatusFilter !== "all" ? (
+            <Button
+              className="neura-secondary-button"
+              onClick={() => {
+                setBookingSearch("");
+                setBookingStatusFilter("all");
+                setBookingDateRange([null, null]);
+              }}
+            >
+              Clear filters
+            </Button>
+          ) : null}
+        </Group>
         <Table.ScrollContainer minWidth={920}>
           <Table className="neura-customer-table" verticalSpacing="sm">
             <Table.Thead>
@@ -530,7 +596,7 @@ export default function CustomerAccountPage() {
               {bookings.length ? (
                 bookings.map((booking) => (
                   <Table.Tr key={booking.id}>
-                    <Table.Td className="neura-customer-table__sticky neura-customer-table__sticky-first">
+                    <Table.Td>
                       <Stack gap={2}>
                         <Text fw={700}>{booking.reference}</Text>
                         <Text c="dimmed" size="sm">Booking request</Text>
@@ -561,10 +627,7 @@ export default function CustomerAccountPage() {
                         {booking.paymentStatus}
                       </Badge>
                     </Table.Td>
-                    <Table.Td
-                      className="neura-customer-table__sticky neura-customer-table__sticky-last"
-                      style={{ width: 1, whiteSpace: "nowrap" }}
-                    >
+                    <Table.Td style={{ width: 1, whiteSpace: "nowrap" }}>
                       <Tooltip label="View booking" withArrow>
                         <ActionIcon
                           aria-label={`View booking ${booking.reference}`}
