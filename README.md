@@ -28,6 +28,12 @@ GetPrio is a multi-tenant queue platform for vendors that want QR-based ticketin
 3. Start the frontend, platform dashboard, and backend together with `npm run dev`.
 4. Start PostgreSQL separately or use Docker Compose.
 
+Database helpers:
+
+- `npm run db:bootstrap` is destructive and intended for a fresh install. It drops the existing schema, rebuilds it from `database/init.sql`, and then applies all migrations. If the database already has app tables, the script prompts for `DELETE-AND-REBUILD` in an interactive shell or requires `DB_BOOTSTRAP_FORCE=1` in non-interactive runs.
+- `npm run db:migrate` applies only new migrations to an existing database.
+- `npm run db:verify` checks for the critical columns the app expects before you start the backend.
+
 For QR join spam protection, local development can use Cloudflare Turnstile test keys:
 
 ```env

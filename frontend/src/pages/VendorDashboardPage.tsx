@@ -146,12 +146,28 @@ function IconActionButton({
 }
 
 function buildServiceSlug(value: string) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 80);
+  const source = String(value || "").trim().toLowerCase();
+  let normalizedSlug = "";
+  let previousWasDash = false;
+
+  for (const char of source) {
+    const isAlphaNumeric = (char >= "a" && char <= "z") || (char >= "0" && char <= "9");
+    if (isAlphaNumeric) {
+      normalizedSlug += char;
+      previousWasDash = false;
+    } else if (!previousWasDash && normalizedSlug.length > 0) {
+      normalizedSlug += "-";
+      previousWasDash = true;
+    }
+  }
+
+  if (normalizedSlug.endsWith("-")) {
+    normalizedSlug = normalizedSlug.slice(0, -1);
+  }
+
+  normalizedSlug = normalizedSlug.slice(0, 80);
+
+  return normalizedSlug;
 }
 
 function buildCounterSlug(value: string) {
@@ -5346,6 +5362,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       {filteredBookings.map((booking) => {
                       const paymentReviewPending = booking.paymentStatus === "pending";
                       const paymentVerified = booking.paymentStatus === "paid";
+                      const manualPaymentRequired = Boolean(booking.serviceManualPaymentRequired);
                       const checkInState = getBookingCheckInState(booking);
                       const hasExpired = Boolean(booking.expiredAt);
                         if (booking.status === "completed") {
@@ -5470,6 +5487,44 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         }
 
                         if (canAdminBookings && booking.status === "pending" && paymentVerified) {
+                          return (
+                            <Group gap="xs" justify="flex-end" wrap="nowrap">
+                              <IconActionButton
+                                label="Confirm booking"
+                                color="teal"
+                                onClick={() => handleUpdateBookingStatus(booking, "confirmed")}
+                              >
+                                <IconCheck size={16} />
+                              </IconActionButton>
+                              <IconActionButton
+                                label="Reschedule booking"
+                                color="orange"
+                                onClick={() => openRescheduleDialog(booking)}
+                              >
+                                <IconCalendar size={16} />
+                              </IconActionButton>
+                              <IconActionButton
+                                label="Cancel booking"
+                                color="red"
+                                onClick={() =>
+                                  openConfirmAction({
+                                    title: "Cancel booking?",
+                                    description: "Are you sure you want to cancel this booking?",
+                                    confirmLabel: "Cancel booking",
+                                    confirmColor: "red",
+                                    onConfirm: async () => {
+                                      await handleUpdateBookingStatus(booking, "canceled");
+                                    }
+                                  })
+                                }
+                              >
+                                <IconX size={16} />
+                              </IconActionButton>
+                            </Group>
+                          );
+                        }
+
+                        if (canAdminBookings && booking.status === "pending" && !manualPaymentRequired) {
                           return (
                             <Group gap="xs" justify="flex-end" wrap="nowrap">
                               <IconActionButton
@@ -5665,6 +5720,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                 ) : null}
                                 {hasExpired ? (
                                   <Badge color="orange" variant="light">Pending timeout</Badge>
+                                ) : null}
+                                {!manualPaymentRequired ? (
+                                  <Badge color="gray" variant="light">No manual payment</Badge>
                                 ) : null}
                               </Group>
                               {booking.linkedTicket ? (
@@ -6723,7 +6781,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       (detailBooking.status === "pending" || detailBooking.status === "rescheduled")
     );
     const detailPaymentVerified = Boolean(detailBooking?.paymentStatus === "paid" || detailBooking?.paymentVerifiedAt);
-    const detailPaymentGateActive = Boolean(detailBooking && !detailPaymentVerified);
+    const detailManualPaymentRequired = Boolean(detailBooking?.serviceManualPaymentRequired);
+    const detailPaymentGateActive = Boolean(detailBooking && detailManualPaymentRequired && !detailPaymentVerified);
     const detailBookingExpired = Boolean(detailBooking?.expiredAt);
     const closeBookingDetailModal = () => {
       setBookingDetailModalId(null);
@@ -6738,6 +6797,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       <Portal>
         {overlayAlerts.length ? (
           <Box
+            className="dashboard-notification-stack"
             style={{
               bottom: 24,
               left: "50%",
@@ -6770,7 +6830,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   }}
                   withBorder
                 >
-                  <Group justify="space-between" align="center" gap="md">
+                  <Group className="dashboard-notification" justify="space-between" align="center" gap="md">
                     <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
                       <Text fw={800}>{alert.title}</Text>
                       <Text style={{ overflowWrap: "anywhere" }}>{alert.body}</Text>
@@ -6834,9 +6894,15 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   <Badge color={getBookingBadgeColor(detailBooking.status)} variant="light">
                     {detailBookingExpired ? "expired" : detailBooking.status}
                   </Badge>
-                  <Badge color={detailPaymentVerified ? "teal" : "orange"} variant="light">
-                    {detailPaymentVerified ? "Payment verified" : "Payment review needed"}
-                  </Badge>
+                  {detailManualPaymentRequired ? (
+                    <Badge color={detailPaymentVerified ? "teal" : "orange"} variant="light">
+                      {detailPaymentVerified ? "Payment verified" : "Payment review needed"}
+                    </Badge>
+                  ) : (
+                    <Badge color="gray" variant="light">
+                      No manual payment required
+                    </Badge>
+                  )}
                   {detailBookingExpired ? (
                     <Badge color="orange" variant="light">Pending timeout</Badge>
                   ) : null}

@@ -1023,6 +1023,54 @@ test("customer bookings can be created only inside vendor availability", async (
   }
 });
 
+test("customer bookings route forwards search, status, and date filters", async () => {
+  const captured = [];
+  const router = requireWithMocks("../src/routes/accountRoutes.js", {
+    "../middleware/auth": buildAuthMock(),
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../repositories/tickets": {
+      listTicketsForCustomerAccount: async () => []
+    },
+    "../repositories/bookings": {
+      listBookingsForCustomer: async (_userId, options) => {
+        captured.push(options);
+        return [];
+      }
+    },
+    "../services/bookingService": {
+      expirePendingBookingsForCustomer: async () => []
+    },
+    "../services/passwordResetService": {
+      changePassword: async () => {}
+    }
+  });
+
+  const { server, baseUrl } = await startServer(router, "/api/account");
+
+  try {
+    const response = await fetch(
+      `${baseUrl}/bookings?search=Haircut&status=confirmed&scheduledDateFrom=2026-07-01&scheduledDateTo=2026-07-31`,
+      {
+        headers: { Authorization: "Bearer token" }
+      }
+    );
+
+    assert.equal(response.status, 200);
+    assert.equal(captured.length, 1);
+    assert.deepEqual(captured[0], {
+      page: 1,
+      pageSize: 10,
+      offset: 0,
+      search: "Haircut",
+      status: "confirmed",
+      scheduledDateFrom: "2026-07-01",
+      scheduledDateTo: "2026-07-31"
+    });
+  } finally {
+    await stopServer(server);
+  }
+});
+
 test("customer bookings use store hours when no booking availability is configured", async () => {
   const bookings = [];
   const initialScheduledStartAt = buildFutureManilaSlot(1, 1, 10, 0);

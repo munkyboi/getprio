@@ -27,9 +27,40 @@ export const customerAccountApi = {
       { token }
     );
   },
-  getBookings(token: string, page: number, pageSize: number) {
+  getBookings(
+    token: string,
+    page: number,
+    pageSize: number,
+    filters?: {
+      search?: string;
+      status?: string;
+      scheduledDateFrom?: string;
+      scheduledDateTo?: string;
+    }
+  ) {
+    const params = new URLSearchParams({
+      page: String(page),
+      pageSize: String(pageSize)
+    });
+
+    if (filters?.search?.trim()) {
+      params.set("search", filters.search.trim());
+    }
+
+    if (filters?.status && filters.status !== "all") {
+      params.set("status", filters.status);
+    }
+
+    if (filters?.scheduledDateFrom) {
+      params.set("scheduledDateFrom", filters.scheduledDateFrom);
+    }
+
+    if (filters?.scheduledDateTo) {
+      params.set("scheduledDateTo", filters.scheduledDateTo);
+    }
+
     return apiRequest<CustomerBookingsResponse>(
-      `/account/bookings?page=${page}&pageSize=${pageSize}`,
+      `/account/bookings?${params.toString()}`,
       { token }
     );
   },

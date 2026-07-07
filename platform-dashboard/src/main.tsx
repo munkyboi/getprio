@@ -64,7 +64,7 @@ import type {
 } from "@shared";
 import { apiRequest } from "./api";
 import { PortalDataTable } from "./components/PortalDataTable";
-import { ConfirmActionModal } from "../../frontend/src/components/ConfirmActionModal";
+import { ConfirmActionModal } from "./components/ConfirmActionModal";
 import "@mantine/core/styles.css";
 import "@mantine/notifications/styles.css";
 import "./styles.css";

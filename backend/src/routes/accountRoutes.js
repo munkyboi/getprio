@@ -279,8 +279,20 @@ router.get(
   "/bookings",
   asyncHandler(async (req, res) => {
     const { page, pageSize, offset } = parsePaginationParams(req.query);
+    const search = normalizeRequestText(req.query.search);
+    const status = normalizeRequestText(req.query.status, "all");
+    const scheduledDateFrom = normalizeRequestText(req.query.scheduledDateFrom);
+    const scheduledDateTo = normalizeRequestText(req.query.scheduledDateTo);
     await bookingService.expirePendingBookingsForCustomer(req.user._id);
-    const result = await bookingRepository.listBookingsForCustomer(req.user._id, { page, pageSize, offset });
+    const result = await bookingRepository.listBookingsForCustomer(req.user._id, {
+      page,
+      pageSize,
+      offset,
+      search,
+      status,
+      scheduledDateFrom,
+      scheduledDateTo
+    });
     const bookings = Array.isArray(result) ? result : result.bookings;
     const totalItems = Array.isArray(result) ? result.length : result.totalItems;
 

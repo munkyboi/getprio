@@ -68,5 +68,8 @@
     "tsx": "^4.22.4",
     "typescript": "^6.0.2",
     "typescript-eslint": "^8.58.0"
+  },
+  "dependencies": {
+    "psql": "^0.0.1"
   }
 }

@@ -16,6 +16,11 @@ const {
   normalizeUsernameInput
 } = require("../src/utils/usernames.ts");
 const {
+  formatPhilippineMobileNumber,
+  isPhilippineMobileNumber,
+  normalizePhilippineMobileNumber
+} = require("../src/utils/phones.ts");
+const {
   buildJoinPath,
   buildJoinUrl,
   buildJoinedQueuePath,
@@ -227,6 +232,11 @@ test("utility formatters and validators cover common cases", () => {
   assert.equal(normalizeTenantSlugInput("  Fresh Cuts Spa "), "fresh-cuts-spa");
   assert.equal(isTenantSlugFormatValid("fresh-cuts-spa"), true);
   assert.equal(isTenantSlugFormatValid("-bad-"), false);
+
+  assert.equal(normalizePhilippineMobileNumber("+639171234567"), "09171234567");
+  assert.equal(normalizePhilippineMobileNumber("9171234567"), "09171234567");
+  assert.equal(isPhilippineMobileNumber("09171234567"), true);
+  assert.equal(formatPhilippineMobileNumber("+639171234567"), "(0917) 123-4567");
 
   assert.equal(buildJoinPath("tenant-1"), "/join/tenant-1");
   assert.equal(buildJoinPath("tenant-1", "main"), "/join/tenant-1/main");
