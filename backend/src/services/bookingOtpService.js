@@ -3,6 +3,7 @@ const env = require("../config/env");
 const db = require("../config/db");
 const bookingOtpRepository = require("../repositories/bookingOtps");
 const notificationService = require("./notificationService");
+const { normalizePhilippineMobileNumber } = require("../utils/phone");
 
 const OTP_TTL_MINUTES = 15;
 const OTP_RESEND_COOLDOWN_MINUTES = 3;
@@ -42,7 +43,7 @@ function sanitizeBookingPayload(payload) {
     bookingQuantity,
     customerName: String(payload.customerName || "").trim(),
     customerEmail: String(payload.customerEmail || "").trim().toLowerCase(),
-    customerPhone: String(payload.customerPhone || "").trim(),
+    customerPhone: normalizePhilippineMobileNumber(payload.customerPhone),
     notifyBySms: Boolean(payload.notifyBySms),
     notes: String(payload.notes || "").trim()
   };

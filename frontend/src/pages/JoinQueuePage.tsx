@@ -28,6 +28,7 @@ import type {
 } from "@shared";
 import { API_BASE_URL, apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
+import PhilippineMobileInput from "../components/PhilippineMobileInput";
 import { buildJoinedQueuePathWithTicket, buildMonitorPath } from "../queuePaths";
 import { formatDisplayTime, toTimestamp } from "../utils/dates";
 import { saveJoinedQueueAccess } from "../utils/joinedQueueAccess";
@@ -789,13 +790,13 @@ export default function JoinQueuePage() {
                   value={form.customerEmail}
                   onChange={(event) => setForm((current) => ({ ...current, customerEmail: event.target.value }))}
                 />
-                <TextInput
+                <PhilippineMobileInput
                   name="customerPhone"
                   label="Phone"
                   description={customerDetailsDescription}
                   required={requiresPhone}
                   value={form.customerPhone}
-                  onChange={(event) => setForm((current) => ({ ...current, customerPhone: event.target.value }))}
+                  onChange={(nextValue) => setForm((current) => ({ ...current, customerPhone: nextValue }))}
                 />
                 <Textarea
                   name="notes"

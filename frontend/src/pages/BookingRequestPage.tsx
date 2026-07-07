@@ -37,6 +37,7 @@ import type {
 } from "@shared";
 import { API_BASE_URL, apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
+import PhilippineMobileInput from "../components/PhilippineMobileInput";
 import {
   formatBookingScheduleDate,
   formatBookingScheduleTimeRange,
@@ -666,11 +667,11 @@ export default function BookingRequestPage() {
                         type="email"
                         value={customerEmail}
                       />
-                      <TextInput
+                      <PhilippineMobileInput
                         disabled={Boolean(otp)}
                         label="Mobile number"
-                        onChange={(event) => setCustomerPhone(event.currentTarget.value)}
                         value={customerPhone}
+                        onChange={(nextValue) => setCustomerPhone(nextValue)}
                       />
                       <Textarea
                         disabled={Boolean(otp)}

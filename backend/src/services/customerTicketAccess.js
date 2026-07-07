@@ -1,9 +1,11 @@
+const { normalizePhilippineMobileNumber } = require("../utils/phone");
+
 function normalizeEmail(value) {
   return String(value || "").trim().toLowerCase();
 }
 
 function normalizePhone(value) {
-  return String(value || "").trim();
+  return normalizePhilippineMobileNumber(value);
 }
 
 function buildCustomerIdentityCandidates(user) {

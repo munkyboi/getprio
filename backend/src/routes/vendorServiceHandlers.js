@@ -52,4 +52,17 @@ async function handleDeleteService({ req, res, getAuthorizedTenant, assertTenant
   res.json({ service: formatVendorService(deactivatedService) });
 }
 
-module.exports = { handleListServices, handleCreateService, handleUpdateService, handleDeleteService };
+async function handleCheckServiceSlugAvailability({ req, res, getAuthorizedTenant, assertTenantPermission, vendorServiceRepository }) {
+  const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+  assertTenantPermission(req.user, tenant._id, "tenant.service.manage");
+  const serviceSlug = req.query.serviceSlug || req.query.slug || "";
+  const excludeServiceId = req.query.excludeServiceId || req.query.serviceId || null;
+  const result = await vendorServiceRepository.isServiceSlugAvailable(
+    tenant._id,
+    serviceSlug,
+    excludeServiceId
+  );
+  res.json({ serviceSlug: String(serviceSlug || ""), ...result });
+}
+
+module.exports = { handleListServices, handleCreateService, handleUpdateService, handleDeleteService, handleCheckServiceSlugAvailability };

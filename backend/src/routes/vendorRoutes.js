@@ -41,12 +41,17 @@ const {
   normalizeRequestText
 } = require("./vendorRouteHelpers");
 const { handleCreateTicket } = require("./vendorQueueHandlers");
-const { handleCreateLocation, handleUpdateLocation } = require("./vendorLocationHandlers");
+const {
+  handleCreateLocation,
+  handleUpdateLocation,
+  handleCheckLocationSlugAvailability
+} = require("./vendorLocationHandlers");
 const {
   handleListServices,
   handleCreateService,
   handleUpdateService,
-  handleDeleteService
+  handleDeleteService,
+  handleCheckServiceSlugAvailability
 } = require("./vendorServiceHandlers");
 const {
   handleListBookings,
@@ -70,6 +75,7 @@ const {
   handleListCounters,
   handleUpdateCounter,
   handleDeleteCounter,
+  handleCheckCounterSlugAvailability,
   handleListStaff,
   handleInviteStaff
 } = require("./vendorManagementHandlers");
@@ -405,6 +411,7 @@ router.patch(
 );
 
 router.get("/tenant/:tenantSlug/services", asyncHandler((req, res) => handleListServices({ req, res, getAuthorizedTenant, assertTenantPermission, vendorServiceRepository })));
+router.get("/tenant/:tenantSlug/services/slug-availability", asyncHandler((req, res) => handleCheckServiceSlugAvailability({ req, res, getAuthorizedTenant, assertTenantPermission, vendorServiceRepository })));
 
 router.post("/tenant/:tenantSlug/services", asyncHandler((req, res) => handleCreateService({ req, res, getAuthorizedTenant, assertTenantPermission, vendorServiceRepository })));
 
@@ -943,6 +950,9 @@ router.get("/tenant/:tenantSlug/history", asyncHandler((req, res) => handleListH
 router.get("/tenant/:tenantSlug/clients", asyncHandler((req, res) => handleListClients({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, billingService, ticketRepository })));
 
 router.get("/tenant/:tenantSlug/counters", asyncHandler((req, res) => handleListCounters({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, billingService, serviceCounterRepository })));
+router.get("/tenant/:tenantSlug/counters/slug-availability", asyncHandler((req, res) => handleCheckCounterSlugAvailability({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, serviceCounterRepository })));
+
+router.get("/tenant/:tenantSlug/locations/slug-availability", asyncHandler((req, res) => handleCheckLocationSlugAvailability({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, storeLocationRepository })));
 
 router.patch("/tenant/:tenantSlug/counters/:counterSlug", asyncHandler((req, res) => handleUpdateCounter({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, billingService, serviceCounterRepository, getCounterForLocation })));
 

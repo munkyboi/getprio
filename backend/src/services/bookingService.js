@@ -9,6 +9,7 @@ const bookingSmsAlertPaymentService = require("./bookingSmsAlertPaymentService")
 const notificationService = require("./notificationService");
 const paymentProofStorageService = require("./paymentProofStorageService");
 const pushNotificationService = require("./pushNotificationService");
+const { normalizePhilippineMobileNumber } = require("../utils/phone");
 
 const CHECK_IN_WINDOW_MINUTES = 15;
 const PENDING_BOOKING_EXPIRATION_MINUTES = 15;
@@ -676,7 +677,7 @@ async function createCustomerBooking({ user, body }) {
   const serviceSlug = vendorServiceRepository.normalizeServiceSlug(body.serviceSlug);
   const scheduledStartAt = normalizeDateTime(body.scheduledStartAt);
   const customerEmail = String(body.customerEmail || user.email || "").trim().toLowerCase();
-  const customerPhone = String(body.customerPhone || user.phone || "").trim();
+  const customerPhone = normalizePhilippineMobileNumber(body.customerPhone || user.phone);
   const bookingVerificationToken = String(body.bookingVerificationToken || "").trim();
 
   if (!tenantSlug || !locationSlug || !serviceSlug) {

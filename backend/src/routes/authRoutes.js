@@ -22,6 +22,7 @@ const notificationService = require("../services/notificationService");
 const passwordResetService = require("../services/passwordResetService");
 const securityEventService = require("../services/securityEventService");
 const sessionService = require("../services/sessionService");
+const { normalizePhilippineMobileNumber } = require("../utils/phone");
 
 const router = express.Router();
 const OAUTH_INTENTS = new Set(["login", "register_customer", "register_vendor"]);
@@ -473,6 +474,7 @@ router.post(
   "/register/vendor",
   asyncHandler(async (req, res) => {
     const { tenantName, tenantSlug, name, username, email, phone, password } = req.body;
+    const normalizedPhone = normalizePhilippineMobileNumber(phone);
 
     if (!tenantName || !tenantSlug || !name || !username || !email || !password) {
       const error = new Error("tenantName, tenantSlug, name, username, email, and password are required.");
@@ -527,7 +529,7 @@ router.post(
           name: tenantName,
           slug: normalizedSlug,
           contactEmail: normalizedEmail,
-          contactPhone: phone
+          contactPhone: normalizedPhone
         },
         { client }
       );
@@ -537,7 +539,7 @@ router.post(
           name,
           username: normalizedUsername.username,
           email: normalizedEmail,
-          phone,
+          phone: normalizedPhone,
           passwordHash: await bcrypt.hash(password, 10),
           passwordHashAlgorithm: "bcrypt",
           emailVerified: false,
@@ -577,6 +579,7 @@ router.post(
   authenticate,
   asyncHandler(async (req, res) => {
     const { tenantName, tenantSlug, name, username, email, phone } = req.body;
+    const normalizedPhone = normalizePhilippineMobileNumber(phone);
 
     if (!tenantName || !tenantSlug) {
       const error = new Error("tenantName and tenantSlug are required.");
@@ -651,7 +654,7 @@ router.post(
           name: tenantName,
           slug: normalizedSlug,
           contactEmail: normalizedEmail,
-          contactPhone: phone || req.user.phone
+          contactPhone: normalizedPhone || req.user.phone
         },
         { client }
       );
@@ -664,7 +667,7 @@ router.post(
           name: resolvedName,
           username: resolvedUsername.username,
           email: normalizedEmail,
-          phone: phone || req.user.phone,
+          phone: normalizedPhone || req.user.phone,
           roles: [...new Set([...(req.user.roles || []), "customer", "vendor"])]
         },
         { client }
@@ -688,6 +691,7 @@ router.post(
   "/register/customer",
   asyncHandler(async (req, res) => {
     const { name, username, email, phone, password } = req.body;
+    const normalizedPhone = normalizePhilippineMobileNumber(phone);
 
     if (!name || !username || !email || !password) {
       const error = new Error("name, username, email, and password are required.");
@@ -708,7 +712,7 @@ router.post(
       name,
       username: normalizedUsername,
       email: normalizedEmail,
-      phone,
+      phone: normalizedPhone,
       passwordHash: await bcrypt.hash(password, 10),
       passwordHashAlgorithm: "bcrypt",
       emailVerified: false,

@@ -9,6 +9,7 @@ import type {
   TenantSlugAvailabilityResponse,
   UsernameAvailabilityResponse
 } from "@shared";
+import PhilippineMobileInput from "../components/PhilippineMobileInput";
 import SocialAuthButtons from "../components/SocialAuthButtons";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
@@ -33,7 +34,10 @@ const vendorSchema = z.object({
   name: z.string().trim().min(2, "Enter the owner name."),
   username: z.string().trim().min(3, "Enter a username."),
   email: z.string().trim().email("Enter a valid email address."),
-  phone: z.string().trim().optional().or(z.literal("")),
+  phone: z.string().trim().optional().or(z.literal("")).refine(
+    (value) => !value || /^09\d{9}$/.test(value.replace(/\D/g, "")),
+    "Use a Philippine mobile number like (0917) 123-4567."
+  ),
   password: z.string().optional()
 });
 
@@ -330,10 +334,11 @@ export default function RegisterVendorPage() {
                 error={form.formState.errors.email?.message}
                 {...form.register("email")}
               />
-              <TextInput
+              <PhilippineMobileInput
                 label="Phone"
                 error={form.formState.errors.phone?.message}
-                {...form.register("phone")}
+                value={form.watch("phone")}
+                onChange={(nextValue) => form.setValue("phone", nextValue, { shouldValidate: true })}
               />
               {!isAuthenticatedFlow ? (
                 <PasswordInput

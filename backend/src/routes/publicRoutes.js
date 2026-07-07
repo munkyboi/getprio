@@ -22,6 +22,7 @@ const {
   getQueueSnapshot,
   cancelTicket
 } = require("../services/queueService");
+const { normalizePhilippineMobileNumber } = require("../utils/phone");
 
 const router = express.Router();
 
@@ -307,7 +308,7 @@ function buildJoinPayload(req, tenant, location) {
     userId: req.user?._id,
     customerName: customerName || req.user?.name,
     customerEmail: customerEmail || req.user?.email,
-    customerPhone: customerPhone || req.user?.phone,
+    customerPhone: normalizePhilippineMobileNumber(customerPhone || req.user?.phone),
     notifyByEmail: Boolean(notifyByEmail),
     notifyBySms: Boolean(notifyBySms),
     joinChannel: normalizedJoinChannel,
@@ -342,7 +343,7 @@ router.post(
     const businessName = normalizeText(req.body.businessName, 140);
     const contactName = normalizeText(req.body.contactName, 140);
     const email = normalizeEmail(req.body.email);
-    const phone = normalizeText(req.body.phone, 80);
+    const phone = normalizePhilippineMobileNumber(req.body.phone);
     const message = normalizeText(req.body.message, 1200);
 
     if (!businessName || !contactName || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {

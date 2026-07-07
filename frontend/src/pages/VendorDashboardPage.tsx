@@ -95,6 +95,7 @@ import type {
   PaginationMetadata
 } from "@shared";
 import { API_BASE_URL } from "../api/client";
+import PhilippineMobileInput from "../components/PhilippineMobileInput";
 import * as vendorDashboardBookings from "../api/vendorDashboardBookings";
 import * as vendorDashboardQueue from "../api/vendorDashboardQueue";
 import * as vendorDashboardCatalog from "../api/vendorDashboardCatalog";
@@ -116,6 +117,8 @@ import {
 } from "../utils/dates";
 import { getErrorMessage } from "../utils/errors";
 import { isBrowserPushSupported, subscribeToBrowserPush } from "../utils/pushNotifications";
+import { checkServiceSlugAvailability } from "../api/vendorDashboardCatalog";
+import { checkCounterSlugAvailability } from "../api/vendorDashboardOperations";
 
 const dashboardSections = new Set(["queue", "tenants", "services", "bookings", "staff", "clients", "history", "reports", "settings"]);
 const SERVICE_TREND_USER_LIMIT = 30;
@@ -140,6 +143,23 @@ function IconActionButton({
       </ActionIcon>
     </Tooltip>
   );
+}
+
+function buildServiceSlug(value: string) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+}
+
+function buildCounterSlug(value: string) {
+  return buildServiceSlug(value);
+}
+
+function buildLocationSlug(value: string) {
+  return buildServiceSlug(value);
 }
 
 const emptyWalkIn: CreateWalkInTicketRequest = {
@@ -602,11 +622,21 @@ export default function VendorDashboardPage() {
   const [activeLocationLimit, setActiveLocationLimit] = useState(1);
   const [locationDialogOpen, setLocationDialogOpen] = useState(false);
   const [editingLocationSlug, setEditingLocationSlug] = useState("");
+  const [editingLocationId, setEditingLocationId] = useState("");
   const [locationForm, setLocationForm] = useState(emptyLocationForm);
+  const [locationSlugManuallyEdited, setLocationSlugManuallyEdited] = useState(false);
+  const [locationSlugMessage, setLocationSlugMessage] = useState("");
+  const [locationSlugAvailable, setLocationSlugAvailable] = useState(false);
+  const [checkingLocationSlug, setCheckingLocationSlug] = useState(false);
   const [paymentQrUploadFile, setPaymentQrUploadFile] = useState<File | null>(null);
   const [serviceDialogOpen, setServiceDialogOpen] = useState(false);
   const [editingServiceSlug, setEditingServiceSlug] = useState("");
+  const [editingServiceId, setEditingServiceId] = useState("");
   const [serviceForm, setServiceForm] = useState<SaveVendorServiceRequest>(emptyServiceForm);
+  const [serviceSlugManuallyEdited, setServiceSlugManuallyEdited] = useState(false);
+  const [serviceSlugMessage, setServiceSlugMessage] = useState("");
+  const [serviceSlugAvailable, setServiceSlugAvailable] = useState(false);
+  const [checkingServiceSlug, setCheckingServiceSlug] = useState(false);
   const [servicesTab, setServicesTab] = useState<"catalog" | "weekly" | "exceptions">("catalog");
   const [availabilityBlockDialogOpen, setAvailabilityBlockDialogOpen] = useState(false);
   const [editingAvailabilityBlockId, setEditingAvailabilityBlockId] = useState("");
@@ -665,6 +695,11 @@ export default function VendorDashboardPage() {
   const [selectedCounterSlug, setSelectedCounterSlug] = useState("");
   const [counterDialogOpen, setCounterDialogOpen] = useState(false);
   const [editingCounterSlug, setEditingCounterSlug] = useState("");
+  const [editingCounterId, setEditingCounterId] = useState("");
+  const [counterSlugManuallyEdited, setCounterSlugManuallyEdited] = useState(false);
+  const [counterSlugMessage, setCounterSlugMessage] = useState("");
+  const [counterSlugAvailable, setCounterSlugAvailable] = useState(false);
+  const [checkingCounterSlug, setCheckingCounterSlug] = useState(false);
   const [counterForm, setCounterForm] = useState<SaveServiceCounterRequest>({
     name: "",
     slug: "",
@@ -2025,6 +2060,11 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   function openServiceDialog(service?: VendorServiceSummary) {
     setEditingServiceSlug(service?.slug || "");
+    setEditingServiceId(service?.id || "");
+    setServiceSlugManuallyEdited(Boolean(service?.slug));
+    setServiceSlugMessage("");
+    setServiceSlugAvailable(false);
+    setCheckingServiceSlug(false);
     setServiceForm({
       name: service?.name || "",
       slug: service?.slug || "",
@@ -2042,12 +2082,73 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     setServiceDialogOpen(true);
   }
 
+  useEffect(() => {
+    if (!serviceDialogOpen || serviceSlugManuallyEdited) {
+      return;
+    }
+
+    const nextSlug = buildServiceSlug(serviceForm.name);
+    setServiceForm((current) => ({ ...current, slug: nextSlug }));
+  }, [serviceDialogOpen, serviceForm.name, serviceSlugManuallyEdited]);
+
+  useEffect(() => {
+    if (!serviceDialogOpen) {
+      return undefined;
+    }
+
+    const nextSlug = buildServiceSlug(serviceForm.slug || "");
+    setServiceSlugAvailable(false);
+
+    if (!nextSlug) {
+      setServiceSlugMessage("");
+      setCheckingServiceSlug(false);
+      return undefined;
+    }
+
+    setCheckingServiceSlug(true);
+    const controller = new AbortController();
+    let isCurrent = true;
+    const timeout = window.setTimeout(() => {
+      checkServiceSlugAvailability(token, selectedTenantSlug, nextSlug, editingServiceId || undefined)
+        .then((response) => {
+          if (!isCurrent) {
+            return;
+          }
+          setServiceSlugAvailable(response.available && response.valid);
+          setServiceSlugMessage(response.message);
+        })
+        .catch((availabilityError) => {
+          if (!isCurrent || (availabilityError instanceof DOMException && availabilityError.name === "AbortError")) {
+            return;
+          }
+          setServiceSlugAvailable(false);
+          setServiceSlugMessage(getErrorMessage(availabilityError));
+        })
+        .finally(() => {
+          if (isCurrent) {
+            setCheckingServiceSlug(false);
+          }
+        });
+    }, 300);
+
+    return () => {
+      isCurrent = false;
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [serviceDialogOpen, serviceForm.slug, token, selectedTenantSlug, editingServiceId]);
+
   async function handleSaveService(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusyAction("service-save");
     setError("");
 
     try {
+      if (!serviceSlugAvailable) {
+        setError(serviceSlugMessage || "Choose an available service slug before saving.");
+        return;
+      }
+
       if (editingServiceSlug) {
         await vendorDashboardCatalog.saveService(token, selectedTenantSlug, editingServiceSlug, serviceForm);
       } else {
@@ -2322,6 +2423,11 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   function openCounterDialog(counter?: ServiceCounterSummary) {
     setEditingCounterSlug(counter?.slug || "");
+    setEditingCounterId(counter?.id || "");
+    setCounterSlugManuallyEdited(Boolean(counter?.slug));
+    setCounterSlugMessage("");
+    setCounterSlugAvailable(false);
+    setCheckingCounterSlug(false);
     setCounterForm({
       name: counter?.name || "",
       slug: counter?.slug || "",
@@ -2331,10 +2437,77 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     setCounterDialogOpen(true);
   }
 
+  useEffect(() => {
+    if (!counterDialogOpen || counterSlugManuallyEdited) {
+      return;
+    }
+
+    const nextSlug = buildCounterSlug(counterForm.name);
+    setCounterForm((current) => ({ ...current, slug: nextSlug }));
+  }, [counterDialogOpen, counterForm.name, counterSlugManuallyEdited]);
+
+  useEffect(() => {
+    if (!counterDialogOpen) {
+      return undefined;
+    }
+
+    const nextSlug = buildCounterSlug(counterForm.slug || "");
+    setCounterSlugAvailable(false);
+
+    if (!nextSlug) {
+      setCounterSlugMessage("");
+      setCheckingCounterSlug(false);
+      return undefined;
+    }
+
+    setCheckingCounterSlug(true);
+    const controller = new AbortController();
+    let isCurrent = true;
+    const timeout = window.setTimeout(() => {
+      checkCounterSlugAvailability(
+        token,
+        selectedTenantSlug,
+        selectedLocationSlug,
+        nextSlug,
+        editingCounterId || undefined
+      )
+        .then((response) => {
+          if (!isCurrent) {
+            return;
+          }
+          setCounterSlugAvailable(response.available && response.valid);
+          setCounterSlugMessage(response.message);
+        })
+        .catch((availabilityError) => {
+          if (!isCurrent || (availabilityError instanceof DOMException && availabilityError.name === "AbortError")) {
+            return;
+          }
+          setCounterSlugAvailable(false);
+          setCounterSlugMessage(getErrorMessage(availabilityError));
+        })
+        .finally(() => {
+          if (isCurrent) {
+            setCheckingCounterSlug(false);
+          }
+        });
+    }, 300);
+
+    return () => {
+      isCurrent = false;
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [counterDialogOpen, counterForm.slug, token, selectedTenantSlug, selectedLocationSlug, editingCounterId]);
+
   async function handleSaveCounter(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusyAction("counter-save");
+    setError("");
     try {
+      if (!counterSlugAvailable) {
+        setError(counterSlugMessage || "Choose an available counter slug before saving.");
+        return;
+      }
       await vendorDashboardCatalog.saveCounter(
         token,
         selectedTenantSlug,
@@ -2733,18 +2906,30 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               label="Location name"
               required
               value={locationForm.name}
-              onChange={(event) =>
-                setLocationForm((current) => ({ ...current, name: event.target.value }))
-              }
+              onChange={(event) => {
+                const nextName = event.target.value;
+                setLocationForm((current) => ({
+                  ...current,
+                  name: nextName,
+                  slug: locationSlugManuallyEdited ? current.slug : buildLocationSlug(nextName)
+                }));
+              }}
             />
             <TextInput
               name="locationSlug"
               label="Slug"
               required
-              value={locationForm.slug}
-              onChange={(event) =>
-                setLocationForm((current) => ({ ...current, slug: event.target.value }))
+              description={checkingLocationSlug ? "Checking slug availability..." : locationSlugMessage}
+              error={
+                !locationSlugAvailable && locationForm.slug
+                  ? locationSlugMessage || "That location slug is already taken for this vendor."
+                  : undefined
               }
+              value={locationForm.slug}
+              onChange={(event) => {
+                setLocationSlugManuallyEdited(true);
+                setLocationForm((current) => ({ ...current, slug: buildLocationSlug(event.target.value) }));
+              }}
             />
             <TextInput
               name="addressLine1"
@@ -2786,12 +2971,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 setLocationForm((current) => ({ ...current, contactEmail: event.target.value }))
               }
             />
-            <TextInput
+            <PhilippineMobileInput
               name="locationContactPhone"
               label="Contact phone"
               value={locationForm.contactPhone}
-              onChange={(event) =>
-                setLocationForm((current) => ({ ...current, contactPhone: event.target.value }))
+              onChange={(nextValue) =>
+                setLocationForm((current) => ({ ...current, contactPhone: nextValue }))
               }
             />
             <TextInput
@@ -3581,13 +3766,13 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     setWalkInForm((current) => ({ ...current, customerEmail: event.target.value }))
                   }
                 />
-                <TextInput
+                <PhilippineMobileInput
                   name="walkInCustomerPhone"
                   label="Phone"
                   disabled={queueDayClosed || queueDayPaused}
                   value={walkInForm.customerPhone}
-                  onChange={(event) =>
-                    setWalkInForm((current) => ({ ...current, customerPhone: event.target.value }))
+                  onChange={(nextValue) =>
+                    setWalkInForm((current) => ({ ...current, customerPhone: nextValue }))
                   }
                 />
                 <Textarea
@@ -3829,6 +4014,11 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     setPaymentQrUploadFile(null);
     if (locationItem) {
       setEditingLocationSlug(locationItem.slug);
+      setEditingLocationId(locationItem.id);
+      setLocationSlugManuallyEdited(Boolean(locationItem.slug));
+      setLocationSlugMessage("");
+      setLocationSlugAvailable(false);
+      setCheckingLocationSlug(false);
       setLocationForm({
         name: locationItem.name,
         slug: locationItem.slug,
@@ -3852,17 +4042,88 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       });
     } else {
       setEditingLocationSlug("");
+      setEditingLocationId("");
+      setLocationSlugManuallyEdited(false);
+      setLocationSlugMessage("");
+      setLocationSlugAvailable(false);
+      setCheckingLocationSlug(false);
       setLocationForm(emptyLocationForm);
     }
 
     setLocationDialogOpen(true);
   }
 
+  useEffect(() => {
+    if (!locationDialogOpen || locationSlugManuallyEdited) {
+      return;
+    }
+
+    const nextSlug = buildLocationSlug(locationForm.name);
+    setLocationForm((current) => ({ ...current, slug: nextSlug }));
+  }, [locationDialogOpen, locationForm.name, locationSlugManuallyEdited]);
+
+  useEffect(() => {
+    if (!locationDialogOpen) {
+      return undefined;
+    }
+
+    const nextSlug = buildLocationSlug(locationForm.slug || "");
+    setLocationSlugAvailable(false);
+
+    if (!nextSlug) {
+      setLocationSlugMessage("");
+      setCheckingLocationSlug(false);
+      return undefined;
+    }
+
+    setCheckingLocationSlug(true);
+    const controller = new AbortController();
+    let isCurrent = true;
+    const timeout = window.setTimeout(() => {
+      vendorDashboardOperations
+        .checkLocationSlugAvailability(
+          token,
+          selectedTenantSlug,
+          nextSlug,
+          editingLocationId || undefined
+        )
+        .then((response) => {
+          if (!isCurrent) {
+            return;
+          }
+          setLocationSlugAvailable(response.available && response.valid);
+          setLocationSlugMessage(response.message);
+        })
+        .catch((availabilityError) => {
+          if (!isCurrent || (availabilityError instanceof DOMException && availabilityError.name === "AbortError")) {
+            return;
+          }
+          setLocationSlugAvailable(false);
+          setLocationSlugMessage(getErrorMessage(availabilityError));
+        })
+        .finally(() => {
+          if (isCurrent) {
+            setCheckingLocationSlug(false);
+          }
+        });
+    }, 300);
+
+    return () => {
+      isCurrent = false;
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [locationDialogOpen, locationForm.slug, token, selectedTenantSlug, editingLocationId]);
+
   async function saveLocation() {
     setBusyAction("location");
     setError("");
 
     try {
+      if (!locationSlugAvailable) {
+        setError(locationSlugMessage || "Choose an available location slug before saving.");
+        return;
+      }
       const payload = {
         name: locationForm.name,
         slug: locationForm.slug,
@@ -4093,16 +4354,28 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     label="Service name"
                     required
                     value={serviceForm.name}
-                    onChange={(event) =>
-                      setServiceForm((current) => ({ ...current, name: event.target.value }))
-                    }
+                    onChange={(event) => {
+                      const nextName = event.target.value;
+                      setServiceForm((current) => ({
+                        ...current,
+                        name: nextName,
+                        slug: serviceSlugManuallyEdited ? current.slug : buildServiceSlug(nextName)
+                      }));
+                    }}
                   />
                   <TextInput
                     label="Slug"
-                    value={serviceForm.slug || ""}
-                    onChange={(event) =>
-                      setServiceForm((current) => ({ ...current, slug: event.target.value }))
+                    description={checkingServiceSlug ? "Checking slug availability..." : serviceSlugMessage}
+                    error={
+                      !serviceSlugAvailable && serviceForm.slug
+                        ? serviceSlugMessage || "That service slug is already taken for this vendor."
+                        : undefined
                     }
+                    value={serviceForm.slug || ""}
+                    onChange={(event) => {
+                      setServiceSlugManuallyEdited(true);
+                      setServiceForm((current) => ({ ...current, slug: buildServiceSlug(event.target.value) }));
+                    }}
                   />
                   <NumberInput
                     label="Duration"
@@ -5970,13 +6243,13 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       setSettings((current) => ({ ...current, contactEmail: event.target.value }))
                     }
                   />
-                  <TextInput
+                  <PhilippineMobileInput
                     name="contactPhone"
                     label="Contact phone"
                     disabled={!canManageContactSettings}
                     value={settings.contactPhone}
-                    onChange={(event) =>
-                      setSettings((current) => ({ ...current, contactPhone: event.target.value }))
+                    onChange={(nextValue) =>
+                      setSettings((current) => ({ ...current, contactPhone: nextValue }))
                     }
                   />
                   <Button className="neura-secondary-button" disabled={busyAction === "settings"} type="submit">
@@ -6228,18 +6501,30 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               label="Counter name"
               required
               value={counterForm.name}
-              onChange={(event) =>
-                setCounterForm((current) => ({ ...current, name: event.target.value }))
-              }
+              onChange={(event) => {
+                const nextName = event.target.value;
+                setCounterForm((current) => ({
+                  ...current,
+                  name: nextName,
+                  slug: counterSlugManuallyEdited ? current.slug : buildCounterSlug(nextName)
+                }));
+              }}
             />
             <TextInput
               name="counterSlug"
               label="Counter slug"
               required
-              value={counterForm.slug}
-              onChange={(event) =>
-                setCounterForm((current) => ({ ...current, slug: event.target.value }))
+              description={checkingCounterSlug ? "Checking slug availability..." : counterSlugMessage}
+              error={
+                !counterSlugAvailable && counterForm.slug
+                  ? counterSlugMessage || "That counter slug is already taken for this location."
+                  : undefined
               }
+              value={counterForm.slug}
+              onChange={(event) => {
+                setCounterSlugManuallyEdited(true);
+                setCounterForm((current) => ({ ...current, slug: buildCounterSlug(event.target.value) }));
+              }}
             />
             <Switch
               name="counterIsActive"
@@ -6437,6 +6722,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       detailBooking.paymentStatus === "pending" &&
       (detailBooking.status === "pending" || detailBooking.status === "rescheduled")
     );
+    const detailPaymentVerified = Boolean(detailBooking?.paymentStatus === "paid" || detailBooking?.paymentVerifiedAt);
+    const detailPaymentGateActive = Boolean(detailBooking && !detailPaymentVerified);
     const detailBookingExpired = Boolean(detailBooking?.expiredAt);
     const closeBookingDetailModal = () => {
       setBookingDetailModalId(null);
@@ -6517,8 +6804,16 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           centered
           opened={bookingDetailOpen}
           onClose={closeBookingDetailModal}
-          title={detailBooking ? `Booking ${detailBooking.reference}` : "Booking details"}
-          size="lg"
+          title={
+            <Stack gap={2}>
+              <Text className="booking-detail__eyebrow">Booking details</Text>
+              <Text className="booking-detail__title">
+                {detailBooking ? detailBooking.reference : "Loading booking"}
+              </Text>
+            </Stack>
+          }
+          size="xl"
+          classNames={{ content: "booking-detail__modal", header: "booking-detail__modal-header", body: "booking-detail__modal-body" }}
           closeButtonProps={{ "aria-label": "Close booking details" }}
           scrollAreaComponent={ScrollArea.Autosize}
         >
@@ -6529,21 +6824,30 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               {bookingDetailError}
             </Alert>
           ) : detailBooking ? (
-            <Stack gap="md">
-              <Group justify="space-between" align="flex-start">
-                <Stack gap={4}>
-                  <Text fw={800}>{detailBooking.customerName}</Text>
-                  <Text c="dimmed">{detailBooking.customerEmail || detailBooking.customerPhone || "No contact details"}</Text>
+            <Stack gap="lg" className="booking-detail">
+              <Group justify="space-between" align="flex-start" className="booking-detail__hero">
+                <Stack gap={6}>
+                  <Text className="booking-detail__customer">{detailBooking.customerName}</Text>
+                  <Text className="booking-detail__contact">{detailBooking.customerEmail || detailBooking.customerPhone || "No contact details"}</Text>
                 </Stack>
-                <Stack gap={4} align="flex-end">
+                <Group gap="xs" justify="flex-end">
                   <Badge color={getBookingBadgeColor(detailBooking.status)} variant="light">
                     {detailBookingExpired ? "expired" : detailBooking.status}
+                  </Badge>
+                  <Badge color={detailPaymentVerified ? "teal" : "orange"} variant="light">
+                    {detailPaymentVerified ? "Payment verified" : "Payment review needed"}
                   </Badge>
                   {detailBookingExpired ? (
                     <Badge color="orange" variant="light">Pending timeout</Badge>
                   ) : null}
-                </Stack>
+                </Group>
               </Group>
+
+              {detailPaymentGateActive ? (
+                <Alert color="orange" icon={<IconInfoCircle size={18} />} variant="light">
+                  Confirm, cancel, and reschedule actions unlock after manual payment has been verified.
+                </Alert>
+              ) : null}
 
               {detailBookingExpired ? (
                 <Alert color="orange" variant="light">
@@ -6552,20 +6856,29 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               ) : null}
 
               <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-                <Paper withBorder radius="md" p="md">
-                  <Text className="neura-label">Service</Text>
-                  <Text fw={700}>{detailBooking.serviceName}</Text>
+                <Paper withBorder radius="md" p="md" className="booking-detail__panel">
+                  <Group gap="xs" mb="xs">
+                    <IconBriefcase size={16} />
+                    <Text className="neura-label">Service</Text>
+                  </Group>
+                  <Text className="booking-detail__panel-title">{detailBooking.serviceName}</Text>
                   <Text c="dimmed" size="sm">Quantity {detailBooking.bookingQuantity}</Text>
                   <Text c="dimmed" size="sm">{detailBooking.servicePriceDisplay || "-"}</Text>
                 </Paper>
-                <Paper withBorder radius="md" p="md">
-                  <Text className="neura-label">Schedule</Text>
-                  <Text fw={700}>{formatBookingScheduleDateTime(detailBooking.scheduledStartAt)}</Text>
+                <Paper withBorder radius="md" p="md" className="booking-detail__panel">
+                  <Group gap="xs" mb="xs">
+                    <IconCalendar size={16} />
+                    <Text className="neura-label">Schedule</Text>
+                  </Group>
+                  <Text className="booking-detail__panel-title">{formatBookingScheduleDateTime(detailBooking.scheduledStartAt)}</Text>
                   <Text c="dimmed" size="sm">Ends {formatBookingScheduleDateTime(detailBooking.scheduledEndAt)}</Text>
                 </Paper>
-                <Paper withBorder radius="md" p="md">
-                  <Text className="neura-label">Payment</Text>
-                  <Text fw={700}>{detailBooking.paymentStatus}</Text>
+                <Paper withBorder radius="md" p="md" className="booking-detail__panel booking-detail__payment-panel">
+                  <Group gap="xs" mb="xs">
+                    <IconClipboardList size={16} />
+                    <Text className="neura-label">Payment</Text>
+                  </Group>
+                  <Text className="booking-detail__panel-title">{detailBooking.paymentStatus}</Text>
                   <Text c="dimmed" size="sm">{detailBooking.paymentReference || "No reference"}</Text>
                   {detailBooking.paymentVerifiedAt ? (
                     <Badge color="teal" mt="xs" variant="light" w="fit-content">
@@ -6583,7 +6896,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     </Stack>
                   ) : null}
                   {detailBooking.paymentProof ? (
-                    <Stack gap={4} mt="xs">
+                    <Stack gap={6} mt="xs">
                       <Text c="dimmed" size="sm">
                         {detailBooking.paymentProof.fileName} · {formatBytes(detailBooking.paymentProof.sizeBytes)}
                       </Text>
@@ -6602,16 +6915,18 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     <Text c="dimmed" size="sm">No proof submitted</Text>
                   )}
                   {detailPaymentReviewable ? (
-                    <Stack gap="xs" mt="sm">
-                      <Button
-                        className="neura-primary-button"
-                        loading={busyAction === `booking-payment-verify:${detailBooking.id}`}
-                        onClick={() => handleVerifyBookingPayment(detailBooking)}
-                        size="xs"
-                        w="fit-content"
-                      >
-                        Verify payment
-                      </Button>
+                    <Stack gap="sm" mt="md" className="booking-detail__payment-review">
+                      <Group gap="xs">
+                        <Button
+                          className="neura-primary-button"
+                          loading={busyAction === `booking-payment-verify:${detailBooking.id}`}
+                          onClick={() => handleVerifyBookingPayment(detailBooking)}
+                          size="sm"
+                          w="fit-content"
+                        >
+                          Verify payment
+                        </Button>
+                      </Group>
                       <Textarea
                         label="Rejection reason"
                         minRows={2}
@@ -6638,9 +6953,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     </Stack>
                   ) : null}
                 </Paper>
-                <Paper withBorder radius="md" p="md">
-                  <Text className="neura-label">Alerts</Text>
-                  <Text fw={700}>Email and browser notifications</Text>
+                <Paper withBorder radius="md" p="md" className="booking-detail__panel">
+                  <Group gap="xs" mb="xs">
+                    <IconBellRinging size={16} />
+                    <Text className="neura-label">Alerts</Text>
+                  </Group>
+                  <Text className="booking-detail__panel-title">Email and browser notifications</Text>
                   <Text c="dimmed" size="sm">
                     {detailBooking.contactVerificationChannel
                       ? `Verified by ${detailBooking.contactVerificationChannel}`
@@ -6650,13 +6968,13 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               </SimpleGrid>
 
               {detailBooking.notes ? (
-                <Paper withBorder radius="md" p="md">
+                <Paper withBorder radius="md" p="md" className="booking-detail__panel">
                   <Text className="neura-label">Customer notes</Text>
                   <Text>{detailBooking.notes}</Text>
                 </Paper>
               ) : null}
 
-              <Group justify="space-between">
+              <Group justify="space-between" className="booking-detail__footer">
                 <Button variant="default" onClick={closeBookingDetailModal}>
                   Close
                 </Button>
@@ -6677,7 +6995,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       <Button
                         className="neura-primary-button"
                         disabled={
-                          detailBooking.paymentStatus === "pending" ||
+                          detailPaymentGateActive ||
                           busyAction === `booking-status:${detailBooking.id}:confirmed`
                         }
                         onClick={async () => {
@@ -6689,12 +7007,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       >
                         Confirm
                       </Button>
-                      <Button size="xs" variant="outline" onClick={() => openRescheduleDialog(detailBooking)}>
+                      <Button disabled={detailPaymentGateActive} variant="outline" onClick={() => openRescheduleDialog(detailBooking)}>
                         Reschedule
                       </Button>
                       <Button
                         color="red"
-                        disabled={busyAction === `booking-status:${detailBooking.id}:canceled`}
+                        disabled={detailPaymentGateActive || busyAction === `booking-status:${detailBooking.id}:canceled`}
                         variant="subtle"
                         onClick={() =>
                           openConfirmAction({
