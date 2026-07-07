@@ -530,7 +530,7 @@ button {
   position: sticky;
   top: 0;
   z-index: 30;
-  padding: 1rem 0;
+  padding: calc(1rem + env(safe-area-inset-top)) 0 1rem;
   border-bottom: 1px solid rgba(36, 30, 25, 0.08);
   background: rgba(251, 250, 247, 0.82);
   backdrop-filter: blur(18px);
@@ -3106,6 +3106,85 @@ h2 {
 .neura-bookings-table tbody td,
 .neura-bookings-table thead th {
   border-color: #e2e8f0;
+}
+
+.booking-detail__modal {
+  border-radius: 28px;
+}
+
+.booking-detail__modal-header {
+  align-items: flex-start;
+  padding: 1.4rem 1.4rem 0.5rem;
+}
+
+.booking-detail__modal-body {
+  padding: 0.75rem 1.4rem 1.35rem;
+}
+
+.booking-detail__eyebrow {
+  color: #bb4d00;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.booking-detail__title {
+  color: #171b22;
+  font-size: 1.15rem;
+  font-weight: 800;
+  line-height: 1.15;
+}
+
+.booking-detail__hero {
+  padding: 0.95rem 1rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+}
+
+.booking-detail__customer {
+  color: #171b22;
+  font-size: 1.1rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.booking-detail__contact {
+  color: #7a8596;
+  overflow-wrap: anywhere;
+}
+
+.booking-detail__panel {
+  min-height: 126px;
+  border-color: #e2e8f0;
+  background: #ffffff;
+}
+
+.booking-detail__panel-title {
+  color: #171b22;
+  font-size: 1rem;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.booking-detail__payment-panel {
+  min-height: 270px;
+}
+
+.booking-detail__payment-review {
+  padding-top: 0.75rem;
+  border-top: 1px solid #eef2f7;
+}
+
+.booking-detail__footer {
+  position: sticky;
+  bottom: -1.35rem;
+  z-index: 2;
+  margin-right: -1.4rem;
+  margin-left: -1.4rem;
+  padding: 0.95rem 1.4rem 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.82) 0%, #ffffff 42%);
 }
 
 .service-dialog__header {

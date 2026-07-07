@@ -15,6 +15,17 @@ export function getServices(token: string, tenantSlug: string) {
   return apiRequest<import("@shared").VendorServicesResponse>(`/vendor/tenant/${tenantSlug}/services`, { token });
 }
 
+export function checkServiceSlugAvailability(token: string, tenantSlug: string, serviceSlug: string, excludeServiceId?: string) {
+  const params = new URLSearchParams({ serviceSlug });
+  if (excludeServiceId) {
+    params.set("excludeServiceId", excludeServiceId);
+  }
+  return apiRequest<{ serviceSlug: string; available: boolean; valid: boolean; message: string }>(
+    `/vendor/tenant/${tenantSlug}/services/slug-availability?${params.toString()}`,
+    { token }
+  );
+}
+
 export function getAvailability(token: string, tenantSlug: string, locationSlug: string) {
   return apiRequest<VendorAvailabilityResponse>(
     `/vendor/tenant/${tenantSlug}/availability?location=${encodeURIComponent(locationSlug)}`,

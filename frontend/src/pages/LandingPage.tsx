@@ -29,6 +29,7 @@ import {
 import { notifications } from "@mantine/notifications";
 import { Link, useLocation } from "react-router-dom";
 import type { EnterpriseInquiryRequest, EnterpriseInquiryResponse } from "@shared";
+import PhilippineMobileInput from "../components/PhilippineMobileInput";
 import { apiRequest } from "../api/client";
 import { getErrorMessage } from "../utils/errors";
 
@@ -445,13 +446,13 @@ export default function LandingPage() {
                       setEnterpriseForm((current) => ({ ...current, email: event.target.value }))
                     }
                   />
-                  <TextInput
+                  <PhilippineMobileInput
                     name="phone"
                     label="Phone"
                     size="lg"
                     value={enterpriseForm.phone}
-                    onChange={(event) =>
-                      setEnterpriseForm((current) => ({ ...current, phone: event.target.value }))
+                    onChange={(nextValue) =>
+                      setEnterpriseForm((current) => ({ ...current, phone: nextValue }))
                     }
                   />
                 </SimpleGrid>

@@ -1,5 +1,6 @@
 const PDFDocument = require("pdfkit");
 const { normalizeCounterSlug, normalizeTenantNotificationSettings } = require("./vendorRouteHelpers");
+const { normalizePhilippineMobileNumber } = require("../utils/phone");
 
 const HISTORY_RANGE_DAYS = {
   today: 0,
@@ -35,7 +36,7 @@ async function handleUpdateSettings({ req, res, getAuthorizedTenant, assertTenan
     autoResumeEnabled: normalizedAutoResumeEnabled,
     autoResumeVacancyPercent: normalizedAutoResumeVacancyPercent,
     contactEmail: typeof contactEmail === "string" ? contactEmail : tenant.contactEmail,
-    contactPhone: typeof contactPhone === "string" ? contactPhone : tenant.contactPhone
+    contactPhone: typeof contactPhone === "string" ? normalizePhilippineMobileNumber(contactPhone) : tenant.contactPhone
   });
   res.json({ tenant: { id: String(updatedTenant._id), name: updatedTenant.name, slug: updatedTenant.slug, queuePrefix: updatedTenant.queuePrefix, averageServiceMinutes: updatedTenant.averageServiceMinutes, notificationThreshold: updatedTenant.notificationThreshold, autoPauseEnabled: updatedTenant.autoPauseEnabled, autoPauseThreshold: updatedTenant.autoPauseThreshold, autoResumeEnabled: updatedTenant.autoResumeEnabled, autoResumeVacancyPercent: updatedTenant.autoResumeVacancyPercent, contactEmail: updatedTenant.contactEmail, contactPhone: updatedTenant.contactPhone }, snapshot: await getQueueSnapshot(updatedTenant, { location: await getLocationForTenant(updatedTenant, req.query.location) }) });
 }
@@ -125,6 +126,20 @@ async function handleDeleteCounter({ req, res, getAuthorizedTenant, assertTenant
   res.status(204).send();
 }
 
+async function handleCheckCounterSlugAvailability({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, serviceCounterRepository }) {
+  const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+  assertTenantPermission(req.user, tenant._id, "tenant.counter.manage");
+  const location = await getLocationForTenant(tenant, req.query.location);
+  const counterSlug = req.query.counterSlug || req.query.slug || "";
+  const excludeCounterId = req.query.excludeCounterId || req.query.counterId || null;
+  const result = await serviceCounterRepository.isCounterSlugAvailable(
+    location._id,
+    counterSlug,
+    excludeCounterId
+  );
+  res.json({ counterSlug: String(counterSlug || ""), ...result });
+}
+
 async function handleListStaff({ req, res, getAuthorizedTenant, assertTenantPermission, billingService, userRepository, serviceCounterRepository }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.staff.read");
@@ -155,4 +170,4 @@ async function handleInviteStaff({ req, res, getAuthorizedTenant, assertTenantPe
   res.status(201).json({ userId: user._id });
 }
 
-module.exports = { handleUpdateSettings, handleGetNotificationSettings, handleUpdateNotificationSettings, handleListHistory, handleListClients, handleListCounters, handleUpdateCounter, handleDeleteCounter, handleListStaff, handleInviteStaff, toCsvValue, HISTORY_RANGE_DAYS, PDFDocument };
+module.exports = { handleUpdateSettings, handleGetNotificationSettings, handleUpdateNotificationSettings, handleListHistory, handleListClients, handleListCounters, handleUpdateCounter, handleDeleteCounter, handleCheckCounterSlugAvailability, handleListStaff, handleInviteStaff, toCsvValue, HISTORY_RANGE_DAYS, PDFDocument };

@@ -79,10 +79,43 @@ export function updateLocation(token: string, tenantSlug: string, locationSlug: 
   );
 }
 
+export function checkLocationSlugAvailability(
+  token: string,
+  tenantSlug: string,
+  locationSlug: string,
+  excludeLocationId?: string
+) {
+  const params = new URLSearchParams({ location: locationSlug });
+  if (excludeLocationId) {
+    params.set("excludeLocationId", excludeLocationId);
+  }
+  return apiRequest<{ locationSlug: string; available: boolean; valid: boolean; message: string }>(
+    `/vendor/tenant/${tenantSlug}/locations/slug-availability?${params.toString()}`,
+    { token }
+  );
+}
+
 export function saveLocation(token: string, tenantSlug: string, locationSlug: string | null, body: Record<string, unknown>) {
   const path = locationSlug ? `/vendor/tenant/${tenantSlug}/locations/${locationSlug}` : `/vendor/tenant/${tenantSlug}/locations`;
   const method = locationSlug ? "PATCH" : "POST";
   return apiRequest<{ location: StoreLocationWithHours }, typeof body>(path, { method, token, body });
+}
+
+export function checkCounterSlugAvailability(
+  token: string,
+  tenantSlug: string,
+  locationSlug: string,
+  counterSlug: string,
+  excludeCounterId?: string
+) {
+  const params = new URLSearchParams({ location: locationSlug, counterSlug });
+  if (excludeCounterId) {
+    params.set("excludeCounterId", excludeCounterId);
+  }
+  return apiRequest<{ counterSlug: string; available: boolean; valid: boolean; message: string }>(
+    `/vendor/tenant/${tenantSlug}/counters/slug-availability?${params.toString()}`,
+    { token }
+  );
 }
 
 export function saveLocationHours(token: string, tenantSlug: string, locationSlug: string, hours: StoreHourSummary[]) {

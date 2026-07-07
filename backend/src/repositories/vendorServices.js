@@ -87,6 +87,35 @@ async function findServiceByTenantAndSlug(tenantId, slug, options = {}) {
   return mapVendorService(result.rows[0]);
 }
 
+async function isServiceSlugAvailable(tenantId, slug, excludeServiceId = null, options = {}) {
+  const normalizedSlug = normalizeServiceSlug(slug);
+  if (!normalizedSlug) {
+    return { available: false, valid: false, message: "Enter a service slug." };
+  }
+
+  const queryClient = buildQueryClient(options.client);
+  const values = [Number(tenantId), normalizedSlug];
+  let query = `
+    SELECT id
+    FROM vendor_services
+    WHERE tenant_id = $1 AND slug = $2
+  `;
+
+  if (excludeServiceId) {
+    values.push(Number(excludeServiceId));
+    query += ` AND id <> $${values.length}`;
+  }
+
+  query += " LIMIT 1";
+
+  const result = await queryClient.query(query, values);
+  return {
+    available: result.rows.length === 0,
+    valid: Boolean(normalizedSlug),
+    message: result.rows.length === 0 ? "Slug is available." : "That service slug is already taken."
+  };
+}
+
 async function createService(data, options = {}) {
   const result = await buildQueryClient(options.client).query(
     `
@@ -196,6 +225,7 @@ module.exports = {
   normalizeServiceSlug,
   listServicesByTenantId,
   findServiceByTenantAndSlug,
+  isServiceSlugAvailable,
   createService,
   updateService,
   deactivateService

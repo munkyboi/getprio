@@ -127,6 +127,35 @@ async function findLocationByTenantAndSlug(tenantId, slug, options = {}) {
   return mapLocation(result.rows[0]);
 }
 
+async function isLocationSlugAvailable(tenantId, slug, excludeLocationId = null, options = {}) {
+  const normalizedSlug = normalizeSlug(slug);
+  if (!normalizedSlug) {
+    return { available: false, valid: false, message: "Enter a location slug." };
+  }
+
+  const queryClient = buildQueryClient(options.client);
+  const values = [Number(tenantId), normalizedSlug];
+  let query = `
+    SELECT id
+    FROM store_locations
+    WHERE tenant_id = $1 AND slug = $2
+  `;
+
+  if (excludeLocationId) {
+    values.push(Number(excludeLocationId));
+    query += ` AND id <> $${values.length}`;
+  }
+
+  query += " LIMIT 1";
+
+  const result = await queryClient.query(query, values);
+  return {
+    available: result.rows.length === 0,
+    valid: Boolean(normalizedSlug),
+    message: result.rows.length === 0 ? "Slug is available." : "That location slug is already taken."
+  };
+}
+
 async function findLocationById(id, options = {}) {
   const queryClient = buildQueryClient(options.client);
   const result = await queryClient.query(
@@ -352,6 +381,7 @@ module.exports = {
   normalizeSlug,
   listLocationsByTenantId,
   findLocationByTenantAndSlug,
+  isLocationSlugAvailable,
   findLocationById,
   findPrimaryLocationByTenantId,
   createLocation,

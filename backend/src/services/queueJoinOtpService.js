@@ -4,6 +4,7 @@ const db = require("../config/db");
 const otpRepository = require("../repositories/queueJoinOtps");
 const notificationService = require("./notificationService");
 const { createTicket } = require("./queueService");
+const { normalizePhilippineMobileNumber } = require("../utils/phone");
 
 const OTP_TTL_MINUTES = 15;
 const OTP_RESEND_COOLDOWN_MINUTES = 3;
@@ -25,7 +26,7 @@ function normalizeOtpCode(code) {
 
 function getDeliveryTarget(payload) {
   const email = String(payload.customerEmail || "").trim();
-  const phone = String(payload.customerPhone || "").trim();
+  const phone = normalizePhilippineMobileNumber(payload.customerPhone);
 
   if (email) {
     return {
@@ -51,7 +52,7 @@ function sanitizeJoinPayload(payload) {
     userId: payload.userId || null,
     customerName: String(payload.customerName || "").trim(),
     customerEmail: String(payload.customerEmail || "").trim(),
-    customerPhone: String(payload.customerPhone || "").trim(),
+    customerPhone: normalizePhilippineMobileNumber(payload.customerPhone),
     notifyByEmail: Boolean(payload.notifyByEmail),
     notifyBySms: Boolean(payload.notifyBySms),
     joinChannel: payload.joinChannel || "online",
