@@ -1,14 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-command -v psql >/dev/null 2>&1 || {
+if [[ -x /usr/bin/psql ]]; then
+  psql_bin="/usr/bin/psql"
+elif command -v psql >/dev/null 2>&1; then
+  psql_bin="$(command -v psql)"
+  if [[ "$psql_bin" == *"/node_modules/"* ]]; then
+    echo "psql is required but the only available binary is the broken node_modules/psql wrapper." >&2
+    exit 1
+  fi
+else
   echo "psql is required but not installed or not on PATH." >&2
   exit 1
-}
+fi
 
 : "${DATABASE_URL:?DATABASE_URL must be set}"
 
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+"$psql_bin" "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
 DO $$
 DECLARE
   missing_columns text[];
