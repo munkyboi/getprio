@@ -1325,7 +1325,12 @@ export default function VendorDashboardPage() {
   }, [
     canOperateBookingQueue,
     currentSection,
+    bookingDateRange,
+    bookingPage,
+    bookingSearch,
+    bookingStatusFilter,
     hasActiveSubscription,
+    queryClient,
     selectedLocationSlug,
     selectedTenantSlug,
     token
