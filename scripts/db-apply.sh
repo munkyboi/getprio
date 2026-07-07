@@ -46,10 +46,14 @@ run_psql() {
     return
   fi
 
+  if [[ -x /usr/bin/psql ]]; then
+    /usr/bin/psql "$DATABASE_URL" "$@"
+    return
+  fi
+
   if command -v psql >/dev/null 2>&1; then
-    local psql_path
     psql_path="$(command -v psql)"
-    if [[ "$psql_path" != *"node_modules"* ]]; then
+    if [[ "$psql_path" != *"/node_modules/"* ]]; then
       psql "$DATABASE_URL" "$@"
       return
     fi
