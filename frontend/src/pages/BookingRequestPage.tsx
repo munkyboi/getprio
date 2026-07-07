@@ -242,7 +242,7 @@ export default function BookingRequestPage() {
     setSelectedSlotStartAt("");
 
     apiRequest<BookingSlotsResponse>(
-      `/public/vendors/${vendor.slug}/locations/${selectedLocationSlug}/services/${selectedServiceSlug}/slots?date=${encodeURIComponent(bookingDate)}&bookingQuantity=${quantityForRequest}`,
+      `/public/vendors/${vendor.slug}/locations/${selectedLocationSlug}/services/${selectedServiceSlug}/slots?date=${encodeURIComponent(formatDateInputValue(bookingDate))}&bookingQuantity=${quantityForRequest}`,
       { signal: controller.signal }
     )
       .then((data) => setSlots(data.slots))
@@ -634,7 +634,7 @@ export default function BookingRequestPage() {
                         disabled={Boolean(otp)}
                         label="Date"
                         leftSection={<IconCalendar size={16} />}
-                        minDate={formatDateInputValue()}
+                        minDate={new Date()}
                         onChange={(value) => setBookingDate(value || "")}
                         required
                         value={bookingDate}

@@ -296,6 +296,7 @@ async function listBookingsForCustomer(userId, options = {}) {
       `,
       params
     );
+    const listParams = [...params, pageSize, offset];
     const result = await queryClient.query(
       `
         SELECT ${BOOKING_COLUMNS}
@@ -306,9 +307,9 @@ async function listBookingsForCustomer(userId, options = {}) {
         LEFT JOIN tickets ON tickets.id = bookings.queue_ticket_id
         WHERE ${whereClause}
         ORDER BY bookings.scheduled_start_at ASC, bookings.created_at ASC
-        LIMIT $2 OFFSET $3
+        LIMIT $${params.length + 1} OFFSET $${params.length + 2}
       `,
-      [...params, pageSize, offset]
+      listParams
     );
 
     return {
