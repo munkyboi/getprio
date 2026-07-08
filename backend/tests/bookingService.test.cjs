@@ -172,6 +172,21 @@ function buildBookingService({
       findLocationByTenantAndSlug: async (_tenantId, slug) => (slug === "main" ? { ...location, ...locationOverride } : null),
       listHoursByLocationId: async () => hours
     },
+    "../repositories/locationServices": {
+      findLocationServiceByLocationAndServiceId: async (_tenantId, _locationId, _serviceId) => ({
+        _id: "location-service-1",
+        tenantId: tenant._id,
+        locationId: location._id,
+        serviceId: service._id,
+        capacity: 1,
+        isActive: true,
+        sortOrder: 0,
+        priceAmountCents: null,
+        priceDisplay: null,
+        createdAt: "2026-07-01T00:00:00.000Z",
+        updatedAt: "2026-07-01T00:00:00.000Z"
+      })
+    },
     "../repositories/vendorServices": {
       normalizeServiceSlug: (value) => String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""),
       findServiceByTenantAndSlug: async (_tenantId, slug) => (slug === "consultation" ? { ...service, ...serviceOverride } : null)
@@ -553,9 +568,13 @@ test("booking slots count different-duration service overlaps for branch-wide ca
     },
     countOverlappingActiveBookings: async (_tenantId, options) => {
       capacityChecks.push(options);
-      const candidateStart = new Date(options.startsAt);
-      const candidateEnd = new Date(options.endsAt);
-      return candidateStart < existingEnd && candidateEnd > existingStart ? 1 : 0;
+      if (options.serviceId === null) {
+        const candidateStart = new Date(options.startsAt);
+        const candidateEnd = new Date(options.endsAt);
+        return candidateStart < existingEnd && candidateEnd > existingStart ? 1 : 0;
+      }
+
+      return 0;
     }
   });
 
@@ -574,6 +593,53 @@ test("booking slots count different-duration service overlaps for branch-wide ca
     ]
   );
   assert.equal(capacityChecks.every((options) => options.serviceId === null), true);
+});
+
+test("booking slots keep service-specific court capacity isolated from other services", async () => {
+  const capacityChecks = [];
+  const existingStart = new Date("2026-07-10T05:00:00.000Z");
+  const existingEnd = new Date("2026-07-10T08:00:00.000Z");
+  const bookingService = buildBookingService({
+    serviceOverride: {
+      durationMinutes: 60,
+      bookingCapacityScope: "service"
+    },
+    availability: {
+      blocks: [
+        {
+          _id: "block-1",
+          serviceId: "service-1",
+          weekday: 5,
+          startsAt: "13:00",
+          endsAt: "16:00",
+          capacity: 1,
+          isActive: true
+        }
+      ],
+      exceptions: []
+    },
+    countOverlappingActiveBookings: async (_tenantId, options) => {
+      capacityChecks.push(options);
+      return 0;
+    }
+  });
+
+  const slots = await bookingService.listBookingSlots({
+    tenantSlug: "demo",
+    locationSlug: "main",
+    serviceSlug: "consultation",
+    date: "2026-07-10"
+  });
+
+  assert.deepEqual(
+    slots.map((slot) => [slot.startAt, slot.endAt, slot.isAvailable, slot.remainingCapacity]),
+    [
+      ["2026-07-10T05:00:00.000Z", "2026-07-10T06:00:00.000Z", true, 1],
+      ["2026-07-10T06:00:00.000Z", "2026-07-10T07:00:00.000Z", true, 1],
+      ["2026-07-10T07:00:00.000Z", "2026-07-10T08:00:00.000Z", true, 1]
+    ]
+  );
+  assert.equal(capacityChecks.every((options) => options.serviceId === "service-1"), true);
 });
 
 test("booking slots treat all-service availability blocks as shared branch capacity", async () => {

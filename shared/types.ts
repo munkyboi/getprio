@@ -342,6 +342,14 @@ export interface VendorAvailabilityExceptionSummary {
 export interface VendorAvailabilityResponse {
   blocks: VendorAvailabilityBlockSummary[];
   exceptions: VendorAvailabilityExceptionSummary[];
+  summary?: {
+    sharedBlocks: number;
+    serviceSpecificBlocks: number;
+    sharedExceptions: number;
+    serviceSpecificExceptions: number;
+    hasSharedLocationCapacity: boolean;
+    hasServiceSpecificCapacity: boolean;
+  };
 }
 
 export interface SaveVendorAvailabilityBlockRequest {

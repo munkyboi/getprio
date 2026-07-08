@@ -108,6 +108,22 @@ function formatAvailabilityException(exception) {
   };
 }
 
+function buildAvailabilitySummary(availability) {
+  const sharedBlocks = availability.blocks.filter((block) => block.isActive && !block.serviceId).length;
+  const serviceSpecificBlocks = availability.blocks.filter((block) => block.isActive && block.serviceId).length;
+  const sharedExceptions = availability.exceptions.filter((exception) => !exception.isAvailable && !exception.serviceId).length;
+  const serviceSpecificExceptions = availability.exceptions.filter((exception) => !exception.isAvailable && exception.serviceId).length;
+
+  return {
+    sharedBlocks,
+    serviceSpecificBlocks,
+    sharedExceptions,
+    serviceSpecificExceptions,
+    hasSharedLocationCapacity: sharedBlocks > 0 || sharedExceptions > 0,
+    hasServiceSpecificCapacity: serviceSpecificBlocks > 0 || serviceSpecificExceptions > 0
+  };
+}
+
 function assertTimeRange(startsAt, endsAt, { allowEmpty = false } = {}) {
   if (allowEmpty && !startsAt && !endsAt) {
     return;
@@ -263,7 +279,11 @@ async function handleListAvailability({ req, res, getAuthorizedTenant, assertTen
   assertTenantPermission(req.user, tenant._id, "tenant.availability.manage");
   const location = await getLocationForTenant(tenant, req.query.location);
   const availability = await vendorAvailabilityRepository.listAvailabilityByLocation(tenant._id, location._id);
-  res.json({ blocks: availability.blocks.map(formatAvailabilityBlock), exceptions: availability.exceptions.map(formatAvailabilityException) });
+  res.json({
+    blocks: availability.blocks.map(formatAvailabilityBlock),
+    exceptions: availability.exceptions.map(formatAvailabilityException),
+    summary: buildAvailabilitySummary(availability)
+  });
 }
 
 async function handleCreateAvailabilityBlock({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, vendorAvailabilityRepository, vendorServiceRepository }) {
@@ -361,6 +381,7 @@ module.exports = {
   formatVendorBooking,
   formatAvailabilityBlock,
   formatAvailabilityException,
+  buildAvailabilitySummary,
   normalizeAvailabilityBlockPayload,
   normalizeAvailabilityExceptionPayload
 };

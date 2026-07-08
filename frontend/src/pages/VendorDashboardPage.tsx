@@ -94,6 +94,7 @@ import type {
   TenantNotificationSettings,
   VendorAvailabilityBlockSummary,
   VendorAvailabilityExceptionSummary,
+  VendorAvailabilityResponse,
   VendorBookingSummary,
   BookingSlotSummary,
   VendorClientsResponse,
@@ -833,6 +834,7 @@ export default function VendorDashboardPage() {
   const [services, setServices] = useState<VendorServiceSummary[]>([]);
   const [availabilityBlocks, setAvailabilityBlocks] = useState<VendorAvailabilityBlockSummary[]>([]);
   const [availabilityExceptions, setAvailabilityExceptions] = useState<VendorAvailabilityExceptionSummary[]>([]);
+  const [availabilitySummary, setAvailabilitySummary] = useState<VendorAvailabilityResponse["summary"] | null>(null);
   const [serviceCounters, setServiceCounters] = useState<ServiceCounterSummary[]>([]);
   const [staff, setStaff] = useState<VendorStaffSummary[]>([]);
   const [staffSeatLimit, setStaffSeatLimit] = useState(0);
@@ -1237,6 +1239,7 @@ export default function VendorDashboardPage() {
 
     setAvailabilityBlocks(availabilityQuery.data.blocks);
     setAvailabilityExceptions(availabilityQuery.data.exceptions);
+    setAvailabilitySummary(availabilityQuery.data.summary || null);
   }, [availabilityQuery.data]);
 
   useEffect(() => {
@@ -5798,6 +5801,11 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     Add weekly rule
                   </Button>
                 </Group>
+                {availabilitySummary?.hasSharedLocationCapacity && availabilitySummary?.hasServiceSpecificCapacity ? (
+                  <Alert color="yellow" variant="light">
+                    This location mixes shared branch capacity and service-specific court capacity. A shared rule can make one court&apos;s booking block other courts.
+                  </Alert>
+                ) : null}
                 {availabilityBlocks.length ? (
                   <Table.ScrollContainer minWidth={900}>
                     <Table className="neura-availability-table" verticalSpacing="sm">
