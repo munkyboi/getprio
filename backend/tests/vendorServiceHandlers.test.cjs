@@ -12,6 +12,9 @@ test("vendor service handler lists and creates services", async () => {
     assertTenantPermission: () => {},
     vendorServiceRepository: {
       listServicesByTenantId: async () => [{ _id: 7, name: "Consultation", slug: "consultation", durationMinutes: 30, allowBookingQuantity: false, isActive: true }]
+    },
+    locationServiceRepository: {
+      listLocationServicesByTenantId: async () => []
     }
   });
   assert.equal(listResponse.body.services[0].slug, "consultation");
@@ -24,6 +27,9 @@ test("vendor service handler lists and creates services", async () => {
     assertTenantPermission: () => {},
     vendorServiceRepository: {
       createService: async (payload) => ({ _id: 8, slug: "consultation", ...payload })
+    },
+    locationServiceRepository: {
+      upsertLocationService: async (payload) => payload
     }
   });
   assert.equal(createResponse.statusCode, 201);
