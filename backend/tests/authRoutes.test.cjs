@@ -898,6 +898,7 @@ test("register vendor returns a tracked session and tenant membership", async ()
       body: JSON.stringify({
         tenantName: "Demo Tenant",
         tenantSlug: "Demo Tenant",
+        category: "sports",
         name: "Vendor One",
         username: "Vendor_One",
         email: "Vendor@Example.com",
