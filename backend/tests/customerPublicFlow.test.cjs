@@ -177,7 +177,9 @@ function buildPublicRouter(ticket, cancelTicketMock) {
         _id: "tenant-1",
         slug: "demo",
         name: "Demo Tenant",
-        isActive: true
+        isActive: true,
+        publicProfileEnabled: true,
+        vendorApprovalStatus: "approved"
       }),
       findTenantById: async () => ({ _id: "tenant-1", slug: "demo", name: "Demo Tenant" })
     },
@@ -296,6 +298,68 @@ function buildPublicRouter(ticket, cancelTicketMock) {
         }
       ]
     },
+    "../repositories/locationServices": {
+      listLocationServicesByTenantId: async () => [
+        {
+          _id: "location-service-1",
+          tenantId: "tenant-1",
+          locationId: "location-1",
+          serviceId: "service-1",
+          capacity: 3,
+          isActive: true,
+          sortOrder: 1,
+          priceAmountCents: 50000,
+          priceDisplay: "PHP 500",
+          imageUrl: "",
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          _id: "location-service-2",
+          tenantId: "tenant-1",
+          locationId: "location-1",
+          serviceId: "service-2",
+          capacity: 1,
+          isActive: true,
+          sortOrder: 2,
+          priceAmountCents: 75000,
+          priceDisplay: "PHP 750",
+          imageUrl: "",
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }
+      ],
+      listLocationServicesByLocationId: async () => [
+        {
+          _id: "location-service-1",
+          tenantId: "tenant-1",
+          locationId: "location-1",
+          serviceId: "service-1",
+          capacity: 3,
+          isActive: true,
+          sortOrder: 1,
+          priceAmountCents: 50000,
+          priceDisplay: "PHP 500",
+          imageUrl: "",
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          _id: "location-service-2",
+          tenantId: "tenant-1",
+          locationId: "location-1",
+          serviceId: "service-2",
+          capacity: 1,
+          isActive: true,
+          sortOrder: 2,
+          priceAmountCents: 75000,
+          priceDisplay: "PHP 750",
+          imageUrl: "",
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }
+      ]
+    },
     "../repositories/tickets": {
       findTicketByLookupCode: async () => ticket,
       findTicketByTenantAndLookupCode: async () => ticket
@@ -364,6 +428,7 @@ test("public vendor discovery returns approved public profile cards", async () =
       "description",
       "imageUrl",
       "location",
+      "locationServices",
       "locations",
       "name",
       "publicBoardTheme",
@@ -432,6 +497,24 @@ test("public vendor profile includes the resolved public board theme", async () 
     assert.equal(body.vendor.services[0].slug, "general-consultation");
     assert.equal(body.vendor.services[0].manualPaymentRequired, true);
     assert.equal(body.vendor.locations[0].hours[0].closesAt, "17:00");
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("public vendor services endpoint hides disabled services", async () => {
+  const router = buildPublicRouter(null, async () => ({}));
+  const { server, baseUrl } = await startServer(router, "/api/public");
+
+  try {
+    const response = await fetch(`${baseUrl}/vendors/demo/locations/ayala/services`);
+
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.services.length, 1);
+    assert.equal(body.services[0].slug, "general-consultation");
+    assert.equal(body.services[0].capacity, 3);
+    assert.equal(body.services[0].locationServiceId, "location-service-1");
   } finally {
     await stopServer(server);
   }

@@ -166,3 +166,58 @@ export function uploadLocationPaymentQr(token: string, tenantSlug: string, locat
     return (await response.json()) as import("@shared").LocationPaymentQrUploadResponse;
   });
 }
+
+async function uploadSignedAsset(uploadUrl: string, file: File, contentType: string) {
+  const response = await fetch(uploadUrl, {
+    method: "PUT",
+    headers: {
+      "Content-Type": contentType
+    },
+    body: file
+  });
+  if (!response.ok) {
+    throw new Error("Upload failed.");
+  }
+}
+
+export async function uploadLocationMedia(token: string, tenantSlug: string, locationSlug: string, file: File) {
+  const init = await apiRequest<import("@shared").PublicBoardThemeUploadResponse>(
+    `/vendor/tenant/${tenantSlug}/location-media/uploads/direct?locationSlug=${encodeURIComponent(locationSlug)}&fileName=${encodeURIComponent(file.name)}`,
+    {
+      method: "POST",
+      token,
+      body: {
+        locationSlug,
+        fileName: file.name,
+        contentType: file.type,
+        sizeBytes: file.size
+      }
+    }
+  );
+  if (init.upload?.url) {
+    await uploadSignedAsset(init.upload.url, file, file.type);
+    return init;
+  }
+  throw new Error("Image upload failed.");
+}
+
+export async function uploadServiceMedia(token: string, tenantSlug: string, locationSlug: string, file: File) {
+  const init = await apiRequest<import("@shared").PublicBoardThemeUploadResponse>(
+    `/vendor/tenant/${tenantSlug}/service-media/uploads/direct?locationSlug=${encodeURIComponent(locationSlug)}&fileName=${encodeURIComponent(file.name)}`,
+    {
+      method: "POST",
+      token,
+      body: {
+        locationSlug,
+        fileName: file.name,
+        contentType: file.type,
+        sizeBytes: file.size
+      }
+    }
+  );
+  if (init.upload?.url) {
+    await uploadSignedAsset(init.upload.url, file, file.type);
+    return init;
+  }
+  throw new Error("Image upload failed.");
+}

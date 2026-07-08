@@ -473,11 +473,12 @@ router.all("/oauth/:provider/callback", async (req, res) => {
 router.post(
   "/register/vendor",
   asyncHandler(async (req, res) => {
-    const { tenantName, tenantSlug, name, username, email, phone, password } = req.body;
+    const { tenantName, tenantSlug, category, name, username, email, phone, password } = req.body;
     const normalizedPhone = normalizePhilippineMobileNumber(phone);
+    const normalizedCategory = String(category || "").trim();
 
-    if (!tenantName || !tenantSlug || !name || !username || !email || !password) {
-      const error = new Error("tenantName, tenantSlug, name, username, email, and password are required.");
+    if (!tenantName || !tenantSlug || !normalizedCategory || !name || !username || !email || !password) {
+      const error = new Error("tenantName, tenantSlug, category, name, username, email, and password are required.");
       error.statusCode = 400;
       throw error;
     }
@@ -529,7 +530,8 @@ router.post(
           name: tenantName,
           slug: normalizedSlug,
           contactEmail: normalizedEmail,
-          contactPhone: normalizedPhone
+          contactPhone: normalizedPhone,
+          publicProfileCategory: normalizedCategory
         },
         { client }
       );
@@ -578,11 +580,12 @@ router.post(
   "/register/vendor/complete",
   authenticate,
   asyncHandler(async (req, res) => {
-    const { tenantName, tenantSlug, name, username, email, phone } = req.body;
+    const { tenantName, tenantSlug, category, name, username, email, phone } = req.body;
     const normalizedPhone = normalizePhilippineMobileNumber(phone);
+    const normalizedCategory = String(category || "").trim();
 
-    if (!tenantName || !tenantSlug) {
-      const error = new Error("tenantName and tenantSlug are required.");
+    if (!tenantName || !tenantSlug || !normalizedCategory) {
+      const error = new Error("tenantName, tenantSlug, and category are required.");
       error.statusCode = 400;
       throw error;
     }
@@ -654,7 +657,8 @@ router.post(
           name: tenantName,
           slug: normalizedSlug,
           contactEmail: normalizedEmail,
-          contactPhone: normalizedPhone || req.user.phone
+          contactPhone: normalizedPhone || req.user.phone,
+          publicProfileCategory: normalizedCategory
         },
         { client }
       );

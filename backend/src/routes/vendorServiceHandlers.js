@@ -1,23 +1,35 @@
-const { formatVendorService, normalizeServicePayload } = require("./vendorRouteHelpers");
+const {
+  formatVendorService,
+  normalizeLocationServicesPayload,
+  normalizeServicePayload
+} = require("./vendorRouteHelpers");
 
-async function handleListServices({ req, res, getAuthorizedTenant, assertTenantPermission, vendorServiceRepository }) {
+async function handleListServices({ req, res, getAuthorizedTenant, assertTenantPermission, vendorServiceRepository, locationServiceRepository }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.service.manage");
   const services = await vendorServiceRepository.listServicesByTenantId(tenant._id);
-  res.json({ services: services.map(formatVendorService) });
+  const locationServices = await locationServiceRepository.listLocationServicesByTenantId(tenant._id);
+  res.json({ services: services.map(formatVendorService), locationServices });
 }
 
-async function handleCreateService({ req, res, getAuthorizedTenant, assertTenantPermission, vendorServiceRepository }) {
+async function handleCreateService({ req, res, getAuthorizedTenant, assertTenantPermission, vendorServiceRepository, locationServiceRepository }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.service.manage");
   const service = await vendorServiceRepository.createService({
     tenantId: tenant._id,
     ...normalizeServicePayload(req.body || {})
   });
-  res.status(201).json({ service: formatVendorService(service) });
+  const locationServices = await normalizeLocationServicesPayload(req.body || {}, service, tenant);
+  for (const locationService of locationServices) {
+    await locationServiceRepository.upsertLocationService({
+      ...locationService,
+      serviceId: service._id
+    });
+  }
+  res.status(201).json({ service: formatVendorService(service), locationServices });
 }
 
-async function handleUpdateService({ req, res, getAuthorizedTenant, assertTenantPermission, vendorServiceRepository }) {
+async function handleUpdateService({ req, res, getAuthorizedTenant, assertTenantPermission, vendorServiceRepository, locationServiceRepository }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.service.manage");
   const service = await vendorServiceRepository.findServiceByTenantAndSlug(
@@ -33,7 +45,14 @@ async function handleUpdateService({ req, res, getAuthorizedTenant, assertTenant
     service._id,
     normalizeServicePayload(req.body || {}, service)
   );
-  res.json({ service: formatVendorService(updatedService) });
+  const locationServices = await normalizeLocationServicesPayload(req.body || {}, updatedService, tenant);
+  for (const locationService of locationServices) {
+    await locationServiceRepository.upsertLocationService({
+      ...locationService,
+      serviceId: updatedService._id
+    });
+  }
+  res.json({ service: formatVendorService(updatedService), locationServices });
 }
 
 async function handleDeleteService({ req, res, getAuthorizedTenant, assertTenantPermission, vendorServiceRepository }) {

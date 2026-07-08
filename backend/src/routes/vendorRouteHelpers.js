@@ -71,6 +71,7 @@ async function formatLocation(location, tenant) {
     tenantId: String(location.tenantId),
     name: location.name,
     slug: location.slug,
+    imageUrl: location.imageUrl || "",
     addressLine1: location.addressLine1,
     addressLine2: location.addressLine2,
     city: location.city,
@@ -104,6 +105,7 @@ function normalizeLocationPayload(body, existingLocation = null) {
   const textFields = [
     "name",
     "slug",
+    "imageUrl",
     "addressLine1",
     "addressLine2",
     "city",
@@ -230,6 +232,9 @@ function normalizeServicePayload(body, existingService = null) {
   return {
     name,
     slug,
+    imageUrl: typeof body.imageUrl === "string"
+      ? body.imageUrl.trim()
+      : existingService?.imageUrl || "",
     description: typeof body.description === "string"
       ? body.description.trim()
       : existingService?.description || "",
@@ -258,6 +263,7 @@ function formatVendorService(service) {
     slug: service.slug,
     description: service.description,
     durationMinutes: service.durationMinutes,
+    imageUrl: service.imageUrl || "",
     allowBookingQuantity: service.allowBookingQuantity,
     bookingQuantityLabel: service.bookingQuantityLabel,
     manualPaymentRequired: service.manualPaymentRequired,
@@ -272,6 +278,39 @@ function formatVendorService(service) {
   };
 }
 
+async function normalizeLocationServicesPayload(body, existingService, tenant) {
+  if (!Array.isArray(body.locationServices)) {
+    return [];
+  }
+
+  const locations = await Promise.all(
+    body.locationServices.map(async (entry) => {
+      const locationSlug = normalizeRequestText(entry?.locationSlug);
+      if (!locationSlug) {
+        return null;
+      }
+      const location = await storeLocationRepository.findLocationByTenantAndSlug(tenant._id, locationSlug);
+      if (!location) {
+        const error = new Error(`Location not found for slug ${locationSlug}.`);
+        error.statusCode = 404;
+        throw error;
+      }
+      return {
+        tenantId: tenant._id,
+        locationId: location._id,
+        serviceId: existingService?._id || null,
+        capacity: Number(entry.capacity || 1),
+        isActive: entry.isActive !== false,
+        sortOrder: Number(entry.sortOrder || 0),
+        priceAmountCents: entry.priceAmountCents === undefined ? null : entry.priceAmountCents,
+        priceDisplay: entry.priceDisplay === undefined ? null : entry.priceDisplay
+      };
+    })
+  );
+
+  return locations.filter(Boolean);
+}
+
 module.exports = {
   buildPriceDisplay,
   formatLocation,
@@ -280,6 +319,7 @@ module.exports = {
   getLocationForTenant,
   normalizeCounterSlug,
   normalizeLocationPayload,
+  normalizeLocationServicesPayload,
   normalizeServicePayload,
   normalizeRequestText,
   normalizeTenantNotificationSettings

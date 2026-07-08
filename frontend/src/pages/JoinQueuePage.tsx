@@ -15,7 +15,7 @@ import {
   Title
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
-import { IconCheck, IconInfoCircle } from "@tabler/icons-react";
+import { IconArrowLeft, IconCheck, IconInfoCircle } from "@tabler/icons-react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type {
   JoinQueueRequest,
@@ -639,228 +639,238 @@ export default function JoinQueuePage() {
   }, [handleVerifyOtp, otp, otpCode, submitting]);
 
   return (
-    <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xl" className="finazze-join-layout">
-      <Paper className="finazze-auth-card finazze-join-card" p={{ base: "xl", md: 44 }}>
-        <Stack gap="md">
-          <Text className="finazze-section-label">Join queue</Text>
-          <Title order={1}>{pageTitle}</Title>
-          {locationName ? <Text fw={700}>{locationName}</Text> : null}
-          <Group gap="xs">
-            <Badge color={queueStateBadge.color} radius="xl" size="lg" variant="light">
-              {queueStateBadge.label}
-            </Badge>
-            <Text c="dimmed" size="sm">
-              {queueDayClosed
-                ? "Queue closed for the day"
-                : queueIntakePaused
-                  ? "New joins temporarily paused"
-                  : "Now accepting joins"}
+    <Stack className="finazze-join-shell" gap="lg">
+      <Button
+        color="dark"
+        component={Link}
+        leftSection={<IconArrowLeft size={16} />}
+        to={`/vendors/${tenantSlugValue}`}
+        variant="subtle"
+        w="fit-content"
+      >
+        Back to vendor
+      </Button>
+      <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xl" className="finazze-join-layout">
+        <Paper className="finazze-auth-card finazze-join-card" p={{ base: "xl", md: 44 }}>
+          <Stack gap="md">
+            <Text className="finazze-section-label">Join queue</Text>
+            <Title order={1}>{pageTitle}</Title>
+            {locationName ? <Text fw={700}>{locationName}</Text> : null}
+            <Group gap="xs">
+              <Badge color={queueStateBadge.color} radius="xl" size="lg" variant="light">
+                {queueStateBadge.label}
+              </Badge>
+              <Text c="dimmed" size="sm">
+                {queueDayClosed
+                  ? "Queue closed for the day"
+                  : queueIntakePaused
+                    ? "New joins temporarily paused"
+                    : "Now accepting joins"}
+              </Text>
+            </Group>
+            <Text c="dimmed">
+              Join online, then monitor your ticket live from the public board.
             </Text>
-          </Group>
-          <Text c="dimmed">
-            Join online, then monitor your ticket live from the public board.
-          </Text>
-          {user?.roles?.includes("customer") ? (
-            <Alert className="join-account-summary" color="teal" variant="light">
-              <Stack gap="md">
-                <div>
-                  <Text className="finazze-section-label">Profile details</Text>
-                  <Title order={3}>Signed in as {customerAccountName}</Title>
-                  <Text c="dimmed" mt={4} size="sm">
-                    We will reuse your saved contact details when possible. You can review your account history anytime from the account page.
-                  </Text>
-                </div>
-                <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-                  <Stack gap={2} className="join-account-summary-item">
-                    <Text fw={700}>Display name</Text>
-                    <Text c="dimmed">{user.name || "Customer account"}</Text>
-                  </Stack>
-                  <Stack gap={2} className="join-account-summary-item">
-                    <Text fw={700}>Email</Text>
-                    <Text c="dimmed">{customerAccountEmail || "No email on file"}</Text>
-                  </Stack>
-                  <Stack gap={2} className="join-account-summary-item">
-                    <Text fw={700}>Phone</Text>
-                    <Text c="dimmed">{user.phone || "No phone on file"}</Text>
-                  </Stack>
-                </SimpleGrid>
-                <Group gap="sm" wrap="wrap">
-                  <Button color="dark" size="xs" variant="light" onClick={restoreCustomerDetails} type="button">
-                    Use account details
-                  </Button>
-                  <Button component={Link} size="xs" to="/account/profile" variant="light">
-                    View account
-                  </Button>
-                </Group>
-              </Stack>
-            </Alert>
-          ) : null}
-          {!form.notifyByEmail ? (
-            <Text c="dimmed" size="sm">
-              Email verification is skipped when almost-next email alerts are off.
-            </Text>
-          ) : null}
-          {queueIntakePaused ? (
-            <Alert color="yellow" icon={<IconInfoCircle size={18} />} radius="md" variant="light">
-              We are temporarily pausing new joins for this queue while the team catches up with the current line.
-              {queueSnapshot?.queueDay?.pauseReason ? ` ${queueSnapshot.queueDay.pauseReason}.` : ""}
-              {" "}Please check back shortly.
-            </Alert>
-          ) : null}
-          {queueDayClosed ? (
-            <Alert color="red" icon={<IconInfoCircle size={18} />} radius="md" variant="light">
-              This queue is closed for the day.
-              {queueSnapshot?.queueDay?.closureReason ? ` ${queueSnapshot.queueDay.closureReason}.` : ""}
-              {" "}You can check the live board for updates on when service resumes.
-            </Alert>
-          ) : null}
-          {otp ? (
-            <form onSubmit={handleVerifyOtp}>
-              <Stack gap="md">
-                <Paper className="finazze-soft-panel" p="md">
-                  <Text className="finazze-section-label">Verification code</Text>
-                  <Text>
-                    We sent a 6-digit code to your {otp.deliveryChannel}{" "}
-                    {maskDeliveryTarget(otp.deliveryChannel, otp.deliveryTarget)}.
-                  </Text>
-                  <Text c="dimmed" size="sm">
-                    It expires at {formatDisplayTime(otp.expiresAt)}.
-                  </Text>
-                </Paper>
-                <PinInput
-                  aria-label="OTP"
-                  inputMode="numeric"
-                  length={6}
-                  name="otpCode"
-                  oneTimeCode
-                  size="lg"
-                  type="number"
-                  value={otpCode}
-                  onChange={(value) => setOtpCode(value.replace(/\D/g, ""))}
-                />
-                {error ? <Alert color="red">{error}</Alert> : null}
-                <Button
-                  color="dark"
-                  disabled={submitting || queueIntakePaused || queueDayClosed || otpCode.length !== 6}
-                  type="submit"
-                >
-                  {submitting
-                    ? "Verifying..."
-                    : "Verify and join queue"}
-                </Button>
-                <SimpleGrid cols={{ base: 1, sm: 2 }}>
-                  <Button
-                    color="dark"
-                    disabled={submitting || resendSecondsRemaining > 0}
-                    onClick={resendOtp}
-                    type="button"
-                    variant="outline"
-                  >
-                    {resendLabel}
-                  </Button>
-                  <Button
-                    color="dark"
-                    disabled={submitting}
-                    onClick={() => navigate("/")}
-                    type="button"
-                    variant="subtle"
-                  >
-                    Cancel
-                  </Button>
-                </SimpleGrid>
-              </Stack>
-            </form>
-          ) : (
-            <form onSubmit={handleSubmit}>
-              <Stack gap="md">
-                <TextInput
-                  name="customerName"
-                  required
-                  label="Name"
-                  description={customerDetailsDescription}
-                  value={form.customerName}
-                  onChange={(event) => setForm((current) => ({ ...current, customerName: event.target.value }))}
-                />
-                <TextInput
-                  name="customerEmail"
-                  label="Email"
-                  description={customerDetailsDescription}
-                  required={requiresEmail}
-                  type="email"
-                  value={form.customerEmail}
-                  onChange={(event) => setForm((current) => ({ ...current, customerEmail: event.target.value }))}
-                />
-                <PhilippineMobileInput
-                  name="customerPhone"
-                  label="Phone"
-                  description={customerDetailsDescription}
-                  required={requiresPhone}
-                  value={form.customerPhone}
-                  onChange={(nextValue) => setForm((current) => ({ ...current, customerPhone: nextValue }))}
-                />
-                <Textarea
-                  name="notes"
-                  label="Notes"
-                  minRows={3}
-                  value={form.notes}
-                  onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
-                />
-                <Checkbox
-                  name="notifyByEmail"
-                  checked={form.notifyByEmail}
-                  label="Email me when I am almost next in line"
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, notifyByEmail: event.target.checked }))
-                  }
-                />
-                {shouldUseTurnstile ? (
+            {user?.roles?.includes("customer") ? (
+              <Alert className="join-account-summary" color="teal" variant="light">
+                <Stack gap="md">
+                  <div>
+                    <Text className="finazze-section-label">Profile details</Text>
+                    <Title order={3}>Signed in as {customerAccountName}</Title>
+                    <Text c="dimmed" mt={4} size="sm">
+                      We will reuse your saved contact details when possible. You can review your account history anytime from the account page.
+                    </Text>
+                  </div>
+                  <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+                    <Stack gap={2} className="join-account-summary-item">
+                      <Text fw={700}>Display name</Text>
+                      <Text c="dimmed">{user.name || "Customer account"}</Text>
+                    </Stack>
+                    <Stack gap={2} className="join-account-summary-item">
+                      <Text fw={700}>Email</Text>
+                      <Text c="dimmed">{customerAccountEmail || "No email on file"}</Text>
+                    </Stack>
+                    <Stack gap={2} className="join-account-summary-item">
+                      <Text fw={700}>Phone</Text>
+                      <Text c="dimmed">{user.phone || "No phone on file"}</Text>
+                    </Stack>
+                  </SimpleGrid>
+                  <Group gap="sm" wrap="wrap">
+                    <Button color="dark" size="xs" variant="light" onClick={restoreCustomerDetails} type="button">
+                      Use account details
+                    </Button>
+                    <Button component={Link} size="xs" to="/account/profile" variant="light">
+                      View account
+                    </Button>
+                  </Group>
+                </Stack>
+              </Alert>
+            ) : null}
+            {!form.notifyByEmail ? (
+              <Text c="dimmed" size="sm">
+                Email verification is skipped when almost-next email alerts are off.
+              </Text>
+            ) : null}
+            {queueIntakePaused ? (
+              <Alert color="yellow" icon={<IconInfoCircle size={18} />} radius="md" variant="light">
+                We are temporarily pausing new joins for this queue while the team catches up with the current line.
+                {queueSnapshot?.queueDay?.pauseReason ? ` ${queueSnapshot.queueDay.pauseReason}.` : ""}
+                {" "}Please check back shortly.
+              </Alert>
+            ) : null}
+            {queueDayClosed ? (
+              <Alert color="red" icon={<IconInfoCircle size={18} />} radius="md" variant="light">
+                This queue is closed for the day.
+                {queueSnapshot?.queueDay?.closureReason ? ` ${queueSnapshot.queueDay.closureReason}.` : ""}
+                {" "}You can check the live board for updates on when service resumes.
+              </Alert>
+            ) : null}
+            {otp ? (
+              <form onSubmit={handleVerifyOtp}>
+                <Stack gap="md">
                   <Paper className="finazze-soft-panel" p="md">
-                    <div ref={turnstileContainerRef} />
+                    <Text className="finazze-section-label">Verification code</Text>
+                    <Text>
+                      We sent a 6-digit code to your {otp.deliveryChannel}{" "}
+                      {maskDeliveryTarget(otp.deliveryChannel, otp.deliveryTarget)}.
+                    </Text>
+                    <Text c="dimmed" size="sm">
+                      It expires at {formatDisplayTime(otp.expiresAt)}.
+                    </Text>
                   </Paper>
-                ) : null}
-                {error ? <Alert color="red">{error}</Alert> : null}
-                <Button
-                  color="dark"
-                  disabled={submitting || queueIntakePaused || queueDayClosed || (shouldUseTurnstile && !turnstileReady)}
-                  type="submit"
-                >
-                  {submitting
-                    ? canSkipOtp
-                      ? "Joining..."
-                      : "Sending code..."
-                    : canSkipOtp
-                      ? "Get priority number"
-                      : "Send verification code"}
-                </Button>
-              </Stack>
-            </form>
-          )}
-        </Stack>
-      </Paper>
+                  <PinInput
+                    aria-label="OTP"
+                    inputMode="numeric"
+                    length={6}
+                    name="otpCode"
+                    oneTimeCode
+                    size="lg"
+                    type="number"
+                    value={otpCode}
+                    onChange={(value) => setOtpCode(value.replace(/\D/g, ""))}
+                  />
+                  {error ? <Alert color="red">{error}</Alert> : null}
+                  <Button
+                    color="dark"
+                    disabled={submitting || queueIntakePaused || queueDayClosed || otpCode.length !== 6}
+                    type="submit"
+                  >
+                    {submitting ? "Verifying..." : "Verify and join queue"}
+                  </Button>
+                  <SimpleGrid cols={{ base: 1, sm: 2 }}>
+                    <Button
+                      color="dark"
+                      disabled={submitting || resendSecondsRemaining > 0}
+                      onClick={resendOtp}
+                      type="button"
+                      variant="outline"
+                    >
+                      {resendLabel}
+                    </Button>
+                    <Button
+                      color="dark"
+                      disabled={submitting}
+                      onClick={() => navigate("/")}
+                      type="button"
+                      variant="subtle"
+                    >
+                      Cancel
+                    </Button>
+                  </SimpleGrid>
+                </Stack>
+              </form>
+            ) : (
+              <form onSubmit={handleSubmit}>
+                <Stack gap="md">
+                  <TextInput
+                    name="customerName"
+                    required
+                    label="Name"
+                    description={customerDetailsDescription}
+                    value={form.customerName}
+                    onChange={(event) => setForm((current) => ({ ...current, customerName: event.target.value }))}
+                  />
+                  <TextInput
+                    name="customerEmail"
+                    label="Email"
+                    description={customerDetailsDescription}
+                    required={requiresEmail}
+                    type="email"
+                    value={form.customerEmail}
+                    onChange={(event) => setForm((current) => ({ ...current, customerEmail: event.target.value }))}
+                  />
+                  <PhilippineMobileInput
+                    name="customerPhone"
+                    label="Phone"
+                    description={customerDetailsDescription}
+                    required={requiresPhone}
+                    value={form.customerPhone}
+                    onChange={(nextValue) => setForm((current) => ({ ...current, customerPhone: nextValue }))}
+                  />
+                  <Textarea
+                    name="notes"
+                    label="Notes"
+                    minRows={3}
+                    value={form.notes}
+                    onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
+                  />
+                  <Checkbox
+                    name="notifyByEmail"
+                    checked={form.notifyByEmail}
+                    label="Email me when I am almost next in line"
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, notifyByEmail: event.target.checked }))
+                    }
+                  />
+                  {shouldUseTurnstile ? (
+                    <Paper className="finazze-soft-panel" p="md">
+                      <div ref={turnstileContainerRef} />
+                    </Paper>
+                  ) : null}
+                  {error ? <Alert color="red">{error}</Alert> : null}
+                  <Button
+                    color="dark"
+                    disabled={submitting || queueIntakePaused || queueDayClosed || (shouldUseTurnstile && !turnstileReady)}
+                    type="submit"
+                  >
+                    {submitting
+                      ? canSkipOtp
+                        ? "Joining..."
+                        : "Sending code..."
+                      : canSkipOtp
+                        ? "Get priority number"
+                        : "Send verification code"}
+                  </Button>
+                </Stack>
+              </form>
+            )}
+          </Stack>
+        </Paper>
 
-      <Paper className="finazze-auth-card finazze-join-side" p={{ base: "xl", md: 44 }}>
-        <Stack gap="lg">
-          <img
-            alt=""
-            className="join-side-art"
-            src="/illustrations/generated/customer-onboarding.png"
-          />
-          <Text className="finazze-section-label">What happens next</Text>
-          {[
-            ["1. Ticket issued instantly", "Your ticket number is generated immediately for this tenant."],
-            ["2. Monitor online", "After joining, you are redirected to a live board with your ticket highlighted."],
-            ["3. Near-turn notification", "Email alerts are sent when your turn is getting close, and browser notifications can be enabled in account settings."]
-          ].map(([title, text]) => (
-            <div key={title}>
-              <Title order={3}>{title}</Title>
-              <Text c="dimmed">{text}</Text>
-            </div>
-          ))}
-          <Button color="dark" component={Link} to={monitorPath} variant="subtle">
-            Open public board instead
-          </Button>
-        </Stack>
-      </Paper>
-    </SimpleGrid>
+        <Paper className="finazze-auth-card finazze-join-side" p={{ base: "xl", md: 44 }}>
+          <Stack gap="lg">
+            <img
+              alt=""
+              className="join-side-art"
+              src="/illustrations/generated/customer-onboarding.png"
+            />
+            <Text className="finazze-section-label">What happens next</Text>
+            {[
+              ["1. Ticket issued instantly", "Your ticket number is generated immediately for this tenant."],
+              ["2. Monitor online", "After joining, you are redirected to a live board with your ticket highlighted."],
+              ["3. Near-turn notification", "Email alerts are sent when your turn is getting close, and browser notifications can be enabled in account settings."]
+            ].map(([title, text]) => (
+              <div key={title}>
+                <Title order={3}>{title}</Title>
+                <Text c="dimmed">{text}</Text>
+              </div>
+            ))}
+            <Button color="dark" component={Link} to={monitorPath} variant="subtle">
+              Open public board instead
+            </Button>
+          </Stack>
+        </Paper>
+      </SimpleGrid>
+    </Stack>
   );
 }
