@@ -114,7 +114,27 @@ test("billing repository normalizes metadata, maps defaults, and activates subsc
           }
 
           if (String(query).includes("UPDATE tenant_subscriptions")) {
-            return { rows: [] };
+            return {
+              rows: [
+                {
+                  id: 20,
+                  tenant_id: 1,
+                  plan_slug: "pro",
+                  status: "active",
+                  provider: "manual",
+                  provider_customer_id: null,
+                  provider_subscription_id: null,
+                  provider_checkout_session_id: null,
+                  billing_interval: "monthly",
+                  current_period_start: new Date("2026-07-01T00:00:00.000Z"),
+                  current_period_end: null,
+                  entitlements: { locations: 3, staffSeats: 10 },
+                  metadata: {},
+                  created_at: new Date("2026-07-01T00:00:00.000Z"),
+                  updated_at: new Date("2026-07-01T00:00:00.000Z")
+                }
+              ]
+            };
           }
 
           if (String(query).includes("INSERT INTO tenant_subscriptions")) {
@@ -144,6 +164,12 @@ test("billing repository normalizes metadata, maps defaults, and activates subsc
           return { rows: [] };
         }
       }
+    },
+    "../services/subscriptionPlans": {
+      findPlanBySlug: async (slug) =>
+        slug === "pro"
+          ? { slug: "pro", entitlements: { locations: 3, staffSeats: 10 } }
+          : { slug, entitlements: { staffSeats: 5 } }
     }
   });
 
@@ -198,6 +224,13 @@ test("billing repository normalizes metadata, maps defaults, and activates subsc
     metadata: { source: "manual" }
   });
   assert.equal(activated._id, "20");
+
+  const updatedSubscription = await billingRepository.updateTenantSubscription(20, {
+    planSlug: "pro",
+    status: "active"
+  });
+  assert.equal(updatedSubscription.planSlug, "pro");
+  assert.deepEqual(updatedSubscription.entitlements, { locations: 3, staffSeats: 10 });
 
   assert.equal(calls.length >= 6, true);
 });
