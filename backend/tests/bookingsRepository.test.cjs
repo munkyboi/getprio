@@ -171,6 +171,38 @@ test("customer booking list supports pagination metadata", async () => {
   assert.equal(result.bookings[0]._id, "11");
 });
 
+test("customer booking list keeps pagination placeholders aligned when date filters are present", async () => {
+  const calls = [];
+  const bookingsRepository = requireWithMocks("../src/repositories/bookings.js", {
+    "../config/db": {
+      pool: {
+        query: async (query, params) => {
+          calls.push({ query, params });
+          if (/SELECT COUNT\(\*\)/.test(query)) {
+            return { rows: [{ count: 2 }] };
+          }
+          return { rows: [] };
+        }
+      }
+    }
+  });
+
+  await bookingsRepository.listBookingsForCustomer(11, {
+    page: 2,
+    pageSize: 5,
+    offset: 5,
+    scheduledDateFrom: "2026-07-01",
+    scheduledDateTo: "2026-07-31"
+  });
+
+  assert.equal(calls.length, 2);
+  assert.match(
+    calls[1].query,
+    /LIMIT \$4 OFFSET \$5/
+  );
+  assert.deepEqual(calls[1].params, [11, "2026-07-01", "2026-07-31", 5, 5]);
+});
+
 test("vendor booking list applies search filters and timezone-aware scheduled date range filters", async () => {
   const calls = [];
   const bookingsRepository = requireWithMocks("../src/repositories/bookings.js", {

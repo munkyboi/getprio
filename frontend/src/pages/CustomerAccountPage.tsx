@@ -49,8 +49,7 @@ import { buildJoinPath, buildJoinedQueuePathWithTicket } from "../queuePaths";
 import {
   formatBookingScheduleDate,
   formatBookingScheduleTimeRange,
-  formatDateTime,
-  formatDateInputValue
+  formatDateTime
 } from "../utils/dates";
 import { getErrorMessage } from "../utils/errors";
 import { isBrowserPushSupported, subscribeToBrowserPush } from "../utils/pushNotifications";
@@ -156,7 +155,7 @@ export default function CustomerAccountPage() {
   const [bookingPage, setBookingPage] = useState(1);
   const [bookingSearch, setBookingSearch] = useState("");
   const [bookingStatusFilter, setBookingStatusFilter] = useState<"all" | BookingStatus>("all");
-  const [bookingDateRange, setBookingDateRange] = useState<[Date | null, Date | null]>([null, null]);
+  const [bookingDateRange, setBookingDateRange] = useState<[string | null, string | null]>([null, null]);
   const browserNotificationsSupported = isBrowserPushSupported();
   const browserNotificationsSecure = typeof window !== "undefined" ? window.isSecureContext : false;
   const accountQuery = useQuery({
@@ -190,8 +189,8 @@ export default function CustomerAccountPage() {
       CUSTOMER_TABLE_PAGE_SIZE,
       bookingSearch,
       bookingStatusFilter,
-      bookingDateRange[0]?.toISOString() || "",
-      bookingDateRange[1]?.toISOString() || ""
+      bookingDateRange[0] || "",
+      bookingDateRange[1] || ""
     ],
     queryFn: async () => {
       if (!token) {
@@ -201,8 +200,8 @@ export default function CustomerAccountPage() {
       return customerAccountApi.getBookings(token, bookingPage, CUSTOMER_TABLE_PAGE_SIZE, {
         search: bookingSearch,
         status: bookingStatusFilter,
-        scheduledDateFrom: bookingDateRange[0] ? formatDateInputValue(bookingDateRange[0]) : "",
-        scheduledDateTo: bookingDateRange[1] ? formatDateInputValue(bookingDateRange[1]) : ""
+        scheduledDateFrom: bookingDateRange[0] || "",
+        scheduledDateTo: bookingDateRange[1] || ""
       });
     },
     enabled: Boolean(token && activeSection === "bookings")
@@ -564,7 +563,7 @@ export default function CustomerAccountPage() {
             placeholder="Select date range"
             type="range"
             value={bookingDateRange}
-            onChange={(value) => setBookingDateRange(value as [Date | null, Date | null])}
+            onChange={(value) => setBookingDateRange(value)}
           />
           {bookingDateRange[0] || bookingDateRange[1] || bookingSearch || bookingStatusFilter !== "all" ? (
             <Button
