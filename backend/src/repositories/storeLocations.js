@@ -91,12 +91,26 @@ function buildQueryClient(client) {
 }
 
 function normalizeSlug(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 80);
+  const input = String(value || "").trim().toLowerCase();
+  let slug = "";
+  let pendingDash = false;
+
+  for (const char of input) {
+    if ((char >= "a" && char <= "z") || (char >= "0" && char <= "9")) {
+      if (pendingDash && slug.length > 0) {
+        slug += "-";
+      }
+      slug += char;
+      pendingDash = false;
+      continue;
+    }
+
+    if (slug.length > 0) {
+      pendingDash = true;
+    }
+  }
+
+  return slug.slice(0, 80);
 }
 
 async function listLocationsByTenantId(tenantId, options = {}) {
@@ -219,7 +233,7 @@ async function createLocation(data, options = {}) {
         is_primary,
         is_active
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
       RETURNING ${LOCATION_COLUMNS}
     `,
     [
