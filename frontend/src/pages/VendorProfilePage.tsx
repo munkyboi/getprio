@@ -150,8 +150,8 @@ function LocationCardContent({
             </Text>
           </div>
           <Group gap="xs" wrap="nowrap">
-            {location.isPrimary ? <Badge color="orange" variant="light">Primary</Badge> : null}
-            {selected ? <Badge color="teal" variant="light">Selected</Badge> : null}
+            {location.isPrimary ? <Badge className="vendor-theme-badge vendor-theme-badge-primary" variant="light">Primary</Badge> : null}
+            {selected ? <Badge className="vendor-theme-badge vendor-theme-badge-secondary" variant="light">Selected</Badge> : null}
           </Group>
         </Group>
         <div className="vendor-hours-card">
@@ -261,6 +261,12 @@ export default function VendorProfilePage() {
         "--vendor-theme-button-bg": theme.buttonBackgroundColor,
         "--vendor-theme-button-text": theme.buttonTextColor,
         "--vendor-theme-button-border": theme.buttonBorderColor,
+        "--vendor-theme-pill-primary-bg": theme.buttonBackgroundColor,
+        "--vendor-theme-pill-primary-text": theme.buttonTextColor,
+        "--vendor-theme-pill-secondary-bg": theme.subheaderColor,
+        "--vendor-theme-pill-secondary-text": theme.pageBackgroundColor,
+        "--vendor-theme-pill-muted-bg": theme.bodyColor,
+        "--vendor-theme-pill-muted-text": theme.pageBackgroundColor,
         "--vendor-theme-button-border-width": theme.presetId === "sports" ? "0px" : "1px",
         "--vendor-theme-logo-bg": theme.cardBackgroundColor,
         ...(theme.pageBackgroundImageUrl
@@ -549,8 +555,8 @@ export default function VendorProfilePage() {
                   ))}
                 </Tabs>
               ) : (
-                <ScrollArea className="vendor-location-carousel" offsetScrollbars scrollbarSize={8} type="auto">
-                  <div className="vendor-location-carousel-track">
+                  <ScrollArea className="vendor-location-carousel" offsetScrollbars scrollbarSize={8} type="auto">
+                    <div className="vendor-location-carousel-track">
                     {vendor.locations.map((location) => (
                       <div className="vendor-location-carousel-slide" key={location.slug}>
                         <LocationCardContent
