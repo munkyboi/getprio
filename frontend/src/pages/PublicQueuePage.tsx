@@ -94,7 +94,7 @@ export default function PublicQueuePage() {
   const queueDayPaused = Boolean(snapshot?.queueDay?.isPaused);
   const theme = snapshot?.publicBoardTheme.theme;
   const businessName = snapshot?.tenant?.name || tenantSlugValue || "GetPrio";
-  const heroTitle = theme?.heroTitle || businessName;
+  const heroTitle = businessName;
   const heroSubtitle = getLocationSubtitle(snapshot, theme?.heroSubtitle || locationSlug || "Main location");
   const queueState = getQueueStateSummary(snapshot);
   const ticketState = getTicketStateSummary(snapshot?.focusTicket?.status);
@@ -273,12 +273,12 @@ export default function PublicQueuePage() {
                 </div>
               )}
             <div className="public-board-tv-title">
-              <h1>{heroTitle}</h1>
+              <h1>{businessName}</h1>
               <p>{heroSubtitle}</p>
             </div>
             <div className="public-board-tv-clock">
               <strong>{clockLabel}</strong>
-              <span>{locationState.label} - {queueState.label}</span>
+              <span>Location {locationState.label} · Queue {queueState.label}</span>
             </div>
           </header>
 

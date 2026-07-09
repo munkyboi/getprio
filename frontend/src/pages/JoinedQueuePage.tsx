@@ -188,7 +188,7 @@ export default function JoinedQueuePage() {
   const bodyColor = theme?.bodyColor || "#3f3027";
   const businessName = snapshot?.tenant?.name || tenantSlugValue;
   const locationName = snapshot?.location?.name || "Main location";
-  const heroTitle = theme?.heroTitle || businessName;
+  const heroTitle = businessName;
   const heroSubtitle = theme?.heroSubtitle || locationName;
   const queueState = getQueueStateSummary(snapshot);
   const ticketState = getTicketStateSummary(snapshot?.focusTicket?.status);
@@ -380,17 +380,18 @@ export default function JoinedQueuePage() {
   }
 
   return (
-    <Box style={pageStyle}>
-      {theme?.logoUrl ? (
-        <Box style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-          <Box
-            alt={`${heroTitle} logo`}
-            component="img"
-            src={theme.logoUrl}
-            style={{ width: 'min(240px, 20dvw)', objectFit: "contain", aspectRatio: 1.5 }}
-          />
+      <Box style={pageStyle}>
+      <Box className="public-board-header-brand">
+        {theme?.logoUrl ? (
+          <Box className="public-board-tv-logo public-board-tv-logo-round withImage">
+            <Box alt={`${businessName} logo`} component="img" src={theme.logoUrl} />
+          </Box>
+        ) : null}
+        <Box className="public-board-header-brand-copy">
+          <Text className="public-board-header-brand-name">{businessName}</Text>
+          {theme?.heroSubtitle ? <Text className="public-board-header-brand-subtitle">{theme.heroSubtitle}</Text> : null}
         </Box>
-      ) : null}
+      </Box>
       <Stack gap="lg" maw={1180} mx="auto">
         <Modal
           centered
