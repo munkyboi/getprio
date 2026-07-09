@@ -3,6 +3,7 @@ const db = require("../config/db");
 const tenantRepository = require("../repositories/tenants");
 const storeLocationRepository = require("../repositories/storeLocations");
 const vendorServiceRepository = require("../repositories/vendorServices");
+const locationServiceRepository = require("../repositories/locationServices");
 const vendorAvailabilityRepository = require("../repositories/vendorAvailability");
 const bookingOtpService = require("./bookingOtpService");
 const bookingSmsAlertPaymentService = require("./bookingSmsAlertPaymentService");
@@ -66,6 +67,14 @@ function getBookingDurationMinutes(service, bookingQuantity) {
 
 function getBookingCapacityServiceId(service, capacityScope = "service") {
   return service.bookingCapacityScope === "location" || capacityScope === "location" ? null : service._id;
+}
+
+async function getLocationServiceForBooking(tenantId, locationId, service) {
+  return locationServiceRepository.findLocationServiceByLocationAndServiceId(
+    tenantId,
+    locationId,
+    service._id
+  );
 }
 
 function normalizeServiceBookingQuantity(service, value) {
@@ -565,6 +574,12 @@ async function listBookingSlots({
     error.statusCode = 404;
     throw error;
   }
+  const locationService = await getLocationServiceForBooking(tenant._id, location._id, service);
+  if (!locationService || !locationService.isActive) {
+    const error = new Error("Service not available at this location.");
+    error.statusCode = 404;
+    throw error;
+  }
   const bookingQuantity = normalizeServiceBookingQuantity(service, bookingQuantityValue);
   await expirePendingBookingsForTenant(tenant._id);
 
@@ -605,7 +620,7 @@ async function listBookingSlots({
         continue;
       }
 
-      const capacity = decision.capacity || window.capacity || 1;
+      const capacity = decision.capacity || locationService.capacity || window.capacity || 1;
       const capacityScope = decision.capacityScope || window.capacityScope || "service";
       const activeCount = await bookingRepository.countOverlappingActiveBookings(tenant._id, {
         locationId: location._id,
@@ -712,6 +727,12 @@ async function createCustomerBooking({ user, body }) {
     error.statusCode = 404;
     throw error;
   }
+  const locationService = await getLocationServiceForBooking(tenant._id, location._id, service);
+  if (!locationService || !locationService.isActive) {
+    const error = new Error("Service not available at this location.");
+    error.statusCode = 404;
+    throw error;
+  }
   assertManualPaymentDestinationAvailable({ service, location });
   const bookingQuantity = normalizeServiceBookingQuantity(service, body.bookingQuantity);
   await expirePendingBookingsForTenant(tenant._id);
@@ -751,7 +772,7 @@ async function createCustomerBooking({ user, body }) {
     service,
     scheduledStartAt,
     scheduledEndAt,
-    capacity: decision.capacity || 1,
+    capacity: decision.capacity || locationService.capacity || 1,
     capacityScope: decision.capacityScope || "service"
   });
 

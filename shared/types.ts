@@ -206,6 +206,7 @@ export interface StoreLocationSummary {
   tenantId: string;
   name: string;
   slug: string;
+  imageUrl: string;
   addressLine1: string;
   addressLine2: string;
   city: string;
@@ -244,6 +245,7 @@ export interface VendorServiceSummary {
   slug: string;
   description: string;
   durationMinutes: number;
+  imageUrl: string;
   allowBookingQuantity: boolean;
   bookingQuantityLabel: string;
   manualPaymentRequired: boolean;
@@ -257,6 +259,20 @@ export interface VendorServiceSummary {
   updatedAt: string | Date;
 }
 
+export interface LocationServiceSummary {
+  id: string;
+  tenantId: string;
+  locationId: string;
+  serviceId: string;
+  capacity: number;
+  isActive: boolean;
+  sortOrder: number;
+  priceAmountCents: number | null;
+  priceDisplay: string | null;
+  createdAt: string | Date;
+  updatedAt: string | Date;
+}
+
 export interface VendorServicesResponse {
   services: VendorServiceSummary[];
 }
@@ -264,6 +280,7 @@ export interface VendorServicesResponse {
 export interface SaveVendorServiceRequest {
   name: string;
   slug?: string;
+  imageUrl?: string;
   description?: string;
   durationMinutes: number;
   allowBookingQuantity?: boolean;
@@ -274,10 +291,22 @@ export interface SaveVendorServiceRequest {
   priceDisplay?: string;
   isActive?: boolean;
   sortOrder?: number;
+  locationServices?: Array<{
+    locationSlug: string;
+    capacity: number;
+    isActive?: boolean;
+    sortOrder?: number;
+    priceAmountCents?: number | null;
+    priceDisplay?: string | null;
+  }>;
 }
 
 export interface VendorServiceResponse {
   service: VendorServiceSummary;
+}
+
+export interface LocationServicesResponse {
+  locationServices: LocationServiceSummary[];
 }
 
 export interface VendorAvailabilityBlockSummary {
@@ -313,6 +342,14 @@ export interface VendorAvailabilityExceptionSummary {
 export interface VendorAvailabilityResponse {
   blocks: VendorAvailabilityBlockSummary[];
   exceptions: VendorAvailabilityExceptionSummary[];
+  summary?: {
+    sharedBlocks: number;
+    serviceSpecificBlocks: number;
+    sharedExceptions: number;
+    serviceSpecificExceptions: number;
+    hasSharedLocationCapacity: boolean;
+    hasServiceSpecificCapacity: boolean;
+  };
 }
 
 export interface SaveVendorAvailabilityBlockRequest {
@@ -638,9 +675,18 @@ export interface BookingSmsPaymentSyncResponse {
   payment: BookingSmsPaymentSummary;
 }
 
-export type PublicBoardThemePresetId = "classic" | "neura" | "clinic";
+export type PublicBoardThemePresetId =
+  | "classic"
+  | "neura"
+  | "clinic"
+  | "sports"
+  | "wellness"
+  | "retail"
+  | "food"
+  | "generic";
 export type PublicBoardThemeAssetType = "background" | "logo";
 export type PublicBoardThemeScope = "fallback" | "tenant" | "location";
+export type PublicBoardThemeBackgroundFit = "cover" | "contain";
 
 export interface PublicBoardThemeSettings {
   presetId: PublicBoardThemePresetId;
@@ -648,6 +694,9 @@ export interface PublicBoardThemeSettings {
   heroSubtitle: string;
   logoUrl: string;
   backgroundImageUrl: string;
+  backgroundImageFit: PublicBoardThemeBackgroundFit;
+  pageBackgroundImageUrl: string;
+  pageBackgroundImageFit: PublicBoardThemeBackgroundFit;
   pageBackgroundColor: string;
   cardBackgroundColor: string;
   cardAlpha: number;
@@ -854,6 +903,7 @@ export interface RegisterCustomerRequest {
 export interface RegisterVendorRequest {
   tenantName: string;
   tenantSlug: string;
+  category: string;
   name: string;
   username: string;
   email: string;
@@ -864,6 +914,7 @@ export interface RegisterVendorRequest {
 export interface CompleteVendorOnboardingRequest {
   tenantName: string;
   tenantSlug: string;
+  category?: string;
   name: string;
   username?: string;
   email: string;
@@ -892,6 +943,7 @@ export interface PublicVendorLocation {
   country: string;
   isPrimary: boolean;
   hours: StoreHourSummary[];
+  imageUrl?: string;
 }
 
 export interface PublicVendorService {
@@ -905,6 +957,7 @@ export interface PublicVendorService {
   priceAmountCents: number;
   currency: "PHP";
   priceDisplay: string;
+  imageUrl?: string;
 }
 
 export interface PublicVendorProfile {
@@ -915,6 +968,7 @@ export interface PublicVendorProfile {
   imageUrl: string;
   services: PublicVendorService[];
   locations: PublicVendorLocation[];
+  locationServices?: LocationServiceSummary[];
   publicBoardTheme?: PublicBoardThemeResponse | null;
   location: {
     name: string;

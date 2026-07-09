@@ -2,7 +2,7 @@ CREATE TABLE IF NOT EXISTS public_board_assets (
   id BIGSERIAL PRIMARY KEY,
   tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   location_id BIGINT REFERENCES store_locations(id) ON DELETE SET NULL,
-  asset_type TEXT NOT NULL CHECK (asset_type IN ('background', 'logo')),
+  asset_type TEXT NOT NULL CHECK (asset_type IN ('background', 'logo', 'location', 'service')),
   object_key TEXT NOT NULL,
   public_url TEXT NOT NULL,
   file_name TEXT NOT NULL,

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert,
@@ -33,6 +33,7 @@ import {
   Text,
   TextInput,
   Textarea,
+  ThemeIcon,
   Title,
   Tooltip,
   Box
@@ -53,15 +54,21 @@ import {
   IconHomeStats,
   IconInfoCircle,
   IconLogout,
+  IconMapPin,
+  IconPhoto,
   IconPencil,
   IconQrcode,
+  IconSparkles,
+  IconTicket,
   IconTrash,
   IconX,
+  IconClock,
   IconSettings,
   IconUsersGroup
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
-import { addDays, differenceInMinutes } from "date-fns";
+import { useMediaQuery } from "@mantine/hooks";
+import { addDays, differenceInMinutes, getDay } from "date-fns";
 import QRCode from "react-qr-code";
 import { Navigate, NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
 import type {
@@ -87,6 +94,7 @@ import type {
   TenantNotificationSettings,
   VendorAvailabilityBlockSummary,
   VendorAvailabilityExceptionSummary,
+  VendorAvailabilityResponse,
   VendorBookingSummary,
   BookingSlotSummary,
   VendorClientsResponse,
@@ -145,6 +153,42 @@ function IconActionButton({
   );
 }
 
+function ModalHelpIcon({ label }: { label: string }) {
+  return (
+    <Tooltip label={label} withArrow multiline w={260}>
+      <ActionIcon aria-label={label} color="gray" size="sm" variant="subtle">
+        <IconInfoCircle size={14} />
+      </ActionIcon>
+    </Tooltip>
+  );
+}
+
+function ModalSection({
+  title,
+  description,
+  children
+}: {
+  title: string;
+  description: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Card withBorder radius="xl" p="md" className="service-dialog__panel vendor-location-modal__section">
+      <Stack gap="sm">
+        <div>
+          <Group gap="xs" align="center" wrap="nowrap">
+            <Text className="service-dialog__label">{title}</Text>
+          </Group>
+          <Text c="dimmed" size="sm" mt={4}>
+            {description}
+          </Text>
+        </div>
+        {children}
+      </Stack>
+    </Card>
+  );
+}
+
 function buildServiceSlug(value: string) {
   const source = String(value || "").trim().toLowerCase();
   let normalizedSlug = "";
@@ -168,6 +212,40 @@ function buildServiceSlug(value: string) {
   normalizedSlug = normalizedSlug.slice(0, 80);
 
   return normalizedSlug;
+}
+
+function toMinutes(value: string) {
+  const [hours = "0", minutes = "0"] = value.split(":");
+  return Number(hours) * 60 + Number(minutes);
+}
+
+function formatTimeLabel(value: string) {
+  const [hours = "0", minutes = "0"] = value.split(":");
+  const hour = Number(hours);
+  const suffix = hour >= 12 ? "PM" : "AM";
+  const displayHour = hour % 12 || 12;
+
+  return `${displayHour}:${minutes.padStart(2, "0")} ${suffix}`;
+}
+
+function formatPreviewHourRange(location: StoreLocationWithHours | null, weekday: number) {
+  const hour = location?.hours.find((entry) => entry.weekday === weekday);
+
+  if (!hour || hour.isClosed) {
+    return "Closed";
+  }
+
+  if (hour.opensAt === hour.closesAt) {
+    return "Open 24 hours";
+  }
+
+  if (!hour.opensAt || !hour.closesAt) {
+    return "Hours unavailable";
+  }
+
+  const overnightLabel = toMinutes(hour.closesAt) < toMinutes(hour.opensAt) ? " next day" : "";
+
+  return `${formatTimeLabel(hour.opensAt)} - ${formatTimeLabel(hour.closesAt)}${overnightLabel}`;
 }
 
 function buildCounterSlug(value: string) {
@@ -216,6 +294,7 @@ const defaultHours: StoreHourSummary[] = Array.from({ length: 7 }, (_, weekday) 
 const emptyLocationForm = {
   name: "",
   slug: "",
+  imageUrl: "",
   addressLine1: "",
   addressLine2: "",
   city: "",
@@ -240,6 +319,7 @@ const emptyServiceForm: SaveVendorServiceRequest = {
   slug: "",
   description: "",
   durationMinutes: 30,
+  imageUrl: "",
   allowBookingQuantity: false,
   bookingQuantityLabel: "Units",
   manualPaymentRequired: false,
@@ -247,7 +327,8 @@ const emptyServiceForm: SaveVendorServiceRequest = {
   priceAmountCents: 0,
   priceDisplay: "",
   isActive: true,
-  sortOrder: 0
+  sortOrder: 0,
+  locationServices: []
 };
 
 const emptyAvailabilityBlockForm: SaveVendorAvailabilityBlockRequest = {
@@ -289,6 +370,9 @@ const publicBoardThemePresets: Record<string, PublicBoardThemeSettings> = {
     heroSubtitle: "",
     logoUrl: "",
     backgroundImageUrl: "",
+    backgroundImageFit: "cover",
+    pageBackgroundImageUrl: "/theme-backgrounds/classic-brushed-warmth.svg",
+    pageBackgroundImageFit: "cover",
     pageBackgroundColor: "#f8efe3",
     cardBackgroundColor: "#fffaf4",
     cardAlpha: 0.9,
@@ -302,12 +386,147 @@ const publicBoardThemePresets: Record<string, PublicBoardThemeSettings> = {
     buttonTextColor: "#ffffff",
     buttonBorderColor: "#ea6a1f"
   },
+  generic: {
+    presetId: "generic",
+    heroTitle: "",
+    heroSubtitle: "",
+    logoUrl: "",
+    backgroundImageUrl: "",
+    backgroundImageFit: "cover",
+    pageBackgroundImageUrl: "/theme-backgrounds/generic-paper-glow.svg",
+    pageBackgroundImageFit: "cover",
+    pageBackgroundColor: "#fbf7f1",
+    cardBackgroundColor: "#fffaf4",
+    cardAlpha: 0.9,
+    cardBorderSize: 1,
+    cardBorderRadius: 28,
+    cardBorderColor: "#e6d8ca",
+    headerColor: "#24180f",
+    subheaderColor: "#8a6a52",
+    bodyColor: "#4b3a2f",
+    buttonBackgroundColor: "#ea6a1f",
+    buttonTextColor: "#ffffff",
+    buttonBorderColor: "#ea6a1f"
+  },
+  sports: {
+    presetId: "sports",
+    heroTitle: "",
+    heroSubtitle: "",
+    logoUrl: "",
+    backgroundImageUrl: "",
+    backgroundImageFit: "cover",
+    pageBackgroundImageUrl: "/theme-backgrounds/sports-recreation-halftone.svg",
+    pageBackgroundImageFit: "cover",
+    pageBackgroundColor: "#F6D600",
+    cardBackgroundColor: "#ffffff",
+    cardAlpha: 0.95,
+    cardBorderSize: 2,
+    cardBorderRadius: 24,
+    cardBorderColor: "#A3C1AD",
+    headerColor: "#003DA5",
+    subheaderColor: "#A50034",
+    bodyColor: "#1E2A36",
+    buttonBackgroundColor: "#003DA5",
+    buttonTextColor: "#ffffff",
+    buttonBorderColor: "#003DA5"
+  },
+  wellness: {
+    presetId: "wellness",
+    heroTitle: "",
+    heroSubtitle: "",
+    logoUrl: "",
+    backgroundImageUrl: "",
+    backgroundImageFit: "cover",
+    pageBackgroundImageUrl: "/theme-backgrounds/health-wellness-lotus.svg",
+    pageBackgroundImageFit: "cover",
+    pageBackgroundColor: "#F0F2F2",
+    cardBackgroundColor: "#FFF9F0",
+    cardAlpha: 0.94,
+    cardBorderSize: 1,
+    cardBorderRadius: 30,
+    cardBorderColor: "#73C7E3",
+    headerColor: "#2E4A70",
+    subheaderColor: "#24B0BA",
+    bodyColor: "#2E4A70",
+    buttonBackgroundColor: "#24B0BA",
+    buttonTextColor: "#ffffff",
+    buttonBorderColor: "#CF8A40"
+  },
+  retail: {
+    presetId: "retail",
+    heroTitle: "",
+    heroSubtitle: "",
+    logoUrl: "",
+    backgroundImageUrl: "",
+    backgroundImageFit: "cover",
+    pageBackgroundImageUrl: "/theme-backgrounds/retail-catalog-panels.svg",
+    pageBackgroundImageFit: "cover",
+    pageBackgroundColor: "#E0E7FF",
+    cardBackgroundColor: "#ffffff",
+    cardAlpha: 0.93,
+    cardBorderSize: 1,
+    cardBorderRadius: 22,
+    cardBorderColor: "#A5B4FC",
+    headerColor: "#1E1B4B",
+    subheaderColor: "#312E81",
+    bodyColor: "#312E81",
+    buttonBackgroundColor: "#F59E0B",
+    buttonTextColor: "#ffffff",
+    buttonBorderColor: "#312E81"
+  },
+  food: {
+    presetId: "food",
+    heroTitle: "",
+    heroSubtitle: "",
+    logoUrl: "",
+    backgroundImageUrl: "",
+    backgroundImageFit: "cover",
+    pageBackgroundImageUrl: "/theme-backgrounds/food-confetti-sprinkles.svg",
+    pageBackgroundImageFit: "cover",
+    pageBackgroundColor: "#FFC86F",
+    cardBackgroundColor: "#F3F0EF",
+    cardAlpha: 0.94,
+    cardBorderSize: 1,
+    cardBorderRadius: 24,
+    cardBorderColor: "#8DDDBD",
+    headerColor: "#3EA789",
+    subheaderColor: "#D13366",
+    bodyColor: "#4B4746",
+    buttonBackgroundColor: "#D13366",
+    buttonTextColor: "#ffffff",
+    buttonBorderColor: "#3EA789"
+  },
+  clinic: {
+    presetId: "clinic",
+    heroTitle: "",
+    heroSubtitle: "",
+    logoUrl: "",
+    backgroundImageUrl: "",
+    backgroundImageFit: "cover",
+    pageBackgroundImageUrl: "/theme-backgrounds/clinic-crosswave.svg",
+    pageBackgroundImageFit: "cover",
+    pageBackgroundColor: "#eef8f6",
+    cardBackgroundColor: "#ffffff",
+    cardAlpha: 0.92,
+    cardBorderSize: 1,
+    cardBorderRadius: 24,
+    cardBorderColor: "#c9e1dd",
+    headerColor: "#14342f",
+    subheaderColor: "#24756b",
+    bodyColor: "#28423d",
+    buttonBackgroundColor: "#0f766e",
+    buttonTextColor: "#ffffff",
+    buttonBorderColor: "#0f766e"
+  },
   neura: {
     presetId: "neura",
     heroTitle: "",
     heroSubtitle: "",
     logoUrl: "",
     backgroundImageUrl: "",
+    backgroundImageFit: "cover",
+    pageBackgroundImageUrl: "/theme-backgrounds/neura-signal-grid.svg",
+    pageBackgroundImageFit: "cover",
     pageBackgroundColor: "#eef1f5",
     cardBackgroundColor: "#ffffff",
     cardAlpha: 0.86,
@@ -321,28 +540,14 @@ const publicBoardThemePresets: Record<string, PublicBoardThemeSettings> = {
     buttonTextColor: "#ffffff",
     buttonBorderColor: "#11151c"
   },
-  clinic: {
-    presetId: "clinic",
-    heroTitle: "",
-    heroSubtitle: "",
-    logoUrl: "",
-    backgroundImageUrl: "",
-    pageBackgroundColor: "#eef8f6",
-    cardBackgroundColor: "#ffffff",
-    cardAlpha: 0.92,
-    cardBorderSize: 1,
-    cardBorderRadius: 24,
-    cardBorderColor: "#c9e1dd",
-    headerColor: "#14342f",
-    subheaderColor: "#24756b",
-    bodyColor: "#28423d",
-    buttonBackgroundColor: "#0f766e",
-    buttonTextColor: "#ffffff",
-    buttonBorderColor: "#0f766e"
-  }
 };
 
-const defaultPublicBoardTheme = publicBoardThemePresets.classic;
+const defaultPublicBoardTheme = publicBoardThemePresets.generic;
+const presetBackgroundImageUrls = new Set(
+  Object.values(publicBoardThemePresets)
+    .map((preset) => preset.pageBackgroundImageUrl)
+    .filter(Boolean)
+);
 
 type DashboardSection = "queue" | "tenants" | "services" | "bookings" | "staff" | "clients" | "history" | "reports" | "settings";
 type QueueView = "current" | "overflow" | "recovery";
@@ -534,20 +739,18 @@ function QueueIntakeGauge({
   );
 }
 
-function hexToRgba(hex: string, alpha: number): string {
-  const normalized = /^#[0-9a-f]{6}$/i.test(hex) ? hex : "#ffffff";
-  const value = normalized.replace("#", "");
-  const red = parseInt(value.slice(0, 2), 16);
-  const green = parseInt(value.slice(2, 4), 16);
-  const blue = parseInt(value.slice(4, 6), 16);
-
-  return `rgba(${red}, ${green}, ${blue}, ${Math.min(1, Math.max(0, alpha))})`;
-}
-
 function mergeTheme(theme?: Partial<PublicBoardThemeSettings>): PublicBoardThemeSettings {
-  return {
+  const merged = {
     ...defaultPublicBoardTheme,
     ...(theme || {})
+  };
+  const preset = publicBoardThemePresets[merged.presetId] || defaultPublicBoardTheme;
+
+  return {
+    ...merged,
+    backgroundImageFit: merged.backgroundImageFit || preset.backgroundImageFit,
+    pageBackgroundImageUrl: merged.pageBackgroundImageUrl || preset.pageBackgroundImageUrl,
+    pageBackgroundImageFit: merged.pageBackgroundImageFit || preset.pageBackgroundImageFit
   };
 }
 
@@ -631,6 +834,7 @@ export default function VendorDashboardPage() {
   const [services, setServices] = useState<VendorServiceSummary[]>([]);
   const [availabilityBlocks, setAvailabilityBlocks] = useState<VendorAvailabilityBlockSummary[]>([]);
   const [availabilityExceptions, setAvailabilityExceptions] = useState<VendorAvailabilityExceptionSummary[]>([]);
+  const [availabilitySummary, setAvailabilitySummary] = useState<VendorAvailabilityResponse["summary"] | null>(null);
   const [serviceCounters, setServiceCounters] = useState<ServiceCounterSummary[]>([]);
   const [staff, setStaff] = useState<VendorStaffSummary[]>([]);
   const [staffSeatLimit, setStaffSeatLimit] = useState(0);
@@ -644,6 +848,7 @@ export default function VendorDashboardPage() {
   const [locationSlugMessage, setLocationSlugMessage] = useState("");
   const [locationSlugAvailable, setLocationSlugAvailable] = useState(false);
   const [checkingLocationSlug, setCheckingLocationSlug] = useState(false);
+  const isMobileHoursLayout = useMediaQuery("(max-width: 48em)");
   const [paymentQrUploadFile, setPaymentQrUploadFile] = useState<File | null>(null);
   const [serviceDialogOpen, setServiceDialogOpen] = useState(false);
   const [editingServiceSlug, setEditingServiceSlug] = useState("");
@@ -806,6 +1011,17 @@ export default function VendorDashboardPage() {
       }
 
       return vendorDashboardCatalog.getServices(token, selectedTenantSlug);
+    },
+    enabled: Boolean(token && selectedTenantSlug && (isOwner || isAdmin))
+  });
+  const locationServicesQuery = useQuery({
+    queryKey: ["vendor-dashboard-location-services", token, selectedTenantSlug, isOwner, isAdmin],
+    queryFn: async () => {
+      if (!token || !selectedTenantSlug) {
+        throw new Error("Missing dashboard context.");
+      }
+
+      return vendorDashboardCatalog.getLocationServices(token, selectedTenantSlug);
     },
     enabled: Boolean(token && selectedTenantSlug && (isOwner || isAdmin))
   });
@@ -1023,6 +1239,7 @@ export default function VendorDashboardPage() {
 
     setAvailabilityBlocks(availabilityQuery.data.blocks);
     setAvailabilityExceptions(availabilityQuery.data.exceptions);
+    setAvailabilitySummary(availabilityQuery.data.summary || null);
   }, [availabilityQuery.data]);
 
   useEffect(() => {
@@ -2080,6 +2297,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   function openServiceDialog(service?: VendorServiceSummary) {
+    const locationServices = (locationServicesQuery.data?.locationServices || []).filter(
+      (entry) => service ? entry.serviceId === service.id : false
+    );
     setEditingServiceSlug(service?.slug || "");
     setEditingServiceId(service?.id || "");
     setServiceSlugManuallyEdited(Boolean(service?.slug));
@@ -2089,6 +2309,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     setServiceForm({
       name: service?.name || "",
       slug: service?.slug || "",
+      imageUrl: service?.imageUrl || "",
       description: service?.description || "",
       durationMinutes: service?.durationMinutes || 30,
       allowBookingQuantity: service?.allowBookingQuantity || false,
@@ -2098,7 +2319,18 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       priceAmountCents: service?.priceAmountCents || 0,
       priceDisplay: service?.priceDisplay || "",
       isActive: service?.isActive ?? true,
-      sortOrder: service?.sortOrder || 0
+      sortOrder: service?.sortOrder || 0,
+      locationServices: locations.map((location) => {
+        const existing = locationServices.find((entry) => entry.locationId === location.id);
+        return {
+          locationSlug: location.slug,
+          capacity: existing?.capacity || 1,
+          isActive: existing?.isActive ?? true,
+          sortOrder: existing?.sortOrder || 0,
+          priceAmountCents: existing?.priceAmountCents ?? null,
+          priceDisplay: existing?.priceDisplay ?? null
+        };
+      })
     });
     setServiceDialogOpen(true);
   }
@@ -2737,11 +2969,21 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       heroTitle: current.heroTitle,
       heroSubtitle: current.heroSubtitle,
       logoUrl: current.logoUrl,
-      backgroundImageUrl: current.backgroundImageUrl
+      backgroundImageUrl: current.backgroundImageUrl,
+      backgroundImageFit: current.backgroundImageFit || preset.backgroundImageFit,
+      pageBackgroundImageUrl:
+        current.pageBackgroundImageUrl && !presetBackgroundImageUrls.has(current.pageBackgroundImageUrl)
+          ? current.pageBackgroundImageUrl
+          : preset.pageBackgroundImageUrl,
+      pageBackgroundImageFit: current.pageBackgroundImageFit || preset.pageBackgroundImageFit
     }));
   }
 
-  async function uploadThemeAsset(assetType: "background" | "logo", file: File | null) {
+  async function uploadThemeAsset(
+    assetType: "background" | "logo",
+    file: File | null,
+    targetField: Extract<keyof PublicBoardThemeSettings, "backgroundImageUrl" | "pageBackgroundImageUrl" | "logoUrl"> = assetType === "logo" ? "logoUrl" : "backgroundImageUrl"
+  ) {
     if (!file || !themeLocation || !token) {
       return;
     }
@@ -2762,11 +3004,55 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         throw new Error("Upload completed without a usable asset URL.");
       }
 
-      setThemeField(assetType === "logo" ? "logoUrl" : "backgroundImageUrl", data.asset.publicUrl);
+      setThemeField(targetField, data.asset.publicUrl);
       showSuccessNotification(
         `${assetType === "logo" ? "Logo" : "Background"} uploaded`,
         "The image is ready to use in this public board theme."
       );
+    } catch (uploadError) {
+      setError(getErrorMessage(uploadError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function uploadLocationImage(file: File | null) {
+    if (!file || !locationForm.slug || !token) {
+      return;
+    }
+
+    setError("");
+    setBusyAction("location-image-upload");
+
+    try {
+      const data = await vendorDashboardOperations.uploadLocationMedia(token, selectedTenantSlug, locationForm.slug, file);
+      if (!data.asset?.publicUrl) {
+        throw new Error("Location image upload completed without a usable image URL.");
+      }
+      setLocationForm((current) => ({ ...current, imageUrl: data.asset.publicUrl }));
+      showSuccessNotification("Branch image uploaded", "The location image is ready to save with this branch.");
+    } catch (uploadError) {
+      setError(getErrorMessage(uploadError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function uploadServiceImage(file: File | null) {
+    if (!file || !selectedLocationSlug || !token) {
+      return;
+    }
+
+    setError("");
+    setBusyAction("service-image-upload");
+
+    try {
+      const data = await vendorDashboardOperations.uploadServiceMedia(token, selectedTenantSlug, selectedLocationSlug, file);
+      if (!data.asset?.publicUrl) {
+        throw new Error("Service image upload completed without a usable image URL.");
+      }
+      setServiceForm((current) => ({ ...current, imageUrl: data.asset.publicUrl }));
+      showSuccessNotification("Service image uploaded", "The service image is ready to save with this service.");
     } catch (uploadError) {
       setError(getErrorMessage(uploadError));
     } finally {
@@ -2914,257 +3200,416 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   function renderLocationDialog() {
     return (
       <Modal
+        className="vendor-location-modal"
         centered
         opened={locationDialogOpen}
         onClose={() => setLocationDialogOpen(false)}
         size="xl"
-        title={editingLocationSlug ? "Edit location" : "Add location"}
+        title={
+          <Stack gap={2}>
+            <Text className="service-dialog__modal-eyebrow">{editingLocationSlug ? "EDIT" : "ADD"} LOCATION</Text>
+            <Text className="service-dialog__modal-title">
+              {editingLocationSlug ? "Edit location" : "Add location"}
+            </Text>
+            <Text c="dimmed" size="sm">
+              Configure the branch profile, payment details, and hours that appear on the public queue pages.
+            </Text>
+          </Stack>
+        }
+        overlayProps={{ blur: 6, backgroundOpacity: 0.35 }}
+        scrollAreaComponent={ScrollArea.Autosize}
       >
-        <Stack gap="md">
-          <SimpleGrid cols={{ base: 1, md: 2 }}>
-            <TextInput
-              name="locationName"
-              label="Location name"
-              required
-              value={locationForm.name}
-              onChange={(event) => {
-                const nextName = event.target.value;
-                setLocationForm((current) => ({
-                  ...current,
-                  name: nextName,
-                  slug: locationSlugManuallyEdited ? current.slug : buildLocationSlug(nextName)
-                }));
-              }}
-            />
-            <TextInput
-              name="locationSlug"
-              label="Slug"
-              required
-              description={checkingLocationSlug ? "Checking slug availability..." : locationSlugMessage}
-              error={
-                !locationSlugAvailable && locationForm.slug
-                  ? locationSlugMessage || "That location slug is already taken for this vendor."
-                  : undefined
-              }
-              value={locationForm.slug}
-              onChange={(event) => {
-                setLocationSlugManuallyEdited(true);
-                setLocationForm((current) => ({ ...current, slug: buildLocationSlug(event.target.value) }));
-              }}
-            />
-            <TextInput
-              name="addressLine1"
-              label="Address line 1"
-              value={locationForm.addressLine1}
-              onChange={(event) =>
-                setLocationForm((current) => ({ ...current, addressLine1: event.target.value }))
-              }
-            />
-            <TextInput
-              name="addressLine2"
-              label="Address line 2"
-              value={locationForm.addressLine2}
-              onChange={(event) =>
-                setLocationForm((current) => ({ ...current, addressLine2: event.target.value }))
-              }
-            />
-            <TextInput
-              name="city"
-              label="City"
-              value={locationForm.city}
-              onChange={(event) =>
-                setLocationForm((current) => ({ ...current, city: event.target.value }))
-              }
-            />
-            <TextInput
-              name="province"
-              label="Province"
-              value={locationForm.province}
-              onChange={(event) =>
-                setLocationForm((current) => ({ ...current, province: event.target.value }))
-              }
-            />
-            <TextInput
-              name="locationContactEmail"
-              label="Contact email"
-              value={locationForm.contactEmail}
-              onChange={(event) =>
-                setLocationForm((current) => ({ ...current, contactEmail: event.target.value }))
-              }
-            />
-            <PhilippineMobileInput
-              name="locationContactPhone"
-              label="Contact phone"
-              value={locationForm.contactPhone}
-              onChange={(nextValue) =>
-                setLocationForm((current) => ({ ...current, contactPhone: nextValue }))
-              }
-            />
-            <TextInput
-              name="timezone"
-              label="Timezone"
-              value={locationForm.timezone}
-              onChange={(event) =>
-                setLocationForm((current) => ({ ...current, timezone: event.target.value }))
-              }
-            />
-          </SimpleGrid>
-          <Divider label="Manual payment QR" labelPosition="left" />
-          <SimpleGrid cols={{ base: 1, md: 2 }}>
-            <TextInput
-              name="paymentMethodLabel"
-              label="Payment method"
-              placeholder="GCash, Maya, BPI InstaPay"
-              value={locationForm.paymentMethodLabel}
-              onChange={(event) =>
-                setLocationForm((current) => ({ ...current, paymentMethodLabel: event.target.value }))
-              }
-            />
-            <TextInput
-              name="paymentAccountDisplayName"
-              label="Account display name"
-              placeholder="Business or account name"
-              value={locationForm.paymentAccountDisplayName}
-              onChange={(event) =>
-                setLocationForm((current) => ({ ...current, paymentAccountDisplayName: event.target.value }))
-              }
-            />
-            <TextInput
-              name="paymentAccountIdentifierDisplay"
-              label="Masked account identifier"
-              placeholder="0917 *** 1234 or account suffix"
-              value={locationForm.paymentAccountIdentifierDisplay}
-              onChange={(event) =>
-                setLocationForm((current) => ({
-                  ...current,
-                  paymentAccountIdentifierDisplay: event.target.value
-                }))
-              }
-            />
-            <Stack gap="xs">
+        <Stack gap="md" pb="sm">
+          <ModalSection
+            title="Location profile"
+            description="These details identify the branch and shape how customers find it on the public queue pages."
+          >
+            <SimpleGrid cols={{ base: 1, md: 2 }}>
               <FileInput
-                accept="image/jpeg,image/png,image/webp"
+                accept="image/png,image/jpeg,image/webp"
                 clearable
-                disabled={busyAction === "payment-qr-upload"}
-                label="QR image"
-                leftSection={<IconQrcode size={16} />}
-                onChange={(file) => {
-                  setPaymentQrUploadFile(file);
-                  void uploadLocationPaymentQr(file);
-                }}
-                placeholder={locationForm.paymentQrImageUrl ? "Replace QR image" : "Upload QR image"}
-                value={paymentQrUploadFile}
+                label="Branch image"
+                placeholder={locationForm.imageUrl ? "Replace branch image" : "Upload branch image"}
+                disabled={busyAction === "location-image-upload"}
+                onChange={(file) => uploadLocationImage(file)}
               />
-              {locationForm.paymentQrImageUrl ? (
-                <Image
-                  alt="Payment QR preview"
-                  fit="contain"
-                  h={120}
-                  radius="sm"
-                  src={locationForm.paymentQrImageUrl}
-                  w={120}
+              <TextInput
+                label="Branch image URL"
+                value={locationForm.imageUrl || ""}
+                onChange={(event) => setLocationForm((current) => ({ ...current, imageUrl: event.target.value }))}
+              />
+              {locationForm.imageUrl ? <Image alt="" h={120} radius="md" src={locationForm.imageUrl} /> : null}
+              <TextInput
+                name="locationName"
+                label="Location name"
+                required
+                description="Shown to customers and staff as the branch display name."
+                value={locationForm.name}
+                onChange={(event) => {
+                  const nextName = event.target.value;
+                  setLocationForm((current) => ({
+                    ...current,
+                    name: nextName,
+                    slug: locationSlugManuallyEdited ? current.slug : buildLocationSlug(nextName)
+                  }));
+                }}
+              />
+              <TextInput
+                name="locationSlug"
+                label={
+                  <Group gap={6} wrap="nowrap">
+                    <Text span size="sm" fw={500}>
+                      Slug
+                    </Text>
+                    <ModalHelpIcon label="This becomes part of the public URL for the location. Keep it short, lowercase, and URL-safe." />
+                  </Group>
+                }
+                required
+                description={checkingLocationSlug ? "Checking slug availability..." : locationSlugMessage}
+                error={
+                  !locationSlugAvailable && locationForm.slug
+                    ? locationSlugMessage || "That location slug is already taken for this vendor."
+                    : undefined
+                }
+                value={locationForm.slug}
+                onChange={(event) => {
+                  setLocationSlugManuallyEdited(true);
+                  setLocationForm((current) => ({ ...current, slug: buildLocationSlug(event.target.value) }));
+                }}
+              />
+              <TextInput
+                name="addressLine1"
+                label="Address line 1"
+                description="Street address or landmark for the branch."
+                value={locationForm.addressLine1}
+                onChange={(event) =>
+                  setLocationForm((current) => ({ ...current, addressLine1: event.target.value }))
+                }
+              />
+              <TextInput
+                name="addressLine2"
+                label="Address line 2"
+                description="Optional unit, floor, or building detail."
+                value={locationForm.addressLine2}
+                onChange={(event) =>
+                  setLocationForm((current) => ({ ...current, addressLine2: event.target.value }))
+                }
+              />
+              <TextInput
+                name="city"
+                label="City"
+                value={locationForm.city}
+                onChange={(event) =>
+                  setLocationForm((current) => ({ ...current, city: event.target.value }))
+                }
+              />
+              <TextInput
+                name="province"
+                label="Province"
+                value={locationForm.province}
+                onChange={(event) =>
+                  setLocationForm((current) => ({ ...current, province: event.target.value }))
+                }
+              />
+              <TextInput
+                name="locationContactEmail"
+                label="Contact email"
+                description="Used for location-specific inquiries and notifications."
+                value={locationForm.contactEmail}
+                onChange={(event) =>
+                  setLocationForm((current) => ({ ...current, contactEmail: event.target.value }))
+                }
+              />
+              <PhilippineMobileInput
+                name="locationContactPhone"
+                label="Contact phone"
+                description="Displayed to customers when contact details are needed."
+                value={locationForm.contactPhone}
+                onChange={(nextValue) =>
+                  setLocationForm((current) => ({ ...current, contactPhone: nextValue }))
+                }
+              />
+              <TextInput
+                name="timezone"
+                label="Timezone"
+                description="Used for public hours and queue timing."
+                value={locationForm.timezone}
+                onChange={(event) =>
+                  setLocationForm((current) => ({ ...current, timezone: event.target.value }))
+                }
+              />
+            </SimpleGrid>
+          </ModalSection>
+
+          <ModalSection
+            title="Payment QR"
+            description="Optional manual payment details shown when this branch accepts QR-based payments."
+          >
+            <SimpleGrid cols={{ base: 1, md: 2 }}>
+              <TextInput
+                name="paymentMethodLabel"
+                label={
+                  <Group gap={6} wrap="nowrap">
+                    <Text span size="sm" fw={500}>
+                      Payment method
+                    </Text>
+                    <ModalHelpIcon label="Examples: GCash, Maya, or BPI InstaPay. This is a display label, not a payment processor setting." />
+                  </Group>
+                }
+                placeholder="GCash, Maya, BPI InstaPay"
+                value={locationForm.paymentMethodLabel}
+                onChange={(event) =>
+                  setLocationForm((current) => ({ ...current, paymentMethodLabel: event.target.value }))
+                }
+              />
+              <TextInput
+                name="paymentAccountDisplayName"
+                label="Account display name"
+                description="Business or account holder name shown beside the QR code."
+                placeholder="Business or account name"
+                value={locationForm.paymentAccountDisplayName}
+                onChange={(event) =>
+                  setLocationForm((current) => ({ ...current, paymentAccountDisplayName: event.target.value }))
+                }
+              />
+              <TextInput
+                name="paymentAccountIdentifierDisplay"
+                label={
+                  <Group gap={6} wrap="nowrap">
+                    <Text span size="sm" fw={500}>
+                      Masked account identifier
+                    </Text>
+                    <ModalHelpIcon label="Use a partially hidden account number or suffix so customers can verify they are paying the right account without exposing the full value." />
+                  </Group>
+                }
+                placeholder="0917 *** 1234 or account suffix"
+                value={locationForm.paymentAccountIdentifierDisplay}
+                onChange={(event) =>
+                  setLocationForm((current) => ({
+                    ...current,
+                    paymentAccountIdentifierDisplay: event.target.value
+                  }))
+                }
+              />
+              <Stack gap="xs">
+                <FileInput
+                  accept="image/jpeg,image/png,image/webp"
+                  clearable
+                  disabled={busyAction === "payment-qr-upload"}
+                  label="QR image"
+                  leftSection={<IconQrcode size={16} />}
+                  description="Upload the QR code image customers should scan."
+                  onChange={(file) => {
+                    setPaymentQrUploadFile(file);
+                    void uploadLocationPaymentQr(file);
+                  }}
+                  placeholder={locationForm.paymentQrImageUrl ? "Replace QR image" : "Upload QR image"}
+                  value={paymentQrUploadFile}
                 />
-              ) : null}
-            </Stack>
-          </SimpleGrid>
-          <Switch
-            name="paymentQrActive"
-            checked={locationForm.paymentQrActive}
-            label="Enable manual payment QR for this location"
-            onChange={(event) =>
-              setLocationForm((current) => ({ ...current, paymentQrActive: event.currentTarget.checked }))
-            }
-          />
-          <Group>
+                {locationForm.paymentQrImageUrl ? (
+                  <Image
+                    alt="Payment QR preview"
+                    fit="contain"
+                    h={120}
+                    radius="sm"
+                    src={locationForm.paymentQrImageUrl}
+                    w={120}
+                  />
+                ) : null}
+              </Stack>
+            </SimpleGrid>
             <Switch
-              name="isActiveLocation"
-              checked={locationForm.isActive}
-              label="Enable location"
+              name="paymentQrActive"
+              checked={locationForm.paymentQrActive}
+              label="Enable manual payment QR for this location"
+              description="Only turn this on if customers should see QR payment details for this branch."
               onChange={(event) =>
-                setLocationForm((current) => ({ ...current, isActive: event.currentTarget.checked }))
+                setLocationForm((current) => ({ ...current, paymentQrActive: event.currentTarget.checked }))
               }
             />
-            <Checkbox
-              name="isPrimaryLocation"
-              checked={locationForm.isPrimary}
-              label="Primary location"
-              onChange={(event) =>
-                setLocationForm((current) => ({ ...current, isPrimary: event.target.checked }))
-              }
-            />
-          </Group>
-          <Table.ScrollContainer minWidth={700}>
-            <Table>
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>Day</Table.Th>
-                  <Table.Th>Closed</Table.Th>
-                  <Table.Th>Opens</Table.Th>
-                  <Table.Th>Closes</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {locationForm.hours.map((hour) => (
-                  <Table.Tr key={hour.weekday}>
-                    <Table.Td>{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][hour.weekday]}</Table.Td>
-                    <Table.Td>
-                      <Checkbox
-                        name={`hours.${hour.weekday}.isClosed`}
-                        checked={hour.isClosed}
-                        onChange={(event) =>
-                          setLocationForm((current) => ({
-                            ...current,
-                            hours: current.hours.map((item) =>
-                              item.weekday === hour.weekday
-                                ? { ...item, isClosed: event.target.checked }
-                                : item
-                            )
-                          }))
-                        }
-                      />
-                    </Table.Td>
-                    <Table.Td>
-                      <TextInput
-                        name={`hours.${hour.weekday}.opensAt`}
-                        disabled={hour.isClosed}
-                        type="time"
-                        value={hour.opensAt}
-                        onChange={(event) =>
-                          setLocationForm((current) => ({
-                            ...current,
-                            hours: current.hours.map((item) =>
-                              item.weekday === hour.weekday
-                                ? { ...item, opensAt: event.target.value }
-                                : item
-                            )
-                          }))
-                        }
-                      />
-                    </Table.Td>
-                    <Table.Td>
-                      <TextInput
-                        name={`hours.${hour.weekday}.closesAt`}
-                        disabled={hour.isClosed}
-                        type="time"
-                        value={hour.closesAt}
-                        onChange={(event) =>
-                          setLocationForm((current) => ({
-                            ...current,
-                            hours: current.hours.map((item) =>
-                              item.weekday === hour.weekday
-                                ? { ...item, closesAt: event.target.value }
-                                : item
-                            )
-                          }))
-                        }
-                      />
-                    </Table.Td>
-                  </Table.Tr>
-                ))}
-              </Table.Tbody>
-            </Table>
-          </Table.ScrollContainer>
-          <Group justify="flex-end">
+          </ModalSection>
+
+          <ModalSection
+            title="Visibility and access"
+            description="These switches control whether the branch is active and whether it is treated as the main location."
+          >
+            <Group align="flex-start" wrap="wrap">
+              <Switch
+                name="isActiveLocation"
+                checked={locationForm.isActive}
+                label="Enable location"
+                description="Inactive locations stay saved but are hidden from normal use."
+                onChange={(event) =>
+                  setLocationForm((current) => ({ ...current, isActive: event.currentTarget.checked }))
+                }
+              />
+              <Checkbox
+                name="isPrimaryLocation"
+                checked={locationForm.isPrimary}
+                label={
+                  <Group gap={6} wrap="nowrap">
+                    <Text span size="sm" fw={500}>
+                      Primary location
+                    </Text>
+                    <ModalHelpIcon label="The primary location is used as the default branch in public and dashboard flows when no specific location is selected." />
+                  </Group>
+                }
+                onChange={(event) =>
+                  setLocationForm((current) => ({ ...current, isPrimary: event.target.checked }))
+                }
+              />
+            </Group>
+          </ModalSection>
+
+          <ModalSection
+            title="Store hours"
+            description="Set the default operating hours customers should see. Closed days hide the time inputs on mobile."
+          >
+            {isMobileHoursLayout ? (
+              <Stack gap="sm">
+                {locationForm.hours.map((hour) => {
+                  const dayLabel = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][hour.weekday];
+
+                  return (
+                    <Card key={hour.weekday} withBorder radius="lg" p="sm">
+                      <Stack gap="sm">
+                        <Group justify="space-between" align="flex-start">
+                          <Text fw={700}>{dayLabel}</Text>
+                          <Checkbox
+                            name={`hours.${hour.weekday}.isClosed`}
+                            checked={hour.isClosed}
+                            label="Closed"
+                            description="Hide opening and closing times for this day."
+                            onChange={(event) =>
+                              setLocationForm((current) => ({
+                                ...current,
+                                hours: current.hours.map((item) =>
+                                  item.weekday === hour.weekday
+                                    ? { ...item, isClosed: event.target.checked }
+                                    : item
+                                )
+                              }))
+                            }
+                          />
+                        </Group>
+                        {!hour.isClosed ? (
+                          <SimpleGrid cols={2} spacing="sm">
+                            <TextInput
+                              name={`hours.${hour.weekday}.opensAt`}
+                              label="Opens"
+                              type="time"
+                              value={hour.opensAt}
+                              onChange={(event) =>
+                                setLocationForm((current) => ({
+                                  ...current,
+                                  hours: current.hours.map((item) =>
+                                    item.weekday === hour.weekday
+                                      ? { ...item, opensAt: event.target.value }
+                                      : item
+                                  )
+                                }))
+                              }
+                            />
+                            <TextInput
+                              name={`hours.${hour.weekday}.closesAt`}
+                              label="Closes"
+                              type="time"
+                              value={hour.closesAt}
+                              onChange={(event) =>
+                                setLocationForm((current) => ({
+                                  ...current,
+                                  hours: current.hours.map((item) =>
+                                    item.weekday === hour.weekday
+                                      ? { ...item, closesAt: event.target.value }
+                                      : item
+                                  )
+                                }))
+                              }
+                            />
+                          </SimpleGrid>
+                        ) : null}
+                      </Stack>
+                    </Card>
+                  );
+                })}
+              </Stack>
+            ) : (
+              <ScrollArea offsetScrollbars type="auto">
+                <Box miw={700} pb="xs">
+                  <Table>
+                    <Table.Thead>
+                      <Table.Tr>
+                        <Table.Th>Day</Table.Th>
+                        <Table.Th>Closed</Table.Th>
+                        <Table.Th>Opens</Table.Th>
+                        <Table.Th>Closes</Table.Th>
+                      </Table.Tr>
+                    </Table.Thead>
+                    <Table.Tbody>
+                      {locationForm.hours.map((hour) => (
+                        <Table.Tr key={hour.weekday}>
+                          <Table.Td>{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][hour.weekday]}</Table.Td>
+                          <Table.Td>
+                            <Checkbox
+                              name={`hours.${hour.weekday}.isClosed`}
+                              checked={hour.isClosed}
+                              onChange={(event) =>
+                                setLocationForm((current) => ({
+                                  ...current,
+                                  hours: current.hours.map((item) =>
+                                    item.weekday === hour.weekday
+                                      ? { ...item, isClosed: event.target.checked }
+                                      : item
+                                  )
+                                }))
+                              }
+                            />
+                          </Table.Td>
+                          <Table.Td>
+                            <TextInput
+                              name={`hours.${hour.weekday}.opensAt`}
+                              disabled={hour.isClosed}
+                              type="time"
+                              value={hour.opensAt}
+                              onChange={(event) =>
+                                setLocationForm((current) => ({
+                                  ...current,
+                                  hours: current.hours.map((item) =>
+                                    item.weekday === hour.weekday
+                                      ? { ...item, opensAt: event.target.value }
+                                      : item
+                                  )
+                                }))
+                              }
+                            />
+                          </Table.Td>
+                          <Table.Td>
+                            <TextInput
+                              name={`hours.${hour.weekday}.closesAt`}
+                              disabled={hour.isClosed}
+                              type="time"
+                              value={hour.closesAt}
+                              onChange={(event) =>
+                                setLocationForm((current) => ({
+                                  ...current,
+                                  hours: current.hours.map((item) =>
+                                    item.weekday === hour.weekday
+                                      ? { ...item, closesAt: event.target.value }
+                                      : item
+                                  )
+                                }))
+                              }
+                            />
+                        </Table.Td>
+                      </Table.Tr>
+                    ))}
+                  </Table.Tbody>
+                </Table>
+              </Box>
+            </ScrollArea>
+            )}
+          </ModalSection>
+          <Group justify="flex-end" className="service-dialog__footer">
             <Button variant="default" onClick={() => setLocationDialogOpen(false)}>
               Cancel
             </Button>
@@ -3827,90 +4272,196 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   function renderThemePreview() {
     const previewLocation = themeLocation || selectedLocation;
-    const cardStyle = {
-      backgroundColor: hexToRgba(themeForm.cardBackgroundColor, themeForm.cardAlpha),
-      border: `${themeForm.cardBorderSize}px solid ${themeForm.cardBorderColor}`,
-      borderRadius: themeForm.cardBorderRadius
-    };
+    const selectedTenant = user?.tenants.find((tenant) => tenant.slug === selectedTenantSlug);
+    const previewVendorName = snapshot?.tenant.name || selectedTenant?.name || "Public vendor";
+    const previewLocationLabel = previewLocation
+      ? [previewLocation.name, previewLocation.city, previewLocation.province].filter(Boolean).join(", ") ||
+        previewLocation.country ||
+        "Main location"
+      : "Main location";
+    const previewHoursLabel = formatPreviewHourRange(previewLocation, getDay(new Date()));
+    const themeStyle = {
+      "--vendor-theme-page-bg": themeForm.pageBackgroundColor,
+      "--vendor-theme-card-bg": themeForm.cardBackgroundColor,
+      "--vendor-theme-card-alpha": String(themeForm.cardAlpha),
+      "--vendor-theme-card-border": themeForm.cardBorderColor,
+      "--vendor-theme-header": themeForm.headerColor,
+      "--vendor-theme-subheader": themeForm.subheaderColor,
+      "--vendor-theme-body": themeForm.bodyColor,
+      "--vendor-theme-button-bg": themeForm.buttonBackgroundColor,
+      "--vendor-theme-button-text": themeForm.buttonTextColor,
+      "--vendor-theme-button-border": themeForm.buttonBorderColor,
+      "--vendor-theme-button-border-width": themeForm.presetId === "sports" ? "0px" : "1px",
+      "--vendor-theme-logo-bg": themeForm.cardBackgroundColor,
+      ...(themeForm.pageBackgroundImageUrl
+        ? {
+            "--vendor-theme-page-image": `url(${themeForm.pageBackgroundImageUrl})`,
+            "--vendor-theme-page-image-position": "center",
+            "--vendor-theme-page-image-repeat": "no-repeat",
+            "--vendor-theme-page-image-size": themeForm.pageBackgroundImageFit
+          }
+        : {})
+    } as CSSProperties;
+    const themedMediaStyle: CSSProperties | undefined = themeForm.backgroundImageUrl
+      ? {
+          backgroundImage: `linear-gradient(rgba(255,255,255,0.08), rgba(255,255,255,0.08)), url(${themeForm.backgroundImageUrl})`,
+          backgroundPosition: "center",
+          backgroundRepeat: "no-repeat",
+          backgroundSize: themeForm.backgroundImageFit
+        }
+      : undefined;
+    const heroJoinUrl = previewLocation ? buildJoinUrl(window.location.origin, selectedTenantSlug, previewLocation.slug) : "";
 
     return (
-      <Paper
-        p="xl"
-        style={{
-          minHeight: 620,
-          color: themeForm.bodyColor,
-          backgroundColor: themeForm.pageBackgroundColor,
-          backgroundImage: themeForm.backgroundImageUrl
-            ? `linear-gradient(rgba(255,255,255,0.42), rgba(255,255,255,0.42)), url(${themeForm.backgroundImageUrl})`
-            : undefined,
-          backgroundSize: "cover",
-          backgroundPosition: "center"
-        }}
-      >
-        <Stack gap="md">
-            {themeForm?.logoUrl ? (
-              <Box style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-                <Box
-                  alt="Company logo preview"
-                  component="img"
-                  src={themeForm.logoUrl}
-                  style={{ width: 'min(240px, 20dvw)', objectFit: "contain", aspectRatio: 1.5 }}
-                />
-              </Box>
-            ) : null}
-          <Paper p="xl" style={cardStyle}>
-            <Group justify="space-between" align="flex-start">
+      <Stack className="vendor-profile-page" gap="xl" style={themeStyle}>
+        <Paper className="vendor-hero-shell" p={{ base: "lg", md: "xl" }}>
+          <SimpleGrid cols={{ base: 1, lg: 2 }} spacing={{ base: "xl", lg: 48 }}>
+            <Stack gap="lg" justify="center">
               <div>
-                <Text size="xs" tt="uppercase" fw={800} c={themeForm.subheaderColor} lts={1.6}>
-                  Live public board
-                </Text>
-                <Title order={1} c={themeForm.headerColor}>
-                  {themeForm.heroTitle || previewLocation?.name || snapshot?.tenant.name || "Public board"}
-                </Title>
-                <Title c={themeForm.headerColor} order={2} style={{ fontSize: "clamp(2rem, 4vw, 3rem)" }}>
-                {themeForm.heroSubtitle ||
-                    "Customers can monitor their turn remotely and join the line online."}
-                </Title>
+                <Group gap="sm" wrap="wrap">
+                  <Badge className="vendor-theme-badge vendor-theme-badge-primary" size="lg" variant="light">
+                    Generic Service Business
+                  </Badge>
+                </Group>
+                <Stack gap={4} mt="md">
+                  <Title className="vendor-hero-title" order={1}>
+                    {previewVendorName}
+                  </Title>
+                  <Text className="vendor-hero-subtitle" fw={700} size="lg">
+                    {themeForm.heroTitle || "Book ahead or join the public queue when same-day service is available."}
+                  </Text>
+                </Stack>
               </div>
-            </Group>
-            <Group mt="xl">
-              <Button
-                style={{
-                  background: themeForm.buttonBackgroundColor,
-                  borderColor: themeForm.buttonBorderColor,
-                  color: themeForm.buttonTextColor
-                }}
-              >
-                Join this queue
-              </Button>
-              <Badge variant="light">Waiting: {snapshot?.stats.waitingCount ?? 0}</Badge>
-              <Badge color={previewLocation?.openStatus.isOpen ? "teal" : "red"}>
-                {previewLocation?.openStatus.isOpen ? "Open" : "Closed"}
-              </Badge>
-            </Group>
-          </Paper>
-          <SimpleGrid cols={{ base: 1, md: 2 }}>
-            <Paper p="lg" style={cardStyle}>
-              <Text c={themeForm.subheaderColor}>Now serving</Text>
-              <Title order={2} c={themeForm.headerColor}>
-                {snapshot?.current?.ticketNumber || "--"}
-              </Title>
-              <Text c={themeForm.bodyColor}>No active ticket</Text>
-            </Paper>
-            <Paper p="lg" style={cardStyle}>
-              <Text c={themeForm.subheaderColor}>Served today</Text>
-              <Title order={2} c={themeForm.headerColor}>
-                {snapshot?.stats.servedToday ?? 0}
-              </Title>
-              <Text c={themeForm.bodyColor}>Updated live for this location</Text>
+
+              <Text className="vendor-hero-description">
+                {themeForm.heroSubtitle ||
+                  "This vendor is preparing detailed service information. You can still continue to the public queue when same-day service is available."}
+              </Text>
+
+              <Stack gap="xs">
+                <Group c="dimmed" gap={8} wrap="nowrap">
+                  <IconMapPin size={18} />
+                  <Text>{previewLocationLabel}</Text>
+                </Group>
+                <Group c="dimmed" gap={8} wrap="nowrap">
+                  <IconClock size={18} />
+                  <Text>{previewHoursLabel}</Text>
+                </Group>
+              </Stack>
+
+              <Group gap="md">
+                <Button
+                  className="vendor-theme-button"
+                  leftSection={<IconTicket size={18} />}
+                  size="lg"
+                >
+                  Join queue
+                </Button>
+                <Button className="vendor-theme-button vendor-theme-button-outline" size="lg" variant="outline">
+                  Start booking
+                </Button>
+                <Button className="vendor-theme-button vendor-theme-button-ghost" size="lg" variant="subtle">
+                  Contact vendor
+                </Button>
+              </Group>
+
+              <Group gap="lg" className="vendor-trust-row">
+                <Group gap={8} wrap="nowrap">
+                  <ThemeIcon className="vendor-theme-icon" radius="xl" size={32} variant="light">
+                    <IconSparkles size={16} />
+                  </ThemeIcon>
+                  <Text fw={700} size="sm">
+                    Verified public profile
+                  </Text>
+                </Group>
+                <Group gap={8} wrap="nowrap">
+                  <ThemeIcon className="vendor-theme-icon" radius="xl" size={32} variant="light">
+                    <IconClock size={16} />
+                  </ThemeIcon>
+                  <Text fw={700} size="sm">
+                    Same-day queue
+                  </Text>
+                </Group>
+                <Group gap={8} wrap="nowrap">
+                  <ThemeIcon className="vendor-theme-icon" radius="xl" size={32} variant="light">
+                    <IconCalendar size={16} />
+                  </ThemeIcon>
+                  <Text fw={700} size="sm">
+                    Book ahead
+                  </Text>
+                </Group>
+              </Group>
+            </Stack>
+
+            <Paper className="vendor-hero-visual" p="xl" style={themedMediaStyle}>
+              <div className="vendor-hero-media-shell">
+                <div className="vendor-hero-media-slide vendor-hero-media-slide-logo is-active">
+                  {themeForm.logoUrl ? (
+                    <div className="vendor-profile-logo-frame">
+                      <img alt={`${previewVendorName} logo`} src={themeForm.logoUrl} />
+                    </div>
+                  ) : (
+                    <div className="vendor-empty-art" aria-label="Vendor image placeholder" role="img">
+                      <IconPhoto size={42} stroke={1.5} />
+                      <Text c="dimmed" fw={700} mt="sm" size="sm">
+                        Vendor image placeholder
+                      </Text>
+                    </div>
+                  )}
+                </div>
+
+                <div className="vendor-hero-media-slide vendor-hero-media-slide-qr">
+                  <div className="vendor-hero-qr-panel">
+                    <div className="vendor-hero-qr-code">
+                      <QRCode aria-label="Join queue QR code preview" value={heroJoinUrl || window.location.href} />
+                    </div>
+                    <div className="vendor-hero-qr-copy">
+                      <Text className="vendor-hero-qr-kicker">Scan to join</Text>
+                      <Text className="vendor-hero-qr-title" fw={900}>
+                        Queue QR
+                      </Text>
+                      <Text c="dimmed" size="sm">
+                        Scan this code to join the public queue for the selected branch.
+                      </Text>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <Paper className="vendor-hero-status-card" p="lg">
+                <Text fw={800}>Public queue status</Text>
+                <Text c="dimmed" size="sm">
+                  {previewLocation ? `${previewLocation.name} • ${previewHoursLabel}` : "Choose a branch to continue."}
+                </Text>
+                <SimpleGrid cols={2} mt="md" spacing="sm">
+                  <div className="prio-dashboard-tile">
+                    <Text c="dimmed" size="xs">
+                      Queue entry
+                    </Text>
+                    <Text className="prio-dashboard-number">Open</Text>
+                  </div>
+                  <div className="prio-dashboard-tile">
+                    <Text c="dimmed" size="xs">
+                      Booking
+                    </Text>
+                    <Text fw={800}>Available</Text>
+                  </div>
+                </SimpleGrid>
+              </Paper>
             </Paper>
           </SimpleGrid>
-        </Stack>
-      </Paper>
+        </Paper>
+      </Stack>
     );
   }
 
   function renderThemeDialog() {
+    const activePreset = publicBoardThemePresets[themeForm.presetId] || defaultPublicBoardTheme;
+    const presetBackgroundImageUrl = activePreset.pageBackgroundImageUrl;
+    const presetBackgroundEnabled = Boolean(
+      presetBackgroundImageUrl && themeForm.pageBackgroundImageUrl === presetBackgroundImageUrl
+    );
+
     return (
       <Modal
         fullScreen
@@ -3921,90 +4472,192 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="xl">
           <ScrollArea h="calc(100vh - 120px)" offsetScrollbars>
             <Stack gap="md" pr="md">
-              <Select
-                label="Theme preset"
-                data={[
-                  { value: "classic", label: "Classic Light" },
-                  { value: "neura", label: "Neura Clean" },
-                  { value: "clinic", label: "Clinic Calm" }
-                ]}
-                value={themeForm.presetId}
-                onChange={(value) => value && applyThemePreset(value)}
-              />
-              <SimpleGrid cols={{ base: 1, md: 2 }}>
-                <TextInput
-                  name="heroTitle"
-                  label="Hero title"
-                  value={themeForm.heroTitle}
-                  placeholder={themeLocation?.name || "Public board title"}
-                  onChange={(event) => setThemeField("heroTitle", event.target.value)}
+              <ModalSection
+                title="Preset"
+                description="Choose the role-based visual system used as the starting point for this public vendor page."
+              >
+                <Select
+                  label="Theme preset"
+                  description="Changing this updates colors, button styling, and any built-in preset background."
+                  data={[
+                    { value: "generic", label: "Generic" },
+                    { value: "sports", label: "Sports and Recreation" },
+                    { value: "wellness", label: "Health and Wellness" },
+                    { value: "retail", label: "Retail and E-commerce" },
+                    { value: "food", label: "Food and Beverage" }
+                  ]}
+                  value={themeForm.presetId}
+                  onChange={(value) => value && applyThemePreset(value)}
                 />
-                <TextInput
-                  name="heroSubtitle"
-                  label="Hero subtitle"
-                  value={themeForm.heroSubtitle}
-                  placeholder="Customers can monitor their turn remotely."
-                  onChange={(event) => setThemeField("heroSubtitle", event.target.value)}
+              </ModalSection>
+
+              <ModalSection
+                title="Public hero copy"
+                description="Controls the subtitle and descriptive message displayed in the public vendor hero."
+              >
+                <SimpleGrid cols={{ base: 1, md: 2 }}>
+                  <TextInput
+                    name="heroTitle"
+                    label="Hero subtitle"
+                    description="Short line shown below the vendor name."
+                    value={themeForm.heroTitle}
+                    placeholder={themeLocation?.name || "Book ahead or join the queue."}
+                    onChange={(event) => setThemeField("heroTitle", event.target.value)}
+                  />
+                  <TextInput
+                    name="heroSubtitle"
+                    label="Hero description"
+                    description="Longer supporting text in the hero body."
+                    value={themeForm.heroSubtitle}
+                    placeholder="Customers can monitor their turn remotely."
+                    onChange={(event) => setThemeField("heroSubtitle", event.target.value)}
+                  />
+                </SimpleGrid>
+              </ModalSection>
+
+              <ModalSection
+                title="Page background"
+                description="Controls the full-page artwork behind the public vendor profile."
+              >
+                <Checkbox
+                  checked={presetBackgroundEnabled}
+                  disabled={!presetBackgroundImageUrl}
+                  label="Use preset background image"
+                  description={
+                    presetBackgroundImageUrl
+                      ? "Uses the built-in page artwork for this preset. Untick to hide the preset artwork."
+                      : "This preset does not include a built-in background image."
+                  }
+                  onChange={(event) => {
+                    const checked = event.currentTarget.checked;
+                    setThemeForm((current) => ({
+                      ...current,
+                      pageBackgroundImageUrl: checked ? presetBackgroundImageUrl : "",
+                      pageBackgroundImageFit: checked ? activePreset.pageBackgroundImageFit : current.pageBackgroundImageFit
+                    }));
+                  }}
                 />
-              </SimpleGrid>
-              <SimpleGrid cols={{ base: 1, md: 2 }}>
-                <FileInput
-                  name="backgroundImageFile"
-                  accept="image/png,image/jpeg,image/webp"
-                  clearable
-                  label="Background image"
-                  disabled={busyAction === "theme-upload:background"}
-                  onChange={(file) => uploadThemeAsset("background", file)}
+                <Select
+                  name="pageBackgroundImageFit"
+                  label="Page background fit"
+                  description="Cover fills the page. Contain shows the full preset artwork."
+                  data={[
+                    { value: "cover", label: "Cover" },
+                    { value: "contain", label: "Contain" }
+                  ]}
+                  disabled={!themeForm.pageBackgroundImageUrl}
+                  value={themeForm.pageBackgroundImageFit}
+                  onChange={(value) => setThemeField("pageBackgroundImageFit", value === "contain" ? "contain" : "cover")}
                 />
-                <FileInput
-                  name="logoFile"
-                  accept="image/png,image/jpeg,image/webp"
-                  clearable
-                  label="Company logo"
-                  disabled={busyAction === "theme-upload:logo"}
-                  onChange={(file) => uploadThemeAsset("logo", file)}
-                />
-              </SimpleGrid>
-              <SimpleGrid cols={{ base: 1, md: 2 }}>
-                <TextInput
-                  name="backgroundImageUrl"
-                  label="Background image URL"
-                  value={themeForm.backgroundImageUrl}
-                  onChange={(event) => setThemeField("backgroundImageUrl", event.target.value)}
-                />
+                <SimpleGrid cols={{ base: 1, md: 2 }}>
+                  <FileInput
+                    name="pageBackgroundImageFile"
+                    accept="image/png,image/jpeg,image/webp"
+                    clearable
+                    label="Page background"
+                    description="Upload a custom full-page background when preset background is disabled."
+                    disabled={presetBackgroundEnabled || busyAction === "theme-upload:background"}
+                    onChange={(file) => uploadThemeAsset("background", file, "pageBackgroundImageUrl")}
+                  />
+                  <TextInput
+                    name="pageBackgroundImageUrl"
+                    label="Page background URL"
+                    description="Paste a hosted full-page background URL."
+                    disabled={presetBackgroundEnabled}
+                    value={themeForm.pageBackgroundImageUrl}
+                    onChange={(event) => setThemeField("pageBackgroundImageUrl", event.target.value)}
+                  />
+                </SimpleGrid>
+              </ModalSection>
+
+              <ModalSection
+                title="Profile media"
+                description="Set the profile logo and hero background shown inside the public vendor hero."
+              >
+                <SimpleGrid cols={{ base: 1, md: 2 }}>
+                  <FileInput
+                    name="backgroundImageFile"
+                    accept="image/png,image/jpeg,image/webp"
+                    clearable
+                    label="Profile background"
+                    description="Upload a custom image for the hero visual area."
+                    disabled={busyAction === "theme-upload:background"}
+                    onChange={(file) => uploadThemeAsset("background", file)}
+                  />
+                  <Select
+                    name="backgroundImageFit"
+                    label="Profile background fit"
+                    description="Cover fills the hero. Contain shows the full image."
+                    data={[
+                      { value: "cover", label: "Cover" },
+                      { value: "contain", label: "Contain" }
+                    ]}
+                    value={themeForm.backgroundImageFit}
+                    onChange={(value) => setThemeField("backgroundImageFit", value === "contain" ? "contain" : "cover")}
+                  />
+                </SimpleGrid>
+                <SimpleGrid cols={{ base: 1, md: 2 }}>
+                  <TextInput
+                    name="backgroundImageUrl"
+                    label="Profile background URL"
+                    description="Paste a hosted image URL for the hero visual area."
+                    value={themeForm.backgroundImageUrl}
+                    onChange={(event) => setThemeField("backgroundImageUrl", event.target.value)}
+                  />
+                  <FileInput
+                    name="logoFile"
+                    accept="image/png,image/jpeg,image/webp"
+                    clearable
+                    label="Company logo"
+                    description="Displayed inside the circular logo frame."
+                    disabled={busyAction === "theme-upload:logo"}
+                    onChange={(file) => uploadThemeAsset("logo", file)}
+                  />
+                </SimpleGrid>
                 <TextInput
                   name="logoUrl"
                   label="Logo URL"
+                  description="Paste a hosted logo URL when not uploading a file."
                   value={themeForm.logoUrl}
                   onChange={(event) => setThemeField("logoUrl", event.target.value)}
                 />
-              </SimpleGrid>
-              <Divider label="Board colors" labelPosition="left" />
-              <SimpleGrid cols={{ base: 1, md: 3 }}>
-                <ColorInput name="pageBackgroundColor" label="Page background" value={themeForm.pageBackgroundColor} onChange={(value) => setThemeField("pageBackgroundColor", value)} />
-                <ColorInput name="headerColor" label="Header text" value={themeForm.headerColor} onChange={(value) => setThemeField("headerColor", value)} />
-                <ColorInput name="subheaderColor" label="Subheader text" value={themeForm.subheaderColor} onChange={(value) => setThemeField("subheaderColor", value)} />
-                <ColorInput name="bodyColor" label="Body text" value={themeForm.bodyColor} onChange={(value) => setThemeField("bodyColor", value)} />
-                <ColorInput name="buttonBackgroundColor" label="Button background" value={themeForm.buttonBackgroundColor} onChange={(value) => setThemeField("buttonBackgroundColor", value)} />
-                <ColorInput name="buttonTextColor" label="Button text" value={themeForm.buttonTextColor} onChange={(value) => setThemeField("buttonTextColor", value)} />
-              </SimpleGrid>
-              <Divider label="Section cards" labelPosition="left" />
-              <SimpleGrid cols={{ base: 1, md: 2 }}>
-                <ColorInput name="cardBackgroundColor" label="Card background" value={themeForm.cardBackgroundColor} onChange={(value) => setThemeField("cardBackgroundColor", value)} />
-                <ColorInput name="cardBorderColor" label="Card border" value={themeForm.cardBorderColor} onChange={(value) => setThemeField("cardBorderColor", value)} />
-                <NumberInput name="cardBorderSize" label="Border size" min={0} max={12} value={themeForm.cardBorderSize} onChange={(value) => setThemeField("cardBorderSize", Number(value) || 0)} />
-                <NumberInput name="cardBorderRadius" label="Border radius" min={0} max={48} value={themeForm.cardBorderRadius} onChange={(value) => setThemeField("cardBorderRadius", Number(value) || 0)} />
-              </SimpleGrid>
-              <div>
-                <Text size="sm" fw={600}>Card alpha</Text>
-                <Slider
-                  min={0.15}
-                  max={1}
-                  step={0.05}
-                  value={themeForm.cardAlpha}
-                  onChange={(value) => setThemeField("cardAlpha", value)}
-                />
-              </div>
+              </ModalSection>
+
+              <ModalSection
+                title="Colors"
+                description="Tune text, page, and action colors used across the public vendor page and preview states."
+              >
+                <SimpleGrid cols={{ base: 1, md: 3 }}>
+                  <ColorInput name="pageBackgroundColor" label="Page background" value={themeForm.pageBackgroundColor} onChange={(value) => setThemeField("pageBackgroundColor", value)} />
+                  <ColorInput name="headerColor" label="Heading text" value={themeForm.headerColor} onChange={(value) => setThemeField("headerColor", value)} />
+                  <ColorInput name="subheaderColor" label="Accent text" value={themeForm.subheaderColor} onChange={(value) => setThemeField("subheaderColor", value)} />
+                  <ColorInput name="bodyColor" label="Body text" value={themeForm.bodyColor} onChange={(value) => setThemeField("bodyColor", value)} />
+                  <ColorInput name="buttonBackgroundColor" label="Button background" value={themeForm.buttonBackgroundColor} onChange={(value) => setThemeField("buttonBackgroundColor", value)} />
+                  <ColorInput name="buttonTextColor" label="Button text" value={themeForm.buttonTextColor} onChange={(value) => setThemeField("buttonTextColor", value)} />
+                </SimpleGrid>
+              </ModalSection>
+
+              <ModalSection
+                title="Cards and borders"
+                description="Controls the surfaces used by the hero, service cards, branch cards, and status panels."
+              >
+                <SimpleGrid cols={{ base: 1, md: 2 }}>
+                  <ColorInput name="cardBackgroundColor" label="Card background" value={themeForm.cardBackgroundColor} onChange={(value) => setThemeField("cardBackgroundColor", value)} />
+                  <ColorInput name="cardBorderColor" label="Card border" value={themeForm.cardBorderColor} onChange={(value) => setThemeField("cardBorderColor", value)} />
+                  <NumberInput name="cardBorderSize" label="Border size" min={0} max={12} value={themeForm.cardBorderSize} onChange={(value) => setThemeField("cardBorderSize", Number(value) || 0)} />
+                  <NumberInput name="cardBorderRadius" label="Border radius" min={0} max={48} value={themeForm.cardBorderRadius} onChange={(value) => setThemeField("cardBorderRadius", Number(value) || 0)} />
+                </SimpleGrid>
+                <div>
+                  <Text size="sm" fw={600}>Card opacity</Text>
+                  <Slider
+                    min={0.15}
+                    max={1}
+                    step={0.05}
+                    value={themeForm.cardAlpha}
+                    onChange={(value) => setThemeField("cardAlpha", value)}
+                  />
+                </div>
+              </ModalSection>
               <Checkbox
                 name="applyThemeToAllLocations"
                 checked={applyThemeToAllLocations}
@@ -4043,6 +4696,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       setLocationForm({
         name: locationItem.name,
         slug: locationItem.slug,
+        imageUrl: locationItem.imageUrl || "",
         addressLine1: locationItem.addressLine1,
         addressLine2: locationItem.addressLine2,
         city: locationItem.city,
@@ -4148,6 +4802,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       const payload = {
         name: locationForm.name,
         slug: locationForm.slug,
+        imageUrl: locationForm.imageUrl,
         addressLine1: locationForm.addressLine1,
         addressLine2: locationForm.addressLine2,
         city: locationForm.city,
@@ -4371,6 +5026,20 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     <Text className="service-dialog__label">Basics</Text>
                     <Text fw={700}>Identity and timing</Text>
                   </div>
+                  <FileInput
+                    accept="image/png,image/jpeg,image/webp"
+                    clearable
+                    label="Service image"
+                    placeholder={serviceForm.imageUrl ? "Replace service image" : "Upload service image"}
+                    disabled={busyAction === "service-image-upload"}
+                    onChange={(file) => uploadServiceImage(file)}
+                  />
+                  <TextInput
+                    label="Service image URL"
+                    value={serviceForm.imageUrl || ""}
+                    onChange={(event) => setServiceForm((current) => ({ ...current, imageUrl: event.target.value }))}
+                  />
+                  {serviceForm.imageUrl ? <Image alt="" h={120} radius="md" src={serviceForm.imageUrl} /> : null}
                   <TextInput
                     label="Service name"
                     required
@@ -4510,6 +5179,68 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       }))
                     }
                   />
+                  <Divider />
+                  <div>
+                    <Text fw={700}>Branch inventory</Text>
+                    <Text c="dimmed" size="sm">
+                      Set the number of courts or slots this service has at each location.
+                    </Text>
+                  </div>
+                  <Stack gap="sm">
+                    {locations.length ? locations.map((location) => {
+                      const nextEntry = serviceForm.locationServices?.find((entry) => entry.locationSlug === location.slug);
+                      return (
+                        <Card key={location.slug} withBorder radius="md" p="sm" className="service-dialog__panel">
+                          <Stack gap="xs">
+                            <Group justify="space-between" align="center">
+                              <Text fw={600}>{location.name}</Text>
+                              <Badge variant="light">{location.slug}</Badge>
+                            </Group>
+                            <NumberInput
+                              label="Capacity"
+                              min={1}
+                              max={100}
+                              value={nextEntry?.capacity || 1}
+                              onChange={(value) =>
+                                setServiceForm((current) => ({
+                                  ...current,
+                                  locationServices: (current.locationServices || locations.map((item) => ({
+                                    locationSlug: item.slug,
+                                    capacity: 1,
+                                    isActive: true
+                                  }))).map((entry) =>
+                                    entry.locationSlug === location.slug
+                                      ? { ...entry, capacity: Number(value) || 1 }
+                                      : entry
+                                  )
+                                }))
+                              }
+                            />
+                            <Switch
+                              checked={nextEntry?.isActive !== false}
+                              label="Available at this branch"
+                              onChange={(event) =>
+                                setServiceForm((current) => ({
+                                  ...current,
+                                  locationServices: (current.locationServices || locations.map((item) => ({
+                                    locationSlug: item.slug,
+                                    capacity: 1,
+                                    isActive: true
+                                  }))).map((entry) =>
+                                    entry.locationSlug === location.slug
+                                      ? { ...entry, isActive: event.currentTarget.checked }
+                                      : entry
+                                  )
+                                }))
+                              }
+                            />
+                          </Stack>
+                        </Card>
+                      );
+                    }) : (
+                      <Alert color="yellow">Add locations before assigning branch inventory.</Alert>
+                    )}
+                  </Stack>
                 </Stack>
               </Card>
             </SimpleGrid>
@@ -5070,6 +5801,11 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     Add weekly rule
                   </Button>
                 </Group>
+                {availabilitySummary?.hasSharedLocationCapacity && availabilitySummary?.hasServiceSpecificCapacity ? (
+                  <Alert color="yellow" variant="light">
+                    This location mixes shared branch capacity and service-specific court capacity. A shared rule can make one court&apos;s booking block other courts.
+                  </Alert>
+                ) : null}
                 {availabilityBlocks.length ? (
                   <Table.ScrollContainer minWidth={900}>
                     <Table className="neura-availability-table" verticalSpacing="sm">

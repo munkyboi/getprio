@@ -19,8 +19,8 @@ import {
 } from "@mantine/core";
 import { DatePickerInput } from "@mantine/dates";
 import { IconAlertTriangle, IconArrowLeft, IconCalendar, IconCalendarCheck, IconMapPin, IconUpload } from "@tabler/icons-react";
-import { addDays } from "date-fns";
-import { Link, Navigate, useParams } from "react-router-dom";
+import { addDays, eachDayOfInterval, endOfMonth, format, startOfMonth } from "date-fns";
+import { Link, Navigate, useLocation, useParams } from "react-router-dom";
 import type {
   BookingPaymentProofUploadResponse,
   BookingOtpResponse,
@@ -31,6 +31,7 @@ import type {
   CustomerBookingResponse,
   PublicVendorProfile,
   PublicVendorProfileResponse,
+  PublicVendorService,
   SubmitBookingPaymentProofRequest,
   VerifyBookingOtpRequest,
   VerifyBookingOtpResponse
@@ -146,14 +147,23 @@ interface PendingBookingPayload extends CreateCustomerBookingRequest {
 }
 
 export default function BookingRequestPage() {
-  const { tenantSlug = "", serviceSlug = "" } = useParams<{ tenantSlug: string; serviceSlug?: string }>();
+  const { tenantSlug = "", serviceSlug = "" } = useParams<{
+    tenantSlug: string;
+    serviceSlug?: string;
+  }>();
+  const location = useLocation();
+  const selectedLocationFromQuery = useMemo(() => new URLSearchParams(location.search).get("location") || "", [location.search]);
   const { token, user, loading: authLoading } = useAuth();
   const [vendor, setVendor] = useState<PublicVendorProfile | null>(null);
   const [selectedLocationSlug, setSelectedLocationSlug] = useState("");
   const [selectedServiceSlug, setSelectedServiceSlug] = useState(serviceSlug);
+  const [locationServices, setLocationServices] = useState<Array<PublicVendorService & { capacity: number }>>([]);
   const [bookingDate, setBookingDate] = useState(getDefaultBookingDate);
   const [bookingQuantity, setBookingQuantity] = useState(1);
   const [slots, setSlots] = useState<BookingSlotSummary[]>([]);
+  const [calendarAvailability, setCalendarAvailability] = useState<Record<string, boolean>>({});
+  const [calendarMonth, setCalendarMonth] = useState<Date | null>(null);
+  const [calendarLoading, setCalendarLoading] = useState(false);
   const [selectedSlotStartAt, setSelectedSlotStartAt] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [customerEmail, setCustomerEmail] = useState("");
@@ -189,8 +199,20 @@ export default function BookingRequestPage() {
           return;
         }
         setVendor(vendorData.vendor);
-        setSelectedLocationSlug((current) => current || vendorData.vendor.location.slug || vendorData.vendor.locations[0]?.slug || "");
-        setSelectedServiceSlug((current) => current || vendorData.vendor.services[0]?.slug || "");
+        setSelectedLocationSlug((current) => {
+          if (current) {
+            return current;
+          }
+
+          if (
+            selectedLocationFromQuery &&
+            vendorData.vendor.locations.some((location) => location.slug === selectedLocationFromQuery)
+          ) {
+            return selectedLocationFromQuery;
+          }
+
+          return vendorData.vendor.location.slug || vendorData.vendor.locations[0]?.slug || "";
+        });
       })
       .catch((loadError) => {
         if (active) {
@@ -206,7 +228,7 @@ export default function BookingRequestPage() {
     return () => {
       active = false;
     };
-  }, [tenantSlug]);
+  }, [tenantSlug, selectedLocationFromQuery]);
 
   useEffect(() => {
     if (!user) {
@@ -218,9 +240,39 @@ export default function BookingRequestPage() {
     setCustomerPhone((current) => current || user.phone || "");
   }, [user]);
 
+  useEffect(() => {
+    if (!vendor || !selectedLocationSlug) {
+      setLocationServices([]);
+      return;
+    }
+
+    const controller = new AbortController();
+    apiRequest<{ services: Array<PublicVendorService & { capacity: number; locationServiceId: string }> }>(
+      `/public/vendors/${vendor.slug}/locations/${selectedLocationSlug}/services`,
+      { signal: controller.signal }
+    )
+      .then((data) => {
+        setLocationServices(data.services);
+        setSelectedServiceSlug((current) => {
+          if (current && data.services.some((service) => service.slug === current)) {
+            return current;
+          }
+          return data.services[0]?.slug || "";
+        });
+      })
+      .catch((serviceError) => {
+        if (!controller.signal.aborted) {
+          setLocationServices([]);
+          setError(getErrorMessage(serviceError));
+        }
+      });
+
+    return () => controller.abort();
+  }, [selectedLocationSlug, vendor]);
+
   const selectedService = useMemo(
-    () => vendor?.services.find((service) => service.slug === selectedServiceSlug) || null,
-    [selectedServiceSlug, vendor]
+    () => locationServices.find((service) => service.slug === selectedServiceSlug) || null,
+    [locationServices, selectedServiceSlug]
   );
   const allowBookingQuantity = selectedService?.allowBookingQuantity === true;
   const quantityForRequest = allowBookingQuantity ? bookingQuantity : 1;
@@ -262,6 +314,67 @@ export default function BookingRequestPage() {
     return () => controller.abort();
   }, [booking, bookingDate, quantityForRequest, selectedLocationSlug, selectedServiceSlug, vendor]);
 
+  useEffect(() => {
+    if (!vendor || !selectedLocationSlug || !selectedServiceSlug || booking) {
+      setCalendarAvailability({});
+      setCalendarMonth(null);
+      setCalendarLoading(false);
+      return;
+    }
+
+    const monthAnchor = calendarMonth || new Date(`${bookingDate}T00:00:00`);
+    const controller = new AbortController();
+    let active = true;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    setCalendarLoading(true);
+
+    const days = eachDayOfInterval({
+      start: startOfMonth(monthAnchor),
+      end: endOfMonth(monthAnchor)
+    }).filter((day) => day >= today);
+
+    Promise.all(
+      days.map(async (day) => {
+        const dateKey = format(day, "yyyy-MM-dd");
+        const response = await apiRequest<BookingSlotsResponse>(
+          `/public/vendors/${vendor.slug}/locations/${selectedLocationSlug}/services/${selectedServiceSlug}/slots?date=${encodeURIComponent(dateKey)}&bookingQuantity=${quantityForRequest}`,
+          { signal: controller.signal }
+        );
+        return [dateKey, response.slots.some((slot) => slot.isAvailable)] as const;
+      })
+    )
+      .then((entries) => {
+        if (!active || controller.signal.aborted) {
+          return;
+        }
+
+        setCalendarAvailability((current) => {
+          const next = { ...current };
+          for (const [dateKey, hasAvailability] of entries) {
+            next[dateKey] = hasAvailability;
+          }
+          return next;
+        });
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setCalendarAvailability({});
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setCalendarLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [booking, bookingDate, calendarMonth, quantityForRequest, selectedLocationSlug, selectedServiceSlug, vendor]);
+
   const loadSubmittedBooking = useCallback(async () => {
     if (!token || !booking) {
       return;
@@ -292,11 +405,11 @@ export default function BookingRequestPage() {
     [selectedSlotStartAt, slots]
   );
   const serviceOptions = useMemo(
-    () => vendor?.services.map((service) => ({
+    () => locationServices.map((service) => ({
       value: service.slug,
-      label: getServiceLabel(service)
+      label: `${getServiceLabel(service)} · ${service.capacity} court${service.capacity === 1 ? "" : "s"}`
     })) || [],
-    [vendor]
+    [locationServices]
   );
   const locationOptions = useMemo(
     () => vendor?.locations.map((location) => ({
@@ -312,6 +425,23 @@ export default function BookingRequestPage() {
       disabled: !slot.isAvailable
     })),
     [slots]
+  );
+  const disabledBookingDates = useMemo(
+    () => (date: string) => {
+      if (booking) {
+        return false;
+      }
+
+      const dateKey = date.slice(0, 10);
+      const availability = calendarAvailability[dateKey];
+
+      if (typeof availability === "boolean") {
+        return !availability;
+      }
+
+      return false;
+    },
+    [booking, calendarAvailability]
   );
   const totalDurationMinutes = selectedService ? selectedService.durationMinutes * quantityForRequest : 0;
   const requiresPaymentProof = Boolean(
@@ -380,7 +510,11 @@ export default function BookingRequestPage() {
   }
 
   if (!user) {
-    return <Navigate to={`/login?next=${encodeURIComponent(`/vendors/${tenantSlug}/book/${serviceSlug}`)}`} replace />;
+    const nextPath = `${serviceSlug ? `/vendors/${tenantSlug}/book/${serviceSlug}` : `/vendors/${tenantSlug}/book`}${
+      selectedLocationSlug ? `?location=${encodeURIComponent(selectedLocationSlug)}` : ""
+    }`;
+
+    return <Navigate to={`/login?next=${encodeURIComponent(nextPath)}`} replace />;
   }
 
   async function continueAfterVerification(verificationToken: string) {
@@ -543,7 +677,9 @@ export default function BookingRequestPage() {
           <Text className="finazze-section-label">Booking request</Text>
           <Title order={1}>{booking?.reference || vendor?.name || "Book a service"}</Title>
           <Text c="dimmed">
-            {booking ? "Continue the booking request on this page." : "Choose a service, branch, and available slot. The vendor will review and confirm the request."}
+            {booking
+              ? "Continue the booking request on this page."
+              : "Choose a branch first, then pick a service and available slot. Some services can change by branch, so branch selection comes first."}
           </Text>
         </Stack>
       </Card>
@@ -562,9 +698,30 @@ export default function BookingRequestPage() {
                   <form onSubmit={handleSubmit}>
                     <Stack gap="md">
                       {error ? <Alert color="red">{error}</Alert> : null}
-                      {!vendor?.services.length ? (
+                      {!locationServices.length ? (
                         <Alert color="yellow">This vendor has not published bookable services yet.</Alert>
                       ) : null}
+
+                      <Select
+                        data={locationOptions}
+                        disabled={!locationOptions.length || Boolean(otp)}
+                        label="Branch"
+                        leftSection={<IconMapPin size={16} />}
+                        onChange={(value) => setSelectedLocationSlug(value || "")}
+                        required
+                        value={selectedLocationSlug}
+                      />
+                      {selectedLocation ? (
+                        <Text c="dimmed" size="sm">
+                          {selectedLocation.name}{" "}
+                          {selectedLocation.city || selectedLocation.province ? `- ${[selectedLocation.city, selectedLocation.province].filter(Boolean).join(", ")}` : ""}
+                        </Text>
+                      ) : null}
+                      <Alert color="blue" variant="light">
+                        {selectedLocation
+                          ? `Showing services for ${selectedLocation.name}.`
+                          : "Select a branch to load the matching services."}
+                      </Alert>
 
                       <Select
                         data={serviceOptions}
@@ -581,6 +738,7 @@ export default function BookingRequestPage() {
                             <Text size="sm">
                               {selectedService.description || `${selectedService.durationMinutes} minute service`}
                             </Text>
+                            <Text size="sm">Branch capacity: {selectedService.capacity} slot(s)</Text>
                             {selectedService.manualPaymentRequired ? (
                               <Text fw={700} size="sm">
                                 Payment proof will be required after OTP verification.
@@ -614,31 +772,24 @@ export default function BookingRequestPage() {
                         </Text>
                       ) : null}
 
-                      <Select
-                        data={locationOptions}
-                        disabled={!locationOptions.length || Boolean(otp)}
-                        label="Branch"
-                        leftSection={<IconMapPin size={16} />}
-                        onChange={(value) => setSelectedLocationSlug(value || "")}
-                        required
-                        value={selectedLocationSlug}
-                      />
-                      {selectedLocation ? (
-                        <Text c="dimmed" size="sm">
-                          {selectedLocation.name} {selectedLocation.city || selectedLocation.province ? `- ${[selectedLocation.city, selectedLocation.province].filter(Boolean).join(", ")}` : ""}
-                        </Text>
-                      ) : null}
-
                       <DatePickerInput
                         clearable={false}
                         disabled={Boolean(otp)}
+                        excludeDate={disabledBookingDates}
                         label="Date"
                         leftSection={<IconCalendar size={16} />}
                         minDate={new Date()}
                         onChange={(value) => setBookingDate(value || "")}
+                        date={calendarMonth || bookingDate}
+                        onDateChange={(value: string) => setCalendarMonth(value ? new Date(value) : null)}
                         required
                         value={bookingDate}
                       />
+                      {calendarLoading ? (
+                        <Text c="dimmed" size="sm">
+                          Checking which calendar days have open slots...
+                        </Text>
+                      ) : null}
 
                       <Select
                         data={slotOptions}

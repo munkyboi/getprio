@@ -43,7 +43,7 @@ const theme = createTheme({
     ]
   },
   headings: {
-    fontFamily: 'Inter, Aptos, "Segoe UI", sans-serif',
+    fontFamily: 'Georgia, "Times New Roman", serif',
     fontWeight: "800",
     sizes: {
       h1: { fontSize: "clamp(2.9rem, 6vw, 5.75rem)", lineHeight: "0.96" },

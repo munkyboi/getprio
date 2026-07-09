@@ -5,6 +5,7 @@ const ticketRepository = require("../repositories/tickets");
 const publicBoardThemeRepository = require("../repositories/publicBoardThemes");
 const serviceCounterRepository = require("../repositories/serviceCounters");
 const vendorServiceRepository = require("../repositories/vendorServices");
+const locationServiceRepository = require("../repositories/locationServices");
 const vendorAvailabilityRepository = require("../repositories/vendorAvailability");
 const bookingRepository = require("../repositories/bookings");
 const userRepository = require("../repositories/users");
@@ -16,6 +17,7 @@ const {
 } = require("../middleware/auth");
 const billingService = require("../services/billingService");
 const publicBoardThemeUploadService = require("../services/publicBoardThemeUploadService");
+const vendorMediaUploadService = require("../services/vendorMediaUploadService");
 const locationPaymentQrUploadService = require("../services/locationPaymentQrUploadService");
 const bookingService = require("../services/bookingService");
 const PDFDocument = require("pdfkit");
@@ -369,6 +371,45 @@ router.post(
 );
 
 router.post(
+  "/tenant/:tenantSlug/location-media/uploads/direct",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.location.manage");
+    const requestedLocationSlug = normalizeRequestText(req.body.locationSlug || req.query.locationSlug);
+    const location = requestedLocationSlug
+      ? await getLocationForTenant(tenant, requestedLocationSlug)
+      : null;
+    const upload = await vendorMediaUploadService.createUpload({
+      tenant,
+      location,
+      user: req.user,
+      body: req.body
+    }, "location");
+
+    res.status(201).json(upload);
+  })
+);
+
+router.post(
+  "/tenant/:tenantSlug/service-media/uploads/direct",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.service.manage");
+    const location = req.body.locationSlug
+      ? await getLocationForTenant(tenant, req.body.locationSlug)
+      : null;
+    const upload = await vendorMediaUploadService.createUpload({
+      tenant,
+      location,
+      user: req.user,
+      body: req.body
+    }, "service");
+
+    res.status(201).json(upload);
+  })
+);
+
+router.post(
   "/tenant/:tenantSlug/locations/:locationSlug/payment-qr/uploads/direct",
   express.raw({ type: ["image/jpeg", "image/png", "image/webp"], limit: "8mb" }),
   asyncHandler(async (req, res) => {
@@ -410,12 +451,21 @@ router.patch(
   })
 );
 
-router.get("/tenant/:tenantSlug/services", asyncHandler((req, res) => handleListServices({ req, res, getAuthorizedTenant, assertTenantPermission, vendorServiceRepository })));
+router.get("/tenant/:tenantSlug/services", asyncHandler((req, res) => handleListServices({ req, res, getAuthorizedTenant, assertTenantPermission, vendorServiceRepository, locationServiceRepository })));
+router.get(
+  "/tenant/:tenantSlug/location-services",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.service.manage");
+    const locationServices = await locationServiceRepository.listLocationServicesByTenantId(tenant._id);
+    res.json({ locationServices });
+  })
+);
 router.get("/tenant/:tenantSlug/services/slug-availability", asyncHandler((req, res) => handleCheckServiceSlugAvailability({ req, res, getAuthorizedTenant, assertTenantPermission, vendorServiceRepository })));
 
-router.post("/tenant/:tenantSlug/services", asyncHandler((req, res) => handleCreateService({ req, res, getAuthorizedTenant, assertTenantPermission, vendorServiceRepository })));
+router.post("/tenant/:tenantSlug/services", asyncHandler((req, res) => handleCreateService({ req, res, getAuthorizedTenant, assertTenantPermission, vendorServiceRepository, locationServiceRepository })));
 
-router.patch("/tenant/:tenantSlug/services/:serviceSlug", asyncHandler((req, res) => handleUpdateService({ req, res, getAuthorizedTenant, assertTenantPermission, vendorServiceRepository })));
+router.patch("/tenant/:tenantSlug/services/:serviceSlug", asyncHandler((req, res) => handleUpdateService({ req, res, getAuthorizedTenant, assertTenantPermission, vendorServiceRepository, locationServiceRepository })));
 
 router.delete("/tenant/:tenantSlug/services/:serviceSlug", asyncHandler((req, res) => handleDeleteService({ req, res, getAuthorizedTenant, assertTenantPermission, vendorServiceRepository })));
 

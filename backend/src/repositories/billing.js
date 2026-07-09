@@ -1,4 +1,5 @@
 const db = require("../config/db");
+const { findPlanBySlug } = require("../services/subscriptionPlans");
 
 function buildQueryClient(client) {
   return client || db.pool;
@@ -353,6 +354,8 @@ async function createTenantSubscription(data, options = {}) {
 
 async function updateTenantSubscription(subscriptionId, changes, options = {}) {
   const queryClient = buildQueryClient(options.client);
+  const nextPlan = changes.planSlug ? await findPlanBySlug(changes.planSlug, { client: queryClient }) : null;
+  const nextEntitlements = changes.entitlements || (changes.planSlug ? nextPlan?.entitlements || {} : null);
   const result = await queryClient.query(
     `
       UPDATE tenant_subscriptions
@@ -385,7 +388,7 @@ async function updateTenantSubscription(subscriptionId, changes, options = {}) {
       changes.billingInterval || null,
       changes.currentPeriodStart ?? null,
       changes.currentPeriodEnd ?? null,
-      changes.entitlements ? JSON.stringify(changes.entitlements) : null,
+      nextEntitlements ? JSON.stringify(nextEntitlements) : null,
       changes.metadata ? JSON.stringify(changes.metadata) : null
     ]
   );

@@ -15,6 +15,10 @@ export function getServices(token: string, tenantSlug: string) {
   return apiRequest<import("@shared").VendorServicesResponse>(`/vendor/tenant/${tenantSlug}/services`, { token });
 }
 
+export function getLocationServices(token: string, tenantSlug: string) {
+  return apiRequest<import("@shared").LocationServicesResponse>(`/vendor/tenant/${tenantSlug}/location-services`, { token });
+}
+
 export function checkServiceSlugAvailability(token: string, tenantSlug: string, serviceSlug: string, excludeServiceId?: string) {
   const params = new URLSearchParams({ serviceSlug });
   if (excludeServiceId) {

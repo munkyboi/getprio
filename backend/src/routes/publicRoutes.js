@@ -3,6 +3,7 @@ const tenantRepository = require("../repositories/tenants");
 const storeLocationRepository = require("../repositories/storeLocations");
 const publicBoardThemeRepository = require("../repositories/publicBoardThemes");
 const vendorServiceRepository = require("../repositories/vendorServices");
+const locationServiceRepository = require("../repositories/locationServices");
 const ticketRepository = require("../repositories/tickets");
 const asyncHandler = require("../middleware/asyncHandler");
 const { maybeAuthenticate } = require("../middleware/auth");
@@ -32,6 +33,7 @@ function formatPublicVendorService(service) {
     slug: service.slug,
     description: service.description,
     durationMinutes: service.durationMinutes,
+    imageUrl: service.imageUrl || "",
     allowBookingQuantity: service.allowBookingQuantity,
     bookingQuantityLabel: service.bookingQuantityLabel,
     manualPaymentRequired: service.manualPaymentRequired,
@@ -54,10 +56,32 @@ async function attachPublicVendorDetails(vendor) {
         .filter((service) => service.isActive)
         .map(formatPublicVendorService)
     : [];
+  const locationServices = tenant
+    ? (await locationServiceRepository.listLocationServicesByTenantId(tenant._id))
+        .filter((item) => item.isActive)
+        .map((item) => ({
+          id: item._id,
+          tenantId: item.tenantId,
+          locationId: item.locationId,
+          serviceId: item.serviceId,
+          capacity: item.capacity,
+          isActive: item.isActive,
+          sortOrder: item.sortOrder,
+          priceAmountCents: item.priceAmountCents,
+          priceDisplay: item.priceDisplay,
+          imageUrl: item.imageUrl || "",
+          createdAt: item.createdAt,
+          updatedAt: item.updatedAt
+        }))
+        .filter((item) =>
+          services.some((service) => String(service._id) === String(item.serviceId) && service.isActive)
+        )
+    : [];
 
   return {
     ...vendor,
     services,
+    locationServices,
     publicBoardTheme
   };
 }
@@ -92,6 +116,42 @@ router.get(
 
     res.json({
       vendor: await attachPublicVendorDetails(vendor)
+    });
+  })
+);
+
+router.get(
+  "/vendors/:tenantSlug/locations/:locationSlug/services",
+  asyncHandler(async (req, res) => {
+    const tenant = await getPublicBookableTenant(req.params.tenantSlug);
+    const location = await storeLocationRepository.findLocationByTenantAndSlug(
+      tenant._id,
+      String(req.params.locationSlug).toLowerCase()
+    );
+
+    if (!location || !location.isActive) {
+      const error = new Error("Location not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const locationServices = await locationServiceRepository.listLocationServicesByLocationId(tenant._id, location._id);
+    const services = await vendorServiceRepository.listServicesByTenantId(tenant._id);
+
+    res.json({
+      services: locationServices
+        .filter((item) => item.isActive)
+        .map((item) => {
+          const service = services.find((entry) => String(entry._id) === String(item.serviceId));
+          return service && service.isActive
+            ? {
+                ...formatPublicVendorService(service),
+                capacity: item.capacity,
+                locationServiceId: item._id
+              }
+            : null;
+        })
+        .filter(Boolean)
     });
   })
 );

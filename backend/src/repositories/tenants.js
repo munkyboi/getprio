@@ -61,13 +61,14 @@ function mapPublicVendorProfile(row) {
   }
 
   const locations = Array.isArray(row.locations)
-    ? row.locations.map((location) => ({
+      ? row.locations.map((location) => ({
         name: location.name || "",
         slug: location.slug || "",
         city: location.city || "",
         province: location.province || "",
         country: location.country || "Philippines",
         isPrimary: Boolean(location.isPrimary),
+        imageUrl: location.imageUrl || "",
         hours: Array.isArray(location.hours)
           ? location.hours.map((hour) => ({
               weekday: Number(hour.weekday),
@@ -312,6 +313,7 @@ async function listPublicVendorProfiles(options = {}) {
             'province', COALESCE(ordered_locations.province, ''),
             'country', COALESCE(ordered_locations.country, 'Philippines'),
             'isPrimary', ordered_locations.is_primary,
+            'imageUrl', COALESCE(ordered_locations.image_url, ''),
             'hours', COALESCE(ordered_locations.hours, '[]'::JSONB)
           )
           ORDER BY ordered_locations.is_primary DESC, ordered_locations.name ASC
@@ -324,6 +326,7 @@ async function listPublicVendorProfiles(options = {}) {
             store_locations.province,
             store_locations.country,
             store_locations.is_primary,
+            store_locations.image_url,
             (
               SELECT JSONB_AGG(
                 JSONB_BUILD_OBJECT(
@@ -377,6 +380,7 @@ async function findPublicVendorProfileBySlug(slug, options = {}) {
             'province', COALESCE(ordered_locations.province, ''),
             'country', COALESCE(ordered_locations.country, 'Philippines'),
             'isPrimary', ordered_locations.is_primary,
+            'imageUrl', COALESCE(ordered_locations.image_url, ''),
             'hours', COALESCE(ordered_locations.hours, '[]'::JSONB)
           )
           ORDER BY ordered_locations.is_primary DESC, ordered_locations.name ASC
@@ -389,6 +393,7 @@ async function findPublicVendorProfileBySlug(slug, options = {}) {
             store_locations.province,
             store_locations.country,
             store_locations.is_primary,
+            store_locations.image_url,
             (
               SELECT JSONB_AGG(
                 JSONB_BUILD_OBJECT(

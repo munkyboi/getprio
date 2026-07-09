@@ -46,8 +46,9 @@ function getVendorMediaStyle(vendor: PublicVendorProfile): CSSProperties | undef
   }
 
   return {
+    "--vendor-theme-card-bg": vendor.publicBoardTheme?.theme.cardBackgroundColor,
     backgroundImage: `linear-gradient(rgba(255,255,255,0.2), rgba(255,255,255,0.2)), url(${backgroundImageUrl})`
-  };
+  } as CSSProperties;
 }
 
 export default function VendorDiscoveryPage() {
@@ -166,7 +167,7 @@ export default function VendorDiscoveryPage() {
 
           <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="lg">
             {vendors.map((vendor) => (
-              <Paper className="vendor-card" key={vendor.slug} p="lg">
+              <Paper className="vendor-card" component={Link} key={vendor.slug} p="lg" to={`/vendors/${vendor.slug}`}>
                 <Stack gap="md" h="100%">
                   <div
                     className={vendor.publicBoardTheme?.theme.backgroundImageUrl || vendor.publicBoardTheme?.theme.logoUrl
@@ -211,8 +212,13 @@ export default function VendorDiscoveryPage() {
                     ))}
                   </div>
                   <Group mt="auto">
-                    <Button color="dark" component={Link} to={`/vendors/${vendor.slug}`}>
-                      View profile
+                    <Button
+                      component={Link}
+                      to={`/vendors/${vendor.slug}/book?location=${encodeURIComponent(vendor.location.slug || vendor.locations[0]?.slug || "")}`}
+                      variant="light"
+                      color="orange"
+                    >
+                      Book in advance
                     </Button>
                     <Button component={Link} to={`/join/${vendor.slug}`} variant="subtle" color="orange">
                       Join queue

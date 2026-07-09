@@ -622,6 +622,9 @@ test("vendor service catalog is manageable by vendor admins but denied to staff"
       }),
       listHoursByLocationId: async () => []
     },
+    "../repositories/locationServices": {
+      listLocationServicesByTenantId: async () => []
+    },
     "../repositories/tickets": {
       listHistoryTickets: async () => [],
       listClientTickets: async () => []

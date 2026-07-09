@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
-import { Alert, Button, Paper, PasswordInput, SimpleGrid, Stack, Text, TextInput, Title } from "@mantine/core";
+import { Alert, Button, Paper, PasswordInput, Select, SimpleGrid, Stack, Text, TextInput, Title } from "@mantine/core";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import type {
   OAuthProviderId,
@@ -31,6 +31,7 @@ const PROVIDER_LABELS: Record<OAuthProviderId, string> = {
 const vendorSchema = z.object({
   tenantName: z.string().trim().min(2, "Enter your business name."),
   tenantSlug: z.string().trim().min(1, "Enter a tenant slug."),
+  category: z.string().trim().min(1, "Choose a business category."),
   name: z.string().trim().min(2, "Enter the owner name."),
   username: z.string().trim().min(3, "Enter a username."),
   email: z.string().trim().email("Enter a valid email address."),
@@ -42,6 +43,14 @@ const vendorSchema = z.object({
 });
 
 type VendorFormValues = z.infer<typeof vendorSchema>;
+
+const BUSINESS_CATEGORIES = [
+  { value: "Sports and Recreation", label: "Sports and Recreation" },
+  { value: "Health and Wellness", label: "Health and Wellness" },
+  { value: "Retail and E-commerce", label: "Retail and E-commerce" },
+  { value: "Food and Beverage", label: "Food and Beverage" },
+  { value: "Generic Service Business", label: "Generic Service Business" }
+] as const;
 
 export default function RegisterVendorPage() {
   const navigate = useNavigate();
@@ -62,6 +71,7 @@ export default function RegisterVendorPage() {
     defaultValues: {
       tenantName: "",
       tenantSlug: "",
+      category: "Health and Wellness",
       name: "",
       username: "",
       email: "",
@@ -70,10 +80,12 @@ export default function RegisterVendorPage() {
     }
   });
 
-  const tenantName = form.watch("tenantName");
-  const tenantSlug = form.watch("tenantSlug");
-  const ownerName = form.watch("name");
-  const username = form.watch("username");
+  const tenantName = useWatch({ control: form.control, name: "tenantName" }) || "";
+  const tenantSlug = useWatch({ control: form.control, name: "tenantSlug" }) || "";
+  const ownerName = useWatch({ control: form.control, name: "name" }) || "";
+  const username = useWatch({ control: form.control, name: "username" }) || "";
+  const category = useWatch({ control: form.control, name: "category" }) || "";
+  const phone = useWatch({ control: form.control, name: "phone" }) || "";
 
   useEffect(() => {
     if (!user) {
@@ -245,6 +257,7 @@ export default function RegisterVendorPage() {
       const payload = {
         tenantName: values.tenantName,
         tenantSlug: values.tenantSlug,
+        category: values.category,
         name: values.name,
         username: values.username,
         email: values.email,
@@ -295,6 +308,15 @@ export default function RegisterVendorPage() {
                 error={form.formState.errors.tenantName?.message}
                 {...form.register("tenantName")}
               />
+              <Select
+                label="Business category"
+                required
+                data={BUSINESS_CATEGORIES}
+                description="This shapes the public vendor page theme and motif."
+                error={form.formState.errors.category?.message}
+                value={category}
+                onChange={(value) => form.setValue("category", value || "", { shouldValidate: true })}
+              />
               <TextInput
                 description={checkingTenantSlug ? "Checking tenant slug..." : tenantSlugMessage}
                 error={form.formState.errors.tenantSlug?.message || (tenantSlug && tenantSlugMessage && !tenantSlugAvailable ? tenantSlugMessage : undefined)}
@@ -337,7 +359,7 @@ export default function RegisterVendorPage() {
               <PhilippineMobileInput
                 label="Phone"
                 error={form.formState.errors.phone?.message}
-                value={form.watch("phone")}
+                value={phone}
                 onChange={(nextValue) => form.setValue("phone", nextValue, { shouldValidate: true })}
               />
               {!isAuthenticatedFlow ? (

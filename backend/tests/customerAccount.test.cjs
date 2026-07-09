@@ -907,6 +907,16 @@ test("customer bookings can be created only inside vendor availability", async (
               }
             : null
       },
+      "../repositories/locationServices": {
+        findLocationServiceByLocationAndServiceId: async () => ({
+          _id: "location-service-1",
+          tenantId: "tenant-1",
+          locationId: "location-1",
+          serviceId: "service-1",
+          capacity: 1,
+          isActive: true
+        })
+      },
       "../repositories/vendorServices": {
         normalizeServiceSlug: (value) => String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""),
         findServiceByTenantAndSlug: async (_tenantId, slug) =>
@@ -1170,6 +1180,16 @@ test("customer bookings use store hours when no booking availability is configur
         listHoursByLocationId: async () => [
           { weekday: 1, opensAt: "09:00", closesAt: "17:00", isClosed: false }
         ]
+      },
+      "../repositories/locationServices": {
+        findLocationServiceByLocationAndServiceId: async () => ({
+          _id: "location-service-1",
+          tenantId: "tenant-1",
+          locationId: "location-1",
+          serviceId: "service-1",
+          capacity: 1,
+          isActive: true
+        })
       },
       "../repositories/vendorServices": {
         normalizeServiceSlug: (value) => String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""),

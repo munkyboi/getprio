@@ -1,11 +1,14 @@
 const db = require("../config/db");
 
 const DEFAULT_PUBLIC_BOARD_THEME = {
-  presetId: "classic",
+  presetId: "generic",
   heroTitle: "",
   heroSubtitle: "",
   logoUrl: "",
   backgroundImageUrl: "",
+  backgroundImageFit: "cover",
+  pageBackgroundImageUrl: "",
+  pageBackgroundImageFit: "cover",
   pageBackgroundColor: "#f8efe3",
   cardBackgroundColor: "#fffaf4",
   cardAlpha: 0.9,
@@ -76,6 +79,10 @@ function normalizeUrl(value) {
     return "";
   }
 
+  if (/^\/theme-backgrounds\/[-/a-z0-9_.]+$/i.test(text)) {
+    return text;
+  }
+
   try {
     const url = new URL(text);
     if (url.protocol === "http:" || url.protocol === "https:") {
@@ -89,7 +96,13 @@ function normalizeUrl(value) {
 }
 
 function normalizePresetId(value) {
-  return ["classic", "neura", "clinic"].includes(value) ? value : "classic";
+  return ["classic", "neura", "clinic", "sports", "wellness", "retail", "food", "generic"].includes(value)
+    ? value
+    : "generic";
+}
+
+function normalizeBackgroundImageFit(value, fallback) {
+  return ["cover", "contain"].includes(value) ? value : fallback || "cover";
 }
 
 function normalizeTheme(input = {}, fallback = DEFAULT_PUBLIC_BOARD_THEME) {
@@ -99,6 +112,9 @@ function normalizeTheme(input = {}, fallback = DEFAULT_PUBLIC_BOARD_THEME) {
     heroSubtitle: normalizeText(input.heroSubtitle, fallback.heroSubtitle, 220),
     logoUrl: normalizeUrl(input.logoUrl || fallback.logoUrl),
     backgroundImageUrl: normalizeUrl(input.backgroundImageUrl || fallback.backgroundImageUrl),
+    backgroundImageFit: normalizeBackgroundImageFit(input.backgroundImageFit, fallback.backgroundImageFit),
+    pageBackgroundImageUrl: normalizeUrl(input.pageBackgroundImageUrl || fallback.pageBackgroundImageUrl),
+    pageBackgroundImageFit: normalizeBackgroundImageFit(input.pageBackgroundImageFit, fallback.pageBackgroundImageFit),
     pageBackgroundColor: normalizeColor(input.pageBackgroundColor, fallback.pageBackgroundColor),
     cardBackgroundColor: normalizeColor(input.cardBackgroundColor, fallback.cardBackgroundColor),
     cardAlpha: clampNumber(input.cardAlpha, 0.15, 1, fallback.cardAlpha),

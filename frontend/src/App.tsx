@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Anchor, Box, Burger, Button, Container, Drawer, Group, Stack } from "@mantine/core";
+import { Anchor, Avatar, Box, Burger, Button, Container, Drawer, Group, Menu, Stack, Text } from "@mantine/core";
 import { Link, Navigate, NavLink, Route, Routes, useLocation, useParams } from "react-router-dom";
-import { IconLogout } from "@tabler/icons-react";
+import { IconChevronDown, IconLogout } from "@tabler/icons-react";
 import BrandMark from "./components/BrandMark";
 import { useAuth } from "./context/AuthContext";
 import LandingPage from "./pages/LandingPage";
@@ -29,11 +29,22 @@ import {
   MONITOR_ROUTE_PATH
 } from "./queuePaths";
 
+function getUserInitials(name: string) {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() || "")
+    .join("");
+}
+
 function AppShell({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
   const location = useLocation();
   const isDashboardRoute = location.pathname.startsWith("/dashboard");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const primaryTenant = user?.tenants?.find((tenant) => tenant.isActive !== false) || user?.tenants?.[0] || null;
+  const isVendor = Boolean(primaryTenant);
 
   useEffect(() => {
     setMobileMenuOpen(false);
@@ -44,50 +55,62 @@ function AppShell({ children }: { children: ReactNode }) {
     logout();
   };
 
-  const navLinks = (
+  const publicLinks = (
     <>
-      <Button component={Link} to="/#product" variant="subtle" color="dark">
-        Product
-      </Button>
-      <Button component={NavLink} to="/vendors" variant="subtle" color="dark">
-        Vendors
-      </Button>
-      {!user ? (
-        <>
-          <Button component={Link} to="/#solutions" variant="subtle" color="dark">
-            Solutions
-          </Button>
-          <Button component={Link} to="/#pricing" variant="subtle" color="dark">
-            Pricing
-          </Button>
-        </>
-      ) : null}
-      {user?.tenants?.length ? (
-        <Button component={NavLink} to="/dashboard" variant="light" color="dark">
-          Dashboard
-        </Button>
-      ) : null}
-      {user?.roles?.includes("customer") ? (
-        <Button component={NavLink} to="/account/profile" variant="subtle" color="dark">
-          Account
-        </Button>
-      ) : null}
-      {user ? (
-        <Button leftSection={<IconLogout size={16} />} onClick={handleLogout} variant="subtle" color="dark">
-          Sign out
-        </Button>
-      ) : (
-        <>
-          <Button component={NavLink} to="/login" variant="subtle" color="dark">
-            Log in
-          </Button>
-          <Button component={NavLink} to="/register/vendor" color="orange">
-            Start free
-          </Button>
-        </>
-      )}
+      <Button component={Link} to="/#product" variant="subtle" color="dark">Product</Button>
+      {!user ? <Button component={Link} to="/#solutions" variant="subtle" color="dark">Solutions</Button> : null}
+      {!user ? <Button component={Link} to="/#pricing" variant="subtle" color="dark">Pricing</Button> : null}
+      <Button component={NavLink} to="/vendors" variant="subtle" color="dark">Vendors</Button>
+      {!user ? <Button component={NavLink} to="/login" variant="subtle" color="dark">Login</Button> : null}
+      {!user ? <Button component={NavLink} to="/register/vendor" color="orange">Start Free</Button> : null}
     </>
   );
+
+  const customerMenu = (
+    <Menu shadow="md" width={220} position="bottom-end" withinPortal>
+      <Menu.Target>
+        <Button className="header-avatar-button" variant="subtle" color="dark" rightSection={<IconChevronDown size={14} />}>
+          <Avatar color="orange" radius="xl" size={28}>
+            {getUserInitials(user?.name || "User")}
+          </Avatar>
+        </Button>
+      </Menu.Target>
+      <Menu.Dropdown>
+        <Menu.Label>{user?.name || "Account"}</Menu.Label>
+        <Menu.Item component={Link} to="/account/profile">Profile details</Menu.Item>
+        <Menu.Item component={Link} to="/account/tickets">Queue Tickets</Menu.Item>
+        <Menu.Item component={Link} to="/account/bookings">Bookings</Menu.Item>
+        <Menu.Item component={Link} to="/account/settings">Settings</Menu.Item>
+        <Menu.Divider />
+        <Menu.Item color="red" leftSection={<IconLogout size={14} />} onClick={handleLogout}>
+          Sign out
+        </Menu.Item>
+      </Menu.Dropdown>
+    </Menu>
+  );
+
+  const vendorMenu = primaryTenant ? (
+    <Menu shadow="md" width={240} position="bottom-end" withinPortal>
+      <Menu.Target>
+        <Button className="header-avatar-button" variant="subtle" color="dark" rightSection={<IconChevronDown size={14} />}>
+          <Avatar color="orange" radius="xl" size={28}>
+            {getUserInitials(user?.name || primaryTenant.name)}
+          </Avatar>
+        </Button>
+      </Menu.Target>
+      <Menu.Dropdown>
+        <Menu.Label>{primaryTenant.name}</Menu.Label>
+        <Menu.Item component={Link} to="/dashboard">Dashboard</Menu.Item>
+        <Menu.Item component={Link} to={`/vendors/${primaryTenant.slug}`}>View vendor page</Menu.Item>
+        <Menu.Item component={Link} to={buildMonitorPath(primaryTenant.slug)}>View queue board</Menu.Item>
+        <Menu.Item component={Link} to="/dashboard/settings">Settings</Menu.Item>
+        <Menu.Divider />
+        <Menu.Item color="red" leftSection={<IconLogout size={14} />} onClick={handleLogout}>
+          Sign out
+        </Menu.Item>
+      </Menu.Dropdown>
+    </Menu>
+  ) : null;
 
   return (
     <Box className={isDashboardRoute ? "app-shell dashboard-app-shell" : "app-shell finazze-app-shell"}>
@@ -99,7 +122,8 @@ function AppShell({ children }: { children: ReactNode }) {
             </Anchor>
 
             <Group className="desktop-nav-links" component="nav" gap="xs">
-              {navLinks}
+              {publicLinks}
+              {user ? isVendor ? vendorMenu : customerMenu : null}
             </Group>
 
             <Burger
@@ -130,7 +154,30 @@ function AppShell({ children }: { children: ReactNode }) {
           title={<BrandMark />}
         >
           <Stack className="mobile-nav-links" gap="xs">
-            {navLinks}
+            {publicLinks}
+            {user ? (
+              <>
+                <Text c="dimmed" fw={700} size="sm" mt="sm">Account</Text>
+                {isVendor ? (
+                  <>
+                    <Button component={Link} to="/dashboard" variant="subtle" color="dark">Dashboard</Button>
+                    <Button component={Link} to={`/vendors/${primaryTenant?.slug || ""}`} variant="subtle" color="dark">View vendor page</Button>
+                    <Button component={Link} to={buildMonitorPath(primaryTenant?.slug || "")} variant="subtle" color="dark">View queue board</Button>
+                    <Button component={Link} to="/dashboard/settings" variant="subtle" color="dark">Settings</Button>
+                  </>
+                ) : (
+                  <>
+                    <Button component={Link} to="/account/profile" variant="subtle" color="dark">Profile details</Button>
+                    <Button component={Link} to="/account/tickets" variant="subtle" color="dark">Queue Tickets</Button>
+                    <Button component={Link} to="/account/bookings" variant="subtle" color="dark">Bookings</Button>
+                    <Button component={Link} to="/account/settings" variant="subtle" color="dark">Settings</Button>
+                  </>
+                )}
+                <Button leftSection={<IconLogout size={16} />} onClick={handleLogout} variant="subtle" color="dark">
+                  Sign out
+                </Button>
+              </>
+            ) : null}
           </Stack>
         </Drawer>
       ) : null}

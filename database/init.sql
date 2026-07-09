@@ -21,6 +21,7 @@ DROP TABLE IF EXISTS booking_otps CASCADE;
 DROP TABLE IF EXISTS vendor_availability_exceptions CASCADE;
 DROP TABLE IF EXISTS vendor_availability_blocks CASCADE;
 DROP TABLE IF EXISTS vendor_services CASCADE;
+DROP TABLE IF EXISTS location_services CASCADE;
 DROP TABLE IF EXISTS service_counter_assignments CASCADE;
 DROP TABLE IF EXISTS service_counters CASCADE;
 DROP TABLE IF EXISTS subscription_plans CASCADE;
@@ -214,6 +215,7 @@ CREATE TABLE store_locations (
   province TEXT,
   postal_code TEXT,
   country TEXT NOT NULL DEFAULT 'Philippines',
+  image_url TEXT,
   contact_email TEXT,
   contact_phone TEXT,
   timezone TEXT NOT NULL DEFAULT 'Asia/Manila',
@@ -279,6 +281,7 @@ CREATE TABLE vendor_services (
   slug TEXT NOT NULL,
   description TEXT,
   duration_minutes INTEGER NOT NULL CHECK (duration_minutes BETWEEN 5 AND 480),
+  image_url TEXT,
   allow_booking_quantity BOOLEAN NOT NULL DEFAULT FALSE,
   booking_quantity_label TEXT NOT NULL DEFAULT 'Units',
   manual_payment_required BOOLEAN NOT NULL DEFAULT FALSE,
@@ -291,6 +294,24 @@ CREATE TABLE vendor_services (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (tenant_id, slug)
 );
+
+CREATE TABLE location_services (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  location_id BIGINT NOT NULL REFERENCES store_locations(id) ON DELETE CASCADE,
+  service_id BIGINT NOT NULL REFERENCES vendor_services(id) ON DELETE CASCADE,
+  capacity INTEGER NOT NULL DEFAULT 1 CHECK (capacity BETWEEN 1 AND 100),
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  price_amount_cents INTEGER,
+  price_display TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (location_id, service_id)
+);
+
+CREATE INDEX location_services_tenant_location_idx
+  ON location_services (tenant_id, location_id, is_active, sort_order);
 
 CREATE INDEX vendor_services_tenant_active_sort_idx
   ON vendor_services (tenant_id, is_active, sort_order, name);
@@ -596,7 +617,7 @@ CREATE TABLE public_board_assets (
   id BIGSERIAL PRIMARY KEY,
   tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   location_id BIGINT REFERENCES store_locations(id) ON DELETE SET NULL,
-  asset_type TEXT NOT NULL CHECK (asset_type IN ('background', 'logo')),
+  asset_type TEXT NOT NULL CHECK (asset_type IN ('background', 'logo', 'location', 'service')),
   object_key TEXT NOT NULL,
   public_url TEXT NOT NULL,
   file_name TEXT NOT NULL,
