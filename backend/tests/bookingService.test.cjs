@@ -99,6 +99,7 @@ const service = {
 function buildBookingService({
   serviceOverride = {},
   locationOverride = {},
+  locationServiceOverride = {},
   availability,
   hours = [],
   countOverlappingActiveBookings = async () => 0,
@@ -186,7 +187,8 @@ function buildBookingService({
         priceAmountCents: null,
         priceDisplay: null,
         createdAt: "2026-07-01T00:00:00.000Z",
-        updatedAt: "2026-07-01T00:00:00.000Z"
+        updatedAt: "2026-07-01T00:00:00.000Z",
+        ...locationServiceOverride
       })
     },
     "../repositories/vendorServices": {
@@ -691,6 +693,38 @@ test("booking slots treat all-service availability blocks as shared branch capac
     ]
   );
   assert.equal(capacityChecks.every((options) => options.serviceId === null), true);
+});
+
+test("service capacity acts as the floor for all-service availability", async () => {
+  const bookingService = buildBookingService({
+    locationServiceOverride: {
+      capacity: 5
+    },
+    availability: {
+      blocks: [
+        {
+          _id: "block-1",
+          serviceId: null,
+          weekday: 2,
+          startsAt: "13:00",
+          endsAt: "14:00",
+          capacity: 1,
+          isActive: true
+        }
+      ],
+      exceptions: []
+    },
+    countOverlappingActiveBookings: async () => 0
+  });
+
+  const slots = await bookingService.listBookingSlots({
+    tenantSlug: "demo",
+    locationSlug: "main",
+    serviceSlug: "consultation",
+    date: "2026-07-07"
+  });
+
+  assert.equal(slots[0].remainingCapacity, 5);
 });
 
 test("booking slots keep same-service capacity isolated by default", async () => {

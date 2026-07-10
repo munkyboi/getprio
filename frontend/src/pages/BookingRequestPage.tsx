@@ -407,7 +407,7 @@ export default function BookingRequestPage() {
   const serviceOptions = useMemo(
     () => locationServices.map((service) => ({
       value: service.slug,
-      label: `${getServiceLabel(service)} · ${service.capacity} court${service.capacity === 1 ? "" : "s"}`
+      label: getServiceLabel(service)
     })) || [],
     [locationServices]
   );
