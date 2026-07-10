@@ -166,10 +166,12 @@ function buildBookingService({
       updateBooking
     },
     "../repositories/tenants": {
-      findTenantBySlug: async (slug) => (slug === "demo" ? tenant : null)
+      findTenantBySlug: async (slug) => (slug === "demo" ? tenant : null),
+      findTenantById: async (id) => (String(id) === String(tenant._id) ? tenant : null)
     },
     "../repositories/storeLocations": {
       findLocationByTenantAndSlug: async (_tenantId, slug) => (slug === "main" ? { ...location, ...locationOverride } : null),
+      findLocationById: async (id) => (String(id) === String(location._id) ? { ...location, ...locationOverride } : null),
       listHoursByLocationId: async () => hours
     },
     "../repositories/locationServices": {
@@ -1165,6 +1167,7 @@ function buildVendorBooking(overrides = {}) {
     serviceId: service._id,
     serviceName: service.name,
     serviceSlug: service.slug,
+    serviceManualPaymentRequired: false,
     customerUserId: "customer-1",
     customerName: "Customer One",
     customerEmail: "customer@example.com",
@@ -1305,6 +1308,77 @@ test("vendor check-in requires late override outside the check-in window", async
       }),
     (error) => error.statusCode === 409 && /late check-in override/i.test(error.message)
   );
+});
+
+test("customer check-in creates a linked queue ticket for payment-proof bookings on the same day", async () => {
+  const previousDateNow = Date.now;
+  Date.now = () => Date.parse("2026-07-05T10:00:00.000Z");
+  try {
+    const bookingService = buildBookingService({
+      availability: { blocks: [], exceptions: [] },
+      findBookingByIdForUpdate: async () =>
+        buildVendorBooking({
+          serviceManualPaymentRequired: true,
+          paymentProofObjectKey: "proofs/booking-1.png",
+          scheduledStartAt: "2026-07-05T06:00:00.000Z",
+          scheduledEndAt: "2026-07-05T07:00:00.000Z"
+        }),
+      createTicketForTenantInTransaction: async (_client, payload) => ({
+        _id: "ticket-9",
+        ticketNumber: "D009",
+        lookupCode: "LOOKUP9",
+        status: "waiting",
+        ...payload
+      }),
+      updateBooking: async (_bookingId, data) => ({
+        ...buildVendorBooking({
+          serviceManualPaymentRequired: true,
+          paymentProofObjectKey: "proofs/booking-1.png",
+          scheduledStartAt: "2026-07-05T06:00:00.000Z",
+          scheduledEndAt: "2026-07-05T07:00:00.000Z"
+        }),
+        ...data
+      })
+    });
+
+    const result = await bookingService.checkInCustomerBooking({
+      user: { _id: "customer-1" },
+      bookingId: "booking-1",
+      now: new Date("2026-07-05T10:00:00.000Z")
+    });
+
+    assert.equal(result.ticket.ticketNumber, "D009");
+    assert.equal(result.booking.checkedInByUserId, "customer-1");
+    assert.equal(result.booking.queueTicketId, "ticket-9");
+  } finally {
+    Date.now = previousDateNow;
+  }
+});
+
+test("payment-proof bookings use the full local booking day for check-in", async () => {
+  const bookingService = buildBookingService({});
+  const windowState = bookingService._getCheckInWindowState({
+    scheduledStartAt: "2026-07-05T06:00:00.000Z",
+    serviceManualPaymentRequired: true,
+    locationTimezone: "Asia/Manila"
+  }, new Date("2026-07-05T10:00:00.000Z"));
+
+  assert.equal(windowState.isTooEarly, false);
+  assert.equal(windowState.isLate, false);
+  assert.equal(windowState.isWithinWindow, true);
+});
+
+test("payment-proof bookings are still blocked after the local booking day", async () => {
+  const bookingService = buildBookingService({});
+  const windowState = bookingService._getCheckInWindowState({
+    scheduledStartAt: "2026-07-05T06:00:00.000Z",
+    serviceManualPaymentRequired: true,
+    locationTimezone: "Asia/Manila"
+  }, new Date("2026-07-06T00:30:00.000Z"));
+
+  assert.equal(windowState.isTooEarly, false);
+  assert.equal(windowState.isLate, true);
+  assert.equal(windowState.isWithinWindow, false);
 });
 
 test("vendor no-show cancels late confirmed booking and records actor", async () => {
