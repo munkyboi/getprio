@@ -8,6 +8,7 @@ const userRepository = require("../repositories/users");
 const bookingService = require("../services/bookingService");
 const passwordResetService = require("../services/passwordResetService");
 const pushNotificationService = require("../services/pushNotificationService");
+const customerTicketAccess = require("../services/customerTicketAccess");
 const { assertTenantPermission } = require("../middleware/auth");
 const { formatPaginationMetadata, parsePaginationParams } = require("../utils/pagination");
 
@@ -256,6 +257,59 @@ router.patch(
       user: formatAccountUser(updatedUser),
       success: true,
       message: "Profile details updated."
+    });
+  })
+);
+
+router.post(
+  "/tickets/:lookupCode/claim",
+  asyncHandler(async (req, res) => {
+    const lookupCode = normalizeRequestText(req.params.lookupCode).toUpperCase();
+
+    if (!lookupCode) {
+      const error = new Error("Ticket lookup code is required.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const ticket = await ticketRepository.findTicketByLookupCode(lookupCode);
+    if (!ticket) {
+      const error = new Error("Ticket not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    if (ticket.userId && String(ticket.userId) === String(req.user._id)) {
+      res.json({
+        success: true,
+        ticket: formatCustomerTicket({
+          ...ticket,
+          tenantName: null,
+          tenantSlug: null,
+          locationName: null,
+          locationSlug: null
+        })
+      });
+      return;
+    }
+
+    if (!customerTicketAccess.userOwnsTicket(req.user, ticket)) {
+      const error = new Error("We could not verify that this ticket belongs to you.");
+      error.statusCode = 403;
+      throw error;
+    }
+
+    const claimedTicket = await ticketRepository.claimTicketForUser(ticket._id, req.user._id);
+
+    res.json({
+      success: true,
+      ticket: formatCustomerTicket({
+        ...claimedTicket,
+        tenantName: null,
+        tenantSlug: null,
+        locationName: null,
+        locationSlug: null
+      })
     });
   })
 );

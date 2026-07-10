@@ -99,6 +99,7 @@ const service = {
 function buildBookingService({
   serviceOverride = {},
   locationOverride = {},
+  locationServiceOverride = {},
   availability,
   hours = [],
   countOverlappingActiveBookings = async () => 0,
@@ -166,10 +167,12 @@ function buildBookingService({
       updateBooking
     },
     "../repositories/tenants": {
-      findTenantBySlug: async (slug) => (slug === "demo" ? tenant : null)
+      findTenantBySlug: async (slug) => (slug === "demo" ? tenant : null),
+      findTenantById: async (id) => (String(id) === String(tenant._id) ? tenant : null)
     },
     "../repositories/storeLocations": {
       findLocationByTenantAndSlug: async (_tenantId, slug) => (slug === "main" ? { ...location, ...locationOverride } : null),
+      findLocationById: async (id) => (String(id) === String(location._id) ? { ...location, ...locationOverride } : null),
       listHoursByLocationId: async () => hours
     },
     "../repositories/locationServices": {
@@ -184,7 +187,8 @@ function buildBookingService({
         priceAmountCents: null,
         priceDisplay: null,
         createdAt: "2026-07-01T00:00:00.000Z",
-        updatedAt: "2026-07-01T00:00:00.000Z"
+        updatedAt: "2026-07-01T00:00:00.000Z",
+        ...locationServiceOverride
       })
     },
     "../repositories/vendorServices": {
@@ -691,6 +695,38 @@ test("booking slots treat all-service availability blocks as shared branch capac
   assert.equal(capacityChecks.every((options) => options.serviceId === null), true);
 });
 
+test("service capacity acts as the floor for all-service availability", async () => {
+  const bookingService = buildBookingService({
+    locationServiceOverride: {
+      capacity: 5
+    },
+    availability: {
+      blocks: [
+        {
+          _id: "block-1",
+          serviceId: null,
+          weekday: 2,
+          startsAt: "13:00",
+          endsAt: "14:00",
+          capacity: 1,
+          isActive: true
+        }
+      ],
+      exceptions: []
+    },
+    countOverlappingActiveBookings: async () => 0
+  });
+
+  const slots = await bookingService.listBookingSlots({
+    tenantSlug: "demo",
+    locationSlug: "main",
+    serviceSlug: "consultation",
+    date: "2026-07-07"
+  });
+
+  assert.equal(slots[0].remainingCapacity, 5);
+});
+
 test("booking slots keep same-service capacity isolated by default", async () => {
   const capacityChecks = [];
   const bookingService = buildBookingService({
@@ -1165,6 +1201,7 @@ function buildVendorBooking(overrides = {}) {
     serviceId: service._id,
     serviceName: service.name,
     serviceSlug: service.slug,
+    serviceManualPaymentRequired: false,
     customerUserId: "customer-1",
     customerName: "Customer One",
     customerEmail: "customer@example.com",
@@ -1305,6 +1342,19 @@ test("vendor check-in requires late override outside the check-in window", async
       }),
     (error) => error.statusCode === 409 && /late check-in override/i.test(error.message)
   );
+});
+
+test("check-in window stays at fifteen minutes around the scheduled time", async () => {
+  const bookingService = buildBookingService({});
+  const windowState = bookingService._getCheckInWindowState({
+    scheduledStartAt: "2026-07-05T06:00:00.000Z",
+    serviceManualPaymentRequired: true,
+    locationTimezone: "Asia/Manila"
+  }, new Date("2026-07-05T05:44:00.000Z"));
+
+  assert.equal(windowState.isTooEarly, true);
+  assert.equal(windowState.isLate, false);
+  assert.equal(windowState.isWithinWindow, false);
 });
 
 test("vendor no-show cancels late confirmed booking and records actor", async () => {

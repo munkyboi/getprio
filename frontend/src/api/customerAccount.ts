@@ -71,6 +71,12 @@ export const customerAccountApi = {
       body
     });
   },
+  claimTicket(token: string, lookupCode: string) {
+    return apiRequest<{ success: boolean }>(`/account/tickets/${encodeURIComponent(lookupCode)}/claim`, {
+      method: "POST",
+      token
+    });
+  },
   changePassword(token: string, body: PasswordChangeRequest) {
     return apiRequest<void, PasswordChangeRequest>("/account/change-password", {
       method: "POST",

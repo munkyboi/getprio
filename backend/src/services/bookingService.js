@@ -69,6 +69,10 @@ function getBookingCapacityServiceId(service, capacityScope = "service") {
   return service.bookingCapacityScope === "location" || capacityScope === "location" ? null : service._id;
 }
 
+function resolveEffectiveCapacity(serviceCapacity, availabilityCapacity) {
+  return Math.max(Number(serviceCapacity || 1), Number(availabilityCapacity || 1));
+}
+
 async function getLocationServiceForBooking(tenantId, locationId, service) {
   return locationServiceRepository.findLocationServiceByLocationAndServiceId(
     tenantId,
@@ -620,7 +624,10 @@ async function listBookingSlots({
         continue;
       }
 
-      const capacity = decision.capacity || locationService.capacity || window.capacity || 1;
+      const capacity = resolveEffectiveCapacity(
+        locationService.capacity || window.capacity || 1,
+        decision.capacity || window.capacity || 1
+      );
       const capacityScope = decision.capacityScope || window.capacityScope || "service";
       const activeCount = await bookingRepository.countOverlappingActiveBookings(tenant._id, {
         locationId: location._id,
@@ -772,7 +779,7 @@ async function createCustomerBooking({ user, body }) {
     service,
     scheduledStartAt,
     scheduledEndAt,
-    capacity: decision.capacity || locationService.capacity || 1,
+    capacity: resolveEffectiveCapacity(locationService.capacity || 1, decision.capacity || 1),
     capacityScope: decision.capacityScope || "service"
   });
 
@@ -1369,6 +1376,7 @@ async function markVendorBookingNoShow({ tenant, location, bookingId, user }) {
 
 module.exports = {
   _setQueueServiceForTest: setQueueServiceForTest,
+  _getCheckInWindowState: getCheckInWindowState,
   cancelCustomerBooking,
   checkInVendorBooking,
   createCustomerBooking,

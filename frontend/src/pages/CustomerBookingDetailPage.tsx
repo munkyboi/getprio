@@ -328,6 +328,7 @@ export default function CustomerBookingDetailPage() {
     )
     : "";
   const checkInAvailable = Boolean(booking.linkedTicket);
+  const paymentProofActionLabel = booking.paymentProof ? "View payment proof" : "Submit payment proof";
 
   return (
     <Stack className="customer-account-page" gap="lg">
@@ -396,7 +397,7 @@ export default function CustomerBookingDetailPage() {
                 <Stack gap={2}>
                   <Text fw={800}>Actions</Text>
                   <Text c="dimmed" size="sm">
-                    Check in when the vendor has created your queue ticket, review proof, or cancel before check-in.
+                    Check in once the vendor creates your queue ticket, or wait for vendor check-in.
                   </Text>
                 </Stack>
                 {booking.checkedInAt ? (
@@ -419,15 +420,30 @@ export default function CustomerBookingDetailPage() {
                     Check-in
                   </Button>
                 )}
-                <Button
-                  disabled={!booking.paymentProof}
-                  leftSection={<IconReceipt size={16} />}
-                  loading={proofViewBusy}
-                  onClick={handleViewPaymentProof}
-                  variant="light"
-                >
-                  View payment proof
-                </Button>
+                {booking.paymentProof ? (
+                  <Button
+                    leftSection={<IconReceipt size={16} />}
+                    loading={proofViewBusy}
+                    onClick={handleViewPaymentProof}
+                    variant="light"
+                  >
+                    {paymentProofActionLabel}
+                  </Button>
+                ) : proofSubmissionAllowed ? (
+                  <Button
+                    leftSection={<IconUpload size={16} />}
+                    onClick={() => {
+                      document.getElementById("payment-proof-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                    }}
+                    variant="light"
+                  >
+                    {paymentProofActionLabel}
+                  </Button>
+                ) : (
+                  <Button disabled leftSection={<IconReceipt size={16} />} variant="light">
+                    {paymentProofActionLabel}
+                  </Button>
+                )}
                 <Button
                   color="red"
                   disabled={!cancellationAllowed}
@@ -463,7 +479,7 @@ export default function CustomerBookingDetailPage() {
       </Card>
 
       {!booking.paymentProof && proofSubmissionAllowed ? (
-        <Card className="finazze-auth-card customer-account-card" p="xl">
+        <Card className="finazze-auth-card customer-account-card" id="payment-proof-section" p="xl">
         <Stack gap="md">
           <div>
             <Text className="finazze-section-label">Payment proof</Text>
