@@ -230,6 +230,8 @@ test("utility formatters and validators cover common cases", () => {
 
   assert.equal(buildTenantSlugFromName("Fresh Cuts Spa"), "fresh-cuts-spa");
   assert.equal(normalizeTenantSlugInput("  Fresh Cuts Spa "), "fresh-cuts-spa");
+  assert.equal(normalizeTenantSlugInput("fresh-"), "fresh-");
+  assert.equal(normalizeTenantSlugInput("Fresh--Cuts"), "fresh-cuts");
   assert.equal(isTenantSlugFormatValid("fresh-cuts-spa"), true);
   assert.equal(isTenantSlugFormatValid("-bad-"), false);
 
