@@ -245,6 +245,94 @@ test("customer can update profile name without changing username", async () => {
   }
 });
 
+test("customer can claim a ticket after registration when contact details match", async () => {
+  const ticketClaims = [];
+  const router = requireWithMocks("../src/routes/accountRoutes.js", {
+    "../middleware/auth": buildAuthMock(),
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../repositories/tickets": {
+      listTicketsForCustomerAccount: async () => [],
+      findTicketByLookupCode: async (lookupCode) => ({
+        _id: "ticket-1",
+        lookupCode,
+        ticketNumber: "DMO-001",
+        customerEmail: "customer@example.com",
+        customerPhone: "09171234567",
+        userId: null
+      }),
+      claimTicketForUser: async (ticketId, userId) => {
+        ticketClaims.push({ ticketId, userId });
+        return {
+          _id: ticketId,
+          lookupCode: "ABC12345",
+          ticketNumber: "DMO-001",
+          userId
+        };
+      }
+    },
+    "../services/passwordResetService": {
+      changePassword: async () => {}
+    }
+  });
+
+  const { server, baseUrl } = await startServer(router, "/api/account");
+
+  try {
+    const response = await fetch(`${baseUrl}/tickets/abc12345/claim`, {
+      method: "POST",
+      headers: { Authorization: "Bearer token" }
+    });
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.success, true);
+    assert.equal(ticketClaims.length, 1);
+    assert.deepEqual(ticketClaims[0], { ticketId: "ticket-1", userId: "user-1" });
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("customer cannot claim a ticket when contact details do not match", async () => {
+  const ticketClaims = [];
+  const router = requireWithMocks("../src/routes/accountRoutes.js", {
+    "../middleware/auth": buildAuthMock(),
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../repositories/tickets": {
+      listTicketsForCustomerAccount: async () => [],
+      findTicketByLookupCode: async (lookupCode) => ({
+        _id: "ticket-1",
+        lookupCode,
+        ticketNumber: "DMO-001",
+        customerEmail: "other@example.com",
+        customerPhone: "09991234567",
+        userId: null
+      }),
+      claimTicketForUser: async (ticketId, userId) => {
+        ticketClaims.push({ ticketId, userId });
+        return null;
+      }
+    },
+    "../services/passwordResetService": {
+      changePassword: async () => {}
+    }
+  });
+
+  const { server, baseUrl } = await startServer(router, "/api/account");
+
+  try {
+    const response = await fetch(`${baseUrl}/tickets/abc12345/claim`, {
+      method: "POST",
+      headers: { Authorization: "Bearer token" }
+    });
+    assert.equal(response.status, 403);
+    const payload = await response.json();
+    assert.equal(payload.message, "We could not verify that this ticket belongs to you.");
+    assert.equal(ticketClaims.length, 0);
+  } finally {
+    await stopServer(server);
+  }
+});
+
 test("account push subscription route creates and updates tenant-scoped subscriptions", async () => {
   const permissionChecks = [];
   const saves = [];

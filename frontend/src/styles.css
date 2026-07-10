@@ -569,6 +569,28 @@ body {
   box-shadow: 0 14px 40px rgba(36, 30, 25, 0.08);
 }
 
+.vendor-hero-status-card .prio-dashboard-number {
+  color: var(--vendor-theme-button-bg, #e85b0c);
+}
+
+.ticket-page-card-action {
+  color: var(--vendor-theme-button-bg, #ea6a1f);
+}
+
+.ticket-page-card-action:hover {
+  background: color-mix(in srgb, var(--vendor-theme-button-bg, #ea6a1f) 10%, transparent);
+  color: var(--vendor-theme-button-bg, #ea6a1f);
+}
+
+.ticket-page-card-action:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--vendor-theme-button-border, #ea6a1f) 68%, transparent);
+  outline-offset: 2px;
+}
+
+.ticket-page-card-action-separator {
+  color: var(--vendor-theme-subheader, #8a5c39);
+}
+
 .vendor-trust-row {
   padding-top: 0.2rem;
 }
@@ -1700,6 +1722,213 @@ button {
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
+}
+
+.ticket-page-hero {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.ticket-page-hero-head {
+  gap: 1.25rem;
+}
+
+.ticket-page-logo {
+  width: 112px;
+  height: 112px;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border-radius: 9999px;
+  background: #ffffff;
+  box-shadow: 0 14px 34px rgba(33, 25, 20, 0.12);
+}
+
+.ticket-page-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ticket-page-title {
+  font-size: clamp(2.75rem, 5vw, 4.25rem);
+  line-height: 0.95;
+  letter-spacing: -0.04em;
+}
+
+.ticket-page-back-button {
+  color: var(--text, #23180f);
+}
+
+.ticket-page-back-button:hover {
+  background: rgba(36, 24, 15, 0.06);
+  color: var(--text, #23180f);
+}
+
+.ticket-page-section-title {
+  color: var(--text, #23180f);
+  font-size: clamp(1.85rem, 3vw, 2.75rem);
+  line-height: 1.05;
+}
+
+.ticket-page-inline-hours-button {
+  color: var(--vendor-theme-button-bg, #ea6a1f);
+}
+
+.ticket-page-inline-hours-button:hover {
+  background: color-mix(in srgb, var(--vendor-theme-button-bg, #ea6a1f) 10%, transparent);
+  color: var(--vendor-theme-button-bg, #ea6a1f);
+}
+
+.ticket-hours-modal-card {
+  cursor: default;
+  border-color: color-mix(in srgb, var(--vendor-theme-card-border, #eadccf) 75%, transparent);
+  background:
+    radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--vendor-theme-button-bg, #ea6a1f) 14%, transparent), transparent 30%),
+    color-mix(in srgb, var(--vendor-theme-card-bg, #fffaf4) calc(var(--vendor-theme-card-alpha, 0.92) * 100%), white);
+  color: var(--vendor-theme-body, #3f3027);
+  box-shadow: none;
+}
+
+.ticket-hours-modal-card:hover {
+  transform: none;
+  border-color: color-mix(in srgb, var(--vendor-theme-card-border, #eadccf) 75%, transparent);
+  box-shadow: none;
+}
+
+.ticket-hours-modal-card:focus-visible {
+  outline: none;
+}
+
+.ticket-hours-modal-location-title {
+  color: var(--vendor-theme-header, #24160f);
+}
+
+.ticket-hours-modal-location-detail {
+  color: color-mix(in srgb, var(--vendor-theme-body, #3f3027) 64%, white);
+}
+
+.ticket-hours-modal-label {
+  color: var(--vendor-theme-body, #3f3027);
+}
+
+.ticket-hours-modal-card .vendor-hours-row {
+  border-bottom-color: color-mix(in srgb, var(--vendor-theme-card-border, #eadccf) 48%, transparent);
+}
+
+.ticket-hours-modal-card .vendor-hours-day {
+  color: var(--vendor-theme-button-bg, #ea6a1f);
+}
+
+.ticket-hours-modal-card .vendor-hours-time {
+  color: var(--vendor-theme-body, #3f3027);
+}
+
+.ticket-hours-modal-card .vendor-hours-row-today {
+  background: var(--vendor-theme-button-bg, #ea6a1f);
+  box-shadow: 0 12px 26px color-mix(in srgb, var(--vendor-theme-button-bg, #ea6a1f) 24%, transparent);
+}
+
+.ticket-hours-modal-card .vendor-hours-row-today .vendor-hours-day,
+.ticket-hours-modal-card .vendor-hours-row-today .vendor-hours-time {
+  color: var(--vendor-theme-button-text, #ffffff);
+}
+
+.ticket-hours-modal-primary-action {
+  background: color-mix(in srgb, var(--vendor-theme-button-bg, #ea6a1f) 12%, white);
+  color: var(--vendor-theme-button-bg, #ea6a1f);
+}
+
+.ticket-hours-modal-primary-action:hover {
+  background: color-mix(in srgb, var(--vendor-theme-button-bg, #ea6a1f) 18%, white);
+  color: var(--vendor-theme-button-bg, #ea6a1f);
+}
+
+.ticket-page-stats-section {
+  margin-top: clamp(1.5rem, 4vw, 3rem);
+  margin-bottom: clamp(1.5rem, 4vw, 3rem);
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.ticket-page-save-section {
+  margin-top: clamp(1.25rem, 3vw, 2.5rem);
+}
+
+.ticket-page-queue-list-section {
+  margin-top: clamp(0.25rem, 2vw, 1rem);
+}
+
+.ticket-page-metrics {
+  display: grid;
+}
+
+.ticket-page-metric {
+  border: 1px solid color-mix(in srgb, var(--vendor-theme-card-border, #eadccf) 72%, transparent);
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--vendor-theme-card-bg, #ffffff) 88%, white);
+  box-shadow: 0 16px 34px rgba(36, 30, 25, 0.1), 0 4px 10px color-mix(in srgb, var(--vendor-theme-button-bg, #ea6a1f) 8%, transparent);
+}
+
+.ticket-page-metric h2 {
+  margin: 0.35rem 0 0;
+}
+
+.ticket-page-metric-value {
+  color: var(--vendor-theme-button-bg, #e85b0c);
+  font-family: Inter, Aptos, "Trebuchet MS", "Segoe UI", sans-serif;
+  font-size: clamp(1.75rem, 3vw, 2.75rem);
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1;
+}
+
+.ticket-page-placeholder {
+  display: grid;
+  place-items: center;
+  gap: 0.75rem;
+  width: min(260px, 100%);
+  min-height: 240px;
+  padding: 2rem;
+  border: 1px dashed color-mix(in srgb, var(--vendor-theme-card-border, #eadccf) 80%, transparent);
+  border-radius: 30px;
+  color: var(--vendor-theme-subheader, #8a5c39);
+  background: color-mix(in srgb, var(--vendor-theme-card-bg, #fffaf4) 78%, white);
+  text-align: center;
+}
+
+.public-board-queue-ticket {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.9rem;
+  border: 1px solid rgba(33, 25, 20, 0.08);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.public-board-queue-ticket-hero {
+  min-height: 108px;
+}
+
+.public-board-queue-empty {
+  min-height: 108px;
+}
+
+.public-board-queue-ticket-rank {
+  width: 56px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+  border-radius: 18px;
+  color: var(--public-board-primary);
+  background: color-mix(in srgb, var(--public-board-primary) 12%, transparent);
+  font-size: 1.2rem;
+  font-weight: 950;
+}
+
+.public-board-queue-list {
+  margin-top: 0.9rem;
 }
 
 .public-board-tv-frame {

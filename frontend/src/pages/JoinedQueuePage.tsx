@@ -2,27 +2,31 @@ import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import {
   Alert,
   Badge,
-  Box,
   Button,
+  Container,
   Group,
   Modal,
   Paper,
+  ScrollArea,
   SimpleGrid,
   Stack,
   Table,
   Text,
+  ThemeIcon,
   Title
 } from "@mantine/core";
+import { useMediaQuery } from "@mantine/hooks";
 import { notifications } from "@mantine/notifications";
-import { IconCheck, IconInfoCircle } from "@tabler/icons-react";
+import { IconArrowLeft, IconBuildingStore, IconCalendar, IconCheck, IconClock, IconInfoCircle, IconMessageDots, IconSparkles, IconTicket, IconX } from "@tabler/icons-react";
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type { CancelQueueTicketRequest, QueueJoinPaymentSyncResponse, QueueSnapshot, StoreHourSummary } from "@shared";
 import { API_BASE_URL, apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { buildJoinPath, buildJoinedQueuePathWithTicket, buildMonitorPath } from "../queuePaths";
+import ContactForm from "../components/ContactForm";
 import { clearJoinedQueueAccess, getJoinedQueueAccess } from "../utils/joinedQueueAccess";
 import { getErrorMessage } from "../utils/errors";
-import { getLocationStatusSummary, getQueueStateSummary, getTicketStateSummary } from "../utils/queueStatus";
+import { getTicketStateSummary } from "../utils/queueStatus";
 
 function maskNamePart(namePart: string): string {
   if (!namePart) {
@@ -54,7 +58,12 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${red}, ${green}, ${blue}, ${Math.min(1, Math.max(0, alpha))})`;
 }
 
-const weekdayLabels = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
+const weekdayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+
+function toMinutes(value: string): number {
+  const [hours = "0", minutes = "0"] = value.split(":");
+  return Number(hours) * 60 + Number(minutes);
+}
 
 function getTodayIndex(timezone?: string): number {
   const weekday = new Intl.DateTimeFormat("en-US", {
@@ -68,11 +77,10 @@ function getTodayIndex(timezone?: string): number {
 function formatDisplayTime(value: string): string {
   const [hourValue = "0", minuteValue = "0"] = value.split(":");
   const hour = Number(hourValue);
-  const minute = Number(minuteValue);
   const period = hour >= 12 ? "PM" : "AM";
   const displayHour = hour % 12 || 12;
 
-  return minute ? `${displayHour}:${String(minute).padStart(2, "0")}${period}` : `${displayHour}${period}`;
+  return `${displayHour}:${minuteValue.padStart(2, "0")} ${period}`;
 }
 
 function formatHoursLabel(hour: StoreHourSummary): string {
@@ -88,7 +96,25 @@ function formatHoursLabel(hour: StoreHourSummary): string {
     return "Open 24h";
   }
 
-  return `${formatDisplayTime(hour.opensAt)}  •  ${formatDisplayTime(hour.closesAt)}`;
+  const overnightLabel = toMinutes(hour.closesAt) < toMinutes(hour.opensAt) ? " next day" : "";
+
+  return `${formatDisplayTime(hour.opensAt)} - ${formatDisplayTime(hour.closesAt)}${overnightLabel}`;
+}
+
+function getBusinessCategoryLabel(category?: string) {
+  if (!category) {
+    return "Generic Service Business";
+  }
+
+  const labels: Record<string, string> = {
+    "Health and Wellness": "Wellness & Self-care",
+    "Food and Beverage": "Food & Beverage",
+    "Retail and E-commerce": "Retail & E-commerce",
+    "Sports and Recreation": "Sports & Recreation",
+    "Generic Service Business": "Service Business"
+  };
+
+  return labels[category] || category;
 }
 
 function normalizeHours(hours: StoreHourSummary[] = []): StoreHourSummary[] {
@@ -116,7 +142,11 @@ export default function JoinedQueuePage() {
   const [error, setError] = useState("");
   const [paymentSyncing, setPaymentSyncing] = useState(false);
   const [cancelSubmitting, setCancelSubmitting] = useState(false);
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
+  const [cancelErrorModalOpen, setCancelErrorModalOpen] = useState(false);
   const [hoursOpened, setHoursOpened] = useState(false);
+  const [contactOpen, setContactOpen] = useState(false);
+  const isMobile = useMediaQuery("(max-width: 48em)");
   const lookupCode = searchParams.get("ticket") || "";
   const paymentId = searchParams.get("payment");
   const paymentStatus = searchParams.get("payment_status");
@@ -127,9 +157,10 @@ export default function JoinedQueuePage() {
   const registrationState = useMemo(
     () => ({
       prefill,
-      redirectTo: `${location.pathname}${location.search}${location.hash}`
+      redirectTo: `${location.pathname}${location.search}${location.hash}`,
+      claimLookupCode: lookupCode
     }),
-    [location.hash, location.pathname, location.search, prefill]
+    [location.hash, location.pathname, location.search, lookupCode, prefill]
   );
   const missingTenant = !tenantSlugValue;
   const shouldAwaitPaymentSync = Boolean(paymentId) && paymentStatus !== "cancelled";
@@ -152,30 +183,36 @@ export default function JoinedQueuePage() {
         border: "1px solid rgba(234, 220, 207, 0.9)",
         borderRadius: 28
       };
-  const pageStyle: CSSProperties = theme
-    ? {
-        backgroundColor: theme.pageBackgroundColor,
-        backgroundImage: theme.backgroundImageUrl
-          ? `linear-gradient(rgba(255,255,255,0.35), rgba(255,255,255,0.35)), url(${theme.backgroundImageUrl})`
-          : undefined,
-        backgroundSize: "cover",
-        backgroundAttachment: "fixed",
-        backgroundPosition: "center",
-        backgroundRepeat: "no-repeat",
-        color: theme.bodyColor,
-        margin: "0 calc(50% - 50dvw) -4rem",
-        minHeight: "calc(100vh - 81px)",
-        maxWidth: "100dvw",
-        overflowX: "hidden",
-        padding: "2rem 2rem 4rem"
-      }
-    : {
-        margin: "0 calc(50% - 50dvw) -4rem",
-        minHeight: "calc(100vh - 81px)",
-        maxWidth: "100dvw",
-        overflowX: "hidden",
-        padding: "2rem 2rem 4rem"
-      };
+  const themeStyle: CSSProperties | undefined = theme
+    ? ({
+        "--vendor-theme-page-bg": theme.pageBackgroundColor,
+        "--vendor-theme-card-bg": theme.cardBackgroundColor,
+        "--vendor-theme-card-alpha": String(theme.cardAlpha),
+        "--vendor-theme-card-border": theme.cardBorderColor,
+        "--vendor-theme-header": theme.headerColor,
+        "--vendor-theme-subheader": theme.subheaderColor,
+        "--vendor-theme-body": theme.bodyColor,
+        "--vendor-theme-button-bg": theme.buttonBackgroundColor,
+        "--vendor-theme-button-text": theme.buttonTextColor,
+        "--vendor-theme-button-border": theme.buttonBorderColor,
+        "--vendor-theme-pill-primary-bg": theme.buttonBackgroundColor,
+        "--vendor-theme-pill-primary-text": theme.buttonTextColor,
+        "--vendor-theme-pill-secondary-bg": theme.subheaderColor,
+        "--vendor-theme-pill-secondary-text": theme.pageBackgroundColor,
+        "--vendor-theme-pill-muted-bg": theme.bodyColor,
+        "--vendor-theme-pill-muted-text": theme.pageBackgroundColor,
+        "--vendor-theme-button-border-width": theme.presetId === "sports" ? "0px" : "1px",
+        "--vendor-theme-logo-bg": theme.cardBackgroundColor,
+        ...(theme.pageBackgroundImageUrl
+          ? {
+              "--vendor-theme-page-image": `url(${theme.pageBackgroundImageUrl})`,
+              "--vendor-theme-page-image-position": "center",
+              "--vendor-theme-page-image-repeat": "no-repeat",
+              "--vendor-theme-page-image-size": theme.pageBackgroundImageFit
+            }
+          : {})
+      } as CSSProperties)
+    : undefined;
   const buttonStyle: CSSProperties | undefined = theme
     ? {
         background: theme.buttonBackgroundColor,
@@ -188,11 +225,25 @@ export default function JoinedQueuePage() {
   const bodyColor = theme?.bodyColor || "#3f3027";
   const businessName = snapshot?.tenant?.name || tenantSlugValue;
   const locationName = snapshot?.location?.name || "Main location";
-  const heroTitle = businessName;
-  const heroSubtitle = theme?.heroSubtitle || locationName;
-  const queueState = getQueueStateSummary(snapshot);
+  const locationDetailLabel = [snapshot?.location?.city, snapshot?.location?.province].filter(Boolean).join(", ") || snapshot?.location?.country || "Philippines";
+  const heroSubtitle = theme?.heroTitle || "Book ahead or follow your same-day queue ticket.";
+  const heroDescription =
+    theme?.heroSubtitle ||
+    snapshot?.location?.openStatus.summary ||
+    "Your queue ticket is linked to this vendor profile, branch, and live service queue.";
   const ticketState = getTicketStateSummary(snapshot?.focusTicket?.status);
-  const locationState = getLocationStatusSummary(snapshot);
+  const themedMediaStyle: CSSProperties | undefined = theme
+    ? {
+        backgroundColor: hexToRgba(theme.cardBackgroundColor, Math.min(1, theme.cardAlpha + 0.08)),
+        backgroundImage: theme.backgroundImageUrl
+          ? `linear-gradient(rgba(255,255,255,0.08), rgba(255,255,255,0.08)), url(${theme.backgroundImageUrl})`
+          : undefined,
+        backgroundSize: theme.backgroundImageFit || "cover",
+        backgroundPosition: "center",
+        backgroundRepeat: "no-repeat"
+      }
+    : undefined;
+  const bookingPath = `/vendors/${tenantSlugValue}/book${locationSlug ? `?location=${encodeURIComponent(locationSlug)}` : ""}`;
   const vendorIsInactive = snapshot ? !snapshot.tenant.isActive : false;
   const locationIsClosed = snapshot?.location ? !snapshot.location.openStatus.isOpen : false;
   const queueDayClosed = Boolean(snapshot?.queueDay?.isClosed);
@@ -230,6 +281,7 @@ export default function JoinedQueuePage() {
     customerPhone: user?.phone || storedAccess?.customerPhone || prefill?.phone || ""
   };
   const canCancelTicket = snapshot?.focusTicket?.status === "waiting";
+  const ownershipVerificationError = "We could not verify that this ticket belongs to you.";
 
   useEffect(() => {
     if (missingTenant || missingLookupCode) {
@@ -372,27 +424,66 @@ export default function JoinedQueuePage() {
             }
           : current
       );
+      setCancelConfirmOpen(false);
     } catch (cancelError) {
-      setError(getErrorMessage(cancelError));
+      const message = getErrorMessage(cancelError);
+      if (message === ownershipVerificationError) {
+        setCancelConfirmOpen(false);
+        setCancelErrorModalOpen(true);
+        return;
+      }
+      setError(message);
     } finally {
       setCancelSubmitting(false);
     }
   }
 
   return (
-      <Box style={pageStyle}>
-      <Box className="public-board-header-brand">
-        {theme?.logoUrl ? (
-          <Box className="public-board-tv-logo public-board-tv-logo-round withImage">
-            <Box alt={`${businessName} logo`} component="img" src={theme.logoUrl} />
-          </Box>
-        ) : null}
-        <Box className="public-board-header-brand-copy">
-          <Text className="public-board-header-brand-name">{businessName}</Text>
-          {theme?.heroSubtitle ? <Text className="public-board-header-brand-subtitle">{theme.heroSubtitle}</Text> : null}
-        </Box>
-      </Box>
-      <Stack gap="lg" maw={1180} mx="auto">
+    <Stack className="vendor-profile-page" gap="xl" style={themeStyle}>
+      <Container size="xl" w="100%">
+        <Button className="ticket-page-back-button" component={Link} leftSection={<IconArrowLeft size={18} />} mb="md" to={vendorDetailsPath} variant="subtle" w="fit-content">
+          Back to vendor details
+        </Button>
+
+        <Modal
+          centered
+          onClose={() => {
+            if (!cancelSubmitting) {
+              setCancelConfirmOpen(false);
+            }
+          }}
+          opened={cancelConfirmOpen}
+          size="md"
+          title="Cancel this ticket?"
+        >
+          <Stack gap="md">
+            <Alert color="red" variant="light">
+              Cancelling removes your place in today&apos;s queue. If you still need the service later, you&apos;ll have to join again and may receive a new position.
+            </Alert>
+            <Text c="dimmed" size="sm">
+              This action is optional. Keep the ticket if you still plan to visit the vendor today.
+            </Text>
+            <Group justify="flex-end">
+              <Button disabled={cancelSubmitting} onClick={() => setCancelConfirmOpen(false)} variant="default">
+                Keep ticket
+              </Button>
+              <Button color="red" loading={cancelSubmitting} onClick={handleCancelTicket} variant="light">
+                Confirm cancel
+              </Button>
+            </Group>
+          </Stack>
+        </Modal>
+        <Modal
+          centered
+          onClose={() => setCancelErrorModalOpen(false)}
+          opened={cancelErrorModalOpen}
+          size="sm"
+          title="Unable to cancel ticket"
+        >
+          <Alert color="red" variant="light">
+            {ownershipVerificationError}
+          </Alert>
+        </Modal>
         <Modal
           centered
           opened={hoursOpened}
@@ -400,130 +491,290 @@ export default function JoinedQueuePage() {
           title="Business hours"
           size="lg"
         >
-          <Table.ScrollContainer minWidth={420}>
-            <Table verticalSpacing="sm">
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>Day</Table.Th>
-                  <Table.Th>Hours</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {locationHours.map((hour) => {
-                  const isToday = hour.weekday === todayIndex;
-                  return (
-                    <Table.Tr key={hour.weekday}>
-                      <Table.Td fw={isToday ? 700 : 500}>{weekdayLabels[hour.weekday]}</Table.Td>
-                      <Table.Td fw={isToday ? 700 : 400}>{formatHoursLabel(hour)}</Table.Td>
-                    </Table.Tr>
-                  );
-                })}
-              </Table.Tbody>
-            </Table>
-          </Table.ScrollContainer>
+          <Paper className="vendor-location-card ticket-hours-modal-card" p="md" style={themeStyle}>
+            <Stack gap="sm">
+              <Group justify="space-between" wrap="nowrap">
+                <div>
+                  <Text className="ticket-hours-modal-location-title" fw={800}>{locationName}</Text>
+                  <Text className="ticket-hours-modal-location-detail" size="sm">
+                    {locationDetailLabel}
+                  </Text>
+                </div>
+              </Group>
+
+              <div className="vendor-hours-card">
+                <Group gap={6} mb={6}>
+                  <IconClock size={15} />
+                  <Text className="ticket-hours-modal-label" fw={800} size="xs">
+                    Store hours
+                  </Text>
+                </Group>
+                <div className="vendor-hours-list">
+                  {locationHours.map((hour) => {
+                    const isToday = hour.weekday === todayIndex;
+                    const hoursLabel = formatHoursLabel(hour);
+                    const isClosed = hoursLabel === "Closed";
+
+                    return (
+                      <div
+                        aria-current={isToday ? "date" : undefined}
+                        className={[
+                          "vendor-hours-row",
+                          isClosed ? "vendor-hours-row-muted" : "",
+                          isToday ? "vendor-hours-row-today" : ""
+                        ].filter(Boolean).join(" ")}
+                        key={hour.weekday}
+                      >
+                        <span className="vendor-hours-day">{weekdayLabels[hour.weekday]}</span>
+                        <span className="vendor-hours-time">{hoursLabel}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <Group mt="xs">
+                <Button className="ticket-hours-modal-primary-action" component={Link} size="sm" to={joinPath} variant="light">
+                  Join this queue
+                </Button>
+                <Button className="ticket-page-card-action" component={Link} size="sm" to={bookingPath} variant="subtle">
+                  Book here
+                </Button>
+              </Group>
+            </Stack>
+          </Paper>
+        </Modal>
+        <Modal
+          centered
+          fullScreen={isMobile}
+          onClose={() => setContactOpen(false)}
+          opened={contactOpen}
+          radius={isMobile ? 0 : "xl"}
+          size="lg"
+          title={
+            <Stack gap={2} className="contact-modal-title">
+              <Text className="contact-form-eyebrow contact-modal-eyebrow">CONTACT VENDOR</Text>
+              <Text className="contact-form-title">Send {businessName || "the vendor"} a Message</Text>
+            </Stack>
+          }
+          scrollAreaComponent={ScrollArea.Autosize}
+          styles={{
+            header: {
+              alignItems: "flex-start",
+              padding: "1.25rem 1.25rem 0.75rem"
+            },
+            title: {
+              flex: 1,
+              marginRight: "1rem",
+              minWidth: 0
+            },
+            close: {
+              marginTop: "0.1rem"
+            }
+          }}
+          transitionProps={{ transition: "fade", duration: 200 }}
+        >
+          <ContactForm
+            scope="vendor"
+            recipientName={businessName || "the vendor"}
+            intro="Use this form to ask about this vendor's services, booking details, or public profile."
+          />
         </Modal>
         {shouldAwaitPaymentSync || paymentSyncing ? (
           <Alert color="blue" title="Confirming payment">
             We are confirming your queue fee payment and loading your ticket.
           </Alert>
         ) : null}
-        <Paper p={{ base: "lg", md: "xl" }} shadow="xl" style={cardStyle}>
-          <SimpleGrid cols={{ base: 1, md: 3 }} spacing="xl">
-            <Stack gap="md" style={{ gridColumn: "span 2" }}>
-              <Text c={subheaderColor} fw={800} size="xs" tt="uppercase" lts={2}>
-                Queue status
-              </Text>
-              <Title c={headerColor} order={1} style={{ fontSize: "clamp(3rem, 7vw, 4.5rem)" }}>
-                {heroTitle}
-              </Title>
-              <Title c={headerColor} order={2} style={{ fontSize: "clamp(2rem, 4vw, 3rem)" }}>
-                {heroSubtitle}
-              </Title>
-              <Alert color={queueState.color} radius="md" variant="light">
-                {queueState.message}
-              </Alert>
-              <Button
-                onClick={() => setHoursOpened(true)}
-                radius="xl"
-                size="md"
-                style={buttonStyle}
-                w="fit-content"
-              >
-                View business hours
-              </Button>
-              <Stack gap="xs" mt="sm">
+        <Paper className="vendor-hero-shell ticket-page-hero" p={{ base: "lg", md: "xl" }}>
+          <SimpleGrid cols={{ base: 1, lg: 2 }} spacing={{ base: "xl", lg: 48 }}>
+            <Stack gap="lg" justify="flex-start">
+              <div>
                 <Group gap="sm" wrap="wrap">
-                  <Badge color={queueState.color} radius="xl" size="lg" variant="light">
-                    {queueState.label}
+                  <Badge className="vendor-theme-badge vendor-theme-badge-primary" size="lg" variant="light">
+                    {getBusinessCategoryLabel()}
                   </Badge>
-                  <Badge radius="xl" size="lg" variant="light">
-                    Ticket: {snapshot?.focusTicket?.ticketNumber || lookupCode}
-                  </Badge>
-                  <Badge radius="xl" size="lg" variant="light">
-                    Waiting: {snapshot?.stats?.waitingCount ?? 0}
-                  </Badge>
-                  <Badge radius="xl" size="lg" variant="light">
-                    ETA: {snapshot?.focusTicket?.estimatedWaitMinutes ?? snapshot?.stats?.estimatedWaitMinutes ?? 0} mins
-                  </Badge>
+                </Group>
+                <Stack gap={4} mt="md">
+                  <Title className="vendor-hero-title ticket-page-title" order={1}>
+                    {businessName}
+                  </Title>
+                  <Text className="vendor-hero-subtitle" fw={700} size="lg">
+                    {heroSubtitle}
+                  </Text>
+                </Stack>
+              </div>
+
+              <Text className="vendor-hero-description">
+                {heroDescription}
+              </Text>
+
+              <Stack gap="xs">
+                <Group c="dimmed" gap={8} wrap="nowrap">
+                  <ThemeIcon className="vendor-theme-icon" radius="xl" size={32} variant="light">
+                    <IconInfoCircle size={16} />
+                  </ThemeIcon>
+                  <Text>{locationName}</Text>
+                </Group>
+                <Group c="dimmed" gap={8} wrap="nowrap">
+                  <ThemeIcon className="vendor-theme-icon" radius="xl" size={32} variant="light">
+                    <IconClock size={16} />
+                  </ThemeIcon>
+                  <Text>{formatHoursLabel(locationHours[todayIndex])}</Text>
+                  <Button
+                    className="ticket-page-inline-hours-button"
+                    leftSection={<IconInfoCircle size={14} />}
+                    onClick={() => setHoursOpened(true)}
+                    radius="xl"
+                    size="xs"
+                    variant="subtle"
+                  >
+                    Business hours
+                  </Button>
                 </Group>
               </Stack>
-              <Text c={bodyColor} size="sm">{locationState.message}</Text>
+
+              <Group gap="md">
+                <Button
+                  className="vendor-theme-button"
+                  component={Link}
+                  leftSection={<IconBuildingStore size={18} />}
+                  size="lg"
+                  to={vendorDetailsPath}
+                >
+                  Vendor details
+                </Button>
+                <Button
+                  className="vendor-theme-button vendor-theme-button-ghost"
+                  leftSection={<IconMessageDots size={18} />}
+                  onClick={() => setContactOpen(true)}
+                  size="lg"
+                  variant="subtle"
+                >
+                  Contact vendor
+                </Button>
+              </Group>
+
+              <Group gap="lg" className="vendor-trust-row">
+                <Group gap={8} wrap="nowrap">
+                  <ThemeIcon className="vendor-theme-icon" radius="xl" size={32} variant="light">
+                    <IconSparkles size={16} />
+                  </ThemeIcon>
+                  <Text fw={700} size="sm">
+                    Verified public profile
+                  </Text>
+                </Group>
+                <Group gap={8} wrap="nowrap">
+                  <ThemeIcon className="vendor-theme-icon" radius="xl" size={32} variant="light">
+                    <IconClock size={16} />
+                  </ThemeIcon>
+                  <Text fw={700} size="sm">
+                    Same-day queue
+                  </Text>
+                </Group>
+                <Group gap={8} wrap="nowrap">
+                  <ThemeIcon className="vendor-theme-icon" radius="xl" size={32} variant="light">
+                    <IconCalendar size={16} />
+                  </ThemeIcon>
+                  <Text fw={700} size="sm">
+                    Book ahead
+                  </Text>
+                </Group>
+              </Group>
             </Stack>
 
-            <Paper bg="white" p="lg" radius="xl" withBorder>
-              <Stack gap="sm">
-                <Text c={subheaderColor} fw={800} size="xs" tt="uppercase" lts={2}>
-                  Ticket details
+            <Paper className="vendor-hero-visual" p="xl" style={themedMediaStyle}>
+              <div className="vendor-hero-media-shell">
+                <div className="vendor-hero-media-slide is-active">
+                  {theme?.logoUrl ? (
+                    <div className="vendor-profile-logo-frame">
+                      <img alt={`${businessName} logo`} src={theme.logoUrl} />
+                    </div>
+                  ) : snapshot?.location?.imageUrl ? (
+                    <img alt="" className="vendor-profile-image-content" src={snapshot.location.imageUrl} />
+                  ) : (
+                    <div className="ticket-page-placeholder">
+                      <IconTicket size={56} stroke={1.5} />
+                      <Text fw={800}>{businessName}</Text>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <Paper className="vendor-hero-status-card" p="lg">
+                <Text fw={800}>
+                  {snapshot?.focusTicket?.customerName ? maskCustomerName(snapshot.focusTicket.customerName) : "Your queue ticket"}
                 </Text>
-                <Group gap="sm" align="center">
-                  <Title c={headerColor} order={2}>
-                    {snapshot?.focusTicket?.ticketNumber || "Loading..."}
-                  </Title>
-                  <Badge color={ticketState.color} radius="xl" size="lg" variant="light">
-                    {ticketState.label}
-                  </Badge>
-                </Group>
-                <Text c={bodyColor}>{ticketState.message}</Text>
-                <Text c={bodyColor}>
-                  {ticketIsWaiting && snapshot?.focusTicket?.position
-                    ? `You are number ${snapshot.focusTicket.position} in line.`
-                    : ticketIsWaiting
-                      ? "Your place in line is confirmed."
-                      : "This ticket is no longer active on the waiting list."}
+                <Text c="dimmed" size="sm">
+                  {snapshot?.focusTicket?.lookupCode ? `${snapshot.focusTicket.lookupCode} · ${ticketState.label}` : ticketState.message}
                 </Text>
-                {ticketIsWaiting ? (
-                  <Text c={bodyColor}>
-                    Estimated wait time: {snapshot?.focusTicket?.estimatedWaitMinutes ?? 0} mins
-                  </Text>
-                ) : null}
-                <Group mt="sm">
-                  <Button component={Link} radius="xl" style={buttonStyle} to={vendorDetailsPath}>
-                    View vendor details
-                  </Button>
+                <SimpleGrid cols={{ base: 1, sm: 2 }} mt="md" spacing="sm">
+                  <div className="prio-dashboard-tile">
+                    <Text c="dimmed" size="xs">
+                      Your Queue Ticket
+                    </Text>
+                    <Text className="prio-dashboard-number">
+                      {snapshot?.focusTicket?.ticketNumber || lookupCode}
+                    </Text>
+                  </div>
+                  <div className="prio-dashboard-tile">
+                    <Text c="dimmed" size="xs">
+                      Ticket Status
+                    </Text>
+                    <Text fw={800}>
+                      {ticketState.label}
+                    </Text>
+                  </div>
+                  <div className="prio-dashboard-tile">
+                    <Text c="dimmed" size="xs">
+                      Position
+                    </Text>
+                    <Text fw={800}>
+                      {ticketIsWaiting && snapshot?.focusTicket?.position ? `#${snapshot.focusTicket.position}` : "--"}
+                    </Text>
+                  </div>
+                  <div className="prio-dashboard-tile">
+                    <Text c="dimmed" size="xs">
+                      ETA
+                    </Text>
+                    <Text fw={800}>
+                      {snapshot?.focusTicket?.estimatedWaitMinutes ?? snapshot?.stats?.estimatedWaitMinutes ?? 0} mins
+                    </Text>
+                  </div>
+                </SimpleGrid>
+                <Text c="dimmed" mt="md" size="sm">
+                  {ticketState.message}
+                </Text>
+                <Group mt="md">
                   {canCancelTicket ? (
-                    <Button
-                      color="red"
-                      loading={cancelSubmitting}
-                      onClick={handleCancelTicket}
-                      radius="xl"
-                      variant="light"
-                    >
+                    <Button color="red" leftSection={<IconX size={16} />} onClick={() => setCancelConfirmOpen(true)} radius="xl" variant="light">
                       Cancel ticket
                     </Button>
                   ) : null}
-                  {canJoinAgain ? (
-                    <Button component={Link} radius="xl" to={joinPath} variant="subtle">
-                      Join again
-                    </Button>
-                  ) : null}
+                  <Button
+                    className="ticket-page-card-action"
+                    component={Link}
+                    disabled={!canJoinAgain}
+                    leftSection={<IconTicket size={16} />}
+                    radius="xl"
+                    to={joinPath}
+                    variant="subtle"
+                  >
+                    Join again
+                  </Button>
+                  <Text className="ticket-page-card-action-separator" fw={700} size="sm">
+                    or
+                  </Text>
+                  <Button className="ticket-page-card-action" component={Link} leftSection={<IconCalendar size={16} />} radius="xl" to={bookingPath} variant="subtle">
+                    Start booking
+                  </Button>
                 </Group>
-              </Stack>
+              </Paper>
             </Paper>
           </SimpleGrid>
         </Paper>
 
         {!userIsCustomer ? (
-          <Paper p="xl" shadow="lg" style={cardStyle}>
+          <Paper className="ticket-page-save-section" p="xl" shadow="lg" style={cardStyle}>
             <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xl">
               <Stack gap="xs">
                 <Text c={subheaderColor} fw={800} size="xs" tt="uppercase" lts={2}>
@@ -553,47 +804,64 @@ export default function JoinedQueuePage() {
 
         {error ? <Alert color="red">{error}</Alert> : null}
 
-        <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
-          <Paper p="xl" shadow="lg" style={cardStyle}>
-            <Stack gap="md">
-              <Text c={bodyColor}>Currently serving</Text>
-              <Title c={headerColor} order={2}>{snapshot?.current?.ticketNumber || "--"}</Title>
-              <Text c={bodyColor} size="sm">
-                {snapshot?.current?.customerName
-                  ? maskCustomerName(snapshot.current.customerName)
-                  : "No active ticket"}
-              </Text>
-            </Stack>
-          </Paper>
-          <Paper p="xl" shadow="lg" style={cardStyle}>
-            <Stack gap="md">
-              <Text c={bodyColor}>Completed today</Text>
-              <Title c={headerColor} order={2}>{snapshot?.stats?.servedToday ?? 0}</Title>
-              <Text c={bodyColor} size="sm">
-                Location: {snapshot?.location?.name || snapshot?.tenant?.name || "--"}
-              </Text>
-            </Stack>
-          </Paper>
-        </SimpleGrid>
-
-        <Paper p="xl" shadow="lg" style={cardStyle}>
+        <Paper className="ticket-page-stats-section" px={0} py="xl">
           <Stack gap="md">
             <Group justify="space-between" align="flex-start">
               <div>
                 <Text c={subheaderColor} fw={800} size="xs" tt="uppercase" lts={2}>
-                  Up next
+                  Queue stats
                 </Text>
-                <Title c={headerColor} order={2}>Queue overview</Title>
+                <Title className="vendor-section-title ticket-page-section-title" order={2}>Queue overview</Title>
               </div>
-              <Button component={Link} to={joinPath} variant="subtle" style={{ color: theme?.buttonBackgroundColor || undefined }}>
-                Join this queue
-              </Button>
+            </Group>
+            <SimpleGrid cols={{ base: 1, md: 3 }} spacing="md">
+              <Paper className="ticket-page-metric" p="md">
+                <Text c={subheaderColor} fw={800} size="xs" tt="uppercase" lts={2}>
+                  ETA
+                </Text>
+                <Title className="ticket-page-metric-value" order={2}>
+                  {snapshot?.focusTicket?.estimatedWaitMinutes ?? snapshot?.stats?.estimatedWaitMinutes ?? 0} mins
+                </Title>
+              </Paper>
+              <Paper className="ticket-page-metric" p="md">
+                <Text c={subheaderColor} fw={800} size="xs" tt="uppercase" lts={2}>
+                  Waiting
+                </Text>
+                <Title className="ticket-page-metric-value" order={2}>
+                  {snapshot?.stats?.waitingCount ?? 0}
+                </Title>
+              </Paper>
+              <Paper className="ticket-page-metric" p="md">
+                <Text c={subheaderColor} fw={800} size="xs" tt="uppercase" lts={2}>
+                  Completed Today
+                </Text>
+                <Title className="ticket-page-metric-value" order={2}>
+                  {snapshot?.stats?.servedToday ?? 0}
+                </Title>
+              </Paper>
+            </SimpleGrid>
+            <Text c={bodyColor} fw={700}>
+              Currently serving: {snapshot?.current?.ticketNumber || "--"}
+            </Text>
+          </Stack>
+        </Paper>
+
+        <Paper className="ticket-page-queue-list-section" p="xl" shadow="lg" style={cardStyle}>
+          <Stack gap="md">
+            <Group justify="space-between" align="flex-start">
+              <div>
+                <Text c={subheaderColor} fw={800} size="xs" tt="uppercase" lts={2}>
+                  Queue list
+                </Text>
+                <Title className="vendor-section-title ticket-page-section-title" order={2}>Up next and waiting</Title>
+              </div>
             </Group>
             <Table.ScrollContainer minWidth={560}>
               <Table verticalSpacing="sm">
                 <Table.Thead>
                   <Table.Tr>
                     <Table.Th>Ticket</Table.Th>
+                    <Table.Th>Customer</Table.Th>
                     <Table.Th ta="right">Position</Table.Th>
                   </Table.Tr>
                 </Table.Thead>
@@ -603,6 +871,8 @@ export default function JoinedQueuePage() {
                       <Table.Tr key={ticket.id}>
                         <Table.Td>
                           <Text c={headerColor} fw={800}>{ticket.ticketNumber}</Text>
+                        </Table.Td>
+                        <Table.Td>
                           <Text c={bodyColor} size="sm">{ticket.customerName}</Text>
                         </Table.Td>
                         <Table.Td ta="right">
@@ -612,7 +882,7 @@ export default function JoinedQueuePage() {
                     ))
                   ) : (
                     <Table.Tr>
-                      <Table.Td colSpan={2}>
+                      <Table.Td colSpan={3}>
                         <Text c={bodyColor}>The queue is currently empty.</Text>
                       </Table.Td>
                     </Table.Tr>
@@ -622,7 +892,7 @@ export default function JoinedQueuePage() {
             </Table.ScrollContainer>
           </Stack>
         </Paper>
-      </Stack>
-    </Box>
+      </Container>
+    </Stack>
   );
 }

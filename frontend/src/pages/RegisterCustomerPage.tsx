@@ -8,6 +8,7 @@ import type { RegisterCustomerRequest, UsernameAvailabilityResponse } from "@sha
 import PhilippineMobileInput from "../components/PhilippineMobileInput";
 import SocialAuthButtons from "../components/SocialAuthButtons";
 import { apiRequest } from "../api/client";
+import { customerAccountApi } from "../api/customerAccount";
 import { useAuth } from "../context/AuthContext";
 import { getErrorMessage } from "../utils/errors";
 import { buildUsernameFromName, isUsernameFormatValid, normalizeUsernameInput } from "../utils/usernames";
@@ -32,8 +33,10 @@ export default function RegisterCustomerPage() {
   const registrationState = (location.state as {
     prefill?: Partial<RegisterCustomerRequest>;
     redirectTo?: string;
+    claimLookupCode?: string;
   } | null) || null;
   const redirectTo = registrationState?.redirectTo || "/";
+  const claimLookupCode = registrationState?.claimLookupCode || "";
   const [usernameMessage, setUsernameMessage] = useState("");
   const [usernameAvailable, setUsernameAvailable] = useState(false);
   const [checkingUsername, setCheckingUsername] = useState(false);
@@ -137,10 +140,13 @@ export default function RegisterCustomerPage() {
     }
 
     try {
-      await registerCustomer({
+      const authResponse = await registerCustomer({
         ...values,
         phone: values.phone || ""
       });
+      if (claimLookupCode) {
+        await customerAccountApi.claimTicket(authResponse.token, claimLookupCode);
+      }
       navigate(redirectTo, { replace: true });
     } catch (submitError) {
       setError(getErrorMessage(submitError));

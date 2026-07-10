@@ -589,6 +589,22 @@ async function cancelWaitingTicket(tenantId, lookupCode, options = {}) {
   return mapTicket(result.rows[0]);
 }
 
+async function claimTicketForUser(ticketId, userId, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const result = await queryClient.query(
+    `
+      UPDATE tickets
+      SET user_id = $2,
+          updated_at = NOW()
+      WHERE id = $1
+      RETURNING ${TICKET_COLUMNS}
+    `,
+    [Number(ticketId), Number(userId)]
+  );
+
+  return mapTicket(result.rows[0]);
+}
+
 async function markTicketNotifiedAlmostThere(ticketId, options = {}) {
   const queryClient = buildQueryClient(options.client);
   const result = await queryClient.query(
@@ -810,6 +826,7 @@ module.exports = {
   callNextWaitingTicket,
   updateCurrentCalledTicketStatus,
   cancelWaitingTicket,
+  claimTicketForUser,
   markTicketNotifiedAlmostThere,
   listTicketsForQueueClosure,
   markTicketsUnservedForClosure,
