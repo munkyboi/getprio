@@ -328,37 +328,7 @@ export default function CustomerBookingDetailPage() {
     )
     : "";
   const checkInAvailable = Boolean(booking.linkedTicket);
-  const customerCheckInAvailable =
-    booking.serviceManualPaymentRequired &&
-    Boolean(booking.paymentProof) &&
-    ["pending", "confirmed", "rescheduled"].includes(booking.status) &&
-    !booking.checkedInAt &&
-    !booking.linkedTicket;
   const paymentProofActionLabel = booking.paymentProof ? "View payment proof" : "Submit payment proof";
-  const handleCustomerCheckIn = async () => {
-    if (!token) {
-      return;
-    }
-
-    setBusy(true);
-    setError("");
-
-    try {
-      const data = await apiRequest<CustomerBookingDetailResponse>(`/account/bookings/${booking.id}/check-in`, {
-        method: "POST",
-        token
-      });
-      setBooking(data.booking);
-      notifications.show({
-        color: "teal",
-        message: "Your check-in is confirmed."
-      });
-    } catch (checkInError) {
-      setError(getErrorMessage(checkInError));
-    } finally {
-      setBusy(false);
-    }
-  };
 
   return (
     <Stack className="customer-account-page" gap="lg">
@@ -427,7 +397,7 @@ export default function CustomerBookingDetailPage() {
                 <Stack gap={2}>
                   <Text fw={800}>Actions</Text>
                   <Text c="dimmed" size="sm">
-                    If you submitted payment proof, you can check in here on the booking day. Otherwise wait for vendor check-in.
+                    Check in once the vendor creates your queue ticket, or wait for vendor check-in.
                   </Text>
                 </Stack>
                 {booking.checkedInAt ? (
@@ -441,11 +411,7 @@ export default function CustomerBookingDetailPage() {
                 )}
               </Group>
               <Group gap="sm">
-                {customerCheckInAvailable ? (
-                  <Button leftSection={<IconTicket size={16} />} loading={busy} onClick={handleCustomerCheckIn}>
-                    Check in now
-                  </Button>
-                ) : checkInAvailable ? (
+                {checkInAvailable ? (
                   <Button component={Link} leftSection={<IconTicket size={16} />} to={linkedQueuePath}>
                     Check-in
                   </Button>

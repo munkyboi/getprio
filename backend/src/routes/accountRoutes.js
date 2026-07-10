@@ -387,21 +387,6 @@ router.post(
   })
 );
 
-router.post(
-  "/bookings/:bookingId/check-in",
-  asyncHandler(async (req, res) => {
-    const result = await bookingService.checkInCustomerBooking({
-      user: req.user,
-      bookingId: req.params.bookingId
-    });
-
-    res.json({
-      booking: formatCustomerBooking(result.booking),
-      ticket: result.ticket
-    });
-  })
-);
-
 router.get(
   "/bookings/:bookingId/payment-proof",
   asyncHandler(async (req, res) => {

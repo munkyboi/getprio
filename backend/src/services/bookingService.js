@@ -65,49 +65,6 @@ function getBookingDurationMinutes(service, bookingQuantity) {
   return getServiceDurationMinutes(service) * bookingQuantity;
 }
 
-function getTimeZoneDateParts(date, timeZone) {
-  const formatter = new Intl.DateTimeFormat("en-US", {
-    timeZone: timeZone || "Asia/Manila",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour12: false
-  });
-  return formatter.formatToParts(date).reduce((acc, part) => {
-    if (part.type !== "literal") {
-      acc[part.type] = part.value;
-    }
-    return acc;
-  }, {});
-}
-
-function zonedTimeToUtc(year, month, day, hour, minute, second, timeZone) {
-  const utcGuess = Date.UTC(year, month - 1, day, hour, minute, second, 0);
-  const actualParts = getTimeZoneDateParts(new Date(utcGuess), timeZone);
-  const actualAsUtc = Date.UTC(
-    Number(actualParts.year),
-    Number(actualParts.month) - 1,
-    Number(actualParts.day),
-    Number(actualParts.hour || 0),
-    Number(actualParts.minute || 0),
-    Number(actualParts.second || 0),
-    0
-  );
-  const offsetMs = actualAsUtc - utcGuess;
-  return new Date(utcGuess - offsetMs);
-}
-
-function getTimeZoneDayBounds(date, timeZone) {
-  const parts = getTimeZoneDateParts(date, timeZone);
-  const year = Number(parts.year);
-  const month = Number(parts.month);
-  const day = Number(parts.day);
-  return {
-    start: zonedTimeToUtc(year, month, day, 0, 0, 0, timeZone),
-    end: zonedTimeToUtc(year, month, day, 23, 59, 59, timeZone)
-  };
-}
-
 function getBookingCapacityServiceId(service, capacityScope = "service") {
   return service.bookingCapacityScope === "location" || capacityScope === "location" ? null : service._id;
 }
@@ -155,13 +112,8 @@ function assertBookingBelongsToTenantLocation(booking, tenant, location) {
 
 function getCheckInWindowState(booking, now = new Date()) {
   const scheduledStartAt = new Date(booking.scheduledStartAt);
-  const timeZone = booking.locationTimezone || "Asia/Manila";
-  const earlyAt = booking.serviceManualPaymentRequired
-    ? getTimeZoneDayBounds(scheduledStartAt, timeZone).start
-    : new Date(scheduledStartAt.getTime() - CHECK_IN_WINDOW_MINUTES * 60 * 1000);
-  const lateAt = booking.serviceManualPaymentRequired
-    ? getTimeZoneDayBounds(scheduledStartAt, timeZone).end
-    : new Date(scheduledStartAt.getTime() + CHECK_IN_WINDOW_MINUTES * 60 * 1000);
+  const earlyAt = new Date(scheduledStartAt.getTime() - CHECK_IN_WINDOW_MINUTES * 60 * 1000);
+  const lateAt = new Date(scheduledStartAt.getTime() + CHECK_IN_WINDOW_MINUTES * 60 * 1000);
   const nowMs = now.getTime();
 
   return {
@@ -1358,90 +1310,6 @@ async function checkInVendorBooking({ tenant, location, bookingId, user, overrid
   };
 }
 
-async function checkInCustomerBooking({ user, bookingId, now = new Date() }) {
-  await expirePendingBookingsForCustomer(user._id);
-  const queueService = getQueueService();
-  const result = await db.withTransaction(async (client) => {
-    const booking = await bookingRepository.findBookingByIdForUpdate(bookingId, { client });
-    if (!booking || String(booking.customerUserId) !== String(user._id)) {
-      const error = new Error("Booking not found.");
-      error.statusCode = 404;
-      throw error;
-    }
-
-    if (!booking.serviceManualPaymentRequired) {
-      const error = new Error("This booking does not allow customer self check-in.");
-      error.statusCode = 409;
-      throw error;
-    }
-
-    if (!booking.paymentProofObjectKey) {
-      const error = new Error("Submit payment proof before checking in.");
-      error.statusCode = 409;
-      throw error;
-    }
-
-    if (!["confirmed", "rescheduled"].includes(booking.status)) {
-      const error = new Error("Only confirmed or rescheduled bookings can be checked in.");
-      error.statusCode = 409;
-      throw error;
-    }
-
-    if (booking.queueTicketId || booking.checkedInAt) {
-      const error = new Error("This booking has already been checked in.");
-      error.statusCode = 409;
-      throw error;
-    }
-
-    const windowState = getCheckInWindowState(booking, now);
-    if (windowState.isTooEarly) {
-      const error = new Error("This booking is not inside the check-in window yet.");
-      error.statusCode = 409;
-      throw error;
-    }
-    if (windowState.isLate) {
-      const error = new Error("This booking is outside the check-in window.");
-      error.statusCode = 409;
-      throw error;
-    }
-
-    const ticket = await queueService.createTicketForTenantInTransaction(client, {
-      tenant: await tenantRepository.findTenantById(booking.tenantId, { client }),
-      location: await storeLocationRepository.findLocationById(booking.locationId, { client }),
-      userId: booking.customerUserId,
-      customerName: booking.customerName,
-      customerEmail: booking.customerEmail,
-      customerPhone: booking.customerPhone,
-      notifyByEmail: booking.notifyByEmail,
-      notifyBySms: booking.notifyBySms,
-      joinChannel: "online",
-      notes: `Customer check-in from booking ${booking.reference}.`,
-      servicePriorityBand: "checked_in_booking"
-    });
-
-    const updatedBooking = await bookingRepository.updateBooking(
-      booking._id,
-      {
-        queueTicketId: ticket._id,
-        checkedInAt: new Date().toISOString(),
-        checkedInByUserId: user?._id || null
-      },
-      { client }
-    );
-
-    return { booking: updatedBooking, ticket };
-  });
-
-  await queueService.publishSnapshot(await tenantRepository.findTenantById(result.booking.tenantId), {
-    location: await storeLocationRepository.findLocationById(result.booking.locationId)
-  });
-
-  return {
-    booking: result.booking,
-    ticket: buildLinkedQueueTicketSummary(result.ticket)
-  };
-}
-
 async function markVendorBookingNoShow({ tenant, location, bookingId, user }) {
   await expirePendingBookingsForTenant(tenant._id);
   const booking = await bookingRepository.findBookingById(bookingId);
@@ -1503,7 +1371,6 @@ module.exports = {
   _setQueueServiceForTest: setQueueServiceForTest,
   _getCheckInWindowState: getCheckInWindowState,
   cancelCustomerBooking,
-  checkInCustomerBooking,
   checkInVendorBooking,
   createCustomerBooking,
   createCustomerPaymentProofAccess,
