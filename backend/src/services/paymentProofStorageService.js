@@ -201,7 +201,8 @@ async function uploadBinary({ booking, body, fileBuffer }) {
 
   const fileName = normalizeFileName(requireMetadataString(body.fileName, "fileName"));
   const contentType = requireMetadataString(body.contentType, "contentType").toLowerCase();
-  const sizeBytes = fileBuffer.length;
+  const uploadBuffer = Buffer.from(fileBuffer);
+  const sizeBytes = uploadBuffer.byteLength;
   assertUploadMetadata({ contentType, sizeBytes });
 
   const objectKey = buildObjectKey({ booking, fileName, contentType });
@@ -209,7 +210,7 @@ async function uploadBinary({ booking, body, fileBuffer }) {
     Bucket: env.b2BucketPaymentProof,
     Key: objectKey,
     ContentType: contentType,
-    Body: fileBuffer
+    Body: uploadBuffer
   }));
 
   return {
@@ -233,7 +234,8 @@ async function uploadGroupFundedBinary({ campaign, user, body, fileBuffer }) {
 
   const fileName = normalizeFileName(requireMetadataString(body.fileName, "fileName"));
   const contentType = requireMetadataString(body.contentType, "contentType").toLowerCase();
-  const sizeBytes = fileBuffer.length;
+  const uploadBuffer = Buffer.from(fileBuffer);
+  const sizeBytes = uploadBuffer.byteLength;
   assertGroupFundedUploadMetadata({ contentType, sizeBytes });
 
   const objectKey = buildGroupFundedObjectKey({ campaign, user, fileName, contentType });
@@ -241,7 +243,7 @@ async function uploadGroupFundedBinary({ campaign, user, body, fileBuffer }) {
     Bucket: env.b2BucketPaymentProof,
     Key: objectKey,
     ContentType: contentType,
-    Body: fileBuffer
+    Body: uploadBuffer
   }));
 
   return {
