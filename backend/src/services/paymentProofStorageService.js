@@ -87,6 +87,16 @@ function normalizeFileName(fileName) {
     .slice(0, 160) || "payment-proof";
 }
 
+function requireMetadataString(value, label) {
+  if (typeof value !== "string") {
+    const error = new Error(`${label} must be a single value.`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return value;
+}
+
 function assertUploadMetadata({ contentType, sizeBytes }) {
   if (!ALLOWED_CONTENT_TYPES.has(contentType)) {
     const error = new Error("Only JPEG, PNG, and WebP proof images are supported.");
@@ -183,16 +193,16 @@ async function createUpload({ booking, body }) {
 async function uploadBinary({ booking, body, fileBuffer }) {
   assertPaymentProofStorageConfigured();
 
-  const fileName = normalizeFileName(body.fileName);
-  const contentType = String(body.contentType || "").toLowerCase();
-  const sizeBytes = Buffer.isBuffer(fileBuffer) ? fileBuffer.length : 0;
-  assertUploadMetadata({ contentType, sizeBytes });
-
   if (!Buffer.isBuffer(fileBuffer)) {
     const error = new Error("Payment proof upload payload is invalid.");
     error.statusCode = 400;
     throw error;
   }
+
+  const fileName = normalizeFileName(requireMetadataString(body.fileName, "fileName"));
+  const contentType = requireMetadataString(body.contentType, "contentType").toLowerCase();
+  const sizeBytes = fileBuffer.length;
+  assertUploadMetadata({ contentType, sizeBytes });
 
   const objectKey = buildObjectKey({ booking, fileName, contentType });
   await getS3Client().send(new PutObjectCommand({
@@ -215,16 +225,16 @@ async function uploadBinary({ booking, body, fileBuffer }) {
 async function uploadGroupFundedBinary({ campaign, user, body, fileBuffer }) {
   assertPaymentProofStorageConfigured();
 
-  const fileName = normalizeFileName(body.fileName);
-  const contentType = String(body.contentType || "").toLowerCase();
-  const sizeBytes = Buffer.isBuffer(fileBuffer) ? fileBuffer.length : 0;
-  assertGroupFundedUploadMetadata({ contentType, sizeBytes });
-
   if (!Buffer.isBuffer(fileBuffer)) {
     const error = new Error("Contribution proof upload payload is invalid.");
     error.statusCode = 400;
     throw error;
   }
+
+  const fileName = normalizeFileName(requireMetadataString(body.fileName, "fileName"));
+  const contentType = requireMetadataString(body.contentType, "contentType").toLowerCase();
+  const sizeBytes = fileBuffer.length;
+  assertGroupFundedUploadMetadata({ contentType, sizeBytes });
 
   const objectKey = buildGroupFundedObjectKey({ campaign, user, fileName, contentType });
   await getS3Client().send(new PutObjectCommand({

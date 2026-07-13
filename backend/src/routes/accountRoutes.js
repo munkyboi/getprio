@@ -647,8 +647,7 @@ router.post(
       campaignIdOrToken: requireRequestParam(req.params.campaignIdOrToken, "Campaign"),
       body: {
         fileName: normalizeQueryText(req.query.fileName),
-        contentType: req.headers["content-type"],
-        sizeBytes: req.body.length
+        contentType: normalizeQueryText(req.headers["content-type"])
       },
       fileBuffer: req.body
     });
@@ -727,11 +726,10 @@ router.post(
 
     const upload = await bookingService.uploadCustomerPaymentProofDirect({
       user: req.user,
-      bookingId: req.params.bookingId,
+      bookingId: requireRequestParam(req.params.bookingId, "Booking"),
       body: {
-        fileName: normalizeRequestText(req.query.fileName),
-        contentType: req.headers["content-type"],
-        sizeBytes: req.body.length
+        fileName: normalizeQueryText(req.query.fileName),
+        contentType: normalizeQueryText(req.headers["content-type"])
       },
       fileBuffer: req.body
     });
