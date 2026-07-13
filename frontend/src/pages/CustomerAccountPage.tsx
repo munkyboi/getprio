@@ -928,6 +928,10 @@ export default function CustomerAccountPage() {
                         <Text c="red" size="sm">
                           Your contribution was not counted.
                         </Text>
+                      ) : campaign.contribution?.contributionStatus === "refund_pending" ? (
+                        <Text c="orange" size="sm">
+                          Your contribution cannot be accepted. Refund pending.
+                        </Text>
                       ) : null}
                     </Table.Td>
                     <Table.Td>
@@ -947,6 +951,11 @@ export default function CustomerAccountPage() {
                         {campaign.contribution?.contributionStatus === "rejected" && campaign.contribution.rejectionReason ? (
                           <Text c="dimmed" size="xs">
                             {campaign.contribution.rejectionReason}
+                          </Text>
+                        ) : null}
+                        {campaign.contribution?.contributionStatus === "refund_pending" && campaign.contribution.rejectionReason ? (
+                          <Text c="orange" size="xs">
+                            {campaign.contribution.rejectionReason} · Refund pending
                           </Text>
                         ) : null}
                       </Stack>

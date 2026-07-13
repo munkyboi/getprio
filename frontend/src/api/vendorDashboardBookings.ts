@@ -14,7 +14,9 @@ import type {
   RejectVendorGroupFundedContributionRequest,
   VendorGroupFundedCampaignDetailResponse,
   VendorGroupFundedCampaignMutationResponse,
-  VendorGroupFundedContributionMutationResponse
+  VendorGroupFundedContributionMutationResponse,
+  VendorGroupFundedRefundMutationResponse,
+  UpdateVendorGroupFundedRefundRequest
 } from "@shared";
 import { apiRequest } from "./client";
 
@@ -119,6 +121,18 @@ export function rejectGroupFundedCampaign(
 ) {
   return apiRequest<VendorGroupFundedCampaignMutationResponse, RejectVendorGroupFundedCampaignRequest>(
     `/vendor/tenant/${tenantSlug}/group-funded-campaigns/${campaignId}/reject`,
+    { method: "PATCH", token, body }
+  );
+}
+
+export function updateGroupFundedRefund(
+  token: string,
+  tenantSlug: string,
+  refundId: string,
+  body: UpdateVendorGroupFundedRefundRequest
+) {
+  return apiRequest<VendorGroupFundedRefundMutationResponse, UpdateVendorGroupFundedRefundRequest>(
+    `/vendor/tenant/${tenantSlug}/group-funded-campaigns/refunds/${refundId}`,
     { method: "PATCH", token, body }
   );
 }

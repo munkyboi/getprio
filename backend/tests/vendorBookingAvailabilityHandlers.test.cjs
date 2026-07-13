@@ -28,7 +28,14 @@ test("vendor booking handler lists bookings through injected repositories", asyn
       listBookingsForTenant: async (_tenantId, options) => {
         capturedOptions = options;
         return {
-        bookings: [{ _id: 7, reference: "BKG-1", locationSlug: "main" }],
+        bookings: [{
+          _id: 7,
+          reference: "BKG-1",
+          locationSlug: "main",
+          groupFundedBookingId: "campaign-17",
+          bookingPaymentSource: "group_funded",
+          groupFundedCampaign: { id: "campaign-17", campaignTitle: "Weekend court booking" }
+        }],
         totalItems: 1
         };
       }
@@ -38,6 +45,9 @@ test("vendor booking handler lists bookings through injected repositories", asyn
   });
 
   assert.equal(response.body.bookings[0].reference, "BKG-1");
+  assert.equal(response.body.bookings[0].groupFundedBookingId, "campaign-17");
+  assert.equal(response.body.bookings[0].bookingPaymentSource, "group_funded");
+  assert.equal(response.body.bookings[0].groupFundedCampaign.campaignTitle, "Weekend court booking");
   assert.equal(capturedOptions.scheduledDateFrom, "2026-07-01");
   assert.equal(capturedOptions.scheduledDateTo, "2026-07-15");
 });

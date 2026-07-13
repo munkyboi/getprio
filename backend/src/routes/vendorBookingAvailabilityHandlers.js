@@ -36,6 +36,9 @@ function formatVendorBooking(booking) {
     notes: booking.notes,
     paymentReference: booking.paymentReference,
     paymentStatus: booking.paymentStatus,
+    groupFundedBookingId: booking.groupFundedBookingId,
+    bookingPaymentSource: booking.bookingPaymentSource,
+    groupFundedCampaign: booking.groupFundedCampaign,
     paymentProof: booking.paymentProofObjectKey
       ? {
           fileName: booking.paymentProofFileName,

@@ -135,6 +135,57 @@ test("vendor routes queue mutations invoke the queue service helpers", async () 
       checkInVendorBooking: async () => ({ booking: { _id: "booking-1", reference: "BKG-1", locationSlug: "main" }, ticket: { ticketNumber: "A100" } }),
       markVendorBookingNoShow: async () => ({ _id: "booking-1", reference: "BKG-1", locationSlug: "main" })
     },
+    "../services/groupFundedBookingService": {
+      rejectContribution: async (payload) => {
+        calls.push(["rejectContribution", [payload]]);
+        return {
+          campaign: {
+            _id: "campaign-1",
+            tenantId: "tenant-1",
+            locationId: "location-1",
+            serviceId: "service-1",
+            organizerUserId: "user-1",
+            campaignStatus: "vendor_review",
+            visibility: "private_link",
+            serviceNameSnapshot: "Consultation",
+            locationNameSnapshot: "Main",
+            scheduledStartAt: "2026-07-14T01:00:00.000Z",
+            scheduledEndAt: "2026-07-14T02:00:00.000Z",
+            fundingDeadlineAt: "2026-07-13T01:00:00.000Z",
+            targetAmountCents: 10000,
+            requiredContributionAmountCents: 5000,
+            requiredContributors: 2,
+            paidParticipantCount: 2,
+            fundedAmountCents: 10000,
+            fundedAt: "2026-07-12T01:00:00.000Z"
+          },
+          contribution: {
+            _id: "contribution-1",
+            campaignId: "campaign-1",
+            userId: "user-2",
+            amountCents: 5000,
+            currency: "PHP",
+            contributionStatus: "refund_pending",
+            paymentReference: "REF-1",
+            refundStatus: "pending"
+          },
+          refund: {
+            _id: "refund-1",
+            campaignId: "campaign-1",
+            contributionId: "contribution-1",
+            userId: "user-2",
+            amountCents: 5000,
+            currency: "PHP",
+            refundReason: "excess_contribution",
+            refundStatus: "pending",
+            notes: "Payment received after target.",
+            completedAt: null,
+            createdAt: "2026-07-12T01:00:00.000Z",
+            updatedAt: "2026-07-12T01:00:00.000Z"
+          }
+        };
+      }
+    },
     "../repositories/bookings": {
       listBookingsForTenant: async () => ({ bookings: [], totalItems: 0 }),
       findBookingById: async (bookingId) => ({
@@ -254,6 +305,30 @@ test("vendor routes queue mutations invoke the queue service helpers", async () 
     assert.deepEqual(calls.find(([name]) => name === "listVendorBookingRescheduleSlots"), [
       "listVendorBookingRescheduleSlots",
       [{ _id: "tenant-1", slug: "demo" }, "booking-1", "2026-06-24"]
+    ]);
+
+    const rejectContributionRes = await fetch(
+      `${baseUrl}/tenant/demo/group-funded-campaigns/contributions/contribution-1/reject-payment`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: "Payment received after target.", refundDisposition: "required" })
+      }
+    );
+    const rejectContributionText = await rejectContributionRes.text();
+    assert.equal(rejectContributionRes.status, 200, rejectContributionText);
+    const rejectContribution = JSON.parse(rejectContributionText);
+    assert.equal(rejectContribution.contribution.contributionStatus, "refund_pending");
+    assert.equal(rejectContribution.refund.refundReason, "excess_contribution");
+    assert.deepEqual(calls.find(([name]) => name === "rejectContribution"), [
+      "rejectContribution",
+      [{
+        tenant: { _id: "tenant-1", slug: "demo" },
+        user: { _id: "user-1", roles: ["vendor"], tenantMemberships: [{ tenantId: "tenant-1", role: "owner" }] },
+        contributionId: "contribution-1",
+        reason: "Payment received after target.",
+        refundDisposition: "required"
+      }]
     ]);
   } finally {
     await new Promise((resolve) => server.close(resolve));

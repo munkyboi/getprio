@@ -21,8 +21,12 @@ A participant who joins a group-funded booking by paying the required contributi
 _Avoid_: Co-owner, unpaid joiner, booking admin
 
 **Group-Funded Contribution**:
-A vendor-verified payment share made by a booking contributor toward a group-funded booking's target amount. Contribution evidence and refund state belong to the contribution rather than to the normal booking payment proof fields.
+A payment share represented by a booking contributor's submitted proof toward a group-funded booking's target amount. A submitted contribution temporarily reserves one contributor position; only a vendor-verified contribution counts toward the funding target. Contribution evidence and refund state belong to the contribution rather than to the normal booking payment proof fields.
 _Avoid_: Booking payment proof, checkout line item, participant balance
+
+**Contributor Reservation**:
+A temporary claim on one required contributor position created when a contributor submits payment proof. It prevents additional contributors from submitting once all positions are claimed, does not count as verified funding, and ends when the vendor rejects the proof or the campaign reaches its funding deadline.
+_Avoid_: Booking capacity hold, verified contribution, waitlist entry
 
 **Group-Funded Refund**:
 A vendor-side manual refund obligation linked to a group-funded contribution. GetPrio tracks the refund reason, status, vendor action, notes, and evidence, but the vendor performs the actual money return outside the platform in v1.

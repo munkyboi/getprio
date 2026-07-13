@@ -200,6 +200,11 @@ function baseMocks(repositoryOverrides = {}) {
       description: data.description,
       visibility: data.visibility
     }),
+    getContributionReservationSummary: async () => ({
+      verifiedContributorCount: 0,
+      pendingVerificationContributorCount: 0
+    }),
+    findRefundByContributionId: async () => null,
     ...repositoryOverrides
   };
   repository.events = events;
@@ -224,7 +229,12 @@ function baseMocks(repositoryOverrides = {}) {
           tenantId: "tenant-1",
           name: "Main",
           slug: "main",
-          isActive: true
+          isActive: true,
+          paymentQrActive: true,
+          paymentQrImageUrl: "/qr.png",
+          paymentMethodLabel: "GCash",
+          paymentAccountDisplayName: "GetPrio Vendor",
+          paymentAccountIdentifierDisplay: "09170000000"
         }),
         findLocationByTenantAndSlug: async () => ({
           _id: "location-1",
@@ -364,6 +374,7 @@ test("group-funded service creates a campaign with computed contribution and rou
   assert.equal(campaign.roundingAdjustmentCents, 1);
   assert.equal(createdPayload.targetAmountCents, 100001);
   assert.equal(createdPayload.eligibilitySnapshot.paymentMethodLabel, "GCash");
+  assert.equal(createdPayload.eligibilitySnapshot.paymentQrImageUrl, "/qr.png");
   assert.deepEqual(repository.events.map((event) => event.eventType), ["campaign_created"]);
   assert.equal(pushCalls.length, 1);
   assert.equal(pushCalls[0].type, "created");
@@ -432,7 +443,11 @@ test("group-funded service formats public campaigns without private payment or c
     organizerDisplayName: "Carlo Abella",
     organizerProfileDisplayName: "John S.",
     paymentReference: "internal-reference",
-    paymentProofObjectKey: "proofs/private.png"
+    paymentProofObjectKey: "proofs/private.png",
+    eligibilitySnapshot: {
+      paymentQrImageUrl: "/payment-qr.png",
+      paymentAccountDisplayName: "GetPrio Vendor"
+    }
   }));
 
   assert.equal(publicCampaign.organizerDisplayName, "John S.");
@@ -440,6 +455,7 @@ test("group-funded service formats public campaigns without private payment or c
   assert.equal(publicCampaign.linkedBookingId, null);
   assert.equal(publicCampaign.paymentReference, undefined);
   assert.equal(publicCampaign.paymentProofObjectKey, undefined);
+  assert.equal(publicCampaign.paymentDestination, undefined);
   assert.equal(publicCampaign.refunds, undefined);
   assert.equal(publicCampaign.events, undefined);
 });
@@ -554,6 +570,74 @@ test("group-funded service stores submitted contribution proof without advancing
   assert.equal(pushCalls[0].type, "proof");
   assert.equal(pushCalls[0].contribution._id, "contribution-1");
   assert.deepEqual(streamPublishes, [{ tenantSlug: "vendor", payload: undefined }]);
+});
+
+test("group-funded service rejects proof submission when verified and pending reservations fill every contributor position", async () => {
+  let createParticipantCalled = false;
+  let createContributionCalled = false;
+  const campaign = buildCampaign({ requiredContributors: 4, paidParticipantCount: 1 });
+  const { repository, mocks } = baseMocks({
+    findCampaignByPublicToken: async () => campaign,
+    findContributionByCampaignAndUser: async () => null,
+    getContributionReservationSummary: async () => ({
+      verifiedContributorCount: 1,
+      pendingVerificationContributorCount: 3,
+      vacantContributorCount: 0,
+      filledContributorCount: 4
+    }),
+    findParticipantByCampaignAndUser: async () => null,
+    createParticipant: async () => {
+      createParticipantCalled = true;
+      return { _id: "participant-2" };
+    },
+    createContribution: async () => {
+      createContributionCalled = true;
+      return { _id: "contribution-2" };
+    }
+  });
+  const service = requireWithMocks("../src/services/groupFundedBookingService.js", mocks);
+
+  await assert.rejects(
+    () => service.submitContributionProof({
+      user: { _id: "user-3", name: "Another contributor" },
+      campaignIdOrToken: "share-token",
+      body: {
+        paymentReference: "REF-FULL",
+        paymentProofObjectKey: "group-funded/campaign-1/user-3/proof.png",
+        paymentProofFileName: "proof.png",
+        paymentProofContentType: "image/png",
+        paymentProofSizeBytes: 12345
+      }
+    }),
+    { message: "All contributor positions are temporarily reserved. Please try again if a pending proof is rejected." }
+  );
+
+  assert.equal(createParticipantCalled, false);
+  assert.equal(createContributionCalled, false);
+  assert.equal(repository.events.length, 0);
+});
+
+test("group-funded customer campaign exposes only contributor reservation aggregates", async () => {
+  const campaign = buildCampaign({ organizerUserId: "user-1", requiredContributors: 4 });
+  const { mocks } = baseMocks({
+    findCampaignById: async () => campaign,
+    findContributionByCampaignAndUser: async () => null,
+    getContributionReservationSummary: async () => ({
+      verifiedContributorCount: 1,
+      pendingVerificationContributorCount: 2
+    })
+  });
+  const service = requireWithMocks("../src/services/groupFundedBookingService.js", mocks);
+
+  const result = await service.getCampaignForCustomer({ user: { _id: "user-1" }, campaignIdOrToken: "1" });
+
+  assert.deepEqual(result.campaign.contributorReservationSummary, {
+    verifiedContributorCount: 1,
+    pendingVerificationContributorCount: 2,
+    vacantContributorCount: 1,
+    filledContributorCount: 3
+  });
+  assert.equal(Object.hasOwn(result.campaign.contributorReservationSummary, "contributorIds"), false);
 });
 
 test("group-funded service uploads contribution proof before metadata submission", async () => {
@@ -694,6 +778,119 @@ test("group-funded service blocks verifying excess submitted contributions after
     (error) => error.statusCode === 409 && /already fully funded/i.test(error.message)
   );
   assert.equal(updateCalled, false);
+});
+
+test("group-funded service rejects invalid proof without creating a refund", async () => {
+  const campaign = buildCampaign();
+  const contribution = {
+    _id: "contribution-1",
+    campaignId: campaign._id,
+    userId: "user-2",
+    amountCents: 33334,
+    currency: "PHP",
+    contributionStatus: "submitted"
+  };
+  let createdRefund = null;
+  const { repository, mocks } = baseMocks({
+    findContributionById: async () => contribution,
+    findCampaignById: async () => campaign,
+    updateContribution: async (data) => ({ ...contribution, ...data }),
+    createRefund: async (data) => {
+      createdRefund = data;
+      return { _id: "refund-1", ...data };
+    }
+  });
+  const service = requireWithMocks("../src/services/groupFundedBookingService.js", mocks);
+
+  const result = await service.rejectContribution({
+    tenant: { _id: "tenant-1" },
+    user: { _id: "vendor-1" },
+    contributionId: contribution._id,
+    reason: "Reference could not be matched.",
+    refundDisposition: "not_required"
+  });
+
+  assert.equal(result.contribution.contributionStatus, "rejected");
+  assert.equal(result.refund, null);
+  assert.equal(createdRefund, null);
+  assert.deepEqual(repository.events.map((event) => event.eventType), ["contribution_rejected"]);
+});
+
+test("group-funded service moves paid rejected proof into refund tracking", async () => {
+  const campaign = buildCampaign({ fundedAmountCents: 100001, targetAmountCents: 100001 });
+  const contribution = {
+    _id: "contribution-2",
+    campaignId: campaign._id,
+    userId: "user-3",
+    amountCents: 33334,
+    currency: "PHP",
+    contributionStatus: "submitted"
+  };
+  const refunds = [];
+  const { repository, mocks } = baseMocks({
+    findContributionById: async () => contribution,
+    findCampaignById: async () => campaign,
+    updateContribution: async (data) => ({ ...contribution, ...data }),
+    createRefund: async (data) => {
+      const refund = { _id: `refund-${refunds.length + 1}`, ...data };
+      refunds.push(refund);
+      return refund;
+    }
+  });
+  const service = requireWithMocks("../src/services/groupFundedBookingService.js", mocks);
+
+  const result = await service.rejectContribution({
+    tenant: { _id: "tenant-1" },
+    user: { _id: "vendor-1" },
+    contributionId: contribution._id,
+    reason: "Payment received after the campaign reached its target.",
+    refundDisposition: "required"
+  });
+
+  assert.equal(result.contribution.contributionStatus, "refund_pending");
+  assert.equal(result.contribution.refundStatus, "pending");
+  assert.equal(result.refund.refundReason, "excess_contribution");
+  assert.equal(refunds.length, 1);
+  assert.deepEqual(repository.events.map((event) => event.eventType), [
+    "refund_obligation_created",
+    "contribution_rejected"
+  ]);
+});
+
+test("group-funded service does not duplicate an existing rejected-contribution refund", async () => {
+  const campaign = buildCampaign({ fundedAmountCents: 100001, targetAmountCents: 100001 });
+  const contribution = {
+    _id: "contribution-3",
+    campaignId: campaign._id,
+    userId: "user-3",
+    amountCents: 33334,
+    currency: "PHP",
+    contributionStatus: "refund_pending"
+  };
+  const existingRefund = { _id: "refund-1", contributionId: contribution._id, refundStatus: "pending" };
+  let createRefundCalled = false;
+  const { repository, mocks } = baseMocks({
+    findContributionById: async () => contribution,
+    findCampaignById: async () => campaign,
+    findRefundByContributionId: async () => existingRefund,
+    createRefund: async () => {
+      createRefundCalled = true;
+      return null;
+    }
+  });
+  const service = requireWithMocks("../src/services/groupFundedBookingService.js", mocks);
+
+  const result = await service.rejectContribution({
+    tenant: { _id: "tenant-1" },
+    user: { _id: "vendor-1" },
+    contributionId: contribution._id,
+    reason: "Payment received after the campaign reached its target.",
+    refundDisposition: "required"
+  });
+
+  assert.equal(result.refund, existingRefund);
+  assert.equal(createRefundCalled, false);
+  assert.equal(repository.events.length, 0);
 });
 
 test("group-funded service approves vendor-review campaign into one linked paid booking", async () => {
@@ -897,6 +1094,99 @@ test("group-funded service returns only the authenticated contributor refund sta
 
   assert.equal(result.refunds.length, 1);
   assert.equal(result.refunds[0]._id, "refund-1");
+});
+
+test("group-funded customer campaign includes its snapshotted QR payment destination", async () => {
+  const campaign = buildCampaign({
+    organizerUserId: "user-1",
+    eligibilitySnapshot: {
+      paymentMethodLabel: "GCash",
+      paymentAccountDisplayName: "GetPrio Vendor",
+      paymentAccountIdentifierDisplay: "09171234567",
+      paymentQrImageUrl: "/payment-qr.png"
+    }
+  });
+  const { mocks } = baseMocks({
+    findCampaignById: async () => campaign,
+    findContributionByCampaignAndUser: async () => null
+  });
+  const service = requireWithMocks("../src/services/groupFundedBookingService.js", mocks);
+
+  const result = await service.getCampaignForCustomer({ user: { _id: "user-1" }, campaignIdOrToken: "1" });
+
+  assert.deepEqual(result.campaign.paymentDestination, {
+    methodLabel: "GCash",
+    accountDisplayName: "GetPrio Vendor",
+    accountIdentifierDisplay: "09171234567",
+    qrImageUrl: "/payment-qr.png"
+  });
+});
+
+test("group-funded campaign link lets a new authenticated contributor view active payment instructions", async () => {
+  const campaign = buildCampaign({
+    eligibilitySnapshot: {
+      paymentMethodLabel: "GCash",
+      paymentAccountDisplayName: "GetPrio Vendor",
+      paymentAccountIdentifierDisplay: "09171234567",
+      paymentQrImageUrl: "/payment-qr.png"
+    }
+  });
+  const { mocks } = baseMocks({
+    findCampaignByPublicToken: async () => campaign,
+    findContributionByCampaignAndUser: async () => null
+  });
+  const service = requireWithMocks("../src/services/groupFundedBookingService.js", mocks);
+
+  const result = await service.getCampaignForCustomer({ user: { _id: "user-2" }, campaignIdOrToken: campaign.publicToken });
+
+  assert.equal(result.campaign.paymentDestination.qrImageUrl, "/payment-qr.png");
+});
+
+test("group-funded campaign hides payment instructions when the branch QR is disabled", async () => {
+  const campaign = buildCampaign({
+    organizerUserId: "user-1",
+    eligibilitySnapshot: { paymentQrImageUrl: "/payment-qr.png" }
+  });
+  const { mocks } = baseMocks({
+    findCampaignById: async () => campaign,
+    findContributionByCampaignAndUser: async () => null
+  });
+  mocks["../repositories/storeLocations"].findLocationById = async () => ({
+    _id: "location-1",
+    tenantId: "tenant-1",
+    paymentQrActive: false,
+    paymentQrImageUrl: "/disabled-qr.png"
+  });
+  const service = requireWithMocks("../src/services/groupFundedBookingService.js", mocks);
+
+  const result = await service.getCampaignForCustomer({ user: { _id: "user-1" }, campaignIdOrToken: "1" });
+
+  assert.equal(result.campaign.paymentDestination, null);
+});
+
+test("group-funded vendor campaign detail includes a complete refund summary", async () => {
+  const campaign = buildCampaign({ campaignStatus: "vendor_rejected" });
+  const { mocks } = baseMocks({
+    findCampaignById: async () => campaign,
+    listContributionsByCampaign: async () => [
+      { _id: "contribution-1", contributionStatus: "refunded" },
+      { _id: "contribution-2", contributionStatus: "refunded" }
+    ],
+    listRefundsByCampaign: async () => [
+      { _id: "refund-1", refundStatus: "completed" },
+      { _id: "refund-2", refundStatus: "completed" }
+    ],
+    listCapacityHoldsByCampaign: async () => []
+  });
+  const service = requireWithMocks("../src/services/groupFundedBookingService.js", mocks);
+
+  const result = await service.getVendorCampaign({ tenant: { _id: "tenant-1" }, campaignId: campaign._id });
+
+  assert.deepEqual(result.campaign.refundSummary, {
+    totalCount: 2,
+    completedCount: 2,
+    eligibleContributionCount: 2
+  });
 });
 
 test("group-funded service lets vendors propose replacement slots without creating a normal booking", async () => {

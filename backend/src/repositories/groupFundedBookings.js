@@ -306,6 +306,19 @@ function mapCampaign(row) {
     confirmedAt: row.confirmed_at || null,
     canceledAt: row.canceled_at || null,
     cancellationReason: row.cancellation_reason || "",
+    contributorReservationTotals: row.verified_contributor_count === undefined
+      ? null
+      : {
+          verifiedContributorCount: Number(row.verified_contributor_count || 0),
+          pendingVerificationContributorCount: Number(row.pending_verification_contributor_count || 0)
+        },
+    refundSummary: row.refund_count === undefined
+      ? null
+      : {
+          totalCount: Number(row.refund_count || 0),
+          completedCount: Number(row.completed_refund_count || 0),
+          eligibleContributionCount: Number(row.refund_eligible_contribution_count || 0)
+        },
     eligibilitySnapshot: parseMetadata(row.eligibility_snapshot),
     createdAt: row.created_at,
     updatedAt: row.updated_at
@@ -572,10 +585,27 @@ async function listCampaignsForVendor(tenantId, options = {}) {
 
   const result = await buildQueryClient(options.client).query(
     `
-      SELECT ${campaignSelectColumns("gfb")}
+      SELECT
+        ${campaignSelectColumns("gfb")},
+        COALESCE(refund_summary.refund_count, 0)::INTEGER AS refund_count,
+        COALESCE(refund_summary.completed_refund_count, 0)::INTEGER AS completed_refund_count,
+        COALESCE(refund_summary.refund_eligible_contribution_count, 0)::INTEGER AS refund_eligible_contribution_count
       FROM group_funded_bookings gfb
       LEFT JOIN users organizer
         ON organizer.id = gfb.organizer_user_id
+      LEFT JOIN LATERAL (
+        SELECT
+          COUNT(*)::INTEGER AS refund_count,
+          COUNT(*) FILTER (WHERE refund_status = 'completed')::INTEGER AS completed_refund_count,
+          (
+            SELECT COUNT(*)::INTEGER
+            FROM group_funded_booking_contributions
+            WHERE campaign_id = gfb.id
+              AND contribution_status IN ('verified', 'refund_pending', 'refunded', 'policy_review_required')
+          ) AS refund_eligible_contribution_count
+        FROM group_funded_booking_refunds
+        WHERE campaign_id = gfb.id
+      ) refund_summary ON TRUE
       WHERE ${whereClauses.join(" AND ")}
       ORDER BY gfb.created_at DESC
       LIMIT $${values.length}
@@ -648,7 +678,10 @@ async function listPublicCampaignsForVendorLocation(tenantId, locationId, option
 
   const result = await buildQueryClient(options.client).query(
     `
-      SELECT ${campaignSelectColumns("gfb")}
+      SELECT
+        ${campaignSelectColumns("gfb")},
+        COALESCE(contribution_summary.verified_contributor_count, 0)::INTEGER AS verified_contributor_count,
+        COALESCE(contribution_summary.pending_verification_contributor_count, 0)::INTEGER AS pending_verification_contributor_count
       FROM group_funded_bookings gfb
       LEFT JOIN users organizer
         ON organizer.id = gfb.organizer_user_id
@@ -657,6 +690,13 @@ async function listPublicCampaignsForVendorLocation(tenantId, locationId, option
        AND location_service.tenant_id = gfb.tenant_id
        AND location_service.location_id = gfb.location_id
        AND location_service.service_id = gfb.service_id
+      LEFT JOIN LATERAL (
+        SELECT
+          COUNT(*) FILTER (WHERE contribution_status = 'verified')::INTEGER AS verified_contributor_count,
+          COUNT(*) FILTER (WHERE contribution_status = 'submitted')::INTEGER AS pending_verification_contributor_count
+        FROM group_funded_booking_contributions
+        WHERE campaign_id = gfb.id
+      ) contribution_summary ON TRUE
       WHERE ${whereClauses.join(" AND ")}
       ORDER BY gfb.funding_deadline_at ASC, gfb.created_at DESC
       LIMIT $${values.length}
@@ -794,6 +834,24 @@ async function listContributionsByCampaign(campaignId, options = {}) {
     values
   );
   return result.rows.map(mapContribution);
+}
+
+async function getContributionReservationSummary(campaignId, options = {}) {
+  const result = await buildQueryClient(options.client).query(
+    `
+      SELECT
+        COUNT(*) FILTER (WHERE contribution_status = 'verified')::INTEGER AS verified_contributor_count,
+        COUNT(*) FILTER (WHERE contribution_status = 'submitted')::INTEGER AS pending_verification_contributor_count
+      FROM group_funded_booking_contributions
+      WHERE campaign_id = $1
+    `,
+    [Number(campaignId)]
+  );
+  const row = result.rows[0] || {};
+  return {
+    verifiedContributorCount: Number(row.verified_contributor_count || 0),
+    pendingVerificationContributorCount: Number(row.pending_verification_contributor_count || 0)
+  };
 }
 
 async function updateContribution(data, options = {}) {
@@ -978,6 +1036,20 @@ async function findRefundById(refundId, options = {}) {
       ${options.forUpdate ? "FOR UPDATE" : ""}
     `,
     [Number(refundId)]
+  );
+  return mapRefund(result.rows[0]);
+}
+
+async function findRefundByContributionId(contributionId, options = {}) {
+  const result = await buildQueryClient(options.client).query(
+    `
+      SELECT ${REFUND_COLUMNS}
+      FROM group_funded_booking_refunds
+      WHERE contribution_id = $1
+      LIMIT 1
+      ${options.forUpdate ? "FOR UPDATE" : ""}
+    `,
+    [Number(contributionId)]
   );
   return mapRefund(result.rows[0]);
 }
@@ -1230,8 +1302,10 @@ module.exports = {
   findContributionByCampaignAndUser,
   findContributionById,
   findParticipantByCampaignAndUser,
+  findRefundByContributionId,
   findRefundById,
   listCampaignsForVendor,
+  getContributionReservationSummary,
   listVendorAlertEvents,
   listPublicCampaignsForVendorLocation,
   listCampaignsForUser,

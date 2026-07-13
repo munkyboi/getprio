@@ -113,6 +113,9 @@ function formatVendorBooking(booking) {
     notes: booking.notes,
     paymentReference: booking.paymentReference,
     paymentStatus: booking.paymentStatus,
+    groupFundedBookingId: booking.groupFundedBookingId,
+    bookingPaymentSource: booking.bookingPaymentSource,
+    groupFundedCampaign: booking.groupFundedCampaign,
     paymentProof: booking.paymentProofObjectKey
       ? {
           fileName: booking.paymentProofFileName,
@@ -205,7 +208,8 @@ function formatVendorGroupFundedResult(result) {
       rejectedByUserId: result.contribution.rejectedByUserId,
       rejectionReason: result.contribution.rejectionReason,
       refundStatus: result.contribution.refundStatus
-    }
+    },
+    refund: result.refund ? formatVendorGroupFundedRefund(result.refund) : undefined
   };
 }
 
@@ -253,6 +257,7 @@ function formatVendorGroupFundedCampaign(campaign) {
     confirmedAt: campaign.confirmedAt,
     canceledAt: campaign.canceledAt,
     cancellationReason: campaign.cancellationReason,
+    refundSummary: campaign.refundSummary,
     createdAt: campaign.createdAt,
     updatedAt: campaign.updatedAt
   };
@@ -959,7 +964,8 @@ router.patch(
       tenant,
       user: req.user,
       contributionId: req.params.contributionId,
-      reason: normalizeRequestText(req.body?.reason)
+      reason: normalizeRequestText(req.body?.reason),
+      refundDisposition: normalizeRequestText(req.body?.refundDisposition)
     });
     res.json(formatVendorGroupFundedResult(result));
   })

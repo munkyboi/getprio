@@ -104,7 +104,9 @@ import type {
   GroupFundedLocationServiceSettings,
   GroupFundedCampaignSummary,
   GroupFundedVendorAlertEvent,
-  VendorGroupFundedContributionSummary
+  VendorGroupFundedContributionSummary,
+  VendorGroupFundedRefundSummary,
+  GroupFundedRefundStatus
 } from "@shared";
 import { API_BASE_URL } from "../api/client";
 import PhilippineMobileInput from "../components/PhilippineMobileInput";
@@ -372,6 +374,34 @@ const groupFundedCampaignRejectionReasons = [
     label: "Vendor cannot fulfill request",
     value: "vendor_unavailable",
     reason: "The vendor cannot fulfill this group-funded booking request at the selected date and time. Verified contributions will be marked refund-eligible."
+  }
+];
+
+const groupFundedContributionRejectionReasons = [
+  {
+    label: "Payment reference cannot be matched",
+    value: "reference_unmatched",
+    reason: "The payment reference could not be matched to a received payment. Please verify the reference and submit a new proof if needed."
+  },
+  {
+    label: "Proof is unreadable or incomplete",
+    value: "proof_unreadable",
+    reason: "The payment proof is unreadable or does not show enough information to verify the payment. Please submit a clearer proof."
+  },
+  {
+    label: "Payment amount does not match",
+    value: "amount_mismatch",
+    reason: "The payment amount does not match the required contribution for this campaign."
+  },
+  {
+    label: "Duplicate payment proof",
+    value: "duplicate_proof",
+    reason: "This payment proof duplicates a contribution that has already been submitted for this campaign."
+  },
+  {
+    label: "Campaign contributor positions are full",
+    value: "campaign_full",
+    reason: "The campaign has already filled all contributor positions, so this contribution cannot be accepted."
   }
 ];
 
@@ -770,6 +800,33 @@ function getGroupFundedStatusColor(status: string) {
   return "gray";
 }
 
+function getGroupFundedRefundStatusColor(status: GroupFundedRefundStatus) {
+  if (status === "completed") {
+    return "teal";
+  }
+  if (status === "in_progress") {
+    return "blue";
+  }
+  if (status === "policy_review_required") {
+    return "orange";
+  }
+  if (status === "rejected") {
+    return "red";
+  }
+  return "yellow";
+}
+
+function isGroupFundedCampaignFullyRefunded(campaign: GroupFundedCampaignSummary) {
+  const refundSummary = campaign.refundSummary;
+  return Boolean(
+    campaign.campaignStatus === "vendor_rejected" &&
+    refundSummary &&
+    refundSummary.totalCount > 0 &&
+    refundSummary.completedCount === refundSummary.totalCount &&
+    refundSummary.totalCount === refundSummary.eligibleContributionCount
+  );
+}
+
 function formatBytes(sizeBytes: number | null): string {
   if (!sizeBytes) {
     return "Unknown size";
@@ -824,6 +881,22 @@ function getBookingCheckInState(booking: VendorBookingSummary) {
     isEligibleStatus: ["confirmed", "rescheduled"].includes(booking.status),
     minutesFromStart
   };
+}
+
+function GroupFundedBookingIndicator({ booking }: { booking: VendorBookingSummary }) {
+  if (!booking.groupFundedBookingId && booking.bookingPaymentSource !== "group_funded") {
+    return null;
+  }
+
+  const campaignId = booking.groupFundedBookingId || booking.groupFundedCampaign?.id;
+  const campaignTitle = booking.groupFundedCampaign?.campaignTitle || "Group-funded campaign";
+  return (
+    <Tooltip label={campaignTitle} withArrow>
+      <Badge color="blue" variant="light" w="fit-content">
+        Group-funded{campaignId ? ` · Campaign #${campaignId}` : ""}
+      </Badge>
+    </Tooltip>
+  );
 }
 
 function QueueIntakeGauge({
@@ -1065,7 +1138,12 @@ export default function VendorDashboardPage() {
   const [groupFundedRejectReason, setGroupFundedRejectReason] = useState("");
   const [groupFundedRejectReasonPreset, setGroupFundedRejectReasonPreset] = useState<string | null>(null);
   const [groupFundedUseCustomRejectReason, setGroupFundedUseCustomRejectReason] = useState(false);
-  const [groupFundedContributionRejectReasons, setGroupFundedContributionRejectReasons] = useState<Record<string, string>>({});
+  const [groupFundedContributionToReject, setGroupFundedContributionToReject] = useState<VendorGroupFundedContributionSummary | null>(null);
+  const [groupFundedContributionRejectReason, setGroupFundedContributionRejectReason] = useState("");
+  const [groupFundedContributionRejectReasonPreset, setGroupFundedContributionRejectReasonPreset] = useState<string | null>(null);
+  const [groupFundedContributionUseCustomRejectReason, setGroupFundedContributionUseCustomRejectReason] = useState(false);
+  const [groupFundedContributionRefundRequired, setGroupFundedContributionRefundRequired] = useState(false);
+  const [groupFundedRefundNotes, setGroupFundedRefundNotes] = useState<Record<string, string>>({});
   const [confirmAction, setConfirmAction] = useState<null | {
     title: string;
     description: string;
@@ -2022,6 +2100,14 @@ export default function VendorDashboardPage() {
     setGroupFundedUseCustomRejectReason(false);
   }
 
+  function closeGroupFundedContributionRejectModal() {
+    setGroupFundedContributionToReject(null);
+    setGroupFundedContributionRejectReason("");
+    setGroupFundedContributionRejectReasonPreset(null);
+    setGroupFundedContributionUseCustomRejectReason(false);
+    setGroupFundedContributionRefundRequired(false);
+  }
+
   function syncBookingAlerts(bookings: VendorBookingSummary[], options: { detectNew?: boolean } = {}) {
     const nextIds = new Set(bookings.map((booking) => booking.id));
     const previousIds = knownBookingAlertIdsRef.current;
@@ -2647,8 +2733,28 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     }
   }
 
-  async function handleRejectGroupFundedContribution(contribution: VendorGroupFundedContributionSummary) {
-    const reason = (groupFundedContributionRejectReasons[contribution.id] || "").trim();
+  function openGroupFundedContributionRejectModal(contribution: VendorGroupFundedContributionSummary) {
+    const campaign = groupFundedDetailQuery.data?.campaign;
+    const fundingReached = Boolean(
+      campaign && (
+        campaign.fundedAmountCents >= campaign.targetAmountCents ||
+        campaign.paidParticipantCount >= campaign.requiredContributors ||
+        campaign.campaignStatus !== "funding"
+      )
+    );
+    setGroupFundedContributionToReject(contribution);
+    setGroupFundedContributionRejectReason("");
+    setGroupFundedContributionRejectReasonPreset(null);
+    setGroupFundedContributionUseCustomRejectReason(false);
+    setGroupFundedContributionRefundRequired(fundingReached);
+  }
+
+  async function handleRejectGroupFundedContribution() {
+    const contribution = groupFundedContributionToReject;
+    if (!contribution) {
+      return;
+    }
+    const reason = groupFundedContributionRejectReason.trim();
     if (!reason) {
       setError("A contributor-visible rejection reason is required.");
       return;
@@ -2658,14 +2764,17 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     setError("");
 
     try {
-      await vendorDashboardBookings.rejectGroupFundedContribution(token, selectedTenantSlug, contribution.id, { reason });
-      setGroupFundedContributionRejectReasons((current) => {
-        const next = { ...current };
-        delete next[contribution.id];
-        return next;
+      const refundRequired = groupFundedContributionRefundRequired;
+      await vendorDashboardBookings.rejectGroupFundedContribution(token, selectedTenantSlug, contribution.id, {
+        reason,
+        refundDisposition: refundRequired ? "required" : "not_required"
       });
+      closeGroupFundedContributionRejectModal();
       await reloadGroupFundedCampaigns();
-      showSuccessNotification("Contribution rejected", "The proof was rejected and the contributor can see the reason.");
+      showSuccessNotification(
+        refundRequired ? "Contribution moved to refunds" : "Contribution rejected",
+        refundRequired ? "A refund obligation was created for the contributor." : "The proof was rejected and the contributor can see the reason."
+      );
     } catch (rejectError) {
       setError(getErrorMessage(rejectError));
     } finally {
@@ -2708,6 +2817,27 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       showSuccessNotification("Group-funded campaign rejected", "Verified contributions are now refund-eligible.");
     } catch (rejectError) {
       setError(getErrorMessage(rejectError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function handleUpdateGroupFundedRefund(
+    refund: VendorGroupFundedRefundSummary,
+    refundStatus: Extract<GroupFundedRefundStatus, "in_progress" | "completed" | "policy_review_required">
+  ) {
+    setBusyAction(`group-funded-refund:${refund.id}:${refundStatus}`);
+    setError("");
+
+    try {
+      await vendorDashboardBookings.updateGroupFundedRefund(token, selectedTenantSlug, refund.id, {
+        refundStatus,
+        notes: (groupFundedRefundNotes[refund.id] ?? refund.notes ?? "").trim()
+      });
+      await reloadGroupFundedCampaigns();
+      showSuccessNotification("Refund updated", `Refund marked ${refundStatus.replace(/_/g, " ")}.`);
+    } catch (refundError) {
+      setError(getErrorMessage(refundError));
     } finally {
       setBusyAction("");
     }
@@ -3651,7 +3781,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 disabled={busyAction === "location-image-upload"}
                 onChange={(file) => uploadLocationImage(file)}
               />
-              <TextInput
+                                  <TextInput
                 label="Branch image URL"
                 value={locationForm.imageUrl || ""}
                 onChange={(event) => setLocationForm((current) => ({ ...current, imageUrl: event.target.value }))}
@@ -6740,6 +6870,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                   {booking.reference}
                                 </Button>
                                 <Text c="dimmed" size="sm">Requested {formatDateTime(booking.createdAt)}</Text>
+                                <GroupFundedBookingIndicator booking={booking} />
                               </Stack>
                             </Table.Td>
                             <Table.Td>
@@ -7038,6 +7169,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                 {booking.reference}
                               </Button>
                               <Text c="dimmed" size="sm">Requested {formatDateTime(booking.createdAt)}</Text>
+                              <GroupFundedBookingIndicator booking={booking} />
                             </Stack>
                           </Table.Td>
                           <Table.Td>
@@ -7245,7 +7377,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                 className="neura-inline-link-button"
                                 onClick={() => {
                                   resetGroupFundedCampaignDecision();
-                                  setGroupFundedContributionRejectReasons({});
+                                  closeGroupFundedContributionRejectModal();
+                                  setGroupFundedRefundNotes({});
                                   setGroupFundedDetailId(campaign.id);
                                 }}
                                 p={0}
@@ -7292,9 +7425,16 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                             </Stack>
                           </Table.Td>
                           <Table.Td>
-                            <Badge color={getGroupFundedStatusColor(campaign.campaignStatus)} variant="light">
-                              {campaign.campaignStatus.replace(/_/g, " ")}
-                            </Badge>
+                            <Stack gap={4}>
+                              <Badge color={getGroupFundedStatusColor(campaign.campaignStatus)} variant="light" w="fit-content">
+                                {campaign.campaignStatus.replace(/_/g, " ")}
+                              </Badge>
+                              {isGroupFundedCampaignFullyRefunded(campaign) ? (
+                                <Badge color="teal" variant="light" w="fit-content">
+                                  Fully refunded
+                                </Badge>
+                              ) : null}
+                            </Stack>
                           </Table.Td>
                           <Table.Td>
                             <Button
@@ -7302,7 +7442,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                               size="xs"
                               onClick={() => {
                                 resetGroupFundedCampaignDecision();
-                                setGroupFundedContributionRejectReasons({});
+                                closeGroupFundedContributionRejectModal();
+                                setGroupFundedRefundNotes({});
                                 setGroupFundedDetailId(campaign.id);
                               }}
                             >
@@ -7331,7 +7472,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           onClose={() => {
             setGroupFundedDetailId(null);
             resetGroupFundedCampaignDecision();
-            setGroupFundedContributionRejectReasons({});
+            closeGroupFundedContributionRejectModal();
+            setGroupFundedRefundNotes({});
           }}
           size={1120}
           title={
@@ -7512,7 +7654,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                       <Button
                                         color="red"
                                         disabled={busyAction === `group-funded-contribution-reject:${contribution.id}`}
-                                        onClick={() => handleRejectGroupFundedContribution(contribution)}
+                                        onClick={() => openGroupFundedContributionRejectModal(contribution)}
                                         size="xs"
                                         variant="light"
                                       >
@@ -7524,18 +7666,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                         Campaign is already fully funded. Reject remaining submitted proofs.
                                       </Text>
                                     ) : null}
-                                    <TextInput
-                                      aria-label="Contribution rejection reason"
-                                      placeholder="Reason required for rejection"
-                                      size="xs"
-                                      value={groupFundedContributionRejectReasons[contribution.id] || ""}
-                                      onChange={(event) =>
-                                        setGroupFundedContributionRejectReasons((current) => ({
-                                          ...current,
-                                          [contribution.id]: event.currentTarget.value
-                                        }))
-                                      }
-                                    />
                                   </Stack>
                                 ) : (
                                   <Text c="dimmed" size="xs">No action</Text>
@@ -7555,14 +7685,78 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               {selectedDetail.refunds.length ? (
                 <Paper withBorder radius="md" p="md">
                   <Stack gap="sm">
-                    <Text fw={800}>Refund obligations</Text>
+                    <Group justify="space-between">
+                      <Text fw={800}>Refund obligations</Text>
+                      {isGroupFundedCampaignFullyRefunded(selectedDetail.campaign) ? (
+                        <Badge color="teal" variant="light">All contributor refunds completed</Badge>
+                      ) : null}
+                    </Group>
                     {selectedDetail.refunds.map((refund) => (
-                      <Group key={refund.id} justify="space-between">
-                        <Text>{formatMoney(refund.amountCents, refund.currency)} · {refund.refundReason}</Text>
-                        <Badge color={refund.refundStatus === "completed" ? "teal" : "yellow"} variant="light">
-                          {refund.refundStatus.replace(/_/g, " ")}
-                        </Badge>
-                      </Group>
+                      <Paper key={refund.id} withBorder radius="md" p="sm">
+                        <Stack gap="sm">
+                          <Group align="flex-start" justify="space-between">
+                            <div>
+                              <Text fw={700}>{formatMoney(refund.amountCents, refund.currency)}</Text>
+                              <Text c="dimmed" size="sm">
+                                Reason {refund.refundReason.replace(/_/g, " ")} · User {refund.userId}
+                              </Text>
+                              {refund.completedAt ? (
+                                <Text c="dimmed" size="sm">
+                                  Completed {formatDateTime(refund.completedAt)}
+                                </Text>
+                              ) : null}
+                            </div>
+                            <Badge color={getGroupFundedRefundStatusColor(refund.refundStatus)} variant="light">
+                              {refund.refundStatus.replace(/_/g, " ")}
+                            </Badge>
+                          </Group>
+                          <Textarea
+                            disabled={refund.refundStatus === "completed"}
+                            label="Refund notes"
+                            minRows={2}
+                            onChange={(event) =>
+                              setGroupFundedRefundNotes((current) => ({
+                                ...current,
+                                [refund.id]: event.currentTarget.value
+                              }))
+                            }
+                            placeholder="Add reference number, channel, or internal handling notes"
+                            value={groupFundedRefundNotes[refund.id] ?? refund.notes ?? ""}
+                          />
+                          {canAdminBookings ? (
+                            <Group justify="flex-end">
+                              <Button
+                                disabled={refund.refundStatus === "completed"}
+                                loading={busyAction === `group-funded-refund:${refund.id}:in_progress`}
+                                onClick={() => handleUpdateGroupFundedRefund(refund, "in_progress")}
+                                size="xs"
+                                variant="light"
+                              >
+                                Mark in progress
+                              </Button>
+                              <Button
+                                color="orange"
+                                disabled={refund.refundStatus === "completed"}
+                                loading={busyAction === `group-funded-refund:${refund.id}:policy_review_required`}
+                                onClick={() => handleUpdateGroupFundedRefund(refund, "policy_review_required")}
+                                size="xs"
+                                variant="light"
+                              >
+                                Policy review
+                              </Button>
+                              <Button
+                                color="teal"
+                                disabled={refund.refundStatus === "completed"}
+                                loading={busyAction === `group-funded-refund:${refund.id}:completed`}
+                                onClick={() => handleUpdateGroupFundedRefund(refund, "completed")}
+                                size="xs"
+                              >
+                                Mark refunded
+                              </Button>
+                            </Group>
+                          ) : null}
+                        </Stack>
+                      </Paper>
                     ))}
                   </Stack>
                 </Paper>
@@ -7627,6 +7821,78 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           ) : (
             <Alert color="red">Campaign details could not be loaded.</Alert>
           )}
+        </Modal>
+
+        <Modal
+          centered
+          onClose={closeGroupFundedContributionRejectModal}
+          opened={Boolean(groupFundedContributionToReject)}
+          size="md"
+          title="Reject contribution proof"
+        >
+          <Stack gap="md">
+            <Text c="dimmed" size="sm">
+              Tell the contributor why their payment proof cannot be accepted. They will see this reason in their campaign details.
+            </Text>
+            <Paper withBorder radius="md" p="sm">
+              <Text fw={700}>
+                {groupFundedContributionToReject?.participantDisplayName || `User ${groupFundedContributionToReject?.userId || ""}`}
+              </Text>
+              <Text c="dimmed" size="sm">
+                {groupFundedContributionToReject
+                  ? `${formatMoney(groupFundedContributionToReject.amountCents, groupFundedContributionToReject.currency)} · ${groupFundedContributionToReject.paymentReference || "No payment reference"}`
+                  : ""}
+              </Text>
+            </Paper>
+            <Select
+              clearable
+              data={groupFundedContributionRejectionReasons.map((reason) => ({ label: reason.label, value: reason.value }))}
+              label="Common rejection reason"
+              onChange={(value) => {
+                setGroupFundedContributionRejectReasonPreset(value);
+                const selectedReason = groupFundedContributionRejectionReasons.find((reason) => reason.value === value);
+                setGroupFundedContributionRejectReason(selectedReason?.reason || "");
+                setGroupFundedContributionUseCustomRejectReason(false);
+              }}
+              placeholder="Select a common reason"
+              value={groupFundedContributionRejectReasonPreset}
+            />
+            <Checkbox
+              checked={groupFundedContributionUseCustomRejectReason}
+              label="Use custom rejection reason"
+              onChange={(event) => {
+                const useCustom = event.currentTarget.checked;
+                setGroupFundedContributionUseCustomRejectReason(useCustom);
+                setGroupFundedContributionRejectReasonPreset(null);
+                setGroupFundedContributionRejectReason("");
+              }}
+            />
+            <Textarea
+              disabled={!groupFundedContributionUseCustomRejectReason}
+              label="Custom rejection reason"
+              minRows={3}
+              onChange={(event) => setGroupFundedContributionRejectReason(event.currentTarget.value)}
+              placeholder="Enable custom reason to write a contributor-visible explanation"
+              value={groupFundedContributionRejectReason}
+            />
+            <Checkbox
+              checked={groupFundedContributionRefundRequired}
+              description="Use when payment was received but cannot be accepted."
+              label="Refund required"
+              onChange={(event) => setGroupFundedContributionRefundRequired(event.currentTarget.checked)}
+            />
+            <Group justify="flex-end">
+              <Button onClick={closeGroupFundedContributionRejectModal} variant="default">Cancel</Button>
+              <Button
+                color="red"
+                disabled={!groupFundedContributionRejectReason.trim()}
+                loading={busyAction === `group-funded-contribution-reject:${groupFundedContributionToReject?.id}`}
+                onClick={() => void handleRejectGroupFundedContribution()}
+              >
+                Reject contribution
+              </Button>
+            </Group>
+          </Stack>
         </Modal>
 
         <Modal
@@ -8795,7 +9061,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         }
                         if (alert.kind === "group-funded") {
                           resetGroupFundedCampaignDecision();
-                          setGroupFundedContributionRejectReasons({});
+                          closeGroupFundedContributionRejectModal();
+                          setGroupFundedRefundNotes({});
                           setGroupFundedDetailId(alert.campaignId);
                           clearGroupFundedAlert(alert.id);
                           navigate("/dashboard/group-funded");

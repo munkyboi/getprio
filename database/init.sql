@@ -692,7 +692,9 @@ CREATE TABLE group_funded_booking_refunds (
       'vendor_rejected',
       'vendor_review_expired',
       'vendor_canceled',
-      'policy_review_required'
+      'policy_review_required',
+      'contribution_rejected',
+      'excess_contribution'
     )
   ),
   refund_status TEXT NOT NULL DEFAULT 'pending' CHECK (
@@ -710,6 +712,9 @@ CREATE TABLE group_funded_booking_refunds (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE UNIQUE INDEX group_funded_refunds_contribution_unique_idx
+  ON group_funded_booking_refunds (contribution_id);
 
 CREATE INDEX group_funded_refunds_campaign_status_idx
   ON group_funded_booking_refunds (campaign_id, refund_status, created_at DESC);

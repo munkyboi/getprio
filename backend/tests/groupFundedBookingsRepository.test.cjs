@@ -473,6 +473,9 @@ test("group-funded repository lists vendor campaigns by tenant, location, and st
           calls.push({ query: String(query), params });
           assert.match(String(query), /FROM group_funded_bookings/);
           assert.match(String(query), /LEFT JOIN users organizer/);
+          assert.match(String(query), /LEFT JOIN LATERAL/);
+          assert.match(String(query), /completed_refund_count/);
+          assert.match(String(query), /refund_eligible_contribution_count/);
           assert.match(String(query), /gfb\.tenant_id = \$1/);
           assert.match(String(query), /gfb\.location_id = \$2/);
           assert.match(String(query), /gfb\.campaign_status = ANY\(\$3\)/);
@@ -483,7 +486,10 @@ test("group-funded repository lists vendor campaigns by tenant, location, and st
               campaignRow({
                 tenant_id: params[0],
                 location_id: params[1],
-                campaign_status: params[2][0]
+                campaign_status: params[2][0],
+                refund_count: 4,
+                completed_refund_count: 4,
+                refund_eligible_contribution_count: 4
               })
             ]
           };
@@ -504,6 +510,7 @@ test("group-funded repository lists vendor campaigns by tenant, location, and st
   assert.equal(campaigns[0].tenantId, "1");
   assert.equal(campaigns[0].campaignStatus, "vendor_review");
   assert.equal(campaigns[0].bookingQuantity, 2);
+  assert.deepEqual(campaigns[0].refundSummary, { totalCount: 4, completedCount: 4, eligibleContributionCount: 4 });
 });
 
 test("group-funded repository lists vendor alert events with campaign snapshots", async () => {

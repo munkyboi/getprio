@@ -6,9 +6,9 @@ import {
   Card,
   FileInput,
   Group,
+  Image,
   Modal,
   Progress,
-  RingProgress,
   Select,
   SimpleGrid,
   Stack,
@@ -238,15 +238,45 @@ export default function GroupFundedCampaignPage() {
     }
     return Math.min(100, Math.round((campaign.fundedAmountCents / campaign.targetAmountCents) * 100));
   }, [campaign]);
-  const contributorProgressValue = useMemo(() => {
-    if (!campaign?.requiredContributors) {
-      return 0;
+  const contributorReservationSummary = useMemo(() => {
+    if (!campaign) {
+      return null;
     }
-    return Math.min(100, Math.round((campaign.paidParticipantCount / campaign.requiredContributors) * 100));
+    const verifiedContributorCount = campaign.contributorReservationSummary?.verifiedContributorCount ?? campaign.paidParticipantCount;
+    const pendingVerificationContributorCount = campaign.contributorReservationSummary?.pendingVerificationContributorCount ?? 0;
+    const filledContributorCount = campaign.contributorReservationSummary?.filledContributorCount
+      ?? verifiedContributorCount + pendingVerificationContributorCount;
+    return {
+      verifiedContributorCount,
+      pendingVerificationContributorCount,
+      filledContributorCount,
+      vacantContributorCount: campaign.contributorReservationSummary?.vacantContributorCount
+        ?? Math.max(campaign.requiredContributors - filledContributorCount, 0)
+    };
   }, [campaign]);
+  const contributorMeterSegments = useMemo(() => {
+    if (!campaign || !contributorReservationSummary || campaign.requiredContributors <= 0) {
+      return [];
+    }
+    const circumference = 2 * Math.PI * 42;
+    const gapLength = 3;
+    const segmentLength = (circumference - gapLength * campaign.requiredContributors) / campaign.requiredContributors;
+    const colors = [
+      ...Array.from({ length: contributorReservationSummary.verifiedContributorCount }, () => "var(--mantine-color-teal-6)"),
+      ...Array.from({ length: contributorReservationSummary.pendingVerificationContributorCount }, () => "var(--mantine-color-blue-6)"),
+      ...Array.from({ length: contributorReservationSummary.vacantContributorCount }, () => "var(--mantine-color-gray-5)")
+    ];
+    return [
+      ...colors.map((color, index) => ({
+        color,
+        dasharray: `${segmentLength} ${circumference - segmentLength}`,
+        dashoffset: -index * (segmentLength + gapLength)
+      }))
+    ];
+  }, [campaign, contributorReservationSummary]);
 
-  const isOrganizer = Boolean(user && campaign?.organizerUserId && String(user.id) === String(campaign.organizerUserId));
-  const canContribute = campaign?.campaignStatus === "funding" && !campaign.contribution;
+  const isOrganizer = Boolean(user && campaign?.isOrganizer);
+  const canContribute = campaign?.campaignStatus === "funding" && !campaign.contribution && Boolean(contributorReservationSummary?.vacantContributorCount);
   const canCancel = isOrganizer && campaign?.campaignStatus === "funding" && campaign.fundedAmountCents < campaign.targetAmountCents;
   const isCampaignFullyFunded = Boolean(
     campaign &&
@@ -481,19 +511,37 @@ export default function GroupFundedCampaignPage() {
             <Stack className="group-funded-campaign-summary-panel" gap={4}>
               <Text c="dimmed" size="xs">Contributor count</Text>
               <Group align="center" gap="md" wrap="nowrap">
-                <RingProgress
-                  sections={[{ value: contributorProgressValue, color: "teal" }]}
-                  size={72}
-                  thickness={8}
-                  roundCaps
-                  label={
-                    <Text fw={800} size="sm" ta="center">
-                      {campaign.paidParticipantCount}/{campaign.requiredContributors}
-                    </Text>
-                  }
-                />
+                <div
+                  aria-label={`${contributorReservationSummary?.filledContributorCount} of ${campaign.requiredContributors} contributor positions filled`}
+                  className="group-funded-contributor-meter"
+                  role="img"
+                >
+                  <svg aria-hidden="true" viewBox="0 0 100 100">
+                    {contributorMeterSegments.map((segment, index) => (
+                      <circle
+                        cx="50"
+                        cy="50"
+                        fill="none"
+                        key={`${segment.color}-${index}`}
+                        r="42"
+                        stroke={segment.color}
+                        strokeDasharray={segment.dasharray}
+                        strokeDashoffset={segment.dashoffset}
+                        strokeWidth="11"
+                      />
+                    ))}
+                  </svg>
+                  <Text className="group-funded-contributor-meter__label" fw={800} size="sm" ta="center">
+                    {contributorReservationSummary?.filledContributorCount}/{campaign.requiredContributors}
+                  </Text>
+                </div>
                 <Stack gap={2}>
-                  <Text fw={800}>{campaign.paidParticipantCount} of {campaign.requiredContributors}</Text>
+                  <Text fw={800}>{contributorReservationSummary?.filledContributorCount} of {campaign.requiredContributors} contributors filled</Text>
+                  {contributorReservationSummary?.pendingVerificationContributorCount ? (
+                    <Text c="blue" size="sm">
+                      {contributorReservationSummary.pendingVerificationContributorCount} contributor{contributorReservationSummary.pendingVerificationContributorCount === 1 ? "" : "s"} pending vendor verification
+                    </Text>
+                  ) : null}
                   <Text c="dimmed" size="sm">
                     {formatPaymentAmount(campaign.requiredContributionAmountCents, campaign.currency)} each
                   </Text>
@@ -516,7 +564,7 @@ export default function GroupFundedCampaignPage() {
             </Group>
             <Progress value={progressValue} color="teal" />
             <Text c="dimmed" size="sm">
-              {campaign.paidParticipantCount} of {campaign.requiredContributors} verified contributors. Required contribution is exactly{" "}
+              {contributorReservationSummary?.verifiedContributorCount} of {campaign.requiredContributors} verified contributors. Required contribution is exactly{" "}
               {formatPaymentAmount(campaign.requiredContributionAmountCents, campaign.currency)}.
             </Text>
           </Stack>
@@ -562,6 +610,16 @@ export default function GroupFundedCampaignPage() {
                   </Stack>
                 </Alert>
               ) : null}
+              {campaign.contribution.contributionStatus === "refund_pending" ? (
+                <Alert color="orange" variant="light">
+                  <Stack gap={4}>
+                    <Text fw={700}>Your contribution cannot be accepted. A refund is pending.</Text>
+                    <Text>
+                      Reason: {campaign.contribution.rejectionReason || "The vendor is preparing your refund."}
+                    </Text>
+                  </Stack>
+                </Alert>
+              ) : null}
               <Text c="dimmed" size="sm">
                 Reference {campaign.contribution.paymentReference || "not set"} · Your proof is visible only to you and authorized vendor reviewers.
               </Text>
@@ -574,8 +632,37 @@ export default function GroupFundedCampaignPage() {
           ) : canContribute ? (
             <Stack gap="md">
               <Alert color="teal" variant="light">
-                Pay exactly {formatPaymentAmount(campaign.requiredContributionAmountCents, campaign.currency)}. Partial, extra, or uneven payments are not supported in v1.
+                Please send exactly {formatPaymentAmount(campaign.requiredContributionAmountCents, campaign.currency)}. For this group booking, we can only accept one payment for the full amount.
               </Alert>
+              {campaign.paymentDestination ? (
+                <Card withBorder padding="md" radius="md">
+                  <Group align="flex-start" gap="lg" wrap="nowrap">
+                    <Image
+                      alt={`${campaign.paymentDestination.methodLabel} payment QR`}
+                      fit="contain"
+                      h={156}
+                      radius="sm"
+                      src={campaign.paymentDestination.qrImageUrl}
+                      w={156}
+                    />
+                    <Stack gap={4}>
+                      <Text c="dimmed" size="xs">Payment destination</Text>
+                      <Text fw={800}>{campaign.paymentDestination.methodLabel}</Text>
+                      {campaign.paymentDestination.accountDisplayName ? (
+                        <Text>{campaign.paymentDestination.accountDisplayName}</Text>
+                      ) : null}
+                      {campaign.paymentDestination.accountIdentifierDisplay ? (
+                        <Text c="dimmed" size="sm">{campaign.paymentDestination.accountIdentifierDisplay}</Text>
+                      ) : null}
+                      <Text c="dimmed" size="sm">Scan the QR, pay the exact contribution amount, then upload your proof below.</Text>
+                    </Stack>
+                  </Group>
+                </Card>
+              ) : (
+                <Alert color="yellow" variant="light">
+                  Payment instructions are temporarily unavailable. Please contact the vendor before sending payment.
+                </Alert>
+              )}
               <TextInput
                 label="Payment reference"
                 onChange={(event) => setPaymentReference(event.currentTarget.value)}
@@ -601,6 +688,10 @@ export default function GroupFundedCampaignPage() {
                 Submit contribution proof
               </Button>
             </Stack>
+          ) : campaign.campaignStatus === "funding" && contributorReservationSummary?.vacantContributorCount === 0 ? (
+            <Alert color="blue" variant="light">
+              All contributor positions are temporarily reserved. Please check back if the vendor rejects a pending proof.
+            </Alert>
           ) : (
             <Text c="dimmed">This campaign is no longer accepting contributions.</Text>
           )}

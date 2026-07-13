@@ -4029,6 +4029,26 @@ h2 {
   background: #ffffff;
 }
 
+.group-funded-contributor-meter {
+  height: 72px;
+  position: relative;
+  width: 72px;
+}
+
+.group-funded-contributor-meter svg {
+  display: block;
+  height: 100%;
+  transform: rotate(-90deg);
+  width: 100%;
+}
+
+.group-funded-contributor-meter__label {
+  left: 50%;
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
 .booking-detail__eyebrow {
   color: #bb4d00;
   font-size: 0.72rem;

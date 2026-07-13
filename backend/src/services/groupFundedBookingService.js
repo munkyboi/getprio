@@ -507,6 +507,8 @@ async function createCampaign({ user, body }) {
           groupFunded: settings,
           paymentMethodLabel: location.paymentMethodLabel,
           paymentAccountDisplayName: location.paymentAccountDisplayName,
+          paymentAccountIdentifierDisplay: location.paymentAccountIdentifierDisplay,
+          paymentQrImageUrl: location.paymentQrImageUrl,
           priceAmountCents: targetAmountCents
         }
       },
@@ -551,14 +553,30 @@ async function getCampaignForCustomer({ user, campaignIdOrToken }) {
     campaign = expired.campaign;
   }
   const contribution = await groupFundedRepository.findContributionByCampaignAndUser(campaign._id, user._id);
-  if (String(campaign.organizerUserId) !== String(user._id) && !contribution) {
+  const isOrganizer = String(campaign.organizerUserId) === String(user._id);
+  if (!isOrganizer && !contribution && campaign.campaignStatus !== groupFundedRepository.CAMPAIGN_STATUSES.FUNDING) {
     throw makeHttpError("Campaign not found.", 404);
   }
   const refunds = contribution
     ? (await groupFundedRepository.listRefundsByCampaign(campaign._id))
         .filter((refund) => String(refund.userId) === String(user._id))
     : [];
+  const location = await storeLocationRepository.findLocationById(campaign.locationId);
+  const paymentSnapshot = campaign.eligibilitySnapshot || {};
+  const hasActiveLocationPaymentDestination = Boolean(location?.paymentQrActive && location.paymentQrImageUrl);
+  const paymentQrImageUrl = hasActiveLocationPaymentDestination
+    ? paymentSnapshot.paymentQrImageUrl || location.paymentQrImageUrl
+    : "";
+  campaign.paymentDestination = paymentQrImageUrl
+    ? {
+        methodLabel: paymentSnapshot.paymentMethodLabel || location?.paymentMethodLabel || "Payment",
+        accountDisplayName: paymentSnapshot.paymentAccountDisplayName || location?.paymentAccountDisplayName || "",
+        accountIdentifierDisplay: paymentSnapshot.paymentAccountIdentifierDisplay || location?.paymentAccountIdentifierDisplay || "",
+        qrImageUrl: paymentQrImageUrl
+      }
+    : null;
   const tenant = await tenantRepository.findTenantById(campaign.tenantId);
+  campaign.contributorReservationSummary = await getContributorReservationSummary(campaign);
   return { campaign, contribution, refunds, tenant };
 }
 
@@ -568,7 +586,32 @@ async function getPublicCampaign({ publicToken }) {
     throw makeHttpError("Campaign not found.", 404);
   }
   const tenant = await tenantRepository.findTenantById(campaign.tenantId);
+  campaign.contributorReservationSummary = await getContributorReservationSummary(campaign);
   return { campaign, tenant };
+}
+
+function buildContributorReservationSummary(campaign, totals) {
+  const verifiedContributorCount = Math.min(
+    Number(campaign.requiredContributors || 0),
+    Number(totals.verifiedContributorCount || 0)
+  );
+  const pendingVerificationContributorCount = Math.min(
+    Math.max(Number(campaign.requiredContributors || 0) - verifiedContributorCount, 0),
+    Number(totals.pendingVerificationContributorCount || 0)
+  );
+  const filledContributorCount = verifiedContributorCount + pendingVerificationContributorCount;
+  return {
+    verifiedContributorCount,
+    pendingVerificationContributorCount,
+    vacantContributorCount: Math.max(Number(campaign.requiredContributors || 0) - filledContributorCount, 0),
+    filledContributorCount
+  };
+}
+
+async function getContributorReservationSummary(campaign, options = {}) {
+  const totals = campaign.contributorReservationTotals
+    || await groupFundedRepository.getContributionReservationSummary(campaign._id, options);
+  return buildContributorReservationSummary(campaign, totals);
 }
 
 function maskOrganizerDisplayName(value) {
@@ -611,6 +654,7 @@ function formatPublicCampaign(campaign, tenant = null) {
     paidParticipantCount: campaign.paidParticipantCount,
     fundedAmountCents: campaign.fundedAmountCents,
     fundedAt: campaign.fundedAt,
+    contributorReservationSummary: campaign.contributorReservationSummary || null,
     linkedBookingId: null,
     replacementSlot: campaign.replacementScheduledStartAt
       ? {
@@ -643,7 +687,16 @@ async function listPublicCampaignsForVendorLocation({ tenantSlug, locationSlug, 
     serviceSlug: serviceSlug ? vendorServiceRepository.normalizeServiceSlug(serviceSlug) : "",
     limit: Math.min(Math.max(Number(limit || 20) || 20, 1), 50)
   });
-  return campaigns.map((campaign) => formatPublicCampaign(campaign, tenant));
+  return campaigns.map((campaign) => {
+    campaign.contributorReservationSummary = buildContributorReservationSummary(
+      campaign,
+      campaign.contributorReservationTotals || {
+        verifiedContributorCount: 0,
+        pendingVerificationContributorCount: 0
+      }
+    );
+    return formatPublicCampaign(campaign, tenant);
+  });
 }
 
 async function reportPublicCampaignAbuse({ publicToken, body = {}, actor = null, ipAddress = "" }) {
@@ -701,6 +754,10 @@ async function uploadContributionProofDirect({ user, campaignIdOrToken, body, fi
   if (existingContribution) {
     throw makeHttpError("You have already submitted a contribution for this campaign.", 409);
   }
+  const reservationSummary = await getContributorReservationSummary(campaign);
+  if (reservationSummary.vacantContributorCount === 0) {
+    throw makeHttpError("All contributor positions are temporarily reserved. Please try again if a pending proof is rejected.", 409);
+  }
 
   return paymentProofStorageService.uploadGroupFundedBinary({
     campaign,
@@ -728,6 +785,10 @@ async function submitContributionProof({ user, campaignIdOrToken, body }) {
     );
     if (existingContribution) {
       throw makeHttpError("You have already submitted a contribution for this campaign.", 409);
+    }
+    const reservationSummary = await getContributorReservationSummary(campaign, { client });
+    if (reservationSummary.vacantContributorCount === 0) {
+      throw makeHttpError("All contributor positions are temporarily reserved. Please try again if a pending proof is rejected.", 409);
     }
 
     let participant = await groupFundedRepository.findParticipantByCampaignAndUser(campaign._id, user._id, { client });
@@ -774,6 +835,12 @@ async function submitContributionProof({ user, campaignIdOrToken, body }) {
       { client }
     );
 
+    campaign.contributorReservationSummary = {
+      ...reservationSummary,
+      pendingVerificationContributorCount: reservationSummary.pendingVerificationContributorCount + 1,
+      vacantContributorCount: reservationSummary.vacantContributorCount - 1,
+      filledContributorCount: reservationSummary.filledContributorCount + 1
+    };
     return { campaign, contribution };
   });
   const tenant = await tenantRepository.findTenantById(result.campaign.tenantId);
@@ -1000,10 +1067,13 @@ async function verifyContribution({ tenant, user, contributionId }) {
   return result;
 }
 
-async function rejectContribution({ tenant, user, contributionId, reason }) {
+async function rejectContribution({ tenant, user, contributionId, reason, refundDisposition = "not_required" }) {
   const rejectionReason = normalizeText(reason);
   if (!rejectionReason) {
     throw makeHttpError("reason is required.", 400);
+  }
+  if (!["not_required", "required"].includes(refundDisposition)) {
+    throw makeHttpError("refundDisposition must be not_required or required.", 400);
   }
   const result = await groupFundedRepository.withTransaction(async (client) => {
     const contribution = await groupFundedRepository.findContributionById(contributionId, { client, forUpdate: true });
@@ -1012,19 +1082,61 @@ async function rejectContribution({ tenant, user, contributionId, reason }) {
     }
     const campaign = await groupFundedRepository.findCampaignById(contribution.campaignId, { client, forUpdate: true });
     await assertVendorCampaignAccess({ tenant, campaign });
+    const refundRequired = refundDisposition === "required";
+    const existingRefund = refundRequired
+      ? await groupFundedRepository.findRefundByContributionId(contribution._id, { client, forUpdate: true })
+      : null;
+    if (existingRefund) {
+      return { campaign, contribution, refund: existingRefund };
+    }
     if (contribution.contributionStatus !== groupFundedRepository.CONTRIBUTION_STATUSES.SUBMITTED) {
       throw makeHttpError("Only submitted contribution proofs can be rejected.", 409);
     }
     const rejected = await groupFundedRepository.updateContribution(
       {
         contributionId: contribution._id,
-        contributionStatus: groupFundedRepository.CONTRIBUTION_STATUSES.REJECTED,
+        contributionStatus: refundRequired
+          ? groupFundedRepository.CONTRIBUTION_STATUSES.REFUND_PENDING
+          : groupFundedRepository.CONTRIBUTION_STATUSES.REJECTED,
         rejectedAt: new Date().toISOString(),
         rejectedByUserId: user._id,
-        rejectionReason
+        rejectionReason,
+        refundStatus: refundRequired ? groupFundedRepository.REFUND_STATUSES.PENDING : null
       },
       { client }
     );
+    let refund = null;
+    if (refundRequired) {
+      refund = await groupFundedRepository.createRefund(
+        {
+          campaignId: campaign._id,
+          contributionId: contribution._id,
+          userId: contribution.userId,
+          amountCents: contribution.amountCents,
+          currency: contribution.currency,
+          refundReason: campaign.fundedAmountCents >= campaign.targetAmountCents
+            ? "excess_contribution"
+            : "contribution_rejected",
+          refundStatus: groupFundedRepository.REFUND_STATUSES.PENDING,
+          vendorActorUserId: user._id,
+          notes: rejectionReason
+        },
+        { client }
+      );
+      await groupFundedRepository.recordEvent(
+        {
+          campaignId: campaign._id,
+          tenantId: campaign.tenantId,
+          locationId: campaign.locationId,
+          eventType: groupFundedRepository.EVENT_TYPES.REFUND_OBLIGATION_CREATED,
+          actorUserId: user._id,
+          actorRole: "vendor",
+          source: "vendor",
+          metadata: { contributionId: rejected._id, refundId: refund._id, reason: refund.refundReason }
+        },
+        { client }
+      );
+    }
     await groupFundedRepository.recordEvent(
       {
         campaignId: campaign._id,
@@ -1034,11 +1146,11 @@ async function rejectContribution({ tenant, user, contributionId, reason }) {
         actorUserId: user._id,
         actorRole: "vendor",
         source: "vendor",
-        metadata: { contributionId: rejected._id }
+        metadata: { contributionId: rejected._id, refundDisposition, refundId: refund?._id || null }
       },
       { client }
     );
-    return { campaign, contribution: rejected };
+    return { campaign, contribution: rejected, refund };
   });
   await publishCampaignStreamUpdate(tenant, result.campaign);
   return result;
@@ -1112,6 +1224,20 @@ async function listVendorCampaigns({ tenant, query = {} }) {
   });
 }
 
+function buildRefundSummary(refunds, contributions) {
+  const refundEligibleStatuses = new Set([
+    groupFundedRepository.CONTRIBUTION_STATUSES.VERIFIED,
+    groupFundedRepository.CONTRIBUTION_STATUSES.REFUND_PENDING,
+    groupFundedRepository.CONTRIBUTION_STATUSES.REFUNDED,
+    groupFundedRepository.CONTRIBUTION_STATUSES.POLICY_REVIEW_REQUIRED
+  ]);
+  return {
+    totalCount: refunds.length,
+    completedCount: refunds.filter((refund) => refund.refundStatus === groupFundedRepository.REFUND_STATUSES.COMPLETED).length,
+    eligibleContributionCount: contributions.filter((contribution) => refundEligibleStatuses.has(contribution.contributionStatus)).length
+  };
+}
+
 async function listVendorAlertEvents({ tenant, query = {} }) {
   return groupFundedRepository.listVendorAlertEvents(tenant._id, {
     locationId: query.locationId,
@@ -1128,6 +1254,7 @@ async function getVendorCampaign({ tenant, campaignId }) {
     groupFundedRepository.listRefundsByCampaign(campaign._id),
     groupFundedRepository.listCapacityHoldsByCampaign(campaign._id)
   ]);
+  campaign.refundSummary = buildRefundSummary(refunds, contributions);
   return { campaign, contributions, refunds, capacityHolds };
 }
 

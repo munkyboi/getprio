@@ -142,7 +142,7 @@ function formatCustomerBooking(booking) {
   };
 }
 
-function formatGroupFundedCampaign(campaign, contribution = null, refunds = [], tenant = null) {
+function formatGroupFundedCampaign(campaign, contribution = null, refunds = [], tenant = null, options = {}) {
   return {
     id: campaign._id,
     publicToken: campaign.publicToken,
@@ -151,7 +151,9 @@ function formatGroupFundedCampaign(campaign, contribution = null, refunds = [], 
     vendorName: tenant?.name || "",
     locationId: campaign.locationId,
     serviceId: campaign.serviceId,
-    organizerUserId: campaign.organizerUserId,
+    isOrganizer: Boolean(
+      options.actorUserId && String(campaign.organizerUserId) === String(options.actorUserId)
+    ),
     campaignStatus: campaign.campaignStatus,
     visibility: campaign.visibility,
     organizerDisplayName: campaign.organizerDisplayName,
@@ -173,6 +175,8 @@ function formatGroupFundedCampaign(campaign, contribution = null, refunds = [], 
     paidParticipantCount: campaign.paidParticipantCount,
     fundedAmountCents: campaign.fundedAmountCents,
     fundedAt: campaign.fundedAt,
+    contributorReservationSummary: campaign.contributorReservationSummary || null,
+    paymentDestination: campaign.paymentDestination || null,
     replacementSlot: campaign.replacementScheduledStartAt
       ? {
           scheduledStartAt: campaign.replacementScheduledStartAt,
@@ -450,7 +454,9 @@ router.get(
   asyncHandler(async (req, res) => {
     const campaignRecords = await groupFundedBookingService.listCustomerCampaigns({ user: req.user });
     res.json({
-      campaigns: campaignRecords.map(({ campaign, contribution }) => formatGroupFundedCampaign(campaign, contribution))
+      campaigns: campaignRecords.map(({ campaign, contribution }) => formatGroupFundedCampaign(campaign, contribution, [], null, {
+        actorUserId: req.user._id
+      }))
     });
   })
 );
@@ -463,7 +469,7 @@ router.post(
       body: req.body || {}
     });
     res.status(201).json({
-      campaign: formatGroupFundedCampaign(campaign)
+      campaign: formatGroupFundedCampaign(campaign, null, [], null, { actorUserId: req.user._id })
     });
   })
 );
@@ -476,7 +482,9 @@ router.get(
       campaignIdOrToken: req.params.campaignIdOrToken
     });
     res.json({
-      campaign: formatGroupFundedCampaign(campaign, contribution, refunds, tenant)
+      campaign: formatGroupFundedCampaign(campaign, contribution, refunds, tenant, {
+        actorUserId: req.user._id
+      })
     });
   })
 );
@@ -490,7 +498,7 @@ router.patch(
       body: req.body || {}
     });
     res.json({
-      campaign: formatGroupFundedCampaign(result.campaign, null, [], result.tenant)
+      campaign: formatGroupFundedCampaign(result.campaign, null, [], result.tenant, { actorUserId: req.user._id })
     });
   })
 );
@@ -504,7 +512,7 @@ router.patch(
       reason: req.body?.reason
     });
     res.json({
-      campaign: formatGroupFundedCampaign(result.campaign),
+      campaign: formatGroupFundedCampaign(result.campaign, null, [], null, { actorUserId: req.user._id }),
       refunds: result.refunds.map((refund) => ({
         id: refund._id,
         contributionId: refund.contributionId,
@@ -527,7 +535,7 @@ router.patch(
       campaignIdOrToken: req.params.campaignIdOrToken
     });
     res.json({
-      campaign: formatGroupFundedCampaign(result.campaign)
+      campaign: formatGroupFundedCampaign(result.campaign, null, [], null, { actorUserId: req.user._id })
     });
   })
 );
@@ -541,7 +549,7 @@ router.patch(
       reason: req.body?.reason
     });
     res.json({
-      campaign: formatGroupFundedCampaign(result.campaign),
+      campaign: formatGroupFundedCampaign(result.campaign, null, [], null, { actorUserId: req.user._id }),
       refunds: result.refunds.map((refund) => ({
         id: refund._id,
         contributionId: refund.contributionId,
@@ -590,7 +598,7 @@ router.post(
       body: req.body || {}
     });
     res.status(201).json({
-      campaign: formatGroupFundedCampaign(campaign, contribution)
+      campaign: formatGroupFundedCampaign(campaign, contribution, [], null, { actorUserId: req.user._id })
     });
   })
 );

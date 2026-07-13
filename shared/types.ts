@@ -647,7 +647,7 @@ export interface GroupFundedCampaignSummary {
   vendorName?: string;
   locationId: string;
   serviceId: string;
-  organizerUserId?: string;
+  isOrganizer?: boolean;
   campaignStatus: GroupFundedCampaignStatus;
   visibility: "private_link" | "public";
   organizerDisplayName: string;
@@ -669,7 +669,24 @@ export interface GroupFundedCampaignSummary {
   paidParticipantCount: number;
   fundedAmountCents: number;
   fundedAt: string | Date | null;
+  contributorReservationSummary?: {
+    verifiedContributorCount: number;
+    pendingVerificationContributorCount: number;
+    vacantContributorCount: number;
+    filledContributorCount: number;
+  } | null;
   linkedBookingId: string | null;
+  paymentDestination?: {
+    methodLabel: string;
+    accountDisplayName: string;
+    accountIdentifierDisplay: string;
+    qrImageUrl: string;
+  } | null;
+  refundSummary?: {
+    totalCount: number;
+    completedCount: number;
+    eligibleContributionCount: number;
+  } | null;
   replacementSlot?: {
     scheduledStartAt: string | Date;
     scheduledEndAt: string | Date;
@@ -790,6 +807,7 @@ export interface VendorGroupFundedContributionMutationResponse {
     campaignStatus: GroupFundedCampaignStatus;
   };
   contribution: VendorGroupFundedContributionSummary;
+  refund?: VendorGroupFundedRefundSummary;
 }
 
 export interface VendorGroupFundedCampaignMutationResponse {
@@ -798,12 +816,27 @@ export interface VendorGroupFundedCampaignMutationResponse {
   booking?: VendorBookingSummary;
 }
 
+export interface VendorGroupFundedRefundMutationResponse {
+  campaign: GroupFundedCampaignSummary;
+  refund: VendorGroupFundedRefundSummary;
+}
+
 export interface RejectVendorGroupFundedContributionRequest {
   reason: string;
+  refundDisposition?: "not_required" | "required";
 }
 
 export interface RejectVendorGroupFundedCampaignRequest {
   reason: string;
+}
+
+export interface UpdateVendorGroupFundedRefundRequest {
+  refundStatus: Extract<GroupFundedRefundStatus, "in_progress" | "completed" | "policy_review_required">;
+  notes?: string;
+  evidenceObjectKey?: string;
+  evidenceFileName?: string;
+  evidenceContentType?: string;
+  evidenceSizeBytes?: number;
 }
 
 export interface CreateGroupFundedCampaignRequest {
