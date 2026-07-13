@@ -731,6 +731,8 @@ test("group-funded repository lists only public discoverable campaigns for a ven
           const sql = String(query);
           assert.match(sql, /gfb\.visibility = 'public'/);
           assert.match(sql, /group_funded_allow_public_campaigns/);
+          assert.match(sql, /LEFT JOIN location_services location_service/);
+          assert.match(sql, /gfb\.location_service_id IS NULL/);
           assert.match(sql, /gfb\.campaign_status IN/);
           assert.match(sql, /gfb\.service_slug_snapshot = \$3/);
           assert.equal(params[0], 1);
