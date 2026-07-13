@@ -76,6 +76,10 @@ function formatPaymentAmount(amountCents: number, currency: string) {
   }).format(amountCents / 100);
 }
 
+function formatCampaignStatusLabel(status: string) {
+  return status.replace(/_/g, " ");
+}
+
 export default function CustomerBookingDetailPage() {
   const navigate = useNavigate();
   const { bookingId = "" } = useParams<{ bookingId: string }>();
@@ -297,20 +301,22 @@ export default function CustomerBookingDetailPage() {
     return (
       <Stack className="customer-account-page" gap="lg">
         <Button leftSection={<IconArrowLeft size={16} />} onClick={() => navigate("/account/bookings")} variant="subtle" w="fit-content">
-          Back to bookings
+          Back to booking list
         </Button>
         <Alert color="red">{error || "Booking not found."}</Alert>
       </Stack>
     );
   }
 
+  const groupFundedCampaign = booking.groupFundedCampaign;
+  const isGroupFundedBooking = booking.bookingPaymentSource === "group_funded" || Boolean(booking.groupFundedBookingId || groupFundedCampaign);
   const cancellationAllowed = canCancel(booking.status, booking.checkedInAt, booking.linkedTicket);
   const proofSubmissionAllowed = canSubmitPaymentProof(
     booking.status,
     booking.checkedInAt,
     booking.linkedTicket,
     Boolean(booking.paymentProof),
-    booking.serviceManualPaymentRequired
+    booking.serviceManualPaymentRequired && !isGroupFundedBooking
   );
   const paymentProofStatus =
     booking.paymentVerifiedAt
@@ -329,11 +335,14 @@ export default function CustomerBookingDetailPage() {
     : "";
   const checkInAvailable = Boolean(booking.linkedTicket);
   const paymentProofActionLabel = booking.paymentProof ? "View payment proof" : "Submit payment proof";
+  const campaignProgress = groupFundedCampaign?.targetAmountCents
+    ? Math.min(100, Math.round((groupFundedCampaign.fundedAmountCents / groupFundedCampaign.targetAmountCents) * 100))
+    : 0;
 
   return (
     <Stack className="customer-account-page" gap="lg">
       <Button component={Link} leftSection={<IconArrowLeft size={16} />} to="/account/bookings" variant="subtle" w="fit-content">
-        Back to bookings
+        Back to booking list
       </Button>
 
       <Card className="finazze-auth-card customer-account-card" p="xl">
@@ -379,11 +388,71 @@ export default function CustomerBookingDetailPage() {
               <Badge color={booking.paymentStatus === "paid" ? "teal" : "gray"} variant="light">
                 {booking.paymentStatus}
               </Badge>
+              {isGroupFundedBooking ? (
+                <Text c="dimmed" mt="xs" size="sm">Covered by group-funded campaign</Text>
+              ) : null}
               {booking.paymentProof ? (
                 <Text c="dimmed" mt="xs" size="sm">{paymentProofStatus.label}</Text>
               ) : null}
             </Paper>
           </SimpleGrid>
+
+          {groupFundedCampaign ? (
+            <Paper className="customer-booking-campaign-card" withBorder radius="lg" p="lg">
+              <Stack gap="md">
+                <Group justify="space-between" align="flex-start">
+                  <Stack gap={4}>
+                    <Text className="finazze-section-label">Group-funded campaign</Text>
+                    <Title order={3}>{groupFundedCampaign.campaignTitle || booking.serviceName}</Title>
+                    <Text c="dimmed" size="sm">
+                      Organized by {groupFundedCampaign.organizerDisplayName || "the campaign organizer"}
+                    </Text>
+                  </Stack>
+                  <Button
+                    component={Link}
+                    rightSection={<IconExternalLink size={16} />}
+                    to={`/group-funded/${groupFundedCampaign.publicToken}`}
+                    variant="light"
+                  >
+                    View campaign
+                  </Button>
+                </Group>
+
+                {groupFundedCampaign.description ? (
+                  <Text>{groupFundedCampaign.description}</Text>
+                ) : null}
+
+                <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
+                  <Paper className="customer-booking-campaign-stat" radius="md" p="md">
+                    <Text c="dimmed" size="sm">Campaign status</Text>
+                    <Badge color="blue" mt={6} variant="light">
+                      {formatCampaignStatusLabel(groupFundedCampaign.campaignStatus)}
+                    </Badge>
+                    <Text c="dimmed" mt="xs" size="sm">
+                      Confirmed {groupFundedCampaign.confirmedAt ? formatDateTime(groupFundedCampaign.confirmedAt) : "by vendor"}
+                    </Text>
+                  </Paper>
+                  <Paper className="customer-booking-campaign-stat" radius="md" p="md">
+                    <Text c="dimmed" size="sm">Funding</Text>
+                    <Text fw={800}>
+                      {formatPaymentAmount(groupFundedCampaign.fundedAmountCents, groupFundedCampaign.currency)} /{" "}
+                      {formatPaymentAmount(groupFundedCampaign.targetAmountCents, groupFundedCampaign.currency)}
+                    </Text>
+                    <Text c="dimmed" size="sm">{campaignProgress}% funded</Text>
+                  </Paper>
+                  <Paper className="customer-booking-campaign-stat" radius="md" p="md">
+                    <Text c="dimmed" size="sm">Contributors</Text>
+                    <Text fw={800}>
+                      {groupFundedCampaign.paidParticipantCount} of {groupFundedCampaign.requiredContributors}
+                    </Text>
+                    <Text c="dimmed" size="sm">
+                      {formatPaymentAmount(groupFundedCampaign.requiredContributionAmountCents, groupFundedCampaign.currency)} each
+                    </Text>
+                  </Paper>
+                </SimpleGrid>
+              </Stack>
+            </Paper>
+          ) : null}
 
           {booking.status === "confirmed" || booking.status === "rescheduled" ? (
             <Alert color="blue" variant="light">
@@ -420,7 +489,16 @@ export default function CustomerBookingDetailPage() {
                     Check-in
                   </Button>
                 )}
-                {booking.paymentProof ? (
+                {isGroupFundedBooking && groupFundedCampaign ? (
+                  <Button
+                    component={Link}
+                    leftSection={<IconReceipt size={16} />}
+                    to={`/group-funded/${groupFundedCampaign.publicToken}`}
+                    variant="light"
+                  >
+                    View campaign
+                  </Button>
+                ) : booking.paymentProof ? (
                   <Button
                     leftSection={<IconReceipt size={16} />}
                     loading={proofViewBusy}

@@ -72,6 +72,7 @@ Expected data inventory:
 | Customer PI | Full name, email, mobile number, address if required, profile image | Used for account, booking, notification, and support workflows. |
 | Credentials | Password hash, MFA state, reset tokens | Sensitive security data; never store plaintext passwords. |
 | Transactional data | Bookings, service selections, timestamps, invoices, payment references, review content | Required for service delivery, disputes, and records. |
+| Group-funded booking data | Campaign visibility, description, participant records, contribution proof metadata, refund records, public campaign metadata | Public payloads must be minimized; contribution proof and refund evidence stay role-scoped and non-public. |
 | Vendor data | Business name, contact details, service catalog, verification documents | Public/private split must be explicit. |
 | Staff data | Name, email, role, schedule, assigned bookings | Vendor-owned operational data with access limits. |
 | System/security data | Audit logs, login attempts, IP/device metadata, session records | Needed for accountability, fraud prevention, and security monitoring. |
@@ -107,6 +108,7 @@ If no deployed staging app is authorized, produce a predicted vulnerability asse
 | Vendor profile | Stored XSS through descriptions and reviews. |
 | Booking request | IDOR, parameter tampering, injection. |
 | Payment / checkout | Payment reference tampering, broken access control. |
+| Group-funded campaign creation and contribution proof | Stored XSS, excessive public data exposure, payment proof tampering, broken access control, refund repudiation. |
 | Review submission | Stored XSS, spam, abusive content. |
 | Profile update | Unauthorized update, weak validation. |
 | Vendor onboarding | Sensitive document exposure, unsafe upload handling. |

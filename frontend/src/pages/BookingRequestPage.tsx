@@ -17,16 +17,17 @@ import {
   TextInput,
   Title
 } from "@mantine/core";
-import { DatePickerInput } from "@mantine/dates";
+import { DatePickerInput, DateTimePicker } from "@mantine/dates";
 import { IconAlertTriangle, IconArrowLeft, IconCalendar, IconCalendarCheck, IconMapPin, IconUpload } from "@tabler/icons-react";
 import { addDays, eachDayOfInterval, endOfMonth, format, startOfMonth } from "date-fns";
-import { Link, Navigate, useLocation, useParams } from "react-router-dom";
+import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import type {
   BookingPaymentProofUploadResponse,
   BookingOtpResponse,
   BookingSlotsResponse,
   BookingSlotSummary,
   CreateCustomerBookingRequest,
+  CreateGroupFundedCampaignRequest,
   CustomerBookingDetailResponse,
   CustomerBookingResponse,
   PublicVendorProfile,
@@ -87,6 +88,51 @@ function formatPaymentAmount(amountCents: number, currency: string) {
 
 function getPendingStorageKey(tenantSlug: string) {
   return `getprio:booking:${tenantSlug}:pending`;
+}
+
+function toDateTimeLocalValue(date: Date) {
+  const offsetMs = date.getTimezoneOffset() * 60 * 1000;
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
+}
+
+function roundUpToHalfHour(date: Date) {
+  const rounded = new Date(date);
+  rounded.setSeconds(0, 0);
+  const minutes = rounded.getMinutes();
+  const nextMinutes = minutes === 0 || minutes === 30 ? minutes : minutes < 30 ? 30 : 60;
+  rounded.setMinutes(nextMinutes);
+  return rounded;
+}
+
+function roundDownToHalfHour(date: Date) {
+  const rounded = new Date(date);
+  rounded.setSeconds(0, 0);
+  rounded.setMinutes(rounded.getMinutes() < 30 ? 0 : 30);
+  return rounded;
+}
+
+function parseDateTimePickerValue(value: string) {
+  if (!value) {
+    return null;
+  }
+  const date = new Date(value.replace(" ", "T"));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function isSameLocalDate(first: Date, second: Date) {
+  return (
+    first.getFullYear() === second.getFullYear() &&
+    first.getMonth() === second.getMonth() &&
+    first.getDate() === second.getDate()
+  );
+}
+
+function formatTimeConstraint(date: Date) {
+  return [
+    String(date.getHours()).padStart(2, "0"),
+    String(date.getMinutes()).padStart(2, "0"),
+    "00"
+  ].join(":");
 }
 
 function getBookingFlowStep(
@@ -152,7 +198,10 @@ export default function BookingRequestPage() {
     serviceSlug?: string;
   }>();
   const location = useLocation();
+  const navigate = useNavigate();
   const selectedLocationFromQuery = useMemo(() => new URLSearchParams(location.search).get("location") || "", [location.search]);
+  const bookingMode = useMemo(() => new URLSearchParams(location.search).get("mode") || "standard", [location.search]);
+  const isGroupFundedMode = bookingMode === "group-funded";
   const { token, user, loading: authLoading } = useAuth();
   const [vendor, setVendor] = useState<PublicVendorProfile | null>(null);
   const [selectedLocationSlug, setSelectedLocationSlug] = useState("");
@@ -176,6 +225,11 @@ export default function BookingRequestPage() {
   const [booking, setBooking] = useState<CustomerBookingResponse["booking"] | null>(null);
   const [paymentReference, setPaymentReference] = useState("");
   const [paymentProofFile, setPaymentProofFile] = useState<File | null>(null);
+  const [requiredContributors, setRequiredContributors] = useState(2);
+  const [fundingDeadlineAt, setFundingDeadlineAt] = useState("");
+  const [campaignVisibility, setCampaignVisibility] = useState<"private_link" | "public">("private_link");
+  const [campaignTitle, setCampaignTitle] = useState("");
+  const [campaignDescription, setCampaignDescription] = useState("");
   const [loading, setLoading] = useState(true);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -254,10 +308,14 @@ export default function BookingRequestPage() {
       .then((data) => {
         setLocationServices(data.services);
         setSelectedServiceSlug((current) => {
-          if (current && data.services.some((service) => service.slug === current)) {
+          const currentService = data.services.find((service) => service.slug === current);
+          if (currentService && (!isGroupFundedMode || currentService.groupFunded?.enabled)) {
             return current;
           }
-          return data.services[0]?.slug || "";
+          const defaultService = isGroupFundedMode
+            ? data.services.find((service) => service.groupFunded?.enabled)
+            : data.services[0];
+          return defaultService?.slug || "";
         });
       })
       .catch((serviceError) => {
@@ -268,7 +326,7 @@ export default function BookingRequestPage() {
       });
 
     return () => controller.abort();
-  }, [selectedLocationSlug, vendor]);
+  }, [isGroupFundedMode, selectedLocationSlug, vendor]);
 
   const selectedService = useMemo(
     () => locationServices.find((service) => service.slug === selectedServiceSlug) || null,
@@ -276,12 +334,28 @@ export default function BookingRequestPage() {
   );
   const allowBookingQuantity = selectedService?.allowBookingQuantity === true;
   const quantityForRequest = allowBookingQuantity ? bookingQuantity : 1;
+  const groupFundedSettings = selectedService?.groupFunded || null;
+  const groupFundedAvailable = Boolean(groupFundedSettings?.enabled);
+  const payableAmountCents = selectedService ? selectedService.priceAmountCents * quantityForRequest : 0;
+  const computedContributionCents = requiredContributors > 0 ? Math.ceil(payableAmountCents / requiredContributors) : 0;
 
   useEffect(() => {
     if (!allowBookingQuantity && bookingQuantity !== 1) {
       setBookingQuantity(1);
     }
   }, [allowBookingQuantity, bookingQuantity]);
+
+  useEffect(() => {
+    if (!groupFundedSettings?.enabled) {
+      return;
+    }
+    const defaultCount = groupFundedSettings.defaultRequiredContributors || groupFundedSettings.minRequiredContributors || 2;
+    setRequiredContributors((current) => {
+      const min = groupFundedSettings.minRequiredContributors || 2;
+      const max = groupFundedSettings.maxRequiredContributors || 100;
+      return current >= min && current <= max ? current : defaultCount;
+    });
+  }, [groupFundedSettings]);
 
   useEffect(() => {
     if (!vendor || !selectedLocationSlug || !selectedServiceSlug || !bookingDate || booking) {
@@ -404,12 +478,87 @@ export default function BookingRequestPage() {
     () => slots.find((slot) => slot.startAt === selectedSlotStartAt) || null,
     [selectedSlotStartAt, slots]
   );
+
+  const fundingDeadlineBounds = useMemo(() => {
+    if (!isGroupFundedMode || !selectedSlot || !groupFundedSettings?.enabled) {
+      return { min: null, max: null, hasValidWindow: false };
+    }
+
+    const slotStart = new Date(String(selectedSlot.startAt));
+    if (Number.isNaN(slotStart.getTime())) {
+      return { min: null, max: null, hasValidWindow: false };
+    }
+
+    const minDeadlineHours = Number(groupFundedSettings.minDeadlineHours || 24);
+    const maxDeadlineDays = Number(groupFundedSettings.maxDeadlineDays || 14);
+    const minimumDeadline = roundUpToHalfHour(new Date(Date.now() + minDeadlineHours * 60 * 60 * 1000));
+    const maximumBySettings = roundDownToHalfHour(new Date(Date.now() + maxDeadlineDays * 24 * 60 * 60 * 1000));
+    const maximumBySlot = roundDownToHalfHour(new Date(slotStart.getTime() - 24 * 60 * 60 * 1000));
+    const maximumDeadline = maximumBySlot < maximumBySettings ? maximumBySlot : maximumBySettings;
+
+    return {
+      min: minimumDeadline,
+      max: maximumDeadline,
+      hasValidWindow: minimumDeadline <= maximumDeadline
+    };
+  }, [
+    groupFundedSettings?.enabled,
+    groupFundedSettings?.maxDeadlineDays,
+    groupFundedSettings?.minDeadlineHours,
+    isGroupFundedMode,
+    selectedSlot
+  ]);
+
+  const fundingDeadlineValue = useMemo(
+    () => parseDateTimePickerValue(fundingDeadlineAt),
+    [fundingDeadlineAt]
+  );
+
+  const fundingDeadlineTimeBounds = useMemo(() => ({
+    min:
+      fundingDeadlineBounds.min && fundingDeadlineValue && isSameLocalDate(fundingDeadlineValue, fundingDeadlineBounds.min)
+        ? formatTimeConstraint(fundingDeadlineBounds.min)
+        : undefined,
+    max:
+      fundingDeadlineBounds.max && fundingDeadlineValue && isSameLocalDate(fundingDeadlineValue, fundingDeadlineBounds.max)
+        ? formatTimeConstraint(fundingDeadlineBounds.max)
+        : undefined
+  }), [fundingDeadlineBounds.max, fundingDeadlineBounds.min, fundingDeadlineValue]);
+
+  useEffect(() => {
+    if (!isGroupFundedMode || !selectedSlot) {
+      return;
+    }
+
+    if (!fundingDeadlineBounds.min || !fundingDeadlineBounds.max || !fundingDeadlineBounds.hasValidWindow) {
+      setFundingDeadlineAt("");
+      return;
+    }
+
+    const preferredDeadline = roundUpToHalfHour(new Date(Date.now() + 48 * 60 * 60 * 1000));
+    const deadline = preferredDeadline < fundingDeadlineBounds.min
+      ? fundingDeadlineBounds.min
+      : preferredDeadline > fundingDeadlineBounds.max
+        ? fundingDeadlineBounds.max
+        : preferredDeadline;
+    setFundingDeadlineAt(toDateTimeLocalValue(deadline));
+  }, [
+    fundingDeadlineBounds.hasValidWindow,
+    fundingDeadlineBounds.max,
+    fundingDeadlineBounds.min,
+    isGroupFundedMode,
+    selectedSlot
+  ]);
+
   const serviceOptions = useMemo(
     () => locationServices.map((service) => ({
       value: service.slug,
-      label: getServiceLabel(service)
+      label: isGroupFundedMode && !service.groupFunded?.enabled
+        ? `${getServiceLabel(service)} - Group-funded unavailable`
+        : getServiceLabel(service),
+      disabled: isGroupFundedMode && !service.groupFunded?.enabled
     })) || [],
-    [locationServices]
+    [isGroupFundedMode, locationServices]
   );
   const locationOptions = useMemo(
     () => vendor?.locations.map((location) => ({
@@ -491,6 +640,36 @@ export default function BookingRequestPage() {
     };
   }
 
+  function buildGroupFundedPayload(): CreateGroupFundedCampaignRequest {
+    if (!vendor || !selectedSlot) {
+      throw new Error("Select an available booking slot.");
+    }
+    if (!fundingDeadlineBounds.hasValidWindow || !fundingDeadlineBounds.min || !fundingDeadlineBounds.max) {
+      throw new Error("Choose a later booking slot so funding can close before vendor review.");
+    }
+    const fundingDeadlineDate = parseDateTimePickerValue(fundingDeadlineAt);
+    if (!fundingDeadlineDate) {
+      throw new Error("Set a valid funding deadline.");
+    }
+    if (
+      (fundingDeadlineDate < fundingDeadlineBounds.min || fundingDeadlineDate > fundingDeadlineBounds.max)
+    ) {
+      throw new Error("Funding deadline must be within the allowed window for the selected booking slot.");
+    }
+    return {
+      tenantSlug: vendor.slug,
+      locationSlug: selectedLocationSlug,
+      serviceSlug: selectedServiceSlug,
+      scheduledStartAt: String(selectedSlot.startAt),
+      bookingQuantity: quantityForRequest,
+      requiredContributors,
+      fundingDeadlineAt: fundingDeadlineDate.toISOString(),
+      visibility: campaignVisibility,
+      campaignTitle: campaignTitle.trim(),
+      description: campaignDescription.trim()
+    };
+  }
+
   const submitBooking = useCallback(async (payload: PendingBookingPayload) => {
     if (!token) {
       return;
@@ -505,13 +684,36 @@ export default function BookingRequestPage() {
     setBooking(response.booking);
   }, [token]);
 
+  const submitGroupFundedCampaign = useCallback(async (payload: CreateGroupFundedCampaignRequest) => {
+    if (!token) {
+      return;
+    }
+
+    const response = await apiRequest<{ campaign: { publicToken: string } }, CreateGroupFundedCampaignRequest>(
+      "/account/group-funded-campaigns",
+      {
+        method: "POST",
+        token,
+        body: payload
+      }
+    );
+    navigate(`/group-funded/${response.campaign.publicToken}`);
+  }, [navigate, token]);
+
   if (authLoading || loading) {
     return <Card className="finazze-auth-card">Loading booking flow...</Card>;
   }
 
   if (!user) {
+    const params = new URLSearchParams();
+    if (selectedLocationSlug) {
+      params.set("location", selectedLocationSlug);
+    }
+    if (isGroupFundedMode) {
+      params.set("mode", "group-funded");
+    }
     const nextPath = `${serviceSlug ? `/vendors/${tenantSlug}/book/${serviceSlug}` : `/vendors/${tenantSlug}/book`}${
-      selectedLocationSlug ? `?location=${encodeURIComponent(selectedLocationSlug)}` : ""
+      params.toString() ? `?${params.toString()}` : ""
     }`;
 
     return <Navigate to={`/login?next=${encodeURIComponent(nextPath)}`} replace />;
@@ -535,6 +737,14 @@ export default function BookingRequestPage() {
     setError("");
 
     try {
+      if (isGroupFundedMode) {
+        if (!groupFundedAvailable) {
+          throw new Error("Group-funded booking is not enabled for this service at this branch.");
+        }
+        await submitGroupFundedCampaign(buildGroupFundedPayload());
+        return;
+      }
+
       if (!otp) {
         const otpResponse = await apiRequest<BookingOtpResponse>(
           `/public/vendors/${vendor.slug}/booking-otp`,
@@ -675,11 +885,13 @@ export default function BookingRequestPage() {
       <Card className="finazze-auth-card customer-account-card" p="xl">
         <Stack gap="sm">
           <Text className="finazze-section-label">Booking request</Text>
-          <Title order={1}>{booking?.reference || vendor?.name || "Book a service"}</Title>
+          <Title order={1}>{booking?.reference || vendor?.name || (isGroupFundedMode ? "Start group-funded booking" : "Book a service")}</Title>
           <Text c="dimmed">
             {booking
               ? "Continue the booking request on this page."
-              : "Choose a branch first, then pick a service and available slot. Some services can change by branch, so branch selection comes first."}
+              : isGroupFundedMode
+                ? "Choose the service, schedule, contributor count, and funding deadline. The slot is not reserved until the campaign is fully funded and vendor-approved."
+                : "Choose a branch first, then pick a service and available slot. Some services can change by branch, so branch selection comes first."}
           </Text>
         </Stack>
       </Card>
@@ -744,6 +956,13 @@ export default function BookingRequestPage() {
                                 Payment proof will be required after OTP verification.
                               </Text>
                             ) : null}
+                            {isGroupFundedMode ? (
+                              <Text fw={700} size="sm">
+                                {groupFundedAvailable
+                                  ? "Group-funded booking is enabled for this branch service."
+                                  : "Group-funded booking is not enabled for this branch service."}
+                              </Text>
+                            ) : null}
                           </Stack>
                         </Alert>
                       ) : null}
@@ -804,33 +1023,114 @@ export default function BookingRequestPage() {
                         <Alert color="yellow">No available slots for this date.</Alert>
                       ) : null}
 
-                      <TextInput
-                        disabled={Boolean(otp)}
-                        label="Name"
-                        onChange={(event) => setCustomerName(event.currentTarget.value)}
-                        required
-                        value={customerName}
-                      />
-                      <TextInput
-                        disabled={Boolean(otp)}
-                        label="Email"
-                        onChange={(event) => setCustomerEmail(event.currentTarget.value)}
-                        type="email"
-                        value={customerEmail}
-                      />
-                      <PhilippineMobileInput
-                        disabled={Boolean(otp)}
-                        label="Mobile number"
-                        value={customerPhone}
-                        onChange={(nextValue) => setCustomerPhone(nextValue)}
-                      />
-                      <Textarea
-                        disabled={Boolean(otp)}
-                        label="Notes"
-                        minRows={3}
-                        onChange={(event) => setNotes(event.currentTarget.value)}
-                        value={notes}
-                      />
+                      {isGroupFundedMode ? (
+                        <Stack gap="md">
+                          <Alert color="yellow" icon={<IconAlertTriangle size={16} />} variant="light">
+                            This funding-stage campaign does not reserve the slot. It moves to vendor review only after all required contributions are verified.
+                          </Alert>
+                          <NumberInput
+                            allowDecimal={false}
+                            allowNegative={false}
+                            clampBehavior="strict"
+                            disabled={Boolean(otp) || !groupFundedAvailable}
+                            label="Required contributors"
+                            min={groupFundedSettings?.minRequiredContributors || 2}
+                            max={groupFundedSettings?.maxRequiredContributors || 100}
+                            onChange={(value) => setRequiredContributors(Number(value) || 2)}
+                            required
+                            step={1}
+                            value={requiredContributors}
+                          />
+                          <DateTimePicker
+                            clearable
+                            defaultTimeValue="12:00"
+                            disabled={Boolean(otp) || !groupFundedAvailable || (Boolean(selectedSlot) && !fundingDeadlineBounds.hasValidWindow)}
+                            label="Funding deadline"
+                            maxDate={fundingDeadlineBounds.hasValidWindow ? fundingDeadlineBounds.max || undefined : undefined}
+                            minDate={fundingDeadlineBounds.hasValidWindow ? fundingDeadlineBounds.min || undefined : undefined}
+                            onChange={(value) => setFundingDeadlineAt(value || "")}
+                            placeholder="Select funding deadline"
+                            required
+                            timePickerProps={{
+                              format: "12h",
+                              max: fundingDeadlineTimeBounds.max,
+                              min: fundingDeadlineTimeBounds.min,
+                              minutesStep: 30,
+                              popoverProps: { withinPortal: false },
+                              withDropdown: true
+                            }}
+                            value={fundingDeadlineAt}
+                            valueFormat="MMM D, YYYY h:mm A"
+                          />
+                          {selectedSlot && !fundingDeadlineBounds.hasValidWindow ? (
+                            <Alert color="yellow" icon={<IconAlertTriangle size={16} />} variant="light">
+                              This slot is too soon for a group-funded campaign. Choose a later booking slot so funding can close before vendor review.
+                            </Alert>
+                          ) : null}
+                          <Select
+                            data={[
+                              { label: "Private link only", value: "private_link" },
+                              { label: "Public on vendor profile", value: "public", disabled: !groupFundedSettings?.allowPublicCampaigns }
+                            ]}
+                            disabled={Boolean(otp) || !groupFundedAvailable}
+                            label="Visibility"
+                            onChange={(value) => setCampaignVisibility((value || "private_link") as "private_link" | "public")}
+                            value={campaignVisibility}
+                          />
+                          <TextInput
+                            disabled={Boolean(otp) || !groupFundedAvailable}
+                            label="Campaign title"
+                            maxLength={90}
+                            onChange={(event) => setCampaignTitle(event.currentTarget.value)}
+                            placeholder={selectedService ? `${selectedService.name} group booking` : "Weekend group session"}
+                            required
+                            value={campaignTitle}
+                          />
+                          <Textarea
+                            disabled={Boolean(otp) || !groupFundedAvailable}
+                            label="Campaign description"
+                            maxLength={280}
+                            minRows={3}
+                            onChange={(event) => setCampaignDescription(event.currentTarget.value)}
+                            value={campaignDescription}
+                          />
+                          <Alert color="teal" variant="light">
+                            Required contribution is exactly {formatPaymentAmount(computedContributionCents, selectedService?.currency || "PHP")} per contributor. V1 does not support partial payments, extra payments, tips, or uneven shares.
+                          </Alert>
+                        </Stack>
+                      ) : null}
+
+                      {!isGroupFundedMode ? (
+                        <>
+                          <TextInput
+                            disabled={Boolean(otp)}
+                            label="Name"
+                            onChange={(event) => setCustomerName(event.currentTarget.value)}
+                            required
+                            value={customerName}
+                          />
+                          <TextInput
+                            disabled={Boolean(otp)}
+                            label="Email"
+                            onChange={(event) => setCustomerEmail(event.currentTarget.value)}
+                            type="email"
+                            value={customerEmail}
+                          />
+                          <PhilippineMobileInput
+                            disabled={Boolean(otp)}
+                            label="Mobile number"
+                            value={customerPhone}
+                            onChange={(nextValue) => setCustomerPhone(nextValue)}
+                          />
+                          <Textarea
+                            disabled={Boolean(otp)}
+                            label="Notes"
+                            minRows={3}
+                            onChange={(event) => setNotes(event.currentTarget.value)}
+                            value={notes}
+                          />
+                        </>
+                      ) : null}
 
                       <Group justify="space-between" align="flex-end" className="booking-flow-actions">
                         <Text c="dimmed" size="sm">
@@ -840,8 +1140,17 @@ export default function BookingRequestPage() {
                               : getServiceLabel(selectedService)
                             : "Select a service to continue."}
                         </Text>
-                        <Button color="dark" disabled={submitting || !vendor?.services.length || !selectedSlot} type="submit">
-                          {submitting ? "Processing..." : "Send verification code"}
+                        <Button
+                          color="dark"
+                          disabled={
+                            submitting ||
+                            !vendor?.services.length ||
+                            !selectedSlot ||
+                            (isGroupFundedMode && (!groupFundedAvailable || !fundingDeadlineBounds.hasValidWindow))
+                          }
+                          type="submit"
+                        >
+                          {submitting ? "Processing..." : isGroupFundedMode ? "Create private campaign" : "Send verification code"}
                         </Button>
                       </Group>
                     </Stack>

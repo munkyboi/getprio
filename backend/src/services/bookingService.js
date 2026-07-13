@@ -840,6 +840,12 @@ async function getCustomerOwnedBooking({ user, bookingId }) {
 }
 
 function assertBookingCanAcceptPaymentProof(booking) {
+  if (booking.bookingPaymentSource === "group_funded" || booking.groupFundedBookingId) {
+    const error = new Error("Group-funded bookings do not accept manual payment proof.");
+    error.statusCode = 409;
+    throw error;
+  }
+
   if (!booking.serviceManualPaymentRequired) {
     const error = new Error("This booking does not have an active manual payment QR.");
     error.statusCode = 409;

@@ -168,6 +168,8 @@ export default function JoinedQueuePage() {
 
   const joinPath = buildJoinPath(tenantSlugValue, locationSlug);
   const vendorDetailsPath = `/vendors/${tenantSlugValue}`;
+  const backLink = user ? "/account/tickets" : "/vendors";
+  const backLabel = user ? "Back to queue list" : "Back to vendors";
   const locationHours = normalizeHours(snapshot?.location?.hours || []);
   const todayIndex = getTodayIndex(snapshot?.location?.timezone);
   const theme = snapshot?.publicBoardTheme.theme;
@@ -441,8 +443,8 @@ export default function JoinedQueuePage() {
   return (
     <Stack className="vendor-profile-page" gap="xl" style={themeStyle}>
       <Container size="xl" w="100%">
-        <Button className="ticket-page-back-button" component={Link} leftSection={<IconArrowLeft size={18} />} mb="md" to={vendorDetailsPath} variant="subtle" w="fit-content">
-          Back to vendor details
+        <Button className="ticket-page-back-button" component={Link} leftSection={<IconArrowLeft size={18} />} mb="md" to={backLink} variant="subtle" w="fit-content">
+          {backLabel}
         </Button>
 
         <Modal

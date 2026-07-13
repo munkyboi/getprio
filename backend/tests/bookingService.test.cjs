@@ -1705,3 +1705,39 @@ test("booking payment proof helpers reject services that do not require manual p
     (error) => error.statusCode === 409
   );
 });
+
+test("booking payment proof helpers reject group-funded bookings", async () => {
+  const bookingService = buildBookingService({
+    findBookingById: async () => ({
+      _id: "booking-1",
+      customerUserId: "user-1",
+      tenantId: "tenant-1",
+      locationId: "location-1",
+      serviceManualPaymentRequired: true,
+      locationPaymentQrActive: true,
+      status: "confirmed",
+      bookingPaymentSource: "group_funded",
+      groupFundedBookingId: "campaign-1",
+      customerEmail: "customer@example.com",
+      customerPhone: "09171234567",
+      tenantName: "Demo Tenant",
+      reference: "BKG-TEST"
+    })
+  });
+
+  await assert.rejects(
+    () =>
+      bookingService.submitCustomerPaymentProof({
+        user: { _id: "user-1" },
+        bookingId: "booking-1",
+        body: {
+          paymentReference: "GCASH-123",
+          objectKey: "payment-proofs/tenants/tenant-1/bookings/booking-1/proof.png",
+          fileName: "proof.png",
+          contentType: "image/png",
+          sizeBytes: 10
+        }
+      }),
+    (error) => error.statusCode === 409 && /group-funded/i.test(error.message)
+  );
+});

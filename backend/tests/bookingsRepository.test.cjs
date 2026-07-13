@@ -169,6 +169,8 @@ test("customer booking list supports pagination metadata", async () => {
   assert.deepEqual(calls[1].params, [11, 5, 5]);
   assert.equal(result.totalItems, 7);
   assert.equal(result.bookings[0]._id, "11");
+  assert.equal(result.bookings[0].groupFundedBookingId, null);
+  assert.equal(result.bookings[0].bookingPaymentSource, "standard");
 });
 
 test("customer booking list keeps pagination placeholders aligned when date filters are present", async () => {
@@ -385,6 +387,121 @@ test("booking creation retries once on duplicate reference and then reloads the 
   assert.equal(booking._id, "77");
   assert.equal(calls.filter((call) => String(call.query).includes("INSERT INTO bookings")).length, 2);
   assert.equal(calls.filter((call) => String(call.query).includes("WHERE bookings.id = $1")).length, 1);
+});
+
+test("group-funded booking creation inserts one confirmed paid linked organizer booking", async () => {
+  const calls = [];
+  const bookingsRepository = requireWithMocks("../src/repositories/bookings.js", {
+    "../config/db": {
+      pool: {
+        query: async (query, params) => {
+          calls.push({ query, params });
+          const sql = String(query);
+          if (sql.includes("INSERT INTO bookings")) {
+            assert.match(sql, /'confirmed'/);
+            assert.match(sql, /'paid'/);
+            assert.match(sql, /group_funded_booking_id/);
+            assert.match(sql, /booking_payment_source/);
+            assert.equal(params[4], 42);
+            assert.equal(params[19], 100);
+            return { rows: [{ id: 88 }] };
+          }
+          if (sql.includes("WHERE bookings.id = $1")) {
+            return {
+              rows: [
+                {
+                  id: 88,
+                  reference: "BKG-GROUP",
+                  tenant_id: 1,
+                  location_id: 2,
+                  service_id: 3,
+                  customer_user_id: 42,
+                  customer_name: "Organizer",
+                  customer_email: "organizer@example.com",
+                  customer_phone: "09170000000",
+                  booking_quantity: 2,
+                  scheduled_start_at: new Date("2026-07-20T02:00:00.000Z"),
+                  scheduled_end_at: new Date("2026-07-20T03:00:00.000Z"),
+                  status: "confirmed",
+                  notes: "Group-funded booking approved by vendor.",
+                  payment_reference: "group-funded:100",
+                  payment_status: "paid",
+                  payment_proof_object_key: null,
+                  payment_proof_file_name: null,
+                  payment_proof_content_type: null,
+                  payment_proof_size_bytes: null,
+                  payment_proof_uploaded_at: null,
+                  payment_verified_at: new Date("2026-07-18T02:00:00.000Z"),
+                  payment_verified_by_user_id: 9,
+                  payment_rejected_at: null,
+                  payment_rejected_by_user_id: null,
+                  payment_rejection_reason: null,
+                  pending_expires_at: null,
+                  expired_at: null,
+                  expiration_reason: null,
+                  notify_by_email: true,
+                  notify_by_sms: false,
+                  sms_alert_fee_payment_id: null,
+                  contact_verified_at: null,
+                  contact_verification_channel: null,
+                  queue_ticket_id: null,
+                  checked_in_at: null,
+                  checked_in_by_user_id: null,
+                  no_show_at: null,
+                  no_show_by_user_id: null,
+                  group_funded_booking_id: 100,
+                  booking_payment_source: "group_funded",
+                  created_at: new Date("2026-07-18T02:00:00.000Z"),
+                  updated_at: new Date("2026-07-18T02:00:00.000Z"),
+                  tenant_name: "Tenant",
+                  tenant_slug: "tenant",
+                  location_name: "Main",
+                  location_slug: "main",
+                  service_name: "Consultation",
+                  service_slug: "consultation",
+                  service_manual_payment_required: false,
+                  service_price_amount_cents: 50000,
+                  service_currency: "PHP",
+                  service_price_display: "PHP 500",
+                  location_payment_method_label: "",
+                  location_payment_account_display_name: "",
+                  location_payment_account_identifier_display: "",
+                  location_payment_qr_image_url: "",
+                  location_payment_qr_active: false,
+                  queue_ticket_number: null,
+                  queue_ticket_lookup_code: null,
+                  queue_ticket_status: null
+                }
+              ]
+            };
+          }
+          throw new Error(`Unexpected query: ${sql}`);
+        }
+      }
+    }
+  });
+
+  const booking = await bookingsRepository.createGroupFundedBooking({
+    tenantId: 1,
+    locationId: 2,
+    serviceId: 3,
+    customerUserId: 42,
+    customerName: "Organizer",
+    customerEmail: "organizer@example.com",
+    customerPhone: "09170000000",
+    bookingQuantity: 2,
+    scheduledStartAt: "2026-07-20T02:00:00.000Z",
+    scheduledEndAt: "2026-07-20T03:00:00.000Z",
+    paymentReference: "group-funded:100",
+    paymentVerifiedByUserId: 9,
+    groupFundedBookingId: 100
+  });
+
+  assert.equal(calls.length, 2);
+  assert.equal(booking.status, "confirmed");
+  assert.equal(booking.paymentStatus, "paid");
+  assert.equal(booking.groupFundedBookingId, "100");
+  assert.equal(booking.bookingPaymentSource, "group_funded");
 });
 
 test("booking updates return the current booking when no fields change and skip queue-ticket updates with no data", async () => {

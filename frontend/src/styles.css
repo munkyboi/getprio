@@ -630,6 +630,24 @@ body {
   outline-offset: 3px;
 }
 
+.vendor-group-funded-card-copy {
+  min-width: 0;
+}
+
+.vendor-group-funded-card-title {
+  color: var(--vendor-theme-header, #24160f);
+  font-size: 1.08rem;
+  font-weight: 900;
+  line-height: 1.2;
+}
+
+.vendor-group-funded-card-description {
+  color: var(--vendor-theme-body, #3f3027);
+  font-size: 0.95rem;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
 .vendor-service-media {
   flex: 0 0 128px;
   width: 128px;
@@ -638,11 +656,45 @@ body {
   overflow: hidden;
 }
 
+.vendor-service-media-button {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  cursor: zoom-in;
+  overflow: hidden;
+}
+
 .vendor-service-media img,
 .vendor-profile-image-content {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.vendor-service-media-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #ffffff;
+  background: rgba(36, 30, 25, 0.48);
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+.vendor-service-media-button:hover .vendor-service-media-overlay,
+.vendor-service-media-button:focus-visible .vendor-service-media-overlay {
+  opacity: 1;
+}
+
+.vendor-service-media-button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--vendor-theme-button-border, #ea6a1f) 74%, transparent);
+  outline-offset: -3px;
 }
 
 .vendor-service-copy {
@@ -1291,6 +1343,23 @@ button {
   margin-bottom: 0.15rem;
 }
 
+.service-image-preview-shell {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-height: min(68vh, 34rem);
+  border-radius: 18px;
+  overflow: hidden;
+  background: #14110f;
+}
+
+.service-image-preview-shell img {
+  display: block;
+  width: 100%;
+  max-height: min(68vh, 34rem);
+  object-fit: contain;
+}
+
 .contact-form-shell {
   display: flex;
   flex-direction: column;
@@ -1319,6 +1388,16 @@ button {
 @media (max-width: 48em) {
   .contact-form-shell {
     min-height: 100dvh;
+  }
+
+  .service-image-preview-shell {
+    flex: 1 1 auto;
+    min-height: 100%;
+    border-radius: 0;
+  }
+
+  .service-image-preview-shell img {
+    max-height: calc(100dvh - 8rem);
   }
 
   .contact-form-title {
@@ -3625,6 +3704,10 @@ h2 {
   min-width: 1240px;
 }
 
+.neura-bookings-table--compact {
+  min-width: 920px;
+}
+
 .neura-bookings-table thead th {
   position: sticky;
   top: 0;
@@ -3881,6 +3964,71 @@ h2 {
   padding: 0.75rem 1.4rem 1.35rem;
 }
 
+.group-funded-detail-modal .mantine-Modal-content,
+.group-funded-detail-modal .mantine-Modal-body,
+.group-funded-detail-modal .mantine-ScrollArea-viewport {
+  overflow-x: hidden;
+}
+
+.group-funded-detail-modal .mantine-Modal-content {
+  width: min(1120px, calc(100vw - 3rem));
+}
+
+.group-funded-detail-modal .mantine-ScrollArea-viewport > .mantine-ScrollArea-content {
+  min-width: 0;
+}
+
+.group-funded-detail-content,
+.group-funded-detail-content > * {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.group-funded-detail-table-card,
+.group-funded-detail-table-card > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.group-funded-detail-table-scroll {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+}
+
+.group-funded-contributions-table__row-number {
+  min-width: 56px;
+  width: 56px;
+}
+
+.group-funded-contributions-table__contributor {
+  min-width: 180px;
+  width: 180px;
+}
+
+.group-funded-contributions-table__status {
+  min-width: 132px;
+  width: 132px;
+}
+
+.group-funded-contributions-table__status-badge {
+  width: fit-content;
+  max-width: none;
+  white-space: nowrap;
+}
+
+.group-funded-campaign-summary-panel {
+  min-width: 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 1rem;
+  background: #ffffff;
+}
+
 .booking-detail__eyebrow {
   color: #bb4d00;
   font-size: 0.72rem;
@@ -3945,6 +4093,18 @@ h2 {
   margin-left: -1.4rem;
   padding: 0.95rem 1.4rem 0;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.82) 0%, #ffffff 42%);
+}
+
+.customer-booking-campaign-card {
+  background:
+    linear-gradient(135deg, rgba(255, 122, 21, 0.08) 0%, rgba(255, 255, 255, 0) 44%),
+    #ffffff;
+  border-color: #e2e8f0;
+}
+
+.customer-booking-campaign-stat {
+  border: 1px solid #e7edf4;
+  background: rgba(248, 250, 252, 0.78);
 }
 
 .dashboard-notification-stack {
@@ -4141,6 +4301,26 @@ h2 {
   }
 
   .reschedule-blocked-modal .mantine-Modal-body {
+    padding-bottom: calc(env(safe-area-inset-bottom) + 1rem);
+  }
+
+  .booking-choice-modal .mantine-Modal-inner {
+    padding: 5dvh 4vw !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+
+  .booking-choice-modal .mantine-Modal-content {
+    width: min(92vw, 27.5rem) !important;
+    height: auto !important;
+    max-width: min(92vw, 27.5rem) !important;
+    max-height: calc(100dvh - (2 * 5dvh)) !important;
+    border-radius: var(--mantine-radius-lg) !important;
+    overflow: hidden;
+  }
+
+  .booking-choice-modal .mantine-Modal-body {
+    flex: 0 1 auto;
     padding-bottom: calc(env(safe-area-inset-bottom) + 1rem);
   }
 

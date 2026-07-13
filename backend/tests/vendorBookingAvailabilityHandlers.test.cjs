@@ -5,6 +5,8 @@ const {
   handleListBookings,
   handleListAvailability,
   handleCreateAvailabilityBlock,
+  handleDeleteAvailabilityBlock,
+  handleUpdateAvailabilityBlock,
   handleUpdateAvailabilityException
 } = require("../src/routes/vendorBookingAvailabilityHandlers");
 
@@ -70,6 +72,158 @@ test("vendor availability handler creates blocks and updates exceptions", async 
   });
 
   assert.equal(updateResponse.body.exception.id, "exception-1");
+});
+
+test("vendor availability handler treats explicit All services as a shared weekly rule", async () => {
+  const createResponse = { statusCode: null, body: null, status(code) { this.statusCode = code; return this; }, json(payload) { this.body = payload; } };
+  const createCalls = [];
+  let serviceLookupCount = 0;
+
+  await handleCreateAvailabilityBlock({
+    req: {
+      user: {},
+      params: { tenantSlug: "tenant" },
+      query: {},
+      body: {
+        locationSlug: "main",
+        serviceSlug: "",
+        weekday: 1,
+        startsAt: "09:00",
+        endsAt: "17:00",
+        capacity: 2
+      }
+    },
+    res: createResponse,
+    getAuthorizedTenant: async () => ({ _id: 1 }),
+    assertTenantPermission: () => {},
+    getLocationForTenant: async () => ({ _id: 2, slug: "main" }),
+    vendorAvailabilityRepository: {
+      createBlock: async (payload) => {
+        createCalls.push(payload);
+        return {
+          _id: 5,
+          tenantId: 1,
+          locationId: payload.locationId,
+          serviceId: payload.serviceId,
+          weekday: payload.weekday,
+          startsAt: payload.startsAt,
+          endsAt: payload.endsAt,
+          capacity: payload.capacity,
+          isActive: true
+        };
+      }
+    },
+    vendorServiceRepository: {
+      findServiceByTenantAndSlug: async () => {
+        serviceLookupCount += 1;
+        return { _id: 99 };
+      },
+      normalizeServiceSlug: (value) => value
+    }
+  });
+
+  assert.equal(createResponse.statusCode, 201);
+  assert.equal(createCalls.length, 1);
+  assert.equal(serviceLookupCount, 0);
+  assert.equal(createCalls[0].serviceId, null);
+  assert.equal(createResponse.body.block.serviceId, null);
+});
+
+test("vendor availability handler can update a service-specific weekly rule back to All services", async () => {
+  const updateResponse = { body: null, json(payload) { this.body = payload; } };
+  let capturedPayload = null;
+
+  await handleUpdateAvailabilityBlock({
+    req: {
+      user: {},
+      params: { tenantSlug: "tenant", blockId: "block-1" },
+      query: {},
+      body: {
+        serviceSlug: "",
+        weekday: 1,
+        startsAt: "09:00",
+        endsAt: "17:00",
+        capacity: 2
+      }
+    },
+    res: updateResponse,
+    getAuthorizedTenant: async () => ({ _id: 1 }),
+    assertTenantPermission: () => {},
+    getLocationForTenant: async () => ({ _id: 2, slug: "main" }),
+    vendorAvailabilityRepository: {
+      findBlockByTenantAndId: async () => ({
+        _id: "block-1",
+        tenantId: 1,
+        locationId: 2,
+        serviceId: "service-1",
+        weekday: 1,
+        startsAt: "09:00",
+        endsAt: "17:00",
+        capacity: 2,
+        isActive: true,
+        notes: ""
+      }),
+      updateBlock: async (_id, payload) => {
+        capturedPayload = payload;
+        return {
+          _id: "block-1",
+          tenantId: 1,
+          locationId: payload.locationId,
+          serviceId: payload.serviceId,
+          weekday: payload.weekday,
+          startsAt: payload.startsAt,
+          endsAt: payload.endsAt,
+          capacity: payload.capacity,
+          isActive: payload.isActive,
+          notes: payload.notes
+        };
+      }
+    },
+    vendorServiceRepository: {
+      findServiceByTenantAndSlug: async () => {
+        throw new Error("All services must not look up a service");
+      },
+      normalizeServiceSlug: (value) => value
+    }
+  });
+
+  assert.equal(capturedPayload.serviceId, null);
+  assert.equal(updateResponse.body.block.serviceId, null);
+});
+
+test("vendor availability handler deletes weekly rules instead of just deactivating them", async () => {
+  const response = { body: null, json(payload) { this.body = payload; } };
+  const calls = [];
+
+  await handleDeleteAvailabilityBlock({
+    req: { user: {}, params: { tenantSlug: "tenant", blockId: "block-1" }, query: {} },
+    res: response,
+    getAuthorizedTenant: async () => ({ _id: 1 }),
+    assertTenantPermission: () => {},
+    vendorAvailabilityRepository: {
+      findBlockByTenantAndId: async () => ({
+        _id: "block-1",
+        tenantId: 1,
+        locationId: 2,
+        serviceId: null,
+        weekday: 1,
+        startsAt: "09:00",
+        endsAt: "17:00",
+        capacity: 2,
+        isActive: true,
+        notes: "Morning"
+      }),
+      updateBlock: async () => {
+        throw new Error("delete must not soft-disable the weekly rule");
+      },
+      deleteBlock: async (blockId) => {
+        calls.push(["deleteBlock", blockId]);
+      }
+    }
+  });
+
+  assert.deepEqual(calls, [["deleteBlock", "block-1"]]);
+  assert.equal(response.body.block.id, "block-1");
 });
 
 test("vendor availability handler returns a capacity summary", async () => {

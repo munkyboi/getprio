@@ -8,6 +8,9 @@ const SMOKE_EMAIL = process.env.SMOKE_EMAIL || "carlo.abella+store4@gmail.com";
 const SMOKE_PASSWORD = process.env.SMOKE_PASSWORD || "asdfasdf";
 const PLATFORM_SMOKE_EMAIL = process.env.PLATFORM_SMOKE_EMAIL || "getprio-smoke@getprio.local";
 const PLATFORM_SMOKE_PASSWORD = process.env.PLATFORM_SMOKE_PASSWORD || "Smoke1234!";
+const GROUP_FUNDED_SMOKE_ENABLED = ["1", "true", "yes"].includes(
+  String(process.env.SMOKE_GROUP_FUNDED || "").toLowerCase()
+);
 
 function getCliStage() {
   const index = process.argv.indexOf("--stage");
@@ -435,6 +438,140 @@ async function smokeVendorStage() {
   }
 }
 
+async function smokeGroupFundedStage() {
+  if (!GROUP_FUNDED_SMOKE_ENABLED) {
+    log("group-funded smoke skipped (set SMOKE_GROUP_FUNDED=1 to enable)");
+    return;
+  }
+  if (!SMOKE_EMAIL || !SMOKE_PASSWORD) {
+    log("group-funded smoke skipped (set SMOKE_EMAIL and SMOKE_PASSWORD to enable)");
+    return;
+  }
+
+  const auth = await login(SMOKE_EMAIL, SMOKE_PASSWORD);
+  const tenant = Array.isArray(auth.user.tenants) ? auth.user.tenants[0] : null;
+  if (!tenant?.slug) {
+    log("group-funded smoke skipped (smoke account has no vendor tenant membership)");
+    return;
+  }
+
+  const headers = { Authorization: `Bearer ${auth.token}` };
+  const vendorSlug = process.env.SMOKE_GROUP_FUNDED_VENDOR_SLUG || tenant.slug;
+  const vendorProfile = await requestJson(`${API_BASE_URL}/public/vendors/${vendorSlug}`);
+  assertOk(vendorProfile.response, "group-funded public vendor profile");
+  const vendor = vendorProfile.body?.vendor;
+  const locationSlug = process.env.SMOKE_GROUP_FUNDED_LOCATION_SLUG || vendor?.location?.slug || vendor?.locations?.[0]?.slug;
+  if (!vendor?.slug || !locationSlug) {
+    fail("group-funded smoke missing vendor or location slug");
+  }
+
+  const servicesResponse = await requestJson(`${API_BASE_URL}/public/vendors/${vendor.slug}/locations/${locationSlug}/services`);
+  assertOk(servicesResponse.response, "group-funded public branch services");
+  const service = servicesResponse.body?.services?.find((candidate) => candidate?.groupFunded?.enabled);
+  if (!service?.slug) {
+    log("group-funded smoke skipped (selected branch has no group-funded-enabled service)");
+    return;
+  }
+
+  const scheduledStartAt = process.env.SMOKE_GROUP_FUNDED_SCHEDULED_START_AT ||
+    new Date(Date.now() + 96 * 60 * 60 * 1000).toISOString();
+  const fundingDeadlineAt = process.env.SMOKE_GROUP_FUNDED_DEADLINE_AT ||
+    new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+  const requiredContributors = Number(
+    process.env.SMOKE_GROUP_FUNDED_REQUIRED_CONTRIBUTORS ||
+    service.groupFunded.defaultRequiredContributors ||
+    service.groupFunded.minRequiredContributors ||
+    2
+  );
+
+  const createCampaign = await requestJson(`${API_BASE_URL}/account/group-funded-campaigns`, {
+    method: "POST",
+    headers: {
+      ...headers,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      tenantSlug: vendor.slug,
+      locationSlug,
+      serviceSlug: service.slug,
+      scheduledStartAt,
+      bookingQuantity: 1,
+      requiredContributors,
+      fundingDeadlineAt,
+      visibility: "private_link",
+      description: "Smoke test private group-funded campaign"
+    })
+  });
+  assertOk(createCampaign.response, "group-funded campaign creation");
+  const campaign = createCampaign.body?.campaign;
+  if (!campaign?.publicToken || !campaign?.requiredContributionAmountCents) {
+    fail("group-funded campaign creation missing campaign token or contribution amount");
+  }
+  log("group-funded campaign creation ok");
+
+  const contribution = await requestJson(
+    `${API_BASE_URL}/account/group-funded-campaigns/${encodeURIComponent(campaign.publicToken)}/contributions/payment-proof`,
+    {
+      method: "POST",
+      headers: {
+        ...headers,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        paymentReference: `SMOKE-${Date.now()}`,
+        paymentProofObjectKey: `group-funded/${campaign.publicToken}/smoke-proof.png`,
+        paymentProofFileName: "smoke-proof.png",
+        paymentProofContentType: "image/png",
+        paymentProofSizeBytes: 1024
+      })
+    }
+  );
+  assertOk(contribution.response, "group-funded contribution proof submission");
+  const contributionId = contribution.body?.campaign?.contribution?.id;
+  if (!contributionId) {
+    fail("group-funded contribution proof submission missing contribution id");
+  }
+  log("group-funded contribution proof submission ok");
+
+  const verified = await requestJson(
+    `${API_BASE_URL}/vendor/tenant/${tenant.slug}/group-funded-campaigns/contributions/${encodeURIComponent(contributionId)}/verify-payment`,
+    {
+      method: "PATCH",
+      headers
+    }
+  );
+  assertOk(verified.response, "group-funded vendor contribution verification");
+  log("group-funded vendor contribution verification ok");
+
+  const vendorCampaign = await requestJson(
+    `${API_BASE_URL}/vendor/tenant/${tenant.slug}/group-funded-campaigns/${encodeURIComponent(campaign.id)}`,
+    { headers }
+  );
+  assertOk(vendorCampaign.response, "group-funded vendor campaign detail");
+  const latestCampaign = vendorCampaign.body?.campaign;
+  if (!latestCampaign?.id) {
+    fail("group-funded vendor campaign detail missing campaign");
+  }
+
+  if (latestCampaign.campaignStatus !== "vendor_review") {
+    log(`group-funded vendor approval skipped (campaign status is ${latestCampaign.campaignStatus})`);
+    return;
+  }
+
+  const approval = await requestJson(
+    `${API_BASE_URL}/vendor/tenant/${tenant.slug}/group-funded-campaigns/${encodeURIComponent(campaign.id)}/approve`,
+    {
+      method: "PATCH",
+      headers
+    }
+  );
+  assertOk(approval.response, "group-funded vendor approval");
+  if (!approval.body?.booking?.id && !approval.body?.campaign?.linkedBookingId) {
+    fail("group-funded vendor approval missing linked booking");
+  }
+  log("group-funded vendor approval and linked booking creation ok");
+}
+
 async function smokePlatformStage() {
   const platformAuth = await login(PLATFORM_SMOKE_EMAIL, PLATFORM_SMOKE_PASSWORD);
   const platformHeaders = { Authorization: `Bearer ${platformAuth.token}` };
@@ -492,6 +629,9 @@ async function main() {
   }
   if (SMOKE_STAGE === "all" || SMOKE_STAGE === "vendor") {
     await smokeVendorStage();
+  }
+  if (SMOKE_STAGE === "all" || SMOKE_STAGE === "group-funded") {
+    await smokeGroupFundedStage();
   }
   if (SMOKE_STAGE === "all" || SMOKE_STAGE === "platform") {
     await smokePlatformStage();

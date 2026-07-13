@@ -8,6 +8,26 @@ GetPrio is a service marketplace where scheduled service requests and same-day q
 A customer's scheduled request for a vendor service at a selected future time. A booking reserves service intent and schedule, but it is not part of the live same-day queue until check-in.
 _Avoid_: Appointment, reservation, queue ticket
 
+**Group-Funded Booking**:
+A booking flow where one organizer invites multiple contributors to fund a single scheduled service request. It is a category-agnostic capability that can apply to any eligible GetPrio service rather than to a single vertical such as sports. Before the funding target is reached, it behaves as a funding-stage booking attempt rather than as a normal capacity-holding booking. Once fully funded and vendor-approved, it becomes a normal confirmed booking.
+_Avoid_: Crowdfunding campaign, pooled queue ticket, shared wallet booking
+
+**Booking Organizer**:
+The customer who starts and controls a group-funded booking. The organizer owns the booking details, is the main vendor-facing contact, and may cancel the funding-stage booking before the funding target is reached.
+_Avoid_: Host account, booking owner group, co-admin participant
+
+**Booking Contributor**:
+A participant who joins a group-funded booking by paying the required contribution toward the funding target. A contributor helps fund the booking but does not control the booking lifecycle like the organizer does.
+_Avoid_: Co-owner, unpaid joiner, booking admin
+
+**Group-Funded Contribution**:
+A vendor-verified payment share made by a booking contributor toward a group-funded booking's target amount. Contribution evidence and refund state belong to the contribution rather than to the normal booking payment proof fields.
+_Avoid_: Booking payment proof, checkout line item, participant balance
+
+**Group-Funded Refund**:
+A vendor-side manual refund obligation linked to a group-funded contribution. GetPrio tracks the refund reason, status, vendor action, notes, and evidence, but the vendor performs the actual money return outside the platform in v1.
+_Avoid_: Automatic gateway refund, chargeback, platform payout reversal
+
 **Booking Slot**:
 A customer-selectable time option computed from vendor availability, date exceptions, service duration, requested booking quantity, slot capacity, and existing bookings. Booking slots use the full requested duration as the customer-facing start interval, so a 60-minute service booked for two units advances in two-hour starts. Slots are not stored as standalone schedule records in the MVP.
 _Avoid_: Appointment slot, time record, calendar event

@@ -3,6 +3,7 @@ const db = require("../config/db");
 const USER_COLUMNS = `
   users.id,
   users.name,
+  users.display_name,
   users.username,
   users.email,
   users.phone,
@@ -48,6 +49,7 @@ function mapUser(row, relationships = {}) {
   return {
     _id: String(row.id),
     name: row.name,
+    displayName: row.display_name || "",
     username: row.username,
     email: row.email,
     phone: row.phone,
@@ -229,6 +231,7 @@ async function createUser(data, options = {}) {
     `
       INSERT INTO users (
         name,
+        display_name,
         username,
         email,
         phone,
@@ -239,11 +242,12 @@ async function createUser(data, options = {}) {
         roles,
         last_password_changed_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
       RETURNING ${USER_COLUMNS}
     `,
     [
       data.name,
+      data.displayName || null,
       data.username || null,
       data.email || null,
       data.phone || null,
@@ -302,6 +306,7 @@ async function updateUser(userId, changes, options = {}) {
 
   const setters = {
     name: "name",
+    displayName: "display_name",
     username: "username",
     email: "email",
     phone: "phone",
@@ -393,6 +398,7 @@ async function listUsersByTenantId(tenantId, options = {}) {
       SELECT
         users.id,
         users.name,
+        users.display_name,
         users.email,
         users.phone,
         users.password_hash,

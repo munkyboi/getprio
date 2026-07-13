@@ -1,4 +1,5 @@
 const express = require("express");
+const { rateLimit } = require("express-rate-limit");
 const tenantRepository = require("../repositories/tenants");
 const storeLocationRepository = require("../repositories/storeLocations");
 const publicBoardThemeRepository = require("../repositories/publicBoardThemes");
@@ -15,6 +16,7 @@ const queueFeeService = require("../services/queueFeeService");
 const bookingService = require("../services/bookingService");
 const bookingOtpService = require("../services/bookingOtpService");
 const bookingSmsAlertPaymentService = require("../services/bookingSmsAlertPaymentService");
+const groupFundedBookingService = require("../services/groupFundedBookingService");
 const storeHoursService = require("../services/storeHoursService");
 const notificationService = require("../services/notificationService");
 const platformRepository = require("../repositories/platform");
@@ -26,6 +28,15 @@ const {
 const { normalizePhilippineMobileNumber } = require("../utils/phone");
 
 const router = express.Router();
+const groupFundedAbuseReportLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    message: "Too many campaign reports. Please try again later."
+  }
+});
 
 function formatPublicVendorService(service) {
   return {
@@ -69,6 +80,7 @@ async function attachPublicVendorDetails(vendor) {
           sortOrder: item.sortOrder,
           priceAmountCents: item.priceAmountCents,
           priceDisplay: item.priceDisplay,
+          groupFunded: item.groupFunded,
           imageUrl: item.imageUrl || "",
           createdAt: item.createdAt,
           updatedAt: item.updatedAt
@@ -147,12 +159,107 @@ router.get(
             ? {
                 ...formatPublicVendorService(service),
                 capacity: item.capacity,
-                locationServiceId: item._id
+                locationServiceId: item._id,
+                priceAmountCents: item.priceAmountCents ?? service.priceAmountCents,
+                priceDisplay: item.priceDisplay || service.priceDisplay,
+                groupFunded: item.groupFunded
               }
             : null;
         })
         .filter(Boolean)
     });
+  })
+);
+
+router.get(
+  "/group-funded-campaigns/:publicToken",
+  asyncHandler(async (req, res) => {
+    const result = await groupFundedBookingService.getPublicCampaign({
+      publicToken: req.params.publicToken
+    });
+    res.json({
+      campaign: groupFundedBookingService.formatPublicCampaign(result.campaign, result.tenant)
+    });
+  })
+);
+
+router.get(
+  "/group-funded-campaigns/:publicToken/stream",
+  asyncHandler(async (req, res) => {
+    const result = await groupFundedBookingService.getPublicCampaign({
+      publicToken: req.params.publicToken
+    });
+    const tenant = result.tenant;
+
+    if (!tenant?.slug) {
+      const error = new Error("Campaign stream is not available.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders();
+
+    const writeCampaignUpdate = (campaign = result.campaign) => {
+      res.write(`data: ${JSON.stringify({
+        type: "group_funded_campaign_update",
+        publicToken: result.campaign.publicToken,
+        updatedAt: campaign?.updatedAt || new Date().toISOString()
+      })}\n\n`);
+    };
+
+    writeCampaignUpdate();
+
+    const unsubscribe = queueEvents.subscribe(tenant.slug, async () => {
+      try {
+        const nextResult = await groupFundedBookingService.getPublicCampaign({
+          publicToken: req.params.publicToken
+        });
+        writeCampaignUpdate(nextResult.campaign);
+      } catch (error) {
+        console.error(error);
+      }
+    });
+
+    const heartbeat = setInterval(() => {
+      res.write(`event: heartbeat\ndata: ${Date.now()}\n\n`);
+    }, 25000);
+
+    req.on("close", () => {
+      clearInterval(heartbeat);
+      unsubscribe();
+      res.end();
+    });
+  })
+);
+
+router.get(
+  "/vendors/:tenantSlug/locations/:locationSlug/group-funded-campaigns",
+  asyncHandler(async (req, res) => {
+    const campaigns = await groupFundedBookingService.listPublicCampaignsForVendorLocation({
+      tenantSlug: req.params.tenantSlug,
+      locationSlug: req.params.locationSlug,
+      serviceSlug: req.query.serviceSlug,
+      limit: req.query.limit
+    });
+    res.json({ campaigns });
+  })
+);
+
+router.post(
+  "/group-funded-campaigns/:publicToken/report-abuse",
+  groupFundedAbuseReportLimiter,
+  maybeAuthenticate,
+  asyncHandler(async (req, res) => {
+    await groupFundedBookingService.reportPublicCampaignAbuse({
+      publicToken: req.params.publicToken,
+      body: req.body,
+      actor: req.user || null,
+      ipAddress: req.ip
+    });
+    res.status(201).json({ ok: true });
   })
 );
 

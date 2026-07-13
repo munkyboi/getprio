@@ -17,6 +17,7 @@ import VendorDashboardPage from "./pages/VendorDashboardPage";
 import VendorDiscoveryPage from "./pages/VendorDiscoveryPage";
 import VendorProfilePage from "./pages/VendorProfilePage";
 import BookingRequestPage from "./pages/BookingRequestPage";
+import GroupFundedCampaignPage from "./pages/GroupFundedCampaignPage";
 import PublicQueuePage from "./pages/PublicQueuePage";
 import JoinQueuePage from "./pages/JoinQueuePage";
 import JoinedQueuePage from "./pages/JoinedQueuePage";
@@ -80,6 +81,7 @@ function AppShell({ children }: { children: ReactNode }) {
         <Menu.Item component={Link} to="/account/profile">Profile details</Menu.Item>
         <Menu.Item component={Link} to="/account/tickets">Queue Tickets</Menu.Item>
         <Menu.Item component={Link} to="/account/bookings">Bookings</Menu.Item>
+        <Menu.Item component={Link} to="/account/group-funded">Group-funded</Menu.Item>
         <Menu.Item component={Link} to="/account/settings">Settings</Menu.Item>
         <Menu.Divider />
         <Menu.Item color="red" leftSection={<IconLogout size={14} />} onClick={handleLogout}>
@@ -170,6 +172,7 @@ function AppShell({ children }: { children: ReactNode }) {
                     <Button component={Link} to="/account/profile" variant="subtle" color="dark">Profile details</Button>
                     <Button component={Link} to="/account/tickets" variant="subtle" color="dark">Queue Tickets</Button>
                     <Button component={Link} to="/account/bookings" variant="subtle" color="dark">Bookings</Button>
+                    <Button component={Link} to="/account/group-funded" variant="subtle" color="dark">Group-funded</Button>
                     <Button component={Link} to="/account/settings" variant="subtle" color="dark">Settings</Button>
                   </>
                 )}
@@ -229,17 +232,48 @@ function DashboardRedirect() {
   );
 }
 
+function getVendorBookingTabRoute(pathname: string) {
+  const match = pathname.match(/^\/vendors\/([^/]+)(?:\/(group-funded))?$/);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    tenantSlug: match[1],
+    tab: match[2] === "group-funded" ? "group-funded" : "standard"
+  };
+}
+
 function ScrollToTop() {
   const location = useLocation();
-  const previousRouteRef = useRef(`${location.pathname}${location.search}`);
+  const previousRouteRef = useRef({
+    pathname: location.pathname,
+    search: location.search
+  });
 
   useEffect(() => {
     const currentRoute = `${location.pathname}${location.search}`;
-    if (previousRouteRef.current === currentRoute) {
+    const previousRoute = `${previousRouteRef.current.pathname}${previousRouteRef.current.search}`;
+    if (previousRoute === currentRoute) {
       return;
     }
 
-    previousRouteRef.current = currentRoute;
+    const previousVendorTab = getVendorBookingTabRoute(previousRouteRef.current.pathname);
+    const currentVendorTab = getVendorBookingTabRoute(location.pathname);
+    const isVendorBookingTabSwitch =
+      Boolean(previousVendorTab && currentVendorTab) &&
+      previousVendorTab?.tenantSlug === currentVendorTab?.tenantSlug &&
+      previousVendorTab?.tab !== currentVendorTab?.tab;
+
+    previousRouteRef.current = {
+      pathname: location.pathname,
+      search: location.search
+    };
+
+    if (isVendorBookingTabSwitch) {
+      return;
+    }
+
     if (location.hash) {
       return;
     }
@@ -270,13 +304,16 @@ export default function App() {
         <Route path="/account/profile" element={<AppShell><CustomerAccountPage /></AppShell>} />
         <Route path="/account/tickets" element={<AppShell><CustomerAccountPage /></AppShell>} />
         <Route path="/account/bookings" element={<AppShell><CustomerAccountPage /></AppShell>} />
+        <Route path="/account/group-funded" element={<AppShell><CustomerAccountPage /></AppShell>} />
         <Route path="/account/settings" element={<AppShell><CustomerAccountPage /></AppShell>} />
         <Route path="/account/notifications" element={<AppShell><CustomerAccountPage /></AppShell>} />
         <Route path="/account/security" element={<AppShell><CustomerAccountPage /></AppShell>} />
         <Route path="/account/bookings/:bookingId" element={<AppShell><CustomerBookingDetailPage /></AppShell>} />
+        <Route path="/group-funded/:publicToken" element={<AppShell><GroupFundedCampaignPage /></AppShell>} />
         <Route path="/vendors" element={<AppShell><VendorDiscoveryPage /></AppShell>} />
         <Route path="/vendors/:tenantSlug/book" element={<AppShell><BookingRequestPage /></AppShell>} />
         <Route path="/vendors/:tenantSlug/book/:serviceSlug" element={<AppShell><BookingRequestPage /></AppShell>} />
+        <Route path="/vendors/:tenantSlug/group-funded" element={<AppShell><VendorProfilePage /></AppShell>} />
         <Route path="/vendors/:tenantSlug" element={<AppShell><VendorProfilePage /></AppShell>} />
         <Route path="/dashboard" element={<DashboardRedirect />} />
         <Route path="/dashboard/:section" element={<AppShell><VendorDashboardPage /></AppShell>} />

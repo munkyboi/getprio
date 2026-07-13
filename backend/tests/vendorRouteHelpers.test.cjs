@@ -96,3 +96,82 @@ test("vendor route helpers normalize payloads and format entities", async () => 
   assert.equal(formattedService.slug, "cut");
   assert.equal(formattedService.bookingCapacityScope, "location");
 });
+
+test("vendor route helpers normalize group-funded location service settings", () => {
+  const disabled = helpers.normalizeGroupFundedLocationServicePayload({});
+  assert.equal(disabled.enabled, false);
+  assert.equal(disabled.allowPublicCampaigns, false);
+
+  const enabled = helpers.normalizeGroupFundedLocationServicePayload({
+    groupFunded: {
+      enabled: true,
+      minRequiredContributors: 2,
+      maxRequiredContributors: 8,
+      defaultRequiredContributors: 4,
+      minContributionAmountCents: 10000,
+      maxContributionAmountCents: 200000,
+      minDeadlineHours: 24,
+      maxDeadlineDays: 7,
+      allowPublicCampaigns: true
+    }
+  });
+
+  assert.deepEqual(enabled, {
+    enabled: true,
+    minRequiredContributors: 2,
+    maxRequiredContributors: 8,
+    defaultRequiredContributors: 4,
+    minContributionAmountCents: 10000,
+    maxContributionAmountCents: 200000,
+    minDeadlineHours: 24,
+    maxDeadlineDays: 7,
+    allowPublicCampaigns: true
+  });
+
+  assert.throws(
+    () =>
+      helpers.normalizeGroupFundedLocationServicePayload({
+        groupFunded: {
+          enabled: true,
+          minRequiredContributors: 5,
+          maxRequiredContributors: 8,
+          defaultRequiredContributors: 4,
+          minDeadlineHours: 24,
+          maxDeadlineDays: 7
+        }
+      }),
+    /contributor bounds/
+  );
+
+  assert.throws(
+    () =>
+      helpers.normalizeGroupFundedLocationServicePayload({
+        groupFunded: {
+          enabled: true,
+          minRequiredContributors: 2,
+          maxRequiredContributors: 8,
+          defaultRequiredContributors: 4,
+          minDeadlineHours: 200,
+          maxDeadlineDays: 7
+        }
+      }),
+    /deadline bounds/
+  );
+
+  assert.throws(
+    () =>
+      helpers.normalizeGroupFundedLocationServicePayload({
+        groupFunded: {
+          enabled: true,
+          minRequiredContributors: 2,
+          maxRequiredContributors: 8,
+          defaultRequiredContributors: 4,
+          minContributionAmountCents: 200000,
+          maxContributionAmountCents: 10000,
+          minDeadlineHours: 24,
+          maxDeadlineDays: 7
+        }
+      }),
+    /contribution bounds/
+  );
+});
