@@ -808,6 +808,7 @@ async function listPublicCampaignsForVendorLocation(tenantId, locationId, option
     "gfb.location_id = $2",
     "gfb.visibility = 'public'",
     "gfb.campaign_status IN ('funding', 'funded', 'vendor_review', 'replacement_proposed', 'confirmed')",
+    "location_service.id IS NOT NULL",
     "COALESCE(location_service.group_funded_allow_public_campaigns, FALSE) = TRUE"
   ];
 
@@ -857,11 +858,15 @@ async function listPublicCampaignsForVendorLocation(tenantId, locationId, option
       FROM group_funded_bookings gfb
       LEFT JOIN users organizer
         ON organizer.id = gfb.organizer_user_id
-      INNER JOIN location_services location_service
-        ON location_service.id = gfb.location_service_id
-       AND location_service.tenant_id = gfb.tenant_id
+      LEFT JOIN location_services location_service
+        ON location_service.tenant_id = gfb.tenant_id
        AND location_service.location_id = gfb.location_id
        AND location_service.service_id = gfb.service_id
+       AND location_service.is_active = TRUE
+       AND (
+         location_service.id = gfb.location_service_id
+         OR gfb.location_service_id IS NULL
+       )
       LEFT JOIN LATERAL (
         SELECT
           COUNT(*) FILTER (WHERE contribution_status = 'verified')::INTEGER AS verified_contributor_count,
