@@ -1,4 +1,5 @@
 const express = require("express");
+const { rateLimit } = require("express-rate-limit");
 const tenantRepository = require("../repositories/tenants");
 const storeLocationRepository = require("../repositories/storeLocations");
 const ticketRepository = require("../repositories/tickets");
@@ -84,6 +85,15 @@ const {
 } = require("./vendorManagementHandlers");
 
 const router = express.Router();
+const vendorGroupFundedDecisionLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    message: "Too many group-funded campaign actions. Please try again later."
+  }
+});
 
 function formatVendorBooking(booking) {
   return {
@@ -931,6 +941,7 @@ router.patch(
 
 router.patch(
   "/tenant/:tenantSlug/group-funded-campaigns/contributions/:contributionId/verify-payment",
+  vendorGroupFundedDecisionLimiter,
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.booking.manage");

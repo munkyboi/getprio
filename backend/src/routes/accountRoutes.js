@@ -31,6 +31,37 @@ function normalizeRequestText(value, fallback = "") {
   return fallback;
 }
 
+function requireRequestParam(value, label) {
+  if (typeof value !== "string") {
+    const error = new Error(`${label} is required.`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const text = value.trim();
+  if (!text) {
+    const error = new Error(`${label} is required.`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return text;
+}
+
+function normalizeQueryText(value, fallback = "") {
+  if (value === undefined || value === null || value === "") {
+    return fallback;
+  }
+
+  if (typeof value !== "string") {
+    const error = new Error("Query parameter must be a single value.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return normalizeRequestText(value, fallback);
+}
+
 function formatCustomerTicket(ticket) {
   return {
     id: ticket._id,
@@ -393,7 +424,7 @@ router.patch(
 router.post(
   "/tickets/:lookupCode/claim",
   asyncHandler(async (req, res) => {
-    const lookupCode = normalizeRequestText(req.params.lookupCode).toUpperCase();
+    const lookupCode = requireRequestParam(req.params.lookupCode, "Ticket lookup code").toUpperCase();
 
     if (!lookupCode) {
       const error = new Error("Ticket lookup code is required.");
@@ -613,9 +644,9 @@ router.post(
 
     const upload = await groupFundedBookingService.uploadContributionProofDirect({
       user: req.user,
-      campaignIdOrToken: req.params.campaignIdOrToken,
+      campaignIdOrToken: requireRequestParam(req.params.campaignIdOrToken, "Campaign"),
       body: {
-        fileName: normalizeRequestText(req.query.fileName),
+        fileName: normalizeQueryText(req.query.fileName),
         contentType: req.headers["content-type"],
         sizeBytes: req.body.length
       },

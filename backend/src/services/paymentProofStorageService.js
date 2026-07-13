@@ -185,10 +185,10 @@ async function uploadBinary({ booking, body, fileBuffer }) {
 
   const fileName = normalizeFileName(body.fileName);
   const contentType = String(body.contentType || "").toLowerCase();
-  const sizeBytes = Number(body.sizeBytes || fileBuffer?.length || 0);
+  const sizeBytes = Buffer.isBuffer(fileBuffer) ? fileBuffer.length : 0;
   assertUploadMetadata({ contentType, sizeBytes });
 
-  if (!Buffer.isBuffer(fileBuffer) || fileBuffer.length !== sizeBytes) {
+  if (!Buffer.isBuffer(fileBuffer)) {
     const error = new Error("Payment proof upload payload is invalid.");
     error.statusCode = 400;
     throw error;
@@ -217,10 +217,10 @@ async function uploadGroupFundedBinary({ campaign, user, body, fileBuffer }) {
 
   const fileName = normalizeFileName(body.fileName);
   const contentType = String(body.contentType || "").toLowerCase();
-  const sizeBytes = Number(body.sizeBytes || fileBuffer?.length || 0);
+  const sizeBytes = Buffer.isBuffer(fileBuffer) ? fileBuffer.length : 0;
   assertGroupFundedUploadMetadata({ contentType, sizeBytes });
 
-  if (!Buffer.isBuffer(fileBuffer) || fileBuffer.length !== sizeBytes) {
+  if (!Buffer.isBuffer(fileBuffer)) {
     const error = new Error("Contribution proof upload payload is invalid.");
     error.statusCode = 400;
     throw error;
