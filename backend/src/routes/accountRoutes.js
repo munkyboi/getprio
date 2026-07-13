@@ -85,6 +85,21 @@ function formatCustomerBooking(booking) {
   const groupFundedCampaign = booking.groupFundedCampaign
     ? {
         ...booking.groupFundedCampaign,
+        bundleItems: Array.isArray(booking.groupFundedBundleItems)
+          ? booking.groupFundedBundleItems.map((item) => ({
+              id: item._id,
+              serviceId: item.serviceId,
+              serviceName: item.serviceNameSnapshot,
+              serviceSlug: item.serviceSlugSnapshot,
+              bookingQuantity: item.bookingQuantity,
+              priceAmountCents: item.priceAmountCents,
+              currency: item.currency,
+              executionMode: item.executionMode,
+              scheduledStartAt: item.scheduledStartAt,
+              scheduledEndAt: item.scheduledEndAt,
+              sortOrder: item.sortOrder
+            }))
+          : [],
         contributions: Array.isArray(booking.groupFundedContributions)
           ? booking.groupFundedContributions.map((contribution) => ({
               id: contribution._id,
@@ -636,6 +651,9 @@ router.get(
       throw error;
     }
     if (booking.groupFundedBookingId) {
+      booking.groupFundedBundleItems = await groupFundedRepository.listCampaignItemsByCampaign(
+        booking.groupFundedBookingId
+      );
       booking.groupFundedContributions = await groupFundedRepository.listContributionsByCampaign(
         booking.groupFundedBookingId,
         {

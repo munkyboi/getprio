@@ -4,10 +4,12 @@ import {
   Badge,
   Button,
   Card,
+  Container,
   FileInput,
   Group,
   Image,
   Modal,
+  Paper,
   Progress,
   Select,
   SimpleGrid,
@@ -15,15 +17,18 @@ import {
   Text,
   Textarea,
   TextInput,
+  ThemeIcon,
   Title
 } from "@mantine/core";
-import { IconArrowLeft, IconCopy, IconEdit, IconFlag, IconUpload } from "@tabler/icons-react";
+import { IconArrowLeft, IconBuildingStore, IconCalendar, IconClock, IconCopy, IconEdit, IconFlag, IconReceipt, IconUpload, IconUsersGroup } from "@tabler/icons-react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import type {
   BookingPaymentProofUploadResponse,
   GroupFundedBundleItemSummary,
   GroupFundedCampaignResponse,
-  GroupFundedCampaignSummary
+  GroupFundedCampaignSummary,
+  PublicBoardThemeSettings,
+  PublicVendorProfileResponse
 } from "@shared";
 import { API_BASE_URL, apiRequest } from "../api/client";
 import { customerAccountApi } from "../api/customerAccount";
@@ -33,6 +38,7 @@ import {
   formatBookingScheduleTimeRange
 } from "../utils/dates";
 import { getErrorMessage } from "../utils/errors";
+import { buildVendorThemeMediaStyle, buildVendorThemeStyle } from "../utils/vendorTheme";
 
 function formatPaymentAmount(amountCents: number, currency: string) {
   return new Intl.NumberFormat("en-PH", {
@@ -169,6 +175,7 @@ export default function GroupFundedCampaignPage() {
     description: "",
     visibility: "private_link" as "private_link" | "public"
   });
+  const [vendorTheme, setVendorTheme] = useState<PublicBoardThemeSettings | null>(null);
 
   const shareUrl = typeof window !== "undefined" ? window.location.href : "";
 
@@ -212,6 +219,27 @@ export default function GroupFundedCampaignPage() {
   useEffect(() => {
     void loadCampaign();
   }, [loadCampaign]);
+
+  useEffect(() => {
+    if (!campaign?.tenantSlug) {
+      setVendorTheme(null);
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    apiRequest<PublicVendorProfileResponse>(`/public/vendors/${campaign.tenantSlug}`, { signal: controller.signal })
+      .then((data) => {
+        setVendorTheme(data.vendor.publicBoardTheme?.theme || null);
+      })
+      .catch((themeError) => {
+        if (!controller.signal.aborted) {
+          setVendorTheme(null);
+          console.error(themeError);
+        }
+      });
+
+    return () => controller.abort();
+  }, [campaign?.tenantSlug]);
 
   useEffect(() => {
     if (!publicToken) {
@@ -486,6 +514,8 @@ export default function GroupFundedCampaignPage() {
 
   const locationState = location.state as { from?: unknown } | null;
   const backLink = getSafeBackPath(locationState?.from) || (user ? "/account/group-funded" : "/vendors");
+  const themeStyle = buildVendorThemeStyle(vendorTheme);
+  const themedMediaStyle = buildVendorThemeMediaStyle(vendorTheme);
   const paymentProofForm = canContribute ? (
     <Stack gap="md">
       <Alert color={contributionCanRetry ? "yellow" : "teal"} variant="light">
@@ -550,45 +580,11 @@ export default function GroupFundedCampaignPage() {
   ) : null;
 
   return (
-    <Stack className="customer-account-page" gap="lg">
-      <Button component={Link} leftSection={<IconArrowLeft size={16} />} to={backLink} variant="subtle" w="fit-content">
-        Back
-      </Button>
-
-      <Card className="finazze-auth-card customer-account-card" p="xl">
-        <Stack gap="md">
-          <Group align="flex-start" justify="space-between">
-            <Stack gap={6}>
-              <Text className="finazze-section-label">Group-funded booking</Text>
-              <Title order={1}>{campaign.campaignTitle || campaign.serviceName}</Title>
-              <Group align="center" gap="xs">
-                <Text c="dimmed">
-                  {[
-                    campaign.vendorName,
-                    hasServiceBundle ? `${bundleItems.length} bundled services` : campaign.serviceName,
-                    campaign.locationName
-                  ].filter(Boolean).join(" · ")}
-                </Text>
-                {campaign.tenantSlug ? (
-                  <Button
-                    color="orange"
-                    component={Link}
-                    size="xs"
-                    to={`/vendors/${campaign.tenantSlug}`}
-                    variant="light"
-                  >
-                    Vendor details
-                  </Button>
-                ) : null}
-              </Group>
-              <Text c="dimmed" size="sm">
-                Organized by {campaign.organizerDisplayName}
-              </Text>
-            </Stack>
-            <Badge color={getCampaignBadgeColor(campaign.campaignStatus)} size="lg" variant="light">
-              {getCampaignStatusLabel(campaign.campaignStatus)}
-            </Badge>
-          </Group>
+    <Stack className="vendor-profile-page" gap="xl" style={themeStyle}>
+      <Container size="xl" w="100%">
+        <Button className="ticket-page-back-button" component={Link} leftSection={<IconArrowLeft size={18} />} mb="md" to={backLink} variant="subtle" w="fit-content">
+          Back
+        </Button>
 
           {error ? <Alert color="red">{error}</Alert> : null}
           {message ? <Alert color="teal">{message}</Alert> : null}
@@ -597,148 +593,225 @@ export default function GroupFundedCampaignPage() {
               Your contribution proof was rejected and is not counted in the verified funding total.
             </Alert>
           ) : null}
-          {campaign.description ? <Text>{campaign.description}</Text> : null}
 
-          <Card withBorder radius="md" p="md">
-            <Stack gap="sm">
-              <Group justify="space-between" align="flex-start">
-                <Stack gap={2}>
-                  <Text c="dimmed" size="xs">{hasServiceBundle ? "Bundled services" : "Selected service"}</Text>
-                  <Text fw={800}>
-                    {hasServiceBundle
-                      ? `${bundleItems.length} services in this group booking`
-                      : bundleItems[0]?.serviceName || campaign.serviceName}
+        <Paper className="vendor-hero-shell ticket-page-hero booking-detail-page-hero" p={{ base: "lg", md: "xl" }}>
+          <SimpleGrid cols={{ base: 1, lg: 2 }} spacing={{ base: "xl", lg: 48 }}>
+            <Stack gap="lg" justify="flex-start">
+              <div>
+                <Group gap="sm" wrap="wrap">
+                  <Badge className="vendor-theme-badge vendor-theme-badge-primary" size="lg" variant="light">
+                    Group-funded booking
+                  </Badge>
+                  <Badge color={getCampaignBadgeColor(campaign.campaignStatus)} size="lg" variant="light">
+                    {getCampaignStatusLabel(campaign.campaignStatus)}
+                  </Badge>
+                </Group>
+                <Stack gap={4} mt="md">
+                  <Title className="vendor-hero-title ticket-page-title" order={1}>
+                    {campaign.campaignTitle || campaign.serviceName}
+                  </Title>
+                  <Text className="vendor-hero-subtitle" fw={700} size="lg">
+                    {hasServiceBundle ? `${bundleItems.length} bundled services` : campaign.serviceName}
                   </Text>
                 </Stack>
-                <Badge color="teal" variant="light">
-                  {hasServiceBundle ? "Service bundle" : "Single service"}
-                </Badge>
+              </div>
+
+              <Text className="vendor-hero-description">
+                {campaign.description ||
+                  `${campaign.vendorName || "Vendor"} group-funded booking organized by ${campaign.organizerDisplayName}.`}
+              </Text>
+
+              <Stack gap="xs">
+                <Group c="dimmed" gap={8} wrap="nowrap">
+                  <ThemeIcon className="vendor-theme-icon booking-detail-hero-icon-solid" radius="xl" size={32} variant="light">
+                    <IconBuildingStore size={16} />
+                  </ThemeIcon>
+                  <Text>{[campaign.vendorName, campaign.locationName].filter(Boolean).join(" · ")}</Text>
+                </Group>
+                <Group c="dimmed" gap={8} wrap="nowrap">
+                  <ThemeIcon className="vendor-theme-icon booking-detail-hero-icon-solid" radius="xl" size={32} variant="light">
+                    <IconCalendar size={16} />
+                  </ThemeIcon>
+                  <Text>{formatBookingScheduleDate(campaign.scheduledStartAt)}</Text>
+                </Group>
+                <Group c="dimmed" gap={8} wrap="nowrap">
+                  <ThemeIcon className="vendor-theme-icon booking-detail-hero-icon-solid" radius="xl" size={32} variant="light">
+                    <IconClock size={16} />
+                  </ThemeIcon>
+                  <Text>{formatBookingScheduleTimeRange(campaign.scheduledStartAt, campaign.scheduledEndAt)}</Text>
+                </Group>
+                <Group c="dimmed" gap={8} wrap="nowrap">
+                  <ThemeIcon className="vendor-theme-icon booking-detail-hero-icon-solid" radius="xl" size={32} variant="light">
+                    <IconUsersGroup size={16} />
+                  </ThemeIcon>
+                  <Text>Organized by {campaign.organizerDisplayName}</Text>
+                </Group>
+              </Stack>
+
+              <Group gap="md">
+                <Button className="vendor-theme-button" leftSection={<IconCopy size={18} />} onClick={copyShareLink} size="lg">
+                  Copy share link
+                </Button>
+                {campaign.tenantSlug ? (
+                  <Button
+                    className="vendor-theme-button vendor-theme-button-ghost"
+                    component={Link}
+                    leftSection={<IconBuildingStore size={18} />}
+                    size="lg"
+                    to={`/vendors/${campaign.tenantSlug}`}
+                    variant="subtle"
+                  >
+                    Vendor details
+                  </Button>
+                ) : null}
               </Group>
-              <SimpleGrid cols={{ base: 1, sm: hasServiceBundle ? 2 : 1 }} spacing="sm">
-                {bundleItems.map((item) => (
-                  <Stack className="group-funded-campaign-summary-panel" gap={4} key={item.id || item.serviceSlug}>
-                    <Group justify="space-between" gap="sm" wrap="nowrap">
-                      <Text fw={800}>{item.serviceName}</Text>
-                      <Badge variant="light">
-                        x{item.bookingQuantity}
-                      </Badge>
+            </Stack>
+
+            <Paper className="vendor-hero-visual" p="xl" style={themedMediaStyle}>
+              <div className="vendor-hero-media-shell">
+                <div className="vendor-hero-media-slide is-active">
+                  {vendorTheme?.logoUrl ? (
+                    <div className="vendor-profile-logo-frame">
+                      <img alt={`${campaign.vendorName || "Vendor"} logo`} src={vendorTheme.logoUrl} />
+                    </div>
+                  ) : (
+                    <div className="ticket-page-placeholder">
+                      <IconReceipt size={56} stroke={1.5} />
+                      <Text fw={800}>{campaign.serviceName}</Text>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <Paper className="vendor-hero-status-card" p="lg">
+                <Text fw={800}>{getCampaignStatusLabel(campaign.campaignStatus)}</Text>
+                <Text c="dimmed" size="sm">
+                  Deadline {formatBookingScheduleDate(campaign.fundingDeadlineAt)} · {campaign.visibility === "public" ? "Public on vendor profile" : "Private link only"}
+                </Text>
+                <SimpleGrid cols={{ base: 1, sm: 2 }} mt="md" spacing="sm">
+                  <div className="prio-dashboard-tile">
+                    <Text c="dimmed" size="xs">Funding</Text>
+                    <Text fw={800}>{progressValue}%</Text>
+                  </div>
+                  <div className="prio-dashboard-tile">
+                    <Group align="center" gap="sm" wrap="nowrap">
+                      <div
+                        aria-label={`${contributorReservationSummary?.filledContributorCount} of ${campaign.requiredContributors} contributor positions filled`}
+                        className="group-funded-contributor-meter group-funded-contributor-meter--hero"
+                        role="img"
+                      >
+                        <svg aria-hidden="true" viewBox="0 0 100 100">
+                          <circle
+                            cx="50"
+                            cy="50"
+                            fill="none"
+                            r="42"
+                            stroke="var(--mantine-color-gray-3)"
+                            strokeWidth="11"
+                          />
+                          {contributorMeterSegments.map((segment, index) => (
+                            <circle
+                              cx="50"
+                              cy="50"
+                              fill="none"
+                              key={`${segment.color}-${index}`}
+                              r="42"
+                              stroke={segment.color}
+                              strokeDasharray={segment.dasharray}
+                              strokeDashoffset={segment.dashoffset}
+                              strokeWidth="11"
+                            />
+                          ))}
+                        </svg>
+                        <Text className="group-funded-contributor-meter__label" fw={800} size="xs" ta="center">
+                          {contributorReservationSummary?.filledContributorCount}/{campaign.requiredContributors}
+                        </Text>
+                      </div>
+                      <Stack gap={0}>
+                        <Text c="dimmed" size="xs">Contributors</Text>
+                        <Text fw={800}>{contributorReservationSummary?.filledContributorCount} filled</Text>
+                      </Stack>
                     </Group>
-                    <Text c="dimmed" size="sm">
-                      {formatBookingScheduleTimeRange(item.scheduledStartAt, item.scheduledEndAt)}
-                    </Text>
-                    <Text c="dimmed" size="sm">
-                      {formatPaymentAmount(item.priceAmountCents, item.currency)}
+                  </div>
+                  <div className="prio-dashboard-tile">
+                    <Text c="dimmed" size="xs">Target</Text>
+                    <Text fw={800}>{formatPaymentAmount(campaign.targetAmountCents, campaign.currency)}</Text>
+                  </div>
+                  <div className="prio-dashboard-tile">
+                    <Text c="dimmed" size="xs">Each</Text>
+                    <Text fw={800}>{formatPaymentAmount(campaign.requiredContributionAmountCents, campaign.currency)}</Text>
+                  </div>
+                </SimpleGrid>
+                <Stack gap="xs" mt="md">
+                  <Progress value={progressValue} color="teal" />
+                  <Text c="dimmed" size="sm">
+                    {formatPaymentAmount(campaign.fundedAmountCents, campaign.currency)} / {formatPaymentAmount(campaign.targetAmountCents, campaign.currency)} verified.
+                  </Text>
+                </Stack>
+              </Paper>
+            </Paper>
+          </SimpleGrid>
+        </Paper>
+
+        <Card className="finazze-auth-card customer-account-card booking-detail-section-card" mt="xl" p="xl">
+          <Stack gap="md">
+            <Card withBorder radius="md" p="md">
+              <Stack gap="sm">
+                <Group justify="space-between" align="flex-start">
+                  <Stack gap={2}>
+                    <Text c="dimmed" size="xs">{hasServiceBundle ? "Bundled services" : "Selected service"}</Text>
+                    <Text fw={800}>
+                      {hasServiceBundle
+                        ? `${bundleItems.length} services in this group booking`
+                        : bundleItems[0]?.serviceName || campaign.serviceName}
                     </Text>
                   </Stack>
-                ))}
-              </SimpleGrid>
-            </Stack>
-          </Card>
+                  <Badge color="teal" variant="light">
+                    {hasServiceBundle ? "Service bundle" : "Single service"}
+                  </Badge>
+                </Group>
+                <SimpleGrid cols={{ base: 1, sm: hasServiceBundle ? 2 : 1 }} spacing="sm">
+                  {bundleItems.map((item) => (
+                    <Stack className="group-funded-campaign-summary-panel" gap={4} key={item.id || item.serviceSlug}>
+                      <Group justify="space-between" gap="sm" wrap="nowrap">
+                        <Text fw={800}>{item.serviceName}</Text>
+                        <Badge variant="light">
+                          x{item.bookingQuantity}
+                        </Badge>
+                      </Group>
+                      <Text c="dimmed" size="sm">
+                        {formatBookingScheduleTimeRange(item.scheduledStartAt, item.scheduledEndAt)}
+                      </Text>
+                      <Text c="dimmed" size="sm">
+                        {formatPaymentAmount(item.priceAmountCents, item.currency)}
+                      </Text>
+                    </Stack>
+                  ))}
+                </SimpleGrid>
+              </Stack>
+            </Card>
 
-          <SimpleGrid cols={{ base: 1, md: 3 }} spacing="sm">
-            <Stack className="group-funded-campaign-summary-panel" gap={4}>
-              <Text c="dimmed" size="xs">Booking details</Text>
-              <Text fw={800}>{formatBookingScheduleDate(campaign.scheduledStartAt)}</Text>
-              <Text size="sm">
-                {formatBookingScheduleTimeRange(campaign.scheduledStartAt, campaign.scheduledEndAt)}
-              </Text>
-              <Text c="dimmed" size="sm">
-                {hasServiceBundle ? `${bundleItems.length} services` : `Quantity ${campaign.bookingQuantity}`} · {campaign.locationName}
-              </Text>
-            </Stack>
-            <Stack className="group-funded-campaign-summary-panel" gap={4}>
-              <Text c="dimmed" size="xs">Campaign status</Text>
-              <Badge color={getCampaignBadgeColor(campaign.campaignStatus)} variant="light" w="fit-content">
-                {getCampaignStatusLabel(campaign.campaignStatus)}
-              </Badge>
-              <Text c="dimmed" size="sm">
-                Deadline {formatBookingScheduleDate(campaign.fundingDeadlineAt)}
-              </Text>
-              <Text c="dimmed" size="sm">
-                Visibility {campaign.visibility === "public" ? "Public on vendor profile" : "Private link only"}
-              </Text>
-              <Text fw={700}>
-                {formatPaymentAmount(campaign.fundedAmountCents, campaign.currency)} / {formatPaymentAmount(campaign.targetAmountCents, campaign.currency)}
-              </Text>
-            </Stack>
-            <Stack className="group-funded-campaign-summary-panel" gap={4}>
-              <Text c="dimmed" size="xs">Contributor count</Text>
-              <Group align="center" gap="md" wrap="nowrap">
-                <div
-                  aria-label={`${contributorReservationSummary?.filledContributorCount} of ${campaign.requiredContributors} contributor positions filled`}
-                  className="group-funded-contributor-meter"
-                  role="img"
-                >
-                  <svg aria-hidden="true" viewBox="0 0 100 100">
-                    {contributorMeterSegments.map((segment, index) => (
-                      <circle
-                        cx="50"
-                        cy="50"
-                        fill="none"
-                        key={`${segment.color}-${index}`}
-                        r="42"
-                        stroke={segment.color}
-                        strokeDasharray={segment.dasharray}
-                        strokeDashoffset={segment.dashoffset}
-                        strokeWidth="11"
-                      />
-                    ))}
-                  </svg>
-                  <Text className="group-funded-contributor-meter__label" fw={800} size="sm" ta="center">
-                    {contributorReservationSummary?.filledContributorCount}/{campaign.requiredContributors}
-                  </Text>
-                </div>
-                <Stack gap={2}>
-                  <Text fw={800}>{contributorReservationSummary?.filledContributorCount} of {campaign.requiredContributors} contributors filled</Text>
-                  {contributorReservationSummary?.pendingVerificationContributorCount ? (
-                    <Text c="blue" size="sm">
-                      {contributorReservationSummary.pendingVerificationContributorCount} contributor{contributorReservationSummary.pendingVerificationContributorCount === 1 ? "" : "s"} pending vendor verification
-                    </Text>
-                  ) : null}
-                  <Text c="dimmed" size="sm">
-                    {formatPaymentAmount(campaign.requiredContributionAmountCents, campaign.currency)} each
-                  </Text>
-                </Stack>
-              </Group>
-            </Stack>
-          </SimpleGrid>
+            <Alert color="yellow" variant="light">
+              This slot is not reserved until the campaign is fully funded and approved by the vendor.
+            </Alert>
 
-          <Alert color="yellow" variant="light">
-            This slot is not reserved until the campaign is fully funded and approved by the vendor.
-          </Alert>
-
-          <Stack gap="xs">
-            <Group justify="space-between">
-              <Text fw={700}>Verified funding</Text>
-              <Text fw={700}>
-                {formatPaymentAmount(campaign.fundedAmountCents, campaign.currency)} /{" "}
-                {formatPaymentAmount(campaign.targetAmountCents, campaign.currency)}
-              </Text>
-            </Group>
-            <Progress value={progressValue} color="teal" />
-            <Text c="dimmed" size="sm">
-              {contributorReservationSummary?.verifiedContributorCount} of {campaign.requiredContributors} verified contributors. Required contribution is exactly{" "}
-              {formatPaymentAmount(campaign.requiredContributionAmountCents, campaign.currency)}.
-            </Text>
-          </Stack>
-
-          <Group gap="sm">
-            <Button leftSection={<IconCopy size={16} />} onClick={copyShareLink} variant="light">
-              Copy share link
-            </Button>
-            <Button color="red" leftSection={<IconFlag size={16} />} loading={reportingAbuse} onClick={reportCampaign} variant="subtle">
-              Report
-            </Button>
-            {isOrganizer && campaign.linkedBookingId ? (
-              <Button component={Link} color="dark" to={`/account/bookings/${campaign.linkedBookingId}`}>
-                View confirmed booking
+            <Group gap="sm">
+              <Button leftSection={<IconCopy size={16} />} onClick={copyShareLink} variant="light">
+                Copy share link
               </Button>
-            ) : null}
-          </Group>
-        </Stack>
-      </Card>
+              <Button color="red" leftSection={<IconFlag size={16} />} loading={reportingAbuse} onClick={reportCampaign} variant="subtle">
+                Report
+              </Button>
+              {isOrganizer && campaign.linkedBookingId ? (
+                <Button component={Link} color="dark" to={`/account/bookings/${campaign.linkedBookingId}`}>
+                  View confirmed booking
+                </Button>
+              ) : null}
+            </Group>
+          </Stack>
+        </Card>
 
-      <Card className="finazze-auth-card customer-account-card" p="xl">
+      <Card className="finazze-auth-card customer-account-card" mt="xl" p="xl">
         <Stack gap="md">
           <div>
             <Text className="finazze-section-label">Your contribution</Text>
@@ -798,7 +871,7 @@ export default function GroupFundedCampaignPage() {
       </Card>
 
       {isOrganizer && (canEditCampaign || canCancel || isCampaignFullyFunded) ? (
-        <Card className="finazze-auth-card customer-account-card" p="xl">
+        <Card className="finazze-auth-card customer-account-card" mt="xl" p="xl">
           <Stack gap="md">
             <div>
               <Text className="finazze-section-label">Organizer controls</Text>
@@ -846,6 +919,7 @@ export default function GroupFundedCampaignPage() {
           </Stack>
         </Card>
       ) : null}
+      </Container>
 
       <Modal
         centered

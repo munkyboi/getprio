@@ -444,6 +444,7 @@ export interface BookingGroupFundedCampaignSummary {
   fundedAmountCents: number;
   fundedAt: string | Date | null;
   confirmedAt: string | Date | null;
+  bundleItems?: GroupFundedBundleItemSummary[];
   contributions?: Array<{
     id: string;
     contributorDisplayName: string;

@@ -4222,6 +4222,22 @@ h2 {
   transform: translate(-50%, -50%);
 }
 
+.group-funded-contributor-meter--hero {
+  flex: 0 0 auto;
+  height: 58px;
+  width: 58px;
+}
+
+.booking-detail-hero-icon-solid {
+  background: var(--vendor-theme-button-bg, #0f172a);
+  color: var(--vendor-theme-button-text, #ffffff);
+}
+
+.booking-detail-hero-icon-solid svg {
+  color: var(--vendor-theme-button-text, #ffffff);
+  stroke: currentColor;
+}
+
 .booking-detail__eyebrow {
   color: #bb4d00;
   font-size: 0.72rem;
