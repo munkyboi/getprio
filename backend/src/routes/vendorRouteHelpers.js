@@ -255,6 +255,133 @@ function normalizeServicePayload(body, existingService = null) {
   };
 }
 
+function normalizeOptionalInteger(value, fieldName) {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+
+  const next = Number(value);
+  if (!Number.isInteger(next)) {
+    const error = new Error(`${fieldName} must be an integer.`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return next;
+}
+
+function normalizeGroupFundedLocationServicePayload(entry = {}) {
+  const settings = entry.groupFunded && typeof entry.groupFunded === "object"
+    ? entry.groupFunded
+    : {};
+  const enabled = Object.prototype.hasOwnProperty.call(settings, "enabled")
+    ? settings.enabled === true
+    : entry.groupFundedEnabled === true;
+  const allowPublicCampaigns = Object.prototype.hasOwnProperty.call(settings, "allowPublicCampaigns")
+    ? settings.allowPublicCampaigns === true
+    : entry.groupFundedAllowPublicCampaigns === true;
+
+  const groupFunded = {
+    enabled,
+    minRequiredContributors: normalizeOptionalInteger(
+      settings.minRequiredContributors ?? entry.groupFundedMinRequiredContributors,
+      "groupFunded.minRequiredContributors"
+    ),
+    maxRequiredContributors: normalizeOptionalInteger(
+      settings.maxRequiredContributors ?? entry.groupFundedMaxRequiredContributors,
+      "groupFunded.maxRequiredContributors"
+    ),
+    defaultRequiredContributors: normalizeOptionalInteger(
+      settings.defaultRequiredContributors ?? entry.groupFundedDefaultRequiredContributors,
+      "groupFunded.defaultRequiredContributors"
+    ),
+    minContributionAmountCents: normalizeOptionalInteger(
+      settings.minContributionAmountCents ?? entry.groupFundedMinContributionAmountCents,
+      "groupFunded.minContributionAmountCents"
+    ),
+    maxContributionAmountCents: normalizeOptionalInteger(
+      settings.maxContributionAmountCents ?? entry.groupFundedMaxContributionAmountCents,
+      "groupFunded.maxContributionAmountCents"
+    ),
+    minDeadlineHours: normalizeOptionalInteger(
+      settings.minDeadlineHours ?? entry.groupFundedMinDeadlineHours,
+      "groupFunded.minDeadlineHours"
+    ),
+    maxDeadlineDays: normalizeOptionalInteger(
+      settings.maxDeadlineDays ?? entry.groupFundedMaxDeadlineDays,
+      "groupFunded.maxDeadlineDays"
+    ),
+    allowPublicCampaigns
+  };
+
+  if (!groupFunded.enabled) {
+    return {
+      enabled: false,
+      minRequiredContributors: groupFunded.minRequiredContributors,
+      maxRequiredContributors: groupFunded.maxRequiredContributors,
+      defaultRequiredContributors: groupFunded.defaultRequiredContributors,
+      minContributionAmountCents: groupFunded.minContributionAmountCents,
+      maxContributionAmountCents: groupFunded.maxContributionAmountCents,
+      minDeadlineHours: groupFunded.minDeadlineHours,
+      maxDeadlineDays: groupFunded.maxDeadlineDays,
+      allowPublicCampaigns
+    };
+  }
+
+  const requiredIntegerFields = [
+    ["minRequiredContributors", 2, 100],
+    ["maxRequiredContributors", 2, 100],
+    ["defaultRequiredContributors", 2, 100],
+    ["minDeadlineHours", 1, 720],
+    ["maxDeadlineDays", 1, 90]
+  ];
+
+  for (const [field, min, max] of requiredIntegerFields) {
+    const value = groupFunded[field];
+    if (!Number.isInteger(value) || value < min || value > max) {
+      const error = new Error(`groupFunded.${field} must be between ${min} and ${max} when group-funded booking is enabled.`);
+      error.statusCode = 400;
+      throw error;
+    }
+  }
+
+  if (
+    groupFunded.minRequiredContributors > groupFunded.defaultRequiredContributors ||
+    groupFunded.defaultRequiredContributors > groupFunded.maxRequiredContributors
+  ) {
+    const error = new Error("groupFunded contributor bounds must satisfy min <= default <= max.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (groupFunded.minDeadlineHours > groupFunded.maxDeadlineDays * 24) {
+    const error = new Error("groupFunded deadline bounds must satisfy min hours <= max days.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  for (const field of ["minContributionAmountCents", "maxContributionAmountCents"]) {
+    const value = groupFunded[field];
+    if (value !== null && (!Number.isInteger(value) || value < 0)) {
+      const error = new Error(`groupFunded.${field} must be a non-negative integer.`);
+      error.statusCode = 400;
+      throw error;
+    }
+  }
+
+  if (
+    groupFunded.minContributionAmountCents !== null &&
+    groupFunded.maxContributionAmountCents !== null &&
+    groupFunded.minContributionAmountCents > groupFunded.maxContributionAmountCents
+  ) {
+    const error = new Error("groupFunded contribution bounds must satisfy min <= max.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return groupFunded;
+}
+
 function formatVendorService(service) {
   return {
     id: String(service._id),
@@ -303,7 +430,8 @@ async function normalizeLocationServicesPayload(body, existingService, tenant) {
         isActive: entry.isActive !== false,
         sortOrder: Number(entry.sortOrder || 0),
         priceAmountCents: entry.priceAmountCents === undefined ? null : entry.priceAmountCents,
-        priceDisplay: entry.priceDisplay === undefined ? null : entry.priceDisplay
+        priceDisplay: entry.priceDisplay === undefined ? null : entry.priceDisplay,
+        groupFunded: normalizeGroupFundedLocationServicePayload(entry)
       };
     })
   );
@@ -318,6 +446,7 @@ module.exports = {
   getAuthorizedTenant,
   getLocationForTenant,
   normalizeCounterSlug,
+  normalizeGroupFundedLocationServicePayload,
   normalizeLocationPayload,
   normalizeLocationServicesPayload,
   normalizeServicePayload,

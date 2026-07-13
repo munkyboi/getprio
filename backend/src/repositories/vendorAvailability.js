@@ -208,6 +208,13 @@ async function updateBlock(blockId, changes, options = {}) {
   return mapBlock(result.rows[0]);
 }
 
+async function deleteBlock(blockId, options = {}) {
+  await buildQueryClient(options.client).query(
+    `DELETE FROM vendor_availability_blocks WHERE id = $1`,
+    [Number(blockId)]
+  );
+}
+
 async function findExceptionByTenantAndId(tenantId, exceptionId, options = {}) {
   const result = await buildQueryClient(options.client).query(
     `
@@ -311,6 +318,7 @@ module.exports = {
   findBlockByTenantAndId,
   createBlock,
   updateBlock,
+  deleteBlock,
   findExceptionByTenantAndId,
   createException,
   updateException,

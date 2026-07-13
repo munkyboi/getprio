@@ -1,42 +1,70 @@
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
+  ActionIcon,
   Alert,
   Badge,
   Button,
   Container,
   Divider,
+  FloatingIndicator,
   Group,
   Modal,
   Paper,
+  Pagination,
+  Progress,
   ScrollArea,
   SimpleGrid,
   Stack,
+  Switch,
   Tabs,
   Text,
+  TextInput,
   ThemeIcon,
-  Title
+  Title,
+  Tooltip
 } from "@mantine/core";
+import { DatePickerInput } from "@mantine/dates";
 import { useMediaQuery } from "@mantine/hooks";
 import {
   IconArrowLeft,
   IconCalendar,
   IconClock,
+  IconEye,
+  IconFlag,
+  IconInfoCircle,
   IconMapPin,
   IconPhoto,
   IconSparkles,
   IconTicket,
-  IconUserPlus
+  IconUserPlus,
+  IconUsers
 } from "@tabler/icons-react";
 import { getDay } from "date-fns";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import QRCode from "react-qr-code";
-import type { PublicVendorProfile, PublicVendorProfileResponse } from "@shared";
+import type {
+  GroupFundedCampaignSummary,
+  GroupFundedCampaignsResponse,
+  PublicVendorProfile,
+  PublicVendorProfileResponse,
+  PublicVendorService
+} from "@shared";
 import { apiRequest } from "../api/client";
 import ContactForm from "../components/ContactForm";
 import { getErrorMessage } from "../utils/errors";
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const GROUP_FUNDED_PUBLIC_PAGE_SIZE = 10;
+const GROUP_FUNDED_DEFAULT_RANGE_DAYS = 15;
+const GROUP_FUNDED_FILTER_STORAGE_KEY = "getprio:vendor-profile:group-funded-filters";
+type BookingOption = "standard" | "group-funded";
+type GroupFundedCampaignFilters = {
+  search: string;
+  ongoing: boolean;
+  dateRange: [Date | null, Date | null];
+  page: number;
+};
 
 function toMinutes(value: string) {
   const [hours = "0", minutes = "0"] = value.split(":");
@@ -96,6 +124,140 @@ function getBusinessCategoryLabel(category: string) {
   };
 
   return labels[category] || category;
+}
+
+function formatPaymentAmount(amountCents: number, currency: string) {
+  return new Intl.NumberFormat("en-PH", {
+    style: "currency",
+    currency,
+    minimumFractionDigits: 2
+  }).format(amountCents / 100);
+}
+
+function getCampaignProgress(campaign: GroupFundedCampaignSummary) {
+  if (!campaign.targetAmountCents) {
+    return 0;
+  }
+
+  return Math.min(100, Math.round((campaign.fundedAmountCents / campaign.targetAmountCents) * 100));
+}
+
+function formatScheduleDateTime(value: string | Date) {
+  return new Intl.DateTimeFormat("en-PH", {
+    dateStyle: "medium",
+    timeStyle: "short"
+  }).format(new Date(value));
+}
+
+function toLocalDateKey(value: string | Date | null) {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function getStartOfToday() {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return today;
+}
+
+function getDefaultGroupFundedDateRange() {
+  const today = getStartOfToday();
+  return {
+    from: toLocalDateKey(today),
+    to: toLocalDateKey(addDays(today, GROUP_FUNDED_DEFAULT_RANGE_DAYS))
+  };
+}
+
+function parseDateParam(value: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(`${value}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function parsePositivePage(value: string | null) {
+  const page = Number(value || 1);
+  return Number.isInteger(page) && page > 0 ? page : 1;
+}
+
+function parseStoredCampaignDate(value: unknown, fallback: Date | null) {
+  if (value === "") {
+    return null;
+  }
+  if (typeof value !== "string") {
+    return fallback;
+  }
+
+  const date = parseDateParam(value);
+  if (!date) {
+    return fallback;
+  }
+
+  return date < getStartOfToday() ? fallback : date;
+}
+
+function getDefaultGroupFundedCampaignFilters(): GroupFundedCampaignFilters {
+  const defaultDateRange = getDefaultGroupFundedDateRange();
+
+  return {
+    search: "",
+    ongoing: true,
+    dateRange: [parseDateParam(defaultDateRange.from), parseDateParam(defaultDateRange.to)],
+    page: 1
+  };
+}
+
+function readStoredGroupFundedCampaignFilters(defaultFilters: GroupFundedCampaignFilters): GroupFundedCampaignFilters {
+  if (typeof window === "undefined") {
+    return defaultFilters;
+  }
+
+  try {
+    const rawFilters = window.localStorage.getItem(GROUP_FUNDED_FILTER_STORAGE_KEY);
+    if (!rawFilters) {
+      return defaultFilters;
+    }
+
+    const storedFilters = JSON.parse(rawFilters) as {
+      search?: unknown;
+      ongoing?: unknown;
+      from?: unknown;
+      to?: unknown;
+      page?: unknown;
+    };
+
+    return {
+      search: typeof storedFilters.search === "string" ? storedFilters.search : defaultFilters.search,
+      ongoing: typeof storedFilters.ongoing === "boolean" ? storedFilters.ongoing : defaultFilters.ongoing,
+      dateRange: [
+        parseStoredCampaignDate(storedFilters.from, defaultFilters.dateRange[0]),
+        parseStoredCampaignDate(storedFilters.to, defaultFilters.dateRange[1])
+      ],
+      page: parsePositivePage(typeof storedFilters.page === "number" ? String(storedFilters.page) : null)
+    };
+  } catch {
+    return defaultFilters;
+  }
 }
 
 function EmptyArtBox({ label }: { label: string }) {
@@ -205,12 +367,25 @@ function LocationCardContent({
 
 export default function VendorProfilePage() {
   const { tenantSlug = "" } = useParams<{ tenantSlug: string }>();
+  const navigate = useNavigate();
+  const location = useLocation();
   const isMobile = useMediaQuery("(max-width: 48em)");
   const [contactOpen, setContactOpen] = useState(false);
+  const [bookingChoiceService, setBookingChoiceService] = useState<PublicVendorProfile["services"][number] | null>(null);
+  const [imagePreviewService, setImagePreviewService] = useState<PublicVendorProfile["services"][number] | null>(null);
   const [selectedLocationSlug, setSelectedLocationSlug] = useState("");
   const [locationServices, setLocationServices] = useState<Array<PublicVendorProfile["services"][number] & { capacity: number }>>([]);
   const [servicesLoading, setServicesLoading] = useState(false);
+  const [publicCampaigns, setPublicCampaigns] = useState<GroupFundedCampaignSummary[]>([]);
+  const [publicCampaignPagination, setPublicCampaignPagination] = useState<GroupFundedCampaignsResponse["pagination"] | null>(null);
+  const [campaignsLoading, setCampaignsLoading] = useState(false);
   const [heroMediaMode, setHeroMediaMode] = useState<"logo" | "qr">("logo");
+  const [bookingOptionRoot, setBookingOptionRoot] = useState<HTMLDivElement | null>(null);
+  const [bookingOptionControls, setBookingOptionControls] = useState<Record<BookingOption, HTMLButtonElement | null>>({
+    standard: null,
+    "group-funded": null
+  });
+  const bookingOptionsRef = useRef<HTMLDivElement | null>(null);
   const currentWeekday = getDay(new Date());
   const {
     data: vendor,
@@ -287,6 +462,125 @@ export default function VendorProfilePage() {
         backgroundSize: theme.backgroundImageFit
       }
     : undefined;
+  const selectedBookingLocationSlug = selectedLocation?.slug || vendor?.location.slug || "";
+  const profileSlug = vendor?.slug || tenantSlug;
+  const standardBookingTabPath = `/vendors/${profileSlug}`;
+  const groupFundedBookingTabPath = `/vendors/${profileSlug}/group-funded`;
+  const bookingOption: BookingOption = location.pathname.endsWith("/group-funded") ? "group-funded" : "standard";
+  const currentVendorPath = `${location.pathname}${location.search}${location.hash}`;
+  const campaignMinDate = useMemo(() => getStartOfToday(), []);
+  const defaultCampaignDateRange = useMemo(() => getDefaultGroupFundedDateRange(), []);
+  const defaultCampaignFilters = useMemo(() => getDefaultGroupFundedCampaignFilters(), []);
+  const [campaignFilters, setCampaignFilters] = useState<GroupFundedCampaignFilters>(() =>
+    readStoredGroupFundedCampaignFilters(defaultCampaignFilters)
+  );
+  const campaignPage = campaignFilters.page;
+  const campaignSearch = campaignFilters.search;
+  const campaignOngoingOnly = campaignFilters.ongoing;
+  const campaignDateRange = campaignFilters.dateRange;
+  const campaignDateFrom = toLocalDateKey(campaignDateRange[0]);
+  const campaignDateTo = toLocalDateKey(campaignDateRange[1]);
+  const [campaignSearchDraft, setCampaignSearchDraft] = useState(campaignSearch);
+
+  function buildServiceBookingPath(serviceSlug: string, mode: "standard" | "group-funded" = "standard") {
+    if (!vendor) {
+      return "";
+    }
+
+    const params = new URLSearchParams();
+    if (selectedBookingLocationSlug) {
+      params.set("location", selectedBookingLocationSlug);
+    }
+    if (mode === "group-funded") {
+      params.set("mode", "group-funded");
+    }
+
+    const query = params.toString();
+    return `/vendors/${vendor.slug}/book/${serviceSlug}${query ? `?${query}` : ""}`;
+  }
+
+  function startServiceBooking(serviceSlug: string, mode: "standard" | "group-funded") {
+    const path = buildServiceBookingPath(serviceSlug, mode);
+    if (path) {
+      setBookingChoiceService(null);
+      navigate(path);
+    }
+  }
+
+  function handleServiceCardBooking(service: PublicVendorService) {
+    if (service.groupFunded?.enabled) {
+      setBookingChoiceService(service);
+      return;
+    }
+
+    startServiceBooking(service.slug, "standard");
+  }
+
+  function handleBookingOptionChange(value: string | null) {
+    const nextOption = value === "group-funded" ? "group-funded" : "standard";
+    const nextPath = nextOption === "group-funded" ? groupFundedBookingTabPath : standardBookingTabPath;
+
+    if (nextPath !== location.pathname) {
+      preserveScrollPosition(() => navigate(nextPath, { preventScrollReset: true }));
+    }
+  }
+
+  function preserveScrollPosition(action: () => void) {
+    const scrollX = window.scrollX;
+    const scrollY = window.scrollY;
+
+    action();
+
+    window.requestAnimationFrame(() => {
+      window.scrollTo(scrollX, scrollY);
+      window.requestAnimationFrame(() => window.scrollTo(scrollX, scrollY));
+    });
+  }
+
+  function updateCampaignFilters(updates: {
+    search?: string;
+    ongoing?: boolean;
+    dateRange?: [Date | null, Date | null];
+    page?: number;
+  }) {
+    setCampaignFilters((current) => ({
+      search: (updates.search ?? current.search).trim(),
+      ongoing: updates.ongoing ?? current.ongoing,
+      dateRange: updates.dateRange ?? current.dateRange,
+      page: updates.page ?? 1
+    }));
+  }
+
+  function scrollToBookingOptions() {
+    bookingOptionsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    bookingOptionsRef.current?.focus({ preventScroll: true });
+  }
+
+  const setBookingOptionRootRef = useCallback((node: HTMLDivElement | null) => {
+    if (node) {
+      setBookingOptionRoot(node);
+    }
+  }, []);
+
+  const setStandardBookingOptionRef = useCallback((node: HTMLButtonElement | null) => {
+    if (!node) {
+      return;
+    }
+
+    setBookingOptionControls((current) =>
+      current.standard === node ? current : { ...current, standard: node }
+    );
+  }, []);
+
+  const setGroupFundedBookingOptionRef = useCallback((node: HTMLButtonElement | null) => {
+    if (!node) {
+      return;
+    }
+
+    setBookingOptionControls((current) =>
+      current["group-funded"] === node ? current : { ...current, "group-funded": node }
+    );
+  }, []);
 
   useEffect(() => {
     if (!vendor?.locations.length) {
@@ -346,6 +640,224 @@ export default function VendorProfilePage() {
 
     return () => controller.abort();
   }, [selectedLocationSlug, vendor]);
+
+  useEffect(() => {
+    if (!vendor || !selectedLocationSlug) {
+      setPublicCampaigns([]);
+      setPublicCampaignPagination(null);
+      return;
+    }
+
+    const controller = new AbortController();
+    const params = new URLSearchParams({
+      page: String(campaignPage),
+      pageSize: String(GROUP_FUNDED_PUBLIC_PAGE_SIZE),
+      scheduledDateFrom: campaignDateFrom,
+      scheduledDateTo: campaignDateTo
+    });
+
+    if (campaignSearch.trim()) {
+      params.set("search", campaignSearch.trim());
+    }
+    if (campaignOngoingOnly) {
+      params.set("ongoingOnly", "true");
+    }
+
+    setCampaignsLoading(true);
+    apiRequest<GroupFundedCampaignsResponse>(
+      `/public/vendors/${vendor.slug}/locations/${selectedLocationSlug}/group-funded-campaigns?${params.toString()}`,
+      { signal: controller.signal }
+    )
+      .then((data) => {
+        setPublicCampaigns(data.campaigns);
+        setPublicCampaignPagination(data.pagination || null);
+      })
+      .catch((campaignError) => {
+        if (!controller.signal.aborted) {
+          setPublicCampaigns([]);
+          setPublicCampaignPagination(null);
+          console.error(campaignError);
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setCampaignsLoading(false);
+        }
+      });
+
+    return () => controller.abort();
+  }, [
+    campaignDateFrom,
+    campaignDateTo,
+    campaignOngoingOnly,
+    campaignPage,
+    campaignSearch,
+    selectedLocationSlug,
+    vendor
+  ]);
+
+  const hasGroupFundedServices = locationServices.some((service) => service.groupFunded?.enabled);
+  const firstGroupFundedService = locationServices.find((service) => service.groupFunded?.enabled) || null;
+  const campaignFiltersChanged = Boolean(
+    campaignSearch ||
+    !campaignOngoingOnly ||
+    campaignDateFrom !== defaultCampaignDateRange.from ||
+    campaignDateTo !== defaultCampaignDateRange.to
+  );
+
+  useEffect(() => {
+    setCampaignSearchDraft(campaignSearch);
+  }, [campaignSearch]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    try {
+      window.localStorage.setItem(
+        GROUP_FUNDED_FILTER_STORAGE_KEY,
+        JSON.stringify({
+          search: campaignSearch,
+          ongoing: campaignOngoingOnly,
+          from: campaignDateFrom,
+          to: campaignDateTo,
+          page: campaignPage
+        })
+      );
+    } catch {
+      // Persistence is a convenience; filtering should continue if storage is unavailable.
+    }
+  }, [campaignDateFrom, campaignDateTo, campaignOngoingOnly, campaignPage, campaignSearch]);
+
+  useEffect(() => {
+    if (bookingOption !== "group-funded" || campaignSearchDraft === campaignSearch) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      updateCampaignFilters({ search: campaignSearchDraft });
+    }, 350);
+
+    return () => window.clearTimeout(timeout);
+  }, [bookingOption, campaignSearch, campaignSearchDraft]);
+
+  function renderServiceSelectionList() {
+    return (
+      <Stack gap="lg">
+        <Text c="dimmed" size="sm">
+          {selectedLocation
+            ? `These services are available at ${selectedLocation.name}.`
+            : "Select a branch to load the matching services."}
+        </Text>
+        {servicesLoading ? (
+          <Alert color="blue" variant="light">
+            Loading services for this branch...
+          </Alert>
+        ) : null}
+        {locationServices.length ? (
+          <Stack gap="md">
+            {locationServices.map((service) => (
+              <Paper
+                className="vendor-service-card"
+                key={service.slug}
+                onClick={() => handleServiceCardBooking(service)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    handleServiceCardBooking(service);
+                  }
+                }}
+                p="md"
+                role="button"
+                tabIndex={0}
+              >
+                <Stack gap="sm">
+                  <Group align="flex-start" justify="space-between" wrap="nowrap">
+                    <div className="vendor-service-media">
+                      {service.imageUrl ? (
+                        <button
+                          aria-label={`Preview ${service.name} image`}
+                          className="vendor-service-media-button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setImagePreviewService(service);
+                          }}
+                          onKeyDown={(event) => {
+                            event.stopPropagation();
+                          }}
+                          type="button"
+                        >
+                          <img alt="" src={service.imageUrl} />
+                          <span className="vendor-service-media-overlay" aria-hidden="true">
+                            <IconEye size={22} />
+                          </span>
+                        </button>
+                      ) : (
+                        <EmptyArtBox label="Service image placeholder" />
+                      )}
+                    </div>
+                    <div className="vendor-service-copy">
+                      <Text className="vendor-service-title">{service.name}</Text>
+                      <Text c="dimmed" size="sm">
+                        {service.description || "Service details available during booking."}
+                      </Text>
+                      <Group gap="xs" mt="xs" wrap="wrap">
+                        <Badge color="teal" variant="light">
+                          {service.durationMinutes} min
+                        </Badge>
+                        {service.allowBookingQuantity ? (
+                          <Badge color="blue" variant="light">
+                            {service.bookingQuantityLabel || "Units"}
+                          </Badge>
+                        ) : null}
+                        {service.manualPaymentRequired ? (
+                          <Badge color="yellow" variant="light">
+                            Manual payment
+                          </Badge>
+                        ) : null}
+                      </Group>
+                    </div>
+                  </Group>
+                  <Group justify="space-between" mt="xs">
+                    <Text fw={800}>{service.priceDisplay || `PHP ${(service.priceAmountCents / 100).toLocaleString()}`}</Text>
+                    <Group gap="xs">
+                      {service.groupFunded?.enabled ? (
+                        <Button
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            startServiceBooking(service.slug, "group-funded");
+                          }}
+                          size="xs"
+                          variant="subtle"
+                        >
+                          Start group-funded
+                        </Button>
+                      ) : null}
+                      <Button
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          startServiceBooking(service.slug, "standard");
+                        }}
+                        size="xs"
+                        variant="light"
+                      >
+                        Book
+                      </Button>
+                    </Group>
+                  </Group>
+                </Stack>
+              </Paper>
+            ))}
+          </Stack>
+        ) : (
+          <Alert color="yellow" variant="light">
+            {selectedLocation ? "This branch has no published services yet." : "This vendor has not published bookable services yet."}
+          </Alert>
+        )}
+      </Stack>
+    );
+  }
 
   return (
     <Stack className="vendor-profile-page" gap="xl" style={themeStyle}>
@@ -423,9 +935,8 @@ export default function VendorProfilePage() {
                     </Button>
                     <Button
                       className="vendor-theme-button vendor-theme-button-outline"
-                      component={Link}
+                      onClick={scrollToBookingOptions}
                       size="lg"
-                      to={`/vendors/${vendor.slug}/book?location=${encodeURIComponent(selectedLocation?.slug || vendor.location.slug || "")}`}
                       variant="outline"
                     >
                       Start booking
@@ -573,81 +1084,290 @@ export default function VendorProfilePage() {
               )}
             </Stack>
 
-            <SimpleGrid cols={{ base: 1, lg: 1 }} spacing="xl">
-              <Paper className="vendor-info-panel" p="xl">
-                <Stack gap="lg">
+            <Paper className="vendor-info-panel" p="xl" ref={bookingOptionsRef} tabIndex={-1}>
+              <Stack gap="lg">
+                <div>
+                  <Text className="prio-label">Booking options</Text>
                   <Title className="vendor-section-title" order={2}>
-                    Select a service
+                    {hasGroupFundedServices ? "Choose how to book" : "Choose a service"}
                   </Title>
-                  <Text c="dimmed" size="sm">
-                    {selectedLocation
-                      ? `These services are available at ${selectedLocation.name}.`
-                      : "Select a branch to load the matching services."}
-                  </Text>
-                  {servicesLoading ? (
-                    <Alert color="blue" variant="light">
-                      Loading services for this branch...
-                    </Alert>
-                  ) : null}
-                  {locationServices.length ? (
-                    <Stack gap="md">
-                      {locationServices.map((service) => (
-                        <Paper
-                          className="vendor-service-card"
-                          component={Link}
-                          key={service.slug}
-                          p="md"
-                          to={`/vendors/${vendor.slug}/book/${service.slug}?location=${encodeURIComponent(selectedLocation?.slug || vendor.location.slug || "")}`}
+                </div>
+                {hasGroupFundedServices ? (
+                  <Tabs
+                    className="vendor-booking-option-tabs"
+                    keepMounted={false}
+                    onChange={handleBookingOptionChange}
+                    value={bookingOption}
+                    variant="none"
+                  >
+                    <Group align="center" className="vendor-booking-option-toolbar" gap="md">
+                      <Tabs.List className="vendor-booking-option-tabs-list" ref={setBookingOptionRootRef}>
+                        <Tabs.Tab
+                          className="vendor-booking-option-tab"
+                          leftSection={<IconCalendar size={19} />}
+                          ref={setStandardBookingOptionRef}
+                          value="standard"
                         >
-                          <Stack gap="sm">
-                            <Group align="flex-start" justify="space-between" wrap="nowrap">
-                              <div className="vendor-service-media">
-                                {service.imageUrl ? (
-                                  <img alt="" src={service.imageUrl} />
-                                ) : (
-                                  <EmptyArtBox label="Service image placeholder" />
-                                )}
-                              </div>
-                              <div className="vendor-service-copy">
-                                <Text className="vendor-service-title">{service.name}</Text>
+                          Standard
+                        </Tabs.Tab>
+                        <Tabs.Tab
+                          className="vendor-booking-option-tab"
+                          leftSection={<IconUsers size={19} />}
+                          ref={setGroupFundedBookingOptionRef}
+                          value="group-funded"
+                        >
+                          Group-funded
+                        </Tabs.Tab>
+                        <FloatingIndicator
+                          className="vendor-booking-option-indicator"
+                          parent={bookingOptionRoot}
+                          target={bookingOptionControls[bookingOption]}
+                        />
+                      </Tabs.List>
+                      {bookingOption === "group-funded" ? (
+                        <Button
+                          className="vendor-create-campaign-button"
+                          disabled={!firstGroupFundedService}
+                          leftSection={<IconUsers size={18} />}
+                          onClick={() => {
+                            if (firstGroupFundedService) {
+                              startServiceBooking(firstGroupFundedService.slug, "group-funded");
+                            }
+                          }}
+                        >
+                          Create a new campaign
+                        </Button>
+                      ) : null}
+                    </Group>
+                    <Divider className="vendor-booking-option-section-divider" />
+
+                    <Tabs.Panel pt="lg" value="standard">
+                      {renderServiceSelectionList()}
+                    </Tabs.Panel>
+
+                    <Tabs.Panel pt="lg" value="group-funded">
+                      <Stack gap="lg">
+                        {campaignsLoading ? (
+                          <Alert color="blue" variant="light">
+                            Loading public group-funded campaigns...
+                          </Alert>
+                        ) : null}
+                        <Group align="flex-end" gap="sm">
+                          <TextInput
+                            label="Search"
+                            onChange={(event) => setCampaignSearchDraft(event.target.value)}
+                            placeholder="Title, service, organizer"
+                            value={campaignSearchDraft}
+                          />
+                          <DatePickerInput
+                            clearable
+                            label="Booking date"
+                            leftSection={<IconCalendar size={16} />}
+                            minDate={campaignMinDate}
+                            onChange={(value) => updateCampaignFilters({ dateRange: value as [Date | null, Date | null] })}
+                            placeholder="Select date range"
+                            type="range"
+                            value={campaignDateRange}
+                          />
+                          {campaignFiltersChanged ? (
+                            <Button
+                              className="neura-secondary-button"
+                              mt={24}
+                              onClick={() => {
+                                setCampaignSearchDraft("");
+                                updateCampaignFilters({
+                                  search: "",
+                                  ongoing: true,
+                                  dateRange: [
+                                    parseDateParam(defaultCampaignDateRange.from),
+                                    parseDateParam(defaultCampaignDateRange.to)
+                                  ]
+                                });
+                              }}
+                            >
+                              Reset filters
+                            </Button>
+                          ) : null}
+                          <Group gap={6} ml="auto" wrap="nowrap">
+                            <Switch
+                              checked={campaignOngoingOnly}
+                              label="Show only on-going campaigns"
+                              onChange={(event) => updateCampaignFilters({ ongoing: event.currentTarget.checked })}
+                            />
+                            <Tooltip
+                              label="Only shows public campaigns that are still funding, funded, in vendor review, or waiting for replacement-slot action."
+                              multiline
+                              w={280}
+                              withArrow
+                            >
+                              <ActionIcon
+                                aria-label="Show only on-going campaigns info"
+                                color="gray"
+                                size="xs"
+                                variant="transparent"
+                              >
+                                <IconInfoCircle size={16} />
+                              </ActionIcon>
+                            </Tooltip>
+                          </Group>
+                        </Group>
+                        <Divider className="vendor-booking-option-section-divider" />
+                        {publicCampaigns.length ? (
+                          <>
+                            <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
+                              {publicCampaigns.map((campaign) => {
+                                const campaignPath = `/group-funded/${campaign.publicToken}`;
+                                const campaignTitle = campaign.campaignTitle || campaign.serviceName;
+                                const campaignBundleItems = campaign.bundleItems?.length
+                                  ? campaign.bundleItems
+                                  : [{
+                                      serviceName: campaign.serviceName,
+                                      bookingQuantity: campaign.bookingQuantity,
+                                      priceAmountCents: campaign.targetAmountCents,
+                                      currency: campaign.currency
+                                    }];
+                                const isServiceBundle = campaignBundleItems.length > 1;
+
+                                return (
+                                  <Paper
+                                    className="vendor-service-card"
+                                    key={campaign.publicToken}
+                                    onClick={() => navigate(campaignPath, { state: { from: currentVendorPath } })}
+                                    onKeyDown={(event) => {
+                                      if (event.key === "Enter" || event.key === " ") {
+                                        event.preventDefault();
+                                        navigate(campaignPath, { state: { from: currentVendorPath } });
+                                      }
+                                    }}
+                                    p="md"
+                                    role="button"
+                                    style={{ cursor: "pointer" }}
+                                    tabIndex={0}
+                                  >
+                                    <Stack gap="sm">
+                                      <Group align="flex-start" justify="space-between" wrap="nowrap">
+                                        <Stack className="vendor-group-funded-card-copy" gap={4}>
+                                          <Text className="vendor-service-title vendor-group-funded-card-title">
+                                            {campaignTitle}
+                                          </Text>
+                                          {campaign.description ? (
+                                            <Text className="vendor-group-funded-card-description">
+                                              {campaign.description}
+                                            </Text>
+                                          ) : null}
+                                          <Group className="vendor-group-funded-card-service-meta" gap="xs" wrap="wrap">
+                                            <Badge color={isServiceBundle ? "teal" : "gray"} variant="light">
+                                              {isServiceBundle ? "Service bundle" : "Single service"}
+                                            </Badge>
+                                            <Text c="dimmed" size="sm">
+                                              {campaign.locationName} · {formatScheduleDateTime(campaign.scheduledStartAt)}
+                                            </Text>
+                                          </Group>
+                                        </Stack>
+                                        <Badge className="vendor-group-funded-card-status" color="teal" variant="light">
+                                          {campaign.campaignStatus.replace(/_/g, " ")}
+                                        </Badge>
+                                      </Group>
+                                      <div className={isServiceBundle ? "vendor-group-funded-card-bundle" : "vendor-group-funded-card-single"}>
+                                        {campaignBundleItems.map((item) => (
+                                          <div className="vendor-group-funded-card-bundle-item" key={`${item.serviceName}-${item.bookingQuantity}-${item.priceAmountCents}`}>
+                                            <Text fw={800} size="sm">
+                                              {item.serviceName}
+                                            </Text>
+                                            <Text c="dimmed" size="xs">
+                                              {item.bookingQuantity}x · {formatPaymentAmount(item.priceAmountCents, item.currency)}
+                                            </Text>
+                                          </div>
+                                        ))}
+                                      </div>
+                                      <Progress value={getCampaignProgress(campaign)} color="teal" />
+                                      <Group gap="xs" wrap="wrap">
+                                        <Badge leftSection={<IconUsers size={12} />} variant="light">
+                                          {campaign.paidParticipantCount}/{campaign.requiredContributors}
+                                        </Badge>
+                                        <Badge leftSection={<IconFlag size={12} />} color="yellow" variant="light">
+                                          {formatPaymentAmount(campaign.requiredContributionAmountCents, campaign.currency)} each
+                                        </Badge>
+                                        <Badge color="gray" variant="light">
+                                          Organized by {campaign.organizerDisplayName}
+                                        </Badge>
+                                      </Group>
+                                      <Group justify="space-between">
+                                        <Text c="dimmed" size="sm">
+                                          Deadline {formatScheduleDateTime(campaign.fundingDeadlineAt)}
+                                        </Text>
+                                        <Button
+                                          component={Link}
+                                          onClick={(event) => event.stopPropagation()}
+                                          size="xs"
+                                          state={{ from: currentVendorPath }}
+                                          to={campaignPath}
+                                          variant="light"
+                                        >
+                                          View campaign
+                                        </Button>
+                                      </Group>
+                                    </Stack>
+                                  </Paper>
+                                );
+                              })}
+                            </SimpleGrid>
+                            {publicCampaignPagination && publicCampaignPagination.totalItems > 0 ? (
+                              <Group align="center" justify="space-between">
                                 <Text c="dimmed" size="sm">
-                                  {service.description || "Service details available during booking."}
+                                  Showing {(publicCampaignPagination.page - 1) * publicCampaignPagination.pageSize + 1}-
+                                  {Math.min(
+                                    publicCampaignPagination.page * publicCampaignPagination.pageSize,
+                                    publicCampaignPagination.totalItems
+                                  )} of {publicCampaignPagination.totalItems}
                                 </Text>
-                                <Group gap="xs" mt="xs" wrap="wrap">
-                                  <Badge color="teal" variant="light">
-                                    {service.durationMinutes} min
-                                  </Badge>
-                                  {service.allowBookingQuantity ? (
-                                    <Badge color="blue" variant="light">
-                                      {service.bookingQuantityLabel || "Units"}
-                                    </Badge>
-                                  ) : null}
-                                  {service.manualPaymentRequired ? (
-                                    <Badge color="yellow" variant="light">
-                                      Manual payment
-                                    </Badge>
-                                  ) : null}
-                                </Group>
-                              </div>
-                            </Group>
-                            <Group justify="space-between" mt="xs">
-                              <Text fw={800}>{service.priceDisplay || `PHP ${(service.priceAmountCents / 100).toLocaleString()}`}</Text>
-                              <Button component={Link} size="xs" to={`/vendors/${vendor.slug}/book/${service.slug}?location=${encodeURIComponent(selectedLocation?.slug || vendor.location.slug || "")}`} variant="light">
-                                Book
-                              </Button>
-                            </Group>
-                          </Stack>
-                        </Paper>
-                      ))}
-                    </Stack>
-                  ) : (
-                    <Alert color="yellow" variant="light">
-                      {selectedLocation ? "This branch has no published services yet." : "This vendor has not published bookable services yet."}
-                    </Alert>
-                  )}
-                </Stack>
-              </Paper>
-            </SimpleGrid>
+                                {publicCampaignPagination.totalPages > 1 ? (
+                                  <Pagination
+                                    onChange={(page) => updateCampaignFilters({ page })}
+                                    total={publicCampaignPagination.totalPages}
+                                    value={campaignPage}
+                                  />
+                                ) : null}
+                              </Group>
+                            ) : null}
+                          </>
+                        ) : campaignFiltersChanged ? (
+                            <Paper withBorder radius="md" p="lg">
+                              <Text c="dimmed">No group-funded campaigns match the current filters.</Text>
+                            </Paper>
+                        ) : (
+                          <Paper withBorder radius="md" p="lg">
+                            <Stack gap="sm">
+                              <Badge color="orange" variant="light" w="fit-content">
+                                Be the organizer
+                              </Badge>
+                              <Title order={3}>Start your group-funded campaign</Title>
+                              <Text c="dimmed">
+                                No public campaigns are open for this branch yet. Pick a schedule, share the private link,
+                                and let contributors help fund the booking before vendor review.
+                              </Text>
+                              {firstGroupFundedService ? (
+                                <Button
+                                  color="orange"
+                                  leftSection={<IconUsers size={16} />}
+                                  onClick={() => startServiceBooking(firstGroupFundedService.slug, "group-funded")}
+                                  size="md"
+                                  w="fit-content"
+                                >
+                                  Create your campaign now
+                                </Button>
+                              ) : null}
+                            </Stack>
+                          </Paper>
+                        )}
+                      </Stack>
+                    </Tabs.Panel>
+                  </Tabs>
+                ) : (
+                  renderServiceSelectionList()
+                )}
+              </Stack>
+            </Paper>
 
             <Paper className="vendor-info-panel" p="xl">
               <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="xl">
@@ -721,6 +1441,108 @@ export default function VendorProfilePage() {
             recipientName={vendor.name}
             intro="Use this form to ask about this vendor's services, booking details, or public profile."
           />
+        ) : null}
+      </Modal>
+
+      <Modal
+        centered
+        className="booking-choice-modal"
+        fullScreen={false}
+        onClose={() => setBookingChoiceService(null)}
+        opened={Boolean(bookingChoiceService)}
+        radius="lg"
+        size="min(92vw, 440px)"
+        title={
+          <Stack gap={2}>
+            <Text className="contact-form-eyebrow contact-modal-eyebrow">BOOKING OPTIONS</Text>
+            <Text className="contact-form-title">{bookingChoiceService?.name || "Choose how to book"}</Text>
+          </Stack>
+        }
+        styles={{
+          header: {
+            alignItems: "flex-start",
+            padding: "1.25rem 1.25rem 0.75rem"
+          },
+          title: {
+            flex: 1,
+            marginRight: "1rem",
+            minWidth: 0
+          },
+          close: {
+            marginTop: "0.1rem"
+          }
+        }}
+      >
+        {bookingChoiceService ? (
+          <Stack gap="md">
+            <Text c="dimmed" size="sm">
+              Choose whether to book this service now or start a campaign so contributors can help fund it.
+            </Text>
+            <Stack gap="sm">
+              <Button
+                color="dark"
+                fullWidth
+                justify="center"
+                leftSection={<IconCalendar size={18} />}
+                onClick={() => startServiceBooking(bookingChoiceService.slug, "standard")}
+                size="lg"
+                variant="light"
+              >
+                Standard booking
+              </Button>
+              <Button
+                color="orange"
+                disabled={!bookingChoiceService.groupFunded?.enabled}
+                fullWidth
+                justify="center"
+                leftSection={<IconUsers size={18} />}
+                onClick={() => startServiceBooking(bookingChoiceService.slug, "group-funded")}
+                size="lg"
+              >
+                Start group-funded campaign
+              </Button>
+            </Stack>
+            {!bookingChoiceService.groupFunded?.enabled ? (
+              <Alert color="yellow" variant="light">
+                Group-funded booking is not enabled for this service at the selected branch.
+              </Alert>
+            ) : null}
+          </Stack>
+        ) : null}
+      </Modal>
+
+      <Modal
+        centered
+        fullScreen={isMobile}
+        onClose={() => setImagePreviewService(null)}
+        opened={Boolean(imagePreviewService?.imageUrl)}
+        radius={isMobile ? 0 : "lg"}
+        size="xl"
+        title={
+          <Stack gap={2}>
+            <Text className="contact-form-eyebrow contact-modal-eyebrow">SERVICE IMAGE</Text>
+            <Text className="contact-form-title">{imagePreviewService?.name || "Service image"}</Text>
+          </Stack>
+        }
+        styles={{
+          header: {
+            alignItems: "flex-start",
+            padding: "1.25rem 1.25rem 0.75rem"
+          },
+          title: {
+            flex: 1,
+            marginRight: "1rem",
+            minWidth: 0
+          },
+          close: {
+            marginTop: "0.1rem"
+          }
+        }}
+      >
+        {imagePreviewService?.imageUrl ? (
+          <div className="service-image-preview-shell">
+            <img alt={imagePreviewService.name} src={imagePreviewService.imageUrl} />
+          </div>
         ) : null}
       </Modal>
     </Stack>

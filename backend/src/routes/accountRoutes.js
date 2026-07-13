@@ -2,10 +2,12 @@ const express = require("express");
 const asyncHandler = require("../middleware/asyncHandler");
 const { authenticate } = require("../middleware/auth");
 const bookingRepository = require("../repositories/bookings");
+const groupFundedRepository = require("../repositories/groupFundedBookings");
 const ticketRepository = require("../repositories/tickets");
 const tenantRepository = require("../repositories/tenants");
 const userRepository = require("../repositories/users");
 const bookingService = require("../services/bookingService");
+const groupFundedBookingService = require("../services/groupFundedBookingService");
 const passwordResetService = require("../services/passwordResetService");
 const pushNotificationService = require("../services/pushNotificationService");
 const customerTicketAccess = require("../services/customerTicketAccess");
@@ -29,6 +31,37 @@ function normalizeRequestText(value, fallback = "") {
   return fallback;
 }
 
+function requireRequestParam(value, label) {
+  if (typeof value !== "string") {
+    const error = new Error(`${label} is required.`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const text = value.trim();
+  if (!text) {
+    const error = new Error(`${label} is required.`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return text;
+}
+
+function normalizeQueryText(value, fallback = "") {
+  if (value === undefined || value === null || value === "") {
+    return fallback;
+  }
+
+  if (typeof value !== "string") {
+    const error = new Error("Query parameter must be a single value.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return normalizeRequestText(value, fallback);
+}
+
 function formatCustomerTicket(ticket) {
   return {
     id: ticket._id,
@@ -45,6 +78,10 @@ function formatCustomerTicket(ticket) {
 }
 
 function formatManualPaymentDestination(booking) {
+  if (booking.bookingPaymentSource === "group_funded" || booking.groupFundedBookingId) {
+    return null;
+  }
+
   if (
     booking.paymentStatus !== "unpaid" ||
     booking.paymentProofObjectKey ||
@@ -76,6 +113,41 @@ function formatManualPaymentDestination(booking) {
 }
 
 function formatCustomerBooking(booking) {
+  const groupFundedCampaign = booking.groupFundedCampaign
+    ? {
+        ...booking.groupFundedCampaign,
+        bundleItems: Array.isArray(booking.groupFundedBundleItems)
+          ? booking.groupFundedBundleItems.map((item) => ({
+              id: item._id,
+              serviceId: item.serviceId,
+              serviceName: item.serviceNameSnapshot,
+              serviceSlug: item.serviceSlugSnapshot,
+              bookingQuantity: item.bookingQuantity,
+              priceAmountCents: item.priceAmountCents,
+              currency: item.currency,
+              executionMode: item.executionMode,
+              scheduledStartAt: item.scheduledStartAt,
+              scheduledEndAt: item.scheduledEndAt,
+              sortOrder: item.sortOrder
+            }))
+          : [],
+        contributions: Array.isArray(booking.groupFundedContributions)
+          ? booking.groupFundedContributions.map((contribution) => ({
+              id: contribution._id,
+              contributorDisplayName: contribution.participantDisplayName || "Contributor",
+              amountCents: contribution.amountCents,
+              currency: contribution.currency,
+              contributionStatus: contribution.contributionStatus,
+              submittedAt: contribution.submittedAt,
+              verifiedAt: contribution.verifiedAt,
+              rejectedAt: contribution.rejectedAt,
+              rejectionReason: contribution.rejectionReason,
+              refundStatus: contribution.refundStatus
+            }))
+          : []
+      }
+    : null;
+
   return {
     id: booking._id,
     reference: booking.reference,
@@ -99,6 +171,9 @@ function formatCustomerBooking(booking) {
     notes: booking.notes,
     paymentReference: booking.paymentReference,
     paymentStatus: booking.paymentStatus,
+    groupFundedBookingId: booking.groupFundedBookingId,
+    bookingPaymentSource: booking.bookingPaymentSource,
+    groupFundedCampaign,
     manualPaymentDestination: formatManualPaymentDestination(booking),
     paymentProof: booking.paymentProofObjectKey
       ? {
@@ -134,10 +209,93 @@ function formatCustomerBooking(booking) {
   };
 }
 
+function formatGroupFundedCampaign(campaign, contribution = null, refunds = [], tenant = null, options = {}) {
+  return {
+    id: campaign._id,
+    publicToken: campaign.publicToken,
+    tenantId: campaign.tenantId,
+    tenantSlug: tenant?.slug || null,
+    vendorName: tenant?.name || "",
+    locationId: campaign.locationId,
+    serviceId: campaign.serviceId,
+    isOrganizer: Boolean(
+      options.actorUserId && String(campaign.organizerUserId) === String(options.actorUserId)
+    ),
+    campaignStatus: campaign.campaignStatus,
+    visibility: campaign.visibility,
+    organizerDisplayName: campaign.organizerDisplayName,
+    campaignTitle: campaign.campaignTitle || campaign.serviceNameSnapshot,
+    description: campaign.description,
+    serviceName: campaign.serviceNameSnapshot,
+    serviceSlug: campaign.serviceSlugSnapshot,
+    bundleItems: campaign.bundleItems || [],
+    locationName: campaign.locationNameSnapshot,
+    locationSlug: campaign.locationSlugSnapshot,
+    bookingQuantity: campaign.bookingQuantity,
+    scheduledStartAt: campaign.scheduledStartAt,
+    scheduledEndAt: campaign.scheduledEndAt,
+    fundingDeadlineAt: campaign.fundingDeadlineAt,
+    currency: campaign.currency,
+    targetAmountCents: campaign.targetAmountCents,
+    requiredContributionAmountCents: campaign.requiredContributionAmountCents,
+    roundingAdjustmentCents: campaign.roundingAdjustmentCents,
+    requiredContributors: campaign.requiredContributors,
+    paidParticipantCount: campaign.paidParticipantCount,
+    fundedAmountCents: campaign.fundedAmountCents,
+    fundedAt: campaign.fundedAt,
+    contributorReservationSummary: campaign.contributorReservationSummary || null,
+    paymentDestination: campaign.paymentDestination || null,
+    replacementSlot: campaign.replacementScheduledStartAt
+      ? {
+          scheduledStartAt: campaign.replacementScheduledStartAt,
+          scheduledEndAt: campaign.replacementScheduledEndAt,
+          proposedAt: campaign.replacementProposedAt,
+          note: campaign.replacementNote
+        }
+      : null,
+    linkedBookingId: campaign.linkedBookingId,
+    createdAt: campaign.createdAt,
+    updatedAt: campaign.updatedAt,
+    contribution: contribution
+      ? {
+          id: contribution._id,
+          amountCents: contribution.amountCents,
+          currency: contribution.currency,
+          contributionStatus: contribution.contributionStatus,
+          paymentReference: contribution.paymentReference,
+          paymentProof: contribution.paymentProofObjectKey
+            ? {
+                fileName: contribution.paymentProofFileName,
+                contentType: contribution.paymentProofContentType,
+                sizeBytes: contribution.paymentProofSizeBytes,
+                uploadedAt: contribution.paymentProofUploadedAt
+              }
+            : null,
+          submittedAt: contribution.submittedAt,
+          verifiedAt: contribution.verifiedAt,
+          rejectedAt: contribution.rejectedAt,
+          rejectionReason: contribution.rejectionReason,
+          refundStatus: contribution.refundStatus
+        }
+      : null,
+    refunds: refunds.map((refund) => ({
+      id: refund._id,
+      contributionId: refund.contributionId,
+      amountCents: refund.amountCents,
+      currency: refund.currency,
+      refundReason: refund.refundReason,
+      refundStatus: refund.refundStatus,
+      completedAt: refund.completedAt,
+      createdAt: refund.createdAt
+    }))
+  };
+}
+
 function formatAccountUser(user) {
   return {
     id: user._id,
     name: user.name,
+    displayName: user.displayName || "",
     username: user.username,
     email: user.email,
     phone: user.phone,
@@ -242,6 +400,7 @@ router.patch(
   "/profile",
   asyncHandler(async (req, res) => {
     const name = String(req.body.name || "").trim();
+    const displayName = normalizeRequestText(req.body.displayName).slice(0, 60);
 
     if (!name) {
       const error = new Error("Name is required.");
@@ -250,7 +409,8 @@ router.patch(
     }
 
     const updatedUser = await userRepository.updateUser(req.user._id, {
-      name
+      name,
+      displayName: displayName || null
     });
 
     res.json({
@@ -264,7 +424,7 @@ router.patch(
 router.post(
   "/tickets/:lookupCode/claim",
   asyncHandler(async (req, res) => {
-    const lookupCode = normalizeRequestText(req.params.lookupCode).toUpperCase();
+    const lookupCode = requireRequestParam(req.params.lookupCode, "Ticket lookup code").toUpperCase();
 
     if (!lookupCode) {
       const error = new Error("Ticket lookup code is required.");
@@ -358,6 +518,159 @@ router.get(
 );
 
 router.get(
+  "/group-funded-campaigns",
+  asyncHandler(async (req, res) => {
+    const campaignRecords = await groupFundedBookingService.listCustomerCampaigns({ user: req.user });
+    res.json({
+      campaigns: campaignRecords.map(({ campaign, contribution }) => formatGroupFundedCampaign(campaign, contribution, [], null, {
+        actorUserId: req.user._id
+      }))
+    });
+  })
+);
+
+router.post(
+  "/group-funded-campaigns",
+  asyncHandler(async (req, res) => {
+    const campaign = await groupFundedBookingService.createCampaign({
+      user: req.user,
+      body: req.body || {}
+    });
+    res.status(201).json({
+      campaign: formatGroupFundedCampaign(campaign, null, [], null, { actorUserId: req.user._id })
+    });
+  })
+);
+
+router.get(
+  "/group-funded-campaigns/:campaignIdOrToken/self",
+  asyncHandler(async (req, res) => {
+    const { campaign, contribution, refunds, tenant } = await groupFundedBookingService.getCampaignForCustomer({
+      user: req.user,
+      campaignIdOrToken: req.params.campaignIdOrToken
+    });
+    res.json({
+      campaign: formatGroupFundedCampaign(campaign, contribution, refunds, tenant, {
+        actorUserId: req.user._id
+      })
+    });
+  })
+);
+
+router.patch(
+  "/group-funded-campaigns/:campaignIdOrToken/details",
+  asyncHandler(async (req, res) => {
+    const result = await groupFundedBookingService.updateOrganizerCampaignDetails({
+      user: req.user,
+      campaignIdOrToken: req.params.campaignIdOrToken,
+      body: req.body || {}
+    });
+    res.json({
+      campaign: formatGroupFundedCampaign(result.campaign, null, [], result.tenant, { actorUserId: req.user._id })
+    });
+  })
+);
+
+router.patch(
+  "/group-funded-campaigns/:campaignIdOrToken/cancel",
+  asyncHandler(async (req, res) => {
+    const result = await groupFundedBookingService.cancelOrganizerCampaign({
+      user: req.user,
+      campaignIdOrToken: req.params.campaignIdOrToken,
+      reason: req.body?.reason
+    });
+    res.json({
+      campaign: formatGroupFundedCampaign(result.campaign, null, [], null, { actorUserId: req.user._id }),
+      refunds: result.refunds.map((refund) => ({
+        id: refund._id,
+        contributionId: refund.contributionId,
+        amountCents: refund.amountCents,
+        currency: refund.currency,
+        refundReason: refund.refundReason,
+        refundStatus: refund.refundStatus,
+        completedAt: refund.completedAt,
+        createdAt: refund.createdAt
+      }))
+    });
+  })
+);
+
+router.patch(
+  "/group-funded-campaigns/:campaignIdOrToken/replacement-slot/accept",
+  asyncHandler(async (req, res) => {
+    const result = await groupFundedBookingService.acceptReplacementSlot({
+      user: req.user,
+      campaignIdOrToken: req.params.campaignIdOrToken
+    });
+    res.json({
+      campaign: formatGroupFundedCampaign(result.campaign, null, [], null, { actorUserId: req.user._id })
+    });
+  })
+);
+
+router.patch(
+  "/group-funded-campaigns/:campaignIdOrToken/replacement-slot/decline",
+  asyncHandler(async (req, res) => {
+    const result = await groupFundedBookingService.declineReplacementSlot({
+      user: req.user,
+      campaignIdOrToken: req.params.campaignIdOrToken,
+      reason: req.body?.reason
+    });
+    res.json({
+      campaign: formatGroupFundedCampaign(result.campaign, null, [], null, { actorUserId: req.user._id }),
+      refunds: result.refunds.map((refund) => ({
+        id: refund._id,
+        contributionId: refund.contributionId,
+        amountCents: refund.amountCents,
+        currency: refund.currency,
+        refundReason: refund.refundReason,
+        refundStatus: refund.refundStatus,
+        completedAt: refund.completedAt,
+        createdAt: refund.createdAt
+      }))
+    });
+  })
+);
+
+router.post(
+  "/group-funded-campaigns/:campaignIdOrToken/contributions/payment-proof/uploads/direct",
+  express.raw({ type: ["image/jpeg", "image/png", "image/webp", "application/pdf"], limit: "8mb" }),
+  asyncHandler(async (req, res) => {
+    if (!req.body || !Buffer.isBuffer(req.body) || !req.body.length) {
+      const error = new Error("Contribution proof file payload is required.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const upload = await groupFundedBookingService.uploadContributionProofDirect({
+      user: req.user,
+      campaignIdOrToken: requireRequestParam(req.params.campaignIdOrToken, "Campaign"),
+      body: {
+        fileName: normalizeQueryText(req.query.fileName),
+        contentType: normalizeQueryText(req.headers["content-type"])
+      },
+      fileBuffer: req.body
+    });
+
+    res.status(201).json(upload);
+  })
+);
+
+router.post(
+  "/group-funded-campaigns/:campaignIdOrToken/contributions/payment-proof",
+  asyncHandler(async (req, res) => {
+    const { campaign, contribution } = await groupFundedBookingService.submitContributionProof({
+      user: req.user,
+      campaignIdOrToken: req.params.campaignIdOrToken,
+      body: req.body || {}
+    });
+    res.status(201).json({
+      campaign: formatGroupFundedCampaign(campaign, contribution, [], null, { actorUserId: req.user._id })
+    });
+  })
+);
+
+router.get(
   "/bookings/:bookingId",
   asyncHandler(async (req, res) => {
     await bookingService.expirePendingBookingsForCustomer(req.user._id);
@@ -366,6 +679,19 @@ router.get(
       const error = new Error("Booking not found.");
       error.statusCode = 404;
       throw error;
+    }
+    if (booking.groupFundedBookingId) {
+      booking.groupFundedBundleItems = await groupFundedRepository.listCampaignItemsByCampaign(
+        booking.groupFundedBookingId
+      );
+      booking.groupFundedContributions = await groupFundedRepository.listContributionsByCampaign(
+        booking.groupFundedBookingId,
+        {
+          statuses: [
+            groupFundedRepository.CONTRIBUTION_STATUSES.VERIFIED
+          ]
+        }
+      );
     }
 
     res.json({
@@ -400,11 +726,10 @@ router.post(
 
     const upload = await bookingService.uploadCustomerPaymentProofDirect({
       user: req.user,
-      bookingId: req.params.bookingId,
+      bookingId: requireRequestParam(req.params.bookingId, "Booking"),
       body: {
-        fileName: normalizeRequestText(req.query.fileName),
-        contentType: req.headers["content-type"],
-        sizeBytes: req.body.length
+        fileName: normalizeQueryText(req.query.fileName),
+        contentType: normalizeQueryText(req.headers["content-type"])
       },
       fileBuffer: req.body
     });

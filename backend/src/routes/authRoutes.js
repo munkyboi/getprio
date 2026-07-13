@@ -227,6 +227,7 @@ async function buildUserPayload(user) {
   return {
     id: String(user._id),
     name: user.name,
+    displayName: user.displayName || "",
     username: user.username,
     email: user.email,
     phone: user.phone,

@@ -196,6 +196,7 @@ test("customer can update profile name without changing username", async () => {
         return {
           _id: userId,
           name: changes.name,
+          displayName: changes.displayName || "",
           username: "customer_one",
           email: "customer@example.com",
           phone: "09171234567",
@@ -217,18 +218,21 @@ test("customer can update profile name without changing username", async () => {
       method: "PATCH",
       headers: { "Content-Type": "application/json", Authorization: "Bearer token" },
       body: JSON.stringify({
-        name: "Customer Updated"
+        name: "Customer Updated",
+        displayName: "John S."
       })
     });
     assert.equal(response.status, 200);
     const body = await response.json();
     assert.equal(body.user.name, "Customer Updated");
+    assert.equal(body.user.displayName, "John S.");
     assert.equal(body.user.username, "customer_one");
     assert.equal(body.success, true);
     assert.deepEqual(profileUpdates[0], {
       userId: "user-1",
       changes: {
-        name: "Customer Updated"
+        name: "Customer Updated",
+        displayName: "John S."
       }
     });
 

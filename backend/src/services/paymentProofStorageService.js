@@ -4,6 +4,7 @@ const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 const env = require("../config/env");
 
 const ALLOWED_CONTENT_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const GROUP_FUNDED_ALLOWED_CONTENT_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "application/pdf"]);
 const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 const UPLOAD_EXPIRES_SECONDS = 300;
 const VIEW_EXPIRES_SECONDS = 300;
@@ -53,11 +54,14 @@ function assertPaymentProofStorageConfigured() {
 }
 
 function getExtension(fileName, contentType) {
-  const extension = String(fileName || "").toLowerCase().match(/\.(jpe?g|png|webp)$/)?.[1];
+  const extension = String(fileName || "").toLowerCase().match(/\.(jpe?g|png|webp|pdf)$/)?.[1];
   if (extension) {
     return extension === "jpeg" ? "jpg" : extension;
   }
 
+  if (contentType === "application/pdf") {
+    return "pdf";
+  }
   if (contentType === "image/png") {
     return "png";
   }
@@ -67,12 +71,30 @@ function getExtension(fileName, contentType) {
   return "jpg";
 }
 
+function normalizeObjectKeySegment(value, fallback) {
+  return String(value || fallback)
+    .trim()
+    .replace(/[^a-z0-9._-]+/gi, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 120) || fallback;
+}
+
 function normalizeFileName(fileName) {
   const normalized = Array.isArray(fileName) ? fileName[0] : fileName;
   return String(normalized || "payment-proof")
     .trim()
     .replace(/[^\w.\- ]+/g, "")
     .slice(0, 160) || "payment-proof";
+}
+
+function requireMetadataString(value, label) {
+  if (typeof value !== "string") {
+    const error = new Error(`${label} must be a single value.`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return value;
 }
 
 function assertUploadMetadata({ contentType, sizeBytes }) {
@@ -89,11 +111,34 @@ function assertUploadMetadata({ contentType, sizeBytes }) {
   }
 }
 
+function assertGroupFundedUploadMetadata({ contentType, sizeBytes }) {
+  if (!GROUP_FUNDED_ALLOWED_CONTENT_TYPES.has(contentType)) {
+    const error = new Error("Only JPEG, PNG, WebP, and PDF contribution proof files are supported.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (!Number.isFinite(sizeBytes) || sizeBytes <= 0 || sizeBytes > MAX_UPLOAD_BYTES) {
+    const error = new Error("Contribution proof file must be between 1 byte and 8 MB.");
+    error.statusCode = 400;
+    throw error;
+  }
+}
+
 function buildObjectKey({ booking, fileName, contentType }) {
   const extension = getExtension(fileName, contentType);
   const randomId = crypto.randomBytes(10).toString("hex");
 
   return `payment-proofs/tenants/${booking.tenantId}/bookings/${booking._id}/${Date.now()}-${randomId}.${extension}`;
+}
+
+function buildGroupFundedObjectKey({ campaign, user, fileName, contentType }) {
+  const extension = getExtension(fileName, contentType);
+  const randomId = crypto.randomBytes(10).toString("hex");
+  const campaignToken = normalizeObjectKeySegment(campaign.publicToken || campaign._id, "campaign");
+  const userId = normalizeObjectKeySegment(user?._id || "user", "user");
+
+  return `group-funded/${campaignToken}/${userId}/${Date.now()}-${randomId}.${extension}`;
 }
 
 function assertObjectKeyBelongsToBooking(booking, objectKey) {
@@ -148,23 +193,57 @@ async function createUpload({ booking, body }) {
 async function uploadBinary({ booking, body, fileBuffer }) {
   assertPaymentProofStorageConfigured();
 
-  const fileName = normalizeFileName(body.fileName);
-  const contentType = String(body.contentType || "").toLowerCase();
-  const sizeBytes = Number(body.sizeBytes || fileBuffer?.length || 0);
-  assertUploadMetadata({ contentType, sizeBytes });
-
-  if (!Buffer.isBuffer(fileBuffer) || fileBuffer.length !== sizeBytes) {
+  if (!Buffer.isBuffer(fileBuffer)) {
     const error = new Error("Payment proof upload payload is invalid.");
     error.statusCode = 400;
     throw error;
   }
+
+  const fileName = normalizeFileName(requireMetadataString(body.fileName, "fileName"));
+  const contentType = requireMetadataString(body.contentType, "contentType").toLowerCase();
+  const uploadBuffer = Buffer.from(fileBuffer);
+  const sizeBytes = uploadBuffer.byteLength;
+  assertUploadMetadata({ contentType, sizeBytes });
 
   const objectKey = buildObjectKey({ booking, fileName, contentType });
   await getS3Client().send(new PutObjectCommand({
     Bucket: env.b2BucketPaymentProof,
     Key: objectKey,
     ContentType: contentType,
-    Body: fileBuffer
+    Body: uploadBuffer
+  }));
+
+  return {
+    proof: {
+      objectKey,
+      fileName,
+      contentType,
+      sizeBytes
+    }
+  };
+}
+
+async function uploadGroupFundedBinary({ campaign, user, body, fileBuffer }) {
+  assertPaymentProofStorageConfigured();
+
+  if (!Buffer.isBuffer(fileBuffer)) {
+    const error = new Error("Contribution proof upload payload is invalid.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const fileName = normalizeFileName(requireMetadataString(body.fileName, "fileName"));
+  const contentType = requireMetadataString(body.contentType, "contentType").toLowerCase();
+  const uploadBuffer = Buffer.from(fileBuffer);
+  const sizeBytes = uploadBuffer.byteLength;
+  assertGroupFundedUploadMetadata({ contentType, sizeBytes });
+
+  const objectKey = buildGroupFundedObjectKey({ campaign, user, fileName, contentType });
+  await getS3Client().send(new PutObjectCommand({
+    Bucket: env.b2BucketPaymentProof,
+    Key: objectKey,
+    ContentType: contentType,
+    Body: uploadBuffer
   }));
 
   return {
@@ -211,8 +290,10 @@ async function createViewAccess({ booking }) {
 
 module.exports = {
   assertObjectKeyBelongsToBooking,
+  assertGroupFundedUploadMetadata,
   assertUploadMetadata,
   createUpload,
   uploadBinary,
+  uploadGroupFundedBinary,
   createViewAccess
 };

@@ -1,4 +1,5 @@
 const express = require("express");
+const { rateLimit } = require("express-rate-limit");
 const tenantRepository = require("../repositories/tenants");
 const storeLocationRepository = require("../repositories/storeLocations");
 const ticketRepository = require("../repositories/tickets");
@@ -20,6 +21,7 @@ const publicBoardThemeUploadService = require("../services/publicBoardThemeUploa
 const vendorMediaUploadService = require("../services/vendorMediaUploadService");
 const locationPaymentQrUploadService = require("../services/locationPaymentQrUploadService");
 const bookingService = require("../services/bookingService");
+const groupFundedBookingService = require("../services/groupFundedBookingService");
 const PDFDocument = require("pdfkit");
 const {
   createTicket,
@@ -83,6 +85,15 @@ const {
 } = require("./vendorManagementHandlers");
 
 const router = express.Router();
+const vendorGroupFundedDecisionLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    message: "Too many group-funded campaign actions. Please try again later."
+  }
+});
 
 function formatVendorBooking(booking) {
   return {
@@ -112,6 +123,9 @@ function formatVendorBooking(booking) {
     notes: booking.notes,
     paymentReference: booking.paymentReference,
     paymentStatus: booking.paymentStatus,
+    groupFundedBookingId: booking.groupFundedBookingId,
+    bookingPaymentSource: booking.bookingPaymentSource,
+    groupFundedCampaign: booking.groupFundedCampaign,
     paymentProof: booking.paymentProofObjectKey
       ? {
           fileName: booking.paymentProofFileName,
@@ -147,6 +161,197 @@ function formatVendorBooking(booking) {
     noShowByUserId: booking.noShowByUserId,
     createdAt: booking.createdAt,
     updatedAt: booking.updatedAt
+  };
+}
+
+function formatVendorGroupFundedResult(result) {
+  return {
+    campaign: {
+      id: result.campaign._id,
+      tenantId: result.campaign.tenantId,
+      locationId: result.campaign.locationId,
+      serviceId: result.campaign.serviceId,
+      organizerUserId: result.campaign.organizerUserId,
+      campaignStatus: result.campaign.campaignStatus,
+      visibility: result.campaign.visibility,
+      serviceName: result.campaign.serviceNameSnapshot,
+      bundleItems: result.campaign.bundleItems || [],
+      locationName: result.campaign.locationNameSnapshot,
+      scheduledStartAt: result.campaign.scheduledStartAt,
+      scheduledEndAt: result.campaign.scheduledEndAt,
+      fundingDeadlineAt: result.campaign.fundingDeadlineAt,
+      targetAmountCents: result.campaign.targetAmountCents,
+      requiredContributionAmountCents: result.campaign.requiredContributionAmountCents,
+      requiredContributors: result.campaign.requiredContributors,
+      paidParticipantCount: result.campaign.paidParticipantCount,
+      fundedAmountCents: result.campaign.fundedAmountCents,
+      fundedAt: result.campaign.fundedAt,
+      replacementSlot: result.campaign.replacementScheduledStartAt
+        ? {
+            scheduledStartAt: result.campaign.replacementScheduledStartAt,
+            scheduledEndAt: result.campaign.replacementScheduledEndAt,
+            proposedAt: result.campaign.replacementProposedAt,
+            proposedByUserId: result.campaign.replacementProposedByUserId,
+            note: result.campaign.replacementNote
+          }
+        : null
+    },
+    contribution: {
+      id: result.contribution._id,
+      campaignId: result.contribution.campaignId,
+      userId: result.contribution.userId,
+      amountCents: result.contribution.amountCents,
+      currency: result.contribution.currency,
+      contributionStatus: result.contribution.contributionStatus,
+      paymentReference: result.contribution.paymentReference,
+      paymentProof: result.contribution.paymentProofObjectKey
+        ? {
+            fileName: result.contribution.paymentProofFileName,
+            contentType: result.contribution.paymentProofContentType,
+            sizeBytes: result.contribution.paymentProofSizeBytes,
+            uploadedAt: result.contribution.paymentProofUploadedAt
+          }
+        : null,
+      submittedAt: result.contribution.submittedAt,
+      verifiedAt: result.contribution.verifiedAt,
+      verifiedByUserId: result.contribution.verifiedByUserId,
+      rejectedAt: result.contribution.rejectedAt,
+      rejectedByUserId: result.contribution.rejectedByUserId,
+      rejectionReason: result.contribution.rejectionReason,
+      refundStatus: result.contribution.refundStatus
+    },
+    refund: result.refund ? formatVendorGroupFundedRefund(result.refund) : undefined
+  };
+}
+
+function formatVendorGroupFundedCampaign(campaign) {
+  return {
+    id: campaign._id,
+    publicToken: campaign.publicToken,
+    tenantId: campaign.tenantId,
+    locationId: campaign.locationId,
+    serviceId: campaign.serviceId,
+    organizerUserId: campaign.organizerUserId,
+    linkedBookingId: campaign.linkedBookingId,
+    campaignStatus: campaign.campaignStatus,
+    visibility: campaign.visibility,
+    organizerDisplayName: campaign.organizerDisplayName,
+    campaignTitle: campaign.campaignTitle || campaign.serviceNameSnapshot,
+    description: campaign.description,
+    serviceName: campaign.serviceNameSnapshot,
+    serviceSlug: campaign.serviceSlugSnapshot,
+    bundleItems: campaign.bundleItems || [],
+    locationName: campaign.locationNameSnapshot,
+    locationSlug: campaign.locationSlugSnapshot,
+    bookingQuantity: campaign.bookingQuantity,
+    scheduledStartAt: campaign.scheduledStartAt,
+    scheduledEndAt: campaign.scheduledEndAt,
+    fundingDeadlineAt: campaign.fundingDeadlineAt,
+    currency: campaign.currency,
+    targetAmountCents: campaign.targetAmountCents,
+    requiredContributionAmountCents: campaign.requiredContributionAmountCents,
+    roundingAdjustmentCents: campaign.roundingAdjustmentCents,
+    requiredContributors: campaign.requiredContributors,
+    paidParticipantCount: campaign.paidParticipantCount,
+    fundedAmountCents: campaign.fundedAmountCents,
+    fundedAt: campaign.fundedAt,
+    vendorReviewStartedAt: campaign.vendorReviewStartedAt,
+    vendorReviewExpiresAt: campaign.vendorReviewExpiresAt,
+    replacementSlot: campaign.replacementScheduledStartAt
+      ? {
+          scheduledStartAt: campaign.replacementScheduledStartAt,
+          scheduledEndAt: campaign.replacementScheduledEndAt,
+          proposedAt: campaign.replacementProposedAt,
+          proposedByUserId: campaign.replacementProposedByUserId,
+          note: campaign.replacementNote
+        }
+      : null,
+    confirmedAt: campaign.confirmedAt,
+    canceledAt: campaign.canceledAt,
+    cancellationReason: campaign.cancellationReason,
+    refundSummary: campaign.refundSummary,
+    createdAt: campaign.createdAt,
+    updatedAt: campaign.updatedAt
+  };
+}
+
+function formatVendorGroupFundedContribution(contribution) {
+  return {
+    id: contribution._id,
+    campaignId: contribution.campaignId,
+    userId: contribution.userId,
+    participantDisplayName: contribution.participantDisplayName,
+    amountCents: contribution.amountCents,
+    currency: contribution.currency,
+    contributionStatus: contribution.contributionStatus,
+    paymentReference: contribution.paymentReference,
+    paymentProof: contribution.paymentProofObjectKey
+      ? {
+          fileName: contribution.paymentProofFileName,
+          contentType: contribution.paymentProofContentType,
+          sizeBytes: contribution.paymentProofSizeBytes,
+          uploadedAt: contribution.paymentProofUploadedAt
+        }
+      : null,
+    submittedAt: contribution.submittedAt,
+    verifiedAt: contribution.verifiedAt,
+    verifiedByUserId: contribution.verifiedByUserId,
+    rejectedAt: contribution.rejectedAt,
+    rejectedByUserId: contribution.rejectedByUserId,
+    rejectionReason: contribution.rejectionReason,
+    refundStatus: contribution.refundStatus
+  };
+}
+
+function formatVendorGroupFundedRefund(refund) {
+  return {
+    id: refund._id,
+    campaignId: refund.campaignId,
+    contributionId: refund.contributionId,
+    userId: refund.userId,
+    amountCents: refund.amountCents,
+    currency: refund.currency,
+    refundReason: refund.refundReason,
+    refundStatus: refund.refundStatus,
+    notes: refund.notes,
+    completedAt: refund.completedAt,
+    createdAt: refund.createdAt,
+    updatedAt: refund.updatedAt
+  };
+}
+
+function formatVendorGroupFundedCapacityHold(hold) {
+  return {
+    id: hold._id,
+    campaignId: hold.campaignId,
+    holdStatus: hold.holdStatus,
+    scheduledStartAt: hold.scheduledStartAt,
+    scheduledEndAt: hold.scheduledEndAt,
+    expiresAt: hold.expiresAt,
+    releasedAt: hold.releasedAt,
+    convertedBookingId: hold.convertedBookingId
+  };
+}
+
+function formatVendorGroupFundedDetail(result) {
+  return {
+    campaign: formatVendorGroupFundedCampaign(result.campaign),
+    contributions: (result.contributions || []).map(formatVendorGroupFundedContribution),
+    refunds: (result.refunds || []).map(formatVendorGroupFundedRefund),
+    capacityHolds: (result.capacityHolds || []).map(formatVendorGroupFundedCapacityHold)
+  };
+}
+
+function formatVendorGroupFundedAlertEvent(result) {
+  return {
+    id: result.event._id,
+    campaignId: result.event.campaignId,
+    eventType: result.event.eventType,
+    actorRole: result.event.actorRole,
+    source: result.event.source,
+    metadata: result.event.metadata || {},
+    createdAt: result.event.createdAt,
+    campaign: formatVendorGroupFundedCampaign(result.campaign)
   };
 }
 
@@ -606,6 +811,177 @@ router.patch(
         })
     })
   )
+);
+
+router.get(
+  "/tenant/:tenantSlug/group-funded-campaigns",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.booking.manage");
+    const campaigns = await groupFundedBookingService.listVendorCampaigns({
+      tenant,
+      query: req.query
+    });
+    res.json({ campaigns: campaigns.map(formatVendorGroupFundedCampaign) });
+  })
+);
+
+router.get(
+  "/tenant/:tenantSlug/group-funded-alert-events",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.booking.manage");
+    const events = await groupFundedBookingService.listVendorAlertEvents({
+      tenant,
+      query: req.query
+    });
+    res.json({ events: events.map(formatVendorGroupFundedAlertEvent) });
+  })
+);
+
+router.get(
+  "/tenant/:tenantSlug/group-funded-campaigns/:campaignId",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.booking.manage");
+    const result = await groupFundedBookingService.getVendorCampaign({
+      tenant,
+      campaignId: req.params.campaignId
+    });
+    res.json(formatVendorGroupFundedDetail(result));
+  })
+);
+
+router.patch(
+  "/tenant/:tenantSlug/group-funded-campaigns/:campaignId/propose-replacement-slot",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.booking.manage");
+    const result = await groupFundedBookingService.proposeReplacementSlot({
+      tenant,
+      user: req.user,
+      campaignId: req.params.campaignId,
+      body: req.body || {}
+    });
+    res.json({
+      campaign: formatVendorGroupFundedCampaign(result.campaign)
+    });
+  })
+);
+
+router.patch(
+  "/tenant/:tenantSlug/group-funded-campaigns/:campaignId/approve",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.booking.manage");
+    const result = await groupFundedBookingService.approveVendorCampaign({
+      tenant,
+      user: req.user,
+      campaignId: req.params.campaignId
+    });
+    res.json({
+      campaign: formatVendorGroupFundedCampaign(result.campaign),
+      booking: formatVendorBooking(result.booking)
+    });
+  })
+);
+
+router.patch(
+  "/tenant/:tenantSlug/group-funded-campaigns/:campaignId/reject",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.booking.manage");
+    const result = await groupFundedBookingService.rejectVendorCampaign({
+      tenant,
+      user: req.user,
+      campaignId: req.params.campaignId,
+      reason: normalizeRequestText(req.body?.reason)
+    });
+    res.json({
+      campaign: formatVendorGroupFundedCampaign(result.campaign),
+      refunds: result.refunds.map(formatVendorGroupFundedRefund)
+    });
+  })
+);
+
+router.patch(
+  "/tenant/:tenantSlug/group-funded-campaigns/:campaignId/expire-review",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.booking.manage");
+    const result = await groupFundedBookingService.expireVendorReview({
+      tenant,
+      user: req.user,
+      campaignId: req.params.campaignId
+    });
+    res.json({
+      campaign: formatVendorGroupFundedCampaign(result.campaign),
+      refunds: result.refunds.map(formatVendorGroupFundedRefund)
+    });
+  })
+);
+
+router.patch(
+  "/tenant/:tenantSlug/group-funded-campaigns/refunds/:refundId",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.booking.manage");
+    const result = await groupFundedBookingService.updateManualRefund({
+      tenant,
+      user: req.user,
+      refundId: req.params.refundId,
+      body: req.body || {}
+    });
+    res.json({
+      campaign: formatVendorGroupFundedCampaign(result.campaign),
+      refund: formatVendorGroupFundedRefund(result.refund)
+    });
+  })
+);
+
+router.patch(
+  "/tenant/:tenantSlug/group-funded-campaigns/contributions/:contributionId/verify-payment",
+  vendorGroupFundedDecisionLimiter,
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.booking.manage");
+    const result = await groupFundedBookingService.verifyContribution({
+      tenant,
+      user: req.user,
+      contributionId: req.params.contributionId
+    });
+    res.json(formatVendorGroupFundedResult(result));
+  })
+);
+
+router.get(
+  "/tenant/:tenantSlug/group-funded-campaigns/contributions/:contributionId/payment-proof",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.booking.manage");
+    res.json(
+      await groupFundedBookingService.createVendorContributionProofAccess({
+        tenant,
+        contributionId: req.params.contributionId
+      })
+    );
+  })
+);
+
+router.patch(
+  "/tenant/:tenantSlug/group-funded-campaigns/contributions/:contributionId/reject-payment",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.booking.manage");
+    const result = await groupFundedBookingService.rejectContribution({
+      tenant,
+      user: req.user,
+      contributionId: req.params.contributionId,
+      reason: normalizeRequestText(req.body?.reason),
+      refundDisposition: normalizeRequestText(req.body?.refundDisposition)
+    });
+    res.json(formatVendorGroupFundedResult(result));
+  })
 );
 
 router.patch(

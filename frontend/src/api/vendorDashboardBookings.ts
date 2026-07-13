@@ -7,7 +7,16 @@ import type {
   VendorBookingResponse,
   VendorBookingsResponse,
   VendorCheckInBookingRequest,
-  VendorCheckInBookingResponse
+  VendorCheckInBookingResponse,
+  GroupFundedCampaignsResponse,
+  GroupFundedVendorAlertEventsResponse,
+  RejectVendorGroupFundedCampaignRequest,
+  RejectVendorGroupFundedContributionRequest,
+  VendorGroupFundedCampaignDetailResponse,
+  VendorGroupFundedCampaignMutationResponse,
+  VendorGroupFundedContributionMutationResponse,
+  VendorGroupFundedRefundMutationResponse,
+  UpdateVendorGroupFundedRefundRequest
 } from "@shared";
 import { apiRequest } from "./client";
 
@@ -46,6 +55,85 @@ export function getBookingAlerts(token: string, tenantSlug: string, locationSlug
   return apiRequest<VendorBookingsResponse>(
     `/vendor/tenant/${tenantSlug}/bookings?page=1&pageSize=10&location=${encodeURIComponent(locationSlug)}&status=pending`,
     { token }
+  );
+}
+
+export function getGroupFundedAlertEvents(token: string, tenantSlug: string, locationId: string) {
+  return apiRequest<GroupFundedVendorAlertEventsResponse>(
+    `/vendor/tenant/${tenantSlug}/group-funded-alert-events?locationId=${encodeURIComponent(locationId)}&limit=20`,
+    { token }
+  );
+}
+
+export function getGroupFundedCampaigns(token: string, tenantSlug: string, locationId: string, status: string) {
+  const statusQuery = status !== "all" ? `&statuses=${encodeURIComponent(status)}` : "";
+  return apiRequest<GroupFundedCampaignsResponse>(
+    `/vendor/tenant/${tenantSlug}/group-funded-campaigns?locationId=${encodeURIComponent(locationId)}${statusQuery}&limit=50`,
+    { token }
+  );
+}
+
+export function getGroupFundedCampaignDetail(token: string, tenantSlug: string, campaignId: string) {
+  return apiRequest<VendorGroupFundedCampaignDetailResponse>(
+    `/vendor/tenant/${tenantSlug}/group-funded-campaigns/${campaignId}`,
+    { token }
+  );
+}
+
+export function verifyGroupFundedContribution(token: string, tenantSlug: string, contributionId: string) {
+  return apiRequest<VendorGroupFundedContributionMutationResponse>(
+    `/vendor/tenant/${tenantSlug}/group-funded-campaigns/contributions/${contributionId}/verify-payment`,
+    { method: "PATCH", token }
+  );
+}
+
+export function rejectGroupFundedContribution(
+  token: string,
+  tenantSlug: string,
+  contributionId: string,
+  body: RejectVendorGroupFundedContributionRequest
+) {
+  return apiRequest<VendorGroupFundedContributionMutationResponse, RejectVendorGroupFundedContributionRequest>(
+    `/vendor/tenant/${tenantSlug}/group-funded-campaigns/contributions/${contributionId}/reject-payment`,
+    { method: "PATCH", token, body }
+  );
+}
+
+export function getGroupFundedContributionPaymentProof(token: string, tenantSlug: string, contributionId: string) {
+  return apiRequest<BookingPaymentProofAccessResponse>(
+    `/vendor/tenant/${tenantSlug}/group-funded-campaigns/contributions/${contributionId}/payment-proof`,
+    { token }
+  );
+}
+
+export function approveGroupFundedCampaign(token: string, tenantSlug: string, campaignId: string) {
+  return apiRequest<VendorGroupFundedCampaignMutationResponse>(
+    `/vendor/tenant/${tenantSlug}/group-funded-campaigns/${campaignId}/approve`,
+    { method: "PATCH", token }
+  );
+}
+
+export function rejectGroupFundedCampaign(
+  token: string,
+  tenantSlug: string,
+  campaignId: string,
+  body: RejectVendorGroupFundedCampaignRequest
+) {
+  return apiRequest<VendorGroupFundedCampaignMutationResponse, RejectVendorGroupFundedCampaignRequest>(
+    `/vendor/tenant/${tenantSlug}/group-funded-campaigns/${campaignId}/reject`,
+    { method: "PATCH", token, body }
+  );
+}
+
+export function updateGroupFundedRefund(
+  token: string,
+  tenantSlug: string,
+  refundId: string,
+  body: UpdateVendorGroupFundedRefundRequest
+) {
+  return apiRequest<VendorGroupFundedRefundMutationResponse, UpdateVendorGroupFundedRefundRequest>(
+    `/vendor/tenant/${tenantSlug}/group-funded-campaigns/refunds/${refundId}`,
+    { method: "PATCH", token, body }
   );
 }
 

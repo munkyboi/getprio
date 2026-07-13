@@ -251,6 +251,41 @@ async function notifyVendorPaymentProofReview({ tenant, booking }) {
   });
 }
 
+async function notifyVendorGroupFundedCampaignCreated({ tenant, campaign }) {
+  return sendTenantNotification({
+    tenant,
+    title: "New group-funded campaign",
+    body: `${campaign.organizerDisplayName || "A customer"} started a group-funded campaign for ${campaign.serviceNameSnapshot || "a service"}.`,
+    url: "/dashboard/bookings",
+    tag: `group-funded-created-${tenant._id}-${campaign._id}`,
+    eventType: "vendor_group_funded_campaign_created"
+  });
+}
+
+async function notifyVendorGroupFundedProofReview({ tenant, campaign, contribution }) {
+  return sendTenantNotification({
+    tenant,
+    title: "Group-funded proof ready",
+    body: `A contributor submitted payment evidence for ${campaign.serviceNameSnapshot || "a group-funded campaign"}.`,
+    url: "/dashboard/bookings",
+    tag: `group-funded-proof-${tenant._id}-${contribution._id}`,
+    eventType: "vendor_group_funded_proof_review",
+    roles: VENDOR_ALERT_ROLES
+  });
+}
+
+async function notifyVendorGroupFundedReviewReady({ tenant, campaign }) {
+  return sendTenantNotification({
+    tenant,
+    title: "Group-funded booking ready",
+    body: `${campaign.serviceNameSnapshot || "A group-funded campaign"} is fully funded and ready for vendor review.`,
+    url: "/dashboard/bookings",
+    tag: `group-funded-review-${tenant._id}-${campaign._id}`,
+    eventType: "vendor_group_funded_review_ready",
+    roles: VENDOR_ALERT_ROLES
+  });
+}
+
 async function notifyVendorQueueLifecycle({ tenant, location, action, stats = {} }) {
   const locationName = location?.name || "the queue";
   const actionConfig = {
@@ -429,6 +464,9 @@ module.exports = {
   notifyVendorQueueJoin,
   notifyVendorBookingIntake,
   notifyVendorPaymentProofReview,
+  notifyVendorGroupFundedCampaignCreated,
+  notifyVendorGroupFundedProofReview,
+  notifyVendorGroupFundedReviewReady,
   notifyVendorQueueLifecycle,
   notifyCustomerBookingUpdate,
   notifyCustomerQueueUpdate

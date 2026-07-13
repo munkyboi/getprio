@@ -1,7 +1,7 @@
 import { type FormEvent, useCallback, useEffect, useState } from "react";
-import { Alert, Badge, Button, Card, FileInput, Group, Image, Modal, Paper, SimpleGrid, Stack, Text, Textarea, TextInput, Title } from "@mantine/core";
+import { Alert, Badge, Button, Card, Container, FileInput, Group, Image, Modal, Paper, SimpleGrid, Stack, Text, Textarea, TextInput, ThemeIcon, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
-import { IconArrowLeft, IconExternalLink, IconReceipt, IconTicket, IconUpload, IconX } from "@tabler/icons-react";
+import { IconArrowLeft, IconBuildingStore, IconCalendar, IconClock, IconExternalLink, IconReceipt, IconTicket, IconUpload, IconX } from "@tabler/icons-react";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import type {
   BookingPaymentProofAccessResponse,
@@ -10,6 +10,8 @@ import type {
   CancelCustomerBookingResponse,
   CustomerBookingDetailResponse,
   CustomerBookingResponse,
+  PublicBoardThemeSettings,
+  PublicVendorProfileResponse,
   SubmitBookingPaymentProofRequest
 } from "@shared";
 import { API_BASE_URL, apiRequest } from "../api/client";
@@ -18,9 +20,12 @@ import { buildJoinedQueuePathWithTicket } from "../queuePaths";
 import {
   formatBookingScheduleDate,
   formatBookingScheduleTimeRange,
-  formatDateTime
+  formatDateTime,
+  formatDisplayTime,
+  toTimestamp
 } from "../utils/dates";
 import { getErrorMessage } from "../utils/errors";
+import { buildVendorThemeMediaStyle, buildVendorThemeStyle } from "../utils/vendorTheme";
 
 function getBookingBadgeColor(status: BookingStatus): "gray" | "red" | "yellow" | "orange" | "teal" | "blue" {
   switch (status) {
@@ -76,6 +81,46 @@ function formatPaymentAmount(amountCents: number, currency: string) {
   }).format(amountCents / 100);
 }
 
+function getContributionBadgeColor(status: string): "gray" | "red" | "yellow" | "orange" | "teal" | "blue" {
+  switch (status) {
+    case "verified":
+      return "teal";
+    case "submitted":
+    case "pending_proof":
+      return "yellow";
+    case "rejected":
+      return "red";
+    case "refund_pending":
+      return "orange";
+    case "refunded":
+      return "blue";
+    case "policy_review_required":
+      return "orange";
+    default:
+      return "gray";
+  }
+}
+
+function formatCampaignStatusLabel(status: string) {
+  return status.replace(/_/g, " ");
+}
+
+function formatDurationLabel(startValue: string | Date, endValue: string | Date) {
+  const start = toTimestamp(startValue);
+  const end = toTimestamp(endValue);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+    return "Schedule set";
+  }
+
+  const totalMinutes = Math.round((end - start) / 60000);
+  if (totalMinutes < 60) {
+    return `${totalMinutes} min`;
+  }
+
+  const hours = totalMinutes / 60;
+  return `${Number.isInteger(hours) ? hours : hours.toFixed(1)} hr${hours === 1 ? "" : "s"}`;
+}
+
 export default function CustomerBookingDetailPage() {
   const navigate = useNavigate();
   const { bookingId = "" } = useParams<{ bookingId: string }>();
@@ -92,6 +137,7 @@ export default function CustomerBookingDetailPage() {
   const [proofAccessUrl, setProofAccessUrl] = useState("");
   const [error, setError] = useState("");
   const [cancelModalOpen, setCancelModalOpen] = useState(false);
+  const [vendorTheme, setVendorTheme] = useState<PublicBoardThemeSettings | null>(null);
 
   const loadBooking = useCallback(async (options: { showLoading?: boolean } = {}) => {
     if (!token || !bookingId) {
@@ -165,6 +211,27 @@ export default function CustomerBookingDetailPage() {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [booking?.locationSlug, booking?.tenantSlug, loadBooking, token]);
+
+  useEffect(() => {
+    if (!booking?.tenantSlug) {
+      setVendorTheme(null);
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    apiRequest<PublicVendorProfileResponse>(`/public/vendors/${booking.tenantSlug}`, { signal: controller.signal })
+      .then((data) => {
+        setVendorTheme(data.vendor.publicBoardTheme?.theme || null);
+      })
+      .catch((themeError) => {
+        if (!controller.signal.aborted) {
+          setVendorTheme(null);
+          console.error(themeError);
+        }
+      });
+
+    return () => controller.abort();
+  }, [booking?.tenantSlug]);
 
   if (authLoading || loading) {
     return <Card className="finazze-auth-card">Loading booking...</Card>;
@@ -297,20 +364,22 @@ export default function CustomerBookingDetailPage() {
     return (
       <Stack className="customer-account-page" gap="lg">
         <Button leftSection={<IconArrowLeft size={16} />} onClick={() => navigate("/account/bookings")} variant="subtle" w="fit-content">
-          Back to bookings
+          Back to booking list
         </Button>
         <Alert color="red">{error || "Booking not found."}</Alert>
       </Stack>
     );
   }
 
+  const groupFundedCampaign = booking.groupFundedCampaign;
+  const isGroupFundedBooking = booking.bookingPaymentSource === "group_funded" || Boolean(booking.groupFundedBookingId || groupFundedCampaign);
   const cancellationAllowed = canCancel(booking.status, booking.checkedInAt, booking.linkedTicket);
   const proofSubmissionAllowed = canSubmitPaymentProof(
     booking.status,
     booking.checkedInAt,
     booking.linkedTicket,
     Boolean(booking.paymentProof),
-    booking.serviceManualPaymentRequired
+    booking.serviceManualPaymentRequired && !isGroupFundedBooking
   );
   const paymentProofStatus =
     booking.paymentVerifiedAt
@@ -329,24 +398,46 @@ export default function CustomerBookingDetailPage() {
     : "";
   const checkInAvailable = Boolean(booking.linkedTicket);
   const paymentProofActionLabel = booking.paymentProof ? "View payment proof" : "Submit payment proof";
+  const campaignProgress = groupFundedCampaign?.targetAmountCents
+    ? Math.min(100, Math.round((groupFundedCampaign.fundedAmountCents / groupFundedCampaign.targetAmountCents) * 100))
+    : 0;
+  const campaignContributions = (groupFundedCampaign?.contributions || []).filter(
+    (contribution) => contribution.contributionStatus === "verified"
+  );
+  const bookingBundleItems = groupFundedCampaign?.bundleItems?.length
+    ? groupFundedCampaign.bundleItems
+    : [];
+  const bookingServiceItems = bookingBundleItems.length
+    ? bookingBundleItems
+    : [{
+        serviceName: booking.serviceName,
+        bookingQuantity: booking.bookingQuantity,
+        scheduledStartAt: booking.scheduledStartAt,
+        scheduledEndAt: booking.scheduledEndAt
+      }];
+  const bookingServiceNames = bookingServiceItems.map((item) => item.serviceName).filter(Boolean);
+  const bookingServiceModeLabel = bookingServiceItems.length > 1 ? "Bundled services" : "Single service";
+  const totalBookingUnits = bookingServiceItems.reduce((sum, item) => sum + Number(item.bookingQuantity || 0), 0);
+  const bookingStartTimestamp = Math.min(...bookingServiceItems.map((item) => toTimestamp(item.scheduledStartAt)).filter(Number.isFinite));
+  const bookingEndTimestamp = Math.max(...bookingServiceItems.map((item) => toTimestamp(item.scheduledEndAt)).filter(Number.isFinite));
+  const bookingStart = Number.isFinite(bookingStartTimestamp) ? new Date(bookingStartTimestamp) : booking.scheduledStartAt;
+  const bookingEnd = Number.isFinite(bookingEndTimestamp) ? new Date(bookingEndTimestamp) : booking.scheduledEndAt;
+  const totalBookingHoursLabel = formatDurationLabel(bookingStart, bookingEnd);
+  const bookingTotalFeeDisplay = groupFundedCampaign
+    ? formatPaymentAmount(groupFundedCampaign.targetAmountCents, groupFundedCampaign.currency)
+    : formatPaymentAmount(
+      Number(booking.servicePriceAmountCents || 0) * Number(booking.bookingQuantity || 1),
+      booking.serviceCurrency
+    );
+  const themeStyle = buildVendorThemeStyle(vendorTheme);
+  const themedMediaStyle = buildVendorThemeMediaStyle(vendorTheme);
 
   return (
-    <Stack className="customer-account-page" gap="lg">
-      <Button component={Link} leftSection={<IconArrowLeft size={16} />} to="/account/bookings" variant="subtle" w="fit-content">
-        Back to bookings
-      </Button>
-
-      <Card className="finazze-auth-card customer-account-card" p="xl">
-        <Stack gap="md">
-          <Group justify="space-between" align="flex-start">
-            <div>
-              <Text className="finazze-section-label">Booking detail</Text>
-              <Title order={1}>{booking.reference}</Title>
-            </div>
-            <Badge color={getBookingBadgeColor(booking.status)} size="lg" variant="light">
-              {hasExpired ? "expired" : booking.status}
-            </Badge>
-          </Group>
+    <Stack className="vendor-profile-page" gap="xl" style={themeStyle}>
+      <Container size="xl" w="100%">
+        <Button className="ticket-page-back-button" component={Link} leftSection={<IconArrowLeft size={18} />} mb="md" to="/account/bookings" variant="subtle" w="fit-content">
+          Back to booking list
+        </Button>
 
           {error ? <Alert color="red">{error}</Alert> : null}
           {hasExpired ? (
@@ -355,35 +446,236 @@ export default function CustomerBookingDetailPage() {
             </Alert>
           ) : null}
 
-          <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} spacing="md">
-            <Paper withBorder radius="md" p="md">
-              <Text className="finazze-section-label">Vendor</Text>
-              <Text fw={800}>{booking.tenantName}</Text>
-              <Text c="dimmed" size="sm">{booking.locationName}</Text>
-            </Paper>
-            <Paper withBorder radius="md" p="md">
-              <Text className="finazze-section-label">Service</Text>
-              <Text fw={800}>{booking.serviceName}</Text>
-              <Text c="dimmed" size="sm">Quantity {booking.bookingQuantity}</Text>
-              <Text c="dimmed" size="sm">{booking.servicePriceDisplay}</Text>
-            </Paper>
-            <Paper withBorder radius="md" p="md">
-              <Text className="finazze-section-label">Schedule</Text>
-              <Text fw={800}>{formatBookingScheduleDate(booking.scheduledStartAt)}</Text>
-              <Text c="dimmed" size="sm">
-                {formatBookingScheduleTimeRange(booking.scheduledStartAt, booking.scheduledEndAt)}
+        <Paper className="vendor-hero-shell ticket-page-hero booking-detail-page-hero" p={{ base: "lg", md: "xl" }}>
+          <SimpleGrid cols={{ base: 1, lg: 2 }} spacing={{ base: "xl", lg: 48 }}>
+            <Stack gap="lg" justify="flex-start">
+              <div>
+                <Group gap="sm" wrap="wrap">
+                  <Badge className="vendor-theme-badge vendor-theme-badge-primary" size="lg" variant="light">
+                    Booking detail
+                  </Badge>
+                  {isGroupFundedBooking ? (
+                    <Badge className="vendor-theme-badge vendor-theme-badge-secondary" size="lg" variant="light">
+                      Group-funded
+                    </Badge>
+                  ) : null}
+                  <Badge color={getBookingBadgeColor(booking.status)} size="lg" variant="light">
+                    {hasExpired ? "expired" : booking.status}
+                  </Badge>
+                </Group>
+                <Stack gap={4} mt="md">
+                  <Title className="vendor-hero-title ticket-page-title" order={1}>
+                    {booking.reference}
+                  </Title>
+                  <Text className="vendor-hero-subtitle" fw={700} size="lg">
+                    {bookingServiceModeLabel}
+                  </Text>
+                </Stack>
+              </div>
+
+              <Group gap="xs" wrap="wrap">
+                {bookingServiceNames.map((serviceName, index) => (
+                  <Badge className="vendor-theme-badge vendor-theme-badge-muted" key={`${serviceName}-${index}`} size="lg" variant="light">
+                    {serviceName}
+                  </Badge>
+                ))}
+              </Group>
+
+              <Text className="vendor-hero-description">
+                {booking.tenantName} at {booking.locationName}. Scheduled {formatBookingScheduleDate(booking.scheduledStartAt)} from{" "}
+                {formatBookingScheduleTimeRange(booking.scheduledStartAt, booking.scheduledEndAt)}.
               </Text>
-            </Paper>
-            <Paper withBorder radius="md" p="md">
-              <Text className="finazze-section-label">Payment</Text>
-              <Badge color={booking.paymentStatus === "paid" ? "teal" : "gray"} variant="light">
-                {booking.paymentStatus}
-              </Badge>
-              {booking.paymentProof ? (
-                <Text c="dimmed" mt="xs" size="sm">{paymentProofStatus.label}</Text>
-              ) : null}
+
+              <Stack gap="xs">
+                <Group c="dimmed" gap={8} wrap="nowrap">
+                  <ThemeIcon className="vendor-theme-icon" radius="xl" size={32} variant="light">
+                    <IconBuildingStore size={16} />
+                  </ThemeIcon>
+                  <Text>{booking.tenantName}</Text>
+                </Group>
+                <Group c="dimmed" gap={8} wrap="nowrap">
+                  <ThemeIcon className="vendor-theme-icon" radius="xl" size={32} variant="light">
+                    <IconCalendar size={16} />
+                  </ThemeIcon>
+                  <Text>{formatBookingScheduleDate(booking.scheduledStartAt)}</Text>
+                </Group>
+                <Group c="dimmed" gap={8} wrap="nowrap">
+                  <ThemeIcon className="vendor-theme-icon" radius="xl" size={32} variant="light">
+                    <IconReceipt size={16} />
+                  </ThemeIcon>
+                  <Text>Total fee: {bookingTotalFeeDisplay}</Text>
+                </Group>
+                <Group c="dimmed" gap={8} wrap="nowrap">
+                  <ThemeIcon className="vendor-theme-icon" radius="xl" size={32} variant="light">
+                    <IconClock size={16} />
+                  </ThemeIcon>
+                  <Text>{formatBookingScheduleTimeRange(booking.scheduledStartAt, booking.scheduledEndAt)}</Text>
+                </Group>
+              </Stack>
+
+              <Group gap="md">
+                {checkInAvailable ? (
+                  <Button className="vendor-theme-button" component={Link} leftSection={<IconTicket size={18} />} size="lg" to={linkedQueuePath}>
+                    Check-in
+                  </Button>
+                ) : (
+                  <Button disabled leftSection={<IconTicket size={18} />} size="lg" variant="default">
+                    Check-in
+                  </Button>
+                )}
+                {isGroupFundedBooking && groupFundedCampaign ? (
+                  <Button
+                    className="vendor-theme-button vendor-theme-button-ghost"
+                    component={Link}
+                    leftSection={<IconReceipt size={18} />}
+                    size="lg"
+                    to={`/group-funded/${groupFundedCampaign.publicToken}`}
+                    variant="subtle"
+                  >
+                    View campaign
+                  </Button>
+                ) : null}
+              </Group>
+            </Stack>
+
+            <Paper className="vendor-hero-visual" p="xl" style={themedMediaStyle}>
+              <div className="vendor-hero-media-shell">
+                <div className="vendor-hero-media-slide is-active">
+                  {vendorTheme?.logoUrl ? (
+                    <div className="vendor-profile-logo-frame">
+                      <img alt={`${booking.tenantName} logo`} src={vendorTheme.logoUrl} />
+                    </div>
+                  ) : (
+                    <div className="ticket-page-placeholder">
+                      <IconReceipt size={56} stroke={1.5} />
+                      <Text fw={800}>{booking.serviceName}</Text>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <Paper className="vendor-hero-status-card" p="lg">
+                <Text fw={800}>{booking.tenantName}</Text>
+                <Text c="dimmed" size="sm">{booking.locationName}</Text>
+                <SimpleGrid cols={{ base: 1, sm: 2 }} mt="md" spacing="sm">
+                  <div className="prio-dashboard-tile">
+                    <Text c="dimmed" size="xs">{bookingServiceModeLabel}</Text>
+                    <Text fw={800}>{totalBookingHoursLabel}</Text>
+                    <Text c="dimmed" size="sm">
+                      {totalBookingUnits} unit{totalBookingUnits === 1 ? "" : "s"}
+                    </Text>
+                  </div>
+                  <div className="prio-dashboard-tile">
+                    <Text c="dimmed" size="xs">Booking schedule</Text>
+                    <Text fw={800}>{formatBookingScheduleDate(bookingStart)}</Text>
+                    <Text c="dimmed" size="sm">
+                      {formatDisplayTime(bookingStart)} - {formatDisplayTime(bookingEnd)}
+                    </Text>
+                  </div>
+                </SimpleGrid>
+                {isGroupFundedBooking ? (
+                  <Text c="dimmed" mt="md" size="sm">Covered by group-funded campaign</Text>
+                ) : booking.paymentProof ? (
+                  <Text c="dimmed" mt="md" size="sm">{paymentProofStatus.label}</Text>
+                ) : null}
+              </Paper>
             </Paper>
           </SimpleGrid>
+        </Paper>
+
+        <Card className="finazze-auth-card customer-account-card booking-detail-section-card" mt="xl" p="xl">
+          <Stack gap="md">
+
+          {groupFundedCampaign ? (
+            <Paper className="customer-booking-campaign-card" withBorder radius="lg" p="lg">
+              <Stack gap="md">
+                <Group justify="space-between" align="flex-start">
+                  <Stack gap={4}>
+                    <Text className="finazze-section-label">Group-funded campaign</Text>
+                    <Title order={3}>{groupFundedCampaign.campaignTitle || booking.serviceName}</Title>
+                    <Text c="dimmed" size="sm">
+                      Organized by {groupFundedCampaign.organizerDisplayName || "the campaign organizer"}
+                    </Text>
+                  </Stack>
+                  <Button
+                    component={Link}
+                    rightSection={<IconExternalLink size={16} />}
+                    to={`/group-funded/${groupFundedCampaign.publicToken}`}
+                    variant="light"
+                  >
+                    View campaign
+                  </Button>
+                </Group>
+
+                {groupFundedCampaign.description ? (
+                  <Text>{groupFundedCampaign.description}</Text>
+                ) : null}
+
+                <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
+                  <Paper className="customer-booking-campaign-stat" radius="md" p="md">
+                    <Text c="dimmed" size="sm">Campaign status</Text>
+                    <Badge color="blue" mt={6} variant="light">
+                      {formatCampaignStatusLabel(groupFundedCampaign.campaignStatus)}
+                    </Badge>
+                    <Text c="dimmed" mt="xs" size="sm">
+                      Confirmed {groupFundedCampaign.confirmedAt ? formatDateTime(groupFundedCampaign.confirmedAt) : "by vendor"}
+                    </Text>
+                  </Paper>
+                  <Paper className="customer-booking-campaign-stat" radius="md" p="md">
+                    <Text c="dimmed" size="sm">Funding</Text>
+                    <Text fw={800}>
+                      {formatPaymentAmount(groupFundedCampaign.fundedAmountCents, groupFundedCampaign.currency)} /{" "}
+                      {formatPaymentAmount(groupFundedCampaign.targetAmountCents, groupFundedCampaign.currency)}
+                    </Text>
+                    <Text c="dimmed" size="sm">{campaignProgress}% funded</Text>
+                  </Paper>
+                  <Paper className="customer-booking-campaign-stat" radius="md" p="md">
+                    <Text c="dimmed" size="sm">Contributors</Text>
+                    <Text fw={800}>
+                      {groupFundedCampaign.paidParticipantCount} of {groupFundedCampaign.requiredContributors}
+                    </Text>
+                    <Text c="dimmed" size="sm">
+                      {formatPaymentAmount(groupFundedCampaign.requiredContributionAmountCents, groupFundedCampaign.currency)} each
+                    </Text>
+                  </Paper>
+                </SimpleGrid>
+                {campaignContributions.length ? (
+                  <Stack gap="sm">
+                    <Group justify="space-between" align="center">
+                      <Text fw={800}>Contributors</Text>
+                      <Badge color="teal" variant="light">
+                        {campaignContributions.length} verified
+                      </Badge>
+                    </Group>
+                    <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
+                      {campaignContributions.map((contribution) => (
+                        <Paper className="customer-booking-campaign-stat" key={contribution.id} radius="md" p="md">
+                          <Stack gap={4}>
+                            <Group justify="space-between" gap="sm" wrap="nowrap">
+                              <Text fw={800}>{contribution.contributorDisplayName || "Contributor"}</Text>
+                              <Badge color={getContributionBadgeColor(contribution.contributionStatus)} variant="light">
+                                {contribution.contributionStatus.replace(/_/g, " ")}
+                              </Badge>
+                            </Group>
+                            <Text c="dimmed" size="sm">
+                              {formatPaymentAmount(contribution.amountCents, contribution.currency)}
+                            </Text>
+                            <Text c="dimmed" size="xs">
+                              {contribution.verifiedAt
+                                ? `Verified ${formatDateTime(contribution.verifiedAt)}`
+                                : contribution.submittedAt
+                                  ? `Submitted ${formatDateTime(contribution.submittedAt)}`
+                                  : "Contribution recorded"}
+                            </Text>
+                          </Stack>
+                        </Paper>
+                      ))}
+                    </SimpleGrid>
+                  </Stack>
+                ) : null}
+              </Stack>
+            </Paper>
+          ) : null}
 
           {booking.status === "confirmed" || booking.status === "rescheduled" ? (
             <Alert color="blue" variant="light">
@@ -420,7 +712,16 @@ export default function CustomerBookingDetailPage() {
                     Check-in
                   </Button>
                 )}
-                {booking.paymentProof ? (
+                {isGroupFundedBooking && groupFundedCampaign ? (
+                  <Button
+                    component={Link}
+                    leftSection={<IconReceipt size={16} />}
+                    to={`/group-funded/${groupFundedCampaign.publicToken}`}
+                    variant="light"
+                  >
+                    View campaign
+                  </Button>
+                ) : booking.paymentProof ? (
                   <Button
                     leftSection={<IconReceipt size={16} />}
                     loading={proofViewBusy}
@@ -640,6 +941,7 @@ export default function CustomerBookingDetailPage() {
           </Stack>
         </form>
       </Modal>
+      </Container>
     </Stack>
   );
 }

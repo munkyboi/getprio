@@ -8,6 +8,38 @@ GetPrio is a service marketplace where scheduled service requests and same-day q
 A customer's scheduled request for a vendor service at a selected future time. A booking reserves service intent and schedule, but it is not part of the live same-day queue until check-in.
 _Avoid_: Appointment, reservation, queue ticket
 
+**Group-Funded Booking**:
+A booking flow where one organizer invites multiple contributors to fund a single scheduled service request or Service Bundle. It is a category-agnostic capability that can apply to any eligible GetPrio service rather than to a single vertical such as sports. Before the funding target is reached, it behaves as a funding-stage booking attempt rather than as a normal capacity-holding booking. Once fully funded and vendor-approved, it becomes a normal confirmed booking.
+_Avoid_: Crowdfunding campaign, pooled queue ticket, shared wallet booking
+
+**Service Bundle**:
+A fixed resource or service package made from active, group-funded-enabled branch services at one vendor branch, delivered during one shared visit and scheduled as one group-funded booking. The group collectively funds the whole package, such as eight people renting VIP Court and Court 1 at the same time, rather than each contributor receiving an individually assigned service. Its immutable bundle total is the sum of its selected branch-service prices, split into equal fixed contributor shares using the campaign rounding rule; it has one organizer, contributor pool, vendor-review decision, capacity hold, and linked normal booking.
+_Avoid_: Multiple bookings, service cart, independent service requests
+
+**Bundle Execution Mode**:
+The vendor-configured scheduling pattern for a Service Bundle. A parallel bundle starts selected services at one shared visit start and reserves each service's own capacity interval, so the visit ends after the longest selected service. A sequential bundle reserves the selected services back-to-back and uses their summed duration as the visit length.
+_Avoid_: Service category rule, global bundle policy, customer-selected overlap
+
+**Booking Organizer**:
+The customer who starts and controls a group-funded booking. The organizer owns the booking details, is the main vendor-facing contact, and may cancel the funding-stage booking before the funding target is reached.
+_Avoid_: Host account, booking owner group, co-admin participant
+
+**Booking Contributor**:
+A participant who joins a group-funded booking by paying the required contribution toward the funding target. A contributor helps fund the booking but does not control the booking lifecycle like the organizer does.
+_Avoid_: Co-owner, unpaid joiner, booking admin
+
+**Group-Funded Contribution**:
+A payment share represented by a booking contributor's submitted proof toward a group-funded booking's target amount. A submitted contribution temporarily reserves one contributor position; only a vendor-verified contribution counts toward the funding target. Contribution evidence and refund state belong to the contribution rather than to the normal booking payment proof fields.
+_Avoid_: Booking payment proof, checkout line item, participant balance
+
+**Contributor Reservation**:
+A temporary claim on one required contributor position created when a contributor submits payment proof. It prevents additional contributors from submitting once all positions are claimed, does not count as verified funding, and ends when the vendor rejects the proof or the campaign reaches its funding deadline.
+_Avoid_: Booking capacity hold, verified contribution, waitlist entry
+
+**Group-Funded Refund**:
+A vendor-side manual refund obligation linked to a group-funded contribution. GetPrio tracks the refund reason, status, vendor action, notes, and evidence, but the vendor performs the actual money return outside the platform in v1.
+_Avoid_: Automatic gateway refund, chargeback, platform payout reversal
+
 **Booking Slot**:
 A customer-selectable time option computed from vendor availability, date exceptions, service duration, requested booking quantity, slot capacity, and existing bookings. Booking slots use the full requested duration as the customer-facing start interval, so a 60-minute service booked for two units advances in two-hour starts. Slots are not stored as standalone schedule records in the MVP.
 _Avoid_: Appointment slot, time record, calendar event

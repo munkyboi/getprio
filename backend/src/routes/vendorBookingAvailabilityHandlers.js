@@ -36,6 +36,9 @@ function formatVendorBooking(booking) {
     notes: booking.notes,
     paymentReference: booking.paymentReference,
     paymentStatus: booking.paymentStatus,
+    groupFundedBookingId: booking.groupFundedBookingId,
+    bookingPaymentSource: booking.bookingPaymentSource,
+    groupFundedCampaign: booking.groupFundedCampaign,
     paymentProof: booking.paymentProofObjectKey
       ? {
           fileName: booking.paymentProofFileName,
@@ -152,7 +155,8 @@ async function getOptionalServiceForTenant(tenant, serviceSlug, vendorServiceRep
 
 async function normalizeAvailabilityBlockPayload(tenant, body, existingBlock, vendorServiceRepository, getTenantLocation = getLocationForTenant) {
   const location = body.locationSlug ? await getTenantLocation(tenant, body.locationSlug) : null;
-  const service = Object.prototype.hasOwnProperty.call(body, "serviceSlug")
+  const hasServiceSlug = Object.prototype.hasOwnProperty.call(body, "serviceSlug");
+  const service = hasServiceSlug
     ? await getOptionalServiceForTenant(tenant, body.serviceSlug, vendorServiceRepository)
     : null;
   const startsAt = Object.prototype.hasOwnProperty.call(body, "startsAt") ? String(body.startsAt || "") : existingBlock?.startsAt;
@@ -172,7 +176,7 @@ async function normalizeAvailabilityBlockPayload(tenant, body, existingBlock, ve
   }
   return {
     locationId: location?._id || existingBlock.locationId,
-    serviceId: service?._id || existingBlock?.serviceId || null,
+    serviceId: hasServiceSlug ? service?._id || null : existingBlock?.serviceId || null,
     weekday,
     startsAt,
     endsAt,
@@ -184,7 +188,8 @@ async function normalizeAvailabilityBlockPayload(tenant, body, existingBlock, ve
 
 async function normalizeAvailabilityExceptionPayload(tenant, body, existingException, vendorServiceRepository, getTenantLocation = getLocationForTenant) {
   const location = body.locationSlug ? await getTenantLocation(tenant, body.locationSlug) : null;
-  const service = Object.prototype.hasOwnProperty.call(body, "serviceSlug")
+  const hasServiceSlug = Object.prototype.hasOwnProperty.call(body, "serviceSlug");
+  const service = hasServiceSlug
     ? await getOptionalServiceForTenant(tenant, body.serviceSlug, vendorServiceRepository)
     : null;
   const exceptionDate = Object.prototype.hasOwnProperty.call(body, "exceptionDate")
@@ -208,7 +213,7 @@ async function normalizeAvailabilityExceptionPayload(tenant, body, existingExcep
   }
   return {
     locationId: location?._id || existingException.locationId,
-    serviceId: service?._id || existingException?.serviceId || null,
+    serviceId: hasServiceSlug ? service?._id || null : existingException?.serviceId || null,
     exceptionDate,
     startsAt,
     endsAt,
@@ -322,8 +327,8 @@ async function handleDeleteAvailabilityBlock({ req, res, getAuthorizedTenant, as
   assertTenantPermission(req.user, tenant._id, "tenant.availability.manage");
   const block = await vendorAvailabilityRepository.findBlockByTenantAndId(tenant._id, req.params.blockId);
   if (!block) { const error = new Error("Availability block not found."); error.statusCode = 404; throw error; }
-  const updatedBlock = await vendorAvailabilityRepository.updateBlock(block._id, { isActive: false });
-  res.json({ block: formatAvailabilityBlock(updatedBlock) });
+  await vendorAvailabilityRepository.deleteBlock(block._id);
+  res.json({ block: formatAvailabilityBlock(block) });
 }
 
 async function handleCreateAvailabilityException({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, vendorAvailabilityRepository, vendorServiceRepository }) {

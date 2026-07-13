@@ -3,10 +3,15 @@ import type {
   CustomerAccountHistoryResponse,
   CustomerAccountOverviewResponse,
   CustomerBookingsResponse,
+  CreateGroupFundedCampaignRequest,
+  GroupFundedCampaignResponse,
+  GroupFundedCampaignsResponse,
   CustomerNotificationSettings,
   CustomerProfileUpdateRequest,
   CustomerProfileUpdateResponse,
   PasswordChangeRequest,
+  SubmitGroupFundedContributionProofRequest,
+  UpdateGroupFundedCampaignRequest,
   UpdateCustomerNotificationSettingsRequest,
   UpdateCustomerNotificationSettingsResponse
 } from "@shared";
@@ -70,6 +75,56 @@ export const customerAccountApi = {
       token,
       body
     });
+  },
+  getGroupFundedCampaigns(token: string) {
+    return apiRequest<GroupFundedCampaignsResponse>("/account/group-funded-campaigns", { token });
+  },
+  createGroupFundedCampaign(token: string, body: CreateGroupFundedCampaignRequest) {
+    return apiRequest<GroupFundedCampaignResponse, CreateGroupFundedCampaignRequest>("/account/group-funded-campaigns", {
+      method: "POST",
+      token,
+      body
+    });
+  },
+  getGroupFundedCampaignSelf(token: string, campaignIdOrToken: string) {
+    return apiRequest<GroupFundedCampaignResponse>(
+      `/account/group-funded-campaigns/${encodeURIComponent(campaignIdOrToken)}/self`,
+      { token }
+    );
+  },
+  submitGroupFundedContributionProof(
+    token: string,
+    campaignIdOrToken: string,
+    body: SubmitGroupFundedContributionProofRequest
+  ) {
+    return apiRequest<GroupFundedCampaignResponse, SubmitGroupFundedContributionProofRequest>(
+      `/account/group-funded-campaigns/${encodeURIComponent(campaignIdOrToken)}/contributions/payment-proof`,
+      { method: "POST", token, body }
+    );
+  },
+  cancelGroupFundedCampaign(token: string, campaignIdOrToken: string, body: { reason?: string }) {
+    return apiRequest<GroupFundedCampaignResponse, { reason?: string }>(
+      `/account/group-funded-campaigns/${encodeURIComponent(campaignIdOrToken)}/cancel`,
+      { method: "PATCH", token, body }
+    );
+  },
+  updateGroupFundedCampaign(token: string, campaignIdOrToken: string, body: UpdateGroupFundedCampaignRequest) {
+    return apiRequest<GroupFundedCampaignResponse, UpdateGroupFundedCampaignRequest>(
+      `/account/group-funded-campaigns/${encodeURIComponent(campaignIdOrToken)}/details`,
+      { method: "PATCH", token, body }
+    );
+  },
+  acceptGroupFundedReplacementSlot(token: string, campaignIdOrToken: string) {
+    return apiRequest<GroupFundedCampaignResponse>(
+      `/account/group-funded-campaigns/${encodeURIComponent(campaignIdOrToken)}/replacement-slot/accept`,
+      { method: "PATCH", token }
+    );
+  },
+  declineGroupFundedReplacementSlot(token: string, campaignIdOrToken: string, body: { reason?: string }) {
+    return apiRequest<GroupFundedCampaignResponse, { reason?: string }>(
+      `/account/group-funded-campaigns/${encodeURIComponent(campaignIdOrToken)}/replacement-slot/decline`,
+      { method: "PATCH", token, body }
+    );
   },
   claimTicket(token: string, lookupCode: string) {
     return apiRequest<{ success: boolean }>(`/account/tickets/${encodeURIComponent(lookupCode)}/claim`, {

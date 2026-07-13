@@ -43,8 +43,24 @@ const BOOKING_COLUMNS = `
   bookings.no_show_by_user_id,
   bookings.check_in_window_notified_at,
   bookings.check_in_closing_notified_at,
+  bookings.group_funded_booking_id,
+  bookings.booking_payment_source,
   bookings.created_at,
   bookings.updated_at,
+  group_funded_bookings.public_token AS group_funded_public_token,
+  COALESCE(NULLIF(group_funded_organizer.display_name, ''), group_funded_bookings.organizer_display_name) AS group_funded_organizer_display_name,
+  group_funded_bookings.campaign_status AS group_funded_campaign_status,
+  group_funded_bookings.visibility AS group_funded_visibility,
+  group_funded_bookings.campaign_title AS group_funded_campaign_title,
+  group_funded_bookings.description AS group_funded_description,
+  group_funded_bookings.funding_deadline_at AS group_funded_funding_deadline_at,
+  group_funded_bookings.target_amount_cents AS group_funded_target_amount_cents,
+  group_funded_bookings.required_contribution_amount_cents AS group_funded_required_contribution_amount_cents,
+  group_funded_bookings.required_contributors AS group_funded_required_contributors,
+  group_funded_bookings.paid_participant_count AS group_funded_paid_participant_count,
+  group_funded_bookings.funded_amount_cents AS group_funded_funded_amount_cents,
+  group_funded_bookings.funded_at AS group_funded_funded_at,
+  group_funded_bookings.confirmed_at AS group_funded_confirmed_at,
   tenants.name AS tenant_name,
   tenants.slug AS tenant_slug,
   store_locations.name AS location_name,
@@ -136,6 +152,28 @@ function mapBooking(row) {
     noShowByUserId: row.no_show_by_user_id ? String(row.no_show_by_user_id) : null,
     checkInWindowNotifiedAt: row.check_in_window_notified_at || null,
     checkInClosingNotifiedAt: row.check_in_closing_notified_at || null,
+    groupFundedBookingId: row.group_funded_booking_id ? String(row.group_funded_booking_id) : null,
+    bookingPaymentSource: row.booking_payment_source || "standard",
+    groupFundedCampaign: row.group_funded_public_token
+      ? {
+          id: row.group_funded_booking_id ? String(row.group_funded_booking_id) : null,
+          publicToken: row.group_funded_public_token,
+          organizerDisplayName: row.group_funded_organizer_display_name || "",
+          campaignStatus: row.group_funded_campaign_status,
+          visibility: row.group_funded_visibility,
+          campaignTitle: row.group_funded_campaign_title || row.service_name || "",
+          description: row.group_funded_description || "",
+          fundingDeadlineAt: row.group_funded_funding_deadline_at,
+          currency: row.service_currency || "PHP",
+          targetAmountCents: Number(row.group_funded_target_amount_cents || 0),
+          requiredContributionAmountCents: Number(row.group_funded_required_contribution_amount_cents || 0),
+          requiredContributors: Number(row.group_funded_required_contributors || 0),
+          paidParticipantCount: Number(row.group_funded_paid_participant_count || 0),
+          fundedAmountCents: Number(row.group_funded_funded_amount_cents || 0),
+          fundedAt: row.group_funded_funded_at || null,
+          confirmedAt: row.group_funded_confirmed_at || null
+        }
+      : null,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -212,6 +250,77 @@ async function createBooking(data, options = {}) {
   return null;
 }
 
+async function createGroupFundedBooking(data, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      const result = await queryClient.query(
+        `
+          INSERT INTO bookings (
+            reference,
+            tenant_id,
+            location_id,
+            service_id,
+            customer_user_id,
+            customer_name,
+            customer_email,
+            customer_phone,
+            booking_quantity,
+            scheduled_start_at,
+            scheduled_end_at,
+            status,
+            notes,
+            payment_reference,
+            payment_status,
+            payment_verified_at,
+            payment_verified_by_user_id,
+            pending_expires_at,
+            notify_by_email,
+            notify_by_sms,
+            contact_verified_at,
+            contact_verification_channel,
+            group_funded_booking_id,
+            booking_payment_source
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'confirmed', $12, $13, 'paid', $14, $15, NULL, $16, $17, $18, $19, $20, 'group_funded')
+          RETURNING *
+        `,
+        [
+          generateBookingReference(),
+          Number(data.tenantId),
+          Number(data.locationId),
+          Number(data.serviceId),
+          data.customerUserId ? Number(data.customerUserId) : null,
+          data.customerName,
+          data.customerEmail || null,
+          data.customerPhone || null,
+          Number(data.bookingQuantity || 1),
+          data.scheduledStartAt,
+          data.scheduledEndAt,
+          data.notes || null,
+          data.paymentReference || null,
+          data.paymentVerifiedAt || new Date().toISOString(),
+          data.paymentVerifiedByUserId ? Number(data.paymentVerifiedByUserId) : null,
+          data.notifyByEmail !== false,
+          Boolean(data.notifyBySms),
+          data.contactVerifiedAt || null,
+          data.contactVerificationChannel || null,
+          Number(data.groupFundedBookingId)
+        ]
+      );
+
+      return findBookingById(result.rows[0].id, { client: queryClient });
+    } catch (error) {
+      if (error.code !== "23505" || attempt === 4) {
+        throw error;
+      }
+    }
+  }
+
+  return null;
+}
+
 async function findBookingById(id, options = {}) {
   const result = await buildQueryClient(options.client).query(
     `
@@ -220,6 +329,8 @@ async function findBookingById(id, options = {}) {
       INNER JOIN tenants ON tenants.id = bookings.tenant_id
       INNER JOIN store_locations ON store_locations.id = bookings.location_id
       INNER JOIN vendor_services ON vendor_services.id = bookings.service_id
+      LEFT JOIN group_funded_bookings ON group_funded_bookings.id = bookings.group_funded_booking_id
+      LEFT JOIN users group_funded_organizer ON group_funded_organizer.id = group_funded_bookings.organizer_user_id
       LEFT JOIN tickets ON tickets.id = bookings.queue_ticket_id
       WHERE bookings.id = $1
       LIMIT 1
@@ -238,6 +349,8 @@ async function findBookingByIdForUpdate(id, options = {}) {
       INNER JOIN tenants ON tenants.id = bookings.tenant_id
       INNER JOIN store_locations ON store_locations.id = bookings.location_id
       INNER JOIN vendor_services ON vendor_services.id = bookings.service_id
+      LEFT JOIN group_funded_bookings ON group_funded_bookings.id = bookings.group_funded_booking_id
+      LEFT JOIN users group_funded_organizer ON group_funded_organizer.id = group_funded_bookings.organizer_user_id
       LEFT JOIN tickets ON tickets.id = bookings.queue_ticket_id
       WHERE bookings.id = $1
       FOR UPDATE OF bookings
@@ -306,6 +419,8 @@ async function listBookingsForCustomer(userId, options = {}) {
         INNER JOIN tenants ON tenants.id = bookings.tenant_id
         INNER JOIN store_locations ON store_locations.id = bookings.location_id
         INNER JOIN vendor_services ON vendor_services.id = bookings.service_id
+        LEFT JOIN group_funded_bookings ON group_funded_bookings.id = bookings.group_funded_booking_id
+        LEFT JOIN users group_funded_organizer ON group_funded_organizer.id = group_funded_bookings.organizer_user_id
         LEFT JOIN tickets ON tickets.id = bookings.queue_ticket_id
         WHERE ${whereClause}
         ORDER BY bookings.scheduled_start_at ASC, bookings.created_at ASC
@@ -328,6 +443,8 @@ async function listBookingsForCustomer(userId, options = {}) {
       INNER JOIN tenants ON tenants.id = bookings.tenant_id
       INNER JOIN store_locations ON store_locations.id = bookings.location_id
       INNER JOIN vendor_services ON vendor_services.id = bookings.service_id
+      LEFT JOIN group_funded_bookings ON group_funded_bookings.id = bookings.group_funded_booking_id
+      LEFT JOIN users group_funded_organizer ON group_funded_organizer.id = group_funded_bookings.organizer_user_id
       LEFT JOIN tickets ON tickets.id = bookings.queue_ticket_id
       WHERE bookings.customer_user_id = $1
       ORDER BY bookings.scheduled_start_at ASC, bookings.created_at ASC
@@ -421,6 +538,8 @@ async function listBookingsForTenant(tenantId, options = {}) {
     INNER JOIN tenants ON tenants.id = bookings.tenant_id
     INNER JOIN store_locations ON store_locations.id = bookings.location_id
     INNER JOIN vendor_services ON vendor_services.id = bookings.service_id
+    LEFT JOIN group_funded_bookings ON group_funded_bookings.id = bookings.group_funded_booking_id
+    LEFT JOIN users group_funded_organizer ON group_funded_organizer.id = group_funded_bookings.organizer_user_id
     LEFT JOIN tickets ON tickets.id = bookings.queue_ticket_id
     WHERE ${whereClause}
     ORDER BY
@@ -564,6 +683,8 @@ async function listBookingsForCheckInReminder(options = {}) {
       INNER JOIN tenants ON tenants.id = bookings.tenant_id
       INNER JOIN store_locations ON store_locations.id = bookings.location_id
       INNER JOIN vendor_services ON vendor_services.id = bookings.service_id
+      LEFT JOIN group_funded_bookings ON group_funded_bookings.id = bookings.group_funded_booking_id
+      LEFT JOIN users group_funded_organizer ON group_funded_organizer.id = group_funded_bookings.organizer_user_id
       LEFT JOIN tickets ON tickets.id = bookings.queue_ticket_id
       WHERE ${filters.join(" AND ")}
       ORDER BY bookings.scheduled_start_at ASC
@@ -666,6 +787,7 @@ async function expirePendingBookings(options = {}) {
 
 module.exports = {
   createBooking,
+  createGroupFundedBooking,
   findBookingById,
   findBookingByIdForUpdate,
   listBookingsForCustomer,

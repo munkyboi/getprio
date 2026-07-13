@@ -172,6 +172,7 @@ test("permissions map keeps current owner, staff, and platform-admin boundaries"
   assert.equal(permissions.userHasPermission(staffUser, "tenant.service.manage", { tenantId: "tenant-1" }), false);
   assert.equal(permissions.userHasPermission(staffUser, "tenant.availability.manage", { tenantId: "tenant-1" }), false);
   assert.equal(permissions.userHasPermission(staffUser, "tenant.booking.manage", { tenantId: "tenant-1" }), false);
+  assert.equal(permissions.userHasPermission(staffUser, "tenant.booking.manage", { tenantId: "tenant-2" }), false);
   assert.equal(permissions.userHasPermission(adminUser, "tenant.settings.manage", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(adminUser, "tenant.settings.manage_contact", { tenantId: "tenant-1" }), false);
   assert.equal(permissions.userHasPermission(adminUser, "tenant.staff.manage", { tenantId: "tenant-1" }), true);
@@ -179,14 +180,17 @@ test("permissions map keeps current owner, staff, and platform-admin boundaries"
   assert.equal(permissions.userHasPermission(adminUser, "tenant.service.manage", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(adminUser, "tenant.availability.manage", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(adminUser, "tenant.booking.manage", { tenantId: "tenant-1" }), true);
+  assert.equal(permissions.userHasPermission(adminUser, "tenant.booking.manage", { tenantId: "tenant-2" }), false);
   assert.equal(permissions.userHasPermission(ownerUser, "tenant.settings.manage", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(ownerUser, "tenant.settings.manage_contact", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(ownerUser, "tenant.billing.manage", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(ownerUser, "tenant.service.manage", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(ownerUser, "tenant.availability.manage", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(ownerUser, "tenant.booking.manage", { tenantId: "tenant-1" }), true);
+  assert.equal(permissions.userHasPermission(ownerUser, "tenant.booking.manage", { tenantId: "tenant-2" }), false);
   assert.equal(permissions.userHasPermission(platformAdmin, "platform.users.read"), true);
   assert.equal(permissions.userHasPermission(platformAdmin, "platform.plans.manage"), true);
+  assert.equal(permissions.userHasPermission(platformAdmin, "tenant.booking.manage", { tenantId: "tenant-1" }), false);
 });
 
 test("vendor location payment QR settings are private vendor-managed configuration", async () => {

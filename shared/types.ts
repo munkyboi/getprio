@@ -132,6 +132,7 @@ export interface TenantMembershipSummary {
 export interface UserSummary {
   id: string;
   name: string;
+  displayName: string;
   username: string | null;
   email: string | null;
   phone: string | null;
@@ -269,8 +270,21 @@ export interface LocationServiceSummary {
   sortOrder: number;
   priceAmountCents: number | null;
   priceDisplay: string | null;
+  groupFunded?: GroupFundedLocationServiceSettings;
   createdAt: string | Date;
   updatedAt: string | Date;
+}
+
+export interface GroupFundedLocationServiceSettings {
+  enabled: boolean;
+  minRequiredContributors: number | null;
+  maxRequiredContributors: number | null;
+  defaultRequiredContributors: number | null;
+  minContributionAmountCents: number | null;
+  maxContributionAmountCents: number | null;
+  minDeadlineHours: number | null;
+  maxDeadlineDays: number | null;
+  allowPublicCampaigns: boolean;
 }
 
 export interface VendorServicesResponse {
@@ -298,6 +312,7 @@ export interface SaveVendorServiceRequest {
     sortOrder?: number;
     priceAmountCents?: number | null;
     priceDisplay?: string | null;
+    groupFunded?: GroupFundedLocationServiceSettings;
   }>;
 }
 
@@ -410,6 +425,40 @@ export interface BookingManualPaymentDestination {
   unitPriceDisplay: string;
 }
 
+export type BookingPaymentSource = "standard" | "group_funded";
+
+export interface BookingGroupFundedCampaignSummary {
+  id: string | null;
+  publicToken: string;
+  organizerDisplayName: string;
+  campaignStatus: GroupFundedCampaignStatus;
+  visibility: "private_link" | "public";
+  campaignTitle: string;
+  description: string;
+  fundingDeadlineAt: string | Date;
+  currency: "PHP";
+  targetAmountCents: number;
+  requiredContributionAmountCents: number;
+  requiredContributors: number;
+  paidParticipantCount: number;
+  fundedAmountCents: number;
+  fundedAt: string | Date | null;
+  confirmedAt: string | Date | null;
+  bundleItems?: GroupFundedBundleItemSummary[];
+  contributions?: Array<{
+    id: string;
+    contributorDisplayName: string;
+    amountCents: number;
+    currency: "PHP";
+    contributionStatus: GroupFundedContributionStatus;
+    submittedAt: string | Date | null;
+    verifiedAt: string | Date | null;
+    rejectedAt: string | Date | null;
+    rejectionReason: string;
+    refundStatus: GroupFundedRefundStatus | null;
+  }>;
+}
+
 export interface CustomerBookingSummary {
   id: string;
   reference: string;
@@ -433,6 +482,9 @@ export interface CustomerBookingSummary {
   notes: string;
   paymentReference: string;
   paymentStatus: BookingPaymentStatus;
+  groupFundedBookingId: string | null;
+  bookingPaymentSource: BookingPaymentSource;
+  groupFundedCampaign: BookingGroupFundedCampaignSummary | null;
   manualPaymentDestination: BookingManualPaymentDestination | null;
   paymentProof: BookingPaymentProofSummary | null;
   paymentVerifiedAt: string | Date | null;
@@ -571,6 +623,280 @@ export interface SubmitBookingPaymentProofRequest {
   fileName: string;
   contentType: string;
   sizeBytes: number;
+}
+
+export type GroupFundedCampaignStatus =
+  | "draft"
+  | "funding"
+  | "organizer_canceled"
+  | "funding_failed"
+  | "funded"
+  | "slot_recovery"
+  | "vendor_review"
+  | "replacement_proposed"
+  | "vendor_approved"
+  | "vendor_rejected"
+  | "vendor_review_expired"
+  | "confirmed"
+  | "vendor_canceled"
+  | "policy_review_required";
+
+export type GroupFundedContributionStatus =
+  | "pending_proof"
+  | "submitted"
+  | "verified"
+  | "rejected"
+  | "refund_pending"
+  | "refunded"
+  | "policy_review_required";
+
+export type GroupFundedRefundStatus = "pending" | "in_progress" | "completed" | "rejected" | "policy_review_required";
+
+export interface GroupFundedBundleItemSummary {
+  id: string | null;
+  serviceId: string;
+  serviceName: string;
+  serviceSlug: string;
+  bookingQuantity: number;
+  priceAmountCents: number;
+  currency: "PHP";
+  executionMode: "parallel" | "sequential";
+  scheduledStartAt: string | Date;
+  scheduledEndAt: string | Date;
+  sortOrder: number;
+}
+
+export interface GroupFundedCampaignSummary {
+  id: string;
+  publicToken: string;
+  tenantId: string;
+  tenantSlug?: string | null;
+  vendorName?: string;
+  locationId: string;
+  serviceId: string;
+  isOrganizer?: boolean;
+  campaignStatus: GroupFundedCampaignStatus;
+  visibility: "private_link" | "public";
+  organizerDisplayName: string;
+  campaignTitle: string;
+  description: string;
+  serviceName: string;
+  serviceSlug: string;
+  bundleItems?: GroupFundedBundleItemSummary[];
+  locationName: string;
+  locationSlug: string;
+  bookingQuantity: number;
+  scheduledStartAt: string | Date;
+  scheduledEndAt: string | Date;
+  fundingDeadlineAt: string | Date;
+  currency: "PHP";
+  targetAmountCents: number;
+  requiredContributionAmountCents: number;
+  roundingAdjustmentCents: number;
+  requiredContributors: number;
+  paidParticipantCount: number;
+  fundedAmountCents: number;
+  fundedAt: string | Date | null;
+  contributorReservationSummary?: {
+    verifiedContributorCount: number;
+    pendingVerificationContributorCount: number;
+    vacantContributorCount: number;
+    filledContributorCount: number;
+  } | null;
+  linkedBookingId: string | null;
+  paymentDestination?: {
+    methodLabel: string;
+    accountDisplayName: string;
+    accountIdentifierDisplay: string;
+    qrImageUrl: string;
+  } | null;
+  refundSummary?: {
+    totalCount: number;
+    completedCount: number;
+    eligibleContributionCount: number;
+  } | null;
+  replacementSlot?: {
+    scheduledStartAt: string | Date;
+    scheduledEndAt: string | Date;
+    proposedAt: string | Date | null;
+    note: string;
+  } | null;
+  createdAt: string | Date;
+  updatedAt: string | Date;
+}
+
+export interface GroupFundedContributionSummary {
+  id: string;
+  amountCents: number;
+  currency: "PHP";
+  contributionStatus: GroupFundedContributionStatus;
+  paymentReference: string;
+  paymentProof: BookingPaymentProofSummary | null;
+  submittedAt: string | Date | null;
+  verifiedAt: string | Date | null;
+  rejectedAt: string | Date | null;
+  rejectionReason: string;
+  refundStatus: GroupFundedRefundStatus | null;
+}
+
+export interface GroupFundedRefundSummary {
+  id: string;
+  contributionId: string;
+  amountCents: number;
+  currency: "PHP";
+  refundReason: string;
+  refundStatus: GroupFundedRefundStatus;
+  completedAt: string | Date | null;
+  createdAt: string | Date;
+}
+
+export interface GroupFundedCampaignResponse {
+  campaign: GroupFundedCampaignSummary & {
+    contribution?: GroupFundedContributionSummary | null;
+    refunds?: GroupFundedRefundSummary[];
+  };
+}
+
+export interface GroupFundedCampaignsResponse {
+  campaigns: Array<GroupFundedCampaignSummary & {
+    contribution?: GroupFundedContributionSummary | null;
+  }>;
+  pagination?: PaginationMetadata;
+}
+
+export type GroupFundedVendorAlertEventType =
+  | "campaign_created"
+  | "contribution_submitted"
+  | "funding_completed"
+  | "capacity_hold_created"
+  | "replacement_slot_accepted"
+  | "replacement_slot_declined"
+  | "vendor_rejected"
+  | "vendor_approved"
+  | "funding_deadline_expired"
+  | "vendor_review_expired";
+
+export interface GroupFundedVendorAlertEvent {
+  id: string;
+  campaignId: string;
+  eventType: GroupFundedVendorAlertEventType;
+  actorRole: string;
+  source: string;
+  metadata: Record<string, unknown>;
+  createdAt: string | Date;
+  campaign: GroupFundedCampaignSummary;
+}
+
+export interface GroupFundedVendorAlertEventsResponse {
+  events: GroupFundedVendorAlertEvent[];
+}
+
+export interface VendorGroupFundedContributionSummary extends GroupFundedContributionSummary {
+  campaignId: string;
+  userId: string;
+  participantDisplayName: string;
+  verifiedByUserId: string | null;
+  rejectedByUserId: string | null;
+}
+
+export interface VendorGroupFundedRefundSummary extends GroupFundedRefundSummary {
+  campaignId: string;
+  userId: string;
+  notes: string;
+  updatedAt: string | Date;
+}
+
+export interface VendorGroupFundedCapacityHoldSummary {
+  id: string;
+  campaignId: string;
+  holdStatus: string;
+  scheduledStartAt: string | Date;
+  scheduledEndAt: string | Date;
+  expiresAt: string | Date;
+  releasedAt: string | Date | null;
+  convertedBookingId: string | null;
+}
+
+export interface VendorGroupFundedCampaignDetailResponse {
+  campaign: GroupFundedCampaignSummary & {
+    vendorReviewStartedAt?: string | Date | null;
+    vendorReviewExpiresAt?: string | Date | null;
+    confirmedAt?: string | Date | null;
+    canceledAt?: string | Date | null;
+    cancellationReason?: string;
+  };
+  contributions: VendorGroupFundedContributionSummary[];
+  refunds: VendorGroupFundedRefundSummary[];
+  capacityHolds: VendorGroupFundedCapacityHoldSummary[];
+}
+
+export interface VendorGroupFundedContributionMutationResponse {
+  campaign: Partial<GroupFundedCampaignSummary> & {
+    id: string;
+    campaignStatus: GroupFundedCampaignStatus;
+  };
+  contribution: VendorGroupFundedContributionSummary;
+  refund?: VendorGroupFundedRefundSummary;
+}
+
+export interface VendorGroupFundedCampaignMutationResponse {
+  campaign: GroupFundedCampaignSummary;
+  refunds?: VendorGroupFundedRefundSummary[];
+  booking?: VendorBookingSummary;
+}
+
+export interface VendorGroupFundedRefundMutationResponse {
+  campaign: GroupFundedCampaignSummary;
+  refund: VendorGroupFundedRefundSummary;
+}
+
+export interface RejectVendorGroupFundedContributionRequest {
+  reason: string;
+  refundDisposition?: "not_required" | "required";
+}
+
+export interface RejectVendorGroupFundedCampaignRequest {
+  reason: string;
+}
+
+export interface UpdateVendorGroupFundedRefundRequest {
+  refundStatus: Extract<GroupFundedRefundStatus, "in_progress" | "completed" | "policy_review_required">;
+  notes?: string;
+  evidenceObjectKey?: string;
+  evidenceFileName?: string;
+  evidenceContentType?: string;
+  evidenceSizeBytes?: number;
+}
+
+export interface CreateGroupFundedCampaignRequest {
+  tenantSlug: string;
+  locationSlug: string;
+  serviceSlug: string;
+  scheduledStartAt: string;
+  bookingQuantity?: number;
+  bundleItems?: Array<{
+    serviceSlug: string;
+    bookingQuantity?: number;
+  }>;
+  requiredContributors: number;
+  fundingDeadlineAt: string;
+  visibility: "private_link" | "public";
+  campaignTitle?: string;
+  description?: string;
+}
+
+export interface SubmitGroupFundedContributionProofRequest {
+  paymentReference: string;
+  paymentProofObjectKey: string;
+  paymentProofFileName: string;
+  paymentProofContentType: string;
+  paymentProofSizeBytes: number;
+}
+
+export interface UpdateGroupFundedCampaignRequest {
+  campaignTitle: string;
+  description: string;
+  visibility: "private_link" | "public";
 }
 
 export interface BookingPaymentProofAccessResponse {
@@ -958,6 +1284,9 @@ export interface PublicVendorService {
   currency: "PHP";
   priceDisplay: string;
   imageUrl?: string;
+  locationServiceId?: string;
+  capacity?: number;
+  groupFunded?: GroupFundedLocationServiceSettings;
 }
 
 export interface PublicVendorProfile {
@@ -1260,6 +1589,7 @@ export interface CustomerAccountOverviewResponse {
   user: {
     id: string;
     name: string;
+    displayName: string;
     username: string | null;
     email: string | null;
     phone: string | null;
@@ -1273,6 +1603,7 @@ export interface CustomerAccountOverviewResponse {
 
 export interface CustomerProfileUpdateRequest {
   name: string;
+  displayName?: string;
 }
 
 export interface CustomerProfileUpdateResponse extends AuthActionResponse {

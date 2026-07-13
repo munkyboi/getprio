@@ -36,6 +36,89 @@ test("vendor service handler lists and creates services", async () => {
   assert.equal(createResponse.body.service.name, "Consultation");
 });
 
+test("vendor service handler persists group-funded branch settings", async () => {
+  const storeLocationRepository = require("../src/repositories/storeLocations");
+  const originalFindLocationByTenantAndSlug = storeLocationRepository.findLocationByTenantAndSlug;
+  const upserts = [];
+  try {
+    storeLocationRepository.findLocationByTenantAndSlug = async (_tenantId, slug) => ({
+      _id: slug === "main-location" ? 11 : 12,
+      slug
+    });
+
+    const response = {
+      statusCode: null,
+      body: null,
+      status(code) {
+        this.statusCode = code;
+        return this;
+      },
+      json(payload) {
+        this.body = payload;
+      }
+    };
+
+    await handleCreateService({
+      req: {
+        user: {},
+        params: { tenantSlug: "tenant" },
+        body: {
+          name: "VIP Court",
+          durationMinutes: 60,
+          priceAmountCents: 50000,
+          locationServices: [
+            {
+              locationSlug: "main-location",
+              capacity: 1,
+              isActive: true,
+              groupFunded: {
+                enabled: true,
+                minRequiredContributors: 2,
+                maxRequiredContributors: 8,
+                defaultRequiredContributors: 4,
+                minContributionAmountCents: 10000,
+                maxContributionAmountCents: 30000,
+                minDeadlineHours: 24,
+                maxDeadlineDays: 7,
+                allowPublicCampaigns: true
+              }
+            }
+          ]
+        }
+      },
+      res: response,
+      getAuthorizedTenant: async () => ({ _id: 1 }),
+      assertTenantPermission: () => {},
+      vendorServiceRepository: {
+        createService: async (payload) => ({ _id: 8, slug: "vip-court", ...payload })
+      },
+      locationServiceRepository: {
+        upsertLocationService: async (payload) => {
+          upserts.push(payload);
+          return payload;
+        }
+      }
+    });
+
+    assert.equal(response.statusCode, 201);
+    assert.equal(upserts.length, 1);
+    assert.equal(upserts[0].serviceId, 8);
+    assert.deepEqual(upserts[0].groupFunded, {
+      enabled: true,
+      minRequiredContributors: 2,
+      maxRequiredContributors: 8,
+      defaultRequiredContributors: 4,
+      minContributionAmountCents: 10000,
+      maxContributionAmountCents: 30000,
+      minDeadlineHours: 24,
+      maxDeadlineDays: 7,
+      allowPublicCampaigns: true
+    });
+  } finally {
+    storeLocationRepository.findLocationByTenantAndSlug = originalFindLocationByTenantAndSlug;
+  }
+});
+
 test("vendor service handler deletes services through injected repository", async () => {
   const response = { body: null, json(payload) { this.body = payload; } };
   await handleDeleteService({
