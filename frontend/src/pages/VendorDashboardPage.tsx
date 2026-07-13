@@ -102,6 +102,7 @@ import type {
   UpdateVendorBookingStatusRequest,
   PaginationMetadata,
   GroupFundedLocationServiceSettings,
+  GroupFundedBundleItemSummary,
   GroupFundedCampaignSummary,
   GroupFundedVendorAlertEvent,
   VendorGroupFundedContributionSummary,
@@ -133,6 +134,12 @@ import { getErrorMessage } from "../utils/errors";
 import { isBrowserPushSupported, subscribeToBrowserPush } from "../utils/pushNotifications";
 import { checkServiceSlugAvailability } from "../api/vendorDashboardCatalog";
 import { checkCounterSlugAvailability } from "../api/vendorDashboardOperations";
+
+type RawGroupFundedBundleItem = GroupFundedBundleItemSummary & {
+  _id?: string | null;
+  serviceNameSnapshot?: string;
+  serviceSlugSnapshot?: string;
+};
 
 const dashboardSections = new Set(["queue", "tenants", "services", "bookings", "group-funded", "staff", "clients", "history", "reports", "settings"]);
 const SERVICE_TREND_USER_LIMIT = 30;
@@ -7269,6 +7276,41 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       ["funding", "funded", "vendor_review"].includes(campaign.campaignStatus)
     ).length;
     const selectedDetail = groupFundedDetailQuery.data || null;
+    const selectedDetailBundleItems = selectedDetail
+      ? (
+          selectedDetail.campaign.bundleItems?.length
+            ? selectedDetail.campaign.bundleItems.map((item) => {
+                const rawItem = item as RawGroupFundedBundleItem;
+                return {
+                  id: rawItem.id || rawItem._id || null,
+                  serviceId: rawItem.serviceId,
+                  serviceName: rawItem.serviceName || rawItem.serviceNameSnapshot || selectedDetail.campaign.serviceName,
+                  serviceSlug: rawItem.serviceSlug || rawItem.serviceSlugSnapshot || "",
+                  bookingQuantity: rawItem.bookingQuantity,
+                  priceAmountCents: rawItem.priceAmountCents,
+                  currency: rawItem.currency,
+                  executionMode: rawItem.executionMode,
+                  scheduledStartAt: rawItem.scheduledStartAt,
+                  scheduledEndAt: rawItem.scheduledEndAt,
+                  sortOrder: rawItem.sortOrder
+                };
+              })
+            : [{
+                id: null,
+                serviceId: selectedDetail.campaign.serviceId,
+                serviceName: selectedDetail.campaign.serviceName,
+                serviceSlug: selectedDetail.campaign.serviceSlug,
+                bookingQuantity: selectedDetail.campaign.bookingQuantity,
+                priceAmountCents: selectedDetail.campaign.targetAmountCents,
+                currency: selectedDetail.campaign.currency,
+                executionMode: "parallel" as const,
+                scheduledStartAt: selectedDetail.campaign.scheduledStartAt,
+                scheduledEndAt: selectedDetail.campaign.scheduledEndAt,
+                sortOrder: 0
+              }]
+        )
+      : [];
+    const selectedDetailHasServiceBundle = selectedDetailBundleItems.length > 1;
     const submittedContributions = selectedDetail?.contributions.filter(
       (contribution) => contribution.contributionStatus === "submitted"
     ) || [];
@@ -7480,7 +7522,11 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             <Stack gap={2}>
               <Text className="booking-detail__eyebrow">Group-funded campaign</Text>
               <Text className="booking-detail__title">
-                {selectedDetail?.campaign.serviceName || "Loading campaign"}
+                {selectedDetail
+                  ? selectedDetailHasServiceBundle
+                    ? `${selectedDetailBundleItems.length} bundled services`
+                    : selectedDetail.campaign.serviceName
+                  : "Loading campaign"}
               </Text>
             </Stack>
           }
@@ -7536,6 +7582,44 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     <Text c="dimmed" size="sm">No campaign description provided.</Text>
                   )}
 
+                  <Paper withBorder radius="md" p="sm">
+                    <Stack gap="sm">
+                      <Group justify="space-between" align="flex-start">
+                        <Stack gap={2}>
+                          <Text c="dimmed" size="xs">
+                            {selectedDetailHasServiceBundle ? "Bundled services" : "Selected service"}
+                          </Text>
+                          <Text fw={800}>
+                            {selectedDetailHasServiceBundle
+                              ? `${selectedDetailBundleItems.length} services in this campaign`
+                              : selectedDetailBundleItems[0]?.serviceName || selectedDetail.campaign.serviceName}
+                          </Text>
+                        </Stack>
+                        <Badge color="teal" variant="light">
+                          {selectedDetailHasServiceBundle ? "Service bundle" : "Single service"}
+                        </Badge>
+                      </Group>
+                      <SimpleGrid cols={{ base: 1, sm: selectedDetailHasServiceBundle ? 2 : 1 }} spacing="sm">
+                        {selectedDetailBundleItems.map((item) => (
+                          <Paper key={item.id || item.serviceSlug} withBorder radius="md" p="sm">
+                            <Stack gap={4}>
+                              <Group justify="space-between" gap="sm" wrap="nowrap">
+                                <Text fw={800}>{item.serviceName}</Text>
+                                <Badge variant="light">x{item.bookingQuantity}</Badge>
+                              </Group>
+                              <Text c="dimmed" size="sm">
+                                {formatBookingScheduleTimeRange(item.scheduledStartAt, item.scheduledEndAt)}
+                              </Text>
+                              <Text c="dimmed" size="sm">
+                                {formatMoney(item.priceAmountCents, item.currency)}
+                              </Text>
+                            </Stack>
+                          </Paper>
+                        ))}
+                      </SimpleGrid>
+                    </Stack>
+                  </Paper>
+
                   <SimpleGrid cols={{ base: 1, sm: 2, md: 4 }} spacing="sm">
                     <Stack gap={2}>
                       <Text c="dimmed" size="xs">Booking</Text>
@@ -7546,9 +7630,13 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     </Stack>
                     <Stack gap={2}>
                       <Text c="dimmed" size="xs">Service</Text>
-                      <Text fw={700}>{selectedDetail.campaign.serviceName}</Text>
+                      <Text fw={700}>
+                        {selectedDetailHasServiceBundle
+                          ? `${selectedDetailBundleItems.length} bundled services`
+                          : selectedDetail.campaign.serviceName}
+                      </Text>
                       <Text c="dimmed" size="sm">
-                        {selectedDetail.campaign.locationName} · Quantity {selectedDetail.campaign.bookingQuantity}
+                        {selectedDetail.campaign.locationName} · {selectedDetailHasServiceBundle ? "Service bundle" : `Quantity ${selectedDetail.campaign.bookingQuantity}`}
                       </Text>
                     </Stack>
                     <Stack gap={2}>

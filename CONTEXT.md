@@ -9,8 +9,16 @@ A customer's scheduled request for a vendor service at a selected future time. A
 _Avoid_: Appointment, reservation, queue ticket
 
 **Group-Funded Booking**:
-A booking flow where one organizer invites multiple contributors to fund a single scheduled service request. It is a category-agnostic capability that can apply to any eligible GetPrio service rather than to a single vertical such as sports. Before the funding target is reached, it behaves as a funding-stage booking attempt rather than as a normal capacity-holding booking. Once fully funded and vendor-approved, it becomes a normal confirmed booking.
+A booking flow where one organizer invites multiple contributors to fund a single scheduled service request or Service Bundle. It is a category-agnostic capability that can apply to any eligible GetPrio service rather than to a single vertical such as sports. Before the funding target is reached, it behaves as a funding-stage booking attempt rather than as a normal capacity-holding booking. Once fully funded and vendor-approved, it becomes a normal confirmed booking.
 _Avoid_: Crowdfunding campaign, pooled queue ticket, shared wallet booking
+
+**Service Bundle**:
+A fixed resource or service package made from active, group-funded-enabled branch services at one vendor branch, delivered during one shared visit and scheduled as one group-funded booking. The group collectively funds the whole package, such as eight people renting VIP Court and Court 1 at the same time, rather than each contributor receiving an individually assigned service. Its immutable bundle total is the sum of its selected branch-service prices, split into equal fixed contributor shares using the campaign rounding rule; it has one organizer, contributor pool, vendor-review decision, capacity hold, and linked normal booking.
+_Avoid_: Multiple bookings, service cart, independent service requests
+
+**Bundle Execution Mode**:
+The vendor-configured scheduling pattern for a Service Bundle. A parallel bundle starts selected services at one shared visit start and reserves each service's own capacity interval, so the visit ends after the longest selected service. A sequential bundle reserves the selected services back-to-back and uses their summed duration as the visit length.
+_Avoid_: Service category rule, global bundle policy, customer-selected overlap
 
 **Booking Organizer**:
 The customer who starts and controls a group-funded booking. The organizer owns the booking details, is the main vendor-facing contact, and may cancel the funding-stage booking before the funding target is reached.

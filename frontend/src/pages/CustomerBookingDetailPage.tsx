@@ -76,6 +76,26 @@ function formatPaymentAmount(amountCents: number, currency: string) {
   }).format(amountCents / 100);
 }
 
+function getContributionBadgeColor(status: string): "gray" | "red" | "yellow" | "orange" | "teal" | "blue" {
+  switch (status) {
+    case "verified":
+      return "teal";
+    case "submitted":
+    case "pending_proof":
+      return "yellow";
+    case "rejected":
+      return "red";
+    case "refund_pending":
+      return "orange";
+    case "refunded":
+      return "blue";
+    case "policy_review_required":
+      return "orange";
+    default:
+      return "gray";
+  }
+}
+
 function formatCampaignStatusLabel(status: string) {
   return status.replace(/_/g, " ");
 }
@@ -338,6 +358,9 @@ export default function CustomerBookingDetailPage() {
   const campaignProgress = groupFundedCampaign?.targetAmountCents
     ? Math.min(100, Math.round((groupFundedCampaign.fundedAmountCents / groupFundedCampaign.targetAmountCents) * 100))
     : 0;
+  const campaignContributions = (groupFundedCampaign?.contributions || []).filter(
+    (contribution) => contribution.contributionStatus === "verified"
+  );
 
   return (
     <Stack className="customer-account-page" gap="lg">
@@ -450,6 +473,40 @@ export default function CustomerBookingDetailPage() {
                     </Text>
                   </Paper>
                 </SimpleGrid>
+                {campaignContributions.length ? (
+                  <Stack gap="sm">
+                    <Group justify="space-between" align="center">
+                      <Text fw={800}>Contributors</Text>
+                      <Badge color="teal" variant="light">
+                        {campaignContributions.length} verified
+                      </Badge>
+                    </Group>
+                    <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
+                      {campaignContributions.map((contribution) => (
+                        <Paper className="customer-booking-campaign-stat" key={contribution.id} radius="md" p="md">
+                          <Stack gap={4}>
+                            <Group justify="space-between" gap="sm" wrap="nowrap">
+                              <Text fw={800}>{contribution.contributorDisplayName || "Contributor"}</Text>
+                              <Badge color={getContributionBadgeColor(contribution.contributionStatus)} variant="light">
+                                {contribution.contributionStatus.replace(/_/g, " ")}
+                              </Badge>
+                            </Group>
+                            <Text c="dimmed" size="sm">
+                              {formatPaymentAmount(contribution.amountCents, contribution.currency)}
+                            </Text>
+                            <Text c="dimmed" size="xs">
+                              {contribution.verifiedAt
+                                ? `Verified ${formatDateTime(contribution.verifiedAt)}`
+                                : contribution.submittedAt
+                                  ? `Submitted ${formatDateTime(contribution.submittedAt)}`
+                                  : "Contribution recorded"}
+                            </Text>
+                          </Stack>
+                        </Paper>
+                      ))}
+                    </SimpleGrid>
+                  </Stack>
+                ) : null}
               </Stack>
             </Paper>
           ) : null}

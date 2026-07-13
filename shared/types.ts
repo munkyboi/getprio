@@ -444,6 +444,18 @@ export interface BookingGroupFundedCampaignSummary {
   fundedAmountCents: number;
   fundedAt: string | Date | null;
   confirmedAt: string | Date | null;
+  contributions?: Array<{
+    id: string;
+    contributorDisplayName: string;
+    amountCents: number;
+    currency: "PHP";
+    contributionStatus: GroupFundedContributionStatus;
+    submittedAt: string | Date | null;
+    verifiedAt: string | Date | null;
+    rejectedAt: string | Date | null;
+    rejectionReason: string;
+    refundStatus: GroupFundedRefundStatus | null;
+  }>;
 }
 
 export interface CustomerBookingSummary {
@@ -639,6 +651,20 @@ export type GroupFundedContributionStatus =
 
 export type GroupFundedRefundStatus = "pending" | "in_progress" | "completed" | "rejected" | "policy_review_required";
 
+export interface GroupFundedBundleItemSummary {
+  id: string | null;
+  serviceId: string;
+  serviceName: string;
+  serviceSlug: string;
+  bookingQuantity: number;
+  priceAmountCents: number;
+  currency: "PHP";
+  executionMode: "parallel" | "sequential";
+  scheduledStartAt: string | Date;
+  scheduledEndAt: string | Date;
+  sortOrder: number;
+}
+
 export interface GroupFundedCampaignSummary {
   id: string;
   publicToken: string;
@@ -655,6 +681,7 @@ export interface GroupFundedCampaignSummary {
   description: string;
   serviceName: string;
   serviceSlug: string;
+  bundleItems?: GroupFundedBundleItemSummary[];
   locationName: string;
   locationSlug: string;
   bookingQuantity: number;
@@ -733,6 +760,7 @@ export interface GroupFundedCampaignsResponse {
   campaigns: Array<GroupFundedCampaignSummary & {
     contribution?: GroupFundedContributionSummary | null;
   }>;
+  pagination?: PaginationMetadata;
 }
 
 export type GroupFundedVendorAlertEventType =
@@ -845,6 +873,10 @@ export interface CreateGroupFundedCampaignRequest {
   serviceSlug: string;
   scheduledStartAt: string;
   bookingQuantity?: number;
+  bundleItems?: Array<{
+    serviceSlug: string;
+    bookingQuantity?: number;
+  }>;
   requiredContributors: number;
   fundingDeadlineAt: string;
   visibility: "private_link" | "public";

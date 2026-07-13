@@ -2,6 +2,7 @@ const express = require("express");
 const asyncHandler = require("../middleware/asyncHandler");
 const { authenticate } = require("../middleware/auth");
 const bookingRepository = require("../repositories/bookings");
+const groupFundedRepository = require("../repositories/groupFundedBookings");
 const ticketRepository = require("../repositories/tickets");
 const tenantRepository = require("../repositories/tenants");
 const userRepository = require("../repositories/users");
@@ -81,6 +82,26 @@ function formatManualPaymentDestination(booking) {
 }
 
 function formatCustomerBooking(booking) {
+  const groupFundedCampaign = booking.groupFundedCampaign
+    ? {
+        ...booking.groupFundedCampaign,
+        contributions: Array.isArray(booking.groupFundedContributions)
+          ? booking.groupFundedContributions.map((contribution) => ({
+              id: contribution._id,
+              contributorDisplayName: contribution.participantDisplayName || "Contributor",
+              amountCents: contribution.amountCents,
+              currency: contribution.currency,
+              contributionStatus: contribution.contributionStatus,
+              submittedAt: contribution.submittedAt,
+              verifiedAt: contribution.verifiedAt,
+              rejectedAt: contribution.rejectedAt,
+              rejectionReason: contribution.rejectionReason,
+              refundStatus: contribution.refundStatus
+            }))
+          : []
+      }
+    : null;
+
   return {
     id: booking._id,
     reference: booking.reference,
@@ -106,7 +127,7 @@ function formatCustomerBooking(booking) {
     paymentStatus: booking.paymentStatus,
     groupFundedBookingId: booking.groupFundedBookingId,
     bookingPaymentSource: booking.bookingPaymentSource,
-    groupFundedCampaign: booking.groupFundedCampaign,
+    groupFundedCampaign,
     manualPaymentDestination: formatManualPaymentDestination(booking),
     paymentProof: booking.paymentProofObjectKey
       ? {
@@ -161,6 +182,7 @@ function formatGroupFundedCampaign(campaign, contribution = null, refunds = [], 
     description: campaign.description,
     serviceName: campaign.serviceNameSnapshot,
     serviceSlug: campaign.serviceSlugSnapshot,
+    bundleItems: campaign.bundleItems || [],
     locationName: campaign.locationNameSnapshot,
     locationSlug: campaign.locationSlugSnapshot,
     bookingQuantity: campaign.bookingQuantity,
@@ -612,6 +634,16 @@ router.get(
       const error = new Error("Booking not found.");
       error.statusCode = 404;
       throw error;
+    }
+    if (booking.groupFundedBookingId) {
+      booking.groupFundedContributions = await groupFundedRepository.listContributionsByCampaign(
+        booking.groupFundedBookingId,
+        {
+          statuses: [
+            groupFundedRepository.CONTRIBUTION_STATUSES.VERIFIED
+          ]
+        }
+      );
     }
 
     res.json({

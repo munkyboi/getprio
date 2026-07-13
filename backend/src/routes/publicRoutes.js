@@ -26,6 +26,7 @@ const {
   cancelTicket
 } = require("../services/queueService");
 const { normalizePhilippineMobileNumber } = require("../utils/phone");
+const { formatPaginationMetadata, parsePaginationParams } = require("../utils/pagination");
 
 const router = express.Router();
 const groupFundedAbuseReportLimiter = rateLimit({
@@ -238,13 +239,23 @@ router.get(
 router.get(
   "/vendors/:tenantSlug/locations/:locationSlug/group-funded-campaigns",
   asyncHandler(async (req, res) => {
+    const { page, pageSize, offset } = parsePaginationParams(req.query);
     const campaigns = await groupFundedBookingService.listPublicCampaignsForVendorLocation({
       tenantSlug: req.params.tenantSlug,
       locationSlug: req.params.locationSlug,
       serviceSlug: req.query.serviceSlug,
-      limit: req.query.limit
+      limit: req.query.limit,
+      pageSize,
+      offset,
+      search: req.query.search,
+      ongoingOnly: req.query.ongoingOnly === "true",
+      scheduledDateFrom: req.query.scheduledDateFrom,
+      scheduledDateTo: req.query.scheduledDateTo
     });
-    res.json({ campaigns });
+    res.json({
+      campaigns,
+      pagination: formatPaginationMetadata(campaigns.totalItems || campaigns.length, page, pageSize)
+    });
   })
 );
 

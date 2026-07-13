@@ -298,6 +298,30 @@ body {
   letter-spacing: -0.01em;
 }
 
+.booking-flow-stepper--group-funded :where(.mantine-Stepper-steps) {
+  align-items: flex-start;
+}
+
+.booking-flow-stepper--group-funded :where(.mantine-Stepper-step) {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.booking-flow-stepper--group-funded :where(.mantine-Stepper-stepBody) {
+  min-width: 0;
+}
+
+.booking-flow-stepper--group-funded :where(.mantine-Stepper-separator) {
+  flex: 0 1 72px;
+  min-width: 28px;
+  margin-inline: 0.75rem;
+}
+
+.booking-flow-stepper--group-funded :where(.mantine-Stepper-stepLabel),
+.booking-flow-stepper--group-funded :where(.mantine-Stepper-stepDescription) {
+  white-space: normal;
+}
+
 .booking-flow-panel {
   border-color: rgba(36, 30, 25, 0.08);
   background: rgba(255, 251, 246, 0.88);
@@ -307,9 +331,28 @@ body {
   padding-top: 0.5rem;
 }
 
+.booking-bundle-card {
+  background: color-mix(in srgb, var(--mantine-color-orange-0) 52%, white);
+}
+
+.booking-bundle-option {
+  padding: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--mantine-color-orange-2) 68%, transparent);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.74);
+}
+
 @media (max-width: 640px) {
   .booking-flow-stepper :where(.mantine-Stepper-steps) {
     gap: 0.4rem;
+  }
+
+  .booking-flow-stepper--group-funded :where(.mantine-Stepper-step) {
+    flex-basis: calc(50% - 0.4rem);
+  }
+
+  .booking-flow-stepper--group-funded :where(.mantine-Stepper-separator) {
+    display: none;
   }
 
   .booking-flow-actions {
@@ -631,6 +674,7 @@ body {
 }
 
 .vendor-group-funded-card-copy {
+  flex: 1 1 auto;
   min-width: 0;
 }
 
@@ -639,6 +683,9 @@ body {
   font-size: 1.08rem;
   font-weight: 900;
   line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .vendor-group-funded-card-description {
@@ -646,6 +693,46 @@ body {
   font-size: 0.95rem;
   font-weight: 650;
   line-height: 1.45;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.vendor-group-funded-card-status {
+  flex: 0 0 auto;
+  max-width: none;
+  white-space: nowrap;
+}
+
+.vendor-group-funded-card-status .mantine-Badge-label {
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.vendor-group-funded-card-service-meta {
+  min-width: 0;
+}
+
+.vendor-group-funded-card-bundle,
+.vendor-group-funded-card-single {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.72rem;
+  border: 1px solid color-mix(in srgb, var(--vendor-theme-card-border, #eadccf) 70%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--vendor-theme-card-bg, #fffaf4) 78%, white);
+}
+
+.vendor-group-funded-card-bundle {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.vendor-group-funded-card-bundle-item {
+  min-width: 0;
+  padding: 0.55rem 0.65rem;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.64);
 }
 
 .vendor-service-media {
@@ -843,6 +930,79 @@ body {
 .vendor-location-tabs .mantine-Tabs-tab:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--vendor-theme-button-border, #bb4d00) 68%, transparent);
   outline-offset: 3px;
+}
+
+.vendor-booking-option-tabs-list {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  width: fit-content;
+  padding: 0.35rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--vendor-theme-card-bg, #fffaf4) 92%, white);
+  border: 1px solid color-mix(in srgb, var(--vendor-theme-card-border, #f0d9c8) 72%, transparent);
+  box-shadow: 0 12px 26px color-mix(in srgb, var(--vendor-theme-button-bg, #ea6a1f) 12%, transparent);
+}
+
+.vendor-booking-option-toolbar {
+  width: fit-content;
+  max-width: 100%;
+}
+
+.vendor-booking-option-section-divider {
+  margin: 0.55rem 0 0.35rem;
+  border-top-color: color-mix(in srgb, var(--vendor-theme-card-border, #eadccf) 74%, transparent);
+}
+
+.vendor-booking-option-tab {
+  position: relative;
+  z-index: 1;
+  min-height: 48px;
+  padding: 0 1.3rem;
+  border-radius: 999px;
+  color: var(--vendor-theme-body, #3f3027);
+  font-size: 1rem;
+  font-weight: 850;
+  letter-spacing: 0;
+  transition: color 160ms ease;
+}
+
+.vendor-booking-option-tab[data-active="true"] {
+  color: var(--vendor-theme-button-text, #fff);
+}
+
+.vendor-booking-option-tab:hover {
+  color: var(--vendor-theme-button-bg, #bb4d00);
+}
+
+.vendor-booking-option-tab[data-active="true"]:hover {
+  color: var(--vendor-theme-button-text, #fff);
+}
+
+.vendor-booking-option-tab:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--vendor-theme-button-border, #bb4d00) 68%, transparent);
+  outline-offset: 3px;
+}
+
+.vendor-booking-option-indicator {
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--vendor-theme-button-bg, #ea6a1f), color-mix(in srgb, var(--vendor-theme-button-bg, #ea6a1f) 78%, #ffcf7d));
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--vendor-theme-button-bg, #ea6a1f) 28%, transparent);
+}
+
+.vendor-create-campaign-button {
+  min-height: 48px;
+  padding-inline: 1.35rem;
+  border-radius: 999px;
+  background: var(--vendor-theme-button-bg, #ea6a1f);
+  color: var(--vendor-theme-button-text, #fff);
+  font-weight: 850;
+  box-shadow: 0 12px 26px color-mix(in srgb, var(--vendor-theme-button-bg, #ea6a1f) 18%, transparent);
+}
+
+.vendor-create-campaign-button:hover {
+  background: color-mix(in srgb, var(--vendor-theme-button-bg, #ea6a1f) 88%, black);
 }
 
 .vendor-location-carousel {
@@ -1689,6 +1849,19 @@ button {
 
 .customer-account-content {
   min-width: 0;
+}
+
+.neura-customer-table-row {
+  cursor: pointer;
+}
+
+.neura-customer-table-row:hover {
+  background: rgba(255, 122, 21, 0.06);
+}
+
+.neura-customer-table-row:focus-visible {
+  outline: 2px solid rgba(255, 122, 21, 0.55);
+  outline-offset: -2px;
 }
 
 @media (max-width: 860px) {

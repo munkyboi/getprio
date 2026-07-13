@@ -382,6 +382,99 @@ test("group-funded service creates a campaign with computed contribution and rou
   assert.deepEqual(streamPublishes, [{ tenantSlug: "vendor", payload: undefined }]);
 });
 
+test("group-funded service creates one campaign for a parallel multi-court bundle", async () => {
+  const createdItems = [];
+  const { mocks } = baseMocks({
+    createCampaignItem: async (data) => {
+      const item = {
+        _id: `item-${createdItems.length + 1}`,
+        ...data
+      };
+      createdItems.push(item);
+      return item;
+    }
+  });
+  mocks["../repositories/vendorServices"].findServiceByTenantAndSlug = async (_tenantId, slug) => {
+    const services = {
+      "vip-court": {
+        _id: "service-vip",
+        name: "VIP Court",
+        slug: "vip-court",
+        isActive: true,
+        durationMinutes: 60,
+        allowBookingQuantity: true,
+        bookingCapacityScope: "service",
+        priceAmountCents: 120000,
+        currency: "PHP"
+      },
+      "court-1": {
+        _id: "service-court-1",
+        name: "Court 1",
+        slug: "court-1",
+        isActive: true,
+        durationMinutes: 60,
+        allowBookingQuantity: false,
+        bookingCapacityScope: "service",
+        priceAmountCents: 80000,
+        currency: "PHP"
+      }
+    };
+    return services[slug] || null;
+  };
+  mocks["../repositories/locationServices"].findLocationServiceByLocationAndServiceId = async (_tenantId, _locationId, serviceId) => ({
+    _id: `location-service-${serviceId}`,
+    isActive: true,
+    priceAmountCents: null,
+    groupFunded: {
+      enabled: true,
+      minRequiredContributors: 2,
+      maxRequiredContributors: 12,
+      defaultRequiredContributors: 8,
+      minContributionAmountCents: null,
+      maxContributionAmountCents: null,
+      minDeadlineHours: 1,
+      maxDeadlineDays: 30,
+      allowPublicCampaigns: true
+    }
+  });
+  const service = requireWithMocks("../src/services/groupFundedBookingService.js", mocks);
+
+  const campaign = await service.createCampaign({
+    user: { _id: "user-1", name: "Customer One", displayName: "John S." },
+    body: {
+      tenantSlug: "vendor",
+      locationSlug: "main",
+      serviceSlug: "vip-court",
+      bundleItems: [
+        { serviceSlug: "vip-court" },
+        { serviceSlug: "court-1" }
+      ],
+      bookingQuantity: 4,
+      scheduledStartAt: new Date(Date.now() + 96 * 60 * 60 * 1000).toISOString(),
+      fundingDeadlineAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+      requiredContributors: 8,
+      description: "VIP Court and Court 1 rental"
+    }
+  });
+
+  assert.equal(campaign.targetAmountCents, 800000);
+  assert.equal(campaign.requiredContributionAmountCents, 100000);
+  assert.equal(campaign.requiredContributors, 8);
+  assert.equal(campaign.bundleItems.length, 2);
+  assert.deepEqual(createdItems.map((item) => item.serviceSlugSnapshot), ["vip-court", "court-1"]);
+  assert.deepEqual(createdItems.map((item) => item.bookingQuantity), [4, 4]);
+  assert.deepEqual(createdItems.map((item) => item.priceAmountCents), [480000, 320000]);
+  assert.equal(createdItems[0].scheduledStartAt, createdItems[1].scheduledStartAt);
+  assert.equal(
+    new Date(createdItems[0].scheduledEndAt).getTime() - new Date(createdItems[0].scheduledStartAt).getTime(),
+    4 * 60 * 60 * 1000
+  );
+  assert.equal(
+    new Date(createdItems[1].scheduledEndAt).getTime() - new Date(createdItems[1].scheduledStartAt).getTime(),
+    4 * 60 * 60 * 1000
+  );
+});
+
 test("group-funded service rejects public campaign descriptions that fail moderation", async () => {
   const { mocks } = baseMocks();
   const service = requireWithMocks("../src/services/groupFundedBookingService.js", mocks);
@@ -572,6 +665,77 @@ test("group-funded service stores submitted contribution proof without advancing
   assert.deepEqual(streamPublishes, [{ tenantSlug: "vendor", payload: undefined }]);
 });
 
+test("group-funded service lets a rejected contributor resubmit proof in the same campaign", async () => {
+  let updatePayload = null;
+  let createContributionCalled = false;
+  const campaign = buildCampaign();
+  const rejectedContribution = {
+    _id: "contribution-1",
+    campaignId: campaign._id,
+    userId: "user-2",
+    amountCents: campaign.requiredContributionAmountCents,
+    currency: campaign.currency,
+    contributionStatus: "rejected",
+    paymentReference: "OLD-REF",
+    paymentProofObjectKey: "group-funded/campaign-1/user-2/old-proof.png",
+    rejectedAt: "2026-07-13T08:00:00.000Z",
+    rejectedByUserId: "vendor-user-1",
+    rejectionReason: "Unreadable proof"
+  };
+  const { repository, mocks, pushCalls, streamPublishes } = baseMocks({
+    findCampaignByPublicToken: async () => campaign,
+    findContributionByCampaignAndUser: async () => rejectedContribution,
+    findParticipantByCampaignAndUser: async () => ({
+      _id: "participant-1",
+      campaignId: campaign._id,
+      userId: "user-2"
+    }),
+    createContribution: async () => {
+      createContributionCalled = true;
+      return { _id: "unexpected-contribution" };
+    },
+    updateContribution: async (data) => {
+      updatePayload = data;
+      return {
+        ...rejectedContribution,
+        contributionStatus: data.contributionStatus,
+        paymentReference: data.paymentReference,
+        paymentProofObjectKey: data.paymentProofObjectKey,
+        rejectedAt: data.clearRejection ? null : rejectedContribution.rejectedAt,
+        rejectedByUserId: data.clearRejection ? null : rejectedContribution.rejectedByUserId,
+        rejectionReason: data.clearRejection ? null : rejectedContribution.rejectionReason
+      };
+    }
+  });
+  const service = requireWithMocks("../src/services/groupFundedBookingService.js", mocks);
+
+  const result = await service.submitContributionProof({
+    user: { _id: "user-2", name: "Contributor", displayName: "John S." },
+    campaignIdOrToken: "share-token",
+    body: {
+      paymentReference: "REF-RETRY",
+      paymentProofObjectKey: "group-funded/campaign-1/user-2/new-proof.png",
+      paymentProofFileName: "new-proof.png",
+      paymentProofContentType: "image/png",
+      paymentProofSizeBytes: 23456
+    }
+  });
+
+  assert.equal(createContributionCalled, false);
+  assert.equal(updatePayload.contributionId, "contribution-1");
+  assert.equal(updatePayload.contributionStatus, "submitted");
+  assert.equal(updatePayload.paymentReference, "REF-RETRY");
+  assert.equal(updatePayload.clearRejection, true);
+  assert.equal(result.contribution.contributionStatus, "submitted");
+  assert.equal(result.contribution.rejectedAt, null);
+  assert.equal(result.contribution.rejectionReason, null);
+  assert.deepEqual(repository.events.map((event) => event.eventType), ["contribution_submitted"]);
+  assert.equal(repository.events[0].metadata.retry, true);
+  assert.equal(pushCalls.length, 1);
+  assert.equal(pushCalls[0].contribution._id, "contribution-1");
+  assert.deepEqual(streamPublishes, [{ tenantSlug: "vendor", payload: undefined }]);
+});
+
 test("group-funded service rejects proof submission when verified and pending reservations fill every contributor position", async () => {
   let createParticipantCalled = false;
   let createContributionCalled = false;
@@ -661,6 +825,33 @@ test("group-funded service uploads contribution proof before metadata submission
   assert.equal(upload.proof.objectKey, "group-funded/share-token/user-2/sample_receipt.png");
   assert.equal(upload.proof.contentType, "image/png");
   assert.equal(upload.proof.sizeBytes, 10);
+});
+
+test("group-funded service lets rejected contributors upload replacement proof", async () => {
+  const campaign = buildCampaign({ publicToken: "share-token" });
+  const { mocks } = baseMocks({
+    findCampaignByPublicToken: async () => campaign,
+    findContributionByCampaignAndUser: async () => ({
+      _id: "contribution-1",
+      campaignId: campaign._id,
+      userId: "user-2",
+      contributionStatus: "rejected"
+    })
+  });
+  const service = requireWithMocks("../src/services/groupFundedBookingService.js", mocks);
+
+  const upload = await service.uploadContributionProofDirect({
+    user: { _id: "user-2" },
+    campaignIdOrToken: "share-token",
+    body: {
+      fileName: "replacement_receipt.png",
+      contentType: "image/png"
+    },
+    fileBuffer: Buffer.from("retry image")
+  });
+
+  assert.equal(upload.proof.objectKey, "group-funded/share-token/user-2/replacement_receipt.png");
+  assert.equal(upload.proof.sizeBytes, 11);
 });
 
 test("group-funded service gives vendors scoped access to contribution proof preview", async () => {

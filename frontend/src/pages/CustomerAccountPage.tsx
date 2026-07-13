@@ -351,6 +351,18 @@ export default function CustomerAccountPage() {
   function openGroupFundedCampaign(campaign: GroupFundedCampaignSummary) {
     navigate(`/group-funded/${campaign.publicToken}`, { state: { from: currentAccountPath } });
   }
+
+  function openTicket(ticket: (typeof tickets)[number]) {
+    navigate(buildJoinedQueuePathWithTicket(
+      ticket.tenantSlug,
+      ticket.lookupCode,
+      ticket.locationSlug
+    ));
+  }
+
+  function openBooking(booking: (typeof bookings)[number]) {
+    navigate(`/account/bookings/${booking.id}`);
+  }
   const accountUser = account?.user;
 
   useEffect(() => {
@@ -601,7 +613,19 @@ export default function CustomerAccountPage() {
             <Table.Tbody>
               {tickets.length ? (
                 tickets.map((ticket) => (
-                  <Table.Tr key={ticket.id}>
+                  <Table.Tr
+                    className="neura-customer-table-row"
+                    key={ticket.id}
+                    onClick={() => openTicket(ticket)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        openTicket(ticket);
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
+                  >
                     <Table.Td>
                       <Stack gap={2}>
                         <Text fw={700}>{ticket.ticketNumber}</Text>
@@ -609,7 +633,13 @@ export default function CustomerAccountPage() {
                       </Stack>
                     </Table.Td>
                     <Table.Td>
-                      <Button component={Link} size="compact-sm" to={`/vendors/${ticket.tenantSlug}`} variant="subtle">
+                      <Button
+                        component={Link}
+                        onClick={(event) => event.stopPropagation()}
+                        size="compact-sm"
+                        to={`/vendors/${ticket.tenantSlug}`}
+                        variant="subtle"
+                      >
                         {ticket.tenantName}
                       </Button>
                     </Table.Td>
@@ -626,6 +656,7 @@ export default function CustomerAccountPage() {
                           <ActionIcon
                             aria-label={`Open ticket ${ticket.ticketNumber}`}
                             component={Link}
+                            onClick={(event) => event.stopPropagation()}
                             to={buildJoinedQueuePathWithTicket(
                               ticket.tenantSlug,
                               ticket.lookupCode,
@@ -640,6 +671,7 @@ export default function CustomerAccountPage() {
                           <ActionIcon
                             aria-label={`Join ${ticket.tenantName} again`}
                             component={Link}
+                            onClick={(event) => event.stopPropagation()}
                             to={buildJoinPath(ticket.tenantSlug, ticket.locationSlug)}
                             variant="subtle"
                           >
@@ -746,7 +778,19 @@ export default function CustomerAccountPage() {
             <Table.Tbody>
               {bookings.length ? (
                 bookings.map((booking) => (
-                  <Table.Tr key={booking.id}>
+                  <Table.Tr
+                    className="neura-customer-table-row"
+                    key={booking.id}
+                    onClick={() => openBooking(booking)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        openBooking(booking);
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
+                  >
                     <Table.Td>
                       <Stack gap={2}>
                         <Text fw={700}>{booking.reference}</Text>
@@ -754,7 +798,13 @@ export default function CustomerAccountPage() {
                       </Stack>
                     </Table.Td>
                     <Table.Td>
-                      <Button component={Link} size="compact-sm" to={`/vendors/${booking.tenantSlug}`} variant="subtle">
+                      <Button
+                        component={Link}
+                        onClick={(event) => event.stopPropagation()}
+                        size="compact-sm"
+                        to={`/vendors/${booking.tenantSlug}`}
+                        variant="subtle"
+                      >
                         {booking.tenantName}
                       </Button>
                     </Table.Td>
@@ -783,6 +833,7 @@ export default function CustomerAccountPage() {
                         <ActionIcon
                           aria-label={`View booking ${booking.reference}`}
                           component={Link}
+                          onClick={(event) => event.stopPropagation()}
                           to={`/account/bookings/${booking.id}`}
                           variant="light"
                         >
@@ -892,6 +943,7 @@ export default function CustomerAccountPage() {
               {filteredGroupFundedCampaigns.length ? (
                 filteredGroupFundedCampaigns.map((campaign) => (
                   <Table.Tr
+                    className="neura-customer-table-row"
                     key={campaign.id}
                     onClick={() => openGroupFundedCampaign(campaign)}
                     onKeyDown={(event) => {

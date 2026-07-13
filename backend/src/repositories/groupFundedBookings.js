@@ -191,6 +191,7 @@ const EVENT_COLUMNS = `
 const CAPACITY_HOLD_COLUMNS = `
   id,
   campaign_id,
+  group_funded_booking_item_id,
   tenant_id,
   location_id,
   service_id,
@@ -201,6 +202,26 @@ const CAPACITY_HOLD_COLUMNS = `
   expires_at,
   released_at,
   converted_booking_id,
+  created_at,
+  updated_at
+`;
+
+const CAMPAIGN_ITEM_COLUMNS = `
+  id,
+  campaign_id,
+  tenant_id,
+  location_id,
+  service_id,
+  location_service_id,
+  service_name_snapshot,
+  service_slug_snapshot,
+  booking_quantity,
+  price_amount_cents,
+  currency,
+  execution_mode,
+  scheduled_start_at,
+  scheduled_end_at,
+  sort_order,
   created_at,
   updated_at
 `;
@@ -423,6 +444,34 @@ function mapEvent(row) {
   };
 }
 
+function mapCampaignItem(row) {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    _id: String(row.id),
+    id: String(row.id),
+    campaignId: String(row.campaign_id),
+    campaignItemId: row.group_funded_booking_item_id ? String(row.group_funded_booking_item_id) : null,
+    tenantId: String(row.tenant_id),
+    locationId: String(row.location_id),
+    serviceId: String(row.service_id),
+    locationServiceId: row.location_service_id ? String(row.location_service_id) : null,
+    serviceNameSnapshot: row.service_name_snapshot,
+    serviceSlugSnapshot: row.service_slug_snapshot,
+    bookingQuantity: Number(row.booking_quantity || 1),
+    priceAmountCents: Number(row.price_amount_cents || 0),
+    currency: row.currency || "PHP",
+    executionMode: row.execution_mode || "parallel",
+    scheduledStartAt: row.scheduled_start_at,
+    scheduledEndAt: row.scheduled_end_at,
+    sortOrder: Number(row.sort_order || 0),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
 function mapCapacityHold(row) {
   if (!row) {
     return null;
@@ -432,6 +481,7 @@ function mapCapacityHold(row) {
     _id: String(row.id),
     id: String(row.id),
     campaignId: String(row.campaign_id),
+    campaignItemId: row.group_funded_booking_item_id ? String(row.group_funded_booking_item_id) : null,
     tenantId: String(row.tenant_id),
     locationId: String(row.location_id),
     serviceId: String(row.service_id),
@@ -509,6 +559,98 @@ async function createCampaign(data, options = {}) {
     ]
   );
   return mapCampaign(result.rows[0]);
+}
+
+async function createCampaignItem(data, options = {}) {
+  const result = await buildQueryClient(options.client).query(
+    `
+      INSERT INTO group_funded_booking_items (
+        campaign_id,
+        tenant_id,
+        location_id,
+        service_id,
+        location_service_id,
+        service_name_snapshot,
+        service_slug_snapshot,
+        booking_quantity,
+        price_amount_cents,
+        currency,
+        execution_mode,
+        scheduled_start_at,
+        scheduled_end_at,
+        sort_order
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+      RETURNING ${CAMPAIGN_ITEM_COLUMNS}
+    `,
+    [
+      Number(data.campaignId),
+      Number(data.tenantId),
+      Number(data.locationId),
+      Number(data.serviceId),
+      data.locationServiceId ? Number(data.locationServiceId) : null,
+      data.serviceNameSnapshot,
+      data.serviceSlugSnapshot,
+      Number(data.bookingQuantity || 1),
+      Number(data.priceAmountCents || 0),
+      data.currency || "PHP",
+      data.executionMode || "parallel",
+      data.scheduledStartAt,
+      data.scheduledEndAt,
+      Number(data.sortOrder || 0)
+    ]
+  );
+  return mapCampaignItem(result.rows[0]);
+}
+
+async function listCampaignItemsByCampaign(campaignId, options = {}) {
+  const result = await buildQueryClient(options.client).query(
+    `
+      SELECT ${CAMPAIGN_ITEM_COLUMNS}
+      FROM group_funded_booking_items
+      WHERE campaign_id = $1
+      ORDER BY sort_order ASC, id ASC
+    `,
+    [Number(campaignId)]
+  );
+  return result.rows.map(mapCampaignItem);
+}
+
+async function listCampaignItemsByCampaignIds(campaignIds, options = {}) {
+  const ids = Array.isArray(campaignIds) ? campaignIds.map(Number).filter(Number.isFinite) : [];
+  if (!ids.length) {
+    return [];
+  }
+  const result = await buildQueryClient(options.client).query(
+    `
+      SELECT ${CAMPAIGN_ITEM_COLUMNS}
+      FROM group_funded_booking_items
+      WHERE campaign_id = ANY($1::bigint[])
+      ORDER BY campaign_id ASC, sort_order ASC, id ASC
+    `,
+    [ids]
+  );
+  return result.rows.map(mapCampaignItem);
+}
+
+async function shiftCampaignItemsScheduledSlot(data, options = {}) {
+  const result = await buildQueryClient(options.client).query(
+    `
+      UPDATE group_funded_booking_items
+      SET
+        scheduled_start_at = $2::timestamptz + (scheduled_start_at - $3::timestamptz),
+        scheduled_end_at = $2::timestamptz + (scheduled_end_at - $3::timestamptz),
+        updated_at = NOW()
+      WHERE campaign_id = $1
+      RETURNING ${CAMPAIGN_ITEM_COLUMNS}
+    `,
+    [
+      Number(data.campaignId),
+      data.scheduledStartAt,
+      data.previousScheduledStartAt
+    ]
+  );
+  return result.rows.map(mapCampaignItem);
 }
 
 async function findCampaignById(campaignId, options = {}) {
@@ -674,12 +816,42 @@ async function listPublicCampaignsForVendorLocation(tenantId, locationId, option
     whereClauses.push(`gfb.service_slug_snapshot = $${values.length}`);
   }
 
-  values.push(Number(options.limit || 20));
+  if (options.search) {
+    values.push(`%${String(options.search).trim().toLowerCase()}%`);
+    whereClauses.push(`(
+      LOWER(gfb.campaign_title) LIKE $${values.length}
+      OR LOWER(gfb.description) LIKE $${values.length}
+      OR LOWER(gfb.service_name_snapshot) LIKE $${values.length}
+      OR LOWER(gfb.location_name_snapshot) LIKE $${values.length}
+      OR LOWER(gfb.organizer_display_name) LIKE $${values.length}
+    )`);
+  }
+
+  if (Array.isArray(options.statuses) && options.statuses.length) {
+    values.push(options.statuses);
+    whereClauses.push(`gfb.campaign_status = ANY($${values.length})`);
+  }
+
+  if (options.scheduledDateFrom) {
+    values.push(options.scheduledDateFrom);
+    whereClauses.push(`gfb.scheduled_start_at >= $${values.length}::date`);
+  }
+
+  if (options.scheduledDateTo) {
+    values.push(options.scheduledDateTo);
+    whereClauses.push(`gfb.scheduled_start_at < ($${values.length}::date + INTERVAL '1 day')`);
+  }
+
+  values.push(Number(options.pageSize || options.limit || 20));
+  const limitIndex = values.length;
+  values.push(Number(options.offset || 0));
+  const offsetIndex = values.length;
 
   const result = await buildQueryClient(options.client).query(
     `
       SELECT
         ${campaignSelectColumns("gfb")},
+        COUNT(*) OVER()::int AS total_count,
         COALESCE(contribution_summary.verified_contributor_count, 0)::INTEGER AS verified_contributor_count,
         COALESCE(contribution_summary.pending_verification_contributor_count, 0)::INTEGER AS pending_verification_contributor_count
       FROM group_funded_bookings gfb
@@ -699,11 +871,14 @@ async function listPublicCampaignsForVendorLocation(tenantId, locationId, option
       ) contribution_summary ON TRUE
       WHERE ${whereClauses.join(" AND ")}
       ORDER BY gfb.funding_deadline_at ASC, gfb.created_at DESC
-      LIMIT $${values.length}
+      LIMIT $${limitIndex}
+      OFFSET $${offsetIndex}
     `,
     values
   );
-  return result.rows.map(mapCampaign);
+  const campaigns = result.rows.map(mapCampaign);
+  campaigns.totalItems = Number(result.rows[0]?.total_count || campaigns.length);
+  return campaigns;
 }
 
 async function createParticipant(data, options = {}) {
@@ -869,9 +1044,9 @@ async function updateContribution(data, options = {}) {
         submitted_at = COALESCE($9, submitted_at),
         verified_at = COALESCE($10, verified_at),
         verified_by_user_id = COALESCE($11, verified_by_user_id),
-        rejected_at = COALESCE($12, rejected_at),
-        rejected_by_user_id = COALESCE($13, rejected_by_user_id),
-        rejection_reason = COALESCE($14, rejection_reason),
+        rejected_at = CASE WHEN $16::boolean THEN NULL ELSE COALESCE($12, rejected_at) END,
+        rejected_by_user_id = CASE WHEN $16::boolean THEN NULL ELSE COALESCE($13, rejected_by_user_id) END,
+        rejection_reason = CASE WHEN $16::boolean THEN NULL ELSE COALESCE($14, rejection_reason) END,
         refund_status = COALESCE($15, refund_status),
         updated_at = NOW()
       WHERE id = $1
@@ -892,7 +1067,8 @@ async function updateContribution(data, options = {}) {
       data.rejectedAt || null,
       data.rejectedByUserId ? Number(data.rejectedByUserId) : null,
       data.rejectionReason || null,
-      data.refundStatus || null
+      data.refundStatus || null,
+      data.clearRejection === true
     ]
   );
   return mapContribution(result.rows[0]);
@@ -1176,6 +1352,7 @@ async function createCapacityHold(data, options = {}) {
     `
       INSERT INTO group_funded_capacity_holds (
         campaign_id,
+        group_funded_booking_item_id,
         tenant_id,
         location_id,
         service_id,
@@ -1185,11 +1362,12 @@ async function createCapacityHold(data, options = {}) {
         hold_status,
         expires_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING ${CAPACITY_HOLD_COLUMNS}
     `,
     [
       Number(data.campaignId),
+      data.campaignItemId ? Number(data.campaignItemId) : null,
       Number(data.tenantId),
       Number(data.locationId),
       Number(data.serviceId),
@@ -1217,6 +1395,21 @@ async function findActiveCapacityHoldByCampaign(campaignId, options = {}) {
     [Number(campaignId)]
   );
   return mapCapacityHold(result.rows[0]);
+}
+
+async function listActiveCapacityHoldsByCampaign(campaignId, options = {}) {
+  const result = await buildQueryClient(options.client).query(
+    `
+      SELECT ${CAPACITY_HOLD_COLUMNS}
+      FROM group_funded_capacity_holds
+      WHERE campaign_id = $1
+        AND hold_status = 'active'
+      ORDER BY created_at ASC, id ASC
+      ${options.forUpdate ? "FOR UPDATE" : ""}
+    `,
+    [Number(campaignId)]
+  );
+  return result.rows.map(mapCapacityHold);
 }
 
 async function listCapacityHoldsByCampaign(campaignId, options = {}) {
@@ -1292,6 +1485,7 @@ module.exports = {
   withTransaction,
   countOverlappingActiveCapacityHolds,
   createCampaign,
+  createCampaignItem,
   createCapacityHold,
   createContribution,
   createParticipant,
@@ -1305,6 +1499,9 @@ module.exports = {
   findRefundByContributionId,
   findRefundById,
   listCampaignsForVendor,
+  listCampaignItemsByCampaign,
+  listCampaignItemsByCampaignIds,
+  listActiveCapacityHoldsByCampaign,
   getContributionReservationSummary,
   listVendorAlertEvents,
   listPublicCampaignsForVendorLocation,
@@ -1314,11 +1511,13 @@ module.exports = {
   listRefundsByCampaign,
   mapCampaign,
   mapCapacityHold,
+  mapCampaignItem,
   mapContribution,
   mapEvent,
   mapParticipant,
   mapRefund,
   recomputeCampaignFunding,
+  shiftCampaignItemsScheduledSlot,
   updateCampaignDetails,
   updateCampaignReviewFields,
   updateCampaignStatus,

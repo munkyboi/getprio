@@ -67,12 +67,12 @@ function normalizeDateTime(value) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-function normalizeBookingQuantity(service, value) {
+function normalizeBookingQuantity(service, value, options = {}) {
   const quantity = Number(value || 1);
   if (!Number.isInteger(quantity) || quantity < 1 || quantity > 24) {
     throw makeHttpError("bookingQuantity must be between 1 and 24.", 400);
   }
-  if (!service.allowBookingQuantity && quantity !== 1) {
+  if (!options.allowBundleQuantity && !service.allowBookingQuantity && quantity !== 1) {
     throw makeHttpError("This service does not allow booking multiple units.", 400);
   }
   return quantity;
@@ -107,6 +107,147 @@ function resolvePayableAmountCents(service, locationService, bookingQuantity) {
     throw makeHttpError("Group-funded booking requires a positive service price.", 409);
   }
   return amount;
+}
+
+function mergeBundleSettings(settingsList) {
+  const base = settingsList[0] || {};
+  const minContributionValues = settingsList
+    .map((settings) => settings.minContributionAmountCents)
+    .filter((value) => value !== null && value !== undefined)
+    .map(Number);
+  const maxContributionValues = settingsList
+    .map((settings) => settings.maxContributionAmountCents)
+    .filter((value) => value !== null && value !== undefined)
+    .map(Number);
+  return {
+    ...base,
+    minRequiredContributors: Math.max(...settingsList.map((settings) => Number(settings.minRequiredContributors || 2))),
+    maxRequiredContributors: Math.min(...settingsList.map((settings) => Number(settings.maxRequiredContributors || 100))),
+    defaultRequiredContributors: Number(base.defaultRequiredContributors || 2),
+    minContributionAmountCents: minContributionValues.length ? Math.max(...minContributionValues) : null,
+    maxContributionAmountCents: maxContributionValues.length ? Math.min(...maxContributionValues) : null,
+    minDeadlineHours: Math.max(...settingsList.map((settings) => Number(settings.minDeadlineHours || 1))),
+    maxDeadlineDays: Math.min(...settingsList.map((settings) => Number(settings.maxDeadlineDays || 1))),
+    allowPublicCampaigns: settingsList.every((settings) => Boolean(settings.allowPublicCampaigns))
+  };
+}
+
+function normalizeBundleRequestItems(body, primaryServiceSlug) {
+  const rawItems = Array.isArray(body.bundleItems) && body.bundleItems.length
+    ? body.bundleItems
+    : [{ serviceSlug: primaryServiceSlug, bookingQuantity: body.bookingQuantity }];
+  if (rawItems.length > 12) {
+    throw makeHttpError("bundleItems cannot contain more than 12 services.", 400);
+  }
+
+  const seen = new Set();
+  return rawItems.map((item, index) => {
+    const itemBody = typeof item === "string" ? { serviceSlug: item } : item || {};
+    const serviceSlug = vendorServiceRepository.normalizeServiceSlug(itemBody.serviceSlug || itemBody.slug || primaryServiceSlug);
+    if (!serviceSlug) {
+      throw makeHttpError("Each bundle item requires a serviceSlug.", 400);
+    }
+    if (seen.has(serviceSlug)) {
+      throw makeHttpError("bundleItems cannot contain duplicate services.", 400);
+    }
+    seen.add(serviceSlug);
+    return {
+      serviceSlug,
+      bookingQuantity: itemBody.bookingQuantity ?? body.bookingQuantity,
+      sortOrder: index
+    };
+  });
+}
+
+async function loadRequestedBundleItems({ tenant, location, scheduledStartAt, body, primaryServiceSlug }) {
+  const requestItems = normalizeBundleRequestItems(body, primaryServiceSlug);
+  const items = [];
+  for (const requestItem of requestItems) {
+    const service = await vendorServiceRepository.findServiceByTenantAndSlug(tenant._id, requestItem.serviceSlug);
+    if (!service || !service.isActive) {
+      throw makeHttpError("Service not found.", 404);
+    }
+    const locationService = await locationServiceRepository.findLocationServiceByLocationAndServiceId(
+      tenant._id,
+      location._id,
+      service._id
+    );
+    const settings = getGroupFundedSettings(locationService);
+    const bookingQuantity = normalizeBookingQuantity(service, requestItem.bookingQuantity, { allowBundleQuantity: true });
+    const scheduledEndAt = new Date(
+      scheduledStartAt.getTime() + getDurationMinutes(service, bookingQuantity) * 60 * 1000
+    );
+    const priceAmountCents = resolvePayableAmountCents(service, locationService, bookingQuantity);
+    items.push({
+      service,
+      locationService,
+      settings,
+      bookingQuantity,
+      priceAmountCents,
+      scheduledStartAt,
+      scheduledEndAt,
+      executionMode: "parallel",
+      sortOrder: requestItem.sortOrder
+    });
+  }
+  return items;
+}
+
+function summarizeBundleItems(items) {
+  return items.map((item) => ({
+    serviceId: String(item.service._id),
+    locationServiceId: item.locationService?._id ? String(item.locationService._id) : null,
+    serviceName: item.service.name,
+    serviceSlug: item.service.slug,
+    bookingQuantity: item.bookingQuantity,
+    priceAmountCents: item.priceAmountCents,
+    currency: item.service.currency || "PHP",
+    executionMode: item.executionMode || "parallel",
+    scheduledStartAt: item.scheduledStartAt.toISOString(),
+    scheduledEndAt: item.scheduledEndAt.toISOString(),
+    sortOrder: item.sortOrder || 0
+  }));
+}
+
+function getCampaignBundleItems(campaign) {
+  if (Array.isArray(campaign.bundleItems) && campaign.bundleItems.length) {
+    return campaign.bundleItems;
+  }
+  return [
+    {
+      _id: null,
+      campaignId: campaign._id,
+      tenantId: campaign.tenantId,
+      locationId: campaign.locationId,
+      serviceId: campaign.serviceId,
+      locationServiceId: campaign.locationServiceId || null,
+      serviceNameSnapshot: campaign.serviceNameSnapshot,
+      serviceSlugSnapshot: campaign.serviceSlugSnapshot,
+      bookingQuantity: campaign.bookingQuantity,
+      priceAmountCents: campaign.targetAmountCents,
+      currency: campaign.currency || "PHP",
+      executionMode: "parallel",
+      scheduledStartAt: campaign.scheduledStartAt,
+      scheduledEndAt: campaign.scheduledEndAt,
+      sortOrder: 0
+    }
+  ];
+}
+
+function formatBundleItems(campaign) {
+  return getCampaignBundleItems(campaign).map((item) => ({
+    id: item._id,
+    serviceId: item.serviceId,
+    serviceName: item.serviceNameSnapshot,
+    serviceSlug: item.serviceSlugSnapshot,
+    bookingQuantity: item.bookingQuantity,
+    priceAmountCents: item.priceAmountCents,
+    currency: item.currency,
+    executionMode: item.executionMode,
+    scheduledStartAt: item.scheduledStartAt,
+    scheduledEndAt: item.scheduledEndAt,
+    sortOrder: item.sortOrder
+  }));
 }
 
 function validateRequiredContributors(value, settings) {
@@ -217,28 +358,88 @@ async function loadCampaignBookingContext(campaign, options = {}) {
   return { location, service, locationService };
 }
 
-async function assertCampaignSlotCapacity(campaign, options = {}) {
-  const { service, locationService } = await loadCampaignBookingContext(campaign, options);
-  const capacityServiceId = getBookingCapacityServiceId(service, service.bookingCapacityScope);
-  const activeCount = await bookingRepository.countOverlappingActiveBookings(campaign.tenantId, {
-    ...options,
-    locationId: campaign.locationId,
-    serviceId: capacityServiceId,
-    startsAt: campaign.scheduledStartAt,
-    endsAt: campaign.scheduledEndAt
-  });
-  const activeHoldCount = await groupFundedRepository.countOverlappingActiveCapacityHolds(campaign.tenantId, {
-    ...options,
-    locationId: campaign.locationId,
-    serviceId: capacityServiceId,
-    startsAt: campaign.scheduledStartAt,
-    endsAt: campaign.scheduledEndAt
-  });
-  const capacity = Number(locationService.capacity || 1);
-  if (activeCount + activeHoldCount >= capacity) {
-    throw makeHttpError("This slot is no longer available for group-funded review.", 409);
+async function loadCampaignBundleContexts(campaign, options = {}) {
+  let items = [];
+  if (typeof groupFundedRepository.listCampaignItemsByCampaign === "function") {
+    items = await groupFundedRepository.listCampaignItemsByCampaign(campaign._id, options);
   }
-  return { service, locationService, capacity, activeCount, activeHoldCount };
+  if (!items.length) {
+    const context = await loadCampaignBookingContext(campaign, options);
+    return [{
+      ...context,
+      item: getCampaignBundleItems(campaign)[0]
+    }];
+  }
+
+  const campaignStart = normalizeDateTime(campaign.scheduledStartAt);
+  const firstItemStart = normalizeDateTime(items[0]?.scheduledStartAt);
+  const deltaMs = campaignStart && firstItemStart ? campaignStart.getTime() - firstItemStart.getTime() : 0;
+
+  const contexts = [];
+  for (const item of items) {
+    const location = await storeLocationRepository.findLocationById(item.locationId, options);
+    if (!location || String(location.tenantId) !== String(campaign.tenantId) || !location.isActive) {
+      throw makeHttpError("Campaign location is no longer available.", 409);
+    }
+    const service = await vendorServiceRepository.findServiceByTenantAndSlug(
+      campaign.tenantId,
+      item.serviceSlugSnapshot,
+      options
+    );
+    if (!service || String(service._id) !== String(item.serviceId) || !service.isActive) {
+      throw makeHttpError("Campaign service is no longer available.", 409);
+    }
+    const locationService = await locationServiceRepository.findLocationServiceByLocationAndServiceId(
+      campaign.tenantId,
+      item.locationId,
+      item.serviceId,
+      options
+    );
+    if (!locationService || !locationService.isActive) {
+      throw makeHttpError("Campaign service is no longer available at this branch.", 409);
+    }
+    const scheduledStartAt = normalizeDateTime(item.scheduledStartAt);
+    const scheduledEndAt = normalizeDateTime(item.scheduledEndAt);
+    contexts.push({
+      location,
+      service,
+      locationService,
+      item: deltaMs
+        ? {
+            ...item,
+            scheduledStartAt: new Date(scheduledStartAt.getTime() + deltaMs).toISOString(),
+            scheduledEndAt: new Date(scheduledEndAt.getTime() + deltaMs).toISOString()
+          }
+        : item
+    });
+  }
+  return contexts;
+}
+
+async function assertCampaignSlotCapacity(campaign, options = {}) {
+  const contexts = await loadCampaignBundleContexts(campaign, options);
+  for (const { service, locationService, item } of contexts) {
+    const capacityServiceId = getBookingCapacityServiceId(service, service.bookingCapacityScope);
+    const activeCount = await bookingRepository.countOverlappingActiveBookings(campaign.tenantId, {
+      ...options,
+      locationId: item.locationId || campaign.locationId,
+      serviceId: capacityServiceId,
+      startsAt: item.scheduledStartAt,
+      endsAt: item.scheduledEndAt
+    });
+    const activeHoldCount = await groupFundedRepository.countOverlappingActiveCapacityHolds(campaign.tenantId, {
+      ...options,
+      locationId: item.locationId || campaign.locationId,
+      serviceId: capacityServiceId,
+      startsAt: item.scheduledStartAt,
+      endsAt: item.scheduledEndAt
+    });
+    const capacity = Number(locationService.capacity || 1);
+    if (activeCount + activeHoldCount >= capacity) {
+      throw makeHttpError("This slot is no longer available for group-funded review.", 409);
+    }
+  }
+  return { contexts };
 }
 
 async function createRefundObligations({ campaign, reason, actor = null, client }) {
@@ -324,19 +525,24 @@ async function startVendorReviewIfFunded({ campaign, actor, client }) {
     },
     { client }
   );
-  const capacityHold = await groupFundedRepository.createCapacityHold(
-    {
-      campaignId: campaign._id,
-      tenantId: campaign.tenantId,
-      locationId: campaign.locationId,
-      serviceId: campaign.serviceId,
-      scheduledStartAt: campaign.scheduledStartAt,
-      scheduledEndAt: campaign.scheduledEndAt,
-      bookingQuantity: campaign.bookingQuantity,
-      expiresAt: reviewExpiresAt.toISOString()
-    },
-    { client }
-  );
+  const bundleContexts = await loadCampaignBundleContexts(campaign, { client });
+  const capacityHolds = [];
+  for (const { item } of bundleContexts) {
+    capacityHolds.push(await groupFundedRepository.createCapacityHold(
+      {
+        campaignId: campaign._id,
+        campaignItemId: item._id || null,
+        tenantId: campaign.tenantId,
+        locationId: item.locationId || campaign.locationId,
+        serviceId: item.serviceId || campaign.serviceId,
+        scheduledStartAt: item.scheduledStartAt,
+        scheduledEndAt: item.scheduledEndAt,
+        bookingQuantity: item.bookingQuantity || 1,
+        expiresAt: reviewExpiresAt.toISOString()
+      },
+      { client }
+    ));
+  }
   await groupFundedRepository.recordEvent(
     {
       campaignId: campaign._id,
@@ -346,11 +552,14 @@ async function startVendorReviewIfFunded({ campaign, actor, client }) {
       actorUserId: actor?._id || null,
       actorRole: actor ? "vendor" : "system",
       source: actor ? "vendor" : "system",
-      metadata: { capacityHoldId: capacityHold._id, expiresAt: capacityHold.expiresAt }
+      metadata: {
+        capacityHoldIds: capacityHolds.map((hold) => hold._id),
+        expiresAt: reviewExpiresAt.toISOString()
+      }
     },
     { client }
   );
-  return { campaign: reviewCampaign, capacityHold };
+  return { campaign: reviewCampaign, capacityHold: capacityHolds[0] || null, capacityHolds };
 }
 
 function normalizeProofPayload(body = {}) {
@@ -382,6 +591,10 @@ function normalizeProofPayload(body = {}) {
   };
 }
 
+function isRejectedContribution(contribution) {
+  return contribution?.contributionStatus === groupFundedRepository.CONTRIBUTION_STATUSES.REJECTED;
+}
+
 function normalizeRefundEvidencePayload(body = {}) {
   const evidenceObjectKey = normalizeText(body.evidenceObjectKey);
   const evidenceFileName = normalizeText(body.evidenceFileName);
@@ -410,15 +623,20 @@ function buildCampaignWithSlot(campaign, scheduledStartAt, scheduledEndAt) {
   };
 }
 
-async function resolveReplacementSlot(campaign, scheduledStartAtValue, options = {}) {
+async function resolveReplacementSlot(campaign, scheduledStartAtValue) {
   const scheduledStartAt = normalizeDateTime(scheduledStartAtValue);
   if (!scheduledStartAt || scheduledStartAt.getTime() <= Date.now()) {
     throw makeHttpError("scheduledStartAt must be a future date and time.", 400);
   }
-  const { service } = await loadCampaignBookingContext(campaign, options);
-  const scheduledEndAt = new Date(
-    scheduledStartAt.getTime() + getDurationMinutes(service, campaign.bookingQuantity) * 60 * 1000
-  );
+  const currentStartAt = normalizeDateTime(campaign.scheduledStartAt);
+  const currentEndAt = normalizeDateTime(campaign.scheduledEndAt);
+  const durationMs = currentStartAt && currentEndAt
+    ? currentEndAt.getTime() - currentStartAt.getTime()
+    : 0;
+  if (!Number.isFinite(durationMs) || durationMs <= 0) {
+    throw makeHttpError("Campaign schedule is no longer valid.", 409);
+  }
+  const scheduledEndAt = new Date(scheduledStartAt.getTime() + durationMs);
   if (scheduledStartAt.getTime() <= new Date(campaign.fundingDeadlineAt).getTime()) {
     throw makeHttpError("replacement slot must be after the funding deadline.", 400);
   }
@@ -447,21 +665,25 @@ async function createCampaign({ user, body }) {
     throw makeHttpError("Location not found.", 404);
   }
   assertBranchPaymentInstructions(location);
-  const service = await vendorServiceRepository.findServiceByTenantAndSlug(tenant._id, serviceSlug);
-  if (!service || !service.isActive) {
-    throw makeHttpError("Service not found.", 404);
+  const bundleItems = await loadRequestedBundleItems({
+    tenant,
+    location,
+    scheduledStartAt,
+    body,
+    primaryServiceSlug: serviceSlug
+  });
+  const primaryItem = bundleItems[0];
+  const service = primaryItem.service;
+  const locationService = primaryItem.locationService;
+  const settings = mergeBundleSettings(bundleItems.map((item) => item.settings));
+  if (settings.minRequiredContributors > settings.maxRequiredContributors) {
+    throw makeHttpError("Selected bundle services have incompatible group-funded contributor settings.", 409);
   }
-  const locationService = await locationServiceRepository.findLocationServiceByLocationAndServiceId(
-    tenant._id,
-    location._id,
-    service._id
-  );
-  const settings = getGroupFundedSettings(locationService);
-  const bookingQuantity = normalizeBookingQuantity(service, body.bookingQuantity);
-  const scheduledEndAt = new Date(scheduledStartAt.getTime() + getDurationMinutes(service, bookingQuantity) * 60 * 1000);
+  const bookingQuantity = primaryItem.bookingQuantity;
+  const scheduledEndAt = new Date(Math.max(...bundleItems.map((item) => item.scheduledEndAt.getTime())));
   const requiredContributors = validateRequiredContributors(body.requiredContributors, settings);
   const fundingDeadlineAt = validateFundingDeadline(body.fundingDeadlineAt, scheduledStartAt, settings);
-  const targetAmountCents = resolvePayableAmountCents(service, locationService, bookingQuantity);
+  const targetAmountCents = bundleItems.reduce((sum, item) => sum + item.priceAmountCents, 0);
   const requiredContributionAmountCents = Math.ceil(targetAmountCents / requiredContributors);
   const roundingAdjustmentCents = (requiredContributionAmountCents * requiredContributors) - targetAmountCents;
 
@@ -479,6 +701,7 @@ async function createCampaign({ user, body }) {
   }
 
   const campaign = await groupFundedRepository.withTransaction(async (client) => {
+    const bundleItemSnapshots = summarizeBundleItems(bundleItems);
     const campaign = await groupFundedRepository.createCampaign(
       {
         tenantId: tenant._id,
@@ -488,7 +711,12 @@ async function createCampaign({ user, body }) {
         organizerUserId: user._id,
         visibility: resolveVisibility(body.visibility, settings),
         organizerDisplayName: formatDisplayName(user),
-        campaignTitle: validateCampaignTitle(body.campaignTitle, `${service.name} group booking`),
+        campaignTitle: validateCampaignTitle(
+          body.campaignTitle,
+          bundleItems.length > 1
+            ? `${bundleItems.map((item) => item.service.name).join(" + ")} group booking`
+            : `${service.name} group booking`
+        ),
         description: validateDescription(body.description),
         serviceNameSnapshot: service.name,
         serviceSlugSnapshot: service.slug,
@@ -509,11 +737,50 @@ async function createCampaign({ user, body }) {
           paymentAccountDisplayName: location.paymentAccountDisplayName,
           paymentAccountIdentifierDisplay: location.paymentAccountIdentifierDisplay,
           paymentQrImageUrl: location.paymentQrImageUrl,
-          priceAmountCents: targetAmountCents
+          priceAmountCents: targetAmountCents,
+          bundleItems: bundleItemSnapshots
         }
       },
       { client }
     );
+    const createdItems = [];
+    if (typeof groupFundedRepository.createCampaignItem === "function") {
+      for (const item of bundleItemSnapshots) {
+        createdItems.push(await groupFundedRepository.createCampaignItem(
+          {
+            campaignId: campaign._id,
+            tenantId: tenant._id,
+            locationId: location._id,
+            serviceId: item.serviceId,
+            locationServiceId: item.locationServiceId,
+            serviceNameSnapshot: item.serviceName,
+            serviceSlugSnapshot: item.serviceSlug,
+            bookingQuantity: item.bookingQuantity,
+            priceAmountCents: item.priceAmountCents,
+            currency: item.currency,
+            executionMode: item.executionMode,
+            scheduledStartAt: item.scheduledStartAt,
+            scheduledEndAt: item.scheduledEndAt,
+            sortOrder: item.sortOrder
+          },
+          { client }
+        ));
+      }
+    }
+    campaign.bundleItems = createdItems.length
+      ? createdItems
+      : bundleItemSnapshots.map((item) => ({
+          serviceId: item.serviceId,
+          serviceNameSnapshot: item.serviceName,
+          serviceSlugSnapshot: item.serviceSlug,
+          bookingQuantity: item.bookingQuantity,
+          priceAmountCents: item.priceAmountCents,
+          currency: item.currency,
+          executionMode: item.executionMode,
+          scheduledStartAt: item.scheduledStartAt,
+          scheduledEndAt: item.scheduledEndAt,
+          sortOrder: item.sortOrder
+        }));
     await groupFundedRepository.recordEvent(
       {
         campaignId: campaign._id,
@@ -523,7 +790,7 @@ async function createCampaign({ user, body }) {
         actorUserId: user._id,
         actorRole: "customer",
         source: "account",
-        metadata: { visibility: campaign.visibility }
+        metadata: { visibility: campaign.visibility, bundleItemCount: campaign.bundleItems.length }
       },
       { client }
     );
@@ -552,6 +819,7 @@ async function getCampaignForCustomer({ user, campaignIdOrToken }) {
     const expired = await expireFundingCampaign({ campaignId: campaign._id });
     campaign = expired.campaign;
   }
+  await attachBundleItems(campaign);
   const contribution = await groupFundedRepository.findContributionByCampaignAndUser(campaign._id, user._id);
   const isOrganizer = String(campaign.organizerUserId) === String(user._id);
   if (!isOrganizer && !contribution && campaign.campaignStatus !== groupFundedRepository.CAMPAIGN_STATUSES.FUNDING) {
@@ -585,6 +853,7 @@ async function getPublicCampaign({ publicToken }) {
   if (!campaign) {
     throw makeHttpError("Campaign not found.", 404);
   }
+  await attachBundleItems(campaign);
   const tenant = await tenantRepository.findTenantById(campaign.tenantId);
   campaign.contributorReservationSummary = await getContributorReservationSummary(campaign);
   return { campaign, tenant };
@@ -614,6 +883,38 @@ async function getContributorReservationSummary(campaign, options = {}) {
   return buildContributorReservationSummary(campaign, totals);
 }
 
+async function attachBundleItems(campaigns, options = {}) {
+  const list = Array.isArray(campaigns) ? campaigns : [campaigns].filter(Boolean);
+  if (!list.length || typeof groupFundedRepository.listCampaignItemsByCampaignIds !== "function") {
+    return campaigns;
+  }
+
+  const items = await groupFundedRepository.listCampaignItemsByCampaignIds(
+    list.map((campaign) => campaign._id),
+    options
+  );
+  const byCampaign = new Map();
+  for (const item of items) {
+    const key = String(item.campaignId);
+    if (!byCampaign.has(key)) {
+      byCampaign.set(key, []);
+    }
+    byCampaign.get(key).push(item);
+  }
+  for (const campaign of list) {
+    campaign.bundleItems = byCampaign.get(String(campaign._id)) || getCampaignBundleItems(campaign);
+  }
+  return campaigns;
+}
+
+async function listActiveCapacityHoldsByCampaign(campaignId, options = {}) {
+  if (typeof groupFundedRepository.listActiveCapacityHoldsByCampaign === "function") {
+    return groupFundedRepository.listActiveCapacityHoldsByCampaign(campaignId, options);
+  }
+  const activeHold = await groupFundedRepository.findActiveCapacityHoldByCampaign(campaignId, options);
+  return activeHold ? [activeHold] : [];
+}
+
 function maskOrganizerDisplayName(value) {
   const text = normalizeText(value, "Organizer");
   const firstCharacter = text[0]?.toUpperCase();
@@ -640,6 +941,7 @@ function formatPublicCampaign(campaign, tenant = null) {
     description: campaign.description,
     serviceName: campaign.serviceNameSnapshot,
     serviceSlug: campaign.serviceSlugSnapshot,
+    bundleItems: formatBundleItems(campaign),
     locationName: campaign.locationNameSnapshot,
     locationSlug: campaign.locationSlugSnapshot,
     bookingQuantity: campaign.bookingQuantity,
@@ -669,7 +971,25 @@ function formatPublicCampaign(campaign, tenant = null) {
   };
 }
 
-async function listPublicCampaignsForVendorLocation({ tenantSlug, locationSlug, serviceSlug, limit }) {
+const PUBLIC_ONGOING_CAMPAIGN_STATUSES = [
+  groupFundedRepository.CAMPAIGN_STATUSES.FUNDING,
+  groupFundedRepository.CAMPAIGN_STATUSES.FUNDED,
+  groupFundedRepository.CAMPAIGN_STATUSES.VENDOR_REVIEW,
+  groupFundedRepository.CAMPAIGN_STATUSES.REPLACEMENT_PROPOSED
+];
+
+async function listPublicCampaignsForVendorLocation({
+  tenantSlug,
+  locationSlug,
+  serviceSlug,
+  limit,
+  pageSize,
+  offset,
+  search,
+  ongoingOnly,
+  scheduledDateFrom,
+  scheduledDateTo
+}) {
   const tenant = await tenantRepository.findTenantBySlug(String(tenantSlug || "").toLowerCase(), { activeOnly: true });
   if (!tenant || !tenant.publicProfileEnabled || tenant.vendorApprovalStatus !== "approved") {
     throw makeHttpError("Vendor not found.", 404);
@@ -683,20 +1003,30 @@ async function listPublicCampaignsForVendorLocation({ tenantSlug, locationSlug, 
     throw makeHttpError("Location not found.", 404);
   }
 
-  const campaigns = await groupFundedRepository.listPublicCampaignsForVendorLocation(tenant._id, location._id, {
+  const result = await groupFundedRepository.listPublicCampaignsForVendorLocation(tenant._id, location._id, {
     serviceSlug: serviceSlug ? vendorServiceRepository.normalizeServiceSlug(serviceSlug) : "",
-    limit: Math.min(Math.max(Number(limit || 20) || 20, 1), 50)
+    limit: Math.min(Math.max(Number(limit || pageSize || 20) || 20, 1), 50),
+    pageSize: Math.min(Math.max(Number(pageSize || limit || 20) || 20, 1), 50),
+    offset: Number(offset || 0),
+    search: normalizeText(search),
+    statuses: ongoingOnly ? PUBLIC_ONGOING_CAMPAIGN_STATUSES : [],
+    scheduledDateFrom: normalizeText(scheduledDateFrom),
+    scheduledDateTo: normalizeText(scheduledDateTo)
   });
-  return campaigns.map((campaign) => {
-    campaign.contributorReservationSummary = buildContributorReservationSummary(
-      campaign,
-      campaign.contributorReservationTotals || {
-        verifiedContributorCount: 0,
-        pendingVerificationContributorCount: 0
-      }
-    );
-    return formatPublicCampaign(campaign, tenant);
-  });
+  const campaigns = Array.isArray(result) ? result : result.campaigns;
+  await attachBundleItems(campaigns);
+  const formattedCampaigns = campaigns.map((campaign) => {
+      campaign.contributorReservationSummary = buildContributorReservationSummary(
+        campaign,
+        campaign.contributorReservationTotals || {
+          verifiedContributorCount: 0,
+          pendingVerificationContributorCount: 0
+        }
+      );
+      return formatPublicCampaign(campaign, tenant);
+    });
+  formattedCampaigns.totalItems = Array.isArray(result) ? (result.totalItems || campaigns.length) : result.totalItems;
+  return formattedCampaigns;
 }
 
 async function reportPublicCampaignAbuse({ publicToken, body = {}, actor = null, ipAddress = "" }) {
@@ -730,6 +1060,7 @@ async function reportPublicCampaignAbuse({ publicToken, body = {}, actor = null,
 
 async function listCustomerCampaigns({ user }) {
   const campaigns = await groupFundedRepository.listCampaignsForUser(user._id);
+  await attachBundleItems(campaigns);
   return Promise.all(
     campaigns.map(async (campaign) => ({
       campaign,
@@ -751,7 +1082,7 @@ async function uploadContributionProofDirect({ user, campaignIdOrToken, body, fi
     campaign._id,
     user._id
   );
-  if (existingContribution) {
+  if (existingContribution && !isRejectedContribution(existingContribution)) {
     throw makeHttpError("You have already submitted a contribution for this campaign.", 409);
   }
   const reservationSummary = await getContributorReservationSummary(campaign);
@@ -783,7 +1114,7 @@ async function submitContributionProof({ user, campaignIdOrToken, body }) {
       user._id,
       { client, forUpdate: true }
     );
-    if (existingContribution) {
+    if (existingContribution && !isRejectedContribution(existingContribution)) {
       throw makeHttpError("You have already submitted a contribution for this campaign.", 409);
     }
     const reservationSummary = await getContributorReservationSummary(campaign, { client });
@@ -806,20 +1137,35 @@ async function submitContributionProof({ user, campaignIdOrToken, body }) {
       );
     }
 
-    const contribution = await groupFundedRepository.createContribution(
-      {
-        campaignId: campaign._id,
-        participantId: participant._id,
-        userId: user._id,
-        amountCents: campaign.requiredContributionAmountCents,
-        currency: campaign.currency,
-        contributionStatus: groupFundedRepository.CONTRIBUTION_STATUSES.SUBMITTED,
-        ...proof,
-        paymentProofUploadedAt: new Date().toISOString(),
-        submittedAt: new Date().toISOString()
-      },
-      { client }
-    );
+    const submittedAt = new Date().toISOString();
+    const contribution = existingContribution
+      ? await groupFundedRepository.updateContribution(
+          {
+            contributionId: existingContribution._id,
+            contributionStatus: groupFundedRepository.CONTRIBUTION_STATUSES.SUBMITTED,
+            amountCents: campaign.requiredContributionAmountCents,
+            currency: campaign.currency,
+            ...proof,
+            paymentProofUploadedAt: submittedAt,
+            submittedAt,
+            clearRejection: true
+          },
+          { client }
+        )
+      : await groupFundedRepository.createContribution(
+          {
+            campaignId: campaign._id,
+            participantId: participant._id,
+            userId: user._id,
+            amountCents: campaign.requiredContributionAmountCents,
+            currency: campaign.currency,
+            contributionStatus: groupFundedRepository.CONTRIBUTION_STATUSES.SUBMITTED,
+            ...proof,
+            paymentProofUploadedAt: submittedAt,
+            submittedAt
+          },
+          { client }
+        );
 
     await groupFundedRepository.recordEvent(
       {
@@ -830,7 +1176,7 @@ async function submitContributionProof({ user, campaignIdOrToken, body }) {
         actorUserId: user._id,
         actorRole: "customer",
         source: "account",
-        metadata: { contributionId: contribution._id }
+        metadata: { contributionId: contribution._id, retry: Boolean(existingContribution) }
       },
       { client }
     );
@@ -1217,11 +1563,13 @@ function normalizeVendorCampaignStatuses(status) {
 }
 
 async function listVendorCampaigns({ tenant, query = {} }) {
-  return groupFundedRepository.listCampaignsForVendor(tenant._id, {
+  const campaigns = await groupFundedRepository.listCampaignsForVendor(tenant._id, {
     locationId: query.locationId,
     statuses: normalizeVendorCampaignStatuses(query.status || query.statuses),
     limit: Math.min(Math.max(Number(query.limit || 50) || 50, 1), 100)
   });
+  await attachBundleItems(campaigns);
+  return campaigns;
 }
 
 function buildRefundSummary(refunds, contributions) {
@@ -1249,6 +1597,7 @@ async function listVendorAlertEvents({ tenant, query = {} }) {
 async function getVendorCampaign({ tenant, campaignId }) {
   const campaign = await groupFundedRepository.findCampaignById(campaignId);
   await assertVendorCampaignAccess({ tenant, campaign });
+  await attachBundleItems(campaign);
   const [contributions, refunds, capacityHolds] = await Promise.all([
     groupFundedRepository.listContributionsByCampaign(campaign._id),
     groupFundedRepository.listRefundsByCampaign(campaign._id),
@@ -1302,11 +1651,11 @@ async function rejectVendorCampaign({ tenant, user, campaignId, reason }) {
       },
       { client }
     );
-    const activeHold = await groupFundedRepository.findActiveCapacityHoldByCampaign(campaign._id, {
+    const activeHolds = await listActiveCapacityHoldsByCampaign(campaign._id, {
       client,
       forUpdate: true
     });
-    if (activeHold) {
+    for (const activeHold of activeHolds) {
       await groupFundedRepository.updateCapacityHold(
         {
           capacityHoldId: activeHold._id,
@@ -1360,11 +1709,11 @@ async function expireVendorReview({ tenant, user = null, campaignId }) {
       },
       { client }
     );
-    const activeHold = await groupFundedRepository.findActiveCapacityHoldByCampaign(campaign._id, {
+    const activeHolds = await listActiveCapacityHoldsByCampaign(campaign._id, {
       client,
       forUpdate: true
     });
-    if (activeHold) {
+    for (const activeHold of activeHolds) {
       await groupFundedRepository.updateCapacityHold(
         {
           capacityHoldId: activeHold._id,
@@ -1412,14 +1761,11 @@ async function approveVendorCampaign({ tenant, user, campaignId }) {
     if (campaign.linkedBookingId) {
       throw makeHttpError("Campaign already has a linked booking.", 409);
     }
-    const activeHold = await groupFundedRepository.findActiveCapacityHoldByCampaign(campaign._id, {
-      client,
-      forUpdate: true
-    });
-    if (!activeHold) {
+    const activeHolds = await listActiveCapacityHoldsByCampaign(campaign._id, { client, forUpdate: true });
+    if (!activeHolds.length) {
       throw makeHttpError("Campaign does not have an active group-funded capacity hold.", 409);
     }
-    if (new Date(activeHold.expiresAt).getTime() <= Date.now()) {
+    if (activeHolds.some((hold) => new Date(hold.expiresAt).getTime() <= Date.now())) {
       throw makeHttpError("Campaign vendor review hold has expired.", 409);
     }
     await assertCampaignSlotCapacity(campaign, { client, excludeCampaignId: campaign._id });
@@ -1456,15 +1802,17 @@ async function approveVendorCampaign({ tenant, user, campaignId }) {
       },
       { client }
     );
-    await groupFundedRepository.updateCapacityHold(
-      {
-        capacityHoldId: activeHold._id,
-        holdStatus: groupFundedRepository.CAPACITY_HOLD_STATUSES.CONVERTED,
-        releasedAt: new Date().toISOString(),
-        convertedBookingId: booking._id
-      },
-      { client }
-    );
+    for (const activeHold of activeHolds) {
+      await groupFundedRepository.updateCapacityHold(
+        {
+          capacityHoldId: activeHold._id,
+          holdStatus: groupFundedRepository.CAPACITY_HOLD_STATUSES.CONVERTED,
+          releasedAt: new Date().toISOString(),
+          convertedBookingId: booking._id
+        },
+        { client }
+      );
+    }
     await groupFundedRepository.recordEvent(
       {
         campaignId: campaign._id,
@@ -1487,11 +1835,11 @@ async function approveVendorCampaign({ tenant, user, campaignId }) {
         actorUserId: user._id,
         actorRole: "vendor",
         source: "vendor",
-        metadata: { bookingId: booking._id, capacityHoldId: activeHold._id }
+        metadata: { bookingId: booking._id, capacityHoldIds: activeHolds.map((hold) => hold._id) }
       },
       { client }
     );
-    return { campaign: approvedCampaign, booking, capacityHold: activeHold };
+    return { campaign: approvedCampaign, booking, capacityHold: activeHolds[0] || null, capacityHolds: activeHolds };
   });
   await publishCampaignStreamUpdate(tenant, result.campaign);
   return result;
@@ -1516,11 +1864,11 @@ async function proposeReplacementSlot({ tenant, user, campaignId, body = {} }) {
     const { scheduledStartAt, scheduledEndAt } = await resolveReplacementSlot(campaign, body.scheduledStartAt, { client });
     await assertCampaignSlotCapacity(buildCampaignWithSlot(campaign, scheduledStartAt, scheduledEndAt), { client });
 
-    const activeHold = await groupFundedRepository.findActiveCapacityHoldByCampaign(campaign._id, {
+    const activeHolds = await listActiveCapacityHoldsByCampaign(campaign._id, {
       client,
       forUpdate: true
     });
-    if (activeHold) {
+    for (const activeHold of activeHolds) {
       await groupFundedRepository.updateCapacityHold(
         {
           capacityHoldId: activeHold._id,
@@ -1604,19 +1952,36 @@ async function acceptReplacementSlot({ user, campaignIdOrToken }) {
       },
       { client }
     );
-    const capacityHold = await groupFundedRepository.createCapacityHold(
-      {
-        campaignId: campaign._id,
-        tenantId: campaign.tenantId,
-        locationId: campaign.locationId,
-        serviceId: campaign.serviceId,
-        scheduledStartAt: scheduledStartAt.toISOString(),
-        scheduledEndAt: scheduledEndAt.toISOString(),
-        bookingQuantity: campaign.bookingQuantity,
-        expiresAt: reviewExpiresAt.toISOString()
-      },
-      { client }
-    );
+    if (typeof groupFundedRepository.shiftCampaignItemsScheduledSlot === "function") {
+      accepted.bundleItems = await groupFundedRepository.shiftCampaignItemsScheduledSlot(
+        {
+          campaignId: campaign._id,
+          scheduledStartAt: scheduledStartAt.toISOString(),
+          previousScheduledStartAt: campaign.scheduledStartAt
+        },
+        { client }
+      );
+    } else {
+      accepted.bundleItems = getCampaignBundleItems(buildCampaignWithSlot(campaign, scheduledStartAt, scheduledEndAt));
+    }
+    const bundleContexts = await loadCampaignBundleContexts(accepted, { client });
+    const capacityHolds = [];
+    for (const { item } of bundleContexts) {
+      capacityHolds.push(await groupFundedRepository.createCapacityHold(
+        {
+          campaignId: campaign._id,
+          campaignItemId: item._id || null,
+          tenantId: campaign.tenantId,
+          locationId: item.locationId || campaign.locationId,
+          serviceId: item.serviceId || campaign.serviceId,
+          scheduledStartAt: item.scheduledStartAt,
+          scheduledEndAt: item.scheduledEndAt,
+          bookingQuantity: item.bookingQuantity || 1,
+          expiresAt: reviewExpiresAt.toISOString()
+        },
+        { client }
+      ));
+    }
     await groupFundedRepository.recordEvent(
       {
         campaignId: campaign._id,
@@ -1639,11 +2004,14 @@ async function acceptReplacementSlot({ user, campaignIdOrToken }) {
         actorUserId: user._id,
         actorRole: "customer",
         source: "account",
-        metadata: { capacityHoldId: capacityHold._id, expiresAt: capacityHold.expiresAt }
+        metadata: {
+          capacityHoldIds: capacityHolds.map((hold) => hold._id),
+          expiresAt: reviewExpiresAt.toISOString()
+        }
       },
       { client }
     );
-    return { campaign: accepted, capacityHold };
+    return { campaign: accepted, capacityHold: capacityHolds[0] || null, capacityHolds };
   });
   const tenant = await tenantRepository.findTenantById(result.campaign.tenantId);
   await publishCampaignStreamUpdate(tenant, result.campaign);

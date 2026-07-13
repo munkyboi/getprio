@@ -19,7 +19,12 @@ import {
 } from "@mantine/core";
 import { IconArrowLeft, IconCopy, IconEdit, IconFlag, IconUpload } from "@tabler/icons-react";
 import { Link, useLocation, useParams } from "react-router-dom";
-import type { BookingPaymentProofUploadResponse, GroupFundedCampaignResponse, GroupFundedCampaignSummary } from "@shared";
+import type {
+  BookingPaymentProofUploadResponse,
+  GroupFundedBundleItemSummary,
+  GroupFundedCampaignResponse,
+  GroupFundedCampaignSummary
+} from "@shared";
 import { API_BASE_URL, apiRequest } from "../api/client";
 import { customerAccountApi } from "../api/customerAccount";
 import { useAuth } from "../context/AuthContext";
@@ -137,6 +142,12 @@ function getSafeBackPath(value: unknown) {
 
   return value;
 }
+
+type RawBundleItem = GroupFundedBundleItemSummary & {
+  _id?: string | null;
+  serviceNameSnapshot?: string;
+  serviceSlugSnapshot?: string;
+};
 
 export default function GroupFundedCampaignPage() {
   const { publicToken = "" } = useParams<{ publicToken: string }>();
@@ -274,9 +285,49 @@ export default function GroupFundedCampaignPage() {
       }))
     ];
   }, [campaign, contributorReservationSummary]);
+  const bundleItems = useMemo(() => {
+    if (!campaign) {
+      return [];
+    }
+
+    if (campaign.bundleItems?.length) {
+      return campaign.bundleItems.map((item) => {
+        const rawItem = item as RawBundleItem;
+        return {
+          id: rawItem.id || rawItem._id || null,
+          serviceId: rawItem.serviceId,
+          serviceName: rawItem.serviceName || rawItem.serviceNameSnapshot || campaign.serviceName,
+          serviceSlug: rawItem.serviceSlug || rawItem.serviceSlugSnapshot || campaign.serviceSlug,
+          bookingQuantity: rawItem.bookingQuantity,
+          priceAmountCents: rawItem.priceAmountCents,
+          currency: rawItem.currency,
+          executionMode: rawItem.executionMode,
+          scheduledStartAt: rawItem.scheduledStartAt,
+          scheduledEndAt: rawItem.scheduledEndAt,
+          sortOrder: rawItem.sortOrder
+        };
+      });
+    }
+
+    return [{
+      id: null,
+      serviceId: campaign.serviceId,
+      serviceName: campaign.serviceName,
+      serviceSlug: campaign.serviceSlug,
+      bookingQuantity: campaign.bookingQuantity,
+      priceAmountCents: campaign.targetAmountCents,
+      currency: campaign.currency,
+      executionMode: "parallel" as const,
+      scheduledStartAt: campaign.scheduledStartAt,
+      scheduledEndAt: campaign.scheduledEndAt,
+      sortOrder: 0
+    }];
+  }, [campaign]);
+  const hasServiceBundle = bundleItems.length > 1;
 
   const isOrganizer = Boolean(user && campaign?.isOrganizer);
-  const canContribute = campaign?.campaignStatus === "funding" && !campaign.contribution && Boolean(contributorReservationSummary?.vacantContributorCount);
+  const contributionCanRetry = campaign?.contribution?.contributionStatus === "rejected";
+  const canContribute = campaign?.campaignStatus === "funding" && (!campaign.contribution || contributionCanRetry) && Boolean(contributorReservationSummary?.vacantContributorCount);
   const canCancel = isOrganizer && campaign?.campaignStatus === "funding" && campaign.fundedAmountCents < campaign.targetAmountCents;
   const isCampaignFullyFunded = Boolean(
     campaign &&
@@ -435,6 +486,68 @@ export default function GroupFundedCampaignPage() {
 
   const locationState = location.state as { from?: unknown } | null;
   const backLink = getSafeBackPath(locationState?.from) || (user ? "/account/group-funded" : "/vendors");
+  const paymentProofForm = canContribute ? (
+    <Stack gap="md">
+      <Alert color={contributionCanRetry ? "yellow" : "teal"} variant="light">
+        {contributionCanRetry
+          ? `Upload a replacement proof for exactly ${formatPaymentAmount(campaign.requiredContributionAmountCents, campaign.currency)}. The vendor will review the new proof.`
+          : `Please send exactly ${formatPaymentAmount(campaign.requiredContributionAmountCents, campaign.currency)}. For this group booking, we can only accept one payment for the full amount.`}
+      </Alert>
+      {campaign.paymentDestination ? (
+        <Card withBorder padding="md" radius="md">
+          <Group align="flex-start" gap="lg" wrap="nowrap">
+            <Image
+              alt={`${campaign.paymentDestination.methodLabel} payment QR`}
+              fit="contain"
+              h={156}
+              radius="sm"
+              src={campaign.paymentDestination.qrImageUrl}
+              w={156}
+            />
+            <Stack gap={4}>
+              <Text c="dimmed" size="xs">Payment destination</Text>
+              <Text fw={800}>{campaign.paymentDestination.methodLabel}</Text>
+              {campaign.paymentDestination.accountDisplayName ? (
+                <Text>{campaign.paymentDestination.accountDisplayName}</Text>
+              ) : null}
+              {campaign.paymentDestination.accountIdentifierDisplay ? (
+                <Text c="dimmed" size="sm">{campaign.paymentDestination.accountIdentifierDisplay}</Text>
+              ) : null}
+              <Text c="dimmed" size="sm">Scan the QR, pay the exact contribution amount, then upload your proof below.</Text>
+            </Stack>
+          </Group>
+        </Card>
+      ) : (
+        <Alert color="yellow" variant="light">
+          Payment instructions are temporarily unavailable. Please contact the vendor before sending payment.
+        </Alert>
+      )}
+      <TextInput
+        label="Payment reference"
+        onChange={(event) => setPaymentReference(event.currentTarget.value)}
+        placeholder="Reference number from your bank or wallet"
+        value={paymentReference}
+      />
+      <FileInput
+        accept="image/jpeg,image/png,image/webp,application/pdf"
+        clearable
+        label="Proof file"
+        leftSection={<IconUpload size={16} />}
+        onChange={setPaymentProofFile}
+        placeholder="Choose JPEG, PNG, WebP, or PDF"
+        value={paymentProofFile}
+      />
+      <Button
+        color="dark"
+        disabled={!paymentReference.trim() || !paymentProofFile}
+        loading={submitting}
+        onClick={submitContribution}
+        w="fit-content"
+      >
+        {contributionCanRetry ? "Submit replacement proof" : "Submit contribution proof"}
+      </Button>
+    </Stack>
+  ) : null;
 
   return (
     <Stack className="customer-account-page" gap="lg">
@@ -450,7 +563,11 @@ export default function GroupFundedCampaignPage() {
               <Title order={1}>{campaign.campaignTitle || campaign.serviceName}</Title>
               <Group align="center" gap="xs">
                 <Text c="dimmed">
-                  {[campaign.vendorName, campaign.serviceName, campaign.locationName].filter(Boolean).join(" · ")}
+                  {[
+                    campaign.vendorName,
+                    hasServiceBundle ? `${bundleItems.length} bundled services` : campaign.serviceName,
+                    campaign.locationName
+                  ].filter(Boolean).join(" · ")}
                 </Text>
                 {campaign.tenantSlug ? (
                   <Button
@@ -482,6 +599,42 @@ export default function GroupFundedCampaignPage() {
           ) : null}
           {campaign.description ? <Text>{campaign.description}</Text> : null}
 
+          <Card withBorder radius="md" p="md">
+            <Stack gap="sm">
+              <Group justify="space-between" align="flex-start">
+                <Stack gap={2}>
+                  <Text c="dimmed" size="xs">{hasServiceBundle ? "Bundled services" : "Selected service"}</Text>
+                  <Text fw={800}>
+                    {hasServiceBundle
+                      ? `${bundleItems.length} services in this group booking`
+                      : bundleItems[0]?.serviceName || campaign.serviceName}
+                  </Text>
+                </Stack>
+                <Badge color="teal" variant="light">
+                  {hasServiceBundle ? "Service bundle" : "Single service"}
+                </Badge>
+              </Group>
+              <SimpleGrid cols={{ base: 1, sm: hasServiceBundle ? 2 : 1 }} spacing="sm">
+                {bundleItems.map((item) => (
+                  <Stack className="group-funded-campaign-summary-panel" gap={4} key={item.id || item.serviceSlug}>
+                    <Group justify="space-between" gap="sm" wrap="nowrap">
+                      <Text fw={800}>{item.serviceName}</Text>
+                      <Badge variant="light">
+                        x{item.bookingQuantity}
+                      </Badge>
+                    </Group>
+                    <Text c="dimmed" size="sm">
+                      {formatBookingScheduleTimeRange(item.scheduledStartAt, item.scheduledEndAt)}
+                    </Text>
+                    <Text c="dimmed" size="sm">
+                      {formatPaymentAmount(item.priceAmountCents, item.currency)}
+                    </Text>
+                  </Stack>
+                ))}
+              </SimpleGrid>
+            </Stack>
+          </Card>
+
           <SimpleGrid cols={{ base: 1, md: 3 }} spacing="sm">
             <Stack className="group-funded-campaign-summary-panel" gap={4}>
               <Text c="dimmed" size="xs">Booking details</Text>
@@ -490,7 +643,7 @@ export default function GroupFundedCampaignPage() {
                 {formatBookingScheduleTimeRange(campaign.scheduledStartAt, campaign.scheduledEndAt)}
               </Text>
               <Text c="dimmed" size="sm">
-                Quantity {campaign.bookingQuantity} · {campaign.locationName}
+                {hasServiceBundle ? `${bundleItems.length} services` : `Quantity ${campaign.bookingQuantity}`} · {campaign.locationName}
               </Text>
             </Stack>
             <Stack className="group-funded-campaign-summary-panel" gap={4}>
@@ -601,14 +754,17 @@ export default function GroupFundedCampaignPage() {
                 {getContributionStatusLabel(campaign.contribution.contributionStatus)}
               </Badge>
               {campaign.contribution.contributionStatus === "rejected" ? (
-                <Alert color="red" variant="light">
-                  <Stack gap={4}>
-                    <Text fw={700}>Your contribution proof was rejected and is not counted toward this campaign.</Text>
-                    <Text>
-                      Reason: {campaign.contribution.rejectionReason || "The vendor did not provide a rejection reason."}
-                    </Text>
-                  </Stack>
-                </Alert>
+                <>
+                  <Alert color="red" variant="light">
+                    <Stack gap={4}>
+                      <Text fw={700}>Your contribution proof was rejected and is not counted toward this campaign.</Text>
+                      <Text>
+                        Reason: {campaign.contribution.rejectionReason || "The vendor did not provide a rejection reason."}
+                      </Text>
+                    </Stack>
+                  </Alert>
+                  {paymentProofForm}
+                </>
               ) : null}
               {campaign.contribution.contributionStatus === "refund_pending" ? (
                 <Alert color="orange" variant="light">
@@ -630,64 +786,7 @@ export default function GroupFundedCampaignPage() {
               ) : null}
             </Stack>
           ) : canContribute ? (
-            <Stack gap="md">
-              <Alert color="teal" variant="light">
-                Please send exactly {formatPaymentAmount(campaign.requiredContributionAmountCents, campaign.currency)}. For this group booking, we can only accept one payment for the full amount.
-              </Alert>
-              {campaign.paymentDestination ? (
-                <Card withBorder padding="md" radius="md">
-                  <Group align="flex-start" gap="lg" wrap="nowrap">
-                    <Image
-                      alt={`${campaign.paymentDestination.methodLabel} payment QR`}
-                      fit="contain"
-                      h={156}
-                      radius="sm"
-                      src={campaign.paymentDestination.qrImageUrl}
-                      w={156}
-                    />
-                    <Stack gap={4}>
-                      <Text c="dimmed" size="xs">Payment destination</Text>
-                      <Text fw={800}>{campaign.paymentDestination.methodLabel}</Text>
-                      {campaign.paymentDestination.accountDisplayName ? (
-                        <Text>{campaign.paymentDestination.accountDisplayName}</Text>
-                      ) : null}
-                      {campaign.paymentDestination.accountIdentifierDisplay ? (
-                        <Text c="dimmed" size="sm">{campaign.paymentDestination.accountIdentifierDisplay}</Text>
-                      ) : null}
-                      <Text c="dimmed" size="sm">Scan the QR, pay the exact contribution amount, then upload your proof below.</Text>
-                    </Stack>
-                  </Group>
-                </Card>
-              ) : (
-                <Alert color="yellow" variant="light">
-                  Payment instructions are temporarily unavailable. Please contact the vendor before sending payment.
-                </Alert>
-              )}
-              <TextInput
-                label="Payment reference"
-                onChange={(event) => setPaymentReference(event.currentTarget.value)}
-                placeholder="Reference number from your bank or wallet"
-                value={paymentReference}
-              />
-              <FileInput
-                accept="image/jpeg,image/png,image/webp,application/pdf"
-                clearable
-                label="Proof file"
-                leftSection={<IconUpload size={16} />}
-                onChange={setPaymentProofFile}
-                placeholder="Choose JPEG, PNG, WebP, or PDF"
-                value={paymentProofFile}
-              />
-              <Button
-                color="dark"
-                disabled={!paymentReference.trim() || !paymentProofFile}
-                loading={submitting}
-                onClick={submitContribution}
-                w="fit-content"
-              >
-                Submit contribution proof
-              </Button>
-            </Stack>
+            paymentProofForm
           ) : campaign.campaignStatus === "funding" && contributorReservationSummary?.vacantContributorCount === 0 ? (
             <Alert color="blue" variant="light">
               All contributor positions are temporarily reserved. Please check back if the vendor rejects a pending proof.

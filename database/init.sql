@@ -16,6 +16,7 @@ DROP TABLE IF EXISTS auth_login_attempts CASCADE;
 DROP TABLE IF EXISTS password_reset_tokens CASCADE;
 DROP TABLE IF EXISTS auth_sessions CASCADE;
 DROP TABLE IF EXISTS group_funded_capacity_holds CASCADE;
+DROP TABLE IF EXISTS group_funded_booking_items CASCADE;
 DROP TABLE IF EXISTS group_funded_booking_events CASCADE;
 DROP TABLE IF EXISTS group_funded_booking_refunds CASCADE;
 DROP TABLE IF EXISTS group_funded_booking_contributions CASCADE;
@@ -610,6 +611,34 @@ CREATE INDEX bookings_group_funded_booking_idx
   ON bookings (group_funded_booking_id)
   WHERE group_funded_booking_id IS NOT NULL;
 
+CREATE TABLE group_funded_booking_items (
+  id BIGSERIAL PRIMARY KEY,
+  campaign_id BIGINT NOT NULL REFERENCES group_funded_bookings(id) ON DELETE CASCADE,
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  location_id BIGINT NOT NULL REFERENCES store_locations(id) ON DELETE CASCADE,
+  service_id BIGINT NOT NULL REFERENCES vendor_services(id) ON DELETE RESTRICT,
+  location_service_id BIGINT REFERENCES location_services(id) ON DELETE SET NULL,
+  service_name_snapshot TEXT NOT NULL,
+  service_slug_snapshot TEXT NOT NULL,
+  booking_quantity INTEGER NOT NULL DEFAULT 1 CHECK (booking_quantity BETWEEN 1 AND 24),
+  price_amount_cents INTEGER NOT NULL CHECK (price_amount_cents >= 0),
+  currency TEXT NOT NULL DEFAULT 'PHP' CHECK (currency IN ('PHP')),
+  execution_mode TEXT NOT NULL DEFAULT 'parallel' CHECK (execution_mode IN ('parallel', 'sequential')),
+  scheduled_start_at TIMESTAMPTZ NOT NULL,
+  scheduled_end_at TIMESTAMPTZ NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CHECK (scheduled_start_at < scheduled_end_at),
+  UNIQUE (campaign_id, service_id, scheduled_start_at)
+);
+
+CREATE INDEX group_funded_booking_items_campaign_idx
+  ON group_funded_booking_items (campaign_id, sort_order, id);
+
+CREATE INDEX group_funded_booking_items_capacity_idx
+  ON group_funded_booking_items (tenant_id, location_id, service_id, scheduled_start_at, scheduled_end_at);
+
 CREATE TABLE group_funded_booking_participants (
   id BIGSERIAL PRIMARY KEY,
   campaign_id BIGINT NOT NULL REFERENCES group_funded_bookings(id) ON DELETE CASCADE,
@@ -747,6 +776,7 @@ CREATE INDEX group_funded_events_type_idx
 CREATE TABLE group_funded_capacity_holds (
   id BIGSERIAL PRIMARY KEY,
   campaign_id BIGINT NOT NULL REFERENCES group_funded_bookings(id) ON DELETE CASCADE,
+  group_funded_booking_item_id BIGINT REFERENCES group_funded_booking_items(id) ON DELETE SET NULL,
   tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   location_id BIGINT NOT NULL REFERENCES store_locations(id) ON DELETE CASCADE,
   service_id BIGINT NOT NULL REFERENCES vendor_services(id) ON DELETE CASCADE,
@@ -771,6 +801,10 @@ CREATE INDEX group_funded_capacity_holds_active_idx
 CREATE INDEX group_funded_capacity_holds_expiry_idx
   ON group_funded_capacity_holds (expires_at)
   WHERE hold_status = 'active';
+
+CREATE INDEX group_funded_capacity_holds_item_idx
+  ON group_funded_capacity_holds (group_funded_booking_item_id)
+  WHERE group_funded_booking_item_id IS NOT NULL;
 
 CREATE TABLE tickets (
   id BIGSERIAL PRIMARY KEY,
@@ -1280,6 +1314,11 @@ EXECUTE FUNCTION set_updated_at();
 
 CREATE TRIGGER set_group_funded_booking_participants_updated_at
 BEFORE UPDATE ON group_funded_booking_participants
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER set_group_funded_booking_items_updated_at
+BEFORE UPDATE ON group_funded_booking_items
 FOR EACH ROW
 EXECUTE FUNCTION set_updated_at();
 

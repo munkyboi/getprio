@@ -104,6 +104,7 @@ function capacityHoldRow(overrides = {}) {
   return {
     id: 600,
     campaign_id: 100,
+    group_funded_booking_item_id: null,
     tenant_id: 1,
     location_id: 2,
     service_id: 3,
@@ -256,6 +257,92 @@ test("group-funded repository prefers organizer profile display name over campai
   assert.equal(campaign.organizerProfileDisplayName, "John S.");
 });
 
+test("group-funded repository creates and lists campaign bundle items", async () => {
+  const calls = [];
+  const itemRow = {
+    id: 700,
+    campaign_id: 100,
+    tenant_id: 1,
+    location_id: 2,
+    service_id: 3,
+    location_service_id: 4,
+    service_name_snapshot: "VIP Court",
+    service_slug_snapshot: "vip-court",
+    booking_quantity: 1,
+    price_amount_cents: 120000,
+    currency: "PHP",
+    execution_mode: "parallel",
+    scheduled_start_at: new Date("2026-07-20T02:00:00.000Z"),
+    scheduled_end_at: new Date("2026-07-20T03:00:00.000Z"),
+    sort_order: 0,
+    created_at: new Date("2026-07-12T00:00:00.000Z"),
+    updated_at: new Date("2026-07-12T00:00:00.000Z")
+  };
+  const repository = requireWithMocks("../src/repositories/groupFundedBookings.js", {
+    "../config/db": {
+      pool: {
+        query: async (query, params) => {
+          const sql = String(query);
+          calls.push({ query: sql, params });
+
+          if (sql.includes("INSERT INTO group_funded_booking_items")) {
+            return {
+              rows: [{
+                ...itemRow,
+                campaign_id: params[0],
+                tenant_id: params[1],
+                location_id: params[2],
+                service_id: params[3],
+                location_service_id: params[4],
+                service_name_snapshot: params[5],
+                service_slug_snapshot: params[6],
+                booking_quantity: params[7],
+                price_amount_cents: params[8],
+                currency: params[9],
+                execution_mode: params[10],
+                scheduled_start_at: params[11],
+                scheduled_end_at: params[12],
+                sort_order: params[13]
+              }]
+            };
+          }
+
+          if (sql.includes("WHERE campaign_id = ANY")) {
+            assert.deepEqual(params, [[100]]);
+            return { rows: [itemRow] };
+          }
+
+          throw new Error(`Unexpected query: ${sql}`);
+        }
+      }
+    }
+  });
+
+  const item = await repository.createCampaignItem({
+    campaignId: 100,
+    tenantId: 1,
+    locationId: 2,
+    serviceId: 3,
+    locationServiceId: 4,
+    serviceNameSnapshot: "VIP Court",
+    serviceSlugSnapshot: "vip-court",
+    bookingQuantity: 1,
+    priceAmountCents: 120000,
+    currency: "PHP",
+    executionMode: "parallel",
+    scheduledStartAt: "2026-07-20T02:00:00.000Z",
+    scheduledEndAt: "2026-07-20T03:00:00.000Z",
+    sortOrder: 0
+  });
+  const items = await repository.listCampaignItemsByCampaignIds([100]);
+
+  assert.equal(item.serviceSlugSnapshot, "vip-court");
+  assert.equal(item.priceAmountCents, 120000);
+  assert.equal(items.length, 1);
+  assert.equal(items[0].serviceNameSnapshot, "VIP Court");
+  assert.equal(calls.length, 2);
+});
+
 test("group-funded repository stores contribution proof metadata outside booking payment fields", async () => {
   const calls = [];
   const repository = requireWithMocks("../src/repositories/groupFundedBookings.js", {
@@ -317,6 +404,71 @@ test("group-funded repository stores contribution proof metadata outside booking
   assert.equal(contribution.paymentReference, "REF-123");
   assert.equal(contribution.paymentProofObjectKey, "group-funded/100/102.png");
   assert.equal(contribution.paymentProofSizeBytes, 12345);
+});
+
+test("group-funded repository can clear rejected contribution metadata on resubmission", async () => {
+  const calls = [];
+  const repository = requireWithMocks("../src/repositories/groupFundedBookings.js", {
+    "../config/db": {
+      pool: {
+        query: async (query, params) => {
+          const sql = String(query);
+          calls.push({ query: sql, params });
+          assert.match(sql, /rejected_at = CASE WHEN \$16::boolean THEN NULL/);
+          assert.match(sql, /rejected_by_user_id = CASE WHEN \$16::boolean THEN NULL/);
+          assert.match(sql, /rejection_reason = CASE WHEN \$16::boolean THEN NULL/);
+          assert.equal(params[15], true);
+          return {
+            rows: [
+              {
+                id: params[0],
+                campaign_id: 100,
+                participant_id: 101,
+                user_id: 102,
+                amount_cents: 50000,
+                currency: "PHP",
+                contribution_status: params[1],
+                payment_reference: params[2],
+                payment_proof_object_key: params[3],
+                payment_proof_file_name: params[4],
+                payment_proof_content_type: params[5],
+                payment_proof_size_bytes: params[6],
+                payment_proof_uploaded_at: params[7],
+                submitted_at: params[8],
+                verified_at: null,
+                verified_by_user_id: null,
+                rejected_at: null,
+                rejected_by_user_id: null,
+                rejection_reason: null,
+                refund_status: null,
+                created_at: new Date("2026-07-12T00:00:00.000Z"),
+                updated_at: new Date("2026-07-13T00:00:00.000Z")
+              }
+            ]
+          };
+        }
+      }
+    }
+  });
+
+  const contribution = await repository.updateContribution({
+    contributionId: 200,
+    contributionStatus: repository.CONTRIBUTION_STATUSES.SUBMITTED,
+    paymentReference: "REF-RETRY",
+    paymentProofObjectKey: "group-funded/100/102-retry.png",
+    paymentProofFileName: "proof-retry.png",
+    paymentProofContentType: "image/png",
+    paymentProofSizeBytes: 23456,
+    paymentProofUploadedAt: "2026-07-13T00:00:00.000Z",
+    submittedAt: "2026-07-13T00:00:00.000Z",
+    clearRejection: true
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(contribution.contributionStatus, repository.CONTRIBUTION_STATUSES.SUBMITTED);
+  assert.equal(contribution.paymentReference, "REF-RETRY");
+  assert.equal(contribution.rejectedAt, null);
+  assert.equal(contribution.rejectionReason, "");
 });
 
 test("group-funded repository creates participants, refunds, events, and capacity holds", async () => {
@@ -396,14 +548,15 @@ test("group-funded repository creates participants, refunds, events, and capacit
                 {
                   id: 600,
                   campaign_id: params[0],
-                  tenant_id: params[1],
-                  location_id: params[2],
-                  service_id: params[3],
-                  scheduled_start_at: params[4],
-                  scheduled_end_at: params[5],
-                  booking_quantity: params[6],
-                  hold_status: params[7],
-                  expires_at: params[8],
+                  group_funded_booking_item_id: params[1],
+                  tenant_id: params[2],
+                  location_id: params[3],
+                  service_id: params[4],
+                  scheduled_start_at: params[5],
+                  scheduled_end_at: params[6],
+                  booking_quantity: params[7],
+                  hold_status: params[8],
+                  expires_at: params[9],
                   released_at: null,
                   converted_booking_id: null,
                   created_at: new Date("2026-07-12T00:00:00.000Z"),
@@ -453,6 +606,7 @@ test("group-funded repository creates participants, refunds, events, and capacit
 
   const hold = await repository.createCapacityHold({
     campaignId: 100,
+    campaignItemId: 700,
     tenantId: 1,
     locationId: 2,
     serviceId: 3,
@@ -461,6 +615,7 @@ test("group-funded repository creates participants, refunds, events, and capacit
     expiresAt: "2026-07-13T00:00:00.000Z"
   });
   assert.equal(hold.holdStatus, repository.CAPACITY_HOLD_STATUSES.ACTIVE);
+  assert.equal(hold.campaignItemId, "700");
   assert.equal(calls.length, 4);
 });
 
