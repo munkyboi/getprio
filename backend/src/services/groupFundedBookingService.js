@@ -1351,6 +1351,10 @@ async function updateOrganizerCampaignDetails({ user, campaignIdOrToken, body })
     if (!campaign || String(campaign.organizerUserId) !== String(user._id)) {
       throw makeHttpError("Campaign not found.", 404);
     }
+    const contributorReservationSummary = await getContributorReservationSummary(campaign, { client });
+    if (contributorReservationSummary.filledContributorCount > 0) {
+      throw makeHttpError("Campaigns with submitted contributions can no longer be edited.", 409);
+    }
     if (
       Number(campaign.fundedAmountCents || 0) >= Number(campaign.targetAmountCents || 0) ||
       Number(campaign.paidParticipantCount || 0) >= Number(campaign.requiredContributors || 0)

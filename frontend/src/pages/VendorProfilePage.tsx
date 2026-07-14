@@ -13,6 +13,7 @@ import {
   Paper,
   Pagination,
   Progress,
+  RingProgress,
   ScrollArea,
   SimpleGrid,
   Stack,
@@ -31,7 +32,6 @@ import {
   IconCalendar,
   IconClock,
   IconEye,
-  IconFlag,
   IconInfoCircle,
   IconMapPin,
   IconPhoto,
@@ -40,7 +40,7 @@ import {
   IconUserPlus,
   IconUsers
 } from "@tabler/icons-react";
-import { getDay } from "date-fns";
+import { differenceInCalendarDays, getDay, startOfDay } from "date-fns";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import QRCode from "react-qr-code";
 import type {
@@ -146,6 +146,33 @@ function formatScheduleDateTime(value: string | Date) {
     dateStyle: "medium",
     timeStyle: "short"
   }).format(new Date(value));
+}
+
+function formatCampaignSchedule(startValue: string | Date, endValue: string | Date) {
+  const start = new Date(startValue);
+  const end = new Date(endValue);
+  const date = new Intl.DateTimeFormat("en-PH", {
+    day: "numeric",
+    month: "long",
+    year: "numeric"
+  }).format(start);
+  const time = new Intl.DateTimeFormat("en-PH", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true
+  });
+
+  return `${date} ${time.format(start)} - ${time.format(end)}`;
+}
+
+function formatRelativeDeadline(value: string | Date) {
+  const days = differenceInCalendarDays(startOfDay(new Date(value)), startOfDay(new Date()));
+
+  if (days <= 0) {
+    return "Deadline: today";
+  }
+
+  return `Deadline: ${days} ${days === 1 ? "day" : "days"} from now`;
 }
 
 function toLocalDateKey(value: string | Date | null) {
@@ -1197,6 +1224,11 @@ export default function VendorProfilePage() {
                                       currency: campaign.currency
                                     }];
                                 const isServiceBundle = campaignBundleItems.length > 1;
+                                const vendorDetailPath = `/vendors/${campaign.tenantSlug || vendor.slug}`;
+                                const fundingProgress = getCampaignProgress(campaign);
+                                const contributorProgress = campaign.requiredContributors
+                                  ? Math.min(100, Math.round((campaign.paidParticipantCount / campaign.requiredContributors) * 100))
+                                  : 0;
 
                                 return (
                                   <Paper
@@ -1220,17 +1252,20 @@ export default function VendorProfilePage() {
                                           <Text className="vendor-service-title vendor-group-funded-card-title">
                                             {campaignTitle}
                                           </Text>
-                                          {campaign.description ? (
-                                            <Text className="vendor-group-funded-card-description">
-                                              {campaign.description}
+                                          <Text className="vendor-group-funded-card-organizer" c="dimmed" size="sm">
+                                            Organized by {campaign.organizerDisplayName}
+                                          </Text>
+                                          <Group className="vendor-group-funded-card-service-meta" gap={4} wrap="wrap">
+                                            <Text
+                                              className="vendor-group-funded-card-vendor-link"
+                                              component={Link}
+                                              onClick={(event) => event.stopPropagation()}
+                                              to={vendorDetailPath}
+                                            >
+                                              {campaign.vendorName || vendor.name}
                                             </Text>
-                                          ) : null}
-                                          <Group className="vendor-group-funded-card-service-meta" gap="xs" wrap="wrap">
-                                            <Badge color={isServiceBundle ? "teal" : "gray"} variant="light">
-                                              {isServiceBundle ? "Service bundle" : "Single service"}
-                                            </Badge>
                                             <Text c="dimmed" size="sm">
-                                              {campaign.locationName} · {formatScheduleDateTime(campaign.scheduledStartAt)}
+                                              - {campaign.locationName} · {formatCampaignSchedule(campaign.scheduledStartAt, campaign.scheduledEndAt)}
                                             </Text>
                                           </Group>
                                         </Stack>
@@ -1238,38 +1273,55 @@ export default function VendorProfilePage() {
                                           {campaign.campaignStatus.replace(/_/g, " ")}
                                         </Badge>
                                       </Group>
+                                      <div className="vendor-group-funded-card-funding">
+                                        <Text className="vendor-group-funded-card-funding-title" fw={800} size="sm">
+                                          Funding {formatPaymentAmount(campaign.fundedAmountCents, campaign.currency)} / {formatPaymentAmount(campaign.targetAmountCents, campaign.currency)}
+                                        </Text>
+                                        <Progress color="teal" radius="xl" value={fundingProgress} />
+                                        <SimpleGrid className="vendor-group-funded-card-funding-details" cols={2} spacing="xs">
+                                          <div className="vendor-group-funded-card-funding-detail">
+                                            <Text c="dimmed" size="xs">Join fee</Text>
+                                            <Text fw={900}>{formatPaymentAmount(campaign.requiredContributionAmountCents, campaign.currency)}</Text>
+                                            <Group gap={4} wrap="nowrap">
+                                              <Text c="dimmed" size="xs">{formatRelativeDeadline(campaign.fundingDeadlineAt)}</Text>
+                                              <Tooltip label={formatScheduleDateTime(campaign.fundingDeadlineAt)} withArrow>
+                                                <IconInfoCircle aria-label="Funding deadline" color="var(--mantine-color-dimmed)" size={14} />
+                                              </Tooltip>
+                                            </Group>
+                                          </div>
+                                          <div className="vendor-group-funded-card-funding-detail vendor-group-funded-card-contributors">
+                                            <RingProgress
+                                              label={<Text fw={900} size="xs" ta="center">{campaign.paidParticipantCount}/{campaign.requiredContributors}</Text>}
+                                              roundCaps
+                                              sections={[{ color: "teal", value: contributorProgress }]}
+                                              size={56}
+                                              thickness={6}
+                                            />
+                                            <div>
+                                              <Text c="dimmed" size="xs">Contributors</Text>
+                                              <Text fw={900}>{campaign.paidParticipantCount} filled</Text>
+                                            </div>
+                                          </div>
+                                        </SimpleGrid>
+                                      </div>
                                       <div className={isServiceBundle ? "vendor-group-funded-card-bundle" : "vendor-group-funded-card-single"}>
+                                        <Text className="vendor-group-funded-card-section-title" fw={800} size="sm">
+                                          Bundled services
+                                        </Text>
                                         {campaignBundleItems.map((item) => (
                                           <div className="vendor-group-funded-card-bundle-item" key={`${item.serviceName}-${item.bookingQuantity}-${item.priceAmountCents}`}>
                                             <Text fw={800} size="sm">
                                               {item.serviceName}
                                             </Text>
-                                            <Text c="dimmed" size="xs">
-                                              {item.bookingQuantity}x · {formatPaymentAmount(item.priceAmountCents, item.currency)}
-                                            </Text>
                                           </div>
                                         ))}
                                       </div>
-                                      <Progress value={getCampaignProgress(campaign)} color="teal" />
-                                      <Group gap="xs" wrap="wrap">
-                                        <Badge leftSection={<IconUsers size={12} />} variant="light">
-                                          {campaign.paidParticipantCount}/{campaign.requiredContributors}
-                                        </Badge>
-                                        <Badge leftSection={<IconFlag size={12} />} color="yellow" variant="light">
-                                          {formatPaymentAmount(campaign.requiredContributionAmountCents, campaign.currency)} each
-                                        </Badge>
-                                        <Badge color="gray" variant="light">
-                                          Organized by {campaign.organizerDisplayName}
-                                        </Badge>
-                                      </Group>
-                                      <Group className="vendor-group-funded-card-footer" justify="space-between">
-                                        <Text c="dimmed" size="sm">
-                                          Deadline {formatScheduleDateTime(campaign.fundingDeadlineAt)}
-                                        </Text>
+                                      <Group className="vendor-group-funded-card-footer" justify="flex-end">
                                         <Button
+                                          className="vendor-group-funded-card-action"
                                           component={Link}
                                           onClick={(event) => event.stopPropagation()}
-                                          size="xs"
+                                          size="md"
                                           state={{ from: currentVendorPath }}
                                           to={campaignPath}
                                           variant="light"

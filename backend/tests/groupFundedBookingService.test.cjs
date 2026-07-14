@@ -580,6 +580,31 @@ test("group-funded service rejects organizer detail edits after funding is compl
   assert.equal(updateCalled, false);
 });
 
+test("group-funded service rejects organizer detail edits after a contribution is submitted", async () => {
+  const campaign = buildCampaign();
+  const { mocks } = baseMocks({
+    findCampaignByPublicToken: async () => campaign,
+    getContributionReservationSummary: async () => ({
+      verifiedContributorCount: 0,
+      pendingVerificationContributorCount: 1
+    })
+  });
+  const service = requireWithMocks("../src/services/groupFundedBookingService.js", mocks);
+
+  await assert.rejects(
+    () => service.updateOrganizerCampaignDetails({
+      user: { _id: "user-1" },
+      campaignIdOrToken: "share-token",
+      body: {
+        campaignTitle: "Updated title",
+        description: "Updated description",
+        visibility: "private_link"
+      }
+    }),
+    (error) => error.statusCode === 409 && /submitted contributions/i.test(error.message)
+  );
+});
+
 test("group-funded service formats public campaigns without private payment or contributor fields", () => {
   const { mocks } = baseMocks();
   const service = requireWithMocks("../src/services/groupFundedBookingService.js", mocks);

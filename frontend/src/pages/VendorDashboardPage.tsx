@@ -111,6 +111,7 @@ import type {
 } from "@shared";
 import { API_BASE_URL } from "../api/client";
 import PhilippineMobileInput from "../components/PhilippineMobileInput";
+import RichCampaignDescription from "../components/RichCampaignDescription";
 import * as vendorDashboardBookings from "../api/vendorDashboardBookings";
 import * as vendorDashboardQueue from "../api/vendorDashboardQueue";
 import * as vendorDashboardCatalog from "../api/vendorDashboardCatalog";
@@ -7638,7 +7639,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   </Group>
 
                   {selectedDetail.campaign.description ? (
-                    <Text>{selectedDetail.campaign.description}</Text>
+                    <RichCampaignDescription
+                      className="rich-campaign-description"
+                      content={selectedDetail.campaign.description}
+                    />
                   ) : (
                     <Text c="dimmed" size="sm">No campaign description provided.</Text>
                   )}

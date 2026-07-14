@@ -983,6 +983,38 @@ test("group-funded campaign descriptions use Mantine Tiptap without source-code 
   assert.match(bookingSource, /<CampaignDescriptionEditor/);
 });
 
+test("group-funded campaign refresh preserves vendor theming after contribution updates", () => {
+  const source = fs.readFileSync(
+    path.join(path.resolve(__dirname, ".."), "src", "pages", "GroupFundedCampaignPage.tsx"),
+    "utf8"
+  );
+
+  assert.match(source, /const updateCampaign = useCallback\(\(nextCampaign: GroupFundedCampaignResponse\["campaign"\]\)/);
+  assert.match(source, /tenantSlug: currentCampaign\.tenantSlug/);
+  assert.doesNotMatch(source, /setCampaign\(data\.campaign\)/);
+});
+
+test("organizers cannot edit a campaign after a contribution fills a place", () => {
+  const source = fs.readFileSync(
+    path.join(path.resolve(__dirname, ".."), "src", "pages", "GroupFundedCampaignPage.tsx"),
+    "utf8"
+  );
+
+  assert.match(source, /const hasFilledContributions = Boolean\(contributorReservationSummary\?\.filledContributorCount\);/);
+  assert.match(source, /&& !hasFilledContributions;/);
+  assert.match(source, /Campaign details are locked once a contribution has been submitted\./);
+});
+
+test("vendor group-funded campaign details render rich descriptions", () => {
+  const source = fs.readFileSync(
+    path.join(path.resolve(__dirname, ".."), "src", "pages", "VendorDashboardPage.tsx"),
+    "utf8"
+  );
+
+  assert.match(source, /import RichCampaignDescription from "\.\.\/components\/RichCampaignDescription"/);
+  assert.match(source, /<RichCampaignDescription\s+className="rich-campaign-description"\s+content=\{selectedDetail\.campaign\.description\}/);
+});
+
 test("customer navigation keeps account actions in the mobile drawer", () => {
   const frontendRoot = path.resolve(__dirname, "..");
   const appSource = fs.readFileSync(path.join(frontendRoot, "src", "App.tsx"), "utf8");
@@ -1016,9 +1048,16 @@ test("vendor group-funded discovery uses mobile-first booking controls and filte
   assert.match(source, /<Stack className="vendor-campaign-filter-stack" gap="sm">/);
   assert.match(source, /<SimpleGrid cols=\{\{ base: 1, xs: 2 \}\} spacing="sm">/);
   assert.match(source, /className="vendor-group-funded-card-footer"/);
+  assert.match(source, /Organized by \{campaign\.organizerDisplayName\}/);
+  assert.match(source, /className="vendor-group-funded-card-vendor-link"/);
+  assert.match(source, /Funding \{formatPaymentAmount\(campaign\.fundedAmountCents, campaign\.currency\)\} \/ \{formatPaymentAmount\(campaign\.targetAmountCents, campaign\.currency\)\}/);
+  assert.match(source, />\s*Bundled services\s*</);
+  assert.match(source, /className="vendor-group-funded-card-action"/);
+  assert.match(source, /formatRelativeDeadline\(campaign\.fundingDeadlineAt\)/);
   assert.match(styles, /@media \(max-width: 768px\) \{\s+\.vendor-booking-option-tabs-list,/);
   assert.match(styles, /\.vendor-booking-option-toolbar \{\s+flex-direction: column;/);
   assert.match(styles, /\.vendor-group-funded-card-bundle \{\s+grid-template-columns: 1fr;/);
+  assert.match(styles, /\.vendor-group-funded-card-action \{\s+min-height: 2\.75rem;/);
   assert.doesNotMatch(source, />\s*Join this queue\s*</);
   assert.doesNotMatch(source, />\s*Book here\s*</);
   assert.match(source, /className="vendor-booking-option-tab-content"/);

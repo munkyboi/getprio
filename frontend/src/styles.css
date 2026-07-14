@@ -1204,15 +1204,9 @@ body {
   white-space: nowrap;
 }
 
-.vendor-group-funded-card-description {
-  color: var(--vendor-theme-body, #3f3027);
-  font-size: 0.95rem;
+.vendor-group-funded-card-organizer {
+  color: var(--vendor-theme-subheader, #7e6a5d);
   font-weight: 650;
-  line-height: 1.45;
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
 }
 
 .vendor-group-funded-card-status {
@@ -1230,6 +1224,45 @@ body {
   min-width: 0;
 }
 
+.vendor-group-funded-card-vendor-link {
+  color: var(--vendor-theme-button-bg, #0a4ca5);
+  font-size: var(--mantine-font-size-sm);
+  font-weight: 800;
+  text-decoration: underline;
+  text-underline-offset: 0.16em;
+}
+
+.vendor-group-funded-card-funding {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.78rem;
+  border: 1px solid color-mix(in srgb, var(--vendor-theme-card-border, #eadccf) 70%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--vendor-theme-card-bg, #fffaf4) 74%, white);
+}
+
+.vendor-group-funded-card-funding-title {
+  color: var(--vendor-theme-header, #24160f);
+}
+
+.vendor-group-funded-card-funding-details {
+  min-width: 0;
+}
+
+.vendor-group-funded-card-funding-detail {
+  min-width: 0;
+  padding: 0.7rem;
+  border: 1px solid color-mix(in srgb, var(--vendor-theme-card-border, #eadccf) 62%, transparent);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.64);
+}
+
+.vendor-group-funded-card-contributors {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
 .vendor-group-funded-card-bundle,
 .vendor-group-funded-card-single {
   display: grid;
@@ -1244,11 +1277,21 @@ body {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.vendor-group-funded-card-section-title {
+  grid-column: 1 / -1;
+  color: var(--vendor-theme-header, #24160f);
+}
+
 .vendor-group-funded-card-bundle-item {
   min-width: 0;
   padding: 0.55rem 0.65rem;
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.64);
+}
+
+.vendor-group-funded-card-action {
+  min-height: 2.75rem;
+  padding-inline: 1.15rem;
 }
 
 .vendor-service-media {

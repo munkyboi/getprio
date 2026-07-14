@@ -197,6 +197,19 @@ export default function GroupFundedCampaignPage() {
   const reportTurnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY || "";
   const shouldUseReportTurnstile = Boolean(reportTurnstileSiteKey);
 
+  const updateCampaign = useCallback((nextCampaign: GroupFundedCampaignResponse["campaign"]) => {
+    setCampaign((currentCampaign) => {
+      if (!currentCampaign || nextCampaign.tenantSlug) {
+        return nextCampaign;
+      }
+
+      return {
+        ...nextCampaign,
+        tenantSlug: currentCampaign.tenantSlug
+      };
+    });
+  }, []);
+
   const loadCampaign = useCallback(async (options: { silent?: boolean } = {}) => {
     if (!publicToken) {
       setError("Campaign not found.");
@@ -212,12 +225,12 @@ export default function GroupFundedCampaignPage() {
     try {
       if (token) {
         const data = await customerAccountApi.getGroupFundedCampaignSelf(token, publicToken);
-        setCampaign(data.campaign);
+        updateCampaign(data.campaign);
       } else {
         const data = await apiRequest<GroupFundedCampaignResponse>(
           `/public/group-funded-campaigns/${encodeURIComponent(publicToken)}`
         );
-        setCampaign(data.campaign);
+        updateCampaign(data.campaign);
       }
     } catch (loadError) {
       if (token) {
@@ -225,7 +238,7 @@ export default function GroupFundedCampaignPage() {
           const data = await apiRequest<GroupFundedCampaignResponse>(
             `/public/group-funded-campaigns/${encodeURIComponent(publicToken)}`
           );
-          setCampaign(data.campaign);
+          updateCampaign(data.campaign);
         } catch (fallbackError) {
           setResponseStatus(fallbackError instanceof ApiError ? fallbackError.status : null);
           setError(getErrorMessage(fallbackError));
@@ -239,7 +252,7 @@ export default function GroupFundedCampaignPage() {
         setLoading(false);
       }
     }
-  }, [publicToken, token]);
+  }, [publicToken, token, updateCampaign]);
 
   useEffect(() => {
     void loadCampaign();
@@ -472,7 +485,8 @@ export default function GroupFundedCampaignPage() {
       campaign.campaignStatus !== "funding"
     )
   );
-  const canEditCampaign = isOrganizer && campaign?.campaignStatus === "funding" && !isCampaignFullyFunded;
+  const hasFilledContributions = Boolean(contributorReservationSummary?.filledContributorCount);
+  const canEditCampaign = isOrganizer && campaign?.campaignStatus === "funding" && !isCampaignFullyFunded && !hasFilledContributions;
 
   useEffect(() => {
     if (editModalOpen && !canEditCampaign) {
@@ -593,7 +607,7 @@ export default function GroupFundedCampaignPage() {
         paymentProofContentType: uploadData.proof.contentType,
         paymentProofSizeBytes: uploadData.proof.sizeBytes
       });
-      setCampaign(data.campaign);
+      updateCampaign(data.campaign);
       setPaymentReference("");
       setPaymentProofFile(null);
       showCustomerSuccess("Contribution proof submitted", "The vendor will review your payment proof.");
@@ -620,7 +634,7 @@ export default function GroupFundedCampaignPage() {
       const data = await customerAccountApi.cancelGroupFundedCampaign(token, campaign.publicToken, {
         reason: "organizer_canceled"
       });
-      setCampaign(data.campaign);
+      updateCampaign(data.campaign);
       setShowCancelConfirm(false);
       showCustomerSuccess("Campaign canceled", "Verified contributions are now eligible for a refund.");
     } catch (cancelError) {
@@ -648,7 +662,7 @@ export default function GroupFundedCampaignPage() {
         description: editForm.description.trim(),
         visibility: editForm.visibility
       });
-      setCampaign(data.campaign);
+      updateCampaign(data.campaign);
       setEditModalOpen(false);
       showCustomerSuccess("Campaign details updated", "Your campaign changes are now live.");
     } catch (saveError) {
@@ -1104,9 +1118,9 @@ export default function GroupFundedCampaignPage() {
                 Edit campaign details
               </Button>
             ) : null}
-            {isCampaignFullyFunded ? (
+            {hasFilledContributions ? (
               <Text c="dimmed" size="sm">
-                Campaign details are locked once funding is complete.
+                Campaign details are locked once a contribution has been submitted.
               </Text>
             ) : null}
             {canCancel ? (
