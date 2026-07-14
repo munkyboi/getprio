@@ -22,6 +22,7 @@ import PublicQueuePage from "./pages/PublicQueuePage";
 import JoinQueuePage from "./pages/JoinQueuePage";
 import JoinedQueuePage from "./pages/JoinedQueuePage";
 import TermsPage from "./pages/TermsPage";
+import NotFoundPage from "./pages/NotFoundPage";
 import SiteFooter from "./components/SiteFooter";
 import {
   JOINED_QUEUE_ROUTE_PATH,
@@ -318,7 +319,7 @@ export default function App() {
         <Route path="/dashboard" element={<DashboardRedirect />} />
         <Route path="/dashboard/:section" element={<AppShell><VendorDashboardPage /></AppShell>} />
         <Route path="/join/:tenantSlug/:locationSlug?" element={<AppShell><JoinQueuePage /></AppShell>} />
-        <Route path="*" element={<AppShell><LandingPage /></AppShell>} />
+        <Route path="*" element={<AppShell><NotFoundPage /></AppShell>} />
       </Routes>
     </>
   );

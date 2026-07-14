@@ -122,7 +122,7 @@ async function recordEmailDelivery({ to, subject, tenantId, ticketId, purpose, p
   }
 }
 
-async function sendEmail({ to, subject, text, tenantId, ticketId, purpose = "general", metadata }) {
+async function sendEmail({ to, subject, text, html, tenantId, ticketId, purpose = "general", metadata }) {
   if (!to) {
     return false;
   }
@@ -143,7 +143,8 @@ async function sendEmail({ to, subject, text, tenantId, ticketId, purpose = "gen
           from: formatSender(env.resendFromName, env.resendFromEmail),
           to,
           subject,
-          text
+          text,
+          ...(html ? { html } : {})
         })
       });
 
@@ -170,10 +171,8 @@ async function sendEmail({ to, subject, text, tenantId, ticketId, purpose = "gen
           },
           subject,
           content: [
-            {
-              type: "text/plain",
-              value: text
-            }
+            { type: "text/plain", value: text },
+            ...(html ? [{ type: "text/html", value: html }] : [])
           ]
         })
       });
@@ -188,10 +187,11 @@ async function sendEmail({ to, subject, text, tenantId, ticketId, purpose = "gen
         from: env.smtpUser,
         to,
         subject,
-        text
+        text,
+        ...(html ? { html } : {})
       });
     } else {
-      console.log("[email-fallback]", { to, subject, text });
+      console.log("[email-fallback]", { to, subject, text, html });
     }
 
     await recordEmailDelivery({

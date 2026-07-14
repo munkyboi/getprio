@@ -808,6 +808,13 @@ async function listPublicCampaignsForVendorLocation(tenantId, locationId, option
     "gfb.location_id = $2",
     "gfb.visibility = 'public'",
     "gfb.campaign_status IN ('funding', 'funded', 'vendor_review', 'replacement_proposed', 'confirmed')",
+    `EXISTS (
+      SELECT 1
+      FROM group_funded_booking_contributions organizer_contribution
+      WHERE organizer_contribution.campaign_id = gfb.id
+        AND organizer_contribution.user_id = gfb.organizer_user_id
+        AND organizer_contribution.contribution_status = 'verified'
+    )`,
     "location_service.id IS NOT NULL",
     "COALESCE(location_service.group_funded_allow_public_campaigns, FALSE) = TRUE"
   ];

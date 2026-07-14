@@ -7,7 +7,6 @@ import {
   Group,
   Modal,
   Paper,
-  ScrollArea,
   SimpleGrid,
   Stack,
   Table,
@@ -20,7 +19,8 @@ import { notifications } from "@mantine/notifications";
 import { IconArrowLeft, IconBuildingStore, IconCalendar, IconCheck, IconClock, IconInfoCircle, IconMessageDots, IconSparkles, IconTicket, IconX } from "@tabler/icons-react";
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type { CancelQueueTicketRequest, QueueJoinPaymentSyncResponse, QueueSnapshot, StoreHourSummary } from "@shared";
-import { API_BASE_URL, apiRequest } from "../api/client";
+import { API_BASE_URL, ApiError, apiRequest } from "../api/client";
+import ResourceErrorState from "../components/ResourceErrorState";
 import { useAuth } from "../context/AuthContext";
 import { buildJoinPath, buildJoinedQueuePathWithTicket, buildMonitorPath } from "../queuePaths";
 import ContactForm from "../components/ContactForm";
@@ -140,6 +140,7 @@ export default function JoinedQueuePage() {
   const { token, user } = useAuth();
   const [snapshot, setSnapshot] = useState<QueueSnapshot | null>(null);
   const [error, setError] = useState("");
+  const [responseStatus, setResponseStatus] = useState<number | null>(null);
   const [paymentSyncing, setPaymentSyncing] = useState(false);
   const [cancelSubmitting, setCancelSubmitting] = useState(false);
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
@@ -301,18 +302,29 @@ export default function JoinedQueuePage() {
         if (active) {
           setSnapshot(data);
           setError("");
+          setResponseStatus(null);
         }
       })
       .catch((loadError) => {
         if (active) {
           setError(getErrorMessage(loadError));
+          setResponseStatus(loadError instanceof ApiError ? loadError.status : null);
         }
       });
 
     const eventSource = new EventSource(`${API_BASE_URL}${basePath}/stream${query}`);
     eventSource.onmessage = (event) => {
-      setSnapshot(JSON.parse(event.data) as QueueSnapshot);
+      const nextSnapshot = JSON.parse(event.data) as QueueSnapshot;
+      if (lookupCode && !nextSnapshot.focusTicket) {
+        setError("Queue ticket not found.");
+        setResponseStatus(404);
+        eventSource.close();
+        return;
+      }
+
+      setSnapshot(nextSnapshot);
       setError("");
+      setResponseStatus(null);
     };
     eventSource.onerror = () => {
       setError("Live updates disconnected. Refresh to reconnect.");
@@ -397,6 +409,19 @@ export default function JoinedQueuePage() {
     return <Navigate replace to={buildMonitorPath(tenantSlugValue, locationSlug)} />;
   }
 
+  if (responseStatus === 404) {
+    return (
+      <ResourceErrorState
+        backLabel={backLabel}
+        backTo={backLink}
+        error={error}
+        onRetry={() => window.location.reload()}
+        resourceName="queue ticket"
+        status={responseStatus}
+      />
+    );
+  }
+
   async function handleCancelTicket() {
     setCancelSubmitting(true);
     setError("");
@@ -449,6 +474,7 @@ export default function JoinedQueuePage() {
 
         <Modal
           centered
+          className="customer-modal contact-vendor-modal"
           onClose={() => {
             if (!cancelSubmitting) {
               setCancelConfirmOpen(false);
@@ -465,11 +491,11 @@ export default function JoinedQueuePage() {
             <Text c="dimmed" size="sm">
               This action is optional. Keep the ticket if you still plan to visit the vendor today.
             </Text>
-            <Group justify="flex-end">
-              <Button disabled={cancelSubmitting} onClick={() => setCancelConfirmOpen(false)} variant="default">
+            <Group className="customer-modal-actions" justify="flex-end">
+              <Button disabled={cancelSubmitting} onClick={() => setCancelConfirmOpen(false)} size="lg" variant="default">
                 Keep ticket
               </Button>
-              <Button color="red" loading={cancelSubmitting} onClick={handleCancelTicket} variant="light">
+              <Button color="red" loading={cancelSubmitting} onClick={handleCancelTicket} size="lg" variant="light">
                 Confirm cancel
               </Button>
             </Group>
@@ -477,6 +503,7 @@ export default function JoinedQueuePage() {
         </Modal>
         <Modal
           centered
+          className="customer-modal"
           onClose={() => setCancelErrorModalOpen(false)}
           opened={cancelErrorModalOpen}
           size="sm"
@@ -488,6 +515,7 @@ export default function JoinedQueuePage() {
         </Modal>
         <Modal
           centered
+          className="customer-modal"
           opened={hoursOpened}
           onClose={() => setHoursOpened(false)}
           title="Business hours"
@@ -535,7 +563,7 @@ export default function JoinedQueuePage() {
                 </div>
               </div>
 
-              <Group mt="xs">
+              <Group className="customer-modal-actions" mt="xs">
                 <Button className="ticket-hours-modal-primary-action" component={Link} size="sm" to={joinPath} variant="light">
                   Join this queue
                 </Button>
@@ -548,6 +576,7 @@ export default function JoinedQueuePage() {
         </Modal>
         <Modal
           centered
+          className="customer-modal"
           fullScreen={isMobile}
           onClose={() => setContactOpen(false)}
           opened={contactOpen}
@@ -559,7 +588,6 @@ export default function JoinedQueuePage() {
               <Text className="contact-form-title">Send {businessName || "the vendor"} a Message</Text>
             </Stack>
           }
-          scrollAreaComponent={ScrollArea.Autosize}
           styles={{
             header: {
               alignItems: "flex-start",
@@ -635,7 +663,7 @@ export default function JoinedQueuePage() {
                 </Group>
               </Stack>
 
-              <Group gap="md">
+              <Group className="customer-action-row" gap="md">
                 <Button
                   className="vendor-theme-button"
                   component={Link}

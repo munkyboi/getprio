@@ -5,6 +5,7 @@ const storeLocationRepository = require("../repositories/storeLocations");
 const vendorServiceRepository = require("../repositories/vendorServices");
 const locationServiceRepository = require("../repositories/locationServices");
 const vendorAvailabilityRepository = require("../repositories/vendorAvailability");
+const groupFundedRepository = require("../repositories/groupFundedBookings");
 const bookingOtpService = require("./bookingOtpService");
 const bookingSmsAlertPaymentService = require("./bookingSmsAlertPaymentService");
 const notificationService = require("./notificationService");
@@ -326,10 +327,8 @@ function getLocalTimeMinutes(date) {
 }
 
 function dateKeyAndMinutesToDate(dateKey, minutes) {
-  const hours = Math.floor(minutes / 60);
-  const mins = minutes % 60;
-  const time = `${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
-  return new Date(`${dateKey}T${time}:00+08:00`);
+  const startOfDay = new Date(`${dateKey}T00:00:00+08:00`);
+  return new Date(startOfDay.getTime() + minutes * 60 * 1000);
 }
 
 function bookingFitsTimeRange({ startsAt, endsAt }, startMinutes, endMinutes) {
@@ -344,7 +343,9 @@ function bookingFitsTimeRange({ startsAt, endsAt }, startMinutes, endMinutes) {
     return startMinutes >= openMinutes && endMinutes <= closeMinutes;
   }
 
-  return startMinutes >= openMinutes || endMinutes <= closeMinutes;
+  const normalizedStart = startMinutes < openMinutes ? startMinutes + 24 * 60 : startMinutes;
+  const normalizedEnd = endMinutes < openMinutes ? endMinutes + 24 * 60 : endMinutes;
+  return normalizedStart >= openMinutes && normalizedEnd > normalizedStart && normalizedEnd <= closeMinutes + 24 * 60;
 }
 
 function rangesOverlap(startA, endA, startB, endB) {
@@ -360,6 +361,21 @@ function bookingFitsRule(rule, startMinutes, endMinutes) {
     startMinutes,
     endMinutes
   );
+}
+
+function isOvernightBlockForPreviousDay(block, weekday) {
+  return Boolean(block.endsNextDay) && block.weekday === (weekday + 6) % 7;
+}
+
+function blockAllowsBookingOnWeekday(block, weekday, startMinutes, endMinutes) {
+  if (block.weekday === weekday) {
+    if (block.endsNextDay && startMinutes < minutesFromTime(block.startsAt)) {
+      return false;
+    }
+    return bookingFitsRule(block, startMinutes, endMinutes);
+  }
+
+  return isOvernightBlockForPreviousDay(block, weekday) && endMinutes <= minutesFromTime(block.endsAt);
 }
 
 function ruleOverlapsBooking(rule, startMinutes, endMinutes) {
@@ -408,6 +424,14 @@ async function assertAvailabilityAllowsBooking({ availability, location, service
   return decision;
 }
 
+async function assertServiceScheduleAvailability({ tenant, location, service, scheduledStartAt, scheduledEndAt }) {
+  const availability = await vendorAvailabilityRepository.listAvailabilityByLocation(
+    tenant._id,
+    location._id
+  );
+  return assertAvailabilityAllowsBooking({ availability, location, service, scheduledStartAt, scheduledEndAt });
+}
+
 async function getBookingAvailabilityDecision({ availability, location, service, scheduledStartAt, scheduledEndAt }) {
   const dateKey = getLocalDateKey(scheduledStartAt);
   const startMinutes = getLocalTimeMinutes(scheduledStartAt);
@@ -443,9 +467,8 @@ async function getBookingAvailabilityDecision({ availability, location, service,
   const activeBlocks = availability.blocks.filter((block) => block.isActive);
   const weekday = getWeekdayInManila(scheduledStartAt);
   const matchingBlock = activeBlocks.find((block) =>
-      block.weekday === weekday &&
       (!block.serviceId || String(block.serviceId) === String(service._id)) &&
-      bookingFitsRule(block, startMinutes, endMinutes)
+      blockAllowsBookingOnWeekday(block, weekday, startMinutes, endMinutes)
   );
 
   if (!activeBlocks.length) {
@@ -480,18 +503,26 @@ function buildAvailabilityWindows({ availability, hours, service, location, date
 
   if (activeBlocks.length) {
     for (const block of activeBlocks) {
-      if (block.weekday !== weekday) {
-        continue;
-      }
       if (block.serviceId && String(block.serviceId) !== String(service._id)) {
         continue;
       }
-      windows.push({
-        startsAt: block.startsAt,
-        endsAt: block.endsAt,
-        capacity: block.capacity || 1,
-        capacityScope: block.serviceId ? "service" : "location"
-      });
+      if (block.weekday === weekday) {
+        windows.push({
+          startsAt: block.startsAt,
+          endsAt: block.endsAt,
+          endsNextDay: Boolean(block.endsNextDay),
+          capacity: block.capacity || 1,
+          capacityScope: block.serviceId ? "service" : "location"
+        });
+      }
+      if (isOvernightBlockForPreviousDay(block, weekday)) {
+        windows.push({
+          startsAt: "00:00",
+          endsAt: block.endsAt,
+          capacity: block.capacity || 1,
+          capacityScope: block.serviceId ? "service" : "location"
+        });
+      }
     }
   } else {
     const hour = hours.find((entry) => entry.weekday === weekday);
@@ -527,7 +558,7 @@ function buildAvailabilityWindows({ availability, hours, service, location, date
   return windows
     .map((window) => ({
       startMinutes: minutesFromTime(window.startsAt),
-      endMinutes: minutesFromTime(window.endsAt),
+      endMinutes: minutesFromTime(window.endsAt) + (window.endsNextDay ? 24 * 60 : 0),
       capacity: window.capacity,
       capacityScope: window.capacityScope,
       locationId: location._id
@@ -542,6 +573,8 @@ async function listBookingSlots({
   date,
   bookingQuantity: bookingQuantityValue,
   excludeBookingId,
+  includeGroupFundedHolds = false,
+  slotIntervalMinutes: slotIntervalMinutesValue,
   requirePublicVendor = true
 }) {
   const tenantSlug = String(tenantSlugValue || "").trim().toLowerCase();
@@ -597,12 +630,18 @@ async function listBookingSlots({
   const windows = buildAvailabilityWindows({ availability, hours, service, location, dateKey });
   const slotsByStart = new Map();
   const bookingDurationMinutes = getBookingDurationMinutes(service, bookingQuantity);
+  const slotIntervalMinutes = Number(slotIntervalMinutesValue || bookingDurationMinutes);
+  if (!Number.isInteger(slotIntervalMinutes) || slotIntervalMinutes < 15 || slotIntervalMinutes > bookingDurationMinutes) {
+    const error = new Error("slotIntervalMinutes must be between 15 minutes and the booking duration.");
+    error.statusCode = 400;
+    throw error;
+  }
 
   for (const window of windows) {
     for (
       let startMinutes = window.startMinutes;
       startMinutes + bookingDurationMinutes <= window.endMinutes;
-      startMinutes += bookingDurationMinutes
+      startMinutes += slotIntervalMinutes
     ) {
       const endMinutes = startMinutes + bookingDurationMinutes;
       const scheduledStartAt = dateKeyAndMinutesToDate(dateKey, startMinutes);
@@ -636,7 +675,15 @@ async function listBookingSlots({
         endsAt: scheduledEndAt.toISOString(),
         excludeBookingId
       });
-      const remainingCapacity = Math.max(capacity - activeCount, 0);
+      const activeHoldCount = includeGroupFundedHolds
+        ? await groupFundedRepository.countOverlappingActiveCapacityHolds(tenant._id, {
+            locationId: location._id,
+            serviceId: getBookingCapacityServiceId(service, capacityScope),
+            startsAt: scheduledStartAt.toISOString(),
+            endsAt: scheduledEndAt.toISOString()
+          })
+        : 0;
+      const remainingCapacity = Math.max(capacity - activeCount - activeHoldCount, 0);
       const slot = {
         startAt: scheduledStartAt.toISOString(),
         endAt: scheduledEndAt.toISOString(),
@@ -652,6 +699,59 @@ async function listBookingSlots({
   }
 
   return [...slotsByStart.values()].sort((left, right) => left.startAt.localeCompare(right.startAt));
+}
+
+async function listGroupFundedCandidateSlots({ tenantSlug: tenantSlugValue, locationSlug: locationSlugValue, date, durationMinutes: durationMinutesValue }) {
+  const tenantSlug = String(tenantSlugValue || "").trim().toLowerCase();
+  const locationSlug = String(locationSlugValue || "").trim().toLowerCase();
+  const dateKey = parseDateKey(date);
+  const durationMinutes = Number(durationMinutesValue || 60);
+  if (!tenantSlug || !locationSlug || !dateKey) {
+    const error = new Error("tenantSlug, locationSlug, and date are required.");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (!Number.isInteger(durationMinutes) || durationMinutes < 30 || durationMinutes > 24 * 60) {
+    const error = new Error("durationMinutes must be between 30 and 1440.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const tenant = await tenantRepository.findTenantBySlug(tenantSlug, { activeOnly: true });
+  if (!tenant || !tenant.publicProfileEnabled || tenant.vendorApprovalStatus !== "approved") {
+    const error = new Error("Vendor not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+  const location = await storeLocationRepository.findLocationByTenantAndSlug(tenant._id, locationSlug);
+  if (!location || !location.isActive) {
+    const error = new Error("Location not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const weekday = getWeekdayForDateKey(dateKey);
+  const hours = await storeLocationRepository.listHoursByLocationId(location._id);
+  const hour = hours.find((entry) => Number(entry.weekday) === weekday);
+  if (!hour || hour.isClosed || !hour.opensAt || !hour.closesAt) {
+    return [];
+  }
+
+  const startMinutes = minutesFromTime(hour.opensAt);
+  const endMinutes = minutesFromTime(hour.closesAt) + (minutesFromTime(hour.closesAt) <= startMinutes ? 24 * 60 : 0);
+  const slots = [];
+  for (let minute = startMinutes; minute + durationMinutes <= endMinutes; minute += 30) {
+    const startAt = dateKeyAndMinutesToDate(dateKey, minute);
+    if (startAt.getTime() > Date.now()) {
+      slots.push({
+        startAt: startAt.toISOString(),
+        endAt: dateKeyAndMinutesToDate(dateKey, minute + durationMinutes).toISOString(),
+        remainingCapacity: 1,
+        isAvailable: true
+      });
+    }
+  }
+  return slots;
 }
 
 async function listVendorBookingRescheduleSlots({ tenant, bookingId, date }) {
@@ -1384,6 +1484,7 @@ module.exports = {
   _setQueueServiceForTest: setQueueServiceForTest,
   _getCheckInWindowState: getCheckInWindowState,
   cancelCustomerBooking,
+  assertServiceScheduleAvailability,
   checkInVendorBooking,
   createCustomerBooking,
   createCustomerPaymentProofAccess,
@@ -1394,6 +1495,7 @@ module.exports = {
   expirePendingBookingsForTenant,
   notifyDueCheckInReminderBookings,
   listBookingSlots,
+  listGroupFundedCandidateSlots,
   listVendorBookingRescheduleSlots,
   markVendorBookingNoShow,
   rejectVendorBookingPayment,

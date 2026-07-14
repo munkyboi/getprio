@@ -8,8 +8,11 @@ const bookingRepository = require("../repositories/bookings");
 const userRepository = require("../repositories/users");
 const contentModeration = require("./contentModeration");
 const paymentProofStorageService = require("./paymentProofStorageService");
+const campaignReportAttachmentService = require("./campaignReportAttachmentService");
 const pushNotificationService = require("./pushNotificationService");
+const notificationService = require("./notificationService");
 const queueEvents = require("./queueEvents");
+const bookingService = require("./bookingService");
 
 const VENDOR_REVIEW_BUFFER_HOURS = 24;
 const VENDOR_REVIEW_HOLD_HOURS = 24;
@@ -418,7 +421,14 @@ async function loadCampaignBundleContexts(campaign, options = {}) {
 
 async function assertCampaignSlotCapacity(campaign, options = {}) {
   const contexts = await loadCampaignBundleContexts(campaign, options);
-  for (const { service, locationService, item } of contexts) {
+  for (const { service, locationService, location, item } of contexts) {
+    await bookingService.assertServiceScheduleAvailability({
+      tenant: { _id: campaign.tenantId },
+      location,
+      service,
+      scheduledStartAt: normalizeDateTime(item.scheduledStartAt),
+      scheduledEndAt: normalizeDateTime(item.scheduledEndAt)
+    });
     const capacityServiceId = getBookingCapacityServiceId(service, service.bookingCapacityScope);
     const activeCount = await bookingRepository.countOverlappingActiveBookings(campaign.tenantId, {
       ...options,
@@ -672,6 +682,15 @@ async function createCampaign({ user, body }) {
     body,
     primaryServiceSlug: serviceSlug
   });
+  for (const item of bundleItems) {
+    await bookingService.assertServiceScheduleAvailability({
+      tenant,
+      location,
+      service: item.service,
+      scheduledStartAt: item.scheduledStartAt,
+      scheduledEndAt: item.scheduledEndAt
+    });
+  }
   const primaryItem = bundleItems[0];
   const service = primaryItem.service;
   const locationService = primaryItem.locationService;
@@ -822,8 +841,8 @@ async function getCampaignForCustomer({ user, campaignIdOrToken }) {
   await attachBundleItems(campaign);
   const contribution = await groupFundedRepository.findContributionByCampaignAndUser(campaign._id, user._id);
   const isOrganizer = String(campaign.organizerUserId) === String(user._id);
-  if (!isOrganizer && !contribution && campaign.campaignStatus !== groupFundedRepository.CAMPAIGN_STATUSES.FUNDING) {
-    throw makeHttpError("Campaign not found.", 404);
+  if (!isOrganizer && !contribution) {
+    await assertOrganizerContributionVerified(campaign);
   }
   const refunds = contribution
     ? (await groupFundedRepository.listRefundsByCampaign(campaign._id))
@@ -848,11 +867,22 @@ async function getCampaignForCustomer({ user, campaignIdOrToken }) {
   return { campaign, contribution, refunds, tenant };
 }
 
+async function assertOrganizerContributionVerified(campaign) {
+  const organizerContribution = await groupFundedRepository.findContributionByCampaignAndUser(
+    campaign._id,
+    campaign.organizerUserId
+  );
+  if (organizerContribution?.contributionStatus !== groupFundedRepository.CONTRIBUTION_STATUSES.VERIFIED) {
+    throw makeHttpError("Campaign not found.", 404);
+  }
+}
+
 async function getPublicCampaign({ publicToken }) {
   const campaign = await groupFundedRepository.findCampaignByPublicToken(publicToken);
   if (!campaign) {
     throw makeHttpError("Campaign not found.", 404);
   }
+  await assertOrganizerContributionVerified(campaign);
   await attachBundleItems(campaign);
   const tenant = await tenantRepository.findTenantById(campaign.tenantId);
   campaign.contributorReservationSummary = await getContributorReservationSummary(campaign);
@@ -932,6 +962,7 @@ function formatPublicCampaign(campaign, tenant = null) {
     tenantId: campaign.tenantId,
     tenantSlug: tenant?.slug || null,
     vendorName: tenant?.name || "",
+    vendorCategory: tenant?.publicProfileCategory || "",
     locationId: campaign.locationId,
     serviceId: campaign.serviceId,
     campaignStatus: campaign.campaignStatus,
@@ -1036,9 +1067,22 @@ async function reportPublicCampaignAbuse({ publicToken, body = {}, actor = null,
   }
 
   const reason = normalizeText(body.reason).slice(0, 500);
+  const category = normalizeText(body.category).slice(0, 80);
+  const attachmentFileName = normalizeText(body.attachmentFileName).slice(0, 160);
+  const attachmentObjectKey = normalizeText(body.attachmentObjectKey).slice(0, 512);
   contentModeration.assertPublicTextAllowed(reason, "Report reason");
   const reporterIpHash = ipAddress
     ? crypto.createHash("sha256").update(String(ipAddress)).digest("hex")
+    : null;
+
+  const tenant = await tenantRepository.findTenantById(campaign.tenantId);
+  const attachment = attachmentObjectKey
+    ? campaignReportAttachmentService.getAttachmentForCampaign({
+      tenant,
+      campaign,
+      objectKey: attachmentObjectKey,
+      fileName: attachmentFileName
+    })
     : null;
 
   await groupFundedRepository.recordEvent({
@@ -1051,9 +1095,41 @@ async function reportPublicCampaignAbuse({ publicToken, body = {}, actor = null,
     source: "public",
     metadata: {
       reason: reason || "reported_from_public_campaign_page",
+      category: category || "other",
+      attachmentFileName: attachment?.fileName || null,
+      attachmentObjectKey: attachment?.objectKey || null,
       reporterIpHash
     }
   });
+
+  if (tenant?.contactEmail) {
+    const campaignTitle = campaign.campaignTitle || campaign.serviceNameSnapshot;
+    const reportText = [
+      "A customer reported a group-funded campaign.",
+      `Campaign: ${campaignTitle}`,
+      `Reason: ${reason || "Not provided"}`,
+      attachment ? `Screenshot: ${attachment.publicUrl}` : "No screenshot was attached."
+    ].join("\n");
+    const escapeHtml = (value) => String(value || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+    await notificationService.sendEmail({
+      to: tenant.contactEmail,
+      subject: `Campaign report: ${campaignTitle}`,
+      text: reportText,
+      html: `<p>A customer reported a group-funded campaign.</p><p><strong>Campaign:</strong> ${escapeHtml(campaignTitle)}<br><strong>Reason:</strong> ${escapeHtml(reason || "Not provided")}</p>${attachment ? `<p><strong>Screenshot:</strong></p><img src="${escapeHtml(attachment.publicUrl)}" alt="${escapeHtml(attachment.fileName)}" style="display:block;max-width:100%;height:auto;border:1px solid #d9dee7;border-radius:8px" /><p><a href="${escapeHtml(attachment.publicUrl)}">Open screenshot</a></p>` : "<p>No screenshot was attached.</p>"}`,
+      tenantId: campaign.tenantId,
+      purpose: "general",
+      metadata: {
+        campaignId: campaign._id,
+        eventType: "group_funded_campaign_report",
+        category: category || "other"
+      }
+    });
+  }
 
   return { ok: true };
 }
@@ -1115,7 +1191,8 @@ async function submitContributionProof({ user, campaignIdOrToken, body }) {
       { client, forUpdate: true }
     );
     if (existingContribution && !isRejectedContribution(existingContribution)) {
-      throw makeHttpError("You have already submitted a contribution for this campaign.", 409);
+      campaign.contributorReservationSummary = await getContributorReservationSummary(campaign, { client });
+      return { campaign, contribution: existingContribution, idempotent: true };
     }
     const reservationSummary = await getContributorReservationSummary(campaign, { client });
     if (reservationSummary.vacantContributorCount === 0) {
@@ -1187,8 +1264,11 @@ async function submitContributionProof({ user, campaignIdOrToken, body }) {
       vacantContributorCount: reservationSummary.vacantContributorCount - 1,
       filledContributorCount: reservationSummary.filledContributorCount + 1
     };
-    return { campaign, contribution };
+    return { campaign, contribution, idempotent: false };
   });
+  if (result.idempotent) {
+    return result;
+  }
   const tenant = await tenantRepository.findTenantById(result.campaign.tenantId);
   if (tenant?.notificationSettings?.paymentProofReview !== false) {
     pushNotificationService.notifyVendorGroupFundedProofReview({

@@ -482,6 +482,21 @@ test("public vendor profile returns 404 for unavailable vendors", async () => {
   }
 });
 
+test("public queue snapshot returns 404 for an unknown ticket lookup code", async () => {
+  const router = buildPublicRouter(null, async () => ({}));
+  const { server, baseUrl } = await startServer(router, "/api/public");
+
+  try {
+    const response = await fetch(`${baseUrl}/tenant/demo/location/ayala/queue?lookupCode=NOT-A-REAL-TICKET`);
+
+    assert.equal(response.status, 404);
+    const body = await response.json();
+    assert.match(body.message, /queue ticket not found/i);
+  } finally {
+    await stopServer(server);
+  }
+});
+
 test("public vendor profile includes the resolved public board theme", async () => {
   const router = buildPublicRouter(null, async () => ({}));
   const { server, baseUrl } = await startServer(router, "/api/public");

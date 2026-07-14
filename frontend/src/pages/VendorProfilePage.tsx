@@ -56,8 +56,7 @@ import { getErrorMessage } from "../utils/errors";
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const GROUP_FUNDED_PUBLIC_PAGE_SIZE = 10;
-const GROUP_FUNDED_DEFAULT_RANGE_DAYS = 15;
-const GROUP_FUNDED_FILTER_STORAGE_KEY = "getprio:vendor-profile:group-funded-filters";
+const GROUP_FUNDED_FILTER_STORAGE_KEY = "getprio:vendor-profile:group-funded-filters:v2";
 type BookingOption = "standard" | "group-funded";
 type GroupFundedCampaignFilters = {
   search: string;
@@ -166,26 +165,6 @@ function toLocalDateKey(value: string | Date | null) {
   return `${year}-${month}-${day}`;
 }
 
-function addDays(date: Date, days: number) {
-  const next = new Date(date);
-  next.setDate(next.getDate() + days);
-  return next;
-}
-
-function getStartOfToday() {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return today;
-}
-
-function getDefaultGroupFundedDateRange() {
-  const today = getStartOfToday();
-  return {
-    from: toLocalDateKey(today),
-    to: toLocalDateKey(addDays(today, GROUP_FUNDED_DEFAULT_RANGE_DAYS))
-  };
-}
-
 function parseDateParam(value: string | null) {
   if (!value) {
     return null;
@@ -213,16 +192,14 @@ function parseStoredCampaignDate(value: unknown, fallback: Date | null) {
     return fallback;
   }
 
-  return date < getStartOfToday() ? fallback : date;
+  return date;
 }
 
 function getDefaultGroupFundedCampaignFilters(): GroupFundedCampaignFilters {
-  const defaultDateRange = getDefaultGroupFundedDateRange();
-
   return {
     search: "",
-    ongoing: true,
-    dateRange: [parseDateParam(defaultDateRange.from), parseDateParam(defaultDateRange.to)],
+    ongoing: false,
+    dateRange: [null, null],
     page: 1
   };
 }
@@ -276,13 +253,11 @@ function EmptyArtBox({ label }: { label: string }) {
 }
 
 function LocationCardContent({
-  vendorSlug,
   location,
   currentWeekday,
   selected,
   onSelect
 }: {
-  vendorSlug: string;
   location: PublicVendorProfile["locations"][number];
   currentWeekday: number;
   selected: boolean;
@@ -346,20 +321,6 @@ function LocationCardContent({
             })}
           </div>
         </div>
-        <Group>
-          <Button
-            color="orange"
-            component={Link}
-            size="sm"
-            to={`/join/${vendorSlug}/${location.slug}`}
-            variant="light"
-          >
-            Join this queue
-          </Button>
-          <Button color="dark" component={Link} size="sm" to={`/vendors/${vendorSlug}/book?location=${encodeURIComponent(location.slug)}`} variant="subtle">
-            Book here
-          </Button>
-        </Group>
       </Stack>
     </Paper>
   );
@@ -468,8 +429,11 @@ export default function VendorProfilePage() {
   const groupFundedBookingTabPath = `/vendors/${profileSlug}/group-funded`;
   const bookingOption: BookingOption = location.pathname.endsWith("/group-funded") ? "group-funded" : "standard";
   const currentVendorPath = `${location.pathname}${location.search}${location.hash}`;
-  const campaignMinDate = useMemo(() => getStartOfToday(), []);
-  const defaultCampaignDateRange = useMemo(() => getDefaultGroupFundedDateRange(), []);
+  const campaignMinDate = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return today;
+  }, []);
   const defaultCampaignFilters = useMemo(() => getDefaultGroupFundedCampaignFilters(), []);
   const [campaignFilters, setCampaignFilters] = useState<GroupFundedCampaignFilters>(() =>
     readStoredGroupFundedCampaignFilters(defaultCampaignFilters)
@@ -651,13 +615,17 @@ export default function VendorProfilePage() {
     const controller = new AbortController();
     const params = new URLSearchParams({
       page: String(campaignPage),
-      pageSize: String(GROUP_FUNDED_PUBLIC_PAGE_SIZE),
-      scheduledDateFrom: campaignDateFrom,
-      scheduledDateTo: campaignDateTo
+      pageSize: String(GROUP_FUNDED_PUBLIC_PAGE_SIZE)
     });
 
     if (campaignSearch.trim()) {
       params.set("search", campaignSearch.trim());
+    }
+    if (campaignDateFrom) {
+      params.set("scheduledDateFrom", campaignDateFrom);
+    }
+    if (campaignDateTo) {
+      params.set("scheduledDateTo", campaignDateTo);
     }
     if (campaignOngoingOnly) {
       params.set("ongoingOnly", "true");
@@ -701,8 +669,8 @@ export default function VendorProfilePage() {
   const campaignFiltersChanged = Boolean(
     campaignSearch ||
     !campaignOngoingOnly ||
-    campaignDateFrom !== defaultCampaignDateRange.from ||
-    campaignDateTo !== defaultCampaignDateRange.to
+    campaignDateFrom ||
+    campaignDateTo
   );
 
   useEffect(() => {
@@ -894,7 +862,7 @@ export default function VendorProfilePage() {
                         {getBusinessCategoryLabel(vendor.category)}
                       </Badge>
                     </Group>
-                    <Stack gap={4} mt="md">
+                    <Stack gap="sm" mt="md">
                       <Title className="vendor-hero-title" order={1}>
                         {vendor.name}
                       </Title>
@@ -923,7 +891,7 @@ export default function VendorProfilePage() {
                     ) : null}
                   </Stack>
 
-                  <Group gap="md">
+                  <Group className="customer-action-row" gap="md">
                     <Button
                       className="vendor-theme-button"
                       component={Link}
@@ -1060,7 +1028,6 @@ export default function VendorProfilePage() {
                         location={location}
                         onSelect={() => setSelectedLocationSlug(location.slug)}
                         selected={location.slug === selectedLocation?.slug}
-                        vendorSlug={vendor.slug}
                       />
                     </Tabs.Panel>
                   ))}
@@ -1075,7 +1042,6 @@ export default function VendorProfilePage() {
                           location={location}
                           onSelect={() => setSelectedLocationSlug(location.slug)}
                           selected={location.slug === selectedLocation?.slug}
-                          vendorSlug={vendor.slug}
                         />
                       </div>
                     ))}
@@ -1084,7 +1050,7 @@ export default function VendorProfilePage() {
               )}
             </Stack>
 
-            <Paper className="vendor-info-panel" p="xl" ref={bookingOptionsRef} tabIndex={-1}>
+            <Paper className="vendor-info-panel vendor-booking-options-panel" p={{ base: "md", sm: "xl" }} ref={bookingOptionsRef} tabIndex={-1}>
               <Stack gap="lg">
                 <div>
                   <Text className="prio-label">Booking options</Text>
@@ -1104,19 +1070,23 @@ export default function VendorProfilePage() {
                       <Tabs.List className="vendor-booking-option-tabs-list" ref={setBookingOptionRootRef}>
                         <Tabs.Tab
                           className="vendor-booking-option-tab"
-                          leftSection={<IconCalendar size={19} />}
                           ref={setStandardBookingOptionRef}
                           value="standard"
                         >
-                          Standard
+                          <span className="vendor-booking-option-tab-content">
+                            <IconCalendar aria-hidden size={19} />
+                            <span>Standard</span>
+                          </span>
                         </Tabs.Tab>
                         <Tabs.Tab
                           className="vendor-booking-option-tab"
-                          leftSection={<IconUsers size={19} />}
                           ref={setGroupFundedBookingOptionRef}
                           value="group-funded"
                         >
-                          Group-funded
+                          <span className="vendor-booking-option-tab-content">
+                            <IconUsers aria-hidden size={19} />
+                            <span>Group-funded</span>
+                          </span>
                         </Tabs.Tab>
                         <FloatingIndicator
                           className="vendor-booking-option-indicator"
@@ -1152,7 +1122,8 @@ export default function VendorProfilePage() {
                             Loading public group-funded campaigns...
                           </Alert>
                         ) : null}
-                        <Group align="flex-end" gap="sm">
+                        <Stack className="vendor-campaign-filter-stack" gap="sm">
+                          <SimpleGrid cols={{ base: 1, xs: 2 }} spacing="sm">
                           <TextInput
                             label="Search"
                             onChange={(event) => setCampaignSearchDraft(event.target.value)}
@@ -1169,26 +1140,24 @@ export default function VendorProfilePage() {
                             type="range"
                             value={campaignDateRange}
                           />
+                          </SimpleGrid>
+                          <Group className="vendor-campaign-filter-actions" gap="sm" justify="space-between">
                           {campaignFiltersChanged ? (
                             <Button
                               className="neura-secondary-button"
-                              mt={24}
                               onClick={() => {
                                 setCampaignSearchDraft("");
                                 updateCampaignFilters({
-                                  search: "",
-                                  ongoing: true,
-                                  dateRange: [
-                                    parseDateParam(defaultCampaignDateRange.from),
-                                    parseDateParam(defaultCampaignDateRange.to)
-                                  ]
-                                });
+                                    search: "",
+                                    ongoing: false,
+                                    dateRange: [null, null]
+                                  });
                               }}
                             >
                               Reset filters
                             </Button>
-                          ) : null}
-                          <Group gap={6} ml="auto" wrap="nowrap">
+                          ) : <span />}
+                          <Group className="vendor-campaign-ongoing-toggle" gap={6} wrap="nowrap">
                             <Switch
                               checked={campaignOngoingOnly}
                               label="Show only on-going campaigns"
@@ -1210,7 +1179,8 @@ export default function VendorProfilePage() {
                               </ActionIcon>
                             </Tooltip>
                           </Group>
-                        </Group>
+                          </Group>
+                        </Stack>
                         <Divider className="vendor-booking-option-section-divider" />
                         {publicCampaigns.length ? (
                           <>
@@ -1292,7 +1262,7 @@ export default function VendorProfilePage() {
                                           Organized by {campaign.organizerDisplayName}
                                         </Badge>
                                       </Group>
-                                      <Group justify="space-between">
+                                      <Group className="vendor-group-funded-card-footer" justify="space-between">
                                         <Text c="dimmed" size="sm">
                                           Deadline {formatScheduleDateTime(campaign.fundingDeadlineAt)}
                                         </Text>
@@ -1348,11 +1318,11 @@ export default function VendorProfilePage() {
                               </Text>
                               {firstGroupFundedService ? (
                                 <Button
+                                  className="vendor-create-campaign-button customer-primary-action"
                                   color="orange"
                                   leftSection={<IconUsers size={16} />}
                                   onClick={() => startServiceBooking(firstGroupFundedService.slug, "group-funded")}
                                   size="md"
-                                  w="fit-content"
                                 >
                                   Create your campaign now
                                 </Button>
@@ -1379,11 +1349,12 @@ export default function VendorProfilePage() {
                     Use this form to ask about services, booking details, or public profile information.
                   </Text>
                   <Button
+                    className="vendor-contact-action customer-primary-action"
                     color="teal"
                     leftSection={<IconUserPlus size={18} />}
                     onClick={() => setContactOpen(true)}
+                    size="lg"
                     variant="light"
-                    w="fit-content"
                   >
                     Contact vendor
                   </Button>
@@ -1407,6 +1378,7 @@ export default function VendorProfilePage() {
 
       <Modal
         centered
+        className="customer-modal contact-vendor-modal"
         fullScreen={isMobile}
         onClose={() => setContactOpen(false)}
         opened={contactOpen}
@@ -1418,7 +1390,6 @@ export default function VendorProfilePage() {
             <Text className="contact-form-title">Send {vendor?.name || "the vendor"} a Message</Text>
           </Stack>
         }
-        scrollAreaComponent={ScrollArea.Autosize}
         styles={{
           header: {
             alignItems: "flex-start",
@@ -1446,7 +1417,7 @@ export default function VendorProfilePage() {
 
       <Modal
         centered
-        className="booking-choice-modal"
+        className="customer-modal booking-choice-modal"
         fullScreen={false}
         onClose={() => setBookingChoiceService(null)}
         opened={Boolean(bookingChoiceService)}
@@ -1478,7 +1449,7 @@ export default function VendorProfilePage() {
             <Text c="dimmed" size="sm">
               Choose whether to book this service now or start a campaign so contributors can help fund it.
             </Text>
-            <Stack gap="sm">
+            <Stack className="customer-modal-actions" gap="sm">
               <Button
                 color="dark"
                 fullWidth
@@ -1513,6 +1484,7 @@ export default function VendorProfilePage() {
 
       <Modal
         centered
+        className="customer-modal"
         fullScreen={isMobile}
         onClose={() => setImagePreviewService(null)}
         opened={Boolean(imagePreviewService?.imageUrl)}

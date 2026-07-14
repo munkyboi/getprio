@@ -1058,6 +1058,7 @@ router.post(
       getAuthorizedTenant,
       assertTenantPermission,
       getLocationForTenant,
+      storeLocationRepository,
       vendorAvailabilityRepository,
       vendorServiceRepository
     })
@@ -1072,6 +1073,8 @@ router.patch(
       res,
       getAuthorizedTenant,
       assertTenantPermission,
+      getLocationForTenant,
+      storeLocationRepository,
       vendorAvailabilityRepository,
       vendorServiceRepository
     })
@@ -1364,6 +1367,7 @@ router.patch("/tenant/:tenantSlug/settings", asyncHandler((req, res) => handleUp
   assertTenantPermission,
   getLocationForTenant,
   tenantRepository,
+  userRepository,
   getQueueSnapshot
 })));
 

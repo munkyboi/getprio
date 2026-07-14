@@ -74,7 +74,6 @@ export default function ContactForm({ scope, recipientName, intro }: ContactForm
       <Box component="form" className="contact-form-body" onSubmit={onSubmit}>
         <ScrollArea
           className="contact-form-main"
-          offsetScrollbars
           scrollbarSize={8}
           styles={{
             root: { flex: 1, minHeight: 0 },
@@ -82,7 +81,7 @@ export default function ContactForm({ scope, recipientName, intro }: ContactForm
           }}
           type="hover"
         >
-          <Stack gap="lg" pr="sm">
+          <Stack gap="lg">
             <Alert color="teal" icon={<IconShieldCheck size={18} />} variant="light">
               Protected with Turnstile-style anti-abuse checks, rate limiting, and hidden honeypot fields.
             </Alert>
@@ -144,7 +143,14 @@ export default function ContactForm({ scope, recipientName, intro }: ContactForm
               ? "Platform support will assign a reference number after submission."
               : `Your message goes to ${recipientName} and is not sent to GetPrio support automatically.`}
           </Text>
-          <Button leftSection={<IconMessageDots size={16} />} loading={isSubmitting} type="submit" color="dark">
+          <Button
+            className="contact-form-submit-action"
+            color="dark"
+            leftSection={<IconMessageDots size={18} />}
+            loading={isSubmitting}
+            size="lg"
+            type="submit"
+          >
             Send message
           </Button>
         </Group>

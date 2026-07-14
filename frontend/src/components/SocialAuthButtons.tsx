@@ -21,10 +21,12 @@ export default function SocialAuthButtons({ intent }: SocialAuthButtonsProps) {
 
           return (
             <Button
+              className="auth-social-action"
               color="dark"
               disabled={oauthLoading || !enabled}
               key={provider.id}
               onClick={() => startOAuth(provider.id, intent)}
+              size="lg"
               type="button"
               variant="outline"
             >

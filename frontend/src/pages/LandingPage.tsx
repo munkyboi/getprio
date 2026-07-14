@@ -160,7 +160,7 @@ export default function LandingPage() {
                   near-turn alerts, and vendor tools built for busy service teams.
                 </Text>
               </Stack>
-              <Group gap="md">
+              <Group className="customer-action-row" gap="md">
                 <Button component={Link} to="/register/vendor" color="orange" size="lg">
                   Start free
                 </Button>
@@ -344,7 +344,7 @@ export default function LandingPage() {
                   Start with a vendor workspace, publish your first public board, and let the line
                   breathe a little easier.
                 </Text>
-                <Group>
+                <Group className="customer-action-row">
                   <Button component={Link} to="/register/vendor" color="orange" size="lg">
                     Get started
                   </Button>
@@ -365,6 +365,7 @@ export default function LandingPage() {
 
       <Modal
         centered
+        className="customer-modal"
         classNames={{
           body: "enterprise-contact-modal-body",
           content: "enterprise-contact-modal",
@@ -468,7 +469,7 @@ export default function LandingPage() {
                   }
                 />
                 {enterpriseError ? <Alert color="red">{enterpriseError}</Alert> : null}
-                <Group justify="space-between">
+                <Group className="customer-modal-actions" justify="space-between">
                   <Text c="dimmed" size="sm">We only use this to respond to your Enterprise request.</Text>
                   <Group>
                     <Button size="md" variant="default" onClick={() => setEnterpriseDialogOpen(false)}>

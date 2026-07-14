@@ -56,6 +56,7 @@ import {
   formatDateTime
 } from "../utils/dates";
 import { getErrorMessage } from "../utils/errors";
+import { showCustomerError, showCustomerSuccess } from "../utils/customerNotifications";
 import { isBrowserPushSupported, subscribeToBrowserPush } from "../utils/pushNotifications";
 
 type AccountSection = "profile" | "tickets" | "bookings" | "group-funded" | "settings" | "notifications" | "security";
@@ -209,15 +210,11 @@ export default function CustomerAccountPage() {
   const { changePassword, token, user, loading } = useAuth();
   const activeSection = getActiveSection(location.pathname);
   const isCustomer = user?.roles?.includes("customer") ?? false;
-  const [error, setError] = useState("");
-  const [profileMessage, setProfileMessage] = useState("");
-  const [profileError, setProfileError] = useState("");
   const [profileForm, setProfileForm] = useState<CustomerProfileUpdateRequest>({
     name: "",
     displayName: ""
   });
   const [savingProfile, setSavingProfile] = useState(false);
-  const [passwordError, setPasswordError] = useState("");
   const [passwordForm, setPasswordForm] = useState<PasswordChangeRequest>({
     currentPassword: "",
     newPassword: ""
@@ -370,7 +367,6 @@ export default function CustomerAccountPage() {
       return;
     }
 
-    setError("");
     setNotificationSettings(accountQuery.data.notificationSettings);
     setProfileForm({
       name: accountQuery.data.overview.user.name || "",
@@ -380,22 +376,22 @@ export default function CustomerAccountPage() {
 
   useEffect(() => {
     if (accountQuery.error) {
-      setError(getErrorMessage(accountQuery.error));
+      showCustomerError(getErrorMessage(accountQuery.error), "Could not load your account");
       return;
     }
 
     if (ticketQuery.error && activeSection === "tickets") {
-      setError(getErrorMessage(ticketQuery.error));
+      showCustomerError(getErrorMessage(ticketQuery.error), "Could not load queue tickets");
       return;
     }
 
     if (bookingQuery.error && activeSection === "bookings") {
-      setError(getErrorMessage(bookingQuery.error));
+      showCustomerError(getErrorMessage(bookingQuery.error), "Could not load bookings");
       return;
     }
 
     if (groupFundedQuery.error && activeSection === "group-funded") {
-      setError(getErrorMessage(groupFundedQuery.error));
+      showCustomerError(getErrorMessage(groupFundedQuery.error), "Could not load group-funded campaigns");
     }
   }, [accountQuery.error, activeSection, bookingQuery.error, groupFundedQuery.error, ticketQuery.error]);
 
@@ -417,17 +413,17 @@ export default function CustomerAccountPage() {
 
   async function handleRequestBrowserPermission() {
     if (!token) {
-      setError("Sign in before enabling browser notifications.");
+      showCustomerError("Sign in before enabling browser notifications.", "Sign in required");
       return;
     }
 
     if (!browserNotificationsSupported || !window.Notification) {
-      setError("This browser does not support browser notifications.");
+      showCustomerError("This browser does not support browser notifications.", "Browser notifications unavailable");
       return;
     }
 
     if (!browserNotificationsSecure) {
-      setError("Browser notifications require a secure context such as https:// or localhost.");
+      showCustomerError("Browser notifications require a secure context such as https:// or localhost.", "Secure context required");
       return;
     }
 
@@ -436,9 +432,10 @@ export default function CustomerAccountPage() {
       const { permission } = await subscribeToBrowserPush({ token });
       setBrowserPermission(permission);
       setBrowserPushSubscribed(true);
+      showCustomerSuccess("Browser notifications enabled", "Booking and queue alerts can now appear in this browser.");
     } catch (permissionError) {
       setBrowserPermission(window.Notification.permission);
-      setError(getErrorMessage(permissionError));
+      showCustomerError(getErrorMessage(permissionError), "Could not enable browser notifications");
     } finally {
       setRequestingBrowserPermission(false);
     }
@@ -470,8 +467,9 @@ export default function CustomerAccountPage() {
         body: nextSettings
       });
       setNotificationSettings(response.notificationSettings);
+      showCustomerSuccess("Notification settings saved", "Your notification preferences were updated.");
     } catch (saveError) {
-      setError(getErrorMessage(saveError));
+      showCustomerError(getErrorMessage(saveError), "Could not save notification settings");
       setNotificationSettings((current) => ({
         ...current,
         [key]: !checked
@@ -495,8 +493,6 @@ export default function CustomerAccountPage() {
       return;
     }
 
-    setProfileError("");
-    setProfileMessage("");
     setSavingProfile(true);
 
     try {
@@ -521,9 +517,9 @@ export default function CustomerAccountPage() {
         name: response.user.name || "",
         displayName: response.user.displayName || ""
       });
-      setProfileMessage(response.message);
+      showCustomerSuccess("Profile updated", response.message);
     } catch (saveError) {
-      setProfileError(getErrorMessage(saveError));
+      showCustomerError(getErrorMessage(saveError), "Could not update profile");
     } finally {
       setSavingProfile(false);
     }
@@ -531,7 +527,6 @@ export default function CustomerAccountPage() {
 
   async function handlePasswordChange(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setPasswordError("");
     setChangingPassword(true);
 
     try {
@@ -542,7 +537,7 @@ export default function CustomerAccountPage() {
       });
       navigate("/login?passwordChanged=1", { replace: true });
     } catch (changeError) {
-      setPasswordError(getErrorMessage(changeError));
+      showCustomerError(getErrorMessage(changeError), "Could not change password");
     } finally {
       setChangingPassword(false);
     }
@@ -596,7 +591,6 @@ export default function CustomerAccountPage() {
           <Text className="finazze-section-label">Queue Tickets</Text>
           <Title order={2}>Recent queue activity</Title>
         </div>
-        {error ? <Alert color="red">{error}</Alert> : null}
         {ticketQuery.isFetching ? <Text c="dimmed" size="sm">Loading queue tickets...</Text> : null}
         <Table.ScrollContainer minWidth={760}>
           <Table className="neura-customer-table" verticalSpacing="sm">
@@ -719,7 +713,6 @@ export default function CustomerAccountPage() {
           <Text className="finazze-section-label">Bookings</Text>
           <Title order={2}>Service booking history</Title>
         </div>
-        {error ? <Alert color="red">{error}</Alert> : null}
         {bookingQuery.isFetching ? <Text c="dimmed" size="sm">Loading service bookings...</Text> : null}
         <Group align="flex-end" gap="sm">
           <TextInput
@@ -880,7 +873,6 @@ export default function CustomerAccountPage() {
           <Text className="finazze-section-label">Group-funded</Text>
           <Title order={2}>Organizer and contributor campaigns</Title>
         </div>
-        {error ? <Alert color="red">{error}</Alert> : null}
         {groupFundedQuery.isFetching ? <Text c="dimmed" size="sm">Loading group-funded campaigns...</Text> : null}
         <Group align="flex-end" gap="sm">
           <TextInput
@@ -1118,9 +1110,7 @@ export default function CustomerAccountPage() {
             <Alert color="yellow" variant="light">
               Email and phone updates need a dedicated account OTP flow before they can be changed. They are shown read-only here until that validation endpoint exists.
             </Alert>
-            {profileError ? <Alert color="red">{profileError}</Alert> : null}
-            {profileMessage ? <Alert color="teal">{profileMessage}</Alert> : null}
-            <Button color="dark" disabled={savingProfile} type="submit" w="fit-content">
+            <Button className="customer-primary-action" color="dark" disabled={savingProfile} size="lg" type="submit">
               {savingProfile ? "Saving..." : "Save profile details"}
             </Button>
           </Stack>
@@ -1153,8 +1143,9 @@ export default function CustomerAccountPage() {
                 : "Browser notifications require a secure context such as https:// or localhost."
               : "This browser does not support browser notifications."}
           </Alert>
-          <Group gap="sm">
+          <Group className="customer-action-row" gap="sm">
             <Button
+              className="customer-primary-action"
               color="dark"
               disabled={
                 !browserNotificationsSupported ||
@@ -1163,6 +1154,7 @@ export default function CustomerAccountPage() {
                 requestingBrowserPermission
               }
               onClick={handleRequestBrowserPermission}
+              size="lg"
               type="button"
               variant="light"
             >
@@ -1252,8 +1244,7 @@ export default function CustomerAccountPage() {
                   }))
                 }
               />
-              {passwordError ? <Alert color="red">{passwordError}</Alert> : null}
-              <Button color="dark" disabled={changingPassword} type="submit" w="fit-content">
+              <Button className="customer-primary-action" color="dark" disabled={changingPassword} size="lg" type="submit">
                 {changingPassword ? "Updating password..." : "Change password"}
               </Button>
             </Stack>

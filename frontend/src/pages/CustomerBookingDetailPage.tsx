@@ -2,7 +2,7 @@ import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { Alert, Badge, Button, Card, Container, FileInput, Group, Image, Modal, Paper, SimpleGrid, Stack, Text, Textarea, TextInput, ThemeIcon, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { IconArrowLeft, IconBuildingStore, IconCalendar, IconClock, IconExternalLink, IconReceipt, IconTicket, IconUpload, IconX } from "@tabler/icons-react";
-import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
+import { Link, Navigate, useParams } from "react-router-dom";
 import type {
   BookingPaymentProofAccessResponse,
   BookingPaymentProofUploadResponse,
@@ -14,7 +14,8 @@ import type {
   PublicVendorProfileResponse,
   SubmitBookingPaymentProofRequest
 } from "@shared";
-import { API_BASE_URL, apiRequest } from "../api/client";
+import { API_BASE_URL, ApiError, apiRequest } from "../api/client";
+import ResourceErrorState from "../components/ResourceErrorState";
 import { useAuth } from "../context/AuthContext";
 import { buildJoinedQueuePathWithTicket } from "../queuePaths";
 import {
@@ -25,6 +26,7 @@ import {
   toTimestamp
 } from "../utils/dates";
 import { getErrorMessage } from "../utils/errors";
+import { showCustomerError } from "../utils/customerNotifications";
 import { buildVendorThemeMediaStyle, buildVendorThemeStyle } from "../utils/vendorTheme";
 
 function getBookingBadgeColor(status: BookingStatus): "gray" | "red" | "yellow" | "orange" | "teal" | "blue" {
@@ -122,7 +124,6 @@ function formatDurationLabel(startValue: string | Date, endValue: string | Date)
 }
 
 export default function CustomerBookingDetailPage() {
-  const navigate = useNavigate();
   const { bookingId = "" } = useParams<{ bookingId: string }>();
   const { token, user, loading: authLoading } = useAuth();
   const [booking, setBooking] = useState<CustomerBookingDetailResponse["booking"] | null>(null);
@@ -130,6 +131,7 @@ export default function CustomerBookingDetailPage() {
   const [paymentReference, setPaymentReference] = useState("");
   const [paymentProofFile, setPaymentProofFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(true);
+  const [responseStatus, setResponseStatus] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [proofBusy, setProofBusy] = useState(false);
   const [proofViewBusy, setProofViewBusy] = useState(false);
@@ -152,7 +154,9 @@ export default function CustomerBookingDetailPage() {
       const data = await apiRequest<CustomerBookingDetailResponse>(`/account/bookings/${bookingId}`, { token });
       setBooking(data.booking);
       setError("");
+      setResponseStatus(null);
     } catch (loadError) {
+      setResponseStatus(loadError instanceof ApiError ? loadError.status : null);
       setError(getErrorMessage(loadError));
     } finally {
       if (options.showLoading) {
@@ -267,7 +271,7 @@ export default function CustomerBookingDetailPage() {
         message: `${data.booking.reference} was cancelled.`
       });
     } catch (cancelError) {
-      setError(getErrorMessage(cancelError));
+      showCustomerError(getErrorMessage(cancelError), "Could not cancel booking");
     } finally {
       setBusy(false);
     }
@@ -280,12 +284,12 @@ export default function CustomerBookingDetailPage() {
 
     const trimmedReference = paymentReference.trim();
     if (!trimmedReference) {
-      setError("Payment reference is required.");
+      showCustomerError("Payment reference is required.", "Payment reference needed");
       return;
     }
 
     if (!paymentProofFile) {
-      setError("Payment proof image is required.");
+      showCustomerError("Payment proof image is required.", "Payment proof needed");
       return;
     }
 
@@ -333,7 +337,7 @@ export default function CustomerBookingDetailPage() {
         message: `${data.booking.reference} is waiting for vendor verification.`
       });
     } catch (proofError) {
-      setError(getErrorMessage(proofError));
+      showCustomerError(getErrorMessage(proofError), "Could not submit payment proof");
     } finally {
       setProofBusy(false);
     }
@@ -354,7 +358,7 @@ export default function CustomerBookingDetailPage() {
       setProofAccessUrl(data.access.url);
       setProofModalOpen(true);
     } catch (viewError) {
-      setError(getErrorMessage(viewError));
+      showCustomerError(getErrorMessage(viewError), "Could not open payment proof");
     } finally {
       setProofViewBusy(false);
     }
@@ -362,12 +366,14 @@ export default function CustomerBookingDetailPage() {
 
   if (!booking) {
     return (
-      <Stack className="customer-account-page" gap="lg">
-        <Button leftSection={<IconArrowLeft size={16} />} onClick={() => navigate("/account/bookings")} variant="subtle" w="fit-content">
-          Back to booking list
-        </Button>
-        <Alert color="red">{error || "Booking not found."}</Alert>
-      </Stack>
+      <ResourceErrorState
+        backLabel="Back to booking list"
+        backTo="/account/bookings"
+        error={error}
+        onRetry={() => void loadBooking({ showLoading: true })}
+        resourceName="booking"
+        status={responseStatus}
+      />
     );
   }
 
@@ -439,7 +445,6 @@ export default function CustomerBookingDetailPage() {
           Back to booking list
         </Button>
 
-          {error ? <Alert color="red">{error}</Alert> : null}
           {hasExpired ? (
             <Alert color="orange" variant="light">
               {booking.expirationReason || "This pending booking expired before vendor confirmation or payment evidence submission."}
@@ -513,7 +518,7 @@ export default function CustomerBookingDetailPage() {
                 </Group>
               </Stack>
 
-              <Group gap="md">
+              <Group className="customer-action-row" gap="md">
                 {checkInAvailable ? (
                   <Button className="vendor-theme-button" component={Link} leftSection={<IconTicket size={18} />} size="lg" to={linkedQueuePath}>
                     Check-in
@@ -702,7 +707,7 @@ export default function CustomerBookingDetailPage() {
                   </Badge>
                 )}
               </Group>
-              <Group gap="sm">
+              <Group className="customer-action-row" gap="sm">
                 {checkInAvailable ? (
                   <Button component={Link} leftSection={<IconTicket size={16} />} to={linkedQueuePath}>
                     Check-in
@@ -841,10 +846,11 @@ export default function CustomerBookingDetailPage() {
                   value={paymentProofFile}
                 />
                 <Button
+                  className="customer-primary-action"
                   disabled={!paymentReference.trim() || !paymentProofFile}
                   loading={proofBusy}
                   onClick={handleSubmitPaymentProof}
-                  w="fit-content"
+                  size="lg"
                 >
                   Submit payment proof
                 </Button>
@@ -856,6 +862,7 @@ export default function CustomerBookingDetailPage() {
 
       <Modal
         centered
+        className="customer-modal"
         onClose={() => setProofModalOpen(false)}
         opened={proofModalOpen}
         size="lg"
@@ -913,6 +920,7 @@ export default function CustomerBookingDetailPage() {
 
       <Modal
         centered
+        className="customer-modal"
         onClose={() => setCancelModalOpen(false)}
         opened={cancelModalOpen}
         size="md"
@@ -930,11 +938,11 @@ export default function CustomerBookingDetailPage() {
               placeholder="Tell the vendor why you are cancelling"
               value={reason}
             />
-            <Group justify="flex-end">
-              <Button disabled={busy} onClick={() => setCancelModalOpen(false)} variant="default">
+            <Group className="customer-modal-actions" justify="flex-end">
+              <Button disabled={busy} onClick={() => setCancelModalOpen(false)} size="lg" variant="default">
                 Keep booking
               </Button>
-              <Button color="red" loading={busy} type="submit">
+              <Button color="red" loading={busy} size="lg" type="submit">
                 Cancel booking
               </Button>
             </Group>

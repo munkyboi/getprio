@@ -151,6 +151,7 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
       id: String(tenant._id),
       name: tenant.name,
       slug: tenant.slug,
+      publicProfileCategory: tenant.publicProfileCategory || "",
       queuePrefix: tenant.queuePrefix,
       averageServiceMinutes: tenant.averageServiceMinutes,
       notificationThreshold: tenant.notificationThreshold,

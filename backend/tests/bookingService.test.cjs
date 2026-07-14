@@ -103,6 +103,7 @@ function buildBookingService({
   availability,
   hours = [],
   countOverlappingActiveBookings = async () => 0,
+  countOverlappingActiveCapacityHolds = async () => 0,
   expirePendingBookings = async () => [],
   createBooking = async () => ({ _id: "booking-1", reference: "BKG-TEST", customerEmail: "customer@example.com", notifyBySms: false }),
   findBookingById = async () => null,
@@ -165,6 +166,9 @@ function buildBookingService({
       ...(listBookingsForCheckInReminder ? { listBookingsForCheckInReminder } : {}),
       ...(markBookingCheckInReminderSent ? { markBookingCheckInReminderSent } : {}),
       updateBooking
+    },
+    "../repositories/groupFundedBookings": {
+      countOverlappingActiveCapacityHolds
     },
     "../repositories/tenants": {
       findTenantBySlug: async (slug) => (slug === "demo" ? tenant : null),
@@ -486,6 +490,61 @@ test("booking slots fall back to store hours when no booking availability exists
   ]);
 });
 
+test("group-funded candidate slots use branch business hours and omit a short overnight remainder", async () => {
+  const bookingService = buildBookingService({
+    availability: { blocks: [], exceptions: [] },
+    hours: [{ weekday: 1, opensAt: "22:00", closesAt: "01:00", isClosed: false }]
+  });
+
+  const slots = await bookingService.listGroupFundedCandidateSlots({
+    tenantSlug: "demo",
+    locationSlug: "main",
+    date: "2026-07-06"
+  });
+
+  assert.equal(slots[0].startAt, "2026-07-06T14:00:00.000Z");
+  assert.equal(slots.at(-1).startAt, "2026-07-06T16:00:00.000Z");
+});
+
+test("booking slots include both dates of an overnight weekly availability rule", async () => {
+  const bookingService = buildBookingService({
+    availability: {
+      blocks: [
+        {
+          _id: "block-overnight",
+          serviceId: "service-1",
+          weekday: 1,
+          startsAt: "07:00",
+          endsAt: "02:00",
+          endsNextDay: true,
+          capacity: 1,
+          isActive: true
+        }
+      ],
+      exceptions: []
+    }
+  });
+
+  const mondaySlots = await bookingService.listBookingSlots({
+    tenantSlug: "demo",
+    locationSlug: "main",
+    serviceSlug: "consultation",
+    date: "2026-07-06"
+  });
+  const tuesdaySlots = await bookingService.listBookingSlots({
+    tenantSlug: "demo",
+    locationSlug: "main",
+    serviceSlug: "consultation",
+    date: "2026-07-07"
+  });
+
+  assert.equal(mondaySlots.at(-1).startAt, "2026-07-06T17:00:00.000Z");
+  assert.deepEqual(tuesdaySlots.map((slot) => slot.startAt), [
+    "2026-07-06T16:00:00.000Z",
+    "2026-07-06T17:00:00.000Z"
+  ]);
+});
+
 test("booking slots omit past slot starts", async () => {
   const bookingService = buildBookingService({
     availability: {
@@ -512,6 +571,54 @@ test("booking slots omit past slot starts", async () => {
   });
 
   assert.deepEqual(slots, []);
+});
+
+test("group-funded slot lookup includes active review holds when requested", async () => {
+  const bookingService = buildBookingService({
+    availability: {
+      blocks: [{ _id: "block-1", serviceId: "service-1", weekday: 1, startsAt: "09:00", endsAt: "10:00", capacity: 1, isActive: true }],
+      exceptions: []
+    },
+    countOverlappingActiveCapacityHolds: async () => 1
+  });
+
+  const slots = await bookingService.listBookingSlots({
+    tenantSlug: "demo", locationSlug: "main", serviceSlug: "consultation", date: "2026-07-06", includeGroupFundedHolds: true
+  });
+
+  assert.equal(slots[0].isAvailable, false);
+  assert.equal(slots[0].disabledReason, "capacity_full");
+});
+
+test("group-funded service eligibility checks every half-hour branch candidate", async () => {
+  const bookingService = buildBookingService({
+    availability: {
+      blocks: [{
+        _id: "block-1",
+        serviceId: "service-1",
+        weekday: 1,
+        startsAt: "07:00",
+        endsAt: "02:00",
+        endsNextDay: true,
+        capacity: 1,
+        isActive: true
+      }],
+      exceptions: []
+    },
+    serviceOverride: { allowBookingQuantity: true }
+  });
+
+  const slots = await bookingService.listBookingSlots({
+    tenantSlug: "demo",
+    locationSlug: "main",
+    serviceSlug: "consultation",
+    date: "2026-07-06",
+    bookingQuantity: 4,
+    includeGroupFundedHolds: true,
+    slotIntervalMinutes: 30
+  });
+
+  assert.ok(slots.some((slot) => slot.startAt === "2026-07-06T14:00:00.000Z"));
 });
 
 test("booking slots subtract active overlapping booking capacity", async () => {

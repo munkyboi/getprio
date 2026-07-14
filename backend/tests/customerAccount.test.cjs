@@ -131,6 +131,43 @@ async function stopServer(server) {
   });
 }
 
+test("group-funded QR downloads are streamed through the authenticated account route", async () => {
+  const requestedQrUrls = [];
+  const router = requireWithMocks("../src/routes/accountRoutes.js", {
+    "../middleware/auth": buildAuthMock(),
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../services/groupFundedBookingService": {
+      getCampaignForCustomer: async ({ user, campaignIdOrToken }) => {
+        assert.equal(user._id, "user-1");
+        assert.equal(campaignIdOrToken, "campaign-share-token");
+        return {
+          campaign: {
+            paymentDestination: { qrImageUrl: "https://example.test/payment-qr.png" }
+          }
+        };
+      }
+    },
+    "../services/locationPaymentQrUploadService": {
+      downloadBinary: async ({ publicUrl }) => {
+        requestedQrUrls.push(publicUrl);
+        return { body: Buffer.from("qr-image"), contentType: "image/png", fileName: "payment-qr.png" };
+      }
+    }
+  });
+  const { server, baseUrl } = await startServer(router, "/api/account");
+
+  try {
+    const response = await fetch(`${baseUrl}/group-funded-campaigns/campaign-share-token/payment-qr`);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("content-type"), "image/png");
+    assert.equal(response.headers.get("content-disposition"), 'attachment; filename="payment-qr.png"');
+    assert.equal(await response.text(), "qr-image");
+    assert.deepEqual(requestedQrUrls, ["https://example.test/payment-qr.png"]);
+  } finally {
+    await stopServer(server);
+  }
+});
+
 test("customer account overview and history expose owned tickets only", async () => {
   const tickets = [
     {

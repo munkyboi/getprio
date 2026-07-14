@@ -293,6 +293,8 @@ CREATE TABLE vendor_services (
   allow_booking_quantity BOOLEAN NOT NULL DEFAULT FALSE,
   booking_quantity_label TEXT NOT NULL DEFAULT 'Units',
   manual_payment_required BOOLEAN NOT NULL DEFAULT FALSE,
+  booking_capacity_scope TEXT NOT NULL DEFAULT 'service'
+    CHECK (booking_capacity_scope IN ('service', 'location')),
   price_amount_cents INTEGER NOT NULL DEFAULT 0 CHECK (price_amount_cents >= 0),
   currency TEXT NOT NULL DEFAULT 'PHP' CHECK (currency IN ('PHP')),
   price_display TEXT NOT NULL DEFAULT '',
@@ -384,12 +386,16 @@ CREATE TABLE vendor_availability_blocks (
   weekday INTEGER NOT NULL CHECK (weekday BETWEEN 0 AND 6),
   starts_at TIME NOT NULL,
   ends_at TIME NOT NULL,
+  ends_next_day BOOLEAN NOT NULL DEFAULT FALSE,
   capacity INTEGER NOT NULL DEFAULT 1 CHECK (capacity BETWEEN 1 AND 100),
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
   notes TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CHECK (starts_at < ends_at)
+  CHECK (
+    (ends_next_day AND starts_at > ends_at)
+    OR (NOT ends_next_day AND starts_at < ends_at)
+  )
 );
 
 CREATE INDEX vendor_availability_blocks_location_day_idx
