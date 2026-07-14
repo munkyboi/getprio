@@ -2,10 +2,11 @@ import { useEffect, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { Alert, Button, Paper, PasswordInput, SimpleGrid, Stack, Text, TextInput, Title } from "@mantine/core";
+import { Alert, Button, Paper, PasswordInput, Stack, Text, TextInput, Title } from "@mantine/core";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import type { RegisterCustomerRequest, UsernameAvailabilityResponse } from "@shared";
 import PhilippineMobileInput from "../components/PhilippineMobileInput";
+import SignupFieldLabel from "../components/SignupFieldLabel";
 import SocialAuthButtons from "../components/SocialAuthButtons";
 import { apiRequest } from "../api/client";
 import { customerAccountApi } from "../api/customerAccount";
@@ -155,13 +156,13 @@ export default function RegisterCustomerPage() {
 
   return (
     <Paper className="finazze-auth-card finazze-auth-card-wide onboarding-shell" p={{ base: "xl", md: 44 }}>
-      <SimpleGrid cols={{ base: 1, md: 2 }} spacing={{ base: "xl", md: 36 }}>
+      <div className="onboarding-layout">
         <Stack gap="lg">
           <div>
-            <Text className="finazze-section-label">Customer account</Text>
-            <Title order={1}>Queue remotely with saved contact details.</Title>
+            <Text className="finazze-section-label">Your customer account</Text>
+            <Title order={1}>Make every booking easier.</Title>
             <Text c="dimmed" mt="sm">
-              Create your profile once, then use it when joining vendor queues online.
+              Save your details once, then book services and join queues faster next time.
             </Text>
           </div>
           <form onSubmit={handleSubmit}>
@@ -193,7 +194,8 @@ export default function RegisterCustomerPage() {
                 {...form.register("email")}
               />
               <PhilippineMobileInput
-                label="Phone"
+                label={<SignupFieldLabel label="Phone" tooltip="Add a Philippine mobile number for queue and booking updates." />}
+                description=""
                 error={form.formState.errors.phone?.message}
                 value={form.watch("phone")}
                 onChange={(nextValue) => form.setValue("phone", nextValue, { shouldValidate: true })}
@@ -205,12 +207,12 @@ export default function RegisterCustomerPage() {
                 {...form.register("password")}
               />
               {error ? <Alert color="red">{error}</Alert> : null}
-              <Button color="dark" loading={form.formState.isSubmitting || checkingUsername} type="submit">
+              <Button className="auth-primary-action" color="dark" fullWidth loading={form.formState.isSubmitting || checkingUsername} size="lg" type="submit">
                 Create account
               </Button>
             </Stack>
           </form>
-          <SocialAuthButtons intent="register_customer" />
+          <SocialAuthButtons iconOnly intent="register_customer" />
         </Stack>
         <Stack className="onboarding-art-panel" justify="space-between" gap="lg">
           <img
@@ -219,13 +221,14 @@ export default function RegisterCustomerPage() {
             src="/illustrations/generated/customer-onboarding.png"
           />
           <div>
-            <Text className="finazze-section-label">Wait on your terms</Text>
+            <Text className="finazze-section-label">Less waiting, more doing</Text>
+            <Title order={2}>Your time, back in your hands.</Title>
             <Text c="dimmed">
-              Save your details once, join faster next time, and get alerted when your turn is near.
+              Follow bookings, join queues online, and get an alert when it is nearly your turn.
             </Text>
           </div>
         </Stack>
-      </SimpleGrid>
+      </div>
     </Paper>
   );
 }

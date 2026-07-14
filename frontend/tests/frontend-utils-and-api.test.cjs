@@ -817,7 +817,7 @@ test("group-funded campaign details use thumbnail service rows and a report form
   const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
 
   assert.match(source, /<Text className="finazze-section-label">Bundled services<\/Text>/);
-  assert.match(source, /<Title order=\{2\}>What's in this campaign<\/Title>/);
+  assert.match(source, /<Title order=\{2\}>What(?:'|&apos;)s in this campaign<\/Title>/);
   assert.doesNotMatch(source, /bundleItems\.length.*Services/);
   assert.match(source, /className="group-funded-bundle-thumbnail"/);
   assert.match(source, /setImagePreview\(\{ name: item\.serviceName, imageUrl: item\.imageUrl \}\)/);
@@ -938,8 +938,45 @@ test("login actions are mobile-first", () => {
   const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
 
   assert.ok((loginSource.match(/className="auth-primary-action"/g) || []).length >= 3);
+  assert.match(loginSource, /<SocialAuthButtons iconOnly intent="login"/);
   assert.match(socialSource, /className="auth-social-action"/);
   assert.match(styles, /\.finazze-auth-card \.auth-primary-action,[\s\S]*?\.finazze-auth-card \.auth-social-action \{\s+width: 100%;\s+min-height: 3\.25rem;/);
+});
+
+test("signup forms use provider icons, helpful labels, and touch-friendly actions", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const vendorSource = fs.readFileSync(path.join(frontendRoot, "src", "pages", "RegisterVendorPage.tsx"), "utf8");
+  const customerSource = fs.readFileSync(path.join(frontendRoot, "src", "pages", "RegisterCustomerPage.tsx"), "utf8");
+  const socialSource = fs.readFileSync(path.join(frontendRoot, "src", "components", "SocialAuthButtons.tsx"), "utf8");
+  const labelSource = fs.readFileSync(path.join(frontendRoot, "src", "components", "SignupFieldLabel.tsx"), "utf8");
+  const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
+
+  assert.match(socialSource, /IconBrandGoogle/);
+  assert.match(socialSource, /IconBrandFacebook/);
+  assert.match(socialSource, /leftSection=\{<ProviderIcon/);
+  assert.match(labelSource, /<Tooltip label=\{tooltip\}/);
+  assert.match(labelSource, /IconInfoCircle/);
+  assert.match(labelSource, /signup-label-required/);
+  assert.match(vendorSource, /<SignupFieldLabel label="Business category" required/);
+  assert.match(vendorSource, /withAsterisk=\{false\}/);
+  assert.match(vendorSource, /<SignupFieldLabel label="Phone"/);
+  assert.match(vendorSource, /className="auth-primary-action"/);
+  assert.match(customerSource, /<SignupFieldLabel label="Phone"/);
+  assert.match(customerSource, /className="auth-primary-action"/);
+  assert.match(vendorSource, /className="onboarding-layout"/);
+  assert.match(customerSource, /className="onboarding-layout"/);
+  assert.match(styles, /\.onboarding-layout \{\s+display: grid;\s+grid-template-columns: minmax\(0, 3fr\) minmax\(18rem, 2fr\);/);
+});
+
+test("customer navigation keeps account actions in the mobile drawer", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const appSource = fs.readFileSync(path.join(frontendRoot, "src", "App.tsx"), "utf8");
+  const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
+
+  assert.match(appSource, /<Divider label="Account" labelPosition="center" my="sm" \/>/);
+  assert.match(appSource, /to="\/account\/security"/);
+  assert.match(appSource, /<Button color="red" leftSection=\{<IconLogout size=\{16\} \/>\} onClick=\{handleLogout\} variant="light">/);
+  assert.match(styles, /\.customer-account-hero,\s+\.customer-account-sidebar \{\s+display: none;/);
 });
 
 test("vendor settings provide an editable business profile", () => {

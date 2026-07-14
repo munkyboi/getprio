@@ -10,6 +10,7 @@ import type {
   UsernameAvailabilityResponse
 } from "@shared";
 import PhilippineMobileInput from "../components/PhilippineMobileInput";
+import SignupFieldLabel from "../components/SignupFieldLabel";
 import SocialAuthButtons from "../components/SocialAuthButtons";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
@@ -278,28 +279,28 @@ export default function RegisterVendorPage() {
 
   return (
     <Paper className="finazze-auth-card finazze-auth-card-wide onboarding-shell" p={{ base: "xl", md: 44 }}>
-      <SimpleGrid cols={{ base: 1, md: 2 }} spacing={{ base: "xl", md: 36 }}>
+      <div className="onboarding-layout">
         <Stack gap="lg">
           <div>
             <Text className="finazze-section-label">
-              {isAuthenticatedFlow ? "Vendor workspace" : "Vendor onboarding"}
+              {isAuthenticatedFlow ? "Your vendor workspace" : "Build your booking business"}
             </Text>
             <Title order={1}>
               {isAuthenticatedFlow
                 ? hasTenantMemberships
-                  ? "Create another tenant-ready queue workspace."
-                  : "Finish your tenant workspace."
-                : "Create a tenant-ready queue workspace."}
+                  ? "Add another business workspace."
+                  : "Finish setting up your workspace."
+                : "Set up your vendor workspace."}
             </Title>
             <Text c="dimmed" mt="sm">
               {isAuthenticatedFlow
                 ? oauthProviderLabel
-                  ? `Signed in with ${oauthProviderLabel}. Finish the workspace details below.`
-                  : "You're signed in. Finish the workspace details below to create your vendor tenant."
-                : "Set up your business profile, queue slug, and owner account in one pass."}
+                  ? `Signed in with ${oauthProviderLabel}. Add the final business details to get started.`
+                  : "You're signed in. Add the final business details to get started."
+                : "Create your business profile, choose a shareable link, and start accepting bookings."}
             </Text>
           </div>
-          {!isAuthenticatedFlow ? <SocialAuthButtons intent="register_vendor" /> : null}
+          {!isAuthenticatedFlow ? <SocialAuthButtons iconOnly intent="register_vendor" /> : null}
           <form onSubmit={handleSubmit}>
             <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
               <TextInput
@@ -309,10 +310,10 @@ export default function RegisterVendorPage() {
                 {...form.register("tenantName")}
               />
               <Select
-                label="Business category"
+                label={<SignupFieldLabel label="Business category" required tooltip="This helps customers understand your business and shapes your public profile theme." />}
                 required
+                withAsterisk={false}
                 data={BUSINESS_CATEGORIES}
-                description="This shapes the public vendor page theme and motif."
                 error={form.formState.errors.category?.message}
                 value={category}
                 onChange={(value) => form.setValue("category", value || "", { shouldValidate: true })}
@@ -357,7 +358,8 @@ export default function RegisterVendorPage() {
                 {...form.register("email")}
               />
               <PhilippineMobileInput
-                label="Phone"
+                label={<SignupFieldLabel label="Phone" tooltip="Add a Philippine mobile number for account and booking updates." />}
+                description=""
                 error={form.formState.errors.phone?.message}
                 value={phone}
                 onChange={(nextValue) => form.setValue("phone", nextValue, { shouldValidate: true })}
@@ -375,8 +377,11 @@ export default function RegisterVendorPage() {
               {error ? <Alert color="red">{error}</Alert> : null}
               <Button
                 color="dark"
+                className="auth-primary-action"
+                fullWidth
                 loading={form.formState.isSubmitting || checkingUsername || checkingTenantSlug}
                 type="submit"
+                size="lg"
               >
                 {isAuthenticatedFlow
                   ? hasTenantMemberships
@@ -394,13 +399,14 @@ export default function RegisterVendorPage() {
             src="/illustrations/generated/vendor-onboarding.png"
           />
           <div>
-            <Text className="finazze-section-label">What opens up next</Text>
+            <Text className="finazze-section-label">Ready when you are</Text>
+            <Title order={2}>Everything in one place.</Title>
             <Text c="dimmed">
-              Publish a QR join point, configure service locations, and start serving from one live workspace.
+              Manage your profile, services, availability, team, and bookings from one secure workspace.
             </Text>
           </div>
         </Stack>
-      </SimpleGrid>
+      </div>
     </Paper>
   );
 }

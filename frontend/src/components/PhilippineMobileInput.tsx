@@ -18,7 +18,7 @@ export default function PhilippineMobileInput({
   return (
     <TextInput
       {...props}
-      description={props.description || "Enter a Philippine mobile number like (0917) 123-4567."}
+      description={props.description ?? "Enter a Philippine mobile number like (0917) 123-4567."}
       inputMode="numeric"
       placeholder="(0917) 123-4567"
       value={displayValue}

@@ -2429,9 +2429,23 @@ button {
   width: min(1120px, calc(100vw - 2rem));
 }
 
+.onboarding-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(18rem, 2fr);
+  gap: clamp(1.5rem, 3vw, 2.25rem);
+}
+
 .onboarding-art-panel {
   min-height: 100%;
-  padding: clamp(0.25rem, 2vw, 0.75rem);
+  padding: clamp(1.25rem, 2vw, 1.75rem);
+  border: 1px solid rgba(166, 116, 39, 0.14);
+  border-radius: 24px;
+  background: #fcf4e8;
+}
+
+.onboarding-art-panel .mantine-Title-root {
+  margin-top: 0.2rem;
+  font-size: clamp(1.4rem, 2.2vw, 2rem);
 }
 
 .onboarding-art,
@@ -2439,7 +2453,16 @@ button {
   width: 100%;
   display: block;
   border-radius: 28px;
-  mix-blend-mode: multiply;
+}
+
+@media (max-width: 48em) {
+  .onboarding-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .onboarding-art-panel {
+    min-height: 0;
+  }
 }
 
 .join-side-art {
@@ -2497,12 +2520,13 @@ button {
 }
 
 @media (max-width: 860px) {
-  .customer-account-layout {
-    grid-template-columns: 1fr;
+  .customer-account-hero,
+  .customer-account-sidebar {
+    display: none;
   }
 
-  .customer-account-sidebar {
-    position: static;
+  .customer-account-layout {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -4162,6 +4186,37 @@ h2 {
 
 .social-auth-button.provider-facebook {
   border-color: rgba(24, 119, 242, 0.24);
+}
+
+.auth-social-action .mantine-Button-section[data-position="left"] {
+  margin-inline-end: 0.5rem;
+}
+
+.auth-social-action[data-provider="google"] .mantine-Button-section[data-position="left"] {
+  color: #4285f4;
+}
+
+.auth-social-action[data-provider="facebook"] .mantine-Button-section[data-position="left"] {
+  color: #1877f2;
+}
+
+.auth-social-icon-action {
+  border-color: var(--line);
+  border-radius: 999px;
+}
+
+.auth-social-icon-action[data-provider="google"] {
+  border-color: rgba(66, 133, 244, 0.35);
+  color: #4285f4;
+}
+
+.auth-social-icon-action[data-provider="facebook"] {
+  border-color: rgba(24, 119, 242, 0.35);
+  color: #1877f2;
+}
+
+.signup-label-required {
+  color: var(--mantine-color-red-6);
 }
 
 

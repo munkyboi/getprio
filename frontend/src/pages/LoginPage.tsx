@@ -209,7 +209,7 @@ export default function LoginPage() {
                 </Stack>
               </form>
             ) : null}
-            <SocialAuthButtons intent="login" />
+            <SocialAuthButtons iconOnly intent="login" />
           </>
         )}
         <Text c="dimmed" size="sm">
