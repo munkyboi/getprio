@@ -24,6 +24,7 @@ import { DatePickerInput, DateTimePicker } from "@mantine/dates";
 import { IconAlertTriangle, IconArrowLeft, IconCalendar, IconCalendarCheck, IconMapPin, IconUpload } from "@tabler/icons-react";
 import { addDays, eachDayOfInterval, endOfMonth, format, startOfMonth } from "date-fns";
 import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
+import CampaignDescriptionEditor from "../components/CampaignDescriptionEditor";
 import type {
   BookingPaymentProofUploadResponse,
   BookingOtpResponse,
@@ -1336,14 +1337,14 @@ export default function BookingRequestPage() {
                             required
                             value={campaignTitle}
                           />
-                          <Textarea
-                            disabled={Boolean(otp) || !groupFundedAvailable}
-                            label="Campaign description"
-                            maxLength={280}
-                            minRows={3}
-                            onChange={(event) => setCampaignDescription(event.currentTarget.value)}
-                            value={campaignDescription}
-                          />
+                          <Stack gap={4}>
+                            <Text fw={500} size="sm">Campaign description</Text>
+                            <CampaignDescriptionEditor
+                              disabled={Boolean(otp) || !groupFundedAvailable}
+                              onChange={setCampaignDescription}
+                              value={campaignDescription}
+                            />
+                          </Stack>
                           <Alert color="teal" variant="light">
                             Each person contributes {formatPaymentAmount(computedContributionCents, selectedService?.currency || "PHP")}. Everyone pays the same amount in full, so there are no partial payments, extra payments, or tips.
                           </Alert>

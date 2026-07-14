@@ -868,7 +868,35 @@ body {
 }
 
 .group-funded-campaign-description {
-  white-space: pre-wrap;
+  white-space: normal;
+}
+
+.rich-campaign-description p,
+.rich-campaign-description ul,
+.rich-campaign-description ol,
+.rich-campaign-description blockquote {
+  margin: 0 0 0.8rem;
+}
+
+.rich-campaign-description p:last-child,
+.rich-campaign-description ul:last-child,
+.rich-campaign-description ol:last-child,
+.rich-campaign-description blockquote:last-child {
+  margin-bottom: 0;
+}
+
+.rich-campaign-description ul,
+.rich-campaign-description ol {
+  padding-left: 1.4rem;
+}
+
+.rich-campaign-description blockquote {
+  border-left: 3px solid var(--vendor-theme-accent, #ff7a15);
+  padding-left: 0.85rem;
+}
+
+.campaign-description-editor .ProseMirror {
+  min-height: 7rem;
 }
 
 .group-funded-vendor-link {

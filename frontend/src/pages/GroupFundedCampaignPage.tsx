@@ -34,6 +34,8 @@ import type {
   PublicVendorProfileResponse
 } from "@shared";
 import { API_BASE_URL, ApiError, apiRequest } from "../api/client";
+import CampaignDescriptionEditor from "../components/CampaignDescriptionEditor";
+import RichCampaignDescription from "../components/RichCampaignDescription";
 import ResourceErrorState from "../components/ResourceErrorState";
 import { customerAccountApi } from "../api/customerAccount";
 import { useAuth } from "../context/AuthContext";
@@ -851,10 +853,10 @@ export default function GroupFundedCampaignPage() {
                 </Stack>
               </div>
 
-              <Text className="vendor-hero-description group-funded-campaign-description">
-                {campaign.description ||
-                  `${campaign.vendorName || "Vendor"} group-funded booking organized by ${campaign.organizerDisplayName}.`}
-              </Text>
+              <RichCampaignDescription
+                className="vendor-hero-description group-funded-campaign-description rich-campaign-description"
+                content={campaign.description || `${campaign.vendorName || "Vendor"} group-funded booking organized by ${campaign.organizerDisplayName}.`}
+              />
 
               <Stack gap="xs">
                 <Group c="dimmed" gap={8} wrap="nowrap">
@@ -1163,13 +1165,13 @@ export default function GroupFundedCampaignPage() {
             required
             value={editForm.campaignTitle}
           />
-          <Textarea
-            label="Campaign description"
-            maxLength={280}
-            minRows={4}
-            onChange={(event) => setEditForm((current) => ({ ...current, description: event.currentTarget.value }))}
-            value={editForm.description}
-          />
+          <Stack gap={4}>
+            <Text fw={500} size="sm">Campaign description</Text>
+            <CampaignDescriptionEditor
+              onChange={(description) => setEditForm((current) => ({ ...current, description }))}
+              value={editForm.description}
+            />
+          </Stack>
           <Select
             data={[
               { label: "Private link only", value: "private_link" },

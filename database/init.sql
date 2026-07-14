@@ -558,7 +558,7 @@ CREATE TABLE group_funded_bookings (
   ),
   organizer_display_name TEXT NOT NULL,
   campaign_title TEXT NOT NULL DEFAULT '' CHECK (char_length(campaign_title) <= 90),
-  description TEXT NOT NULL DEFAULT '' CHECK (char_length(description) <= 280),
+  description TEXT NOT NULL DEFAULT '' CHECK (char_length(description) <= 1000),
   service_name_snapshot TEXT NOT NULL,
   service_slug_snapshot TEXT NOT NULL,
   location_name_snapshot TEXT NOT NULL,

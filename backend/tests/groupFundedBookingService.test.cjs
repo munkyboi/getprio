@@ -500,6 +500,55 @@ test("group-funded service rejects public campaign descriptions that fail modera
   );
 });
 
+test("group-funded service stores only safe rich campaign description markup", async () => {
+  let createdPayload = null;
+  const { mocks } = baseMocks({
+    createCampaign: async (data) => {
+      createdPayload = data;
+      return buildCampaign({ ...data, campaignStatus: "funding", publicToken: "share-token" });
+    }
+  });
+  const service = requireWithMocks("../src/services/groupFundedBookingService.js", mocks);
+
+  await service.createCampaign({
+    user: { _id: "user-1", name: "Organizer" },
+    body: {
+      tenantSlug: "vendor",
+      locationSlug: "main",
+      serviceSlug: "consultation",
+      scheduledStartAt: new Date(Date.now() + 96 * 60 * 60 * 1000).toISOString(),
+      fundingDeadlineAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+      requiredContributors: 3,
+      visibility: "private_link",
+      description: "<p><strong>Bring a paddle</strong></p><script>alert('xss')</script><img src=x onerror=alert(1)>"
+    }
+  });
+
+  assert.equal(createdPayload.description, "<p><strong>Bring a paddle</strong></p>");
+});
+
+test("group-funded service limits rich campaign descriptions to 1000 plain-text characters", async () => {
+  const { mocks } = baseMocks();
+  const service = requireWithMocks("../src/services/groupFundedBookingService.js", mocks);
+
+  await assert.rejects(
+    () => service.createCampaign({
+      user: { _id: "user-1", name: "Organizer" },
+      body: {
+        tenantSlug: "vendor",
+        locationSlug: "main",
+        serviceSlug: "consultation",
+        scheduledStartAt: new Date(Date.now() + 96 * 60 * 60 * 1000).toISOString(),
+        fundingDeadlineAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+        requiredContributors: 3,
+        visibility: "private_link",
+        description: `<p>${"a".repeat(1001)}</p>`
+      }
+    }),
+    /description must be 1000 characters or fewer/
+  );
+});
+
 test("group-funded service rejects organizer detail edits after funding is complete", async () => {
   const campaign = buildCampaign({
     fundedAmountCents: 100001,

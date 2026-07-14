@@ -752,7 +752,7 @@ test("group-funded section labels use a consistent heading size", () => {
   assert.match(styles, /\.booking-schedule-field :where\(\.mantine-InputWrapper-label\) \{[\s\S]*?font-weight: 800;/);
 });
 
-test("group-funded campaign descriptions retain organizer line breaks", () => {
+test("group-funded campaign descriptions render rich text formatting", () => {
   const frontendRoot = path.resolve(__dirname, "..");
   const source = fs.readFileSync(
     path.join(frontendRoot, "src", "pages", "GroupFundedCampaignPage.tsx"),
@@ -760,8 +760,9 @@ test("group-funded campaign descriptions retain organizer line breaks", () => {
   );
   const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
 
-  assert.match(source, /className="vendor-hero-description group-funded-campaign-description"/);
-  assert.match(styles, /\.group-funded-campaign-description \{\s+white-space: pre-wrap;/);
+  assert.match(source, /className="vendor-hero-description group-funded-campaign-description rich-campaign-description"/);
+  assert.match(styles, /\.rich-campaign-description p,/);
+  assert.match(styles, /\.rich-campaign-description blockquote/);
 });
 
 test("group-funded campaign hero joins by smoothly scrolling to payment proof", () => {
@@ -966,6 +967,20 @@ test("signup forms use provider icons, helpful labels, and touch-friendly action
   assert.match(vendorSource, /className="onboarding-layout"/);
   assert.match(customerSource, /className="onboarding-layout"/);
   assert.match(styles, /\.onboarding-layout \{\s+display: grid;\s+grid-template-columns: minmax\(0, 3fr\) minmax\(18rem, 2fr\);/);
+});
+
+test("group-funded campaign descriptions use Mantine Tiptap without source-code mode", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const editorSource = fs.readFileSync(path.join(frontendRoot, "src", "components", "CampaignDescriptionEditor.tsx"), "utf8");
+  const detailSource = fs.readFileSync(path.join(frontendRoot, "src", "pages", "GroupFundedCampaignPage.tsx"), "utf8");
+  const bookingSource = fs.readFileSync(path.join(frontendRoot, "src", "pages", "BookingRequestPage.tsx"), "utf8");
+
+  assert.match(editorSource, /RichTextEditor className="campaign-description-editor" editor=\{editor\} variant="subtle"/);
+  assert.match(editorSource, /MAX_CAMPAIGN_DESCRIPTION_CHARACTERS = 1000/);
+  assert.match(editorSource, /RichTextEditor\.BulletList/);
+  assert.doesNotMatch(editorSource, /RichTextEditor\.Code/);
+  assert.match(detailSource, /<RichCampaignDescription/);
+  assert.match(bookingSource, /<CampaignDescriptionEditor/);
 });
 
 test("customer navigation keeps account actions in the mobile drawer", () => {

@@ -9,6 +9,7 @@ import AppErrorBoundary from "./components/AppErrorBoundary";
 import { AuthProvider } from "./context/AuthContext";
 import { queryClient } from "./lib/queryClient";
 import "@mantine/core/styles.css";
+import "@mantine/tiptap/styles.css";
 import "@mantine/notifications/styles.css";
 import "@mantine/dates/styles.css";
 import "./styles.css";

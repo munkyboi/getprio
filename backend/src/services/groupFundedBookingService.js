@@ -1,5 +1,6 @@
 const tenantRepository = require("../repositories/tenants");
 const crypto = require("node:crypto");
+const sanitizeHtml = require("sanitize-html");
 const storeLocationRepository = require("../repositories/storeLocations");
 const vendorServiceRepository = require("../repositories/vendorServices");
 const locationServiceRepository = require("../repositories/locationServices");
@@ -288,12 +289,21 @@ function validateFundingDeadline(value, scheduledStartAt, settings) {
 }
 
 function validateDescription(value) {
-  const description = normalizeText(value);
-  if (description.length > 280) {
-    throw makeHttpError("description must be 280 characters or fewer.", 400);
+  const description = sanitizeHtml(normalizeText(value), {
+    allowedAttributes: {},
+    allowedTags: ["p", "br", "strong", "em", "s", "ul", "ol", "li", "blockquote"],
+    disallowedTagsMode: "discard"
+  }).trim();
+  const plainDescription = sanitizeHtml(description, {
+    allowedAttributes: {},
+    allowedTags: []
+  }).replace(/\s+/g, " ").trim();
+
+  if (plainDescription.length > 1000) {
+    throw makeHttpError("description must be 1000 characters or fewer.", 400);
   }
-  contentModeration.assertPublicTextAllowed(description, "Campaign description");
-  return description;
+  contentModeration.assertPublicTextAllowed(plainDescription, "Campaign description");
+  return plainDescription ? description : "";
 }
 
 function validateCampaignTitle(value, fallback) {
