@@ -13,7 +13,6 @@ import {
   Paper,
   Pagination,
   Progress,
-  RingProgress,
   ScrollArea,
   SimpleGrid,
   Stack,
@@ -29,6 +28,7 @@ import { DatePickerInput } from "@mantine/dates";
 import { useMediaQuery } from "@mantine/hooks";
 import {
   IconArrowLeft,
+  IconBuildingStore,
   IconCalendar,
   IconClock,
   IconEye,
@@ -161,8 +161,11 @@ function formatCampaignSchedule(startValue: string | Date, endValue: string | Da
     minute: "2-digit",
     hour12: true
   });
+  const endsNextDay = end.getFullYear() !== start.getFullYear()
+    || end.getMonth() !== start.getMonth()
+    || end.getDate() !== start.getDate();
 
-  return `${date} ${time.format(start)} - ${time.format(end)}`;
+  return `${date} ${time.format(start)} - ${time.format(end)}${endsNextDay ? " next day" : ""}`;
 }
 
 function formatRelativeDeadline(value: string | Date) {
@@ -173,6 +176,65 @@ function formatRelativeDeadline(value: string | Date) {
   }
 
   return `Deadline: ${days} ${days === 1 ? "day" : "days"} from now`;
+}
+
+function SegmentedContributorMeter({
+  pendingVerificationContributors,
+  requiredContributors,
+  verifiedContributors
+}: {
+  pendingVerificationContributors: number;
+  requiredContributors: number;
+  verifiedContributors: number;
+}) {
+  const total = Math.max(1, requiredContributors);
+  const verified = Math.min(total, Math.max(0, verifiedContributors));
+  const pending = Math.min(total - verified, Math.max(0, pendingVerificationContributors));
+  const filled = verified + pending;
+  const vacant = Math.max(total - filled, 0);
+  const circumference = 2 * Math.PI * 42;
+  const gapLength = 3;
+  const segmentLength = Math.max(1, (circumference - gapLength * total) / total);
+  const segments = [
+    ...Array.from({ length: verified }, () => "var(--mantine-color-teal-6)"),
+    ...Array.from({ length: pending }, () => "var(--mantine-color-blue-6)"),
+    ...Array.from({ length: vacant }, () => "var(--mantine-color-gray-5)")
+  ];
+
+  return (
+    <div
+      aria-label={`${filled} of ${total} contributors filled`}
+      className="group-funded-contributor-meter group-funded-contributor-meter--hero"
+      role="img"
+    >
+      <svg aria-hidden="true" viewBox="0 0 100 100">
+        <circle
+          cx="50"
+          cy="50"
+          fill="none"
+          r="42"
+          stroke="var(--mantine-color-gray-3)"
+          strokeWidth="11"
+        />
+        {segments.map((color, index) => (
+          <circle
+            cx="50"
+            cy="50"
+            fill="none"
+            key={index}
+            r="42"
+            stroke={color}
+            strokeDasharray={`${segmentLength} ${circumference - segmentLength}`}
+            strokeDashoffset={-index * (segmentLength + gapLength)}
+            strokeWidth="11"
+          />
+        ))}
+      </svg>
+      <Text className="group-funded-contributor-meter__label" fw={800} size="xs" ta="center">
+        {filled}/{total}
+      </Text>
+    </div>
+  );
 }
 
 function toLocalDateKey(value: string | Date | null) {
@@ -1223,12 +1285,11 @@ export default function VendorProfilePage() {
                                       priceAmountCents: campaign.targetAmountCents,
                                       currency: campaign.currency
                                     }];
-                                const isServiceBundle = campaignBundleItems.length > 1;
                                 const vendorDetailPath = `/vendors/${campaign.tenantSlug || vendor.slug}`;
                                 const fundingProgress = getCampaignProgress(campaign);
-                                const contributorProgress = campaign.requiredContributors
-                                  ? Math.min(100, Math.round((campaign.paidParticipantCount / campaign.requiredContributors) * 100))
-                                  : 0;
+                                const verifiedContributors = campaign.contributorReservationSummary?.verifiedContributorCount
+                                  ?? campaign.paidParticipantCount;
+                                const pendingVerificationContributors = campaign.contributorReservationSummary?.pendingVerificationContributorCount ?? 0;
 
                                 return (
                                   <Paper
@@ -1255,21 +1316,31 @@ export default function VendorProfilePage() {
                                           <Text className="vendor-group-funded-card-organizer" c="dimmed" size="sm">
                                             Organized by {campaign.organizerDisplayName}
                                           </Text>
-                                          <Group className="vendor-group-funded-card-service-meta" gap={4} wrap="wrap">
-                                            <Text
-                                              className="vendor-group-funded-card-vendor-link"
-                                              component={Link}
-                                              onClick={(event) => event.stopPropagation()}
-                                              to={vendorDetailPath}
-                                            >
-                                              {campaign.vendorName || vendor.name}
-                                            </Text>
-                                            <Text c="dimmed" size="sm">
-                                              - {campaign.locationName} · {formatCampaignSchedule(campaign.scheduledStartAt, campaign.scheduledEndAt)}
-                                            </Text>
-                                          </Group>
+                                          <Stack className="vendor-group-funded-card-service-meta" gap={5} mt={5}>
+                                            <Group className="vendor-group-funded-card-business-line" gap="sm" wrap="nowrap">
+                                              <Group gap={4} wrap="nowrap">
+                                                <IconBuildingStore aria-hidden="true" size={15} />
+                                                <Text
+                                                  className="vendor-group-funded-card-vendor-link"
+                                                  component={Link}
+                                                  onClick={(event) => event.stopPropagation()}
+                                                  to={vendorDetailPath}
+                                                >
+                                                  {campaign.vendorName || vendor.name}
+                                                </Text>
+                                              </Group>
+                                              <Group c="dimmed" gap={4} wrap="nowrap">
+                                                <IconMapPin aria-hidden="true" size={15} />
+                                                <Text size="sm">{campaign.locationName}</Text>
+                                              </Group>
+                                            </Group>
+                                            <Group c="dimmed" gap={4} wrap="nowrap">
+                                              <IconCalendar aria-hidden="true" size={15} />
+                                              <Text size="sm">{formatCampaignSchedule(campaign.scheduledStartAt, campaign.scheduledEndAt)}</Text>
+                                            </Group>
+                                          </Stack>
                                         </Stack>
-                                        <Badge className="vendor-group-funded-card-status" color="teal" variant="light">
+                                        <Badge className="vendor-group-funded-card-status" color="teal" variant="filled">
                                           {campaign.campaignStatus.replace(/_/g, " ")}
                                         </Badge>
                                       </Group>
@@ -1278,7 +1349,7 @@ export default function VendorProfilePage() {
                                           Funding {formatPaymentAmount(campaign.fundedAmountCents, campaign.currency)} / {formatPaymentAmount(campaign.targetAmountCents, campaign.currency)}
                                         </Text>
                                         <Progress color="teal" radius="xl" value={fundingProgress} />
-                                        <SimpleGrid className="vendor-group-funded-card-funding-details" cols={2} spacing="xs">
+                                        <SimpleGrid className="vendor-group-funded-card-funding-details" cols={{ base: 1, sm: 2 }} spacing="xs">
                                           <div className="vendor-group-funded-card-funding-detail">
                                             <Text c="dimmed" size="xs">Join fee</Text>
                                             <Text fw={900}>{formatPaymentAmount(campaign.requiredContributionAmountCents, campaign.currency)}</Text>
@@ -1290,31 +1361,30 @@ export default function VendorProfilePage() {
                                             </Group>
                                           </div>
                                           <div className="vendor-group-funded-card-funding-detail vendor-group-funded-card-contributors">
-                                            <RingProgress
-                                              label={<Text fw={900} size="xs" ta="center">{campaign.paidParticipantCount}/{campaign.requiredContributors}</Text>}
-                                              roundCaps
-                                              sections={[{ color: "teal", value: contributorProgress }]}
-                                              size={56}
-                                              thickness={6}
+                                            <SegmentedContributorMeter
+                                              pendingVerificationContributors={pendingVerificationContributors}
+                                              requiredContributors={campaign.requiredContributors}
+                                              verifiedContributors={verifiedContributors}
                                             />
                                             <div>
                                               <Text c="dimmed" size="xs">Contributors</Text>
-                                              <Text fw={900}>{campaign.paidParticipantCount} filled</Text>
+                                              <Text fw={900}>{Math.min(campaign.requiredContributors, verifiedContributors + pendingVerificationContributors)} filled</Text>
                                             </div>
                                           </div>
                                         </SimpleGrid>
                                       </div>
-                                      <div className={isServiceBundle ? "vendor-group-funded-card-bundle" : "vendor-group-funded-card-single"}>
+                                      <Divider className="vendor-group-funded-card-divider" />
+                                      <div className="vendor-group-funded-card-bundle">
                                         <Text className="vendor-group-funded-card-section-title" fw={800} size="sm">
                                           Bundled services
                                         </Text>
-                                        {campaignBundleItems.map((item) => (
-                                          <div className="vendor-group-funded-card-bundle-item" key={`${item.serviceName}-${item.bookingQuantity}-${item.priceAmountCents}`}>
-                                            <Text fw={800} size="sm">
+                                        <ul className="vendor-group-funded-card-service-list">
+                                          {campaignBundleItems.map((item) => (
+                                            <li key={`${item.serviceName}-${item.bookingQuantity}-${item.priceAmountCents}`}>
                                               {item.serviceName}
-                                            </Text>
-                                          </div>
-                                        ))}
+                                            </li>
+                                          ))}
+                                        </ul>
                                       </div>
                                       <Group className="vendor-group-funded-card-footer" justify="flex-end">
                                         <Button
