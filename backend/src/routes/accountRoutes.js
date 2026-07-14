@@ -8,6 +8,7 @@ const tenantRepository = require("../repositories/tenants");
 const userRepository = require("../repositories/users");
 const bookingService = require("../services/bookingService");
 const groupFundedBookingService = require("../services/groupFundedBookingService");
+const locationPaymentQrUploadService = require("../services/locationPaymentQrUploadService");
 const passwordResetService = require("../services/passwordResetService");
 const pushNotificationService = require("../services/pushNotificationService");
 const customerTicketAccess = require("../services/customerTicketAccess");
@@ -216,6 +217,7 @@ function formatGroupFundedCampaign(campaign, contribution = null, refunds = [], 
     tenantId: campaign.tenantId,
     tenantSlug: tenant?.slug || null,
     vendorName: tenant?.name || "",
+    vendorCategory: tenant?.publicProfileCategory || "",
     locationId: campaign.locationId,
     serviceId: campaign.serviceId,
     isOrganizer: Boolean(
@@ -554,6 +556,29 @@ router.get(
         actorUserId: req.user._id
       })
     });
+  })
+);
+
+router.get(
+  "/group-funded-campaigns/:campaignIdOrToken/payment-qr",
+  asyncHandler(async (req, res) => {
+    const { campaign } = await groupFundedBookingService.getCampaignForCustomer({
+      user: req.user,
+      campaignIdOrToken: req.params.campaignIdOrToken
+    });
+    if (!campaign.paymentDestination?.qrImageUrl) {
+      const error = new Error("Payment QR image is unavailable.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const qrImage = await locationPaymentQrUploadService.downloadBinary({
+      publicUrl: campaign.paymentDestination.qrImageUrl
+    });
+    res.setHeader("Content-Type", qrImage.contentType);
+    res.setHeader("Content-Disposition", `attachment; filename="${qrImage.fileName}"`);
+    res.setHeader("Cache-Control", "private, no-store");
+    res.send(qrImage.body);
   })
 );
 

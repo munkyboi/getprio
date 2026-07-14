@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Anchor, Avatar, Box, Burger, Button, Container, Drawer, Group, Menu, Stack, Text } from "@mantine/core";
+import { Anchor, Avatar, Box, Burger, Button, Container, Divider, Drawer, Group, Menu, Stack } from "@mantine/core";
 import { Link, Navigate, NavLink, Route, Routes, useLocation, useParams } from "react-router-dom";
 import { IconChevronDown, IconLogout } from "@tabler/icons-react";
 import BrandMark from "./components/BrandMark";
@@ -22,6 +22,7 @@ import PublicQueuePage from "./pages/PublicQueuePage";
 import JoinQueuePage from "./pages/JoinQueuePage";
 import JoinedQueuePage from "./pages/JoinedQueuePage";
 import TermsPage from "./pages/TermsPage";
+import NotFoundPage from "./pages/NotFoundPage";
 import SiteFooter from "./components/SiteFooter";
 import {
   JOINED_QUEUE_ROUTE_PATH,
@@ -83,6 +84,7 @@ function AppShell({ children }: { children: ReactNode }) {
         <Menu.Item component={Link} to="/account/bookings">Bookings</Menu.Item>
         <Menu.Item component={Link} to="/account/group-funded">Group-funded</Menu.Item>
         <Menu.Item component={Link} to="/account/settings">Settings</Menu.Item>
+        <Menu.Item component={Link} to="/account/security">Security</Menu.Item>
         <Menu.Divider />
         <Menu.Item color="red" leftSection={<IconLogout size={14} />} onClick={handleLogout}>
           Sign out
@@ -159,7 +161,7 @@ function AppShell({ children }: { children: ReactNode }) {
             {publicLinks}
             {user ? (
               <>
-                <Text c="dimmed" fw={700} size="sm" mt="sm">Account</Text>
+                <Divider label="Account" labelPosition="center" my="sm" />
                 {isVendor ? (
                   <>
                     <Button component={Link} to="/dashboard" variant="subtle" color="dark">Dashboard</Button>
@@ -174,9 +176,11 @@ function AppShell({ children }: { children: ReactNode }) {
                     <Button component={Link} to="/account/bookings" variant="subtle" color="dark">Bookings</Button>
                     <Button component={Link} to="/account/group-funded" variant="subtle" color="dark">Group-funded</Button>
                     <Button component={Link} to="/account/settings" variant="subtle" color="dark">Settings</Button>
+                    <Button component={Link} to="/account/security" variant="subtle" color="dark">Security</Button>
+                    <Divider my="xs" />
                   </>
                 )}
-                <Button leftSection={<IconLogout size={16} />} onClick={handleLogout} variant="subtle" color="dark">
+                <Button color="red" leftSection={<IconLogout size={16} />} onClick={handleLogout} variant="light">
                   Sign out
                 </Button>
               </>
@@ -318,7 +322,7 @@ export default function App() {
         <Route path="/dashboard" element={<DashboardRedirect />} />
         <Route path="/dashboard/:section" element={<AppShell><VendorDashboardPage /></AppShell>} />
         <Route path="/join/:tenantSlug/:locationSlug?" element={<AppShell><JoinQueuePage /></AppShell>} />
-        <Route path="*" element={<AppShell><LandingPage /></AppShell>} />
+        <Route path="*" element={<AppShell><NotFoundPage /></AppShell>} />
       </Routes>
     </>
   );

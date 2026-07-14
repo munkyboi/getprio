@@ -337,6 +337,9 @@ function baseMocks(repositoryOverrides = {}) {
         publish: (tenantSlug, payload) => {
           streamPublishes.push({ tenantSlug, payload });
         }
+      },
+      "./bookingService": {
+        assertServiceScheduleAvailability: async () => ({ allowed: true })
       }
   };
   return { repository, mocks, pushCalls, streamPublishes };
@@ -497,6 +500,55 @@ test("group-funded service rejects public campaign descriptions that fail modera
   );
 });
 
+test("group-funded service stores only safe rich campaign description markup", async () => {
+  let createdPayload = null;
+  const { mocks } = baseMocks({
+    createCampaign: async (data) => {
+      createdPayload = data;
+      return buildCampaign({ ...data, campaignStatus: "funding", publicToken: "share-token" });
+    }
+  });
+  const service = requireWithMocks("../src/services/groupFundedBookingService.js", mocks);
+
+  await service.createCampaign({
+    user: { _id: "user-1", name: "Organizer" },
+    body: {
+      tenantSlug: "vendor",
+      locationSlug: "main",
+      serviceSlug: "consultation",
+      scheduledStartAt: new Date(Date.now() + 96 * 60 * 60 * 1000).toISOString(),
+      fundingDeadlineAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+      requiredContributors: 3,
+      visibility: "private_link",
+      description: "<p><strong>Bring a paddle</strong></p><script>alert('xss')</script><img src=x onerror=alert(1)>"
+    }
+  });
+
+  assert.equal(createdPayload.description, "<p><strong>Bring a paddle</strong></p>");
+});
+
+test("group-funded service limits rich campaign descriptions to 1000 plain-text characters", async () => {
+  const { mocks } = baseMocks();
+  const service = requireWithMocks("../src/services/groupFundedBookingService.js", mocks);
+
+  await assert.rejects(
+    () => service.createCampaign({
+      user: { _id: "user-1", name: "Organizer" },
+      body: {
+        tenantSlug: "vendor",
+        locationSlug: "main",
+        serviceSlug: "consultation",
+        scheduledStartAt: new Date(Date.now() + 96 * 60 * 60 * 1000).toISOString(),
+        fundingDeadlineAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+        requiredContributors: 3,
+        visibility: "private_link",
+        description: `<p>${"a".repeat(1001)}</p>`
+      }
+    }),
+    /description must be 1000 characters or fewer/
+  );
+});
+
 test("group-funded service rejects organizer detail edits after funding is complete", async () => {
   const campaign = buildCampaign({
     fundedAmountCents: 100001,
@@ -526,6 +578,31 @@ test("group-funded service rejects organizer detail edits after funding is compl
     (error) => error.statusCode === 409 && /fully funded/i.test(error.message)
   );
   assert.equal(updateCalled, false);
+});
+
+test("group-funded service rejects organizer detail edits after a contribution is submitted", async () => {
+  const campaign = buildCampaign();
+  const { mocks } = baseMocks({
+    findCampaignByPublicToken: async () => campaign,
+    getContributionReservationSummary: async () => ({
+      verifiedContributorCount: 0,
+      pendingVerificationContributorCount: 1
+    })
+  });
+  const service = requireWithMocks("../src/services/groupFundedBookingService.js", mocks);
+
+  await assert.rejects(
+    () => service.updateOrganizerCampaignDetails({
+      user: { _id: "user-1" },
+      campaignIdOrToken: "share-token",
+      body: {
+        campaignTitle: "Updated title",
+        description: "Updated description",
+        visibility: "private_link"
+      }
+    }),
+    (error) => error.statusCode === 409 && /submitted contributions/i.test(error.message)
+  );
 });
 
 test("group-funded service formats public campaigns without private payment or contributor fields", () => {
@@ -593,6 +670,32 @@ test("group-funded service lists public vendor-location campaigns through privac
   assert.equal(campaigns[0].organizerDisplayName, "John S.");
 });
 
+test("group-funded public access waits for the organizer contribution to be vendor verified", async () => {
+  const campaign = buildCampaign({ visibility: "public" });
+  const { mocks } = baseMocks({
+    findCampaignByPublicToken: async () => campaign,
+    findContributionByCampaignAndUser: async () => ({ contributionStatus: "submitted" })
+  });
+  const service = requireWithMocks("../src/services/groupFundedBookingService.js", mocks);
+
+  await assert.rejects(
+    () => service.getPublicCampaign({ publicToken: "share-token" }),
+    (error) => error.statusCode === 404 && error.message === "Campaign not found."
+  );
+});
+
+test("group-funded public access opens after the organizer contribution is vendor verified", async () => {
+  const campaign = buildCampaign({ visibility: "private_link" });
+  const { mocks } = baseMocks({
+    findCampaignByPublicToken: async () => campaign,
+    findContributionByCampaignAndUser: async () => ({ contributionStatus: "verified" })
+  });
+  const service = requireWithMocks("../src/services/groupFundedBookingService.js", mocks);
+
+  const result = await service.getPublicCampaign({ publicToken: "share-token" });
+  assert.equal(result.campaign.publicToken, "share-token");
+});
+
 test("group-funded service records rate-limited abuse report events without exposing reporter details", async () => {
   const campaign = buildCampaign({ visibility: "public" });
   let participantPayload = null;
@@ -613,6 +716,48 @@ test("group-funded service records rate-limited abuse report events without expo
   assert.equal(repository.events.at(-1).actorUserId, "user-2");
   assert.equal(repository.events.at(-1).metadata.reason, "Misleading details");
   assert.match(repository.events.at(-1).metadata.reporterIpHash, /^[a-f0-9]{64}$/);
+});
+
+test("group-funded report emails render an uploaded Backblaze screenshot inline", async () => {
+  const campaign = buildCampaign({ visibility: "public" });
+  let emailPayload = null;
+  const { repository, mocks } = baseMocks({
+    findCampaignByPublicToken: async () => campaign
+  });
+  mocks["./campaignReportAttachmentService"] = {
+    getAttachmentForCampaign: ({ objectKey, fileName }) => ({
+      objectKey,
+      fileName,
+      publicUrl: "https://files.example/file/public-board/campaign-reports/report.png"
+    })
+  };
+  mocks["./notificationService"] = {
+    sendEmail: async (payload) => {
+      emailPayload = payload;
+      return true;
+    }
+  };
+  mocks["../repositories/tenants"].findTenantById = async () => ({
+    _id: "tenant-1",
+    slug: "vendor",
+    contactEmail: "vendor@example.com",
+    notificationSettings: {}
+  });
+  const service = requireWithMocks("../src/services/groupFundedBookingService.js", mocks);
+
+  await service.reportPublicCampaignAbuse({
+    publicToken: "share-token",
+    body: {
+      reason: "Misleading details",
+      attachmentFileName: "report.png",
+      attachmentObjectKey: "campaign-reports/tenants/tenant-1/campaigns/campaign-1/report.png"
+    }
+  });
+
+  assert.equal(repository.events.at(-1).metadata.attachmentFileName, "report.png");
+  assert.match(repository.events.at(-1).metadata.attachmentObjectKey, /campaign-reports/);
+  assert.match(emailPayload.text, /https:\/\/files\.example/);
+  assert.match(emailPayload.html, /<img src="https:\/\/files\.example/);
 });
 
 test("group-funded service stores submitted contribution proof without advancing funding", async () => {
@@ -663,6 +808,47 @@ test("group-funded service stores submitted contribution proof without advancing
   assert.equal(pushCalls[0].type, "proof");
   assert.equal(pushCalls[0].contribution._id, "contribution-1");
   assert.deepEqual(streamPublishes, [{ tenantSlug: "vendor", payload: undefined }]);
+});
+
+test("group-funded service treats a repeated proof submission as idempotent", async () => {
+  const campaign = buildCampaign();
+  const submittedContribution = {
+    _id: "contribution-1",
+    campaignId: campaign._id,
+    userId: "user-2",
+    contributionStatus: "submitted",
+    paymentReference: "REF-1",
+    paymentProofObjectKey: "group-funded/campaign-1/user-2/proof.png"
+  };
+  const { repository, mocks, pushCalls, streamPublishes } = baseMocks({
+    findCampaignByPublicToken: async () => campaign,
+    findContributionByCampaignAndUser: async () => submittedContribution,
+    createParticipant: async () => {
+      throw new Error("A duplicate submission must not create a participant.");
+    },
+    createContribution: async () => {
+      throw new Error("A duplicate submission must not create a contribution.");
+    }
+  });
+  const service = requireWithMocks("../src/services/groupFundedBookingService.js", mocks);
+
+  const result = await service.submitContributionProof({
+    user: { _id: "user-2", name: "Contributor" },
+    campaignIdOrToken: "share-token",
+    body: {
+      paymentReference: "REF-1",
+      paymentProofObjectKey: "group-funded/campaign-1/user-2/proof.png",
+      paymentProofFileName: "proof.png",
+      paymentProofContentType: "image/png",
+      paymentProofSizeBytes: 12345
+    }
+  });
+
+  assert.equal(result.idempotent, true);
+  assert.equal(result.contribution, submittedContribution);
+  assert.equal(repository.events.length, 0);
+  assert.equal(pushCalls.length, 0);
+  assert.deepEqual(streamPublishes, []);
 });
 
 test("group-funded service lets a rejected contributor resubmit proof in the same campaign", async () => {
@@ -1324,7 +1510,9 @@ test("group-funded campaign link lets a new authenticated contributor view activ
   });
   const { mocks } = baseMocks({
     findCampaignByPublicToken: async () => campaign,
-    findContributionByCampaignAndUser: async () => null
+    findContributionByCampaignAndUser: async (_campaignId, userId) => (
+      userId === campaign.organizerUserId ? { contributionStatus: "verified" } : null
+    )
   });
   const service = requireWithMocks("../src/services/groupFundedBookingService.js", mocks);
 

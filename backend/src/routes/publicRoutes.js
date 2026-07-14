@@ -17,6 +17,7 @@ const bookingService = require("../services/bookingService");
 const bookingOtpService = require("../services/bookingOtpService");
 const bookingSmsAlertPaymentService = require("../services/bookingSmsAlertPaymentService");
 const groupFundedBookingService = require("../services/groupFundedBookingService");
+const campaignReportAttachmentService = require("../services/campaignReportAttachmentService");
 const storeHoursService = require("../services/storeHoursService");
 const notificationService = require("../services/notificationService");
 const platformRepository = require("../repositories/platform");
@@ -37,6 +38,13 @@ const groupFundedAbuseReportLimiter = rateLimit({
   message: {
     message: "Too many campaign reports. Please try again later."
   }
+});
+const groupFundedAbuseAttachmentLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many campaign report uploads. Please try again later." }
 });
 
 function formatPublicVendorService(service) {
@@ -260,10 +268,43 @@ router.get(
 );
 
 router.post(
+  "/group-funded-campaigns/:publicToken/report-attachments/direct",
+  groupFundedAbuseAttachmentLimiter,
+  maybeAuthenticate,
+  express.raw({ type: ["image/jpeg", "image/png", "image/webp"], limit: "8mb" }),
+  asyncHandler(async (req, res) => {
+    if (!req.body || !Buffer.isBuffer(req.body) || !req.body.length) {
+      const error = new Error("Screenshot upload payload is required.");
+      error.statusCode = 400;
+      throw error;
+    }
+    const { campaign, tenant } = await groupFundedBookingService.getPublicCampaign({
+      publicToken: req.params.publicToken
+    });
+    const upload = await campaignReportAttachmentService.uploadBinary({
+      tenant,
+      campaign,
+      body: { fileName: req.query.fileName, contentType: req.headers["content-type"] },
+      fileBuffer: req.body
+    });
+    res.status(201).json(upload);
+  })
+);
+
+router.post(
   "/group-funded-campaigns/:publicToken/report-abuse",
   groupFundedAbuseReportLimiter,
   maybeAuthenticate,
   asyncHandler(async (req, res) => {
+    const verification = await turnstileService.verifyTurnstileToken({
+      token: req.body?.turnstileToken,
+      remoteIp: req.ip
+    });
+    if (!verification.success) {
+      const error = new Error("Please complete the security check before submitting your report.");
+      error.statusCode = 400;
+      throw error;
+    }
     await groupFundedBookingService.reportPublicCampaignAbuse({
       publicToken: req.params.publicToken,
       body: req.body,
@@ -275,6 +316,19 @@ router.post(
 );
 
 router.get(
+  "/vendors/:tenantSlug/locations/:locationSlug/group-funded-candidate-slots",
+  asyncHandler(async (req, res) => {
+    const slots = await bookingService.listGroupFundedCandidateSlots({
+      tenantSlug: req.params.tenantSlug,
+      locationSlug: req.params.locationSlug,
+      date: req.query.date,
+      durationMinutes: req.query.durationMinutes
+    });
+    res.json({ slots });
+  })
+);
+
+router.get(
   "/vendors/:tenantSlug/locations/:locationSlug/services/:serviceSlug/slots",
   asyncHandler(async (req, res) => {
     const slots = await bookingService.listBookingSlots({
@@ -282,7 +336,13 @@ router.get(
       locationSlug: req.params.locationSlug,
       serviceSlug: req.params.serviceSlug,
       date: req.query.date,
-      bookingQuantity: req.query.bookingQuantity
+      bookingQuantity: req.query.bookingQuantity,
+      ...(req.query.groupFunded === "1"
+        ? {
+            includeGroupFundedHolds: true,
+            slotIntervalMinutes: 30
+          }
+        : {})
     });
 
     res.json({ slots });
@@ -454,10 +514,17 @@ router.get(
   asyncHandler(async (req, res) => {
     const tenant = await getTenantOrThrow(req.params.tenantSlug);
     const location = await getLocationOrPrimary(tenant, req.params.locationSlug);
+    const lookupCode = String(req.query.lookupCode || "").trim();
     const snapshot = await getQueueSnapshot(tenant, {
       location,
-      lookupCode: req.query.lookupCode
+      lookupCode
     });
+
+    if (lookupCode && !snapshot.focusTicket) {
+      const error = new Error("Queue ticket not found.");
+      error.statusCode = 404;
+      throw error;
+    }
 
     res.json(snapshot);
   })

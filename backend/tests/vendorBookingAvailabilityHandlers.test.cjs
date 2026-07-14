@@ -84,6 +84,71 @@ test("vendor availability handler creates blocks and updates exceptions", async 
   assert.equal(updateResponse.body.exception.id, "exception-1");
 });
 
+test("vendor availability handler accepts an overnight weekly rule only within the location's business hours", async () => {
+  const response = { statusCode: null, body: null, status(code) { this.statusCode = code; return this; }, json(payload) { this.body = payload; } };
+  let savedPayload = null;
+
+  await handleCreateAvailabilityBlock({
+    req: {
+      user: {},
+      params: { tenantSlug: "tenant" },
+      query: {},
+      body: {
+        locationSlug: "main",
+        weekday: 1,
+        startsAt: "07:00",
+        endsAt: "02:00",
+        endsNextDay: true,
+        capacity: 2
+      }
+    },
+    res: response,
+    getAuthorizedTenant: async () => ({ _id: 1 }),
+    assertTenantPermission: () => {},
+    getLocationForTenant: async () => ({ _id: 2, slug: "main" }),
+    storeLocationRepository: {
+      listHoursByLocationId: async () => [
+        { weekday: 1, opensAt: "06:00", closesAt: "03:00", isClosed: false }
+      ]
+    },
+    vendorAvailabilityRepository: {
+      createBlock: async (payload) => {
+        savedPayload = payload;
+        return { _id: 5, tenantId: 1, ...payload };
+      }
+    },
+    vendorServiceRepository: { findServiceByTenantAndSlug: async () => null, normalizeServiceSlug: (value) => value }
+  });
+
+  assert.equal(response.statusCode, 201);
+  assert.equal(savedPayload.endsNextDay, true);
+});
+
+test("vendor availability handler rejects weekly availability outside the location's business hours", async () => {
+  await assert.rejects(
+    () => handleCreateAvailabilityBlock({
+      req: {
+        user: {},
+        params: { tenantSlug: "tenant" },
+        query: {},
+        body: { locationSlug: "main", weekday: 1, startsAt: "06:00", endsAt: "17:00", capacity: 1 }
+      },
+      res: { status() { return this; }, json() {} },
+      getAuthorizedTenant: async () => ({ _id: 1 }),
+      assertTenantPermission: () => {},
+      getLocationForTenant: async () => ({ _id: 2, slug: "main" }),
+      storeLocationRepository: {
+        listHoursByLocationId: async () => [
+          { weekday: 1, opensAt: "09:00", closesAt: "17:00", isClosed: false }
+        ]
+      },
+      vendorAvailabilityRepository: { createBlock: async () => { throw new Error("must not save"); } },
+      vendorServiceRepository: { findServiceByTenantAndSlug: async () => null, normalizeServiceSlug: (value) => value }
+    }),
+    (error) => error.statusCode === 400 && /business hours/i.test(error.message)
+  );
+});
+
 test("vendor availability handler treats explicit All services as a shared weekly rule", async () => {
   const createResponse = { statusCode: null, body: null, status(code) { this.statusCode = code; return this; }, json(payload) { this.body = payload; } };
   const createCalls = [];

@@ -136,7 +136,7 @@ export default function LoginPage() {
               />
               {error ? <Alert color="red">{error}</Alert> : null}
               {resetConfirmMessage ? <Alert color="teal">{resetConfirmMessage}</Alert> : null}
-              <Button color="dark" loading={resetConfirmForm.formState.isSubmitting} size="md" type="submit">
+              <Button className="auth-primary-action" color="dark" loading={resetConfirmForm.formState.isSubmitting} size="lg" type="submit">
                 Reset password
               </Button>
               <Anchor
@@ -187,7 +187,7 @@ export default function LoginPage() {
                 {passwordChanged ? <Alert color="teal">Password updated. Sign in again with your new password.</Alert> : null}
                 {passwordResetSuccess ? <Alert color="teal">Password reset complete. Sign in with your new password.</Alert> : null}
                 {error ? <Alert color="red">{error}</Alert> : null}
-                <Button color="dark" loading={signInForm.formState.isSubmitting} size="md" type="submit">
+                <Button className="auth-primary-action" color="dark" loading={signInForm.formState.isSubmitting} size="lg" type="submit">
                   Sign in
                 </Button>
               </Stack>
@@ -203,13 +203,13 @@ export default function LoginPage() {
                     {...resetRequestForm.register("email")}
                   />
                   {resetRequestMessage ? <Alert color="teal">{resetRequestMessage}</Alert> : null}
-                  <Button color="gray" loading={resetRequestForm.formState.isSubmitting} size="md" type="submit" variant="light">
+                  <Button className="auth-primary-action" color="gray" loading={resetRequestForm.formState.isSubmitting} size="lg" type="submit" variant="light">
                     Send reset instructions
                   </Button>
                 </Stack>
               </form>
             ) : null}
-            <SocialAuthButtons intent="login" />
+            <SocialAuthButtons iconOnly intent="login" />
           </>
         )}
         <Text c="dimmed" size="sm">

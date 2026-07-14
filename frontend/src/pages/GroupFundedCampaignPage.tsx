@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Badge,
@@ -18,9 +18,11 @@ import {
   Textarea,
   TextInput,
   ThemeIcon,
+  Tooltip,
   Title
 } from "@mantine/core";
-import { IconArrowLeft, IconBuildingStore, IconCalendar, IconClock, IconCopy, IconEdit, IconFlag, IconReceipt, IconUpload, IconUsersGroup } from "@tabler/icons-react";
+import { IconArrowLeft, IconBuildingStore, IconCalendar, IconCopy, IconDownload, IconEdit, IconEye, IconFlag, IconInfoCircle, IconReceipt, IconUpload, IconUsersGroup } from "@tabler/icons-react";
+import { differenceInCalendarDays, format, startOfDay } from "date-fns";
 import { Link, useLocation, useParams } from "react-router-dom";
 import type {
   BookingPaymentProofUploadResponse,
@@ -28,9 +30,13 @@ import type {
   GroupFundedCampaignResponse,
   GroupFundedCampaignSummary,
   PublicBoardThemeSettings,
+  PublicVendorProfile,
   PublicVendorProfileResponse
 } from "@shared";
-import { API_BASE_URL, apiRequest } from "../api/client";
+import { API_BASE_URL, ApiError, apiRequest } from "../api/client";
+import CampaignDescriptionEditor from "../components/CampaignDescriptionEditor";
+import RichCampaignDescription from "../components/RichCampaignDescription";
+import ResourceErrorState from "../components/ResourceErrorState";
 import { customerAccountApi } from "../api/customerAccount";
 import { useAuth } from "../context/AuthContext";
 import {
@@ -38,6 +44,7 @@ import {
   formatBookingScheduleTimeRange
 } from "../utils/dates";
 import { getErrorMessage } from "../utils/errors";
+import { showCustomerError, showCustomerSuccess } from "../utils/customerNotifications";
 import { buildVendorThemeMediaStyle, buildVendorThemeStyle } from "../utils/vendorTheme";
 
 function formatPaymentAmount(amountCents: number, currency: string) {
@@ -46,27 +53,6 @@ function formatPaymentAmount(amountCents: number, currency: string) {
     currency,
     minimumFractionDigits: 2
   }).format(amountCents / 100);
-}
-
-function getCampaignBadgeColor(status: GroupFundedCampaignSummary["campaignStatus"]) {
-  switch (status) {
-    case "funding":
-      return "yellow";
-    case "funded":
-    case "vendor_review":
-    case "replacement_proposed":
-      return "blue";
-    case "confirmed":
-      return "teal";
-    case "organizer_canceled":
-    case "funding_failed":
-    case "vendor_rejected":
-    case "vendor_review_expired":
-    case "vendor_canceled":
-      return "red";
-    default:
-      return "gray";
-  }
 }
 
 function getCampaignStatusLabel(status: GroupFundedCampaignSummary["campaignStatus"]) {
@@ -155,19 +141,42 @@ type RawBundleItem = GroupFundedBundleItemSummary & {
   serviceSlugSnapshot?: string;
 };
 
+declare global {
+  interface Window {
+    turnstile?: {
+      render: (container: HTMLElement, options: {
+        sitekey: string;
+        callback: (token: string) => void;
+        "expired-callback": () => void;
+        "error-callback": () => void;
+      }) => string;
+      remove: (widgetId: string) => void;
+      reset: (widgetId: string) => void;
+    };
+  }
+}
+
 export default function GroupFundedCampaignPage() {
   const { publicToken = "" } = useParams<{ publicToken: string }>();
   const location = useLocation();
   const { token, user, loading: authLoading } = useAuth();
   const [campaign, setCampaign] = useState<GroupFundedCampaignResponse["campaign"] | null>(null);
   const [loading, setLoading] = useState(true);
+  const [responseStatus, setResponseStatus] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
+  const [shareCopied, setShareCopied] = useState(false);
+  const [savingPaymentQr, setSavingPaymentQr] = useState(false);
   const [paymentReference, setPaymentReference] = useState("");
   const [paymentProofFile, setPaymentProofFile] = useState<File | null>(null);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [reportingAbuse, setReportingAbuse] = useState(false);
+  const [reportModalOpen, setReportModalOpen] = useState(false);
+  const [reportReason, setReportReason] = useState<string | null>(null);
+  const [customReportReason, setCustomReportReason] = useState("");
+  const [reportAttachment, setReportAttachment] = useState<File | null>(null);
+  const [reportTurnstileToken, setReportTurnstileToken] = useState("");
+  const [reportTurnstileReady, setReportTurnstileReady] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [editForm, setEditForm] = useState({
@@ -176,8 +185,30 @@ export default function GroupFundedCampaignPage() {
     visibility: "private_link" as "private_link" | "public"
   });
   const [vendorTheme, setVendorTheme] = useState<PublicBoardThemeSettings | null>(null);
+  const [vendorProfile, setVendorProfile] = useState<PublicVendorProfile | null>(null);
+  const [imagePreview, setImagePreview] = useState<{ name: string; imageUrl: string } | null>(null);
+  const paymentProofSectionRef = useRef<HTMLDivElement | null>(null);
+  const reportTurnstileContainerRef = useRef<HTMLDivElement | null>(null);
+  const reportTurnstileWidgetIdRef = useRef<string | null>(null);
+  const shareCopiedTimeoutRef = useRef<number | null>(null);
+  const pendingActionKeysRef = useRef(new Set<string>());
 
   const shareUrl = typeof window !== "undefined" ? window.location.href : "";
+  const reportTurnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY || "";
+  const shouldUseReportTurnstile = Boolean(reportTurnstileSiteKey);
+
+  const updateCampaign = useCallback((nextCampaign: GroupFundedCampaignResponse["campaign"]) => {
+    setCampaign((currentCampaign) => {
+      if (!currentCampaign || nextCampaign.tenantSlug) {
+        return nextCampaign;
+      }
+
+      return {
+        ...nextCampaign,
+        tenantSlug: currentCampaign.tenantSlug
+      };
+    });
+  }, []);
 
   const loadCampaign = useCallback(async (options: { silent?: boolean } = {}) => {
     if (!publicToken) {
@@ -190,23 +221,30 @@ export default function GroupFundedCampaignPage() {
       setLoading(true);
     }
     setError("");
+    setResponseStatus(null);
     try {
       if (token) {
         const data = await customerAccountApi.getGroupFundedCampaignSelf(token, publicToken);
-        setCampaign(data.campaign);
+        updateCampaign(data.campaign);
       } else {
         const data = await apiRequest<GroupFundedCampaignResponse>(
           `/public/group-funded-campaigns/${encodeURIComponent(publicToken)}`
         );
-        setCampaign(data.campaign);
+        updateCampaign(data.campaign);
       }
     } catch (loadError) {
       if (token) {
-        const data = await apiRequest<GroupFundedCampaignResponse>(
-          `/public/group-funded-campaigns/${encodeURIComponent(publicToken)}`
-        );
-        setCampaign(data.campaign);
+        try {
+          const data = await apiRequest<GroupFundedCampaignResponse>(
+            `/public/group-funded-campaigns/${encodeURIComponent(publicToken)}`
+          );
+          updateCampaign(data.campaign);
+        } catch (fallbackError) {
+          setResponseStatus(fallbackError instanceof ApiError ? fallbackError.status : null);
+          setError(getErrorMessage(fallbackError));
+        }
       } else {
+        setResponseStatus(loadError instanceof ApiError ? loadError.status : null);
         setError(getErrorMessage(loadError));
       }
     } finally {
@@ -214,15 +252,73 @@ export default function GroupFundedCampaignPage() {
         setLoading(false);
       }
     }
-  }, [publicToken, token]);
+  }, [publicToken, token, updateCampaign]);
 
   useEffect(() => {
     void loadCampaign();
   }, [loadCampaign]);
 
   useEffect(() => {
+    setReportTurnstileToken("");
+    if (!reportModalOpen || !shouldUseReportTurnstile) {
+      setReportTurnstileReady(!shouldUseReportTurnstile);
+      return undefined;
+    }
+
+    let active = true;
+    setReportTurnstileReady(false);
+    const existingScript = document.querySelector<HTMLScriptElement>(
+      'script[src^="https://challenges.cloudflare.com/turnstile/v0/api.js"]'
+    );
+    const renderTurnstile = () => {
+      if (!active || !reportTurnstileContainerRef.current || !window.turnstile || reportTurnstileWidgetIdRef.current) {
+        return;
+      }
+      reportTurnstileWidgetIdRef.current = window.turnstile.render(reportTurnstileContainerRef.current, {
+        sitekey: reportTurnstileSiteKey,
+        callback: (nextToken) => {
+          setReportTurnstileToken(nextToken);
+          setReportTurnstileReady(true);
+        },
+        "expired-callback": () => {
+          setReportTurnstileToken("");
+          setReportTurnstileReady(false);
+        },
+        "error-callback": () => {
+          setReportTurnstileToken("");
+          setReportTurnstileReady(false);
+          showCustomerError("Verification could not load. Please refresh and try again.", "Security check unavailable");
+        }
+      });
+    };
+
+    if (window.turnstile) {
+      renderTurnstile();
+    } else if (existingScript) {
+      existingScript.addEventListener("load", renderTurnstile, { once: true });
+    } else {
+      const script = document.createElement("script");
+      script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+      script.async = true;
+      script.defer = true;
+      script.addEventListener("load", renderTurnstile, { once: true });
+      document.head.appendChild(script);
+    }
+
+    return () => {
+      active = false;
+      existingScript?.removeEventListener("load", renderTurnstile);
+      if (reportTurnstileWidgetIdRef.current && window.turnstile) {
+        window.turnstile.remove(reportTurnstileWidgetIdRef.current);
+        reportTurnstileWidgetIdRef.current = null;
+      }
+    };
+  }, [reportModalOpen, reportTurnstileSiteKey, shouldUseReportTurnstile]);
+
+  useEffect(() => {
     if (!campaign?.tenantSlug) {
       setVendorTheme(null);
+      setVendorProfile(null);
       return undefined;
     }
 
@@ -230,10 +326,12 @@ export default function GroupFundedCampaignPage() {
     apiRequest<PublicVendorProfileResponse>(`/public/vendors/${campaign.tenantSlug}`, { signal: controller.signal })
       .then((data) => {
         setVendorTheme(data.vendor.publicBoardTheme?.theme || null);
+        setVendorProfile(data.vendor);
       })
       .catch((themeError) => {
         if (!controller.signal.aborted) {
           setVendorTheme(null);
+          setVendorProfile(null);
           console.error(themeError);
         }
       });
@@ -277,6 +375,25 @@ export default function GroupFundedCampaignPage() {
     }
     return Math.min(100, Math.round((campaign.fundedAmountCents / campaign.targetAmountCents) * 100));
   }, [campaign]);
+  const fundingDeadline = useMemo(() => {
+    if (!campaign) {
+      return { relativeLabel: "", tooltipLabel: "" };
+    }
+    const deadline = new Date(campaign.fundingDeadlineAt);
+    const daysFromNow = Math.max(0, differenceInCalendarDays(startOfDay(deadline), startOfDay(new Date())));
+    return {
+      relativeLabel: daysFromNow === 0
+        ? "Deadline: today"
+        : `Deadline: ${daysFromNow} ${daysFromNow === 1 ? "day" : "days"} from now`,
+      tooltipLabel: format(deadline, "d MMMM yyyy @ h:mm a").toLowerCase()
+    };
+  }, [campaign]);
+
+  useEffect(() => () => {
+    if (shareCopiedTimeoutRef.current !== null) {
+      window.clearTimeout(shareCopiedTimeoutRef.current);
+    }
+  }, []);
   const contributorReservationSummary = useMemo(() => {
     if (!campaign) {
       return null;
@@ -351,9 +468,12 @@ export default function GroupFundedCampaignPage() {
       sortOrder: 0
     }];
   }, [campaign]);
-  const hasServiceBundle = bundleItems.length > 1;
-
+  const bundleItemsWithImages = useMemo(() => bundleItems.map((item) => ({
+    ...item,
+    imageUrl: vendorProfile?.services.find((service) => service.slug === item.serviceSlug)?.imageUrl || ""
+  })), [bundleItems, vendorProfile]);
   const isOrganizer = Boolean(user && campaign?.isOrganizer);
+  const canShareCampaign = !isOrganizer || campaign?.contribution?.contributionStatus === "verified";
   const contributionCanRetry = campaign?.contribution?.contributionStatus === "rejected";
   const canContribute = campaign?.campaignStatus === "funding" && (!campaign.contribution || contributionCanRetry) && Boolean(contributorReservationSummary?.vacantContributorCount);
   const canCancel = isOrganizer && campaign?.campaignStatus === "funding" && campaign.fundedAmountCents < campaign.targetAmountCents;
@@ -365,7 +485,8 @@ export default function GroupFundedCampaignPage() {
       campaign.campaignStatus !== "funding"
     )
   );
-  const canEditCampaign = isOrganizer && campaign?.campaignStatus === "funding" && !isCampaignFullyFunded;
+  const hasFilledContributions = Boolean(contributorReservationSummary?.filledContributorCount);
+  const canEditCampaign = isOrganizer && campaign?.campaignStatus === "funding" && !isCampaignFullyFunded && !hasFilledContributions;
 
   useEffect(() => {
     if (editModalOpen && !canEditCampaign) {
@@ -390,17 +511,78 @@ export default function GroupFundedCampaignPage() {
       return;
     }
     await navigator.clipboard.writeText(shareUrl);
-    setMessage("Share link copied.");
+    setShareCopied(true);
+    if (shareCopiedTimeoutRef.current !== null) {
+      window.clearTimeout(shareCopiedTimeoutRef.current);
+    }
+    shareCopiedTimeoutRef.current = window.setTimeout(() => setShareCopied(false), 2600);
+  }
+
+  function scrollToPaymentProof() {
+    paymentProofSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function claimPendingAction(actionKey: string) {
+    if (pendingActionKeysRef.current.has(actionKey)) {
+      return false;
+    }
+    pendingActionKeysRef.current.add(actionKey);
+    return true;
+  }
+
+  function releasePendingAction(actionKey: string) {
+    pendingActionKeysRef.current.delete(actionKey);
+  }
+
+  async function savePaymentQr() {
+    if (!token || !campaign?.paymentDestination?.qrImageUrl) {
+      return;
+    }
+    const actionKey = `save-payment-qr:${campaign.publicToken}`;
+    if (!claimPendingAction(actionKey)) {
+      return;
+    }
+
+    setError("");
+    setSavingPaymentQr(true);
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/account/group-funded-campaigns/${encodeURIComponent(campaign.publicToken)}/payment-qr`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!response.ok) {
+        throw new Error("The QR image could not be saved. Please try again.");
+      }
+
+      const qrImage = await response.blob();
+      const downloadUrl = URL.createObjectURL(qrImage);
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.download = `${campaign.publicToken}-payment-qr.png`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 0);
+      showCustomerSuccess("QR code download started", "Your QR image is being saved to this device.");
+    } catch (downloadError) {
+      showCustomerError(getErrorMessage(downloadError), "Could not save QR code");
+    } finally {
+      setSavingPaymentQr(false);
+      releasePendingAction(actionKey);
+    }
   }
 
   async function submitContribution() {
     if (!token || !campaign || !paymentProofFile || !paymentReference.trim()) {
       return;
     }
+    const actionKey = `submit-contribution:${campaign.publicToken}:${paymentReference.trim()}:${paymentProofFile.name}:${paymentProofFile.lastModified}`;
+    if (!claimPendingAction(actionKey)) {
+      return;
+    }
 
     setSubmitting(true);
     setError("");
-    setMessage("");
     try {
       const uploadResponse = await fetch(
         `${API_BASE_URL}/account/group-funded-campaigns/${encodeURIComponent(campaign.publicToken)}/contributions/payment-proof/uploads/direct?fileName=${encodeURIComponent(paymentProofFile.name)}`,
@@ -425,14 +607,15 @@ export default function GroupFundedCampaignPage() {
         paymentProofContentType: uploadData.proof.contentType,
         paymentProofSizeBytes: uploadData.proof.sizeBytes
       });
-      setCampaign(data.campaign);
+      updateCampaign(data.campaign);
       setPaymentReference("");
       setPaymentProofFile(null);
-      setMessage("Contribution proof submitted for vendor review.");
+      showCustomerSuccess("Contribution proof submitted", "The vendor will review your payment proof.");
     } catch (submitError) {
-      setError(getErrorMessage(submitError));
+      showCustomerError(getErrorMessage(submitError), "Could not submit contribution proof");
     } finally {
       setSubmitting(false);
+      releasePendingAction(actionKey);
     }
   }
 
@@ -440,21 +623,25 @@ export default function GroupFundedCampaignPage() {
     if (!token || !campaign) {
       return;
     }
+    const actionKey = `cancel-campaign:${campaign.publicToken}`;
+    if (!claimPendingAction(actionKey)) {
+      return;
+    }
 
     setSubmitting(true);
     setError("");
-    setMessage("");
     try {
       const data = await customerAccountApi.cancelGroupFundedCampaign(token, campaign.publicToken, {
         reason: "organizer_canceled"
       });
-      setCampaign(data.campaign);
+      updateCampaign(data.campaign);
       setShowCancelConfirm(false);
-      setMessage("Campaign canceled. Verified contributions are now refund-eligible.");
+      showCustomerSuccess("Campaign canceled", "Verified contributions are now eligible for a refund.");
     } catch (cancelError) {
-      setError(getErrorMessage(cancelError));
+      showCustomerError(getErrorMessage(cancelError), "Could not cancel campaign");
     } finally {
       setSubmitting(false);
+      releasePendingAction(actionKey);
     }
   }
 
@@ -462,45 +649,90 @@ export default function GroupFundedCampaignPage() {
     if (!token || !campaign) {
       return;
     }
+    const actionKey = `save-campaign:${campaign.publicToken}:${editForm.campaignTitle}:${editForm.description}:${editForm.visibility}`;
+    if (!claimPendingAction(actionKey)) {
+      return;
+    }
 
     setEditSubmitting(true);
     setError("");
-    setMessage("");
     try {
       const data = await customerAccountApi.updateGroupFundedCampaign(token, campaign.publicToken, {
         campaignTitle: editForm.campaignTitle.trim(),
         description: editForm.description.trim(),
         visibility: editForm.visibility
       });
-      setCampaign(data.campaign);
+      updateCampaign(data.campaign);
       setEditModalOpen(false);
-      setMessage("Campaign details updated.");
+      showCustomerSuccess("Campaign details updated", "Your campaign changes are now live.");
     } catch (saveError) {
-      setError(getErrorMessage(saveError));
+      showCustomerError(getErrorMessage(saveError), "Could not update campaign");
     } finally {
       setEditSubmitting(false);
+      releasePendingAction(actionKey);
     }
   }
 
   async function reportCampaign() {
-    if (!campaign) {
+    if (!campaign || !reportReason) {
+      return;
+    }
+    if (shouldUseReportTurnstile && !reportTurnstileToken) {
+      showCustomerError("Complete the security check before submitting your report.", "Verification required");
+      return;
+    }
+    const actionKey = `report-campaign:${campaign.publicToken}:${reportReason}:${customReportReason.trim()}:${reportAttachment?.name || ""}`;
+    if (!claimPendingAction(actionKey)) {
       return;
     }
 
     setReportingAbuse(true);
     setError("");
-    setMessage("");
     try {
+      let attachmentObjectKey = "";
+      if (reportAttachment) {
+        const uploadResponse = await fetch(
+          `${API_BASE_URL}/public/group-funded-campaigns/${encodeURIComponent(campaign.publicToken)}/report-attachments/direct?fileName=${encodeURIComponent(reportAttachment.name)}`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": reportAttachment.type,
+              ...(token ? { Authorization: `Bearer ${token}` } : {})
+            },
+            body: reportAttachment
+          }
+        );
+        const uploadData = await uploadResponse.json().catch(() => ({})) as {
+          attachment?: { objectKey?: string };
+          message?: string;
+        };
+        if (!uploadResponse.ok || !uploadData.attachment?.objectKey) {
+          throw new Error(uploadData.message || "Could not upload the screenshot.");
+        }
+        attachmentObjectKey = uploadData.attachment.objectKey;
+      }
       await apiRequest(`/public/group-funded-campaigns/${encodeURIComponent(campaign.publicToken)}/report-abuse`, {
         method: "POST",
         token: token || undefined,
-        body: { reason: "reported_from_public_campaign_page" }
+        body: {
+          reason: reportReason === "other" ? customReportReason.trim() : reportReason,
+          category: reportReason,
+          attachmentFileName: reportAttachment?.name || "",
+          attachmentObjectKey,
+          turnstileToken: reportTurnstileToken || undefined
+        }
       });
-      setMessage("Campaign report received.");
+      setReportModalOpen(false);
+      setReportReason(null);
+      setCustomReportReason("");
+      setReportAttachment(null);
+      setReportTurnstileToken("");
+      showCustomerSuccess("Campaign report sent", "The vendor has been notified of your report.");
     } catch (reportError) {
-      setError(getErrorMessage(reportError));
+      showCustomerError(getErrorMessage(reportError), "Could not send campaign report");
     } finally {
       setReportingAbuse(false);
+      releasePendingAction(actionKey);
     }
   }
 
@@ -509,7 +741,16 @@ export default function GroupFundedCampaignPage() {
   }
 
   if (!campaign) {
-    return <Alert color="red">{error || "Campaign not found."}</Alert>;
+    return (
+      <ResourceErrorState
+        backLabel={user ? "Back to my campaigns" : "Browse vendors"}
+        backTo={user ? "/account/group-funded" : "/vendors"}
+        error={error}
+        onRetry={() => void loadCampaign()}
+        resourceName="group-funded campaign"
+        status={responseStatus}
+      />
+    );
   }
 
   const locationState = location.state as { from?: unknown } | null;
@@ -525,15 +766,26 @@ export default function GroupFundedCampaignPage() {
       </Alert>
       {campaign.paymentDestination ? (
         <Card withBorder padding="md" radius="md">
-          <Group align="flex-start" gap="lg" wrap="nowrap">
-            <Image
-              alt={`${campaign.paymentDestination.methodLabel} payment QR`}
-              fit="contain"
-              h={156}
-              radius="sm"
-              src={campaign.paymentDestination.qrImageUrl}
-              w={156}
-            />
+          <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="lg">
+            <Stack align="center" gap="sm">
+              <Image
+                alt={`${campaign.paymentDestination.methodLabel} payment QR`}
+                fit="contain"
+                h={156}
+                radius="sm"
+                src={campaign.paymentDestination.qrImageUrl}
+                w={156}
+              />
+              <Button
+                className="group-funded-save-qr-button"
+                leftSection={<IconDownload size={18} />}
+                loading={savingPaymentQr}
+                onClick={() => void savePaymentQr()}
+                variant="light"
+              >
+                Save QR
+              </Button>
+            </Stack>
             <Stack gap={4}>
               <Text c="dimmed" size="xs">Payment destination</Text>
               <Text fw={800}>{campaign.paymentDestination.methodLabel}</Text>
@@ -545,7 +797,7 @@ export default function GroupFundedCampaignPage() {
               ) : null}
               <Text c="dimmed" size="sm">Scan the QR, pay the exact contribution amount, then upload your proof below.</Text>
             </Stack>
-          </Group>
+          </SimpleGrid>
         </Card>
       ) : (
         <Alert color="yellow" variant="light">
@@ -568,11 +820,12 @@ export default function GroupFundedCampaignPage() {
         value={paymentProofFile}
       />
       <Button
+        className="group-funded-submit-button"
         color="dark"
         disabled={!paymentReference.trim() || !paymentProofFile}
         loading={submitting}
         onClick={submitContribution}
-        w="fit-content"
+        size="lg"
       >
         {contributionCanRetry ? "Submit replacement proof" : "Submit contribution proof"}
       </Button>
@@ -586,8 +839,6 @@ export default function GroupFundedCampaignPage() {
           Back
         </Button>
 
-          {error ? <Alert color="red">{error}</Alert> : null}
-          {message ? <Alert color="teal">{message}</Alert> : null}
           {campaign.contribution?.contributionStatus === "rejected" ? (
             <Alert color="red" variant="light">
               Your contribution proof was rejected and is not counted in the verified funding total.
@@ -599,10 +850,10 @@ export default function GroupFundedCampaignPage() {
             <Stack gap="lg" justify="flex-start">
               <div>
                 <Group gap="sm" wrap="wrap">
-                  <Badge className="vendor-theme-badge vendor-theme-badge-primary" size="lg" variant="light">
-                    Group-funded booking
+                  <Badge className="group-funded-hero-badge" size="lg">
+                    {campaign.vendorCategory || "Business"}
                   </Badge>
-                  <Badge color={getCampaignBadgeColor(campaign.campaignStatus)} size="lg" variant="light">
+                  <Badge className="group-funded-hero-badge group-funded-hero-status-badge" size="lg">
                     {getCampaignStatusLabel(campaign.campaignStatus)}
                   </Badge>
                 </Group>
@@ -611,59 +862,60 @@ export default function GroupFundedCampaignPage() {
                     {campaign.campaignTitle || campaign.serviceName}
                   </Title>
                   <Text className="vendor-hero-subtitle" fw={700} size="lg">
-                    {hasServiceBundle ? `${bundleItems.length} bundled services` : campaign.serviceName}
+                    Organized by {campaign.organizerDisplayName}
                   </Text>
                 </Stack>
               </div>
 
-              <Text className="vendor-hero-description">
-                {campaign.description ||
-                  `${campaign.vendorName || "Vendor"} group-funded booking organized by ${campaign.organizerDisplayName}.`}
-              </Text>
+              <RichCampaignDescription
+                className="vendor-hero-description group-funded-campaign-description rich-campaign-description"
+                content={campaign.description || `${campaign.vendorName || "Vendor"} group-funded booking organized by ${campaign.organizerDisplayName}.`}
+              />
 
               <Stack gap="xs">
                 <Group c="dimmed" gap={8} wrap="nowrap">
                   <ThemeIcon className="vendor-theme-icon booking-detail-hero-icon-solid" radius="xl" size={32} variant="light">
                     <IconBuildingStore size={16} />
                   </ThemeIcon>
-                  <Text>{[campaign.vendorName, campaign.locationName].filter(Boolean).join(" · ")}</Text>
+                  <Group gap={4} wrap="wrap">
+                    {campaign.vendorName ? (
+                      campaign.tenantSlug ? (
+                        <Text className="group-funded-vendor-link" component={Link} to={`/vendors/${campaign.tenantSlug}`}>
+                          {campaign.vendorName}
+                        </Text>
+                      ) : <Text>{campaign.vendorName}</Text>
+                    ) : null}
+                    {campaign.locationName ? <Text>· {campaign.locationName}</Text> : null}
+                  </Group>
                 </Group>
                 <Group c="dimmed" gap={8} wrap="nowrap">
                   <ThemeIcon className="vendor-theme-icon booking-detail-hero-icon-solid" radius="xl" size={32} variant="light">
                     <IconCalendar size={16} />
                   </ThemeIcon>
-                  <Text>{formatBookingScheduleDate(campaign.scheduledStartAt)}</Text>
-                </Group>
-                <Group c="dimmed" gap={8} wrap="nowrap">
-                  <ThemeIcon className="vendor-theme-icon booking-detail-hero-icon-solid" radius="xl" size={32} variant="light">
-                    <IconClock size={16} />
-                  </ThemeIcon>
-                  <Text>{formatBookingScheduleTimeRange(campaign.scheduledStartAt, campaign.scheduledEndAt)}</Text>
-                </Group>
-                <Group c="dimmed" gap={8} wrap="nowrap">
-                  <ThemeIcon className="vendor-theme-icon booking-detail-hero-icon-solid" radius="xl" size={32} variant="light">
-                    <IconUsersGroup size={16} />
-                  </ThemeIcon>
-                  <Text>Organized by {campaign.organizerDisplayName}</Text>
+                  <Text>
+                    {formatBookingScheduleDate(campaign.scheduledStartAt)} · {formatBookingScheduleTimeRange(campaign.scheduledStartAt, campaign.scheduledEndAt)}
+                  </Text>
                 </Group>
               </Stack>
 
-              <Group gap="md">
-                <Button className="vendor-theme-button" leftSection={<IconCopy size={18} />} onClick={copyShareLink} size="lg">
-                  Copy share link
-                </Button>
-                {campaign.tenantSlug ? (
-                  <Button
-                    className="vendor-theme-button vendor-theme-button-ghost"
-                    component={Link}
-                    leftSection={<IconBuildingStore size={18} />}
-                    size="lg"
-                    to={`/vendors/${campaign.tenantSlug}`}
-                    variant="subtle"
-                  >
-                    Vendor details
-                  </Button>
+              <Group className="group-funded-hero-actions" gap="md">
+                {canShareCampaign ? (
+                  <div className="group-funded-share-action">
+                    {shareCopied ? <div className="group-funded-share-toast">Share link copied to clipboard</div> : null}
+                    <Button className="vendor-theme-button" leftSection={<IconCopy size={18} />} onClick={copyShareLink} size="lg">
+                      Copy share link
+                    </Button>
+                  </div>
                 ) : null}
+                <Button
+                  className="vendor-theme-button vendor-theme-button-ghost"
+                  leftSection={<IconUsersGroup size={18} />}
+                  onClick={scrollToPaymentProof}
+                  size="lg"
+                  variant="subtle"
+                >
+                  Join campaign
+                </Button>
               </Group>
             </Stack>
 
@@ -684,14 +936,20 @@ export default function GroupFundedCampaignPage() {
               </div>
 
               <Paper className="vendor-hero-status-card" p="lg">
-                <Text fw={800}>{getCampaignStatusLabel(campaign.campaignStatus)}</Text>
-                <Text c="dimmed" size="sm">
-                  Deadline {formatBookingScheduleDate(campaign.fundingDeadlineAt)} · {campaign.visibility === "public" ? "Public on vendor profile" : "Private link only"}
+                <Text fw={800}>
+                  Funding {formatPaymentAmount(campaign.fundedAmountCents, campaign.currency)} / {formatPaymentAmount(campaign.targetAmountCents, campaign.currency)}
                 </Text>
+                <Progress mt={6} value={progressValue} color="teal" />
                 <SimpleGrid cols={{ base: 1, sm: 2 }} mt="md" spacing="sm">
                   <div className="prio-dashboard-tile">
-                    <Text c="dimmed" size="xs">Funding</Text>
-                    <Text fw={800}>{progressValue}%</Text>
+                    <Text c="dimmed" size="xs">Join fee</Text>
+                    <Text fw={800}>{formatPaymentAmount(campaign.requiredContributionAmountCents, campaign.currency)}</Text>
+                    <Group c="dimmed" gap={4} mt={2} wrap="nowrap">
+                      <Text size="xs">{fundingDeadline.relativeLabel}</Text>
+                      <Tooltip label={fundingDeadline.tooltipLabel} withArrow>
+                        <IconInfoCircle aria-label={`Funding deadline: ${fundingDeadline.tooltipLabel}`} size={14} />
+                      </Tooltip>
+                    </Group>
                   </div>
                   <div className="prio-dashboard-tile">
                     <Group align="center" gap="sm" wrap="nowrap">
@@ -733,21 +991,7 @@ export default function GroupFundedCampaignPage() {
                       </Stack>
                     </Group>
                   </div>
-                  <div className="prio-dashboard-tile">
-                    <Text c="dimmed" size="xs">Target</Text>
-                    <Text fw={800}>{formatPaymentAmount(campaign.targetAmountCents, campaign.currency)}</Text>
-                  </div>
-                  <div className="prio-dashboard-tile">
-                    <Text c="dimmed" size="xs">Each</Text>
-                    <Text fw={800}>{formatPaymentAmount(campaign.requiredContributionAmountCents, campaign.currency)}</Text>
-                  </div>
                 </SimpleGrid>
-                <Stack gap="xs" mt="md">
-                  <Progress value={progressValue} color="teal" />
-                  <Text c="dimmed" size="sm">
-                    {formatPaymentAmount(campaign.fundedAmountCents, campaign.currency)} / {formatPaymentAmount(campaign.targetAmountCents, campaign.currency)} verified.
-                  </Text>
-                </Stack>
               </Paper>
             </Paper>
           </SimpleGrid>
@@ -755,63 +999,48 @@ export default function GroupFundedCampaignPage() {
 
         <Card className="finazze-auth-card customer-account-card booking-detail-section-card" mt="xl" p="xl">
           <Stack gap="md">
-            <Card withBorder radius="md" p="md">
-              <Stack gap="sm">
-                <Group justify="space-between" align="flex-start">
-                  <Stack gap={2}>
-                    <Text c="dimmed" size="xs">{hasServiceBundle ? "Bundled services" : "Selected service"}</Text>
-                    <Text fw={800}>
-                      {hasServiceBundle
-                        ? `${bundleItems.length} services in this group booking`
-                        : bundleItems[0]?.serviceName || campaign.serviceName}
-                    </Text>
-                  </Stack>
-                  <Badge color="teal" variant="light">
-                    {hasServiceBundle ? "Service bundle" : "Single service"}
-                  </Badge>
-                </Group>
-                <SimpleGrid cols={{ base: 1, sm: hasServiceBundle ? 2 : 1 }} spacing="sm">
-                  {bundleItems.map((item) => (
-                    <Stack className="group-funded-campaign-summary-panel" gap={4} key={item.id || item.serviceSlug}>
+            <div>
+              <Text className="finazze-section-label">Bundled services</Text>
+              <Title order={2}>What&apos;s in this campaign</Title>
+            </div>
+            <Stack gap="sm">
+              {bundleItemsWithImages.map((item) => (
+                <Paper className="group-funded-bundle-item" key={item.id || item.serviceSlug} p="sm">
+                  <Group align="center" gap="sm" wrap="nowrap">
+                    {item.imageUrl ? (
+                      <button
+                        aria-label={`Preview ${item.serviceName} image`}
+                        className="group-funded-bundle-thumbnail"
+                        onClick={() => setImagePreview({ name: item.serviceName, imageUrl: item.imageUrl })}
+                        type="button"
+                      >
+                        <img alt="" src={item.imageUrl} />
+                        <span aria-hidden="true"><IconEye size={16} /></span>
+                      </button>
+                    ) : null}
+                    <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
                       <Group justify="space-between" gap="sm" wrap="nowrap">
                         <Text fw={800}>{item.serviceName}</Text>
-                        <Badge variant="light">
-                          x{item.bookingQuantity}
-                        </Badge>
+                        <Badge variant="light">x{item.bookingQuantity}</Badge>
                       </Group>
                       <Text c="dimmed" size="sm">
-                        {formatBookingScheduleTimeRange(item.scheduledStartAt, item.scheduledEndAt)}
-                      </Text>
-                      <Text c="dimmed" size="sm">
-                        {formatPaymentAmount(item.priceAmountCents, item.currency)}
+                        {formatBookingScheduleTimeRange(item.scheduledStartAt, item.scheduledEndAt)} · {formatPaymentAmount(item.priceAmountCents, item.currency)}
                       </Text>
                     </Stack>
-                  ))}
-                </SimpleGrid>
-              </Stack>
-            </Card>
+                  </Group>
+                </Paper>
+              ))}
+            </Stack>
 
-            <Alert color="yellow" variant="light">
-              This slot is not reserved until the campaign is fully funded and approved by the vendor.
-            </Alert>
-
-            <Group gap="sm">
-              <Button leftSection={<IconCopy size={16} />} onClick={copyShareLink} variant="light">
-                Copy share link
-              </Button>
-              <Button color="red" leftSection={<IconFlag size={16} />} loading={reportingAbuse} onClick={reportCampaign} variant="subtle">
+            <Group justify="flex-end">
+              <Button color="red" leftSection={<IconFlag size={16} />} onClick={() => setReportModalOpen(true)} variant="subtle">
                 Report
               </Button>
-              {isOrganizer && campaign.linkedBookingId ? (
-                <Button component={Link} color="dark" to={`/account/bookings/${campaign.linkedBookingId}`}>
-                  View confirmed booking
-                </Button>
-              ) : null}
             </Group>
           </Stack>
         </Card>
 
-      <Card className="finazze-auth-card customer-account-card" mt="xl" p="xl">
+      <Card className="finazze-auth-card customer-account-card" mt="xl" p="xl" ref={paymentProofSectionRef}>
         <Stack gap="md">
           <div>
             <Text className="finazze-section-label">Your contribution</Text>
@@ -879,43 +1108,26 @@ export default function GroupFundedCampaignPage() {
             </div>
             {isOrganizer ? (
               <Button
+                className="group-funded-organizer-action"
                 disabled={!canEditCampaign}
                 leftSection={<IconEdit size={16} />}
                 onClick={openEditModal}
+                size="lg"
                 variant="light"
-                w="fit-content"
               >
                 Edit campaign details
               </Button>
             ) : null}
-            {isCampaignFullyFunded ? (
+            {hasFilledContributions ? (
               <Text c="dimmed" size="sm">
-                Campaign details are locked once funding is complete.
+                Campaign details are locked once a contribution has been submitted.
               </Text>
             ) : null}
-            {showCancelConfirm ? (
-              <Alert color="red" variant="light">
-                <Stack gap="sm">
-                  <Text>
-                    Canceling closes this campaign permanently. Any verified contributions become refund-eligible and the campaign cannot be reopened.
-                  </Text>
-                  <Group>
-                    <Button onClick={() => setShowCancelConfirm(false)} variant="light">
-                      Keep campaign open
-                    </Button>
-                    <Button color="red" loading={submitting} onClick={cancelCampaign}>
-                      Cancel and start refunds
-                    </Button>
-                  </Group>
-                </Stack>
-              </Alert>
-            ) : (
-              canCancel ? (
-                <Button color="red" onClick={() => setShowCancelConfirm(true)} variant="light" w="fit-content">
-                  Cancel campaign
-                </Button>
-              ) : null
-            )}
+            {canCancel ? (
+              <Button className="group-funded-organizer-action" color="red" onClick={() => setShowCancelConfirm(true)} size="lg" variant="light">
+                Cancel campaign
+              </Button>
+            ) : null}
           </Stack>
         </Card>
       ) : null}
@@ -923,6 +1135,36 @@ export default function GroupFundedCampaignPage() {
 
       <Modal
         centered
+        className="customer-modal group-funded-cancel-modal"
+        closeOnClickOutside={!submitting}
+        closeOnEscape={!submitting}
+        onClose={() => setShowCancelConfirm(false)}
+        opened={showCancelConfirm}
+        radius="lg"
+        size="sm"
+        title="Cancel this campaign?"
+      >
+        <Stack gap="md">
+          <Text>
+            Canceling closes this campaign permanently. Any verified contributions become refund-eligible and the campaign cannot be reopened.
+          </Text>
+          <Alert color="yellow" variant="light">
+            Only cancel if you no longer plan to run this group booking.
+          </Alert>
+          <Stack className="customer-modal-actions" gap="sm">
+            <Button color="dark" disabled={submitting} onClick={() => setShowCancelConfirm(false)} size="lg" w="100%">
+              Keep campaign open
+            </Button>
+            <Button color="red" loading={submitting} onClick={cancelCampaign} size="lg" variant="outline" w="100%">
+              Cancel campaign and start refunds
+            </Button>
+          </Stack>
+        </Stack>
+      </Modal>
+
+      <Modal
+        centered
+        className="customer-modal"
         onClose={() => setEditModalOpen(false)}
         opened={editModalOpen}
         radius="lg"
@@ -937,13 +1179,13 @@ export default function GroupFundedCampaignPage() {
             required
             value={editForm.campaignTitle}
           />
-          <Textarea
-            label="Campaign description"
-            maxLength={280}
-            minRows={4}
-            onChange={(event) => setEditForm((current) => ({ ...current, description: event.currentTarget.value }))}
-            value={editForm.description}
-          />
+          <Stack gap={4}>
+            <Text fw={500} size="sm">Campaign description</Text>
+            <CampaignDescriptionEditor
+              onChange={(description) => setEditForm((current) => ({ ...current, description }))}
+              value={editForm.description}
+            />
+          </Stack>
           <Select
             data={[
               { label: "Private link only", value: "private_link" },
@@ -958,8 +1200,8 @@ export default function GroupFundedCampaignPage() {
             }
             value={editForm.visibility}
           />
-          <Group justify="flex-end">
-            <Button onClick={() => setEditModalOpen(false)} variant="light">
+          <Group className="customer-modal-actions" justify="flex-end">
+            <Button onClick={() => setEditModalOpen(false)} size="lg" variant="light">
               Cancel
             </Button>
             <Button
@@ -967,11 +1209,96 @@ export default function GroupFundedCampaignPage() {
               disabled={!editForm.campaignTitle.trim()}
               loading={editSubmitting}
               onClick={saveCampaignDetails}
+              size="lg"
             >
               Save changes
             </Button>
           </Group>
         </Stack>
+      </Modal>
+
+      <Modal
+        centered
+        className="customer-modal group-funded-report-modal"
+        onClose={() => setReportModalOpen(false)}
+        opened={reportModalOpen}
+        radius="lg"
+        size="md"
+        title="Report campaign"
+      >
+        <Stack gap="md">
+          <div>
+            <Text fw={800}>You’re about to submit a report</Text>
+            <Text c="dimmed" size="sm">
+              We only remove content that goes against our Acceptable Use Policy.
+            </Text>
+          </div>
+          <Text className="finazze-section-label">Report details</Text>
+          <Select
+            data={[
+              { label: "Misleading or fraudulent campaign", value: "misleading_or_fraudulent" },
+              { label: "Inappropriate or offensive content", value: "inappropriate_content" },
+              { label: "Harassment or hate speech", value: "harassment_or_hate_speech" },
+              { label: "Spam", value: "spam" },
+              { label: "Others", value: "other" }
+            ]}
+            label="Why are you reporting this campaign?"
+            onChange={setReportReason}
+            placeholder="Select a reason"
+            value={reportReason}
+          />
+          {reportReason === "other" ? (
+            <Textarea
+              label="Tell us more"
+              maxLength={500}
+              minRows={4}
+              onChange={(event) => setCustomReportReason(event.currentTarget.value)}
+              placeholder="Describe the issue"
+              required
+              value={customReportReason}
+            />
+          ) : null}
+          <FileInput
+            accept="image/jpeg,image/png,image/webp"
+            clearable
+            label="Attachment (optional)"
+            onChange={setReportAttachment}
+            placeholder="Upload a screenshot"
+            value={reportAttachment}
+          />
+          {shouldUseReportTurnstile ? (
+            <Paper className="finazze-soft-panel" p="sm">
+              <Text fw={700} size="sm">Security check</Text>
+              <Text c="dimmed" mb="xs" size="xs">Complete this check to send your report.</Text>
+              <div ref={reportTurnstileContainerRef} />
+            </Paper>
+          ) : null}
+          <Text c="dimmed" size="xs">Your report will be sent to the vendor’s email.</Text>
+          <Group className="group-funded-report-actions" justify="flex-end">
+            <Button onClick={() => setReportModalOpen(false)} size="lg" variant="light">Cancel</Button>
+            <Button
+              color="red"
+              disabled={!reportReason || (reportReason === "other" && !customReportReason.trim()) || (shouldUseReportTurnstile && !reportTurnstileReady)}
+              loading={reportingAbuse}
+              onClick={reportCampaign}
+              size="lg"
+            >
+              Submit report
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
+
+      <Modal
+        centered
+        className="customer-modal"
+        onClose={() => setImagePreview(null)}
+        opened={Boolean(imagePreview)}
+        radius="lg"
+        size="xl"
+        title={imagePreview?.name || "Service image"}
+      >
+        {imagePreview ? <div className="service-image-preview-shell"><img alt={imagePreview.name} src={imagePreview.imageUrl} /></div> : null}
       </Modal>
     </Stack>
   );

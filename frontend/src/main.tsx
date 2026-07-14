@@ -5,9 +5,11 @@ import { createTheme, MantineProvider } from "@mantine/core";
 import { Notifications } from "@mantine/notifications";
 import { BrowserRouter } from "react-router-dom";
 import App from "./App";
+import AppErrorBoundary from "./components/AppErrorBoundary";
 import { AuthProvider } from "./context/AuthContext";
 import { queryClient } from "./lib/queryClient";
 import "@mantine/core/styles.css";
+import "@mantine/tiptap/styles.css";
 import "@mantine/notifications/styles.css";
 import "@mantine/dates/styles.css";
 import "./styles.css";
@@ -91,9 +93,11 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
       <Notifications position="top-right" />
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
-          <AuthProvider>
-            <App />
-          </AuthProvider>
+          <AppErrorBoundary>
+            <AuthProvider>
+              <App />
+            </AuthProvider>
+          </AppErrorBoundary>
         </BrowserRouter>
       </QueryClientProvider>
     </MantineProvider>

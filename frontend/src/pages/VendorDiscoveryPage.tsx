@@ -107,7 +107,7 @@ export default function VendorDiscoveryPage() {
     <Stack className="vendor-discovery-page" gap="xl">
       <Container size="xl" w="100%">
         <Stack gap="xl">
-          <div>
+          <div className="vendor-discovery-hero">
             <Text className="prio-label">Vendor discovery</Text>
             <Title className="prio-section-title" order={1}>
               Find vendors ready for service.
@@ -119,8 +119,8 @@ export default function VendorDiscoveryPage() {
           </div>
 
           <Paper className="vendor-search-panel" p="lg">
-            <form onSubmit={handleSubmit}>
-              <Group align="flex-end" gap="md">
+            <form className="vendor-search-form" onSubmit={handleSubmit}>
+              <Group className="vendor-search-actions" align="flex-end" gap="md">
                 <TextInput
                   className="vendor-search-input"
                   leftSection={<IconSearch size={18} />}
@@ -129,13 +129,14 @@ export default function VendorDiscoveryPage() {
                   value={search}
                   onChange={(event) => setSearch(event.currentTarget.value)}
                 />
-                <Button color="orange" leftSection={<IconSearch size={18} />} type="submit">
+                <Button color="orange" leftSection={<IconSearch size={18} />} size="lg" type="submit">
                   Search
                 </Button>
                 {searchParams.get("search") ? (
                   <Button
                     color="dark"
                     variant="subtle"
+                    size="lg"
                     onClick={() => {
                       setSearch("");
                       setSearchParams({});
@@ -150,7 +151,7 @@ export default function VendorDiscoveryPage() {
 
           {error ? <Alert color="red">{error}</Alert> : null}
 
-          <Group justify="space-between">
+          <Group className="vendor-discovery-results" justify="space-between">
             <Text c="dimmed" fw={700}>{resultLabel}</Text>
           </Group>
 
@@ -165,9 +166,9 @@ export default function VendorDiscoveryPage() {
             </Paper>
           ) : null}
 
-          <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="lg">
+          <SimpleGrid className="vendor-discovery-grid" cols={{ base: 1, sm: 2, lg: 3 }} spacing="lg">
             {vendors.map((vendor) => (
-              <Paper className="vendor-card" component={Link} key={vendor.slug} p="lg" to={`/vendors/${vendor.slug}`}>
+              <Paper className="vendor-card" component={Link} key={vendor.slug} p={{ base: "md", sm: "lg" }} to={`/vendors/${vendor.slug}`}>
                 <Stack gap="md" h="100%">
                   <div
                     className={vendor.publicBoardTheme?.theme.backgroundImageUrl || vendor.publicBoardTheme?.theme.logoUrl
@@ -188,7 +189,7 @@ export default function VendorDiscoveryPage() {
                   <div>
                     {vendor.category ? <Badge color="orange" variant="light">{vendor.category}</Badge> : null}
                     <Title order={3} mt="sm">{vendor.name}</Title>
-                    <Group c="dimmed" gap={6} mt={6} wrap="nowrap">
+                    <Group className="vendor-card-location" c="dimmed" gap={6} mt={6} wrap="nowrap">
                       <IconMapPin size={16} />
                       <Text size="sm">{getLocationLabel(vendor)}</Text>
                     </Group>
@@ -211,16 +212,17 @@ export default function VendorDiscoveryPage() {
                       </Badge>
                     ))}
                   </div>
-                  <Group mt="auto">
+                  <Group className="vendor-card-actions" mt="auto">
                     <Button
                       component={Link}
                       to={`/vendors/${vendor.slug}/book?location=${encodeURIComponent(vendor.location.slug || vendor.locations[0]?.slug || "")}`}
                       variant="light"
                       color="orange"
+                      size="lg"
                     >
                       Book in advance
                     </Button>
-                    <Button component={Link} to={`/join/${vendor.slug}`} variant="subtle" color="orange">
+                    <Button component={Link} to={`/join/${vendor.slug}`} variant="subtle" color="orange" size="lg">
                       Join queue
                     </Button>
                   </Group>

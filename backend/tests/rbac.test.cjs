@@ -417,7 +417,9 @@ test("vendor availability is manageable by vendor admins but denied to staff", a
         slug === "main"
           ? { _id: "location-1", tenantId: "tenant-1", name: "Main Branch", slug: "main" }
           : null,
-      listHoursByLocationId: async () => []
+      listHoursByLocationId: async () => [
+        { weekday: 2, opensAt: "09:00", closesAt: "17:00", isClosed: false }
+      ]
     },
     "../repositories/tickets": {
       listHistoryTickets: async () => [],

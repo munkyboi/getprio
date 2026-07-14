@@ -54,6 +54,7 @@ const {
   getQueueStateSummary,
   getTicketStateSummary
 } = require("../src/utils/queueStatus.ts");
+const { getMaxBookableHours, getWeeklyAvailabilityDefaults } = require("../src/utils/availability.ts");
 const { getBootstrap } = require("../src/api/vendorDashboardBootstrap.ts");
 const {
   getAvailability,
@@ -263,6 +264,37 @@ test("utility formatters and validators cover common cases", () => {
   assert.equal(formatDateTimeInputValue(localDate), "2026-06-30T08:30");
   assert.equal(toDate("bad value"), null);
   assert.equal(Number.isNaN(toTimestamp("bad value")), true);
+});
+
+test("weekly availability defaults use the selected day's business hours", () => {
+  assert.deepEqual(
+    getWeeklyAvailabilityDefaults([
+      { weekday: 1, opensAt: "07:00", closesAt: "02:00", isClosed: false }
+    ], 1),
+    { startsAt: "07:00", endsAt: "02:00", endsNextDay: true }
+  );
+  assert.deepEqual(
+    getWeeklyAvailabilityDefaults([
+      { weekday: 1, opensAt: "00:00", closesAt: "00:00", isClosed: false }
+    ], 1),
+    { startsAt: "00:00", endsAt: "23:59", endsNextDay: false }
+  );
+  assert.deepEqual(getWeeklyAvailabilityDefaults([], 1), { startsAt: "", endsAt: "", endsNextDay: false });
+});
+
+test("maximum bookable hours follows the selected location's daily store hours", () => {
+  assert.equal(
+    getMaxBookableHours([{ weekday: 1, opensAt: "22:00", closesAt: "02:00", isClosed: false }], 1),
+    4
+  );
+  assert.equal(
+    getMaxBookableHours([{ weekday: 1, opensAt: "08:00", closesAt: "20:30", isClosed: false }], 1),
+    12
+  );
+  assert.equal(
+    getMaxBookableHours([{ weekday: 1, opensAt: "00:00", closesAt: "00:00", isClosed: false }], 1),
+    24
+  );
 });
 
 test("joined queue access persists normalized payloads", async () => {
@@ -600,4 +632,520 @@ test("confirm action modal supports a mobile-specific class hook", () => {
   assert.match(confirmModalSource, /className\?: string;/);
   assert.match(confirmModalSource, /<Modal\s+className=\{className\}/);
   assert.match(vendorDashboardSource, /<ConfirmActionModal\s+className="confirm-action-modal"/);
+});
+
+test("service saves refresh location-service settings before the editor reopens", () => {
+  const source = fs.readFileSync(
+    path.join(path.resolve(__dirname, ".."), "src", "pages", "VendorDashboardPage.tsx"),
+    "utf8"
+  );
+  const reloadServices = source.match(/async function reloadServices\(\) \{([\s\S]*?)\n  \}/)?.[1] || "";
+
+  assert.match(reloadServices, /vendor-dashboard-services/);
+  assert.match(reloadServices, /vendor-dashboard-location-services/);
+});
+
+test("vendor dashboard turns shared and dialog errors into one error toast", () => {
+  const source = fs.readFileSync(
+    path.join(path.resolve(__dirname, ".."), "src", "pages", "VendorDashboardPage.tsx"),
+    "utf8"
+  );
+
+  assert.match(source, /const dashboardErrorMessage = \[/);
+  assert.match(source, /bookingDetailError/);
+  assert.match(source, /rescheduleSlotsError/);
+  assert.match(source, /groupFundedProofError/);
+  assert.match(source, /id: "vendor-dashboard-error"/);
+  assert.match(source, /title: "Could not complete that action"/);
+});
+
+test("customer booking flows use shared Mantine notifications for API feedback", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const notificationSource = fs.readFileSync(path.join(frontendRoot, "src", "utils", "customerNotifications.ts"), "utf8");
+  const groupFundedSource = fs.readFileSync(path.join(frontendRoot, "src", "pages", "GroupFundedCampaignPage.tsx"), "utf8");
+  const bookingSource = fs.readFileSync(path.join(frontendRoot, "src", "pages", "BookingRequestPage.tsx"), "utf8");
+  const accountSource = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CustomerAccountPage.tsx"), "utf8");
+
+  assert.match(notificationSource, /import \{ notifications \} from "@mantine\/notifications"/);
+  assert.match(notificationSource, /export function showCustomerSuccess/);
+  assert.match(notificationSource, /export function showCustomerError/);
+  assert.match(groupFundedSource, /showCustomerSuccess\("Contribution proof submitted"/);
+  assert.match(groupFundedSource, /showCustomerError\(getErrorMessage\(submitError\), "Could not submit contribution proof"\)/);
+  assert.match(bookingSource, /showCustomerSuccess\("Campaign created"/);
+  assert.match(bookingSource, /showCustomerError\(getErrorMessage\(proofError\), "Could not submit payment proof"\)/);
+  assert.match(accountSource, /showCustomerSuccess\("Profile updated"/);
+  assert.match(accountSource, /showCustomerError\(getErrorMessage\(saveError\), "Could not update profile"\)/);
+});
+
+test("group-funded contributor count uses a stepped slider within service limits", () => {
+  const source = fs.readFileSync(
+    path.join(path.resolve(__dirname, ".."), "src", "pages", "BookingRequestPage.tsx"),
+    "utf8"
+  );
+
+  assert.match(source, /import \{[\s\S]*?Slider,[\s\S]*?\} from "@mantine\/core"/);
+  assert.match(source, /<Slider[\s\S]*?aria-label="Required contributors"/);
+  assert.match(source, /min=\{groupFundedMinContributors\}/);
+  assert.match(source, /max=\{groupFundedMaxContributors\}/);
+  assert.match(source, /step=\{1\}/);
+  assert.match(source, /onChange=\{setRequiredContributors\}/);
+  assert.match(source, /className="booking-value-slider"/);
+  assert.match(source, /className="booking-slider-bounds" justify="space-between"/);
+  assert.match(source, /Min \{groupFundedMinContributors\}/);
+  assert.match(source, /Max \{groupFundedMaxContributors\}/);
+});
+
+test("group-funded visit length uses a stepped units slider", () => {
+  const source = fs.readFileSync(
+    path.join(path.resolve(__dirname, ".."), "src", "pages", "BookingRequestPage.tsx"),
+    "utf8"
+  );
+
+  assert.match(source, /const groupFundedQuantityLabel = groupFundedQuantityService/);
+  assert.match(source, /<Text fw=\{500\} size="sm">\{groupFundedQuantityLabel\}/);
+  assert.match(source, /aria-label=\{groupFundedQuantityLabel\}/);
+  assert.match(source, /setBookingQuantity\(value\)/);
+  assert.match(source, /<Text c="dimmed" size="xs">1<\/Text>/);
+  assert.match(source, /max=\{maxGroupFundedBookingQuantity\}/);
+  assert.match(source, /\{maxGroupFundedBookingQuantity\}<\/Text>/);
+  assert.doesNotMatch(source, /selectedBundleServices\.length\} item/);
+});
+
+test("group-funded contribution guidance uses customer-friendly payment language", () => {
+  const source = fs.readFileSync(
+    path.join(path.resolve(__dirname, ".."), "src", "pages", "BookingRequestPage.tsx"),
+    "utf8"
+  );
+
+  assert.match(source, /Each person contributes/);
+  assert.match(source, /Everyone pays the same amount in full/);
+  assert.doesNotMatch(source, /V1 does not support partial payments/);
+});
+
+test("group-funded booking has a collapsed campaign summary and prominent submit action", () => {
+  const source = fs.readFileSync(
+    path.join(path.resolve(__dirname, ".."), "src", "pages", "BookingRequestPage.tsx"),
+    "utf8"
+  );
+
+  assert.match(source, /<Accordion className="booking-campaign-summary">/);
+  assert.match(source, /<Accordion.Control>/);
+  assert.match(source, /Campaign summary/);
+  assert.match(source, /formatBookingScheduleDate\(bookingDate\)\} · Choose a start time/);
+  assert.match(source, /Funding deadline/);
+  assert.match(source, /<Text fw=\{800\}>4\. Pick available services<\/Text>/);
+  assert.match(source, /Choose a start time to see the services available for that visit\./);
+  assert.match(source, /className=\{isGroupFundedMode \? "booking-campaign-submit customer-primary-action" : "customer-primary-action"\}/);
+  assert.match(source, /h=\{isGroupFundedMode \? 56 : undefined\}/);
+  assert.match(source, /\{isGroupFundedMode \? \[/);
+  assert.match(source, /<Stepper\.Step key="verify-otp"/);
+  assert.doesNotMatch(source, /\{isGroupFundedMode \? \(\s*<>/);
+});
+
+test("group-funded section labels use a consistent heading size", () => {
+  const styles = fs.readFileSync(
+    path.join(path.resolve(__dirname, ".."), "src", "styles.css"),
+    "utf8"
+  );
+
+  assert.match(styles, /\.booking-schedule-field :where\(\.mantine-InputWrapper-label\) \{\s+font-size: 1rem;/);
+  assert.match(styles, /\.booking-schedule-field :where\(\.mantine-InputWrapper-label\) \{[\s\S]*?font-weight: 800;/);
+});
+
+test("group-funded campaign descriptions render rich text formatting", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(
+    path.join(frontendRoot, "src", "pages", "GroupFundedCampaignPage.tsx"),
+    "utf8"
+  );
+  const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
+
+  assert.match(source, /className="vendor-hero-description group-funded-campaign-description rich-campaign-description"/);
+  assert.match(styles, /\.rich-campaign-description p,/);
+  assert.match(styles, /\.rich-campaign-description blockquote/);
+});
+
+test("group-funded campaign hero joins by smoothly scrolling to payment proof", () => {
+  const source = fs.readFileSync(
+    path.join(path.resolve(__dirname, ".."), "src", "pages", "GroupFundedCampaignPage.tsx"),
+    "utf8"
+  );
+
+  assert.match(source, /const paymentProofSectionRef = useRef<HTMLDivElement \| null>\(null\);/);
+  assert.match(source, /scrollIntoView\(\{ behavior: "smooth", block: "start" \}\)/);
+  assert.match(source, /Join campaign/);
+  assert.match(source, /onClick=\{scrollToPaymentProof\}/);
+  assert.match(source, /ref=\{paymentProofSectionRef\}/);
+  assert.doesNotMatch(source, />\s*Vendor details\s*</);
+});
+
+test("group-funded campaign business name links to the vendor profile", () => {
+  const source = fs.readFileSync(
+    path.join(path.resolve(__dirname, ".."), "src", "pages", "GroupFundedCampaignPage.tsx"),
+    "utf8"
+  );
+
+  assert.match(source, /className="group-funded-vendor-link" component=\{Link\} to=\{`\/vendors\/\$\{campaign\.tenantSlug\}`\}/);
+  assert.match(source, /\{campaign\.vendorName\}/);
+});
+
+test("group-funded campaign hero uses the vendor category and compact funding summary", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(
+    path.join(frontendRoot, "src", "pages", "GroupFundedCampaignPage.tsx"),
+    "utf8"
+  );
+  const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
+
+  assert.match(source, /\{campaign\.vendorCategory \|\| "Business"\}/);
+  assert.match(source, /Organized by \{campaign\.organizerDisplayName\}/);
+  assert.match(source, /Funding \{formatPaymentAmount\(campaign\.fundedAmountCents, campaign\.currency\)\} \/ \{formatPaymentAmount\(campaign\.targetAmountCents, campaign\.currency\)\}/);
+  assert.match(source, /<Text c="dimmed" size="xs">Join fee<\/Text>/);
+  assert.match(source, /Deadline: \$\{daysFromNow\}/);
+  assert.match(source, /Share link copied to clipboard/);
+  assert.doesNotMatch(source, /<Text c="dimmed" size="xs">Target<\/Text>/);
+  assert.match(styles, /\.group-funded-hero-badge \{/);
+  assert.match(styles, /\.group-funded-share-toast \{/);
+  assert.match(styles, /\.group-funded-hero-actions,/);
+});
+
+test("group-funded campaign details use thumbnail service rows and a report form", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(
+    path.join(frontendRoot, "src", "pages", "GroupFundedCampaignPage.tsx"),
+    "utf8"
+  );
+  const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
+
+  assert.match(source, /<Text className="finazze-section-label">Bundled services<\/Text>/);
+  assert.match(source, /<Title order=\{2\}>What(?:'|&apos;)s in this campaign<\/Title>/);
+  assert.doesNotMatch(source, /bundleItems\.length.*Services/);
+  assert.match(source, /className="group-funded-bundle-thumbnail"/);
+  assert.match(source, /setImagePreview\(\{ name: item\.serviceName, imageUrl: item\.imageUrl \}\)/);
+  assert.match(source, /You’re about to submit a report/);
+  assert.match(source, /Why are you reporting this campaign\?/);
+  assert.match(source, /Upload a screenshot/);
+  assert.match(source, /value: "other"/);
+  assert.match(source, /async function savePaymentQr\(\)/);
+  assert.match(source, /const \[savingPaymentQr, setSavingPaymentQr\] = useState\(false\);/);
+  assert.match(source, /const pendingActionKeysRef = useRef\(new Set<string>\(\)\);/);
+  assert.match(source, /function claimPendingAction\(actionKey: string\)/);
+  assert.match(source, /submit-contribution:\$\{campaign\.publicToken\}/);
+  assert.match(source, /cancel-campaign:\$\{campaign\.publicToken\}/);
+  assert.match(source, /save-campaign:\$\{campaign\.publicToken\}/);
+  assert.match(source, /report-campaign:\$\{campaign\.publicToken\}/);
+  assert.match(source, /const canShareCampaign = !isOrganizer \|\| campaign\?\.contribution\?\.contributionStatus === "verified";/);
+  assert.match(source, /setSavingPaymentQr\(true\);/);
+  assert.match(source, /setSavingPaymentQr\(false\);/);
+  assert.match(source, /account\/group-funded-campaigns\/\$\{encodeURIComponent\(campaign\.publicToken\)\}\/payment-qr/);
+  assert.match(source, /URL\.createObjectURL\(qrImage\)/);
+  assert.match(source, />\s*Save QR\s*</);
+  assert.match(source, /loading=\{savingPaymentQr\}/);
+  assert.match(source, /className="group-funded-submit-button"/);
+  assert.match(source, /className="group-funded-organizer-action"/);
+  assert.match(source, /className="customer-modal group-funded-cancel-modal"/);
+  assert.match(source, /title="Cancel this campaign\?"/);
+  assert.match(source, /Cancel campaign and start refunds/);
+  assert.match(source, /color="red" loading=\{submitting\} onClick=\{cancelCampaign\} size="lg" variant="outline" w="100%"/);
+  assert.match(source, /className="customer-modal group-funded-report-modal"/);
+  assert.match(source, /className="group-funded-report-actions"/);
+  assert.match(source, /<Button onClick=\{\(\) => setReportModalOpen\(false\)\} size="lg" variant="light">Cancel<\/Button>/);
+  assert.match(source, /const reportTurnstileSiteKey = import\.meta\.env\.VITE_TURNSTILE_SITE_KEY \|\| "";/);
+  assert.match(source, /report-attachments\/direct\?fileName=/);
+  assert.match(source, /attachmentObjectKey/);
+  assert.match(source, /turnstileToken: reportTurnstileToken \|\| undefined/);
+  assert.match(source, /Complete the security check before submitting your report/);
+  assert.match(styles, /\.group-funded-report-modal \.mantine-Modal-inner/);
+  assert.match(styles, /\.group-funded-report-actions > \.mantine-Button-root/);
+  assert.match(source, /className="customer-modal"/);
+  assert.match(source, /className="customer-modal-actions" justify="flex-end"/);
+  assert.match(styles, /\.customer-modal \.mantine-Modal-content/);
+  assert.match(styles, /\.customer-modal-actions > \.mantine-Button-root/);
+  assert.doesNotMatch(source, /This slot is not reserved until the campaign is fully funded and approved by the vendor\./);
+});
+
+test("customer-facing modals share the mobile-first modal treatment", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const customerModalPages = [
+    ["LandingPage.tsx", 1],
+    ["CustomerBookingDetailPage.tsx", 2],
+    ["JoinedQueuePage.tsx", 4],
+    ["VendorProfilePage.tsx", 3],
+    ["GroupFundedCampaignPage.tsx", 4]
+  ];
+
+  for (const [fileName, minimumModalCount] of customerModalPages) {
+    const source = fs.readFileSync(path.join(frontendRoot, "src", "pages", fileName), "utf8");
+    assert.ok((source.match(/className="customer-modal(?:\s|\")/g) || []).length >= minimumModalCount, `${fileName} should use customer modal styling`);
+  }
+
+  for (const fileName of ["JoinedQueuePage.tsx", "VendorProfilePage.tsx"]) {
+    const source = fs.readFileSync(path.join(frontendRoot, "src", "pages", fileName), "utf8");
+    assert.match(source, /className="customer-modal contact-vendor-modal"/);
+    assert.doesNotMatch(source, /scrollAreaComponent=\{ScrollArea\.Autosize\}/);
+  }
+});
+
+test("customer-facing primary actions use the mobile action treatment", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
+  const actionPages = [
+    "LandingPage.tsx",
+    "CustomerBookingDetailPage.tsx",
+    "JoinedQueuePage.tsx",
+    "VendorProfilePage.tsx",
+    "JoinQueuePage.tsx",
+    "BookingRequestPage.tsx",
+    "CustomerAccountPage.tsx"
+  ];
+
+  for (const fileName of actionPages) {
+    const source = fs.readFileSync(path.join(frontendRoot, "src", "pages", fileName), "utf8");
+    assert.match(source, /customer-action-row|customer-primary-action/);
+  }
+  assert.match(styles, /\.customer-action-row > \.mantine-Button-root,/);
+  assert.match(styles, /\.customer-primary-action/);
+  assert.match(styles, /\.customer-modal-actions > \.mantine-Group-root \{\s+align-items: stretch;\s+flex-direction: column-reverse;/);
+  assert.match(styles, /\.group-funded-report-actions \{\s+position: sticky;\s+bottom: 0;/);
+  assert.match(
+    fs.readFileSync(path.join(frontendRoot, "src", "pages", "BookingRequestPage.tsx"), "utf8"),
+    /Verify and submit booking[\s\S]*customer-primary-action|customer-primary-action[\s\S]*Verify and submit booking/
+  );
+  assert.match(
+    fs.readFileSync(path.join(frontendRoot, "src", "pages", "CustomerBookingDetailPage.tsx"), "utf8"),
+    /Submit payment proof[\s\S]*customer-primary-action|customer-primary-action[\s\S]*Submit payment proof/
+  );
+});
+
+test("vendor discovery uses a mobile-first search and card layout", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(frontendRoot, "src", "pages", "VendorDiscoveryPage.tsx"), "utf8");
+  const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
+
+  assert.match(source, /className="vendor-search-actions"/);
+  assert.match(source, /className="vendor-discovery-grid"/);
+  assert.match(source, /className="vendor-card-actions"/);
+  assert.match(source, /p=\{\{ base: "md", sm: "lg" \}\}/);
+  assert.match(styles, /\.vendor-search-actions \{\s+align-items: stretch;\s+flex-direction: column;/);
+  assert.match(styles, /\.vendor-search-input \{\s+flex: 0 1 auto;/);
+  assert.match(styles, /\.vendor-card-actions > \.mantine-Button-root \{\s+min-height: 3\.25rem;/);
+  assert.match(styles, /\.vendor-card \{\s+min-height: 0;/);
+});
+
+test("login actions are mobile-first", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const loginSource = fs.readFileSync(path.join(frontendRoot, "src", "pages", "LoginPage.tsx"), "utf8");
+  const socialSource = fs.readFileSync(path.join(frontendRoot, "src", "components", "SocialAuthButtons.tsx"), "utf8");
+  const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
+
+  assert.ok((loginSource.match(/className="auth-primary-action"/g) || []).length >= 3);
+  assert.match(loginSource, /<SocialAuthButtons iconOnly intent="login"/);
+  assert.match(socialSource, /className="auth-social-action"/);
+  assert.match(styles, /\.finazze-auth-card \.auth-primary-action,[\s\S]*?\.finazze-auth-card \.auth-social-action \{\s+width: 100%;\s+min-height: 3\.25rem;/);
+});
+
+test("signup forms use provider icons, helpful labels, and touch-friendly actions", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const vendorSource = fs.readFileSync(path.join(frontendRoot, "src", "pages", "RegisterVendorPage.tsx"), "utf8");
+  const customerSource = fs.readFileSync(path.join(frontendRoot, "src", "pages", "RegisterCustomerPage.tsx"), "utf8");
+  const socialSource = fs.readFileSync(path.join(frontendRoot, "src", "components", "SocialAuthButtons.tsx"), "utf8");
+  const labelSource = fs.readFileSync(path.join(frontendRoot, "src", "components", "SignupFieldLabel.tsx"), "utf8");
+  const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
+
+  assert.match(socialSource, /IconBrandGoogle/);
+  assert.match(socialSource, /IconBrandFacebook/);
+  assert.match(socialSource, /leftSection=\{<ProviderIcon/);
+  assert.match(labelSource, /<Tooltip label=\{tooltip\}/);
+  assert.match(labelSource, /IconInfoCircle/);
+  assert.match(labelSource, /signup-label-required/);
+  assert.match(vendorSource, /<SignupFieldLabel label="Business category" required/);
+  assert.match(vendorSource, /withAsterisk=\{false\}/);
+  assert.match(vendorSource, /<SignupFieldLabel label="Phone"/);
+  assert.match(vendorSource, /className="auth-primary-action"/);
+  assert.match(customerSource, /<SignupFieldLabel label="Phone"/);
+  assert.match(customerSource, /className="auth-primary-action"/);
+  assert.match(vendorSource, /className="onboarding-layout"/);
+  assert.match(customerSource, /className="onboarding-layout"/);
+  assert.match(styles, /\.onboarding-layout \{\s+display: grid;\s+grid-template-columns: minmax\(0, 3fr\) minmax\(18rem, 2fr\);/);
+});
+
+test("group-funded campaign descriptions use Mantine Tiptap without source-code mode", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const editorSource = fs.readFileSync(path.join(frontendRoot, "src", "components", "CampaignDescriptionEditor.tsx"), "utf8");
+  const detailSource = fs.readFileSync(path.join(frontendRoot, "src", "pages", "GroupFundedCampaignPage.tsx"), "utf8");
+  const bookingSource = fs.readFileSync(path.join(frontendRoot, "src", "pages", "BookingRequestPage.tsx"), "utf8");
+
+  assert.match(editorSource, /RichTextEditor className="campaign-description-editor" editor=\{editor\} variant="subtle"/);
+  assert.match(editorSource, /MAX_CAMPAIGN_DESCRIPTION_CHARACTERS = 1000/);
+  assert.match(editorSource, /RichTextEditor\.BulletList/);
+  assert.doesNotMatch(editorSource, /RichTextEditor\.Code/);
+  assert.match(detailSource, /<RichCampaignDescription/);
+  assert.match(bookingSource, /<CampaignDescriptionEditor/);
+});
+
+test("group-funded campaign refresh preserves vendor theming after contribution updates", () => {
+  const source = fs.readFileSync(
+    path.join(path.resolve(__dirname, ".."), "src", "pages", "GroupFundedCampaignPage.tsx"),
+    "utf8"
+  );
+
+  assert.match(source, /const updateCampaign = useCallback\(\(nextCampaign: GroupFundedCampaignResponse\["campaign"\]\)/);
+  assert.match(source, /tenantSlug: currentCampaign\.tenantSlug/);
+  assert.doesNotMatch(source, /setCampaign\(data\.campaign\)/);
+});
+
+test("organizers cannot edit a campaign after a contribution fills a place", () => {
+  const source = fs.readFileSync(
+    path.join(path.resolve(__dirname, ".."), "src", "pages", "GroupFundedCampaignPage.tsx"),
+    "utf8"
+  );
+
+  assert.match(source, /const hasFilledContributions = Boolean\(contributorReservationSummary\?\.filledContributorCount\);/);
+  assert.match(source, /&& !hasFilledContributions;/);
+  assert.match(source, /Campaign details are locked once a contribution has been submitted\./);
+});
+
+test("vendor group-funded campaign details render rich descriptions", () => {
+  const source = fs.readFileSync(
+    path.join(path.resolve(__dirname, ".."), "src", "pages", "VendorDashboardPage.tsx"),
+    "utf8"
+  );
+
+  assert.match(source, /import RichCampaignDescription from "\.\.\/components\/RichCampaignDescription"/);
+  assert.match(source, /<RichCampaignDescription\s+className="rich-campaign-description"\s+content=\{selectedDetail\.campaign\.description\}/);
+});
+
+test("customer navigation keeps account actions in the mobile drawer", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const appSource = fs.readFileSync(path.join(frontendRoot, "src", "App.tsx"), "utf8");
+  const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
+
+  assert.match(appSource, /<Divider label="Account" labelPosition="center" my="sm" \/>/);
+  assert.match(appSource, /to="\/account\/security"/);
+  assert.match(appSource, /<Button color="red" leftSection=\{<IconLogout size=\{16\} \/>\} onClick=\{handleLogout\} variant="light">/);
+  assert.match(styles, /\.customer-account-hero,\s+\.customer-account-sidebar \{\s+display: none;/);
+});
+
+test("vendor settings provide an editable business profile", () => {
+  const source = fs.readFileSync(
+    path.join(path.resolve(__dirname, ".."), "src", "pages", "VendorDashboardPage.tsx"),
+    "utf8"
+  );
+
+  assert.match(source, /<Tabs\.Tab value="contact">Business profile<\/Tabs\.Tab>/);
+  assert.match(source, /label="Business name"/);
+  assert.match(source, /label="Business category"/);
+  assert.match(source, /label="Owner name"/);
+  assert.match(source, /label="Owner display name"/);
+});
+
+test("vendor group-funded discovery uses mobile-first booking controls and filters", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(frontendRoot, "src", "pages", "VendorProfilePage.tsx"), "utf8");
+  const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
+
+  assert.match(source, /className="vendor-info-panel vendor-booking-options-panel" p=\{\{ base: "md", sm: "xl" \}\}/);
+  assert.match(source, /<Stack className="vendor-campaign-filter-stack" gap="sm">/);
+  assert.match(source, /<SimpleGrid cols=\{\{ base: 1, xs: 2 \}\} spacing="sm">/);
+  assert.match(source, /className="vendor-group-funded-card-footer"/);
+  assert.match(source, /Organized by \{campaign\.organizerDisplayName\}/);
+  assert.match(source, /className="vendor-group-funded-card-vendor-link"/);
+  assert.match(source, /Funding \{formatPaymentAmount\(campaign\.fundedAmountCents, campaign\.currency\)\} \/ \{formatPaymentAmount\(campaign\.targetAmountCents, campaign\.currency\)\}/);
+  assert.match(source, />\s*Bundled services\s*</);
+  assert.match(source, /className="vendor-group-funded-card-action"/);
+  assert.match(source, /formatRelativeDeadline\(campaign\.fundingDeadlineAt\)/);
+  assert.match(styles, /@media \(max-width: 768px\) \{\s+\.vendor-booking-option-tabs-list,/);
+  assert.match(styles, /\.vendor-booking-option-toolbar \{\s+flex-direction: column;/);
+  assert.match(styles, /\.vendor-group-funded-card-bundle \{\s+grid-template-columns: 1fr;/);
+  assert.match(styles, /\.vendor-group-funded-card-action \{\s+min-height: 2\.75rem;/);
+  assert.doesNotMatch(source, />\s*Join this queue\s*</);
+  assert.doesNotMatch(source, />\s*Book here\s*</);
+  assert.match(source, /className="vendor-booking-option-tab-content"/);
+  assert.match(source, /className="vendor-contact-action customer-primary-action"/);
+  assert.doesNotMatch(source, /scrollAreaComponent=\{ScrollArea\.Autosize\}/);
+  assert.match(styles, /\.vendor-booking-option-tab-content \{\s+display: inline-flex;\s+align-items: center;\s+gap: 0\.45rem;/);
+});
+
+test("contact form submit action is mobile-first", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(frontendRoot, "src", "components", "ContactForm.tsx"), "utf8");
+  const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
+
+  assert.match(source, /className="contact-form-submit-action"/);
+  assert.match(source, /size="lg"/);
+  assert.doesNotMatch(source, /offsetScrollbars/);
+  assert.doesNotMatch(source, /<Stack gap="lg" pr="sm">/);
+  assert.match(styles, /\.contact-form-footer \{\s+align-items: stretch;\s+flex-direction: column;/);
+  assert.match(styles, /\.contact-form-submit-action \{\s+width: 100%;\s+min-height: 3\.25rem;/);
+  assert.match(styles, /\.customer-modal\.contact-vendor-modal \.mantine-Modal-content \{\s+height: min\(92dvh, 48rem\) !important;\s+display: flex;/);
+  assert.match(styles, /\.customer-modal\.contact-vendor-modal \.contact-form-body \{[\s\S]*?display: flex;\s+flex-direction: column;/);
+  assert.match(styles, /\.customer-modal\.contact-vendor-modal \.mantine-Modal-body \{\s+display: flex;\s+flex: 1 1 auto !important;/);
+  assert.match(styles, /\.customer-modal\.contact-vendor-modal \.contact-form-main \{\s+flex: 1 1 auto;\s+min-height: 0;/);
+  assert.match(styles, /\.contact-form-footer \{[\s\S]*?flex: 0 0 auto;/);
+});
+
+test("vendor group-funded discovery defaults to all campaigns without a date range", () => {
+  const source = fs.readFileSync(
+    path.join(path.resolve(__dirname, ".."), "src", "pages", "VendorProfilePage.tsx"),
+    "utf8"
+  );
+
+  assert.match(source, /const GROUP_FUNDED_FILTER_STORAGE_KEY = "getprio:vendor-profile:group-funded-filters:v2";/);
+  assert.match(source, /ongoing: false,\s+dateRange: \[null, null\]/);
+  assert.match(source, /if \(campaignDateFrom\) \{\s+params\.set\("scheduledDateFrom", campaignDateFrom\);/);
+  assert.match(source, /if \(campaignDateTo\) \{\s+params\.set\("scheduledDateTo", campaignDateTo\);/);
+  assert.match(source, /const campaignMinDate = useMemo\(\(\) => \{/);
+  assert.match(source, /minDate=\{campaignMinDate\}/);
+  assert.doesNotMatch(source, /GROUP_FUNDED_DEFAULT_RANGE_DAYS/);
+});
+
+test("the app has a recovery boundary and a dedicated mobile-first 404 page", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const app = fs.readFileSync(path.join(frontendRoot, "src", "App.tsx"), "utf8");
+  const main = fs.readFileSync(path.join(frontendRoot, "src", "main.tsx"), "utf8");
+  const boundary = fs.readFileSync(path.join(frontendRoot, "src", "components", "AppErrorBoundary.tsx"), "utf8");
+  const notFound = fs.readFileSync(path.join(frontendRoot, "src", "pages", "NotFoundPage.tsx"), "utf8");
+  const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
+
+  assert.match(main, /<AppErrorBoundary>/);
+  assert.match(boundary, /static getDerivedStateFromError\(\)/);
+  assert.match(boundary, /Try again/);
+  assert.match(app, /path="\*" element=\{<AppShell><NotFoundPage \/><\/AppShell>\}/);
+  assert.match(notFound, /Error 404/);
+  assert.match(notFound, /This page took a detour\./);
+  assert.match(notFound, /not-found-wayfinding-transparent\.png/);
+  assert.match(styles, /\.not-found-page \{/);
+  assert.match(styles, /\.app-error-boundary \{/);
+  assert.equal(fs.existsSync(path.join(frontendRoot, "public", "illustrations", "generated", "not-found-wayfinding-transparent.png")), true);
+});
+
+test("missing campaign and booking responses use the shared recovery state", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const campaign = fs.readFileSync(path.join(frontendRoot, "src", "pages", "GroupFundedCampaignPage.tsx"), "utf8");
+  const booking = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CustomerBookingDetailPage.tsx"), "utf8");
+  const state = fs.readFileSync(path.join(frontendRoot, "src", "components", "ResourceErrorState.tsx"), "utf8");
+  const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
+
+  assert.match(state, /const isNotFound = status === 404;/);
+  assert.match(state, /className="not-found-page resource-error-state"/);
+  assert.match(state, /This link is unavailable\./);
+  assert.match(state, /Try again/);
+  assert.match(state, /not-found-wayfinding-transparent\.png/);
+  assert.match(styles, /\.resource-error-actions \{\s+width: max-content;\s+max-width: 100%;\s+flex-wrap: nowrap;/);
+  assert.match(campaign, /<ResourceErrorState/);
+  assert.match(campaign, /resourceName="group-funded campaign"/);
+  assert.match(booking, /resourceName="booking"/);
+  assert.match(campaign, /fallbackError instanceof ApiError \? fallbackError\.status : null/);
+  assert.match(booking, /loadError instanceof ApiError \? loadError\.status : null/);
+});
+
+test("an unknown queue ticket uses the shared not-found recovery state", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const ticket = fs.readFileSync(path.join(frontendRoot, "src", "pages", "JoinedQueuePage.tsx"), "utf8");
+
+  assert.match(ticket, /import \{ API_BASE_URL, ApiError, apiRequest \} from "\.\.\/api\/client";/);
+  assert.match(ticket, /setResponseStatus\(loadError instanceof ApiError \? loadError\.status : null\);/);
+  assert.match(ticket, /if \(lookupCode && !nextSnapshot\.focusTicket\)/);
+  assert.match(ticket, /if \(responseStatus === 404\)/);
+  assert.match(ticket, /resourceName="queue ticket"/);
 });

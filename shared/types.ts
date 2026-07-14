@@ -181,6 +181,7 @@ export interface TenantSummary {
   autoResumeVacancyPercent: number | null;
   contactEmail: string;
   contactPhone: string;
+  publicProfileCategory: string;
   joinUrl: string;
   monitorUrl: string;
   isActive: boolean;
@@ -332,6 +333,7 @@ export interface VendorAvailabilityBlockSummary {
   weekday: number;
   startsAt: string;
   endsAt: string;
+  endsNextDay: boolean;
   capacity: number;
   isActive: boolean;
   notes: string;
@@ -373,6 +375,7 @@ export interface SaveVendorAvailabilityBlockRequest {
   weekday: number;
   startsAt: string;
   endsAt: string;
+  endsNextDay?: boolean;
   capacity: number;
   isActive?: boolean;
   notes?: string;
@@ -672,6 +675,7 @@ export interface GroupFundedCampaignSummary {
   tenantId: string;
   tenantSlug?: string | null;
   vendorName?: string;
+  vendorCategory?: string;
   locationId: string;
   serviceId: string;
   isOrganizer?: boolean;
@@ -1401,6 +1405,10 @@ export interface CreateWalkInTicketRequest {
 }
 
 export interface UpdateTenantSettingsRequest {
+  name: string;
+  publicProfileCategory: string;
+  ownerName: string;
+  ownerDisplayName: string;
   queuePrefix: string;
   averageServiceMinutes: number | string;
   notificationThreshold: number | string;

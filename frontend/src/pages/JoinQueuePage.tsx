@@ -829,8 +829,10 @@ export default function JoinQueuePage() {
                   ) : null}
                   {error ? <Alert color="red">{error}</Alert> : null}
                   <Button
+                    className="customer-primary-action"
                     color="dark"
                     disabled={submitting || queueIntakePaused || queueDayClosed || (shouldUseTurnstile && !turnstileReady)}
+                    size="lg"
                     type="submit"
                   >
                     {submitting

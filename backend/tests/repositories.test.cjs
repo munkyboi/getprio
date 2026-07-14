@@ -170,6 +170,11 @@ test("repository mapping helpers and update paths preserve defaults and normaliz
   assert.equal(service.slug, "service");
   assert.equal(service.allowBookingQuantity, true);
 
+  const createServiceQuery = queries.find(({ sql }) => sql.includes("INSERT INTO vendor_services"));
+  assert.match(createServiceQuery.sql, /\$15\)/);
+  assert.equal(createServiceQuery.values.length, 15);
+  assert.equal(createServiceQuery.values.at(-1), 0);
+
   const updatedService = await vendorServices.updateService(2, { slug: "Updated Name", description: "", isActive: false }, { client });
   assert.equal(updatedService.slug, "updated-name");
   assert.equal(updatedService.isActive, false);

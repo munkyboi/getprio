@@ -111,6 +111,7 @@ import type {
 } from "@shared";
 import { API_BASE_URL } from "../api/client";
 import PhilippineMobileInput from "../components/PhilippineMobileInput";
+import RichCampaignDescription from "../components/RichCampaignDescription";
 import * as vendorDashboardBookings from "../api/vendorDashboardBookings";
 import * as vendorDashboardQueue from "../api/vendorDashboardQueue";
 import * as vendorDashboardCatalog from "../api/vendorDashboardCatalog";
@@ -131,6 +132,7 @@ import {
   toTimestamp
 } from "../utils/dates";
 import { getErrorMessage } from "../utils/errors";
+import { getWeeklyAvailabilityDefaults } from "../utils/availability";
 import { isBrowserPushSupported, subscribeToBrowserPush } from "../utils/pushNotifications";
 import { checkServiceSlugAvailability } from "../api/vendorDashboardCatalog";
 import { checkCounterSlugAvailability } from "../api/vendorDashboardOperations";
@@ -279,6 +281,10 @@ const emptyWalkIn: CreateWalkInTicketRequest = {
 };
 
 const defaultSettings: UpdateTenantSettingsRequest = {
+  name: "",
+  publicProfileCategory: "",
+  ownerName: "",
+  ownerDisplayName: "",
   queuePrefix: "P",
   averageServiceMinutes: 5,
   notificationThreshold: 2,
@@ -505,6 +511,7 @@ const emptyAvailabilityBlockForm: SaveVendorAvailabilityBlockRequest = {
   weekday: 1,
   startsAt: "09:00",
   endsAt: "17:00",
+  endsNextDay: false,
   capacity: 1,
   isActive: true,
   notes: ""
@@ -759,7 +766,7 @@ const dashboardSectionDescriptions: Record<DashboardSection, string> = {
   clients: "Review recent customer activity and returning queue visitors.",
   history: "Inspect completed ticket activity and export queue records.",
   reports: "Track queue usage, service pace, and plan consumption over time.",
-  settings: "Adjust subscription, contact details, and queue behavior for this workspace."
+  settings: "Adjust your business profile, subscription, and queue behavior for this workspace."
 };
 const adminAllowedSections = new Set<DashboardSection>([
   "queue",
@@ -1239,6 +1246,28 @@ export default function VendorDashboardPage() {
   const locationQuery = selectedLocationSlug
     ? `?location=${encodeURIComponent(selectedLocationSlug)}`
     : "";
+  const dashboardErrorMessage = [
+    error,
+    bookingDetailError,
+    rescheduleSlotsError,
+    groupFundedProofError
+  ].find(Boolean) || "";
+
+  useEffect(() => {
+    if (!dashboardErrorMessage) {
+      return;
+    }
+
+    notifications.show({
+      id: "vendor-dashboard-error",
+      color: "red",
+      icon: <IconX size={18} />,
+      title: "Could not complete that action",
+      message: dashboardErrorMessage,
+      autoClose: 7000
+    });
+  }, [dashboardErrorMessage]);
+
   const dashboardBootstrapQuery = useQuery({
     queryKey: ["vendor-dashboard-bootstrap", token, selectedTenantSlug, selectedLocationSlug, locationQuery],
     queryFn: async () => {
@@ -1505,6 +1534,10 @@ export default function VendorDashboardPage() {
     }
     setSnapshot(snapshotResponse);
     setSettings({
+      name: snapshotResponse.tenant.name || "",
+      publicProfileCategory: snapshotResponse.tenant.publicProfileCategory || "",
+      ownerName: user?.name || "",
+      ownerDisplayName: user?.displayName || "",
       queuePrefix: snapshotResponse.tenant.queuePrefix,
       averageServiceMinutes: snapshotResponse.tenant.averageServiceMinutes,
       notificationThreshold: snapshotResponse.tenant.notificationThreshold,
@@ -1517,7 +1550,7 @@ export default function VendorDashboardPage() {
     });
     setBilling(billingResponse);
     setVendorNotificationSettings(notificationSettings);
-  }, [dashboardBootstrapQuery.data, selectedLocationSlug]);
+  }, [dashboardBootstrapQuery.data, selectedLocationSlug, user?.displayName, user?.name]);
 
   useEffect(() => {
     if (dashboardBootstrapQuery.error) {
@@ -2461,9 +2494,14 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   async function reloadServices() {
-    await queryClient.invalidateQueries({
-      queryKey: ["vendor-dashboard-services", token, selectedTenantSlug, isOwner, isAdmin]
-    });
+    await Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: ["vendor-dashboard-services", token, selectedTenantSlug, isOwner, isAdmin]
+      }),
+      queryClient.invalidateQueries({
+        queryKey: ["vendor-dashboard-location-services", token, selectedTenantSlug, isOwner, isAdmin]
+      })
+    ]);
   }
 
   async function reloadAvailability() {
@@ -3031,13 +3069,16 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   function openAvailabilityBlockDialog(block?: VendorAvailabilityBlockSummary) {
+    const weekday = block?.weekday ?? 1;
+    const businessHourDefaults = getWeeklyAvailabilityDefaults(selectedLocation?.hours || [], weekday);
     setEditingAvailabilityBlockId(block?.id || "");
     setAvailabilityBlockForm({
       locationSlug: selectedLocationSlug,
       serviceSlug: block?.serviceId ? serviceSlugById.get(block.serviceId) || "" : "",
-      weekday: block?.weekday ?? 1,
-      startsAt: block?.startsAt || "09:00",
-      endsAt: block?.endsAt || "17:00",
+      weekday,
+      startsAt: block?.startsAt || businessHourDefaults.startsAt,
+      endsAt: block?.endsAt || businessHourDefaults.endsAt,
+      endsNextDay: block ? block.endsNextDay : businessHourDefaults.endsNextDay,
       capacity: block?.capacity || 1,
       isActive: block?.isActive ?? true,
       notes: block?.notes || ""
@@ -3085,6 +3126,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         weekday: block.weekday,
         startsAt: block.startsAt,
         endsAt: block.endsAt,
+        endsNextDay: block.endsNextDay,
         capacity: block.capacity,
         isActive,
         notes: block.notes
@@ -3449,7 +3491,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     const success = await runAction("settings", () => vendorDashboardOperations.updateSettings(token, selectedTenantSlug, settings));
 
     if (success) {
-      showSuccessNotification("Settings saved", "Tenant queue settings were updated.");
+      showSuccessNotification("Business profile saved", "Your business profile and queue settings were updated.");
     }
   }
 
@@ -4878,7 +4920,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     Generic Service Business
                   </Badge>
                 </Group>
-                <Stack gap={4} mt="md">
+                <Stack gap="sm" mt="md">
                   <Title className="vendor-hero-title" order={1}>
                     {previewVendorName}
                   </Title>
@@ -6085,9 +6127,19 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     label="Day"
                     required
                     value={String(availabilityBlockForm.weekday)}
-                    onChange={(value) =>
-                      setAvailabilityBlockForm((current) => ({ ...current, weekday: Number(value || 1) }))
-                    }
+                    onChange={(value) => {
+                      const weekday = Number(value || 1);
+                      setAvailabilityBlockForm((current) => {
+                        if (editingAvailabilityBlockId) {
+                          return { ...current, weekday };
+                        }
+                        return {
+                          ...current,
+                          weekday,
+                          ...getWeeklyAvailabilityDefaults(selectedLocation?.hours || [], weekday)
+                        };
+                      });
+                    }}
                   />
                   <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
                     <TextInput
@@ -6109,6 +6161,16 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       }
                     />
                   </SimpleGrid>
+                  <Checkbox
+                    label="Ends next day"
+                    checked={availabilityBlockForm.endsNextDay === true}
+                    onChange={(event) =>
+                      setAvailabilityBlockForm((current) => ({ ...current, endsNextDay: event.currentTarget.checked }))
+                    }
+                  />
+                  <Text c="dimmed" size="xs">
+                    {formatPreviewHourRange(selectedLocation, availabilityBlockForm.weekday)}. Weekly availability must stay within these business hours.
+                  </Text>
                   <NumberInput
                     label="Capacity"
                     min={1}
@@ -6581,7 +6643,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                               </Text>
                             </Table.Td>
                             <Table.Td>
-                              <Text c={block.isActive ? undefined : "dimmed"}>{block.startsAt} - {block.endsAt}</Text>
+                              <Text c={block.isActive ? undefined : "dimmed"}>{block.startsAt} - {block.endsAt}{block.endsNextDay ? " next day" : ""}</Text>
                             </Table.Td>
                             <Table.Td>
                               <Text c={block.isActive ? undefined : "dimmed"}>{getServiceLabel(block.serviceId)}</Text>
@@ -7577,7 +7639,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   </Group>
 
                   {selectedDetail.campaign.description ? (
-                    <Text>{selectedDetail.campaign.description}</Text>
+                    <RichCampaignDescription
+                      className="rich-campaign-description"
+                      content={selectedDetail.campaign.description}
+                    />
                   ) : (
                     <Text c="dimmed" size="sm">No campaign description provided.</Text>
                   )}
@@ -8535,7 +8600,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           <Tabs defaultValue="subscription">
             <Tabs.List>
               <Tabs.Tab value="subscription">Subscription</Tabs.Tab>
-              <Tabs.Tab value="contact">Contact details</Tabs.Tab>
+              <Tabs.Tab value="contact">Business profile</Tabs.Tab>
               <Tabs.Tab value="queue">Queue settings</Tabs.Tab>
               <Tabs.Tab value="notifications">Notifications</Tabs.Tab>
             </Tabs.List>
@@ -8569,11 +8634,28 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 <Stack gap="md">
                   <div>
                     <Text className="neura-label">Tenant settings</Text>
-                    <Title order={3}>Contact details</Title>
+                    <Title order={3}>Business profile</Title>
                     <Text c="dimmed" size="sm">
-                      Contact details are used across the queue experience and tenant notifications.
+                      Keep the details customers see for your business and its owner up to date.
                     </Text>
                   </div>
+                  <TextInput
+                    label="Business name"
+                    disabled={!canManageContactSettings}
+                    value={settings.name}
+                    onChange={(event) =>
+                      setSettings((current) => ({ ...current, name: event.target.value }))
+                    }
+                  />
+                  <TextInput
+                    label="Business category"
+                    disabled={!canManageContactSettings}
+                    placeholder="e.g. Sports and recreation"
+                    value={settings.publicProfileCategory}
+                    onChange={(event) =>
+                      setSettings((current) => ({ ...current, publicProfileCategory: event.target.value }))
+                    }
+                  />
                   <TextInput
                     name="contactEmail"
                     label="Contact email"
@@ -8594,8 +8676,25 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       setSettings((current) => ({ ...current, contactPhone: nextValue }))
                     }
                   />
+                  <TextInput
+                    label="Owner name"
+                    disabled={!canManageContactSettings}
+                    value={settings.ownerName}
+                    onChange={(event) =>
+                      setSettings((current) => ({ ...current, ownerName: event.target.value }))
+                    }
+                  />
+                  <TextInput
+                    label="Owner display name"
+                    description="This name is shown where the business owner is identified."
+                    disabled={!canManageContactSettings}
+                    value={settings.ownerDisplayName}
+                    onChange={(event) =>
+                      setSettings((current) => ({ ...current, ownerDisplayName: event.target.value }))
+                    }
+                  />
                   <Button className="neura-secondary-button" disabled={busyAction === "settings"} type="submit">
-                    {busyAction === "settings" ? "Saving..." : "Save contact details"}
+                    {busyAction === "settings" ? "Saving..." : "Save business profile"}
                   </Button>
                 </Stack>
               </form>
