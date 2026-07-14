@@ -43,8 +43,24 @@ function getS3Client() {
   return s3Client;
 }
 
+function requireString(value, label) {
+  if (typeof value !== "string") {
+    const error = new Error(`${label} must be a string.`);
+    error.statusCode = 400;
+    throw error;
+  }
+  return value;
+}
+
+function optionalString(value, label) {
+  if (value === undefined || value === null || value === "") {
+    return "";
+  }
+  return requireString(value, label);
+}
+
 function getExtension(fileName, contentType) {
-  const extension = String(fileName || "").toLowerCase().match(/\.(jpe?g|png|webp)$/)?.[1];
+  const extension = fileName.toLowerCase().match(/\.(jpe?g|png|webp)$/)?.[1];
   if (extension) return extension === "jpeg" ? "jpg" : extension;
   if (contentType === "image/png") return "png";
   if (contentType === "image/webp") return "webp";
@@ -52,7 +68,7 @@ function getExtension(fileName, contentType) {
 }
 
 function normalizeFileName(fileName) {
-  return String(fileName || "campaign-report")
+  return (fileName || "campaign-report")
     .trim()
     .replace(/[^\w.\- ]+/g, "")
     .slice(0, 160) || "campaign-report";
@@ -72,7 +88,7 @@ function buildObjectKey({ tenant, campaign, fileName, contentType }) {
 
 async function uploadBinary({ tenant, campaign, body, fileBuffer }) {
   assertConfigured();
-  const contentType = String(body.contentType || "").toLowerCase();
+  const contentType = requireString(body?.contentType, "Content type").toLowerCase();
   if (!ALLOWED_CONTENT_TYPES.has(contentType)) {
     const error = new Error("Only JPEG, PNG, and WebP screenshots are supported.");
     error.statusCode = 400;
@@ -84,7 +100,7 @@ async function uploadBinary({ tenant, campaign, body, fileBuffer }) {
     throw error;
   }
 
-  const fileName = normalizeFileName(body.fileName);
+  const fileName = normalizeFileName(optionalString(body?.fileName, "File name"));
   const objectKey = buildObjectKey({ tenant, campaign, fileName, contentType });
   await getS3Client().send(new PutObjectCommand({
     Bucket: env.b2BucketPublicBoard,
@@ -106,7 +122,7 @@ async function uploadBinary({ tenant, campaign, body, fileBuffer }) {
 
 function getAttachmentForCampaign({ tenant, campaign, objectKey, fileName }) {
   assertConfigured();
-  const normalizedObjectKey = String(objectKey || "").trim();
+  const normalizedObjectKey = requireString(objectKey, "Attachment key").trim();
   const expectedPrefix = `campaign-reports/tenants/${tenant._id}/campaigns/${campaign._id}/`;
   if (!normalizedObjectKey || !normalizedObjectKey.startsWith(expectedPrefix)) {
     const error = new Error("Campaign report attachment is invalid.");
@@ -116,7 +132,7 @@ function getAttachmentForCampaign({ tenant, campaign, objectKey, fileName }) {
   return {
     objectKey: normalizedObjectKey,
     publicUrl: buildPublicUrl(normalizedObjectKey),
-    fileName: normalizeFileName(fileName)
+    fileName: normalizeFileName(optionalString(fileName, "File name"))
   };
 }
 
