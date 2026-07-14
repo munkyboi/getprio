@@ -71,6 +71,16 @@ test("campaign report attachment service rejects non-string request fields", asy
     (error) => error.statusCode === 400 && /file name must be a string/i.test(error.message)
   );
 
+  await assert.rejects(
+    () => service.uploadBinary({
+      tenant,
+      campaign,
+      body: { contentType: "image/png", fileName: "report.png" },
+      fileBuffer: "not a binary upload"
+    }),
+    (error) => error.statusCode === 400 && /between 1 byte and 8 mb/i.test(error.message)
+  );
+
   assert.throws(
     () => service.getAttachmentForCampaign({
       tenant,

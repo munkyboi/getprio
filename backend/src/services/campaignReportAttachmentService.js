@@ -94,7 +94,13 @@ async function uploadBinary({ tenant, campaign, body, fileBuffer }) {
     error.statusCode = 400;
     throw error;
   }
-  if (!Buffer.isBuffer(fileBuffer) || !fileBuffer.length || fileBuffer.length > MAX_UPLOAD_BYTES) {
+  if (!Buffer.isBuffer(fileBuffer)) {
+    const error = new Error("Screenshot must be between 1 byte and 8 MB.");
+    error.statusCode = 400;
+    throw error;
+  }
+  const fileSizeBytes = fileBuffer.byteLength;
+  if (!fileSizeBytes || fileSizeBytes > MAX_UPLOAD_BYTES) {
     const error = new Error("Screenshot must be between 1 byte and 8 MB.");
     error.statusCode = 400;
     throw error;
@@ -115,7 +121,7 @@ async function uploadBinary({ tenant, campaign, body, fileBuffer }) {
       publicUrl: buildPublicUrl(objectKey),
       fileName,
       contentType,
-      sizeBytes: fileBuffer.length
+      sizeBytes: fileSizeBytes
     }
   };
 }
