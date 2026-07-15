@@ -1285,6 +1285,18 @@ body {
   display: none;
 }
 
+.ticket-page-ticket-actions,
+.ticket-page-cancel-modal-actions {
+  align-items: stretch;
+}
+
+.ticket-page-ticket-cancel-action,
+.ticket-page-cancel-modal-actions .mantine-Button-root {
+  justify-content: center;
+  min-height: 3rem;
+  width: 100%;
+}
+
 @media (min-width: 48.0625em) {
   .ticket-page-card-actions {
     align-items: center;
@@ -1299,6 +1311,17 @@ body {
 
   .ticket-page-card-actions .ticket-page-card-action-separator {
     display: block;
+  }
+
+  .ticket-page-ticket-actions,
+  .ticket-page-cancel-modal-actions {
+    align-items: flex-end;
+  }
+
+  .ticket-page-ticket-cancel-action,
+  .ticket-page-cancel-modal-actions .mantine-Button-root {
+    min-height: 2.25rem;
+    width: auto;
   }
 }
 
