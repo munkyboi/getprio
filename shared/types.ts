@@ -480,6 +480,7 @@ export interface CustomerBookingSummary {
   servicePriceAmountCents: number;
   serviceCurrency: "PHP";
   servicePriceDisplay: string;
+  bundleItems?: BookingBundleItemSummary[];
   bookingQuantity: number;
   scheduledStartAt: string | Date;
   scheduledEndAt: string | Date;
@@ -521,6 +522,10 @@ export interface CreateCustomerBookingRequest {
   serviceSlug: string;
   scheduledStartAt: string;
   bookingQuantity?: number;
+  bundleItems?: Array<{
+    serviceSlug: string;
+    bookingQuantity?: number;
+  }>;
   customerName?: string;
   customerEmail?: string;
   customerPhone?: string;
@@ -533,6 +538,19 @@ export interface CreateCustomerBookingRequest {
 
 export interface CustomerBookingResponse {
   booking: CustomerBookingSummary;
+}
+
+export interface BookingBundleItemSummary {
+  id: string;
+  serviceId: string;
+  serviceName: string;
+  serviceSlug: string;
+  bookingQuantity: number;
+  priceAmountCents: number;
+  currency: string;
+  scheduledStartAt: string | Date;
+  scheduledEndAt: string | Date;
+  sortOrder: number;
 }
 
 export interface CustomerBookingDetailResponse {

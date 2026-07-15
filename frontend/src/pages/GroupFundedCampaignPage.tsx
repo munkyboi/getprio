@@ -5,6 +5,7 @@ import {
   Button,
   Card,
   Container,
+  Divider,
   FileInput,
   Group,
   Image,
@@ -13,6 +14,7 @@ import {
   Progress,
   Select,
   SimpleGrid,
+  Spoiler,
   Stack,
   Text,
   Textarea,
@@ -80,6 +82,31 @@ function getCampaignStatusLabel(status: GroupFundedCampaignSummary["campaignStat
       return "Canceled by vendor";
     default:
       return status.replace(/_/g, " ");
+  }
+}
+
+function getCampaignStatusBadgeColor(status: GroupFundedCampaignSummary["campaignStatus"]): "gray" | "red" | "yellow" | "orange" | "teal" | "blue" {
+  switch (status) {
+    case "funding":
+    case "slot_recovery":
+    case "vendor_review":
+      return "yellow";
+    case "funded":
+    case "vendor_approved":
+    case "confirmed":
+      return "teal";
+    case "replacement_proposed":
+      return "blue";
+    case "policy_review_required":
+      return "orange";
+    case "organizer_canceled":
+    case "funding_failed":
+    case "vendor_rejected":
+    case "vendor_review_expired":
+    case "vendor_canceled":
+      return "red";
+    default:
+      return "gray";
   }
 }
 
@@ -449,17 +476,15 @@ export default function GroupFundedCampaignPage() {
     const gapLength = 3;
     const segmentLength = (circumference - gapLength * campaign.requiredContributors) / campaign.requiredContributors;
     const colors = [
-      ...Array.from({ length: contributorReservationSummary.verifiedContributorCount }, () => "var(--mantine-color-teal-6)"),
-      ...Array.from({ length: contributorReservationSummary.pendingVerificationContributorCount }, () => "var(--mantine-color-blue-6)"),
-      ...Array.from({ length: contributorReservationSummary.vacantContributorCount }, () => "var(--mantine-color-gray-5)")
+      ...Array.from({ length: contributorReservationSummary.verifiedContributorCount }, () => "var(--mantine-color-teal-4)"),
+      ...Array.from({ length: contributorReservationSummary.pendingVerificationContributorCount }, () => "var(--mantine-color-blue-4)"),
+      ...Array.from({ length: contributorReservationSummary.vacantContributorCount }, () => "rgba(255, 255, 255, 0.32)")
     ];
-    return [
-      ...colors.map((color, index) => ({
-        color,
-        dasharray: `${segmentLength} ${circumference - segmentLength}`,
-        dashoffset: -index * (segmentLength + gapLength)
-      }))
-    ];
+    return colors.map((color, index) => ({
+      color,
+      dasharray: `${segmentLength} ${circumference - segmentLength}`,
+      dashoffset: -index * (segmentLength + gapLength)
+    }));
   }, [campaign, contributorReservationSummary]);
   const bundleItems = useMemo(() => {
     if (!campaign) {
@@ -854,11 +879,11 @@ export default function GroupFundedCampaignPage() {
           <div><Text c="dimmed" size="xs">Payment reference</Text><Text fw={800}>{campaign.contribution.paymentReference || "Not set"}</Text></div>
           <div><Text c="dimmed" size="xs">Uploaded proof</Text><Text>{campaign.contribution.paymentProof?.fileName || "Proof attached"}</Text></div>
           {campaign.contribution.paymentProof?.contentType.startsWith("image/") && contributionProofAccessUrl ? (
-            <Button className="group-funded-view-proof-button" leftSection={<IconEye size={18} />} onClick={() => setImagePreview({ name: campaign.contribution?.paymentProof?.fileName || "Payment proof", imageUrl: contributionProofAccessUrl })} variant="light">
+            <Button className="group-funded-view-proof-button" leftSection={<IconEye size={18} />} onClick={() => setImagePreview({ name: campaign.contribution?.paymentProof?.fileName || "Payment proof", imageUrl: contributionProofAccessUrl })} size="lg" variant="light">
               View payment proof
             </Button>
           ) : contributionProofAccessUrl ? (
-            <Button className="group-funded-view-proof-button" component="a" href={contributionProofAccessUrl} leftSection={<IconEye size={18} />} rel="noreferrer" target="_blank" variant="light">
+            <Button className="group-funded-view-proof-button" component="a" href={contributionProofAccessUrl} leftSection={<IconEye size={18} />} rel="noreferrer" size="lg" target="_blank" variant="light">
               View payment proof
             </Button>
           ) : contributionProofAccessError ? <Text c="dimmed" size="sm">{contributionProofAccessError}</Text> : null}
@@ -883,36 +908,67 @@ export default function GroupFundedCampaignPage() {
 
         <Paper className="vendor-hero-shell ticket-page-hero booking-detail-page-hero" p={{ base: "lg", md: "xl" }}>
           <SimpleGrid cols={{ base: 1, lg: 2 }} spacing={{ base: "xl", lg: 48 }}>
-            <Stack gap="lg" justify="flex-start">
+            <Stack className="booking-detail-info-panel" gap="lg" justify="flex-start">
               <div>
-                <Group gap="sm" wrap="wrap">
-                  <Badge className="group-funded-hero-badge" size="lg">
-                    {campaign.vendorCategory || "Business"}
-                  </Badge>
-                  <Badge className="group-funded-hero-badge group-funded-hero-status-badge" size="lg">
-                    {getCampaignStatusLabel(campaign.campaignStatus)}
-                  </Badge>
-                </Group>
-                <Stack gap={4} mt="md">
-                  <Title className="vendor-hero-title ticket-page-title" order={1}>
-                    {campaign.campaignTitle || campaign.serviceName}
-                  </Title>
-                  <Text className="vendor-hero-subtitle" fw={700} size="lg">
-                    Organized by {campaign.organizerDisplayName}
-                  </Text>
-                </Stack>
+                <Title className="vendor-hero-title ticket-page-title" order={1}>
+                  {campaign.campaignTitle || campaign.serviceName}
+                </Title>
+                <Text className="vendor-hero-subtitle" fw={700} mt={4} size="lg">
+                  Organized by {campaign.organizerDisplayName}
+                </Text>
               </div>
 
-              <RichCampaignDescription
-                className="vendor-hero-description group-funded-campaign-description rich-campaign-description"
-                content={campaign.description || `${campaign.vendorName || "Vendor"} group-funded booking organized by ${campaign.organizerDisplayName}.`}
-              />
+              <Spoiler hideLabel="Show less" maxHeight={78} showLabel="Read more">
+                <RichCampaignDescription
+                  className="vendor-hero-description group-funded-campaign-description rich-campaign-description"
+                  content={campaign.description || `${campaign.vendorName || "Vendor"} group-funded booking organized by ${campaign.organizerDisplayName}.`}
+                />
+              </Spoiler>
+
+              <Group gap="sm" wrap="wrap">
+                <Badge className="group-funded-hero-category-badge" size="lg" variant="light">
+                  {campaign.vendorCategory || "Business"}
+                </Badge>
+                <Badge color={getCampaignStatusBadgeColor(campaign.campaignStatus)} size="lg" variant="light">
+                  {getCampaignStatusLabel(campaign.campaignStatus)}
+                </Badge>
+              </Group>
+
+              <Paper className="booking-detail-services-card" p="md">
+                <Stack gap="sm">
+                  <Text className="finazze-section-label">Bundled services</Text>
+                  {bundleItemsWithImages.map((item) => (
+                    <Paper className="group-funded-bundle-item" key={item.id || item.serviceSlug} p="sm">
+                      <Group align="center" gap="sm" wrap="nowrap">
+                        {item.imageUrl ? (
+                          <button
+                            aria-label={`Preview ${item.serviceName} image`}
+                            className="group-funded-bundle-thumbnail"
+                            onClick={() => setImagePreview({ name: item.serviceName, imageUrl: item.imageUrl })}
+                            type="button"
+                          >
+                            <img alt="" src={item.imageUrl} />
+                            <span aria-hidden="true"><IconEye size={16} /></span>
+                          </button>
+                        ) : null}
+                        <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
+                          <Group justify="space-between" gap="sm" wrap="nowrap">
+                            <Text fw={800}>{item.serviceName}</Text>
+                            <Badge variant="light">x{item.bookingQuantity}</Badge>
+                          </Group>
+                          <Text c="dimmed" size="sm">
+                            {formatBookingScheduleTimeRange(item.scheduledStartAt, item.scheduledEndAt)} · {formatPaymentAmount(item.priceAmountCents, item.currency)}
+                          </Text>
+                        </Stack>
+                      </Group>
+                    </Paper>
+                  ))}
+                </Stack>
+              </Paper>
 
               <Stack gap="xs">
                 <Group c="dimmed" gap={8} wrap="nowrap">
-                  <ThemeIcon className="vendor-theme-icon booking-detail-hero-icon-solid" radius="xl" size={32} variant="light">
-                    <IconBuildingStore size={16} />
-                  </ThemeIcon>
+                  <IconBuildingStore className="booking-detail-meta-icon" size={18} />
                   <Group gap={4} wrap="wrap">
                     {campaign.vendorName ? (
                       campaign.tenantSlug ? (
@@ -925,84 +981,66 @@ export default function GroupFundedCampaignPage() {
                   </Group>
                 </Group>
                 <Group c="dimmed" gap={8} wrap="nowrap">
-                  <ThemeIcon className="vendor-theme-icon booking-detail-hero-icon-solid" radius="xl" size={32} variant="light">
-                    <IconCalendar size={16} />
-                  </ThemeIcon>
+                  <IconCalendar className="booking-detail-meta-icon" size={18} />
                   <Text>
                     {formatBookingScheduleDate(campaign.scheduledStartAt)} · {formatBookingScheduleTimeRange(campaign.scheduledStartAt, campaign.scheduledEndAt)}
                   </Text>
                 </Group>
               </Stack>
 
-              <Group className="group-funded-hero-actions" gap="md">
-                {canShareCampaign ? (
-                  <div className="group-funded-share-action">
-                    {shareCopied ? <div className="group-funded-share-toast">Share link copied to clipboard</div> : null}
-                    <Button className="vendor-theme-button" leftSection={<IconCopy size={18} />} onClick={copyShareLink} size="lg">
-                      Copy share link
-                    </Button>
-                  </div>
-                ) : null}
-                <Button
-                  className="vendor-theme-button vendor-theme-button-ghost"
-                  leftSection={<IconUsersGroup size={18} />}
-                  onClick={scrollToPaymentProof}
-                  size="lg"
-                  variant="subtle"
-                >
-                  Join campaign
+              <Divider />
+              <Group justify="flex-end">
+                <Button color="red" leftSection={<IconFlag size={16} />} onClick={() => setReportModalOpen(true)} variant="subtle">
+                  Report
                 </Button>
               </Group>
             </Stack>
 
-            <Paper className="vendor-hero-visual" p="xl" style={themedMediaStyle}>
-              <div className="vendor-hero-media-shell">
-                <div className="vendor-hero-media-slide is-active">
-                  {vendorTheme?.logoUrl ? (
-                    <div className="vendor-profile-logo-frame">
-                      <img alt={`${campaign.vendorName || "Vendor"} logo`} src={vendorTheme.logoUrl} />
-                    </div>
-                  ) : (
-                    <div className="ticket-page-placeholder">
-                      <IconReceipt size={56} stroke={1.5} />
-                      <Text fw={800}>{campaign.serviceName}</Text>
-                    </div>
-                  )}
+            <Paper className="booking-detail-visual-card group-funded-ticket-visual" style={themedMediaStyle}>
+              {vendorTheme?.logoUrl ? (
+                <div className="booking-detail-logo-frame">
+                  <img alt={`${campaign.vendorName || "Vendor"} logo`} src={vendorTheme.logoUrl} />
                 </div>
-              </div>
+              ) : (
+                <div className="booking-detail-logo-frame booking-detail-logo-placeholder">
+                  <IconReceipt size={56} stroke={1.5} />
+                </div>
+              )}
 
-              <Paper className="vendor-hero-status-card" p="lg">
-                <Text fw={800}>
-                  Funding {formatPaymentAmount(campaign.fundedAmountCents, campaign.currency)} / {formatPaymentAmount(campaign.targetAmountCents, campaign.currency)}
-                </Text>
-                <Progress mt={6} value={progressValue} color="teal" />
-                <SimpleGrid cols={{ base: 1, sm: 2 }} mt="md" spacing="sm">
-                  <div className="prio-dashboard-tile">
-                    <Text c="dimmed" size="xs">Join fee</Text>
+              <div className="booking-detail-visual-content">
+                <Stack align="center" gap={6}>
+                  <Stack className="group-funded-ticket-funding" gap={6} w="100%">
+                    <Text fw={800} size="lg">
+                      Funding {formatPaymentAmount(campaign.fundedAmountCents, campaign.currency)} / {formatPaymentAmount(campaign.targetAmountCents, campaign.currency)}
+                    </Text>
+                    <Progress value={progressValue} />
+                  </Stack>
+                </Stack>
+                <SimpleGrid cols={{ base: 1, sm: 3 }} mt="lg" spacing="sm">
+                  <div className="booking-detail-visual-tile">
+                    <Text size="xs">Join fee</Text>
                     <Text fw={800}>{formatPaymentAmount(campaign.requiredContributionAmountCents, campaign.currency)}</Text>
-                    <Group c="dimmed" gap={4} mt={2} wrap="nowrap">
-                      <Text size="xs">{fundingDeadline.relativeLabel}</Text>
+                    <Group gap={4} mt={2} wrap="nowrap">
+                      <Text size="sm">{fundingDeadline.relativeLabel}</Text>
                       <Tooltip label={fundingDeadline.tooltipLabel} withArrow>
                         <IconInfoCircle aria-label={`Funding deadline: ${fundingDeadline.tooltipLabel}`} size={14} />
                       </Tooltip>
                     </Group>
                   </div>
-                  <div className="prio-dashboard-tile">
+                  <div className="booking-detail-visual-tile">
+                    <Text size="xs">Booking schedule</Text>
+                    <Text fw={800}>{formatBookingScheduleDate(campaign.scheduledStartAt)}</Text>
+                    <Text size="sm">{formatBookingScheduleTimeRange(campaign.scheduledStartAt, campaign.scheduledEndAt)}</Text>
+                  </div>
+                  <div className="booking-detail-visual-tile">
                     <Group align="center" gap="sm" wrap="nowrap">
                       <div
-                        aria-label={`${contributorReservationSummary?.filledContributorCount} of ${campaign.requiredContributors} contributor positions filled`}
+                        aria-label={`${contributorReservationSummary?.filledContributorCount || 0} of ${campaign.requiredContributors} contributor positions filled`}
                         className="group-funded-contributor-meter group-funded-contributor-meter--hero"
                         role="img"
                       >
                         <svg aria-hidden="true" viewBox="0 0 100 100">
-                          <circle
-                            cx="50"
-                            cy="50"
-                            fill="none"
-                            r="42"
-                            stroke="var(--mantine-color-gray-3)"
-                            strokeWidth="11"
-                          />
+                          <circle cx="50" cy="50" fill="none" r="42" stroke="rgba(255, 255, 255, 0.24)" strokeWidth="11" />
                           {contributorMeterSegments.map((segment, index) => (
                             <circle
                               cx="50"
@@ -1018,63 +1056,33 @@ export default function GroupFundedCampaignPage() {
                           ))}
                         </svg>
                         <Text className="group-funded-contributor-meter__label" fw={800} size="xs" ta="center">
-                          {contributorReservationSummary?.filledContributorCount}/{campaign.requiredContributors}
+                          {contributorReservationSummary?.filledContributorCount || 0}/{campaign.requiredContributors}
                         </Text>
                       </div>
                       <Stack gap={0}>
-                        <Text c="dimmed" size="xs">Contributors</Text>
-                        <Text fw={800}>{contributorReservationSummary?.filledContributorCount} filled</Text>
+                        <Text size="xs">Contributors</Text>
+                        <Text fw={800}>{contributorReservationSummary?.filledContributorCount || 0} filled</Text>
                       </Stack>
                     </Group>
                   </div>
                 </SimpleGrid>
-              </Paper>
+                <Stack className="booking-detail-visual-action group-funded-ticket-actions" gap="lg">
+                  <Button className="vendor-theme-button booking-detail-primary-action" leftSection={<IconUsersGroup size={18} />} onClick={scrollToPaymentProof} size="lg">
+                    Join campaign
+                  </Button>
+                  {canShareCampaign ? (
+                    <div className="group-funded-share-action">
+                      {shareCopied ? <div className="group-funded-share-toast">Share link copied to clipboard</div> : null}
+                      <Button className="vendor-theme-button vendor-theme-button-ghost" leftSection={<IconCopy size={18} />} onClick={copyShareLink} size="lg" variant="subtle">
+                        Copy share link
+                      </Button>
+                    </div>
+                  ) : null}
+                </Stack>
+              </div>
             </Paper>
           </SimpleGrid>
         </Paper>
-
-        <Card className="finazze-auth-card customer-account-card booking-detail-section-card" mt="xl" p="xl">
-          <Stack gap="md">
-            <div>
-              <Text className="finazze-section-label">Bundled services</Text>
-              <Title order={2}>What&apos;s in this campaign</Title>
-            </div>
-            <Stack gap="sm">
-              {bundleItemsWithImages.map((item) => (
-                <Paper className="group-funded-bundle-item" key={item.id || item.serviceSlug} p="sm">
-                  <Group align="center" gap="sm" wrap="nowrap">
-                    {item.imageUrl ? (
-                      <button
-                        aria-label={`Preview ${item.serviceName} image`}
-                        className="group-funded-bundle-thumbnail"
-                        onClick={() => setImagePreview({ name: item.serviceName, imageUrl: item.imageUrl })}
-                        type="button"
-                      >
-                        <img alt="" src={item.imageUrl} />
-                        <span aria-hidden="true"><IconEye size={16} /></span>
-                      </button>
-                    ) : null}
-                    <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
-                      <Group justify="space-between" gap="sm" wrap="nowrap">
-                        <Text fw={800}>{item.serviceName}</Text>
-                        <Badge variant="light">x{item.bookingQuantity}</Badge>
-                      </Group>
-                      <Text c="dimmed" size="sm">
-                        {formatBookingScheduleTimeRange(item.scheduledStartAt, item.scheduledEndAt)} · {formatPaymentAmount(item.priceAmountCents, item.currency)}
-                      </Text>
-                    </Stack>
-                  </Group>
-                </Paper>
-              ))}
-            </Stack>
-
-            <Group justify="flex-end">
-              <Button color="red" leftSection={<IconFlag size={16} />} onClick={() => setReportModalOpen(true)} variant="subtle">
-                Report
-              </Button>
-            </Group>
-          </Stack>
-        </Card>
 
       <Card className="finazze-auth-card customer-account-card" mt="xl" p="xl" ref={paymentProofSectionRef}>
         <Stack gap="md">

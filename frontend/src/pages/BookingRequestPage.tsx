@@ -9,7 +9,6 @@ import {
   FileInput,
   Group,
   Image,
-  NumberInput,
   PinInput,
   Select,
   Slider,
@@ -22,8 +21,8 @@ import {
   Title
 } from "@mantine/core";
 import { DatePickerInput, DateTimePicker } from "@mantine/dates";
-import { IconAlertTriangle, IconArrowLeft, IconBuildingBank, IconCalendar, IconCalendarCheck, IconMapPin, IconUpload } from "@tabler/icons-react";
-import { addDays, eachDayOfInterval, endOfMonth, format, startOfMonth } from "date-fns";
+import { IconAlertTriangle, IconArrowLeft, IconBuildingBank, IconCalendar, IconMapPin, IconUpload } from "@tabler/icons-react";
+import { addDays, format } from "date-fns";
 import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import CampaignDescriptionEditor from "../components/CampaignDescriptionEditor";
 import type {
@@ -243,9 +242,7 @@ export default function BookingRequestPage() {
   const [bookingQuantity, setBookingQuantity] = useState(1);
   const [slots, setSlots] = useState<BookingSlotSummary[]>([]);
   const [groupFundedSlotsByService, setGroupFundedSlotsByService] = useState<Record<string, BookingSlotSummary[]>>({});
-  const [calendarAvailability, setCalendarAvailability] = useState<Record<string, boolean>>({});
   const [calendarMonth, setCalendarMonth] = useState<Date | null>(null);
-  const [calendarLoading, setCalendarLoading] = useState(false);
   const [selectedSlotStartAt, setSelectedSlotStartAt] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [customerEmail, setCustomerEmail] = useState("");
@@ -353,7 +350,7 @@ export default function BookingRequestPage() {
           }
           const defaultService = isGroupFundedMode
             ? data.services.find((service) => service.groupFunded?.enabled)
-            : data.services[0];
+            : null;
           return defaultService?.slug || "";
         });
       })
@@ -388,26 +385,35 @@ export default function BookingRequestPage() {
     [locationServices]
   );
   const groupFundedServiceEligibility = useMemo(() => {
-    if (!isGroupFundedMode || !selectedSlotStartAt) {
+    if (!selectedSlotStartAt) {
       return new Map<string, { available: boolean; reason: string }>();
     }
-    return new Map(groupFundedEligibleServices.map((service) => {
+    const servicesForVisit = isGroupFundedMode ? groupFundedEligibleServices : locationServices;
+    return new Map(servicesForVisit.map((service) => {
       const slot = groupFundedSlotsByService[service.slug]?.find((entry) => String(entry.startAt) === selectedSlotStartAt);
       return [service.slug, {
         available: Boolean(slot?.isAvailable),
         reason: slot?.disabledReason === "capacity_full" ? "Full capacity for this slot" : "Unavailable for this slot"
       }];
     }));
-  }, [groupFundedEligibleServices, groupFundedSlotsByService, isGroupFundedMode, selectedSlotStartAt]);
+  }, [groupFundedEligibleServices, groupFundedSlotsByService, isGroupFundedMode, locationServices, selectedSlotStartAt]);
   const selectedBundleServices = useMemo(() => {
     if (!isGroupFundedMode) {
-      return selectedService ? [selectedService] : [];
+      const selectedSlugs = new Set(selectedBundleServiceSlugs);
+      const services = locationServices.filter((service) => selectedSlugs.has(service.slug));
+      return selectedService
+        ? [selectedService, ...services.filter((service) => service.slug !== selectedService.slug)]
+        : services;
     }
     const selectedSlugs = new Set(selectedBundleServiceSlugs);
-    return groupFundedEligibleServices.filter((service) => selectedSlugs.has(service.slug));
+    const services = groupFundedEligibleServices.filter((service) => selectedSlugs.has(service.slug));
+    return selectedService
+      ? [selectedService, ...services.filter((service) => service.slug !== selectedService.slug)]
+      : services;
   }, [
     groupFundedEligibleServices,
     isGroupFundedMode,
+    locationServices,
     selectedBundleServiceSlugs,
     selectedService,
     selectedServiceSlug
@@ -419,7 +425,7 @@ export default function BookingRequestPage() {
   const bundleAmountCents = selectedBundleServices.reduce((sum, service) => {
     return sum + getServiceLineAmountCents(service, quantityForRequest);
   }, 0);
-  const payableAmountCents = isGroupFundedMode ? bundleAmountCents : selectedService ? getServiceLineAmountCents(selectedService, quantityForRequest) : 0;
+  const payableAmountCents = bundleAmountCents;
   const groupFundedMinContributors = groupFundedSettings?.minRequiredContributors || 2;
   const groupFundedMaxContributors = Math.max(
     groupFundedMinContributors,
@@ -432,6 +438,15 @@ export default function BookingRequestPage() {
       setBookingQuantity(1);
     }
   }, [allowBookingQuantity, bookingQuantity]);
+
+  useEffect(() => {
+    if (isGroupFundedMode || !selectedServiceSlug) {
+      return;
+    }
+    setSelectedBundleServiceSlugs((current) => current.includes(selectedServiceSlug)
+      ? current
+      : [selectedServiceSlug, ...current]);
+  }, [isGroupFundedMode, selectedServiceSlug]);
 
   useEffect(() => {
     if (isGroupFundedMode && bookingQuantity > maxGroupFundedBookingQuantity) {
@@ -473,7 +488,7 @@ export default function BookingRequestPage() {
   }, [groupFundedMaxContributors, groupFundedMinContributors, groupFundedSettings]);
 
   useEffect(() => {
-    if (!vendor || !selectedLocationSlug || !bookingDate || booking || (!isGroupFundedMode && !selectedServiceSlug)) {
+    if (!vendor || !selectedLocationSlug || !bookingDate || booking) {
       setSlots([]);
       return;
     }
@@ -483,32 +498,34 @@ export default function BookingRequestPage() {
     setSelectedSlotStartAt("");
 
     const requestSlots = (slug: string) => apiRequest<BookingSlotsResponse>(
-      `/public/vendors/${vendor.slug}/locations/${selectedLocationSlug}/services/${slug}/slots?date=${encodeURIComponent(formatDateInputValue(bookingDate))}&bookingQuantity=${quantityForRequest}${isGroupFundedMode ? "&groupFunded=1" : ""}`,
+      `/public/vendors/${vendor.slug}/locations/${selectedLocationSlug}/services/${slug}/slots?date=${encodeURIComponent(formatDateInputValue(bookingDate))}&bookingQuantity=${bookingQuantity}${isGroupFundedMode ? "&groupFunded=1" : ""}`,
       { signal: controller.signal }
     );
-    const serviceRequest = isGroupFundedMode
-      ? Promise.all(groupFundedEligibleServices.map(async (service) => [service.slug, await requestSlots(service.slug)] as const))
-      : requestSlots(selectedServiceSlug).then((data) => [[selectedServiceSlug, data] as const]);
-
-    const request = isGroupFundedMode
-      ? Promise.all([
-          apiRequest<BookingSlotsResponse>(
-            `/public/vendors/${vendor.slug}/locations/${selectedLocationSlug}/group-funded-candidate-slots?date=${encodeURIComponent(formatDateInputValue(bookingDate))}&durationMinutes=${quantityForRequest * 60}`,
-            { signal: controller.signal }
-          ),
-          serviceRequest
-        ])
-      : serviceRequest.then((entries) => [null, entries] as const);
+    const servicesForVisit = isGroupFundedMode ? groupFundedEligibleServices : locationServices;
+    const serviceRequest = Promise.all(servicesForVisit.map(async (service) => {
+      try {
+        return [service.slug, await requestSlots(service.slug)] as const;
+      } catch {
+        return [service.slug, { slots: [] as BookingSlotSummary[] }] as const;
+      }
+    }));
+    const request = Promise.all([
+      apiRequest<BookingSlotsResponse>(
+        `/public/vendors/${vendor.slug}/locations/${selectedLocationSlug}/group-funded-candidate-slots?date=${encodeURIComponent(formatDateInputValue(bookingDate))}&durationMinutes=${bookingQuantity * 60}`,
+        { signal: controller.signal }
+      ),
+      serviceRequest
+    ]);
 
     request
       .then(([candidateSlots, entries]) => {
         const byService = Object.fromEntries(entries.map(([slug, data]) => [slug, data.slots]));
         setGroupFundedSlotsByService(byService);
-        if (!isGroupFundedMode) {
-          setSlots(entries[0]?.[1].slots || []);
-          return;
-        }
-        setSlots(candidateSlots?.slots || []);
+        setSlots((candidateSlots?.slots || []).filter((candidateSlot) => entries.some(([, data]) => (
+          data.slots.some((serviceSlot) => (
+            serviceSlot.isAvailable && String(serviceSlot.startAt) === String(candidateSlot.startAt)
+          ))
+        ))));
       })
       .catch((slotError) => {
         if (controller.signal.aborted) {
@@ -524,70 +541,7 @@ export default function BookingRequestPage() {
       });
 
     return () => controller.abort();
-  }, [booking, bookingDate, groupFundedEligibleServices, isGroupFundedMode, quantityForRequest, selectedLocationSlug, selectedServiceSlug, vendor]);
-
-  useEffect(() => {
-    if (!vendor || !selectedLocationSlug || (!isGroupFundedMode && !selectedServiceSlug) || booking) {
-      setCalendarAvailability({});
-      setCalendarMonth(null);
-      setCalendarLoading(false);
-      return;
-    }
-
-    const monthAnchor = calendarMonth || new Date(`${bookingDate}T00:00:00`);
-    const controller = new AbortController();
-    let active = true;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    setCalendarLoading(true);
-
-    const days = eachDayOfInterval({
-      start: startOfMonth(monthAnchor),
-      end: endOfMonth(monthAnchor)
-    }).filter((day) => day >= today);
-
-    Promise.all(
-      days.map(async (day) => {
-        const dateKey = format(day, "yyyy-MM-dd");
-        const response = await apiRequest<BookingSlotsResponse>(
-          isGroupFundedMode
-            ? `/public/vendors/${vendor.slug}/locations/${selectedLocationSlug}/group-funded-candidate-slots?date=${encodeURIComponent(dateKey)}&durationMinutes=${quantityForRequest * 60}`
-            : `/public/vendors/${vendor.slug}/locations/${selectedLocationSlug}/services/${selectedServiceSlug}/slots?date=${encodeURIComponent(dateKey)}&bookingQuantity=${quantityForRequest}`,
-          { signal: controller.signal }
-        );
-        return [dateKey, response.slots.some((slot) => slot.isAvailable)] as const;
-      })
-    )
-      .then((entries) => {
-        if (!active || controller.signal.aborted) {
-          return;
-        }
-
-        setCalendarAvailability((current) => {
-          const next = { ...current };
-          for (const [dateKey, hasAvailability] of entries) {
-            next[dateKey] = hasAvailability;
-          }
-          return next;
-        });
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) {
-          setCalendarAvailability({});
-        }
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) {
-          setCalendarLoading(false);
-        }
-      });
-
-    return () => {
-      active = false;
-      controller.abort();
-    };
-  }, [booking, bookingDate, calendarMonth, isGroupFundedMode, quantityForRequest, selectedLocationSlug, selectedServiceSlug, vendor]);
+  }, [booking, bookingDate, bookingQuantity, groupFundedEligibleServices, isGroupFundedMode, locationServices, quantityForRequest, selectedLocationSlug, vendor]);
 
   const loadSubmittedBooking = useCallback(async () => {
     if (!token || !booking) {
@@ -702,16 +656,6 @@ export default function BookingRequestPage() {
     selectedSlot
   ]);
 
-  const serviceOptions = useMemo(
-    () => locationServices.map((service) => ({
-      value: service.slug,
-      label: isGroupFundedMode && !service.groupFunded?.enabled
-        ? `${getServiceLabel(service)} - Group-funded unavailable`
-        : getServiceLabel(service),
-      disabled: isGroupFundedMode && !service.groupFunded?.enabled
-    })) || [],
-    [isGroupFundedMode, locationServices]
-  );
   const locationOptions = useMemo(
     () => vendor?.locations.map((location) => ({
       value: location.slug,
@@ -726,23 +670,6 @@ export default function BookingRequestPage() {
       disabled: !slot.isAvailable
     })),
     [slots]
-  );
-  const disabledBookingDates = useMemo(
-    () => (date: string) => {
-      if (booking) {
-        return false;
-      }
-
-      const dateKey = date.slice(0, 10);
-      const availability = calendarAvailability[dateKey];
-
-      if (typeof availability === "boolean") {
-        return !availability;
-      }
-
-      return false;
-    },
-    [booking, calendarAvailability]
   );
   const totalDurationMinutes = selectedService ? selectedService.durationMinutes * quantityForRequest : 0;
   const bundleVisitDurationMinutes = selectedBundleServices.reduce((max, service) => {
@@ -787,6 +714,10 @@ export default function BookingRequestPage() {
       serviceSlug: selectedServiceSlug,
       scheduledStartAt: String(selectedSlot.startAt),
       bookingQuantity: quantityForRequest,
+      bundleItems: selectedBundleServices.map((service) => ({
+        serviceSlug: service.slug,
+        bookingQuantity: quantityForRequest
+      })),
       customerName,
       customerEmail,
       customerPhone,
@@ -921,6 +852,10 @@ export default function BookingRequestPage() {
               serviceSlug: selectedServiceSlug,
               scheduledStartAt: String(selectedSlot.startAt),
               bookingQuantity: quantityForRequest,
+              bundleItems: selectedBundleServices.map((service) => ({
+                serviceSlug: service.slug,
+                bookingQuantity: quantityForRequest
+              })),
               customerName,
               customerEmail,
               customerPhone,
@@ -1052,8 +987,8 @@ export default function BookingRequestPage() {
 
       <Card className="finazze-auth-card customer-account-card" p="xl">
         <Stack gap="sm">
-          <Text className="finazze-section-label">Booking request</Text>
-          <Title order={1}>{booking?.reference || vendor?.name || (isGroupFundedMode ? "Start group-funded booking" : "Book a service")}</Title>
+          <Text className="finazze-section-label">{isGroupFundedMode ? "Group-funded campaign" : "Booking request"}</Text>
+          <Title order={1}>{booking?.reference || vendor?.name || (isGroupFundedMode ? "Start group-funded booking" : "Start a booking")}</Title>
           <Text c="dimmed">
             {booking
               ? "Continue the booking request on this page."
@@ -1069,7 +1004,7 @@ export default function BookingRequestPage() {
           <Stack gap="lg">
             <Stepper
               active={currentFlowStep}
-              className={isGroupFundedMode ? "booking-flow-stepper booking-flow-stepper--group-funded" : "booking-flow-stepper"}
+              className={`booking-flow-stepper ${isGroupFundedMode ? "booking-flow-stepper--group-funded" : "booking-flow-stepper--booking"}`}
               color="orange"
               size="sm"
             >
@@ -1100,59 +1035,50 @@ export default function BookingRequestPage() {
                       />
 
                       {!isGroupFundedMode ? (
-                        <>
-                          <Select
-                            data={serviceOptions}
-                            disabled={!serviceOptions.length || Boolean(otp)}
-                            label="Service"
-                            leftSection={<IconCalendarCheck size={16} />}
-                            onChange={(value) => {
-                              setSelectedServiceSlug(value || "");
-                              setSelectedBundleServiceSlugs(value ? [value] : []);
-                            }}
-                            required
-                            value={selectedServiceSlug}
-                          />
-                          {selectedService ? (
-                            <Alert color="teal" variant="light">
-                              <Stack gap={4}>
-                                <Text size="sm">
-                                  {selectedService.description || `${selectedService.durationMinutes} minute service`}
-                                </Text>
-                                <Text size="sm">Branch capacity: {selectedService.capacity} slot(s)</Text>
-                                {selectedService.manualPaymentRequired ? (
-                                  <Text fw={700} size="sm">
-                                    Payment proof will be required after OTP verification.
+                        <Card className="booking-setup-section booking-standard-setup-section" withBorder radius="md" p="md">
+                          <Stack gap="sm">
+                            <Stack gap={2}>
+                              <Text fw={800}>1. Plan your booking</Text>
+                              <Text c="dimmed" size="sm">Set the visit length first. You will pick available services after choosing a time.</Text>
+                            </Stack>
+                            <Stack gap={6}>
+                                <Group justify="space-between" gap="sm">
+                                  <Text fw={500} size="sm">
+                                    Hours <Text component="span" c="red">*</Text>
                                   </Text>
-                                ) : null}
+                                  <Badge color="orange" variant="light">
+                                    {formatBookingQuantityValue(bookingQuantity, "Hours")}
+                                  </Badge>
+                                </Group>
+                                <Slider
+                                  aria-label="Hours"
+                                  className="booking-value-slider"
+                                  disabled={Boolean(otp)}
+                                  label={(value) => formatBookingQuantityValue(value, "Hours")}
+                                  max={maxGroupFundedBookingQuantity}
+                                  min={1}
+                                  onChange={(value) => {
+                                    setSelectedSlotStartAt("");
+                                    setBookingQuantity(value);
+                                  }}
+                                  step={1}
+                                  value={bookingQuantity}
+                                />
+                                <Group className="booking-slider-bounds" justify="space-between">
+                                  <Text c="dimmed" size="xs">1</Text>
+                                  <Text c="dimmed" size="xs">{maxGroupFundedBookingQuantity}</Text>
+                                </Group>
+                                <Text c="dimmed" size="sm">
+                                  Set the visit length first. The maximum follows the selected date&apos;s store hours.
+                                </Text>
                               </Stack>
+                            <Alert color="teal" variant="light">
+                              {selectedBundleServices.length
+                                ? `Bundle total: ${formatPaymentAmount(payableAmountCents, selectedBundleServices[0]?.currency || "PHP")}.`
+                                : "Choose a time to see available services."}
                             </Alert>
-                          ) : null}
-                        </>
-                      ) : null}
-
-                      {!isGroupFundedMode && selectedService && allowBookingQuantity ? (
-                        <>
-                          <NumberInput
-                            allowDecimal={false}
-                            allowNegative={false}
-                            clampBehavior="strict"
-                            disabled={Boolean(otp)}
-                            label={getBookingQuantityLabel(selectedService)}
-                            min={1}
-                            max={24}
-                            onChange={(value) => {
-                              setSelectedSlotStartAt("");
-                              setBookingQuantity(Number(value) || 1);
-                            }}
-                            required
-                            step={1}
-                            value={bookingQuantity}
-                          />
-                          <Text c="dimmed" size="sm">
-                            Total booking time: {formatDuration(totalDurationMinutes)}.
-                          </Text>
-                        </>
+                          </Stack>
+                        </Card>
                       ) : null}
 
                       {isGroupFundedMode ? (
@@ -1197,11 +1123,10 @@ export default function BookingRequestPage() {
                       ) : null}
 
                       <DatePickerInput
-                        className={isGroupFundedMode ? "booking-schedule-field booking-schedule-field--date" : undefined}
+                        className="booking-schedule-field booking-schedule-field--date"
                         clearable={false}
                         disabled={Boolean(otp)}
-                        excludeDate={disabledBookingDates}
-                        label={isGroupFundedMode ? "2. Choose a date" : "Date"}
+                        label="2. Choose a date"
                         leftSection={<IconCalendar size={16} />}
                         minDate={new Date()}
                         onChange={(value) => setBookingDate(value || "")}
@@ -1210,17 +1135,11 @@ export default function BookingRequestPage() {
                         required
                         value={bookingDate}
                       />
-                      {calendarLoading ? (
-                        <Text c="dimmed" size="sm">
-                          Checking which calendar days have open slots...
-                        </Text>
-                      ) : null}
-
                       <Select
-                        className={isGroupFundedMode ? "booking-schedule-field booking-schedule-field--slot" : undefined}
+                        className="booking-schedule-field booking-schedule-field--slot"
                         data={slotOptions}
                         disabled={slotsLoading || !slotOptions.length || Boolean(otp)}
-                        label={isGroupFundedMode ? "3. Choose a start time" : "Available slot"}
+                        label="3. Choose a start time"
                         onChange={(value) => setSelectedSlotStartAt(value || "")}
                         placeholder={slotsLoading ? "Loading slots..." : "Select a time"}
                         required
@@ -1230,23 +1149,29 @@ export default function BookingRequestPage() {
                         <Alert color="yellow">No available slots for this date.</Alert>
                       ) : null}
 
-                      {isGroupFundedMode ? (
-                        <Stack className="booking-service-picker" gap="xs">
+                      <Stack className="booking-service-picker" gap="xs">
                           <Text fw={800}>4. Pick available services</Text>
                           {selectedSlotStartAt ? (
                             <Checkbox.Group
-                              onChange={setSelectedBundleServiceSlugs}
+                              onChange={(values) => {
+                                const availableValues = values.filter((slug) => groupFundedServiceEligibility.get(slug)?.available);
+                                if (!availableValues.length) {
+                                  return;
+                                }
+                                setSelectedBundleServiceSlugs(availableValues);
+                                setSelectedServiceSlug(availableValues[0]);
+                              }}
                               value={selectedBundleServiceSlugs}
                             >
                               <Stack gap="xs">
-                                {groupFundedEligibleServices.map((service) => {
+                                {(isGroupFundedMode ? groupFundedEligibleServices : locationServices).map((service) => {
                                   const eligibility = groupFundedServiceEligibility.get(service.slug);
                                   return (
                                     <Checkbox
                                       className="booking-bundle-option"
                                       description={eligibility?.available
-                                        ? `${formatDuration(service.durationMinutes * quantityForRequest)} · ${formatPaymentAmount(getServiceLineAmountCents(service, quantityForRequest), service.currency)}`
-                                        : eligibility?.reason || "Choose a slot to check availability"}
+                                        ? `${formatDuration(service.durationMinutes * bookingQuantity)} · ${formatPaymentAmount(getServiceLineAmountCents(service, bookingQuantity), service.currency)}`
+                                        : eligibility?.reason || "Unavailable for this visit"}
                                       disabled={Boolean(otp) || !eligibility?.available}
                                       key={service.slug}
                                       label={service.name}
@@ -1260,7 +1185,6 @@ export default function BookingRequestPage() {
                             <Text c="dimmed" size="sm">Choose a start time to see the services available for that visit.</Text>
                           )}
                         </Stack>
-                      ) : null}
 
                       {isGroupFundedMode ? (
                         <Stack className="booking-funding-section" gap="md">
@@ -1353,7 +1277,11 @@ export default function BookingRequestPage() {
                       ) : null}
 
                       {!isGroupFundedMode ? (
-                        <>
+                        <Stack className="booking-customer-section" gap="md">
+                          <div>
+                            <Text fw={800}>5. Add your contact details</Text>
+                            <Text c="dimmed" size="sm">We&apos;ll use these details to verify and manage your booking.</Text>
+                          </div>
                           <TextInput
                             disabled={Boolean(otp)}
                             label="Name"
@@ -1381,7 +1309,7 @@ export default function BookingRequestPage() {
                             onChange={(event) => setNotes(event.currentTarget.value)}
                             value={notes}
                           />
-                        </>
+                        </Stack>
                       ) : null}
 
                       {isGroupFundedMode ? (
@@ -1446,7 +1374,54 @@ export default function BookingRequestPage() {
                               </Accordion.Panel>
                             </Accordion.Item>
                           </Accordion>
-                        ) : null}
+                        ) : (
+                          <Accordion className="booking-campaign-summary">
+                            <Accordion.Item value="booking-summary">
+                              <Accordion.Control>
+                                <Group justify="space-between" gap="sm" wrap="nowrap">
+                                  <Text fw={800}>Booking summary</Text>
+                                  <Badge color="teal" variant="light">
+                                    {formatPaymentAmount(payableAmountCents, selectedService?.currency || "PHP")}
+                                  </Badge>
+                                </Group>
+                              </Accordion.Control>
+                              <Accordion.Panel>
+                                <Stack gap="sm">
+                                  <Group className="booking-campaign-summary-row" justify="space-between" gap="sm" wrap="nowrap">
+                                    <Text c="dimmed" size="sm">Visit</Text>
+                                    <Text fw={600} size="sm" ta="right">
+                                      {selectedSlot
+                                        ? `${formatBookingScheduleDate(selectedSlot.startAt)} · ${formatBookingScheduleTimeRange(selectedSlot.startAt, selectedSlot.endAt)}`
+                                        : bookingDate
+                                          ? `${formatBookingScheduleDate(bookingDate)} · Choose a start time`
+                                          : "Choose a date and time"}
+                                    </Text>
+                                  </Group>
+                                  <Group className="booking-campaign-summary-row" justify="space-between" gap="sm" wrap="nowrap">
+                                    <Text c="dimmed" size="sm">Service</Text>
+                                    <Text fw={600} size="sm" ta="right">
+                                      {selectedService
+                                        ? `${selectedService.name} · ${formatDuration(totalDurationMinutes)}`
+                                        : "Choose a service"}
+                                    </Text>
+                                  </Group>
+                                  <Group className="booking-campaign-summary-row" justify="space-between" gap="sm" wrap="nowrap">
+                                    <Text c="dimmed" size="sm">Contact</Text>
+                                    <Text fw={600} size="sm" ta="right">
+                                      {customerName || "Add your name"}
+                                    </Text>
+                                  </Group>
+                                  <Group justify="space-between" gap="sm" wrap="nowrap">
+                                    <Text c="dimmed" size="sm">Total</Text>
+                                    <Text fw={700} size="sm" ta="right">
+                                      {formatPaymentAmount(payableAmountCents, selectedService?.currency || "PHP")}
+                                    </Text>
+                                  </Group>
+                                </Stack>
+                              </Accordion.Panel>
+                            </Accordion.Item>
+                          </Accordion>
+                        )}
                         <Group justify="space-between" align="flex-end">
                         <Text c="dimmed" size="sm">
                           {selectedService
@@ -1458,16 +1433,17 @@ export default function BookingRequestPage() {
                             : "Select a service to continue."}
                         </Text>
                         <Button
-                          className={isGroupFundedMode ? "booking-campaign-submit customer-primary-action" : "customer-primary-action"}
+                          className="booking-campaign-submit customer-primary-action"
                           color="dark"
                           disabled={
                             submitting ||
                             !vendor?.services.length ||
                             !selectedSlot ||
+                            (!isGroupFundedMode && !selectedBundleServices.length) ||
                             (isGroupFundedMode && (!groupFundedAvailable || !fundingDeadlineBounds.hasValidWindow))
                           }
-                          h={isGroupFundedMode ? 56 : undefined}
-                          size={isGroupFundedMode ? "lg" : "sm"}
+                          h={56}
+                          size="lg"
                           type="submit"
                         >
                           {submitting ? "Processing..." : isGroupFundedMode ? "Create campaign" : "Send verification code"}
@@ -1510,7 +1486,7 @@ export default function BookingRequestPage() {
                         type="number"
                         value={otpCode}
                       />
-                      <Group className="customer-action-row" justify="space-between">
+                      <Group className="customer-action-row booking-step-action" justify="space-between">
                         <Button
                           disabled={submitting || resendSecondsRemaining > 0}
                           onClick={resendOtp}
@@ -1545,61 +1521,65 @@ export default function BookingRequestPage() {
                   ) : booking ? (
                     <Stack gap="md">
                       {manualPaymentDestination ? (
-                        <Card withBorder radius="md" p="md">
-                          <Group align="flex-start" gap="lg">
-                            {manualPaymentDestination.methodLabel === "Bank Transfer" ? (
-                              <Stack align="center" gap="xs" h={180} justify="center" w={180}>
-                                <ThemeIcon color="blue" radius="xl" size={72} variant="light"><IconBuildingBank size={38} /></ThemeIcon>
-                                <Text fw={700} size="sm">Bank transfer</Text>
-                              </Stack>
-                            ) : <Image alt={`${manualPaymentDestination.methodLabel} payment QR`} fit="contain" h={180} radius="sm" src={manualPaymentDestination.qrImageUrl} w={180} />}
-                            <Stack gap={4}>
-                              <Badge color="yellow" variant="light" w="fit-content">{manualPaymentDestination.methodLabel === "Bank Transfer" ? "Vendor bank details" : "Vendor payment QR"}</Badge>
-                              <Text fw={700}>Pay vendor through {manualPaymentDestination.methodLabel}</Text>
-                              {manualPaymentDestination.bankName ? <Text c="dimmed" size="sm">{manualPaymentDestination.bankName}</Text> : null}
-                              <Text c="dimmed" size="sm">{manualPaymentDestination.accountDisplayName}</Text>
-                              {manualPaymentDestination.accountIdentifierDisplay ? (
-                                <Text c="dimmed" size="sm">{manualPaymentDestination.accountIdentifierDisplay}</Text>
-                              ) : null}
-                              <Text fw={700} mt="xs">
+                        <Card className="group-funded-payment-card" withBorder padding="md" radius="md">
+                          <div className="group-funded-payment-layout">
+                            <div className="group-funded-payment-visual">
+                              {manualPaymentDestination.methodLabel === "Bank Transfer" ? (
+                                <Stack align="center" className="group-funded-bank-payment-icon" gap="sm" justify="center">
+                                  <ThemeIcon color="blue" radius="xl" size={88} variant="light"><IconBuildingBank size={48} /></ThemeIcon>
+                                  <Text fw={800}>Bank transfer</Text>
+                                </Stack>
+                              ) : (
+                                <Image alt={`${manualPaymentDestination.methodLabel} payment QR`} className="group-funded-payment-image" fit="contain" src={manualPaymentDestination.qrImageUrl} />
+                              )}
+                            </div>
+                            <Stack className="group-funded-payment-fields" gap="md">
+                              <div>
+                                <Text c="dimmed" size="xs">Payment destination</Text>
+                                <Text fw={800}>{manualPaymentDestination.methodLabel}</Text>
+                                {manualPaymentDestination.bankName ? <Text>{manualPaymentDestination.bankName}</Text> : null}
+                                <Text>{manualPaymentDestination.accountDisplayName}</Text>
+                                {manualPaymentDestination.accountIdentifierDisplay ? <Text c="dimmed" size="sm">{manualPaymentDestination.accountIdentifierDisplay}</Text> : null}
+                                {manualPaymentDestination.methodLabel !== "Bank Transfer" ? <Text c="dimmed" mt={6} size="sm">Scan the QR, pay the exact amount, then submit your proof.</Text> : null}
+                              </div>
+                              <Text fw={800}>
                                 Total payable: {formatPaymentAmount(manualPaymentDestination.amountCents, manualPaymentDestination.currency)}
                               </Text>
-                              <Text c="dimmed" size="sm">
-                                {manualPaymentDestination.unitPriceDisplay} x {booking.bookingQuantity}
-                              </Text>
+                              <TextInput
+                                label="Payment reference"
+                                onChange={(event) => setPaymentReference(event.currentTarget.value)}
+                                placeholder="Reference number from your bank or wallet"
+                                value={paymentReference}
+                              />
+                              <FileInput
+                                accept="image/jpeg,image/png,image/webp"
+                                clearable
+                                label="Proof image"
+                                leftSection={<IconUpload size={16} />}
+                                onChange={setPaymentProofFile}
+                                placeholder="Choose JPEG, PNG, or WebP"
+                                value={paymentProofFile}
+                              />
+                              <div className="booking-step-action">
+                                <Button
+                                  className="group-funded-submit-button"
+                                  color="dark"
+                                  disabled={!paymentReference.trim() || !paymentProofFile}
+                                  loading={proofSubmitting}
+                                  onClick={handleSubmitPaymentProof}
+                                  size="lg"
+                                >
+                                  Submit payment proof
+                                </Button>
+                              </div>
                             </Stack>
-                          </Group>
+                          </div>
                         </Card>
                       ) : (
                         <Alert color="yellow" variant="light">
                           The vendor payment QR is not available yet. Contact the vendor before sending payment.
                         </Alert>
                       )}
-                      <TextInput
-                        label="Payment reference"
-                        onChange={(event) => setPaymentReference(event.currentTarget.value)}
-                        placeholder="Reference number from your bank or wallet"
-                        value={paymentReference}
-                      />
-                      <FileInput
-                        accept="image/jpeg,image/png,image/webp"
-                        clearable
-                        label="Proof image"
-                        leftSection={<IconUpload size={16} />}
-                        onChange={setPaymentProofFile}
-                        placeholder="Choose JPEG, PNG, or WebP"
-                        value={paymentProofFile}
-                      />
-                      <Button
-                        className="customer-primary-action"
-                        color="dark"
-                        disabled={!paymentReference.trim() || !paymentProofFile}
-                        loading={proofSubmitting}
-                        onClick={handleSubmitPaymentProof}
-                        size="lg"
-                      >
-                        Submit payment proof
-                      </Button>
                     </Stack>
                   ) : (
                     <Text c="dimmed" size="sm">Submit the booking before uploading proof.</Text>
@@ -1665,9 +1645,11 @@ export default function BookingRequestPage() {
                       {vendorDecision.message}
                     </Alert>
                     {vendorDecision.status === "success" && booking ? (
-                      <Button component={Link} color="dark" to={`/account/bookings/${booking.id}`} w="fit-content">
-                        View booking details
-                      </Button>
+                      <div className="booking-step-action">
+                        <Button className="booking-completion-action" component={Link} color="dark" to={`/account/bookings/${booking.id}`} w="fit-content">
+                          View booking details
+                        </Button>
+                      </div>
                     ) : null}
                   </Stack>
                 ) : (

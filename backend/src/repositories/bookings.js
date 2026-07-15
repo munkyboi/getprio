@@ -80,7 +80,23 @@ const BOOKING_COLUMNS = `
   store_locations.payment_qr_active AS location_payment_qr_active,
   tickets.ticket_number AS queue_ticket_number,
   tickets.lookup_code AS queue_ticket_lookup_code,
-  tickets.status AS queue_ticket_status
+  tickets.status AS queue_ticket_status,
+  COALESCE((
+    SELECT json_agg(json_build_object(
+      'id', booking_bundle_items.id,
+      'serviceId', booking_bundle_items.service_id,
+      'serviceName', booking_bundle_items.service_name_snapshot,
+      'serviceSlug', booking_bundle_items.service_slug_snapshot,
+      'bookingQuantity', booking_bundle_items.booking_quantity,
+      'priceAmountCents', booking_bundle_items.price_amount_cents,
+      'currency', booking_bundle_items.currency,
+      'scheduledStartAt', booking_bundle_items.scheduled_start_at,
+      'scheduledEndAt', booking_bundle_items.scheduled_end_at,
+      'sortOrder', booking_bundle_items.sort_order
+    ) ORDER BY booking_bundle_items.sort_order, booking_bundle_items.id)
+    FROM booking_bundle_items
+    WHERE booking_bundle_items.booking_id = bookings.id
+  ), '[]'::json) AS booking_bundle_items
 `;
 
 function buildQueryClient(client) {
@@ -109,6 +125,18 @@ function mapBooking(row) {
     servicePriceAmountCents: Number(row.service_price_amount_cents || 0),
     serviceCurrency: row.service_currency || "PHP",
     servicePriceDisplay: row.service_price_display || "",
+    bundleItems: Array.isArray(row.booking_bundle_items) ? row.booking_bundle_items.map((item) => ({
+      id: String(item.id),
+      serviceId: String(item.serviceId),
+      serviceName: item.serviceName,
+      serviceSlug: item.serviceSlug,
+      bookingQuantity: Number(item.bookingQuantity),
+      priceAmountCents: Number(item.priceAmountCents),
+      currency: item.currency || "PHP",
+      scheduledStartAt: item.scheduledStartAt,
+      scheduledEndAt: item.scheduledEndAt,
+      sortOrder: Number(item.sortOrder || 0)
+    })) : [],
     locationPaymentMethodLabel: row.location_payment_method_label || "",
     locationPaymentBankName: row.location_payment_bank_name || "",
     locationPaymentAccountDisplayName: row.location_payment_account_display_name || "",
@@ -241,7 +269,25 @@ async function createBooking(data, options = {}) {
         ]
       );
 
-      return findBookingById(result.rows[0].id, { client: queryClient });
+      const bookingId = result.rows[0].id;
+      if (Array.isArray(data.bundleItems) && data.bundleItems.length) {
+        for (const item of data.bundleItems) {
+          await queryClient.query(
+            `
+              INSERT INTO booking_bundle_items (
+                booking_id, tenant_id, location_id, service_id, service_name_snapshot, service_slug_snapshot,
+                booking_quantity, price_amount_cents, currency, scheduled_start_at, scheduled_end_at, sort_order
+              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            `,
+            [
+              Number(bookingId), Number(data.tenantId), Number(data.locationId), Number(item.serviceId),
+              item.serviceName, item.serviceSlug, Number(item.bookingQuantity), Number(item.priceAmountCents),
+              item.currency || "PHP", item.scheduledStartAt, item.scheduledEndAt, Number(item.sortOrder || 0)
+            ]
+          );
+        }
+      }
+      return findBookingById(bookingId, { client: queryClient });
     } catch (error) {
       if (error.code !== "23505" || attempt === 4) {
         throw error;

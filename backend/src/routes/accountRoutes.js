@@ -97,7 +97,13 @@ function formatManualPaymentDestination(booking) {
     return null;
   }
 
-  if (!booking.serviceManualPaymentRequired) {
+  const bundleItems = Array.isArray(booking.bundleItems) && booking.bundleItems.length
+    ? booking.bundleItems
+    : [{
+        priceAmountCents: Number(booking.servicePriceAmountCents || 0) * Number(booking.bookingQuantity || 1),
+        manualPaymentRequired: booking.serviceManualPaymentRequired
+      }];
+  if (!booking.serviceManualPaymentRequired && !bundleItems.some((item) => item.manualPaymentRequired)) {
     return null;
   }
 
@@ -112,7 +118,7 @@ function formatManualPaymentDestination(booking) {
     accountDisplayName: booking.locationPaymentAccountDisplayName,
     accountIdentifierDisplay: booking.locationPaymentAccountIdentifierDisplay,
     qrImageUrl: isBankTransfer ? "" : booking.locationPaymentQrImageUrl,
-    amountCents: Number(booking.servicePriceAmountCents || 0) * Number(booking.bookingQuantity || 1),
+    amountCents: bundleItems.reduce((total, item) => total + Number(item.priceAmountCents || 0), 0),
     currency: booking.serviceCurrency || "PHP",
     unitPriceDisplay: booking.servicePriceDisplay
   };
@@ -170,6 +176,7 @@ function formatCustomerBooking(booking) {
     servicePriceAmountCents: booking.servicePriceAmountCents,
     serviceCurrency: booking.serviceCurrency,
     servicePriceDisplay: booking.servicePriceDisplay,
+    bundleItems: booking.bundleItems || [],
     bookingQuantity: booking.bookingQuantity,
     scheduledStartAt: booking.scheduledStartAt,
     scheduledEndAt: booking.scheduledEndAt,
