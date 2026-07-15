@@ -940,9 +940,6 @@ export default function CustomerBookingDetailPage() {
               value={reason}
             />
             <Group className="customer-modal-actions" justify="flex-end">
-              <Button disabled={busy} onClick={() => setCancelModalOpen(false)} size="lg" variant="default">
-                Keep booking
-              </Button>
               <Button color="red" loading={busy} size="lg" type="submit">
                 Cancel booking
               </Button>

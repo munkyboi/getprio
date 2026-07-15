@@ -472,14 +472,9 @@ export default function LandingPage() {
                 {enterpriseError ? <Alert color="red">{enterpriseError}</Alert> : null}
                 <Group className="customer-modal-actions" justify="space-between">
                   <Text c="dimmed" size="sm">We only use this to respond to your Enterprise request.</Text>
-                  <Group>
-                    <Button size="md" variant="default" onClick={() => setEnterpriseDialogOpen(false)}>
-                      Close
-                    </Button>
-                    <Button color="dark" disabled={enterpriseSubmitting} size="md" type="submit">
-                      {enterpriseSubmitting ? "Sending..." : "Send request"}
-                    </Button>
-                  </Group>
+                  <Button color="dark" disabled={enterpriseSubmitting} size="md" type="submit">
+                    {enterpriseSubmitting ? "Sending..." : "Send request"}
+                  </Button>
                 </Group>
               </Stack>
             </form>

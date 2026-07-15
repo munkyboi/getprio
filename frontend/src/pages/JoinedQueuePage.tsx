@@ -493,9 +493,6 @@ export default function JoinedQueuePage() {
               This action is optional. Keep the ticket if you still plan to visit the vendor today.
             </Text>
             <Group className="customer-modal-actions" justify="flex-end">
-              <Button disabled={cancelSubmitting} onClick={() => setCancelConfirmOpen(false)} size="lg" variant="default">
-                Keep ticket
-              </Button>
               <Button color="red" loading={cancelSubmitting} onClick={handleCancelTicket} size="lg" variant="light">
                 Confirm cancel
               </Button>

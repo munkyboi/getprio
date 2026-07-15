@@ -1184,9 +1184,6 @@ export default function GroupFundedCampaignPage() {
             Only cancel if you no longer plan to run this group booking.
           </Alert>
           <Stack className="customer-modal-actions" gap="sm">
-            <Button color="dark" disabled={submitting} onClick={() => setShowCancelConfirm(false)} size="lg" w="100%">
-              Keep campaign open
-            </Button>
             <Button color="red" loading={submitting} onClick={cancelCampaign} size="lg" variant="outline" w="100%">
               Cancel campaign and start refunds
             </Button>
@@ -1234,9 +1231,6 @@ export default function GroupFundedCampaignPage() {
             value={editForm.visibility}
           />
           <Group className="customer-modal-actions" justify="flex-end">
-            <Button onClick={() => setEditModalOpen(false)} size="lg" variant="light">
-              Cancel
-            </Button>
             <Button
               color="dark"
               disabled={!editForm.campaignTitle.trim()}
@@ -1309,7 +1303,6 @@ export default function GroupFundedCampaignPage() {
           ) : null}
           <Text c="dimmed" size="xs">Your report will be sent to the vendor’s email.</Text>
           <Group className="group-funded-report-actions" justify="flex-end">
-            <Button onClick={() => setReportModalOpen(false)} size="lg" variant="light">Cancel</Button>
             <Button
               color="red"
               disabled={!reportReason || (reportReason === "other" && !customReportReason.trim()) || (shouldUseReportTurnstile && !reportTurnstileReady)}
