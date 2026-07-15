@@ -576,7 +576,7 @@ export default function JoinedQueuePage() {
         </Modal>
         <Modal
         centered
-        className="customer-modal"
+        className="customer-modal contact-vendor-modal"
         transitionProps={{ transition: "slide-up", duration: 240, timingFunction: "ease-out" }}
           fullScreen={isMobile}
           onClose={() => setContactOpen(false)}
