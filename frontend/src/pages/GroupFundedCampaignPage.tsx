@@ -1155,7 +1155,7 @@ export default function GroupFundedCampaignPage() {
               </Button>
             ) : null}
             {canCancel ? (
-              <Button className="group-funded-organizer-action" color="red" onClick={() => setShowCancelConfirm(true)} size="lg" variant="light">
+              <Button className="group-funded-organizer-action" color="red" onClick={() => setShowCancelConfirm(true)} size="lg">
                 Cancel campaign
               </Button>
             ) : null}
