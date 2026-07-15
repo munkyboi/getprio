@@ -774,12 +774,14 @@ export default function JoinedQueuePage() {
                 <Text c="dimmed" mt="md" size="sm">
                   {ticketState.message}
                 </Text>
-                <Group mt="md">
-                  {canCancelTicket ? (
+                {canCancelTicket ? (
+                  <Group mt="md">
                     <Button color="red" leftSection={<IconX size={16} />} onClick={() => setCancelConfirmOpen(true)} radius="xl" variant="light">
                       Cancel ticket
                     </Button>
-                  ) : null}
+                  </Group>
+                ) : null}
+                <div className="ticket-page-card-actions">
                   <Button
                     className="ticket-page-card-action"
                     component={Link}
@@ -797,7 +799,7 @@ export default function JoinedQueuePage() {
                   <Button className="ticket-page-card-action" component={Link} leftSection={<IconCalendar size={16} />} radius="xl" to={bookingPath} variant="subtle">
                     Start booking
                   </Button>
-                </Group>
+                </div>
               </Paper>
             </Paper>
           </SimpleGrid>

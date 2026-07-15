@@ -1268,6 +1268,40 @@ body {
   color: var(--vendor-theme-subheader, #8a5c39);
 }
 
+.ticket-page-card-actions {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: minmax(0, 1fr);
+  margin-top: 1rem;
+}
+
+.ticket-page-card-actions .ticket-page-card-action {
+  justify-content: center;
+  min-height: 3rem;
+  width: 100%;
+}
+
+.ticket-page-card-actions .ticket-page-card-action-separator {
+  display: none;
+}
+
+@media (min-width: 48.0625em) {
+  .ticket-page-card-actions {
+    align-items: center;
+    display: flex;
+    gap: 0.25rem;
+  }
+
+  .ticket-page-card-actions .ticket-page-card-action {
+    min-height: 2.25rem;
+    width: auto;
+  }
+
+  .ticket-page-card-actions .ticket-page-card-action-separator {
+    display: block;
+  }
+}
+
 .vendor-trust-row {
   padding-top: 0.2rem;
 }
