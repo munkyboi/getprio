@@ -1,4 +1,5 @@
 const { getLocationForTenant } = require("./vendorRouteHelpers");
+const { assertPublicTextFieldsAllowed } = require("../services/contentModeration");
 
 function normalizeServiceSlug(value) {
   return String(value || "")
@@ -208,6 +209,8 @@ async function normalizeAvailabilityBlockPayload(tenant, body, existingBlock, ve
     const hours = await storeLocationRepository.listHoursByLocationId(location?._id || existingBlock.locationId);
     assertWithinLocationBusinessHours(hours, weekday, startsAt, endsAt, endsNextDay);
   }
+  const notes = typeof body.notes === "string" ? body.notes.trim() : existingBlock?.notes || "";
+  assertPublicTextFieldsAllowed({ "Availability notes": notes });
   return {
     locationId: location?._id || existingBlock.locationId,
     serviceId: hasServiceSlug ? service?._id || null : existingBlock?.serviceId || null,
@@ -217,7 +220,7 @@ async function normalizeAvailabilityBlockPayload(tenant, body, existingBlock, ve
     endsNextDay,
     capacity,
     isActive: Object.prototype.hasOwnProperty.call(body, "isActive") ? Boolean(body.isActive) : existingBlock?.isActive ?? true,
-    notes: typeof body.notes === "string" ? body.notes.trim() : existingBlock?.notes || ""
+    notes
   };
 }
 
@@ -246,6 +249,8 @@ async function normalizeAvailabilityExceptionPayload(tenant, body, existingExcep
     error.statusCode = 400;
     throw error;
   }
+  const reason = typeof body.reason === "string" ? body.reason.trim() : existingException?.reason || "";
+  assertPublicTextFieldsAllowed({ "Availability reason": reason });
   return {
     locationId: location?._id || existingException.locationId,
     serviceId: hasServiceSlug ? service?._id || null : existingException?.serviceId || null,
@@ -254,7 +259,7 @@ async function normalizeAvailabilityExceptionPayload(tenant, body, existingExcep
     endsAt,
     isAvailable: Object.prototype.hasOwnProperty.call(body, "isAvailable") ? Boolean(body.isAvailable) : existingException?.isAvailable ?? false,
     capacity,
-    reason: typeof body.reason === "string" ? body.reason.trim() : existingException?.reason || ""
+    reason
   };
 }
 

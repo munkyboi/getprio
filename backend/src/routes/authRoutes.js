@@ -7,6 +7,7 @@ const authSessionRepository = require("../repositories/authSessions");
 const userRepository = require("../repositories/users");
 const asyncHandler = require("../middleware/asyncHandler");
 const { authenticate, maybeAuthenticate } = require("../middleware/auth");
+const { moderatePublicText } = require("../middleware/moderatePublicText");
 const authService = require("../services/authService");
 const {
   buildAuthorizationUrl,
@@ -22,9 +23,11 @@ const notificationService = require("../services/notificationService");
 const passwordResetService = require("../services/passwordResetService");
 const securityEventService = require("../services/securityEventService");
 const sessionService = require("../services/sessionService");
+const { assertPublicTextFieldsAllowed } = require("../services/contentModeration");
 const { normalizePhilippineMobileNumber } = require("../utils/phone");
 
 const router = express.Router();
+router.use(moderatePublicText);
 const OAUTH_INTENTS = new Set(["login", "register_customer", "register_vendor"]);
 const normalizeEmail = authService.normalizeEmail;
 const authAttemptLimiter = rateLimit({
@@ -106,6 +109,7 @@ async function assertUsernameAvailable(username, options = {}) {
     error.statusCode = 400;
     throw error;
   }
+  assertPublicTextFieldsAllowed({ Username: validation.username });
 
   const existingUser = await userRepository.findUserByUsername(validation.username, options);
   if (existingUser) {
@@ -500,6 +504,13 @@ router.post(
       error.statusCode = 400;
       throw error;
     }
+    assertPublicTextFieldsAllowed({
+      "Business name": tenantName,
+      "Business slug": normalizedSlug,
+      "Business category": normalizedCategory,
+      "Account name": name,
+      Username: normalizedUsername.username
+    });
 
     const result = await db.withTransaction(async (client) => {
       const [existingTenant, existingUser, existingUsername] = await Promise.all([
@@ -621,6 +632,13 @@ router.post(
       error.statusCode = 400;
       throw error;
     }
+    assertPublicTextFieldsAllowed({
+      "Business name": tenantName,
+      "Business slug": normalizedSlug,
+      "Business category": normalizedCategory,
+      "Account name": resolvedName,
+      Username: resolvedUsername.username
+    });
 
     const user = await db.withTransaction(async (client) => {
       const [existingTenant, conflictingUser, conflictingUsername] = await Promise.all([
@@ -706,6 +724,7 @@ router.post(
 
     const normalizedEmail = normalizeEmail(email);
     const normalizedUsername = await assertUsernameAvailable(username);
+    assertPublicTextFieldsAllowed({ "Account name": name, Username: normalizedUsername });
     const existingUser = await userRepository.findUserByEmail(normalizedEmail);
     if (existingUser) {
       const error = new Error(buildExistingAccountMessage(existingUser));

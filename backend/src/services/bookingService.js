@@ -11,6 +11,7 @@ const bookingSmsAlertPaymentService = require("./bookingSmsAlertPaymentService")
 const notificationService = require("./notificationService");
 const paymentProofStorageService = require("./paymentProofStorageService");
 const pushNotificationService = require("./pushNotificationService");
+const { assertPublicTextFieldsAllowed } = require("./contentModeration");
 const { normalizePhilippineMobileNumber } = require("../utils/phone");
 
 const CHECK_IN_WINDOW_MINUTES = 15;
@@ -864,6 +865,8 @@ async function createCustomerBooking({ user, body }) {
     error.statusCode = 400;
     throw error;
   }
+  const notes = String(verifiedBooking.payload.notes || body.notes || "").trim();
+  assertPublicTextFieldsAllowed({ "Customer name": verifiedCustomerName, "Booking notes": notes });
 
   const verifiedCustomerEmail = verifiedBooking.payload.customerEmail || customerEmail;
   const verifiedCustomerPhone = verifiedBooking.payload.customerPhone || customerPhone;
@@ -907,7 +910,7 @@ async function createCustomerBooking({ user, body }) {
     bookingQuantity,
     scheduledStartAt: scheduledStartAt.toISOString(),
     scheduledEndAt: scheduledEndAt.toISOString(),
-    notes: String(verifiedBooking.payload.notes || body.notes || "").trim(),
+    notes,
     paymentReference: String(body.paymentReference || "").trim(),
     pendingExpiresAt: getPendingBookingExpiration(),
     notifyByEmail: Boolean(verifiedCustomerEmail),

@@ -1,6 +1,7 @@
 const storeLocationRepository = require("../repositories/storeLocations");
 const vendorServiceRepository = require("../repositories/vendorServices");
 const storeHoursService = require("../services/storeHoursService");
+const { assertPublicTextFieldsAllowed } = require("../services/contentModeration");
 
 const BOOKING_CAPACITY_SCOPES = new Set(["service", "location"]);
 
@@ -129,6 +130,19 @@ function normalizeLocationPayload(body, existingLocation = null) {
     }
   }
 
+  assertPublicTextFieldsAllowed({
+    "Location name": next.name,
+    "Location slug": next.slug,
+    "Location address line 1": next.addressLine1,
+    "Location address line 2": next.addressLine2,
+    "Location city": next.city,
+    "Location province": next.province,
+    "Location country": next.country,
+    "Payment method": next.paymentMethodLabel,
+    "Bank name": next.paymentBankName,
+    "Account owner": next.paymentAccountDisplayName
+  });
+
   if (Object.prototype.hasOwnProperty.call(next, "paymentQrActive")) {
     next.paymentQrActive = next.paymentQrActive === true;
   }
@@ -238,15 +252,23 @@ function normalizeServicePayload(body, existingService = null) {
     throw error;
   }
 
+  const description = typeof body.description === "string"
+    ? body.description.trim()
+    : existingService?.description || "";
+  assertPublicTextFieldsAllowed({
+    "Service name": name,
+    "Service slug": slug,
+    "Service description": description,
+    "Booking quantity label": bookingQuantityLabel
+  });
+
   return {
     name,
     slug,
     imageUrl: typeof body.imageUrl === "string"
       ? body.imageUrl.trim()
       : existingService?.imageUrl || "",
-    description: typeof body.description === "string"
-      ? body.description.trim()
-      : existingService?.description || "",
+    description,
     durationMinutes,
     allowBookingQuantity,
     bookingQuantityLabel,

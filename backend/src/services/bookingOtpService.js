@@ -3,6 +3,7 @@ const env = require("../config/env");
 const db = require("../config/db");
 const bookingOtpRepository = require("../repositories/bookingOtps");
 const notificationService = require("./notificationService");
+const { assertPublicTextFieldsAllowed } = require("./contentModeration");
 const { normalizePhilippineMobileNumber } = require("../utils/phone");
 
 const OTP_TTL_MINUTES = 15;
@@ -35,7 +36,7 @@ function sanitizeBookingPayload(payload) {
     throw error;
   }
 
-  return {
+  const sanitized = {
     tenantSlug: String(payload.tenantSlug || "").trim().toLowerCase(),
     locationSlug: String(payload.locationSlug || "").trim().toLowerCase(),
     serviceSlug: String(payload.serviceSlug || "").trim().toLowerCase(),
@@ -47,6 +48,8 @@ function sanitizeBookingPayload(payload) {
     notifyBySms: Boolean(payload.notifyBySms),
     notes: String(payload.notes || "").trim()
   };
+  assertPublicTextFieldsAllowed({ "Customer name": sanitized.customerName, "Booking notes": sanitized.notes });
+  return sanitized;
 }
 
 function getDeliveryTarget(payload, requestedChannel) {

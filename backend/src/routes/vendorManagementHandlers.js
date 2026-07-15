@@ -1,5 +1,6 @@
 const PDFDocument = require("pdfkit");
 const { normalizeCounterSlug, normalizeTenantNotificationSettings } = require("./vendorRouteHelpers");
+const { assertPublicTextFieldsAllowed } = require("../services/contentModeration");
 const { normalizePhilippineMobileNumber } = require("../utils/phone");
 
 const HISTORY_RANGE_DAYS = {
@@ -30,6 +31,12 @@ async function handleUpdateSettings({ req, res, getAuthorizedTenant, assertTenan
   if (wantsToChangeBusinessProfile) {
     assertTenantPermission(req.user, tenant._id, "tenant.settings.manage_contact");
   }
+  assertPublicTextFieldsAllowed({
+    "Business name": name,
+    "Business category": publicProfileCategory,
+    "Owner name": ownerName,
+    "Owner display name": ownerDisplayName
+  });
   const normalizedAutoPauseEnabled = Boolean(autoPauseEnabled);
   const normalizedAutoPauseThreshold = normalizedAutoPauseEnabled ? Math.max(1, Number(autoPauseThreshold || 1)) : null;
   const normalizedAutoResumeEnabled = normalizedAutoPauseEnabled && Boolean(autoResumeEnabled);
@@ -125,6 +132,7 @@ async function handleUpdateCounter({ req, res, getAuthorizedTenant, assertTenant
     throw error;
   }
   const slug = normalizeCounterSlug(req.body.slug || req.body.name);
+  assertPublicTextFieldsAllowed({ "Counter name": req.body.name, "Counter slug": slug });
   const updatedCounter = await serviceCounterRepository.updateCounter(counter._id, { name: req.body.name, slug, isActive: req.body.isActive !== false });
   await serviceCounterRepository.replaceAssignments(updatedCounter._id, req.body.assignedUserIds || []);
   res.json({ counter: updatedCounter });

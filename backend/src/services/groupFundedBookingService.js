@@ -1299,6 +1299,7 @@ async function submitContributionProof({ user, campaignIdOrToken, body }) {
 
 async function cancelOrganizerCampaign({ user, campaignIdOrToken, reason }) {
   const cancellationReason = normalizeText(reason, "organizer_canceled");
+  contentModeration.assertPublicTextAllowed(cancellationReason, "Campaign cancellation reason");
   const result = await groupFundedRepository.withTransaction(async (client) => {
     const campaign = /^\d+$/.test(String(campaignIdOrToken))
       ? await groupFundedRepository.findCampaignById(campaignIdOrToken, { client, forUpdate: true })
@@ -1516,6 +1517,7 @@ async function rejectContribution({ tenant, user, contributionId, reason, refund
   if (!rejectionReason) {
     throw makeHttpError("reason is required.", 400);
   }
+  contentModeration.assertPublicTextAllowed(rejectionReason, "Contribution rejection reason");
   if (!["not_required", "required"].includes(refundDisposition)) {
     throw makeHttpError("refundDisposition must be not_required or required.", 400);
   }
@@ -1739,6 +1741,7 @@ async function rejectVendorCampaign({ tenant, user, campaignId, reason }) {
   if (!rejectionReason) {
     throw makeHttpError("reason is required.", 400);
   }
+  contentModeration.assertPublicTextAllowed(rejectionReason, "Campaign rejection reason");
 
   const result = await groupFundedRepository.withTransaction(async (client) => {
     const campaign = await groupFundedRepository.findCampaignById(campaignId, { client, forUpdate: true });
@@ -2129,6 +2132,7 @@ async function acceptReplacementSlot({ user, campaignIdOrToken }) {
 
 async function declineReplacementSlot({ user, campaignIdOrToken, reason }) {
   const declineReason = normalizeText(reason, "replacement_declined");
+  contentModeration.assertPublicTextAllowed(declineReason, "Replacement decline reason");
   const result = await groupFundedRepository.withTransaction(async (client) => {
     const campaign = /^\d+$/.test(String(campaignIdOrToken))
       ? await groupFundedRepository.findCampaignById(campaignIdOrToken, { client, forUpdate: true })

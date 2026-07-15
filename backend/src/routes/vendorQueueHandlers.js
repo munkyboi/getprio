@@ -1,3 +1,5 @@
+const { assertPublicTextFieldsAllowed } = require("../services/contentModeration");
+
 async function handleCreateTicket({
   req,
   res,
@@ -16,6 +18,7 @@ async function handleCreateTicket({
     error.statusCode = 400;
     throw error;
   }
+  assertPublicTextFieldsAllowed({ "Customer name": customerName, Notes: notes });
 
   const result = await createTicket({
     tenant,

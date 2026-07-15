@@ -8,6 +8,7 @@ const locationServiceRepository = require("../repositories/locationServices");
 const ticketRepository = require("../repositories/tickets");
 const asyncHandler = require("../middleware/asyncHandler");
 const { maybeAuthenticate } = require("../middleware/auth");
+const { moderatePublicText } = require("../middleware/moderatePublicText");
 const queueEvents = require("../services/queueEvents");
 const turnstileService = require("../services/turnstileService");
 const queueJoinOtpService = require("../services/queueJoinOtpService");
@@ -30,6 +31,7 @@ const { normalizePhilippineMobileNumber } = require("../utils/phone");
 const { formatPaginationMetadata, parsePaginationParams } = require("../utils/pagination");
 
 const router = express.Router();
+router.use(moderatePublicText);
 const groupFundedAbuseReportLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 5,

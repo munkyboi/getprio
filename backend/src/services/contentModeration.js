@@ -62,8 +62,17 @@ function assertPublicTextAllowed(value, label = "Text") {
   throw error;
 }
 
+function assertPublicTextFieldsAllowed(fields) {
+  for (const [label, value] of Object.entries(fields || {})) {
+    if (typeof value === "string" && value.trim()) {
+      assertPublicTextAllowed(value, label);
+    }
+  }
+}
+
 module.exports = {
   assertPublicTextAllowed,
+  assertPublicTextFieldsAllowed,
   findBlockedTerm,
   normalizeModerationText
 };

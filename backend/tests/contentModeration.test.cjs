@@ -5,6 +5,7 @@ const {
   findBlockedTerm,
   normalizeModerationText
 } = require("../src/services/contentModeration");
+const { assertModeratedPayloadAllowed } = require("../src/middleware/moderatePublicText");
 
 test("content moderation detects common English, Filipino, and Bisaya blocked terms", () => {
   assert.equal(findBlockedTerm("This is bullshit"), "bullshit");
@@ -29,4 +30,20 @@ test("content moderation rejects blocked public text with a client-safe error", 
     () => assertPublicTextAllowed("You are a bogo", "Campaign description"),
     (error) => error.statusCode === 400 && /Campaign description contains language/.test(error.message)
   );
+});
+
+test("common persisted text fields are moderated recursively while identifiers are left alone", () => {
+  assert.throws(
+    () => assertModeratedPayloadAllowed({ service: { title: "yawa" } }),
+    /Title contains language/
+  );
+  assert.throws(
+    () => assertModeratedPayloadAllowed({ entries: [{ notes: "f.u.c.k" }] }),
+    /Notes contains language/
+  );
+  assert.doesNotThrow(() => assertModeratedPayloadAllowed({
+    email: "support@example.com",
+    paymentReference: "REF-1001",
+    fileName: "receipt.png"
+  }));
 });

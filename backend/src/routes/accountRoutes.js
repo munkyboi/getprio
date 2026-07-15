@@ -1,6 +1,7 @@
 const express = require("express");
 const asyncHandler = require("../middleware/asyncHandler");
 const { authenticate } = require("../middleware/auth");
+const { moderatePublicText } = require("../middleware/moderatePublicText");
 const bookingRepository = require("../repositories/bookings");
 const groupFundedRepository = require("../repositories/groupFundedBookings");
 const ticketRepository = require("../repositories/tickets");
@@ -12,12 +13,14 @@ const locationPaymentQrUploadService = require("../services/locationPaymentQrUpl
 const passwordResetService = require("../services/passwordResetService");
 const pushNotificationService = require("../services/pushNotificationService");
 const customerTicketAccess = require("../services/customerTicketAccess");
+const { assertPublicTextFieldsAllowed } = require("../services/contentModeration");
 const { assertTenantPermission } = require("../middleware/auth");
 const { formatPaginationMetadata, parsePaginationParams } = require("../utils/pagination");
 
 const router = express.Router();
 
 router.use(authenticate);
+router.use(moderatePublicText);
 
 function normalizeRequestText(value, fallback = "") {
   if (Array.isArray(value)) {
@@ -411,6 +414,7 @@ router.patch(
       error.statusCode = 400;
       throw error;
     }
+    assertPublicTextFieldsAllowed({ Name: name, "Display name": displayName });
 
     const updatedUser = await userRepository.updateUser(req.user._id, {
       name,
