@@ -1184,7 +1184,7 @@ export default function GroupFundedCampaignPage() {
             Only cancel if you no longer plan to run this group booking.
           </Alert>
           <Stack className="customer-modal-actions" gap="sm">
-            <Button color="red" loading={submitting} onClick={cancelCampaign} size="lg" variant="outline" w="100%">
+            <Button color="red" loading={submitting} onClick={cancelCampaign} size="lg" w="100%">
               Cancel campaign and start refunds
             </Button>
           </Stack>
