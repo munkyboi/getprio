@@ -474,7 +474,7 @@ export default function JoinedQueuePage() {
 
         <Modal
           centered
-          className="customer-modal contact-vendor-modal"
+          className="customer-modal"
           transitionProps={{ transition: "slide-up", duration: 240, timingFunction: "ease-out" }}
           onClose={() => {
             if (!cancelSubmitting) {
