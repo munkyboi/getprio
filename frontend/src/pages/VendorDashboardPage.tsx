@@ -41,6 +41,7 @@ import {
 import { DatePickerInput } from "@mantine/dates";
 import {
   IconBellRinging,
+  IconBuildingBank,
   IconChartBar,
   IconBriefcase,
   IconCalendar,
@@ -324,6 +325,7 @@ const emptyLocationForm = {
   contactPhone: "",
   timezone: "Asia/Manila",
   paymentMethodLabel: "",
+  paymentBankName: "",
   paymentAccountDisplayName: "",
   paymentAccountIdentifierDisplay: "",
   paymentQrImageUrl: "",
@@ -544,6 +546,7 @@ const publicBoardThemePresets: Record<string, PublicBoardThemeSettings> = {
     heroTitle: "",
     heroSubtitle: "",
     logoUrl: "",
+    logoFit: "contain",
     backgroundImageUrl: "",
     backgroundImageFit: "cover",
     pageBackgroundImageUrl: "/theme-backgrounds/classic-brushed-warmth.svg",
@@ -566,6 +569,7 @@ const publicBoardThemePresets: Record<string, PublicBoardThemeSettings> = {
     heroTitle: "",
     heroSubtitle: "",
     logoUrl: "",
+    logoFit: "contain",
     backgroundImageUrl: "",
     backgroundImageFit: "cover",
     pageBackgroundImageUrl: "/theme-backgrounds/generic-paper-glow.svg",
@@ -588,6 +592,7 @@ const publicBoardThemePresets: Record<string, PublicBoardThemeSettings> = {
     heroTitle: "",
     heroSubtitle: "",
     logoUrl: "",
+    logoFit: "contain",
     backgroundImageUrl: "",
     backgroundImageFit: "cover",
     pageBackgroundImageUrl: "/theme-backgrounds/sports-recreation-halftone.svg",
@@ -610,6 +615,7 @@ const publicBoardThemePresets: Record<string, PublicBoardThemeSettings> = {
     heroTitle: "",
     heroSubtitle: "",
     logoUrl: "",
+    logoFit: "contain",
     backgroundImageUrl: "",
     backgroundImageFit: "cover",
     pageBackgroundImageUrl: "/theme-backgrounds/health-wellness-lotus.svg",
@@ -632,6 +638,7 @@ const publicBoardThemePresets: Record<string, PublicBoardThemeSettings> = {
     heroTitle: "",
     heroSubtitle: "",
     logoUrl: "",
+    logoFit: "contain",
     backgroundImageUrl: "",
     backgroundImageFit: "cover",
     pageBackgroundImageUrl: "/theme-backgrounds/retail-catalog-panels.svg",
@@ -654,6 +661,7 @@ const publicBoardThemePresets: Record<string, PublicBoardThemeSettings> = {
     heroTitle: "",
     heroSubtitle: "",
     logoUrl: "",
+    logoFit: "contain",
     backgroundImageUrl: "",
     backgroundImageFit: "cover",
     pageBackgroundImageUrl: "/theme-backgrounds/food-confetti-sprinkles.svg",
@@ -676,6 +684,7 @@ const publicBoardThemePresets: Record<string, PublicBoardThemeSettings> = {
     heroTitle: "",
     heroSubtitle: "",
     logoUrl: "",
+    logoFit: "contain",
     backgroundImageUrl: "",
     backgroundImageFit: "cover",
     pageBackgroundImageUrl: "/theme-backgrounds/clinic-crosswave.svg",
@@ -698,6 +707,7 @@ const publicBoardThemePresets: Record<string, PublicBoardThemeSettings> = {
     heroTitle: "",
     heroSubtitle: "",
     logoUrl: "",
+    logoFit: "contain",
     backgroundImageUrl: "",
     backgroundImageFit: "cover",
     pageBackgroundImageUrl: "/theme-backgrounds/neura-signal-grid.svg",
@@ -3566,6 +3576,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       heroTitle: current.heroTitle,
       heroSubtitle: current.heroSubtitle,
       logoUrl: current.logoUrl,
+      logoFit: current.logoFit || preset.logoFit,
       backgroundImageUrl: current.backgroundImageUrl,
       backgroundImageFit: current.backgroundImageFit || preset.backgroundImageFit,
       pageBackgroundImageUrl:
@@ -3939,31 +3950,39 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           </ModalSection>
 
           <ModalSection
-            title="Payment QR"
-            description="Optional manual payment details shown when this branch accepts QR-based payments."
+            title="Manual payment"
+            description="Optional payment details shown when this branch accepts manual payments."
           >
             <SimpleGrid cols={{ base: 1, md: 2 }}>
-              <TextInput
+              <Select
                 name="paymentMethodLabel"
                 label={
                   <Group gap={6} wrap="nowrap">
                     <Text span size="sm" fw={500}>
                       Payment method
                     </Text>
-                    <ModalHelpIcon label="Examples: GCash, Maya, or BPI InstaPay. This is a display label, not a payment processor setting." />
+                    <ModalHelpIcon label="Choose the payment destination customers will use for this branch." />
                   </Group>
                 }
-                placeholder="GCash, Maya, BPI InstaPay"
+                data={["GCash", "Maya", "Bank Transfer"]}
+                placeholder="Choose a payment method"
                 value={locationForm.paymentMethodLabel}
-                onChange={(event) =>
-                  setLocationForm((current) => ({ ...current, paymentMethodLabel: event.target.value }))
-                }
+                onChange={(value) => setLocationForm((current) => ({ ...current, paymentMethodLabel: value || "" }))}
               />
+              {locationForm.paymentMethodLabel === "Bank Transfer" ? (
+                <TextInput
+                  name="paymentBankName"
+                  label="Bank name"
+                  placeholder="e.g. BPI, BDO, UnionBank"
+                  value={locationForm.paymentBankName}
+                  onChange={(event) => setLocationForm((current) => ({ ...current, paymentBankName: event.target.value }))}
+                />
+              ) : null}
               <TextInput
                 name="paymentAccountDisplayName"
-                label="Account display name"
-                description="Business or account holder name shown beside the QR code."
-                placeholder="Business or account name"
+                label={locationForm.paymentMethodLabel === "Bank Transfer" ? "Account owner" : "Account display name"}
+                description={locationForm.paymentMethodLabel === "Bank Transfer" ? "Name of the bank account owner." : "Business or account holder name shown beside the QR code."}
+                placeholder={locationForm.paymentMethodLabel === "Bank Transfer" ? "Account owner name" : "Business or account name"}
                 value={locationForm.paymentAccountDisplayName}
                 onChange={(event) =>
                   setLocationForm((current) => ({ ...current, paymentAccountDisplayName: event.target.value }))
@@ -3971,15 +3990,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               />
               <TextInput
                 name="paymentAccountIdentifierDisplay"
-                label={
-                  <Group gap={6} wrap="nowrap">
-                    <Text span size="sm" fw={500}>
-                      Masked account identifier
-                    </Text>
-                    <ModalHelpIcon label="Use a partially hidden account number or suffix so customers can verify they are paying the right account without exposing the full value." />
-                  </Group>
-                }
-                placeholder="0917 *** 1234 or account suffix"
+                label={locationForm.paymentMethodLabel === "Bank Transfer" ? "Account number" : <Group gap={6} wrap="nowrap"><Text span size="sm" fw={500}>Masked account identifier</Text><ModalHelpIcon label="Use a partially hidden account number or suffix so customers can verify they are paying the right account without exposing the full value." /></Group>}
+                placeholder={locationForm.paymentMethodLabel === "Bank Transfer" ? "Bank account number" : "0917 *** 1234 or account suffix"}
                 value={locationForm.paymentAccountIdentifierDisplay}
                 onChange={(event) =>
                   setLocationForm((current) => ({
@@ -3988,38 +4000,36 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   }))
                 }
               />
-              <Stack gap="xs">
-                <FileInput
-                  accept="image/jpeg,image/png,image/webp"
-                  clearable
-                  disabled={busyAction === "payment-qr-upload"}
-                  label="QR image"
-                  leftSection={<IconQrcode size={16} />}
-                  description="Upload the QR code image customers should scan."
-                  onChange={(file) => {
-                    setPaymentQrUploadFile(file);
-                    void uploadLocationPaymentQr(file);
-                  }}
-                  placeholder={locationForm.paymentQrImageUrl ? "Replace QR image" : "Upload QR image"}
-                  value={paymentQrUploadFile}
-                />
-                {locationForm.paymentQrImageUrl ? (
-                  <Image
-                    alt="Payment QR preview"
-                    fit="contain"
-                    h={120}
-                    radius="sm"
-                    src={locationForm.paymentQrImageUrl}
-                    w={120}
+              {locationForm.paymentMethodLabel === "Bank Transfer" ? (
+                <Stack align="center" gap="xs" justify="center" p="sm">
+                  <ThemeIcon color="blue" radius="xl" size={84} variant="light"><IconBuildingBank size={44} /></ThemeIcon>
+                  <Text c="dimmed" size="sm" ta="center">Customers will see your bank details instead of a QR code.</Text>
+                </Stack>
+              ) : (
+                <Stack gap="xs">
+                  <FileInput
+                    accept="image/jpeg,image/png,image/webp"
+                    clearable
+                    disabled={busyAction === "payment-qr-upload"}
+                    label="QR image"
+                    leftSection={<IconQrcode size={16} />}
+                    description="Upload the QR code image customers should scan."
+                    onChange={(file) => {
+                      setPaymentQrUploadFile(file);
+                      void uploadLocationPaymentQr(file);
+                    }}
+                    placeholder={locationForm.paymentQrImageUrl ? "Replace QR image" : "Upload QR image"}
+                    value={paymentQrUploadFile}
                   />
-                ) : null}
-              </Stack>
+                  {locationForm.paymentQrImageUrl ? <Image alt="Payment QR preview" fit="contain" h={120} radius="sm" src={locationForm.paymentQrImageUrl} w={120} /> : null}
+                </Stack>
+              )}
             </SimpleGrid>
             <Switch
               name="paymentQrActive"
               checked={locationForm.paymentQrActive}
-              label="Enable manual payment QR for this location"
-              description="Only turn this on if customers should see QR payment details for this branch."
+              label="Enable manual payment for this location"
+              description="Only turn this on if customers should see these payment details for this branch."
               onChange={(event) =>
                 setLocationForm((current) => ({ ...current, paymentQrActive: event.currentTarget.checked }))
               }
@@ -4890,6 +4900,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       "--vendor-theme-button-border": themeForm.buttonBorderColor,
       "--vendor-theme-button-border-width": themeForm.presetId === "sports" ? "0px" : "1px",
       "--vendor-theme-logo-bg": themeForm.cardBackgroundColor,
+      "--vendor-theme-logo-fit": themeForm.logoFit,
       ...(themeForm.pageBackgroundImageUrl
         ? {
             "--vendor-theme-page-image": `url(${themeForm.pageBackgroundImageUrl})`,
@@ -5066,7 +5077,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         onClose={() => setThemeDialogOpen(false)}
         title={`Setup public board theme${themeLocation ? `: ${themeLocation.name}` : ""}`}
       >
-        <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="xl">
+        <div className="theme-editor-layout">
           <ScrollArea h="calc(100vh - 120px)" offsetScrollbars>
             <Stack gap="md" pr="md">
               <ModalSection
@@ -5092,7 +5103,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 title="Public hero copy"
                 description="Controls the subtitle and descriptive message displayed in the public vendor hero."
               >
-                <SimpleGrid cols={{ base: 1, md: 2 }}>
+                <SimpleGrid cols={1}>
                   <TextInput
                     name="heroTitle"
                     label="Hero subtitle"
@@ -5146,7 +5157,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   value={themeForm.pageBackgroundImageFit}
                   onChange={(value) => setThemeField("pageBackgroundImageFit", value === "contain" ? "contain" : "cover")}
                 />
-                <SimpleGrid cols={{ base: 1, md: 2 }}>
+                <SimpleGrid cols={1}>
                   <FileInput
                     name="pageBackgroundImageFile"
                     accept="image/png,image/jpeg,image/webp"
@@ -5171,7 +5182,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 title="Profile media"
                 description="Set the profile logo and hero background shown inside the public vendor hero."
               >
-                <SimpleGrid cols={{ base: 1, md: 2 }}>
+                <SimpleGrid cols={1}>
                   <FileInput
                     name="backgroundImageFile"
                     accept="image/png,image/jpeg,image/webp"
@@ -5193,7 +5204,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     onChange={(value) => setThemeField("backgroundImageFit", value === "contain" ? "contain" : "cover")}
                   />
                 </SimpleGrid>
-                <SimpleGrid cols={{ base: 1, md: 2 }}>
+                <SimpleGrid cols={1}>
                   <TextInput
                     name="backgroundImageUrl"
                     label="Profile background URL"
@@ -5211,20 +5222,33 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     onChange={(file) => uploadThemeAsset("logo", file)}
                   />
                 </SimpleGrid>
-                <TextInput
-                  name="logoUrl"
-                  label="Logo URL"
-                  description="Paste a hosted logo URL when not uploading a file."
-                  value={themeForm.logoUrl}
-                  onChange={(event) => setThemeField("logoUrl", event.target.value)}
-                />
+                <SimpleGrid cols={1}>
+                  <TextInput
+                    name="logoUrl"
+                    label="Logo URL"
+                    description="Paste a hosted logo URL when not uploading a file."
+                    value={themeForm.logoUrl}
+                    onChange={(event) => setThemeField("logoUrl", event.target.value)}
+                  />
+                  <Select
+                    name="logoFit"
+                    label="Profile logo fit"
+                    description="Contain shows the full logo. Cover fills the circular frame."
+                    data={[
+                      { value: "contain", label: "Contain" },
+                      { value: "cover", label: "Cover" }
+                    ]}
+                    value={themeForm.logoFit}
+                    onChange={(value) => setThemeField("logoFit", value === "cover" ? "cover" : "contain")}
+                  />
+                </SimpleGrid>
               </ModalSection>
 
               <ModalSection
                 title="Colors"
                 description="Tune text, page, and action colors used across the public vendor page and preview states."
               >
-                <SimpleGrid cols={{ base: 1, md: 3 }}>
+                <SimpleGrid cols={1}>
                   <ColorInput name="pageBackgroundColor" label="Page background" value={themeForm.pageBackgroundColor} onChange={(value) => setThemeField("pageBackgroundColor", value)} />
                   <ColorInput name="headerColor" label="Heading text" value={themeForm.headerColor} onChange={(value) => setThemeField("headerColor", value)} />
                   <ColorInput name="subheaderColor" label="Accent text" value={themeForm.subheaderColor} onChange={(value) => setThemeField("subheaderColor", value)} />
@@ -5238,7 +5262,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 title="Cards and borders"
                 description="Controls the surfaces used by the hero, service cards, branch cards, and status panels."
               >
-                <SimpleGrid cols={{ base: 1, md: 2 }}>
+                <SimpleGrid cols={1}>
                   <ColorInput name="cardBackgroundColor" label="Card background" value={themeForm.cardBackgroundColor} onChange={(value) => setThemeField("cardBackgroundColor", value)} />
                   <ColorInput name="cardBorderColor" label="Card border" value={themeForm.cardBorderColor} onChange={(value) => setThemeField("cardBorderColor", value)} />
                   <NumberInput name="cardBorderSize" label="Border size" min={0} max={12} value={themeForm.cardBorderSize} onChange={(value) => setThemeField("cardBorderSize", Number(value) || 0)} />
@@ -5276,7 +5300,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             </Stack>
           </ScrollArea>
           {renderThemePreview()}
-        </SimpleGrid>
+        </div>
       </Modal>
     );
   }
@@ -5304,6 +5328,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         contactPhone: locationItem.contactPhone,
         timezone: locationItem.timezone,
         paymentMethodLabel: locationItem.paymentMethodLabel,
+        paymentBankName: locationItem.paymentBankName,
         paymentAccountDisplayName: locationItem.paymentAccountDisplayName,
         paymentAccountIdentifierDisplay: locationItem.paymentAccountIdentifierDisplay,
         paymentQrImageUrl: locationItem.paymentQrImageUrl,
@@ -5410,6 +5435,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         contactPhone: locationForm.contactPhone,
         timezone: locationForm.timezone,
         paymentMethodLabel: locationForm.paymentMethodLabel,
+        paymentBankName: locationForm.paymentBankName,
         paymentAccountDisplayName: locationForm.paymentAccountDisplayName,
         paymentAccountIdentifierDisplay: locationForm.paymentAccountIdentifierDisplay,
         paymentQrImageUrl: locationForm.paymentQrImageUrl,

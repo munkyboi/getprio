@@ -935,6 +935,124 @@ body {
   max-width: 15rem;
 }
 
+.group-funded-payment-layout {
+  display: grid;
+  grid-template-columns: minmax(300px, 30rem) minmax(0, 1fr);
+  gap: clamp(1rem, 3vw, 2rem);
+  align-items: stretch;
+}
+
+.group-funded-payment-visual {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  max-width: 30rem;
+  height: auto;
+  overflow: hidden;
+  border-radius: 0.75rem;
+  background: #edf1f6;
+}
+
+.group-funded-payment-image {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.group-funded-payment-image img {
+  display: block;
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+}
+
+.group-funded-payment-fields {
+  min-width: 0;
+  padding-block: 0.25rem;
+}
+
+.group-funded-save-qr-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1.25rem;
+  background: rgba(9, 15, 26, 0.68);
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+.group-funded-payment-visual:hover .group-funded-save-qr-overlay,
+.group-funded-payment-visual:focus-within .group-funded-save-qr-overlay {
+  opacity: 1;
+}
+
+.group-funded-save-qr-overlay .group-funded-save-qr-button {
+  max-width: 15rem;
+  background: #ffffff;
+  color: #172033;
+}
+
+.group-funded-proof-state--verified {
+  border-color: color-mix(in srgb, #12b886 45%, transparent);
+  background: linear-gradient(145deg, #f0fff8, #ffffff 58%);
+}
+
+.group-funded-proof-success {
+  align-items: center;
+  padding: 0.35rem;
+}
+
+.group-funded-proof-success .mantine-ThemeIcon-root {
+  flex: 0 0 auto;
+  box-shadow: 0 10px 24px rgba(18, 184, 134, 0.24);
+}
+
+.group-funded-view-proof-button {
+  width: 100%;
+  min-height: 3.25rem;
+}
+
+.group-funded-proof-file-fallback {
+  width: 100%;
+  height: 100%;
+  padding: 1.5rem;
+  color: #536176;
+}
+
+.group-funded-bank-payment-icon {
+  width: 100%;
+  min-height: 18rem;
+  padding: 1.5rem;
+  color: #536176;
+}
+
+.theme-editor-layout {
+  display: grid;
+  grid-template-columns: minmax(20rem, 0.8fr) minmax(0, 1.7fr);
+  gap: 2rem;
+  align-items: start;
+}
+
+.theme-editor-layout > * {
+  min-width: 0;
+}
+
+@media (max-width: 64em) {
+  .theme-editor-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (hover: none) {
+  .group-funded-save-qr-overlay {
+    opacity: 1;
+    background: linear-gradient(transparent 35%, rgba(9, 15, 26, 0.74));
+    align-items: end;
+  }
+}
+
 .group-funded-cancel-modal :where(.mantine-Modal-title) {
   font-size: 1.25rem;
   font-weight: 800;
@@ -1431,9 +1549,8 @@ body {
 
 .vendor-profile-logo-frame img {
   width: 100%;
-  height: auto;
-  aspect-ratio: 1;
-  object-fit: contain;
+  height: 100%;
+  object-fit: var(--vendor-theme-logo-fit, contain);
 }
 
 .vendor-profile-action {
@@ -1784,6 +1901,15 @@ body {
 }
 
 @media (max-width: 48em) {
+  .group-funded-payment-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .group-funded-payment-visual {
+    justify-self: center;
+    max-width: 100%;
+  }
+
   .group-funded-hero-actions,
   .group-funded-hero-actions > .mantine-Button-root,
   .group-funded-share-action,

@@ -366,6 +366,7 @@ export default function LandingPage() {
       <Modal
         centered
         className="customer-modal"
+        transitionProps={{ transition: "slide-up", duration: 240, timingFunction: "ease-out" }}
         classNames={{
           body: "enterprise-contact-modal-body",
           content: "enterprise-contact-modal",

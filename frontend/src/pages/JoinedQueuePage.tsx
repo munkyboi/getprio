@@ -475,6 +475,7 @@ export default function JoinedQueuePage() {
         <Modal
           centered
           className="customer-modal contact-vendor-modal"
+          transitionProps={{ transition: "slide-up", duration: 240, timingFunction: "ease-out" }}
           onClose={() => {
             if (!cancelSubmitting) {
               setCancelConfirmOpen(false);
@@ -502,8 +503,9 @@ export default function JoinedQueuePage() {
           </Stack>
         </Modal>
         <Modal
-          centered
-          className="customer-modal"
+        centered
+        className="customer-modal"
+        transitionProps={{ transition: "slide-up", duration: 240, timingFunction: "ease-out" }}
           onClose={() => setCancelErrorModalOpen(false)}
           opened={cancelErrorModalOpen}
           size="sm"
@@ -514,8 +516,9 @@ export default function JoinedQueuePage() {
           </Alert>
         </Modal>
         <Modal
-          centered
-          className="customer-modal"
+        centered
+        className="customer-modal"
+        transitionProps={{ transition: "slide-up", duration: 240, timingFunction: "ease-out" }}
           opened={hoursOpened}
           onClose={() => setHoursOpened(false)}
           title="Business hours"
@@ -575,8 +578,9 @@ export default function JoinedQueuePage() {
           </Paper>
         </Modal>
         <Modal
-          centered
-          className="customer-modal"
+        centered
+        className="customer-modal"
+        transitionProps={{ transition: "slide-up", duration: 240, timingFunction: "ease-out" }}
           fullScreen={isMobile}
           onClose={() => setContactOpen(false)}
           opened={contactOpen}
@@ -602,7 +606,6 @@ export default function JoinedQueuePage() {
               marginTop: "0.1rem"
             }
           }}
-          transitionProps={{ transition: "fade", duration: 200 }}
         >
           <ContactForm
             scope="vendor"

@@ -1,7 +1,7 @@
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { Alert, Badge, Button, Card, Container, FileInput, Group, Image, Modal, Paper, SimpleGrid, Stack, Text, Textarea, TextInput, ThemeIcon, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
-import { IconArrowLeft, IconBuildingStore, IconCalendar, IconClock, IconExternalLink, IconReceipt, IconTicket, IconUpload, IconX } from "@tabler/icons-react";
+import { IconArrowLeft, IconBuildingBank, IconBuildingStore, IconCalendar, IconClock, IconExternalLink, IconReceipt, IconTicket, IconUpload, IconX } from "@tabler/icons-react";
 import { Link, Navigate, useParams } from "react-router-dom";
 import type {
   BookingPaymentProofAccessResponse,
@@ -796,17 +796,16 @@ export default function CustomerBookingDetailPage() {
               <Card withBorder radius="md" p="md">
                 {manualPaymentDestination ? (
                   <Stack gap="md">
-                    <Image
-                      alt={`${manualPaymentDestination.methodLabel} payment QR`}
-                      fit="contain"
-                      mah={320}
-                      radius="sm"
-                      src={manualPaymentDestination.qrImageUrl}
-                      w="100%"
-                    />
+                    {manualPaymentDestination.methodLabel === "Bank Transfer" ? (
+                      <Stack align="center" gap="sm" justify="center" mih={220}>
+                        <ThemeIcon color="blue" radius="xl" size={84} variant="light"><IconBuildingBank size={44} /></ThemeIcon>
+                        <Text fw={700}>Bank transfer</Text>
+                      </Stack>
+                    ) : <Image alt={`${manualPaymentDestination.methodLabel} payment QR`} fit="contain" mah={320} radius="sm" src={manualPaymentDestination.qrImageUrl} w="100%" />}
                     <Stack gap={4}>
-                      <Badge color="yellow" variant="light" w="fit-content">Vendor payment QR</Badge>
+                      <Badge color="yellow" variant="light" w="fit-content">{manualPaymentDestination.methodLabel === "Bank Transfer" ? "Vendor bank details" : "Vendor payment QR"}</Badge>
                       <Text fw={700}>Pay vendor through {manualPaymentDestination.methodLabel}</Text>
+                      {manualPaymentDestination.bankName ? <Text c="dimmed" size="sm">{manualPaymentDestination.bankName}</Text> : null}
                       <Text c="dimmed" size="sm">{manualPaymentDestination.accountDisplayName}</Text>
                       {manualPaymentDestination.accountIdentifierDisplay ? (
                         <Text c="dimmed" size="sm">{manualPaymentDestination.accountIdentifierDisplay}</Text>
@@ -863,6 +862,7 @@ export default function CustomerBookingDetailPage() {
       <Modal
         centered
         className="customer-modal"
+        transitionProps={{ transition: "slide-up", duration: 240, timingFunction: "ease-out" }}
         onClose={() => setProofModalOpen(false)}
         opened={proofModalOpen}
         size="lg"
@@ -921,6 +921,7 @@ export default function CustomerBookingDetailPage() {
       <Modal
         centered
         className="customer-modal"
+        transitionProps={{ transition: "slide-up", duration: 240, timingFunction: "ease-out" }}
         onClose={() => setCancelModalOpen(false)}
         opened={cancelModalOpen}
         size="md"

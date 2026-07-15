@@ -1431,6 +1431,7 @@ export default function VendorProfilePage() {
       <Modal
         centered
         className="customer-modal contact-vendor-modal"
+        transitionProps={{ transition: "slide-up", duration: 240, timingFunction: "ease-out" }}
         fullScreen={isMobile}
         onClose={() => setContactOpen(false)}
         opened={contactOpen}
@@ -1456,7 +1457,6 @@ export default function VendorProfilePage() {
             marginTop: "0.1rem"
           }
         }}
-        transitionProps={{ transition: "fade", duration: 200 }}
       >
         {vendor ? (
           <ContactForm
@@ -1470,6 +1470,7 @@ export default function VendorProfilePage() {
       <Modal
         centered
         className="customer-modal booking-choice-modal"
+        transitionProps={{ transition: "slide-up", duration: 240, timingFunction: "ease-out" }}
         fullScreen={false}
         onClose={() => setBookingChoiceService(null)}
         opened={Boolean(bookingChoiceService)}
@@ -1537,6 +1538,7 @@ export default function VendorProfilePage() {
       <Modal
         centered
         className="customer-modal"
+        transitionProps={{ transition: "slide-up", duration: 240, timingFunction: "ease-out" }}
         fullScreen={isMobile}
         onClose={() => setImagePreviewService(null)}
         opened={Boolean(imagePreviewService?.imageUrl)}

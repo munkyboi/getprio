@@ -21,10 +21,11 @@ import {
   Tooltip,
   Title
 } from "@mantine/core";
-import { IconArrowLeft, IconBuildingStore, IconCalendar, IconCopy, IconDownload, IconEdit, IconEye, IconFlag, IconInfoCircle, IconReceipt, IconUpload, IconUsersGroup } from "@tabler/icons-react";
+import { IconArrowLeft, IconBuildingBank, IconBuildingStore, IconCalendar, IconCircleCheck, IconCopy, IconDownload, IconEdit, IconEye, IconFlag, IconInfoCircle, IconReceipt, IconUpload, IconUsersGroup } from "@tabler/icons-react";
 import { differenceInCalendarDays, format, startOfDay } from "date-fns";
 import { Link, useLocation, useParams } from "react-router-dom";
 import type {
+  BookingPaymentProofAccessResponse,
   BookingPaymentProofUploadResponse,
   GroupFundedBundleItemSummary,
   GroupFundedCampaignResponse,
@@ -169,6 +170,8 @@ export default function GroupFundedCampaignPage() {
   const [savingPaymentQr, setSavingPaymentQr] = useState(false);
   const [paymentReference, setPaymentReference] = useState("");
   const [paymentProofFile, setPaymentProofFile] = useState<File | null>(null);
+  const [contributionProofAccessUrl, setContributionProofAccessUrl] = useState("");
+  const [contributionProofAccessError, setContributionProofAccessError] = useState("");
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [reportingAbuse, setReportingAbuse] = useState(false);
   const [reportModalOpen, setReportModalOpen] = useState(false);
@@ -257,6 +260,34 @@ export default function GroupFundedCampaignPage() {
   useEffect(() => {
     void loadCampaign();
   }, [loadCampaign]);
+
+  useEffect(() => {
+    if (!token || !campaign?.contribution?.paymentProof || !campaign.publicToken) {
+      setContributionProofAccessUrl("");
+      setContributionProofAccessError("");
+      return undefined;
+    }
+
+    let active = true;
+    setContributionProofAccessError("");
+    apiRequest<BookingPaymentProofAccessResponse>(
+      `/account/group-funded-campaigns/${encodeURIComponent(campaign.publicToken)}/contributions/payment-proof`,
+      { token }
+    )
+      .then((data) => {
+        if (active) setContributionProofAccessUrl(data.access.url);
+      })
+      .catch((proofError) => {
+        if (active) {
+          setContributionProofAccessUrl("");
+          setContributionProofAccessError(getErrorMessage(proofError));
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [campaign?.contribution?.id, campaign?.contribution?.paymentProof?.fileName, campaign?.publicToken, token]);
 
   useEffect(() => {
     setReportTurnstileToken("");
@@ -757,6 +788,7 @@ export default function GroupFundedCampaignPage() {
   const backLink = getSafeBackPath(locationState?.from) || (user ? "/account/group-funded" : "/vendors");
   const themeStyle = buildVendorThemeStyle(vendorTheme);
   const themedMediaStyle = buildVendorThemeMediaStyle(vendorTheme);
+  const isBankTransferPayment = campaign.paymentDestination?.methodLabel === "Bank Transfer";
   const paymentProofForm = canContribute ? (
     <Stack gap="md">
       <Alert color={contributionCanRetry ? "yellow" : "teal"} variant="light">
@@ -765,71 +797,75 @@ export default function GroupFundedCampaignPage() {
           : `Please send exactly ${formatPaymentAmount(campaign.requiredContributionAmountCents, campaign.currency)}. For this group booking, we can only accept one payment for the full amount.`}
       </Alert>
       {campaign.paymentDestination ? (
-        <Card withBorder padding="md" radius="md">
-          <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="lg">
-            <Stack align="center" gap="sm">
-              <Image
-                alt={`${campaign.paymentDestination.methodLabel} payment QR`}
-                fit="contain"
-                h={156}
-                radius="sm"
-                src={campaign.paymentDestination.qrImageUrl}
-                w={156}
-              />
-              <Button
-                className="group-funded-save-qr-button"
-                leftSection={<IconDownload size={18} />}
-                loading={savingPaymentQr}
-                onClick={() => void savePaymentQr()}
-                variant="light"
-              >
-                Save QR
+        <Card className="group-funded-payment-card" withBorder padding="md" radius="md">
+          <div className="group-funded-payment-layout">
+            <div className="group-funded-payment-visual">
+              {isBankTransferPayment ? (
+                <Stack align="center" className="group-funded-bank-payment-icon" gap="sm" justify="center">
+                  <ThemeIcon color="blue" radius="xl" size={88} variant="light"><IconBuildingBank size={48} /></ThemeIcon>
+                  <Text fw={800}>Bank transfer</Text>
+                </Stack>
+              ) : (
+                <>
+                  <Image alt={`${campaign.paymentDestination.methodLabel} payment QR`} className="group-funded-payment-image" fit="contain" src={campaign.paymentDestination.qrImageUrl || ""} />
+                  <div className="group-funded-save-qr-overlay"><Button className="group-funded-save-qr-button" leftSection={<IconDownload size={18} />} loading={savingPaymentQr} onClick={() => void savePaymentQr()}>Save QR</Button></div>
+                </>
+              )}
+            </div>
+            <Stack className="group-funded-payment-fields" gap="md">
+              <div>
+                <Text c="dimmed" size="xs">Payment destination</Text>
+                <Text fw={800}>{campaign.paymentDestination.methodLabel}</Text>
+                {isBankTransferPayment && campaign.paymentDestination.bankName ? <Text>{campaign.paymentDestination.bankName}</Text> : null}
+                {campaign.paymentDestination.accountDisplayName ? <Text>{campaign.paymentDestination.accountDisplayName}</Text> : null}
+                {campaign.paymentDestination.accountIdentifierDisplay ? <Text c="dimmed" size="sm">{campaign.paymentDestination.accountIdentifierDisplay}</Text> : null}
+                {!isBankTransferPayment ? <Text c="dimmed" mt={6} size="sm">Scan the QR, pay the exact contribution amount, then submit your proof.</Text> : null}
+              </div>
+              <TextInput label="Payment reference" onChange={(event) => setPaymentReference(event.currentTarget.value)} placeholder="Reference number from your bank or wallet" value={paymentReference} />
+              <FileInput accept="image/jpeg,image/png,image/webp,application/pdf" clearable label="Proof file" leftSection={<IconUpload size={16} />} onChange={setPaymentProofFile} placeholder="Choose JPEG, PNG, WebP, or PDF" value={paymentProofFile} />
+              <Button className="group-funded-submit-button" color="dark" disabled={!paymentReference.trim() || !paymentProofFile} loading={submitting} onClick={submitContribution} size="lg">
+                {contributionCanRetry ? "Submit replacement proof" : "Submit contribution proof"}
               </Button>
             </Stack>
-            <Stack gap={4}>
-              <Text c="dimmed" size="xs">Payment destination</Text>
-              <Text fw={800}>{campaign.paymentDestination.methodLabel}</Text>
-              {campaign.paymentDestination.accountDisplayName ? (
-                <Text>{campaign.paymentDestination.accountDisplayName}</Text>
-              ) : null}
-              {campaign.paymentDestination.accountIdentifierDisplay ? (
-                <Text c="dimmed" size="sm">{campaign.paymentDestination.accountIdentifierDisplay}</Text>
-              ) : null}
-              <Text c="dimmed" size="sm">Scan the QR, pay the exact contribution amount, then upload your proof below.</Text>
-            </Stack>
-          </SimpleGrid>
+          </div>
         </Card>
       ) : (
         <Alert color="yellow" variant="light">
           Payment instructions are temporarily unavailable. Please contact the vendor before sending payment.
         </Alert>
       )}
-      <TextInput
-        label="Payment reference"
-        onChange={(event) => setPaymentReference(event.currentTarget.value)}
-        placeholder="Reference number from your bank or wallet"
-        value={paymentReference}
-      />
-      <FileInput
-        accept="image/jpeg,image/png,image/webp,application/pdf"
-        clearable
-        label="Proof file"
-        leftSection={<IconUpload size={16} />}
-        onChange={setPaymentProofFile}
-        placeholder="Choose JPEG, PNG, WebP, or PDF"
-        value={paymentProofFile}
-      />
-      <Button
-        className="group-funded-submit-button"
-        color="dark"
-        disabled={!paymentReference.trim() || !paymentProofFile}
-        loading={submitting}
-        onClick={submitContribution}
-        size="lg"
-      >
-        {contributionCanRetry ? "Submit replacement proof" : "Submit contribution proof"}
-      </Button>
     </Stack>
+  ) : null;
+
+  const contributionProofSummary = campaign.contribution ? (
+    <Card className={campaign.contribution.contributionStatus === "verified" ? "group-funded-proof-state group-funded-proof-state--verified" : "group-funded-proof-state"} withBorder padding="md" radius="md">
+      <Stack gap="md">
+        {campaign.contribution.contributionStatus === "verified" ? (
+          <Group className="group-funded-proof-success" gap="sm" wrap="nowrap">
+            <ThemeIcon color="teal" radius="xl" size={52} variant="filled"><IconCircleCheck size={31} /></ThemeIcon>
+            <div>
+              <Text fw={900} size="lg">Payment verified</Text>
+              <Text c="dimmed" size="sm">Your contribution is counted toward this group booking. You are all set.</Text>
+            </div>
+          </Group>
+        ) : null}
+        <Stack className="group-funded-payment-fields" gap="sm">
+          <Badge color={getContributionBadgeColor(campaign.contribution.contributionStatus)} variant="light" w="fit-content">{getContributionStatusLabel(campaign.contribution.contributionStatus)}</Badge>
+          <div><Text c="dimmed" size="xs">Payment reference</Text><Text fw={800}>{campaign.contribution.paymentReference || "Not set"}</Text></div>
+          <div><Text c="dimmed" size="xs">Uploaded proof</Text><Text>{campaign.contribution.paymentProof?.fileName || "Proof attached"}</Text></div>
+          {campaign.contribution.paymentProof?.contentType.startsWith("image/") && contributionProofAccessUrl ? (
+            <Button className="group-funded-view-proof-button" leftSection={<IconEye size={18} />} onClick={() => setImagePreview({ name: campaign.contribution?.paymentProof?.fileName || "Payment proof", imageUrl: contributionProofAccessUrl })} variant="light">
+              View payment proof
+            </Button>
+          ) : contributionProofAccessUrl ? (
+            <Button className="group-funded-view-proof-button" component="a" href={contributionProofAccessUrl} leftSection={<IconEye size={18} />} rel="noreferrer" target="_blank" variant="light">
+              View payment proof
+            </Button>
+          ) : contributionProofAccessError ? <Text c="dimmed" size="sm">{contributionProofAccessError}</Text> : null}
+          {campaign.contribution.contributionStatus === "submitted" ? <Text c="dimmed" size="sm">The vendor is reviewing your proof. We will update this page when it is verified.</Text> : null}
+        </Stack>
+      </Stack>
+    </Card>
   ) : null;
 
   return (
@@ -1052,11 +1088,9 @@ export default function GroupFundedCampaignPage() {
             </Alert>
           ) : campaign.contribution ? (
             <Stack gap="sm">
-              <Badge color={getContributionBadgeColor(campaign.contribution.contributionStatus)} variant="light" w="fit-content">
-                {getContributionStatusLabel(campaign.contribution.contributionStatus)}
-              </Badge>
               {campaign.contribution.contributionStatus === "rejected" ? (
                 <>
+                  {contributionProofSummary}
                   <Alert color="red" variant="light">
                     <Stack gap={4}>
                       <Text fw={700}>Your contribution proof was rejected and is not counted toward this campaign.</Text>
@@ -1067,7 +1101,7 @@ export default function GroupFundedCampaignPage() {
                   </Alert>
                   {paymentProofForm}
                 </>
-              ) : null}
+              ) : contributionProofSummary}
               {campaign.contribution.contributionStatus === "refund_pending" ? (
                 <Alert color="orange" variant="light">
                   <Stack gap={4}>
@@ -1078,9 +1112,6 @@ export default function GroupFundedCampaignPage() {
                   </Stack>
                 </Alert>
               ) : null}
-              <Text c="dimmed" size="sm">
-                Reference {campaign.contribution.paymentReference || "not set"} · Your proof is visible only to you and authorized vendor reviewers.
-              </Text>
               {campaign.refunds?.length ? (
                 <Alert color="yellow" variant="light">
                   Refund state: {campaign.refunds.map((refund) => refund.refundStatus.replace(/_/g, " ")).join(", ")}
@@ -1106,6 +1137,11 @@ export default function GroupFundedCampaignPage() {
               <Text className="finazze-section-label">Organizer controls</Text>
               <Title order={2}>Manage campaign</Title>
             </div>
+            {hasFilledContributions ? (
+              <Text c="dimmed" size="sm">
+                Campaign details are locked once a contribution has been submitted.
+              </Text>
+            ) : null}
             {isOrganizer ? (
               <Button
                 className="group-funded-organizer-action"
@@ -1117,11 +1153,6 @@ export default function GroupFundedCampaignPage() {
               >
                 Edit campaign details
               </Button>
-            ) : null}
-            {hasFilledContributions ? (
-              <Text c="dimmed" size="sm">
-                Campaign details are locked once a contribution has been submitted.
-              </Text>
             ) : null}
             {canCancel ? (
               <Button className="group-funded-organizer-action" color="red" onClick={() => setShowCancelConfirm(true)} size="lg" variant="light">
@@ -1136,6 +1167,7 @@ export default function GroupFundedCampaignPage() {
       <Modal
         centered
         className="customer-modal group-funded-cancel-modal"
+        transitionProps={{ transition: "slide-up", duration: 240, timingFunction: "ease-out" }}
         closeOnClickOutside={!submitting}
         closeOnEscape={!submitting}
         onClose={() => setShowCancelConfirm(false)}
@@ -1165,6 +1197,7 @@ export default function GroupFundedCampaignPage() {
       <Modal
         centered
         className="customer-modal"
+        transitionProps={{ transition: "slide-up", duration: 240, timingFunction: "ease-out" }}
         onClose={() => setEditModalOpen(false)}
         opened={editModalOpen}
         radius="lg"
@@ -1220,6 +1253,7 @@ export default function GroupFundedCampaignPage() {
       <Modal
         centered
         className="customer-modal group-funded-report-modal"
+        transitionProps={{ transition: "slide-up", duration: 240, timingFunction: "ease-out" }}
         onClose={() => setReportModalOpen(false)}
         opened={reportModalOpen}
         radius="lg"
@@ -1292,6 +1326,7 @@ export default function GroupFundedCampaignPage() {
       <Modal
         centered
         className="customer-modal"
+        transitionProps={{ transition: "slide-up", duration: 240, timingFunction: "ease-out" }}
         onClose={() => setImagePreview(null)}
         opened={Boolean(imagePreview)}
         radius="lg"

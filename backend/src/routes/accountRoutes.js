@@ -98,15 +98,17 @@ function formatManualPaymentDestination(booking) {
     return null;
   }
 
-  if (!booking.locationPaymentQrActive || !booking.locationPaymentQrImageUrl) {
+  const isBankTransfer = booking.locationPaymentMethodLabel === "Bank Transfer";
+  if (!booking.locationPaymentQrActive || (!isBankTransfer && !booking.locationPaymentQrImageUrl)) {
     return null;
   }
 
   return {
     methodLabel: booking.locationPaymentMethodLabel,
+    ...(isBankTransfer ? { bankName: booking.locationPaymentBankName || "" } : {}),
     accountDisplayName: booking.locationPaymentAccountDisplayName,
     accountIdentifierDisplay: booking.locationPaymentAccountIdentifierDisplay,
-    qrImageUrl: booking.locationPaymentQrImageUrl,
+    qrImageUrl: isBankTransfer ? "" : booking.locationPaymentQrImageUrl,
     amountCents: Number(booking.servicePriceAmountCents || 0) * Number(booking.bookingQuantity || 1),
     currency: booking.serviceCurrency || "PHP",
     unitPriceDisplay: booking.servicePriceDisplay
@@ -692,6 +694,17 @@ router.post(
     res.status(201).json({
       campaign: formatGroupFundedCampaign(campaign, contribution, [], null, { actorUserId: req.user._id })
     });
+  })
+);
+
+router.get(
+  "/group-funded-campaigns/:campaignIdOrToken/contributions/payment-proof",
+  asyncHandler(async (req, res) => {
+    const proofAccess = await groupFundedBookingService.createCustomerContributionProofAccess({
+      user: req.user,
+      campaignIdOrToken: req.params.campaignIdOrToken
+    });
+    res.json(proofAccess);
   })
 );
 

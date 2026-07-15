@@ -18,10 +18,11 @@ import {
   Text,
   Textarea,
   TextInput,
+  ThemeIcon,
   Title
 } from "@mantine/core";
 import { DatePickerInput, DateTimePicker } from "@mantine/dates";
-import { IconAlertTriangle, IconArrowLeft, IconCalendar, IconCalendarCheck, IconMapPin, IconUpload } from "@tabler/icons-react";
+import { IconAlertTriangle, IconArrowLeft, IconBuildingBank, IconCalendar, IconCalendarCheck, IconMapPin, IconUpload } from "@tabler/icons-react";
 import { addDays, eachDayOfInterval, endOfMonth, format, startOfMonth } from "date-fns";
 import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import CampaignDescriptionEditor from "../components/CampaignDescriptionEditor";
@@ -1546,17 +1547,16 @@ export default function BookingRequestPage() {
                       {manualPaymentDestination ? (
                         <Card withBorder radius="md" p="md">
                           <Group align="flex-start" gap="lg">
-                            <Image
-                              alt={`${manualPaymentDestination.methodLabel} payment QR`}
-                              fit="contain"
-                              h={180}
-                              radius="sm"
-                              src={manualPaymentDestination.qrImageUrl}
-                              w={180}
-                            />
+                            {manualPaymentDestination.methodLabel === "Bank Transfer" ? (
+                              <Stack align="center" gap="xs" h={180} justify="center" w={180}>
+                                <ThemeIcon color="blue" radius="xl" size={72} variant="light"><IconBuildingBank size={38} /></ThemeIcon>
+                                <Text fw={700} size="sm">Bank transfer</Text>
+                              </Stack>
+                            ) : <Image alt={`${manualPaymentDestination.methodLabel} payment QR`} fit="contain" h={180} radius="sm" src={manualPaymentDestination.qrImageUrl} w={180} />}
                             <Stack gap={4}>
-                              <Badge color="yellow" variant="light" w="fit-content">Vendor payment QR</Badge>
+                              <Badge color="yellow" variant="light" w="fit-content">{manualPaymentDestination.methodLabel === "Bank Transfer" ? "Vendor bank details" : "Vendor payment QR"}</Badge>
                               <Text fw={700}>Pay vendor through {manualPaymentDestination.methodLabel}</Text>
+                              {manualPaymentDestination.bankName ? <Text c="dimmed" size="sm">{manualPaymentDestination.bankName}</Text> : null}
                               <Text c="dimmed" size="sm">{manualPaymentDestination.accountDisplayName}</Text>
                               {manualPaymentDestination.accountIdentifierDisplay ? (
                                 <Text c="dimmed" size="sm">{manualPaymentDestination.accountIdentifierDisplay}</Text>

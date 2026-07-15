@@ -219,6 +219,7 @@ export interface StoreLocationSummary {
   contactPhone: string;
   timezone: string;
   paymentMethodLabel: string;
+  paymentBankName: string;
   paymentAccountDisplayName: string;
   paymentAccountIdentifierDisplay: string;
   paymentQrImageUrl: string;
@@ -420,9 +421,10 @@ export interface BookingPaymentProofSummary {
 
 export interface BookingManualPaymentDestination {
   methodLabel: string;
+  bankName?: string;
   accountDisplayName: string;
   accountIdentifierDisplay: string;
-  qrImageUrl: string;
+  qrImageUrl?: string;
   amountCents: number;
   currency: "PHP";
   unitPriceDisplay: string;
@@ -710,9 +712,10 @@ export interface GroupFundedCampaignSummary {
   linkedBookingId: string | null;
   paymentDestination?: {
     methodLabel: string;
+    bankName?: string;
     accountDisplayName: string;
     accountIdentifierDisplay: string;
-    qrImageUrl: string;
+    qrImageUrl?: string;
   } | null;
   refundSummary?: {
     totalCount: number;
@@ -1023,6 +1026,7 @@ export interface PublicBoardThemeSettings {
   heroTitle: string;
   heroSubtitle: string;
   logoUrl: string;
+  logoFit: PublicBoardThemeBackgroundFit;
   backgroundImageUrl: string;
   backgroundImageFit: PublicBoardThemeBackgroundFit;
   pageBackgroundImageUrl: string;

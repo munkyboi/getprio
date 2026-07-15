@@ -139,7 +139,9 @@ function hasActiveLocationPaymentQr(location) {
     location?.paymentQrActive &&
       location.paymentMethodLabel &&
       location.paymentAccountDisplayName &&
-      location.paymentQrImageUrl
+      (location.paymentMethodLabel === "Bank Transfer"
+        ? location.paymentBankName && location.paymentAccountIdentifierDisplay
+        : location.paymentQrImageUrl)
   );
 }
 

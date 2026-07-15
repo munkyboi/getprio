@@ -16,6 +16,7 @@ const LOCATION_COLUMNS = `
   contact_phone,
   timezone,
   payment_method_label,
+  payment_bank_name,
   payment_account_display_name,
   payment_account_identifier_display,
   payment_qr_image_url,
@@ -58,6 +59,7 @@ function mapLocation(row) {
     contactPhone: row.contact_phone || "",
     timezone: row.timezone || "Asia/Manila",
     paymentMethodLabel: row.payment_method_label || "",
+    paymentBankName: row.payment_bank_name || "",
     paymentAccountDisplayName: row.payment_account_display_name || "",
     paymentAccountIdentifierDisplay: row.payment_account_identifier_display || "",
     paymentQrImageUrl: row.payment_qr_image_url || "",
@@ -226,6 +228,7 @@ async function createLocation(data, options = {}) {
         contact_phone,
         timezone,
         payment_method_label,
+        payment_bank_name,
         payment_account_display_name,
         payment_account_identifier_display,
         payment_qr_image_url,
@@ -233,7 +236,7 @@ async function createLocation(data, options = {}) {
         is_primary,
         is_active
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
       RETURNING ${LOCATION_COLUMNS}
     `,
     [
@@ -251,6 +254,7 @@ async function createLocation(data, options = {}) {
       data.contactPhone || null,
       data.timezone || "Asia/Manila",
       data.paymentMethodLabel || null,
+      data.paymentBankName || null,
       data.paymentAccountDisplayName || null,
       data.paymentAccountIdentifierDisplay || null,
       data.paymentQrImageUrl || null,
@@ -281,6 +285,7 @@ async function updateLocation(locationId, changes, options = {}) {
     contactPhone: "contact_phone",
     timezone: "timezone",
     paymentMethodLabel: "payment_method_label",
+    paymentBankName: "payment_bank_name",
     paymentAccountDisplayName: "payment_account_display_name",
     paymentAccountIdentifierDisplay: "payment_account_identifier_display",
     paymentQrImageUrl: "payment_qr_image_url",

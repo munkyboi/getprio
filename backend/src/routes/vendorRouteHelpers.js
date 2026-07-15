@@ -82,6 +82,7 @@ async function formatLocation(location, tenant) {
     contactPhone: location.contactPhone,
     timezone: location.timezone,
     paymentMethodLabel: location.paymentMethodLabel,
+    paymentBankName: location.paymentBankName,
     paymentAccountDisplayName: location.paymentAccountDisplayName,
     paymentAccountIdentifierDisplay: location.paymentAccountIdentifierDisplay,
     paymentQrImageUrl: location.paymentQrImageUrl,
@@ -116,6 +117,7 @@ function normalizeLocationPayload(body, existingLocation = null) {
     "contactPhone",
     "timezone",
     "paymentMethodLabel",
+    "paymentBankName",
     "paymentAccountDisplayName",
     "paymentAccountIdentifierDisplay",
     "paymentQrImageUrl"
@@ -140,12 +142,19 @@ function normalizeLocationPayload(body, existingLocation = null) {
   const paymentAccountDisplayName = Object.prototype.hasOwnProperty.call(next, "paymentAccountDisplayName")
     ? next.paymentAccountDisplayName
     : existingLocation?.paymentAccountDisplayName || "";
+  const paymentBankName = Object.prototype.hasOwnProperty.call(next, "paymentBankName")
+    ? next.paymentBankName
+    : existingLocation?.paymentBankName || "";
   const paymentQrImageUrl = Object.prototype.hasOwnProperty.call(next, "paymentQrImageUrl")
     ? next.paymentQrImageUrl
     : existingLocation?.paymentQrImageUrl || "";
 
-  if (paymentQrActive && (!paymentMethodLabel || !paymentAccountDisplayName || !paymentQrImageUrl)) {
-    const error = new Error("Active payment QR requires a method label, account display name, and QR image.");
+  const isBankTransfer = paymentMethodLabel === "Bank Transfer";
+  const paymentAccountIdentifierDisplay = Object.prototype.hasOwnProperty.call(next, "paymentAccountIdentifierDisplay")
+    ? next.paymentAccountIdentifierDisplay
+    : existingLocation?.paymentAccountIdentifierDisplay || "";
+  if (paymentQrActive && (!paymentMethodLabel || !paymentAccountDisplayName || (!isBankTransfer && !paymentQrImageUrl) || (isBankTransfer && (!paymentBankName || !paymentAccountIdentifierDisplay)))) {
+    const error = new Error("Active payment details require a method, account owner, and either a QR image or complete bank details for bank transfers.");
     error.statusCode = 400;
     throw error;
   }
