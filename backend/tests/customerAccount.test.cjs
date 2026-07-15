@@ -1007,6 +1007,9 @@ test("customer bookings can be created only inside vendor availability", async (
       }
     },
     "../services/bookingService": requireWithMocks("../src/services/bookingService.js", {
+      "../config/db": {
+        withTransaction: async (work) => work(null)
+      },
       "../repositories/bookings": {
         countOverlappingActiveBookings: async () => 0,
         createBooking: async (data) => {
@@ -1283,6 +1286,9 @@ test("customer bookings use store hours when no booking availability is configur
       }
     },
     "../services/bookingService": requireWithMocks("../src/services/bookingService.js", {
+      "../config/db": {
+        withTransaction: async (work) => work(null)
+      },
       "../repositories/bookings": {
         countOverlappingActiveBookings: async () => 0,
         createBooking: async (data) => {
