@@ -955,7 +955,7 @@ export default function GroupFundedCampaignPage() {
               </Group>
             </Stack>
 
-            <Paper className="vendor-hero-visual group-funded-hero-visual" p="xl" style={themedMediaStyle}>
+            <Paper className="vendor-hero-visual" p="xl" style={themedMediaStyle}>
               <div className="vendor-hero-media-shell">
                 <div className="vendor-hero-media-slide is-active">
                   {vendorTheme?.logoUrl ? (
