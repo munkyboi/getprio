@@ -5,6 +5,7 @@ import {
   Button,
   Card,
   Container,
+  Divider,
   FileInput,
   Group,
   Image,
@@ -13,6 +14,7 @@ import {
   Progress,
   Select,
   SimpleGrid,
+  Spoiler,
   Stack,
   Text,
   Textarea,
@@ -21,10 +23,11 @@ import {
   Tooltip,
   Title
 } from "@mantine/core";
-import { IconArrowLeft, IconBuildingStore, IconCalendar, IconCopy, IconDownload, IconEdit, IconEye, IconFlag, IconInfoCircle, IconReceipt, IconUpload, IconUsersGroup } from "@tabler/icons-react";
+import { IconArrowLeft, IconBuildingBank, IconBuildingStore, IconCalendar, IconCircleCheck, IconCopy, IconDownload, IconEdit, IconEye, IconFlag, IconInfoCircle, IconReceipt, IconUpload, IconUsersGroup } from "@tabler/icons-react";
 import { differenceInCalendarDays, format, startOfDay } from "date-fns";
 import { Link, useLocation, useParams } from "react-router-dom";
 import type {
+  BookingPaymentProofAccessResponse,
   BookingPaymentProofUploadResponse,
   GroupFundedBundleItemSummary,
   GroupFundedCampaignResponse,
@@ -79,6 +82,31 @@ function getCampaignStatusLabel(status: GroupFundedCampaignSummary["campaignStat
       return "Canceled by vendor";
     default:
       return status.replace(/_/g, " ");
+  }
+}
+
+function getCampaignStatusBadgeColor(status: GroupFundedCampaignSummary["campaignStatus"]): "gray" | "red" | "yellow" | "orange" | "teal" | "blue" {
+  switch (status) {
+    case "funding":
+    case "slot_recovery":
+    case "vendor_review":
+      return "yellow";
+    case "funded":
+    case "vendor_approved":
+    case "confirmed":
+      return "teal";
+    case "replacement_proposed":
+      return "blue";
+    case "policy_review_required":
+      return "orange";
+    case "organizer_canceled":
+    case "funding_failed":
+    case "vendor_rejected":
+    case "vendor_review_expired":
+    case "vendor_canceled":
+      return "red";
+    default:
+      return "gray";
   }
 }
 
@@ -169,6 +197,8 @@ export default function GroupFundedCampaignPage() {
   const [savingPaymentQr, setSavingPaymentQr] = useState(false);
   const [paymentReference, setPaymentReference] = useState("");
   const [paymentProofFile, setPaymentProofFile] = useState<File | null>(null);
+  const [contributionProofAccessUrl, setContributionProofAccessUrl] = useState("");
+  const [contributionProofAccessError, setContributionProofAccessError] = useState("");
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [reportingAbuse, setReportingAbuse] = useState(false);
   const [reportModalOpen, setReportModalOpen] = useState(false);
@@ -257,6 +287,34 @@ export default function GroupFundedCampaignPage() {
   useEffect(() => {
     void loadCampaign();
   }, [loadCampaign]);
+
+  useEffect(() => {
+    if (!token || !campaign?.contribution?.paymentProof || !campaign.publicToken) {
+      setContributionProofAccessUrl("");
+      setContributionProofAccessError("");
+      return undefined;
+    }
+
+    let active = true;
+    setContributionProofAccessError("");
+    apiRequest<BookingPaymentProofAccessResponse>(
+      `/account/group-funded-campaigns/${encodeURIComponent(campaign.publicToken)}/contributions/payment-proof`,
+      { token }
+    )
+      .then((data) => {
+        if (active) setContributionProofAccessUrl(data.access.url);
+      })
+      .catch((proofError) => {
+        if (active) {
+          setContributionProofAccessUrl("");
+          setContributionProofAccessError(getErrorMessage(proofError));
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [campaign?.contribution?.id, campaign?.contribution?.paymentProof?.fileName, campaign?.publicToken, token]);
 
   useEffect(() => {
     setReportTurnstileToken("");
@@ -418,17 +476,15 @@ export default function GroupFundedCampaignPage() {
     const gapLength = 3;
     const segmentLength = (circumference - gapLength * campaign.requiredContributors) / campaign.requiredContributors;
     const colors = [
-      ...Array.from({ length: contributorReservationSummary.verifiedContributorCount }, () => "var(--mantine-color-teal-6)"),
-      ...Array.from({ length: contributorReservationSummary.pendingVerificationContributorCount }, () => "var(--mantine-color-blue-6)"),
-      ...Array.from({ length: contributorReservationSummary.vacantContributorCount }, () => "var(--mantine-color-gray-5)")
+      ...Array.from({ length: contributorReservationSummary.verifiedContributorCount }, () => "var(--mantine-color-teal-4)"),
+      ...Array.from({ length: contributorReservationSummary.pendingVerificationContributorCount }, () => "var(--mantine-color-blue-4)"),
+      ...Array.from({ length: contributorReservationSummary.vacantContributorCount }, () => "rgba(255, 255, 255, 0.32)")
     ];
-    return [
-      ...colors.map((color, index) => ({
-        color,
-        dasharray: `${segmentLength} ${circumference - segmentLength}`,
-        dashoffset: -index * (segmentLength + gapLength)
-      }))
-    ];
+    return colors.map((color, index) => ({
+      color,
+      dasharray: `${segmentLength} ${circumference - segmentLength}`,
+      dashoffset: -index * (segmentLength + gapLength)
+    }));
   }, [campaign, contributorReservationSummary]);
   const bundleItems = useMemo(() => {
     if (!campaign) {
@@ -757,6 +813,7 @@ export default function GroupFundedCampaignPage() {
   const backLink = getSafeBackPath(locationState?.from) || (user ? "/account/group-funded" : "/vendors");
   const themeStyle = buildVendorThemeStyle(vendorTheme);
   const themedMediaStyle = buildVendorThemeMediaStyle(vendorTheme);
+  const isBankTransferPayment = campaign.paymentDestination?.methodLabel === "Bank Transfer";
   const paymentProofForm = canContribute ? (
     <Stack gap="md">
       <Alert color={contributionCanRetry ? "yellow" : "teal"} variant="light">
@@ -765,71 +822,75 @@ export default function GroupFundedCampaignPage() {
           : `Please send exactly ${formatPaymentAmount(campaign.requiredContributionAmountCents, campaign.currency)}. For this group booking, we can only accept one payment for the full amount.`}
       </Alert>
       {campaign.paymentDestination ? (
-        <Card withBorder padding="md" radius="md">
-          <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="lg">
-            <Stack align="center" gap="sm">
-              <Image
-                alt={`${campaign.paymentDestination.methodLabel} payment QR`}
-                fit="contain"
-                h={156}
-                radius="sm"
-                src={campaign.paymentDestination.qrImageUrl}
-                w={156}
-              />
-              <Button
-                className="group-funded-save-qr-button"
-                leftSection={<IconDownload size={18} />}
-                loading={savingPaymentQr}
-                onClick={() => void savePaymentQr()}
-                variant="light"
-              >
-                Save QR
+        <Card className="group-funded-payment-card" withBorder padding="md" radius="md">
+          <div className="group-funded-payment-layout">
+            <div className="group-funded-payment-visual">
+              {isBankTransferPayment ? (
+                <Stack align="center" className="group-funded-bank-payment-icon" gap="sm" justify="center">
+                  <ThemeIcon color="blue" radius="xl" size={88} variant="light"><IconBuildingBank size={48} /></ThemeIcon>
+                  <Text fw={800}>Bank transfer</Text>
+                </Stack>
+              ) : (
+                <>
+                  <Image alt={`${campaign.paymentDestination.methodLabel} payment QR`} className="group-funded-payment-image" fit="contain" src={campaign.paymentDestination.qrImageUrl || ""} />
+                  <div className="group-funded-save-qr-overlay"><Button className="group-funded-save-qr-button" leftSection={<IconDownload size={18} />} loading={savingPaymentQr} onClick={() => void savePaymentQr()}>Save QR</Button></div>
+                </>
+              )}
+            </div>
+            <Stack className="group-funded-payment-fields" gap="md">
+              <div>
+                <Text c="dimmed" size="xs">Payment destination</Text>
+                <Text fw={800}>{campaign.paymentDestination.methodLabel}</Text>
+                {isBankTransferPayment && campaign.paymentDestination.bankName ? <Text>{campaign.paymentDestination.bankName}</Text> : null}
+                {campaign.paymentDestination.accountDisplayName ? <Text>{campaign.paymentDestination.accountDisplayName}</Text> : null}
+                {campaign.paymentDestination.accountIdentifierDisplay ? <Text c="dimmed" size="sm">{campaign.paymentDestination.accountIdentifierDisplay}</Text> : null}
+                {!isBankTransferPayment ? <Text c="dimmed" mt={6} size="sm">Scan the QR, pay the exact contribution amount, then submit your proof.</Text> : null}
+              </div>
+              <TextInput label="Payment reference" onChange={(event) => setPaymentReference(event.currentTarget.value)} placeholder="Reference number from your bank or wallet" value={paymentReference} />
+              <FileInput accept="image/jpeg,image/png,image/webp,application/pdf" clearable label="Proof file" leftSection={<IconUpload size={16} />} onChange={setPaymentProofFile} placeholder="Choose JPEG, PNG, WebP, or PDF" value={paymentProofFile} />
+              <Button className="group-funded-submit-button" color="dark" disabled={!paymentReference.trim() || !paymentProofFile} loading={submitting} onClick={submitContribution} size="lg">
+                {contributionCanRetry ? "Submit replacement proof" : "Submit contribution proof"}
               </Button>
             </Stack>
-            <Stack gap={4}>
-              <Text c="dimmed" size="xs">Payment destination</Text>
-              <Text fw={800}>{campaign.paymentDestination.methodLabel}</Text>
-              {campaign.paymentDestination.accountDisplayName ? (
-                <Text>{campaign.paymentDestination.accountDisplayName}</Text>
-              ) : null}
-              {campaign.paymentDestination.accountIdentifierDisplay ? (
-                <Text c="dimmed" size="sm">{campaign.paymentDestination.accountIdentifierDisplay}</Text>
-              ) : null}
-              <Text c="dimmed" size="sm">Scan the QR, pay the exact contribution amount, then upload your proof below.</Text>
-            </Stack>
-          </SimpleGrid>
+          </div>
         </Card>
       ) : (
         <Alert color="yellow" variant="light">
           Payment instructions are temporarily unavailable. Please contact the vendor before sending payment.
         </Alert>
       )}
-      <TextInput
-        label="Payment reference"
-        onChange={(event) => setPaymentReference(event.currentTarget.value)}
-        placeholder="Reference number from your bank or wallet"
-        value={paymentReference}
-      />
-      <FileInput
-        accept="image/jpeg,image/png,image/webp,application/pdf"
-        clearable
-        label="Proof file"
-        leftSection={<IconUpload size={16} />}
-        onChange={setPaymentProofFile}
-        placeholder="Choose JPEG, PNG, WebP, or PDF"
-        value={paymentProofFile}
-      />
-      <Button
-        className="group-funded-submit-button"
-        color="dark"
-        disabled={!paymentReference.trim() || !paymentProofFile}
-        loading={submitting}
-        onClick={submitContribution}
-        size="lg"
-      >
-        {contributionCanRetry ? "Submit replacement proof" : "Submit contribution proof"}
-      </Button>
     </Stack>
+  ) : null;
+
+  const contributionProofSummary = campaign.contribution ? (
+    <Card className={campaign.contribution.contributionStatus === "verified" ? "group-funded-proof-state group-funded-proof-state--verified" : "group-funded-proof-state"} withBorder padding="md" radius="md">
+      <Stack gap="md">
+        {campaign.contribution.contributionStatus === "verified" ? (
+          <Group className="group-funded-proof-success" gap="sm" wrap="nowrap">
+            <ThemeIcon color="teal" radius="xl" size={52} variant="filled"><IconCircleCheck size={31} /></ThemeIcon>
+            <div>
+              <Text fw={900} size="lg">Payment verified</Text>
+              <Text c="dimmed" size="sm">Your contribution is counted toward this group booking. You are all set.</Text>
+            </div>
+          </Group>
+        ) : null}
+        <Stack className="group-funded-payment-fields" gap="sm">
+          <Badge color={getContributionBadgeColor(campaign.contribution.contributionStatus)} variant="light" w="fit-content">{getContributionStatusLabel(campaign.contribution.contributionStatus)}</Badge>
+          <div><Text c="dimmed" size="xs">Payment reference</Text><Text fw={800}>{campaign.contribution.paymentReference || "Not set"}</Text></div>
+          <div><Text c="dimmed" size="xs">Uploaded proof</Text><Text>{campaign.contribution.paymentProof?.fileName || "Proof attached"}</Text></div>
+          {campaign.contribution.paymentProof?.contentType.startsWith("image/") && contributionProofAccessUrl ? (
+            <Button className="group-funded-view-proof-button" leftSection={<IconEye size={18} />} onClick={() => setImagePreview({ name: campaign.contribution?.paymentProof?.fileName || "Payment proof", imageUrl: contributionProofAccessUrl })} size="lg" variant="light">
+              View payment proof
+            </Button>
+          ) : contributionProofAccessUrl ? (
+            <Button className="group-funded-view-proof-button" component="a" href={contributionProofAccessUrl} leftSection={<IconEye size={18} />} rel="noreferrer" size="lg" target="_blank" variant="light">
+              View payment proof
+            </Button>
+          ) : contributionProofAccessError ? <Text c="dimmed" size="sm">{contributionProofAccessError}</Text> : null}
+          {campaign.contribution.contributionStatus === "submitted" ? <Text c="dimmed" size="sm">The vendor is reviewing your proof. We will update this page when it is verified.</Text> : null}
+        </Stack>
+      </Stack>
+    </Card>
   ) : null;
 
   return (
@@ -847,36 +908,67 @@ export default function GroupFundedCampaignPage() {
 
         <Paper className="vendor-hero-shell ticket-page-hero booking-detail-page-hero" p={{ base: "lg", md: "xl" }}>
           <SimpleGrid cols={{ base: 1, lg: 2 }} spacing={{ base: "xl", lg: 48 }}>
-            <Stack gap="lg" justify="flex-start">
+            <Stack className="booking-detail-info-panel" gap="lg" justify="flex-start">
               <div>
-                <Group gap="sm" wrap="wrap">
-                  <Badge className="group-funded-hero-badge" size="lg">
-                    {campaign.vendorCategory || "Business"}
-                  </Badge>
-                  <Badge className="group-funded-hero-badge group-funded-hero-status-badge" size="lg">
-                    {getCampaignStatusLabel(campaign.campaignStatus)}
-                  </Badge>
-                </Group>
-                <Stack gap={4} mt="md">
-                  <Title className="vendor-hero-title ticket-page-title" order={1}>
-                    {campaign.campaignTitle || campaign.serviceName}
-                  </Title>
-                  <Text className="vendor-hero-subtitle" fw={700} size="lg">
-                    Organized by {campaign.organizerDisplayName}
-                  </Text>
-                </Stack>
+                <Title className="vendor-hero-title ticket-page-title" order={1}>
+                  {campaign.campaignTitle || campaign.serviceName}
+                </Title>
+                <Text className="vendor-hero-subtitle" fw={700} mt={4} size="lg">
+                  Organized by {campaign.organizerDisplayName}
+                </Text>
               </div>
 
-              <RichCampaignDescription
-                className="vendor-hero-description group-funded-campaign-description rich-campaign-description"
-                content={campaign.description || `${campaign.vendorName || "Vendor"} group-funded booking organized by ${campaign.organizerDisplayName}.`}
-              />
+              <Spoiler hideLabel="Show less" maxHeight={78} showLabel="Read more">
+                <RichCampaignDescription
+                  className="vendor-hero-description group-funded-campaign-description rich-campaign-description"
+                  content={campaign.description || `${campaign.vendorName || "Vendor"} group-funded booking organized by ${campaign.organizerDisplayName}.`}
+                />
+              </Spoiler>
+
+              <Group gap="sm" wrap="wrap">
+                <Badge className="group-funded-hero-category-badge" size="lg" variant="light">
+                  {campaign.vendorCategory || "Business"}
+                </Badge>
+                <Badge color={getCampaignStatusBadgeColor(campaign.campaignStatus)} size="lg" variant="light">
+                  {getCampaignStatusLabel(campaign.campaignStatus)}
+                </Badge>
+              </Group>
+
+              <Paper className="booking-detail-services-card" p="md">
+                <Stack gap="sm">
+                  <Text className="finazze-section-label">Bundled services</Text>
+                  {bundleItemsWithImages.map((item) => (
+                    <Paper className="group-funded-bundle-item" key={item.id || item.serviceSlug} p="sm">
+                      <Group align="center" gap="sm" wrap="nowrap">
+                        {item.imageUrl ? (
+                          <button
+                            aria-label={`Preview ${item.serviceName} image`}
+                            className="group-funded-bundle-thumbnail"
+                            onClick={() => setImagePreview({ name: item.serviceName, imageUrl: item.imageUrl })}
+                            type="button"
+                          >
+                            <img alt="" src={item.imageUrl} />
+                            <span aria-hidden="true"><IconEye size={16} /></span>
+                          </button>
+                        ) : null}
+                        <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
+                          <Group justify="space-between" gap="sm" wrap="nowrap">
+                            <Text fw={800}>{item.serviceName}</Text>
+                            <Badge variant="light">x{item.bookingQuantity}</Badge>
+                          </Group>
+                          <Text c="dimmed" size="sm">
+                            {formatBookingScheduleTimeRange(item.scheduledStartAt, item.scheduledEndAt)} · {formatPaymentAmount(item.priceAmountCents, item.currency)}
+                          </Text>
+                        </Stack>
+                      </Group>
+                    </Paper>
+                  ))}
+                </Stack>
+              </Paper>
 
               <Stack gap="xs">
                 <Group c="dimmed" gap={8} wrap="nowrap">
-                  <ThemeIcon className="vendor-theme-icon booking-detail-hero-icon-solid" radius="xl" size={32} variant="light">
-                    <IconBuildingStore size={16} />
-                  </ThemeIcon>
+                  <IconBuildingStore className="booking-detail-meta-icon" size={18} />
                   <Group gap={4} wrap="wrap">
                     {campaign.vendorName ? (
                       campaign.tenantSlug ? (
@@ -889,84 +981,66 @@ export default function GroupFundedCampaignPage() {
                   </Group>
                 </Group>
                 <Group c="dimmed" gap={8} wrap="nowrap">
-                  <ThemeIcon className="vendor-theme-icon booking-detail-hero-icon-solid" radius="xl" size={32} variant="light">
-                    <IconCalendar size={16} />
-                  </ThemeIcon>
+                  <IconCalendar className="booking-detail-meta-icon" size={18} />
                   <Text>
                     {formatBookingScheduleDate(campaign.scheduledStartAt)} · {formatBookingScheduleTimeRange(campaign.scheduledStartAt, campaign.scheduledEndAt)}
                   </Text>
                 </Group>
               </Stack>
 
-              <Group className="group-funded-hero-actions" gap="md">
-                {canShareCampaign ? (
-                  <div className="group-funded-share-action">
-                    {shareCopied ? <div className="group-funded-share-toast">Share link copied to clipboard</div> : null}
-                    <Button className="vendor-theme-button" leftSection={<IconCopy size={18} />} onClick={copyShareLink} size="lg">
-                      Copy share link
-                    </Button>
-                  </div>
-                ) : null}
-                <Button
-                  className="vendor-theme-button vendor-theme-button-ghost"
-                  leftSection={<IconUsersGroup size={18} />}
-                  onClick={scrollToPaymentProof}
-                  size="lg"
-                  variant="subtle"
-                >
-                  Join campaign
+              <Divider />
+              <Group justify="flex-end">
+                <Button color="red" leftSection={<IconFlag size={16} />} onClick={() => setReportModalOpen(true)} variant="subtle">
+                  Report
                 </Button>
               </Group>
             </Stack>
 
-            <Paper className="vendor-hero-visual" p="xl" style={themedMediaStyle}>
-              <div className="vendor-hero-media-shell">
-                <div className="vendor-hero-media-slide is-active">
-                  {vendorTheme?.logoUrl ? (
-                    <div className="vendor-profile-logo-frame">
-                      <img alt={`${campaign.vendorName || "Vendor"} logo`} src={vendorTheme.logoUrl} />
-                    </div>
-                  ) : (
-                    <div className="ticket-page-placeholder">
-                      <IconReceipt size={56} stroke={1.5} />
-                      <Text fw={800}>{campaign.serviceName}</Text>
-                    </div>
-                  )}
+            <Paper className="booking-detail-visual-card group-funded-ticket-visual" style={themedMediaStyle}>
+              {vendorTheme?.logoUrl ? (
+                <div className="booking-detail-logo-frame">
+                  <img alt={`${campaign.vendorName || "Vendor"} logo`} src={vendorTheme.logoUrl} />
                 </div>
-              </div>
+              ) : (
+                <div className="booking-detail-logo-frame booking-detail-logo-placeholder">
+                  <IconReceipt size={56} stroke={1.5} />
+                </div>
+              )}
 
-              <Paper className="vendor-hero-status-card" p="lg">
-                <Text fw={800}>
-                  Funding {formatPaymentAmount(campaign.fundedAmountCents, campaign.currency)} / {formatPaymentAmount(campaign.targetAmountCents, campaign.currency)}
-                </Text>
-                <Progress mt={6} value={progressValue} color="teal" />
-                <SimpleGrid cols={{ base: 1, sm: 2 }} mt="md" spacing="sm">
-                  <div className="prio-dashboard-tile">
-                    <Text c="dimmed" size="xs">Join fee</Text>
+              <div className="booking-detail-visual-content">
+                <Stack align="center" gap={6}>
+                  <Stack className="group-funded-ticket-funding" gap={6} w="100%">
+                    <Text fw={800} size="lg">
+                      Funding {formatPaymentAmount(campaign.fundedAmountCents, campaign.currency)} / {formatPaymentAmount(campaign.targetAmountCents, campaign.currency)}
+                    </Text>
+                    <Progress value={progressValue} />
+                  </Stack>
+                </Stack>
+                <SimpleGrid cols={{ base: 1, sm: 3 }} mt="lg" spacing="sm">
+                  <div className="booking-detail-visual-tile">
+                    <Text size="xs">Join fee</Text>
                     <Text fw={800}>{formatPaymentAmount(campaign.requiredContributionAmountCents, campaign.currency)}</Text>
-                    <Group c="dimmed" gap={4} mt={2} wrap="nowrap">
-                      <Text size="xs">{fundingDeadline.relativeLabel}</Text>
+                    <Group gap={4} mt={2} wrap="nowrap">
+                      <Text size="sm">{fundingDeadline.relativeLabel}</Text>
                       <Tooltip label={fundingDeadline.tooltipLabel} withArrow>
                         <IconInfoCircle aria-label={`Funding deadline: ${fundingDeadline.tooltipLabel}`} size={14} />
                       </Tooltip>
                     </Group>
                   </div>
-                  <div className="prio-dashboard-tile">
+                  <div className="booking-detail-visual-tile">
+                    <Text size="xs">Booking schedule</Text>
+                    <Text fw={800}>{formatBookingScheduleDate(campaign.scheduledStartAt)}</Text>
+                    <Text size="sm">{formatBookingScheduleTimeRange(campaign.scheduledStartAt, campaign.scheduledEndAt)}</Text>
+                  </div>
+                  <div className="booking-detail-visual-tile">
                     <Group align="center" gap="sm" wrap="nowrap">
                       <div
-                        aria-label={`${contributorReservationSummary?.filledContributorCount} of ${campaign.requiredContributors} contributor positions filled`}
+                        aria-label={`${contributorReservationSummary?.filledContributorCount || 0} of ${campaign.requiredContributors} contributor positions filled`}
                         className="group-funded-contributor-meter group-funded-contributor-meter--hero"
                         role="img"
                       >
                         <svg aria-hidden="true" viewBox="0 0 100 100">
-                          <circle
-                            cx="50"
-                            cy="50"
-                            fill="none"
-                            r="42"
-                            stroke="var(--mantine-color-gray-3)"
-                            strokeWidth="11"
-                          />
+                          <circle cx="50" cy="50" fill="none" r="42" stroke="rgba(255, 255, 255, 0.24)" strokeWidth="11" />
                           {contributorMeterSegments.map((segment, index) => (
                             <circle
                               cx="50"
@@ -982,63 +1056,33 @@ export default function GroupFundedCampaignPage() {
                           ))}
                         </svg>
                         <Text className="group-funded-contributor-meter__label" fw={800} size="xs" ta="center">
-                          {contributorReservationSummary?.filledContributorCount}/{campaign.requiredContributors}
+                          {contributorReservationSummary?.filledContributorCount || 0}/{campaign.requiredContributors}
                         </Text>
                       </div>
                       <Stack gap={0}>
-                        <Text c="dimmed" size="xs">Contributors</Text>
-                        <Text fw={800}>{contributorReservationSummary?.filledContributorCount} filled</Text>
+                        <Text size="xs">Contributors</Text>
+                        <Text fw={800}>{contributorReservationSummary?.filledContributorCount || 0} filled</Text>
                       </Stack>
                     </Group>
                   </div>
                 </SimpleGrid>
-              </Paper>
+                <Stack className="booking-detail-visual-action group-funded-ticket-actions" gap="lg">
+                  <Button className="vendor-theme-button booking-detail-primary-action" leftSection={<IconUsersGroup size={18} />} onClick={scrollToPaymentProof} size="lg">
+                    Join campaign
+                  </Button>
+                  {canShareCampaign ? (
+                    <div className="group-funded-share-action">
+                      {shareCopied ? <div className="group-funded-share-toast">Share link copied to clipboard</div> : null}
+                      <Button className="vendor-theme-button vendor-theme-button-ghost" leftSection={<IconCopy size={18} />} onClick={copyShareLink} size="lg" variant="subtle">
+                        Copy share link
+                      </Button>
+                    </div>
+                  ) : null}
+                </Stack>
+              </div>
             </Paper>
           </SimpleGrid>
         </Paper>
-
-        <Card className="finazze-auth-card customer-account-card booking-detail-section-card" mt="xl" p="xl">
-          <Stack gap="md">
-            <div>
-              <Text className="finazze-section-label">Bundled services</Text>
-              <Title order={2}>What&apos;s in this campaign</Title>
-            </div>
-            <Stack gap="sm">
-              {bundleItemsWithImages.map((item) => (
-                <Paper className="group-funded-bundle-item" key={item.id || item.serviceSlug} p="sm">
-                  <Group align="center" gap="sm" wrap="nowrap">
-                    {item.imageUrl ? (
-                      <button
-                        aria-label={`Preview ${item.serviceName} image`}
-                        className="group-funded-bundle-thumbnail"
-                        onClick={() => setImagePreview({ name: item.serviceName, imageUrl: item.imageUrl })}
-                        type="button"
-                      >
-                        <img alt="" src={item.imageUrl} />
-                        <span aria-hidden="true"><IconEye size={16} /></span>
-                      </button>
-                    ) : null}
-                    <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
-                      <Group justify="space-between" gap="sm" wrap="nowrap">
-                        <Text fw={800}>{item.serviceName}</Text>
-                        <Badge variant="light">x{item.bookingQuantity}</Badge>
-                      </Group>
-                      <Text c="dimmed" size="sm">
-                        {formatBookingScheduleTimeRange(item.scheduledStartAt, item.scheduledEndAt)} · {formatPaymentAmount(item.priceAmountCents, item.currency)}
-                      </Text>
-                    </Stack>
-                  </Group>
-                </Paper>
-              ))}
-            </Stack>
-
-            <Group justify="flex-end">
-              <Button color="red" leftSection={<IconFlag size={16} />} onClick={() => setReportModalOpen(true)} variant="subtle">
-                Report
-              </Button>
-            </Group>
-          </Stack>
-        </Card>
 
       <Card className="finazze-auth-card customer-account-card" mt="xl" p="xl" ref={paymentProofSectionRef}>
         <Stack gap="md">
@@ -1052,11 +1096,9 @@ export default function GroupFundedCampaignPage() {
             </Alert>
           ) : campaign.contribution ? (
             <Stack gap="sm">
-              <Badge color={getContributionBadgeColor(campaign.contribution.contributionStatus)} variant="light" w="fit-content">
-                {getContributionStatusLabel(campaign.contribution.contributionStatus)}
-              </Badge>
               {campaign.contribution.contributionStatus === "rejected" ? (
                 <>
+                  {contributionProofSummary}
                   <Alert color="red" variant="light">
                     <Stack gap={4}>
                       <Text fw={700}>Your contribution proof was rejected and is not counted toward this campaign.</Text>
@@ -1067,7 +1109,7 @@ export default function GroupFundedCampaignPage() {
                   </Alert>
                   {paymentProofForm}
                 </>
-              ) : null}
+              ) : contributionProofSummary}
               {campaign.contribution.contributionStatus === "refund_pending" ? (
                 <Alert color="orange" variant="light">
                   <Stack gap={4}>
@@ -1078,9 +1120,6 @@ export default function GroupFundedCampaignPage() {
                   </Stack>
                 </Alert>
               ) : null}
-              <Text c="dimmed" size="sm">
-                Reference {campaign.contribution.paymentReference || "not set"} · Your proof is visible only to you and authorized vendor reviewers.
-              </Text>
               {campaign.refunds?.length ? (
                 <Alert color="yellow" variant="light">
                   Refund state: {campaign.refunds.map((refund) => refund.refundStatus.replace(/_/g, " ")).join(", ")}
@@ -1106,6 +1145,11 @@ export default function GroupFundedCampaignPage() {
               <Text className="finazze-section-label">Organizer controls</Text>
               <Title order={2}>Manage campaign</Title>
             </div>
+            {hasFilledContributions ? (
+              <Text c="dimmed" size="sm">
+                Campaign details are locked once a contribution has been submitted.
+              </Text>
+            ) : null}
             {isOrganizer ? (
               <Button
                 className="group-funded-organizer-action"
@@ -1118,13 +1162,8 @@ export default function GroupFundedCampaignPage() {
                 Edit campaign details
               </Button>
             ) : null}
-            {hasFilledContributions ? (
-              <Text c="dimmed" size="sm">
-                Campaign details are locked once a contribution has been submitted.
-              </Text>
-            ) : null}
             {canCancel ? (
-              <Button className="group-funded-organizer-action" color="red" onClick={() => setShowCancelConfirm(true)} size="lg" variant="light">
+              <Button className="group-funded-organizer-action" color="red" onClick={() => setShowCancelConfirm(true)} size="lg">
                 Cancel campaign
               </Button>
             ) : null}
@@ -1136,6 +1175,7 @@ export default function GroupFundedCampaignPage() {
       <Modal
         centered
         className="customer-modal group-funded-cancel-modal"
+        transitionProps={{ transition: "slide-up", duration: 240, timingFunction: "ease-out" }}
         closeOnClickOutside={!submitting}
         closeOnEscape={!submitting}
         onClose={() => setShowCancelConfirm(false)}
@@ -1152,10 +1192,7 @@ export default function GroupFundedCampaignPage() {
             Only cancel if you no longer plan to run this group booking.
           </Alert>
           <Stack className="customer-modal-actions" gap="sm">
-            <Button color="dark" disabled={submitting} onClick={() => setShowCancelConfirm(false)} size="lg" w="100%">
-              Keep campaign open
-            </Button>
-            <Button color="red" loading={submitting} onClick={cancelCampaign} size="lg" variant="outline" w="100%">
+            <Button color="red" loading={submitting} onClick={cancelCampaign} size="lg" w="100%">
               Cancel campaign and start refunds
             </Button>
           </Stack>
@@ -1165,6 +1202,7 @@ export default function GroupFundedCampaignPage() {
       <Modal
         centered
         className="customer-modal"
+        transitionProps={{ transition: "slide-up", duration: 240, timingFunction: "ease-out" }}
         onClose={() => setEditModalOpen(false)}
         opened={editModalOpen}
         radius="lg"
@@ -1201,9 +1239,6 @@ export default function GroupFundedCampaignPage() {
             value={editForm.visibility}
           />
           <Group className="customer-modal-actions" justify="flex-end">
-            <Button onClick={() => setEditModalOpen(false)} size="lg" variant="light">
-              Cancel
-            </Button>
             <Button
               color="dark"
               disabled={!editForm.campaignTitle.trim()}
@@ -1220,6 +1255,7 @@ export default function GroupFundedCampaignPage() {
       <Modal
         centered
         className="customer-modal group-funded-report-modal"
+        transitionProps={{ transition: "slide-up", duration: 240, timingFunction: "ease-out" }}
         onClose={() => setReportModalOpen(false)}
         opened={reportModalOpen}
         radius="lg"
@@ -1275,7 +1311,6 @@ export default function GroupFundedCampaignPage() {
           ) : null}
           <Text c="dimmed" size="xs">Your report will be sent to the vendor’s email.</Text>
           <Group className="group-funded-report-actions" justify="flex-end">
-            <Button onClick={() => setReportModalOpen(false)} size="lg" variant="light">Cancel</Button>
             <Button
               color="red"
               disabled={!reportReason || (reportReason === "other" && !customReportReason.trim()) || (shouldUseReportTurnstile && !reportTurnstileReady)}
@@ -1292,6 +1327,7 @@ export default function GroupFundedCampaignPage() {
       <Modal
         centered
         className="customer-modal"
+        transitionProps={{ transition: "slide-up", duration: 240, timingFunction: "ease-out" }}
         onClose={() => setImagePreview(null)}
         opened={Boolean(imagePreview)}
         radius="lg"

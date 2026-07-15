@@ -1,6 +1,7 @@
 const express = require("express");
 const asyncHandler = require("../middleware/asyncHandler");
 const { authenticate } = require("../middleware/auth");
+const { moderatePublicText } = require("../middleware/moderatePublicText");
 const bookingRepository = require("../repositories/bookings");
 const groupFundedRepository = require("../repositories/groupFundedBookings");
 const ticketRepository = require("../repositories/tickets");
@@ -12,12 +13,14 @@ const locationPaymentQrUploadService = require("../services/locationPaymentQrUpl
 const passwordResetService = require("../services/passwordResetService");
 const pushNotificationService = require("../services/pushNotificationService");
 const customerTicketAccess = require("../services/customerTicketAccess");
+const { assertPublicTextFieldsAllowed } = require("../services/contentModeration");
 const { assertTenantPermission } = require("../middleware/auth");
 const { formatPaginationMetadata, parsePaginationParams } = require("../utils/pagination");
 
 const router = express.Router();
 
 router.use(authenticate);
+router.use(moderatePublicText);
 
 function normalizeRequestText(value, fallback = "") {
   if (Array.isArray(value)) {
@@ -94,20 +97,28 @@ function formatManualPaymentDestination(booking) {
     return null;
   }
 
-  if (!booking.serviceManualPaymentRequired) {
+  const bundleItems = Array.isArray(booking.bundleItems) && booking.bundleItems.length
+    ? booking.bundleItems
+    : [{
+        priceAmountCents: Number(booking.servicePriceAmountCents || 0) * Number(booking.bookingQuantity || 1),
+        manualPaymentRequired: booking.serviceManualPaymentRequired
+      }];
+  if (!booking.serviceManualPaymentRequired && !bundleItems.some((item) => item.manualPaymentRequired)) {
     return null;
   }
 
-  if (!booking.locationPaymentQrActive || !booking.locationPaymentQrImageUrl) {
+  const isBankTransfer = booking.locationPaymentMethodLabel === "Bank Transfer";
+  if (!booking.locationPaymentQrActive || (!isBankTransfer && !booking.locationPaymentQrImageUrl)) {
     return null;
   }
 
   return {
     methodLabel: booking.locationPaymentMethodLabel,
+    ...(isBankTransfer ? { bankName: booking.locationPaymentBankName || "" } : {}),
     accountDisplayName: booking.locationPaymentAccountDisplayName,
     accountIdentifierDisplay: booking.locationPaymentAccountIdentifierDisplay,
-    qrImageUrl: booking.locationPaymentQrImageUrl,
-    amountCents: Number(booking.servicePriceAmountCents || 0) * Number(booking.bookingQuantity || 1),
+    qrImageUrl: isBankTransfer ? "" : booking.locationPaymentQrImageUrl,
+    amountCents: bundleItems.reduce((total, item) => total + Number(item.priceAmountCents || 0), 0),
     currency: booking.serviceCurrency || "PHP",
     unitPriceDisplay: booking.servicePriceDisplay
   };
@@ -165,6 +176,7 @@ function formatCustomerBooking(booking) {
     servicePriceAmountCents: booking.servicePriceAmountCents,
     serviceCurrency: booking.serviceCurrency,
     servicePriceDisplay: booking.servicePriceDisplay,
+    bundleItems: booking.bundleItems || [],
     bookingQuantity: booking.bookingQuantity,
     scheduledStartAt: booking.scheduledStartAt,
     scheduledEndAt: booking.scheduledEndAt,
@@ -409,6 +421,7 @@ router.patch(
       error.statusCode = 400;
       throw error;
     }
+    assertPublicTextFieldsAllowed({ Name: name, "Display name": displayName });
 
     const updatedUser = await userRepository.updateUser(req.user._id, {
       name,
@@ -692,6 +705,17 @@ router.post(
     res.status(201).json({
       campaign: formatGroupFundedCampaign(campaign, contribution, [], null, { actorUserId: req.user._id })
     });
+  })
+);
+
+router.get(
+  "/group-funded-campaigns/:campaignIdOrToken/contributions/payment-proof",
+  asyncHandler(async (req, res) => {
+    const proofAccess = await groupFundedBookingService.createCustomerContributionProofAccess({
+      user: req.user,
+      campaignIdOrToken: req.params.campaignIdOrToken
+    });
+    res.json(proofAccess);
   })
 );
 

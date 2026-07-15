@@ -1,6 +1,7 @@
 const storeLocationRepository = require("../repositories/storeLocations");
 const vendorServiceRepository = require("../repositories/vendorServices");
 const storeHoursService = require("../services/storeHoursService");
+const { assertPublicTextFieldsAllowed } = require("../services/contentModeration");
 
 const BOOKING_CAPACITY_SCOPES = new Set(["service", "location"]);
 
@@ -82,6 +83,7 @@ async function formatLocation(location, tenant) {
     contactPhone: location.contactPhone,
     timezone: location.timezone,
     paymentMethodLabel: location.paymentMethodLabel,
+    paymentBankName: location.paymentBankName,
     paymentAccountDisplayName: location.paymentAccountDisplayName,
     paymentAccountIdentifierDisplay: location.paymentAccountIdentifierDisplay,
     paymentQrImageUrl: location.paymentQrImageUrl,
@@ -116,6 +118,7 @@ function normalizeLocationPayload(body, existingLocation = null) {
     "contactPhone",
     "timezone",
     "paymentMethodLabel",
+    "paymentBankName",
     "paymentAccountDisplayName",
     "paymentAccountIdentifierDisplay",
     "paymentQrImageUrl"
@@ -126,6 +129,19 @@ function normalizeLocationPayload(body, existingLocation = null) {
       next[field] = next[field].trim();
     }
   }
+
+  assertPublicTextFieldsAllowed({
+    "Location name": next.name,
+    "Location slug": next.slug,
+    "Location address line 1": next.addressLine1,
+    "Location address line 2": next.addressLine2,
+    "Location city": next.city,
+    "Location province": next.province,
+    "Location country": next.country,
+    "Payment method": next.paymentMethodLabel,
+    "Bank name": next.paymentBankName,
+    "Account owner": next.paymentAccountDisplayName
+  });
 
   if (Object.prototype.hasOwnProperty.call(next, "paymentQrActive")) {
     next.paymentQrActive = next.paymentQrActive === true;
@@ -140,12 +156,19 @@ function normalizeLocationPayload(body, existingLocation = null) {
   const paymentAccountDisplayName = Object.prototype.hasOwnProperty.call(next, "paymentAccountDisplayName")
     ? next.paymentAccountDisplayName
     : existingLocation?.paymentAccountDisplayName || "";
+  const paymentBankName = Object.prototype.hasOwnProperty.call(next, "paymentBankName")
+    ? next.paymentBankName
+    : existingLocation?.paymentBankName || "";
   const paymentQrImageUrl = Object.prototype.hasOwnProperty.call(next, "paymentQrImageUrl")
     ? next.paymentQrImageUrl
     : existingLocation?.paymentQrImageUrl || "";
 
-  if (paymentQrActive && (!paymentMethodLabel || !paymentAccountDisplayName || !paymentQrImageUrl)) {
-    const error = new Error("Active payment QR requires a method label, account display name, and QR image.");
+  const isBankTransfer = paymentMethodLabel === "Bank Transfer";
+  const paymentAccountIdentifierDisplay = Object.prototype.hasOwnProperty.call(next, "paymentAccountIdentifierDisplay")
+    ? next.paymentAccountIdentifierDisplay
+    : existingLocation?.paymentAccountIdentifierDisplay || "";
+  if (paymentQrActive && (!paymentMethodLabel || !paymentAccountDisplayName || (!isBankTransfer && !paymentQrImageUrl) || (isBankTransfer && (!paymentBankName || !paymentAccountIdentifierDisplay)))) {
+    const error = new Error("Active payment details require a method, account owner, and either a QR image or complete bank details for bank transfers.");
     error.statusCode = 400;
     throw error;
   }
@@ -229,15 +252,23 @@ function normalizeServicePayload(body, existingService = null) {
     throw error;
   }
 
+  const description = typeof body.description === "string"
+    ? body.description.trim()
+    : existingService?.description || "";
+  assertPublicTextFieldsAllowed({
+    "Service name": name,
+    "Service slug": slug,
+    "Service description": description,
+    "Booking quantity label": bookingQuantityLabel
+  });
+
   return {
     name,
     slug,
     imageUrl: typeof body.imageUrl === "string"
       ? body.imageUrl.trim()
       : existingService?.imageUrl || "",
-    description: typeof body.description === "string"
-      ? body.description.trim()
-      : existingService?.description || "",
+    description,
     durationMinutes,
     allowBookingQuantity,
     bookingQuantityLabel,

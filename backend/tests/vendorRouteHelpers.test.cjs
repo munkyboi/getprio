@@ -82,6 +82,20 @@ test("vendor route helpers normalize payloads and format entities", async () => 
   assert.equal(normalizedService.bookingCapacityScope, "location");
 
   assert.throws(
+    () => helpers.normalizeLocationPayload({ name: "gago branch" }),
+    /Location name contains language/
+  );
+  assert.throws(
+    () => helpers.normalizeServicePayload({
+      name: "Cut",
+      description: "yawa",
+      durationMinutes: 30,
+      priceAmountCents: 500
+    }),
+    /Service description contains language/
+  );
+
+  assert.throws(
     () =>
       helpers.normalizeServicePayload({
         name: "Cut",

@@ -735,8 +735,8 @@ test("group-funded booking has a collapsed campaign summary and prominent submit
   assert.match(source, /Funding deadline/);
   assert.match(source, /<Text fw=\{800\}>4\. Pick available services<\/Text>/);
   assert.match(source, /Choose a start time to see the services available for that visit\./);
-  assert.match(source, /className=\{isGroupFundedMode \? "booking-campaign-submit customer-primary-action" : "customer-primary-action"\}/);
-  assert.match(source, /h=\{isGroupFundedMode \? 56 : undefined\}/);
+  assert.match(source, /className="booking-campaign-submit customer-primary-action"/);
+  assert.match(source, /h=\{56\}/);
   assert.match(source, /\{isGroupFundedMode \? \[/);
   assert.match(source, /<Stepper\.Step key="verify-otp"/);
   assert.doesNotMatch(source, /\{isGroupFundedMode \? \(\s*<>/);
@@ -800,11 +800,12 @@ test("group-funded campaign hero uses the vendor category and compact funding su
   assert.match(source, /\{campaign\.vendorCategory \|\| "Business"\}/);
   assert.match(source, /Organized by \{campaign\.organizerDisplayName\}/);
   assert.match(source, /Funding \{formatPaymentAmount\(campaign\.fundedAmountCents, campaign\.currency\)\} \/ \{formatPaymentAmount\(campaign\.targetAmountCents, campaign\.currency\)\}/);
-  assert.match(source, /<Text c="dimmed" size="xs">Join fee<\/Text>/);
+  assert.match(source, /className="group-funded-ticket-funding"/);
+  assert.match(source, /<Text size="xs">Join fee<\/Text>/);
   assert.match(source, /Deadline: \$\{daysFromNow\}/);
   assert.match(source, /Share link copied to clipboard/);
   assert.doesNotMatch(source, /<Text c="dimmed" size="xs">Target<\/Text>/);
-  assert.match(styles, /\.group-funded-hero-badge \{/);
+  assert.match(styles, /\.group-funded-hero-category-badge \{/);
   assert.match(styles, /\.group-funded-share-toast \{/);
   assert.match(styles, /\.group-funded-hero-actions,/);
 });
@@ -818,7 +819,7 @@ test("group-funded campaign details use thumbnail service rows and a report form
   const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
 
   assert.match(source, /<Text className="finazze-section-label">Bundled services<\/Text>/);
-  assert.match(source, /<Title order=\{2\}>What(?:'|&apos;)s in this campaign<\/Title>/);
+  assert.match(source, /<Paper className="booking-detail-services-card" p="md">/);
   assert.doesNotMatch(source, /bundleItems\.length.*Services/);
   assert.match(source, /className="group-funded-bundle-thumbnail"/);
   assert.match(source, /setImagePreview\(\{ name: item\.serviceName, imageUrl: item\.imageUrl \}\)/);
@@ -846,10 +847,9 @@ test("group-funded campaign details use thumbnail service rows and a report form
   assert.match(source, /className="customer-modal group-funded-cancel-modal"/);
   assert.match(source, /title="Cancel this campaign\?"/);
   assert.match(source, /Cancel campaign and start refunds/);
-  assert.match(source, /color="red" loading=\{submitting\} onClick=\{cancelCampaign\} size="lg" variant="outline" w="100%"/);
+  assert.match(source, /color="red" loading=\{submitting\} onClick=\{cancelCampaign\} size="lg" w="100%"/);
   assert.match(source, /className="customer-modal group-funded-report-modal"/);
   assert.match(source, /className="group-funded-report-actions"/);
-  assert.match(source, /<Button onClick=\{\(\) => setReportModalOpen\(false\)\} size="lg" variant="light">Cancel<\/Button>/);
   assert.match(source, /const reportTurnstileSiteKey = import\.meta\.env\.VITE_TURNSTILE_SITE_KEY \|\| "";/);
   assert.match(source, /report-attachments\/direct\?fileName=/);
   assert.match(source, /attachmentObjectKey/);

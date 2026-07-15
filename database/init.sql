@@ -228,6 +228,7 @@ CREATE TABLE store_locations (
   contact_phone TEXT,
   timezone TEXT NOT NULL DEFAULT 'Asia/Manila',
   payment_method_label TEXT,
+  payment_bank_name TEXT,
   payment_account_display_name TEXT,
   payment_account_identifier_display TEXT,
   payment_qr_image_url TEXT,

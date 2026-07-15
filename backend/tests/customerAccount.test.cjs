@@ -168,6 +168,34 @@ test("group-funded QR downloads are streamed through the authenticated account r
   }
 });
 
+test("group-funded contribution proof access stays behind the authenticated account route", async () => {
+  const router = requireWithMocks("../src/routes/accountRoutes.js", {
+    "../middleware/auth": buildAuthMock(),
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../services/groupFundedBookingService": {
+      createCustomerContributionProofAccess: async ({ user, campaignIdOrToken }) => {
+        assert.equal(user._id, "user-1");
+        assert.equal(campaignIdOrToken, "campaign-share-token");
+        return {
+          proof: { fileName: "receipt.png", contentType: "image/png", sizeBytes: 1024, uploadedAt: "2026-07-15T00:00:00.000Z" },
+          access: { method: "GET", url: "https://proofs.example/receipt.png", expiresInSeconds: 300 }
+        };
+      }
+    }
+  });
+  const { server, baseUrl } = await startServer(router, "/api/account");
+
+  try {
+    const response = await fetch(`${baseUrl}/group-funded-campaigns/campaign-share-token/contributions/payment-proof`);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.proof.fileName, "receipt.png");
+    assert.equal(body.access.url, "https://proofs.example/receipt.png");
+  } finally {
+    await stopServer(server);
+  }
+});
+
 test("customer account overview and history expose owned tickets only", async () => {
   const tickets = [
     {
@@ -979,6 +1007,9 @@ test("customer bookings can be created only inside vendor availability", async (
       }
     },
     "../services/bookingService": requireWithMocks("../src/services/bookingService.js", {
+      "../config/db": {
+        withTransaction: async (work) => work(null)
+      },
       "../repositories/bookings": {
         countOverlappingActiveBookings: async () => 0,
         createBooking: async (data) => {
@@ -1255,6 +1286,9 @@ test("customer bookings use store hours when no booking availability is configur
       }
     },
     "../services/bookingService": requireWithMocks("../src/services/bookingService.js", {
+      "../config/db": {
+        withTransaction: async (work) => work(null)
+      },
       "../repositories/bookings": {
         countOverlappingActiveBookings: async () => 0,
         createBooking: async (data) => {

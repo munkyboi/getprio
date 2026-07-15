@@ -16,6 +16,7 @@ const {
   userHasTenantAccess,
   assertTenantPermission
 } = require("../middleware/auth");
+const { moderatePublicText } = require("../middleware/moderatePublicText");
 const billingService = require("../services/billingService");
 const publicBoardThemeUploadService = require("../services/publicBoardThemeUploadService");
 const vendorMediaUploadService = require("../services/vendorMediaUploadService");
@@ -85,6 +86,7 @@ const {
 } = require("./vendorManagementHandlers");
 
 const router = express.Router();
+router.use(moderatePublicText);
 const vendorGroupFundedDecisionLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 120,

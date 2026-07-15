@@ -11,6 +11,7 @@ const bookingSmsAlertPaymentService = require("./bookingSmsAlertPaymentService")
 const notificationService = require("./notificationService");
 const paymentProofStorageService = require("./paymentProofStorageService");
 const pushNotificationService = require("./pushNotificationService");
+const { assertPublicTextFieldsAllowed } = require("./contentModeration");
 const { normalizePhilippineMobileNumber } = require("../utils/phone");
 
 const CHECK_IN_WINDOW_MINUTES = 15;
@@ -92,6 +93,28 @@ function normalizeServiceBookingQuantity(service, value) {
   return service.allowBookingQuantity ? bookingQuantity : 1;
 }
 
+function normalizeBookingBundleItems(body, primaryServiceSlug) {
+  const rawItems = Array.isArray(body.bundleItems) && body.bundleItems.length
+    ? body.bundleItems
+    : [{ serviceSlug: primaryServiceSlug, bookingQuantity: body.bookingQuantity }];
+  if (rawItems.length > 12) {
+    const error = new Error("A booking bundle can contain at most 12 services.");
+    error.statusCode = 400;
+    throw error;
+  }
+  const seen = new Set();
+  return rawItems.map((item, sortOrder) => {
+    const serviceSlug = vendorServiceRepository.normalizeServiceSlug(item?.serviceSlug || primaryServiceSlug);
+    if (!serviceSlug || seen.has(serviceSlug)) {
+      const error = new Error("Booking bundle services must be unique.");
+      error.statusCode = 400;
+      throw error;
+    }
+    seen.add(serviceSlug);
+    return { serviceSlug, bookingQuantity: item?.bookingQuantity, sortOrder };
+  });
+}
+
 function buildLinkedQueueTicketSummary(ticket) {
   return {
     id: String(ticket._id),
@@ -139,7 +162,9 @@ function hasActiveLocationPaymentQr(location) {
     location?.paymentQrActive &&
       location.paymentMethodLabel &&
       location.paymentAccountDisplayName &&
-      location.paymentQrImageUrl
+      (location.paymentMethodLabel === "Bank Transfer"
+        ? location.paymentBankName && location.paymentAccountIdentifierDisplay
+        : location.paymentQrImageUrl)
   );
 }
 
@@ -249,6 +274,13 @@ function assertVerifiedPayloadMatchesRequest(verifiedPayload, requestBody) {
       error.statusCode = 400;
       throw error;
     }
+  }
+  const normalizeBundle = (items) => normalizeBookingBundleItems({ bundleItems: items }, expected.serviceSlug)
+    .map((item) => `${item.serviceSlug}:${normalizeBookingQuantity(item.bookingQuantity)}`).join("|");
+  if (normalizeBundle(verifiedPayload.bundleItems) !== normalizeBundle(requestBody.bundleItems)) {
+    const error = new Error("Booking verification does not match this booking request. Please verify again.");
+    error.statusCode = 400;
+    throw error;
   }
 }
 
@@ -840,6 +872,12 @@ async function createCustomerBooking({ user, body }) {
     error.statusCode = 404;
     throw error;
   }
+  const requestedBundleItems = normalizeBookingBundleItems(body, serviceSlug);
+  if (requestedBundleItems[0]?.serviceSlug !== serviceSlug) {
+    const error = new Error("The selected service must be the first item in the booking bundle.");
+    error.statusCode = 400;
+    throw error;
+  }
   assertManualPaymentDestinationAvailable({ service, location });
   const bookingQuantity = normalizeServiceBookingQuantity(service, body.bookingQuantity);
   await expirePendingBookingsForTenant(tenant._id);
@@ -862,12 +900,14 @@ async function createCustomerBooking({ user, body }) {
     error.statusCode = 400;
     throw error;
   }
+  const notes = String(verifiedBooking.payload.notes || body.notes || "").trim();
+  assertPublicTextFieldsAllowed({ "Customer name": verifiedCustomerName, "Booking notes": notes });
 
   const verifiedCustomerEmail = verifiedBooking.payload.customerEmail || customerEmail;
   const verifiedCustomerPhone = verifiedBooking.payload.customerPhone || customerPhone;
   const notifyBySms = Boolean(verifiedBooking.payload.notifyBySms);
 
-  const scheduledEndAt = new Date(scheduledStartAt.getTime() + getBookingDurationMinutes(service, bookingQuantity) * 60 * 1000);
+  let scheduledEndAt = new Date(scheduledStartAt.getTime() + getBookingDurationMinutes(service, bookingQuantity) * 60 * 1000);
   const availability = await vendorAvailabilityRepository.listAvailabilityByLocation(
     tenant._id,
     location._id
@@ -882,6 +922,54 @@ async function createCustomerBooking({ user, body }) {
     capacity: resolveEffectiveCapacity(locationService.capacity || 1, decision.capacity || 1),
     capacityScope: decision.capacityScope || "service"
   });
+  const bookingBundleItems = [{
+    serviceId: service._id,
+    serviceName: service.name,
+    serviceSlug: service.slug,
+    bookingQuantity,
+    priceAmountCents: Number(service.priceAmountCents || 0) * bookingQuantity,
+    currency: service.currency || "PHP",
+    scheduledStartAt: scheduledStartAt.toISOString(),
+    scheduledEndAt: scheduledEndAt.toISOString(),
+    sortOrder: 0
+  }];
+  for (const requestedItem of requestedBundleItems.slice(1)) {
+    const bundleService = await vendorServiceRepository.findServiceByTenantAndSlug(tenant._id, requestedItem.serviceSlug);
+    if (!bundleService || !bundleService.isActive) {
+      const error = new Error("A selected bundle service was not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+    const bundleLocationService = await getLocationServiceForBooking(tenant._id, location._id, bundleService);
+    if (!bundleLocationService || !bundleLocationService.isActive) {
+      const error = new Error("A selected bundle service is not available at this location.");
+      error.statusCode = 404;
+      throw error;
+    }
+    if (Boolean(bundleService.manualPaymentRequired) !== Boolean(service.manualPaymentRequired)) {
+      const error = new Error("Bundle services must use the same payment requirement.");
+      error.statusCode = 400;
+      throw error;
+    }
+    assertManualPaymentDestinationAvailable({ service: bundleService, location });
+    const bundleQuantity = normalizeServiceBookingQuantity(bundleService, requestedItem.bookingQuantity);
+    const bundleEndAt = new Date(scheduledStartAt.getTime() + getBookingDurationMinutes(bundleService, bundleQuantity) * 60 * 1000);
+    const bundleDecision = await assertAvailabilityAllowsBooking({ availability, location, service: bundleService, scheduledStartAt, scheduledEndAt: bundleEndAt });
+    await assertSlotCapacityAvailable({
+      tenant, location, service: bundleService, scheduledStartAt, scheduledEndAt: bundleEndAt,
+      capacity: resolveEffectiveCapacity(bundleLocationService.capacity || 1, bundleDecision.capacity || 1),
+      capacityScope: bundleDecision.capacityScope || "service"
+    });
+    bookingBundleItems.push({
+      serviceId: bundleService._id, serviceName: bundleService.name, serviceSlug: bundleService.slug,
+      bookingQuantity: bundleQuantity, priceAmountCents: Number(bundleService.priceAmountCents || 0) * bundleQuantity,
+      currency: bundleService.currency || "PHP", scheduledStartAt: scheduledStartAt.toISOString(),
+      scheduledEndAt: bundleEndAt.toISOString(), sortOrder: requestedItem.sortOrder
+    });
+    if (bundleEndAt > scheduledEndAt) {
+      scheduledEndAt = bundleEndAt;
+    }
+  }
 
   const smsFee = await bookingSmsAlertPaymentService.getBookingSmsFeeForTenant(tenant._id);
   let smsAlertFeePaymentId = null;
@@ -894,7 +982,7 @@ async function createCustomerBooking({ user, body }) {
     });
   }
 
-  const booking = await bookingRepository.createBooking({
+  const booking = await db.withTransaction((client) => bookingRepository.createBooking({
     tenantId: tenant._id,
     locationId: location._id,
     serviceId: service._id,
@@ -905,15 +993,16 @@ async function createCustomerBooking({ user, body }) {
     bookingQuantity,
     scheduledStartAt: scheduledStartAt.toISOString(),
     scheduledEndAt: scheduledEndAt.toISOString(),
-    notes: String(verifiedBooking.payload.notes || body.notes || "").trim(),
+    notes,
     paymentReference: String(body.paymentReference || "").trim(),
     pendingExpiresAt: getPendingBookingExpiration(),
     notifyByEmail: Boolean(verifiedCustomerEmail),
     notifyBySms,
     smsAlertFeePaymentId,
     contactVerifiedAt: verifiedBooking.contactVerifiedAt,
-    contactVerificationChannel: verifiedBooking.contactVerificationChannel
-  });
+    contactVerificationChannel: verifiedBooking.contactVerificationChannel,
+    bundleItems: bookingBundleItems
+  }, { client }));
 
   await bookingOtpService.consumeBookingVerificationToken(verifiedBooking.otpId);
   await sendBookingSubmittedNotification({ tenant, booking });

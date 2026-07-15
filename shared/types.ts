@@ -219,6 +219,7 @@ export interface StoreLocationSummary {
   contactPhone: string;
   timezone: string;
   paymentMethodLabel: string;
+  paymentBankName: string;
   paymentAccountDisplayName: string;
   paymentAccountIdentifierDisplay: string;
   paymentQrImageUrl: string;
@@ -420,9 +421,10 @@ export interface BookingPaymentProofSummary {
 
 export interface BookingManualPaymentDestination {
   methodLabel: string;
+  bankName?: string;
   accountDisplayName: string;
   accountIdentifierDisplay: string;
-  qrImageUrl: string;
+  qrImageUrl?: string;
   amountCents: number;
   currency: "PHP";
   unitPriceDisplay: string;
@@ -478,6 +480,7 @@ export interface CustomerBookingSummary {
   servicePriceAmountCents: number;
   serviceCurrency: "PHP";
   servicePriceDisplay: string;
+  bundleItems?: BookingBundleItemSummary[];
   bookingQuantity: number;
   scheduledStartAt: string | Date;
   scheduledEndAt: string | Date;
@@ -519,6 +522,10 @@ export interface CreateCustomerBookingRequest {
   serviceSlug: string;
   scheduledStartAt: string;
   bookingQuantity?: number;
+  bundleItems?: Array<{
+    serviceSlug: string;
+    bookingQuantity?: number;
+  }>;
   customerName?: string;
   customerEmail?: string;
   customerPhone?: string;
@@ -531,6 +538,19 @@ export interface CreateCustomerBookingRequest {
 
 export interface CustomerBookingResponse {
   booking: CustomerBookingSummary;
+}
+
+export interface BookingBundleItemSummary {
+  id: string;
+  serviceId: string;
+  serviceName: string;
+  serviceSlug: string;
+  bookingQuantity: number;
+  priceAmountCents: number;
+  currency: string;
+  scheduledStartAt: string | Date;
+  scheduledEndAt: string | Date;
+  sortOrder: number;
 }
 
 export interface CustomerBookingDetailResponse {
@@ -710,9 +730,10 @@ export interface GroupFundedCampaignSummary {
   linkedBookingId: string | null;
   paymentDestination?: {
     methodLabel: string;
+    bankName?: string;
     accountDisplayName: string;
     accountIdentifierDisplay: string;
-    qrImageUrl: string;
+    qrImageUrl?: string;
   } | null;
   refundSummary?: {
     totalCount: number;
@@ -1023,6 +1044,7 @@ export interface PublicBoardThemeSettings {
   heroTitle: string;
   heroSubtitle: string;
   logoUrl: string;
+  logoFit: PublicBoardThemeBackgroundFit;
   backgroundImageUrl: string;
   backgroundImageFit: PublicBoardThemeBackgroundFit;
   pageBackgroundImageUrl: string;

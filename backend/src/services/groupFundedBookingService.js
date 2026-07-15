@@ -91,7 +91,8 @@ function getDurationMinutes(service, quantity) {
 }
 
 function assertBranchPaymentInstructions(location) {
-  if (!location.paymentQrActive || !location.paymentQrImageUrl) {
+  const hasBankDetails = location.paymentMethodLabel === "Bank Transfer" && location.paymentBankName && location.paymentAccountDisplayName && location.paymentAccountIdentifierDisplay;
+  if (!location.paymentQrActive || (!location.paymentQrImageUrl && !hasBankDetails)) {
     throw makeHttpError("Group-funded booking requires active branch payment instructions.", 409);
   }
 }
@@ -763,6 +764,7 @@ async function createCampaign({ user, body }) {
         eligibilitySnapshot: {
           groupFunded: settings,
           paymentMethodLabel: location.paymentMethodLabel,
+          paymentBankName: location.paymentBankName,
           paymentAccountDisplayName: location.paymentAccountDisplayName,
           paymentAccountIdentifierDisplay: location.paymentAccountIdentifierDisplay,
           paymentQrImageUrl: location.paymentQrImageUrl,
@@ -860,13 +862,15 @@ async function getCampaignForCustomer({ user, campaignIdOrToken }) {
     : [];
   const location = await storeLocationRepository.findLocationById(campaign.locationId);
   const paymentSnapshot = campaign.eligibilitySnapshot || {};
-  const hasActiveLocationPaymentDestination = Boolean(location?.paymentQrActive && location.paymentQrImageUrl);
+  const isBankTransfer = (paymentSnapshot.paymentMethodLabel || location?.paymentMethodLabel) === "Bank Transfer";
+  const hasActiveLocationPaymentDestination = Boolean(location?.paymentQrActive && (location.paymentQrImageUrl || (isBankTransfer && location.paymentBankName)));
   const paymentQrImageUrl = hasActiveLocationPaymentDestination
     ? paymentSnapshot.paymentQrImageUrl || location.paymentQrImageUrl
     : "";
-  campaign.paymentDestination = paymentQrImageUrl
+  campaign.paymentDestination = hasActiveLocationPaymentDestination
     ? {
         methodLabel: paymentSnapshot.paymentMethodLabel || location?.paymentMethodLabel || "Payment",
+        ...(isBankTransfer ? { bankName: paymentSnapshot.paymentBankName || location?.paymentBankName || "" } : {}),
         accountDisplayName: paymentSnapshot.paymentAccountDisplayName || location?.paymentAccountDisplayName || "",
         accountIdentifierDisplay: paymentSnapshot.paymentAccountIdentifierDisplay || location?.paymentAccountIdentifierDisplay || "",
         qrImageUrl: paymentQrImageUrl
@@ -1295,6 +1299,7 @@ async function submitContributionProof({ user, campaignIdOrToken, body }) {
 
 async function cancelOrganizerCampaign({ user, campaignIdOrToken, reason }) {
   const cancellationReason = normalizeText(reason, "organizer_canceled");
+  contentModeration.assertPublicTextAllowed(cancellationReason, "Campaign cancellation reason");
   const result = await groupFundedRepository.withTransaction(async (client) => {
     const campaign = /^\d+$/.test(String(campaignIdOrToken))
       ? await groupFundedRepository.findCampaignById(campaignIdOrToken, { client, forUpdate: true })
@@ -1512,6 +1517,7 @@ async function rejectContribution({ tenant, user, contributionId, reason, refund
   if (!rejectionReason) {
     throw makeHttpError("reason is required.", 400);
   }
+  contentModeration.assertPublicTextAllowed(rejectionReason, "Contribution rejection reason");
   if (!["not_required", "required"].includes(refundDisposition)) {
     throw makeHttpError("refundDisposition must be not_required or required.", 400);
   }
@@ -1719,11 +1725,23 @@ async function createVendorContributionProofAccess({ tenant, contributionId }) {
   });
 }
 
+async function createCustomerContributionProofAccess({ user, campaignIdOrToken }) {
+  const { contribution } = await getCampaignForCustomer({ user, campaignIdOrToken });
+  if (!contribution?.paymentProofObjectKey) {
+    throw makeHttpError("Payment proof has not been submitted for this contribution.", 404);
+  }
+
+  return paymentProofStorageService.createViewAccess({
+    booking: contribution
+  });
+}
+
 async function rejectVendorCampaign({ tenant, user, campaignId, reason }) {
   const rejectionReason = normalizeText(reason);
   if (!rejectionReason) {
     throw makeHttpError("reason is required.", 400);
   }
+  contentModeration.assertPublicTextAllowed(rejectionReason, "Campaign rejection reason");
 
   const result = await groupFundedRepository.withTransaction(async (client) => {
     const campaign = await groupFundedRepository.findCampaignById(campaignId, { client, forUpdate: true });
@@ -2114,6 +2132,7 @@ async function acceptReplacementSlot({ user, campaignIdOrToken }) {
 
 async function declineReplacementSlot({ user, campaignIdOrToken, reason }) {
   const declineReason = normalizeText(reason, "replacement_declined");
+  contentModeration.assertPublicTextAllowed(declineReason, "Replacement decline reason");
   const result = await groupFundedRepository.withTransaction(async (client) => {
     const campaign = /^\d+$/.test(String(campaignIdOrToken))
       ? await groupFundedRepository.findCampaignById(campaignIdOrToken, { client, forUpdate: true })
@@ -2237,6 +2256,7 @@ module.exports = {
   expireFundingCampaign,
   expireVendorReview,
   cancelOrganizerCampaign,
+  createCustomerContributionProofAccess,
   createVendorContributionProofAccess,
   formatPublicCampaign,
   getCampaignForCustomer,

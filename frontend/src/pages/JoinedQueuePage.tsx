@@ -474,7 +474,8 @@ export default function JoinedQueuePage() {
 
         <Modal
           centered
-          className="customer-modal contact-vendor-modal"
+          className="customer-modal"
+          transitionProps={{ transition: "slide-up", duration: 240, timingFunction: "ease-out" }}
           onClose={() => {
             if (!cancelSubmitting) {
               setCancelConfirmOpen(false);
@@ -491,19 +492,17 @@ export default function JoinedQueuePage() {
             <Text c="dimmed" size="sm">
               This action is optional. Keep the ticket if you still plan to visit the vendor today.
             </Text>
-            <Group className="customer-modal-actions" justify="flex-end">
-              <Button disabled={cancelSubmitting} onClick={() => setCancelConfirmOpen(false)} size="lg" variant="default">
-                Keep ticket
-              </Button>
-              <Button color="red" loading={cancelSubmitting} onClick={handleCancelTicket} size="lg" variant="light">
+            <Stack className="customer-modal-actions ticket-page-cancel-modal-actions" gap="sm">
+              <Button color="red" loading={cancelSubmitting} onClick={handleCancelTicket} size="lg">
                 Confirm cancel
               </Button>
-            </Group>
+            </Stack>
           </Stack>
         </Modal>
         <Modal
-          centered
-          className="customer-modal"
+        centered
+        className="customer-modal"
+        transitionProps={{ transition: "slide-up", duration: 240, timingFunction: "ease-out" }}
           onClose={() => setCancelErrorModalOpen(false)}
           opened={cancelErrorModalOpen}
           size="sm"
@@ -514,8 +513,9 @@ export default function JoinedQueuePage() {
           </Alert>
         </Modal>
         <Modal
-          centered
-          className="customer-modal"
+        centered
+        className="customer-modal"
+        transitionProps={{ transition: "slide-up", duration: 240, timingFunction: "ease-out" }}
           opened={hoursOpened}
           onClose={() => setHoursOpened(false)}
           title="Business hours"
@@ -575,8 +575,9 @@ export default function JoinedQueuePage() {
           </Paper>
         </Modal>
         <Modal
-          centered
-          className="customer-modal"
+        centered
+        className="customer-modal contact-vendor-modal"
+        transitionProps={{ transition: "slide-up", duration: 240, timingFunction: "ease-out" }}
           fullScreen={isMobile}
           onClose={() => setContactOpen(false)}
           opened={contactOpen}
@@ -602,7 +603,6 @@ export default function JoinedQueuePage() {
               marginTop: "0.1rem"
             }
           }}
-          transitionProps={{ transition: "fade", duration: 200 }}
         >
           <ContactForm
             scope="vendor"
@@ -774,30 +774,34 @@ export default function JoinedQueuePage() {
                 <Text c="dimmed" mt="md" size="sm">
                   {ticketState.message}
                 </Text>
-                <Group mt="md">
-                  {canCancelTicket ? (
-                    <Button color="red" leftSection={<IconX size={16} />} onClick={() => setCancelConfirmOpen(true)} radius="xl" variant="light">
+                {canCancelTicket ? (
+                  <Stack className="ticket-page-ticket-actions" gap="sm" mt="md">
+                    <Button className="ticket-page-ticket-cancel-action" color="red" leftSection={<IconX size={16} />} onClick={() => setCancelConfirmOpen(true)} radius="xl">
                       Cancel ticket
                     </Button>
-                  ) : null}
-                  <Button
-                    className="ticket-page-card-action"
-                    component={Link}
-                    disabled={!canJoinAgain}
-                    leftSection={<IconTicket size={16} />}
-                    radius="xl"
-                    to={joinPath}
-                    variant="subtle"
-                  >
-                    Join again
-                  </Button>
-                  <Text className="ticket-page-card-action-separator" fw={700} size="sm">
-                    or
-                  </Text>
-                  <Button className="ticket-page-card-action" component={Link} leftSection={<IconCalendar size={16} />} radius="xl" to={bookingPath} variant="subtle">
-                    Start booking
-                  </Button>
-                </Group>
+                  </Stack>
+                ) : null}
+                {!ticketIsWaiting ? (
+                  <div className="ticket-page-card-actions">
+                    <Button
+                      className="ticket-page-card-action"
+                      component={Link}
+                      disabled={!canJoinAgain}
+                      leftSection={<IconTicket size={16} />}
+                      radius="xl"
+                      to={joinPath}
+                      variant="subtle"
+                    >
+                      Join again
+                    </Button>
+                    <Text className="ticket-page-card-action-separator" fw={700} size="sm">
+                      or
+                    </Text>
+                    <Button className="ticket-page-card-action" component={Link} leftSection={<IconCalendar size={16} />} radius="xl" to={bookingPath} variant="subtle">
+                      Start booking
+                    </Button>
+                  </div>
+                ) : null}
               </Paper>
             </Paper>
           </SimpleGrid>
