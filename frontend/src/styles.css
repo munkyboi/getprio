@@ -1154,6 +1154,12 @@ body {
   overflow: hidden;
 }
 
+.group-funded-hero-visual {
+  align-self: start;
+  height: fit-content;
+  min-height: 0;
+}
+
 .vendor-hero-media-shell {
   position: relative;
   display: grid;
