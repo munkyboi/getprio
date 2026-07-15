@@ -125,6 +125,10 @@ If no deployed staging app is authorized, produce a predicted vulnerability asse
 - Add validation and sanitization tests for profile, service, review, booking, dispute, and admin note inputs.
 - For capstone vulnerability assessment, document predicted evidence placeholders when live authorized testing is unavailable.
 
+## Must-Have: Server-Side Public Text Moderation
+
+Before public-text features are considered complete, GetPrio must replace the small local blocked-term list with a maintained profanity-moderation library and a GetPrio-owned English/Filipino additions list. Enforce the policy on the server for all public or user-visible text inputs, including account and vendor names, vendor profile and service content, campaigns, reviews, contact messages, reports, disputes, and admin notes where appropriate. Keep focused rejection tests for every protected write path and review the custom dictionary for false positives before release.
+
 ## Out of Scope
 
 - Unauthorized active scanning of third-party or production systems.
