@@ -2378,6 +2378,39 @@ button {
   max-width: 28rem;
 }
 
+@media (min-width: 48.0625em) {
+  .customer-modal.contact-vendor-modal .mantine-Modal-content {
+    display: flex;
+    flex-direction: column;
+    height: min(88dvh, 48rem) !important;
+    max-height: min(88dvh, 48rem) !important;
+    overflow: hidden !important;
+  }
+
+  .customer-modal.contact-vendor-modal .mantine-Modal-body,
+  .customer-modal.contact-vendor-modal .contact-form-shell,
+  .customer-modal.contact-vendor-modal .contact-form-body {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  .customer-modal.contact-vendor-modal .mantine-Modal-body,
+  .customer-modal.contact-vendor-modal .contact-form-shell {
+    overflow: hidden !important;
+  }
+
+  .customer-modal.contact-vendor-modal .contact-form-shell,
+  .customer-modal.contact-vendor-modal .contact-form-body {
+    flex-direction: column;
+  }
+
+  .customer-modal.contact-vendor-modal .contact-form-main {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+}
+
 @media (max-width: 48em) {
   .customer-modal.contact-vendor-modal .mantine-Modal-content {
     height: min(92dvh, 48rem) !important;
