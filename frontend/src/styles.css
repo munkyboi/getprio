@@ -1593,6 +1593,44 @@ body {
   background: rgba(255, 255, 255, 0.26);
 }
 
+.ticket-page-ticket-details-card {
+  min-width: 0;
+}
+
+.ticket-page-ticket-status--waiting {
+  background: #854d0e;
+}
+
+.ticket-page-ticket-status--called,
+.ticket-page-ticket-status--served {
+  background: #065f46;
+}
+
+.ticket-page-ticket-status--skipped,
+.ticket-page-ticket-status--cancelled,
+.ticket-page-ticket-status--unserved {
+  background: #7f1d1d;
+}
+
+.ticket-page-ticket-visual .ticket-page-ticket-actions,
+.ticket-page-ticket-visual .ticket-page-card-actions {
+  align-items: stretch;
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.ticket-page-ticket-visual .ticket-page-ticket-cancel-action,
+.ticket-page-ticket-visual .ticket-page-card-actions .ticket-page-card-action {
+  width: 100%;
+  min-height: 3.25rem;
+  justify-content: center;
+}
+
+.ticket-page-ticket-visual .ticket-page-card-actions .ticket-page-card-action-separator {
+  display: none;
+}
+
 .vendor-hero-media-shell {
   position: relative;
   display: grid;

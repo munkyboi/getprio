@@ -1205,3 +1205,17 @@ test("an unknown queue ticket uses the shared not-found recovery state", () => {
   assert.match(ticket, /if \(responseStatus === 404\)/);
   assert.match(ticket, /resourceName="queue ticket"/);
 });
+
+test("queue ticket details use the group-funded detail hero composition", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const ticket = fs.readFileSync(path.join(frontendRoot, "src", "pages", "JoinedQueuePage.tsx"), "utf8");
+  const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
+
+  assert.match(ticket, /className="vendor-hero-shell ticket-page-hero booking-detail-page-hero"/);
+  assert.match(ticket, /className="booking-detail-info-panel"/);
+  assert.match(ticket, /<Text className="finazze-section-label">Ticket details<\/Text>/);
+  assert.match(ticket, /className="booking-detail-visual-card ticket-page-ticket-visual"/);
+  assert.match(ticket, /<Text size="xs">Ticket number<\/Text>/);
+  assert.match(ticket, /<Text size="xs">Estimated wait<\/Text>/);
+  assert.match(styles, /\.ticket-page-ticket-visual \.ticket-page-ticket-cancel-action,/);
+});

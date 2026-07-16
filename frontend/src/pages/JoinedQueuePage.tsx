@@ -4,6 +4,7 @@ import {
   Badge,
   Button,
   Container,
+  Divider,
   Group,
   Modal,
   Paper,
@@ -11,12 +12,11 @@ import {
   Stack,
   Table,
   Text,
-  ThemeIcon,
   Title
 } from "@mantine/core";
 import { useMediaQuery } from "@mantine/hooks";
 import { notifications } from "@mantine/notifications";
-import { IconArrowLeft, IconBuildingStore, IconCalendar, IconCheck, IconClock, IconInfoCircle, IconMessageDots, IconSparkles, IconTicket, IconX } from "@tabler/icons-react";
+import { IconArrowLeft, IconBuildingStore, IconCalendar, IconCheck, IconClock, IconInfoCircle, IconMessageDots, IconTicket, IconX } from "@tabler/icons-react";
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type { CancelQueueTicketRequest, QueueJoinPaymentSyncResponse, QueueSnapshot, StoreHourSummary } from "@shared";
 import { API_BASE_URL, ApiError, apiRequest } from "../api/client";
@@ -229,7 +229,6 @@ export default function JoinedQueuePage() {
   const businessName = snapshot?.tenant?.name || tenantSlugValue;
   const locationName = snapshot?.location?.name || "Main location";
   const locationDetailLabel = [snapshot?.location?.city, snapshot?.location?.province].filter(Boolean).join(", ") || snapshot?.location?.country || "Philippines";
-  const heroSubtitle = theme?.heroTitle || "Book ahead or follow your same-day queue ticket.";
   const heroDescription =
     theme?.heroSubtitle ||
     snapshot?.location?.openStatus.summary ||
@@ -615,40 +614,57 @@ export default function JoinedQueuePage() {
             We are confirming your queue fee payment and loading your ticket.
           </Alert>
         ) : null}
-        <Paper className="vendor-hero-shell ticket-page-hero" p={{ base: "lg", md: "xl" }}>
+        <Paper className="vendor-hero-shell ticket-page-hero booking-detail-page-hero" p={{ base: "lg", md: "xl" }}>
           <SimpleGrid cols={{ base: 1, lg: 2 }} spacing={{ base: "xl", lg: 48 }}>
-            <Stack gap="lg" justify="flex-start">
+            <Stack className="booking-detail-info-panel" gap="lg" justify="flex-start">
               <div>
                 <Group gap="sm" wrap="wrap">
                   <Badge className="vendor-theme-badge vendor-theme-badge-primary" size="lg" variant="light">
                     {getBusinessCategoryLabel()}
                   </Badge>
+                  <Badge className={`booking-detail-ticket-status ticket-page-ticket-status--${snapshot?.focusTicket?.status || "waiting"}`} size="lg">
+                    {ticketState.label}
+                  </Badge>
                 </Group>
                 <Stack gap={4} mt="md">
                   <Title className="vendor-hero-title ticket-page-title" order={1}>
-                    {businessName}
+                    Your queue ticket
                   </Title>
                   <Text className="vendor-hero-subtitle" fw={700} size="lg">
-                    {heroSubtitle}
+                    {businessName} · {locationName}
                   </Text>
                 </Stack>
               </div>
 
               <Text className="vendor-hero-description">
-                {heroDescription}
+                {ticketState.message || heroDescription}
               </Text>
+
+              <Paper className="booking-detail-services-card ticket-page-ticket-details-card" p="md">
+                <Stack gap="sm">
+                  <Text className="finazze-section-label">Ticket details</Text>
+                  <Group justify="space-between" wrap="nowrap">
+                    <div>
+                      <Text c="dimmed" size="sm">Ticket number</Text>
+                      <Text fw={900} size="xl">{snapshot?.focusTicket?.ticketNumber || lookupCode}</Text>
+                    </div>
+                    <Badge className={`booking-detail-ticket-status ticket-page-ticket-status--${snapshot?.focusTicket?.status || "waiting"}`} size="lg">
+                      {ticketState.label}
+                    </Badge>
+                  </Group>
+                  <Text c="dimmed" size="sm">
+                    {snapshot?.focusTicket?.lookupCode || lookupCode}
+                  </Text>
+                </Stack>
+              </Paper>
 
               <Stack gap="xs">
                 <Group c="dimmed" gap={8} wrap="nowrap">
-                  <ThemeIcon className="vendor-theme-icon" radius="xl" size={32} variant="light">
-                    <IconInfoCircle size={16} />
-                  </ThemeIcon>
+                  <IconBuildingStore className="booking-detail-meta-icon" size={18} />
                   <Text>{locationName}</Text>
                 </Group>
                 <Group c="dimmed" gap={8} wrap="nowrap">
-                  <ThemeIcon className="vendor-theme-icon" radius="xl" size={32} variant="light">
-                    <IconClock size={16} />
-                  </ThemeIcon>
+                  <IconClock className="booking-detail-meta-icon" size={18} />
                   <Text>{formatHoursLabel(locationHours[todayIndex])}</Text>
                   <Button
                     className="ticket-page-inline-hours-button"
@@ -663,6 +679,7 @@ export default function JoinedQueuePage() {
                 </Group>
               </Stack>
 
+              <Divider />
               <Group className="customer-action-row" gap="md">
                 <Button
                   className="vendor-theme-button"
@@ -683,126 +700,69 @@ export default function JoinedQueuePage() {
                   Contact vendor
                 </Button>
               </Group>
-
-              <Group gap="lg" className="vendor-trust-row">
-                <Group gap={8} wrap="nowrap">
-                  <ThemeIcon className="vendor-theme-icon" radius="xl" size={32} variant="light">
-                    <IconSparkles size={16} />
-                  </ThemeIcon>
-                  <Text fw={700} size="sm">
-                    Verified public profile
-                  </Text>
-                </Group>
-                <Group gap={8} wrap="nowrap">
-                  <ThemeIcon className="vendor-theme-icon" radius="xl" size={32} variant="light">
-                    <IconClock size={16} />
-                  </ThemeIcon>
-                  <Text fw={700} size="sm">
-                    Same-day queue
-                  </Text>
-                </Group>
-                <Group gap={8} wrap="nowrap">
-                  <ThemeIcon className="vendor-theme-icon" radius="xl" size={32} variant="light">
-                    <IconCalendar size={16} />
-                  </ThemeIcon>
-                  <Text fw={700} size="sm">
-                    Book ahead
-                  </Text>
-                </Group>
-              </Group>
             </Stack>
 
-            <Paper className="vendor-hero-visual" p="xl" style={themedMediaStyle}>
-              <div className="vendor-hero-media-shell">
-                <div className="vendor-hero-media-slide is-active">
-                  {theme?.logoUrl ? (
-                    <div className="vendor-profile-logo-frame">
-                      <img alt={`${businessName} logo`} src={theme.logoUrl} />
-                    </div>
-                  ) : snapshot?.location?.imageUrl ? (
-                    <img alt="" className="vendor-profile-image-content" src={snapshot.location.imageUrl} />
-                  ) : (
-                    <div className="ticket-page-placeholder">
-                      <IconTicket size={56} stroke={1.5} />
-                      <Text fw={800}>{businessName}</Text>
-                    </div>
-                  )}
+            <Paper className="booking-detail-visual-card ticket-page-ticket-visual" style={themedMediaStyle}>
+              {theme?.logoUrl ? (
+                <div className="booking-detail-logo-frame">
+                  <img alt={`${businessName} logo`} src={theme.logoUrl} />
                 </div>
-              </div>
+              ) : (
+                <div className="booking-detail-logo-frame booking-detail-logo-placeholder">
+                  <IconTicket size={56} stroke={1.5} />
+                </div>
+              )}
 
-              <Paper className="vendor-hero-status-card" p="lg">
-                <Text fw={800}>
-                  {snapshot?.focusTicket?.customerName ? maskCustomerName(snapshot.focusTicket.customerName) : "Your queue ticket"}
-                </Text>
-                <Text c="dimmed" size="sm">
-                  {snapshot?.focusTicket?.lookupCode ? `${snapshot.focusTicket.lookupCode} · ${ticketState.label}` : ticketState.message}
-                </Text>
-                <SimpleGrid cols={{ base: 1, sm: 2 }} mt="md" spacing="sm">
-                  <div className="prio-dashboard-tile">
-                    <Text c="dimmed" size="xs">
-                      Your Queue Ticket
-                    </Text>
-                    <Text className="prio-dashboard-number">
-                      {snapshot?.focusTicket?.ticketNumber || lookupCode}
-                    </Text>
+              <div className="booking-detail-visual-content">
+                <Stack align="center" gap={4}>
+                  <Text fw={800} size="lg">{snapshot?.focusTicket?.customerName ? maskCustomerName(snapshot.focusTicket.customerName) : "Your queue ticket"}</Text>
+                  <Text size="sm">{businessName} · {locationName}</Text>
+                </Stack>
+                <SimpleGrid cols={{ base: 1, sm: 3 }} mt="lg" spacing="sm">
+                  <div className="booking-detail-visual-tile">
+                    <Text size="xs">Ticket number</Text>
+                    <Text className="booking-detail-ticket-number" fw={900}>{snapshot?.focusTicket?.ticketNumber || lookupCode}</Text>
                   </div>
-                  <div className="prio-dashboard-tile">
-                    <Text c="dimmed" size="xs">
-                      Ticket Status
-                    </Text>
-                    <Text fw={800}>
-                      {ticketState.label}
-                    </Text>
+                  <div className="booking-detail-visual-tile">
+                    <Text size="xs">Position</Text>
+                    <Text fw={800}>{ticketIsWaiting && snapshot?.focusTicket?.position ? `#${snapshot.focusTicket.position}` : "--"}</Text>
+                    <Text size="sm">{ticketIsWaiting ? "in the queue" : ticketState.label}</Text>
                   </div>
-                  <div className="prio-dashboard-tile">
-                    <Text c="dimmed" size="xs">
-                      Position
-                    </Text>
-                    <Text fw={800}>
-                      {ticketIsWaiting && snapshot?.focusTicket?.position ? `#${snapshot.focusTicket.position}` : "--"}
-                    </Text>
-                  </div>
-                  <div className="prio-dashboard-tile">
-                    <Text c="dimmed" size="xs">
-                      ETA
-                    </Text>
-                    <Text fw={800}>
-                      {snapshot?.focusTicket?.estimatedWaitMinutes ?? snapshot?.stats?.estimatedWaitMinutes ?? 0} mins
-                    </Text>
+                  <div className="booking-detail-visual-tile">
+                    <Text size="xs">Estimated wait</Text>
+                    <Text fw={800}>{snapshot?.focusTicket?.estimatedWaitMinutes ?? snapshot?.stats?.estimatedWaitMinutes ?? 0} mins</Text>
+                    <Text size="sm">{ticketState.label}</Text>
                   </div>
                 </SimpleGrid>
-                <Text c="dimmed" mt="md" size="sm">
-                  {ticketState.message}
-                </Text>
-                {canCancelTicket ? (
-                  <Stack className="ticket-page-ticket-actions" gap="sm" mt="md">
+                <Stack className="booking-detail-visual-action ticket-page-ticket-actions" gap="sm">
+                  {canCancelTicket ? (
                     <Button className="ticket-page-ticket-cancel-action" color="red" leftSection={<IconX size={16} />} onClick={() => setCancelConfirmOpen(true)} radius="xl">
                       Cancel ticket
                     </Button>
-                  </Stack>
-                ) : null}
-                {!ticketIsWaiting ? (
-                  <div className="ticket-page-card-actions">
-                    <Button
-                      className="ticket-page-card-action"
-                      component={Link}
-                      disabled={!canJoinAgain}
-                      leftSection={<IconTicket size={16} />}
-                      radius="xl"
-                      to={joinPath}
-                      variant="subtle"
-                    >
-                      Join again
-                    </Button>
-                    <Text className="ticket-page-card-action-separator" fw={700} size="sm">
-                      or
-                    </Text>
-                    <Button className="ticket-page-card-action" component={Link} leftSection={<IconCalendar size={16} />} radius="xl" to={bookingPath} variant="subtle">
-                      Start booking
-                    </Button>
-                  </div>
-                ) : null}
-              </Paper>
+                  ) : null}
+                  {!ticketIsWaiting ? (
+                    <div className="ticket-page-card-actions">
+                      <Button
+                        className="ticket-page-card-action"
+                        component={Link}
+                        disabled={!canJoinAgain}
+                        leftSection={<IconTicket size={16} />}
+                        radius="xl"
+                        to={joinPath}
+                        variant="subtle"
+                      >
+                        Join again
+                      </Button>
+                      <Text className="ticket-page-card-action-separator" fw={700} size="sm">
+                        or
+                      </Text>
+                      <Button className="ticket-page-card-action" component={Link} leftSection={<IconCalendar size={16} />} radius="xl" to={bookingPath} variant="subtle">
+                        Start booking
+                      </Button>
+                    </div>
+                  ) : null}
+                </Stack>
+              </div>
             </Paper>
           </SimpleGrid>
         </Paper>
