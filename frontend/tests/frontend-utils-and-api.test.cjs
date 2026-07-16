@@ -695,19 +695,18 @@ test("group-funded contributor count uses a stepped slider within service limits
   assert.match(source, /Max \{groupFundedMaxContributors\}/);
 });
 
-test("group-funded visit length uses a stepped units slider", () => {
+test("booking services use their own stepped quantity sliders", () => {
   const source = fs.readFileSync(
     path.join(path.resolve(__dirname, ".."), "src", "pages", "BookingRequestPage.tsx"),
     "utf8"
   );
 
-  assert.match(source, /const groupFundedQuantityLabel = groupFundedQuantityService/);
-  assert.match(source, /<Text fw=\{500\} size="sm">\{groupFundedQuantityLabel\}/);
-  assert.match(source, /aria-label=\{groupFundedQuantityLabel\}/);
+  assert.match(source, /const quantityLabel = getBookingQuantityLabel\(service\)/);
+  assert.match(source, /aria-label=\{`\$\{service\.name\} \$\{quantityLabel\}`\}/);
   assert.match(source, /setBookingQuantity\(value\)/);
-  assert.match(source, /<Text c="dimmed" size="xs">1<\/Text>/);
+  assert.match(source, /setBundleQuantities\(\(current\) => \(\{ \.\.\.current, \[service\.slug\]: value \}\)\)/);
   assert.match(source, /max=\{maxGroupFundedBookingQuantity\}/);
-  assert.match(source, /\{maxGroupFundedBookingQuantity\}<\/Text>/);
+  assert.match(source, /disabled=\{Boolean\(otp\) \|\| !isSelected\}/);
   assert.doesNotMatch(source, /selectedBundleServices\.length\} item/);
 });
 
@@ -733,13 +732,27 @@ test("group-funded booking has a collapsed campaign summary and prominent submit
   assert.match(source, /Campaign summary/);
   assert.match(source, /formatBookingScheduleDate\(bookingDate\)\} · Choose a start time/);
   assert.match(source, /Funding deadline/);
-  assert.match(source, /<Text fw=\{800\}>4\. Pick available services<\/Text>/);
-  assert.match(source, /Choose a start time to see the services available for that visit\./);
+  assert.match(source, /<Text fw=\{800\}>1\. Plan your visit<\/Text>/);
+  assert.match(source, /Choose a branch, services, and visit length before selecting an available time/);
+  assert.match(source, /<SimpleGrid cols=\{\{ base: 1, md: 2 \}\} spacing="xs">/);
+  assert.match(source, /\/composed-slots/);
   assert.match(source, /className="booking-campaign-submit customer-primary-action"/);
   assert.match(source, /h=\{56\}/);
   assert.match(source, /\{isGroupFundedMode \? \[/);
   assert.match(source, /<Stepper\.Step key="verify-otp"/);
   assert.doesNotMatch(source, /\{isGroupFundedMode \? \(\s*<>/);
+});
+
+test("booking summary lists every selected service with its own quantity and price", () => {
+  const source = fs.readFileSync(
+    path.join(path.resolve(__dirname, ".."), "src", "pages", "BookingRequestPage.tsx"),
+    "utf8"
+  );
+
+  assert.match(source, /<Text c="dimmed" size="sm">Services<\/Text>/);
+  assert.match(source, /selectedBundleServices\.map\(\(service\) => \(/);
+  assert.match(source, /formatDuration\(service\.durationMinutes \* getBundleItemQuantity\(service\)\)/);
+  assert.match(source, /getServiceLineAmountCents\(service, getBundleItemQuantity\(service\)\)/);
 });
 
 test("group-funded section labels use a consistent heading size", () => {
@@ -1039,6 +1052,25 @@ test("vendor settings provide an editable business profile", () => {
   assert.match(source, /label="Owner display name"/);
 });
 
+test("health and wellness preset uses a matching primary button border", () => {
+  const source = fs.readFileSync(
+    path.join(path.resolve(__dirname, ".."), "src", "pages", "VendorDashboardPage.tsx"),
+    "utf8"
+  );
+
+  assert.match(source, /wellness: \{[\s\S]*?buttonBackgroundColor: "#24B0BA",\s+buttonTextColor: "#ffffff",\s+buttonBorderColor: "#24B0BA"/);
+});
+
+test("vendor hero primary CTA keeps its border aligned with the theme background", () => {
+  const styles = fs.readFileSync(
+    path.join(path.resolve(__dirname, ".."), "src", "styles.css"),
+    "utf8"
+  );
+
+  assert.match(styles, /\.vendor-theme-button\.booking-detail-primary-action \{\s+border-color: var\(--vendor-theme-button-bg, #ea6a1f\);/);
+  assert.match(styles, /\.vendor-theme-button\.booking-detail-primary-action:hover \{\s+border-color: color-mix\(in srgb, var\(--vendor-theme-button-bg, #ea6a1f\) 86%, black\);/);
+});
+
 test("vendor group-funded discovery uses mobile-first booking controls and filters", () => {
   const frontendRoot = path.resolve(__dirname, "..");
   const source = fs.readFileSync(path.join(frontendRoot, "src", "pages", "VendorProfilePage.tsx"), "utf8");
@@ -1064,6 +1096,30 @@ test("vendor group-funded discovery uses mobile-first booking controls and filte
   assert.match(source, /className="vendor-contact-action customer-primary-action"/);
   assert.doesNotMatch(source, /scrollAreaComponent=\{ScrollArea\.Autosize\}/);
   assert.match(styles, /\.vendor-booking-option-tab-content \{\s+display: inline-flex;\s+align-items: center;\s+gap: 0\.45rem;/);
+});
+
+test("vendor profile hero uses the booking-ticket information hierarchy", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(frontendRoot, "src", "pages", "VendorProfilePage.tsx"), "utf8");
+  const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
+
+  assert.match(source, /className="vendor-hero-shell ticket-page-hero vendor-profile-ticket-hero"/);
+  assert.match(source, /className="booking-detail-info-panel vendor-profile-ticket-info"/);
+  assert.match(source, /className="vendor-hero-title ticket-page-title"/);
+  assert.match(source, /className="booking-detail-services-card vendor-profile-location-card"/);
+  assert.match(source, /className="booking-detail-visual-card vendor-profile-ticket-visual"/);
+  assert.match(source, /<Title className="booking-detail-ticket-number" order=\{2\}>\{vendor\.name\}<\/Title>/);
+  assert.match(source, /const \[heroBranchIndex, setHeroBranchIndex\] = useState\(0\)/);
+  assert.match(source, /window\.setInterval\(\(\) => \{\s+setHeroBranchIndex\(\(current\) => \(current \+ 1\) % heroBranches\.length\);\s+\}, 5000\)/);
+  assert.match(source, /className="vendor-profile-branch-carousel"/);
+  assert.match(source, /className="booking-detail-visual-tile vendor-profile-branch-carousel-card"/);
+  assert.match(source, /branch\.openStatus\?\.isOpen \? "Open" : "Closed"/);
+  assert.match(source, /<Text className="finazze-section-label">Branches<\/Text>/);
+  assert.match(source, /vendor\.locations\.map\(\(branch\) => \{/);
+  assert.match(source, /className="vendor-profile-hero-branch"/);
+  assert.match(styles, /\.vendor-profile-ticket-visual \{\s+min-height: 0;/);
+  assert.match(styles, /\.vendor-profile-branch-carousel-slide\.is-active \{\s+opacity: 1;/);
+  assert.match(styles, /\.vendor-profile-ticket-actions > \.mantine-Button-root \{\s+width: 100%;/);
 });
 
 test("contact form submit action is mobile-first", () => {

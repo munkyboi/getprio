@@ -67,6 +67,8 @@ function mapPublicVendorProfile(row) {
         city: location.city || "",
         province: location.province || "",
         country: location.country || "Philippines",
+        addressLine1: location.addressLine1 || "",
+        addressLine2: location.addressLine2 || "",
         isPrimary: Boolean(location.isPrimary),
         imageUrl: location.imageUrl || "",
         hours: Array.isArray(location.hours)
@@ -312,6 +314,8 @@ async function listPublicVendorProfiles(options = {}) {
             'city', COALESCE(ordered_locations.city, ''),
             'province', COALESCE(ordered_locations.province, ''),
             'country', COALESCE(ordered_locations.country, 'Philippines'),
+            'addressLine1', COALESCE(ordered_locations.address_line1, ''),
+            'addressLine2', COALESCE(ordered_locations.address_line2, ''),
             'isPrimary', ordered_locations.is_primary,
             'imageUrl', COALESCE(ordered_locations.image_url, ''),
             'hours', COALESCE(ordered_locations.hours, '[]'::JSONB)
@@ -325,6 +329,8 @@ async function listPublicVendorProfiles(options = {}) {
             store_locations.city,
             store_locations.province,
             store_locations.country,
+            store_locations.address_line1,
+            store_locations.address_line2,
             store_locations.is_primary,
             store_locations.image_url,
             (
@@ -379,6 +385,8 @@ async function findPublicVendorProfileBySlug(slug, options = {}) {
             'city', COALESCE(ordered_locations.city, ''),
             'province', COALESCE(ordered_locations.province, ''),
             'country', COALESCE(ordered_locations.country, 'Philippines'),
+            'addressLine1', COALESCE(ordered_locations.address_line1, ''),
+            'addressLine2', COALESCE(ordered_locations.address_line2, ''),
             'isPrimary', ordered_locations.is_primary,
             'imageUrl', COALESCE(ordered_locations.image_url, ''),
             'hours', COALESCE(ordered_locations.hours, '[]'::JSONB)
@@ -392,6 +400,8 @@ async function findPublicVendorProfileBySlug(slug, options = {}) {
             store_locations.city,
             store_locations.province,
             store_locations.country,
+            store_locations.address_line1,
+            store_locations.address_line2,
             store_locations.is_primary,
             store_locations.image_url,
             (

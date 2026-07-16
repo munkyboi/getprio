@@ -631,7 +631,7 @@ const publicBoardThemePresets: Record<string, PublicBoardThemeSettings> = {
     bodyColor: "#2E4A70",
     buttonBackgroundColor: "#24B0BA",
     buttonTextColor: "#ffffff",
-    buttonBorderColor: "#CF8A40"
+    buttonBorderColor: "#24B0BA"
   },
   retail: {
     presetId: "retail",

@@ -481,6 +481,7 @@ export interface CustomerBookingSummary {
   serviceCurrency: "PHP";
   servicePriceDisplay: string;
   bundleItems?: BookingBundleItemSummary[];
+  executionMode: "parallel" | "sequential";
   bookingQuantity: number;
   scheduledStartAt: string | Date;
   scheduledEndAt: string | Date;
@@ -522,6 +523,7 @@ export interface CreateCustomerBookingRequest {
   serviceSlug: string;
   scheduledStartAt: string;
   bookingQuantity?: number;
+  executionMode?: "parallel" | "sequential";
   bundleItems?: Array<{
     serviceSlug: string;
     bookingQuantity?: number;
@@ -707,6 +709,7 @@ export interface GroupFundedCampaignSummary {
   serviceName: string;
   serviceSlug: string;
   bundleItems?: GroupFundedBundleItemSummary[];
+  executionMode: "parallel" | "sequential";
   locationName: string;
   locationSlug: string;
   bookingQuantity: number;
@@ -899,6 +902,7 @@ export interface CreateGroupFundedCampaignRequest {
   serviceSlug: string;
   scheduledStartAt: string;
   bookingQuantity?: number;
+  executionMode?: "parallel" | "sequential";
   bundleItems?: Array<{
     serviceSlug: string;
     bookingQuantity?: number;
@@ -1293,9 +1297,12 @@ export interface PublicVendorLocation {
   city: string;
   province: string;
   country: string;
+  addressLine1?: string;
+  addressLine2?: string;
   isPrimary: boolean;
   hours: StoreHourSummary[];
   imageUrl?: string;
+  openStatus?: Pick<StoreOpenStatus, "isOpen" | "summary">;
 }
 
 export interface PublicVendorService {
