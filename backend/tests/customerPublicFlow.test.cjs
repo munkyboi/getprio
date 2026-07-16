@@ -440,6 +440,8 @@ test("public vendor discovery returns approved public profile cards", async () =
     assert.equal(body.vendors[0].locations.length, 2);
     assert.equal(body.vendors[0].locations[1].slug, "west");
     assert.equal(body.vendors[0].locations[0].hours[0].opensAt, "08:00");
+    assert.equal(typeof body.vendors[0].locations[0].openStatus.isOpen, "boolean");
+    assert.equal(typeof body.vendors[0].locations[0].openStatus.summary, "string");
     assert.equal(body.vendors[0].services.length, 1);
     assert.equal(body.vendors[0].services[0].slug, "general-consultation");
     assert.equal(body.vendors[0].services[0].manualPaymentRequired, true);

@@ -20,7 +20,6 @@ import {
   Tabs,
   Text,
   TextInput,
-  ThemeIcon,
   Title,
   Tooltip
 } from "@mantine/core";
@@ -35,14 +34,12 @@ import {
   IconInfoCircle,
   IconMapPin,
   IconPhoto,
-  IconSparkles,
   IconTicket,
   IconUserPlus,
   IconUsers
 } from "@tabler/icons-react";
 import { differenceInCalendarDays, getDay, startOfDay } from "date-fns";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
-import QRCode from "react-qr-code";
 import type {
   GroupFundedCampaignSummary,
   GroupFundedCampaignsResponse,
@@ -86,6 +83,11 @@ function getLocationLabel(location: PublicVendorProfile["locations"][number] | P
 
 function getBranchLabel(location: PublicVendorProfile["locations"][number]) {
   const parts = [location.city, location.province].filter(Boolean);
+  return parts.length ? parts.join(", ") : location.country || "Philippines";
+}
+
+function getBranchAddress(location: PublicVendorProfile["locations"][number]) {
+  const parts = [location.addressLine1, location.addressLine2, location.city, location.province].filter(Boolean);
   return parts.length ? parts.join(", ") : location.country || "Philippines";
 }
 
@@ -429,7 +431,7 @@ export default function VendorProfilePage() {
   const [publicCampaigns, setPublicCampaigns] = useState<GroupFundedCampaignSummary[]>([]);
   const [publicCampaignPagination, setPublicCampaignPagination] = useState<GroupFundedCampaignsResponse["pagination"] | null>(null);
   const [campaignsLoading, setCampaignsLoading] = useState(false);
-  const [heroMediaMode, setHeroMediaMode] = useState<"logo" | "qr">("logo");
+  const [heroBranchIndex, setHeroBranchIndex] = useState(0);
   const [bookingOptionRoot, setBookingOptionRoot] = useState<HTMLDivElement | null>(null);
   const [bookingOptionControls, setBookingOptionControls] = useState<Record<BookingOption, HTMLButtonElement | null>>({
     standard: null,
@@ -465,15 +467,13 @@ export default function VendorProfilePage() {
       vendor.locations[0]
     );
   }, [selectedLocationSlug, vendor]);
+  const heroBranches = vendor?.locations || [];
+  const activeHeroBranch = heroBranches[heroBranchIndex] || heroBranches[0] || null;
   const locationLabel = useMemo(
     () => (selectedLocation ? getLocationLabel(selectedLocation) : vendor ? getLocationLabel(vendor.location) : ""),
     [selectedLocation, vendor]
   );
   const theme = vendor?.publicBoardTheme?.theme;
-  const heroJoinUrl =
-    vendor
-      ? `${window.location.origin}/join/${vendor.slug}${selectedLocation?.slug ? `/${selectedLocation.slug}` : ""}`
-      : "";
   const themeStyle: CSSProperties | undefined = theme
     ? {
         "--vendor-theme-page-bg": theme.pageBackgroundColor,
@@ -650,18 +650,20 @@ export default function VendorProfilePage() {
   }, [vendor]);
 
   useEffect(() => {
-    setHeroMediaMode("logo");
+    setHeroBranchIndex((current) => current < heroBranches.length ? current : 0);
+  }, [heroBranches.length]);
 
-    if (!theme?.logoUrl && !heroJoinUrl) {
+  useEffect(() => {
+    if (heroBranches.length < 2) {
       return undefined;
     }
 
     const intervalId = window.setInterval(() => {
-      setHeroMediaMode((current) => (current === "logo" ? "qr" : "logo"));
+      setHeroBranchIndex((current) => (current + 1) % heroBranches.length);
     }, 5000);
 
     return () => window.clearInterval(intervalId);
-  }, [heroJoinUrl, theme?.logoUrl]);
+  }, [heroBranches.length]);
 
   useEffect(() => {
     if (!vendor || !selectedLocationSlug) {
@@ -942,17 +944,12 @@ export default function VendorProfilePage() {
 
         {vendor ? (
           <Stack gap="xl">
-            <Paper className="vendor-hero-shell" p={{ base: "lg", md: "xl" }}>
+            <Paper className="vendor-hero-shell ticket-page-hero vendor-profile-ticket-hero" p={{ base: "lg", md: "xl" }}>
               <SimpleGrid cols={{ base: 1, lg: 2 }} spacing={{ base: "xl", lg: 48 }}>
-                <Stack gap="lg" justify="center">
+                <Stack className="booking-detail-info-panel vendor-profile-ticket-info" gap="lg" justify="flex-start">
                   <div>
-                    <Group gap="sm" wrap="wrap">
-                      <Badge className="vendor-theme-badge vendor-theme-badge-primary" size="lg" variant="light">
-                        {getBusinessCategoryLabel(vendor.category)}
-                      </Badge>
-                    </Group>
-                    <Stack gap="sm" mt="md">
-                      <Title className="vendor-hero-title" order={1}>
+                    <Stack gap="sm">
+                      <Title className="vendor-hero-title ticket-page-title" order={1}>
                         {vendor.name}
                       </Title>
                       <Text className="vendor-hero-subtitle" fw={700} size="lg">
@@ -967,122 +964,110 @@ export default function VendorProfilePage() {
                       "This vendor is preparing detailed service information. You can still continue to the public queue when same-day service is available."}
                   </Text>
 
-                  <Stack gap="xs">
-                    <Group c="dimmed" gap={8} wrap="nowrap">
-                      <IconMapPin size={18} />
-                      <Text>{locationLabel}</Text>
-                    </Group>
-                    {selectedLocation ? (
-                      <Group c="dimmed" gap={8} wrap="nowrap">
-                        <IconClock size={18} />
-                        <Text>{formatHourRange(selectedLocation, currentWeekday)}</Text>
-                      </Group>
-                    ) : null}
-                  </Stack>
-
-                  <Group className="customer-action-row" gap="md">
-                    <Button
-                      className="vendor-theme-button"
-                      component={Link}
-                      leftSection={<IconTicket size={18} />}
-                      size="lg"
-                      to={vendor.location.slug ? `/join/${vendor.slug}/${vendor.location.slug}` : `/join/${vendor.slug}`}
-                    >
-                      Join queue
-                    </Button>
-                    <Button
-                      className="vendor-theme-button vendor-theme-button-outline"
-                      onClick={scrollToBookingOptions}
-                      size="lg"
-                      variant="outline"
-                    >
-                      Start booking
-                    </Button>
-                    <Button className="vendor-theme-button vendor-theme-button-ghost" onClick={() => setContactOpen(true)} size="lg" variant="subtle">
-                      Contact vendor
-                    </Button>
+                  <Group gap="sm" wrap="wrap">
+                    <Badge className="group-funded-hero-category-badge" size="lg" variant="light">
+                      {getBusinessCategoryLabel(vendor.category)}
+                    </Badge>
+                    <Badge className="vendor-theme-badge vendor-theme-badge-secondary" size="lg" variant="light">
+                      Public queue
+                    </Badge>
                   </Group>
 
-                  <Group gap="lg" className="vendor-trust-row">
-                    <Group gap={8} wrap="nowrap">
-                      <ThemeIcon className="vendor-theme-icon" radius="xl" size={32} variant="light">
-                        <IconSparkles size={16} />
-                      </ThemeIcon>
-                      <Text fw={700} size="sm">
-                        Verified public profile
-                      </Text>
-                    </Group>
-                    <Group gap={8} wrap="nowrap">
-                      <ThemeIcon className="vendor-theme-icon" radius="xl" size={32} variant="light">
-                        <IconClock size={16} />
-                      </ThemeIcon>
-                      <Text fw={700} size="sm">
-                        Same-day queue
-                      </Text>
-                    </Group>
-                    <Group gap={8} wrap="nowrap">
-                      <ThemeIcon className="vendor-theme-icon" radius="xl" size={32} variant="light">
-                        <IconCalendar size={16} />
-                      </ThemeIcon>
-                      <Text fw={700} size="sm">
-                        Book ahead
-                      </Text>
-                    </Group>
-                  </Group>
+                  <Paper className="booking-detail-services-card vendor-profile-location-card" p="md">
+                    <Stack gap="sm">
+                      <Text className="finazze-section-label">Branches</Text>
+                      <Stack className="vendor-profile-hero-branches" gap="xs">
+                        {vendor.locations.map((branch) => {
+                          const isSelected = branch.slug === selectedLocation?.slug;
+                          return (
+                            <button
+                              aria-pressed={isSelected}
+                              className="vendor-profile-hero-branch"
+                              data-selected={isSelected}
+                              key={branch.slug}
+                              onClick={() => setSelectedLocationSlug(branch.slug)}
+                              type="button"
+                            >
+                              <Group justify="space-between" gap="sm" wrap="nowrap">
+                                <Group gap={8} wrap="nowrap">
+                                  <IconMapPin className="booking-detail-meta-icon" size={18} />
+                                  <Text fw={700}>{branch.name} · {getBranchLabel(branch)}</Text>
+                                </Group>
+                                <Badge color={branch.openStatus?.isOpen ? "teal" : "red"} size="sm" variant="light">
+                                  {branch.openStatus?.isOpen ? "Open" : "Closed"}
+                                </Badge>
+                              </Group>
+                              <Group c="dimmed" gap={8} mt={4} wrap="nowrap">
+                                <IconClock className="booking-detail-meta-icon" size={16} />
+                                <Text size="sm">{formatHourRange(branch, currentWeekday)}</Text>
+                              </Group>
+                            </button>
+                          );
+                        })}
+                      </Stack>
+                    </Stack>
+                  </Paper>
+
                 </Stack>
 
-                <Paper className="vendor-hero-visual" p="xl" style={themedMediaStyle}>
-                  <div className="vendor-hero-media-shell">
-                    <div className={`vendor-hero-media-slide vendor-hero-media-slide-logo ${heroMediaMode === "logo" ? "is-active" : ""}`}>
-                      {theme?.logoUrl ? (
-                        <div className="vendor-profile-logo-frame">
-                          <img alt={`${vendor.name} logo`} src={theme.logoUrl} />
-                        </div>
-                      ) : vendor.imageUrl ? (
-                        <img alt="" className="vendor-profile-image-content" src={vendor.imageUrl} />
-                      ) : (
-                        <EmptyArtBox label="Vendor image placeholder" />
-                      )}
+                <Paper className="booking-detail-visual-card vendor-profile-ticket-visual" style={themedMediaStyle}>
+                  {theme?.logoUrl ? (
+                    <div className="booking-detail-logo-frame">
+                      <img alt={`${vendor.name} logo`} src={theme.logoUrl} />
                     </div>
+                  ) : vendor.imageUrl ? (
+                    <div className="booking-detail-logo-frame">
+                      <img alt={`${vendor.name} logo`} src={vendor.imageUrl} />
+                    </div>
+                  ) : (
+                    <div className="booking-detail-logo-frame booking-detail-logo-placeholder">
+                      <IconTicket size={56} stroke={1.5} />
+                    </div>
+                  )}
 
-                    <div className={`vendor-hero-media-slide vendor-hero-media-slide-qr ${heroMediaMode === "qr" ? "is-active" : ""}`}>
-                      <div className="vendor-hero-qr-panel">
-                        <div className="vendor-hero-qr-code">
-                          <QRCode aria-label="Join queue QR code" value={heroJoinUrl || window.location.href} />
-                        </div>
-                        <div className="vendor-hero-qr-copy">
-                          <Text className="vendor-hero-qr-kicker">Scan to join</Text>
-                          <Text className="vendor-hero-qr-title" fw={900}>
-                            Queue QR
-                          </Text>
-                          <Text c="dimmed" size="sm">
-                            Scan this code to join the public queue for the selected branch.
-                          </Text>
-                        </div>
+                  <div className="booking-detail-visual-content">
+                    <Stack align="center" gap={6}>
+                      <Title className="booking-detail-ticket-number" order={2}>{vendor.name}</Title>
+                    </Stack>
+                    <div className="booking-detail-visual-tile vendor-profile-branch-carousel-card">
+                      <div aria-live="polite" className="vendor-profile-branch-carousel" role="status">
+                        {heroBranches.map((branch, index) => (
+                          <Group
+                            className={`vendor-profile-branch-carousel-slide ${index === heroBranchIndex ? "is-active" : ""}`}
+                            justify="space-between"
+                            key={branch.slug}
+                            wrap="nowrap"
+                          >
+                            <Stack gap={0} miw={0} style={{ flex: "1 1 0" }}>
+                              <Text fw={800} truncate="end">{branch.name}</Text>
+                              <Text c="dimmed" size="sm" truncate="end">{getBranchAddress(branch)}</Text>
+                            </Stack>
+                            <Badge className="vendor-profile-branch-status" color={branch.openStatus?.isOpen ? "teal" : "red"} size="lg" variant="filled">
+                              {branch.openStatus?.isOpen ? "Open" : "Closed"}
+                            </Badge>
+                          </Group>
+                        ))}
+                        {!activeHeroBranch ? <Text c="dimmed" size="sm">No branch available</Text> : null}
                       </div>
                     </div>
+                    <Stack className="booking-detail-visual-action vendor-profile-ticket-actions" gap="sm">
+                      <Button
+                        className="vendor-theme-button booking-detail-primary-action"
+                        component={Link}
+                        leftSection={<IconTicket size={18} />}
+                        size="lg"
+                        to={activeHeroBranch?.slug ? `/join/${vendor.slug}/${activeHeroBranch.slug}` : `/join/${vendor.slug}`}
+                      >
+                        Join queue
+                      </Button>
+                      <Button className="vendor-theme-button vendor-theme-button-ghost" onClick={scrollToBookingOptions} size="lg" variant="subtle">
+                        Start booking
+                      </Button>
+                      <Button className="vendor-theme-button vendor-theme-button-ghost" onClick={() => setContactOpen(true)} size="lg" variant="subtle">
+                        Contact vendor
+                      </Button>
+                    </Stack>
                   </div>
-
-                  <Paper className="vendor-hero-status-card" p="lg">
-                    <Text fw={800}>Public queue status</Text>
-                    <Text c="dimmed" size="sm">
-                      {selectedLocation ? `${selectedLocation.name} • ${formatHourRange(selectedLocation, currentWeekday)}` : "Choose a branch to continue."}
-                    </Text>
-                    <SimpleGrid cols={2} mt="md" spacing="sm">
-                      <div className="prio-dashboard-tile">
-                        <Text c="dimmed" size="xs">
-                          Queue entry
-                        </Text>
-                        <Text className="prio-dashboard-number">Open</Text>
-                      </div>
-                      <div className="prio-dashboard-tile">
-                        <Text c="dimmed" size="xs">
-                          Booking
-                        </Text>
-                        <Text fw={800}>Available</Text>
-                      </div>
-                    </SimpleGrid>
-                  </Paper>
                 </Paper>
               </SimpleGrid>
             </Paper>

@@ -100,9 +100,25 @@ async function attachPublicVendorDetails(vendor) {
           services.some((service) => String(service._id) === String(item.serviceId) && service.isActive)
         )
     : [];
+  const locations = tenant
+    ? await Promise.all(vendor.locations.map(async (location) => {
+        const fullLocation = await storeLocationRepository.findLocationByTenantAndSlug(tenant._id, location.slug);
+        const openStatus = fullLocation
+          ? await storeHoursService.getOpenStatus(fullLocation, { hours: location.hours })
+          : null;
+
+        return {
+          ...location,
+          openStatus: openStatus
+            ? { isOpen: openStatus.isOpen, summary: openStatus.summary }
+            : undefined
+        };
+      }))
+    : vendor.locations;
 
   return {
     ...vendor,
+    locations,
     services,
     locationServices,
     publicBoardTheme
@@ -327,6 +343,21 @@ router.get(
       durationMinutes: req.query.durationMinutes
     });
     res.json({ slots });
+  })
+);
+
+router.post(
+  "/vendors/:tenantSlug/locations/:locationSlug/composed-slots",
+  asyncHandler(async (req, res) => {
+    const result = await bookingService.evaluateComposedBookingSlots({
+      tenantSlug: req.params.tenantSlug,
+      locationSlug: req.params.locationSlug,
+      date: req.body?.date,
+      executionMode: req.body?.executionMode,
+      items: req.body?.items,
+      includeGroupFundedHolds: Boolean(req.body?.includeGroupFundedHolds)
+    });
+    res.json(result);
   })
 );
 
