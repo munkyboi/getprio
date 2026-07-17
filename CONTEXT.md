@@ -13,12 +13,12 @@ A booking flow where one organizer invites multiple contributors to fund a singl
 _Avoid_: Crowdfunding campaign, pooled queue ticket, shared wallet booking
 
 **Service Bundle**:
-A fixed resource or service package made from active, group-funded-enabled branch services at one vendor branch, delivered during one shared visit and scheduled as one group-funded booking. The group collectively funds the whole package, such as eight people renting VIP Court and Court 1 at the same time, rather than each contributor receiving an individually assigned service. Its immutable bundle total is the sum of its selected branch-service prices, split into equal fixed contributor shares using the campaign rounding rule; it has one organizer, contributor pool, vendor-review decision, capacity hold, and linked normal booking.
+A fixed resource or service package made from active branch services at one vendor branch, delivered during one shared visit and scheduled as one booking. A Service Bundle can be used by a standard booking or a group-funded booking; only the funding, review, and contribution lifecycle differs. It may combine resources in parallel, such as renting VIP Court and Court 1 at the same time, or services sequentially, such as a haircut followed by a shave. Its immutable bundle total is the sum of its selected branch-service prices.
 _Avoid_: Multiple bookings, service cart, independent service requests
 
 **Bundle Execution Mode**:
-The vendor-configured scheduling pattern for a Service Bundle. A parallel bundle starts selected services at one shared visit start and reserves each service's own capacity interval, so the visit ends after the longest selected service. A sequential bundle reserves the selected services back-to-back and uses their summed duration as the visit length.
-_Avoid_: Service category rule, global bundle policy, customer-selected overlap
+The customer-selected visit arrangement for a Service Bundle, subject to server-side availability and capacity validation. The customer-facing labels are `Together` for parallel and `Back-to-back` for sequential. A parallel bundle starts selected services at one shared visit start and reserves each service's own capacity interval, so the visit ends after the longest selected service. A sequential bundle reserves the selected services back-to-back and uses their summed duration as the visit length. The scheduler disables an arrangement that the selected services cannot support and explains why.
+_Avoid_: Service category rule, global bundle policy, client-authorized overlap
 
 **Booking Organizer**:
 The customer who starts and controls a group-funded booking. The organizer owns the booking details, is the main vendor-facing contact, and may cancel the funding-stage booking before the funding target is reached.
@@ -51,6 +51,10 @@ _Avoid_: Global booking quantity, item count
 **Booking Availability**:
 The vendor-managed bookable service schedule for a branch, optionally narrowed by service and capacity. If booking availability is not configured, branch store hours define the default bookable window.
 _Avoid_: Store hours, calendar
+
+**Booking Capacity Scope**:
+The resource boundary whose remaining capacity a booking item consumes. A service-scoped rule isolates capacity to that service. A location-scoped rule represents one shared branch pool and has one authoritative capacity across every service using that rule. Each overlapping booking item consumes one unit of its applicable scope; booking units extend that item's reserved duration rather than consuming extra capacity units.
+_Avoid_: Customer-selected capacity, per-service override of a shared pool, booking quantity as seat count
 
 **Booking Alert**:
 A customer-facing notification for booking status changes such as confirmation, reschedule, cancellation, and check-in readiness. Email alerts are always available. Browser notification preferences and in-app alerts are separate from true Web Push delivery, which requires a service worker, Push API subscription, and backend Web Push send pipeline.

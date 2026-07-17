@@ -98,6 +98,7 @@ const service = {
 
 function buildBookingService({
   serviceOverride = {},
+  servicesBySlug = {},
   locationOverride = {},
   locationServiceOverride = {},
   availability,
@@ -197,7 +198,10 @@ function buildBookingService({
     },
     "../repositories/vendorServices": {
       normalizeServiceSlug: (value) => String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""),
-      findServiceByTenantAndSlug: async (_tenantId, slug) => (slug === "consultation" ? { ...service, ...serviceOverride } : null)
+      findServiceByTenantAndSlug: async (_tenantId, slug) => {
+        if (servicesBySlug[slug]) return servicesBySlug[slug];
+        return slug === "consultation" ? { ...service, ...serviceOverride } : null;
+      }
     },
     "../repositories/vendorAvailability": {
       listAvailabilityByLocation: async () => availability
@@ -346,6 +350,84 @@ test("booking slots use booking quantity to set the customer-facing interval", a
       ["2026-07-06T01:00:00.000Z", "2026-07-06T03:00:00.000Z"],
       ["2026-07-06T03:00:00.000Z", "2026-07-06T05:00:00.000Z"]
     ]
+  );
+});
+
+test("composed slots resolve parallel service intervals only when every court is available", async () => {
+  const vipCourt = {
+    _id: "service-2", tenantId: "tenant-1", name: "VIP Court", slug: "vip-court",
+    durationMinutes: 60, allowBookingQuantity: false, isActive: true
+  };
+  const bookingService = buildBookingService({
+    servicesBySlug: { "vip-court": vipCourt },
+    availability: {
+      blocks: [
+        { _id: "court-1", serviceId: "service-1", weekday: 1, startsAt: "09:00", endsAt: "12:00", capacity: 1, isActive: true },
+        { _id: "vip", serviceId: "service-2", weekday: 1, startsAt: "10:00", endsAt: "12:00", capacity: 1, isActive: true }
+      ],
+      exceptions: []
+    }
+  });
+
+  const result = await bookingService.evaluateComposedBookingSlots({
+    tenantSlug: "demo", locationSlug: "main", date: "2026-07-06", executionMode: "parallel",
+    items: [{ serviceSlug: "consultation" }, { serviceSlug: "vip-court" }]
+  });
+
+  assert.deepEqual(result.slots.map((slot) => slot.startAt), ["2026-07-06T02:00:00.000Z", "2026-07-06T02:30:00.000Z", "2026-07-06T03:00:00.000Z"]);
+  assert.deepEqual(result.slots[0].items.map((item) => [item.serviceSlug, item.startAt, item.endAt]), [
+    ["consultation", "2026-07-06T02:00:00.000Z", "2026-07-06T03:00:00.000Z"],
+    ["vip-court", "2026-07-06T02:00:00.000Z", "2026-07-06T03:00:00.000Z"]
+  ]);
+});
+
+test("composed slots resolve sequential salon-service intervals in the requested order", async () => {
+  const shave = {
+    _id: "service-2", tenantId: "tenant-1", name: "Shave", slug: "shave",
+    durationMinutes: 30, allowBookingQuantity: false, isActive: true
+  };
+  const bookingService = buildBookingService({
+    servicesBySlug: { shave },
+    availability: {
+      blocks: [{ _id: "all", serviceId: null, weekday: 1, startsAt: "09:00", endsAt: "12:00", capacity: 2, isActive: true }],
+      exceptions: []
+    }
+  });
+
+  const result = await bookingService.evaluateComposedBookingSlots({
+    tenantSlug: "demo", locationSlug: "main", date: "2026-07-06", executionMode: "sequential",
+    items: [{ serviceSlug: "consultation" }, { serviceSlug: "shave" }]
+  });
+
+  assert.deepEqual(result.slots[0].items.map((item) => [item.startAt, item.endAt]), [
+    ["2026-07-06T01:00:00.000Z", "2026-07-06T02:00:00.000Z"],
+    ["2026-07-06T02:00:00.000Z", "2026-07-06T02:30:00.000Z"]
+  ]);
+  assert.equal(result.slots[0].endAt, "2026-07-06T02:30:00.000Z");
+});
+
+test("composed slots reject mixed manual-payment requirements", async () => {
+  const manualService = {
+    _id: "service-2", tenantId: "tenant-1", name: "Manual", slug: "manual",
+    durationMinutes: 30, allowBookingQuantity: false, manualPaymentRequired: true, isActive: true
+  };
+  const bookingService = buildBookingService({
+    servicesBySlug: { manual: manualService },
+    locationOverride: {
+      paymentQrActive: true,
+      paymentMethodLabel: "GCash",
+      paymentAccountDisplayName: "Demo account",
+      paymentQrImageUrl: "https://example.com/qr.png"
+    },
+    availability: { blocks: [], exceptions: [] }
+  });
+
+  await assert.rejects(
+    bookingService.evaluateComposedBookingSlots({
+      tenantSlug: "demo", locationSlug: "main", date: "2026-07-06", executionMode: "parallel",
+      items: [{ serviceSlug: "consultation" }, { serviceSlug: "manual" }]
+    }),
+    /same payment requirement/
   );
 });
 
@@ -1076,6 +1158,52 @@ test("customer booking creation stores quantity and reserves the multiplied serv
   assert.ok(capturedBooking.pendingExpiresAt);
   const pendingExpiresInMinutes = Math.round((new Date(capturedBooking.pendingExpiresAt).getTime() - Date.now()) / 60_000);
   assert.equal(pendingExpiresInMinutes, 15);
+});
+
+test("customer booking creation persists a sequential composed timeline from the shared plan", async () => {
+  let capturedBooking = null;
+  const shave = {
+    _id: "service-2", tenantId: "tenant-1", name: "Shave", slug: "shave",
+    durationMinutes: 30, allowBookingQuantity: false, isActive: true
+  };
+  const bookingService = buildBookingService({
+    servicesBySlug: { shave },
+    availability: {
+      blocks: [{ _id: "all", serviceId: null, weekday: 1, startsAt: "09:00", endsAt: "12:00", capacity: 2, isActive: true }],
+      exceptions: []
+    },
+    getVerifiedBookingPayload: async () => ({
+      otpId: "booking-otp-1", contactVerifiedAt: "2026-07-06T00:30:00.000Z", contactVerificationChannel: "email",
+      payload: {
+        tenantSlug: "demo", locationSlug: "main", serviceSlug: "consultation",
+        scheduledStartAt: "2026-07-06T01:00:00.000Z", bookingQuantity: 1, executionMode: "sequential",
+        bundleItems: [{ serviceSlug: "consultation", bookingQuantity: 1 }, { serviceSlug: "shave", bookingQuantity: 1 }],
+        customerName: "Customer One", customerEmail: "customer@example.com", customerPhone: "09171234567", notifyBySms: false, notes: ""
+      }
+    }),
+    createBooking: async (data) => {
+      capturedBooking = data;
+      return { ...data, _id: "booking-1", reference: "BKG-TEST", notifyBySms: false };
+    }
+  });
+
+  await bookingService.createCustomerBooking({
+    user: { _id: "user-1", name: "Customer One", email: "customer@example.com", phone: "09171234567" },
+    body: {
+      tenantSlug: "demo", locationSlug: "main", serviceSlug: "consultation",
+      scheduledStartAt: "2026-07-06T01:00:00.000Z", executionMode: "sequential",
+      bundleItems: [{ serviceSlug: "consultation", bookingQuantity: 1 }, { serviceSlug: "shave", bookingQuantity: 1 }],
+      bookingVerificationToken: "verified-token"
+    }
+  });
+
+  assert.equal(capturedBooking.executionMode, "sequential");
+  assert.equal(capturedBooking.serviceId, "service-1");
+  assert.equal(capturedBooking.scheduledEndAt, "2026-07-06T02:30:00.000Z");
+  assert.deepEqual(capturedBooking.bundleItems.map((item) => [item.serviceSlug, item.scheduledStartAt, item.scheduledEndAt]), [
+    ["consultation", "2026-07-06T01:00:00.000Z", "2026-07-06T02:00:00.000Z"],
+    ["shave", "2026-07-06T02:00:00.000Z", "2026-07-06T02:30:00.000Z"]
+  ]);
 });
 
 test("customer booking creation rejects quantity when the service does not allow units", async () => {

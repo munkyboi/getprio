@@ -26,6 +26,7 @@ import {
   SegmentedControl,
   SimpleGrid,
   Slider,
+  Spoiler,
   Stack,
   Switch,
   Table,
@@ -806,6 +807,13 @@ function formatMoney(amountCents: number, currency = "PHP"): string {
     currency,
     minimumFractionDigits: 2
   }).format(Number(amountCents || 0) / 100);
+}
+
+function getCampaignFundingTargetAmountCents(campaign: {
+  targetAmountCents?: number;
+  roundingAdjustmentCents?: number;
+}): number {
+  return Number(campaign.targetAmountCents || 0) + Number(campaign.roundingAdjustmentCents || 0);
 }
 
 function getGroupFundedStatusColor(status: string) {
@@ -2790,9 +2798,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   function openGroupFundedContributionRejectModal(contribution: VendorGroupFundedContributionSummary) {
     const campaign = groupFundedDetailQuery.data?.campaign;
+    const fundingTargetAmountCents = campaign ? getCampaignFundingTargetAmountCents(campaign) : 0;
     const fundingReached = Boolean(
       campaign && (
-        campaign.fundedAmountCents >= campaign.targetAmountCents ||
+        campaign.fundedAmountCents >= fundingTargetAmountCents ||
         campaign.paidParticipantCount >= campaign.requiredContributors ||
         campaign.campaignStatus !== "funding"
       )
@@ -6943,85 +6952,26 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       const manualPaymentRequired = Boolean(booking.serviceManualPaymentRequired);
                       const checkInState = getBookingCheckInState(booking);
                       const hasExpired = Boolean(booking.expiredAt);
-                        if (booking.status === "completed") {
-                          return (
-                            <Table.Tr key={booking.id}>
-                              <Table.Td fw={700}>
-                                {booking.id}
-                              </Table.Td>
-                              <Table.Td>
-                                <Stack gap={2}>
-                                  <Button
-                                  className="neura-inline-link-button"
-                                  onClick={() => {
-                                    setPaymentRejectionReason("");
-                                    setBookingDetailModalId(booking.id);
-                                    setBookingDetailOpen(true);
-                                  }}
-                                  p={0}
-                                  size="xs"
-                                  variant="subtle"
-                                >
-                                  {booking.reference}
-                                </Button>
-                                <Text c="dimmed" size="sm">Requested {formatDateTime(booking.createdAt)}</Text>
-                                <GroupFundedBookingIndicator booking={booking} />
-                              </Stack>
-                            </Table.Td>
-                            <Table.Td>
-                              <Stack gap={2}>
-                                <Text fw={700}>{booking.customerName}</Text>
-                                <Text c="dimmed" size="sm">{booking.customerEmail || booking.customerPhone || "No contact details"}</Text>
-                              </Stack>
-                            </Table.Td>
-                            <Table.Td>
-                              <Stack gap={2}>
-                                <Text>{booking.serviceName}</Text>
-                                <Text c="dimmed" size="sm">Quantity {booking.bookingQuantity}</Text>
-                                <Text c="dimmed" size="sm">{booking.servicePriceDisplay || "-"}</Text>
-                              </Stack>
-                            </Table.Td>
-                            <Table.Td>
-                              <Stack gap={2}>
-                                <Text>{formatBookingScheduleDateTime(booking.scheduledStartAt)}</Text>
-                                <Text c="dimmed" size="sm">Ends {formatBookingScheduleDateTime(booking.scheduledEndAt)}</Text>
-                              </Stack>
-                            </Table.Td>
-                            <Table.Td>
-                              <Stack gap={4}>
-                                <Group gap={6}>
-                                  <Badge color={getBookingBadgeColor(booking.status)} variant="light">
-                                    {hasExpired ? "expired" : booking.status}
-                                  </Badge>
-                                  {booking.checkedInAt || booking.linkedTicket ? (
-                                    <Badge color="blue" variant="light">Checked in</Badge>
-                                  ) : null}
-                                  {booking.noShowAt ? (
-                                    <Badge color="red" variant="light">No-show</Badge>
-                                  ) : null}
-                                  {hasExpired ? (
-                                    <Badge color="orange" variant="light">Pending timeout</Badge>
-                                  ) : null}
-                                </Group>
-                                {booking.linkedTicket ? (
-                                  <Text c="dimmed" size="xs">
-                                    Ticket {booking.linkedTicket.ticketNumber}
-                                  </Text>
-                                ) : null}
-                                {hasExpired && booking.expirationReason ? (
-                                  <Text c="dimmed" size="xs">{booking.expirationReason}</Text>
-                                ) : null}
-                              </Stack>
-                            </Table.Td>
-                            <Table.Td>
-                              <Badge color={booking.paymentStatus === "paid" ? "teal" : "gray"} variant="light">
-                                {booking.paymentStatus}
-                              </Badge>
-                            </Table.Td>
-                            <Table.Td />
-                          </Table.Tr>
-                        );
-                      }
+                      const isGroupFundedBooking = booking.bookingPaymentSource === "group_funded" || Boolean(booking.groupFundedBookingId);
+                      const bookingBundleItems = isGroupFundedBooking && booking.groupFundedCampaign?.bundleItems?.length
+                        ? booking.groupFundedCampaign.bundleItems
+                        : booking.bundleItems || [];
+                      const displayedServiceItems = bookingBundleItems.length
+                        ? bookingBundleItems
+                        : [{
+                            serviceName: booking.serviceName,
+                            bookingQuantity: booking.bookingQuantity,
+                            priceAmountCents: booking.servicePriceAmountCents,
+                            currency: booking.serviceCurrency,
+                            scheduledStartAt: booking.scheduledStartAt,
+                            scheduledEndAt: booking.scheduledEndAt
+                          }];
+                      const primaryServiceItem = displayedServiceItems[0];
+                      const additionalServiceCount = Math.max(displayedServiceItems.length - 1, 0);
+                      const executionModeLabel = booking.executionMode === "sequential" ? "Back-to-back" : "Together";
+                      const displayedTotalCents = isGroupFundedBooking && booking.groupFundedCampaign
+                        ? Number(booking.groupFundedCampaign.targetAmountCents || 0) + Number(booking.groupFundedCampaign.roundingAdjustmentCents || 0)
+                        : displayedServiceItems.reduce((total, item) => total + Number(item.priceAmountCents || 0), 0);
                       const actionButtons = (() => {
                         if (canAdminBookings && paymentReviewPending && booking.paymentProof) {
                           return (
@@ -7275,20 +7225,32 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           </Table.Td>
                           <Table.Td>
                             <Stack gap={2}>
-                              <Text>{booking.serviceName}</Text>
-                              <Text c="dimmed" size="sm">Quantity {booking.bookingQuantity}</Text>
-                              <Text c="dimmed" size="sm">{booking.servicePriceDisplay || "-"}</Text>
+                              <Group gap="xs" wrap="nowrap">
+                                <Text fw={700} lineClamp={1}>{primaryServiceItem.serviceName}</Text>
+                                {isGroupFundedBooking ? <Badge color="blue" size="xs" variant="light">Campaign</Badge> : null}
+                              </Group>
+                              <Text c="dimmed" size="sm">
+                                Quantity {primaryServiceItem.bookingQuantity}
+                                {additionalServiceCount ? ` · +${additionalServiceCount} service${additionalServiceCount === 1 ? "" : "s"}` : ""}
+                              </Text>
+                              <Text c="dimmed" size="sm">
+                                {displayedServiceItems.length > 1 ? `${executionModeLabel} bundle · ` : ""}
+                                {formatMoney(displayedTotalCents, primaryServiceItem.currency || booking.serviceCurrency)}
+                              </Text>
                             </Stack>
                           </Table.Td>
                           <Table.Td>
                             <Stack gap={2}>
                               <Text>{formatBookingScheduleDateTime(booking.scheduledStartAt)}</Text>
                               <Text c="dimmed" size="sm">Ends {formatBookingScheduleDateTime(booking.scheduledEndAt)}</Text>
+                              {displayedServiceItems.length > 1 ? (
+                                <Text c="dimmed" size="xs">{executionModeLabel} services</Text>
+                              ) : null}
                             </Stack>
                           </Table.Td>
                           <Table.Td>
                             <Stack gap={4}>
-                              <Group gap={6}>
+                              <Group className="booking-list-status-chips" gap={6}>
                                 <Badge color={getBookingBadgeColor(booking.status)} variant="light">
                                   {hasExpired ? "expired" : booking.status}
                                 </Badge>
@@ -7301,7 +7263,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                 {hasExpired ? (
                                   <Badge color="orange" variant="light">Pending timeout</Badge>
                                 ) : null}
-                                {!manualPaymentRequired ? (
+                                {!manualPaymentRequired && !isGroupFundedBooking ? (
                                   <Badge color="gray" variant="light">No manual payment</Badge>
                                 ) : null}
                               </Group>
@@ -7316,9 +7278,18 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                             </Stack>
                           </Table.Td>
                           <Table.Td>
-                            <Badge color={booking.paymentStatus === "paid" ? "teal" : "gray"} variant="light">
-                              {booking.paymentStatus}
-                            </Badge>
+                            <Stack gap={4}>
+                              <Badge color={booking.paymentStatus === "paid" ? "teal" : "gray"} variant="light" w="fit-content">
+                                {isGroupFundedBooking ? "Campaign funded" : booking.paymentStatus}
+                              </Badge>
+                              <Text c="dimmed" size="xs">
+                                {isGroupFundedBooking
+                                  ? "No individual proof"
+                                  : manualPaymentRequired
+                                    ? booking.paymentProof ? "Proof submitted" : "Proof required"
+                                    : "No manual payment"}
+                              </Text>
+                            </Stack>
                           </Table.Td>
                           <Table.Td>
                             <Group gap="xs" wrap="wrap">{actionButtons}</Group>
@@ -7389,7 +7360,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 serviceName: selectedDetail.campaign.serviceName,
                 serviceSlug: selectedDetail.campaign.serviceSlug,
                 bookingQuantity: selectedDetail.campaign.bookingQuantity,
-                priceAmountCents: selectedDetail.campaign.targetAmountCents,
+                priceAmountCents: getCampaignFundingTargetAmountCents(selectedDetail.campaign),
                 currency: selectedDetail.campaign.currency,
                 executionMode: "parallel" as const,
                 scheduledStartAt: selectedDetail.campaign.scheduledStartAt,
@@ -7399,6 +7370,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         )
       : [];
     const selectedDetailHasServiceBundle = selectedDetailBundleItems.length > 1;
+    const selectedDetailFundingTargetAmountCents = selectedDetail
+      ? getCampaignFundingTargetAmountCents(selectedDetail.campaign)
+      : 0;
     const submittedContributions = selectedDetail?.contributions.filter(
       (contribution) => contribution.contributionStatus === "submitted"
     ) || [];
@@ -7409,7 +7383,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     const selectedDetailFundingReached = Boolean(
       selectedDetail &&
       (
-        selectedDetail.campaign.fundedAmountCents >= selectedDetail.campaign.targetAmountCents ||
+        selectedDetail.campaign.fundedAmountCents >= selectedDetailFundingTargetAmountCents ||
         selectedDetail.campaign.paidParticipantCount >= selectedDetail.campaign.requiredContributors ||
         selectedDetail.campaign.campaignStatus !== "funding"
       )
@@ -7489,8 +7463,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   </Table.Thead>
                   <Table.Tbody>
                     {campaigns.map((campaign) => {
-                      const progress = campaign.targetAmountCents > 0
-                        ? Math.min(100, Math.round((campaign.fundedAmountCents / campaign.targetAmountCents) * 100))
+                      const fundingTargetAmountCents = getCampaignFundingTargetAmountCents(campaign);
+                      const progress = fundingTargetAmountCents > 0
+                        ? Math.min(100, Math.round((campaign.fundedAmountCents / fundingTargetAmountCents) * 100))
                         : 0;
                       return (
                         <Table.Tr key={campaign.id}>
@@ -7546,7 +7521,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           <Table.Td>
                             <Stack gap={4}>
                               <Text fw={700}>
-                                {formatMoney(campaign.fundedAmountCents, campaign.currency)} / {formatMoney(campaign.targetAmountCents, campaign.currency)}
+                                {formatMoney(campaign.fundedAmountCents, campaign.currency)} / {formatMoney(fundingTargetAmountCents, campaign.currency)}
                               </Text>
                               <Slider value={progress} disabled label={null} color="teal" />
                               <Text c="dimmed" size="sm">
@@ -7637,7 +7612,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     {formatMoney(selectedDetail.campaign.fundedAmountCents, selectedDetail.campaign.currency)}
                   </Text>
                   <Text c="dimmed" size="sm">
-                    Target {formatMoney(selectedDetail.campaign.targetAmountCents, selectedDetail.campaign.currency)}
+                    Target {formatMoney(selectedDetailFundingTargetAmountCents, selectedDetail.campaign.currency)}
                   </Text>
                 </Paper>
                 <Paper withBorder radius="md" p="md">
@@ -7665,10 +7640,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   </Group>
 
                   {selectedDetail.campaign.description ? (
-                    <RichCampaignDescription
-                      className="rich-campaign-description"
-                      content={selectedDetail.campaign.description}
-                    />
+                    <Spoiler hideLabel="Show less" maxHeight={72} showLabel="Show more">
+                      <RichCampaignDescription
+                        className="rich-campaign-description"
+                        content={selectedDetail.campaign.description}
+                      />
+                    </Spoiler>
                   ) : (
                     <Text c="dimmed" size="sm">No campaign description provided.</Text>
                   )}
@@ -9208,6 +9185,17 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     const detailManualPaymentRequired = Boolean(detailBooking?.serviceManualPaymentRequired);
     const detailPaymentGateActive = Boolean(detailBooking && detailManualPaymentRequired && !detailPaymentVerified);
     const detailBookingExpired = Boolean(detailBooking?.expiredAt);
+    const detailCampaignBundleItems = detailBooking?.groupFundedCampaign?.bundleItems || [];
+    const detailBookingBundleItems = detailBooking?.bundleItems || [];
+    const detailServiceItems = detailCampaignBundleItems.length
+      ? detailCampaignBundleItems
+      : detailBookingBundleItems;
+    const detailFundingAdjustmentCents = Math.max(0, Number(detailBooking?.groupFundedCampaign?.roundingAdjustmentCents || 0));
+    const detailCampaignTotalCents = Number(detailBooking?.groupFundedCampaign?.targetAmountCents || 0) + detailFundingAdjustmentCents;
+    const detailServiceTotalCents = detailCampaignBundleItems.length
+      ? detailCampaignTotalCents
+      : detailServiceItems.reduce((total, item) => total + Number(item.priceAmountCents || 0), 0);
+    const isGroupFundedDetailBooking = Boolean(detailBooking?.groupFundedBookingId || detailBooking?.bookingPaymentSource === "group_funded");
     const closeBookingDetailModal = () => {
       setBookingDetailModalId(null);
       setBookingDetailOpen(false);
@@ -9359,15 +9347,45 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               ) : null}
 
               <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-                <Paper withBorder radius="md" p="md" className="booking-detail__panel">
-                  <Group gap="xs" mb="xs">
-                    <IconBriefcase size={16} />
-                    <Text className="neura-label">Service</Text>
-                  </Group>
-                  <Text className="booking-detail__panel-title">{detailBooking.serviceName}</Text>
-                  <Text c="dimmed" size="sm">Quantity {detailBooking.bookingQuantity}</Text>
-                  <Text c="dimmed" size="sm">{detailBooking.servicePriceDisplay || "-"}</Text>
-                </Paper>
+                {detailServiceItems.length > 1 ? (
+                  <Paper withBorder radius="md" p="md" className="booking-detail__panel" style={{ gridColumn: "1 / -1" }}>
+                    <Group justify="space-between" mb="xs">
+                      <Group gap="xs">
+                        <IconBriefcase size={16} />
+                        <Text className="neura-label">{detailCampaignBundleItems.length ? "Campaign services" : "Bundled services"}</Text>
+                      </Group>
+                      <Badge color={detailCampaignBundleItems.length ? "blue" : "violet"} variant="light">{detailServiceItems.length} services</Badge>
+                    </Group>
+                    <Stack gap="xs">
+                      {detailServiceItems.map((item) => (
+                        <Group justify="space-between" key={item.id} wrap="nowrap">
+                          <Stack gap={0} style={{ minWidth: 0 }}>
+                            <Text fw={700}>{item.serviceName}</Text>
+                            <Text c="dimmed" size="sm">
+                              Quantity {item.bookingQuantity} · {formatBookingScheduleTimeRange(item.scheduledStartAt, item.scheduledEndAt)}
+                            </Text>
+                          </Stack>
+                          <Text fw={700}>{formatMoney(item.priceAmountCents, item.currency)}</Text>
+                        </Group>
+                      ))}
+                    </Stack>
+                    <Divider my="sm" />
+                    <Group justify="space-between">
+                      <Text fw={700}>{detailCampaignBundleItems.length ? "Campaign total" : "Bundle total"}</Text>
+                      <Text fw={800}>{formatMoney(detailServiceTotalCents, detailBooking.groupFundedCampaign?.currency || detailBooking.serviceCurrency)}</Text>
+                    </Group>
+                  </Paper>
+                ) : (
+                  <Paper withBorder radius="md" p="md" className="booking-detail__panel">
+                    <Group gap="xs" mb="xs">
+                      <IconBriefcase size={16} />
+                      <Text className="neura-label">Service</Text>
+                    </Group>
+                    <Text className="booking-detail__panel-title">{detailBooking.serviceName}</Text>
+                    <Text c="dimmed" size="sm">Quantity {detailBooking.bookingQuantity}</Text>
+                    <Text c="dimmed" size="sm">{detailBooking.servicePriceDisplay || "-"}</Text>
+                  </Paper>
+                )}
                 <Paper withBorder radius="md" p="md" className="booking-detail__panel">
                   <Group gap="xs" mb="xs">
                     <IconCalendar size={16} />
@@ -9382,7 +9400,26 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     <Text className="neura-label">Payment</Text>
                   </Group>
                   <Text className="booking-detail__panel-title">{detailBooking.paymentStatus}</Text>
-                  <Text c="dimmed" size="sm">{detailBooking.paymentReference || "No reference"}</Text>
+                  <Text c="dimmed" size="sm">
+                    {isGroupFundedDetailBooking
+                      ? "Verified through the group-funded campaign"
+                      : detailBooking.paymentReference || "No reference"}
+                  </Text>
+                  {detailBooking.groupFundedCampaign?.publicToken ? (
+                    <Button
+                      component="a"
+                      href={`/group-funded/${detailBooking.groupFundedCampaign.publicToken}`}
+                      leftSection={<IconExternalLink size={14} />}
+                      mt="xs"
+                      rel="noreferrer"
+                      size="xs"
+                      target="_blank"
+                      variant="light"
+                      w="fit-content"
+                    >
+                      View campaign
+                    </Button>
+                  ) : null}
                   {detailBooking.paymentVerifiedAt ? (
                     <Badge color="teal" mt="xs" variant="light" w="fit-content">
                       Verified {formatDateTime(detailBooking.paymentVerifiedAt)}
@@ -9414,6 +9451,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         View proof
                       </Button>
                     </Stack>
+                  ) : isGroupFundedDetailBooking ? (
+                    <Text c="dimmed" size="sm">No individual payment proof is required.</Text>
                   ) : (
                     <Text c="dimmed" size="sm">No proof submitted</Text>
                   )}
@@ -9470,7 +9509,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 </Paper>
               </SimpleGrid>
 
-              {detailBooking.notes ? (
+              {detailBooking.notes && detailBooking.notes !== "Group-funded booking approved by vendor." ? (
                 <Paper withBorder radius="md" p="md" className="booking-detail__panel">
                   <Text className="neura-label">Customer notes</Text>
                   <Text>{detailBooking.notes}</Text>

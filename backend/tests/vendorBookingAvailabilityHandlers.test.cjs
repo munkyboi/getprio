@@ -34,6 +34,21 @@ test("vendor booking handler lists bookings through injected repositories", asyn
           locationSlug: "main",
           groupFundedBookingId: "campaign-17",
           bookingPaymentSource: "group_funded",
+          bundleItems: [{ serviceName: "Court 1", bookingQuantity: 2 }],
+          executionMode: "parallel",
+          groupFundedBundleItems: [{
+            _id: "campaign-item-1",
+            serviceId: "court-1",
+            serviceNameSnapshot: "Court 1",
+            serviceSlugSnapshot: "court-1",
+            bookingQuantity: 2,
+            priceAmountCents: 30000,
+            currency: "PHP",
+            executionMode: "parallel",
+            scheduledStartAt: "2026-07-12T08:00:00.000Z",
+            scheduledEndAt: "2026-07-12T10:00:00.000Z",
+            sortOrder: 0
+          }],
           groupFundedCampaign: { id: "campaign-17", campaignTitle: "Weekend court booking" }
         }],
         totalItems: 1
@@ -48,6 +63,9 @@ test("vendor booking handler lists bookings through injected repositories", asyn
   assert.equal(response.body.bookings[0].groupFundedBookingId, "campaign-17");
   assert.equal(response.body.bookings[0].bookingPaymentSource, "group_funded");
   assert.equal(response.body.bookings[0].groupFundedCampaign.campaignTitle, "Weekend court booking");
+  assert.equal(response.body.bookings[0].bundleItems[0].serviceName, "Court 1");
+  assert.equal(response.body.bookings[0].executionMode, "parallel");
+  assert.equal(response.body.bookings[0].groupFundedCampaign.bundleItems[0].serviceName, "Court 1");
   assert.equal(capturedOptions.scheduledDateFrom, "2026-07-01");
   assert.equal(capturedOptions.scheduledDateTo, "2026-07-15");
 });

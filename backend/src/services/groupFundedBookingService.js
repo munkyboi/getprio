@@ -17,6 +17,7 @@ const bookingService = require("./bookingService");
 
 const VENDOR_REVIEW_BUFFER_HOURS = 24;
 const VENDOR_REVIEW_HOLD_HOURS = 24;
+const MAX_CAMPAIGN_DESCRIPTION_HTML_LENGTH = 20000;
 const SUBMITTED_PROOF_CONTENT_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "application/pdf"]);
 const VENDOR_ALERT_EVENT_TYPES = Object.freeze([
   groupFundedRepository.EVENT_TYPES.CAMPAIGN_CREATED,
@@ -231,12 +232,16 @@ function getCampaignBundleItems(campaign) {
       bookingQuantity: campaign.bookingQuantity,
       priceAmountCents: campaign.targetAmountCents,
       currency: campaign.currency || "PHP",
-      executionMode: "parallel",
+      executionMode: campaign.executionMode || "parallel",
       scheduledStartAt: campaign.scheduledStartAt,
       scheduledEndAt: campaign.scheduledEndAt,
       sortOrder: 0
     }
   ];
+}
+
+function getEffectiveFundingTargetAmountCents(campaign) {
+  return Number(campaign?.targetAmountCents || 0) + Number(campaign?.roundingAdjustmentCents || 0);
 }
 
 function formatBundleItems(campaign) {
@@ -302,6 +307,9 @@ function validateDescription(value) {
 
   if (plainDescription.length > 1000) {
     throw makeHttpError("description must be 1000 characters or fewer.", 400);
+  }
+  if (description.length > MAX_CAMPAIGN_DESCRIPTION_HTML_LENGTH) {
+    throw makeHttpError("description formatting is too complex. Simplify the formatting and try again.", 400);
   }
   contentModeration.assertPublicTextAllowed(plainDescription, "Campaign description");
   return plainDescription ? description : "";
@@ -432,6 +440,28 @@ async function loadCampaignBundleContexts(campaign, options = {}) {
 
 async function assertCampaignSlotCapacity(campaign, options = {}) {
   const contexts = await loadCampaignBundleContexts(campaign, options);
+  if (typeof bookingService.assertComposedBookingPlanAt === "function" && contexts.length) {
+    try {
+      await bookingService.assertComposedBookingPlanAt({
+        tenant: { _id: campaign.tenantId },
+        location: contexts[0].location,
+        items: contexts.map(({ service, item }) => ({
+          serviceSlug: service.slug,
+          bookingQuantity: item.bookingQuantity
+        })),
+        executionMode: campaign.executionMode || "parallel",
+        scheduledStartAt: campaign.scheduledStartAt,
+        includeGroupFundedHolds: true,
+        excludeCampaignId: options.excludeCampaignId
+      });
+      return { contexts };
+    } catch (error) {
+      if (error.statusCode === 409) {
+        throw makeHttpError("This slot is no longer available for group-funded review.", 409);
+      }
+      throw error;
+    }
+  }
   for (const { service, locationService, location, item } of contexts) {
     await bookingService.assertServiceScheduleAvailability({
       tenant: { _id: campaign.tenantId },
@@ -686,13 +716,36 @@ async function createCampaign({ user, body }) {
     throw makeHttpError("Location not found.", 404);
   }
   assertBranchPaymentInstructions(location);
-  const bundleItems = await loadRequestedBundleItems({
-    tenant,
-    location,
-    scheduledStartAt,
-    body,
-    primaryServiceSlug: serviceSlug
-  });
+  let bundleItems;
+  let executionMode = "parallel";
+  if (
+    typeof bookingService.createComposedBookingPlan === "function" &&
+    typeof bookingService.materializeComposedBookingPlanAt === "function"
+  ) {
+    const requestedBundleItems = normalizeBundleRequestItems(body, serviceSlug);
+    if (requestedBundleItems[0]?.serviceSlug !== serviceSlug) {
+      throw makeHttpError("The selected service must be the first item in the booking bundle.", 400);
+    }
+    const composedPlan = bookingService.materializeComposedBookingPlanAt({
+      plan: await bookingService.createComposedBookingPlan({
+        tenant,
+        location,
+        items: requestedBundleItems,
+        executionMode: body.executionMode
+      }),
+      scheduledStartAt
+    });
+    executionMode = composedPlan.executionMode;
+    bundleItems = composedPlan.items.map((item) => ({
+      ...item,
+      settings: getGroupFundedSettings(item.locationService),
+      priceAmountCents: resolvePayableAmountCents(item.service, item.locationService, item.bookingQuantity),
+      executionMode
+    }));
+  } else {
+    // Compatibility for isolated service consumers that have not yet adopted the shared planner.
+    bundleItems = await loadRequestedBundleItems({ tenant, location, scheduledStartAt, body, primaryServiceSlug: serviceSlug });
+  }
   for (const item of bundleItems) {
     await bookingService.assertServiceScheduleAvailability({
       tenant,
@@ -753,6 +806,7 @@ async function createCampaign({ user, body }) {
         locationNameSnapshot: location.name,
         locationSlugSnapshot: location.slug,
         bookingQuantity,
+        executionMode,
         scheduledStartAt: scheduledStartAt.toISOString(),
         scheduledEndAt: scheduledEndAt.toISOString(),
         fundingDeadlineAt: fundingDeadlineAt.toISOString(),
@@ -1310,7 +1364,7 @@ async function cancelOrganizerCampaign({ user, campaignIdOrToken, reason }) {
     if (campaign.campaignStatus !== groupFundedRepository.CAMPAIGN_STATUSES.FUNDING) {
       throw makeHttpError("Only funding-stage campaigns can be canceled by the organizer.", 409);
     }
-    if (Number(campaign.fundedAmountCents || 0) >= Number(campaign.targetAmountCents || 0)) {
+    if (Number(campaign.fundedAmountCents || 0) >= getEffectiveFundingTargetAmountCents(campaign)) {
       throw makeHttpError("Fully funded campaigns cannot be canceled by the organizer.", 409);
     }
     const canceled = await groupFundedRepository.updateCampaignStatus(
@@ -1361,7 +1415,7 @@ async function updateOrganizerCampaignDetails({ user, campaignIdOrToken, body })
       throw makeHttpError("Campaigns with submitted contributions can no longer be edited.", 409);
     }
     if (
-      Number(campaign.fundedAmountCents || 0) >= Number(campaign.targetAmountCents || 0) ||
+      Number(campaign.fundedAmountCents || 0) >= getEffectiveFundingTargetAmountCents(campaign) ||
       Number(campaign.paidParticipantCount || 0) >= Number(campaign.requiredContributors || 0)
     ) {
       throw makeHttpError("Fully funded campaigns can no longer be edited.", 409);
@@ -1445,7 +1499,7 @@ async function verifyContribution({ tenant, user, contributionId }) {
     }
     if (
       campaign.campaignStatus !== groupFundedRepository.CAMPAIGN_STATUSES.FUNDING ||
-      Number(campaign.fundedAmountCents || 0) >= Number(campaign.targetAmountCents || 0) ||
+      Number(campaign.fundedAmountCents || 0) >= getEffectiveFundingTargetAmountCents(campaign) ||
       Number(campaign.paidParticipantCount || 0) >= Number(campaign.requiredContributors || 0)
     ) {
       throw makeHttpError("This campaign is already fully funded. Reject any remaining submitted proofs instead.", 409);
@@ -1560,7 +1614,7 @@ async function rejectContribution({ tenant, user, contributionId, reason, refund
           userId: contribution.userId,
           amountCents: contribution.amountCents,
           currency: contribution.currency,
-          refundReason: campaign.fundedAmountCents >= campaign.targetAmountCents
+          refundReason: campaign.fundedAmountCents >= getEffectiveFundingTargetAmountCents(campaign)
             ? "excess_contribution"
             : "contribution_rejected",
           refundStatus: groupFundedRepository.REFUND_STATUSES.PENDING,
@@ -1867,7 +1921,7 @@ async function approveVendorCampaign({ tenant, user, campaignId }) {
     if (campaign.campaignStatus !== groupFundedRepository.CAMPAIGN_STATUSES.VENDOR_REVIEW) {
       throw makeHttpError("Only campaigns in vendor review can be approved.", 409);
     }
-    if (Number(campaign.fundedAmountCents || 0) < Number(campaign.targetAmountCents || 0)) {
+    if (Number(campaign.fundedAmountCents || 0) < getEffectiveFundingTargetAmountCents(campaign)) {
       throw makeHttpError("Campaign must be fully funded before approval.", 409);
     }
     if (campaign.linkedBookingId) {
@@ -1893,6 +1947,7 @@ async function approveVendorCampaign({ tenant, user, campaignId }) {
         customerEmail: organizer?.email || null,
         customerPhone: organizer?.phone || null,
         bookingQuantity: campaign.bookingQuantity,
+        executionMode: campaign.executionMode,
         scheduledStartAt: campaign.scheduledStartAt,
         scheduledEndAt: campaign.scheduledEndAt,
         notes: "Group-funded booking approved by vendor.",
@@ -1901,7 +1956,18 @@ async function approveVendorCampaign({ tenant, user, campaignId }) {
         paymentVerifiedByUserId: user._id,
         notifyByEmail: Boolean(organizer?.email),
         notifyBySms: false,
-        groupFundedBookingId: campaign._id
+        groupFundedBookingId: campaign._id,
+        bundleItems: getCampaignBundleItems(campaign).map((item) => ({
+          serviceId: item.serviceId,
+          serviceName: item.serviceNameSnapshot,
+          serviceSlug: item.serviceSlugSnapshot,
+          bookingQuantity: item.bookingQuantity,
+          priceAmountCents: item.priceAmountCents,
+          currency: item.currency || campaign.currency || "PHP",
+          scheduledStartAt: item.scheduledStartAt,
+          scheduledEndAt: item.scheduledEndAt,
+          sortOrder: item.sortOrder
+        }))
       },
       { client }
     );
@@ -1970,7 +2036,7 @@ async function proposeReplacementSlot({ tenant, user, campaignId, body = {} }) {
     ].includes(campaign.campaignStatus)) {
       throw makeHttpError("Only fully funded campaigns can receive replacement slot proposals.", 409);
     }
-    if (Number(campaign.fundedAmountCents || 0) < Number(campaign.targetAmountCents || 0)) {
+    if (Number(campaign.fundedAmountCents || 0) < getEffectiveFundingTargetAmountCents(campaign)) {
       throw makeHttpError("Campaign must be fully funded before proposing a replacement slot.", 409);
     }
     const { scheduledStartAt, scheduledEndAt } = await resolveReplacementSlot(campaign, body.scheduledStartAt, { client });

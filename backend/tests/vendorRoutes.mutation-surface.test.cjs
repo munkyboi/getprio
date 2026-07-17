@@ -205,6 +205,16 @@ test("vendor routes queue mutations invoke the queue service helpers", async () 
         serviceCurrency: "PHP",
         servicePriceDisplay: "Free",
         bookingQuantity: 1,
+        groupFundedBookingId: "campaign-1",
+        bookingPaymentSource: "group_funded",
+        groupFundedCampaign: {
+          id: "campaign-1",
+          publicToken: "campaign-token",
+          campaignTitle: "Four court campaign",
+          targetAmountCents: 120000,
+          roundingAdjustmentCents: 0,
+          currency: "PHP"
+        },
         customerUserId: null,
         customerName: "Alex",
         customerEmail: "alex@example.com",
@@ -244,6 +254,26 @@ test("vendor routes queue mutations invoke the queue service helpers", async () 
         createdAt: new Date("2026-06-23T08:00:00.000Z"),
         updatedAt: new Date("2026-06-23T08:00:00.000Z")
       })
+    },
+    "../repositories/groupFundedBookings": {
+      listCampaignItemsByCampaign: async (campaignId) => {
+        assert.equal(campaignId, "campaign-1");
+        return [
+          {
+            _id: "campaign-item-1",
+            serviceId: "service-1",
+            serviceNameSnapshot: "Court 1",
+            serviceSlugSnapshot: "court-1",
+            bookingQuantity: 3,
+            priceAmountCents: 30000,
+            currency: "PHP",
+            executionMode: "parallel",
+            scheduledStartAt: "2026-06-23T08:00:00.000Z",
+            scheduledEndAt: "2026-06-23T11:00:00.000Z",
+            sortOrder: 0
+          }
+        ];
+      }
     },
     "../repositories/vendorServices": { listServicesByTenantId: async () => [] },
     "../repositories/vendorAvailability": { listAvailabilityByLocation: async () => ({ blocks: [], exceptions: [] }) },
@@ -285,6 +315,8 @@ test("vendor routes queue mutations invoke the queue service helpers", async () 
     const bookingDetail = JSON.parse(bookingDetailText);
     assert.equal(bookingDetail.booking.id, "booking-1");
     assert.equal(bookingDetail.booking.reference, "BKG-DETAIL");
+    assert.equal(bookingDetail.booking.groupFundedCampaign.bundleItems[0].serviceName, "Court 1");
+    assert.equal(bookingDetail.booking.groupFundedCampaign.bundleItems[0].bookingQuantity, 3);
 
     const rescheduleSlotsRes = await fetch(`${baseUrl}/tenant/demo/bookings/booking-1/reschedule-slots?date=2026-06-24`);
     const rescheduleSlotsText = await rescheduleSlotsRes.text();

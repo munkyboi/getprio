@@ -1,5 +1,5 @@
 import { type FormEvent, useCallback, useEffect, useState } from "react";
-import { Alert, Badge, Button, Card, Container, FileInput, Group, Image, Modal, Paper, ScrollArea, SimpleGrid, Stack, Text, Textarea, TextInput, ThemeIcon, Title } from "@mantine/core";
+import { Accordion, Alert, Badge, Button, Card, Container, FileInput, Group, Image, Modal, Paper, ScrollArea, SimpleGrid, Spoiler, Stack, Text, Textarea, TextInput, ThemeIcon, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { IconAlertCircle, IconArrowLeft, IconBuildingBank, IconBuildingStore, IconCalendar, IconCircleCheck, IconExternalLink, IconEye, IconReceipt, IconTicket, IconUpload, IconX } from "@tabler/icons-react";
 import { Link, Navigate, useParams } from "react-router-dom";
@@ -17,6 +17,7 @@ import type {
 } from "@shared";
 import { API_BASE_URL, ApiError, apiRequest } from "../api/client";
 import ResourceErrorState from "../components/ResourceErrorState";
+import RichCampaignDescription from "../components/RichCampaignDescription";
 import { useAuth } from "../context/AuthContext";
 import { buildJoinedQueuePathWithTicket } from "../queuePaths";
 import {
@@ -423,6 +424,8 @@ export default function CustomerBookingDetailPage() {
 
   const groupFundedCampaign = booking.groupFundedCampaign;
   const isGroupFundedBooking = booking.bookingPaymentSource === "group_funded" || Boolean(booking.groupFundedBookingId || groupFundedCampaign);
+  const campaignTitle = groupFundedCampaign?.campaignTitle || "Group-funded campaign";
+  const campaignPath = groupFundedCampaign?.publicToken ? `/group-funded/${groupFundedCampaign.publicToken}` : "";
   const cancellationAllowed = canCancel(booking.status, booking.checkedInAt, booking.linkedTicket);
   const proofSubmissionAllowed = canSubmitPaymentProof(
     booking.status,
@@ -446,8 +449,10 @@ export default function CustomerBookingDetailPage() {
       booking.locationSlug
     )
     : "";
-  const campaignProgress = groupFundedCampaign?.targetAmountCents
-    ? Math.min(100, Math.round((groupFundedCampaign.fundedAmountCents / groupFundedCampaign.targetAmountCents) * 100))
+  const fundingAdjustmentCents = Math.max(0, Number(groupFundedCampaign?.roundingAdjustmentCents || 0));
+  const fundingTargetAmountCents = Number(groupFundedCampaign?.targetAmountCents || 0) + fundingAdjustmentCents;
+  const campaignProgress = fundingTargetAmountCents
+    ? Math.min(100, Math.round(((groupFundedCampaign?.fundedAmountCents || 0) / fundingTargetAmountCents) * 100))
     : 0;
   const campaignContributions = (groupFundedCampaign?.contributions || []).filter(
     (contribution) => contribution.contributionStatus === "verified"
@@ -489,7 +494,7 @@ export default function CustomerBookingDetailPage() {
       : "Check-in unavailable";
   const totalBookingHoursLabel = formatDurationLabel(bookingStart, bookingEnd);
   const bookingTotalFeeCents = groupFundedCampaign
-    ? groupFundedCampaign.targetAmountCents
+    ? fundingTargetAmountCents
     : bookingServiceItems.reduce((total, item) => total + Number(item.priceAmountCents || 0), 0);
   const bookingTotalFeeDisplay = formatPaymentAmount(
     bookingTotalFeeCents,
@@ -617,9 +622,22 @@ export default function CustomerBookingDetailPage() {
               <div className="booking-detail-visual-content">
                 <Stack align="center" gap={6}>
                   <Title className="booking-detail-ticket-number" order={2}>{bookingTicketLabel}</Title>
-                  <Badge color={getBookingBadgeColor(hasExpired ? "canceled" : booking.status)} size="lg" variant="light">
-                    {bookingTicketStatus.toUpperCase()}
-                  </Badge>
+                  <Group gap="xs" justify="center" wrap="wrap">
+                    <Badge color={getBookingBadgeColor(hasExpired ? "canceled" : booking.status)} size="lg" variant="light">
+                      {bookingTicketStatus.toUpperCase()}
+                    </Badge>
+                    {campaignPath ? (
+                      <Badge
+                        className="booking-detail-campaign-chip"
+                        color="gray"
+                        size="lg"
+                        title={`CAMPAIGN: ${campaignTitle}`}
+                        variant="light"
+                      >
+                        CAMPAIGN: {campaignTitle}
+                      </Badge>
+                    ) : null}
+                  </Group>
                 </Stack>
                 <SimpleGrid cols={{ base: 1, sm: 3 }} mt="lg" spacing="sm">
                   <div className="booking-detail-visual-tile">
@@ -640,6 +658,18 @@ export default function CustomerBookingDetailPage() {
                 </SimpleGrid>
                 <Stack className="booking-detail-visual-action" gap="sm">
                   {primaryCheckInAction}
+                  {campaignPath ? (
+                    <Button
+                      className="vendor-theme-button booking-detail-campaign-action"
+                      component={Link}
+                      leftSection={<IconExternalLink size={18} />}
+                      size="lg"
+                      to={campaignPath}
+                      variant="filled"
+                    >
+                      View campaign
+                    </Button>
+                  ) : null}
                   <Button
                     className="booking-detail-cancel-action"
                     color="red"
@@ -682,7 +712,12 @@ export default function CustomerBookingDetailPage() {
                 </Group>
 
                 {groupFundedCampaign.description ? (
-                  <Text>{groupFundedCampaign.description}</Text>
+                  <Spoiler hideLabel="Show less" maxHeight={72} showLabel="Show more">
+                    <RichCampaignDescription
+                      className="rich-campaign-description"
+                      content={groupFundedCampaign.description}
+                    />
+                  </Spoiler>
                 ) : null}
 
                 <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
@@ -699,7 +734,7 @@ export default function CustomerBookingDetailPage() {
                     <Text c="dimmed" size="sm">Funding</Text>
                     <Text fw={800}>
                       {formatPaymentAmount(groupFundedCampaign.fundedAmountCents, groupFundedCampaign.currency)} /{" "}
-                      {formatPaymentAmount(groupFundedCampaign.targetAmountCents, groupFundedCampaign.currency)}
+                      {formatPaymentAmount(fundingTargetAmountCents, groupFundedCampaign.currency)}
                     </Text>
                     <Text c="dimmed" size="sm">{campaignProgress}% funded</Text>
                   </Paper>
@@ -714,44 +749,50 @@ export default function CustomerBookingDetailPage() {
                   </Paper>
                 </SimpleGrid>
                 {campaignContributions.length ? (
-                  <Stack gap="sm">
-                    <Group justify="space-between" align="center">
-                      <Text fw={800}>Contributors</Text>
-                      <Badge color="teal" variant="light">
-                        {campaignContributions.length} verified
-                      </Badge>
-                    </Group>
-                    <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
-                      {campaignContributions.map((contribution) => (
-                        <Paper className="customer-booking-campaign-stat" key={contribution.id} radius="md" p="md">
-                          <Stack gap={4}>
-                            <Group justify="space-between" gap="sm" wrap="nowrap">
-                              <Text fw={800}>{contribution.contributorDisplayName || "Contributor"}</Text>
-                              <Badge color={getContributionBadgeColor(contribution.contributionStatus)} variant="light">
-                                {contribution.contributionStatus.replace(/_/g, " ")}
-                              </Badge>
-                            </Group>
-                            <Text c="dimmed" size="sm">
-                              {formatPaymentAmount(contribution.amountCents, contribution.currency)}
-                            </Text>
-                            <Text c="dimmed" size="xs">
-                              {contribution.verifiedAt
-                                ? `Verified ${formatDateTime(contribution.verifiedAt)}`
-                                : contribution.submittedAt
-                                  ? `Submitted ${formatDateTime(contribution.submittedAt)}`
-                                  : "Contribution recorded"}
-                            </Text>
-                          </Stack>
-                        </Paper>
-                      ))}
-                    </SimpleGrid>
-                  </Stack>
+                  <Accordion className="customer-booking-contributors" variant="contained">
+                    <Accordion.Item value="contributors">
+                      <Accordion.Control>
+                        <Group justify="space-between" pr="sm">
+                          <Text fw={800}>Contributors</Text>
+                          <Badge color="teal" variant="light">
+                            {campaignContributions.length} verified
+                          </Badge>
+                        </Group>
+                      </Accordion.Control>
+                      <Accordion.Panel>
+                        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
+                          {campaignContributions.map((contribution) => (
+                            <Paper className="customer-booking-campaign-stat" key={contribution.id} radius="md" p="md">
+                              <Stack gap={4}>
+                                <Group justify="space-between" gap="sm" wrap="nowrap">
+                                  <Text fw={800}>{contribution.contributorDisplayName || "Contributor"}</Text>
+                                  <Badge color={getContributionBadgeColor(contribution.contributionStatus)} variant="light">
+                                    {contribution.contributionStatus.replace(/_/g, " ")}
+                                  </Badge>
+                                </Group>
+                                <Text c="dimmed" size="sm">
+                                  {formatPaymentAmount(contribution.amountCents, contribution.currency)}
+                                </Text>
+                                <Text c="dimmed" size="xs">
+                                  {contribution.verifiedAt
+                                    ? `Verified ${formatDateTime(contribution.verifiedAt)}`
+                                    : contribution.submittedAt
+                                      ? `Submitted ${formatDateTime(contribution.submittedAt)}`
+                                      : "Contribution recorded"}
+                                </Text>
+                              </Stack>
+                            </Paper>
+                          ))}
+                        </SimpleGrid>
+                      </Accordion.Panel>
+                    </Accordion.Item>
+                  </Accordion>
                 ) : null}
               </Stack>
             </Paper>
           ) : null}
 
-          <div className="customer-booking-payment-section">
+          {!isGroupFundedBooking ? <div className="customer-booking-payment-section">
             <Stack gap="md">
               <div>
                 <Text className="finazze-section-label">YOUR PAYMENT</Text>
@@ -809,7 +850,7 @@ export default function CustomerBookingDetailPage() {
                 </Stack>
               )}
             </Stack>
-          </div>
+          </div> : null}
 
           {booking.linkedTicket ? (
             <Card withBorder radius="md" p="md">
@@ -832,7 +873,7 @@ export default function CustomerBookingDetailPage() {
         </Stack>
       </Card>
 
-      {!booking.paymentProof && proofSubmissionAllowed ? (
+      {!isGroupFundedBooking && !booking.paymentProof && proofSubmissionAllowed ? (
         <Card className="finazze-auth-card customer-account-card" id="payment-proof-section" p="xl">
         <Stack gap="md">
           <div>

@@ -174,14 +174,15 @@ test("group-funded repository creates campaign records without inserting normal 
                 location_name_snapshot: params[13],
                 location_slug_snapshot: params[14],
                 booking_quantity: params[15],
-                scheduled_start_at: params[16],
-                scheduled_end_at: params[17],
-                funding_deadline_at: params[18],
-                currency: params[19],
-                target_amount_cents: params[20],
-                required_contribution_amount_cents: params[21],
-                rounding_adjustment_cents: params[22],
-                required_contributors: params[23],
+                execution_mode: params[16],
+                scheduled_start_at: params[17],
+                scheduled_end_at: params[18],
+                funding_deadline_at: params[19],
+                currency: params[20],
+                target_amount_cents: params[21],
+                required_contribution_amount_cents: params[22],
+                rounding_adjustment_cents: params[23],
+                required_contributors: params[24],
                 paid_participant_count: 0,
                 funded_amount_cents: 0,
                 funded_at: null,
@@ -190,7 +191,7 @@ test("group-funded repository creates campaign records without inserting normal 
                 confirmed_at: null,
                 canceled_at: null,
                 cancellation_reason: null,
-                eligibility_snapshot: JSON.parse(params[24]),
+                eligibility_snapshot: JSON.parse(params[25]),
                 created_at: new Date("2026-07-12T00:00:00.000Z"),
                 updated_at: new Date("2026-07-12T00:00:00.000Z")
               }
@@ -226,6 +227,7 @@ test("group-funded repository creates campaign records without inserting normal 
   assert.equal(campaign._id, "100");
   assert.equal(campaign.linkedBookingId, null);
   assert.equal(campaign.campaignStatus, repository.CAMPAIGN_STATUSES.FUNDING);
+  assert.equal(campaign.executionMode, "parallel");
   assert.deepEqual(campaign.eligibilitySnapshot, { groupFundedEnabled: true });
 });
 

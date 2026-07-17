@@ -427,12 +427,14 @@ export default function GroupFundedCampaignPage() {
     };
   }, [loadCampaign, publicToken, submitting]);
 
+  const fundingAdjustmentCents = Math.max(0, Number(campaign?.roundingAdjustmentCents || 0));
+  const fundingTargetAmountCents = Number(campaign?.targetAmountCents || 0) + fundingAdjustmentCents;
   const progressValue = useMemo(() => {
-    if (!campaign?.targetAmountCents) {
+    if (!campaign || !fundingTargetAmountCents) {
       return 0;
     }
-    return Math.min(100, Math.round((campaign.fundedAmountCents / campaign.targetAmountCents) * 100));
-  }, [campaign]);
+    return Math.min(100, Math.round((campaign.fundedAmountCents / fundingTargetAmountCents) * 100));
+  }, [campaign, fundingTargetAmountCents]);
   const fundingDeadline = useMemo(() => {
     if (!campaign) {
       return { relativeLabel: "", tooltipLabel: "" };
@@ -533,6 +535,10 @@ export default function GroupFundedCampaignPage() {
   const contributionCanRetry = campaign?.contribution?.contributionStatus === "rejected";
   const canContribute = campaign?.campaignStatus === "funding" && (!campaign.contribution || contributionCanRetry) && Boolean(contributorReservationSummary?.vacantContributorCount);
   const canCancel = isOrganizer && campaign?.campaignStatus === "funding" && campaign.fundedAmountCents < campaign.targetAmountCents;
+  const hasApprovedBooking = Boolean(
+    campaign?.linkedBookingId && (campaign.campaignStatus === "vendor_approved" || campaign.campaignStatus === "confirmed")
+  );
+  const canViewApprovedBooking = isOrganizer && hasApprovedBooking;
   const isCampaignFullyFunded = Boolean(
     campaign &&
     (
@@ -811,6 +817,8 @@ export default function GroupFundedCampaignPage() {
 
   const locationState = location.state as { from?: unknown } | null;
   const backLink = getSafeBackPath(locationState?.from) || (user ? "/account/group-funded" : "/vendors");
+  const campaignPath = `${location.pathname}${location.search}${location.hash}`;
+  const loginPath = `/login?next=${encodeURIComponent(campaignPath)}`;
   const themeStyle = buildVendorThemeStyle(vendorTheme);
   const themedMediaStyle = buildVendorThemeMediaStyle(vendorTheme);
   const isBankTransferPayment = campaign.paymentDestination?.methodLabel === "Bank Transfer";
@@ -1011,7 +1019,7 @@ export default function GroupFundedCampaignPage() {
                 <Stack align="center" gap={6}>
                   <Stack className="group-funded-ticket-funding" gap={6} w="100%">
                     <Text fw={800} size="lg">
-                      Funding {formatPaymentAmount(campaign.fundedAmountCents, campaign.currency)} / {formatPaymentAmount(campaign.targetAmountCents, campaign.currency)}
+                      Funding {formatPaymentAmount(campaign.fundedAmountCents, campaign.currency)} / {formatPaymentAmount(fundingTargetAmountCents, campaign.currency)}
                     </Text>
                     <Progress value={progressValue} />
                   </Stack>
@@ -1067,9 +1075,21 @@ export default function GroupFundedCampaignPage() {
                   </div>
                 </SimpleGrid>
                 <Stack className="booking-detail-visual-action group-funded-ticket-actions" gap="lg">
-                  <Button className="vendor-theme-button booking-detail-primary-action" leftSection={<IconUsersGroup size={18} />} onClick={scrollToPaymentProof} size="lg">
-                    Join campaign
-                  </Button>
+                  {canViewApprovedBooking ? (
+                    <Button
+                      className="vendor-theme-button booking-detail-primary-action"
+                      component={Link}
+                      leftSection={<IconReceipt size={18} />}
+                      size="lg"
+                      to={`/account/bookings/${campaign.linkedBookingId}`}
+                    >
+                      View booking
+                    </Button>
+                  ) : !hasApprovedBooking ? (
+                    <Button className="vendor-theme-button booking-detail-primary-action" leftSection={<IconUsersGroup size={18} />} onClick={scrollToPaymentProof} size="lg">
+                      Join campaign
+                    </Button>
+                  ) : null}
                   {canShareCampaign ? (
                     <div className="group-funded-share-action">
                       {shareCopied ? <div className="group-funded-share-toast">Share link copied to clipboard</div> : null}
@@ -1084,6 +1104,41 @@ export default function GroupFundedCampaignPage() {
           </SimpleGrid>
         </Paper>
 
+      <Card className="finazze-auth-card customer-account-card" mt="xl" p="xl">
+        <Stack gap="md">
+          <div>
+            <Text className="finazze-section-label">Campaign summary</Text>
+            <Title order={2}>Campaign breakdown</Title>
+          </div>
+          <Paper withBorder p="md" radius="md">
+            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+              <div>
+                <Text c="dimmed" size="sm">Service bundle</Text>
+                <Text fw={800}>{formatPaymentAmount(campaign.targetAmountCents, campaign.currency)}</Text>
+              </div>
+              <div>
+                <Text c="dimmed" size="sm">Contributors</Text>
+                <Text fw={800}>{campaign.requiredContributors} people</Text>
+              </div>
+              {fundingAdjustmentCents > 0 ? (
+                <div>
+                  <Text c="dimmed" size="sm">Funding adjustment</Text>
+                  <Text fw={800}>+{formatPaymentAmount(fundingAdjustmentCents, campaign.currency)}</Text>
+                </div>
+              ) : null}
+              <div>
+                <Text c="dimmed" size="sm">Funding target</Text>
+                <Text fw={800}>{formatPaymentAmount(fundingTargetAmountCents, campaign.currency)}</Text>
+              </div>
+              <div>
+                <Text c="dimmed" size="sm">Each contributor</Text>
+                <Text fw={800}>{formatPaymentAmount(campaign.requiredContributionAmountCents, campaign.currency)}</Text>
+              </div>
+            </SimpleGrid>
+          </Paper>
+        </Stack>
+      </Card>
+
       <Card className="finazze-auth-card customer-account-card" mt="xl" p="xl" ref={paymentProofSectionRef}>
         <Stack gap="md">
           <div>
@@ -1091,9 +1146,14 @@ export default function GroupFundedCampaignPage() {
             <Title order={2}>Payment proof</Title>
           </div>
           {!token ? (
-            <Alert color="blue" variant="light">
-              Guests can view this private-link campaign, but login or customer registration is required before submitting a contribution.
-            </Alert>
+            <Stack gap="sm">
+              <Alert color="blue" variant="light">
+                Guests can view this private-link campaign, but login or customer registration is required before submitting a contribution.
+              </Alert>
+              <Button component={Link} to={loginPath} w="fit-content">
+                Log in to contribute
+              </Button>
+            </Stack>
           ) : campaign.contribution ? (
             <Stack gap="sm">
               {campaign.contribution.contributionStatus === "rejected" ? (
@@ -1138,7 +1198,7 @@ export default function GroupFundedCampaignPage() {
         </Stack>
       </Card>
 
-      {isOrganizer && (canEditCampaign || canCancel || isCampaignFullyFunded) ? (
+      {isOrganizer && !hasApprovedBooking && (canEditCampaign || canCancel || isCampaignFullyFunded) ? (
         <Card className="finazze-auth-card customer-account-card" mt="xl" p="xl">
           <Stack gap="md">
             <div>

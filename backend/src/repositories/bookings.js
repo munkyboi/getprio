@@ -12,6 +12,7 @@ const BOOKING_COLUMNS = `
   bookings.customer_email,
   bookings.customer_phone,
   bookings.booking_quantity,
+  bookings.execution_mode,
   bookings.scheduled_start_at,
   bookings.scheduled_end_at,
   bookings.status,
@@ -56,6 +57,7 @@ const BOOKING_COLUMNS = `
   group_funded_bookings.funding_deadline_at AS group_funded_funding_deadline_at,
   group_funded_bookings.target_amount_cents AS group_funded_target_amount_cents,
   group_funded_bookings.required_contribution_amount_cents AS group_funded_required_contribution_amount_cents,
+  group_funded_bookings.rounding_adjustment_cents AS group_funded_rounding_adjustment_cents,
   group_funded_bookings.required_contributors AS group_funded_required_contributors,
   group_funded_bookings.paid_participant_count AS group_funded_paid_participant_count,
   group_funded_bookings.funded_amount_cents AS group_funded_funded_amount_cents,
@@ -96,7 +98,24 @@ const BOOKING_COLUMNS = `
     ) ORDER BY booking_bundle_items.sort_order, booking_bundle_items.id)
     FROM booking_bundle_items
     WHERE booking_bundle_items.booking_id = bookings.id
-  ), '[]'::json) AS booking_bundle_items
+  ), '[]'::json) AS booking_bundle_items,
+  COALESCE((
+    SELECT json_agg(json_build_object(
+      'id', group_funded_booking_items.id,
+      'serviceId', group_funded_booking_items.service_id,
+      'serviceName', group_funded_booking_items.service_name_snapshot,
+      'serviceSlug', group_funded_booking_items.service_slug_snapshot,
+      'bookingQuantity', group_funded_booking_items.booking_quantity,
+      'priceAmountCents', group_funded_booking_items.price_amount_cents,
+      'currency', group_funded_booking_items.currency,
+      'executionMode', group_funded_booking_items.execution_mode,
+      'scheduledStartAt', group_funded_booking_items.scheduled_start_at,
+      'scheduledEndAt', group_funded_booking_items.scheduled_end_at,
+      'sortOrder', group_funded_booking_items.sort_order
+    ) ORDER BY group_funded_booking_items.sort_order, group_funded_booking_items.id)
+    FROM group_funded_booking_items
+    WHERE group_funded_booking_items.campaign_id = bookings.group_funded_booking_id
+  ), '[]'::json) AS group_funded_bundle_items
 `;
 
 function buildQueryClient(client) {
@@ -137,6 +156,19 @@ function mapBooking(row) {
       scheduledEndAt: item.scheduledEndAt,
       sortOrder: Number(item.sortOrder || 0)
     })) : [],
+    groupFundedBundleItems: Array.isArray(row.group_funded_bundle_items) ? row.group_funded_bundle_items.map((item) => ({
+      _id: String(item.id),
+      serviceId: String(item.serviceId),
+      serviceNameSnapshot: item.serviceName,
+      serviceSlugSnapshot: item.serviceSlug,
+      bookingQuantity: Number(item.bookingQuantity || 1),
+      priceAmountCents: Number(item.priceAmountCents || 0),
+      currency: item.currency || "PHP",
+      executionMode: item.executionMode || "parallel",
+      scheduledStartAt: item.scheduledStartAt,
+      scheduledEndAt: item.scheduledEndAt,
+      sortOrder: Number(item.sortOrder || 0)
+    })) : [],
     locationPaymentMethodLabel: row.location_payment_method_label || "",
     locationPaymentBankName: row.location_payment_bank_name || "",
     locationPaymentAccountDisplayName: row.location_payment_account_display_name || "",
@@ -148,6 +180,7 @@ function mapBooking(row) {
     customerEmail: row.customer_email || "",
     customerPhone: row.customer_phone || "",
     bookingQuantity: Number(row.booking_quantity || 1),
+    executionMode: row.execution_mode || "parallel",
     scheduledStartAt: row.scheduled_start_at,
     scheduledEndAt: row.scheduled_end_at,
     status: row.status,
@@ -197,6 +230,7 @@ function mapBooking(row) {
           currency: row.service_currency || "PHP",
           targetAmountCents: Number(row.group_funded_target_amount_cents || 0),
           requiredContributionAmountCents: Number(row.group_funded_required_contribution_amount_cents || 0),
+          roundingAdjustmentCents: Number(row.group_funded_rounding_adjustment_cents || 0),
           requiredContributors: Number(row.group_funded_required_contributors || 0),
           paidParticipantCount: Number(row.group_funded_paid_participant_count || 0),
           fundedAmountCents: Number(row.group_funded_funded_amount_cents || 0),
@@ -230,6 +264,7 @@ async function createBooking(data, options = {}) {
             customer_email,
             customer_phone,
             booking_quantity,
+            execution_mode,
             scheduled_start_at,
             scheduled_end_at,
             status,
@@ -243,7 +278,7 @@ async function createBooking(data, options = {}) {
             contact_verified_at,
             contact_verification_channel
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'pending', $12, $13, 'unpaid', $14, $15, $16, $17, $18, $19)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'pending', $13, $14, 'unpaid', $15, $16, $17, $18, $19, $20)
           RETURNING *
         `,
         [
@@ -256,6 +291,7 @@ async function createBooking(data, options = {}) {
           data.customerEmail || null,
           data.customerPhone || null,
           Number(data.bookingQuantity || 1),
+          data.executionMode || "parallel",
           data.scheduledStartAt,
           data.scheduledEndAt,
           data.notes || null,
@@ -315,6 +351,7 @@ async function createGroupFundedBooking(data, options = {}) {
             customer_email,
             customer_phone,
             booking_quantity,
+            execution_mode,
             scheduled_start_at,
             scheduled_end_at,
             status,
@@ -331,7 +368,7 @@ async function createGroupFundedBooking(data, options = {}) {
             group_funded_booking_id,
             booking_payment_source
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'confirmed', $12, $13, 'paid', $14, $15, NULL, $16, $17, $18, $19, $20, 'group_funded')
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'confirmed', $13, $14, 'paid', $15, $16, NULL, $17, $18, $19, $20, $21, 'group_funded')
           RETURNING *
         `,
         [
@@ -344,6 +381,7 @@ async function createGroupFundedBooking(data, options = {}) {
           data.customerEmail || null,
           data.customerPhone || null,
           Number(data.bookingQuantity || 1),
+          data.executionMode || "parallel",
           data.scheduledStartAt,
           data.scheduledEndAt,
           data.notes || null,
@@ -358,7 +396,37 @@ async function createGroupFundedBooking(data, options = {}) {
         ]
       );
 
-      return findBookingById(result.rows[0].id, { client: queryClient });
+      const bookingId = result.rows[0].id;
+      const bundleItems = Array.isArray(data.bundleItems) && data.bundleItems.length
+        ? data.bundleItems
+        : [{
+            serviceId: data.serviceId,
+            serviceName: data.serviceName || "Service",
+            serviceSlug: data.serviceSlug || "",
+            bookingQuantity: data.bookingQuantity || 1,
+            priceAmountCents: data.priceAmountCents || 0,
+            currency: data.currency || "PHP",
+            scheduledStartAt: data.scheduledStartAt,
+            scheduledEndAt: data.scheduledEndAt,
+            sortOrder: 0
+          }];
+      for (const item of bundleItems) {
+        await queryClient.query(
+          `
+            INSERT INTO booking_bundle_items (
+              booking_id, tenant_id, location_id, service_id, service_name_snapshot, service_slug_snapshot,
+              booking_quantity, price_amount_cents, currency, scheduled_start_at, scheduled_end_at, sort_order
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+          `,
+          [
+            Number(bookingId), Number(data.tenantId), Number(data.locationId), Number(item.serviceId),
+            item.serviceName, item.serviceSlug, Number(item.bookingQuantity), Number(item.priceAmountCents),
+            item.currency || "PHP", item.scheduledStartAt, item.scheduledEndAt, Number(item.sortOrder || 0)
+          ]
+        );
+      }
+
+      return findBookingById(bookingId, { client: queryClient });
     } catch (error) {
       if (error.code !== "23505" || attempt === 4) {
         throw error;
@@ -610,14 +678,15 @@ async function countOverlappingActiveBookings(tenantId, options = {}) {
   const result = await buildQueryClient(options.client).query(
     `
       SELECT COUNT(*)::int AS count
-      FROM bookings
-      WHERE tenant_id = $1
-        AND location_id = $2
-        AND ($3::bigint IS NULL OR service_id = $3::bigint)
-        AND status = ANY($4::text[])
-        AND scheduled_start_at < $6::timestamptz
-        AND scheduled_end_at > $5::timestamptz
-        AND ($7::bigint IS NULL OR id <> $7::bigint)
+      FROM booking_bundle_items
+      INNER JOIN bookings ON bookings.id = booking_bundle_items.booking_id
+      WHERE booking_bundle_items.tenant_id = $1
+        AND booking_bundle_items.location_id = $2
+        AND ($3::bigint IS NULL OR booking_bundle_items.service_id = $3::bigint)
+        AND bookings.status = ANY($4::text[])
+        AND booking_bundle_items.scheduled_start_at < $6::timestamptz
+        AND booking_bundle_items.scheduled_end_at > $5::timestamptz
+        AND ($7::bigint IS NULL OR bookings.id <> $7::bigint)
     `,
     [
       Number(tenantId),

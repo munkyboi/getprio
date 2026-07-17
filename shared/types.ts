@@ -444,6 +444,7 @@ export interface BookingGroupFundedCampaignSummary {
   currency: "PHP";
   targetAmountCents: number;
   requiredContributionAmountCents: number;
+  roundingAdjustmentCents?: number;
   requiredContributors: number;
   paidParticipantCount: number;
   fundedAmountCents: number;

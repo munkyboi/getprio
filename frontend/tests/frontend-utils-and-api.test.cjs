@@ -677,6 +677,19 @@ test("customer booking flows use shared Mantine notifications for API feedback",
   assert.match(accountSource, /showCustomerError\(getErrorMessage\(saveError\), "Could not update profile"\)/);
 });
 
+test("customer booking history summarizes standard and campaign service bundles", () => {
+  const source = fs.readFileSync(
+    path.join(path.resolve(__dirname, ".."), "src", "pages", "CustomerAccountPage.tsx"),
+    "utf8"
+  );
+
+  assert.match(source, /const isGroupFundedBooking = booking\.bookingPaymentSource === "group_funded"/);
+  assert.match(source, /booking\.groupFundedCampaign\?\.bundleItems\?\.length/);
+  assert.match(source, /: booking\.bundleItems \|\| \[\]/);
+  assert.match(source, /\+\$\{additionalServiceCount\} service/);
+  assert.match(source, /\{executionModeLabel\} bundle/);
+});
+
 test("group-funded contributor count uses a stepped slider within service limits", () => {
   const source = fs.readFileSync(
     path.join(path.resolve(__dirname, ".."), "src", "pages", "BookingRequestPage.tsx"),
@@ -703,11 +716,89 @@ test("booking services use their own stepped quantity sliders", () => {
 
   assert.match(source, /const quantityLabel = getBookingQuantityLabel\(service\)/);
   assert.match(source, /aria-label=\{`\$\{service\.name\} \$\{quantityLabel\}`\}/);
-  assert.match(source, /setBookingQuantity\(value\)/);
-  assert.match(source, /setBundleQuantities\(\(current\) => \(\{ \.\.\.current, \[service\.slug\]: value \}\)\)/);
+  assert.match(source, /const updateServiceQuantity = useCallback/);
+  assert.match(source, /onChange=\{\(value\) => updateServiceQuantity\(service, value\)\}/);
   assert.match(source, /max=\{maxGroupFundedBookingQuantity\}/);
   assert.match(source, /disabled=\{Boolean\(otp\) \|\| !isSelected\}/);
   assert.doesNotMatch(source, /selectedBundleServices\.length\} item/);
+});
+
+test("together bookings synchronize matching-duration service quantity sliders", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(
+    path.join(frontendRoot, "src", "pages", "BookingRequestPage.tsx"),
+    "utf8"
+  );
+
+  assert.match(source, /const shouldSynchronizeTogetherQuantities = useMemo/);
+  assert.match(source, /executionMode !== "parallel"/);
+  assert.match(source, /service\.durationMinutes === sharedDuration/);
+  assert.match(source, /const updateServiceQuantity = useCallback/);
+  assert.match(source, /if \(shouldSynchronizeTogetherQuantities\) \{/);
+  assert.match(source, /onChange=\{\(value\) => updateServiceQuantity\(service, value\)\}/);
+  assert.match(source, /Matching service durations are linked while this visit is together\./);
+});
+
+test("group-funded slot selection keeps the composed service bundle selected", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(
+    path.join(frontendRoot, "src", "pages", "BookingRequestPage.tsx"),
+    "utf8"
+  );
+
+  assert.match(source, /includeGroupFundedHolds: isGroupFundedMode/);
+  assert.match(source, /setSlots\(data\.slots \|\| \[\]\);/);
+  assert.doesNotMatch(source, /groupFundedSlotsByService/);
+  assert.doesNotMatch(source, /groupFundedServiceEligibility/);
+  assert.doesNotMatch(source, /eligibleSlugs/);
+});
+
+test("booking availability uses a time-slot picker and resolves deadline bounds from the selected instant", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(
+    path.join(frontendRoot, "src", "pages", "BookingRequestPage.tsx"),
+    "utf8"
+  );
+  const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
+
+  assert.match(source, /slots\.find\(\(slot\) => toTimestamp\(slot\.startAt\) === selectedTimestamp\)/);
+  assert.match(source, /import \{ Carousel \} from "@mantine\/carousel";/);
+  assert.match(source, /className="booking-time-slot-carousel"/);
+  assert.match(source, /<Carousel\.Slide key=\{String\(slot\.startAt\)\}>/);
+  assert.match(source, /slideSize=\{\{ base: "100%", sm: "50%", md: "33\.333333%", lg: "25%" \}\}/);
+  assert.doesNotMatch(source, /withIndicators=/);
+  assert.match(source, /role="radio"/);
+  assert.match(source, /Available start times — \$\{formatDuration\(bundleVisitDurationMinutes/);
+  assert.doesNotMatch(source, /timeSlotGroups/);
+  assert.match(source, /Unavailable — \$\{unavailableSlotResourceLabel\} is booked/);
+  assert.match(source, /className="booking-time-slot-summary"/);
+  assert.match(source, /Funding deadline:/);
+  assert.doesNotMatch(source, /className="booking-schedule-field booking-schedule-field--slot"/);
+  assert.match(styles, /\.booking-time-slot-carousel \{/);
+  assert.doesNotMatch(styles, /\.booking-time-slot-period \{/);
+  assert.match(styles, /\.booking-time-slot-summary \{/);
+  assert.match(styles, /\.booking-time-slot\[data-selected="true"\] \{/);
+});
+
+test("customer interactive cards use elevation and outlines without hover movement", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
+
+  for (const selector of [
+    ".booking-time-slot:hover:not(:disabled)",
+    ".vendor-card:hover",
+    ".vendor-profile-hero-branch:hover",
+    ".vendor-service-card:hover",
+    ".vendor-location-card:hover"
+  ]) {
+    const start = styles.indexOf(`${selector} {`);
+    const end = styles.indexOf("}", start);
+    const block = start >= 0 && end >= 0 ? styles.slice(start, end) : "";
+    assert.ok(block, `${selector} should have a hover treatment`);
+    assert.doesNotMatch(block, /transform:/);
+    assert.match(block, /outline:/);
+    assert.match(block, /box-shadow:/);
+  }
 });
 
 test("group-funded contribution guidance uses customer-friendly payment language", () => {
@@ -778,6 +869,33 @@ test("group-funded campaign descriptions render rich text formatting", () => {
   assert.match(styles, /\.rich-campaign-description blockquote/);
 });
 
+test("signed-out contributors can log in and return to the campaign payment proof", () => {
+  const source = fs.readFileSync(
+    path.join(path.resolve(__dirname, ".."), "src", "pages", "GroupFundedCampaignPage.tsx"),
+    "utf8"
+  );
+
+  assert.match(source, /const campaignPath = `\$\{location\.pathname\}\$\{location\.search\}\$\{location\.hash\}`;/);
+  assert.match(source, /const loginPath = `\/login\?next=\$\{encodeURIComponent\(campaignPath\)\}`;/);
+  assert.match(source, /<Button component=\{Link\} to=\{loginPath\} w="fit-content">\s+Log in to contribute\s+<\/Button>/);
+});
+
+test("group-funded campaign details disclose the funding adjustment and target", () => {
+  const source = fs.readFileSync(
+    path.join(path.resolve(__dirname, ".."), "src", "pages", "GroupFundedCampaignPage.tsx"),
+    "utf8"
+  );
+
+  assert.match(source, /const fundingAdjustmentCents = Math\.max\(0, Number\(campaign\?\.roundingAdjustmentCents \|\| 0\)\);/);
+  assert.match(source, /const fundingTargetAmountCents = Number\(campaign\?\.targetAmountCents \|\| 0\) \+ fundingAdjustmentCents;/);
+  assert.match(source, /campaign\.fundedAmountCents \/ fundingTargetAmountCents/);
+  assert.match(source, /formatPaymentAmount\(fundingTargetAmountCents, campaign\.currency\)/);
+  assert.match(source, /<Title order=\{2\}>Campaign breakdown<\/Title>/);
+  assert.match(source, /Funding adjustment/);
+  assert.match(source, /Funding target/);
+  assert.match(source, /Each contributor/);
+});
+
 test("group-funded campaign hero joins by smoothly scrolling to payment proof", () => {
   const source = fs.readFileSync(
     path.join(path.resolve(__dirname, ".."), "src", "pages", "GroupFundedCampaignPage.tsx"),
@@ -790,6 +908,20 @@ test("group-funded campaign hero joins by smoothly scrolling to payment proof", 
   assert.match(source, /onClick=\{scrollToPaymentProof\}/);
   assert.match(source, /ref=\{paymentProofSectionRef\}/);
   assert.doesNotMatch(source, />\s*Vendor details\s*</);
+});
+
+test("vendor-approved campaigns replace organizer actions with the linked booking", () => {
+  const source = fs.readFileSync(
+    path.join(path.resolve(__dirname, ".."), "src", "pages", "GroupFundedCampaignPage.tsx"),
+    "utf8"
+  );
+
+  assert.match(source, /const hasApprovedBooking = Boolean\(/);
+  assert.match(source, /campaign\?\.linkedBookingId && \(campaign\.campaignStatus === "vendor_approved" \|\| campaign\.campaignStatus === "confirmed"\)/);
+  assert.match(source, /const canViewApprovedBooking = isOrganizer && hasApprovedBooking;/);
+  assert.match(source, /to=\{`\/account\/bookings\/\$\{campaign\.linkedBookingId\}`\}/);
+  assert.match(source, />\s+View booking\s+<\/Button>/);
+  assert.match(source, /isOrganizer && !hasApprovedBooking && \(canEditCampaign \|\| canCancel \|\| isCampaignFullyFunded\)/);
 });
 
 test("group-funded campaign business name links to the vendor profile", () => {
@@ -812,7 +944,7 @@ test("group-funded campaign hero uses the vendor category and compact funding su
 
   assert.match(source, /\{campaign\.vendorCategory \|\| "Business"\}/);
   assert.match(source, /Organized by \{campaign\.organizerDisplayName\}/);
-  assert.match(source, /Funding \{formatPaymentAmount\(campaign\.fundedAmountCents, campaign\.currency\)\} \/ \{formatPaymentAmount\(campaign\.targetAmountCents, campaign\.currency\)\}/);
+  assert.match(source, /Funding \{formatPaymentAmount\(campaign\.fundedAmountCents, campaign\.currency\)\} \/ \{formatPaymentAmount\(fundingTargetAmountCents, campaign\.currency\)\}/);
   assert.match(source, /className="group-funded-ticket-funding"/);
   assert.match(source, /<Text size="xs">Join fee<\/Text>/);
   assert.match(source, /Deadline: \$\{daysFromNow\}/);
@@ -1025,7 +1157,110 @@ test("vendor group-funded campaign details render rich descriptions", () => {
   );
 
   assert.match(source, /import RichCampaignDescription from "\.\.\/components\/RichCampaignDescription"/);
+  assert.match(source, /\bSpoiler,/);
+  assert.match(source, /<Spoiler hideLabel="Show less" maxHeight=\{72\} showLabel="Show more">/);
   assert.match(source, /<RichCampaignDescription\s+className="rich-campaign-description"\s+content=\{selectedDetail\.campaign\.description\}/);
+});
+
+test("vendor booking details link group-funded bookings to their campaign", () => {
+  const source = fs.readFileSync(
+    path.join(path.resolve(__dirname, ".."), "src", "pages", "VendorDashboardPage.tsx"),
+    "utf8"
+  );
+
+  assert.match(source, /detailBooking\.groupFundedCampaign\?\.publicToken/);
+  assert.match(source, /href=\{`\/group-funded\/\$\{detailBooking\.groupFundedCampaign\.publicToken\}`\}/);
+  assert.match(source, />\s+View campaign\s+<\/Button>/);
+});
+
+test("vendor booking details render campaign bundles instead of a primary-service snapshot", () => {
+  const source = fs.readFileSync(
+    path.join(path.resolve(__dirname, ".."), "src", "pages", "VendorDashboardPage.tsx"),
+    "utf8"
+  );
+
+  assert.match(source, /const detailCampaignBundleItems = detailBooking\?\.groupFundedCampaign\?\.bundleItems \|\| \[\];/);
+  assert.match(source, /\{detailCampaignBundleItems\.length \? "Campaign services" : "Bundled services"\}/);
+  assert.match(source, /detailServiceItems\.map\(\(item\) =>/);
+  assert.match(source, /\{detailCampaignBundleItems\.length \? "Campaign total" : "Bundle total"\}/);
+  assert.match(source, /Verified through the group-funded campaign/);
+  assert.match(source, /detailBooking\.notes !== "Group-funded booking approved by vendor\."/);
+});
+
+test("vendor booking details render standard service bundles", () => {
+  const source = fs.readFileSync(
+    path.join(path.resolve(__dirname, ".."), "src", "pages", "VendorDashboardPage.tsx"),
+    "utf8"
+  );
+
+  assert.match(source, /const detailBookingBundleItems = detailBooking\?\.bundleItems \|\| \[\];/);
+  assert.match(source, /const detailServiceItems = detailCampaignBundleItems\.length/);
+  assert.match(source, /: detailBookingBundleItems;/);
+  assert.match(source, /\{detailServiceItems\.length > 1 \? \(/);
+  assert.match(source, /\{detailCampaignBundleItems\.length \? "Campaign services" : "Bundled services"\}/);
+  assert.match(source, /\{detailCampaignBundleItems\.length \? "Campaign total" : "Bundle total"\}/);
+});
+
+test("vendor booking rows summarize service bundles and campaign payment context", () => {
+  const source = fs.readFileSync(
+    path.join(path.resolve(__dirname, ".."), "src", "pages", "VendorDashboardPage.tsx"),
+    "utf8"
+  );
+
+  assert.match(source, /const bookingBundleItems = isGroupFundedBooking && booking\.groupFundedCampaign\?\.bundleItems\?\.length/);
+  assert.match(source, /const displayedServiceItems = bookingBundleItems\.length/);
+  assert.match(source, /const executionModeLabel = booking\.executionMode === "sequential" \? "Back-to-back" : "Together";/);
+  assert.match(source, /\+\$\{additionalServiceCount\} service/);
+  assert.match(source, /Campaign funded/);
+  assert.match(source, /No individual proof/);
+});
+
+test("vendor booking status chips preserve their complete labels", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(frontendRoot, "src", "pages", "VendorDashboardPage.tsx"), "utf8");
+  const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
+
+  assert.match(source, /className="booking-list-status-chips"/);
+  assert.match(styles, /\.booking-list-status-chips \{\s+flex-wrap: wrap;/);
+  assert.match(styles, /\.booking-list-status-chips \.mantine-Badge-root \{\s+flex: 0 0 auto;\s+max-width: none;/);
+  assert.match(styles, /\.booking-list-status-chips \.mantine-Badge-label \{\s+overflow: visible;\s+text-overflow: clip;\s+white-space: nowrap;/);
+});
+
+test("customer group-funded booking details use the campaign funding target and collapse campaign content", () => {
+  const source = fs.readFileSync(
+    path.join(path.resolve(__dirname, ".."), "src", "pages", "CustomerBookingDetailPage.tsx"),
+    "utf8"
+  );
+
+  assert.match(source, /\bAccordion,/);
+  assert.match(source, /\bSpoiler,/);
+  assert.match(source, /import RichCampaignDescription from "\.\.\/components\/RichCampaignDescription"/);
+  assert.match(source, /const fundingAdjustmentCents = Math\.max\(0, Number\(groupFundedCampaign\?\.roundingAdjustmentCents \|\| 0\)\);/);
+  assert.match(source, /const fundingTargetAmountCents = Number\(groupFundedCampaign\?\.targetAmountCents \|\| 0\) \+ fundingAdjustmentCents;/);
+  assert.match(source, /<Spoiler hideLabel="Show less" maxHeight=\{72\} showLabel="Show more">/);
+  assert.match(source, /content=\{groupFundedCampaign\.description\}/);
+  assert.match(source, /formatPaymentAmount\(fundingTargetAmountCents, groupFundedCampaign\.currency\)/);
+  assert.match(source, /<Accordion className="customer-booking-contributors" variant="contained">/);
+  assert.match(source, /!isGroupFundedBooking \? <div className="customer-booking-payment-section">/);
+  assert.match(source, /!isGroupFundedBooking && !booking\.paymentProof && proofSubmissionAllowed/);
+});
+
+test("customer booking detail hero links associated group-funded campaigns", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CustomerBookingDetailPage.tsx"), "utf8");
+  const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
+
+  assert.match(source, /const campaignPath = groupFundedCampaign\?\.publicToken/);
+  assert.match(source, /className="booking-detail-campaign-chip"/);
+  assert.match(source, /className="booking-detail-campaign-chip"\s+color="gray"/);
+  assert.match(source, /<Group gap="xs" justify="center" wrap="wrap">[\s\S]*?bookingTicketStatus\.toUpperCase\(\)[\s\S]*?CAMPAIGN: \{campaignTitle\}/);
+  assert.match(source, /CAMPAIGN: \{campaignTitle\}/);
+  assert.match(source, /className="vendor-theme-button booking-detail-campaign-action"/);
+  assert.match(source, />\s+View campaign\s+<\/Button>/);
+  assert.match(styles, /\.booking-detail-campaign-chip \{\s+max-width: 200px;/);
+  assert.match(styles, /\.booking-detail-campaign-chip \.mantine-Badge-label \{\s+overflow: hidden;\s+text-overflow: ellipsis;/);
+  assert.match(styles, /\.booking-detail-visual-action \{\s+display: flex;\s+flex-direction: column;\s+gap: 0\.75rem;/);
+  assert.match(styles, /\.booking-detail-visual-card::before \{[\s\S]*?linear-gradient\(0deg, rgba\(0, 0, 0, 0\.85\) 45%, rgba\(0, 0, 0, 0\) 100%\)/);
 });
 
 test("customer navigation keeps account actions in the mobile drawer", () => {
@@ -1113,6 +1348,18 @@ test("vendor group-funded discovery uses mobile-first booking controls and filte
   assert.match(source, /className="vendor-contact-action customer-primary-action"/);
   assert.doesNotMatch(source, /scrollAreaComponent=\{ScrollArea\.Autosize\}/);
   assert.match(styles, /\.vendor-booking-option-tab-content \{\s+display: inline-flex;\s+align-items: center;\s+gap: 0\.45rem;/);
+});
+
+test("vendor dashboard includes rounding adjustments in group-funded targets", () => {
+  const source = fs.readFileSync(
+    path.join(path.resolve(__dirname, ".."), "src", "pages", "VendorDashboardPage.tsx"),
+    "utf8"
+  );
+
+  assert.match(source, /function getCampaignFundingTargetAmountCents\(campaign:/);
+  assert.match(source, /Number\(campaign\.targetAmountCents \|\| 0\) \+ Number\(campaign\.roundingAdjustmentCents \|\| 0\)/);
+  assert.match(source, /campaign\.fundedAmountCents \/ fundingTargetAmountCents/);
+  assert.match(source, /Target \{formatMoney\(selectedDetailFundingTargetAmountCents, selectedDetail\.campaign\.currency\)\}/);
 });
 
 test("vendor profile hero uses the booking-ticket information hierarchy", () => {

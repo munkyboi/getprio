@@ -116,6 +116,14 @@ function getBookingBadgeColor(status: BookingStatus): "gray" | "red" | "yellow" 
   }
 }
 
+function formatBookingBundleTotal(amountCents: number, currency = "PHP") {
+  return new Intl.NumberFormat("en-PH", {
+    style: "currency",
+    currency,
+    minimumFractionDigits: 2
+  }).format(amountCents / 100);
+}
+
 function getActiveSection(pathname: string): AccountSection {
   const [, , section] = pathname.split("/");
   if (section === "tickets" || section === "bookings" || section === "group-funded" || section === "settings" || section === "notifications" || section === "security") {
@@ -770,8 +778,28 @@ export default function CustomerAccountPage() {
             </Table.Thead>
             <Table.Tbody>
               {bookings.length ? (
-                bookings.map((booking) => (
-                  <Table.Tr
+                bookings.map((booking) => {
+                  const isGroupFundedBooking = booking.bookingPaymentSource === "group_funded" || Boolean(booking.groupFundedBookingId);
+                  const bookingBundleItems = isGroupFundedBooking && booking.groupFundedCampaign?.bundleItems?.length
+                    ? booking.groupFundedCampaign.bundleItems
+                    : booking.bundleItems || [];
+                  const displayedServiceItems = bookingBundleItems.length
+                    ? bookingBundleItems
+                    : [{
+                        serviceName: booking.serviceName,
+                        bookingQuantity: booking.bookingQuantity,
+                        priceAmountCents: booking.servicePriceAmountCents,
+                        currency: booking.serviceCurrency
+                      }];
+                  const primaryServiceItem = displayedServiceItems[0];
+                  const additionalServiceCount = Math.max(displayedServiceItems.length - 1, 0);
+                  const executionModeLabel = booking.executionMode === "sequential" ? "Back-to-back" : "Together";
+                  const displayedTotalCents = isGroupFundedBooking && booking.groupFundedCampaign
+                    ? Number(booking.groupFundedCampaign.targetAmountCents || 0) + Number(booking.groupFundedCampaign.roundingAdjustmentCents || 0)
+                    : displayedServiceItems.reduce((total, item) => total + Number(item.priceAmountCents || 0), 0);
+
+                  return (
+                    <Table.Tr
                     className="neura-customer-table-row"
                     key={booking.id}
                     onClick={() => openBooking(booking)}
@@ -802,8 +830,21 @@ export default function CustomerAccountPage() {
                       </Button>
                     </Table.Td>
                     <Table.Td>
-                      <Text>{booking.serviceName}</Text>
-                      <Text c="dimmed" size="sm">Quantity {booking.bookingQuantity}</Text>
+                      <Stack gap={2}>
+                        <Group gap="xs" wrap="nowrap">
+                          <Text fw={700}>{primaryServiceItem.serviceName}</Text>
+                          {isGroupFundedBooking ? <Badge color="blue" size="xs" variant="light">Campaign</Badge> : null}
+                        </Group>
+                        <Text c="dimmed" size="sm">
+                          Quantity {primaryServiceItem.bookingQuantity}
+                          {additionalServiceCount ? ` · +${additionalServiceCount} service${additionalServiceCount === 1 ? "" : "s"}` : ""}
+                        </Text>
+                        {displayedServiceItems.length > 1 ? (
+                          <Text c="dimmed" size="sm">
+                            {executionModeLabel} bundle · {formatBookingBundleTotal(displayedTotalCents, primaryServiceItem.currency || booking.serviceCurrency)}
+                          </Text>
+                        ) : null}
+                      </Stack>
                     </Table.Td>
                     <Table.Td>
                       <Text>{formatBookingScheduleDate(booking.scheduledStartAt)}</Text>
@@ -834,8 +875,9 @@ export default function CustomerAccountPage() {
                         </ActionIcon>
                       </Tooltip>
                     </Table.Td>
-                  </Table.Tr>
-                ))
+                    </Table.Tr>
+                  );
+                })
               ) : (
                 <Table.Tr>
                   <Table.Td colSpan={7}>

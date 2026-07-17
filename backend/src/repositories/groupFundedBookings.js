@@ -93,6 +93,7 @@ const CAMPAIGN_COLUMNS = `
   location_name_snapshot,
   location_slug_snapshot,
   booking_quantity,
+  execution_mode,
   scheduled_start_at,
   scheduled_end_at,
   funding_deadline_at,
@@ -306,6 +307,7 @@ function mapCampaign(row) {
     locationNameSnapshot: row.location_name_snapshot,
     locationSlugSnapshot: row.location_slug_snapshot,
     bookingQuantity: Number(row.booking_quantity || 1),
+    executionMode: row.execution_mode || "parallel",
     scheduledStartAt: row.scheduled_start_at,
     scheduledEndAt: row.scheduled_end_at,
     fundingDeadlineAt: row.funding_deadline_at,
@@ -517,6 +519,7 @@ async function createCampaign(data, options = {}) {
         location_name_snapshot,
         location_slug_snapshot,
         booking_quantity,
+        execution_mode,
         scheduled_start_at,
         scheduled_end_at,
         funding_deadline_at,
@@ -527,7 +530,7 @@ async function createCampaign(data, options = {}) {
         required_contributors,
         eligibility_snapshot
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25::jsonb)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26::jsonb)
       RETURNING ${CAMPAIGN_COLUMNS}
     `,
     [
@@ -547,6 +550,7 @@ async function createCampaign(data, options = {}) {
       data.locationNameSnapshot,
       data.locationSlugSnapshot,
       Number(data.bookingQuantity || 1),
+      data.executionMode || "parallel",
       data.scheduledStartAt,
       data.scheduledEndAt,
       data.fundingDeadlineAt,
@@ -1103,14 +1107,14 @@ async function recomputeCampaignFunding(campaignId, options = {}) {
         paid_participant_count = totals.paid_participant_count,
         campaign_status = CASE
           WHEN campaign.campaign_status = 'funding'
-            AND totals.funded_amount_cents >= campaign.target_amount_cents
+            AND totals.funded_amount_cents >= campaign.target_amount_cents + campaign.rounding_adjustment_cents
           THEN 'funded'
           ELSE campaign.campaign_status
         END,
         funded_at = CASE
           WHEN campaign.funded_at IS NULL
             AND campaign.campaign_status = 'funding'
-            AND totals.funded_amount_cents >= campaign.target_amount_cents
+            AND totals.funded_amount_cents >= campaign.target_amount_cents + campaign.rounding_adjustment_cents
           THEN NOW()
           ELSE campaign.funded_at
         END,
