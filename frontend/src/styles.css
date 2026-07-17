@@ -502,6 +502,18 @@ body {
   border-top: 1px solid rgba(36, 30, 25, 0.1);
 }
 
+.booking-campaign-submit__content {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.booking-campaign-submit__total {
+  background: var(--mantine-color-green-6);
+  color: var(--mantine-color-white);
+  font-variant-numeric: tabular-nums;
+}
+
 .booking-step-action {
   width: 100%;
   margin-top: 0.5rem;
@@ -583,6 +595,10 @@ body {
 
 .booking-time-slot-carousel {
   padding-inline: 2.35rem;
+}
+
+.booking-time-slot-carousel-slide {
+  min-width: 0;
 }
 
 .booking-time-slot-carousel :where(.mantine-Carousel-control) {

@@ -763,9 +763,13 @@ test("booking availability uses a time-slot picker and resolves deadline bounds 
 
   assert.match(source, /slots\.find\(\(slot\) => toTimestamp\(slot\.startAt\) === selectedTimestamp\)/);
   assert.match(source, /import \{ Carousel \} from "@mantine\/carousel";/);
+  assert.match(source, /import \{ useMediaQuery \} from "@mantine\/hooks";/);
   assert.match(source, /className="booking-time-slot-carousel"/);
-  assert.match(source, /<Carousel\.Slide key=\{String\(slot\.startAt\)\}>/);
-  assert.match(source, /slideSize=\{\{ base: "100%", sm: "50%", md: "33\.333333%", lg: "25%" \}\}/);
+  assert.match(source, /const slotCarouselGroups = useMemo\(\(\) => \{/);
+  assert.match(source, /const groupSize = isMobileViewport \? 4 : 1;/);
+  assert.match(source, /slotCarouselGroups\.map\(\(slotGroup\) => \(/);
+  assert.match(source, /className="booking-time-slot-carousel-slide"/);
+  assert.match(source, /slideSize=\{\{ base: "100%", sm: "25%" \}\}/);
   assert.doesNotMatch(source, /withIndicators=/);
   assert.match(source, /role="radio"/);
   assert.match(source, /Available start times — \$\{formatDuration\(bundleVisitDurationMinutes/);
@@ -823,11 +827,20 @@ test("group-funded booking has a collapsed campaign summary and prominent submit
   assert.match(source, /Campaign summary/);
   assert.match(source, /formatBookingScheduleDate\(bookingDate\)\} · Choose a start time/);
   assert.match(source, /Funding deadline/);
+  assert.match(source, /Funding adjustment/);
+  assert.match(source, /const fundingTargetAmountCents = payableAmountCents \+ fundingAdjustmentCents;/);
+  assert.match(source, /const isCampaignReady = Boolean\(/);
+  assert.match(source, /campaignTitle\.trim\(\)/);
+  assert.match(source, /color=\{isCampaignReady \? "green" : "gray"\}/);
+  assert.match(source, /isCampaignReady \? "Ready" : "Not ready"/);
   assert.match(source, /<Text fw=\{800\}>1\. Plan your visit<\/Text>/);
   assert.match(source, /Choose a branch, services, and visit length before selecting an available time/);
   assert.match(source, /<SimpleGrid cols=\{\{ base: 1, md: 2 \}\} spacing="xs">/);
   assert.match(source, /\/composed-slots/);
   assert.match(source, /className="booking-campaign-submit customer-primary-action"/);
+  assert.match(source, /className="booking-campaign-submit__total"/);
+  assert.match(source, /color="green" component="span" variant="filled"/);
+  assert.match(source, /formatPaymentAmount\(fundingTargetAmountCents, selectedBundleServices\[0\]\?\.currency \|\| "PHP"\)/);
   assert.match(source, /h=\{56\}/);
   assert.match(source, /\{isGroupFundedMode \? \[/);
   assert.match(source, /<Stepper\.Step key="verify-otp"/);

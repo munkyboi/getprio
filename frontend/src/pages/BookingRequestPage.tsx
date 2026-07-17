@@ -25,6 +25,7 @@ import {
 } from "@mantine/core";
 import { Carousel } from "@mantine/carousel";
 import { DatePickerInput, DateTimePicker } from "@mantine/dates";
+import { useMediaQuery } from "@mantine/hooks";
 import { IconAlertTriangle, IconArrowLeft, IconBuildingBank, IconCalendar, IconMapPin, IconUpload } from "@tabler/icons-react";
 import { addDays, format } from "date-fns";
 import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
@@ -425,6 +426,9 @@ export default function BookingRequestPage() {
     groupFundedSettings?.maxRequiredContributors || 100
   );
   const computedContributionCents = requiredContributors > 0 ? Math.ceil(payableAmountCents / requiredContributors) : 0;
+  const fundingAdjustmentCents = Math.max(0, (computedContributionCents * requiredContributors) - payableAmountCents);
+  const fundingTargetAmountCents = payableAmountCents + fundingAdjustmentCents;
+  const isMobileViewport = useMediaQuery("(max-width: 47.99em)");
 
   useEffect(() => {
     if (!allowBookingQuantity && bookingQuantity !== 1) {
@@ -633,6 +637,18 @@ export default function BookingRequestPage() {
     () => parseDateTimePickerValue(fundingDeadlineAt),
     [fundingDeadlineAt]
   );
+  const isCampaignReady = Boolean(
+    groupFundedAvailable &&
+    selectedBundleServices.length &&
+    selectedSlot &&
+    campaignTitle.trim() &&
+    fundingDeadlineBounds.hasValidWindow &&
+    fundingDeadlineBounds.min &&
+    fundingDeadlineBounds.max &&
+    fundingDeadlineValue &&
+    fundingDeadlineValue >= fundingDeadlineBounds.min &&
+    fundingDeadlineValue <= fundingDeadlineBounds.max
+  );
 
   const fundingDeadlineTimeBounds = useMemo(() => ({
     min:
@@ -714,6 +730,16 @@ export default function BookingRequestPage() {
   const unavailableSlotResourceLabel = selectedBundleServices.length === 1
     ? selectedBundleServices[0]?.name || "This service"
     : "A selected service";
+  const slotCarouselGroups = useMemo(() => {
+    const groupSize = isMobileViewport ? 4 : 1;
+    return slots.reduce<BookingSlotSummary[][]>((groups, slot, index) => {
+      if (index % groupSize === 0) {
+        groups.push([]);
+      }
+      groups[groups.length - 1].push(slot);
+      return groups;
+    }, []);
+  }, [isMobileViewport, slots]);
   const requiresPaymentProof = !isGroupFundedMode && Boolean(
     booking?.serviceManualPaymentRequired ||
     selectedService?.manualPaymentRequired
@@ -1197,22 +1223,25 @@ export default function BookingRequestPage() {
                                 controlSize={32}
                                 emblaOptions={{ align: "start" }}
                                 slideGap="sm"
-                                slideSize={{ base: "100%", sm: "50%", md: "33.333333%", lg: "25%" }}
-                                withControls={slots.length > 1}
+                                slideSize={{ base: "100%", sm: "25%" }}
+                                withControls={slotCarouselGroups.length > 1}
                               >
-                                {slots.map((slot) => {
-                                  const isSelected = toTimestamp(slot.startAt) === toTimestamp(selectedSlotStartAt);
-                                  const unavailableReason = slot.disabledReason === "capacity_full"
-                                    ? `Unavailable — ${unavailableSlotResourceLabel} is booked`
-                                    : "Unavailable — this time cannot accommodate the selected visit";
+                                {slotCarouselGroups.map((slotGroup) => (
+                                  <Carousel.Slide key={slotGroup.map((slot) => String(slot.startAt)).join("-")}>
+                                    <Stack className="booking-time-slot-carousel-slide" gap="sm">
+                                      {slotGroup.map((slot) => {
+                                        const isSelected = toTimestamp(slot.startAt) === toTimestamp(selectedSlotStartAt);
+                                        const unavailableReason = slot.disabledReason === "capacity_full"
+                                          ? `Unavailable — ${unavailableSlotResourceLabel} is booked`
+                                          : "Unavailable — this time cannot accommodate the selected visit";
 
-                                  return (
-                                    <Carousel.Slide key={String(slot.startAt)}>
+                                        return (
                                       <button
                                         aria-checked={isSelected}
                                         className="booking-time-slot"
                                         data-selected={isSelected}
                                         disabled={Boolean(otp) || !slot.isAvailable}
+                                        key={String(slot.startAt)}
                                         onClick={() => setSelectedSlotStartAt(String(slot.startAt))}
                                         role="radio"
                                         type="button"
@@ -1224,9 +1253,11 @@ export default function BookingRequestPage() {
                                             : unavailableReason}
                                         </span>
                                       </button>
-                                    </Carousel.Slide>
-                                  );
-                                })}
+                                        );
+                                      })}
+                                    </Stack>
+                                  </Carousel.Slide>
+                                ))}
                               </Carousel>
                             </div>
                           ) : (
@@ -1393,8 +1424,8 @@ export default function BookingRequestPage() {
                               <Accordion.Control>
                                 <Group justify="space-between" gap="sm" wrap="nowrap">
                                   <Text fw={800}>Campaign summary</Text>
-                                  <Badge color="teal" variant="light">
-                                    {formatPaymentAmount(payableAmountCents, selectedBundleServices[0]?.currency || "PHP")}
+                                  <Badge color={isCampaignReady ? "green" : "gray"} variant="light">
+                                    {isCampaignReady ? "Ready" : "Not ready"}
                                   </Badge>
                                 </Group>
                               </Accordion.Control>
@@ -1419,6 +1450,18 @@ export default function BookingRequestPage() {
                                       </Group>
                                     )) : <Text size="sm">Choose at least one available service</Text>}
                                   </Stack>
+                                  <Group className="booking-campaign-summary-row" justify="space-between" gap="sm" wrap="nowrap">
+                                    <Text c="dimmed" size="sm">Funding adjustment</Text>
+                                    <Text fw={600} size="sm" ta="right">
+                                      +{formatPaymentAmount(fundingAdjustmentCents, selectedService?.currency || "PHP")}
+                                    </Text>
+                                  </Group>
+                                  <Group className="booking-campaign-summary-row" justify="space-between" gap="sm" wrap="nowrap">
+                                    <Text c="dimmed" size="sm">Funding target</Text>
+                                    <Text fw={700} size="sm" ta="right">
+                                      {formatPaymentAmount(fundingTargetAmountCents, selectedService?.currency || "PHP")}
+                                    </Text>
+                                  </Group>
                                   <Group className="booking-campaign-summary-row" justify="space-between" gap="sm" wrap="nowrap">
                                     <Text c="dimmed" size="sm">Funding</Text>
                                     <Text fw={600} size="sm" ta="right">
@@ -1500,13 +1543,20 @@ export default function BookingRequestPage() {
                             !vendor?.services.length ||
                             !selectedSlot ||
                             (!isGroupFundedMode && !selectedBundleServices.length) ||
-                            (isGroupFundedMode && (!groupFundedAvailable || !fundingDeadlineBounds.hasValidWindow))
+                            (isGroupFundedMode && !isCampaignReady)
                           }
                           h={56}
                           size="lg"
                           type="submit"
                         >
-                          {submitting ? "Processing..." : isGroupFundedMode ? "Create campaign" : "Send verification code"}
+                          {submitting ? "Processing..." : isGroupFundedMode ? (
+                            <span className="booking-campaign-submit__content">
+                              <span>Create campaign</span>
+                              <Badge className="booking-campaign-submit__total" color="green" component="span" variant="filled">
+                                {formatPaymentAmount(fundingTargetAmountCents, selectedBundleServices[0]?.currency || "PHP")}
+                              </Badge>
+                            </span>
+                          ) : "Send verification code"}
                         </Button>
                       </Group>
                       </Stack>
