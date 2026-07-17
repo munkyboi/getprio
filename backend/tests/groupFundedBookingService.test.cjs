@@ -549,6 +549,29 @@ test("group-funded service limits rich campaign descriptions to 1000 plain-text 
   );
 });
 
+test("group-funded service rejects richly formatted descriptions that exceed the stored HTML limit", async () => {
+  const { mocks } = baseMocks();
+  const service = requireWithMocks("../src/services/groupFundedBookingService.js", mocks);
+  const description = `<p>${"<strong><em><s>a</s></em></strong>".repeat(1000)}</p>`;
+
+  await assert.rejects(
+    () => service.createCampaign({
+      user: { _id: "user-1", name: "Organizer" },
+      body: {
+        tenantSlug: "vendor",
+        locationSlug: "main",
+        serviceSlug: "consultation",
+        scheduledStartAt: new Date(Date.now() + 96 * 60 * 60 * 1000).toISOString(),
+        fundingDeadlineAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+        requiredContributors: 3,
+        visibility: "private_link",
+        description
+      }
+    }),
+    /description formatting is too complex/
+  );
+});
+
 test("group-funded service rejects organizer detail edits after funding is complete", async () => {
   const campaign = buildCampaign({
     fundedAmountCents: 100001,
@@ -1194,7 +1217,7 @@ test("group-funded service rejects invalid proof without creating a refund", asy
 });
 
 test("group-funded service moves paid rejected proof into refund tracking", async () => {
-  const campaign = buildCampaign({ fundedAmountCents: 100001, targetAmountCents: 100001 });
+  const campaign = buildCampaign({ fundedAmountCents: 100002, targetAmountCents: 100001 });
   const contribution = {
     _id: "contribution-2",
     campaignId: campaign._id,
@@ -1274,6 +1297,7 @@ test("group-funded service approves vendor-review campaign into one linked paid 
   const campaign = buildCampaign({
     campaignStatus: "vendor_review",
     targetAmountCents: 50000,
+    roundingAdjustmentCents: 0,
     fundedAmountCents: 50000,
     paidParticipantCount: 1,
     vendorReviewExpiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString()
@@ -1326,6 +1350,8 @@ test("group-funded service approves vendor-review campaign into one linked paid 
   assert.equal(capacityHoldCountOptions.excludeCampaignId, campaign._id);
   assert.equal(bookingPayload.customerUserId, campaign.organizerUserId);
   assert.equal(bookingPayload.groupFundedBookingId, campaign._id);
+  assert.equal(bookingPayload.executionMode, campaign.executionMode);
+  assert.equal(bookingPayload.bundleItems.length, 1);
   assert.deepEqual(repository.events.map((event) => event.eventType), [
     "vendor_approved",
     "linked_booking_created"
@@ -1572,7 +1598,7 @@ test("group-funded service lets vendors propose replacement slots without creati
   const replacementStart = new Date(Date.now() + 120 * 60 * 60 * 1000).toISOString();
   const fundedCampaign = buildCampaign({
     campaignStatus: "slot_recovery",
-    fundedAmountCents: 100001,
+    fundedAmountCents: 100002,
     fundedAt: new Date().toISOString()
   });
   let releasedHold = null;

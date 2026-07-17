@@ -42,12 +42,20 @@ function sanitizeBookingPayload(payload) {
     serviceSlug: String(payload.serviceSlug || "").trim().toLowerCase(),
     scheduledStartAt: String(payload.scheduledStartAt || "").trim(),
     bookingQuantity,
+    executionMode: ["parallel", "sequential"].includes(String(payload.executionMode || "parallel").trim().toLowerCase())
+      ? String(payload.executionMode || "parallel").trim().toLowerCase()
+      : null,
     customerName: String(payload.customerName || "").trim(),
     customerEmail: String(payload.customerEmail || "").trim().toLowerCase(),
     customerPhone: normalizePhilippineMobileNumber(payload.customerPhone),
     notifyBySms: Boolean(payload.notifyBySms),
     notes: String(payload.notes || "").trim()
   };
+  if (!sanitized.executionMode) {
+    const error = new Error("executionMode must be either parallel or sequential.");
+    error.statusCode = 400;
+    throw error;
+  }
   if (Array.isArray(payload.bundleItems)) {
     const seen = new Set();
     sanitized.bundleItems = payload.bundleItems.map((item) => {

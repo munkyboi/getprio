@@ -9,6 +9,7 @@ const vendorServiceRepository = require("../repositories/vendorServices");
 const locationServiceRepository = require("../repositories/locationServices");
 const vendorAvailabilityRepository = require("../repositories/vendorAvailability");
 const bookingRepository = require("../repositories/bookings");
+const groupFundedRepository = require("../repositories/groupFundedBookings");
 const userRepository = require("../repositories/users");
 const asyncHandler = require("../middleware/asyncHandler");
 const {
@@ -98,6 +99,27 @@ const vendorGroupFundedDecisionLimiter = rateLimit({
 });
 
 function formatVendorBooking(booking) {
+  const groupFundedCampaign = booking.groupFundedCampaign
+    ? {
+        ...booking.groupFundedCampaign,
+        bundleItems: Array.isArray(booking.groupFundedBundleItems)
+          ? booking.groupFundedBundleItems.map((item) => ({
+              id: item._id,
+              serviceId: item.serviceId,
+              serviceName: item.serviceNameSnapshot,
+              serviceSlug: item.serviceSlugSnapshot,
+              bookingQuantity: item.bookingQuantity,
+              priceAmountCents: item.priceAmountCents,
+              currency: item.currency,
+              executionMode: item.executionMode,
+              scheduledStartAt: item.scheduledStartAt,
+              scheduledEndAt: item.scheduledEndAt,
+              sortOrder: item.sortOrder
+            }))
+          : []
+      }
+    : null;
+
   return {
     id: booking._id,
     reference: booking.reference,
@@ -114,6 +136,8 @@ function formatVendorBooking(booking) {
     servicePriceAmountCents: booking.servicePriceAmountCents,
     serviceCurrency: booking.serviceCurrency,
     servicePriceDisplay: booking.servicePriceDisplay,
+    bundleItems: booking.bundleItems || [],
+    executionMode: booking.executionMode || "parallel",
     bookingQuantity: booking.bookingQuantity,
     customerUserId: booking.customerUserId,
     customerName: booking.customerName,
@@ -127,7 +151,7 @@ function formatVendorBooking(booking) {
     paymentStatus: booking.paymentStatus,
     groupFundedBookingId: booking.groupFundedBookingId,
     bookingPaymentSource: booking.bookingPaymentSource,
-    groupFundedCampaign: booking.groupFundedCampaign,
+    groupFundedCampaign,
     paymentProof: booking.paymentProofObjectKey
       ? {
           fileName: booking.paymentProofFileName,
@@ -178,6 +202,7 @@ function formatVendorGroupFundedResult(result) {
       visibility: result.campaign.visibility,
       serviceName: result.campaign.serviceNameSnapshot,
       bundleItems: result.campaign.bundleItems || [],
+      executionMode: result.campaign.executionMode || "parallel",
       locationName: result.campaign.locationNameSnapshot,
       scheduledStartAt: result.campaign.scheduledStartAt,
       scheduledEndAt: result.campaign.scheduledEndAt,
@@ -243,6 +268,7 @@ function formatVendorGroupFundedCampaign(campaign) {
     serviceName: campaign.serviceNameSnapshot,
     serviceSlug: campaign.serviceSlugSnapshot,
     bundleItems: campaign.bundleItems || [],
+    executionMode: campaign.executionMode || "parallel",
     locationName: campaign.locationNameSnapshot,
     locationSlug: campaign.locationSlugSnapshot,
     bookingQuantity: campaign.bookingQuantity,
@@ -713,6 +739,12 @@ router.get(
         error.statusCode = 404;
         throw error;
       }
+    }
+
+    if (booking.groupFundedBookingId) {
+      booking.groupFundedBundleItems = await groupFundedRepository.listCampaignItemsByCampaign(
+        booking.groupFundedBookingId
+      );
     }
 
     res.json({ booking: formatVendorBooking(booking) });

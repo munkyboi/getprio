@@ -23,6 +23,7 @@ import {
   ThemeIcon,
   Title
 } from "@mantine/core";
+import { Carousel } from "@mantine/carousel";
 import { DatePickerInput, DateTimePicker } from "@mantine/dates";
 import { IconAlertTriangle, IconArrowLeft, IconBuildingBank, IconCalendar, IconMapPin, IconUpload } from "@tabler/icons-react";
 import { addDays, format } from "date-fns";
@@ -75,11 +76,6 @@ function formatBookingQuantityValue(quantity: number, unitLabel: string) {
 
 function getServiceLineAmountCents(service: PublicVendorProfile["services"][number], bookingQuantity = 1) {
   return service.priceAmountCents * bookingQuantity;
-}
-
-function formatSlotLabel(slot: BookingSlotSummary) {
-  const timeLabel = formatBookingScheduleTimeRange(slot.startAt, slot.endAt);
-  return slot.isAvailable ? `${timeLabel} (${slot.remainingCapacity} left)` : `${timeLabel} (full)`;
 }
 
 function formatDuration(minutes: number) {
@@ -241,7 +237,6 @@ export default function BookingRequestPage() {
   const [bookingDate, setBookingDate] = useState(getDefaultBookingDate);
   const [bookingQuantity, setBookingQuantity] = useState(1);
   const [slots, setSlots] = useState<BookingSlotSummary[]>([]);
-  const [groupFundedSlotsByService, setGroupFundedSlotsByService] = useState<Record<string, BookingSlotSummary[]>>({});
   const [calendarMonth, setCalendarMonth] = useState<Date | null>(null);
   const [selectedSlotStartAt, setSelectedSlotStartAt] = useState("");
   const [customerName, setCustomerName] = useState("");
@@ -384,19 +379,6 @@ export default function BookingRequestPage() {
     () => locationServices.filter((service) => service.groupFunded?.enabled),
     [locationServices]
   );
-  const groupFundedServiceEligibility = useMemo(() => {
-    if (!selectedSlotStartAt) {
-      return new Map<string, { available: boolean; reason: string }>();
-    }
-    const servicesForVisit = isGroupFundedMode ? groupFundedEligibleServices : locationServices;
-    return new Map(servicesForVisit.map((service) => {
-      const slot = groupFundedSlotsByService[service.slug]?.find((entry) => String(entry.startAt) === selectedSlotStartAt);
-      return [service.slug, {
-        available: Boolean(slot?.isAvailable),
-        reason: slot?.disabledReason === "capacity_full" ? "Full capacity for this slot" : "Unavailable for this slot"
-      }];
-    }));
-  }, [groupFundedEligibleServices, groupFundedSlotsByService, isGroupFundedMode, locationServices, selectedSlotStartAt]);
   const selectedBundleServices = useMemo(() => {
     if (!isGroupFundedMode) {
       const selectedSlugs = new Set(selectedBundleServiceSlugs);
@@ -422,6 +404,17 @@ export default function BookingRequestPage() {
     if (service.slug === selectedServiceSlug) return bookingQuantity;
     return bundleQuantities[service.slug] || 1;
   }, [bookingQuantity, bundleQuantities, selectedServiceSlug]);
+  const shouldSynchronizeTogetherQuantities = useMemo(() => {
+    if (executionMode !== "parallel" || selectedBundleServices.length < 2) {
+      return false;
+    }
+
+    const sharedDuration = selectedBundleServices[0]?.durationMinutes;
+    return selectedBundleServices.every((service) => (
+      service.allowBookingQuantity
+      && service.durationMinutes === sharedDuration
+    ));
+  }, [executionMode, selectedBundleServices]);
   const bundleAmountCents = selectedBundleServices.reduce((sum, service) => {
     return sum + getServiceLineAmountCents(service, getBundleItemQuantity(service));
   }, 0);
@@ -455,19 +448,53 @@ export default function BookingRequestPage() {
   }, [bookingQuantity, isGroupFundedMode, maxGroupFundedBookingQuantity]);
 
   useEffect(() => {
-    if (!isGroupFundedMode) {
+    if (!shouldSynchronizeTogetherQuantities) {
       return;
     }
 
-    const eligibleSlugs = new Set(groupFundedEligibleServices
-      .filter((service) => groupFundedServiceEligibility.get(service.slug)?.available !== false)
-      .map((service) => service.slug));
-    setSelectedBundleServiceSlugs((current) => {
-      const next = current.filter((slug) => eligibleSlugs.has(slug))
-        .filter((slug, index, list) => list.indexOf(slug) === index);
-      return next.join("|") === current.join("|") ? current : next;
+    const synchronizedQuantity = Math.max(1, Math.min(bookingQuantity, maxGroupFundedBookingQuantity));
+    if (synchronizedQuantity !== bookingQuantity) {
+      setBookingQuantity(synchronizedQuantity);
+    }
+    setBundleQuantities((current) => {
+      const next = { ...current };
+      let changed = false;
+
+      for (const service of selectedBundleServices) {
+        if (service.slug === selectedServiceSlug || next[service.slug] === synchronizedQuantity) {
+          continue;
+        }
+        next[service.slug] = synchronizedQuantity;
+        changed = true;
+      }
+
+      return changed ? next : current;
     });
-  }, [groupFundedEligibleServices, groupFundedServiceEligibility, isGroupFundedMode]);
+  }, [bookingQuantity, maxGroupFundedBookingQuantity, selectedBundleServices, selectedServiceSlug, shouldSynchronizeTogetherQuantities]);
+
+  const updateServiceQuantity = useCallback((service: PublicVendorService, quantity: number) => {
+    setSelectedSlotStartAt("");
+
+    if (shouldSynchronizeTogetherQuantities) {
+      setBookingQuantity(quantity);
+      setBundleQuantities((current) => {
+        const next = { ...current };
+        for (const selectedService of selectedBundleServices) {
+          if (selectedService.slug !== selectedServiceSlug) {
+            next[selectedService.slug] = quantity;
+          }
+        }
+        return next;
+      });
+      return;
+    }
+
+    if (service.slug === selectedServiceSlug) {
+      setBookingQuantity(quantity);
+      return;
+    }
+    setBundleQuantities((current) => ({ ...current, [service.slug]: quantity }));
+  }, [selectedBundleServices, selectedServiceSlug, shouldSynchronizeTogetherQuantities]);
 
   useEffect(() => {
     if (!groupFundedSettings?.enabled) {
@@ -522,7 +549,6 @@ export default function BookingRequestPage() {
 
     request
       .then((data) => {
-        setGroupFundedSlotsByService({});
         setSlots(data.slots || []);
       })
       .catch((slotError) => {
@@ -562,10 +588,16 @@ export default function BookingRequestPage() {
     return () => window.clearInterval(intervalId);
   }, [booking, loadSubmittedBooking, token]);
 
-  const selectedSlot = useMemo(
-    () => slots.find((slot) => slot.startAt === selectedSlotStartAt) || null,
-    [selectedSlotStartAt, slots]
-  );
+  const selectedSlot = useMemo(() => {
+    const selectedTimestamp = toTimestamp(selectedSlotStartAt);
+    if (Number.isNaN(selectedTimestamp)) {
+      return null;
+    }
+
+    return slots.find((slot) => slot.startAt === selectedSlotStartAt)
+      || slots.find((slot) => toTimestamp(slot.startAt) === selectedTimestamp)
+      || null;
+  }, [selectedSlotStartAt, slots]);
 
   const fundingDeadlineBounds = useMemo(() => {
     if (!isGroupFundedMode || !selectedSlot || !groupFundedSettings?.enabled) {
@@ -661,18 +693,27 @@ export default function BookingRequestPage() {
     })) || [],
     [vendor]
   );
-  const slotOptions = useMemo(
-    () => slots.map((slot) => ({
-      value: String(slot.startAt),
-      label: formatSlotLabel(slot),
-      disabled: !slot.isAvailable
-    })),
-    [slots]
-  );
+  const slotIntervalLabel = useMemo(() => {
+    if (slots.length < 2) {
+      return isGroupFundedMode ? "Start times are offered every 30 minutes." : "Choose an available start time.";
+    }
+
+    const firstStart = toTimestamp(slots[0]?.startAt);
+    const secondStart = toTimestamp(slots[1]?.startAt);
+    const intervalMinutes = Math.round((secondStart - firstStart) / (60 * 1000));
+
+    return Number.isFinite(intervalMinutes) && intervalMinutes > 0
+      ? `Start times are offered every ${formatDuration(intervalMinutes)}.`
+      : "Choose an available start time.";
+  }, [isGroupFundedMode, slots]);
   const bundleVisitDurationMinutes = selectedBundleServices.reduce((total, service) => {
     const duration = service.durationMinutes * getBundleItemQuantity(service);
     return executionMode === "sequential" ? total + duration : Math.max(total, duration);
   }, 0);
+  const slotPickerLabel = `Available start times — ${formatDuration(bundleVisitDurationMinutes || selectedService?.durationMinutes || 0)} booking`;
+  const unavailableSlotResourceLabel = selectedBundleServices.length === 1
+    ? selectedBundleServices[0]?.name || "This service"
+    : "A selected service";
   const requiresPaymentProof = !isGroupFundedMode && Boolean(
     booking?.serviceManualPaymentRequired ||
     selectedService?.manualPaymentRequired
@@ -1082,14 +1123,7 @@ export default function BookingRequestPage() {
                                           label={(value) => formatBookingQuantityValue(value, quantityLabel)}
                                           max={maxGroupFundedBookingQuantity}
                                           min={1}
-                                          onChange={(value) => {
-                                            setSelectedSlotStartAt("");
-                                            if (service.slug === selectedServiceSlug) {
-                                              setBookingQuantity(value);
-                                              return;
-                                            }
-                                            setBundleQuantities((current) => ({ ...current, [service.slug]: value }));
-                                          }}
+                                          onChange={(value) => updateServiceQuantity(service, value)}
                                           step={1}
                                           value={quantity}
                                         />
@@ -1102,15 +1136,20 @@ export default function BookingRequestPage() {
                           </Checkbox.Group>
                           <Text c="dimmed" size="sm">Set each selected service&apos;s quantity with its slider. The maximum follows the selected date&apos;s store hours.</Text>
                           {selectedBundleServices.length > 1 ? (
-                            <SegmentedControl
-                              data={[{ label: "Together", value: "parallel" }, { label: "Back-to-back", value: "sequential" }]}
-                              disabled={Boolean(otp)}
-                              onChange={(value) => {
-                                setExecutionMode(value as "parallel" | "sequential");
-                                setSelectedSlotStartAt("");
-                              }}
-                              value={executionMode}
-                            />
+                            <Stack gap={4}>
+                              <SegmentedControl
+                                data={[{ label: "Together", value: "parallel" }, { label: "Back-to-back", value: "sequential" }]}
+                                disabled={Boolean(otp)}
+                                onChange={(value) => {
+                                  setExecutionMode(value as "parallel" | "sequential");
+                                  setSelectedSlotStartAt("");
+                                }}
+                                value={executionMode}
+                              />
+                              {shouldSynchronizeTogetherQuantities ? (
+                                <Text c="teal" size="sm">Matching service durations are linked while this visit is together.</Text>
+                              ) : null}
+                            </Stack>
                           ) : null}
                           <Alert color="teal" variant="light">
                             {selectedBundleServices.length > 1
@@ -1138,18 +1177,82 @@ export default function BookingRequestPage() {
                         required
                         value={bookingDate}
                       />
-                      <Select
-                        className="booking-schedule-field booking-schedule-field--slot"
-                        data={slotOptions}
-                        disabled={slotsLoading || !slotOptions.length || Boolean(otp)}
-                        label="3. Choose a start time"
-                        onChange={(value) => setSelectedSlotStartAt(value || "")}
-                        placeholder={slotsLoading ? "Loading slots..." : "Select a time"}
-                        required
-                        value={selectedSlotStartAt}
-                      />
-                      {!slotsLoading && bookingDate && !slotOptions.length ? (
-                        <Alert color="yellow">No available slots for this date.</Alert>
+                      <Card className="booking-schedule-field booking-time-slot-picker" p="md">
+                        <Stack gap="sm">
+                          <Group justify="space-between" align="flex-start" gap="sm">
+                            <div>
+                              <Text fw={800}>{slotPickerLabel} <Text component="span" c="red">*</Text></Text>
+                              <Text c="dimmed" size="sm">
+                                {slotsLoading ? "Loading available times..." : slotIntervalLabel}
+                              </Text>
+                            </div>
+                            {selectedSlot ? <Badge color="teal" variant="light">Selected</Badge> : null}
+                          </Group>
+                          {slotsLoading ? (
+                            <Text c="dimmed" size="sm">Loading available times...</Text>
+                          ) : slots.length ? (
+                            <div aria-label="Available start times" role="radiogroup">
+                              <Carousel
+                                className="booking-time-slot-carousel"
+                                controlSize={32}
+                                emblaOptions={{ align: "start" }}
+                                slideGap="sm"
+                                slideSize={{ base: "100%", sm: "50%", md: "33.333333%", lg: "25%" }}
+                                withControls={slots.length > 1}
+                              >
+                                {slots.map((slot) => {
+                                  const isSelected = toTimestamp(slot.startAt) === toTimestamp(selectedSlotStartAt);
+                                  const unavailableReason = slot.disabledReason === "capacity_full"
+                                    ? `Unavailable — ${unavailableSlotResourceLabel} is booked`
+                                    : "Unavailable — this time cannot accommodate the selected visit";
+
+                                  return (
+                                    <Carousel.Slide key={String(slot.startAt)}>
+                                      <button
+                                        aria-checked={isSelected}
+                                        className="booking-time-slot"
+                                        data-selected={isSelected}
+                                        disabled={Boolean(otp) || !slot.isAvailable}
+                                        onClick={() => setSelectedSlotStartAt(String(slot.startAt))}
+                                        role="radio"
+                                        type="button"
+                                      >
+                                        <span className="booking-time-slot__time">{format(slot.startAt, "h:mm a")}</span>
+                                        <span className="booking-time-slot__availability">
+                                          {slot.isAvailable
+                                            ? `Ends ${format(slot.endAt, "h:mm a")} · ${slot.remainingCapacity} left`
+                                            : unavailableReason}
+                                        </span>
+                                      </button>
+                                    </Carousel.Slide>
+                                  );
+                                })}
+                              </Carousel>
+                            </div>
+                          ) : (
+                            <Alert color="yellow">No available slots for this date.</Alert>
+                          )}
+                          {selectedSlot ? (
+                            <Card className="booking-time-slot-summary" p="sm" withBorder>
+                              <Text c="dimmed" size="xs">Selected slot</Text>
+                              <Text fw={800}>
+                                {formatBookingScheduleDate(selectedSlot.startAt)} · {formatBookingScheduleTimeRange(selectedSlot.startAt, selectedSlot.endAt)}
+                              </Text>
+                            </Card>
+                          ) : null}
+                        </Stack>
+                      </Card>
+
+                      {isGroupFundedMode && selectedSlot ? (
+                        fundingDeadlineBounds.hasValidWindow && fundingDeadlineBounds.min && fundingDeadlineBounds.max ? (
+                          <Alert color="blue" variant="light">
+                            Funding deadline: {format(fundingDeadlineBounds.min, "MMM d, yyyy h:mm a")} – {format(fundingDeadlineBounds.max, "MMM d, yyyy h:mm a")}.
+                          </Alert>
+                        ) : (
+                          <Alert color="yellow" icon={<IconAlertTriangle size={16} />} variant="light">
+                            This slot is too soon for a group-funded campaign. Choose a later booking slot so funding can close before vendor review.
+                          </Alert>
+                        )
                       ) : null}
 
                       {isGroupFundedMode ? (
@@ -1164,7 +1267,10 @@ export default function BookingRequestPage() {
                           <Stack gap={6}>
                             <Group justify="space-between" gap="sm">
                               <Text fw={500} size="sm">Required contributors <Text component="span" c="red">*</Text></Text>
-                              <Badge color="orange" variant="light">{requiredContributors} people</Badge>
+                              <Badge color="orange" variant="light">
+                                <span style={{ fontWeight: 400 }}>{requiredContributors} people: </span>
+                                <strong>{formatPaymentAmount(computedContributionCents, selectedService?.currency || "PHP")} each</strong>
+                              </Badge>
                             </Group>
                             <Slider
                               aria-label="Required contributors"
@@ -1204,11 +1310,6 @@ export default function BookingRequestPage() {
                             value={fundingDeadlineAt}
                             valueFormat="MMM D, YYYY h:mm A"
                           />
-                          {selectedSlot && !fundingDeadlineBounds.hasValidWindow ? (
-                            <Alert color="yellow" icon={<IconAlertTriangle size={16} />} variant="light">
-                              This slot is too soon for a group-funded campaign. Choose a later booking slot so funding can close before vendor review.
-                            </Alert>
-                          ) : null}
                           <Select
                             data={[
                               { label: "Private link only", value: "private_link" },

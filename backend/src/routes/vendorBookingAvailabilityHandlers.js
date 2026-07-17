@@ -10,6 +10,27 @@ function normalizeServiceSlug(value) {
 }
 
 function formatVendorBooking(booking) {
+  const groupFundedCampaign = booking.groupFundedCampaign
+    ? {
+        ...booking.groupFundedCampaign,
+        bundleItems: Array.isArray(booking.groupFundedBundleItems)
+          ? booking.groupFundedBundleItems.map((item) => ({
+              id: item._id,
+              serviceId: item.serviceId,
+              serviceName: item.serviceNameSnapshot,
+              serviceSlug: item.serviceSlugSnapshot,
+              bookingQuantity: item.bookingQuantity,
+              priceAmountCents: item.priceAmountCents,
+              currency: item.currency,
+              executionMode: item.executionMode,
+              scheduledStartAt: item.scheduledStartAt,
+              scheduledEndAt: item.scheduledEndAt,
+              sortOrder: item.sortOrder
+            }))
+          : []
+      }
+    : null;
+
   return {
     id: booking._id,
     reference: booking.reference,
@@ -26,6 +47,8 @@ function formatVendorBooking(booking) {
     servicePriceAmountCents: booking.servicePriceAmountCents,
     serviceCurrency: booking.serviceCurrency,
     servicePriceDisplay: booking.servicePriceDisplay,
+    bundleItems: booking.bundleItems || [],
+    executionMode: booking.executionMode || "parallel",
     bookingQuantity: booking.bookingQuantity,
     customerUserId: booking.customerUserId,
     customerName: booking.customerName,
@@ -39,7 +62,7 @@ function formatVendorBooking(booking) {
     paymentStatus: booking.paymentStatus,
     groupFundedBookingId: booking.groupFundedBookingId,
     bookingPaymentSource: booking.bookingPaymentSource,
-    groupFundedCampaign: booking.groupFundedCampaign,
+    groupFundedCampaign,
     paymentProof: booking.paymentProofObjectKey
       ? {
           fileName: booking.paymentProofFileName,

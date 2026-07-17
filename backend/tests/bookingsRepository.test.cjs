@@ -403,8 +403,15 @@ test("group-funded booking creation inserts one confirmed paid linked organizer 
             assert.match(sql, /group_funded_booking_id/);
             assert.match(sql, /booking_payment_source/);
             assert.equal(params[4], 42);
-            assert.equal(params[19], 100);
+            assert.equal(params[20], 100);
             return { rows: [{ id: 88 }] };
+          }
+          if (sql.includes("INSERT INTO booking_bundle_items")) {
+            assert.equal(params[0], 88);
+            assert.equal(params[1], 1);
+            assert.equal(params[2], 2);
+            assert.equal(params[3], 3);
+            return { rows: [] };
           }
           if (sql.includes("WHERE bookings.id = $1")) {
             return {
@@ -497,7 +504,7 @@ test("group-funded booking creation inserts one confirmed paid linked organizer 
     groupFundedBookingId: 100
   });
 
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 3);
   assert.equal(booking.status, "confirmed");
   assert.equal(booking.paymentStatus, "paid");
   assert.equal(booking.groupFundedBookingId, "100");
@@ -619,9 +626,10 @@ test("count overlapping active bookings uses the expected time window and exclus
 
   assert.equal(count, 3);
   assert.equal(calls.length, 1);
-  assert.match(calls[0].query, /\(\$3::bigint IS NULL OR service_id = \$3::bigint\)/);
-  assert.match(calls[0].query, /scheduled_start_at < \$6::timestamptz/);
-  assert.match(calls[0].query, /\(\$7::bigint IS NULL OR id <> \$7::bigint\)/);
+  assert.match(calls[0].query, /FROM booking_bundle_items\s+INNER JOIN bookings ON bookings\.id = booking_bundle_items\.booking_id/s);
+  assert.match(calls[0].query, /\(\$3::bigint IS NULL OR booking_bundle_items\.service_id = \$3::bigint\)/);
+  assert.match(calls[0].query, /booking_bundle_items\.scheduled_start_at < \$6::timestamptz/);
+  assert.match(calls[0].query, /\(\$7::bigint IS NULL OR bookings\.id <> \$7::bigint\)/);
   assert.deepEqual(calls[0].params, [1, 2, 3, ["pending", "confirmed", "rescheduled"], "2026-06-23T08:00:00.000Z", "2026-06-23T09:00:00.000Z", 4]);
 });
 
@@ -647,6 +655,7 @@ test("count overlapping active bookings can count branch-wide capacity across se
 
   assert.equal(count, 1);
   assert.equal(calls.length, 1);
-  assert.match(calls[0].query, /\(\$3::bigint IS NULL OR service_id = \$3::bigint\)/);
+  assert.match(calls[0].query, /FROM booking_bundle_items\s+INNER JOIN bookings ON bookings\.id = booking_bundle_items\.booking_id/s);
+  assert.match(calls[0].query, /\(\$3::bigint IS NULL OR booking_bundle_items\.service_id = \$3::bigint\)/);
   assert.deepEqual(calls[0].params, [1, 2, null, ["pending", "confirmed", "rescheduled"], "2026-06-23T08:00:00.000Z", "2026-06-23T09:30:00.000Z", null]);
 });
