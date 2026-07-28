@@ -1205,6 +1205,17 @@ body {
   min-width: 0;
 }
 
+@media (min-width: 48.0625em) {
+  .theme-editor-modal {
+    --modal-size: min(90dvw, 96rem) !important;
+  }
+
+  .theme-editor-modal .mantine-Modal-content {
+    width: var(--modal-size) !important;
+    max-width: var(--modal-size) !important;
+  }
+}
+
 @media (max-width: 64em) {
   .theme-editor-layout {
     grid-template-columns: 1fr;
