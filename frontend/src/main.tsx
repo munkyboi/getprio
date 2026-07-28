@@ -6,6 +6,7 @@ import { Notifications } from "@mantine/notifications";
 import { BrowserRouter } from "react-router-dom";
 import App from "./App";
 import AppErrorBoundary from "./components/AppErrorBoundary";
+import ModalWheelBridge from "./components/ModalWheelBridge";
 import { AuthProvider } from "./context/AuthContext";
 import { queryClient } from "./lib/queryClient";
 import "@mantine/core/styles.css";
@@ -92,6 +93,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <MantineProvider theme={theme}>
       <Notifications position="top-right" />
+      <ModalWheelBridge />
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
           <AppErrorBoundary>
