@@ -17,7 +17,11 @@ function futureManilaCutoffDate(days = 1) {
 function loadService(mocks) {
   const target = require.resolve("../src/services/organizerCampaignService.js");
   const originals = new Map();
-  for (const [request, exports] of Object.entries(mocks)) {
+  const isolatedMocks = {
+    "../repositories/ratings": { getUserTrustAggregate: async () => null },
+    ...mocks
+  };
+  for (const [request, exports] of Object.entries(isolatedMocks)) {
     const resolved = require.resolve(request, { paths: [path.dirname(target)] });
     originals.set(resolved, require.cache[resolved]);
     require.cache[resolved] = { id: resolved, filename: resolved, loaded: true, exports };
