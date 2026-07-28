@@ -435,7 +435,7 @@ export type BookingPaymentSource = "standard" | "group_funded";
 export interface BookingGroupFundedCampaignSummary {
   id: string | null;
   publicToken: string;
-  organizerDisplayName: string;
+  organizerDisplayName?: string;
   campaignStatus: GroupFundedCampaignStatus;
   visibility: "private_link" | "public";
   campaignTitle: string;
@@ -492,6 +492,9 @@ export interface CustomerBookingSummary {
   paymentStatus: BookingPaymentStatus;
   groupFundedBookingId: string | null;
   bookingPaymentSource: BookingPaymentSource;
+  organizerCampaignOptIn: boolean;
+  organizerCampaign?: { id: string; status: OrganizerCampaignStatus } | null;
+  organizerTrustRating?: { average: number; count: number } | null;
   groupFundedCampaign: BookingGroupFundedCampaignSummary | null;
   manualPaymentDestination: BookingManualPaymentDestination | null;
   paymentProof: BookingPaymentProofSummary | null;
@@ -537,6 +540,7 @@ export interface CreateCustomerBookingRequest {
   notifyBySms?: boolean;
   smsAlertFeePaymentId?: string;
   bookingVerificationToken?: string;
+  organizerCampaignOptIn?: boolean;
 }
 
 export interface CustomerBookingResponse {
@@ -548,6 +552,7 @@ export interface BookingBundleItemSummary {
   serviceId: string;
   serviceName: string;
   serviceSlug: string;
+  imageUrl?: string;
   bookingQuantity: number;
   priceAmountCents: number;
   currency: string;
@@ -791,6 +796,97 @@ export interface GroupFundedCampaignsResponse {
     contribution?: GroupFundedContributionSummary | null;
   }>;
   pagination?: PaginationMetadata;
+}
+
+export type OrganizerCampaignStatus = "draft" | "collecting" | "collected" | "refund_pending" | "cancelled" | "frozen";
+export type OrganizerContributionStatus = "pending_proof" | "submitted" | "review_overdue" | "accepted" | "rejected" | "refund_pending" | "refund_sent" | "refund_confirmed" | "refund_disputed";
+
+export interface OrganizerCampaignContribution {
+  id: string;
+  campaignId: string;
+  contributorUserId: string;
+  contributorDisplayName?: string;
+  slotNumber?: number;
+  status: OrganizerContributionStatus;
+  amountCents: number;
+  currency: string;
+  paymentReference: string;
+  paymentProof?: {
+    fileName: string;
+    contentType: string;
+    sizeBytes: number;
+  } | null;
+  rejectionReason?: string | null;
+  submittedAt?: string | Date | null;
+  trustRating?: { average: number; count: number };
+}
+
+export interface OrganizerCampaign {
+  id: string;
+  publicToken: string;
+  bookingId: string;
+  organizerUserId: string;
+  organizerDisplayName: string;
+  status: OrganizerCampaignStatus;
+  visibility: "private_link" | "public";
+  title: string;
+  description: string;
+  deadlineAt: string | Date;
+  contributionFeeCents: number;
+  requiredContributors: number;
+  acceptedContributors?: number;
+  joinedContributors?: number;
+  acceptedAmountCents?: number;
+  paymentInstructions: string;
+  currency: string;
+  scheduledStartAt?: string | Date;
+  booking?: {
+    id: string;
+    reference: string;
+    vendorName: string;
+    vendorSlug: string;
+    locationName: string;
+    locationSlug: string;
+    locationAddress?: string;
+    locationTimezone: string;
+    scheduledStartAt: string | Date;
+    scheduledEndAt: string | Date;
+    bundleItems: BookingBundleItemSummary[];
+  };
+  contributions?: OrganizerCampaignContribution[];
+  contribution?: OrganizerCampaignContribution;
+  reimbursements?: Array<{ id: string; contributionId: string; contributorUserId: string; status: "pending" | "sent" | "confirmed" | "disputed"; amountCents: number }>;
+  reimbursement?: { id: string; contributionId: string; contributorUserId: string; status: "pending" | "sent" | "confirmed" | "disputed"; amountCents: number } | null;
+  organizerTrustRating?: { average: number; count: number };
+  events?: Array<{
+    id: string;
+    eventType: string;
+    actorRole?: string | null;
+    actorDisplayName?: string | null;
+    source: string;
+    metadata: Record<string, unknown>;
+    createdAt: string | Date;
+  }>;
+  notices?: Array<{ id: string; eventType: string; title: string; body: string; createdAt: string | Date }>;
+}
+
+export interface PublicOrganizerCampaign {
+  id: string;
+  publicToken: string;
+  status: OrganizerCampaignStatus;
+  title: string;
+  description: string;
+  deadlineAt: string | Date;
+  contributionFeeCents: number;
+  requiredContributors: number;
+  acceptedContributors: number;
+  filledContributors: number;
+  organizerDisplayName: string;
+  scheduledStartAt: string | Date;
+  currency: string;
+  vendor: { name: string; slug: string };
+  location: { name: string; slug: string };
+  service: { name: string; slug: string };
 }
 
 export type GroupFundedVendorAlertEventType =
@@ -1453,6 +1549,8 @@ export interface UpdateTenantSettingsRequest {
 export interface CustomerNotificationSettings {
   bookingAlerts: boolean;
   queueAlerts: boolean;
+  campaignAlerts: boolean;
+  preferredContactMethod: "in_app" | "email" | "sms";
 }
 
 export interface TenantNotificationSettings {

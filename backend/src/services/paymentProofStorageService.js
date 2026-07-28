@@ -288,6 +288,13 @@ async function createViewAccess({ booking }) {
   };
 }
 
+async function createCampaignEvidenceViewAccess({ objectKey, fileName, contentType, sizeBytes }) {
+  assertPaymentProofStorageConfigured();
+  if (!objectKey) { const error = new Error("Campaign evidence has not been submitted."); error.statusCode = 404; throw error; }
+  const url = await getSignedUrl(getS3Client(), new GetObjectCommand({ Bucket: env.b2BucketPaymentProof, Key: objectKey }), { expiresIn: VIEW_EXPIRES_SECONDS });
+  return { proof: { fileName, contentType, sizeBytes }, access: { method: "GET", url, expiresInSeconds: VIEW_EXPIRES_SECONDS } };
+}
+
 module.exports = {
   assertObjectKeyBelongsToBooking,
   assertGroupFundedUploadMetadata,
@@ -295,5 +302,6 @@ module.exports = {
   createUpload,
   uploadBinary,
   uploadGroupFundedBinary,
-  createViewAccess
+  createViewAccess,
+  createCampaignEvidenceViewAccess
 };

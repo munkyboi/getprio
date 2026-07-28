@@ -30,6 +30,55 @@ Design decisions should support this chain:
 4. IAS Module 3 maps authentication, RBAC, session management, and login flow to the same roles/screens.
 5. IAS Module 4 maps every endpoint, form, and input field to likely OWASP risks, severity, evidence, and remediation.
 
+## Mobile-First UI/UX Rule
+
+All GetPrio screens, prototypes, and reusable components must be designed and implemented mobile-first. The narrow-screen experience is the primary design, not a reduced desktop layout.
+
+- Start layout and CSS from the smallest supported viewport, then add wider-screen enhancements with `min-width` breakpoints.
+- Keep primary tasks, status, and actions visible without horizontal scrolling. Stack content and actions on mobile before introducing desktop grids, tables, sidebars, or multi-column layouts.
+- Use touch-friendly controls with a minimum interactive target of approximately 44 by 44 CSS pixels and enough spacing to prevent accidental taps.
+- Prefer full-width primary actions, drawers, sheets, and focused single-column forms on mobile. Desktop-only hover behavior must not be required to discover or complete an action.
+- Make dense tables responsive through cards, prioritized columns, or deliberate scrolling with clear affordances; never silently clip critical information.
+- Preserve readable type, labels, validation, loading, empty, error, and confirmation states at narrow widths. Account for the on-screen keyboard and mobile safe areas where relevant.
+- Verify new or changed UI at mobile, tablet, and desktop widths. Mobile accessibility and task completion are release criteria, not optional polish.
+
+### Modal UI/UX Standard
+
+Use the customer **Contact Vendor** modal as the canonical task-modal reference. Its implementation is the `contact-vendor-modal` in `frontend/src/pages/VendorProfilePage.tsx`, with the reusable form structure in `frontend/src/components/ContactForm.tsx` and responsive rules in `frontend/src/styles.css`. Follow this pattern unless a documented task requirement calls for a compact confirmation, media-only viewer, destructive warning, or another intentionally different presentation.
+
+#### Required modal anatomy
+
+- Build task modals as a height-bounded flex column with four functional regions: a fixed header, optional fixed introductory guidance, an independently scrollable main region, and a persistent footer. The modal shell, header, guidance, and footer must remain stationary; only the main region may scroll.
+- Keep all modal overflow vertical. Set flex children that own scrolling to `min-height: 0`, prevent horizontal overflow at the modal body and scroll-region boundaries, and ensure long labels, filenames, validation messages, and user content wrap instead of widening the modal. The underlying page must remain scroll-locked while the modal is open.
+- Use the Contact Vendor header hierarchy: a short uppercase eyebrow that names the task category, followed by a larger action-oriented title that includes the current subject or recipient when useful, such as `CONTACT VENDOR` and `Send <vendor> a Message`. Keep both lines inside the accessible modal title region with the close control aligned at the top-right. Do not repeat either title as another heading in the content.
+- Place one short introductory paragraph between the header and form when users need purpose, scope, or response expectations before acting. Keep detailed instructions, alerts, privacy notes, and security notices inside the scrollable region near the fields or decisions they explain.
+- Keep the footer semantically connected to submission. It may contain concise delivery, privacy, consequence, or ownership copy plus the primary action. Submission loading, disabled, and retry states must appear on or adjacent to the footer action; validation errors remain beside their relevant fields in the scrollable region.
+- Make the persistent footer visually continuous with the modal paper. Its background color must exactly match the modal content surface in every theme and state; inherit the paper background or use the same design token rather than a translucent gradient, tinted panel, or separately hard-coded color. If the footer needs separation from scrolling content, use spacing, a subtle top border, or a restrained shadow that fades into the same paper background.
+- Use a dedicated scroll container for long forms or evidence views. Reserve a small gutter for the scrollbar, keep the scrollbar discoverable when content overflows, and do not let it cover fields, attachments, images, or controls.
+- Preserve the intrinsic aspect ratio of attachments, payment proofs, QR codes, service images, and other media. Fit media within the available content width with an appropriate `object-fit` behavior; never stretch media or force the modal to scroll sideways.
+
+#### Mobile behavior
+
+- At widths up to approximately `48em`, present task modals as bottom sheets aligned to the bottom edge. Use the full viewport width, cap the working height at approximately `min(92dvh, 48rem)`, leave a small portion of the underlying page visible above the sheet, round only the top corners, and remove any gap beneath the sheet.
+- Keep the fixed header compact but readable. Scale the action title for narrow screens without truncating the subject, preserve space for the close control, and do not allow the close control to overlap either title line.
+- Arrange the complete task in one vertical reading order. Convert related desktop field groups to one column, make cards, inputs, selects, text areas, alerts, uploads, and media use the full available width, and maintain enough bottom clearance for the on-screen keyboard.
+- Stack footer guidance and actions vertically. Keep concise guidance directly above the action it qualifies, make the primary action full-width and at least 44 CSS pixels tall, and include `env(safe-area-inset-bottom)` in the footer padding. Hide a redundant Cancel button when the close control performs the same safe action.
+- When the on-screen keyboard reduces the visual viewport, keep the focused field scrollable into view and keep the footer reachable without causing the page behind the modal to move.
+
+#### Desktop and wider-screen behavior
+
+- Above the `48em` mobile breakpoint (the reference CSS begins at `48.0625em`), center the modal and use a bounded task-appropriate width; the Contact Vendor reference uses `lg`. Cap the working height at `min(88dvh, 48rem)`, use a clear dialog radius such as `xl`, and preserve comfortable space around the modal at shorter viewport heights.
+- Keep the same mobile-first reading and tab order. Progressively place only closely related, short fields into columns, such as name and email; keep long text, uploads, alerts, and explanatory content full-width.
+- Lay out the footer horizontally when space permits: contextual delivery or privacy guidance on the left and the primary action on the right. If explicit cancellation is necessary, place Cancel immediately before the primary action; otherwise rely on the clearly available close control.
+- Keep the primary action content-sized on desktop while retaining at least a 44-pixel interactive height. Footer copy must wrap and yield space to the action rather than forcing horizontal overflow.
+
+#### Interaction, accessibility, and verification
+
+- Provide an accessible modal title, trap keyboard focus within the dialog, move initial focus to the first meaningful field or control, support Escape and close-button dismissal only when safe, and return focus to the invoking control after close.
+- If closing would discard user input or interrupt an in-flight operation, disable unsafe dismissal or require an explicit discard confirmation. Do not silently lose entered data.
+- Preserve visible focus indicators and logical keyboard order across the header, scrollable content, and footer. Do not rely on hover to expose instructions or actions.
+- Verify every new or changed modal at narrow mobile, mobile with the keyboard open, tablet, standard desktop, and short desktop viewport sizes. Test with enough content and long values to overflow. Confirm that only the intended main region scrolls, the header and footer remain reachable, no horizontal scrollbar or sideways movement appears, the footer does not cover the final field, and loading, disabled, validation, error, close, Escape, and focus-return states behave correctly.
+
 ## Required Figma Screen Areas
 
 When generating or implementing screens, prioritize role-based screen visibility.

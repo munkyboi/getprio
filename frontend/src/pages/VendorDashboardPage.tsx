@@ -61,6 +61,7 @@ import {
   IconPencil,
   IconQrcode,
   IconSparkles,
+  IconStar,
   IconTicket,
   IconTrash,
   IconX,
@@ -70,7 +71,7 @@ import {
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { useMediaQuery } from "@mantine/hooks";
-import { addDays, differenceInMinutes, getDay } from "date-fns";
+import { differenceInMinutes, getDay } from "date-fns";
 import QRCode from "react-qr-code";
 import { Navigate, NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
 import type {
@@ -106,13 +107,13 @@ import type {
   GroupFundedLocationServiceSettings,
   GroupFundedBundleItemSummary,
   GroupFundedCampaignSummary,
-  GroupFundedVendorAlertEvent,
   VendorGroupFundedContributionSummary,
   VendorGroupFundedRefundSummary,
   GroupFundedRefundStatus
 } from "@shared";
 import { API_BASE_URL } from "../api/client";
 import PhilippineMobileInput from "../components/PhilippineMobileInput";
+import FiveStarRatingInput from "../components/FiveStarRatingInput";
 import RichCampaignDescription from "../components/RichCampaignDescription";
 import * as vendorDashboardBookings from "../api/vendorDashboardBookings";
 import * as vendorDashboardQueue from "../api/vendorDashboardQueue";
@@ -123,6 +124,7 @@ import * as vendorDashboardBootstrap from "../api/vendorDashboardBootstrap";
 import * as vendorDashboardExport from "../api/vendorDashboardExport";
 import { useAuth } from "../context/AuthContext";
 import { ConfirmActionModal } from "../components/ConfirmActionModal";
+import { PromptActionModal } from "../components/PromptActionModal";
 import { shouldEnableVendorDashboardBootstrap } from "../lib/vendorDashboardBootstrap";
 import { buildJoinUrl, buildMonitorUrl } from "../queuePaths";
 import {
@@ -145,7 +147,7 @@ type RawGroupFundedBundleItem = GroupFundedBundleItemSummary & {
   serviceSlugSnapshot?: string;
 };
 
-const dashboardSections = new Set(["queue", "tenants", "services", "bookings", "group-funded", "staff", "clients", "history", "reports", "settings"]);
+const dashboardSections = new Set(["queue", "tenants", "services", "bookings", "staff", "clients", "history", "reports", "settings"]);
 const SERVICE_TREND_USER_LIMIT = 30;
 
 function IconActionButton({
@@ -456,58 +458,6 @@ function buildDefaultServiceLocationEntry(locationSlug: string): ServiceLocation
   };
 }
 
-function getGroupFundedDashboardAlertTitle(event: GroupFundedVendorAlertEvent) {
-  switch (event.eventType) {
-    case "campaign_created":
-      return "New group-funded campaign";
-    case "contribution_submitted":
-      return "Group-funded proof submitted";
-    case "funding_completed":
-    case "capacity_hold_created":
-      return "Group-funded booking ready";
-    case "replacement_slot_accepted":
-      return "Replacement slot accepted";
-    case "replacement_slot_declined":
-      return "Replacement slot declined";
-    case "funding_deadline_expired":
-      return "Group-funded campaign expired";
-    case "vendor_review_expired":
-      return "Vendor review expired";
-    case "vendor_approved":
-      return "Group-funded booking approved";
-    case "vendor_rejected":
-      return "Group-funded booking rejected";
-    default:
-      return "Group-funded update";
-  }
-}
-
-function getGroupFundedDashboardAlertLead(event: GroupFundedVendorAlertEvent) {
-  switch (event.eventType) {
-    case "campaign_created":
-      return `${event.campaign.organizerDisplayName || "A customer"} started a group-funded campaign for`;
-    case "contribution_submitted":
-      return "A contributor submitted payment proof for";
-    case "funding_completed":
-    case "capacity_hold_created":
-      return "Funding is complete and ready for vendor review for";
-    case "replacement_slot_accepted":
-      return "The organizer accepted the replacement slot for";
-    case "replacement_slot_declined":
-      return "The organizer declined the replacement slot for";
-    case "funding_deadline_expired":
-      return "The funding deadline passed for";
-    case "vendor_review_expired":
-      return "The vendor review hold expired for";
-    case "vendor_approved":
-      return "A group-funded booking was approved for";
-    case "vendor_rejected":
-      return "A group-funded booking was rejected for";
-    default:
-      return "There is a group-funded update for";
-  }
-}
-
 const emptyAvailabilityBlockForm: SaveVendorAvailabilityBlockRequest = {
   locationSlug: "",
   serviceSlug: "",
@@ -760,19 +710,17 @@ const navItems = [
   { section: "tenants", label: "Locations", icon: IconHomeStats },
   { section: "services", label: "Services", icon: IconBriefcase },
   { section: "bookings", label: "Bookings", icon: IconCalendarCheck },
-  { section: "group-funded", label: "Group-funded", icon: IconUsersGroup },
   { section: "staff", label: "Staff", icon: IconUsersGroup },
   { section: "clients", label: "Clients", icon: IconUsersGroup },
   { section: "history", label: "History", icon: IconHistory },
   { section: "reports", label: "Reports", icon: IconChartBar },
   { section: "settings", label: "Settings", icon: IconSettings }
 ] as const;
-const dashboardSectionDescriptions: Record<DashboardSection, string> = {
+const dashboardSectionDescriptions: Partial<Record<DashboardSection, string>> = {
   queue: "Run the live queue, manage intake, and move customers through service.",
   tenants: "Configure locations, counters, and the public entry points for each branch.",
   services: "Manage bookable services, durations, pricing, and public availability state.",
   bookings: "Review incoming service requests and manage confirmation, rescheduling, or cancellation.",
-  "group-funded": "Review group-funded campaigns, contribution proofs, and vendor approval work.",
   staff: "Manage workspace access, roles, and operating status for your team.",
   clients: "Review recent customer activity and returning queue visitors.",
   history: "Inspect completed ticket activity and export queue records.",
@@ -784,14 +732,13 @@ const adminAllowedSections = new Set<DashboardSection>([
   "tenants",
   "services",
   "bookings",
-  "group-funded",
   "staff",
   "clients",
   "history",
   "reports",
   "settings"
 ]);
-const staffAllowedSections = new Set<DashboardSection>(["queue", "bookings", "group-funded", "clients", "history"]);
+const staffAllowedSections = new Set<DashboardSection>(["queue", "bookings", "clients", "history"]);
 
 function getHistoryTimestamp(value: string | Date): number {
   return toTimestamp(value);
@@ -869,10 +816,6 @@ function formatBytes(sizeBytes: number | null): string {
   }
 
   return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function getTodayDateInputValue(): string {
-  return formatDateInputValue();
 }
 
 function getBookingBadgeColor(status: VendorBookingSummary["status"]): "gray" | "red" | "yellow" | "orange" | "teal" | "blue" {
@@ -1152,10 +1095,6 @@ export default function VendorDashboardPage() {
   const knownBookingAlertIdsRef = useRef<Set<string> | null>(null);
   const [bookingAlertBookings, setBookingAlertBookings] = useState<VendorBookingSummary[]>([]);
   const dismissedBookingAlertIdsRef = useRef<Set<string>>(new Set());
-  const [groupFundedAlertEventIds, setGroupFundedAlertEventIds] = useState<string[]>([]);
-  const knownGroupFundedAlertEventIdsRef = useRef<Set<string> | null>(null);
-  const [groupFundedAlertEvents, setGroupFundedAlertEvents] = useState<GroupFundedVendorAlertEvent[]>([]);
-  const dismissedGroupFundedAlertEventIdsRef = useRef<Set<string>>(new Set());
   const knownQueueTicketIdsRef = useRef<Set<string> | null>(null);
   const [queueAlertIds, setQueueAlertIds] = useState<string[]>([]);
   const dismissedQueueAlertIdsRef = useRef<Set<string>>(new Set());
@@ -1165,6 +1104,10 @@ export default function VendorDashboardPage() {
   const [bookingDetailBooking, setBookingDetailBooking] = useState<VendorBookingSummary | null>(null);
   const [bookingDetailError, setBookingDetailError] = useState("");
   const [paymentRejectionReason, setPaymentRejectionReason] = useState("");
+  const [organizerRatingStars, setOrganizerRatingStars] = useState(0);
+  const [organizerRatingSubmitted, setOrganizerRatingSubmitted] = useState(false);
+  const [organizerRatingBooking, setOrganizerRatingBooking] = useState<VendorBookingSummary | null>(null);
+  const [organizerRatingReason, setOrganizerRatingReason] = useState("");
   const [groupFundedStatusFilter, setGroupFundedStatusFilter] = useState<GroupFundedStatusFilter>("all");
   const [groupFundedDetailId, setGroupFundedDetailId] = useState<string | null>(null);
   const [groupFundedRejectReason, setGroupFundedRejectReason] = useState("");
@@ -1222,10 +1165,7 @@ export default function VendorDashboardPage() {
   const [historyPage, setHistoryPage] = useState(1);
   const [bookingSearch, setBookingSearch] = useState("");
   const [bookingStatusFilter, setBookingStatusFilter] = useState<BookingStatusFilter>("all");
-  const [bookingDateRange, setBookingDateRange] = useState<[Date | null, Date | null]>(() => [
-    new Date(`${getTodayDateInputValue()}T00:00:00`),
-    addDays(new Date(`${getTodayDateInputValue()}T00:00:00`), 14)
-  ]);
+  const [bookingDateRange, setBookingDateRange] = useState<[Date | null, Date | null]>([null, null]);
   const [bookingPage, setBookingPage] = useState(1);
   const [bookingPagination, setBookingPagination] = useState<PaginationMetadata | null>(null);
 
@@ -1449,19 +1389,6 @@ export default function VendorDashboardPage() {
     enabled: Boolean(token && selectedTenantSlug && selectedLocationSlug && hasActiveSubscription && canOperateBookingQueue),
     refetchInterval: 15000
   });
-  const groupFundedAlertsQuery = useQuery({
-    queryKey: ["vendor-dashboard-group-funded-alerts", token, selectedTenantSlug, selectedLocation?.id],
-    queryFn: async () => {
-      if (!token || !selectedTenantSlug || !selectedLocation?.id) {
-        throw new Error("Missing dashboard context.");
-      }
-
-      return vendorDashboardBookings.getGroupFundedAlertEvents(token, selectedTenantSlug, selectedLocation.id);
-    },
-    enabled: Boolean(token && selectedTenantSlug && selectedLocation?.id && hasActiveSubscription && canOperateBookingQueue),
-    refetchInterval: 15000
-  });
-
   useEffect(() => {
     if (!bookingDetailOpen || !bookingDetailModalId || !token || !selectedTenantSlug) {
       return;
@@ -1644,38 +1571,6 @@ export default function VendorDashboardPage() {
 
     syncBookingAlerts(bookingAlertsQuery.data.bookings, { detectNew: true });
   }, [bookingAlertsQuery.data]);
-
-  useEffect(() => {
-    if (!groupFundedAlertsQuery.data) {
-      return;
-    }
-
-    const events = groupFundedAlertsQuery.data.events;
-    const nextIds = new Set(events.map((event) => event.id));
-    const previousIds = knownGroupFundedAlertEventIdsRef.current;
-    const dismissedIds = dismissedGroupFundedAlertEventIdsRef.current;
-
-    setGroupFundedAlertEvents(events);
-
-    const newEventIds = events
-      .filter((event) => !dismissedIds.has(event.id) && (!previousIds || !previousIds.has(event.id)))
-      .map((event) => event.id);
-
-    if (newEventIds.length) {
-      setGroupFundedAlertEventIds((current) => [...new Set([...current, ...newEventIds])]);
-    }
-
-    setGroupFundedAlertEventIds((current) =>
-      current.filter((eventId) => {
-        if (dismissedIds.has(eventId)) {
-          return false;
-        }
-        return events.some((event) => event.id === eventId);
-      })
-    );
-
-    knownGroupFundedAlertEventIdsRef.current = nextIds;
-  }, [groupFundedAlertsQuery.data]);
 
   useEffect(() => {
     if (!browserNotificationsSupported) {
@@ -1931,9 +1826,6 @@ export default function VendorDashboardPage() {
         void queryClient.invalidateQueries({
           queryKey: ["vendor-dashboard-group-funded-detail", token, selectedTenantSlug]
         });
-        void queryClient.invalidateQueries({
-          queryKey: ["vendor-dashboard-group-funded-alerts", token, selectedTenantSlug]
-        });
       }
     };
     eventSource.onerror = () => {
@@ -2038,13 +1930,9 @@ export default function VendorDashboardPage() {
     setBookingAlertIds([]);
     setBookingAlertBookings([]);
     knownBookingAlertIdsRef.current = null;
-    setGroupFundedAlertEventIds([]);
-    setGroupFundedAlertEvents([]);
-    knownGroupFundedAlertEventIdsRef.current = null;
     setQueueAlertIds([]);
     knownQueueTicketIdsRef.current = null;
     dismissedBookingAlertIdsRef.current = new Set();
-    dismissedGroupFundedAlertEventIdsRef.current = new Set();
     dismissedQueueAlertIdsRef.current = new Set();
   }, [selectedLocationSlug, selectedTenantSlug]);
 
@@ -2068,22 +1956,17 @@ export default function VendorDashboardPage() {
     try {
       const parsed = JSON.parse(rawValue) as {
         booking?: string[];
-        groupFundedEvents?: string[];
         queue?: string[];
       };
 
       dismissedBookingAlertIdsRef.current = new Set(
         Array.isArray(parsed.booking) ? parsed.booking.filter((value) => typeof value === "string") : []
       );
-      dismissedGroupFundedAlertEventIdsRef.current = new Set(
-        Array.isArray(parsed.groupFundedEvents) ? parsed.groupFundedEvents.filter((value) => typeof value === "string") : []
-      );
       dismissedQueueAlertIdsRef.current = new Set(
         Array.isArray(parsed.queue) ? parsed.queue.filter((value) => typeof value === "string") : []
       );
     } catch {
       dismissedBookingAlertIdsRef.current = new Set();
-      dismissedGroupFundedAlertEventIdsRef.current = new Set();
       dismissedQueueAlertIdsRef.current = new Set();
     }
   }, [selectedLocationSlug, selectedTenantSlug]);
@@ -2096,7 +1979,6 @@ export default function VendorDashboardPage() {
     const storageKey = getDismissedAlertStorageKey(selectedTenantSlug, selectedLocationSlug || null);
     const payload = {
       booking: Array.from(dismissedBookingAlertIdsRef.current),
-      groupFundedEvents: Array.from(dismissedGroupFundedAlertEventIdsRef.current),
       queue: Array.from(dismissedQueueAlertIdsRef.current)
     };
 
@@ -2143,12 +2025,6 @@ export default function VendorDashboardPage() {
   function clearBookingAlert(bookingId: string) {
     dismissedBookingAlertIdsRef.current.add(bookingId);
     setBookingAlertIds((current) => current.filter((item) => item !== bookingId));
-    persistDismissedAlerts();
-  }
-
-  function clearGroupFundedAlert(eventId: string) {
-    dismissedGroupFundedAlertEventIdsRef.current.add(eventId);
-    setGroupFundedAlertEventIds((current) => current.filter((item) => item !== eventId));
     persistDismissedAlerts();
   }
 
@@ -2416,13 +2292,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         .filter((booking): booking is VendorBookingSummary => Boolean(booking && booking.status === "pending")),
     [bookingAlertBookings, bookingAlertIds]
   );
-  const activeGroupFundedAlerts = useMemo(
-    () =>
-      groupFundedAlertEventIds
-        .map((eventId) => groupFundedAlertEvents.find((event) => event.id === eventId))
-        .filter((event): event is GroupFundedVendorAlertEvent => Boolean(event)),
-    [groupFundedAlertEventIds, groupFundedAlertEvents]
-  );
   const activeQueueAlerts = useMemo(
     () =>
       queueAlertIds
@@ -2551,9 +2420,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       queryClient.invalidateQueries({
         queryKey: ["vendor-dashboard-group-funded-detail", token, selectedTenantSlug]
       }),
-      queryClient.invalidateQueries({
-        queryKey: ["vendor-dashboard-group-funded-alerts", token, selectedTenantSlug]
-      })
     ]);
   }
 
@@ -2776,6 +2642,33 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     } catch (rejectError) {
       setError(getErrorMessage(rejectError));
       return false;
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function handleRateOrganizer(booking: VendorBookingSummary, reasonCategory?: string) {
+    if (!organizerRatingStars) return;
+    if (organizerRatingStars <= 2 && !reasonCategory?.trim()) {
+      setError("");
+      setOrganizerRatingBooking(booking);
+      setOrganizerRatingReason("");
+      return;
+    }
+    setBusyAction(`organizer-rating:${booking.id}`);
+    setError("");
+    try {
+      await vendorDashboardBookings.rateOrganizer(token, selectedTenantSlug, booking.id, {
+        stars: organizerRatingStars,
+        reasonCategory,
+        privateNote: ""
+      });
+      setOrganizerRatingSubmitted(true);
+      setOrganizerRatingBooking(null);
+      setOrganizerRatingReason("");
+      showSuccessNotification("Rating submitted", "The private organizer trust rating was saved.");
+    } catch (ratingError) {
+      setError(getErrorMessage(ratingError));
     } finally {
       setBusyAction("");
     }
@@ -3807,7 +3700,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         opened={planDialogOpen}
         onClose={() => setPlanDialogOpen(false)}
         size="xl"
-        title="Choose a subscription plan"
+        title={
+          <Stack className="getprio-modal-title" gap={2}>
+            <Text className="getprio-modal-eyebrow">BILLING</Text>
+            <Text className="getprio-modal-heading">Choose a subscription plan</Text>
+          </Stack>
+        }
       >
         {renderPlanCards()}
       </Modal>
@@ -5084,14 +4982,24 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
     return (
       <Modal
-        fullScreen
+        centered
+        className="theme-editor-modal"
         opened={themeDialogOpen}
         onClose={() => setThemeDialogOpen(false)}
-        title={`Setup public board theme${themeLocation ? `: ${themeLocation.name}` : ""}`}
+        size="xl"
+        title={
+          <Stack className="getprio-modal-title" gap={2}>
+            <Text className="getprio-modal-eyebrow">PUBLIC BOARD</Text>
+            <Text className="getprio-modal-heading">
+              {`Setup theme${themeLocation ? `: ${themeLocation.name}` : ""}`}
+            </Text>
+          </Stack>
+        }
       >
-        <div className="theme-editor-layout">
-          <ScrollArea h="calc(100vh - 120px)" offsetScrollbars>
-            <Stack gap="md" pr="md">
+        <div className="theme-editor-modal__shell">
+          <div className="theme-editor-layout theme-editor-modal__main">
+          <div className="theme-editor-modal__editor">
+            <Stack gap="md">
               <ModalSection
                 title="Preset"
                 description="Choose the role-based visual system used as the starting point for this public vendor page."
@@ -5297,21 +5205,22 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 label="Apply to all current and future locations"
                 onChange={(event) => setApplyThemeToAllLocations(event.target.checked)}
               />
-              <Group justify="flex-end">
-                <Button variant="default" onClick={() => setThemeDialogOpen(false)}>
-                  Close
-                </Button>
-                <Button
-                  className="neura-primary-button"
-                  disabled={busyAction === "theme-save"}
-                  onClick={handleSaveTheme}
-                >
-                  {busyAction === "theme-save" ? "Saving..." : "Save theme"}
-                </Button>
-              </Group>
             </Stack>
-          </ScrollArea>
+          </div>
           {renderThemePreview()}
+          </div>
+          <Group justify="flex-end" className="service-dialog__footer theme-editor-modal__footer">
+            <Button variant="default" onClick={() => setThemeDialogOpen(false)}>
+              Close
+            </Button>
+            <Button
+              className="neura-primary-button"
+              disabled={busyAction === "theme-save"}
+              onClick={handleSaveTheme}
+            >
+              {busyAction === "theme-save" ? "Saving..." : "Save theme"}
+            </Button>
+          </Group>
         </div>
       </Modal>
     );
@@ -5639,10 +5548,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           </Stack>
         }
         overlayProps={{ blur: 6, backgroundOpacity: 0.35 }}
-        scrollAreaComponent={ScrollArea.Autosize}
       >
-        <form onSubmit={handleSaveService}>
-          <Stack gap="lg">
+        <form className="task-modal-form" onSubmit={handleSaveService}>
+          <Stack className="task-modal-form__main" gap="lg">
             <Group justify="space-between" align="flex-start" className="service-dialog__header">
               <div>
                 <Text c="dimmed" size="sm">
@@ -6099,7 +6007,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               </Stack>
             </Card>
 
-            <Group justify="space-between" align="center" className="service-dialog__footer">
+          </Stack>
+          <Group justify="space-between" align="center" className="service-dialog__footer">
               <Text c="dimmed" size="sm">
                 {editingServiceSlug
                   ? "Update this service and keep the catalog ready for booking flows."
@@ -6113,8 +6022,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   {busyAction === "service-save" ? "Saving..." : "Save service"}
                 </Button>
               </Group>
-            </Group>
-          </Stack>
+          </Group>
         </form>
       </Modal>
     );
@@ -6138,10 +6046,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           </Stack>
         }
         overlayProps={{ blur: 6, backgroundOpacity: 0.35 }}
-        scrollAreaComponent={ScrollArea.Autosize}
       >
-        <form onSubmit={handleSaveAvailabilityBlock}>
-          <Stack gap="lg">
+        <form className="task-modal-form" onSubmit={handleSaveAvailabilityBlock}>
+          <Stack className="task-modal-form__main" gap="lg">
             <Group justify="space-between" align="flex-start" className="service-dialog__header">
               <div>
                 <Text c="dimmed" size="sm">
@@ -6267,7 +6174,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               </Stack>
             </Card>
 
-            <Group justify="space-between" align="center" className="service-dialog__footer">
+          </Stack>
+          <Group justify="space-between" align="center" className="service-dialog__footer">
               <Text c="dimmed" size="sm">
                 {editingAvailabilityBlockId
                   ? "Update the weekly rule and keep the schedule aligned with the current location."
@@ -6281,8 +6189,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   {busyAction === "availability-block-save" ? "Saving..." : "Save availability"}
                 </Button>
               </Group>
-            </Group>
-          </Stack>
+          </Group>
         </form>
       </Modal>
     );
@@ -6306,10 +6213,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           </Stack>
         }
         overlayProps={{ blur: 6, backgroundOpacity: 0.35 }}
-        scrollAreaComponent={ScrollArea.Autosize}
       >
-        <form onSubmit={handleSaveAvailabilityException}>
-          <Stack gap="lg">
+        <form className="task-modal-form" onSubmit={handleSaveAvailabilityException}>
+          <Stack className="task-modal-form__main" gap="lg">
             <Group justify="space-between" align="flex-start" className="service-dialog__header">
               <div>
                 <Text c="dimmed" size="sm">
@@ -6461,7 +6367,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               </Stack>
             </Card>
 
-            <Group justify="space-between" align="center" className="service-dialog__footer">
+          </Stack>
+          <Group justify="space-between" align="center" className="service-dialog__footer">
               <Text c="dimmed" size="sm">
                 {editingAvailabilityExceptionId
                   ? "Update the exception and keep the date-specific availability aligned."
@@ -6475,8 +6382,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   {busyAction === "availability-exception-save" ? "Saving..." : "Save exception"}
                 </Button>
               </Group>
-            </Group>
-          </Stack>
+          </Group>
         </form>
       </Modal>
     );
@@ -7596,7 +7502,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               </Text>
             </Stack>
           }
-          scrollAreaComponent={ScrollArea.Autosize}
         >
           {groupFundedDetailQuery.isFetching ? (
             <Text c="dimmed">Loading campaign details...</Text>
@@ -8059,7 +7964,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           onClose={() => setGroupFundedProofModalOpen(false)}
           opened={groupFundedProofModalOpen}
           size="lg"
-          title="Contribution payment proof"
+          title={
+            <Stack className="getprio-modal-title" gap={2}>
+              <Text className="getprio-modal-eyebrow">CONTRIBUTION EVIDENCE</Text>
+              <Text className="getprio-modal-heading">Contribution payment proof</Text>
+            </Stack>
+          }
         >
           {groupFundedProofContribution?.paymentProof ? (
             <Stack gap="md">
@@ -8152,8 +8062,14 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         centered
         opened={rescheduleDialogOpen}
         onClose={closeRescheduleDialog}
-        title={reschedulingBooking ? `Reschedule ${reschedulingBooking.reference}` : "Reschedule booking"}
-        scrollAreaComponent={ScrollArea.Autosize}
+        title={
+          <Stack className="getprio-modal-title" gap={2}>
+            <Text className="getprio-modal-eyebrow">BOOKING SCHEDULE</Text>
+            <Text className="getprio-modal-heading">
+              {reschedulingBooking ? `Reschedule ${reschedulingBooking.reference}` : "Reschedule booking"}
+            </Text>
+          </Stack>
+        }
       >
         <form onSubmit={handleRescheduleBooking}>
           <Stack gap="md">
@@ -8232,7 +8148,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         onClose={() => setRescheduleBlockModalOpen(false)}
         className="reschedule-blocked-modal"
         title="Reschedule blocked"
-        scrollAreaComponent={ScrollArea.Autosize}
       >
         <Stack gap="md">
           <Alert color="orange" variant="light">
@@ -8938,8 +8853,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         centered
         opened={counterDialogOpen}
         onClose={() => setCounterDialogOpen(false)}
-        title={editingCounterSlug ? "Edit counter" : "Add counter"}
-        scrollAreaComponent={ScrollArea.Autosize}
+        title={
+          <Stack className="getprio-modal-title" gap={2}>
+            <Text className="getprio-modal-eyebrow">QUEUE OPERATIONS</Text>
+            <Text className="getprio-modal-heading">{editingCounterSlug ? "Edit counter" : "Add counter"}</Text>
+          </Stack>
+        }
       >
         <form onSubmit={handleSaveCounter}>
           <Stack gap="md">
@@ -9010,8 +8929,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         centered
         opened={staffDialogOpen}
         onClose={() => setStaffDialogOpen(false)}
-        title="Add staff"
-        scrollAreaComponent={ScrollArea.Autosize}
+        title={
+          <Stack className="getprio-modal-title" gap={2}>
+            <Text className="getprio-modal-eyebrow">ACCESS MANAGEMENT</Text>
+            <Text className="getprio-modal-heading">Add staff</Text>
+          </Stack>
+        }
       >
         <form onSubmit={handleAddStaff}>
           <Stack gap="md">
@@ -9161,21 +9084,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         kind: "booking" as const,
         title: "New booking"
       })),
-      ...activeGroupFundedAlerts.map((event) => ({
-        actionLabel: "Review campaign",
-        body: (
-          <>
-            {getGroupFundedDashboardAlertLead(event)}{" "}
-            <Text component="span" fw={900}>
-              {event.campaign.campaignTitle || event.campaign.serviceName}
-            </Text>
-          </>
-        ),
-        campaignId: event.campaign.id,
-        id: event.id,
-        kind: "group-funded" as const,
-        title: getGroupFundedDashboardAlertTitle(event)
-      }))
     ];
     const detailBooking = bookingDetailBooking;
     const detailPaymentReviewable = Boolean(
@@ -9206,6 +9114,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       setBookingDetailBooking(null);
       setBookingDetailError("");
       setPaymentRejectionReason("");
+      setOrganizerRatingStars(0);
+      setOrganizerRatingSubmitted(false);
     };
 
     return (
@@ -9235,11 +9145,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       clearQueueAlert(alert.id);
                       return;
                     }
-                    if (alert.kind === "group-funded") {
-                      clearGroupFundedAlert(alert.id);
-                      return;
-                    }
-
                     clearBookingAlert(alert.id);
                   }}
                   radius="md"
@@ -9263,16 +9168,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           navigate("/dashboard/queue");
                           return;
                         }
-                        if (alert.kind === "group-funded") {
-                          resetGroupFundedCampaignDecision();
-                          closeGroupFundedContributionRejectModal();
-                          setGroupFundedRefundNotes({});
-                          setGroupFundedDetailId(alert.campaignId);
-                          clearGroupFundedAlert(alert.id);
-                          navigate("/dashboard/group-funded");
-                          return;
-                        }
-
                         setBookingDetailModalId(alert.id);
                         setBookingDetailOpen(true);
                         clearBookingAlert(alert.id);
@@ -9303,7 +9198,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           size="xl"
           classNames={{ content: "booking-detail__modal", header: "booking-detail__modal-header", body: "booking-detail__modal-body" }}
           closeButtonProps={{ "aria-label": "Close booking details" }}
-          scrollAreaComponent={ScrollArea.Autosize}
         >
           {bookingDetailLoading ? (
             <Text c="dimmed">Loading booking details...</Text>
@@ -9316,6 +9210,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               <Group justify="space-between" align="flex-start" className="booking-detail__hero">
                 <Stack gap={6}>
                   <Text className="booking-detail__customer">{detailBooking.customerName}</Text>
+                  {detailBooking.organizerTrustRating?.count ? <Group gap={5}><IconStar color="#ffd000" fill="#ffd000" size={18}/><Text fw={900}>{detailBooking.organizerTrustRating.average.toFixed(1)} ({detailBooking.organizerTrustRating.count}) organizer trust</Text></Group> : null}
                   <Text className="booking-detail__contact">{detailBooking.customerEmail || detailBooking.customerPhone || "No contact details"}</Text>
                 </Stack>
                 <Group gap="xs" justify="flex-end">
@@ -9519,6 +9414,20 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 </Paper>
               ) : null}
 
+              {detailBooking.organizerCampaign && detailBooking.status === "completed" && !organizerRatingSubmitted ? (
+                <Paper withBorder radius="md" p="md" className="booking-detail__panel">
+                  <Stack gap="sm">
+                    <Group justify="space-between">
+                      <div><Text className="neura-label">PRIVATE TRUST</Text><Title order={3}>Rate this organizer</Title></div>
+                      {organizerRatingStars ? <Group gap={5}><IconStar color="#ffd000" fill="#ffd000" size={20}/><Text fw={900}>{organizerRatingStars}.0</Text></Group> : null}
+                    </Group>
+                    <Text c="dimmed" size="sm">Visible only as a role-scoped aggregate. Your identity and notes are not shown.</Text>
+                    <FiveStarRatingInput label="Private organizer rating" onChange={setOrganizerRatingStars} value={organizerRatingStars}/>
+                    <Button disabled={!organizerRatingStars} loading={busyAction === `organizer-rating:${detailBooking.id}`} onClick={() => handleRateOrganizer(detailBooking)} w="fit-content">Submit rating</Button>
+                  </Stack>
+                </Paper>
+              ) : null}
+
               <Group justify="space-between" className="booking-detail__footer">
                 <Button variant="default" onClick={closeBookingDetailModal}>
                   Close
@@ -9600,6 +9509,29 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             await action.onConfirm();
             closeConfirmAction();
           }}
+        />
+        <PromptActionModal
+          confirmLabel="Submit rating"
+          description="Low ratings require a short reason to support fair trust and moderation decisions."
+          error={error}
+          eyebrow="PRIVATE TRUST"
+          label="Reason for this low rating"
+          loading={Boolean(organizerRatingBooking && busyAction === `organizer-rating:${organizerRatingBooking.id}`)}
+          maxLength={500}
+          onChange={setOrganizerRatingReason}
+          onClose={() => {
+            setOrganizerRatingBooking(null);
+            setOrganizerRatingReason("");
+          }}
+          onConfirm={() => {
+            if (organizerRatingBooking) {
+              void handleRateOrganizer(organizerRatingBooking, organizerRatingReason.trim());
+            }
+          }}
+          opened={Boolean(organizerRatingBooking)}
+          placeholder="For example: communication, payment, or conduct"
+          title="Add rating context"
+          value={organizerRatingReason}
         />
       </Portal>
     );

@@ -22,16 +22,10 @@ import {
 } from "@mantine/core";
 import { DatePickerInput } from "@mantine/dates";
 import {
-  IconCalendarEvent,
   IconExternalLink,
   IconEye,
-  IconId,
   IconInfoCircle,
-  IconListDetails,
-  IconLock,
-  IconRepeat,
-  IconSettings,
-  IconUsers
+  IconRepeat
 } from "@tabler/icons-react";
 import { Navigate, Link, useLocation, useNavigate } from "react-router-dom";
 import type {
@@ -58,24 +52,9 @@ import {
 import { getErrorMessage } from "../utils/errors";
 import { showCustomerError, showCustomerSuccess } from "../utils/customerNotifications";
 import { isBrowserPushSupported, subscribeToBrowserPush } from "../utils/pushNotifications";
+import CustomerAccountLayout, { type CustomerAccountSection } from "../components/CustomerAccountLayout";
 
-type AccountSection = "profile" | "tickets" | "bookings" | "group-funded" | "settings" | "notifications" | "security";
 const CUSTOMER_TABLE_PAGE_SIZE = 10;
-
-const ACCOUNT_SECTIONS: Array<{
-  key: AccountSection;
-  label: string;
-  path: string;
-  icon: typeof IconId;
-}> = [
-  { key: "profile", label: "Profile details", path: "/account/profile", icon: IconId },
-  { key: "tickets", label: "Queue Tickets", path: "/account/tickets", icon: IconListDetails },
-  { key: "bookings", label: "Bookings", path: "/account/bookings", icon: IconCalendarEvent },
-  { key: "group-funded", label: "Group-funded", path: "/account/group-funded", icon: IconUsers },
-  { key: "settings", label: "Settings", path: "/account/settings", icon: IconSettings },
-  { key: "notifications", label: "Notifications", path: "/account/notifications", icon: IconSettings },
-  { key: "security", label: "Security", path: "/account/security", icon: IconLock }
-];
 
 function getTicketBadgeColor(status: TicketStatus): "gray" | "red" | "yellow" | "orange" | "teal" | "blue" {
   switch (status) {
@@ -124,9 +103,9 @@ function formatBookingBundleTotal(amountCents: number, currency = "PHP") {
   }).format(amountCents / 100);
 }
 
-function getActiveSection(pathname: string): AccountSection {
+function getActiveSection(pathname: string): CustomerAccountSection {
   const [, , section] = pathname.split("/");
-  if (section === "tickets" || section === "bookings" || section === "group-funded" || section === "settings" || section === "notifications" || section === "security") {
+  if (section === "tickets" || section === "bookings" || section === "campaigns" || section === "group-funded" || section === "settings" || section === "notifications" || section === "security") {
     return section;
   }
 
@@ -237,7 +216,9 @@ export default function CustomerAccountPage() {
   const [browserPushSubscribed, setBrowserPushSubscribed] = useState(false);
   const [notificationSettings, setNotificationSettings] = useState<CustomerNotificationSettings>({
     bookingAlerts: true,
-    queueAlerts: true
+    queueAlerts: true,
+    campaignAlerts: true,
+    preferredContactMethod: "in_app"
   });
   const [savingNotificationSettings, setSavingNotificationSettings] = useState(false);
   const [ticketPage, setTicketPage] = useState(1);
@@ -313,7 +294,10 @@ export default function CustomerAccountPage() {
   const ticketPagination = ticketQuery.data?.pagination || null;
   const bookings = bookingQuery.data?.bookings || [];
   const bookingPagination = bookingQuery.data?.pagination || null;
-  const groupFundedCampaigns = groupFundedQuery.data?.campaigns || [];
+  const groupFundedCampaigns = useMemo(
+    () => groupFundedQuery.data?.campaigns || [],
+    [groupFundedQuery.data?.campaigns]
+  );
   const filteredGroupFundedCampaigns = useMemo(() => {
     const search = groupFundedSearch.trim().toLowerCase();
     const from = groupFundedDateRange[0] ? toLocalDateKey(groupFundedDateRange[0]) : "";
@@ -450,7 +434,7 @@ export default function CustomerAccountPage() {
   }
 
   async function handleNotificationToggle(
-    key: keyof CustomerNotificationSettings,
+    key: "bookingAlerts" | "queueAlerts" | "campaignAlerts",
     checked: boolean
   ) {
     if (!token) {
@@ -1244,6 +1228,25 @@ export default function CustomerAccountPage() {
             disabled={savingNotificationSettings}
             onChange={(event) => handleNotificationToggle("queueAlerts", event.currentTarget.checked)}
           />
+          <Checkbox
+            checked={notificationSettings.campaignAlerts}
+            label="Campaign alerts"
+            description="Contribution reviews, deadlines, and reimbursement confirmations."
+            disabled={savingNotificationSettings}
+            onChange={(event) => handleNotificationToggle("campaignAlerts", event.currentTarget.checked)}
+          />
+          <Select
+            data={[{ value: "in_app", label: "In-app / push" }, { value: "email", label: "Email" }, { value: "sms", label: "SMS" }]}
+            label="Preferred contact method"
+            value={notificationSettings.preferredContactMethod}
+            onChange={async (value) => {
+              if (!token || !value) return;
+              const next = { ...notificationSettings, preferredContactMethod: value as CustomerNotificationSettings["preferredContactMethod"] };
+              setNotificationSettings(next); setSavingNotificationSettings(true);
+              try { setNotificationSettings((await customerAccountApi.updateNotificationSettings(token, next)).notificationSettings); }
+              finally { setSavingNotificationSettings(false); }
+            }}
+          />
         </Stack>
       </Card>
     );
@@ -1335,56 +1338,8 @@ export default function CustomerAccountPage() {
   };
 
   return (
-    <Stack className="customer-account-page" gap="lg">
-      <Card className="finazze-auth-card customer-account-card customer-account-hero" p="xl">
-        <Group align="flex-start" justify="space-between" gap="lg">
-          <Stack gap={4}>
-            <Text className="finazze-section-label">Customer account</Text>
-            <Title order={1}>{accountUser?.name || user.name}</Title>
-            <Text c="dimmed">{accountUser?.username ? `@${accountUser.username}` : "Username not set"}</Text>
-          </Stack>
-          <Group gap="xs">
-            <Badge color={accountUser?.emailVerified ? "teal" : "yellow"} variant="light">
-              {accountUser?.emailVerified ? "Email verified" : "Email not verified"}
-            </Badge>
-            <Badge color={accountUser?.mfaEnabled ? "teal" : "gray"} variant="light">
-              {accountUser?.mfaEnabled ? "MFA enabled" : "MFA off"}
-            </Badge>
-          </Group>
-        </Group>
-      </Card>
-
-      <div className="customer-account-layout">
-        <Card className="customer-account-sidebar" p="md">
-          <Stack gap={4}>
-            {ACCOUNT_SECTIONS.map((section) => {
-              const Icon = section.icon;
-              const isActive = activeSection === section.key;
-
-              return (
-                <Button
-                  component={Link}
-                  justify="flex-start"
-                  key={section.key}
-                  leftSection={<Icon size={18} />}
-                  to={section.path}
-                  variant={isActive ? "light" : "subtle"}
-                  color={isActive ? "orange" : "dark"}
-                >
-                  {section.label}
-                </Button>
-              );
-            })}
-          </Stack>
-          <Divider my="md" />
-          <Text c="dimmed" size="sm">
-            Queue Tickets and Bookings are separated because a booking is scheduled intent, while a queue ticket is live service-day execution.
-          </Text>
-        </Card>
-        <div className="customer-account-content">
-          {renderActiveSection()}
-        </div>
-      </div>
-    </Stack>
+    <CustomerAccountLayout activeSection={activeSection} accountUser={accountUser}>
+      {renderActiveSection()}
+    </CustomerAccountLayout>
   );
 }

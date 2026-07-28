@@ -225,7 +225,8 @@ body {
 }
 
 .subscription-editor__footer {
-  padding-top: 0.25rem;
+  padding-top: 1rem;
+  padding-bottom: 1rem;
 }
 
 .subscription-editor__submit {
@@ -297,63 +298,191 @@ body {
   background: var(--portal-table-row-hover);
 }
 
+/* Modal UI/UX standard: fixed header, vertical-only main region, and persistent actions. */
+.mantine-Modal-root .mantine-Modal-content {
+  --getprio-modal-paper: var(--mantine-color-body);
+  display: flex;
+  flex-direction: column;
+  max-height: min(88dvh, 48rem);
+  overflow: hidden;
+  background: var(--getprio-modal-paper);
+}
+
+.mantine-Modal-root .mantine-Modal-header {
+  flex: 0 0 auto;
+  align-items: flex-start;
+  background: var(--getprio-modal-paper, var(--mantine-color-body));
+}
+
+.mantine-Modal-root .mantine-Modal-title {
+  min-width: 0;
+  margin-right: 1rem;
+}
+
+.getprio-modal-title {
+  min-width: 0;
+}
+
+.getprio-modal-eyebrow {
+  color: #fb923c;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.getprio-modal-heading {
+  color: inherit;
+  font-size: clamp(1.2rem, 4vw, 1.65rem);
+  font-weight: 900;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+
+.mantine-Modal-root .mantine-Modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.task-modal .mantine-Modal-body {
+  display: flex;
+  overflow: hidden;
+}
+
+.task-modal__shell {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.task-modal__main {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.mantine-Modal-body:has(> .task-modal-form) {
+  display: flex;
+  overflow: hidden;
+}
+
+.task-modal-form {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.task-modal-form__main {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.task-modal__footer,
+.subscription-editor__footer,
+.mantine-Modal-body form > .mantine-Stack-root > .mantine-Group-root:last-child {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  flex: 0 0 auto;
+  padding-top: 1rem;
+  border-top: 1px solid color-mix(in srgb, currentColor 10%, transparent);
+  background: var(--getprio-modal-paper, var(--mantine-color-body));
+}
+
 .portal-data-table__sticky-last,
 .portal-data-table__sticky-last :is(button, .mantine-Group-root) {
   white-space: nowrap;
 }
 
 @media (max-width: 48em) {
-  .mantine-Modal-root {
-    --modal-size: 100dvw !important;
-  }
-
   .mantine-Modal-root .mantine-Modal-inner {
-    inset: 0 !important;
-    width: 100dvw !important;
-    min-width: 100dvw !important;
-    max-width: 100dvw !important;
-    height: 100dvh !important;
-    padding: 0;
-    align-items: stretch !important;
+    padding: 8dvh 0 0 !important;
+    align-items: flex-end !important;
     justify-content: stretch !important;
   }
 
   .mantine-Modal-root .mantine-Modal-content {
     width: 100dvw !important;
     max-width: 100dvw !important;
-    height: 100dvh !important;
-    max-height: 100dvh !important;
+    height: auto !important;
+    max-height: min(92dvh, 48rem) !important;
     margin: 0;
-    flex: 1 1 100%;
-    border-radius: 0 !important;
-    display: flex;
-    flex-direction: column;
+    border-radius: 1.25rem 1.25rem 0 0 !important;
+    flex: 0 1 auto !important;
   }
 
   .mantine-Modal-root .mantine-Modal-header {
-    flex: 0 0 auto;
-    border-radius: 0;
+    padding: 1rem 1rem 0.75rem;
+    border-radius: 1.25rem 1.25rem 0 0;
   }
 
   .mantine-Modal-root .mantine-Modal-body {
-    flex: 1 1 auto;
+    min-height: 0;
+    overflow-x: hidden;
     overflow-y: auto;
-    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+    padding: 0 1rem calc(env(safe-area-inset-bottom) + 1rem);
   }
 
-  .mantine-Modal-root .mantine-Modal-body > form {
-    min-height: 100%;
-    display: flex;
-    flex-direction: column;
-  }
-
-  .mantine-Modal-root .mantine-Modal-body > form > .mantine-Stack-root {
-    flex: 1 1 auto;
+  .task-modal__footer,
+  .subscription-editor__footer,
+  .mantine-Modal-body form > .mantine-Stack-root > .mantine-Group-root:last-child {
+    align-items: stretch;
+    flex-direction: column-reverse;
+    width: 100%;
+    padding-bottom: calc(env(safe-area-inset-bottom) + 0.25rem);
   }
 
   .subscription-editor__footer {
-    margin-top: auto;
-    padding-top: 1rem;
-    padding-bottom: env(safe-area-inset-bottom);
+    flex-direction: column;
+  }
+
+  .task-modal__footer > .mantine-Button-root,
+  .subscription-editor__footer > .mantine-Button-root,
+  .mantine-Modal-body form > .mantine-Stack-root > .mantine-Group-root:last-child > .mantine-Button-root,
+  .subscription-editor__footer > .mantine-Group-root > .mantine-Button-root {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .subscription-editor__footer > .mantine-Group-root {
+    align-items: stretch;
+    flex-direction: column-reverse;
+    width: 100%;
+  }
+
+  .task-modal__cancel {
+    display: none;
+  }
+
+  .confirm-action-modal .mantine-Modal-inner {
+    padding: 5dvh 4vw !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+
+  .confirm-action-modal .mantine-Modal-content {
+    width: min(92vw, 26rem) !important;
+    height: auto !important;
+    max-width: min(92vw, 26rem) !important;
+    max-height: calc(100dvh - (2 * 5dvh)) !important;
+    border-radius: var(--mantine-radius-lg) !important;
+    overflow: hidden;
+  }
+
+  .confirm-action-modal .mantine-Modal-body {
+    padding-bottom: calc(env(safe-area-inset-bottom) + 1rem);
   }
 }

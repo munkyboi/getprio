@@ -205,16 +205,9 @@ test("vendor routes queue mutations invoke the queue service helpers", async () 
         serviceCurrency: "PHP",
         servicePriceDisplay: "Free",
         bookingQuantity: 1,
-        groupFundedBookingId: "campaign-1",
-        bookingPaymentSource: "group_funded",
-        groupFundedCampaign: {
-          id: "campaign-1",
-          publicToken: "campaign-token",
-          campaignTitle: "Four court campaign",
-          targetAmountCents: 120000,
-          roundingAdjustmentCents: 0,
-          currency: "PHP"
-        },
+        groupFundedBookingId: null,
+        bookingPaymentSource: "standard",
+        groupFundedCampaign: null,
         customerUserId: null,
         customerName: "Alex",
         customerEmail: "alex@example.com",
@@ -315,8 +308,7 @@ test("vendor routes queue mutations invoke the queue service helpers", async () 
     const bookingDetail = JSON.parse(bookingDetailText);
     assert.equal(bookingDetail.booking.id, "booking-1");
     assert.equal(bookingDetail.booking.reference, "BKG-DETAIL");
-    assert.equal(bookingDetail.booking.groupFundedCampaign.bundleItems[0].serviceName, "Court 1");
-    assert.equal(bookingDetail.booking.groupFundedCampaign.bundleItems[0].bookingQuantity, 3);
+    assert.equal(bookingDetail.booking.groupFundedCampaign, null);
 
     const rescheduleSlotsRes = await fetch(`${baseUrl}/tenant/demo/bookings/booking-1/reschedule-slots?date=2026-06-24`);
     const rescheduleSlotsText = await rescheduleSlotsRes.text();
@@ -348,20 +340,8 @@ test("vendor routes queue mutations invoke the queue service helpers", async () 
       }
     );
     const rejectContributionText = await rejectContributionRes.text();
-    assert.equal(rejectContributionRes.status, 200, rejectContributionText);
-    const rejectContribution = JSON.parse(rejectContributionText);
-    assert.equal(rejectContribution.contribution.contributionStatus, "refund_pending");
-    assert.equal(rejectContribution.refund.refundReason, "excess_contribution");
-    assert.deepEqual(calls.find(([name]) => name === "rejectContribution"), [
-      "rejectContribution",
-      [{
-        tenant: { _id: "tenant-1", slug: "demo" },
-        user: { _id: "user-1", roles: ["vendor"], tenantMemberships: [{ tenantId: "tenant-1", role: "owner" }] },
-        contributionId: "contribution-1",
-        reason: "Payment received after target.",
-        refundDisposition: "required"
-      }]
-    ]);
+    assert.equal(rejectContributionRes.status, 404, rejectContributionText);
+    assert.equal(calls.some(([name]) => name === "rejectContribution"), false);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }

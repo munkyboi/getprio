@@ -5,12 +5,12 @@ const storeLocationRepository = require("../repositories/storeLocations");
 const vendorServiceRepository = require("../repositories/vendorServices");
 const locationServiceRepository = require("../repositories/locationServices");
 const vendorAvailabilityRepository = require("../repositories/vendorAvailability");
-const groupFundedRepository = require("../repositories/groupFundedBookings");
 const bookingOtpService = require("./bookingOtpService");
 const bookingSmsAlertPaymentService = require("./bookingSmsAlertPaymentService");
 const notificationService = require("./notificationService");
 const paymentProofStorageService = require("./paymentProofStorageService");
 const pushNotificationService = require("./pushNotificationService");
+const organizerCampaignService = require("./organizerCampaignService");
 const { assertPublicTextFieldsAllowed } = require("./contentModeration");
 const { normalizePhilippineMobileNumber } = require("../utils/phone");
 
@@ -693,7 +693,7 @@ function materializeComposedPlanAt({ plan, scheduledStartAt }) {
   return { ...plan, items, scheduledStartAt: new Date(scheduledStartAt), scheduledEndAt };
 }
 
-async function evaluateComposedPlanAvailability({ tenant, location, availability, plan, includeGroupFundedHolds, excludeBookingId, excludeCampaignId }) {
+async function evaluateComposedPlanAvailability({ tenant, location, availability, plan, excludeBookingId }) {
   const allocations = [];
   let remainingCapacity = Number.POSITIVE_INFINITY;
   for (const item of plan.items) {
@@ -718,15 +718,7 @@ async function evaluateComposedPlanAvailability({ tenant, location, availability
       endsAt: item.scheduledEndAt.toISOString(),
       excludeBookingId
     });
-    const activeHoldCount = includeGroupFundedHolds
-      ? await groupFundedRepository.countOverlappingActiveCapacityHolds(tenant._id, {
-          locationId: location._id,
-          serviceId,
-          startsAt: item.scheduledStartAt.toISOString(),
-          endsAt: item.scheduledEndAt.toISOString(),
-          excludeCampaignId
-        })
-      : 0;
+    const activeHoldCount = 0;
     const plannedCount = allocations.filter((allocation) =>
       String(allocation.serviceId || "") === String(serviceId || "") &&
       rangesOverlap(
@@ -752,7 +744,6 @@ async function evaluateComposedBookingSlots({
   date,
   items,
   executionMode,
-  includeGroupFundedHolds = false,
   includeUnavailableSlots = false,
   excludeBookingId,
   slotIntervalMinutes: slotIntervalMinutesValue,
@@ -802,7 +793,7 @@ async function evaluateComposedBookingSlots({
       if (scheduledStartAt.getTime() <= Date.now()) continue;
       const materializedPlan = materializeComposedPlanAt({ plan, scheduledStartAt });
       const result = await evaluateComposedPlanAvailability({
-        tenant, location, availability, plan: materializedPlan, includeGroupFundedHolds, excludeBookingId
+        tenant, location, availability, plan: materializedPlan, excludeBookingId
       });
       if (!result.available) {
         unavailableReasons.add(result.reason);
@@ -860,9 +851,7 @@ async function assertComposedBookingPlanAt({
   items,
   executionMode,
   scheduledStartAt,
-  includeGroupFundedHolds = false,
-  excludeBookingId,
-  excludeCampaignId
+  excludeBookingId
 }) {
   const startAt = normalizeDateTime(scheduledStartAt);
   if (!startAt) {
@@ -880,9 +869,7 @@ async function assertComposedBookingPlanAt({
     location,
     availability,
     plan,
-    includeGroupFundedHolds,
-    excludeBookingId,
-    excludeCampaignId
+    excludeBookingId
   });
   if (!result.available) {
     const error = new Error(
@@ -903,7 +890,6 @@ async function listBookingSlots({
   date,
   bookingQuantity: bookingQuantityValue,
   excludeBookingId,
-  includeGroupFundedHolds = false,
   slotIntervalMinutes: slotIntervalMinutesValue,
   requirePublicVendor = true
 }) {
@@ -920,7 +906,6 @@ async function listBookingSlots({
     items: [{ serviceSlug, bookingQuantity: bookingQuantityValue }],
     executionMode: "parallel",
     excludeBookingId,
-    includeGroupFundedHolds,
     includeUnavailableSlots: true,
     slotIntervalMinutes: slotIntervalMinutesValue,
     requirePublicVendor
@@ -1113,7 +1098,7 @@ async function createCustomerBooking({ user, body }) {
     location._id
   );
   const availabilityResult = await evaluateComposedPlanAvailability({
-    tenant, location, availability, plan: composedPlan, includeGroupFundedHolds: false
+    tenant, location, availability, plan: composedPlan
   });
   if (!availabilityResult.available) {
     const error = new Error(
@@ -1167,6 +1152,7 @@ async function createCustomerBooking({ user, body }) {
     smsAlertFeePaymentId,
     contactVerifiedAt: verifiedBooking.contactVerifiedAt,
     contactVerificationChannel: verifiedBooking.contactVerificationChannel,
+    organizerCampaignOptIn: Boolean(body.organizerCampaignOptIn),
     bundleItems: bookingBundleItems
   }, { client }));
 
@@ -1488,6 +1474,7 @@ async function cancelCustomerBooking({ user, bookingId, reason }) {
     status: "canceled",
     notes: cancellationReason || booking.notes || ""
   });
+  if (booking.organizerCampaignOptIn) await organizerCampaignService.cancelCampaignForBooking({ bookingId: updated._id, reason: cancellationReason || "The linked booking was cancelled." });
 
   const message = `${updated.tenantName}: Your booking request ${updated.reference} was cancelled.`;
   if (updated.customerEmail) {
@@ -1707,6 +1694,7 @@ async function markVendorBookingNoShow({ tenant, location, bookingId, user }) {
     noShowAt: new Date().toISOString(),
     noShowByUserId: user?._id || null
   });
+  if (booking.organizerCampaignOptIn) await organizerCampaignService.cancelCampaignForBooking({ bookingId: updated._id, reason: "The linked booking was cancelled as a no-show." });
 
   const message = `${updated.tenantName}: Your booking request ${updated.reference} was cancelled as a no-show.`;
   if (updated.customerEmail) {

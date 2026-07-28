@@ -1,0 +1,381 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Alert, Badge, Box, Button, Card, Container, FileInput, Group, Image, Modal, Notification, NumberInput, Paper, Portal, Progress, ScrollArea, SimpleGrid, Slider, Stack, Text, Textarea, TextInput, Title } from "@mantine/core";
+import { IconAlertCircle, IconBellRinging, IconCalendarTime, IconCircleCheck, IconClock, IconCopy, IconExternalLink, IconEye, IconRefresh, IconStar, IconUpload } from "@tabler/icons-react";
+import { Link, Navigate, useParams } from "react-router-dom";
+import type { OrganizerCampaign, OrganizerContributionStatus } from "@shared";
+import { API_BASE_URL, apiRequest } from "../api/client";
+import { customerAccountApi } from "../api/customerAccount";
+import { useAuth } from "../context/AuthContext";
+import { getErrorMessage } from "../utils/errors";
+import FiveStarRatingInput from "../components/FiveStarRatingInput";
+import CampaignDescriptionEditor from "../components/CampaignDescriptionEditor";
+import RichCampaignDescription from "../components/RichCampaignDescription";
+import CampaignDeadlinePicker, { formatCampaignDeadline, formatCampaignDeadlineDate, resolveCampaignDeadline } from "../components/CampaignDeadlinePicker";
+import { PromptActionModal } from "../components/PromptActionModal";
+import { formatBookingScheduleDate, formatBookingScheduleTimeRange } from "../utils/dates";
+
+function money(cents: number, currency = "PHP") {
+  return new Intl.NumberFormat("en-PH", { style: "currency", currency }).format(cents / 100);
+}
+
+function formatBytes(sizeBytes = 0) {
+  if (!sizeBytes) return "Size unavailable";
+  if (sizeBytes < 1024 * 1024) return `${Math.max(1, Math.round(sizeBytes / 1024))} KB`;
+  return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function contributionStatus(status: OrganizerContributionStatus) {
+  const labels: Record<string, { color: string; label: string }> = {
+    pending_proof: { color: "orange", label: "Payment proof needed" },
+    submitted: { color: "blue", label: "Proof submitted" },
+    review_overdue: { color: "yellow", label: "Review overdue" },
+    accepted: { color: "teal", label: "Payment accepted" },
+    rejected: { color: "red", label: "Proof needs correction" },
+    refund_pending: { color: "orange", label: "Refund pending" },
+    refund_sent: { color: "blue", label: "Refund sent" },
+    refund_confirmed: { color: "teal", label: "Refund confirmed" },
+    refund_disputed: { color: "red", label: "Refund disputed" }
+  };
+  return labels[String(status)] || { color: "gray", label: String(status).replaceAll("_", " ") };
+}
+
+function participationPresentation(contribution: NonNullable<OrganizerCampaign["contribution"]>) {
+  if (!contribution.paymentProof) {
+    return {
+      flavor: "awaiting-proof",
+      badgeColor: "orange",
+      icon: IconClock,
+      title: "Your slot is reserved",
+      description: "Submit the funding fee and payment proof to complete your contribution."
+    };
+  }
+  if (contribution.status === "rejected" || contribution.status === "refund_disputed") {
+    return {
+      flavor: "attention",
+      badgeColor: "red",
+      icon: IconAlertCircle,
+      title: "Payment proof needs attention",
+      description: contribution.rejectionReason || "Review the payment status and submit corrected evidence when available."
+    };
+  }
+  if (["submitted", "review_overdue"].includes(contribution.status)) {
+    return {
+      flavor: "under-review",
+      badgeColor: contribution.status === "review_overdue" ? "yellow" : "blue",
+      icon: IconClock,
+      title: "Payment proof submitted",
+      description: "Your slot is reserved while the organizer reviews your payment evidence."
+    };
+  }
+  if (["refund_pending", "refund_sent"].includes(contribution.status)) {
+    return {
+      flavor: "under-review",
+      badgeColor: "orange",
+      icon: IconClock,
+      title: "Reimbursement in progress",
+      description: "Follow the reimbursement status and confirm only after the funds reach you."
+    };
+  }
+  if (contribution.status === "refund_confirmed") {
+    return {
+      flavor: "accepted",
+      badgeColor: "teal",
+      icon: IconCircleCheck,
+      title: "Reimbursement confirmed",
+      description: "You confirmed that the campaign reimbursement reached you."
+    };
+  }
+  return {
+    flavor: "accepted",
+    badgeColor: "teal",
+    icon: IconCircleCheck,
+    title: "Your contribution is confirmed",
+    description: "The organizer has accepted your campaign contribution."
+  };
+}
+
+function CampaignRatingForm({ token, campaignId, contributionId, onSaved, actionLabel, subjectLabel }: { token: string; campaignId: string; contributionId: string; onSaved: () => void; actionLabel: string; subjectLabel: string }) {
+  const [stars, setStars] = useState(0); const [busy, setBusy] = useState(false); const [error, setError] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+  const [opened, setOpened] = useState(false);
+  const [reasonCategory, setReasonCategory] = useState("");
+  async function saveRating() {
+    if (!stars) return;
+    const reason = reasonCategory.trim();
+    if (stars <= 2 && !reason) {
+      setError("A low-rating reason is required for one or two stars.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await apiRequest(`/account/campaigns/${campaignId}/contributions/${contributionId}/rating`, { method: "POST", token, body: { stars, reasonCategory: reason, privateNote: "" } });
+      setOpened(false);
+      setReasonCategory("");
+      setSubmitted(true);
+      onSaved();
+    } catch (next) {
+      setError(getErrorMessage(next));
+    } finally {
+      setBusy(false);
+    }
+  }
+  if (submitted) return <Text c="teal" fw={700} size="sm">Rating submitted</Text>;
+  return <><Button leftSection={<IconStar size={16}/>} onClick={() => { setError(""); setOpened(true); }} size="xs" variant="light">{actionLabel}</Button><Modal centered className="customer-modal campaign-rating-modal" onClose={() => { if (!busy) setOpened(false); }} opened={opened} size="md" title={<Stack className="getprio-modal-title" gap={2}><Text className="getprio-modal-eyebrow">PRIVATE TRUST</Text><Text className="getprio-modal-heading">Rate {subjectLabel}</Text></Stack>} transitionProps={{ transition: "slide-up", duration: 240, timingFunction: "ease-out" }}><div className="campaign-rating-modal-shell"><ScrollArea className="campaign-rating-modal-main" scrollbars="y" scrollbarSize={8} styles={{ root: { flex: 1, minHeight: 0 }, viewport: { height: "100%" } }} type="hover"><Stack gap="md"><Text c="dimmed" size="sm">This rating is private and helps GetPrio support safer campaign interactions.</Text><FiveStarRatingInput label={`Private trust rating for ${subjectLabel}`} onChange={(value) => { setStars(value); setError(""); if (value > 2) setReasonCategory(""); }} value={stars}/>{stars > 0 && stars <= 2 ? <Textarea autosize label="Low-rating reason" maxLength={500} minRows={3} onChange={(event) => setReasonCategory(event.currentTarget.value)} placeholder="For example: communication, payment, or conduct" required value={reasonCategory}/> : null}{error ? <Alert color="red">{error}</Alert> : null}</Stack></ScrollArea><Group className="customer-modal-actions campaign-rating-modal-actions" justify="flex-end"><Button disabled={!stars || (stars <= 2 && !reasonCategory.trim())} loading={busy} onClick={() => void saveRating()} size="lg">Submit rating</Button></Group></div></Modal></>;
+}
+
+function DraftCampaignEditor({ campaign, token, onSaved }: { campaign: OrganizerCampaign; token: string; onSaved: () => void }) {
+  const initialDeadlineDate = campaign.deadlineAt ? formatCampaignDeadlineDate(campaign.deadlineAt) : "";
+  const [form, setForm] = useState({ title: campaign.title, description: campaign.description, deadlineAt: initialDeadlineDate ? resolveCampaignDeadline(initialDeadlineDate) : "", contributionFeePhp: campaign.contributionFeeCents / 100, requiredContributors: campaign.requiredContributors, paymentInstructions: campaign.paymentInstructions });
+  const [busy, setBusy] = useState(false); const [error, setError] = useState("");
+  async function save() { setBusy(true); try { await customerAccountApi.updateCampaign(token, campaign.id, { title: form.title, description: form.description, deadlineAt: form.deadlineAt, contributionFeeCents: Math.round(form.contributionFeePhp * 100), requiredContributors: form.requiredContributors, paymentInstructions: form.paymentInstructions }); onSaved(); } catch (next) { setError(getErrorMessage(next)); } finally { setBusy(false); } }
+  return <Card p="lg"><Stack><Title order={3}>Campaign setup</Title><TextInput label="Title" maxLength={120} value={form.title} onChange={(e) => setForm((v) => ({ ...v, title: e.currentTarget.value }))}/><Stack gap={4}><Text fw={500} size="sm">Description</Text><CampaignDescriptionEditor disabled={busy} value={form.description} onChange={(description) => setForm((v) => ({ ...v, description }))}/></Stack><CampaignDeadlinePicker disabled={busy} onChange={(deadlineAt) => setForm((v) => ({ ...v, deadlineAt }))} scheduledStartAt={campaign.scheduledStartAt} value={form.deadlineAt}/><NumberInput label="Contribution fee per person (PHP)" min={1} value={form.contributionFeePhp} onChange={(value) => setForm((v) => ({ ...v, contributionFeePhp: Number(value) || 0 }))}/><Stack gap={6}><Group justify="space-between"><Text size="sm">Contributor slots</Text><Badge>{form.requiredContributors} people</Badge></Group><Slider aria-label="Contributor slots" max={100} min={1} onChange={(value) => setForm((v) => ({ ...v, requiredContributors: value }))} value={form.requiredContributors}/></Stack><Stack gap={4}><Text fw={500} size="sm">Private payment instructions</Text><Text c="dimmed" size="xs">Shown only to joined, signed-in contributors.</Text><CampaignDescriptionEditor disabled={busy} maxCharacters={2000} value={form.paymentInstructions} onChange={(paymentInstructions) => setForm((v) => ({ ...v, paymentInstructions }))}/></Stack>{error ? <Alert color="red">{error}</Alert> : null}<Button loading={busy} onClick={save}>Save draft</Button></Stack></Card>;
+}
+
+export default function CampaignControlCenterPage() {
+  const { campaignId } = useParams();
+  const { token, user, loading } = useAuth();
+  const [campaigns, setCampaigns] = useState<OrganizerCampaign[]>([]);
+  const [campaign, setCampaign] = useState<OrganizerCampaign | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [proof, setProof] = useState<File | null>(null);
+  const [paymentReference, setPaymentReference] = useState("");
+  const [cancelReasonModalOpen, setCancelReasonModalOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
+  const [rejectionContributionId, setRejectionContributionId] = useState<string | null>(null);
+  const [rejectionReason, setRejectionReason] = useState("");
+  const [serviceImagePreview, setServiceImagePreview] = useState<{ name: string; imageUrl: string } | null>(null);
+  const [proofPreview, setProofPreview] = useState<{
+    url: string;
+    fileName: string;
+    contentType: string;
+    sizeBytes: number;
+    paymentReference?: string;
+    submittedAt?: string | Date | null;
+  } | null>(null);
+  const [overlayNotices, setOverlayNotices] = useState<NonNullable<OrganizerCampaign["notices"]>>([]);
+  const dismissedNoticeIdsRef = useRef<Set<string>>(new Set());
+
+  const load = useCallback(async () => {
+    if (!token) return;
+    setError("");
+    try {
+      if (campaignId) setCampaign((await customerAccountApi.getCampaign(token, campaignId)).campaign);
+      else setCampaigns((await customerAccountApi.getCampaigns(token)).campaigns);
+    } catch (nextError) { setError(getErrorMessage(nextError)); }
+  }, [campaignId, token]);
+
+  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (!campaign?.publicToken || campaign.status === "draft") return undefined;
+    const eventSource = new EventSource(
+      `${API_BASE_URL}/public/campaigns/${encodeURIComponent(campaign.publicToken)}/stream`
+    );
+    const handleCampaignChange = () => {
+      void load();
+    };
+    eventSource.addEventListener("campaign-change", handleCampaignChange);
+    eventSource.onerror = () => {
+      // EventSource reconnects automatically after transient network or server interruptions.
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") void load();
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      eventSource.removeEventListener("campaign-change", handleCampaignChange);
+      eventSource.close();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [campaign?.publicToken, campaign?.status, load]);
+  useEffect(() => {
+    if (!campaignId || !campaign?.notices) {
+      setOverlayNotices([]);
+      return;
+    }
+
+    const storageKey = `getprio:campaign-notices:${user?.id || "customer"}:${campaignId}`;
+    let dismissedIds = new Set<string>();
+    try {
+      const storedIds = JSON.parse(window.sessionStorage.getItem(storageKey) || "[]");
+      if (Array.isArray(storedIds)) dismissedIds = new Set(storedIds.map(String));
+    } catch {
+      dismissedIds = new Set();
+    }
+    dismissedNoticeIdsRef.current = dismissedIds;
+    setOverlayNotices(campaign.notices.filter((notice) => !dismissedIds.has(notice.id)));
+  }, [campaign?.notices, campaignId, user?.id]);
+  const contributions = campaign?.contributions || (campaign?.contribution ? [campaign.contribution] : []);
+  const acceptedContributors = campaign?.acceptedContributors
+    ?? contributions.filter((item) => item.status === "accepted").length;
+  const joinedContributors = campaign?.joinedContributors
+    ?? contributions.filter((item) => item.status !== "rejected").length;
+  const acceptedAmountCents = campaign?.acceptedAmountCents
+    ?? acceptedContributors * (campaign?.contributionFeeCents || 0);
+  const fundingTargetCents = campaign
+    ? campaign.requiredContributors * campaign.contributionFeeCents
+    : 0;
+  const progress = fundingTargetCents > 0
+    ? Math.min(100, (acceptedAmountCents / fundingTargetCents) * 100)
+    : 0;
+  const isOrganizer = Boolean(campaign && user && campaign.organizerUserId === user.id);
+  const ownContribution = campaign?.contribution;
+  const participation = ownContribution ? participationPresentation(ownContribution) : null;
+  const ownReimbursement = campaign?.reimbursement;
+  const shareUrl = useMemo(() => campaign ? `${window.location.origin}/campaign/${campaign.publicToken}` : "", [campaign]);
+  const booking = campaign?.booking;
+
+  function dismissNotice(noticeId: string) {
+    dismissedNoticeIdsRef.current.add(noticeId);
+    setOverlayNotices((current) => current.filter((notice) => notice.id !== noticeId));
+    if (!campaignId) return;
+    try {
+      window.sessionStorage.setItem(
+        `getprio:campaign-notices:${user?.id || "customer"}:${campaignId}`,
+        JSON.stringify(Array.from(dismissedNoticeIdsRef.current))
+      );
+    } catch {
+      // The notification can still be dismissed for the current page session.
+    }
+  }
+
+  if (loading) return <Container py="xl"><Text>Loading campaigns…</Text></Container>;
+  if (!user || !token) return <Navigate replace to="/login" />;
+
+  async function publish(visibility: "private_link" | "public") {
+    if (!campaign) return;
+    setBusy(true);
+    try { await customerAccountApi.publishCampaign(token, campaign.id, visibility); await load(); }
+    catch (nextError) { setError(getErrorMessage(nextError)); }
+    finally { setBusy(false); }
+  }
+
+  async function unpublish() { if (!campaign) return; setBusy(true); try { await customerAccountApi.unpublishCampaign(token, campaign.id); await load(); } catch (next) { setError(getErrorMessage(next)); } finally { setBusy(false); } }
+  function cancel() { if (!campaign) return; setError(""); setCancelReason(""); setCancelReasonModalOpen(true); }
+  async function submitCancellation() { const reason = cancelReason.trim(); if (!campaign || !reason) return; setBusy(true); try { await apiRequest(`/account/campaigns/${campaign.id}/cancel`, { method: "PATCH", token, body: { reason } }); setCancelReasonModalOpen(false); setCancelReason(""); await load(); } catch (next) { setError(getErrorMessage(next)); } finally { setBusy(false); } }
+
+  async function uploadProof() {
+    if (!campaign || !proof || !paymentReference.trim()) return;
+    setBusy(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/account/campaigns/${campaign.id}/contributions/proof?fileName=${encodeURIComponent(proof.name)}&paymentReference=${encodeURIComponent(paymentReference.trim())}`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": proof.type }, body: proof });
+      if (!response.ok) throw new Error((await response.json().catch(() => null))?.message || "Proof upload failed.");
+      await load(); setProof(null); setPaymentReference("");
+    } catch (nextError) { setError(getErrorMessage(nextError)); }
+    finally { setBusy(false); }
+  }
+
+  async function resolveReimbursement(action: "confirm" | "dispute") {
+    if (!campaign || !ownContribution) return;
+    setBusy(true);
+    try {
+      await apiRequest(`/account/campaigns/${campaign.id}/contributions/${ownContribution.id}/reimbursement/${action}`, { method: "PATCH", token, body: action === "dispute" ? { reason: "Refund has not been received or does not match the expected amount." } : undefined });
+      await load();
+    } catch (nextError) { setError(getErrorMessage(nextError)); }
+    finally { setBusy(false); }
+  }
+
+  async function reviewContribution(contributionId: string, decision: "accept" | "reject") {
+    if (!campaign) return;
+    if (decision === "reject") {
+      setError("");
+      setRejectionContributionId(contributionId);
+      setRejectionReason("");
+      return;
+    }
+    setBusy(true);
+    try { await apiRequest(`/account/campaigns/${campaign.id}/contributions/${contributionId}/review`, { method: "PATCH", token, body: { decision, rejectionReason: "" } }); await load(); }
+    catch (nextError) { setError(getErrorMessage(nextError)); } finally { setBusy(false); }
+  }
+
+  async function submitContributionRejection() {
+    const reason = rejectionReason.trim();
+    if (!campaign || !rejectionContributionId || !reason) return;
+    setBusy(true);
+    try {
+      await apiRequest(`/account/campaigns/${campaign.id}/contributions/${rejectionContributionId}/review`, { method: "PATCH", token, body: { decision: "reject", rejectionReason: reason } });
+      setRejectionContributionId(null);
+      setRejectionReason("");
+      await load();
+    } catch (nextError) {
+      setError(getErrorMessage(nextError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function uploadReimbursementEvidence(contributionId: string, file: File) {
+    if (!campaign) return;
+    setBusy(true);
+    try { const response = await fetch(`${API_BASE_URL}/account/campaigns/${campaign.id}/contributions/${contributionId}/reimbursement/evidence?fileName=${encodeURIComponent(file.name)}`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": file.type }, body: file }); if (!response.ok) throw new Error((await response.json().catch(() => null))?.message || "Evidence upload failed."); await load(); }
+    catch (nextError) { setError(getErrorMessage(nextError)); } finally { setBusy(false); }
+  }
+
+  async function viewEvidence(contributionId: string, kind: "contribution" | "reimbursement" = "contribution") {
+    if (!campaign) return;
+    setBusy(true);
+    try {
+      const result = await apiRequest<{
+        proof: { fileName: string; contentType: string; sizeBytes: number };
+        access: { url: string };
+      }>(`/account/campaigns/${campaign.id}/contributions/${contributionId}/evidence?kind=${kind}`, { token });
+      if (kind === "contribution") {
+        const contribution = contributions.find((item) => item.id === contributionId);
+        setProofPreview({
+          url: result.access.url,
+          ...result.proof,
+          paymentReference: contribution?.paymentReference,
+          submittedAt: contribution?.submittedAt
+        });
+      } else {
+        window.open(result.access.url, "_blank", "noopener,noreferrer");
+      }
+    } catch (next) {
+      setError(getErrorMessage(next));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!campaignId) {
+    return <Card className="finazze-auth-card customer-account-card campaign-control-page" p="xl"><Stack gap="lg">
+      <Group justify="space-between"><div><Text className="finazze-section-label">CUSTOMER CONTROLS</Text><Title order={2}>Campaigns</Title></div><Button component={Link} to="/account/campaigns/discover" variant="light">Discover</Button></Group>
+      {error ? <Alert color="red">{error}</Alert> : null}
+      <SimpleGrid cols={{ base: 1, sm: 2 }}>{campaigns.map((item) => <Card component={Link} className="campaign-list-card" key={item.id} p="lg" to={`/account/campaigns/${item.id}/manage`}><Stack gap="xs"><Group justify="space-between"><Badge>{item.status}</Badge><Text fw={800}>{money(item.contributionFeeCents, item.currency)}</Text></Group><Title order={3}>{item.title}</Title>{item.description ? <RichCampaignDescription className="campaign-list-description" content={item.description}/> : null}<Text size="sm">Deadline {formatCampaignDeadline(item.deadlineAt)}</Text></Stack></Card>)}</SimpleGrid>
+      {!campaigns.length && !error ? <Alert color="gray">Confirmed bookings selected for campaigns will appear here.</Alert> : null}
+    </Stack></Card>;
+  }
+
+  if (!campaign) return <Container py="xl">{error ? <Alert color="red">{error}</Alert> : <Text>Loading campaign…</Text>}</Container>;
+  return <><Container className="campaign-control-page" p={0} size="lg"><Stack gap="lg">
+    <Card className="campaign-control-hero" p="xl"><Stack gap="md">
+      <Group align="flex-start" justify="space-between"><Stack gap={4}><Badge color="cyan">{campaign.status}</Badge><Text className="campaign-hero-secondary" size="sm">Organized by <Text component="span" fw={800}>{campaign.organizerDisplayName || "Organizer"}</Text></Text></Stack>{campaign.organizerTrustRating?.count ? <Group gap={6}><IconStar color="#ffd000" fill="#ffd000" size={20}/><Text fw={900}>{campaign.organizerTrustRating.average.toFixed(1)}</Text><Text className="campaign-hero-secondary" size="xs">({campaign.organizerTrustRating.count})</Text></Group> : null}</Group>
+      <Title order={2}>{campaign.title}</Title>{campaign.description ? <RichCampaignDescription content={campaign.description}/> : null}
+      <Text fw={800}>Funding {money(acceptedAmountCents, campaign.currency)} / {money(fundingTargetCents, campaign.currency)}</Text><Progress color="orange" size="md" value={progress}/>
+      <SimpleGrid cols={{ base: 1, xs: 3 }}><Card className="campaign-hero-stat"><Text size="xs">Join fee</Text><Text fw={800}>{money(campaign.contributionFeeCents, campaign.currency)}</Text></Card><Card className="campaign-hero-stat"><Text size="xs">Deadline</Text><Text fw={800}>{formatCampaignDeadline(campaign.deadlineAt)}</Text></Card><Card className="campaign-hero-stat"><Text size="xs">Contributors</Text><Text fw={800}>{joinedContributors}/{campaign.requiredContributors}</Text></Card></SimpleGrid>
+      <Button leftSection={<IconCopy size={18}/>} onClick={() => navigator.clipboard.writeText(shareUrl)} variant="subtle">Copy share link</Button>
+    </Stack></Card>
+    {booking ? <Card className="booking-detail-services-card" p="lg"><Stack gap="md"><Group justify="space-between"><div><Text className="finazze-section-label">BOOKING DETAILS</Text><Title order={3}>Booked items</Title></div><Badge variant="light">{booking.reference}</Badge></Group><Stack gap="sm">{booking.bundleItems.map((item) => <Paper className="group-funded-bundle-item" key={item.id || item.serviceSlug} p="sm"><Group align="center" gap="sm" wrap="nowrap">{item.imageUrl ? <button aria-label={`Preview ${item.serviceName} image`} className="group-funded-bundle-thumbnail" onClick={() => setServiceImagePreview({ name: item.serviceName, imageUrl: item.imageUrl || "" })} type="button"><img alt="" src={item.imageUrl}/><span aria-hidden="true"><IconEye size={16}/></span></button> : <div aria-hidden="true" className="group-funded-bundle-thumbnail group-funded-bundle-thumbnail--placeholder"><span>{item.serviceName.slice(0, 2).toUpperCase()}</span></div>}<Stack gap={2} style={{ flex: 1, minWidth: 0 }}><Group gap="sm" justify="space-between" wrap="nowrap"><Text fw={800}>{item.serviceName}</Text><Badge variant="light">x{item.bookingQuantity}</Badge></Group><Text c="dimmed" size="sm">{formatBookingScheduleTimeRange(item.scheduledStartAt, item.scheduledEndAt, booking.locationTimezone)}</Text></Stack></Group></Paper>)}</Stack><Paper className="campaign-booking-schedule" p="md" withBorder><Group align="flex-start" gap="sm" wrap="nowrap"><IconCalendarTime aria-hidden="true" size={22}/><Stack gap={2}><Text className="finazze-section-label">BOOKING SCHEDULE</Text><Text fw={800}>{formatBookingScheduleDate(booking.scheduledStartAt, booking.locationTimezone)}</Text><Text c="dimmed" size="sm">{formatBookingScheduleTimeRange(booking.scheduledStartAt, booking.scheduledEndAt, booking.locationTimezone)}</Text><Text c="dimmed" size="sm"><Text component={Link} fw={700} to={`/vendors/${booking.vendorSlug}`} td="underline">{booking.vendorName}</Text> · {booking.locationName}</Text>{booking.locationAddress ? <Text c="dimmed" size="xs">{booking.locationAddress}</Text> : null}</Stack></Group></Paper></Stack></Card> : null}
+    {error ? <Alert color="red">{error}</Alert> : null}
+    {!isOrganizer && ownContribution && participation ? <Card className={`campaign-participation-card campaign-participation-card--${participation.flavor}`} p="lg"><Stack gap="md">
+      <Group align="flex-start" className="campaign-participation-header" justify="space-between" wrap="nowrap">
+        <Group align="flex-start" gap="sm" wrap="nowrap"><participation.icon aria-hidden="true" className="campaign-participation-icon" size={28}/><Stack gap={2}><Text className="finazze-section-label">YOUR CAMPAIGN SLOT</Text><Title order={3}>{participation.title}</Title><Text c="dimmed" size="sm">{participation.description}</Text></Stack></Group>
+        <Badge className="campaign-participation-slot" color={participation.badgeColor} size="lg" variant="filled">Slot #{ownContribution.slotNumber || "—"}</Badge>
+      </Group>
+      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
+        <Paper p="md" radius="md" withBorder><Stack gap={5}><Text className="finazze-section-label">CONTRIBUTION</Text><Text fw={800}>{money(ownContribution.amountCents, ownContribution.currency)}</Text><Badge color={contributionStatus(ownContribution.status).color} variant="light" w="fit-content">{contributionStatus(ownContribution.status).label}</Badge></Stack></Paper>
+        <Paper p="md" radius="md" withBorder><Stack gap={5}><Text className="finazze-section-label">PAYMENT PROOF</Text>{ownContribution.paymentProof ? <><Text fw={700} style={{ overflowWrap: "anywhere" }}>{ownContribution.paymentProof.fileName}</Text><Text c="dimmed" size="sm">{formatBytes(ownContribution.paymentProof.sizeBytes)}{ownContribution.submittedAt ? ` · ${new Date(ownContribution.submittedAt).toLocaleString()}` : ""}</Text>{ownContribution.paymentReference ? <Text c="dimmed" size="sm">Reference: {ownContribution.paymentReference}</Text> : null}<Button disabled={busy} leftSection={<IconEye size={16}/>} onClick={() => void viewEvidence(ownContribution.id)} variant="light">View payment proof</Button></> : <Text c="dimmed" size="sm">No payment proof submitted yet.</Text>}</Stack></Paper>
+      </SimpleGrid>
+    </Stack></Card> : null}
+    {isOrganizer && campaign.status === "draft" ? <><DraftCampaignEditor campaign={campaign} token={token} onSaved={() => void load()}/><Card p="lg"><Stack><Title order={3}>Publish campaign</Title><Text c="dimmed">Share-link visibility is the default. Public discovery also requires vendor consent.</Text><Group><Button loading={busy} onClick={() => publish("private_link")}>Publish privately</Button><Button loading={busy} onClick={() => publish("public")} variant="light">Publish publicly</Button></Group></Stack></Card></> : null}
+    {isOrganizer && campaign.status === "collecting" ? <Group><Button disabled={busy} onClick={unpublish} variant="light">Unpublish</Button><Button color="red" disabled={busy} onClick={cancel} variant="light">Cancel campaign</Button></Group> : null}
+    {isOrganizer && campaign.status === "collected" ? <Button color="red" disabled={busy} onClick={cancel} variant="light">Cancel and reimburse contributors</Button> : null}
+    {isOrganizer ? <Card p="lg"><Stack><Group justify="space-between"><Title order={3}>Contributors</Title><Badge>{contributions.length} joined</Badge></Group>{contributions.map((item, index) => <Card className="campaign-contributor-row" key={item.id} p="sm"><Stack gap="xs"><Group justify="space-between"><div><Text fw={700}>{item.contributorDisplayName || `Contributor ${index + 1}`}</Text><Text c="dimmed" size="sm">{item.status.replaceAll("_", " ")}</Text>{item.trustRating?.count ? <Group gap={4}><IconStar color="#ffd000" fill="#ffd000" size={14}/><Text size="xs">{item.trustRating.average.toFixed(1)} ({item.trustRating.count})</Text></Group> : null}</div><Group><Badge>{money(item.amountCents, item.currency)}</Badge>{["submitted", "review_overdue", "accepted", "rejected"].includes(item.status) ? <Button disabled={busy} onClick={() => viewEvidence(item.id)} size="xs" variant="subtle">View proof</Button> : null}{["submitted", "review_overdue"].includes(item.status) ? <><Button disabled={busy} onClick={() => reviewContribution(item.id, "accept")} size="xs">Accept</Button><Button color="red" disabled={busy} onClick={() => reviewContribution(item.id, "reject")} size="xs" variant="light">Reject</Button></> : null}{item.status === "refund_pending" ? <Button component="label" disabled={busy} size="xs" variant="light">Record reimbursement<input accept="image/jpeg,image/png,image/webp,application/pdf" hidden onChange={(event) => { const file = event.currentTarget.files?.[0]; if (file) void uploadReimbursementEvidence(item.id, file); }} type="file" /></Button> : null}{["refund_sent", "refund_confirmed", "refund_disputed"].includes(item.status) ? <Button disabled={busy} onClick={() => viewEvidence(item.id, "reimbursement")} size="xs" variant="subtle">View reimbursement</Button> : null}{["accepted", "rejected", "refund_pending", "refund_sent", "refund_confirmed", "refund_disputed"].includes(item.status) ? <CampaignRatingForm actionLabel="Rate contributor" campaignId={campaign.id} contributionId={item.id} onSaved={() => void load()} subjectLabel={item.contributorDisplayName || `Contributor ${index + 1}`} token={token}/> : null}</Group></Group></Stack></Card>)}</Stack></Card> : null}
+    {!isOrganizer && ownContribution && ["pending_proof", "rejected"].includes(ownContribution.status) ? <Card p="lg"><Stack><Title order={3}>Submit contribution proof</Title><Alert color="blue" title="Pay the organizer directly"><RichCampaignDescription content={campaign.paymentInstructions}/></Alert><TextInput label="Payment reference" value={paymentReference} onChange={(event) => setPaymentReference(event.currentTarget.value)}/><FileInput accept="image/jpeg,image/png,image/webp,application/pdf" label="Proof file" leftSection={<IconUpload size={16}/>} value={proof} onChange={setProof}/><Button disabled={!proof || !paymentReference.trim()} loading={busy} onClick={uploadProof}>Submit proof</Button></Stack></Card> : null}
+    {!isOrganizer && ownContribution && ownReimbursement?.status === "sent" ? <Card p="lg"><Stack><Title order={3}>Confirm your reimbursement</Title><Text>The organizer marked {money(ownReimbursement.amountCents, campaign.currency)} as sent. Review the evidence and confirm only after it reaches you.</Text><Group><Button disabled={busy} onClick={() => viewEvidence(ownContribution.id, "reimbursement")} variant="subtle">View reimbursement evidence</Button><Button loading={busy} onClick={() => resolveReimbursement("confirm")}>I received it</Button><Button color="red" loading={busy} onClick={() => resolveReimbursement("dispute")} variant="light">Not received / dispute</Button></Group></Stack></Card> : null}
+    {!isOrganizer && ownContribution && ["collected", "cancelled"].includes(campaign.status) ? <Card p="lg"><Group justify="space-between"><Stack gap={2}><Text fw={700}>Rate the organizer</Text><Text c="dimmed" size="sm">Share a private trust rating after the campaign closes.</Text></Stack><CampaignRatingForm actionLabel="Rate organizer" campaignId={campaign.id} contributionId={ownContribution.id} onSaved={() => void load()} subjectLabel={campaign.organizerDisplayName || "organizer"} token={token}/></Group></Card> : null}
+    {isOrganizer && campaign.events?.length ? <Card p="lg"><Stack gap="xs"><Title order={3}>Campaign history</Title>{campaign.events.map((event) => <Group align="flex-start" justify="space-between" key={event.id} wrap="nowrap"><Stack gap={0} style={{ minWidth: 0 }}><Text size="sm">{event.eventType.replaceAll("_", " ")}</Text><Text c="dimmed" size="xs">{event.actorDisplayName || "System"}</Text></Stack><Text c="dimmed" size="xs" ta="right">{new Date(event.createdAt).toLocaleString()}</Text></Group>)}</Stack></Card> : null}
+    <Button leftSection={<IconRefresh size={16}/>} onClick={() => void load()} variant="subtle">Refresh</Button>
+  </Stack></Container><Portal>{overlayNotices.length ? <Box className="dashboard-notification-stack" style={{ bottom: 24, left: "50%", maxWidth: "min(692px, calc(100vw - 32px))", position: "fixed", transform: "translateX(-50%)", pointerEvents: "none", zIndex: 1200 }}><Stack gap="sm" style={{ pointerEvents: "none" }}>{overlayNotices.slice(0, 3).map((notice) => <Notification color="blue" icon={<IconBellRinging size={20}/>} key={notice.id} onClose={() => dismissNotice(notice.id)} radius="md" style={{ boxShadow: "0 12px 32px rgba(15, 23, 42, 0.16)", pointerEvents: "auto" }} withBorder><Stack gap={2}><Text fw={800}>{notice.title}</Text><Text style={{ overflowWrap: "anywhere" }}>{notice.body}</Text></Stack></Notification>)}</Stack></Box> : null}</Portal><PromptActionModal confirmColor="red" confirmLabel={campaign.status === "collected" ? "Cancel and reimburse" : "Cancel campaign"} description="This reason is recorded in the campaign history and may be shown to affected contributors." error={error} eyebrow="CAMPAIGN MANAGEMENT" label="Cancellation reason" loading={busy} maxLength={500} onChange={setCancelReason} onClose={() => { setCancelReasonModalOpen(false); setCancelReason(""); }} onConfirm={() => void submitCancellation()} opened={cancelReasonModalOpen} placeholder="Explain why the campaign is being cancelled" title="Cancel campaign" value={cancelReason}/><PromptActionModal confirmColor="red" confirmLabel="Reject contribution" description="The contributor will see this reason and may submit corrected payment proof." error={error} eyebrow="CONTRIBUTION REVIEW" label="Rejection reason" loading={busy} maxLength={500} onChange={setRejectionReason} onClose={() => { setRejectionContributionId(null); setRejectionReason(""); }} onConfirm={() => void submitContributionRejection()} opened={Boolean(rejectionContributionId)} placeholder="Explain what needs to be corrected" title="Reject contribution" value={rejectionReason}/><Modal centered className="customer-modal" onClose={() => setServiceImagePreview(null)} opened={Boolean(serviceImagePreview)} radius="lg" size="xl" title={serviceImagePreview?.name || "Service image"}>{serviceImagePreview ? <div className="service-image-preview-shell"><img alt={serviceImagePreview.name} src={serviceImagePreview.imageUrl}/></div> : null}</Modal><Modal centered className="customer-modal payment-proof-modal" onClose={() => setProofPreview(null)} opened={Boolean(proofPreview)} size="lg" title={<Stack className="getprio-modal-title" gap={2}><Text className="getprio-modal-eyebrow">CONTRIBUTION EVIDENCE</Text><Text className="getprio-modal-heading">Payment proof</Text></Stack>} transitionProps={{ transition: "slide-up", duration: 240, timingFunction: "ease-out" }}>{proofPreview ? <div className="payment-proof-modal-shell"><ScrollArea className="payment-proof-modal-main" scrollbars="y" scrollbarSize={8} styles={{ root: { flex: 1, minHeight: 0 }, viewport: { height: "100%" } }} type="hover"><Stack gap="md"><Paper p="md" radius="md" withBorder><Text className="finazze-section-label">FILE</Text><Text fw={700} style={{ overflowWrap: "anywhere" }}>{proofPreview.fileName}</Text><Text c="dimmed" size="sm">{formatBytes(proofPreview.sizeBytes)}{proofPreview.submittedAt ? ` · ${new Date(proofPreview.submittedAt).toLocaleString()}` : ""}</Text>{proofPreview.paymentReference ? <Text c="dimmed" size="sm">Reference: {proofPreview.paymentReference}</Text> : null}</Paper>{proofPreview.contentType.startsWith("image/") ? <Image alt={`Payment proof ${proofPreview.fileName}`} fit="contain" mah={520} radius="md" src={proofPreview.url}/> : <iframe className="campaign-proof-document" src={proofPreview.url} title={`Payment proof ${proofPreview.fileName}`}/>}</Stack></ScrollArea><Group className="customer-modal-actions payment-proof-modal-actions" justify="flex-end"><Button component="a" href={proofPreview.url} leftSection={<IconExternalLink size={16}/>} rel="noopener noreferrer" size="lg" target="_blank" variant="light">Open proof in new tab</Button></Group></div> : null}</Modal></>;
+}

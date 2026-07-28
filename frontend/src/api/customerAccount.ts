@@ -10,6 +10,8 @@ import type {
   CustomerProfileUpdateRequest,
   CustomerProfileUpdateResponse,
   PasswordChangeRequest,
+  OrganizerCampaign,
+  PublicOrganizerCampaign,
   SubmitGroupFundedContributionProofRequest,
   UpdateGroupFundedCampaignRequest,
   UpdateCustomerNotificationSettingsRequest,
@@ -17,6 +19,29 @@ import type {
 } from "@shared";
 
 export const customerAccountApi = {
+  getCampaigns(token: string) {
+    return apiRequest<{ campaigns: OrganizerCampaign[] }>("/account/campaigns", { token });
+  },
+  getCampaign(token: string, campaignId: string) {
+    return apiRequest<{ campaign: OrganizerCampaign }>(`/account/campaigns/${encodeURIComponent(campaignId)}`, { token });
+  },
+  createCampaign(token: string, body: { bookingId: string; title: string; description: string; deadlineAt: string; contributionFeeCents: number; requiredContributors: number; paymentInstructions: string }) {
+    return apiRequest<{ campaign: OrganizerCampaign }, typeof body>("/account/campaigns", { method: "POST", token, body });
+  },
+  publishCampaign(token: string, campaignId: string, visibility: "private_link" | "public") {
+    return apiRequest<{ campaign: OrganizerCampaign }>(`/account/campaigns/${encodeURIComponent(campaignId)}/publish`, { method: "PATCH", token, body: { visibility } });
+  },
+  updateCampaign(token: string, campaignId: string, body: { title: string; description: string; deadlineAt: string; contributionFeeCents: number; requiredContributors: number; paymentInstructions: string }) {
+    return apiRequest<{ campaign: OrganizerCampaign }>(`/account/campaigns/${encodeURIComponent(campaignId)}`, { method: "PATCH", token, body });
+  },
+  unpublishCampaign(token: string, campaignId: string) {
+    return apiRequest<{ campaign: OrganizerCampaign }>(`/account/campaigns/${encodeURIComponent(campaignId)}/unpublish`, { method: "PATCH", token });
+  },
+  getCampaignDiscovery(token: string, filters: { search?: string; date?: string } = {}) {
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => { if (value?.trim()) params.set(key, value.trim()); });
+    return apiRequest<{ campaigns: PublicOrganizerCampaign[] }>(`/account/campaign-discovery${params.size ? `?${params.toString()}` : ""}`, { token });
+  },
   getOverview(token: string) {
     return Promise.all([
       apiRequest<CustomerAccountOverviewResponse>("/account/overview", { token }),

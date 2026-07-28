@@ -7,6 +7,7 @@ import {
   Group,
   Modal,
   Paper,
+  ScrollArea,
   SimpleGrid,
   Stack,
   Text,
@@ -376,41 +377,47 @@ export default function LandingPage() {
         opened={enterpriseDialogOpen}
         onClose={() => setEnterpriseDialogOpen(false)}
         size={1180}
-        title="Enterprise consultation"
-      >
-        <SimpleGrid cols={{ base: 1, md: 2 }} spacing={0}>
-          <Stack className="enterprise-contact-panel" gap="xl" p={{ base: "xl", md: 48 }}>
-            <div>
-              <Text className="finazze-section-label finazze-section-label-light">Contact us</Text>
-              <Title c="white" order={2} mt="sm">
-                Your Enterprise queue rollout starts with a conversation.
-              </Title>
-              <Text c="rgba(255,255,255,0.72)" mt="md">
-                Tell us about your locations, expected queue volume, and support needs. We will
-                route your request to the GetPrio platform team.
-              </Text>
-            </div>
-            <Stack gap="md">
-              {[
-                { icon: IconMessageCircle, label: "Response", value: "Setup consultation" },
-                { icon: IconMail, label: "Sent to", value: "Platform settings email" },
-                { icon: IconPhone, label: "Best for", value: "Multi-branch operations" }
-              ].map(({ icon: Icon, label, value }) => (
-                <Group className="enterprise-contact-info-row" key={label} wrap="nowrap">
-                  <ThemeIcon color="orange" radius="xl" size={44} variant="filled">
-                    <Icon size={22} />
-                  </ThemeIcon>
-                  <div>
-                    <Text c="rgba(255,255,255,0.58)" size="sm">{label}</Text>
-                    <Text c="white" fw={800}>{value}</Text>
-                  </div>
-                </Group>
-              ))}
-            </Stack>
+        title={
+          <Stack className="getprio-modal-title" gap={2}>
+            <Text className="getprio-modal-eyebrow">ENTERPRISE</Text>
+            <Text className="getprio-modal-heading">Enterprise consultation</Text>
           </Stack>
+        }
+      >
+        <Box component="form" className="enterprise-contact-modal-shell" onSubmit={handleEnterpriseSubmit}>
+          <ScrollArea className="enterprise-contact-modal-main" offsetScrollbars scrollbars="y" scrollbarSize={8} type="always">
+            <SimpleGrid cols={{ base: 1, md: 2 }} spacing={0}>
+              <Stack className="enterprise-contact-panel" gap="xl" p={{ base: "xl", md: 48 }}>
+                <div>
+                  <Text className="finazze-section-label finazze-section-label-light">Contact us</Text>
+                  <Title c="white" order={2} mt="sm">
+                    Your Enterprise queue rollout starts with a conversation.
+                  </Title>
+                  <Text c="rgba(255,255,255,0.72)" mt="md">
+                    Tell us about your locations, expected queue volume, and support needs. We will
+                    route your request to the GetPrio platform team.
+                  </Text>
+                </div>
+                <Stack gap="md">
+                  {[
+                    { icon: IconMessageCircle, label: "Response", value: "Setup consultation" },
+                    { icon: IconMail, label: "Sent to", value: "Platform settings email" },
+                    { icon: IconPhone, label: "Best for", value: "Multi-branch operations" }
+                  ].map(({ icon: Icon, label, value }) => (
+                    <Group className="enterprise-contact-info-row" key={label} wrap="nowrap">
+                      <ThemeIcon color="orange" radius="xl" size={44} variant="filled">
+                        <Icon size={22} />
+                      </ThemeIcon>
+                      <div>
+                        <Text c="rgba(255,255,255,0.58)" size="sm">{label}</Text>
+                        <Text c="white" fw={800}>{value}</Text>
+                      </div>
+                    </Group>
+                  ))}
+                </Stack>
+              </Stack>
 
-          <Box p={{ base: "xl", md: 48 }}>
-            <form onSubmit={handleEnterpriseSubmit}>
+              <Box p={{ base: "xl", md: 48 }}>
               <Stack gap="lg">
                 <div>
                   <Text className="finazze-section-label">Send request</Text>
@@ -470,16 +477,17 @@ export default function LandingPage() {
                   }
                 />
                 {enterpriseError ? <Alert color="red">{enterpriseError}</Alert> : null}
-                <Group className="customer-modal-actions" justify="space-between">
-                  <Text c="dimmed" size="sm">We only use this to respond to your Enterprise request.</Text>
-                  <Button color="dark" disabled={enterpriseSubmitting} size="md" type="submit">
-                    {enterpriseSubmitting ? "Sending..." : "Send request"}
-                  </Button>
-                </Group>
               </Stack>
-            </form>
-          </Box>
-        </SimpleGrid>
+              </Box>
+            </SimpleGrid>
+          </ScrollArea>
+          <Group className="customer-modal-actions enterprise-contact-modal-footer" justify="space-between">
+            <Text c="dimmed" size="sm">We only use this to respond to your Enterprise request.</Text>
+            <Button color="dark" disabled={enterpriseSubmitting} size="md" type="submit">
+              {enterpriseSubmitting ? "Sending..." : "Send request"}
+            </Button>
+          </Group>
+        </Box>
       </Modal>
     </Stack>
   );

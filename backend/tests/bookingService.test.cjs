@@ -655,7 +655,7 @@ test("booking slots omit past slot starts", async () => {
   assert.deepEqual(slots, []);
 });
 
-test("group-funded slot lookup includes active review holds when requested", async () => {
+test("retired group-funded capacity holds no longer affect booking slots", async () => {
   const bookingService = buildBookingService({
     availability: {
       blocks: [{ _id: "block-1", serviceId: "service-1", weekday: 1, startsAt: "09:00", endsAt: "10:00", capacity: 1, isActive: true }],
@@ -668,8 +668,7 @@ test("group-funded slot lookup includes active review holds when requested", asy
     tenantSlug: "demo", locationSlug: "main", serviceSlug: "consultation", date: "2026-07-06", includeGroupFundedHolds: true
   });
 
-  assert.equal(slots[0].isAvailable, false);
-  assert.equal(slots[0].disabledReason, "capacity_full");
+  assert.equal(slots[0].isAvailable, true);
 });
 
 test("group-funded service eligibility checks every half-hour branch candidate", async () => {

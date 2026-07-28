@@ -1,5 +1,4 @@
 const express = require("express");
-const { rateLimit } = require("express-rate-limit");
 const tenantRepository = require("../repositories/tenants");
 const storeLocationRepository = require("../repositories/storeLocations");
 const publicBoardThemeRepository = require("../repositories/publicBoardThemes");
@@ -17,8 +16,9 @@ const queueFeeService = require("../services/queueFeeService");
 const bookingService = require("../services/bookingService");
 const bookingOtpService = require("../services/bookingOtpService");
 const bookingSmsAlertPaymentService = require("../services/bookingSmsAlertPaymentService");
-const groupFundedBookingService = require("../services/groupFundedBookingService");
-const campaignReportAttachmentService = require("../services/campaignReportAttachmentService");
+const organizerCampaignService = require("../services/organizerCampaignService");
+const organizerCampaignEvents = require("../services/organizerCampaignEvents");
+const ratingRepository = require("../repositories/ratings");
 const storeHoursService = require("../services/storeHoursService");
 const notificationService = require("../services/notificationService");
 const platformRepository = require("../repositories/platform");
@@ -28,27 +28,52 @@ const {
   cancelTicket
 } = require("../services/queueService");
 const { normalizePhilippineMobileNumber } = require("../utils/phone");
-const { formatPaginationMetadata, parsePaginationParams } = require("../utils/pagination");
 
 const router = express.Router();
 router.use(moderatePublicText);
-const groupFundedAbuseReportLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 5,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    message: "Too many campaign reports. Please try again later."
-  }
-});
-const groupFundedAbuseAttachmentLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 5,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { message: "Too many campaign report uploads. Please try again later." }
-});
+router.get(
+  "/campaigns/:publicToken/stream",
+  asyncHandler(async (req, res) => {
+    const campaign = await organizerCampaignService.getCampaignPreview(req.params.publicToken);
 
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders();
+    res.write(`event: ready\ndata: ${JSON.stringify({ connected: true })}\n\n`);
+
+    const unsubscribe = organizerCampaignEvents.subscribe(campaign.id, () => {
+      res.write(`event: campaign-change\ndata: ${JSON.stringify({
+        changedAt: new Date().toISOString()
+      })}\n\n`);
+    });
+    const heartbeat = setInterval(() => {
+      res.write(`event: heartbeat\ndata: ${Date.now()}\n\n`);
+    }, 25000);
+
+    req.on("close", () => {
+      clearInterval(heartbeat);
+      unsubscribe();
+      res.end();
+    });
+  })
+);
+router.get(
+  "/campaigns/:publicToken",
+  asyncHandler(async (req, res) => res.json({ campaign: await organizerCampaignService.getCampaignPreview(req.params.publicToken) }))
+);
+router.get(
+  "/vendors/:tenantSlug/ratings",
+  asyncHandler(async (req, res) => {
+    const tenant = await tenantRepository.findTenantBySlug(req.params.tenantSlug, { activeOnly: true });
+    if (!tenant) { const error = new Error("Vendor not found."); error.statusCode = 404; throw error; }
+    const [rating, reviews] = await Promise.all([ratingRepository.getVendorAggregate(tenant._id), ratingRepository.listPublicVendorReviews(tenant._id)]);
+    res.json({ rating, reviews });
+  })
+);
+router.all(/^\/group-funded-campaigns(?:\/|$)/, (_req, res) => {
+  res.status(410).json({ message: "This legacy campaign API has been retired. Use the organizer campaign share link." });
+});
 function formatPublicVendorService(service) {
   return {
     name: service.name,
@@ -91,7 +116,6 @@ async function attachPublicVendorDetails(vendor) {
           sortOrder: item.sortOrder,
           priceAmountCents: item.priceAmountCents,
           priceDisplay: item.priceDisplay,
-          groupFunded: item.groupFunded,
           imageUrl: item.imageUrl || "",
           createdAt: item.createdAt,
           updatedAt: item.updatedAt
@@ -188,161 +212,12 @@ router.get(
                 capacity: item.capacity,
                 locationServiceId: item._id,
                 priceAmountCents: item.priceAmountCents ?? service.priceAmountCents,
-                priceDisplay: item.priceDisplay || service.priceDisplay,
-                groupFunded: item.groupFunded
+                priceDisplay: item.priceDisplay || service.priceDisplay
               }
             : null;
         })
         .filter(Boolean)
     });
-  })
-);
-
-router.get(
-  "/group-funded-campaigns/:publicToken",
-  asyncHandler(async (req, res) => {
-    const result = await groupFundedBookingService.getPublicCampaign({
-      publicToken: req.params.publicToken
-    });
-    res.json({
-      campaign: groupFundedBookingService.formatPublicCampaign(result.campaign, result.tenant)
-    });
-  })
-);
-
-router.get(
-  "/group-funded-campaigns/:publicToken/stream",
-  asyncHandler(async (req, res) => {
-    const result = await groupFundedBookingService.getPublicCampaign({
-      publicToken: req.params.publicToken
-    });
-    const tenant = result.tenant;
-
-    if (!tenant?.slug) {
-      const error = new Error("Campaign stream is not available.");
-      error.statusCode = 404;
-      throw error;
-    }
-
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("Connection", "keep-alive");
-    res.flushHeaders();
-
-    const writeCampaignUpdate = (campaign = result.campaign) => {
-      res.write(`data: ${JSON.stringify({
-        type: "group_funded_campaign_update",
-        publicToken: result.campaign.publicToken,
-        updatedAt: campaign?.updatedAt || new Date().toISOString()
-      })}\n\n`);
-    };
-
-    writeCampaignUpdate();
-
-    const unsubscribe = queueEvents.subscribe(tenant.slug, async () => {
-      try {
-        const nextResult = await groupFundedBookingService.getPublicCampaign({
-          publicToken: req.params.publicToken
-        });
-        writeCampaignUpdate(nextResult.campaign);
-      } catch (error) {
-        console.error(error);
-      }
-    });
-
-    const heartbeat = setInterval(() => {
-      res.write(`event: heartbeat\ndata: ${Date.now()}\n\n`);
-    }, 25000);
-
-    req.on("close", () => {
-      clearInterval(heartbeat);
-      unsubscribe();
-      res.end();
-    });
-  })
-);
-
-router.get(
-  "/vendors/:tenantSlug/locations/:locationSlug/group-funded-campaigns",
-  asyncHandler(async (req, res) => {
-    const { page, pageSize, offset } = parsePaginationParams(req.query);
-    const campaigns = await groupFundedBookingService.listPublicCampaignsForVendorLocation({
-      tenantSlug: req.params.tenantSlug,
-      locationSlug: req.params.locationSlug,
-      serviceSlug: req.query.serviceSlug,
-      limit: req.query.limit,
-      pageSize,
-      offset,
-      search: req.query.search,
-      ongoingOnly: req.query.ongoingOnly === "true",
-      scheduledDateFrom: req.query.scheduledDateFrom,
-      scheduledDateTo: req.query.scheduledDateTo
-    });
-    res.json({
-      campaigns,
-      pagination: formatPaginationMetadata(campaigns.totalItems || campaigns.length, page, pageSize)
-    });
-  })
-);
-
-router.post(
-  "/group-funded-campaigns/:publicToken/report-attachments/direct",
-  groupFundedAbuseAttachmentLimiter,
-  maybeAuthenticate,
-  express.raw({ type: ["image/jpeg", "image/png", "image/webp"], limit: "8mb" }),
-  asyncHandler(async (req, res) => {
-    if (!req.body || !Buffer.isBuffer(req.body) || !req.body.length) {
-      const error = new Error("Screenshot upload payload is required.");
-      error.statusCode = 400;
-      throw error;
-    }
-    const { campaign, tenant } = await groupFundedBookingService.getPublicCampaign({
-      publicToken: req.params.publicToken
-    });
-    const upload = await campaignReportAttachmentService.uploadBinary({
-      tenant,
-      campaign,
-      body: { fileName: req.query.fileName, contentType: req.headers["content-type"] },
-      fileBuffer: req.body
-    });
-    res.status(201).json(upload);
-  })
-);
-
-router.post(
-  "/group-funded-campaigns/:publicToken/report-abuse",
-  groupFundedAbuseReportLimiter,
-  maybeAuthenticate,
-  asyncHandler(async (req, res) => {
-    const verification = await turnstileService.verifyTurnstileToken({
-      token: req.body?.turnstileToken,
-      remoteIp: req.ip
-    });
-    if (!verification.success) {
-      const error = new Error("Please complete the security check before submitting your report.");
-      error.statusCode = 400;
-      throw error;
-    }
-    await groupFundedBookingService.reportPublicCampaignAbuse({
-      publicToken: req.params.publicToken,
-      body: req.body,
-      actor: req.user || null,
-      ipAddress: req.ip
-    });
-    res.status(201).json({ ok: true });
-  })
-);
-
-router.get(
-  "/vendors/:tenantSlug/locations/:locationSlug/group-funded-candidate-slots",
-  asyncHandler(async (req, res) => {
-    const slots = await bookingService.listGroupFundedCandidateSlots({
-      tenantSlug: req.params.tenantSlug,
-      locationSlug: req.params.locationSlug,
-      date: req.query.date,
-      durationMinutes: req.query.durationMinutes
-    });
-    res.json({ slots });
   })
 );
 
@@ -369,13 +244,7 @@ router.get(
       locationSlug: req.params.locationSlug,
       serviceSlug: req.params.serviceSlug,
       date: req.query.date,
-      bookingQuantity: req.query.bookingQuantity,
-      ...(req.query.groupFunded === "1"
-        ? {
-            includeGroupFundedHolds: true,
-            slotIntervalMinutes: 30
-          }
-        : {})
+      bookingQuantity: req.query.bookingQuantity
     });
 
     res.json({ slots });

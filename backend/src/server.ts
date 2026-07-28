@@ -1,6 +1,7 @@
 import app from "./app";
 import { connectDb } from "./config/db";
 import env from "./config/env";
+import organizerCampaignService from "./services/organizerCampaignService";
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => {
@@ -38,9 +39,14 @@ async function connectWithRetry({
 
 async function start(): Promise<void> {
   await connectWithRetry();
-  app.listen(env.port, () => {
+  const server = app.listen(env.port, () => {
     console.log(`Prio server listening on port ${env.port}`);
   });
+  const campaignLifecycleTimer = setInterval(() => {
+    organizerCampaignService.expireDueCampaigns().catch((error: Error) => console.error("Organizer campaign lifecycle scan failed", error));
+  }, 60_000);
+  campaignLifecycleTimer.unref();
+  server.on("close", () => clearInterval(campaignLifecycleTimer));
 }
 
 start().catch((error: unknown) => {

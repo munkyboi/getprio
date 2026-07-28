@@ -57,6 +57,27 @@ function requireWithMocks(targetPath, mocks) {
   }
 }
 
+test("booking reads exclude bundle rows from another tenant or location", async () => {
+  const calls = [];
+  const bookingsRepository = requireWithMocks("../src/repositories/bookings.js", {
+    "../config/db": {
+      pool: {
+        query: async (query, params) => {
+          calls.push({ query: String(query), params });
+          return { rows: [] };
+        }
+      }
+    }
+  });
+
+  await bookingsRepository.findBookingById(1);
+
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].query, /booking_bundle_items\.booking_id = bookings\.id/);
+  assert.match(calls[0].query, /booking_bundle_items\.tenant_id = bookings\.tenant_id/);
+  assert.match(calls[0].query, /booking_bundle_items\.location_id = bookings\.location_id/);
+});
+
 test("vendor booking list orders incoming requests by newest created date", async () => {
   const calls = [];
   const bookingsRepository = requireWithMocks("../src/repositories/bookings.js", {

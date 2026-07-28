@@ -1,8 +1,8 @@
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { Accordion, Alert, Badge, Button, Card, Container, FileInput, Group, Image, Modal, Paper, ScrollArea, SimpleGrid, Spoiler, Stack, Text, Textarea, TextInput, ThemeIcon, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
-import { IconAlertCircle, IconArrowLeft, IconBuildingBank, IconBuildingStore, IconCalendar, IconCircleCheck, IconExternalLink, IconEye, IconReceipt, IconTicket, IconUpload, IconX } from "@tabler/icons-react";
-import { Link, Navigate, useParams } from "react-router-dom";
+import { IconAlertCircle, IconArrowLeft, IconBuildingBank, IconBuildingStore, IconCalendar, IconCircleCheck, IconExternalLink, IconEye, IconReceipt, IconStar, IconTicket, IconUpload, IconUsersGroup, IconX } from "@tabler/icons-react";
+import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import type {
   BookingPaymentProofAccessResponse,
   BookingPaymentProofUploadResponse,
@@ -17,6 +17,8 @@ import type {
 } from "@shared";
 import { API_BASE_URL, ApiError, apiRequest } from "../api/client";
 import ResourceErrorState from "../components/ResourceErrorState";
+import FiveStarRatingInput from "../components/FiveStarRatingInput";
+import CampaignCreateForm from "../components/CampaignCreateForm";
 import RichCampaignDescription from "../components/RichCampaignDescription";
 import { useAuth } from "../context/AuthContext";
 import { buildJoinedQueuePathWithTicket } from "../queuePaths";
@@ -159,6 +161,7 @@ function formatCheckInCountdown(milliseconds: number) {
 
 export default function CustomerBookingDetailPage() {
   const { bookingId = "" } = useParams<{ bookingId: string }>();
+  const navigate = useNavigate();
   const { token, user, loading: authLoading } = useAuth();
   const [booking, setBooking] = useState<CustomerBookingDetailResponse["booking"] | null>(null);
   const [reason, setReason] = useState("");
@@ -177,6 +180,10 @@ export default function CustomerBookingDetailPage() {
   const [vendorProfile, setVendorProfile] = useState<PublicVendorProfile | null>(null);
   const [serviceImagePreview, setServiceImagePreview] = useState<{ name: string; imageUrl: string } | null>(null);
   const [currentTime, setCurrentTime] = useState(() => Date.now());
+  const [ratingStars, setRatingStars] = useState(0);
+  const [ratingComment, setRatingComment] = useState("");
+  const [ratingSubmitted, setRatingSubmitted] = useState(false);
+  const [campaignCreateModalOpen, setCampaignCreateModalOpen] = useState(false);
 
   const loadBooking = useCallback(async (options: { showLoading?: boolean } = {}) => {
     if (!token || !bookingId) {
@@ -201,6 +208,17 @@ export default function CustomerBookingDetailPage() {
       }
     }
   }, [bookingId, token]);
+
+  async function submitVendorRating() {
+    if (!token || !booking || !ratingStars) return;
+    setBusy(true);
+    try {
+      await apiRequest(`/account/bookings/${booking.id}/rating`, { method: "POST", token, body: { stars: ratingStars, comment: ratingComment } });
+      setRatingSubmitted(true);
+      notifications.show({ color: "teal", title: "Rating submitted", message: "Thank you for rating this vendor." });
+    } catch (ratingError) { showCustomerError(getErrorMessage(ratingError), "Could not submit rating"); }
+    finally { setBusy(false); }
+  }
 
   useEffect(() => {
     let active = true;
@@ -526,6 +544,28 @@ export default function CustomerBookingDetailPage() {
               {booking.expirationReason || "This pending booking expired before vendor confirmation or payment evidence submission."}
             </Alert>
           ) : null}
+
+        {booking.organizerCampaignOptIn && booking.status === "confirmed" && booking.paymentStatus === "paid" ? (
+          <Paper aria-labelledby="booking-campaign-notice-title" className="booking-campaign-notice" mb="md" p={{ base: "md", sm: "lg" }} role="status">
+            <div className="booking-campaign-notice__layout">
+              <ThemeIcon className="booking-campaign-notice__icon" radius="xl" size={44}>
+                <IconUsersGroup aria-hidden="true" size={22}/>
+              </ThemeIcon>
+              <Stack gap={4}>
+                <Text className="booking-campaign-notice__eyebrow" size="xs">BOOKING CONFIRMED</Text>
+                <Title className="booking-campaign-notice__title" id="booking-campaign-notice-title" order={2}>{booking.organizerCampaign ? "Your campaign is ready to manage" : "Ready to start your group-funded campaign"}</Title>
+                <Text className="booking-campaign-notice__message" size="sm">{booking.organizerCampaign ? "Review contributions, campaign progress, and organizer actions from your Campaign Control Center." : "Your booking is paid and vendor-confirmed. Create a campaign when you are ready to collect contributions independently."}</Text>
+              </Stack>
+              {booking.organizerCampaign ? <Button className="booking-campaign-notice__action" component={Link} size="md" to={`/account/campaigns/${booking.organizerCampaign.id}/manage`}>Manage campaign</Button> : <Button className="booking-campaign-notice__action" onClick={() => setCampaignCreateModalOpen(true)} size="md">Create campaign</Button>}
+            </div>
+          </Paper>
+        ) : null}
+
+        {["completed", "reviewed"].includes(booking.status) && !ratingSubmitted ? (
+          <Card mb="md" p="lg">
+            <Stack gap="sm"><Group justify="space-between"><Title order={3}>Rate this vendor</Title>{ratingStars ? <Group gap={6}><IconStar color="#ffd000" fill="#ffd000" size={22}/><Text fw={900}>{ratingStars}.0</Text></Group> : null}</Group><FiveStarRatingInput value={ratingStars} onChange={setRatingStars}/><Textarea label="Optional public comment" maxLength={1000} value={ratingComment} onChange={(event) => setRatingComment(event.currentTarget.value)}/><Button disabled={!ratingStars} loading={busy} onClick={submitVendorRating} w="fit-content">Submit rating</Button></Stack>
+          </Card>
+        ) : null}
 
         <Paper className="vendor-hero-shell ticket-page-hero booking-detail-page-hero" p={{ base: "lg", md: "xl" }}>
           <SimpleGrid cols={{ base: 1, lg: 2 }} spacing={{ base: "xl", lg: 48 }}>
@@ -950,6 +990,32 @@ export default function CustomerBookingDetailPage() {
 
       <Modal
         centered
+        className="customer-modal campaign-create-modal"
+        onClose={() => setCampaignCreateModalOpen(false)}
+        opened={campaignCreateModalOpen}
+        size="lg"
+        title={
+          <Stack className="getprio-modal-title" gap={2}>
+            <Text className="getprio-modal-eyebrow">GROUP FUNDING</Text>
+            <Text className="getprio-modal-heading">Create campaign</Text>
+          </Stack>
+        }
+        transitionProps={{ transition: "slide-up", duration: 240, timingFunction: "ease-out" }}
+      >
+        <CampaignCreateForm
+          booking={booking}
+          modal
+          onCancel={() => setCampaignCreateModalOpen(false)}
+          onCreated={(campaign) => {
+            setCampaignCreateModalOpen(false);
+            navigate(`/account/campaigns/${campaign.id}/manage`);
+          }}
+          token={token}
+        />
+      </Modal>
+
+      <Modal
+        centered
         className="customer-modal"
         transitionProps={{ transition: "slide-up", duration: 240, timingFunction: "ease-out" }}
         onClose={() => setServiceImagePreview(null)}
@@ -968,12 +1034,18 @@ export default function CustomerBookingDetailPage() {
         onClose={() => setProofModalOpen(false)}
         opened={proofModalOpen}
         size="lg"
-        title="Payment proof"
+        title={
+          <Stack className="getprio-modal-title" gap={2}>
+            <Text className="getprio-modal-eyebrow">PAYMENT EVIDENCE</Text>
+            <Text className="getprio-modal-heading">Payment proof</Text>
+          </Stack>
+        }
       >
         {booking.paymentProof ? (
           <div className="payment-proof-modal-shell">
           <ScrollArea
             className="payment-proof-modal-main"
+            scrollbars="y"
             scrollbarSize={8}
             styles={{ root: { flex: 1, minHeight: 0 }, viewport: { height: "100%" } }}
             type="hover"
