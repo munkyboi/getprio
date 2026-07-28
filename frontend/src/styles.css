@@ -6018,6 +6018,37 @@ h2 {
   margin-top: 0.15rem;
 }
 
+.vendor-location-modal .mantine-Modal-content {
+  height: min(88dvh, 48rem);
+}
+
+.vendor-location-modal .mantine-Modal-body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden !important;
+}
+
+.vendor-location-modal__shell {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.vendor-location-modal__main {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.vendor-location-modal__main .mantine-ScrollArea-viewport {
+  overflow-x: hidden;
+}
+
+.vendor-location-modal__footer {
+  flex: 0 0 auto;
+}
+
 @media (max-width: 1180px) {
   .neura-shell {
     grid-template-columns: 1fr;

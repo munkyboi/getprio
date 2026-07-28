@@ -1,12 +1,17 @@
 import { useEffect } from "react";
 
-const MODAL_CONTENT_SELECTOR = ".customer-modal .mantine-Modal-content, .task-modal .mantine-Modal-content";
+const MODAL_CONTENT_SELECTOR = [
+  ".customer-modal .mantine-Modal-content",
+  ".task-modal .mantine-Modal-content",
+  ".vendor-location-modal .mantine-Modal-content"
+].join(", ");
 const PRIMARY_SCROLL_SELECTORS = [
   ".campaign-create-form__main",
   ".payment-proof-modal-main",
   ".contact-form-main",
   ".enterprise-contact-modal-main",
-  ".task-modal__main"
+  ".task-modal__main",
+  ".vendor-location-modal__main"
 ];
 
 function canScrollInDirection(element: HTMLElement, deltaY: number) {
@@ -63,7 +68,8 @@ export default function ModalWheelBridge() {
       const modalContent = event.target.closest<HTMLElement>(MODAL_CONTENT_SELECTOR);
       if (!modalContent) return;
 
-      if (findScrollableAncestor(event.target, modalContent, event.deltaY)) return;
+      const scrollableAncestor = findScrollableAncestor(event.target, modalContent, event.deltaY);
+      if (scrollableAncestor) return;
 
       const scrollTarget = findModalScrollTarget(modalContent, event.deltaY);
       if (!scrollTarget) return;

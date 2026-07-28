@@ -3834,9 +3834,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           </Stack>
         }
         overlayProps={{ blur: 6, backgroundOpacity: 0.35 }}
-        scrollAreaComponent={ScrollArea.Autosize}
       >
-        <Stack gap="md" pb="sm">
+        <Stack className="vendor-location-modal__shell" gap={0}>
+          <ScrollArea className="vendor-location-modal__main" offsetScrollbars type="auto">
+            <Stack gap="md" pb="sm">
           <ModalSection
             title="Location profile"
             description="These details identify the branch and shape how customers find it on the public queue pages."
@@ -4225,7 +4226,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             </ScrollArea>
             )}
           </ModalSection>
-          <Group justify="flex-end" className="service-dialog__footer">
+            </Stack>
+          </ScrollArea>
+          <Group justify="flex-end" className="service-dialog__footer vendor-location-modal__footer">
             <Button variant="default" onClick={() => setLocationDialogOpen(false)}>
               Cancel
             </Button>
