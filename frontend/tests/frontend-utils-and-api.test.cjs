@@ -30,6 +30,7 @@ const {
   buildMonitorUrl
 } = require("../src/queuePaths.ts");
 const {
+  formatBookingScheduleDate,
   formatBookingScheduleDateTime,
   formatBookingScheduleTimeRange,
   formatDateInputValue,
@@ -90,6 +91,7 @@ const {
   getBookingDetail,
   getBookings,
   getRescheduleSlots,
+  rateOrganizer,
   rescheduleBooking
 } = require("../src/api/vendorDashboardBookings.ts");
 
@@ -544,6 +546,7 @@ test("vendor dashboard api helpers build the expected paths", async () => {
     await getBookingDetail("token", "tenant", "booking-1", "main");
     await getRescheduleSlots("token", "tenant", "booking-1", "2026-07-07");
     await rescheduleBooking("token", "tenant", "booking-1", "2026-07-07T01:00:00.000Z");
+    await rateOrganizer("token", "tenant", "booking-1", { stars: 5 });
   });
 
   assert.ok(calls.some(([url]) => url.includes("/vendor/tenant/tenant/locations")));
@@ -580,6 +583,12 @@ test("vendor dashboard api helpers build the expected paths", async () => {
     calls.some(
       ([url, options]) =>
         url.endsWith("/vendor/tenant/tenant/bookings/booking-1/reschedule") && options.method === "PATCH"
+    )
+  );
+  assert.ok(
+    calls.some(
+      ([url, options]) =>
+        url.endsWith("/vendor/tenant/tenant/bookings/booking-1/organizer-rating") && options.method === "POST"
     )
   );
 });
@@ -630,7 +639,7 @@ test("confirm action modal supports a mobile-specific class hook", () => {
   );
 
   assert.match(confirmModalSource, /className\?: string;/);
-  assert.match(confirmModalSource, /<Modal\s+className=\{className\}/);
+  assert.match(confirmModalSource, /className=\{\["task-modal", "confirm-action-modal", className\]\.filter\(Boolean\)\.join\(" "\)\}/);
   assert.match(vendorDashboardSource, /<ConfirmActionModal\s+className="confirm-action-modal"/);
 });
 
@@ -1088,6 +1097,9 @@ test("vendor discovery uses a mobile-first search and card layout", () => {
   assert.match(styles, /\.vendor-search-input \{\s+flex: 0 1 auto;/);
   assert.match(styles, /\.vendor-card-actions > \.mantine-Button-root \{\s+min-height: 3\.25rem;/);
   assert.match(styles, /\.vendor-card \{\s+min-height: 0;/);
+  assert.match(source, /"--vendor-theme-logo-fit": theme\.logoFit/);
+  assert.match(source, /style=\{\{ objectFit: vendor\.publicBoardTheme\.theme\.logoFit \}\}/);
+  assert.match(styles, /\.vendor-card-logo-frame img \{[\s\S]*?object-fit: var\(--vendor-theme-logo-fit, contain\);/);
 });
 
 test("login actions are mobile-first", () => {
@@ -1134,7 +1146,7 @@ test("group-funded campaign descriptions use Mantine Tiptap without source-code 
   const bookingSource = fs.readFileSync(path.join(frontendRoot, "src", "pages", "BookingRequestPage.tsx"), "utf8");
 
   assert.match(editorSource, /RichTextEditor className="campaign-description-editor" editor=\{editor\} variant="subtle"/);
-  assert.match(editorSource, /MAX_CAMPAIGN_DESCRIPTION_CHARACTERS = 1000/);
+  assert.match(editorSource, /DEFAULT_MAX_CHARACTERS = 1000/);
   assert.match(editorSource, /RichTextEditor\.BulletList/);
   assert.doesNotMatch(editorSource, /RichTextEditor\.Code/);
   assert.match(detailSource, /<RichCampaignDescription/);
@@ -1239,6 +1251,19 @@ test("vendor booking status chips preserve their complete labels", () => {
   assert.match(styles, /\.booking-list-status-chips \.mantine-Badge-label \{\s+overflow: visible;\s+text-overflow: clip;\s+white-space: nowrap;/);
 });
 
+test("vendor bookings do not apply a date range until the vendor selects one", () => {
+  const source = fs.readFileSync(
+    path.join(path.resolve(__dirname, ".."), "src", "pages", "VendorDashboardPage.tsx"),
+    "utf8"
+  );
+
+  assert.match(
+    source,
+    /const \[bookingDateRange, setBookingDateRange\] = useState<\[Date \| null, Date \| null\]>\(\[null, null\]\);/
+  );
+  assert.doesNotMatch(source, /import \{ addDays,/);
+});
+
 test("customer group-funded booking details use the campaign funding target and collapse campaign content", () => {
   const source = fs.readFileSync(
     path.join(path.resolve(__dirname, ".."), "src", "pages", "CustomerBookingDetailPage.tsx"),
@@ -1274,6 +1299,43 @@ test("customer booking detail hero links associated group-funded campaigns", () 
   assert.match(styles, /\.booking-detail-campaign-chip \.mantine-Badge-label \{\s+overflow: hidden;\s+text-overflow: ellipsis;/);
   assert.match(styles, /\.booking-detail-visual-action \{\s+display: flex;\s+flex-direction: column;\s+gap: 0\.75rem;/);
   assert.match(styles, /\.booking-detail-visual-card::before \{[\s\S]*?linear-gradient\(0deg, rgba\(0, 0, 0, 0\.85\) 45%, rgba\(0, 0, 0, 0\) 100%\)/);
+});
+
+test("booking detail creates organizer campaigns in a mobile-first modal", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CustomerBookingDetailPage.tsx"), "utf8");
+  const form = fs.readFileSync(path.join(frontendRoot, "src", "components", "CampaignCreateForm.tsx"), "utf8");
+  const deadlinePicker = fs.readFileSync(path.join(frontendRoot, "src", "components", "CampaignDeadlinePicker.tsx"), "utf8");
+  const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
+
+  assert.match(source, /onClick=\{\(\) => setCampaignCreateModalOpen\(true\)\}/);
+  assert.match(source, /className="customer-modal campaign-create-modal"/);
+  assert.match(source, /<Text className="getprio-modal-heading">Create campaign<\/Text>/);
+  assert.doesNotMatch(source, /fullScreen=\{isMobile\}/);
+  assert.match(source, /<CampaignCreateForm/);
+  assert.match(form, /customerAccountApi\.createCampaign/);
+  assert.match(form, /<CampaignDescriptionEditor disabled=\{busy\} onChange=\{setDescription\} value=\{description\}\/\>/);
+  assert.match(form, /<CampaignDeadlinePicker disabled=\{busy\} onChange=\{setDeadlineAt\} scheduledStartAt=\{booking\.scheduledStartAt\} value=\{deadlineAt\}\/\>/);
+  assert.match(deadlinePicker, /minDate=\{bounds\.min\}/);
+  assert.match(deadlinePicker, /maxDate=\{bounds\.max \|\| undefined\}/);
+  assert.match(deadlinePicker, /<DatePickerInput/);
+  assert.match(deadlinePicker, /resolveCampaignDeadline\(nextValue\)/);
+  assert.match(deadlinePicker, /10:00 PM Asia\/Manila/);
+  assert.doesNotMatch(deadlinePicker, /DateTimePicker/);
+  assert.match(form, /<CampaignDescriptionEditor disabled=\{busy\} maxCharacters=\{2000\} onChange=\{setInstructions\} value=\{instructions\}\/\>/);
+  assert.match(form, /<Slider aria-label="Number of contributors"/);
+  assert.match(form, /CAMPAIGN BREAKDOWN/);
+  assert.match(form, /Collection target/);
+  assert.match(form, /<ScrollArea className="campaign-create-form__main" offsetScrollbars scrollbars="y" scrollbarSize=\{10\} type="always">/);
+  assert.match(form, /\{actions\(true\)\}/);
+  assert.match(styles, /\.campaign-create-form__actions \{\s+flex-direction: column-reverse;/);
+  assert.match(styles, /\.campaign-create-form--modal \.campaign-create-form__cancel \{\s+display: none;/);
+  assert.match(styles, /\.campaign-create-form__main \.mantine-ScrollArea-thumb \{[\s\S]*?min-height: 44px;/);
+  assert.match(styles, /\.campaign-create-form__content \{\s+width: 100%;\s+min-width: 0;\s+overflow-x: hidden;/);
+  assert.match(styles, /\.customer-modal\.campaign-create-modal \.mantine-Modal-content \{[\s\S]*?height: min\(88dvh, 48rem\) !important;/);
+  assert.match(styles, /@media \(max-width: 48em\) \{[\s\S]*?\.customer-modal\.campaign-create-modal \.mantine-Modal-content \{[\s\S]*?height: min\(92dvh, 48rem\) !important;/);
+  assert.match(styles, /@media \(min-width: 48em\) \{[\s\S]*?\.campaign-create-form__actions \{\s+flex-direction: row;/);
+  assert.match(styles, /@media \(min-width: 48em\) \{[\s\S]*?\.campaign-create-form--modal \.campaign-create-form__cancel \{\s+display: inline-flex;/);
 });
 
 test("customer navigation keeps account actions in the mobile drawer", () => {
@@ -1417,19 +1479,14 @@ test("contact form submit action is mobile-first", () => {
   assert.match(styles, /\.contact-form-footer \{[\s\S]*?flex: 0 0 auto;/);
 });
 
-test("vendor group-funded discovery defaults to all campaigns without a date range", () => {
+test("vendor profile retires the vendor-side group-funded discovery mode", () => {
   const source = fs.readFileSync(
     path.join(path.resolve(__dirname, ".."), "src", "pages", "VendorProfilePage.tsx"),
     "utf8"
   );
 
-  assert.match(source, /const GROUP_FUNDED_FILTER_STORAGE_KEY = "getprio:vendor-profile:group-funded-filters:v2";/);
-  assert.match(source, /ongoing: false,\s+dateRange: \[null, null\]/);
-  assert.match(source, /if \(campaignDateFrom\) \{\s+params\.set\("scheduledDateFrom", campaignDateFrom\);/);
-  assert.match(source, /if \(campaignDateTo\) \{\s+params\.set\("scheduledDateTo", campaignDateTo\);/);
-  assert.match(source, /const campaignMinDate = useMemo\(\(\) => \{/);
-  assert.match(source, /minDate=\{campaignMinDate\}/);
-  assert.doesNotMatch(source, /GROUP_FUNDED_DEFAULT_RANGE_DAYS/);
+  assert.match(source, /const hasGroupFundedServices = false;/);
+  assert.doesNotMatch(source, /\/public\/vendors\/\$\{vendor\.slug\}\/locations\/\$\{selectedLocationSlug\}\/group-funded-campaigns/);
 });
 
 test("the app has a recovery boundary and a dedicated mobile-first 404 page", () => {
@@ -1495,4 +1552,160 @@ test("queue ticket details use the group-funded detail hero composition", () => 
   assert.match(ticket, /<Text size="xs">Ticket number<\/Text>/);
   assert.match(ticket, /<Text size="xs">Estimated wait<\/Text>/);
   assert.match(styles, /\.ticket-page-ticket-visual \.ticket-page-ticket-cancel-action,/);
+});
+
+test("campaign control center shows booking details and only renders an available private organizer rating", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CampaignControlCenterPage.tsx"), "utf8");
+  const publicSource = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CampaignPreviewPage.tsx"), "utf8");
+  const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
+
+  assert.match(source, /Organized by/);
+  assert.match(source, /campaign\.organizerTrustRating\?\.count \?/);
+  assert.match(source, /BOOKING DETAILS/);
+  assert.match(source, /x\{item\.bookingQuantity\}/);
+  assert.match(source, /Preview \$\{item\.serviceName\} image/);
+  assert.match(source, /booking\.locationTimezone/);
+  assert.match(source, /to=\{`\/vendors\/\$\{booking\.vendorSlug\}`\}/);
+  assert.match(source, /booking\.locationAddress \?/);
+  assert.match(source, /event\.actorDisplayName/);
+  assert.doesNotMatch(publicSource, /organizerTrustRating/);
+  assert.match(styles, /@media \(hover: hover\) and \(pointer: fine\)/);
+});
+
+test("campaign notices use the vendor-style overlay notification stack", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CampaignControlCenterPage.tsx"), "utf8");
+
+  assert.match(source, /<Portal>/);
+  assert.match(source, /className="dashboard-notification-stack"/);
+  assert.match(source, /<Notification/);
+  assert.match(source, /campaign\.notices/);
+  assert.match(source, /overlayNotices\.slice\(0, 3\)\.map/);
+  assert.doesNotMatch(source, /campaign\.notices\?\.slice\(0, 3\)\.map\(\(notice\) => <Alert/);
+});
+
+test("campaign control center gives a joined contributor a slot and private proof viewer", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CampaignControlCenterPage.tsx"), "utf8");
+
+  assert.match(source, /Your slot is reserved/);
+  assert.match(source, /Slot #\{ownContribution\.slotNumber/);
+  assert.match(source, /ownContribution\.paymentProof/);
+  assert.match(source, /View payment proof/);
+  assert.match(source, /className="customer-modal payment-proof-modal"/);
+  assert.match(source, /scrollbars="y"/);
+  assert.match(source, /!isOrganizer && ownContribution/);
+});
+
+test("an unpaid campaign slot uses a pending funding treatment instead of success", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CampaignControlCenterPage.tsx"), "utf8");
+  const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
+
+  assert.match(source, /if \(!contribution\.paymentProof\)/);
+  assert.match(source, /flavor: "awaiting-proof"/);
+  assert.match(source, /Submit the funding fee and payment proof to complete your contribution\./);
+  assert.match(source, /campaign-participation-card--\$\{participation\.flavor\}/);
+  assert.match(styles, /\.campaign-participation-card--awaiting-proof/);
+  assert.match(styles, /\.campaign-participation-card--accepted/);
+});
+
+test("contributor campaign hero uses campaign-wide aggregates instead of the viewer's contribution", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CampaignControlCenterPage.tsx"), "utf8");
+
+  assert.match(source, /campaign\?\.acceptedContributors\s*\?\?/);
+  assert.match(source, /campaign\?\.joinedContributors\s*\?\?/);
+  assert.match(source, /campaign\?\.acceptedAmountCents\s*\?\?/);
+  assert.doesNotMatch(source, /const filled = contributions\.filter/);
+  assert.match(source, /\{joinedContributors\}\/\{campaign\.requiredContributors\}/);
+});
+
+test("campaign trust ratings open from a contextual action inside a mobile-first modal", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CampaignControlCenterPage.tsx"), "utf8");
+
+  assert.match(source, /Rate contributor/);
+  assert.match(source, /Rate organizer/);
+  assert.match(source, /className="customer-modal campaign-rating-modal"/);
+  assert.match(source, /<FiveStarRatingInput/);
+  assert.match(source, /Low-rating reason/);
+  assert.doesNotMatch(source, /<Stack gap="xs"><Text size="sm" fw=\{700\}>Private trust rating/);
+});
+
+test("campaign control center refreshes authenticated campaign data from SSE change signals", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CampaignControlCenterPage.tsx"), "utf8");
+
+  assert.match(source, /new EventSource\(/);
+  assert.match(source, /\/public\/campaigns\/\$\{encodeURIComponent\(campaign\.publicToken\)\}\/stream/);
+  assert.match(source, /addEventListener\("campaign-change"/);
+  assert.match(source, /void load\(\)/);
+  assert.match(source, /eventSource\.close\(\)/);
+});
+
+test("campaign discovery uses one broad search field and safely renders rich descriptions", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CampaignDiscoveryPage.tsx"), "utf8");
+  const api = fs.readFileSync(path.join(frontendRoot, "src", "api", "customerAccount.ts"), "utf8");
+
+  assert.match(source, /label="Search campaigns"/);
+  assert.match(source, /placeholder="Campaign title, organizer, vendor, or address"/);
+  assert.match(source, /label="Booking date"/);
+  assert.doesNotMatch(source, /label="Vendor slug"/);
+  assert.doesNotMatch(source, /label="Branch slug"/);
+  assert.doesNotMatch(source, /label="Service slug"/);
+  assert.match(source, /<RichCampaignDescription className="rich-campaign-description campaign-list-description campaign-discovery-description" content=\{campaign\.description\}\/>/);
+  assert.match(source, /component="form"/);
+  assert.match(source, /type="submit"/);
+  assert.match(source, /className="campaign-discovery-cta"/);
+  assert.match(source, /const requestId = \+\+loadRequestId\.current/);
+  assert.match(source, /if \(requestId === loadRequestId\.current\) setCampaigns/);
+  assert.match(source, /const search = event\.currentTarget\.value;\s*setFilters\(\(current\) => \(\{ \.\.\.current, search \}\)\)/);
+  assert.match(source, /const date = event\.currentTarget\.value;\s*setFilters\(\(current\) => \(\{ \.\.\.current, date \}\)\)/);
+  assert.doesNotMatch(source, /setFilters\(\([^)]*\) => \(\{[^}]*currentTarget\.value/);
+  assert.match(api, /filters: \{ search\?: string; date\?: string \}/);
+});
+
+test("authenticated campaign pages share the customer account header and sidebar layout", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const layout = fs.readFileSync(path.join(frontendRoot, "src", "components", "CustomerAccountLayout.tsx"), "utf8");
+  const account = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CustomerAccountPage.tsx"), "utf8");
+  const app = fs.readFileSync(path.join(frontendRoot, "src", "App.tsx"), "utf8");
+
+  assert.match(layout, /label: "Campaigns", path: "\/account\/campaigns"/);
+  assert.match(layout, /className="[^"]*customer-account-hero/);
+  assert.match(layout, /className="customer-account-layout"/);
+  assert.match(layout, /className="customer-account-sidebar"/);
+  assert.match(layout, /activeSection === section\.key/);
+  assert.match(layout, /<div className="customer-account-content">\s*\{activeSection === "profile" \?/);
+  assert.match(layout, /activeSection === "profile" && !accountUser/);
+  assert.doesNotMatch(layout, /<Stack className="customer-account-page" gap="lg">\s*<Card className="[^"]*customer-account-hero/);
+  assert.match(account, /<CustomerAccountLayout activeSection=\{activeSection\} accountUser=\{accountUser\}>/);
+  assert.match(app, /<CustomerAccountLayout activeSection="campaigns">[\s\S]*?<CampaignControlCenterPage \/>/);
+  assert.match(app, /<CustomerAccountLayout activeSection="campaigns">[\s\S]*?<CampaignDiscoveryPage \/>/);
+  assert.match(app, /<CustomerAccountLayout activeSection="campaigns">[\s\S]*?<CampaignCreatePage \/>/);
+});
+
+test("campaign page titles use the customer account heading scale", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const control = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CampaignControlCenterPage.tsx"), "utf8");
+  const discovery = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CampaignDiscoveryPage.tsx"), "utf8");
+  const preview = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CampaignPreviewPage.tsx"), "utf8");
+
+  assert.match(control, /<Title order=\{2\}>Campaigns<\/Title>/);
+  assert.match(control, /<Title order=\{2\}>\{campaign\.title\}<\/Title>/);
+  assert.match(discovery, /<Title order=\{2\}>Public campaigns<\/Title>/);
+  assert.match(preview, /<Title order=\{2\}>\{campaign\.title\}<\/Title>/);
+  assert.doesNotMatch(control, /<Title order=\{1\}>/);
+  assert.doesNotMatch(discovery, /<Title order=\{1\}>/);
+  assert.doesNotMatch(preview, /<Title order=\{1\}>/);
+});
+
+test("booking schedule formatters honor the booking location timezone", () => {
+  const instant = "2026-08-19T23:30:00.000Z";
+
+  assert.equal(formatBookingScheduleDate(instant, "Asia/Manila"), "20 Aug 2026");
+  assert.equal(formatBookingScheduleTimeRange(instant, "2026-08-20T00:30:00.000Z", "Asia/Manila"), "7:30 am - 8:30 am");
 });

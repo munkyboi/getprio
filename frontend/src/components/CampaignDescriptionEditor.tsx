@@ -4,7 +4,7 @@ import StarterKit from "@tiptap/starter-kit";
 import { useEffect, useMemo } from "react";
 import { Stack, Text } from "@mantine/core";
 
-const MAX_CAMPAIGN_DESCRIPTION_CHARACTERS = 1000;
+const DEFAULT_MAX_CHARACTERS = 1000;
 
 function escapeHtml(value: string) {
   return value
@@ -41,18 +41,19 @@ function getPlainText(value: string) {
 
 type CampaignDescriptionEditorProps = {
   disabled?: boolean;
+  maxCharacters?: number;
   onChange: (value: string) => void;
   value: string;
 };
 
-export default function CampaignDescriptionEditor({ disabled = false, onChange, value }: CampaignDescriptionEditorProps) {
+export default function CampaignDescriptionEditor({ disabled = false, maxCharacters = DEFAULT_MAX_CHARACTERS, onChange, value }: CampaignDescriptionEditorProps) {
   const editor = useEditor({
     content: toEditorHtml(value),
     editable: !disabled,
     extensions: [StarterKit],
     onUpdate: ({ editor: updatedEditor }) => {
       const nextValue = updatedEditor.getHTML();
-      if (getPlainText(nextValue).length > MAX_CAMPAIGN_DESCRIPTION_CHARACTERS) {
+      if (getPlainText(nextValue).length > maxCharacters) {
         updatedEditor.commands.undo();
         return;
       }
@@ -103,7 +104,7 @@ export default function CampaignDescriptionEditor({ disabled = false, onChange, 
         <RichTextEditor.Content />
       </RichTextEditor>
       <Text c="dimmed" size="xs" ta="right">
-        {characterCount} / {MAX_CAMPAIGN_DESCRIPTION_CHARACTERS}
+        {characterCount} / {maxCharacters}
       </Text>
     </Stack>
   );

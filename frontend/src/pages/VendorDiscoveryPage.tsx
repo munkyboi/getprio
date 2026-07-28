@@ -39,15 +39,20 @@ function getBranchLabel(location: PublicVendorProfile["locations"][number]) {
 }
 
 function getVendorMediaStyle(vendor: PublicVendorProfile): CSSProperties | undefined {
-  const backgroundImageUrl = vendor.publicBoardTheme?.theme.backgroundImageUrl;
+  const theme = vendor.publicBoardTheme?.theme;
 
-  if (!backgroundImageUrl) {
+  if (!theme) {
     return undefined;
   }
 
   return {
-    "--vendor-theme-card-bg": vendor.publicBoardTheme?.theme.cardBackgroundColor,
-    backgroundImage: `linear-gradient(rgba(255,255,255,0.2), rgba(255,255,255,0.2)), url(${backgroundImageUrl})`
+    "--vendor-theme-card-bg": theme.cardBackgroundColor,
+    "--vendor-theme-logo-fit": theme.logoFit,
+    ...(theme.backgroundImageUrl
+      ? {
+          backgroundImage: `linear-gradient(rgba(255,255,255,0.2), rgba(255,255,255,0.2)), url(${theme.backgroundImageUrl})`
+        }
+      : {})
   } as CSSProperties;
 }
 
@@ -178,7 +183,11 @@ export default function VendorDiscoveryPage() {
                   >
                     {vendor.publicBoardTheme?.theme.logoUrl ? (
                       <div className="vendor-card-logo-frame">
-                        <img alt={`${vendor.name} logo`} src={vendor.publicBoardTheme.theme.logoUrl} />
+                        <img
+                          alt={`${vendor.name} logo`}
+                          src={vendor.publicBoardTheme.theme.logoUrl}
+                          style={{ objectFit: vendor.publicBoardTheme.theme.logoFit }}
+                        />
                       </div>
                     ) : vendor.imageUrl ? (
                       <img alt="" src={vendor.imageUrl} />

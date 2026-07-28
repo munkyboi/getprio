@@ -225,8 +225,7 @@ export default function BookingRequestPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const selectedLocationFromQuery = useMemo(() => new URLSearchParams(location.search).get("location") || "", [location.search]);
-  const bookingMode = useMemo(() => new URLSearchParams(location.search).get("mode") || "standard", [location.search]);
-  const isGroupFundedMode = bookingMode === "group-funded";
+  const isGroupFundedMode = false;
   const { token, user, loading: authLoading } = useAuth();
   const [vendor, setVendor] = useState<PublicVendorProfile | null>(null);
   const [selectedLocationSlug, setSelectedLocationSlug] = useState("");
@@ -244,6 +243,7 @@ export default function BookingRequestPage() {
   const [customerEmail, setCustomerEmail] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [notes, setNotes] = useState("");
+  const [organizerCampaignOptIn, setOrganizerCampaignOptIn] = useState(false);
   const [otp, setOtp] = useState<BookingOtpResponse | null>(null);
   const [otpCode, setOtpCode] = useState("");
   const [now, setNow] = useState(() => Date.now());
@@ -788,6 +788,7 @@ export default function BookingRequestPage() {
       customerEmail,
       customerPhone,
       notes,
+      organizerCampaignOptIn,
       bookingVerificationToken: verificationToken
     };
   }
@@ -1407,6 +1408,15 @@ export default function BookingRequestPage() {
                             onChange={(event) => setNotes(event.currentTarget.value)}
                             value={notes}
                           />
+                          {!isGroupFundedMode ? (
+                            <Checkbox
+                              checked={organizerCampaignOptIn}
+                              disabled={Boolean(otp)}
+                              label="Use this booking for a group-funded campaign after vendor confirmation"
+                              description="You will pay and confirm this booking normally first. Contributor payments will be collected by you separately."
+                              onChange={(event) => setOrganizerCampaignOptIn(event.currentTarget.checked)}
+                            />
+                          ) : null}
                         </Stack>
                       ) : null}
 

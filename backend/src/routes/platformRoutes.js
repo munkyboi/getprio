@@ -8,6 +8,9 @@ const billingRepository = require("../repositories/billing");
 const queueFeeService = require("../services/queueFeeService");
 const queueJoinPaymentService = require("../services/queueJoinPaymentService");
 const subscriptionPlanRepository = require("../repositories/subscriptionPlans");
+const organizerCampaignRepository = require("../repositories/organizerCampaigns");
+const ratingRepository = require("../repositories/ratings");
+const paymentProofStorageService = require("../services/paymentProofStorageService");
 
 const router = express.Router();
 
@@ -248,6 +251,71 @@ router.get(
     res.json({
       items: await platformRepository.listUsers({ limit: req.query.limit })
     });
+  })
+);
+
+router.get(
+  "/campaign-reports",
+  requirePlatformPermission("platform.users.read"),
+  asyncHandler(async (_req, res) => res.json({ items: await organizerCampaignRepository.listReports() }))
+);
+
+router.patch(
+  "/campaign-reports/:reportId",
+  requirePlatformPermission("platform.settings.manage"),
+  asyncHandler(async (req, res) => {
+    const status = req.body?.status;
+    if (!["reviewing", "resolved", "dismissed"].includes(status)) { const error = new Error("Invalid report status."); error.statusCode = 400; throw error; }
+    res.json({ report: await organizerCampaignRepository.updateReportStatus({ reportId: req.params.reportId, status }) });
+  })
+);
+
+router.get(
+  "/campaign-reports/:reportId/contributions/:contributionId/evidence",
+  requirePlatformPermission("platform.settings.manage"),
+  asyncHandler(async (req, res) => {
+    const report = await organizerCampaignRepository.findReportById(req.params.reportId);
+    if (!report || !["open", "reviewing"].includes(report.report_status)) { const error = new Error("Active campaign report not found."); error.statusCode = 404; throw error; }
+    const contribution = await organizerCampaignRepository.findContributionById(req.params.contributionId);
+    if (!contribution || String(contribution.campaignId) !== String(report.campaign_id)) { const error = new Error("Evidence not found."); error.statusCode = 404; throw error; }
+    const evidence = req.query.kind === "reimbursement"
+      ? await organizerCampaignRepository.findReimbursementEvidenceByContributionId(contribution.id)
+      : await organizerCampaignRepository.findContributionEvidenceById(contribution.id);
+    if (!evidence?.object_key) { const error = new Error("Evidence not found."); error.statusCode = 404; throw error; }
+    await organizerCampaignRepository.recordEvent({ campaignId: report.campaign_id, eventType: "campaign_evidence_viewed", actorUserId: req.user?._id, actorRole: "platform_admin", source: "platform", metadata: { reportId: report.id, contributionId: contribution.id, kind: req.query.kind === "reimbursement" ? "reimbursement" : "contribution" } });
+    res.json(await paymentProofStorageService.createCampaignEvidenceViewAccess({ objectKey: evidence.object_key, fileName: evidence.file_name, contentType: evidence.content_type, sizeBytes: evidence.size_bytes }));
+  })
+);
+
+router.patch(
+  "/campaigns/:campaignId/freeze",
+  requirePlatformPermission("platform.settings.manage"),
+  asyncHandler(async (req, res) => {
+    const reason = String(req.body?.reason || "").trim();
+    if (!reason) { const error = new Error("Freeze reason is required."); error.statusCode = 400; throw error; }
+    if (reason.length > 500) { const error = new Error("Freeze reason must be 500 characters or fewer."); error.statusCode = 400; throw error; }
+    res.json({ campaign: await organizerCampaignRepository.freezeCampaign({ campaignId: req.params.campaignId, actorUserId: req.user?._id, reason }) });
+  })
+);
+
+router.get(
+  "/rating-disputes",
+  requirePlatformPermission("platform.users.read"),
+  asyncHandler(async (_req, res) => res.json({ items: await ratingRepository.listDisputes() }))
+);
+
+router.patch(
+  "/rating-disputes/:disputeId",
+  requirePlatformPermission("platform.settings.manage"),
+  asyncHandler(async (req, res) => {
+    const status = req.body?.status;
+    const moderationStatus = req.body?.moderationStatus;
+    if (!["resolved", "dismissed"].includes(status) || !["active", "hidden"].includes(moderationStatus)) {
+      const error = new Error("Choose a valid dispute resolution."); error.statusCode = 400; throw error;
+    }
+    const dispute = await ratingRepository.resolveDispute({ disputeId: req.params.disputeId, actorUserId: req.user?._id, status, moderationStatus });
+    if (!dispute) { const error = new Error("Rating dispute not found."); error.statusCode = 404; throw error; }
+    res.json({ dispute });
   })
 );
 

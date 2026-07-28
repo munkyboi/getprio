@@ -1,60 +1,72 @@
-# Group-Funded Booking IAS Addendum
+# Organizer-Collected Campaign IAS Addendum
 
-Date: 2026-07-12
+Date: 2026-07-19
 
-This addendum updates the GetPrio IAS deliverables for the group-funded booking feature. It should be read with `docs/plan/capstone-ias-security-privacy-prd.md` and `docs/plan/capstone-route-role-inventory.md`.
+This replaces the vendor-managed group-funded booking addendum. Campaign money moves directly between a contributor and the customer organizer. GetPrio records the workflow but does not hold, transmit, settle, guarantee, or automatically reimburse contribution money. Qualified Philippine legal, privacy, consumer-protection, and tax review remains a production release gate.
 
-## Module 2 Privacy Inventory Additions
+## Module 1 — CIA and IAAA
 
-| Data Field / Record | Data Type | PI/SPI Classification | Purpose | Retention / Access Rule |
-| --- | --- | --- | --- | --- |
-| Group-funded campaign public token | Transactional identifier | PI-adjacent when linked to organizer | Shareable campaign detail URL | Keep with campaign record; public token exposes only minimized public payload. |
-| Campaign visibility and description | User-generated public metadata | PI-adjacent public content when public | Explain the campaign on vendor profile/detail pages | 280-character limit, backend moderation, escaped rendering, report-abuse path. |
-| Organizer display label | Account-derived display text | PI when linked to account | Public trust/context for campaign | Mask on public payloads; full account linkage remains private. |
-| Participant record | Transactional ownership data | PI | Track who joined and who owns a contribution/refund | Visible only to the participant, authorized vendor users, and platform governance. |
-| Contribution amount/status/reference | Payment transaction data | PI-adjacent transactional data | Exact-share ledger and vendor payment review | Contributor sees own contribution; authorized vendor users review proof; public sees only verified aggregates. |
-| Contribution proof metadata/evidence | Sensitive transactional evidence | Sensitive PI-adjacent evidence | Manual payment verification and dispute support | Never public; route- and role-scoped to owner, authorized vendor users, and platform governance. |
-| Refund obligation/evidence | Sensitive transactional evidence | Sensitive PI-adjacent evidence | Manual refund tracking after failure/rejection/cancellation | Contributor sees own refund state; vendor handles evidence; public payload excludes it. |
-| Capacity hold | Operational booking data | Non-public operational data | Reserve slot during vendor review after full funding | Internal/vendor only until linked booking is created. |
-| Group-funded event timeline | Audit/transactional data | System/security data | Accountability for campaign, contribution, review, and refund transitions | Internal/vendor/customer-redacted views only; platform governance for moderation and disputes. |
+| Control | Campaign-specific requirement |
+| --- | --- |
+| Confidentiality | Payment instructions, references, proof, contributor identity, reimbursement evidence, and private trust notes are visible only to the organizer and relevant contributor. Vendor users never receive campaign financial evidence. Platform Admin access is case-scoped and audited. |
+| Integrity | Booking eligibility, fixed fee, contributor capacity, proof review, cancellation obligations, and contributor-confirmed reimbursement use server-authorized state transitions and database transactions. Audit events identify actor, role, source, and time. |
+| Availability | A campaign cannot block or alter the paid booking when the target or deadline is missed. Deadline/review-overdue processing is retryable, and preferred-channel notifications supplement the in-app source of truth. |
+| Identification and authentication | Campaign joins, proof, ratings, reports, and management require an authenticated customer account. Generic share previews disclose only the public profile. |
+| Authorization | Organizers manage only campaigns attached to their own eligible bookings; contributors access only their own evidence; vendors retain normal booking operations only; Platform Admin moderation requires explicit permissions. |
+| Accountability | Proof decisions, publication, cancellation, reimbursement, reports, freezes, ratings, appeals, and moderation decisions create durable records. |
 
-Legal basis under RA 10173 remains contract performance for booking/payment operations, legitimate interest for fraud prevention and security monitoring, and consent/organizer choice for public campaign description/visibility.
+## Module 2 — Privacy inventory and legal basis
 
-## Module 3 Access Control Notes
+| Record | Classification | Purpose and access | Retention decision |
+| --- | --- | --- | --- |
+| Campaign title, description, schedule, fee, progress | Public or private-link transactional data | Explain a cost-sharing campaign; public only by organizer opt-in and vendor publication consent | Campaign life plus documented complaint/legal period, then delete or de-identify |
+| Organizer and contributor IDs | Personal information | Ownership, slot enforcement, fraud and dispute handling; never listed publicly | Booking/campaign life plus complaint/legal period |
+| Payment instructions and reference | Financial/transactional personal data | Direct organizer payment and proof matching; organizer plus relevant contributor only | Shortest period needed for active campaign, reimbursement, and dispute |
+| Proof and reimbursement evidence | Sensitive transactional evidence | Proof review and redress; private object storage, short-lived access, case-scoped admin access | Explicit evidence schedule with storage-object deletion |
+| Notification preference | Personal information | Send event notices using the customer&apos;s preferred permitted channel | Until changed or account retention ends |
+| Vendor review | Public user-generated content | Vendor reputation after completed service | While relevant, subject to revision, appeal, moderation, and erasure/legal exceptions |
+| User trust rating and private note | Private personal/profile data | Role-relevant trust aggregate; notes never exposed to decision makers as raw content | Defined rating retention; disputed records excluded from aggregates |
+| Events, reports, disputes, moderation | Security/audit personal data | Accountability, abuse response, legal defense | Risk-based audit schedule with restricted privileged access |
 
-| Actor | Allowed Group-Funded Actions | Denied / Limited Actions |
+Likely bases under RA 10173 must be confirmed in the PIA: contract performance for booking-linked operations, legitimate interest for security/fraud/audit with a balancing test, legal obligation where applicable, and consent or another documented basis for optional public publication and notification channels. Users must receive transparency, purpose, recipients, retention, rights, and complaint contact information.
+
+## Module 3 — RBAC and lifecycle
+
+| Actor | Allowed | Denied |
 | --- | --- | --- |
-| Guest | View vendor-profile public campaign cards and public campaign detail; report abuse. | Create campaigns, contribute, view proof/refunds/participants. |
-| Customer organizer | Create campaign, choose visibility, cancel pre-funded campaign, accept/decline replacement slot, view own campaign state. | View other contributors' payment proof/reference/refund evidence. |
-| Customer contributor | Submit exact contribution proof and view own contribution/refund state. | Edit campaign terms, approve vendor actions, view other contributors. |
-| Vendor Staff | Currently denied group-funded vendor review routes because they require `tenant.booking.manage`. | Manage settings, verify/reject proof, approve/reject campaigns, update refunds unless permissions are intentionally broadened later. |
-| Vendor Admin / Owner | Configure branch-service eligibility, review contributions, approve/reject funded campaigns, propose replacement slots, update manual refunds. | Access other tenants' campaigns. |
-| Platform Admin | Governance/moderation/audit review when platform routes are added. | Does not bypass tenant booking routes without explicit platform workflow and audit. |
+| Guest | Open a privacy-minimized generic share preview | Join, report, view payment instructions/evidence, or see contributor identity |
+| Customer organizer | Create from own paid/confirmed opt-in booking; edit draft; publish/unpublish; review proof; cancel; record reimbursement; rate contributor | Occupy a slot; access another organizer&apos;s campaign; change the underlying booking through campaign state |
+| Customer contributor | Join an open slot; view own instructions/state; submit one proof plus one corrected proof; confirm/dispute own reimbursement; rate organizer after closure | See roster identities, other evidence, organizer controls, or accept own proof |
+| Vendor Staff/Admin | Validate and operate the normal booking; view only role-relevant organizer trust aggregate | Campaign dashboard, contribution proof, collection decisions, reimbursement, or private contributor data |
+| Platform Admin | Review reports/appeals; freeze campaigns; resolve/hide disputed ratings under permission and audit | Routine access to evidence without an active case; payment custody or settlement |
 
-Session controls remain the same as the capstone auth design: authenticated state-changing requests require a valid access token; production cookie transport must use HttpOnly, Secure, SameSite cookies plus CSRF protection.
+The cancellation terminal rule is strict: accepted contributions create reimbursement obligations, and the campaign remains `refund_pending` until every affected contributor explicitly confirms receipt. A refusal creates a dispute. Review becomes `review_overdue` after 48 hours or at deadline and is never silently accepted.
 
-## Module 4 Attack Surface Additions
+## Module 4 — Attack surface
 
-| Endpoint / Form | Likely OWASP Risk | Severity | Evidence Placeholder | Remediation / Implemented Control |
-| --- | --- | --- | --- | --- |
-| `POST /api/account/group-funded-campaigns` campaign creation form | Stored XSS, abuse/spam, parameter tampering | High | Backend validation/unit test output | Server validates service/location eligibility, contributor/deadline bounds, 280-character description, and moderation. |
-| `POST /api/account/group-funded-campaigns/:token/contributions/payment-proof` | Broken access control, unsafe upload metadata, payment tampering | High | Service tests for proof metadata and ledger state | Auth required, one contribution per user/campaign, exact amount derived server-side, proof metadata type/size validation. |
-| Vendor contribution verify/reject routes | Broken access control, ledger tampering | High | RBAC and lifecycle test output | `tenant.booking.manage` required; ledger recomputation is transactional; event records capture actor and transition. |
-| Vendor campaign approve/reject/review-expiry routes | Capacity race, refund integrity failure | High | Lifecycle tests for linked booking/refunds | Capacity is rechecked, dedicated capacity holds are used, approval creates one paid linked booking, rejection/expiry creates refund obligations. |
-| Vendor refund update route | Refund fraud, repudiation | High | Manual refund test output | Refund records are separate from campaign status, vendor actor is stored, contribution status is updated, event is recorded. |
-| `GET /api/public/vendors/:tenantSlug/locations/:locationSlug/group-funded-campaigns` | Excessive data exposure, private-link leak | Medium | Repository public-discovery test output | SQL filters `visibility = 'public'` and branch-service `allow_public_campaigns`; public DTO allowlists fields. |
-| `GET /api/public/group-funded-campaigns/:publicToken` | IDOR / excessive data exposure | Medium | Public payload test output | Public formatter masks organizer identity and excludes organizer user ID, proof, participant, refund, event, and linked booking details. |
-| `POST /api/public/group-funded-campaigns/:token/report-abuse` | Abuse flooding, log injection | Medium | Route limiter and event test output | Express rate limiter, backend moderation for reason text, internal `abuse_reported` event with hashed IP. |
+| Endpoint/action | Main risk | Required/implemented control |
+| --- | --- | --- |
+| Create/edit/publish campaign | Stored XSS, deceptive solicitation, parameter tampering | Ownership and booking eligibility, length/content validation, deadline bounds, vendor public opt-in, two-public-campaign cap |
+| Join campaign | race/overbooking, bot abuse, IDOR | Auth, organizer exclusion, unique membership, row-locked capacity check, account/IP rate limit, honeypot |
+| Upload proof/evidence | malware, oversized file, evidence leakage | MIME/size allowlist, private object key, role scope; production malware scanning and signed retrieval remain required |
+| Organizer proof review | repudiation, biased or late decision | Organizer-only authorization, required rejection reason, one resubmission, 48-hour overdue state, events and notices |
+| Cancellation/reimbursement | partial writes, false refund claim | Transactional obligation creation/state updates, organizer evidence, contributor confirmation/refusal, final cancellation only after all confirmations |
+| Public discovery/share preview | excessive disclosure, spam | Allowlisted DTO, signed-in discovery, generic token, no financial/evidence/contact/identity fields, filters, reporting and freeze |
+| Ratings | retaliation, review manipulation, arbitrary appeal ID | Qualifying interaction, one 1–5 star rating, low-score reason, participant-only 30-day appeal, disputed exclusion, admin resolution, no automatic blocking |
+| Notifications | privacy leakage, channel abuse | Campaign-alert opt-out, preferred permitted channel, minimal payload; no evidence or bank/reference data in email/SMS/push |
 
-## Verification Evidence
+## Philippine compliance release blockers
 
-- `backend/tests/groupFundedBookingService.test.cjs` covers creation, moderation, contribution proof submission, verification, funding completion, vendor approval, vendor rejection, missed deadline refunds, customer self-state privacy, replacement slot acceptance, manual refund completion, and abuse-report event recording.
-- `backend/tests/groupFundedBookingsRepository.test.cjs` covers schema/repository separation, public discovery filtering, capacity holds, and refund updates.
-- `backend/tests/rbac.test.cjs` asserts Vendor Staff lacks `tenant.booking.manage`, Vendor Admin/Owner are tenant-scoped, and Platform Admin does not implicitly bypass tenant booking permissions.
-- `scripts/smoke-test.mjs --stage group-funded` provides opt-in private lifecycle smoke coverage without depending on public discovery.
+- Obtain counsel&apos;s BSP scope assessment before launch and before adding wallets, escrow, payment initiation/routing, settlement, automated refunds, or transfer-based fees.
+- Prohibit investment, lending, profit, interest, ownership, securities, or capital-raising campaigns; obtain SEC advice before any such expansion.
+- Complete the campaign PIA, privacy notice, evidence retention/deletion schedule, processor inventory, data-subject workflow, breach response, and privileged-access audit design.
+- Confirm Internet Transactions Act and E-Commerce Philippine Trustmark applicability with DTI/qualified counsel; publish campaign disclosures and accessible complaint/redress routes.
+- Obtain Philippine tax/accounting advice for organizer-collected amounts and any future GetPrio fee model.
+- Treat `docs/research/2026-07-18-organizer-collected-campaign-philippine-compliance.md` as research, not legal advice. Formal written sign-off is required for production.
 
-## Residual Risks
+## Release verification
 
-- Manual payment proof and manual refund evidence still depend on vendor review quality. Production should add stronger object-storage signing, malware scanning, and platform moderation queues.
-- Platform Admin group-funded moderation routes are documented but not yet implemented as a dedicated UI/API surface.
-- Automated smoke approval requires a prepared service whose group-funded settings allow the configured contributor count; otherwise the smoke stage skips before mutating state.
+- Repository/service tests cover eligibility, ownership, proof review, slot capacity, cancellation obligations, contributor confirmation/dispute, ratings, and moderation.
+- Permission tests must prove vendor campaign routes are absent and cross-customer campaign/evidence/rating IDs return scoped `404`/`403` responses.
+- Migration verification must confirm the new organizer/rating tables and zero legacy transactional state after the separately authorized reset.
+- Mobile checks target 320–430 px widths, touch-size controls, keyboard focus, star-input accessible names, readable status text, and no per-slot share action.

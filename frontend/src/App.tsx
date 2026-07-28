@@ -12,18 +12,23 @@ import ContactPage from "./pages/ContactPage";
 import RegisterVendorPage from "./pages/RegisterVendorPage";
 import RegisterCustomerPage from "./pages/RegisterCustomerPage";
 import CustomerAccountPage from "./pages/CustomerAccountPage";
+import CustomerDashboardPage from "./pages/CustomerDashboardPage";
 import CustomerBookingDetailPage from "./pages/CustomerBookingDetailPage";
 import VendorDashboardPage from "./pages/VendorDashboardPage";
 import VendorDiscoveryPage from "./pages/VendorDiscoveryPage";
 import VendorProfilePage from "./pages/VendorProfilePage";
 import BookingRequestPage from "./pages/BookingRequestPage";
-import GroupFundedCampaignPage from "./pages/GroupFundedCampaignPage";
+import CampaignControlCenterPage from "./pages/CampaignControlCenterPage";
+import CampaignDiscoveryPage from "./pages/CampaignDiscoveryPage";
+import CampaignPreviewPage from "./pages/CampaignPreviewPage";
+import CampaignCreatePage from "./pages/CampaignCreatePage";
 import PublicQueuePage from "./pages/PublicQueuePage";
 import JoinQueuePage from "./pages/JoinQueuePage";
 import JoinedQueuePage from "./pages/JoinedQueuePage";
 import TermsPage from "./pages/TermsPage";
 import NotFoundPage from "./pages/NotFoundPage";
 import SiteFooter from "./components/SiteFooter";
+import CustomerAccountLayout from "./components/CustomerAccountLayout";
 import {
   JOINED_QUEUE_ROUTE_PATH,
   buildMonitorPath,
@@ -79,10 +84,11 @@ function AppShell({ children }: { children: ReactNode }) {
       </Menu.Target>
       <Menu.Dropdown>
         <Menu.Label>{user?.name || "Account"}</Menu.Label>
+        <Menu.Item component={Link} to="/account/dashboard">Dashboard</Menu.Item>
         <Menu.Item component={Link} to="/account/profile">Profile details</Menu.Item>
         <Menu.Item component={Link} to="/account/tickets">Queue Tickets</Menu.Item>
         <Menu.Item component={Link} to="/account/bookings">Bookings</Menu.Item>
-        <Menu.Item component={Link} to="/account/group-funded">Group-funded</Menu.Item>
+        <Menu.Item component={Link} to="/account/campaigns">Campaigns</Menu.Item>
         <Menu.Item component={Link} to="/account/settings">Settings</Menu.Item>
         <Menu.Item component={Link} to="/account/security">Security</Menu.Item>
         <Menu.Divider />
@@ -171,10 +177,11 @@ function AppShell({ children }: { children: ReactNode }) {
                   </>
                 ) : (
                   <>
+                    <Button component={Link} to="/account/dashboard" variant="subtle" color="dark">Dashboard</Button>
                     <Button component={Link} to="/account/profile" variant="subtle" color="dark">Profile details</Button>
                     <Button component={Link} to="/account/tickets" variant="subtle" color="dark">Queue Tickets</Button>
                     <Button component={Link} to="/account/bookings" variant="subtle" color="dark">Bookings</Button>
-                    <Button component={Link} to="/account/group-funded" variant="subtle" color="dark">Group-funded</Button>
+                    <Button component={Link} to="/account/campaigns" variant="subtle" color="dark">Campaigns</Button>
                     <Button component={Link} to="/account/settings" variant="subtle" color="dark">Settings</Button>
                     <Button component={Link} to="/account/security" variant="subtle" color="dark">Security</Button>
                     <Divider my="xs" />
@@ -199,6 +206,16 @@ function AppShell({ children }: { children: ReactNode }) {
       {!isDashboardRoute ? <SiteFooter /> : null}
     </Box>
   );
+}
+
+function LegacyCampaignRedirect() {
+  const { publicToken = "" } = useParams();
+  return <Navigate replace to={`/campaign/${encodeURIComponent(publicToken)}`} />;
+}
+
+function LegacyVendorCampaignRedirect() {
+  const { tenantSlug = "" } = useParams();
+  return <Navigate replace to={`/vendors/${encodeURIComponent(tenantSlug)}`} />;
 }
 
 function BarePage({ children }: { children: ReactNode }) {
@@ -304,20 +321,27 @@ export default function App() {
         <Route path="/terms" element={<AppShell><TermsPage /></AppShell>} />
         <Route path="/register/vendor" element={<AppShell><RegisterVendorPage /></AppShell>} />
         <Route path="/register/customer" element={<AppShell><RegisterCustomerPage /></AppShell>} />
-        <Route path="/account" element={<Navigate to="/account/profile" replace />} />
+        <Route path="/account" element={<Navigate to="/account/dashboard" replace />} />
+        <Route path="/account/dashboard" element={<AppShell><CustomerDashboardPage /></AppShell>} />
+        <Route path="/account/dashboard-prototype" element={<Navigate to="/account/dashboard" replace />} />
         <Route path="/account/profile" element={<AppShell><CustomerAccountPage /></AppShell>} />
         <Route path="/account/tickets" element={<AppShell><CustomerAccountPage /></AppShell>} />
         <Route path="/account/bookings" element={<AppShell><CustomerAccountPage /></AppShell>} />
-        <Route path="/account/group-funded" element={<AppShell><CustomerAccountPage /></AppShell>} />
+        <Route path="/account/group-funded" element={<Navigate to="/account/campaigns" replace />} />
+        <Route path="/account/campaigns" element={<AppShell><CustomerAccountLayout activeSection="campaigns"><CampaignControlCenterPage /></CustomerAccountLayout></AppShell>} />
+        <Route path="/account/campaigns/discover" element={<AppShell><CustomerAccountLayout activeSection="campaigns"><CampaignDiscoveryPage /></CustomerAccountLayout></AppShell>} />
+        <Route path="/account/campaigns/:campaignId/manage" element={<AppShell><CustomerAccountLayout activeSection="campaigns"><CampaignControlCenterPage /></CustomerAccountLayout></AppShell>} />
         <Route path="/account/settings" element={<AppShell><CustomerAccountPage /></AppShell>} />
         <Route path="/account/notifications" element={<AppShell><CustomerAccountPage /></AppShell>} />
         <Route path="/account/security" element={<AppShell><CustomerAccountPage /></AppShell>} />
         <Route path="/account/bookings/:bookingId" element={<AppShell><CustomerBookingDetailPage /></AppShell>} />
-        <Route path="/group-funded/:publicToken" element={<AppShell><GroupFundedCampaignPage /></AppShell>} />
+        <Route path="/account/bookings/:bookingId/campaign/new" element={<AppShell><CustomerAccountLayout activeSection="campaigns"><CampaignCreatePage /></CustomerAccountLayout></AppShell>} />
+        <Route path="/group-funded/:publicToken" element={<LegacyCampaignRedirect />} />
+        <Route path="/campaign/:publicToken" element={<AppShell><CampaignPreviewPage /></AppShell>} />
         <Route path="/vendors" element={<AppShell><VendorDiscoveryPage /></AppShell>} />
         <Route path="/vendors/:tenantSlug/book" element={<AppShell><BookingRequestPage /></AppShell>} />
         <Route path="/vendors/:tenantSlug/book/:serviceSlug" element={<AppShell><BookingRequestPage /></AppShell>} />
-        <Route path="/vendors/:tenantSlug/group-funded" element={<AppShell><VendorProfilePage /></AppShell>} />
+        <Route path="/vendors/:tenantSlug/group-funded" element={<LegacyVendorCampaignRedirect />} />
         <Route path="/vendors/:tenantSlug" element={<AppShell><VendorProfilePage /></AppShell>} />
         <Route path="/dashboard" element={<DashboardRedirect />} />
         <Route path="/dashboard/:section" element={<AppShell><VendorDashboardPage /></AppShell>} />

@@ -46,6 +46,7 @@ const BOOKING_COLUMNS = `
   bookings.check_in_closing_notified_at,
   bookings.group_funded_booking_id,
   bookings.booking_payment_source,
+  bookings.organizer_campaign_opt_in,
   bookings.created_at,
   bookings.updated_at,
   group_funded_bookings.public_token AS group_funded_public_token,
@@ -67,9 +68,14 @@ const BOOKING_COLUMNS = `
   tenants.slug AS tenant_slug,
   store_locations.name AS location_name,
   store_locations.slug AS location_slug,
+  store_locations.address_line1 AS location_address_line1,
+  store_locations.address_line2 AS location_address_line2,
+  store_locations.city AS location_city,
+  store_locations.province AS location_province,
   store_locations.timezone AS location_timezone,
   vendor_services.name AS service_name,
   vendor_services.slug AS service_slug,
+  vendor_services.image_url AS service_image_url,
   vendor_services.manual_payment_required AS service_manual_payment_required,
   vendor_services.price_amount_cents AS service_price_amount_cents,
   vendor_services.currency AS service_currency,
@@ -89,6 +95,13 @@ const BOOKING_COLUMNS = `
       'serviceId', booking_bundle_items.service_id,
       'serviceName', booking_bundle_items.service_name_snapshot,
       'serviceSlug', booking_bundle_items.service_slug_snapshot,
+      'imageUrl', (
+        SELECT bundle_services.image_url
+        FROM vendor_services bundle_services
+        WHERE bundle_services.id = booking_bundle_items.service_id
+          AND bundle_services.tenant_id = booking_bundle_items.tenant_id
+        LIMIT 1
+      ),
       'bookingQuantity', booking_bundle_items.booking_quantity,
       'priceAmountCents', booking_bundle_items.price_amount_cents,
       'currency', booking_bundle_items.currency,
@@ -98,6 +111,8 @@ const BOOKING_COLUMNS = `
     ) ORDER BY booking_bundle_items.sort_order, booking_bundle_items.id)
     FROM booking_bundle_items
     WHERE booking_bundle_items.booking_id = bookings.id
+      AND booking_bundle_items.tenant_id = bookings.tenant_id
+      AND booking_bundle_items.location_id = bookings.location_id
   ), '[]'::json) AS booking_bundle_items,
   COALESCE((
     SELECT json_agg(json_build_object(
@@ -136,10 +151,17 @@ function mapBooking(row) {
     locationId: String(row.location_id),
     locationName: row.location_name || "",
     locationSlug: row.location_slug || "",
+    locationAddress: [
+      row.location_address_line1,
+      row.location_address_line2,
+      row.location_city,
+      row.location_province
+    ].filter(Boolean).join(", "),
     locationTimezone: row.location_timezone || "Asia/Manila",
     serviceId: String(row.service_id),
     serviceName: row.service_name || "",
     serviceSlug: row.service_slug || "",
+    serviceImageUrl: row.service_image_url || "",
     serviceManualPaymentRequired: Boolean(row.service_manual_payment_required),
     servicePriceAmountCents: Number(row.service_price_amount_cents || 0),
     serviceCurrency: row.service_currency || "PHP",
@@ -149,6 +171,7 @@ function mapBooking(row) {
       serviceId: String(item.serviceId),
       serviceName: item.serviceName,
       serviceSlug: item.serviceSlug,
+      imageUrl: item.imageUrl || "",
       bookingQuantity: Number(item.bookingQuantity),
       priceAmountCents: Number(item.priceAmountCents),
       currency: item.currency || "PHP",
@@ -217,6 +240,7 @@ function mapBooking(row) {
     checkInClosingNotifiedAt: row.check_in_closing_notified_at || null,
     groupFundedBookingId: row.group_funded_booking_id ? String(row.group_funded_booking_id) : null,
     bookingPaymentSource: row.booking_payment_source || "standard",
+    organizerCampaignOptIn: Boolean(row.organizer_campaign_opt_in),
     groupFundedCampaign: row.group_funded_public_token
       ? {
           id: row.group_funded_booking_id ? String(row.group_funded_booking_id) : null,
@@ -276,9 +300,10 @@ async function createBooking(data, options = {}) {
             notify_by_sms,
             sms_alert_fee_payment_id,
             contact_verified_at,
-            contact_verification_channel
+            contact_verification_channel,
+            organizer_campaign_opt_in
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'pending', $13, $14, 'unpaid', $15, $16, $17, $18, $19, $20)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'pending', $13, $14, 'unpaid', $15, $16, $17, $18, $19, $20, $21)
           RETURNING *
         `,
         [
@@ -301,7 +326,8 @@ async function createBooking(data, options = {}) {
           Boolean(data.notifyBySms),
           data.smsAlertFeePaymentId || null,
           data.contactVerifiedAt || null,
-          data.contactVerificationChannel || null
+          data.contactVerificationChannel || null,
+          Boolean(data.organizerCampaignOptIn)
         ]
       );
 

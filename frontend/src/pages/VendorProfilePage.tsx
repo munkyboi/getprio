@@ -5,6 +5,7 @@ import {
   Alert,
   Badge,
   Button,
+  Card,
   Container,
   Divider,
   FloatingIndicator,
@@ -34,6 +35,7 @@ import {
   IconInfoCircle,
   IconMapPin,
   IconPhoto,
+  IconStar,
   IconTicket,
   IconUserPlus,
   IconUsers
@@ -52,7 +54,6 @@ import ContactForm from "../components/ContactForm";
 import { getErrorMessage } from "../utils/errors";
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const GROUP_FUNDED_PUBLIC_PAGE_SIZE = 10;
 const GROUP_FUNDED_FILTER_STORAGE_KEY = "getprio:vendor-profile:group-funded-filters:v2";
 type BookingOption = "standard" | "group-funded";
 type GroupFundedCampaignFilters = {
@@ -428,9 +429,9 @@ export default function VendorProfilePage() {
   const [selectedLocationSlug, setSelectedLocationSlug] = useState("");
   const [locationServices, setLocationServices] = useState<Array<PublicVendorProfile["services"][number] & { capacity: number }>>([]);
   const [servicesLoading, setServicesLoading] = useState(false);
-  const [publicCampaigns, setPublicCampaigns] = useState<GroupFundedCampaignSummary[]>([]);
-  const [publicCampaignPagination, setPublicCampaignPagination] = useState<GroupFundedCampaignsResponse["pagination"] | null>(null);
-  const [campaignsLoading, setCampaignsLoading] = useState(false);
+  const [publicCampaigns] = useState<GroupFundedCampaignSummary[]>([]);
+  const [publicCampaignPagination] = useState<GroupFundedCampaignsResponse["pagination"] | null>(null);
+  const [campaignsLoading] = useState(false);
   const [heroBranchIndex, setHeroBranchIndex] = useState(0);
   const [bookingOptionRoot, setBookingOptionRoot] = useState<HTMLDivElement | null>(null);
   const [bookingOptionControls, setBookingOptionControls] = useState<Record<BookingOption, HTMLButtonElement | null>>({
@@ -453,6 +454,11 @@ export default function VendorProfilePage() {
       const data = await apiRequest<PublicVendorProfileResponse>(`/public/vendors/${tenantSlug}`);
       return data.vendor;
     },
+    enabled: Boolean(tenantSlug)
+  });
+  const vendorRatingQuery = useQuery({
+    queryKey: ["public-vendor-rating", tenantSlug],
+    queryFn: () => apiRequest<{ rating: { average: number; count: number }; reviews: Array<{ id: string; stars: number; comment?: string; vendor_reply?: string; customer_display_name: string; created_at: string }> }>(`/public/vendors/${tenantSlug}/ratings`),
     enabled: Boolean(tenantSlug)
   });
 
@@ -696,66 +702,9 @@ export default function VendorProfilePage() {
     return () => controller.abort();
   }, [selectedLocationSlug, vendor]);
 
-  useEffect(() => {
-    if (!vendor || !selectedLocationSlug) {
-      setPublicCampaigns([]);
-      setPublicCampaignPagination(null);
-      return;
-    }
-
-    const controller = new AbortController();
-    const params = new URLSearchParams({
-      page: String(campaignPage),
-      pageSize: String(GROUP_FUNDED_PUBLIC_PAGE_SIZE)
-    });
-
-    if (campaignSearch.trim()) {
-      params.set("search", campaignSearch.trim());
-    }
-    if (campaignDateFrom) {
-      params.set("scheduledDateFrom", campaignDateFrom);
-    }
-    if (campaignDateTo) {
-      params.set("scheduledDateTo", campaignDateTo);
-    }
-    if (campaignOngoingOnly) {
-      params.set("ongoingOnly", "true");
-    }
-
-    setCampaignsLoading(true);
-    apiRequest<GroupFundedCampaignsResponse>(
-      `/public/vendors/${vendor.slug}/locations/${selectedLocationSlug}/group-funded-campaigns?${params.toString()}`,
-      { signal: controller.signal }
-    )
-      .then((data) => {
-        setPublicCampaigns(data.campaigns);
-        setPublicCampaignPagination(data.pagination || null);
-      })
-      .catch((campaignError) => {
-        if (!controller.signal.aborted) {
-          setPublicCampaigns([]);
-          setPublicCampaignPagination(null);
-          console.error(campaignError);
-        }
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) {
-          setCampaignsLoading(false);
-        }
-      });
-
-    return () => controller.abort();
-  }, [
-    campaignDateFrom,
-    campaignDateTo,
-    campaignOngoingOnly,
-    campaignPage,
-    campaignSearch,
-    selectedLocationSlug,
-    vendor
-  ]);
-
-  const hasGroupFundedServices = locationServices.some((service) => service.groupFunded?.enabled);
+  // The vendor-side discovery and booking mode was retired. Campaigns now begin
+  // only after a customer pays and the vendor confirms a normal booking.
+  const hasGroupFundedServices = false;
   const firstGroupFundedService = locationServices.find((service) => service.groupFunded?.enabled) || null;
   const campaignFiltersChanged = Boolean(
     campaignSearch ||
@@ -1028,6 +977,7 @@ export default function VendorProfilePage() {
                   <div className="booking-detail-visual-content">
                     <Stack align="center" gap={6}>
                       <Title className="booking-detail-ticket-number" order={2}>{vendor.name}</Title>
+                      <Group aria-label={`${vendorRatingQuery.data?.rating.count || 0} vendor ratings`} gap={6}><IconStar color="#ffd000" fill="#ffd000" size={22}/><Text fw={900}>{vendorRatingQuery.data?.rating.count ? vendorRatingQuery.data.rating.average.toFixed(1) : "—"}</Text></Group>
                     </Stack>
                     <div className="booking-detail-visual-tile vendor-profile-branch-carousel-card">
                       <div aria-live="polite" className="vendor-profile-branch-carousel" role="status">
@@ -1071,6 +1021,8 @@ export default function VendorProfilePage() {
                 </Paper>
               </SimpleGrid>
             </Paper>
+
+            {vendorRatingQuery.data?.reviews.length ? <Paper p={{ base: "md", sm: "xl" }}><Stack gap="md"><Group justify="space-between"><Title order={2}>Customer reviews</Title><Group gap={6}><IconStar color="#ffd000" fill="#ffd000" size={20}/><Text fw={900}>{vendorRatingQuery.data.rating.average.toFixed(1)} ({vendorRatingQuery.data.rating.count})</Text></Group></Group><SimpleGrid cols={{ base: 1, md: 2 }}>{vendorRatingQuery.data.reviews.map((review) => <Card key={review.id} p="md"><Stack gap="xs"><Group justify="space-between"><Text fw={700}>{review.customer_display_name}</Text><Group gap={4}><IconStar color="#ffd000" fill="#ffd000" size={16}/><Text fw={800}>{review.stars}.0</Text></Group></Group>{review.comment ? <Text>{review.comment}</Text> : null}{review.vendor_reply ? <Alert color="gray" title="Vendor reply">{review.vendor_reply}</Alert> : null}</Stack></Card>)}</SimpleGrid></Stack></Paper> : null}
 
             <Stack gap="md">
               <div>

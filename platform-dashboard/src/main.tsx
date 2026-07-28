@@ -43,7 +43,9 @@ import {
   IconAlertTriangle,
   IconTrash,
   IconPlus,
-  IconBellRinging
+  IconBellRinging,
+  IconShieldExclamation,
+  IconStar
 } from "@tabler/icons-react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
@@ -65,6 +67,8 @@ import type {
 import { apiRequest } from "./api";
 import { PortalDataTable } from "./components/PortalDataTable";
 import { ConfirmActionModal } from "./components/ConfirmActionModal";
+import { PromptActionModal } from "./components/PromptActionModal";
+import { ModalWheelBridge } from "./components/ModalWheelBridge";
 import "@mantine/core/styles.css";
 import "@mantine/notifications/styles.css";
 import "./styles.css";
@@ -88,6 +92,8 @@ const navItems = [
   { to: "/subscriptions", label: "Subscriptions", icon: IconListDetails },
   { to: "/users", label: "Users", icon: IconUsers },
   { to: "/billing-events", label: "Billing events", icon: IconReceipt },
+  { to: "/campaign-reports", label: "Campaign reports", icon: IconShieldExclamation },
+  { to: "/rating-disputes", label: "Rating disputes", icon: IconStar },
   { to: "/settings", label: "Settings", icon: IconSettings }
 ] as const;
 
@@ -402,6 +408,63 @@ function RecordsPage({ token, endpoint, columns, emptyLabel }: { token: string; 
   return <PortalDataTable rows={rows} columns={columns} emptyLabel={emptyLabel} />;
 }
 
+function CampaignReportsPage({ token }: { token: string }) {
+  const [rows, setRows] = useState<GenericRecord[]>([]);
+  const [campaignToFreeze, setCampaignToFreeze] = useState<GenericRecord | null>(null);
+  const [freezeReason, setFreezeReason] = useState("");
+  const [freezeBusy, setFreezeBusy] = useState(false);
+  const [freezeError, setFreezeError] = useState("");
+  const load = () => apiRequest<PlatformListResponse<GenericRecord>>("/platform/campaign-reports", { token }).then((data) => setRows(data.items));
+  useEffect(() => { void load(); }, [token]);
+  async function freeze() {
+    const reason = freezeReason.trim();
+    if (!campaignToFreeze || !reason) return;
+    setFreezeBusy(true);
+    setFreezeError("");
+    let campaignFrozen = false;
+    try {
+      const freezeResult = await apiRequest<{ campaign: GenericRecord | null }>(`/platform/campaigns/${campaignToFreeze.campaign_id}/freeze`, { method: "PATCH", token, body: { reason } });
+      if (!freezeResult.campaign) throw new Error("This campaign is no longer eligible to be frozen.");
+      campaignFrozen = true;
+      await apiRequest(`/platform/campaign-reports/${campaignToFreeze.id}`, { method: "PATCH", token, body: { status: "reviewing" } });
+      setCampaignToFreeze(null);
+      setFreezeReason("");
+      notifications.show({ color: "teal", title: "Campaign frozen", message: "The report is now marked for review." });
+      await load();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Please try again.";
+      if (campaignFrozen) {
+        setCampaignToFreeze(null);
+        setFreezeReason("");
+        notifications.show({ color: "yellow", title: "Campaign frozen; report status needs attention", message });
+        await load().catch(() => undefined);
+      } else {
+        setFreezeError(message);
+      }
+    } finally {
+      setFreezeBusy(false);
+    }
+  }
+  return <><PortalDataTable rows={rows} emptyLabel="No campaign reports." columns={[{ key: "campaign_title", label: "Campaign" }, { key: "category", label: "Category" }, { key: "reporter_email", label: "Reporter" }, { key: "report_status", label: "Status", render: (row) => <StatusBadge value={row.report_status}/> }, { key: "created_at", label: "Reported", render: (row) => formatDate(row.created_at) }, { key: "actions", label: "Action", render: (row) => <Button color="red" onClick={() => { setCampaignToFreeze(row); setFreezeReason(""); setFreezeError(""); }} size="xs" variant="light">Freeze & review</Button> }]}/><PromptActionModal confirmColor="red" confirmLabel="Freeze campaign" description="Freezing prevents further campaign activity while Platform Admin reviews the report." error={freezeError} eyebrow="CAMPAIGN MODERATION" label="Reason for freezing this campaign" loading={freezeBusy} maxLength={500} onChange={setFreezeReason} onClose={() => { setCampaignToFreeze(null); setFreezeReason(""); setFreezeError(""); }} onConfirm={() => void freeze()} opened={Boolean(campaignToFreeze)} placeholder="Explain the moderation concern" title={`Freeze ${String(campaignToFreeze?.campaign_title || "campaign")}?`} value={freezeReason}/></>;
+}
+
+function RatingDisputesPage({ token }: { token: string }) {
+  const [rows, setRows] = useState<GenericRecord[]>([]);
+  const load = () => apiRequest<PlatformListResponse<GenericRecord>>("/platform/rating-disputes", { token }).then((data) => setRows(data.items));
+  useEffect(() => { void load(); }, [token]);
+  async function resolve(row: GenericRecord, moderationStatus: "active" | "hidden") {
+    await apiRequest(`/platform/rating-disputes/${row.id}`, { method: "PATCH", token, body: { status: moderationStatus === "active" ? "dismissed" : "resolved", moderationStatus } });
+    await load();
+  }
+  return <PortalDataTable rows={rows} emptyLabel="No rating disputes." columns={[
+    { key: "rating_type", label: "Rating" }, { key: "rating_id", label: "ID" },
+    { key: "reporter_email", label: "Reporter" }, { key: "reason", label: "Reason" },
+    { key: "dispute_status", label: "Status", render: (row) => <StatusBadge value={row.dispute_status}/> },
+    { key: "created_at", label: "Appealed", render: (row) => formatDate(row.created_at) },
+    { key: "actions", label: "Actions", render: (row) => <Group gap="xs"><Button onClick={() => resolve(row, "active")} size="xs" variant="light">Restore</Button><Button color="red" onClick={() => resolve(row, "hidden")} size="xs" variant="light">Hide</Button></Group> }
+  ]}/>;
+}
+
 function SubscriptionsPage({ token }: { token: string }) {
   const [rows, setRows] = useState<GenericRecord[]>([]);
   const [tenants, setTenants] = useState<GenericRecord[]>([]);
@@ -643,15 +706,18 @@ function SubscriptionsPage({ token }: { token: string }) {
         opened={editorOpen}
         onClose={() => setEditorOpen(false)}
         size="xl"
-        title={editorTitle}
+        title={
+          <Stack className="getprio-modal-title" gap={2}>
+            <Text className="getprio-modal-eyebrow">SUBSCRIPTION EDITOR</Text>
+            <Text className="getprio-modal-heading">{editorTitle}</Text>
+          </Stack>
+        }
         overlayProps={{ blur: 6, backgroundOpacity: 0.35 }}
       >
-        <form onSubmit={createSubscription}>
-          <Stack gap="lg">
+        <form className="task-modal-form" onSubmit={createSubscription}>
+          <Stack className="task-modal-form__main" gap="lg">
             <Group justify="space-between" align="flex-start" className="subscription-editor__header">
               <div>
-                <Text className="portal-label">Subscription editor</Text>
-                <Title order={3}>{editorTitle}</Title>
                 <Text c="dimmed" size="sm">
                   {editingSubscriptionId
                     ? "Update the tenant subscription settings and provider references."
@@ -752,7 +818,8 @@ function SubscriptionsPage({ token }: { token: string }) {
               </Card>
             </SimpleGrid>
 
-            <Group justify="space-between" align="center" className="subscription-editor__footer">
+          </Stack>
+          <Group justify="space-between" align="center" className="subscription-editor__footer">
               <Text c="dimmed" size="sm">
                 {editingSubscriptionId ? "Update the existing record and return to the table." : "Saved records will appear in the list below after creation."}
               </Text>
@@ -764,8 +831,7 @@ function SubscriptionsPage({ token }: { token: string }) {
                   {editingSubscriptionId ? "Save changes" : "Add subscription"}
                 </Button>
               </Group>
-            </Group>
-          </Stack>
+          </Group>
         </form>
       </Modal>
       <ConfirmActionModal
@@ -927,6 +993,8 @@ function PortalApp({
               <Route path="/billing-events" element={<RecordsPage token={token} endpoint="/platform/billing-events" emptyLabel="No billing events." columns={[
                 { key: "eventType", label: "Event" }, { key: "provider", label: "Provider" }, { key: "tenantName", label: "Tenant" }, { key: "processedAt", label: "Processed", render: (row) => formatDate(row.processedAt) }
               ]} />} />
+              <Route path="/campaign-reports" element={<CampaignReportsPage token={token} />} />
+              <Route path="/rating-disputes" element={<RatingDisputesPage token={token} />} />
             </Routes>
           </Stack>
         </Container>
@@ -950,6 +1018,7 @@ function Root() {
   return (
     <MantineProvider theme={theme} forceColorScheme={appearance}>
       <Notifications position="top-right" />
+      <ModalWheelBridge />
       <BrowserRouter>
         <PortalApp appearance={appearance} onAppearanceToggle={toggleAppearance} />
       </BrowserRouter>

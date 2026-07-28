@@ -131,7 +131,7 @@ async function stopServer(server) {
   });
 }
 
-test("group-funded QR downloads are streamed through the authenticated account route", async () => {
+test("legacy group-funded QR route is retired", async () => {
   const requestedQrUrls = [];
   const router = requireWithMocks("../src/routes/accountRoutes.js", {
     "../middleware/auth": buildAuthMock(),
@@ -158,17 +158,14 @@ test("group-funded QR downloads are streamed through the authenticated account r
 
   try {
     const response = await fetch(`${baseUrl}/group-funded-campaigns/campaign-share-token/payment-qr`);
-    assert.equal(response.status, 200);
-    assert.equal(response.headers.get("content-type"), "image/png");
-    assert.equal(response.headers.get("content-disposition"), 'attachment; filename="payment-qr.png"');
-    assert.equal(await response.text(), "qr-image");
-    assert.deepEqual(requestedQrUrls, ["https://example.test/payment-qr.png"]);
+    assert.equal(response.status, 410);
+    assert.deepEqual(requestedQrUrls, []);
   } finally {
     await stopServer(server);
   }
 });
 
-test("group-funded contribution proof access stays behind the authenticated account route", async () => {
+test("legacy group-funded contribution proof route is retired", async () => {
   const router = requireWithMocks("../src/routes/accountRoutes.js", {
     "../middleware/auth": buildAuthMock(),
     "../middleware/asyncHandler": buildAsyncHandlerMock(),
@@ -187,10 +184,9 @@ test("group-funded contribution proof access stays behind the authenticated acco
 
   try {
     const response = await fetch(`${baseUrl}/group-funded-campaigns/campaign-share-token/contributions/payment-proof`);
-    assert.equal(response.status, 200);
+    assert.equal(response.status, 410);
     const body = await response.json();
-    assert.equal(body.proof.fileName, "receipt.png");
-    assert.equal(body.access.url, "https://proofs.example/receipt.png");
+    assert.match(body.message, /retired/i);
   } finally {
     await stopServer(server);
   }

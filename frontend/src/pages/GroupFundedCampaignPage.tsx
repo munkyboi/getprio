@@ -314,7 +314,7 @@ export default function GroupFundedCampaignPage() {
     return () => {
       active = false;
     };
-  }, [campaign?.contribution?.id, campaign?.contribution?.paymentProof?.fileName, campaign?.publicToken, token]);
+  }, [campaign?.contribution?.id, campaign?.contribution?.paymentProof, campaign?.publicToken, token]);
 
   useEffect(() => {
     setReportTurnstileToken("");
@@ -1267,7 +1267,12 @@ export default function GroupFundedCampaignPage() {
         opened={editModalOpen}
         radius="lg"
         size="lg"
-        title="Edit campaign details"
+        title={
+          <Stack className="getprio-modal-title" gap={2}>
+            <Text className="getprio-modal-eyebrow">CAMPAIGN MANAGEMENT</Text>
+            <Text className="getprio-modal-heading">Edit campaign details</Text>
+          </Stack>
+        }
       >
         <Stack gap="md">
           <TextInput
@@ -1320,7 +1325,12 @@ export default function GroupFundedCampaignPage() {
         opened={reportModalOpen}
         radius="lg"
         size="md"
-        title="Report campaign"
+        title={
+          <Stack className="getprio-modal-title" gap={2}>
+            <Text className="getprio-modal-eyebrow">TRUST AND SAFETY</Text>
+            <Text className="getprio-modal-heading">Report campaign</Text>
+          </Stack>
+        }
       >
         <Stack gap="md">
           <div>

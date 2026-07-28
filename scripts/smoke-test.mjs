@@ -8,8 +8,8 @@ const SMOKE_EMAIL = process.env.SMOKE_EMAIL || "carlo.abella+store4@gmail.com";
 const SMOKE_PASSWORD = process.env.SMOKE_PASSWORD || "asdfasdf";
 const PLATFORM_SMOKE_EMAIL = process.env.PLATFORM_SMOKE_EMAIL || "getprio-smoke@getprio.local";
 const PLATFORM_SMOKE_PASSWORD = process.env.PLATFORM_SMOKE_PASSWORD || "Smoke1234!";
-const GROUP_FUNDED_SMOKE_ENABLED = ["1", "true", "yes"].includes(
-  String(process.env.SMOKE_GROUP_FUNDED || "").toLowerCase()
+const CAMPAIGN_SMOKE_ENABLED = ["1", "true", "yes"].includes(
+  String(process.env.SMOKE_ORGANIZER_CAMPAIGN || process.env.SMOKE_GROUP_FUNDED || "").toLowerCase()
 );
 
 function getCliStage() {
@@ -43,6 +43,8 @@ const customerPages = [
   { path: "/account/profile", label: "customer profile" },
   { path: "/account/tickets", label: "customer tickets" },
   { path: "/account/bookings", label: "customer bookings" },
+  { path: "/account/campaigns", label: "customer campaigns" },
+  { path: "/account/campaigns/discover", label: "campaign discovery" },
   { path: "/account/settings", label: "customer settings" },
   { path: "/account/notifications", label: "customer notifications" },
   { path: "/account/security", label: "customer security" }
@@ -56,7 +58,9 @@ const platformPages = [
   { path: "/tenants", label: "platform tenants" },
   { path: "/subscriptions", label: "platform subscriptions" },
   { path: "/users", label: "platform users" },
-  { path: "/billing-events", label: "platform billing events" }
+  { path: "/billing-events", label: "platform billing events" },
+  { path: "/campaign-reports", label: "platform campaign reports" },
+  { path: "/rating-disputes", label: "platform rating disputes" }
 ];
 
 function log(message) {
@@ -278,7 +282,7 @@ async function smokeBookingStage() {
   const auth = await login(SMOKE_EMAIL, SMOKE_PASSWORD);
   const headers = { Authorization: `Bearer ${auth.token}` };
 
-  const vendorSlug = auth.user.tenants?.[0]?.slug || "musashi-pastries";
+  const vendorSlug = process.env.SMOKE_BOOKING_VENDOR_SLUG || auth.user.tenants?.[0]?.slug || "musashi-pastries";
   const tenantProfile = await requestJson(`${API_BASE_URL}/public/vendors/${vendorSlug}`);
   assertOk(tenantProfile.response, "public vendor profile for booking smoke");
   const vendor = tenantProfile.body?.vendor;
@@ -438,138 +442,55 @@ async function smokeVendorStage() {
   }
 }
 
-async function smokeGroupFundedStage() {
-  if (!GROUP_FUNDED_SMOKE_ENABLED) {
-    log("group-funded smoke skipped (set SMOKE_GROUP_FUNDED=1 to enable)");
+async function smokeOrganizerCampaignStage() {
+  if (!CAMPAIGN_SMOKE_ENABLED) {
+    log("organizer campaign smoke skipped (set SMOKE_ORGANIZER_CAMPAIGN=1 to enable)");
     return;
   }
   if (!SMOKE_EMAIL || !SMOKE_PASSWORD) {
-    log("group-funded smoke skipped (set SMOKE_EMAIL and SMOKE_PASSWORD to enable)");
+    log("organizer campaign smoke skipped (set SMOKE_EMAIL and SMOKE_PASSWORD to enable)");
     return;
   }
 
   const auth = await login(SMOKE_EMAIL, SMOKE_PASSWORD);
-  const tenant = Array.isArray(auth.user.tenants) ? auth.user.tenants[0] : null;
-  if (!tenant?.slug) {
-    log("group-funded smoke skipped (smoke account has no vendor tenant membership)");
-    return;
-  }
-
   const headers = { Authorization: `Bearer ${auth.token}` };
-  const vendorSlug = process.env.SMOKE_GROUP_FUNDED_VENDOR_SLUG || tenant.slug;
-  const vendorProfile = await requestJson(`${API_BASE_URL}/public/vendors/${vendorSlug}`);
-  assertOk(vendorProfile.response, "group-funded public vendor profile");
-  const vendor = vendorProfile.body?.vendor;
-  const locationSlug = process.env.SMOKE_GROUP_FUNDED_LOCATION_SLUG || vendor?.location?.slug || vendor?.locations?.[0]?.slug;
-  if (!vendor?.slug || !locationSlug) {
-    fail("group-funded smoke missing vendor or location slug");
-  }
-
-  const servicesResponse = await requestJson(`${API_BASE_URL}/public/vendors/${vendor.slug}/locations/${locationSlug}/services`);
-  assertOk(servicesResponse.response, "group-funded public branch services");
-  const service = servicesResponse.body?.services?.find((candidate) => candidate?.groupFunded?.enabled);
-  if (!service?.slug) {
-    log("group-funded smoke skipped (selected branch has no group-funded-enabled service)");
+  const bookingId = process.env.SMOKE_ORGANIZER_CAMPAIGN_BOOKING_ID;
+  if (!bookingId) {
+    log("organizer campaign smoke skipped (set SMOKE_ORGANIZER_CAMPAIGN_BOOKING_ID to an owned paid/confirmed opt-in booking)");
     return;
   }
-
-  const scheduledStartAt = process.env.SMOKE_GROUP_FUNDED_SCHEDULED_START_AT ||
-    new Date(Date.now() + 96 * 60 * 60 * 1000).toISOString();
-  const fundingDeadlineAt = process.env.SMOKE_GROUP_FUNDED_DEADLINE_AT ||
-    new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
-  const requiredContributors = Number(
-    process.env.SMOKE_GROUP_FUNDED_REQUIRED_CONTRIBUTORS ||
-    service.groupFunded.defaultRequiredContributors ||
-    service.groupFunded.minRequiredContributors ||
-    2
-  );
-
-  const createCampaign = await requestJson(`${API_BASE_URL}/account/group-funded-campaigns`, {
+  const deadlineAt = process.env.SMOKE_ORGANIZER_CAMPAIGN_DEADLINE_AT || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  const createCampaign = await requestJson(`${API_BASE_URL}/account/campaigns`, {
     method: "POST",
-    headers: {
-      ...headers,
-      "Content-Type": "application/json"
-    },
+    headers: { ...headers, "Content-Type": "application/json" },
     body: JSON.stringify({
-      tenantSlug: vendor.slug,
-      locationSlug,
-      serviceSlug: service.slug,
-      scheduledStartAt,
-      bookingQuantity: 1,
-      requiredContributors,
-      fundingDeadlineAt,
-      visibility: "private_link",
-      description: "Smoke test private group-funded campaign"
+      bookingId, title: `Organizer campaign smoke ${Date.now()}`,
+      description: "Private organizer-collected campaign smoke fixture",
+      deadlineAt, contributionFeeCents: 10000, requiredContributors: 2,
+      paymentInstructions: "Smoke-only direct organizer payment instructions"
     })
   });
-  assertOk(createCampaign.response, "group-funded campaign creation");
+  assertOk(createCampaign.response, "organizer campaign creation");
   const campaign = createCampaign.body?.campaign;
-  if (!campaign?.publicToken || !campaign?.requiredContributionAmountCents) {
-    fail("group-funded campaign creation missing campaign token or contribution amount");
-  }
-  log("group-funded campaign creation ok");
+  if (!campaign?.id || !campaign?.publicToken) fail("organizer campaign creation missing id or generic share token");
+  log("organizer campaign creation ok");
 
-  const contribution = await requestJson(
-    `${API_BASE_URL}/account/group-funded-campaigns/${encodeURIComponent(campaign.publicToken)}/contributions/payment-proof`,
-    {
-      method: "POST",
-      headers: {
-        ...headers,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        paymentReference: `SMOKE-${Date.now()}`,
-        paymentProofObjectKey: `group-funded/${campaign.publicToken}/smoke-proof.png`,
-        paymentProofFileName: "smoke-proof.png",
-        paymentProofContentType: "image/png",
-        paymentProofSizeBytes: 1024
-      })
-    }
-  );
-  assertOk(contribution.response, "group-funded contribution proof submission");
-  const contributionId = contribution.body?.campaign?.contribution?.id;
-  if (!contributionId) {
-    fail("group-funded contribution proof submission missing contribution id");
-  }
-  log("group-funded contribution proof submission ok");
+  const publish = await requestJson(`${API_BASE_URL}/account/campaigns/${campaign.id}/publish`, { method: "PATCH", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ visibility: "private_link" }) });
+  assertOk(publish.response, "organizer campaign private publication");
+  log("organizer campaign private publication ok");
+  const preview = await requestJson(`${API_BASE_URL}/public/campaigns/${campaign.publicToken}`);
+  assertOk(preview.response, "organizer campaign privacy-minimized preview");
+  if ("paymentInstructions" in (preview.body?.campaign || {})) fail("public campaign preview leaked payment instructions");
+  log("organizer campaign privacy-minimized preview ok");
 
-  const verified = await requestJson(
-    `${API_BASE_URL}/vendor/tenant/${tenant.slug}/group-funded-campaigns/contributions/${encodeURIComponent(contributionId)}/verify-payment`,
-    {
-      method: "PATCH",
-      headers
-    }
-  );
-  assertOk(verified.response, "group-funded vendor contribution verification");
-  log("group-funded vendor contribution verification ok");
-
-  const vendorCampaign = await requestJson(
-    `${API_BASE_URL}/vendor/tenant/${tenant.slug}/group-funded-campaigns/${encodeURIComponent(campaign.id)}`,
-    { headers }
-  );
-  assertOk(vendorCampaign.response, "group-funded vendor campaign detail");
-  const latestCampaign = vendorCampaign.body?.campaign;
-  if (!latestCampaign?.id) {
-    fail("group-funded vendor campaign detail missing campaign");
+  const legacyAccount = await requestJson(`${API_BASE_URL}/account/group-funded-campaigns`, { headers });
+  if (legacyAccount.response.status !== 410) fail("legacy customer campaign API was not retired");
+  const tenant = Array.isArray(auth.user.tenants) ? auth.user.tenants[0] : null;
+  if (tenant?.slug) {
+    const legacyVendor = await requestJson(`${API_BASE_URL}/vendor/tenant/${tenant.slug}/group-funded-campaigns`, { headers });
+    if (legacyVendor.response.status !== 404) fail("legacy vendor campaign API was not retired");
   }
-
-  if (latestCampaign.campaignStatus !== "vendor_review") {
-    log(`group-funded vendor approval skipped (campaign status is ${latestCampaign.campaignStatus})`);
-    return;
-  }
-
-  const approval = await requestJson(
-    `${API_BASE_URL}/vendor/tenant/${tenant.slug}/group-funded-campaigns/${encodeURIComponent(campaign.id)}/approve`,
-    {
-      method: "PATCH",
-      headers
-    }
-  );
-  assertOk(approval.response, "group-funded vendor approval");
-  if (!approval.body?.booking?.id && !approval.body?.campaign?.linkedBookingId) {
-    fail("group-funded vendor approval missing linked booking");
-  }
-  log("group-funded vendor approval and linked booking creation ok");
+  log("legacy campaign APIs retired ok");
 }
 
 async function smokePlatformStage() {
@@ -630,8 +551,8 @@ async function main() {
   if (SMOKE_STAGE === "all" || SMOKE_STAGE === "vendor") {
     await smokeVendorStage();
   }
-  if (SMOKE_STAGE === "all" || SMOKE_STAGE === "group-funded") {
-    await smokeGroupFundedStage();
+  if (SMOKE_STAGE === "all" || SMOKE_STAGE === "campaign" || SMOKE_STAGE === "group-funded") {
+    await smokeOrganizerCampaignStage();
   }
   if (SMOKE_STAGE === "all" || SMOKE_STAGE === "platform") {
     await smokePlatformStage();

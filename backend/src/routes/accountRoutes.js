@@ -1,15 +1,16 @@
 const express = require("express");
+const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
 const asyncHandler = require("../middleware/asyncHandler");
 const { authenticate } = require("../middleware/auth");
 const { moderatePublicText } = require("../middleware/moderatePublicText");
 const bookingRepository = require("../repositories/bookings");
-const groupFundedRepository = require("../repositories/groupFundedBookings");
+const organizerCampaignRepository = require("../repositories/organizerCampaigns");
 const ticketRepository = require("../repositories/tickets");
 const tenantRepository = require("../repositories/tenants");
 const userRepository = require("../repositories/users");
 const bookingService = require("../services/bookingService");
-const groupFundedBookingService = require("../services/groupFundedBookingService");
-const locationPaymentQrUploadService = require("../services/locationPaymentQrUploadService");
+const organizerCampaignService = require("../services/organizerCampaignService");
+const ratingService = require("../services/ratingService");
 const passwordResetService = require("../services/passwordResetService");
 const pushNotificationService = require("../services/pushNotificationService");
 const customerTicketAccess = require("../services/customerTicketAccess");
@@ -18,6 +19,14 @@ const { assertTenantPermission } = require("../middleware/auth");
 const { formatPaginationMetadata, parsePaginationParams } = require("../utils/pagination");
 
 const router = express.Router();
+const campaignJoinLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `${req.user?._id || "anonymous"}:${ipKeyGenerator(req.ip)}`,
+  message: { message: "Too many campaign join attempts. Please try again later." }
+});
 
 router.use(authenticate);
 router.use(moderatePublicText);
@@ -187,6 +196,7 @@ function formatCustomerBooking(booking) {
     paymentStatus: booking.paymentStatus,
     groupFundedBookingId: booking.groupFundedBookingId,
     bookingPaymentSource: booking.bookingPaymentSource,
+    organizerCampaignOptIn: Boolean(booking.organizerCampaignOptIn),
     groupFundedCampaign,
     manualPaymentDestination: formatManualPaymentDestination(booking),
     paymentProof: booking.paymentProofObjectKey
@@ -223,90 +233,6 @@ function formatCustomerBooking(booking) {
   };
 }
 
-function formatGroupFundedCampaign(campaign, contribution = null, refunds = [], tenant = null, options = {}) {
-  return {
-    id: campaign._id,
-    publicToken: campaign.publicToken,
-    tenantId: campaign.tenantId,
-    tenantSlug: tenant?.slug || null,
-    vendorName: tenant?.name || "",
-    vendorCategory: tenant?.publicProfileCategory || "",
-    locationId: campaign.locationId,
-    serviceId: campaign.serviceId,
-    isOrganizer: Boolean(
-      options.actorUserId && String(campaign.organizerUserId) === String(options.actorUserId)
-    ),
-    campaignStatus: campaign.campaignStatus,
-    visibility: campaign.visibility,
-    organizerDisplayName: campaign.organizerDisplayName,
-    campaignTitle: campaign.campaignTitle || campaign.serviceNameSnapshot,
-    description: campaign.description,
-    serviceName: campaign.serviceNameSnapshot,
-    serviceSlug: campaign.serviceSlugSnapshot,
-    bundleItems: campaign.bundleItems || [],
-    executionMode: campaign.executionMode || "parallel",
-    locationName: campaign.locationNameSnapshot,
-    locationSlug: campaign.locationSlugSnapshot,
-    bookingQuantity: campaign.bookingQuantity,
-    scheduledStartAt: campaign.scheduledStartAt,
-    scheduledEndAt: campaign.scheduledEndAt,
-    fundingDeadlineAt: campaign.fundingDeadlineAt,
-    currency: campaign.currency,
-    targetAmountCents: campaign.targetAmountCents,
-    requiredContributionAmountCents: campaign.requiredContributionAmountCents,
-    roundingAdjustmentCents: campaign.roundingAdjustmentCents,
-    requiredContributors: campaign.requiredContributors,
-    paidParticipantCount: campaign.paidParticipantCount,
-    fundedAmountCents: campaign.fundedAmountCents,
-    fundedAt: campaign.fundedAt,
-    contributorReservationSummary: campaign.contributorReservationSummary || null,
-    paymentDestination: campaign.paymentDestination || null,
-    replacementSlot: campaign.replacementScheduledStartAt
-      ? {
-          scheduledStartAt: campaign.replacementScheduledStartAt,
-          scheduledEndAt: campaign.replacementScheduledEndAt,
-          proposedAt: campaign.replacementProposedAt,
-          note: campaign.replacementNote
-        }
-      : null,
-    linkedBookingId: campaign.linkedBookingId,
-    createdAt: campaign.createdAt,
-    updatedAt: campaign.updatedAt,
-    contribution: contribution
-      ? {
-          id: contribution._id,
-          amountCents: contribution.amountCents,
-          currency: contribution.currency,
-          contributionStatus: contribution.contributionStatus,
-          paymentReference: contribution.paymentReference,
-          paymentProof: contribution.paymentProofObjectKey
-            ? {
-                fileName: contribution.paymentProofFileName,
-                contentType: contribution.paymentProofContentType,
-                sizeBytes: contribution.paymentProofSizeBytes,
-                uploadedAt: contribution.paymentProofUploadedAt
-              }
-            : null,
-          submittedAt: contribution.submittedAt,
-          verifiedAt: contribution.verifiedAt,
-          rejectedAt: contribution.rejectedAt,
-          rejectionReason: contribution.rejectionReason,
-          refundStatus: contribution.refundStatus
-        }
-      : null,
-    refunds: refunds.map((refund) => ({
-      id: refund._id,
-      contributionId: refund.contributionId,
-      amountCents: refund.amountCents,
-      currency: refund.currency,
-      refundReason: refund.refundReason,
-      refundStatus: refund.refundStatus,
-      completedAt: refund.completedAt,
-      createdAt: refund.createdAt
-    }))
-  };
-}
-
 function formatAccountUser(user) {
   return {
     id: user._id,
@@ -324,7 +250,11 @@ function formatAccountUser(user) {
 function normalizeCustomerNotificationSettings(settings = {}) {
   return {
     bookingAlerts: settings.bookingAlerts !== false,
-    queueAlerts: settings.queueAlerts !== false
+    queueAlerts: settings.queueAlerts !== false,
+    campaignAlerts: settings.campaignAlerts !== false,
+    preferredContactMethod: ["in_app", "email", "sms"].includes(settings.preferredContactMethod)
+      ? settings.preferredContactMethod
+      : "in_app"
   };
 }
 
@@ -365,6 +295,115 @@ router.patch(
     });
   })
 );
+
+router.post(
+  "/campaigns/:campaignId/join",
+  campaignJoinLimiter,
+  asyncHandler(async (req, res) => {
+    const contribution = await organizerCampaignService.joinCampaign({
+      user: req.user,
+      campaignId: req.params.campaignId,
+      body: req.body || {}
+    });
+    res.status(201).json({ contribution });
+  })
+);
+
+router.post(
+  "/campaigns/:campaignId/contributions/proof",
+  campaignJoinLimiter,
+  express.raw({ type: ["image/jpeg", "image/png", "image/webp", "application/pdf"], limit: "8mb" }),
+  asyncHandler(async (req, res) => {
+    if (!Buffer.isBuffer(req.body) || !req.body.length) {
+      const error = new Error("Contribution proof file payload is required.");
+      error.statusCode = 400;
+      throw error;
+    }
+    const contribution = await organizerCampaignService.uploadContributionProofDirect({
+      user: req.user,
+      campaignId: req.params.campaignId,
+      body: { paymentReference: normalizeQueryText(req.query.paymentReference), fileName: normalizeQueryText(req.query.fileName), contentType: normalizeQueryText(req.headers["content-type"]) },
+      fileBuffer: req.body
+    });
+    res.status(201).json({ contribution });
+  })
+);
+
+router.patch(
+  "/campaigns/:campaignId/contributions/:contributionId/review",
+  asyncHandler(async (req, res) => {
+    const contribution = await organizerCampaignService.reviewContribution({
+      user: req.user,
+      campaignId: req.params.campaignId,
+      contributionId: req.params.contributionId,
+      body: req.body || {}
+    });
+    res.json({ contribution });
+  })
+);
+
+router.get(
+  "/campaigns/:campaignId/contributions/:contributionId/evidence",
+  asyncHandler(async (req, res) => res.json(await organizerCampaignService.createEvidenceAccess({ user: req.user, campaignId: req.params.campaignId, contributionId: req.params.contributionId, kind: req.query.kind === "reimbursement" ? "reimbursement" : "contribution" })))
+);
+
+router.patch(
+  "/campaigns/:campaignId/cancel",
+  asyncHandler(async (req, res) => {
+    const campaign = await organizerCampaignService.cancelCampaign({
+      user: req.user,
+      campaignId: req.params.campaignId,
+      body: req.body || {}
+    });
+    res.json({ campaign });
+  })
+);
+
+router.post(
+  "/campaigns/:campaignId/contributions/:contributionId/reimbursement/evidence",
+  campaignJoinLimiter,
+  express.raw({ type: ["image/jpeg", "image/png", "image/webp", "application/pdf"], limit: "8mb" }),
+  asyncHandler(async (req, res) => {
+    if (!Buffer.isBuffer(req.body) || !req.body.length) {
+      const error = new Error("Reimbursement evidence file payload is required."); error.statusCode = 400; throw error;
+    }
+    const reimbursement = await organizerCampaignService.submitReimbursementEvidence({
+      user: req.user, campaignId: req.params.campaignId, contributionId: req.params.contributionId,
+      body: { fileName: normalizeQueryText(req.query.fileName), contentType: normalizeQueryText(req.headers["content-type"]) }, fileBuffer: req.body
+    });
+    res.status(201).json({ reimbursement });
+  })
+);
+
+router.patch(
+  "/campaigns/:campaignId/contributions/:contributionId/reimbursement/confirm",
+  asyncHandler(async (req, res) => {
+    const reimbursement = await organizerCampaignService.confirmReimbursement({ user: req.user, campaignId: req.params.campaignId, contributionId: req.params.contributionId });
+    res.json({ reimbursement });
+  })
+);
+
+router.patch(
+  "/campaigns/:campaignId/contributions/:contributionId/reimbursement/dispute",
+  asyncHandler(async (req, res) => {
+    const reimbursement = await organizerCampaignService.disputeReimbursement({ user: req.user, campaignId: req.params.campaignId, contributionId: req.params.contributionId, body: req.body || {} });
+    res.json({ reimbursement });
+  })
+);
+
+router.post(
+  "/campaigns/:campaignId/report",
+  campaignJoinLimiter,
+  asyncHandler(async (req, res) => {
+    const report = await organizerCampaignService.reportCampaign({ user: req.user, campaignId: req.params.campaignId, body: req.body || {} });
+    res.status(201).json({ report });
+  })
+);
+
+router.post("/bookings/:bookingId/rating", asyncHandler(async (req, res) => res.status(201).json({ rating: await ratingService.rateVendor({ user: req.user, bookingId: req.params.bookingId, body: req.body || {} }) })));
+router.post("/campaigns/:campaignId/contributions/:contributionId/rating", asyncHandler(async (req, res) => res.status(201).json({ rating: await ratingService.rateCampaignUser({ user: req.user, campaignId: req.params.campaignId, contributionId: req.params.contributionId, body: req.body || {} }) })));
+router.post("/ratings/dispute", asyncHandler(async (req, res) => res.status(201).json({ dispute: await ratingService.disputeRating({ user: req.user, body: req.body || {} }) })));
+router.patch("/ratings/vendor-reviews/:reviewId", asyncHandler(async (req, res) => res.json({ rating: await ratingService.reviseVendorReview({ user: req.user, reviewId: req.params.reviewId, body: req.body || {} }) })));
 
 router.post(
   "/push-subscriptions",
@@ -535,190 +574,67 @@ router.get(
 );
 
 router.get(
-  "/group-funded-campaigns",
+  "/campaigns",
   asyncHandler(async (req, res) => {
-    const campaignRecords = await groupFundedBookingService.listCustomerCampaigns({ user: req.user });
-    res.json({
-      campaigns: campaignRecords.map(({ campaign, contribution }) => formatGroupFundedCampaign(campaign, contribution, [], null, {
-        actorUserId: req.user._id
-      }))
-    });
-  })
-);
-
-router.post(
-  "/group-funded-campaigns",
-  asyncHandler(async (req, res) => {
-    const campaign = await groupFundedBookingService.createCampaign({
-      user: req.user,
-      body: req.body || {}
-    });
-    res.status(201).json({
-      campaign: formatGroupFundedCampaign(campaign, null, [], null, { actorUserId: req.user._id })
-    });
+    const campaigns = await organizerCampaignService.listCampaignsForCustomer({ user: req.user });
+    res.json({ campaigns });
   })
 );
 
 router.get(
-  "/group-funded-campaigns/:campaignIdOrToken/self",
+  "/campaign-discovery",
+  asyncHandler(async (req, res) => res.json({ campaigns: await organizerCampaignService.listPublicCampaigns({
+    search: normalizeQueryText(req.query.search), date: normalizeQueryText(req.query.date)
+  }) }))
+);
+
+router.post(
+  "/campaigns",
+  campaignJoinLimiter,
   asyncHandler(async (req, res) => {
-    const { campaign, contribution, refunds, tenant } = await groupFundedBookingService.getCampaignForCustomer({
-      user: req.user,
-      campaignIdOrToken: req.params.campaignIdOrToken
-    });
-    res.json({
-      campaign: formatGroupFundedCampaign(campaign, contribution, refunds, tenant, {
-        actorUserId: req.user._id
-      })
-    });
+    const campaign = await organizerCampaignService.createCampaign({ user: req.user, body: req.body || {} });
+    res.status(201).json({ campaign });
   })
 );
 
 router.get(
-  "/group-funded-campaigns/:campaignIdOrToken/payment-qr",
+  "/campaigns/:campaignId",
   asyncHandler(async (req, res) => {
-    const { campaign } = await groupFundedBookingService.getCampaignForCustomer({
+    const campaign = await organizerCampaignService.getCampaignForCustomer({
       user: req.user,
-      campaignIdOrToken: req.params.campaignIdOrToken
+      campaignId: req.params.campaignId
     });
-    if (!campaign.paymentDestination?.qrImageUrl) {
-      const error = new Error("Payment QR image is unavailable.");
-      error.statusCode = 404;
-      throw error;
-    }
+    res.json({ campaign });
+  })
+);
 
-    const qrImage = await locationPaymentQrUploadService.downloadBinary({
-      publicUrl: campaign.paymentDestination.qrImageUrl
+router.all(/^\/group-funded-campaigns(?:\/|$)/, (_req, res) => {
+  res.status(410).json({ message: "This legacy campaign API has been retired. Use /api/account/campaigns." });
+});
+
+router.patch(
+  "/campaigns/:campaignId/publish",
+  campaignJoinLimiter,
+  asyncHandler(async (req, res) => {
+    const campaign = await organizerCampaignService.publishCampaign({
+      user: req.user,
+      campaignId: req.params.campaignId,
+      visibility: req.body?.visibility,
+      website: req.body?.website
     });
-    res.setHeader("Content-Type", qrImage.contentType);
-    res.setHeader("Content-Disposition", `attachment; filename="${qrImage.fileName}"`);
-    res.setHeader("Cache-Control", "private, no-store");
-    res.send(qrImage.body);
+    res.json({ campaign });
   })
 );
 
 router.patch(
-  "/group-funded-campaigns/:campaignIdOrToken/details",
-  asyncHandler(async (req, res) => {
-    const result = await groupFundedBookingService.updateOrganizerCampaignDetails({
-      user: req.user,
-      campaignIdOrToken: req.params.campaignIdOrToken,
-      body: req.body || {}
-    });
-    res.json({
-      campaign: formatGroupFundedCampaign(result.campaign, null, [], result.tenant, { actorUserId: req.user._id })
-    });
-  })
+  "/campaigns/:campaignId",
+  campaignJoinLimiter,
+  asyncHandler(async (req, res) => res.json({ campaign: await organizerCampaignService.updateCampaign({ user: req.user, campaignId: req.params.campaignId, body: req.body || {} }) }))
 );
 
 router.patch(
-  "/group-funded-campaigns/:campaignIdOrToken/cancel",
-  asyncHandler(async (req, res) => {
-    const result = await groupFundedBookingService.cancelOrganizerCampaign({
-      user: req.user,
-      campaignIdOrToken: req.params.campaignIdOrToken,
-      reason: req.body?.reason
-    });
-    res.json({
-      campaign: formatGroupFundedCampaign(result.campaign, null, [], null, { actorUserId: req.user._id }),
-      refunds: result.refunds.map((refund) => ({
-        id: refund._id,
-        contributionId: refund.contributionId,
-        amountCents: refund.amountCents,
-        currency: refund.currency,
-        refundReason: refund.refundReason,
-        refundStatus: refund.refundStatus,
-        completedAt: refund.completedAt,
-        createdAt: refund.createdAt
-      }))
-    });
-  })
-);
-
-router.patch(
-  "/group-funded-campaigns/:campaignIdOrToken/replacement-slot/accept",
-  asyncHandler(async (req, res) => {
-    const result = await groupFundedBookingService.acceptReplacementSlot({
-      user: req.user,
-      campaignIdOrToken: req.params.campaignIdOrToken
-    });
-    res.json({
-      campaign: formatGroupFundedCampaign(result.campaign, null, [], null, { actorUserId: req.user._id })
-    });
-  })
-);
-
-router.patch(
-  "/group-funded-campaigns/:campaignIdOrToken/replacement-slot/decline",
-  asyncHandler(async (req, res) => {
-    const result = await groupFundedBookingService.declineReplacementSlot({
-      user: req.user,
-      campaignIdOrToken: req.params.campaignIdOrToken,
-      reason: req.body?.reason
-    });
-    res.json({
-      campaign: formatGroupFundedCampaign(result.campaign, null, [], null, { actorUserId: req.user._id }),
-      refunds: result.refunds.map((refund) => ({
-        id: refund._id,
-        contributionId: refund.contributionId,
-        amountCents: refund.amountCents,
-        currency: refund.currency,
-        refundReason: refund.refundReason,
-        refundStatus: refund.refundStatus,
-        completedAt: refund.completedAt,
-        createdAt: refund.createdAt
-      }))
-    });
-  })
-);
-
-router.post(
-  "/group-funded-campaigns/:campaignIdOrToken/contributions/payment-proof/uploads/direct",
-  express.raw({ type: ["image/jpeg", "image/png", "image/webp", "application/pdf"], limit: "8mb" }),
-  asyncHandler(async (req, res) => {
-    if (!req.body || !Buffer.isBuffer(req.body) || !req.body.length) {
-      const error = new Error("Contribution proof file payload is required.");
-      error.statusCode = 400;
-      throw error;
-    }
-
-    const upload = await groupFundedBookingService.uploadContributionProofDirect({
-      user: req.user,
-      campaignIdOrToken: requireRequestParam(req.params.campaignIdOrToken, "Campaign"),
-      body: {
-        fileName: normalizeQueryText(req.query.fileName),
-        contentType: normalizeQueryText(req.headers["content-type"])
-      },
-      fileBuffer: req.body
-    });
-
-    res.status(201).json(upload);
-  })
-);
-
-router.post(
-  "/group-funded-campaigns/:campaignIdOrToken/contributions/payment-proof",
-  asyncHandler(async (req, res) => {
-    const { campaign, contribution } = await groupFundedBookingService.submitContributionProof({
-      user: req.user,
-      campaignIdOrToken: req.params.campaignIdOrToken,
-      body: req.body || {}
-    });
-    res.status(201).json({
-      campaign: formatGroupFundedCampaign(campaign, contribution, [], null, { actorUserId: req.user._id })
-    });
-  })
-);
-
-router.get(
-  "/group-funded-campaigns/:campaignIdOrToken/contributions/payment-proof",
-  asyncHandler(async (req, res) => {
-    const proofAccess = await groupFundedBookingService.createCustomerContributionProofAccess({
-      user: req.user,
-      campaignIdOrToken: req.params.campaignIdOrToken
-    });
-    res.json(proofAccess);
-  })
+  "/campaigns/:campaignId/unpublish",
+  asyncHandler(async (req, res) => res.json({ campaign: await organizerCampaignService.unpublishCampaign({ user: req.user, campaignId: req.params.campaignId }) }))
 );
 
 router.get(
@@ -731,23 +647,8 @@ router.get(
       error.statusCode = 404;
       throw error;
     }
-    if (booking.groupFundedBookingId) {
-      booking.groupFundedBundleItems = await groupFundedRepository.listCampaignItemsByCampaign(
-        booking.groupFundedBookingId
-      );
-      booking.groupFundedContributions = await groupFundedRepository.listContributionsByCampaign(
-        booking.groupFundedBookingId,
-        {
-          statuses: [
-            groupFundedRepository.CONTRIBUTION_STATUSES.VERIFIED
-          ]
-        }
-      );
-    }
-
-    res.json({
-      booking: formatCustomerBooking(booking)
-    });
+    const organizerCampaign = /^\d+$/.test(String(booking._id)) ? await organizerCampaignRepository.findCampaignByBookingId(booking._id) : null;
+    res.json({ booking: { ...formatCustomerBooking(booking), organizerCampaign: organizerCampaign ? { id: organizerCampaign.id, status: organizerCampaign.status } : null } });
   })
 );
 
