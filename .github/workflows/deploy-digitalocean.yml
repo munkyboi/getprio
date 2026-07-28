@@ -33,9 +33,29 @@ jobs:
           mkdir -p ~/.ssh
           printf '%s\n' "${DO_SSH_KEY}" > ~/.ssh/digitalocean_deploy_key
           chmod 600 ~/.ssh/digitalocean_deploy_key
-          ssh-keyscan -p "${DO_PORT}" -H "${DO_HOST}" >> ~/.ssh/known_hosts
+
+          host_keys=""
+          for attempt in 1 2 3; do
+            if host_keys="$(ssh-keyscan -4 -T 15 -p "${DO_PORT}" -H "${DO_HOST}" 2>/dev/null)" \
+              && [ -n "${host_keys}" ]; then
+              break
+            fi
+            echo "SSH host-key lookup failed (attempt ${attempt}/3); retrying..."
+            sleep 5
+          done
+
+          if [ -z "${host_keys}" ]; then
+            echo "::error::Unable to retrieve an SSH host key from the deployment host on port ${DO_PORT}. Verify that the DigitalOcean droplet is running and its SSH port/firewall allow GitHub-hosted runners."
+            exit 1
+          fi
+          printf '%s\n' "${host_keys}" >> ~/.ssh/known_hosts
 
           ssh \
+            -4 \
+            -o ConnectTimeout=20 \
+            -o ConnectionAttempts=3 \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=2 \
             -i ~/.ssh/digitalocean_deploy_key \
             -p "${DO_PORT}" \
             "${DO_USER}@${DO_HOST}" \
