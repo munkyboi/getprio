@@ -6217,7 +6217,7 @@ h2 {
   .service-dialog__footer {
     margin-top: auto;
     padding-top: 1rem;
-    padding-bottom: calc(env(safe-area-inset-bottom) + 0.75rem);
+    padding-bottom: env(safe-area-inset-bottom);
   }
 }
 
