@@ -113,3 +113,22 @@ test("avatar upload rejects unsupported files and oversized images", async () =>
     { statusCode: 400, message: "Avatar image content does not match the selected format." }
   );
 });
+
+test("avatar upload rejects non-binary request payloads before inspecting image bytes", async () => {
+  const service = loadService();
+
+  for (const fileBuffer of ["not-binary", [0x89, 0x50], { 0: 0x89, length: 2 }]) {
+    await assert.rejects(
+      () => service.uploadAvatar({
+        user: { _id: "42" },
+        fileName: "portrait.png",
+        contentType: "image/png",
+        fileBuffer
+      }),
+      { statusCode: 400, message: "Avatar image payload must be binary." }
+    );
+  }
+
+  assert.equal(service.matchesImageSignature("image/png", "not-binary"), false);
+  assert.equal(service.matchesImageSignature("image/png", [0x89, 0x50]), false);
+});

@@ -62,20 +62,25 @@ function buildPublicUrl(objectKey) {
 }
 
 function matchesImageSignature(contentType, fileBuffer) {
+  if (!Buffer.isBuffer(fileBuffer)) {
+    return false;
+  }
+
+  const bytes = Buffer.from(fileBuffer);
   if (contentType === "image/jpeg") {
-    return fileBuffer.length >= 3 &&
-      fileBuffer[0] === 0xff &&
-      fileBuffer[1] === 0xd8 &&
-      fileBuffer[2] === 0xff;
+    return bytes.length >= 3 &&
+      bytes[0] === 0xff &&
+      bytes[1] === 0xd8 &&
+      bytes[2] === 0xff;
   }
   if (contentType === "image/png") {
-    return fileBuffer.length >= 8 &&
-      fileBuffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+    return bytes.length >= 8 &&
+      bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
   }
   if (contentType === "image/webp") {
-    return fileBuffer.length >= 12 &&
-      fileBuffer.subarray(0, 4).toString("ascii") === "RIFF" &&
-      fileBuffer.subarray(8, 12).toString("ascii") === "WEBP";
+    return bytes.length >= 12 &&
+      bytes.subarray(0, 4).toString("ascii") === "RIFF" &&
+      bytes.subarray(8, 12).toString("ascii") === "WEBP";
   }
   return false;
 }
@@ -90,12 +95,19 @@ async function uploadAvatar({ user, fileName, contentType, fileBuffer }) {
     throw error;
   }
 
-  if (!Buffer.isBuffer(fileBuffer) || !fileBuffer.length || fileBuffer.length > MAX_UPLOAD_BYTES) {
+  if (!Buffer.isBuffer(fileBuffer)) {
+    const error = new Error("Avatar image payload must be binary.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const avatarBuffer = Buffer.from(fileBuffer);
+  if (!avatarBuffer.length || avatarBuffer.length > MAX_UPLOAD_BYTES) {
     const error = new Error("Avatar image must be between 1 byte and 5 MB.");
     error.statusCode = 400;
     throw error;
   }
-  if (!matchesImageSignature(normalizedContentType, fileBuffer)) {
+  if (!matchesImageSignature(normalizedContentType, avatarBuffer)) {
     const error = new Error("Avatar image content does not match the selected format.");
     error.statusCode = 400;
     throw error;
@@ -117,7 +129,7 @@ async function uploadAvatar({ user, fileName, contentType, fileBuffer }) {
     Key: objectKey,
     ContentType: normalizedContentType,
     CacheControl: "public, max-age=31536000, immutable",
-    Body: fileBuffer
+    Body: avatarBuffer
   }));
 
   const updatedUser = await userRepository.updateUser(user._id, { avatarUrl });
