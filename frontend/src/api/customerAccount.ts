@@ -26,6 +26,12 @@ export const customerAccountApi = {
   getCampaign(token: string, campaignId: string) {
     return apiRequest<{ campaign: OrganizerCampaign }>(`/account/campaigns/${encodeURIComponent(campaignId)}`, { token });
   },
+  joinCampaign(token: string, campaignId: string) {
+    return apiRequest<{ contribution: OrganizerCampaign["contribution"] }>(
+      `/account/campaigns/${encodeURIComponent(campaignId)}/join`,
+      { method: "POST", token, body: { website: "" } }
+    );
+  },
   leaveCampaign(token: string, campaignId: string) {
     return apiRequest<{ left: boolean }>(
       `/account/campaigns/${encodeURIComponent(campaignId)}/contributions/self`,

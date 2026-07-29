@@ -349,6 +349,33 @@ test("organizer campaign service reserves one contributor slot and rejects organ
   await assert.rejects(() => service.joinCampaign({ user: { _id: "7" }, campaignId: "9", body: {} }), { statusCode: 409 });
 });
 
+test("organizer campaign service explains reservation cooldowns and unpaid reservation limits", async () => {
+  let failure = {
+    joinFailure: "cooldown",
+    retryAvailableAt: "2099-08-20T13:02:00.000Z"
+  };
+  const service = loadService({
+    "../repositories/bookings": {},
+    "../repositories/organizerCampaigns": {
+      CAMPAIGN_STATUSES: { COLLECTING: "collecting" },
+      findCampaignById: async () => ({ id: "9", organizerUserId: "7", status: "collecting", deadlineAt: futureIso(24), contributionFeeCents: 50000 }),
+      createContribution: async () => failure
+    },
+    "./contentModeration": { assertPublicTextFieldsAllowed: () => {} }
+  });
+
+  await assert.rejects(
+    () => service.joinCampaign({ user: { _id: "8" }, campaignId: "9", body: {} }),
+    { statusCode: 429, message: /retry this reservation after/ }
+  );
+
+  failure = { joinFailure: "unpaid_limit" };
+  await assert.rejects(
+    () => service.joinCampaign({ user: { _id: "8" }, campaignId: "9", body: {} }),
+    { statusCode: 409, message: "You can hold at most three unpaid campaign reservations at a time." }
+  );
+});
+
 test("a contributor can leave before submitting proof but cannot leave afterward", async () => {
   const withdrawals = [];
   let contributionStatus = "pending_proof";

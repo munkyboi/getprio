@@ -211,6 +211,7 @@ async function attachBookingDetails(campaign, existingBooking = null) {
 }
 
 async function getCampaignForOrganizer({ user, campaignId }) {
+  await campaignRepository.expireStaleReservations?.(campaignId);
   const campaign = await campaignRepository.findCampaignById(campaignId);
   if (!campaign || String(campaign.organizerUserId) !== String(user?._id)) {
     throw makeHttpError("Campaign not found.", 404);
@@ -254,6 +255,7 @@ async function unpublishCampaign({ user, campaignId }) {
 }
 
 async function getCampaignForCustomer({ user, campaignId }) {
+  await campaignRepository.expireStaleReservations?.(campaignId);
   const campaign = await campaignRepository.findCampaignById(campaignId);
   if (!campaign) throw makeHttpError("Campaign not found.", 404);
   if (String(campaign.organizerUserId) === String(user?._id)) {
@@ -328,6 +330,18 @@ async function joinCampaign({ user, campaignId, body }) {
       amountCents: campaign.contributionFeeCents
     });
     if (!contribution) throw makeHttpError("All contributor slots are currently filled.", 409);
+    if (contribution.joinFailure === "cooldown") {
+      throw makeHttpError(`You can retry this reservation after ${new Date(contribution.retryAvailableAt).toLocaleString("en-PH", { timeZone: "Asia/Manila" })}.`, 429);
+    }
+    if (contribution.joinFailure === "unpaid_limit") {
+      throw makeHttpError("You can hold at most three unpaid campaign reservations at a time.", 409);
+    }
+    if (contribution.joinFailure === "retry_exhausted") {
+      throw makeHttpError("This campaign reservation has already used its one retry.", 409);
+    }
+    if (contribution.joinFailure === "already_joined") {
+      throw makeHttpError("You have already joined this campaign.", 409);
+    }
     await audit(campaign.id, "contributor_joined", user, { contributionId: contribution.id });
     notifyCampaignUser({ userId: campaign.organizerUserId, campaignId: campaign.id, title: "New campaign contributor", body: "A contributor joined your campaign.", eventType: "campaign_contributor_joined" }).catch(() => {});
     return contribution;
@@ -340,8 +354,12 @@ async function joinCampaign({ user, campaignId, body }) {
 async function leaveCampaign({ user, campaignId }) {
   const campaign = await campaignRepository.findCampaignById(campaignId);
   if (!campaign) throw makeHttpError("Campaign not found.", 404);
+  await campaignRepository.expireStaleReservations?.(campaign.id);
   const contribution = await campaignRepository.findContributionByCampaignAndUser(campaign.id, user?._id);
   if (!contribution) throw makeHttpError("Campaign contribution not found.", 404);
+  if (contribution.status === campaignRepository.CONTRIBUTION_STATUSES.EXPIRED) {
+    throw makeHttpError("This campaign reservation has already expired.", 409);
+  }
   if (contribution.status !== campaignRepository.CONTRIBUTION_STATUSES.PENDING_PROOF) {
     throw makeHttpError("You cannot leave after submitting contribution proof.", 409);
   }
@@ -372,13 +390,24 @@ async function uploadContributionProofDirect({ user, campaignId, body, fileBuffe
   }
   const contribution = await campaignRepository.findContributionByCampaignAndUser(campaign.id, user._id);
   if (!contribution) throw makeHttpError("Join the campaign before submitting proof.", 409);
+  if (contribution.status === campaignRepository.CONTRIBUTION_STATUSES.PENDING_PROOF
+    && contribution.reservationExpiresAt
+    && new Date(contribution.reservationExpiresAt).getTime() <= Date.now()) {
+    throw makeHttpError("Your campaign reservation expired before proof was submitted.", 409);
+  }
   if (![campaignRepository.CONTRIBUTION_STATUSES.PENDING_PROOF, campaignRepository.CONTRIBUTION_STATUSES.REJECTED].includes(contribution.status)) {
     throw makeHttpError("This contribution cannot accept another proof.", 409);
   }
   const paymentReference = requiredText(body?.paymentReference, "Payment reference", 160);
   const upload = await paymentProofStorageService.uploadGroupFundedBinary({ campaign, user, body, fileBuffer });
   const submitted = await campaignRepository.submitContributionProof({ contributionId: contribution.id, paymentReference, proof: upload.proof });
-  if (!submitted) throw makeHttpError("Contribution proof could not be submitted because its state changed.", 409);
+  if (!submitted) {
+    const latest = await campaignRepository.findContributionByCampaignAndUser(campaign.id, user._id);
+    if (latest?.status === campaignRepository.CONTRIBUTION_STATUSES.EXPIRED) {
+      throw makeHttpError("Your campaign reservation expired before proof was submitted.", 409);
+    }
+    throw makeHttpError("Contribution proof could not be submitted because its state changed.", 409);
+  }
   await audit(campaign.id, "contribution_proof_submitted", user, { contributionId: contribution.id });
   notifyCampaignUser({ userId: campaign.organizerUserId, campaignId: campaign.id, title: "Contribution proof submitted", body: "A contributor submitted payment proof for your review.", eventType: "campaign_proof_submitted" }).catch(() => {});
   return submitted;

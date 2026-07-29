@@ -1642,6 +1642,27 @@ test("an unpaid campaign slot uses a pending funding treatment instead of succes
   assert.match(styles, /\.campaign-participation-card--accepted/);
 });
 
+test("campaign reservations show proof deadlines and segmented slot availability", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CampaignControlCenterPage.tsx"), "utf8");
+  const preview = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CampaignPreviewPage.tsx"), "utf8");
+  const sharedTypes = fs.readFileSync(path.resolve(frontendRoot, "..", "shared", "types.ts"), "utf8");
+  const migration = fs.readFileSync(path.resolve(frontendRoot, "..", "database", "migrations", "20260729_add_campaign_reservation_expiration.sql"), "utf8");
+
+  assert.match(source, /Proof due/);
+  assert.match(source, /reservationExpiresAt/);
+  assert.match(source, />Reserved</);
+  assert.match(source, />Under review</);
+  assert.match(source, />Confirmed</);
+  assert.match(source, />Available</);
+  assert.match(preview, />Reserved</);
+  assert.match(preview, />Available</);
+  assert.match(sharedTypes, /\| "expired"/);
+  assert.match(sharedTypes, /reservationExpiresAt/);
+  assert.match(migration, /reservation_expires_at/);
+  assert.match(migration, /reservation_attempt_count/);
+});
+
 test("contributor campaign hero uses campaign-wide aggregates instead of the viewer's contribution", () => {
   const frontendRoot = path.resolve(__dirname, "..");
   const source = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CampaignControlCenterPage.tsx"), "utf8");
@@ -1650,7 +1671,10 @@ test("contributor campaign hero uses campaign-wide aggregates instead of the vie
   assert.match(source, /campaign\?\.joinedContributors\s*\?\?/);
   assert.match(source, /campaign\?\.acceptedAmountCents\s*\?\?/);
   assert.doesNotMatch(source, /const filled = contributions\.filter/);
-  assert.match(source, /\{joinedContributors\}\/\{campaign\.requiredContributors\}/);
+  assert.match(source, /\{reservedContributors\}/);
+  assert.match(source, /\{underReviewContributors\}/);
+  assert.match(source, /\{acceptedContributors\}/);
+  assert.match(source, /\{availableContributors\}/);
 });
 
 test("campaign trust ratings open from a contextual action inside a mobile-first modal", () => {

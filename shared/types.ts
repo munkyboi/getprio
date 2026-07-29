@@ -800,7 +800,7 @@ export interface GroupFundedCampaignsResponse {
 }
 
 export type OrganizerCampaignStatus = "draft" | "collecting" | "collected" | "refund_pending" | "cancelled" | "frozen";
-export type OrganizerContributionStatus = "pending_proof" | "submitted" | "review_overdue" | "accepted" | "rejected" | "refund_pending" | "refund_sent" | "refund_confirmed" | "refund_disputed";
+export type OrganizerContributionStatus = "pending_proof" | "submitted" | "review_overdue" | "accepted" | "rejected" | "expired" | "withdrawn" | "refund_pending" | "refund_sent" | "refund_confirmed" | "refund_disputed";
 
 export interface OrganizerCampaignContribution {
   id: string;
@@ -820,6 +820,9 @@ export interface OrganizerCampaignContribution {
   } | null;
   rejectionReason?: string | null;
   resubmissionCount: number;
+  reservationExpiresAt?: string | Date | null;
+  reservationAttemptCount: number;
+  retryAvailableAt?: string | Date | null;
   submittedAt?: string | Date | null;
   trustRating?: { average: number; count: number };
 }
@@ -840,6 +843,9 @@ export interface OrganizerCampaign {
   requiredContributors: number;
   acceptedContributors?: number;
   joinedContributors?: number;
+  reservedContributors?: number;
+  underReviewContributors?: number;
+  availableContributors?: number;
   acceptedAmountCents?: number;
   paymentInstructions: string;
   currency: string;
@@ -885,6 +891,9 @@ export interface PublicOrganizerCampaign {
   requiredContributors: number;
   acceptedContributors: number;
   filledContributors: number;
+  reservedContributors: number;
+  underReviewContributors: number;
+  availableContributors: number;
   organizerDisplayName: string;
   organizerAvatarUrl?: string;
   organizerTrustRating?: { average: number; count: number };
