@@ -834,6 +834,8 @@ export interface OrganizerCampaign {
   organizerUserId: string;
   organizerDisplayName: string;
   organizerAvatarUrl?: string;
+  vendor?: { name: string; slug: string };
+  location?: { name: string; slug: string; city: string; province: string; timezone: string };
   status: OrganizerCampaignStatus;
   visibility: "private_link" | "public";
   title: string;
@@ -850,6 +852,7 @@ export interface OrganizerCampaign {
   paymentInstructions: string;
   currency: string;
   scheduledStartAt?: string | Date;
+  scheduledEndAt?: string | Date;
   booking?: {
     id: string;
     reference: string;
@@ -898,9 +901,10 @@ export interface PublicOrganizerCampaign {
   organizerAvatarUrl?: string;
   organizerTrustRating?: { average: number; count: number };
   scheduledStartAt: string | Date;
+  scheduledEndAt: string | Date;
   currency: string;
   vendor: { name: string; slug: string };
-  location: { name: string; slug: string };
+  location: { name: string; slug: string; city: string; province: string; timezone: string };
   service: { name: string; slug: string };
   booking?: {
     vendorName: string;

@@ -1087,6 +1087,8 @@ test("customer-facing primary actions use the mobile action treatment", () => {
 test("vendor discovery uses a mobile-first search and card layout", () => {
   const frontendRoot = path.resolve(__dirname, "..");
   const source = fs.readFileSync(path.join(frontendRoot, "src", "pages", "VendorDiscoveryPage.tsx"), "utf8");
+  const dashboard = fs.readFileSync(path.join(frontendRoot, "src", "pages", "VendorDashboardPage.tsx"), "utf8");
+  const themeUtils = fs.readFileSync(path.join(frontendRoot, "src", "utils", "vendorTheme.ts"), "utf8");
   const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
 
   assert.match(source, /className="vendor-search-actions"/);
@@ -1098,8 +1100,13 @@ test("vendor discovery uses a mobile-first search and card layout", () => {
   assert.match(styles, /\.vendor-card-actions > \.mantine-Button-root \{\s+min-height: 3\.25rem;/);
   assert.match(styles, /\.vendor-card \{\s+min-height: 0;/);
   assert.match(source, /"--vendor-theme-logo-fit": theme\.logoFit/);
+  assert.match(source, /theme\.logoFit === "cover" \? \{ "--vendor-theme-logo-frame-padding": "0px" \} : \{\}/);
   assert.match(source, /style=\{\{ objectFit: vendor\.publicBoardTheme\.theme\.logoFit \}\}/);
+  assert.match(dashboard, /themeForm\.logoFit === "cover" \? \{ "--vendor-theme-logo-frame-padding": "0px" \} : \{\}/);
+  assert.match(themeUtils, /theme\.logoFit === "cover" \? \{ "--vendor-theme-logo-frame-padding": "0px" \} : \{\}/);
+  assert.match(styles, /\.vendor-card-logo-frame \{[\s\S]*?padding: var\(--vendor-theme-logo-frame-padding, 0\.6rem\);/);
   assert.match(styles, /\.vendor-card-logo-frame img \{[\s\S]*?object-fit: var\(--vendor-theme-logo-fit, contain\);/);
+  assert.match(styles, /\.vendor-profile-logo-frame \{[\s\S]*?padding: var\(--vendor-theme-logo-frame-padding, 1rem\);/);
 });
 
 test("login actions are mobile-first", () => {
@@ -1573,6 +1580,13 @@ test("campaign pages show booking details and available organizer trust ratings"
   assert.match(source, /event\.actorDisplayName/);
   assert.match(publicSource, /campaign\.organizerTrustRating\?\.count \?/);
   assert.match(publicSource, /src=\{campaign\.organizerAvatarUrl \|\| undefined\}/);
+  assert.match(publicSource, /<Badge color="cyan">\{campaign\.status\}<\/Badge>/);
+  assert.match(publicSource, /Funding \{money\(acceptedAmountCents, campaign\.currency\)\} \/ \{money\(fundingTargetCents, campaign\.currency\)\}/);
+  assert.match(publicSource, /<Text size="xs">Deadline<\/Text>/);
+  assert.match(publicSource, /formatCampaignDeadline\(campaign\.deadlineAt\)/);
+  assert.doesNotMatch(publicSource, /<Badge>\{campaign\.vendor\.name\}<\/Badge>/);
+  assert.doesNotMatch(publicSource, /<Text size="xs">Schedule<\/Text>/);
+  assert.doesNotMatch(publicSource, /campaign-hero-secondary" size="sm">\{campaign\.location\.name\}<\/Text>/);
   assert.match(styles, /@media \(hover: hover\) and \(pointer: fine\)/);
 });
 
@@ -1711,6 +1725,7 @@ test("campaign control center refreshes authenticated campaign data from SSE cha
 test("campaign discovery uses one broad search field and safely renders rich descriptions", () => {
   const frontendRoot = path.resolve(__dirname, "..");
   const source = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CampaignDiscoveryPage.tsx"), "utf8");
+  const card = fs.readFileSync(path.join(frontendRoot, "src", "components", "CampaignSummaryCard.tsx"), "utf8");
   const api = fs.readFileSync(path.join(frontendRoot, "src", "api", "customerAccount.ts"), "utf8");
 
   assert.match(source, /label="Search campaigns"/);
@@ -1719,16 +1734,33 @@ test("campaign discovery uses one broad search field and safely renders rich des
   assert.doesNotMatch(source, /label="Vendor slug"/);
   assert.doesNotMatch(source, /label="Branch slug"/);
   assert.doesNotMatch(source, /label="Service slug"/);
-  assert.match(source, /<RichCampaignDescription className="rich-campaign-description campaign-list-description campaign-discovery-description" content=\{campaign\.description\}\/>/);
+  assert.match(source, /<CampaignSummaryCard action=\{\{ label: "View campaign"/);
+  assert.match(source, /descriptionClassName="rich-campaign-description campaign-list-description campaign-discovery-description"/);
+  assert.match(card, /<RichCampaignDescription className=\{descriptionClassName\} content=\{campaign\.description\}\/>/);
   assert.match(source, /component="form"/);
   assert.match(source, /type="submit"/);
-  assert.match(source, /className="campaign-discovery-cta"/);
+  assert.match(card, /className="campaign-discovery-cta"/);
   assert.match(source, /const requestId = \+\+loadRequestId\.current/);
   assert.match(source, /if \(requestId === loadRequestId\.current\) setCampaigns/);
   assert.match(source, /const search = event\.currentTarget\.value;\s*setFilters\(\(current\) => \(\{ \.\.\.current, search \}\)\)/);
   assert.match(source, /const date = event\.currentTarget\.value;\s*setFilters\(\(current\) => \(\{ \.\.\.current, date \}\)\)/);
   assert.doesNotMatch(source, /setFilters\(\([^)]*\) => \(\{[^}]*currentTarget\.value/);
   assert.match(api, /filters: \{ search\?: string; date\?: string \}/);
+});
+
+test("your campaigns reuses the discovery search and booking date filters", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CampaignControlCenterPage.tsx"), "utf8");
+
+  assert.match(source, /className="campaign-discovery-filters"/);
+  assert.match(source, /label="Search campaigns"/);
+  assert.match(source, /placeholder="Campaign title, organizer, vendor, or address"/);
+  assert.match(source, /label="Booking date"/);
+  assert.match(source, /type="submit">Apply filters<\/Button>/);
+  assert.match(source, /const filteredCampaigns = useMemo/);
+  assert.match(source, /filteredCampaigns\.map\(\(item\)/);
+  assert.match(source, /No campaigns match the selected filters\./);
+  assert.match(source, /Confirmed bookings selected for campaigns will appear here\./);
 });
 
 test("authenticated campaign pages share the customer account sidebar layout", () => {
@@ -1778,6 +1810,35 @@ test("campaign page titles use the customer account heading scale", () => {
   assert.match(preview, /<Title order=\{2\}>\{campaign\.title\}<\/Title>/);
   assert.doesNotMatch(preview, /<Title order=\{1\}>/);
   assert.match(styles, /\.customer-section-header h1 \{[\s\S]*?font-size: clamp\(2\.15rem, 9vw, 3\.35rem\)/);
+});
+
+test("customer campaign cards show status flavor, organizer trust, and three campaign facts", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CampaignControlCenterPage.tsx"), "utf8");
+  const card = fs.readFileSync(path.join(frontendRoot, "src", "components", "CampaignSummaryCard.tsx"), "utf8");
+  const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
+
+  assert.match(source, /<CampaignSummaryCard campaign=\{item\}/);
+  assert.match(card, /collecting: \{ color: "orange", label: "Collecting" \}/);
+  assert.match(card, /collected: \{ color: "teal", label: "Collected" \}/);
+  assert.match(card, /cancelled: \{ color: "red", label: "Cancelled" \}/);
+  assert.match(card, /Organized by/);
+  assert.match(card, /organizerAvatarUrl/);
+  assert.match(card, /organizerTrustRating/);
+  assert.match(card, /campaign-list-progress/);
+  assert.match(card, /filledContributors\}\/\{campaign\.requiredContributors\} filled/);
+  assert.match(card, /Ends \{formatCampaignEndDate\(campaign\.deadlineAt, timeZone\)\}/);
+  assert.match(card, />Location</);
+  assert.match(card, /\$\{campaign\.vendor\.name\} - \$\{campaign\.location\.name\}/);
+  assert.match(card, />Schedule</);
+  assert.match(card, /formatCampaignListDate\(campaign\.scheduledStartAt, timeZone\)/);
+  assert.match(card, /formatBookingScheduleTimeRange\(campaign\.scheduledStartAt, campaign\.scheduledEndAt, timeZone\)/);
+  assert.match(card, />Contributors</);
+  assert.match(card, /\{confirmedContributors\}\/\{campaign\.requiredContributors\} Confirmed/);
+  assert.match(card, /\{reservedContributors\} Reserved/);
+  assert.doesNotMatch(card, /<Divider mt="xs"\/>/);
+  assert.match(styles, /\.campaign-list-facts/);
+  assert.match(styles, /\.campaign-list-fact \+ \.campaign-list-fact/);
 });
 
 test("booking schedule formatters honor the booking location timezone", () => {

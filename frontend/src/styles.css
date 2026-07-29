@@ -882,7 +882,7 @@ body {
   place-items: center;
   width: min(120px, 60%);
   aspect-ratio: 1;
-  padding: 0.6rem;
+  padding: var(--vendor-theme-logo-frame-padding, 0.6rem);
   border-radius: 9999px;
   background: linear-gradient(135deg, var(--vendor-theme-card-bg, rgba(255, 255, 255, 0.82)), color-mix(in srgb, var(--vendor-theme-card-bg, rgba(255, 255, 255, 0.82)) 74%, white));
   box-shadow: 0 18px 42px rgba(36, 30, 25, 0.18);
@@ -2441,7 +2441,7 @@ body {
   background: linear-gradient(135deg, var(--vendor-theme-logo-bg, var(--vendor-theme-button-bg, #ea6a1f)), color-mix(in srgb, var(--vendor-theme-logo-bg, var(--vendor-theme-button-bg, #ea6a1f)) 74%, white));
   box-shadow: 0 18px 40px color-mix(in srgb, var(--vendor-theme-logo-bg, var(--vendor-theme-button-bg, #ea6a1f)) 28%, transparent);
   overflow: hidden;
-  padding: 1rem;
+  padding: var(--vendor-theme-logo-frame-padding, 1rem);
 }
 
 .vendor-profile-logo-frame img {
@@ -7138,6 +7138,24 @@ h2 {
 }
 .campaign-list-card { color: inherit; text-decoration: none; border: 1px solid var(--mantine-color-gray-3); transition: transform .15s ease, box-shadow .15s ease; }
 .campaign-list-card:hover { transform: translateY(-2px); box-shadow: var(--mantine-shadow-md); }
+.campaign-summary-card { height: 100%; }
+.campaign-summary-card__content { height: 100%; }
+.campaign-list-organizer { min-width: 0; }
+.campaign-list-progress { margin-top: auto; padding-top: .25rem; }
+.campaign-list-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: .25rem;
+}
+.campaign-list-fact {
+  min-width: 0;
+  padding: 0.25rem 0.75rem;
+}
+.campaign-list-fact:first-child { padding-left: 0; }
+.campaign-list-fact:last-child { padding-right: 0; }
+.campaign-list-fact + .campaign-list-fact {
+  border-left: 1px solid var(--mantine-color-gray-3);
+}
 .campaign-list-description { max-height: 3.2rem; overflow: hidden; color: var(--mantine-color-dimmed); }
 .campaign-discovery-description { max-height: 4.65rem; }
 .campaign-discovery-filters .mantine-Input-input,
@@ -7149,4 +7167,16 @@ h2 {
 .rating-star-button { align-items: center; border-radius: 999px; display: inline-flex; justify-content: center; min-height: 44px; min-width: 44px; }
 .rating-star-button:focus-visible { outline: 3px solid var(--mantine-color-cyan-5); outline-offset: 2px; }
 button:hover > .rating-star { transform: scale(1.08); }
+@media (max-width: 35.99em) {
+  .campaign-list-facts {
+    display: block;
+  }
+  .campaign-list-fact {
+    padding: 0.75rem 0;
+  }
+  .campaign-list-fact + .campaign-list-fact {
+    border-top: 1px solid var(--mantine-color-gray-3);
+    border-left: 0;
+  }
+}
 @media (max-width: 48em) { .campaign-control-page { padding-inline: .75rem; } .campaign-control-page .mantine-Button-root { min-height: 44px; } .campaign-control-hero { border-radius: 22px; } .campaign-control-hero h1 { font-size: 1.75rem; } .campaign-participation-header { align-items: stretch; flex-direction: column; } .campaign-participation-slot { align-self: flex-start; } .campaign-participation-card .mantine-Button-root { width: 100%; } .campaign-proof-document { min-height: 22rem; } .customer-modal.campaign-rating-modal .mantine-Modal-content { height: min(92dvh, 36rem) !important; } .campaign-rating-modal-actions .mantine-Button-root { width: 100%; } }

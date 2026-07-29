@@ -4811,6 +4811,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       "--vendor-theme-button-border-width": themeForm.presetId === "sports" ? "0px" : "1px",
       "--vendor-theme-logo-bg": themeForm.cardBackgroundColor,
       "--vendor-theme-logo-fit": themeForm.logoFit,
+      ...(themeForm.logoFit === "cover" ? { "--vendor-theme-logo-frame-padding": "0px" } : {}),
       ...(themeForm.pageBackgroundImageUrl
         ? {
             "--vendor-theme-page-image": `url(${themeForm.pageBackgroundImageUrl})`,
