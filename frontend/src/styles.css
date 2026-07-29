@@ -7102,6 +7102,40 @@ h2 {
 }
 .campaign-hero-secondary { color: #cbd5e1; }
 .campaign-hero-stat { background: rgba(255,255,255,.09); color: white; border: 1px solid rgba(255,255,255,.16); }
+.campaign-contributor-progress {
+  display: flex;
+  align-items: center;
+  min-height: 7.25rem;
+  padding: 0.75rem 1rem;
+}
+.campaign-contributor-progress > .mantine-Group-root {
+  width: 100%;
+}
+.campaign-contributor-progress__total {
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 900;
+  letter-spacing: -0.03em;
+}
+.campaign-contributor-progress__details {
+  min-width: 0;
+}
+.campaign-contributor-progress__label {
+  color: var(--mantine-color-gray-3);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.campaign-contributor-progress__confirmed {
+  color: var(--mantine-color-teal-3);
+  font-weight: 900;
+  white-space: nowrap;
+}
+.campaign-contributor-progress__reserved {
+  color: var(--mantine-color-blue-3);
+  font-weight: 700;
+}
 .campaign-list-card { color: inherit; text-decoration: none; border: 1px solid var(--mantine-color-gray-3); transition: transform .15s ease, box-shadow .15s ease; }
 .campaign-list-card:hover { transform: translateY(-2px); box-shadow: var(--mantine-shadow-md); }
 .campaign-list-description { max-height: 3.2rem; overflow: hidden; color: var(--mantine-color-dimmed); }

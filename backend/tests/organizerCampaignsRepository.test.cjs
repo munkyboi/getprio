@@ -68,6 +68,97 @@ test("organizer campaign repository creates a campaign linked to an already conf
   assert.equal(campaign.contributionFeeCents, 50000);
 });
 
+test("campaign joining expires stale claims and creates a fixed fifteen-minute reservation atomically", async () => {
+  const calls = [];
+  const client = {
+    query: async (query, params) => {
+      const sql = String(query);
+      calls.push({ query: sql, params });
+      if (/FROM organizer_campaigns/.test(sql) && /FOR UPDATE/.test(sql)) {
+        return { rows: [{ id: 9, required_contributors: 2, deadline_at: new Date("2099-08-20T14:00:00.000Z") }] };
+      }
+      if (/FROM users/.test(sql) && /FOR UPDATE/.test(sql)) return { rows: [{ id: 8 }] };
+      if (/SET contribution_status = 'expired'/.test(sql)) return { rows: [{ id: 11 }] };
+      if (/WHERE campaign_id = \$1 AND contributor_user_id = \$2/.test(sql) && /FOR UPDATE/.test(sql)) return { rows: [] };
+      if (/COUNT\(\*\)[\s\S]*contributor_user_id/.test(sql)) return { rows: [{ count: 1 }] };
+      if (/COUNT\(\*\)[\s\S]*campaign_id/.test(sql)) return { rows: [{ count: 1 }] };
+      if (/INSERT INTO organizer_campaign_contributions/.test(sql)) {
+        return {
+          rows: [{
+            id: 15,
+            campaign_id: 9,
+            contributor_user_id: 8,
+            contribution_status: "pending_proof",
+            amount_cents: 10000,
+            currency: "PHP",
+            reservation_expires_at: new Date("2099-08-20T13:15:00.000Z"),
+            reservation_attempt_count: 1
+          }]
+        };
+      }
+      throw new Error(`Unexpected query: ${sql}`);
+    }
+  };
+  const repository = requireWithDbMock({
+    pool: {},
+    withTransaction: async (callback) => callback(client)
+  });
+
+  const result = await repository.createContribution({
+    campaignId: "9",
+    contributorUserId: "8",
+    amountCents: 10000
+  });
+
+  assert.equal(result.status, "pending_proof");
+  assert.equal(result.reservationAttemptCount, 1);
+  assert.equal(result.reservationExpiresAt.toISOString(), "2099-08-20T13:15:00.000Z");
+  assert.match(calls[2].query, /reservation_expires_at <= NOW\(\)/);
+  assert.match(calls.at(-1).query, /LEAST\(NOW\(\) \+ INTERVAL '15 minutes', \$4::timestamptz\)/);
+});
+
+test("campaign proof submission expires a pending reservation after its deadline", async () => {
+  const calls = [];
+  const client = {
+    query: async (query) => {
+      const sql = String(query);
+      calls.push(sql);
+      if (/SELECT contributions/.test(sql)) {
+        return {
+          rows: [{
+            id: 15,
+            campaign_id: 9,
+            contributor_user_id: 8,
+            contribution_status: "pending_proof",
+            reservation_expires_at: new Date("2026-07-29T00:00:00.000Z"),
+            required_contributors: 2
+          }]
+        };
+      }
+      if (/SET contribution_status = 'expired'/.test(sql)) return { rows: [{ id: 15 }] };
+      return { rows: [{ contribution_status: "submitted" }] };
+    }
+  };
+  const repository = requireWithDbMock({
+    pool: {},
+    withTransaction: async (callback) => callback(client)
+  });
+
+  const result = await repository.submitContributionProof({
+    contributionId: "15",
+    paymentReference: "PAY-123",
+    proof: {
+      objectKey: "proofs/15.png",
+      fileName: "proof.png",
+      contentType: "image/png",
+      sizeBytes: 2048
+    }
+  });
+
+  assert.equal(result, null);
+  assert.match(calls[1], /SET contribution_status = 'expired'/);
+});
+
 test("organizer campaign discovery searches campaign, organizer, vendor, and branch address", async () => {
   const calls = [];
   const repository = requireWithDbMock({
@@ -252,6 +343,40 @@ test("organizer contribution list exposes contributor avatars", async () => {
   assert.match(calls[0].query, /users\.avatar_url AS contributor_avatar_url/);
   assert.deepEqual(calls[0].params, [9]);
   assert.equal(contributions[0].contributorAvatarUrl, "https://cdn.example.test/alex.png");
+});
+
+test("organizer rejection releases a proof-less slot without allowing stale proof submission", async () => {
+  const calls = [];
+  const repository = requireWithDbMock({
+    pool: {
+      query: async (query, params) => {
+        calls.push({ query: String(query), params });
+        return {
+          rows: [{
+            id: 15,
+            campaign_id: 9,
+            contributor_user_id: 8,
+            contribution_status: "rejected",
+            amount_cents: 10000,
+            currency: "PHP",
+            resubmission_count: 1
+          }]
+        };
+      }
+    }
+  });
+
+  const contribution = await repository.reviewContribution({
+    contributionId: "15",
+    actorUserId: "7",
+    decision: "reject",
+    rejectionReason: "The participant list changed."
+  });
+
+  assert.match(calls[0].query, /\$2 = 'rejected' AND contribution_status IN \('pending_proof', 'submitted', 'review_overdue'\)/);
+  assert.match(calls[0].query, /contribution_status = 'pending_proof' AND \$2 = 'rejected' THEN 1/);
+  assert.equal(contribution.status, "rejected");
+  assert.equal(contribution.resubmissionCount, 1);
 });
 
 test("customer campaign list includes campaign-wide contribution aggregates", async () => {

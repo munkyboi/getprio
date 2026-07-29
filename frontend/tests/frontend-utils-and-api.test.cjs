@@ -1606,6 +1606,7 @@ test("campaign notices use the vendor-style overlay notification stack", () => {
 test("campaign control center gives a joined contributor a slot and private proof viewer", () => {
   const frontendRoot = path.resolve(__dirname, "..");
   const source = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CampaignControlCenterPage.tsx"), "utf8");
+  const api = fs.readFileSync(path.join(frontendRoot, "src", "api", "customerAccount.ts"), "utf8");
 
   assert.match(source, /Your slot is reserved/);
   assert.match(source, /Slot #\{ownContribution\.slotNumber/);
@@ -1614,6 +1615,12 @@ test("campaign control center gives a joined contributor a slot and private proo
   assert.match(source, /className="customer-modal payment-proof-modal"/);
   assert.match(source, /scrollbars="y"/);
   assert.match(source, /!isOrganizer && ownContribution/);
+  assert.match(source, /ownContribution\.status === "pending_proof"/);
+  assert.match(source, />Leave campaign</);
+  assert.match(source, /title="Leave campaign"/);
+  assert.match(api, /\/account\/campaigns\/\$\{encodeURIComponent\(campaignId\)\}\/contributions\/self/);
+  assert.match(api, /method: "DELETE"/);
+  assert.match(source, /\["pending_proof", "submitted", "review_overdue"\]\.includes\(item\.status\)/);
 });
 
 test("an unpaid campaign slot uses a pending funding treatment instead of success", () => {
@@ -1622,11 +1629,46 @@ test("an unpaid campaign slot uses a pending funding treatment instead of succes
   const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
 
   assert.match(source, /if \(!contribution\.paymentProof\)/);
+  assert.match(source, /contribution\.status === "rejected" && !contribution\.paymentProof/);
+  assert.ok(
+    source.indexOf('contribution.status === "rejected" && !contribution.paymentProof') <
+      source.indexOf("if (!contribution.paymentProof)")
+  );
   assert.match(source, /flavor: "awaiting-proof"/);
   assert.match(source, /Submit the funding fee and payment proof to complete your contribution\./);
+  assert.match(source, /ownContribution\.status === "rejected" && ownContribution\.resubmissionCount < 1/);
   assert.match(source, /campaign-participation-card--\$\{participation\.flavor\}/);
   assert.match(styles, /\.campaign-participation-card--awaiting-proof/);
   assert.match(styles, /\.campaign-participation-card--accepted/);
+});
+
+test("campaign reservations show proof deadlines and segmented contributor progress", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CampaignControlCenterPage.tsx"), "utf8");
+  const preview = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CampaignPreviewPage.tsx"), "utf8");
+  const contributorProgress = fs.readFileSync(path.join(frontendRoot, "src", "components", "CampaignContributorProgress.tsx"), "utf8");
+  const sharedTypes = fs.readFileSync(path.resolve(frontendRoot, "..", "shared", "types.ts"), "utf8");
+  const migration = fs.readFileSync(path.resolve(frontendRoot, "..", "database", "migrations", "20260729_add_campaign_reservation_expiration.sql"), "utf8");
+
+  assert.match(source, /Proof due/);
+  assert.match(source, /reservationExpiresAt/);
+  assert.match(source, /<CampaignContributorProgress/);
+  assert.match(source, /cols=\{\{ base: 1, md: 3 \}\}/);
+  assert.match(preview, /<CampaignContributorProgress/);
+  assert.match(preview, /cols=\{\{ base: 1, md: 3 \}\}/);
+  assert.match(contributorProgress, /RingProgress/);
+  assert.match(contributorProgress, /Contributors/);
+  assert.match(contributorProgress, /Confirmed/);
+  assert.match(contributorProgress, /Reserved/);
+  assert.match(contributorProgress, /var\(--mantine-color-teal-5\)/);
+  assert.match(contributorProgress, /var\(--mantine-color-blue-5\)/);
+  assert.match(contributorProgress, /const SLOT_GAP_DEGREES = 5/);
+  assert.match(contributorProgress, /SLOT_GAP_DEGREES \/ 360 \* 100/);
+  assert.doesNotMatch(contributorProgress, /\broundCaps\b/);
+  assert.match(sharedTypes, /\| "expired"/);
+  assert.match(sharedTypes, /reservationExpiresAt/);
+  assert.match(migration, /reservation_expires_at/);
+  assert.match(migration, /reservation_attempt_count/);
 });
 
 test("contributor campaign hero uses campaign-wide aggregates instead of the viewer's contribution", () => {
@@ -1637,7 +1679,10 @@ test("contributor campaign hero uses campaign-wide aggregates instead of the vie
   assert.match(source, /campaign\?\.joinedContributors\s*\?\?/);
   assert.match(source, /campaign\?\.acceptedAmountCents\s*\?\?/);
   assert.doesNotMatch(source, /const filled = contributions\.filter/);
-  assert.match(source, /\{joinedContributors\}\/\{campaign\.requiredContributors\}/);
+  assert.match(source, /\{reservedContributors\}/);
+  assert.match(source, /\{underReviewContributors\}/);
+  assert.match(source, /\{acceptedContributors\}/);
+  assert.match(source, /requiredContributors=\{campaign\.requiredContributors\}/);
 });
 
 test("campaign trust ratings open from a contextual action inside a mobile-first modal", () => {
