@@ -77,7 +77,7 @@ function AppShell({ children }: { children: ReactNode }) {
     <Menu shadow="md" width={220} position="bottom-end" withinPortal>
       <Menu.Target>
         <Button className="header-avatar-button" variant="subtle" color="dark" rightSection={<IconChevronDown size={14} />}>
-          <Avatar color="orange" radius="xl" size={28}>
+          <Avatar color="orange" radius="xl" size={28} src={user?.avatarUrl || undefined}>
             {getUserInitials(user?.name || "User")}
           </Avatar>
         </Button>
@@ -85,7 +85,6 @@ function AppShell({ children }: { children: ReactNode }) {
       <Menu.Dropdown>
         <Menu.Label>{user?.name || "Account"}</Menu.Label>
         <Menu.Item component={Link} to="/account/dashboard">Dashboard</Menu.Item>
-        <Menu.Item component={Link} to="/account/profile">Profile details</Menu.Item>
         <Menu.Item component={Link} to="/account/tickets">Queue Tickets</Menu.Item>
         <Menu.Item component={Link} to="/account/bookings">Bookings</Menu.Item>
         <Menu.Item component={Link} to="/account/campaigns">Campaigns</Menu.Item>
@@ -103,7 +102,7 @@ function AppShell({ children }: { children: ReactNode }) {
     <Menu shadow="md" width={240} position="bottom-end" withinPortal>
       <Menu.Target>
         <Button className="header-avatar-button" variant="subtle" color="dark" rightSection={<IconChevronDown size={14} />}>
-          <Avatar color="orange" radius="xl" size={28}>
+          <Avatar color="orange" radius="xl" size={28} src={user?.avatarUrl || undefined}>
             {getUserInitials(user?.name || primaryTenant.name)}
           </Avatar>
         </Button>
@@ -178,7 +177,6 @@ function AppShell({ children }: { children: ReactNode }) {
                 ) : (
                   <>
                     <Button component={Link} to="/account/dashboard" variant="subtle" color="dark">Dashboard</Button>
-                    <Button component={Link} to="/account/profile" variant="subtle" color="dark">Profile details</Button>
                     <Button component={Link} to="/account/tickets" variant="subtle" color="dark">Queue Tickets</Button>
                     <Button component={Link} to="/account/bookings" variant="subtle" color="dark">Bookings</Button>
                     <Button component={Link} to="/account/campaigns" variant="subtle" color="dark">Campaigns</Button>
@@ -324,7 +322,7 @@ export default function App() {
         <Route path="/account" element={<Navigate to="/account/dashboard" replace />} />
         <Route path="/account/dashboard" element={<AppShell><CustomerDashboardPage /></AppShell>} />
         <Route path="/account/dashboard-prototype" element={<Navigate to="/account/dashboard" replace />} />
-        <Route path="/account/profile" element={<AppShell><CustomerAccountPage /></AppShell>} />
+        <Route path="/account/profile" element={<Navigate to="/account/settings" replace />} />
         <Route path="/account/tickets" element={<AppShell><CustomerAccountPage /></AppShell>} />
         <Route path="/account/bookings" element={<AppShell><CustomerAccountPage /></AppShell>} />
         <Route path="/account/group-funded" element={<Navigate to="/account/campaigns" replace />} />

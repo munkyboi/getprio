@@ -1,23 +1,18 @@
-import { useQuery } from "@tanstack/react-query";
-import { Badge, Button, Card, Divider, Group, Stack, Text, Title } from "@mantine/core";
+import { Button, Card, Collapse, Divider, Stack, Text } from "@mantine/core";
 import {
+  IconChevronDown,
   IconLayoutDashboard,
   IconCalendarEvent,
-  IconId,
   IconListDetails,
   IconLock,
   IconSettings,
   IconSpeakerphone
 } from "@tabler/icons-react";
-import { Link } from "react-router-dom";
-import type { CustomerAccountOverviewResponse } from "@shared";
-import type { ReactNode } from "react";
-import { customerAccountApi } from "../api/customerAccount";
-import { useAuth } from "../context/AuthContext";
+import { Link, useLocation } from "react-router-dom";
+import { useEffect, useState, type ReactNode } from "react";
 
 export type CustomerAccountSection =
   | "dashboard"
-  | "profile"
   | "tickets"
   | "bookings"
   | "campaigns"
@@ -30,41 +25,58 @@ const ACCOUNT_SECTIONS: Array<{
   key: CustomerAccountSection;
   label: string;
   path: string;
-  icon: typeof IconId;
+  icon: typeof IconLayoutDashboard;
+  children?: Array<{
+    label: string;
+    path: string;
+  }>;
 }> = [
   { key: "dashboard", label: "Dashboard", path: "/account/dashboard", icon: IconLayoutDashboard },
-  { key: "profile", label: "Profile details", path: "/account/profile", icon: IconId },
   { key: "tickets", label: "Queue Tickets", path: "/account/tickets", icon: IconListDetails },
   { key: "bookings", label: "Bookings", path: "/account/bookings", icon: IconCalendarEvent },
-  { key: "campaigns", label: "Campaigns", path: "/account/campaigns", icon: IconSpeakerphone },
+  {
+    key: "campaigns",
+    label: "Campaigns",
+    path: "/account/campaigns",
+    icon: IconSpeakerphone,
+    children: [
+      { label: "Your campaigns", path: "/account/campaigns" },
+      { label: "Discover campaigns", path: "/account/campaigns/discover" }
+    ]
+  },
   { key: "settings", label: "Settings", path: "/account/settings", icon: IconSettings },
   { key: "notifications", label: "Notifications", path: "/account/notifications", icon: IconSettings },
   { key: "security", label: "Security", path: "/account/security", icon: IconLock }
 ];
 
 export default function CustomerAccountLayout({
-  accountUser,
   activeSection,
   children
 }: {
-  accountUser?: CustomerAccountOverviewResponse["user"] | null;
   activeSection: CustomerAccountSection;
   children: ReactNode;
 }) {
-  const { token, user } = useAuth();
-  const accountQuery = useQuery({
-    queryKey: ["customer-account", token],
-    queryFn: async () => {
-      if (!token) throw new Error("Missing authentication token.");
-      return customerAccountApi.getOverview(token);
-    },
-    enabled: Boolean(token && activeSection === "profile" && !accountUser)
-  });
-  const resolvedUser = accountUser ?? accountQuery.data?.overview.user;
+  const location = useLocation();
+  const [campaignsExpanded, setCampaignsExpanded] = useState(activeSection === "campaigns");
+
+  useEffect(() => {
+    if (activeSection === "campaigns") {
+      setCampaignsExpanded(true);
+    }
+  }, [activeSection]);
+
+  function isSubmenuActive(path: string) {
+    if (path === "/account/campaigns") {
+      return location.pathname === path ||
+        (location.pathname.startsWith(`${path}/`) && location.pathname !== "/account/campaigns/discover");
+    }
+
+    return location.pathname === path;
+  }
 
   return (
     <Stack
-      className={`customer-account-page${activeSection === "dashboard" ? " customer-account-page--dashboard" : ""}`}
+      className="customer-account-page"
       gap="lg"
     >
       <div className="customer-account-layout">
@@ -73,6 +85,50 @@ export default function CustomerAccountLayout({
             {ACCOUNT_SECTIONS.map((section) => {
               const Icon = section.icon;
               const isActive = activeSection === section.key;
+
+              if (section.children) {
+                return (
+                  <div className="customer-account-nav-group" key={section.key}>
+                    <Button
+                      aria-controls={`${section.key}-submenu`}
+                      aria-expanded={campaignsExpanded}
+                      color={isActive ? "orange" : "dark"}
+                      justify="flex-start"
+                      leftSection={<Icon size={18} />}
+                      onClick={() => setCampaignsExpanded((expanded) => !expanded)}
+                      rightSection={
+                        <IconChevronDown
+                          className={`customer-account-nav-chevron${campaignsExpanded ? " customer-account-nav-chevron--expanded" : ""}`}
+                          size={16}
+                        />
+                      }
+                      variant={isActive ? "light" : "subtle"}
+                    >
+                      {section.label}
+                    </Button>
+                    <Collapse in={campaignsExpanded}>
+                      <Stack className="customer-account-subnav" gap={2} id={`${section.key}-submenu`}>
+                        {section.children.map((child) => {
+                          const isChildActive = isSubmenuActive(child.path);
+
+                          return (
+                            <Button
+                              color={isChildActive ? "orange" : "dark"}
+                              component={Link}
+                              justify="flex-start"
+                              key={child.path}
+                              to={child.path}
+                              variant={isChildActive ? "light" : "subtle"}
+                            >
+                              {child.label}
+                            </Button>
+                          );
+                        })}
+                      </Stack>
+                    </Collapse>
+                  </div>
+                );
+              }
 
               return (
                 <Button
@@ -95,27 +151,6 @@ export default function CustomerAccountLayout({
           </Text>
         </Card>
         <div className="customer-account-content">
-          {activeSection === "profile" ? (
-            <Card className="finazze-auth-card customer-account-card customer-account-hero" p="xl">
-              <Group align="flex-start" justify="space-between" gap="lg">
-                <Stack gap={4}>
-                  <Text className="finazze-section-label">Customer account</Text>
-                  <Title order={1}>{resolvedUser?.name || user?.name || "Customer"}</Title>
-                  <Text c="dimmed">
-                    {resolvedUser?.username ? `@${resolvedUser.username}` : "Username not set"}
-                  </Text>
-                </Stack>
-                <Group gap="xs">
-                  <Badge color={resolvedUser?.emailVerified ? "teal" : "yellow"} variant="light">
-                    {resolvedUser?.emailVerified ? "Email verified" : "Email not verified"}
-                  </Badge>
-                  <Badge color={resolvedUser?.mfaEnabled ? "teal" : "gray"} variant="light">
-                    {resolvedUser?.mfaEnabled ? "MFA enabled" : "MFA off"}
-                  </Badge>
-                </Group>
-              </Group>
-            </Card>
-          ) : null}
           {children}
         </div>
       </div>

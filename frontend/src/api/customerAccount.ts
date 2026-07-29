@@ -1,5 +1,6 @@
-import { apiRequest } from "./client";
+import { API_BASE_URL, apiRequest } from "./client";
 import type {
+  CustomerAvatarUploadResponse,
   CustomerAccountHistoryResponse,
   CustomerAccountOverviewResponse,
   CustomerBookingsResponse,
@@ -100,6 +101,26 @@ export const customerAccountApi = {
       token,
       body
     });
+  },
+  async uploadAvatar(token: string, file: File) {
+    const response = await fetch(
+      `${API_BASE_URL}/account/profile/avatar?fileName=${encodeURIComponent(file.name)}`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": file.type
+        },
+        body: file
+      }
+    );
+    const payload = await response.json().catch(() => null) as CustomerAvatarUploadResponse | { message?: string } | null;
+    if (!response.ok) {
+      throw new Error(payload && "message" in payload && payload.message
+        ? payload.message
+        : "Profile photo upload failed.");
+    }
+    return payload as CustomerAvatarUploadResponse;
   },
   getGroupFundedCampaigns(token: string) {
     return apiRequest<GroupFundedCampaignsResponse>("/account/group-funded-campaigns", { token });

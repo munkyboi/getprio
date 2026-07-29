@@ -34,6 +34,7 @@ function mapCampaign(row) {
     bookingId: String(row.booking_id),
     organizerUserId: String(row.organizer_user_id),
     organizerDisplayName: row.organizer_display_name || "Organizer",
+    organizerAvatarUrl: row.organizer_avatar_url || "",
     status: row.campaign_status,
     visibility: row.visibility,
     title: row.title,
@@ -60,13 +61,19 @@ function mapCampaign(row) {
 function mapPublicCampaign(row) {
   if (!row) return null;
   return {
-    id: String(row.id), publicToken: row.public_token, status: row.campaign_status, visibility: row.visibility,
+    id: String(row.id), publicToken: row.public_token, bookingId: String(row.booking_id), status: row.campaign_status, visibility: row.visibility,
     title: row.title, description: row.description, deadlineAt: row.deadline_at,
     contributionFeeCents: Number(row.contribution_fee_cents), requiredContributors: Number(row.required_contributors), currency: row.currency,
     acceptedContributors: Number(row.accepted_contributors || 0), filledContributors: Number(row.filled_contributors || 0),
     organizerDisplayName: row.organizer_display_name || "Organizer",
+    organizerAvatarUrl: row.organizer_avatar_url || "",
+    organizerTrustRating: {
+      average: Number(row.organizer_trust_average || 0),
+      count: Number(row.organizer_trust_count || 0)
+    },
     scheduledStartAt: row.scheduled_start_at,
-    vendor: { name: row.tenant_name, slug: row.tenant_slug }, location: { name: row.location_name, slug: row.location_slug },
+    vendor: { name: row.tenant_name, slug: row.tenant_slug },
+    location: { name: row.location_name, slug: row.location_slug },
     service: { name: row.service_name, slug: row.service_slug }, publishedAt: row.published_at
   };
 }
@@ -75,6 +82,13 @@ const PUBLIC_CAMPAIGN_SELECT = `SELECT campaigns.*, bookings.scheduled_start_at,
   tenants.name AS tenant_name, tenants.slug AS tenant_slug, store_locations.name AS location_name,
   store_locations.slug AS location_slug, vendor_services.name AS service_name, vendor_services.slug AS service_slug,
   COALESCE(NULLIF(users.display_name, ''), users.name) AS organizer_display_name,
+  users.avatar_url AS organizer_avatar_url,
+  (SELECT COALESCE(ROUND(AVG(ratings.stars)::numeric, 1), 0)::float
+   FROM user_trust_ratings ratings
+   WHERE ratings.subject_user_id = campaigns.organizer_user_id AND ratings.moderation_status = 'active') AS organizer_trust_average,
+  (SELECT COUNT(*)::int
+   FROM user_trust_ratings ratings
+   WHERE ratings.subject_user_id = campaigns.organizer_user_id AND ratings.moderation_status = 'active') AS organizer_trust_count,
   COUNT(contributions.id) FILTER (WHERE contributions.contribution_status = 'accepted') AS accepted_contributors,
   COUNT(contributions.id) FILTER (WHERE contributions.contribution_status IN ('submitted','accepted','refund_pending','refund_sent','refund_confirmed','refund_disputed')) AS filled_contributors
   FROM organizer_campaigns campaigns JOIN bookings ON bookings.id = campaigns.booking_id
@@ -200,6 +214,7 @@ async function findCampaignById(id) {
   const { rows } = await db.pool.query(
     `SELECT campaigns.*, bookings.scheduled_start_at,
        COALESCE(NULLIF(users.display_name, ''), users.name) AS organizer_display_name,
+       users.avatar_url AS organizer_avatar_url,
        COALESCE((
          SELECT COUNT(*)::int
          FROM organizer_campaign_contributions
@@ -226,13 +241,13 @@ async function findCampaignById(id) {
 }
 
 async function findCampaignByBookingId(bookingId) {
-  const { rows } = await db.pool.query("SELECT campaigns.*, bookings.scheduled_start_at, COALESCE(NULLIF(users.display_name, ''), users.name) AS organizer_display_name FROM organizer_campaigns campaigns JOIN bookings ON bookings.id = campaigns.booking_id JOIN users ON users.id = campaigns.organizer_user_id WHERE campaigns.booking_id = $1 LIMIT 1", [Number(bookingId)]);
+  const { rows } = await db.pool.query("SELECT campaigns.*, bookings.scheduled_start_at, COALESCE(NULLIF(users.display_name, ''), users.name) AS organizer_display_name, users.avatar_url AS organizer_avatar_url FROM organizer_campaigns campaigns JOIN bookings ON bookings.id = campaigns.booking_id JOIN users ON users.id = campaigns.organizer_user_id WHERE campaigns.booking_id = $1 LIMIT 1", [Number(bookingId)]);
   return mapCampaign(rows[0]);
 }
 
 async function listCampaignsForOrganizer(organizerUserId) {
   const { rows } = await db.pool.query(
-    "SELECT campaigns.*, bookings.scheduled_start_at, COALESCE(NULLIF(users.display_name, ''), users.name) AS organizer_display_name FROM organizer_campaigns campaigns JOIN bookings ON bookings.id = campaigns.booking_id JOIN users ON users.id = campaigns.organizer_user_id WHERE campaigns.organizer_user_id = $1 ORDER BY campaigns.created_at DESC",
+    "SELECT campaigns.*, bookings.scheduled_start_at, COALESCE(NULLIF(users.display_name, ''), users.name) AS organizer_display_name, users.avatar_url AS organizer_avatar_url FROM organizer_campaigns campaigns JOIN bookings ON bookings.id = campaigns.booking_id JOIN users ON users.id = campaigns.organizer_user_id WHERE campaigns.organizer_user_id = $1 ORDER BY campaigns.created_at DESC",
     [Number(organizerUserId)]
   );
   return rows.map(mapCampaign);
@@ -242,6 +257,7 @@ async function listCampaignsForCustomer(userId) {
   const { rows } = await db.pool.query(
     `SELECT campaigns.*, bookings.scheduled_start_at,
        COALESCE(NULLIF(users.display_name, ''), users.name) AS organizer_display_name,
+       users.avatar_url AS organizer_avatar_url,
        COALESCE((
          SELECT COUNT(*)::int
          FROM organizer_campaign_contributions
@@ -269,7 +285,8 @@ async function listCampaignsForCustomer(userId) {
 
 async function listContributionsByCampaign(campaignId) {
   const { rows } = await db.pool.query(
-    `SELECT contributions.*, COALESCE(NULLIF(users.display_name, ''), users.name) AS contributor_display_name
+    `SELECT contributions.*, COALESCE(NULLIF(users.display_name, ''), users.name) AS contributor_display_name,
+       users.avatar_url AS contributor_avatar_url
      FROM (
        SELECT organizer_campaign_contributions.*,
          ROW_NUMBER() OVER (PARTITION BY campaign_id ORDER BY created_at ASC, id ASC)::int AS slot_number
@@ -727,6 +744,7 @@ function mapContribution(row) {
     acceptedAt: row.accepted_at || null, rejectedAt: row.rejected_at || null,
     rejectionReason: row.rejection_reason || null, resubmissionCount: Number(row.resubmission_count || 0),
     contributorDisplayName: row.contributor_display_name || undefined,
+    contributorAvatarUrl: row.contributor_avatar_url || "",
     createdAt: row.created_at, updatedAt: row.updated_at
   };
 }

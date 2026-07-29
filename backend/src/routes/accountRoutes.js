@@ -5,6 +5,7 @@ const { authenticate } = require("../middleware/auth");
 const { moderatePublicText } = require("../middleware/moderatePublicText");
 const bookingRepository = require("../repositories/bookings");
 const organizerCampaignRepository = require("../repositories/organizerCampaigns");
+const ratingRepository = require("../repositories/ratings");
 const ticketRepository = require("../repositories/tickets");
 const tenantRepository = require("../repositories/tenants");
 const userRepository = require("../repositories/users");
@@ -13,6 +14,7 @@ const organizerCampaignService = require("../services/organizerCampaignService")
 const ratingService = require("../services/ratingService");
 const passwordResetService = require("../services/passwordResetService");
 const pushNotificationService = require("../services/pushNotificationService");
+const userAvatarUploadService = require("../services/userAvatarUploadService");
 const customerTicketAccess = require("../services/customerTicketAccess");
 const { assertPublicTextFieldsAllowed } = require("../services/contentModeration");
 const { assertTenantPermission } = require("../middleware/auth");
@@ -26,6 +28,14 @@ const campaignJoinLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: (req) => `${req.user?._id || "anonymous"}:${ipKeyGenerator(req.ip)}`,
   message: { message: "Too many campaign join attempts. Please try again later." }
+});
+const avatarUploadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `${req.user?._id || "anonymous"}:${ipKeyGenerator(req.ip)}`,
+  message: { message: "Too many avatar upload attempts. Please try again later." }
 });
 
 router.use(authenticate);
@@ -238,6 +248,7 @@ function formatAccountUser(user) {
     id: user._id,
     name: user.name,
     displayName: user.displayName || "",
+    avatarUrl: user.avatarUrl || "",
     username: user.username,
     email: user.email,
     phone: user.phone,
@@ -261,12 +272,16 @@ function normalizeCustomerNotificationSettings(settings = {}) {
 router.get(
   "/overview",
   asyncHandler(async (req, res) => {
-    const tickets = await ticketRepository.listTicketsForCustomerAccount(req.user, { limit: 50 });
+    const [tickets, trustRating] = await Promise.all([
+      ticketRepository.listTicketsForCustomerAccount(req.user, { limit: 50 }),
+      ratingRepository.getUserTrustAggregate(req.user._id)
+    ]);
 
     res.json({
     user: {
       ...formatAccountUser(req.user)
     },
+    trustRating,
     notificationSettings: normalizeCustomerNotificationSettings(req.user.notificationSettings),
     tickets: tickets.map(formatCustomerTicket)
   });
@@ -473,6 +488,33 @@ router.patch(
       user: formatAccountUser(updatedUser),
       success: true,
       message: "Profile details updated."
+    });
+  })
+);
+
+router.post(
+  "/profile/avatar",
+  avatarUploadLimiter,
+  express.raw({ type: ["image/jpeg", "image/png", "image/webp"], limit: "5mb" }),
+  asyncHandler(async (req, res) => {
+    if (!Buffer.isBuffer(req.body) || !req.body.length) {
+      const error = new Error("Avatar image payload is required.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const result = await userAvatarUploadService.uploadAvatar({
+      user: req.user,
+      fileName: normalizeQueryText(req.query.fileName, "avatar"),
+      contentType: normalizeQueryText(req.headers["content-type"]),
+      fileBuffer: req.body
+    });
+
+    res.status(201).json({
+      user: formatAccountUser(result.user),
+      avatarUrl: result.avatarUrl,
+      success: true,
+      message: "Profile photo updated."
     });
   })
 );
