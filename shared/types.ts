@@ -819,6 +819,7 @@ export interface OrganizerCampaignContribution {
     sizeBytes: number;
   } | null;
   rejectionReason?: string | null;
+  resubmissionCount: number;
   submittedAt?: string | Date | null;
   trustRating?: { average: number; count: number };
 }

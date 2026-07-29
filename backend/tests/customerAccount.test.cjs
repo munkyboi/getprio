@@ -370,6 +370,54 @@ test("customer can upload a public profile photo", async () => {
   }
 });
 
+test("customer can leave a campaign before submitting contribution proof", async () => {
+  const leaveRequests = [];
+  const router = requireWithMocks("../src/routes/accountRoutes.js", {
+    "../middleware/auth": buildAuthMock(),
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../middleware/moderatePublicText": {
+      moderatePublicText(_req, _res, next) {
+        next();
+      }
+    },
+    "../services/organizerCampaignService": {
+      leaveCampaign: async (input) => {
+        leaveRequests.push(input);
+        return { left: true };
+      }
+    }
+  });
+
+  const { server, baseUrl } = await startServer(router, "/api/account");
+
+  try {
+    const response = await fetch(`${baseUrl}/campaigns/9/contributions/self`, {
+      method: "DELETE",
+      headers: {
+        Authorization: "Bearer token"
+      }
+    });
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { left: true });
+    assert.deepEqual(leaveRequests, [{
+      user: {
+        _id: "user-1",
+        name: "Customer One",
+        username: "customer_one",
+        email: "customer@example.com",
+        phone: "09171234567",
+        emailVerified: true,
+        mfaEnabled: false,
+        mfaRequired: false
+      },
+      campaignId: "9"
+    }]);
+  } finally {
+    await stopServer(server);
+  }
+});
+
 test("customer can claim a ticket after registration when contact details match", async () => {
   const ticketClaims = [];
   const router = requireWithMocks("../src/routes/accountRoutes.js", {

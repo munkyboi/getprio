@@ -26,6 +26,12 @@ export const customerAccountApi = {
   getCampaign(token: string, campaignId: string) {
     return apiRequest<{ campaign: OrganizerCampaign }>(`/account/campaigns/${encodeURIComponent(campaignId)}`, { token });
   },
+  leaveCampaign(token: string, campaignId: string) {
+    return apiRequest<{ left: boolean }>(
+      `/account/campaigns/${encodeURIComponent(campaignId)}/contributions/self`,
+      { method: "DELETE", token }
+    );
+  },
   createCampaign(token: string, body: { bookingId: string; title: string; description: string; deadlineAt: string; contributionFeeCents: number; requiredContributors: number; paymentInstructions: string }) {
     return apiRequest<{ campaign: OrganizerCampaign }, typeof body>("/account/campaigns", { method: "POST", token, body });
   },

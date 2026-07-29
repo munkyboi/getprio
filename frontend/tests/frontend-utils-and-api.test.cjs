@@ -1606,6 +1606,7 @@ test("campaign notices use the vendor-style overlay notification stack", () => {
 test("campaign control center gives a joined contributor a slot and private proof viewer", () => {
   const frontendRoot = path.resolve(__dirname, "..");
   const source = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CampaignControlCenterPage.tsx"), "utf8");
+  const api = fs.readFileSync(path.join(frontendRoot, "src", "api", "customerAccount.ts"), "utf8");
 
   assert.match(source, /Your slot is reserved/);
   assert.match(source, /Slot #\{ownContribution\.slotNumber/);
@@ -1614,6 +1615,12 @@ test("campaign control center gives a joined contributor a slot and private proo
   assert.match(source, /className="customer-modal payment-proof-modal"/);
   assert.match(source, /scrollbars="y"/);
   assert.match(source, /!isOrganizer && ownContribution/);
+  assert.match(source, /ownContribution\.status === "pending_proof"/);
+  assert.match(source, />Leave campaign</);
+  assert.match(source, /title="Leave campaign"/);
+  assert.match(api, /\/account\/campaigns\/\$\{encodeURIComponent\(campaignId\)\}\/contributions\/self/);
+  assert.match(api, /method: "DELETE"/);
+  assert.match(source, /\["pending_proof", "submitted", "review_overdue"\]\.includes\(item\.status\)/);
 });
 
 test("an unpaid campaign slot uses a pending funding treatment instead of success", () => {
@@ -1622,8 +1629,14 @@ test("an unpaid campaign slot uses a pending funding treatment instead of succes
   const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
 
   assert.match(source, /if \(!contribution\.paymentProof\)/);
+  assert.match(source, /contribution\.status === "rejected" && !contribution\.paymentProof/);
+  assert.ok(
+    source.indexOf('contribution.status === "rejected" && !contribution.paymentProof') <
+      source.indexOf("if (!contribution.paymentProof)")
+  );
   assert.match(source, /flavor: "awaiting-proof"/);
   assert.match(source, /Submit the funding fee and payment proof to complete your contribution\./);
+  assert.match(source, /ownContribution\.status === "rejected" && ownContribution\.resubmissionCount < 1/);
   assert.match(source, /campaign-participation-card--\$\{participation\.flavor\}/);
   assert.match(styles, /\.campaign-participation-card--awaiting-proof/);
   assert.match(styles, /\.campaign-participation-card--accepted/);

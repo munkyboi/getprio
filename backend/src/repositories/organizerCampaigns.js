@@ -436,6 +436,19 @@ async function findContributionByCampaignAndUser(campaignId, contributorUserId) 
   return mapContribution(rows[0]);
 }
 
+async function withdrawPendingContribution({ campaignId, contributionId, contributorUserId }) {
+  const { rows } = await db.pool.query(
+    `DELETE FROM organizer_campaign_contributions
+     WHERE id = $1
+       AND campaign_id = $2
+       AND contributor_user_id = $3
+       AND contribution_status = 'pending_proof'
+     RETURNING *`,
+    [Number(contributionId), Number(campaignId), Number(contributorUserId)]
+  );
+  return mapContribution(rows[0]);
+}
+
 async function submitContributionProof({ contributionId, paymentReference, proof }) {
   return db.withTransaction(async (client) => {
     const currentResult = await client.query(
@@ -496,8 +509,16 @@ async function reviewContribution({ contributionId, actorUserId, decision, rejec
        accepted_by_user_id = CASE WHEN $2 = 'accepted' THEN $3 ELSE accepted_by_user_id END,
        rejected_at = CASE WHEN $2 = 'rejected' THEN NOW() ELSE rejected_at END,
        rejected_by_user_id = CASE WHEN $2 = 'rejected' THEN $3 ELSE rejected_by_user_id END,
-       rejection_reason = CASE WHEN $2 = 'rejected' THEN $4 ELSE NULL END
-     WHERE id = $1 AND contribution_status IN ('submitted', 'review_overdue')
+       rejection_reason = CASE WHEN $2 = 'rejected' THEN $4 ELSE NULL END,
+       resubmission_count = CASE
+         WHEN contribution_status = 'pending_proof' AND $2 = 'rejected' THEN 1
+         ELSE resubmission_count
+       END
+     WHERE id = $1
+       AND (
+         ($2 = 'accepted' AND contribution_status IN ('submitted', 'review_overdue'))
+         OR ($2 = 'rejected' AND contribution_status IN ('pending_proof', 'submitted', 'review_overdue'))
+       )
      RETURNING *`,
     [Number(contributionId), status, Number(actorUserId), rejectionReason]
   );
@@ -803,6 +824,7 @@ module.exports = {
   confirmReimbursementAndMaybeCancel,
   reviewContribution,
   submitContributionProof,
+  withdrawPendingContribution,
   updateReportStatus,
   mapCampaign
 };

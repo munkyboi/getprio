@@ -337,6 +337,33 @@ async function joinCampaign({ user, campaignId, body }) {
   }
 }
 
+async function leaveCampaign({ user, campaignId }) {
+  const campaign = await campaignRepository.findCampaignById(campaignId);
+  if (!campaign) throw makeHttpError("Campaign not found.", 404);
+  const contribution = await campaignRepository.findContributionByCampaignAndUser(campaign.id, user?._id);
+  if (!contribution) throw makeHttpError("Campaign contribution not found.", 404);
+  if (contribution.status !== campaignRepository.CONTRIBUTION_STATUSES.PENDING_PROOF) {
+    throw makeHttpError("You cannot leave after submitting contribution proof.", 409);
+  }
+  const withdrawn = await campaignRepository.withdrawPendingContribution({
+    campaignId: campaign.id,
+    contributionId: contribution.id,
+    contributorUserId: user._id
+  });
+  if (!withdrawn) {
+    throw makeHttpError("The campaign contribution changed before it could be released.", 409);
+  }
+  await audit(campaign.id, "contributor_left", user, { contributionId: contribution.id });
+  notifyCampaignUser({
+    userId: campaign.organizerUserId,
+    campaignId: campaign.id,
+    title: "Campaign slot released",
+    body: "A contributor left before submitting payment proof.",
+    eventType: "campaign_contributor_left"
+  }).catch(() => {});
+  return { left: true };
+}
+
 async function uploadContributionProofDirect({ user, campaignId, body, fileBuffer }) {
   const campaign = await campaignRepository.findCampaignById(campaignId);
   if (!campaign) throw makeHttpError("Campaign not found.", 404);
@@ -386,6 +413,8 @@ async function reviewContribution({ user, campaignId, contributionId, body }) {
     throw makeHttpError("Review decision must be accept or reject.", 400);
   }
   const rejectionReason = decision === "reject" ? requiredText(body?.rejectionReason, "Rejection reason", 500) : null;
+  const rejectedBeforeProof = decision === "reject"
+    && contribution.status === campaignRepository.CONTRIBUTION_STATUSES.PENDING_PROOF;
   const reviewed = await campaignRepository.reviewContribution({
     contributionId: contribution.id, actorUserId: user._id, decision, rejectionReason
   });
@@ -393,7 +422,21 @@ async function reviewContribution({ user, campaignId, contributionId, body }) {
   const collectedCampaign = decision === "accept" ? await campaignRepository.markCollectedIfTargetReached?.(campaign.id) : null;
   await audit(campaign.id, decision === "accept" ? "contribution_accepted" : "contribution_rejected", user, { contributionId: contribution.id });
   if (collectedCampaign) await audit(campaign.id, "campaign_collected", user, {});
-  notifyCampaignUser({ userId: contribution.contributorUserId, campaignId: campaign.id, title: decision === "accept" ? "Contribution accepted" : "Contribution needs attention", body: decision === "accept" ? "The organizer accepted your contribution proof." : `The organizer rejected your proof: ${rejectionReason}`, eventType: `campaign_contribution_${decision}ed` }).catch(() => {});
+  notifyCampaignUser({
+    userId: contribution.contributorUserId,
+    campaignId: campaign.id,
+    title: decision === "accept"
+      ? "Contribution accepted"
+      : rejectedBeforeProof
+        ? "Campaign slot released"
+        : "Contribution needs attention",
+    body: decision === "accept"
+      ? "The organizer accepted your contribution proof."
+      : rejectedBeforeProof
+        ? `The organizer released your campaign reservation: ${rejectionReason}`
+        : `The organizer rejected your proof: ${rejectionReason}`,
+    eventType: `campaign_contribution_${decision}ed`
+  }).catch(() => {});
   return reviewed;
 }
 
@@ -560,4 +603,4 @@ async function cancelCampaignForBooking({ bookingId, reason = "The linked bookin
   return cancelCampaign({ user: { _id: campaign.organizerUserId }, campaignId: campaign.id, body: { reason } });
 }
 
-module.exports = { cancelCampaign, cancelCampaignForBooking, confirmReimbursement, createCampaign, createEvidenceAccess, disputeReimbursement, expireDueCampaigns, getCampaignForCustomer, getCampaignForOrganizer, getCampaignPreview, joinCampaign, listCampaignsForCustomer, listPublicCampaigns, publishCampaign, reportCampaign, reviewContribution, submitReimbursementEvidence, unpublishCampaign, updateCampaign, uploadContributionProofDirect };
+module.exports = { cancelCampaign, cancelCampaignForBooking, confirmReimbursement, createCampaign, createEvidenceAccess, disputeReimbursement, expireDueCampaigns, getCampaignForCustomer, getCampaignForOrganizer, getCampaignPreview, joinCampaign, leaveCampaign, listCampaignsForCustomer, listPublicCampaigns, publishCampaign, reportCampaign, reviewContribution, submitReimbursementEvidence, unpublishCampaign, updateCampaign, uploadContributionProofDirect };

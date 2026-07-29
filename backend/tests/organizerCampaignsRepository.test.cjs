@@ -254,6 +254,40 @@ test("organizer contribution list exposes contributor avatars", async () => {
   assert.equal(contributions[0].contributorAvatarUrl, "https://cdn.example.test/alex.png");
 });
 
+test("organizer rejection releases a proof-less slot without allowing stale proof submission", async () => {
+  const calls = [];
+  const repository = requireWithDbMock({
+    pool: {
+      query: async (query, params) => {
+        calls.push({ query: String(query), params });
+        return {
+          rows: [{
+            id: 15,
+            campaign_id: 9,
+            contributor_user_id: 8,
+            contribution_status: "rejected",
+            amount_cents: 10000,
+            currency: "PHP",
+            resubmission_count: 1
+          }]
+        };
+      }
+    }
+  });
+
+  const contribution = await repository.reviewContribution({
+    contributionId: "15",
+    actorUserId: "7",
+    decision: "reject",
+    rejectionReason: "The participant list changed."
+  });
+
+  assert.match(calls[0].query, /\$2 = 'rejected' AND contribution_status IN \('pending_proof', 'submitted', 'review_overdue'\)/);
+  assert.match(calls[0].query, /contribution_status = 'pending_proof' AND \$2 = 'rejected' THEN 1/);
+  assert.equal(contribution.status, "rejected");
+  assert.equal(contribution.resubmissionCount, 1);
+});
+
 test("customer campaign list includes campaign-wide contribution aggregates", async () => {
   const calls = [];
   const repository = requireWithDbMock({

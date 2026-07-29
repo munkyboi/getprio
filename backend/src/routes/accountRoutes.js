@@ -324,6 +324,16 @@ router.post(
   })
 );
 
+router.delete(
+  "/campaigns/:campaignId/contributions/self",
+  asyncHandler(async (req, res) => {
+    res.json(await organizerCampaignService.leaveCampaign({
+      user: req.user,
+      campaignId: req.params.campaignId
+    }));
+  })
+);
+
 router.post(
   "/campaigns/:campaignId/contributions/proof",
   campaignJoinLimiter,

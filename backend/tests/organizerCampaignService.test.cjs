@@ -349,6 +349,56 @@ test("organizer campaign service reserves one contributor slot and rejects organ
   await assert.rejects(() => service.joinCampaign({ user: { _id: "7" }, campaignId: "9", body: {} }), { statusCode: 409 });
 });
 
+test("a contributor can leave before submitting proof but cannot leave afterward", async () => {
+  const withdrawals = [];
+  let contributionStatus = "pending_proof";
+  const service = loadService({
+    "../repositories/bookings": {},
+    "../repositories/organizerCampaigns": {
+      CAMPAIGN_STATUSES: { COLLECTING: "collecting" },
+      CONTRIBUTION_STATUSES: { PENDING_PROOF: "pending_proof" },
+      findCampaignById: async () => ({
+        id: "9",
+        organizerUserId: "7",
+        status: "collecting"
+      }),
+      findContributionByCampaignAndUser: async () => ({
+        id: "5",
+        campaignId: "9",
+        contributorUserId: "8",
+        status: contributionStatus
+      }),
+      withdrawPendingContribution: async (input) => {
+        withdrawals.push(input);
+        return { id: "5", status: "pending_proof" };
+      }
+    },
+    "./contentModeration": { assertPublicTextFieldsAllowed: () => {} }
+  });
+
+  const result = await service.leaveCampaign({
+    user: { _id: "8" },
+    campaignId: "9"
+  });
+
+  assert.deepEqual(result, { left: true });
+  assert.deepEqual(withdrawals, [{
+    campaignId: "9",
+    contributionId: "5",
+    contributorUserId: "8"
+  }]);
+
+  contributionStatus = "submitted";
+  await assert.rejects(
+    () => service.leaveCampaign({ user: { _id: "8" }, campaignId: "9" }),
+    {
+      statusCode: 409,
+      message: "You cannot leave after submitting contribution proof."
+    }
+  );
+  assert.equal(withdrawals.length, 1);
+});
+
 test("organizer campaign service publishes a real-time change after campaign audit events", async () => {
   const published = [];
   const scheduledStartAt = "2099-07-21T05:00:00.000Z";
@@ -418,6 +468,51 @@ test("organizer campaign service lets only the organizer accept submitted proof"
   });
   const result = await service.reviewContribution({ user: { _id: "7" }, campaignId: "9", contributionId: "5", body: { decision: "accept" } });
   assert.equal(result.status, "accepted");
+});
+
+test("the organizer can reject a contributor before proof is submitted", async () => {
+  const reviews = [];
+  const service = loadService({
+    "../repositories/bookings": {},
+    "../repositories/organizerCampaigns": {
+      CAMPAIGN_STATUSES: { COLLECTING: "collecting" },
+      CONTRIBUTION_STATUSES: { PENDING_PROOF: "pending_proof" },
+      findCampaignById: async () => ({
+        id: "9",
+        organizerUserId: "7",
+        status: "collecting"
+      }),
+      findContributionById: async () => ({
+        id: "5",
+        campaignId: "9",
+        contributorUserId: "8",
+        status: "pending_proof"
+      }),
+      reviewContribution: async (input) => {
+        reviews.push(input);
+        return { id: "5", status: "rejected" };
+      }
+    },
+    "./contentModeration": { assertPublicTextFieldsAllowed: () => {} }
+  });
+
+  const result = await service.reviewContribution({
+    user: { _id: "7" },
+    campaignId: "9",
+    contributionId: "5",
+    body: {
+      decision: "reject",
+      rejectionReason: "The slot is reserved for invited participants."
+    }
+  });
+
+  assert.equal(result.status, "rejected");
+  assert.deepEqual(reviews, [{
+    contributionId: "5",
+    actorUserId: "7",
+    decision: "reject",
+    rejectionReason: "The slot is reserved for invited participants."
+  }]);
 });
 
 test("campaign cancellation creates refund obligations instead of immediately completing when contributions were accepted", async () => {
