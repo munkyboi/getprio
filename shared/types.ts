@@ -133,6 +133,7 @@ export interface UserSummary {
   id: string;
   name: string;
   displayName: string;
+  avatarUrl?: string;
   username: string | null;
   email: string | null;
   phone: string | null;
@@ -806,6 +807,7 @@ export interface OrganizerCampaignContribution {
   campaignId: string;
   contributorUserId: string;
   contributorDisplayName?: string;
+  contributorAvatarUrl?: string;
   slotNumber?: number;
   status: OrganizerContributionStatus;
   amountCents: number;
@@ -827,6 +829,7 @@ export interface OrganizerCampaign {
   bookingId: string;
   organizerUserId: string;
   organizerDisplayName: string;
+  organizerAvatarUrl?: string;
   status: OrganizerCampaignStatus;
   visibility: "private_link" | "public";
   title: string;
@@ -882,11 +885,23 @@ export interface PublicOrganizerCampaign {
   acceptedContributors: number;
   filledContributors: number;
   organizerDisplayName: string;
+  organizerAvatarUrl?: string;
+  organizerTrustRating?: { average: number; count: number };
   scheduledStartAt: string | Date;
   currency: string;
   vendor: { name: string; slug: string };
   location: { name: string; slug: string };
   service: { name: string; slug: string };
+  booking?: {
+    vendorName: string;
+    vendorSlug: string;
+    locationName: string;
+    locationAddress?: string;
+    locationTimezone: string;
+    scheduledStartAt: string | Date;
+    scheduledEndAt: string | Date;
+    bundleItems: BookingBundleItemSummary[];
+  };
 }
 
 export type GroupFundedVendorAlertEventType =
@@ -1726,6 +1741,7 @@ export interface CustomerAccountOverviewResponse {
     id: string;
     name: string;
     displayName: string;
+    avatarUrl: string;
     username: string | null;
     email: string | null;
     phone: string | null;
@@ -1733,6 +1749,7 @@ export interface CustomerAccountOverviewResponse {
     mfaEnabled: boolean;
     mfaRequired: boolean;
   };
+  trustRating: { average: number; count: number };
   notificationSettings: CustomerNotificationSettings;
   tickets: CustomerAccountTicketSummary[];
 }
@@ -1744,6 +1761,11 @@ export interface CustomerProfileUpdateRequest {
 
 export interface CustomerProfileUpdateResponse extends AuthActionResponse {
   user: CustomerAccountOverviewResponse["user"];
+}
+
+export interface CustomerAvatarUploadResponse extends AuthActionResponse {
+  user: CustomerAccountOverviewResponse["user"];
+  avatarUrl: string;
 }
 
 export interface CustomerAccountHistoryResponse {

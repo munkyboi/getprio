@@ -1554,7 +1554,7 @@ test("queue ticket details use the group-funded detail hero composition", () => 
   assert.match(styles, /\.ticket-page-ticket-visual \.ticket-page-ticket-cancel-action,/);
 });
 
-test("campaign control center shows booking details and only renders an available private organizer rating", () => {
+test("campaign pages show booking details and available organizer trust ratings", () => {
   const frontendRoot = path.resolve(__dirname, "..");
   const source = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CampaignControlCenterPage.tsx"), "utf8");
   const publicSource = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CampaignPreviewPage.tsx"), "utf8");
@@ -1562,6 +1562,8 @@ test("campaign control center shows booking details and only renders an availabl
 
   assert.match(source, /Organized by/);
   assert.match(source, /campaign\.organizerTrustRating\?\.count \?/);
+  assert.match(source, /src=\{campaign\.organizerAvatarUrl \|\| undefined\}/);
+  assert.match(source, /src=\{item\.contributorAvatarUrl \|\| undefined\}/);
   assert.match(source, /BOOKING DETAILS/);
   assert.match(source, /x\{item\.bookingQuantity\}/);
   assert.match(source, /Preview \$\{item\.serviceName\} image/);
@@ -1569,8 +1571,24 @@ test("campaign control center shows booking details and only renders an availabl
   assert.match(source, /to=\{`\/vendors\/\$\{booking\.vendorSlug\}`\}/);
   assert.match(source, /booking\.locationAddress \?/);
   assert.match(source, /event\.actorDisplayName/);
-  assert.doesNotMatch(publicSource, /organizerTrustRating/);
+  assert.match(publicSource, /campaign\.organizerTrustRating\?\.count \?/);
+  assert.match(publicSource, /src=\{campaign\.organizerAvatarUrl \|\| undefined\}/);
   assert.match(styles, /@media \(hover: hover\) and \(pointer: fine\)/);
+});
+
+test("customer settings upload and preview a campaign profile photo", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const account = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CustomerAccountPage.tsx"), "utf8");
+  const api = fs.readFileSync(path.join(frontendRoot, "src", "api", "customerAccount.ts"), "utf8");
+  const app = fs.readFileSync(path.join(frontendRoot, "src", "App.tsx"), "utf8");
+
+  assert.match(account, /accept="image\/jpeg,image\/png,image\/webp"/);
+  assert.match(account, /file\.size > 5 \* 1024 \* 1024/);
+  assert.match(account, /customerAccountApi\.uploadAvatar\(token, avatarFile\)/);
+  assert.match(account, /src=\{avatarPreviewUrl \|\| accountUser\?\.avatarUrl \|\| undefined\}/);
+  assert.match(api, /\/account\/profile\/avatar\?fileName=/);
+  assert.match(api, /"Content-Type": file\.type/);
+  assert.match(app, /src=\{user\?\.avatarUrl \|\| undefined\}/);
 });
 
 test("campaign notices use the vendor-style overlay notification stack", () => {
@@ -1668,21 +1686,26 @@ test("campaign discovery uses one broad search field and safely renders rich des
   assert.match(api, /filters: \{ search\?: string; date\?: string \}/);
 });
 
-test("authenticated campaign pages share the customer account header and sidebar layout", () => {
+test("authenticated campaign pages share the customer account sidebar layout", () => {
   const frontendRoot = path.resolve(__dirname, "..");
   const layout = fs.readFileSync(path.join(frontendRoot, "src", "components", "CustomerAccountLayout.tsx"), "utf8");
   const account = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CustomerAccountPage.tsx"), "utf8");
   const app = fs.readFileSync(path.join(frontendRoot, "src", "App.tsx"), "utf8");
 
-  assert.match(layout, /label: "Campaigns", path: "\/account\/campaigns"/);
-  assert.match(layout, /className="[^"]*customer-account-hero/);
+  assert.match(layout, /label: "Campaigns",\s*path: "\/account\/campaigns"/);
+  assert.match(layout, /label: "Your campaigns", path: "\/account\/campaigns"/);
+  assert.match(layout, /label: "Discover campaigns", path: "\/account\/campaigns\/discover"/);
+  assert.match(layout, /<Collapse in=\{campaignsExpanded\}>/);
+  assert.match(layout, /aria-expanded=\{campaignsExpanded\}/);
+  assert.match(layout, /customer-account-nav-chevron--expanded/);
   assert.match(layout, /className="customer-account-layout"/);
   assert.match(layout, /className="customer-account-sidebar"/);
   assert.match(layout, /activeSection === section\.key/);
-  assert.match(layout, /<div className="customer-account-content">\s*\{activeSection === "profile" \?/);
-  assert.match(layout, /activeSection === "profile" && !accountUser/);
+  assert.match(layout, /<div className="customer-account-content">\s*\{children\}/);
+  assert.doesNotMatch(layout, /activeSection === "profile"/);
+  assert.doesNotMatch(layout, /accountUser/);
   assert.doesNotMatch(layout, /<Stack className="customer-account-page" gap="lg">\s*<Card className="[^"]*customer-account-hero/);
-  assert.match(account, /<CustomerAccountLayout activeSection=\{activeSection\} accountUser=\{accountUser\}>/);
+  assert.match(account, /<CustomerAccountLayout activeSection=\{activeSection\}>/);
   assert.match(app, /<CustomerAccountLayout activeSection="campaigns">[\s\S]*?<CampaignControlCenterPage \/>/);
   assert.match(app, /<CustomerAccountLayout activeSection="campaigns">[\s\S]*?<CampaignDiscoveryPage \/>/);
   assert.match(app, /<CustomerAccountLayout activeSection="campaigns">[\s\S]*?<CampaignCreatePage \/>/);
@@ -1690,17 +1713,26 @@ test("authenticated campaign pages share the customer account header and sidebar
 
 test("campaign page titles use the customer account heading scale", () => {
   const frontendRoot = path.resolve(__dirname, "..");
+  const account = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CustomerAccountPage.tsx"), "utf8");
   const control = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CampaignControlCenterPage.tsx"), "utf8");
   const discovery = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CampaignDiscoveryPage.tsx"), "utf8");
   const preview = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CampaignPreviewPage.tsx"), "utf8");
+  const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
 
-  assert.match(control, /<Title order=\{2\}>Campaigns<\/Title>/);
+  assert.match(account, /className="customer-section-header"/);
+  assert.match(account, /<Title order=\{1\}>Recent queue activity<\/Title>/);
+  assert.match(account, /<Title order=\{1\}>Service booking history<\/Title>/);
+  assert.match(account, /<Title order=\{1\}>Account details<\/Title>/);
+  assert.match(account, /<Title order=\{1\}>Browser notifications<\/Title>/);
+  assert.match(account, /<Title order=\{1\}>Password and authentication<\/Title>/);
+  assert.match(control, /className="customer-section-header"/);
+  assert.match(control, /<Title order=\{1\}>Your campaigns<\/Title>/);
   assert.match(control, /<Title order=\{2\}>\{campaign\.title\}<\/Title>/);
-  assert.match(discovery, /<Title order=\{2\}>Public campaigns<\/Title>/);
+  assert.match(discovery, /className="customer-section-header"/);
+  assert.match(discovery, /<Title order=\{1\}>Public campaigns<\/Title>/);
   assert.match(preview, /<Title order=\{2\}>\{campaign\.title\}<\/Title>/);
-  assert.doesNotMatch(control, /<Title order=\{1\}>/);
-  assert.doesNotMatch(discovery, /<Title order=\{1\}>/);
   assert.doesNotMatch(preview, /<Title order=\{1\}>/);
+  assert.match(styles, /\.customer-section-header h1 \{[\s\S]*?font-size: clamp\(2\.15rem, 9vw, 3\.35rem\)/);
 });
 
 test("booking schedule formatters honor the booking location timezone", () => {

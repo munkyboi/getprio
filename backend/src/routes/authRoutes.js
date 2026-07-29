@@ -232,6 +232,7 @@ async function buildUserPayload(user) {
     id: String(user._id),
     name: user.name,
     displayName: user.displayName || "",
+    avatarUrl: user.avatarUrl || "",
     username: user.username,
     email: user.email,
     phone: user.phone,

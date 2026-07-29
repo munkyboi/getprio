@@ -99,6 +99,50 @@ test("organizer campaign discovery rejects an impossible booking date", async ()
   );
 });
 
+test("public campaign preview includes public-safe booking details without exposing the booking id", async () => {
+  const service = loadService({
+    "../repositories/bookings": {
+      findBookingById: async () => ({
+        tenantName: "VD Sports Club",
+        tenantSlug: "vd-sports-club",
+        locationName: "Tulik",
+        locationAddress: "Tulik, Cebu",
+        locationTimezone: "Asia/Manila",
+        scheduledStartAt: "2026-08-20T02:00:00.000Z",
+        scheduledEndAt: "2026-08-20T03:00:00.000Z",
+        bundleItems: [{
+          id: "item-1",
+          serviceId: "service-1",
+          serviceName: "Pickleball Open Play",
+          serviceSlug: "pickleball-open-play",
+          imageUrl: "https://example.test/pickleball.jpg",
+          bookingQuantity: 1,
+          priceAmountCents: 80000,
+          currency: "PHP",
+          scheduledStartAt: "2026-08-20T02:00:00.000Z",
+          scheduledEndAt: "2026-08-20T03:00:00.000Z",
+          sortOrder: 0
+        }]
+      })
+    },
+    "../repositories/organizerCampaigns": {
+      findPublicCampaignByToken: async () => ({
+        id: "campaign-1",
+        bookingId: "booking-1",
+        publicToken: "public-token",
+        title: "Open play"
+      })
+    },
+    "./contentModeration": { assertPublicTextFieldsAllowed: () => {} }
+  });
+
+  const campaign = await service.getCampaignPreview("public-token");
+
+  assert.equal("bookingId" in campaign, false);
+  assert.equal(campaign.booking.vendorName, "VD Sports Club");
+  assert.equal(campaign.booking.bundleItems[0].serviceName, "Pickleball Open Play");
+});
+
 test("organizer campaign service rejects a cutoff that is not strictly future", async () => {
   const service = loadService({
     "../repositories/bookings": { findBookingById: async () => ({ customerUserId: "7", status: "confirmed", paymentStatus: "paid", organizerCampaignOptIn: true, scheduledStartAt: "2099-03-05T05:00:00.000Z" }) },

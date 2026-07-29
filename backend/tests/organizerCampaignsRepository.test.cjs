@@ -88,8 +88,53 @@ test("organizer campaign discovery searches campaign, organizer, vendor, and bra
   assert.match(calls[0].query, /store_locations\.address_line1/);
   assert.match(calls[0].query, /store_locations\.city/);
   assert.match(calls[0].query, /store_locations\.province/);
+  assert.match(calls[0].query, /AVG\(ratings\.stars\)/);
+  assert.match(calls[0].query, /ratings\.subject_user_id = campaigns\.organizer_user_id/);
+  assert.match(calls[0].query, /ratings\.moderation_status = 'active'/);
   assert.match(calls[0].query, /\(bookings\.scheduled_start_at AT TIME ZONE store_locations\.timezone\)::date = \$2::date/);
   assert.deepEqual(calls[0].params, ["%Cebu open play%", "2026-08-20", 50]);
+});
+
+test("public campaign preview exposes the organizer trust aggregate", async () => {
+  const repository = requireWithDbMock({
+    pool: {
+      query: async () => ({
+        rows: [{
+          id: 81,
+          public_token: "public-token",
+          booking_id: 91,
+          campaign_status: "collected",
+          visibility: "private_link",
+          title: "Open play",
+          description: "Friendly games.",
+          deadline_at: new Date("2026-08-19T14:00:00.000Z"),
+          contribution_fee_cents: 10000,
+          required_contributors: 8,
+          currency: "PHP",
+          accepted_contributors: 8,
+          filled_contributors: 8,
+          organizer_display_name: "Sadie",
+          organizer_avatar_url: "https://cdn.example.test/sadie.png",
+          organizer_trust_average: 4.4,
+          organizer_trust_count: 5,
+          scheduled_start_at: new Date("2026-08-20T02:00:00.000Z"),
+          tenant_name: "VD Sports Club",
+          tenant_slug: "vd-sports-club",
+          location_name: "Tulik",
+          location_slug: "tulik",
+          service_name: "Pickleball",
+          service_slug: "pickleball"
+        }]
+      })
+    }
+  });
+
+  const campaign = await repository.findPublicCampaignByToken("public-token");
+
+  assert.deepEqual(campaign.organizerTrustRating, { average: 4.4, count: 5 });
+  assert.equal(campaign.organizerAvatarUrl, "https://cdn.example.test/sadie.png");
+  assert.equal(campaign.bookingId, "91");
+  assert.deepEqual(campaign.vendor, { name: "VD Sports Club", slug: "vd-sports-club" });
 });
 
 test("organizer campaign contribution lookup returns join-order slot and safe proof metadata", async () => {
@@ -172,10 +217,41 @@ test("organizer campaign detail includes campaign-wide contribution aggregates",
   assert.match(calls[0].query, /accepted_contributors/);
   assert.match(calls[0].query, /joined_contributors/);
   assert.match(calls[0].query, /accepted_amount_cents/);
+  assert.match(calls[0].query, /users\.avatar_url AS organizer_avatar_url/);
   assert.deepEqual(calls[0].params, [1]);
   assert.equal(campaign.acceptedContributors, 4);
   assert.equal(campaign.joinedContributors, 4);
   assert.equal(campaign.acceptedAmountCents, 40000);
+});
+
+test("organizer contribution list exposes contributor avatars", async () => {
+  const calls = [];
+  const repository = requireWithDbMock({
+    pool: {
+      query: async (query, params) => {
+        calls.push({ query: String(query), params });
+        return {
+          rows: [{
+            id: 15,
+            campaign_id: 9,
+            contributor_user_id: 8,
+            contributor_display_name: "Alex Boyer",
+            contributor_avatar_url: "https://cdn.example.test/alex.png",
+            contribution_status: "accepted",
+            amount_cents: 10000,
+            currency: "PHP",
+            slot_number: 1
+          }]
+        };
+      }
+    }
+  });
+
+  const contributions = await repository.listContributionsByCampaign("9");
+
+  assert.match(calls[0].query, /users\.avatar_url AS contributor_avatar_url/);
+  assert.deepEqual(calls[0].params, [9]);
+  assert.equal(contributions[0].contributorAvatarUrl, "https://cdn.example.test/alex.png");
 });
 
 test("customer campaign list includes campaign-wide contribution aggregates", async () => {

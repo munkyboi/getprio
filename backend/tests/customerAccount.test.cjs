@@ -214,6 +214,9 @@ test("customer account overview and history expose owned tickets only", async ()
     "../repositories/tickets": {
       listTicketsForCustomerAccount: async () => tickets
     },
+    "../repositories/ratings": {
+      getUserTrustAggregate: async () => ({ average: 4.4, count: 5 })
+    },
     "../services/passwordResetService": {
       changePassword: async () => {}
     }
@@ -228,6 +231,7 @@ test("customer account overview and history expose owned tickets only", async ()
     assert.equal(overviewResponse.status, 200);
     const overview = await overviewResponse.json();
     assert.equal(overview.user.email, "customer@example.com");
+    assert.deepEqual(overview.trustRating, { average: 4.4, count: 5 });
     assert.equal(overview.tickets.length, 1);
     assert.equal(overview.tickets[0].ticketNumber, "DMO-001");
 
@@ -305,6 +309,62 @@ test("customer can update profile name without changing username", async () => {
       })
     });
     assert.equal(invalidResponse.status, 400);
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("customer can upload a public profile photo", async () => {
+  const uploads = [];
+  const router = requireWithMocks("../src/routes/accountRoutes.js", {
+    "../middleware/auth": buildAuthMock(),
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../services/userAvatarUploadService": {
+      uploadAvatar: async (input) => {
+        uploads.push(input);
+        return {
+          avatarUrl: "https://cdn.example.test/user-avatars/users/user-1/avatar.png",
+          user: {
+            _id: "user-1",
+            name: "Customer One",
+            displayName: "",
+            avatarUrl: "https://cdn.example.test/user-avatars/users/user-1/avatar.png",
+            username: "customer_one",
+            email: "customer@example.com",
+            phone: "09171234567",
+            emailVerified: true,
+            mfaEnabled: false,
+            mfaRequired: false
+          }
+        };
+      }
+    },
+    "../services/passwordResetService": {
+      changePassword: async () => {}
+    }
+  });
+
+  const { server, baseUrl } = await startServer(router, "/api/account");
+
+  try {
+    const response = await fetch(`${baseUrl}/profile/avatar?fileName=portrait.png`, {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer token",
+        "Content-Type": "image/png"
+      },
+      body: Buffer.from("avatar-image")
+    });
+
+    assert.equal(response.status, 201);
+    const body = await response.json();
+    assert.equal(body.user.avatarUrl, "https://cdn.example.test/user-avatars/users/user-1/avatar.png");
+    assert.equal(body.avatarUrl, body.user.avatarUrl);
+    assert.equal(uploads.length, 1);
+    assert.equal(uploads[0].user._id, "user-1");
+    assert.equal(uploads[0].fileName, "portrait.png");
+    assert.equal(uploads[0].contentType, "image/png");
+    assert.deepEqual(uploads[0].fileBuffer, Buffer.from("avatar-image"));
   } finally {
     await stopServer(server);
   }

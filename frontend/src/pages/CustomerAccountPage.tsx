@@ -3,10 +3,12 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert,
   ActionIcon,
+  Avatar,
   Badge,
   Button,
   Card,
   Divider,
+  FileInput,
   Group,
   Checkbox,
   Pagination,
@@ -25,6 +27,7 @@ import {
   IconExternalLink,
   IconEye,
   IconInfoCircle,
+  IconUpload,
   IconRepeat
 } from "@tabler/icons-react";
 import { Navigate, Link, useLocation, useNavigate } from "react-router-dom";
@@ -109,7 +112,7 @@ function getActiveSection(pathname: string): CustomerAccountSection {
     return section;
   }
 
-  return "profile";
+  return "settings";
 }
 
 function getGroupFundedBadgeColor(status: GroupFundedCampaignSummary["campaignStatus"]): "gray" | "red" | "yellow" | "orange" | "teal" | "blue" {
@@ -190,18 +193,28 @@ function toLocalDateKey(value: string | Date | null) {
   return `${year}-${month}-${day}`;
 }
 
+function getInitials(value: string) {
+  return value
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() || "")
+    .join("") || "U";
+}
+
 export default function CustomerAccountPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { changePassword, token, user, loading } = useAuth();
+  const { changePassword, refreshUser, token, user, loading } = useAuth();
   const activeSection = getActiveSection(location.pathname);
-  const isCustomer = user?.roles?.includes("customer") ?? false;
   const [profileForm, setProfileForm] = useState<CustomerProfileUpdateRequest>({
     name: "",
     displayName: ""
   });
   const [savingProfile, setSavingProfile] = useState(false);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [passwordForm, setPasswordForm] = useState<PasswordChangeRequest>({
     currentPassword: "",
     newPassword: ""
@@ -231,6 +244,10 @@ export default function CustomerAccountPage() {
   const [groupFundedDateRange, setGroupFundedDateRange] = useState<[string | null, string | null]>([null, null]);
   const browserNotificationsSupported = isBrowserPushSupported();
   const browserNotificationsSecure = typeof window !== "undefined" ? window.isSecureContext : false;
+  const avatarPreviewUrl = useMemo(
+    () => avatarFile ? URL.createObjectURL(avatarFile) : "",
+    [avatarFile]
+  );
   const accountQuery = useQuery({
     queryKey: ["customer-account", token],
     queryFn: async () => {
@@ -353,6 +370,14 @@ export default function CustomerAccountPage() {
     navigate(`/account/bookings/${booking.id}`);
   }
   const accountUser = account?.user;
+
+  useEffect(() => {
+    return () => {
+      if (avatarPreviewUrl) {
+        URL.revokeObjectURL(avatarPreviewUrl);
+      }
+    };
+  }, [avatarPreviewUrl]);
 
   useEffect(() => {
     if (!accountQuery.data) {
@@ -517,6 +542,54 @@ export default function CustomerAccountPage() {
     }
   }
 
+  function handleAvatarFileChange(file: File | null) {
+    if (file && !["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      setAvatarFile(null);
+      showCustomerError("Choose a JPEG, PNG, or WebP image.", "Unsupported profile photo");
+      return;
+    }
+    if (file && file.size > 5 * 1024 * 1024) {
+      setAvatarFile(null);
+      showCustomerError("Choose an image no larger than 5 MB.", "Profile photo is too large");
+      return;
+    }
+    setAvatarFile(file);
+  }
+
+  async function handleAvatarUpload() {
+    if (!token || !avatarFile) {
+      return;
+    }
+
+    setUploadingAvatar(true);
+    try {
+      const response = await customerAccountApi.uploadAvatar(token, avatarFile);
+      queryClient.setQueryData<
+        {
+          overview: CustomerAccountOverviewResponse;
+          notificationSettings: CustomerNotificationSettings;
+        }
+      >(["customer-account", token], (current) =>
+        current
+          ? {
+              ...current,
+              overview: {
+                ...current.overview,
+                user: response.user
+              }
+            }
+          : current
+      );
+      setAvatarFile(null);
+      void refreshUser().catch(() => undefined);
+      showCustomerSuccess("Profile photo updated", response.message);
+    } catch (uploadError) {
+      showCustomerError(getErrorMessage(uploadError), "Could not upload profile photo");
+    } finally {
+      setUploadingAvatar(false);
+    }
+  }
+
   async function handlePasswordChange(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setChangingPassword(true);
@@ -535,54 +608,15 @@ export default function CustomerAccountPage() {
     }
   }
 
-  const renderProfile = () => (
-    <Card className="finazze-auth-card customer-account-card" p="xl">
-      <Stack gap="lg">
-        <div>
-          <Text className="finazze-section-label">Profile details</Text>
-          <Title order={2}>Your customer identity</Title>
-          <Text c="dimmed" mt="xs">
-            These details identify your signed-in customer account across queue joins and booking requests.
-          </Text>
-        </div>
-        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-          <Stack gap={2}>
-            <Text fw={700}>Display name</Text>
-            <Text c="dimmed">{accountUser?.displayName || "Not set"}</Text>
-          </Stack>
-          <Stack gap={2}>
-            <Text fw={700}>Name</Text>
-            <Text c="dimmed">{accountUser?.name || user.name}</Text>
-          </Stack>
-          <Stack gap={2}>
-            <Text fw={700}>Username</Text>
-            <Text c="dimmed">{accountUser?.username ? `@${accountUser.username}` : "Not set"}</Text>
-          </Stack>
-          <Stack gap={2}>
-            <Text fw={700}>Email</Text>
-            <Text c="dimmed">{accountUser?.email || user.email || "No email on file"}</Text>
-          </Stack>
-          <Stack gap={2}>
-            <Text fw={700}>Phone</Text>
-            <Text c="dimmed">{accountUser?.phone || user.phone || "No phone on file"}</Text>
-          </Stack>
-        </SimpleGrid>
-        {isCustomer ? (
-          <Alert color="teal" variant="light">
-            Your customer profile is reused on join and booking pages so you do not need to retype contact details.
-          </Alert>
-        ) : null}
-      </Stack>
-    </Card>
-  );
-
   const renderTickets = () => (
-    <Card className="finazze-auth-card customer-account-card" p="xl">
-      <Stack gap="md">
-        <div>
-          <Text className="finazze-section-label">Queue Tickets</Text>
-          <Title order={2}>Recent queue activity</Title>
-        </div>
+    <Stack gap="lg">
+      <div className="customer-section-header">
+        <Text className="finazze-section-label">Queue tickets</Text>
+        <Title order={1}>Recent queue activity</Title>
+        <Text c="dimmed">Review your live and previous same-day queue visits.</Text>
+      </div>
+      <Card className="finazze-auth-card customer-account-card" p="xl">
+        <Stack gap="md">
         {ticketQuery.isFetching ? <Text c="dimmed" size="sm">Loading queue tickets...</Text> : null}
         <Table.ScrollContainer minWidth={760}>
           <Table className="neura-customer-table" verticalSpacing="sm">
@@ -694,17 +728,20 @@ export default function CustomerAccountPage() {
             ) : null}
           </Group>
         ) : null}
-      </Stack>
-    </Card>
+        </Stack>
+      </Card>
+    </Stack>
   );
 
   const renderBookings = () => (
-    <Card className="finazze-auth-card customer-account-card" p="xl">
-      <Stack gap="md">
-        <div>
-          <Text className="finazze-section-label">Bookings</Text>
-          <Title order={2}>Service booking history</Title>
-        </div>
+    <Stack gap="lg">
+      <div className="customer-section-header">
+        <Text className="finazze-section-label">Bookings</Text>
+        <Title order={1}>Service booking history</Title>
+        <Text c="dimmed">Track upcoming services and review your completed booking requests.</Text>
+      </div>
+      <Card className="finazze-auth-card customer-account-card" p="xl">
+        <Stack gap="md">
         {bookingQuery.isFetching ? <Text c="dimmed" size="sm">Loading service bookings...</Text> : null}
         <Group align="flex-end" gap="sm">
           <TextInput
@@ -888,17 +925,20 @@ export default function CustomerAccountPage() {
             ) : null}
           </Group>
         ) : null}
-      </Stack>
-    </Card>
+        </Stack>
+      </Card>
+    </Stack>
   );
 
   const renderGroupFunded = () => (
-    <Card className="finazze-auth-card customer-account-card" p="xl">
-      <Stack gap="md">
-        <div>
-          <Text className="finazze-section-label">Group-funded</Text>
-          <Title order={2}>Organizer and contributor campaigns</Title>
-        </div>
+    <Stack gap="lg">
+      <div className="customer-section-header">
+        <Text className="finazze-section-label">Campaigns</Text>
+        <Title order={1}>Organizer and contributor campaigns</Title>
+        <Text c="dimmed">Manage campaigns you organize and contributions you support.</Text>
+      </div>
+      <Card className="finazze-auth-card customer-account-card" p="xl">
+        <Stack gap="md">
         {groupFundedQuery.isFetching ? <Text c="dimmed" size="sm">Loading group-funded campaigns...</Text> : null}
         <Group align="flex-end" gap="sm">
           <TextInput
@@ -1064,21 +1104,63 @@ export default function CustomerAccountPage() {
             Showing {filteredGroupFundedCampaigns.length} of {groupFundedCampaigns.length}
           </Text>
         ) : null}
-      </Stack>
-    </Card>
+        </Stack>
+      </Card>
+    </Stack>
   );
 
   const renderSettings = () => (
-    <Stack gap="md">
+    <Stack gap="lg">
+      <div className="customer-section-header">
+        <Text className="finazze-section-label">Settings</Text>
+        <Title order={1}>Account details</Title>
+        <Text c="dimmed">
+          Manage the identity and contact details connected to your customer account.
+        </Text>
+      </div>
       <Card className="finazze-auth-card customer-account-card" p="xl">
       <Stack gap="lg">
-        <div>
-          <Text className="finazze-section-label">Settings</Text>
-          <Title order={2}>Account details</Title>
-          <Text c="dimmed" mt="xs">
-            Name can be updated here. Display name is used on public-facing details like group-funded campaigns.
-          </Text>
-        </div>
+        <Group align="center" className="customer-profile-avatar-editor" gap="lg" wrap="nowrap">
+          <Avatar
+            alt={`${accountUser?.displayName || accountUser?.name || user.name} profile photo`}
+            color="orange"
+            radius="xl"
+            size={96}
+            src={avatarPreviewUrl || accountUser?.avatarUrl || undefined}
+          >
+            {getInitials(accountUser?.displayName || accountUser?.name || user.name)}
+          </Avatar>
+          <Stack gap="sm" style={{ flex: 1 }}>
+            <div>
+              <Text fw={700}>Profile photo</Text>
+              <Text c="dimmed" size="sm">
+                Shown beside your name when you organize or contribute to a campaign.
+              </Text>
+            </div>
+            <Group align="flex-end" gap="sm">
+              <FileInput
+                accept="image/jpeg,image/png,image/webp"
+                aria-label="Choose profile photo"
+                clearable
+                leftSection={<IconUpload size={16} />}
+                onChange={handleAvatarFileChange}
+                placeholder="Choose an image"
+                value={avatarFile}
+              />
+              <Button
+                disabled={!avatarFile}
+                loading={uploadingAvatar}
+                onClick={() => void handleAvatarUpload()}
+                type="button"
+                variant="light"
+              >
+                Upload photo
+              </Button>
+            </Group>
+            <Text c="dimmed" size="xs">JPEG, PNG, or WebP. Maximum 5 MB.</Text>
+          </Stack>
+        </Group>
+        <Divider />
         <form onSubmit={handleProfileSave}>
           <Stack gap="md">
             <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
@@ -1150,15 +1232,16 @@ export default function CustomerAccountPage() {
     const browserNotificationsEnabled = browserPermission === "granted";
 
     return (
-      <Card className="finazze-auth-card customer-account-card" p="xl">
-        <Stack gap="lg">
-          <div>
-            <Text className="finazze-section-label">Notifications</Text>
-            <Title order={2}>Browser notifications</Title>
-            <Text c="dimmed" mt="xs">
-              Email stays on by default. Browser notifications require permission after login and can deliver booking and queue alerts.
-            </Text>
-          </div>
+      <Stack gap="lg">
+        <div className="customer-section-header">
+          <Text className="finazze-section-label">Notifications</Text>
+          <Title order={1}>Browser notifications</Title>
+          <Text c="dimmed">
+            Choose how GetPrio keeps you updated about bookings, queues, and campaigns.
+          </Text>
+        </div>
+        <Card className="finazze-auth-card customer-account-card" p="xl">
+          <Stack gap="lg">
           <Alert color="blue" variant="light">
             If browser permission is denied, booking and queue alerts will continue by email.
           </Alert>
@@ -1247,17 +1330,22 @@ export default function CustomerAccountPage() {
               finally { setSavingNotificationSettings(false); }
             }}
           />
-        </Stack>
-      </Card>
+          </Stack>
+        </Card>
+      </Stack>
     );
   };
 
   const renderSecurity = () => (
     <Stack gap="lg">
+      <div className="customer-section-header">
+        <Text className="finazze-section-label">Security</Text>
+        <Title order={1}>Password and authentication</Title>
+        <Text c="dimmed">Protect your account and review its authentication settings.</Text>
+      </div>
       <Card className="finazze-auth-card customer-account-card" p="xl">
         <Stack gap="md">
           <div>
-            <Text className="finazze-section-label">Security</Text>
             <Title order={2}>Change password</Title>
             <Text c="dimmed" mt="xs">
               Updating your password signs out this session and any other active sessions.
@@ -1333,12 +1421,12 @@ export default function CustomerAccountPage() {
       case "security":
         return renderSecurity();
       default:
-        return renderProfile();
+        return renderSettings();
     }
   };
 
   return (
-    <CustomerAccountLayout activeSection={activeSection} accountUser={accountUser}>
+    <CustomerAccountLayout activeSection={activeSection}>
       {renderActiveSection()}
     </CustomerAccountLayout>
   );

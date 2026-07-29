@@ -96,6 +96,7 @@ CREATE TABLE users (
   id BIGSERIAL PRIMARY KEY,
   name TEXT NOT NULL,
   display_name TEXT,
+  avatar_url TEXT,
   username TEXT UNIQUE,
   email TEXT UNIQUE,
   phone TEXT,

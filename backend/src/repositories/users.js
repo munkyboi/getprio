@@ -4,6 +4,7 @@ const USER_COLUMNS = `
   users.id,
   users.name,
   users.display_name,
+  users.avatar_url,
   users.username,
   users.email,
   users.phone,
@@ -50,6 +51,7 @@ function mapUser(row, relationships = {}) {
     _id: String(row.id),
     name: row.name,
     displayName: row.display_name || "",
+    avatarUrl: row.avatar_url || "",
     username: row.username,
     email: row.email,
     phone: row.phone,
@@ -307,6 +309,7 @@ async function updateUser(userId, changes, options = {}) {
   const setters = {
     name: "name",
     displayName: "display_name",
+    avatarUrl: "avatar_url",
     username: "username",
     email: "email",
     phone: "phone",

@@ -481,7 +481,37 @@ async function disputeReimbursement({ user, campaignId, contributionId, body }) 
 async function getCampaignPreview(publicToken) {
   const campaign = await campaignRepository.findPublicCampaignByToken(String(publicToken || "").trim());
   if (!campaign) throw makeHttpError("Campaign not found.", 404);
-  return campaign;
+  const { bookingId, ...publicCampaign } = campaign;
+  const booking = bookingId ? await bookingRepository.findBookingById(bookingId) : null;
+  if (!booking) return publicCampaign;
+  const bundleItems = booking.bundleItems?.length
+    ? booking.bundleItems
+    : [{
+        id: booking.serviceId,
+        serviceId: booking.serviceId,
+        serviceName: booking.serviceName,
+        serviceSlug: booking.serviceSlug,
+        imageUrl: booking.serviceImageUrl || "",
+        bookingQuantity: booking.bookingQuantity,
+        priceAmountCents: booking.servicePriceAmountCents,
+        currency: booking.serviceCurrency,
+        scheduledStartAt: booking.scheduledStartAt,
+        scheduledEndAt: booking.scheduledEndAt,
+        sortOrder: 0
+      }];
+  return {
+    ...publicCampaign,
+    booking: {
+      vendorName: booking.tenantName,
+      vendorSlug: booking.tenantSlug,
+      locationName: booking.locationName,
+      locationAddress: booking.locationAddress || "",
+      locationTimezone: booking.locationTimezone,
+      scheduledStartAt: booking.scheduledStartAt,
+      scheduledEndAt: booking.scheduledEndAt,
+      bundleItems
+    }
+  };
 }
 
 async function listPublicCampaigns(filters = {}) {
@@ -489,7 +519,8 @@ async function listPublicCampaigns(filters = {}) {
   if (search.length > 120) throw makeHttpError("Search must be 120 characters or fewer.", 400);
   if (filters.date && !isValidDateOnly(filters.date)) throw makeHttpError("Invalid date filter.", 400);
   await expireDueCampaigns();
-  return campaignRepository.listPublicCampaigns({ limit: 50, search, date: filters.date || "" });
+  const campaigns = await campaignRepository.listPublicCampaigns({ limit: 50, search, date: filters.date || "" });
+  return campaigns.map(({ bookingId: _bookingId, ...campaign }) => campaign);
 }
 
 async function expireDueCampaigns() {

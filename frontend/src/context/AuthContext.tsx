@@ -231,6 +231,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       localStorage.removeItem(STORAGE_KEY);
       return result;
     },
+    async refreshUser(): Promise<UserSummary | null> {
+      if (!token) {
+        return null;
+      }
+      const data = await apiRequest<{ user: UserSummary }>("/auth/me", { token });
+      setUser(data.user);
+      return data.user;
+    },
     acceptAuthToken(nextToken: string, nextRefreshToken: string) {
       setLoading(true);
       setToken(nextToken);

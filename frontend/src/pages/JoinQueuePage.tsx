@@ -699,7 +699,7 @@ export default function JoinQueuePage() {
                     <Button color="dark" size="xs" variant="light" onClick={restoreCustomerDetails} type="button">
                       Use account details
                     </Button>
-                    <Button component={Link} size="xs" to="/account/profile" variant="light">
+                    <Button component={Link} size="xs" to="/account/settings" variant="light">
                       View account
                     </Button>
                   </Group>
