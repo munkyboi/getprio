@@ -1780,6 +1780,26 @@ test("campaign page titles use the customer account heading scale", () => {
   assert.match(styles, /\.customer-section-header h1 \{[\s\S]*?font-size: clamp\(2\.15rem, 9vw, 3\.35rem\)/);
 });
 
+test("customer campaign cards show status flavor, organizer trust, and three campaign facts", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CampaignControlCenterPage.tsx"), "utf8");
+  const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
+
+  assert.match(source, /collecting: \{ color: "orange", label: "Collecting" \}/);
+  assert.match(source, /collected: \{ color: "teal", label: "Collected" \}/);
+  assert.match(source, /cancelled: \{ color: "red", label: "Cancelled" \}/);
+  assert.match(source, /Organized by/);
+  assert.match(source, /organizerAvatarUrl/);
+  assert.match(source, /organizerTrustRating\?\.count/);
+  assert.match(source, />Location</);
+  assert.match(source, />Deadline</);
+  assert.match(source, />Contributors</);
+  assert.match(source, /\{joinedContributors\}\/\{item\.requiredContributors\} Joined/);
+  assert.doesNotMatch(source, />Deadline \{formatCampaignDeadline\(item\.deadlineAt\)\}</);
+  assert.match(styles, /\.campaign-list-facts/);
+  assert.match(styles, /\.campaign-list-fact \+ \.campaign-list-fact/);
+});
+
 test("booking schedule formatters honor the booking location timezone", () => {
   const instant = "2026-08-19T23:30:00.000Z";
 

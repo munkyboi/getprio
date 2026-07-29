@@ -392,6 +392,15 @@ test("customer campaign list includes campaign-wide contribution aggregates", as
             booking_id: 42,
             organizer_user_id: 7,
             organizer_display_name: "Organizer",
+            organizer_avatar_url: "https://example.com/organizer.jpg",
+            organizer_trust_average: 4.4,
+            organizer_trust_count: 51,
+            tenant_name: "VD Sports Club",
+            tenant_slug: "vd-sports-club",
+            location_name: "Tulik",
+            location_slug: "tulik",
+            location_city: "Argao",
+            location_province: "Cebu",
             campaign_status: "collecting",
             visibility: "private_link",
             title: "Open play",
@@ -415,10 +424,21 @@ test("customer campaign list includes campaign-wide contribution aggregates", as
   assert.match(calls[0].query, /accepted_contributors/);
   assert.match(calls[0].query, /joined_contributors/);
   assert.match(calls[0].query, /accepted_amount_cents/);
+  assert.match(calls[0].query, /tenants\.name AS tenant_name/);
+  assert.match(calls[0].query, /store_locations\.city AS location_city/);
+  assert.match(calls[0].query, /AVG\(ratings\.stars\)/);
   assert.deepEqual(calls[0].params, [7]);
   assert.equal(campaigns[0].acceptedContributors, 4);
   assert.equal(campaigns[0].joinedContributors, 4);
   assert.equal(campaigns[0].acceptedAmountCents, 40000);
+  assert.deepEqual(campaigns[0].organizerTrustRating, { average: 4.4, count: 51 });
+  assert.deepEqual(campaigns[0].vendor, { name: "VD Sports Club", slug: "vd-sports-club" });
+  assert.deepEqual(campaigns[0].location, {
+    name: "Tulik",
+    slug: "tulik",
+    city: "Argao",
+    province: "Cebu"
+  });
 });
 
 test("campaign history includes the actor display name", async () => {

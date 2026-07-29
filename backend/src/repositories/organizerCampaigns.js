@@ -37,6 +37,23 @@ function mapCampaign(row) {
     organizerUserId: String(row.organizer_user_id),
     organizerDisplayName: row.organizer_display_name || "Organizer",
     organizerAvatarUrl: row.organizer_avatar_url || "",
+    ...(row.organizer_trust_count == null ? {} : {
+      organizerTrustRating: {
+        average: Number(row.organizer_trust_average || 0),
+        count: Number(row.organizer_trust_count || 0)
+      }
+    }),
+    ...(row.tenant_name ? {
+      vendor: { name: row.tenant_name, slug: row.tenant_slug }
+    } : {}),
+    ...(row.location_name ? {
+      location: {
+        name: row.location_name,
+        slug: row.location_slug,
+        city: row.location_city || "",
+        province: row.location_province || ""
+      }
+    } : {}),
     status: row.campaign_status,
     visibility: row.visibility,
     title: row.title,
@@ -307,6 +324,20 @@ async function listCampaignsForCustomer(userId) {
     `SELECT campaigns.*, bookings.scheduled_start_at,
        COALESCE(NULLIF(users.display_name, ''), users.name) AS organizer_display_name,
        users.avatar_url AS organizer_avatar_url,
+       tenants.name AS tenant_name,
+       tenants.slug AS tenant_slug,
+       store_locations.name AS location_name,
+       store_locations.slug AS location_slug,
+       store_locations.city AS location_city,
+       store_locations.province AS location_province,
+       (SELECT COALESCE(ROUND(AVG(ratings.stars)::numeric, 1), 0)::float
+        FROM user_trust_ratings ratings
+        WHERE ratings.subject_user_id = campaigns.organizer_user_id
+          AND ratings.moderation_status = 'active') AS organizer_trust_average,
+       (SELECT COUNT(*)::int
+        FROM user_trust_ratings ratings
+        WHERE ratings.subject_user_id = campaigns.organizer_user_id
+          AND ratings.moderation_status = 'active') AS organizer_trust_count,
        COALESCE((
          SELECT COUNT(*)::int
          FROM organizer_campaign_contributions
@@ -345,6 +376,8 @@ async function listCampaignsForCustomer(userId) {
        ), 0) AS accepted_amount_cents
      FROM organizer_campaigns campaigns
      JOIN bookings ON bookings.id = campaigns.booking_id
+     JOIN tenants ON tenants.id = bookings.tenant_id
+     JOIN store_locations ON store_locations.id = bookings.location_id
      JOIN users ON users.id = campaigns.organizer_user_id
      WHERE campaigns.organizer_user_id = $1
      OR EXISTS (SELECT 1 FROM organizer_campaign_contributions WHERE campaign_id = campaigns.id AND contributor_user_id = $1)

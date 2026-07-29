@@ -834,6 +834,8 @@ export interface OrganizerCampaign {
   organizerUserId: string;
   organizerDisplayName: string;
   organizerAvatarUrl?: string;
+  vendor?: { name: string; slug: string };
+  location?: { name: string; slug: string; city: string; province: string };
   status: OrganizerCampaignStatus;
   visibility: "private_link" | "public";
   title: string;

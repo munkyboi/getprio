@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Avatar, Badge, Box, Button, Card, Container, FileInput, Group, Image, Modal, Notification, NumberInput, Paper, Portal, Progress, ScrollArea, SimpleGrid, Slider, Stack, Text, Textarea, TextInput, Title } from "@mantine/core";
+import { Alert, Avatar, Badge, Box, Button, Card, Container, Divider, FileInput, Group, Image, Modal, Notification, NumberInput, Paper, Portal, Progress, ScrollArea, SimpleGrid, Slider, Stack, Text, Textarea, TextInput, Title } from "@mantine/core";
 import { IconAlertCircle, IconBellRinging, IconCalendarTime, IconCircleCheck, IconClock, IconCopy, IconExternalLink, IconEye, IconRefresh, IconStar, IconUpload } from "@tabler/icons-react";
 import { Link, Navigate, useParams } from "react-router-dom";
-import type { OrganizerCampaign, OrganizerContributionStatus } from "@shared";
+import type { OrganizerCampaign, OrganizerCampaignStatus, OrganizerContributionStatus } from "@shared";
 import { API_BASE_URL, apiRequest } from "../api/client";
 import { customerAccountApi } from "../api/customerAccount";
 import { useAuth } from "../context/AuthContext";
@@ -28,6 +28,33 @@ function formatBytes(sizeBytes = 0) {
 
 function getInitials(value = "") {
   return value.trim().split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase() || "").join("") || "U";
+}
+
+const CAMPAIGN_STATUS_PRESENTATION: Record<OrganizerCampaignStatus, { color: string; label: string }> = {
+  draft: { color: "gray", label: "Draft" },
+  collecting: { color: "orange", label: "Collecting" },
+  collected: { color: "teal", label: "Collected" },
+  refund_pending: { color: "yellow", label: "Refund pending" },
+  cancelled: { color: "red", label: "Cancelled" },
+  frozen: { color: "indigo", label: "Frozen" }
+};
+
+function formatCampaignListDate(value: string | Date) {
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: "Asia/Manila"
+  }).format(new Date(value));
+}
+
+function campaignLocationLabel(campaign: OrganizerCampaign) {
+  return [
+    campaign.vendor?.name,
+    campaign.location?.name,
+    campaign.location?.city,
+    campaign.location?.province
+  ].filter(Boolean).join(", ") || "Location unavailable";
 }
 
 function contributionStatus(status: OrganizerContributionStatus) {
@@ -165,6 +192,39 @@ function DraftCampaignEditor({ campaign, token, onSaved }: { campaign: Organizer
   const [busy, setBusy] = useState(false); const [error, setError] = useState("");
   async function save() { setBusy(true); try { await customerAccountApi.updateCampaign(token, campaign.id, { title: form.title, description: form.description, deadlineAt: form.deadlineAt, contributionFeeCents: Math.round(form.contributionFeePhp * 100), requiredContributors: form.requiredContributors, paymentInstructions: form.paymentInstructions }); onSaved(); } catch (next) { setError(getErrorMessage(next)); } finally { setBusy(false); } }
   return <Card p="lg"><Stack><Title order={3}>Campaign setup</Title><TextInput label="Title" maxLength={120} value={form.title} onChange={(e) => setForm((v) => ({ ...v, title: e.currentTarget.value }))}/><Stack gap={4}><Text fw={500} size="sm">Description</Text><CampaignDescriptionEditor disabled={busy} value={form.description} onChange={(description) => setForm((v) => ({ ...v, description }))}/></Stack><CampaignDeadlinePicker disabled={busy} onChange={(deadlineAt) => setForm((v) => ({ ...v, deadlineAt }))} scheduledStartAt={campaign.scheduledStartAt} value={form.deadlineAt}/><NumberInput label="Contribution fee per person (PHP)" min={1} value={form.contributionFeePhp} onChange={(value) => setForm((v) => ({ ...v, contributionFeePhp: Number(value) || 0 }))}/><Stack gap={6}><Group justify="space-between"><Text size="sm">Contributor slots</Text><Badge>{form.requiredContributors} people</Badge></Group><Slider aria-label="Contributor slots" max={100} min={1} onChange={(value) => setForm((v) => ({ ...v, requiredContributors: value }))} value={form.requiredContributors}/></Stack><Stack gap={4}><Text fw={500} size="sm">Private payment instructions</Text><Text c="dimmed" size="xs">Shown only to joined, signed-in contributors.</Text><CampaignDescriptionEditor disabled={busy} maxCharacters={2000} value={form.paymentInstructions} onChange={(paymentInstructions) => setForm((v) => ({ ...v, paymentInstructions }))}/></Stack>{error ? <Alert color="red">{error}</Alert> : null}<Button loading={busy} onClick={save}>Save draft</Button></Stack></Card>;
+}
+
+function CampaignListCard({ item }: { item: OrganizerCampaign }) {
+  const status = CAMPAIGN_STATUS_PRESENTATION[item.status];
+  const joinedContributors = item.joinedContributors ?? item.acceptedContributors ?? 0;
+  const rating = item.organizerTrustRating;
+
+  return (
+    <Card component={Link} className="campaign-list-card campaign-summary-card" p="lg" to={`/account/campaigns/${item.id}/manage`}>
+      <Stack className="campaign-summary-card__content" gap="sm">
+        <Group justify="space-between" wrap="nowrap">
+          <Badge color={status.color} radius="xl" tt="uppercase" variant="filled">{status.label}</Badge>
+          <Text fw={800}>{money(item.contributionFeeCents, item.currency)}</Text>
+        </Group>
+        <Title order={3}>{item.title}</Title>
+        <Group className="campaign-list-organizer" gap="xs" wrap="nowrap">
+          <Avatar alt={`${item.organizerDisplayName || "Organizer"} profile photo`} color="orange" radius="xl" size={30} src={item.organizerAvatarUrl || undefined}>{getInitials(item.organizerDisplayName || "Organizer")}</Avatar>
+          <Group gap={6} wrap="wrap">
+            <Text size="sm">Organized by <Text component="span" fw={800}>{item.organizerDisplayName || "Organizer"}</Text></Text>
+            <Text aria-hidden="true" c="dimmed" size="sm">|</Text>
+            {rating?.count ? <Group gap={4} wrap="nowrap"><IconStar aria-hidden="true" color="#ffd000" fill="#ffd000" size={15}/><Text size="sm">{rating.average.toFixed(1)} ({rating.count})</Text></Group> : <Group gap={4} wrap="nowrap"><IconStar aria-hidden="true" color="var(--mantine-color-gray-5)" size={15}/><Text c="dimmed" size="sm">No rating yet</Text></Group>}
+          </Group>
+        </Group>
+        {item.description ? <RichCampaignDescription className="campaign-list-description" content={item.description}/> : null}
+        <Divider mt="xs"/>
+        <SimpleGrid className="campaign-list-facts" cols={{ base: 1, xs: 3 }} spacing={0}>
+          <div className="campaign-list-fact"><Text c="dimmed" size="xs">Location</Text><Text fw={700} size="sm">{campaignLocationLabel(item)}</Text></div>
+          <div className="campaign-list-fact"><Text c="dimmed" size="xs">Deadline</Text><Text fw={700} size="sm">{formatCampaignListDate(item.deadlineAt)}</Text></div>
+          <div className="campaign-list-fact"><Text c="dimmed" size="xs">Contributors</Text><Text fw={700} size="sm">{joinedContributors}/{item.requiredContributors} Joined</Text></div>
+        </SimpleGrid>
+      </Stack>
+    </Card>
+  );
 }
 
 export default function CampaignControlCenterPage() {
@@ -437,7 +497,7 @@ export default function CampaignControlCenterPage() {
       <Card className="finazze-auth-card customer-account-card campaign-control-page" p="xl">
         <Stack gap="lg">
           {error ? <Alert color="red">{error}</Alert> : null}
-          <SimpleGrid cols={{ base: 1, sm: 2 }}>{campaigns.map((item) => <Card component={Link} className="campaign-list-card" key={item.id} p="lg" to={`/account/campaigns/${item.id}/manage`}><Stack gap="xs"><Group justify="space-between"><Badge>{item.status}</Badge><Text fw={800}>{money(item.contributionFeeCents, item.currency)}</Text></Group><Title order={3}>{item.title}</Title>{item.description ? <RichCampaignDescription className="campaign-list-description" content={item.description}/> : null}<Text size="sm">Deadline {formatCampaignDeadline(item.deadlineAt)}</Text></Stack></Card>)}</SimpleGrid>
+          <SimpleGrid cols={{ base: 1, sm: 2 }}>{campaigns.map((item) => <CampaignListCard item={item} key={item.id}/>)}</SimpleGrid>
           {!campaigns.length && !error ? <Alert color="gray">Confirmed bookings selected for campaigns will appear here.</Alert> : null}
         </Stack>
       </Card>
