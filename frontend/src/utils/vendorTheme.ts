@@ -26,6 +26,7 @@ export function buildVendorThemeStyle(theme?: PublicBoardThemeSettings | null): 
     "--vendor-theme-button-border-width": theme.presetId === "sports" ? "0px" : "1px",
     "--vendor-theme-logo-bg": theme.cardBackgroundColor,
     "--vendor-theme-logo-fit": theme.logoFit,
+    ...(theme.logoFit === "cover" ? { "--vendor-theme-logo-frame-padding": "0px" } : {}),
     ...(theme.pageBackgroundImageUrl
       ? {
           "--vendor-theme-page-image": `url(${theme.pageBackgroundImageUrl})`,
