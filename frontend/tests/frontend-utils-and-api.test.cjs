@@ -1590,6 +1590,20 @@ test("campaign pages show booking details and available organizer trust ratings"
   assert.match(styles, /@media \(hover: hover\) and \(pointer: fine\)/);
 });
 
+test("public campaign booking thumbnails open the accessible service image viewer", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CampaignPreviewPage.tsx"), "utf8");
+
+  assert.match(source, /IconEye/);
+  assert.match(source, /const \[serviceImagePreview, setServiceImagePreview\] = useState/);
+  assert.match(source, /aria-label=\{`Preview \$\{item\.serviceName\} image`\}/);
+  assert.match(source, /onClick=\{\(\) => setServiceImagePreview\(\{ name: item\.serviceName, imageUrl: item\.imageUrl \|\| "" \}\)\}/);
+  assert.match(source, /<span aria-hidden="true"><IconEye size=\{16\}\/><\/span>/);
+  assert.match(source, /className="service-image-preview-shell"/);
+  assert.match(source, /alt=\{serviceImagePreview\.name\}/);
+  assert.match(source, /onClose=\{\(\) => setServiceImagePreview\(null\)\}/);
+});
+
 test("customer settings upload and preview a campaign profile photo", () => {
   const frontendRoot = path.resolve(__dirname, "..");
   const account = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CustomerAccountPage.tsx"), "utf8");
