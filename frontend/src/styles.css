@@ -7072,6 +7072,48 @@ h2 {
   border: 1px solid var(--mantine-color-gray-3);
   border-radius: var(--mantine-radius-md);
 }
+.campaign-funding-summary__target {
+  background: color-mix(in srgb, var(--mantine-color-orange-0) 62%, var(--mantine-color-body));
+  border-color: color-mix(in srgb, var(--mantine-color-orange-5) 38%, var(--mantine-color-gray-3));
+}
+.campaign-summary-actions {
+  padding-top: 0.25rem;
+}
+.customer-modal.campaign-history-modal .mantine-Modal-content {
+  display: flex;
+  flex-direction: column;
+  height: min(88dvh, 42rem) !important;
+  max-height: min(88dvh, 42rem) !important;
+  overflow: hidden !important;
+}
+.customer-modal.campaign-history-modal .mantine-Modal-body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden !important;
+}
+.campaign-history-modal-shell {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+}
+.campaign-history-modal-intro {
+  flex: 0 0 auto;
+  margin-bottom: 1rem;
+}
+.campaign-history-modal-main {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding-right: 0.25rem;
+}
+.campaign-history-event {
+  overflow-wrap: anywhere;
+}
+.campaign-history-modal-actions {
+  flex: 0 0 auto;
+  margin-top: 1rem;
+}
 .customer-modal.campaign-rating-modal .mantine-Modal-content {
   display: flex;
   flex-direction: column;
@@ -7179,4 +7221,4 @@ button:hover > .rating-star { transform: scale(1.08); }
     border-left: 0;
   }
 }
-@media (max-width: 48em) { .campaign-control-page { padding-inline: .75rem; } .campaign-control-page .mantine-Button-root { min-height: 44px; } .campaign-control-hero { border-radius: 22px; } .campaign-control-hero h1 { font-size: 1.75rem; } .campaign-participation-header { align-items: stretch; flex-direction: column; } .campaign-participation-slot { align-self: flex-start; } .campaign-participation-card .mantine-Button-root { width: 100%; } .campaign-proof-document { min-height: 22rem; } .customer-modal.campaign-rating-modal .mantine-Modal-content { height: min(92dvh, 36rem) !important; } .campaign-rating-modal-actions .mantine-Button-root { width: 100%; } }
+@media (max-width: 48em) { .campaign-control-page { padding-inline: .75rem; } .campaign-control-page .mantine-Button-root { min-height: 44px; } .campaign-control-hero { border-radius: 22px; } .campaign-control-hero h1 { font-size: 1.75rem; } .campaign-participation-header { align-items: stretch; flex-direction: column; } .campaign-participation-slot { align-self: flex-start; } .campaign-participation-card .mantine-Button-root { width: 100%; } .campaign-summary-actions { align-items: stretch; flex-direction: column; } .campaign-summary-actions .mantine-Button-root { width: 100%; } .campaign-history-cta { align-items: stretch; flex-direction: column; } .campaign-history-cta-button { width: 100%; } .campaign-proof-document { min-height: 22rem; } .customer-modal.campaign-history-modal .mantine-Modal-content { height: min(92dvh, 42rem) !important; } .campaign-history-modal-actions { align-items: stretch; flex-direction: column; } .campaign-history-modal-actions .mantine-Button-root { width: 100%; } .customer-modal.campaign-rating-modal .mantine-Modal-content { height: min(92dvh, 36rem) !important; } .campaign-rating-modal-actions .mantine-Button-root { width: 100%; } }

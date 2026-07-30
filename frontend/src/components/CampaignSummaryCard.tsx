@@ -82,7 +82,7 @@ export default function CampaignSummaryCard({
         <Group gap={6} wrap="wrap">
           <Text size="sm">Organized by <Text component="span" fw={800}>{campaign.organizerDisplayName || "Organizer"}</Text></Text>
           <Text aria-hidden="true" c="dimmed" size="sm">|</Text>
-          {rating?.count ? <Group gap={4} wrap="nowrap"><IconStar aria-hidden="true" color="#ffd000" fill="#ffd000" size={15}/><Text size="sm">{rating.average.toFixed(1)} ({rating.count})</Text></Group> : <Group gap={4} wrap="nowrap"><IconStar aria-hidden="true" color="var(--mantine-color-gray-5)" size={15}/><Text c="dimmed" size="sm">No rating yet</Text></Group>}
+          {rating?.count ? <Group gap={4} wrap="nowrap"><IconStar aria-hidden="true" color="#ffd000" fill="#ffd000" size={15}/><Text size="sm">{rating.average.toFixed(1)} ({rating.count})</Text></Group> : <Group gap={4} wrap="nowrap"><IconStar aria-hidden="true" color="var(--mantine-color-gray-5)" size={15}/><Text c="dimmed" size="sm">Not yet rated</Text></Group>}
         </Group>
       </Group>
       {campaign.description ? <RichCampaignDescription className={descriptionClassName} content={campaign.description}/> : null}

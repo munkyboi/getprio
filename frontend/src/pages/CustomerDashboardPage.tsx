@@ -222,9 +222,9 @@ export default function CustomerDashboardPage() {
                   <Text c="dimmed" size="sm">({account.trustRating.count})</Text>
                 </Group>
               ) : (
-                <Group aria-label="No rating yet" className="customer-dashboard__rating" gap={7} wrap="nowrap">
+                <Group aria-label="Not yet rated" className="customer-dashboard__rating" gap={7} wrap="nowrap">
                   <IconStar aria-hidden className="customer-dashboard__rating-star" size={24} />
-                  <Text fw={700}>No rating yet</Text>
+                  <Text fw={700}>Not yet rated</Text>
                 </Group>
               )}
             </Stack>

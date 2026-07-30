@@ -333,14 +333,8 @@ function normalizeGroupFundedLocationServicePayload(entry = {}) {
       settings.defaultRequiredContributors ?? entry.groupFundedDefaultRequiredContributors,
       "groupFunded.defaultRequiredContributors"
     ),
-    minContributionAmountCents: normalizeOptionalInteger(
-      settings.minContributionAmountCents ?? entry.groupFundedMinContributionAmountCents,
-      "groupFunded.minContributionAmountCents"
-    ),
-    maxContributionAmountCents: normalizeOptionalInteger(
-      settings.maxContributionAmountCents ?? entry.groupFundedMaxContributionAmountCents,
-      "groupFunded.maxContributionAmountCents"
-    ),
+    minContributionAmountCents: null,
+    maxContributionAmountCents: null,
     minDeadlineHours: normalizeOptionalInteger(
       settings.minDeadlineHours ?? entry.groupFundedMinDeadlineHours,
       "groupFunded.minDeadlineHours"
@@ -369,7 +363,6 @@ function normalizeGroupFundedLocationServicePayload(entry = {}) {
   const requiredIntegerFields = [
     ["minRequiredContributors", 2, 100],
     ["maxRequiredContributors", 2, 100],
-    ["defaultRequiredContributors", 2, 100],
     ["minDeadlineHours", 1, 720],
     ["maxDeadlineDays", 1, 90]
   ];
@@ -383,36 +376,19 @@ function normalizeGroupFundedLocationServicePayload(entry = {}) {
     }
   }
 
-  if (
-    groupFunded.minRequiredContributors > groupFunded.defaultRequiredContributors ||
-    groupFunded.defaultRequiredContributors > groupFunded.maxRequiredContributors
-  ) {
-    const error = new Error("groupFunded contributor bounds must satisfy min <= default <= max.");
+  if (groupFunded.minRequiredContributors > groupFunded.maxRequiredContributors) {
+    const error = new Error("groupFunded contributor bounds must satisfy min <= max.");
     error.statusCode = 400;
     throw error;
   }
+
+  groupFunded.defaultRequiredContributors = Math.min(
+    groupFunded.maxRequiredContributors,
+    Math.max(groupFunded.minRequiredContributors, 4)
+  );
 
   if (groupFunded.minDeadlineHours > groupFunded.maxDeadlineDays * 24) {
     const error = new Error("groupFunded deadline bounds must satisfy min hours <= max days.");
-    error.statusCode = 400;
-    throw error;
-  }
-
-  for (const field of ["minContributionAmountCents", "maxContributionAmountCents"]) {
-    const value = groupFunded[field];
-    if (value !== null && (!Number.isInteger(value) || value < 0)) {
-      const error = new Error(`groupFunded.${field} must be a non-negative integer.`);
-      error.statusCode = 400;
-      throw error;
-    }
-  }
-
-  if (
-    groupFunded.minContributionAmountCents !== null &&
-    groupFunded.maxContributionAmountCents !== null &&
-    groupFunded.minContributionAmountCents > groupFunded.maxContributionAmountCents
-  ) {
-    const error = new Error("groupFunded contribution bounds must satisfy min <= max.");
     error.statusCode = 400;
     throw error;
   }

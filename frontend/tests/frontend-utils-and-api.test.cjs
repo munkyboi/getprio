@@ -758,6 +758,23 @@ test("group-funded contributor count uses a stepped slider within service limits
   assert.match(source, /Max \{groupFundedMaxContributors\}/);
 });
 
+test("vendor group-funded settings keep policy controls concise", () => {
+  const source = fs.readFileSync(
+    path.join(path.resolve(__dirname, ".."), "src", "pages", "VendorDashboardPage.tsx"),
+    "utf8"
+  );
+
+  assert.match(source, /label="Min contributors"/);
+  assert.match(source, /label="Max contributors"/);
+  assert.match(source, />Advanced funding window</);
+  assert.match(source, /label="Min deadline hours"/);
+  assert.match(source, /label="Max deadline days"/);
+  assert.match(source, /label="Allow public campaigns on vendor profile"/);
+  assert.doesNotMatch(source, /label="Default contributors"/);
+  assert.doesNotMatch(source, /label="Min share"/);
+  assert.doesNotMatch(source, /label="Max share"/);
+});
+
 test("booking services use their own stepped quantity sliders", () => {
   const source = fs.readFileSync(
     path.join(path.resolve(__dirname, ".."), "src", "pages", "BookingRequestPage.tsx"),
@@ -1602,14 +1619,15 @@ test("queue ticket details use the group-funded detail hero composition", () => 
   assert.match(styles, /\.ticket-page-ticket-visual \.ticket-page-ticket-cancel-action,/);
 });
 
-test("campaign pages show booking details and available organizer trust ratings", () => {
+test("campaign pages show booking details and consistent organizer trust rating states", () => {
   const frontendRoot = path.resolve(__dirname, "..");
   const source = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CampaignControlCenterPage.tsx"), "utf8");
   const publicSource = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CampaignPreviewPage.tsx"), "utf8");
+  const rating = fs.readFileSync(path.join(frontendRoot, "src", "components", "CampaignOrganizerRating.tsx"), "utf8");
   const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
 
   assert.match(source, /Organized by/);
-  assert.match(source, /campaign\.organizerTrustRating\?\.count \?/);
+  assert.match(source, /<CampaignOrganizerRating rating=\{campaign\.organizerTrustRating\}\/>/);
   assert.match(source, /src=\{campaign\.organizerAvatarUrl \|\| undefined\}/);
   assert.match(source, /src=\{item\.contributorAvatarUrl \|\| undefined\}/);
   assert.match(source, /BOOKING DETAILS/);
@@ -1619,7 +1637,11 @@ test("campaign pages show booking details and available organizer trust ratings"
   assert.match(source, /to=\{`\/vendors\/\$\{booking\.vendorSlug\}`\}/);
   assert.match(source, /booking\.locationAddress \?/);
   assert.match(source, /event\.actorDisplayName/);
-  assert.match(publicSource, /campaign\.organizerTrustRating\?\.count \?/);
+  assert.match(publicSource, /<CampaignOrganizerRating rating=\{campaign\.organizerTrustRating\}\/>/);
+  assert.match(rating, /rating\?\.count \?/);
+  assert.match(rating, /fill="#ffd000"/);
+  assert.match(rating, /<IconStar aria-hidden="true" color="var\(--mantine-color-gray-4\)"/);
+  assert.match(rating, />Not yet rated</);
   assert.match(publicSource, /src=\{campaign\.organizerAvatarUrl \|\| undefined\}/);
   assert.match(publicSource, /<Badge color="cyan">\{campaign\.status\}<\/Badge>/);
   assert.match(publicSource, /<CampaignFundingProgress[\s\S]*?fundedAmountCents=\{acceptedAmountCents\}[\s\S]*?targetAmountCents=\{fundingTargetCents\}/);
@@ -1693,6 +1715,38 @@ test("campaign control center gives a joined contributor a slot and private proo
   assert.match(api, /\/account\/campaigns\/\$\{encodeURIComponent\(campaignId\)\}\/contributions\/self/);
   assert.match(api, /method: "DELETE"/);
   assert.match(source, /\["pending_proof", "submitted", "review_overdue"\]\.includes\(item\.status\)/);
+});
+
+test("organizer campaign view summarizes funding and opens history from a modal CTA", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CampaignControlCenterPage.tsx"), "utf8");
+  const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
+
+  assert.match(source, />Campaign summary</);
+  assert.match(source, />Funding breakdown</);
+  assert.match(source, />Target fund</);
+  assert.match(source, />Confirmed funds</);
+  assert.match(source, />Remaining to target</);
+  assert.match(source, />Contribution per person</);
+  assert.match(source, />Contributor slots</);
+  assert.match(source, /campaign\.requiredContributors \* campaign\.contributionFeeCents/);
+  assert.match(source, /Math\.max\(0, fundingTargetCents - acceptedAmountCents\)/);
+  assert.match(source, /\{isOrganizer \? <Card className="campaign-funding-summary"/);
+  assert.ok(
+    source.indexOf('{isOrganizer && campaign.status === "draft" ? <DraftCampaignEditor') <
+      source.indexOf('{isOrganizer ? <Card className="campaign-funding-summary"')
+  );
+  assert.match(source, /campaign\.status === "collecting" \? <Group className="campaign-summary-actions"[\s\S]*?>Unpublish<[\s\S]*?>Cancel campaign</);
+  assert.doesNotMatch(source, /isOrganizer && campaign\.status === "collecting" \? <Group>/);
+  assert.match(styles, /\.campaign-summary-actions/);
+  assert.match(source, />View campaign history</);
+  assert.match(source, /\{isOrganizer \? <Card p="lg"><Group align="center" className="campaign-history-cta"/);
+  assert.match(source, /className="customer-modal campaign-history-modal"/);
+  assert.match(source, /opened=\{historyModalOpen\}/);
+  assert.match(source, /className="campaign-history-modal-main"/);
+  assert.doesNotMatch(source, /<Title order=\{3\}>Campaign history<\/Title>\{campaign\.events\.map/);
+  assert.match(styles, /\.customer-modal\.campaign-history-modal \.mantine-Modal-content/);
+  assert.match(styles, /\.campaign-history-modal-main/);
 });
 
 test("an unpaid campaign slot uses a pending funding treatment instead of success", () => {
@@ -1884,6 +1938,8 @@ test("customer campaign cards show status flavor, organizer trust, and three cam
   assert.match(card, /Organized by/);
   assert.match(card, /organizerAvatarUrl/);
   assert.match(card, /organizerTrustRating/);
+  assert.match(card, />Not yet rated</);
+  assert.doesNotMatch(card, />No rating yet</);
   assert.match(card, /campaign-list-progress/);
   assert.match(card, /<CampaignFundingProgress/);
   assert.match(card, /fundedAmountCents=\{fundedAmountCents\}/);

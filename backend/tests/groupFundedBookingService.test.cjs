@@ -385,6 +385,41 @@ test("group-funded service creates a campaign with computed contribution and rou
   assert.deepEqual(streamPublishes, [{ tenantSlug: "vendor", payload: undefined }]);
 });
 
+test("group-funded service derives equal shares without enforcing retired vendor share bounds", async () => {
+  const { mocks } = baseMocks();
+  mocks["../repositories/locationServices"].findLocationServiceByLocationAndServiceId = async () => ({
+    _id: "location-service-1",
+    isActive: true,
+    priceAmountCents: null,
+    groupFunded: {
+      enabled: true,
+      minRequiredContributors: 2,
+      maxRequiredContributors: 10,
+      defaultRequiredContributors: 3,
+      minContributionAmountCents: 50000,
+      maxContributionAmountCents: 60000,
+      minDeadlineHours: 1,
+      maxDeadlineDays: 30,
+      allowPublicCampaigns: false
+    }
+  });
+  const service = requireWithMocks("../src/services/groupFundedBookingService.js", mocks);
+
+  const campaign = await service.createCampaign({
+    user: { _id: "user-1", name: "Customer One" },
+    body: {
+      tenantSlug: "vendor",
+      locationSlug: "main",
+      serviceSlug: "consultation",
+      scheduledStartAt: new Date(Date.now() + 96 * 60 * 60 * 1000).toISOString(),
+      fundingDeadlineAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+      requiredContributors: 3
+    }
+  });
+
+  assert.equal(campaign.requiredContributionAmountCents, 33334);
+});
+
 test("group-funded service creates one campaign for a parallel multi-court bundle", async () => {
   const createdItems = [];
   const { mocks } = baseMocks({

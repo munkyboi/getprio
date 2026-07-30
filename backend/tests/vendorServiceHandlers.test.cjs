@@ -108,8 +108,8 @@ test("vendor service handler persists group-funded branch settings", async () =>
       minRequiredContributors: 2,
       maxRequiredContributors: 8,
       defaultRequiredContributors: 4,
-      minContributionAmountCents: 10000,
-      maxContributionAmountCents: 30000,
+      minContributionAmountCents: null,
+      maxContributionAmountCents: null,
       minDeadlineHours: 24,
       maxDeadlineDays: 7,
       allowPublicCampaigns: true
