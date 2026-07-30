@@ -56,6 +56,12 @@ const {
   getTicketStateSummary
 } = require("../src/utils/queueStatus.ts");
 const { getMaxBookableHours, getWeeklyAvailabilityDefaults } = require("../src/utils/availability.ts");
+const { getCampaignFundingPercent } = require("../src/utils/campaignFunding.ts");
+const {
+  formatCampaignHeroDeadline,
+  formatCampaignHeroScheduleDate,
+  formatCampaignHeroScheduleSummary
+} = require("../src/utils/campaignHero.ts");
 const { getBootstrap } = require("../src/api/vendorDashboardBootstrap.ts");
 const {
   getAvailability,
@@ -266,6 +272,41 @@ test("utility formatters and validators cover common cases", () => {
   assert.equal(formatDateTimeInputValue(localDate), "2026-06-30T08:30");
   assert.equal(toDate("bad value"), null);
   assert.equal(Number.isNaN(toTimestamp("bad value")), true);
+});
+
+test("campaign funding progress uses monetary percentage and a bottom-right label", () => {
+  const component = fs.readFileSync(
+    path.join(path.resolve(__dirname, ".."), "src", "components", "CampaignFundingProgress.tsx"),
+    "utf8"
+  );
+
+  assert.equal(getCampaignFundingPercent(8500, 10000), 85);
+  assert.equal(getCampaignFundingPercent(1000, 1500), 67);
+  assert.equal(getCampaignFundingPercent(2000, 1500), 100);
+  assert.equal(getCampaignFundingPercent(-1, 0), 0);
+  assert.match(component, /aria-label=\{`Campaign funding \$\{fundingPercent\}%`\}/);
+  assert.match(component, /ta="right"/);
+  assert.match(component, /Funding: \{fundingPercent\}%/);
+});
+
+test("campaign hero cards format deadlines and schedules consistently", () => {
+  const component = fs.readFileSync(
+    path.join(path.resolve(__dirname, ".."), "src", "components", "CampaignHeroStats.tsx"),
+    "utf8"
+  );
+  const start = "2026-08-20T02:30:00.000Z";
+  const end = "2026-08-20T06:30:00.000Z";
+  const deadline = "2026-08-19T14:00:00.000Z";
+
+  assert.equal(formatCampaignHeroDeadline(deadline), "19 Aug 2026 at 10:00 PM");
+  assert.equal(formatCampaignHeroScheduleDate(start), "20 Aug 2026");
+  assert.equal(formatCampaignHeroScheduleSummary(start, end), "10:30 AM - 2:30 PM (4 Hours)");
+  assert.match(component, /<Text size="xs">Join fee<\/Text>/);
+  assert.match(component, /Deadline: \{formatCampaignHeroDeadline\(deadlineAt, timeZone\)\}/);
+  assert.match(component, /<Text size="xs">Schedule<\/Text>/);
+  assert.match(component, /formatCampaignHeroScheduleDate\(scheduledStartAt, timeZone\)/);
+  assert.match(component, /formatCampaignHeroScheduleSummary\(scheduledStartAt, scheduledEndAt, timeZone\)/);
+  assert.match(component, /<CampaignContributorProgress/);
 });
 
 test("weekly availability defaults use the selected day's business hours", () => {
@@ -910,7 +951,7 @@ test("group-funded campaign details disclose the funding adjustment and target",
 
   assert.match(source, /const fundingAdjustmentCents = Math\.max\(0, Number\(campaign\?\.roundingAdjustmentCents \|\| 0\)\);/);
   assert.match(source, /const fundingTargetAmountCents = Number\(campaign\?\.targetAmountCents \|\| 0\) \+ fundingAdjustmentCents;/);
-  assert.match(source, /campaign\.fundedAmountCents \/ fundingTargetAmountCents/);
+  assert.match(source, /<CampaignFundingProgress[\s\S]*?fundedAmountCents=\{campaign\.fundedAmountCents\}[\s\S]*?targetAmountCents=\{fundingTargetAmountCents\}/);
   assert.match(source, /formatPaymentAmount\(fundingTargetAmountCents, campaign\.currency\)/);
   assert.match(source, /<Title order=\{2\}>Campaign breakdown<\/Title>/);
   assert.match(source, /Funding adjustment/);
@@ -966,7 +1007,7 @@ test("group-funded campaign hero uses the vendor category and compact funding su
 
   assert.match(source, /\{campaign\.vendorCategory \|\| "Business"\}/);
   assert.match(source, /Organized by \{campaign\.organizerDisplayName\}/);
-  assert.match(source, /Funding \{formatPaymentAmount\(campaign\.fundedAmountCents, campaign\.currency\)\} \/ \{formatPaymentAmount\(fundingTargetAmountCents, campaign\.currency\)\}/);
+  assert.match(source, /<CampaignFundingProgress[\s\S]*?fundedAmountCents=\{campaign\.fundedAmountCents\}[\s\S]*?targetAmountCents=\{fundingTargetAmountCents\}/);
   assert.match(source, /className="group-funded-ticket-funding"/);
   assert.match(source, /<Text size="xs">Join fee<\/Text>/);
   assert.match(source, /Deadline: \$\{daysFromNow\}/);
@@ -1399,7 +1440,7 @@ test("vendor group-funded discovery uses mobile-first booking controls and filte
   assert.match(source, /className="vendor-group-funded-card-footer"/);
   assert.match(source, /Organized by \{campaign\.organizerDisplayName\}/);
   assert.match(source, /className="vendor-group-funded-card-vendor-link"/);
-  assert.match(source, /Funding \{formatPaymentAmount\(campaign\.fundedAmountCents, campaign\.currency\)\} \/ \{formatPaymentAmount\(campaign\.targetAmountCents, campaign\.currency\)\}/);
+  assert.match(source, /<CampaignFundingProgress[\s\S]*?fundedAmountCents=\{campaign\.fundedAmountCents\}[\s\S]*?targetAmountCents=\{campaign\.targetAmountCents\}/);
   assert.match(source, /function SegmentedContributorMeter/);
   assert.match(source, /Array\.from\(\{ length: verified \}/);
   assert.match(source, /Array\.from\(\{ length: pending \}/);
@@ -1440,7 +1481,7 @@ test("vendor dashboard includes rounding adjustments in group-funded targets", (
 
   assert.match(source, /function getCampaignFundingTargetAmountCents\(campaign:/);
   assert.match(source, /Number\(campaign\.targetAmountCents \|\| 0\) \+ Number\(campaign\.roundingAdjustmentCents \|\| 0\)/);
-  assert.match(source, /campaign\.fundedAmountCents \/ fundingTargetAmountCents/);
+  assert.match(source, /<CampaignFundingProgress[\s\S]*?fundedAmountCents=\{campaign\.fundedAmountCents\}[\s\S]*?targetAmountCents=\{fundingTargetAmountCents\}/);
   assert.match(source, /Target \{formatMoney\(selectedDetailFundingTargetAmountCents, selectedDetail\.campaign\.currency\)\}/);
 });
 
@@ -1581,9 +1622,12 @@ test("campaign pages show booking details and available organizer trust ratings"
   assert.match(publicSource, /campaign\.organizerTrustRating\?\.count \?/);
   assert.match(publicSource, /src=\{campaign\.organizerAvatarUrl \|\| undefined\}/);
   assert.match(publicSource, /<Badge color="cyan">\{campaign\.status\}<\/Badge>/);
-  assert.match(publicSource, /Funding \{money\(acceptedAmountCents, campaign\.currency\)\} \/ \{money\(fundingTargetCents, campaign\.currency\)\}/);
-  assert.match(publicSource, /<Text size="xs">Deadline<\/Text>/);
-  assert.match(publicSource, /formatCampaignDeadline\(campaign\.deadlineAt\)/);
+  assert.match(publicSource, /<CampaignFundingProgress[\s\S]*?fundedAmountCents=\{acceptedAmountCents\}[\s\S]*?targetAmountCents=\{fundingTargetCents\}/);
+  assert.match(source, /<CampaignHeroStats/);
+  assert.match(publicSource, /<CampaignHeroStats/);
+  assert.match(publicSource, /deadlineAt=\{campaign\.deadlineAt\}/);
+  assert.match(publicSource, /scheduledStartAt=\{campaign\.scheduledStartAt\}/);
+  assert.match(publicSource, /scheduledEndAt=\{campaign\.scheduledEndAt\}/);
   assert.doesNotMatch(publicSource, /<Badge>\{campaign\.vendor\.name\}<\/Badge>/);
   assert.doesNotMatch(publicSource, /<Text size="xs">Schedule<\/Text>/);
   assert.doesNotMatch(publicSource, /campaign-hero-secondary" size="sm">\{campaign\.location\.name\}<\/Text>/);
@@ -1674,16 +1718,17 @@ test("campaign reservations show proof deadlines and segmented contributor progr
   const frontendRoot = path.resolve(__dirname, "..");
   const source = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CampaignControlCenterPage.tsx"), "utf8");
   const preview = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CampaignPreviewPage.tsx"), "utf8");
+  const heroStats = fs.readFileSync(path.join(frontendRoot, "src", "components", "CampaignHeroStats.tsx"), "utf8");
   const contributorProgress = fs.readFileSync(path.join(frontendRoot, "src", "components", "CampaignContributorProgress.tsx"), "utf8");
   const sharedTypes = fs.readFileSync(path.resolve(frontendRoot, "..", "shared", "types.ts"), "utf8");
   const migration = fs.readFileSync(path.resolve(frontendRoot, "..", "database", "migrations", "20260729_add_campaign_reservation_expiration.sql"), "utf8");
 
   assert.match(source, /Proof due/);
   assert.match(source, /reservationExpiresAt/);
-  assert.match(source, /<CampaignContributorProgress/);
-  assert.match(source, /cols=\{\{ base: 1, md: 3 \}\}/);
-  assert.match(preview, /<CampaignContributorProgress/);
-  assert.match(preview, /cols=\{\{ base: 1, md: 3 \}\}/);
+  assert.match(source, /<CampaignHeroStats/);
+  assert.match(preview, /<CampaignHeroStats/);
+  assert.match(heroStats, /<CampaignContributorProgress/);
+  assert.match(heroStats, /cols=\{\{ base: 1, md: 3 \}\}/);
   assert.match(contributorProgress, /RingProgress/);
   assert.match(contributorProgress, /Contributors/);
   assert.match(contributorProgress, /Confirmed/);
@@ -1840,8 +1885,10 @@ test("customer campaign cards show status flavor, organizer trust, and three cam
   assert.match(card, /organizerAvatarUrl/);
   assert.match(card, /organizerTrustRating/);
   assert.match(card, /campaign-list-progress/);
-  assert.match(card, /filledContributors\}\/\{campaign\.requiredContributors\} filled/);
-  assert.match(card, /Ends \{formatCampaignEndDate\(campaign\.deadlineAt, timeZone\)\}/);
+  assert.match(card, /<CampaignFundingProgress/);
+  assert.match(card, /fundedAmountCents=\{fundedAmountCents\}/);
+  assert.match(card, /targetAmountCents=\{fundingTargetCents\}/);
+  assert.doesNotMatch(card, /filledContributors/);
   assert.match(card, />Location</);
   assert.match(card, /\$\{campaign\.vendor\.name\} - \$\{campaign\.location\.name\}/);
   assert.match(card, />Schedule</);

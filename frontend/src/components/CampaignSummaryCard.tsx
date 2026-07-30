@@ -1,8 +1,9 @@
-import { Avatar, Badge, Button, Card, Group, Progress, Stack, Text, Title } from "@mantine/core";
+import { Avatar, Badge, Button, Card, Group, Stack, Text, Title } from "@mantine/core";
 import { IconStar } from "@tabler/icons-react";
 import { Link } from "react-router-dom";
 import type { OrganizerCampaign, OrganizerCampaignStatus, PublicOrganizerCampaign } from "@shared";
 import RichCampaignDescription from "./RichCampaignDescription";
+import CampaignFundingProgress from "./CampaignFundingProgress";
 import { formatBookingScheduleTimeRange } from "../utils/dates";
 
 const CAMPAIGN_STATUS_PRESENTATION: Record<OrganizerCampaignStatus, { color: string; label: string }> = {
@@ -33,15 +34,6 @@ function formatCampaignListDate(value: string | Date, timeZone = "Asia/Manila") 
   }).format(new Date(value));
 }
 
-function formatCampaignEndDate(value: string | Date, timeZone = "Asia/Manila") {
-  return new Intl.DateTimeFormat("en-US", {
-    month: "numeric",
-    day: "numeric",
-    year: "numeric",
-    timeZone
-  }).format(new Date(value));
-}
-
 function formatCampaignDuration(startValue?: string | Date, endValue?: string | Date) {
   if (!startValue || !endValue) return "";
   const durationMinutes = Math.max(0, Math.round((new Date(endValue).getTime() - new Date(startValue).getTime()) / 60000));
@@ -51,14 +43,6 @@ function formatCampaignDuration(startValue?: string | Date, endValue?: string | 
   if (!minutes) return `${hours} ${hours === 1 ? "hour" : "hours"}`;
   if (!hours) return `${minutes} minutes`;
   return `${hours}h ${minutes}m`;
-}
-
-function getFilledContributors(campaign: CampaignSummary) {
-  if ("filledContributors" in campaign) return campaign.filledContributors;
-  return campaign.joinedContributors ?? Math.min(
-    campaign.requiredContributors,
-    (campaign.acceptedContributors ?? 0) + (campaign.reservedContributors ?? 0) + (campaign.underReviewContributors ?? 0)
-  );
 }
 
 export default function CampaignSummaryCard({
@@ -75,8 +59,10 @@ export default function CampaignSummaryCard({
   const status = CAMPAIGN_STATUS_PRESENTATION[campaign.status];
   const confirmedContributors = campaign.acceptedContributors ?? 0;
   const reservedContributors = (campaign.reservedContributors ?? 0) + (campaign.underReviewContributors ?? 0);
-  const filledContributors = getFilledContributors(campaign);
-  const filledPercent = campaign.requiredContributors ? Math.min(100, (filledContributors / campaign.requiredContributors) * 100) : 0;
+  const fundingTargetCents = campaign.requiredContributors * campaign.contributionFeeCents;
+  const fundedAmountCents = "acceptedAmountCents" in campaign
+    ? campaign.acceptedAmountCents ?? confirmedContributors * campaign.contributionFeeCents
+    : confirmedContributors * campaign.contributionFeeCents;
   const rating = campaign.organizerTrustRating;
   const timeZone = campaign.location?.timezone || "Asia/Manila";
   const scheduleDuration = formatCampaignDuration(campaign.scheduledStartAt, campaign.scheduledEndAt);
@@ -100,13 +86,13 @@ export default function CampaignSummaryCard({
         </Group>
       </Group>
       {campaign.description ? <RichCampaignDescription className={descriptionClassName} content={campaign.description}/> : null}
-      <Stack className="campaign-list-progress" gap={6}>
-        <Progress aria-label={`${filledContributors} of ${campaign.requiredContributors} campaign slots filled`} color="orange" radius="xs" size={7} value={filledPercent}/>
-        <Group justify="space-between">
-          <Text size="xs">{filledContributors}/{campaign.requiredContributors} filled</Text>
-          <Text size="xs">Ends {formatCampaignEndDate(campaign.deadlineAt, timeZone)}</Text>
-        </Group>
-      </Stack>
+      <CampaignFundingProgress
+        className="campaign-list-progress"
+        fundedAmountCents={fundedAmountCents}
+        radius="xs"
+        size={7}
+        targetAmountCents={fundingTargetCents}
+      />
       <div className="campaign-list-facts">
         <div className="campaign-list-fact"><Text c="dimmed" size="xs">Location</Text><Text fw={700} size="sm">{campaign.vendor?.name && campaign.location?.name ? `${campaign.vendor.name} - ${campaign.location.name}` : "Location unavailable"}</Text><Text c="dimmed" size="xs">{[campaign.location?.city, campaign.location?.province].filter(Boolean).join(", ") || "Address unavailable"}</Text></div>
         <div className="campaign-list-fact"><Text c="dimmed" size="xs">Schedule</Text><Text fw={700} size="sm">{campaign.scheduledStartAt ? formatCampaignListDate(campaign.scheduledStartAt, timeZone) : "Date unavailable"}</Text><Text c="dimmed" size="xs">{scheduleTime}</Text></div>

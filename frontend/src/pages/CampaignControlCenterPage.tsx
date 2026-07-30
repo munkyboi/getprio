@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Avatar, Badge, Box, Button, Card, Container, FileInput, Group, Image, Modal, Notification, NumberInput, Paper, Portal, Progress, ScrollArea, SimpleGrid, Slider, Stack, Text, Textarea, TextInput, Title } from "@mantine/core";
+import { Alert, Avatar, Badge, Box, Button, Card, Container, FileInput, Group, Image, Modal, Notification, NumberInput, Paper, Portal, ScrollArea, SimpleGrid, Slider, Stack, Text, Textarea, TextInput, Title } from "@mantine/core";
 import { IconAlertCircle, IconBellRinging, IconCalendarTime, IconCircleCheck, IconClock, IconCopy, IconExternalLink, IconEye, IconRefresh, IconStar, IconUpload } from "@tabler/icons-react";
 import { Link, Navigate, useParams } from "react-router-dom";
 import type { OrganizerCampaign, OrganizerContributionStatus } from "@shared";
@@ -10,8 +10,9 @@ import { getErrorMessage } from "../utils/errors";
 import FiveStarRatingInput from "../components/FiveStarRatingInput";
 import CampaignDescriptionEditor from "../components/CampaignDescriptionEditor";
 import RichCampaignDescription from "../components/RichCampaignDescription";
-import CampaignDeadlinePicker, { formatCampaignDeadline, formatCampaignDeadlineDate, resolveCampaignDeadline } from "../components/CampaignDeadlinePicker";
-import CampaignContributorProgress from "../components/CampaignContributorProgress";
+import CampaignDeadlinePicker, { formatCampaignDeadlineDate, resolveCampaignDeadline } from "../components/CampaignDeadlinePicker";
+import CampaignHeroStats from "../components/CampaignHeroStats";
+import CampaignFundingProgress from "../components/CampaignFundingProgress";
 import { ConfirmActionModal } from "../components/ConfirmActionModal";
 import { PromptActionModal } from "../components/PromptActionModal";
 import { formatBookingScheduleDate, formatBookingScheduleTimeRange } from "../utils/dates";
@@ -309,9 +310,6 @@ export default function CampaignControlCenterPage() {
   const fundingTargetCents = campaign
     ? campaign.requiredContributors * campaign.contributionFeeCents
     : 0;
-  const progress = fundingTargetCents > 0
-    ? Math.min(100, (acceptedAmountCents / fundingTargetCents) * 100)
-    : 0;
   const isOrganizer = Boolean(campaign && user && campaign.organizerUserId === user.id);
   const ownContribution = campaign?.contribution;
   const participation = ownContribution ? participationPresentation(ownContribution) : null;
@@ -514,8 +512,8 @@ export default function CampaignControlCenterPage() {
     <Card className="campaign-control-hero" p="xl"><Stack gap="md">
       <Group align="flex-start" justify="space-between"><Group align="center" gap="sm" wrap="nowrap"><Avatar alt={`${campaign.organizerDisplayName || "Organizer"} profile photo`} color="orange" radius="xl" size={48} src={campaign.organizerAvatarUrl || undefined}>{getInitials(campaign.organizerDisplayName || "Organizer")}</Avatar><Stack gap={4}><Badge color="cyan">{campaign.status}</Badge><Text className="campaign-hero-secondary" size="sm">Organized by <Text component="span" fw={800}>{campaign.organizerDisplayName || "Organizer"}</Text></Text></Stack></Group>{campaign.organizerTrustRating?.count ? <Group gap={6}><IconStar color="#ffd000" fill="#ffd000" size={20}/><Text fw={900}>{campaign.organizerTrustRating.average.toFixed(1)}</Text><Text className="campaign-hero-secondary" size="xs">({campaign.organizerTrustRating.count})</Text></Group> : null}</Group>
       <Title order={2}>{campaign.title}</Title>{campaign.description ? <RichCampaignDescription content={campaign.description}/> : null}
-      <Text fw={800}>Funding {money(acceptedAmountCents, campaign.currency)} / {money(fundingTargetCents, campaign.currency)}</Text><Progress color="orange" size="md" value={progress}/>
-      <SimpleGrid cols={{ base: 1, md: 3 }}><Card className="campaign-hero-stat"><Text size="xs">Join fee</Text><Text fw={800}>{money(campaign.contributionFeeCents, campaign.currency)}</Text></Card><Card className="campaign-hero-stat"><Text size="xs">Deadline</Text><Text fw={800}>{formatCampaignDeadline(campaign.deadlineAt)}</Text></Card><CampaignContributorProgress acceptedContributors={acceptedContributors} requiredContributors={campaign.requiredContributors} reservedContributors={reservedContributors} underReviewContributors={underReviewContributors}/></SimpleGrid>
+      <CampaignFundingProgress fundedAmountCents={acceptedAmountCents} targetAmountCents={fundingTargetCents}/>
+      <CampaignHeroStats acceptedContributors={acceptedContributors} currency={campaign.currency} deadlineAt={campaign.deadlineAt} joinFeeCents={campaign.contributionFeeCents} requiredContributors={campaign.requiredContributors} reservedContributors={reservedContributors} scheduledEndAt={campaign.scheduledEndAt} scheduledStartAt={campaign.scheduledStartAt} timeZone={campaign.location?.timezone} underReviewContributors={underReviewContributors}/>
       <Button leftSection={<IconCopy size={18}/>} onClick={() => navigator.clipboard.writeText(shareUrl)} variant="subtle">Copy share link</Button>
     </Stack></Card>
     {booking ? <Card className="booking-detail-services-card" p="lg"><Stack gap="md"><Group justify="space-between"><div><Text className="finazze-section-label">BOOKING DETAILS</Text><Title order={3}>Booked items</Title></div><Badge variant="light">{booking.reference}</Badge></Group><Stack gap="sm">{booking.bundleItems.map((item) => <Paper className="group-funded-bundle-item" key={item.id || item.serviceSlug} p="sm"><Group align="center" gap="sm" wrap="nowrap">{item.imageUrl ? <button aria-label={`Preview ${item.serviceName} image`} className="group-funded-bundle-thumbnail" onClick={() => setServiceImagePreview({ name: item.serviceName, imageUrl: item.imageUrl || "" })} type="button"><img alt="" src={item.imageUrl}/><span aria-hidden="true"><IconEye size={16}/></span></button> : <div aria-hidden="true" className="group-funded-bundle-thumbnail group-funded-bundle-thumbnail--placeholder"><span>{item.serviceName.slice(0, 2).toUpperCase()}</span></div>}<Stack gap={2} style={{ flex: 1, minWidth: 0 }}><Group gap="sm" justify="space-between" wrap="nowrap"><Text fw={800}>{item.serviceName}</Text><Badge variant="light">x{item.bookingQuantity}</Badge></Group><Text c="dimmed" size="sm">{formatBookingScheduleTimeRange(item.scheduledStartAt, item.scheduledEndAt, booking.locationTimezone)}</Text></Stack></Group></Paper>)}</Stack><Paper className="campaign-booking-schedule" p="md" withBorder><Group align="flex-start" gap="sm" wrap="nowrap"><IconCalendarTime aria-hidden="true" size={22}/><Stack gap={2}><Text className="finazze-section-label">BOOKING SCHEDULE</Text><Text fw={800}>{formatBookingScheduleDate(booking.scheduledStartAt, booking.locationTimezone)}</Text><Text c="dimmed" size="sm">{formatBookingScheduleTimeRange(booking.scheduledStartAt, booking.scheduledEndAt, booking.locationTimezone)}</Text><Text c="dimmed" size="sm"><Text component={Link} fw={700} to={`/vendors/${booking.vendorSlug}`} td="underline">{booking.vendorName}</Text> · {booking.locationName}</Text>{booking.locationAddress ? <Text c="dimmed" size="xs">{booking.locationAddress}</Text> : null}</Stack></Group></Paper></Stack></Card> : null}

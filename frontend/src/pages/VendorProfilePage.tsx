@@ -13,7 +13,6 @@ import {
   Modal,
   Paper,
   Pagination,
-  Progress,
   ScrollArea,
   SimpleGrid,
   Stack,
@@ -51,6 +50,7 @@ import type {
 } from "@shared";
 import { apiRequest } from "../api/client";
 import ContactForm from "../components/ContactForm";
+import CampaignFundingProgress from "../components/CampaignFundingProgress";
 import { getErrorMessage } from "../utils/errors";
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -134,14 +134,6 @@ function formatPaymentAmount(amountCents: number, currency: string) {
     currency,
     minimumFractionDigits: 2
   }).format(amountCents / 100);
-}
-
-function getCampaignProgress(campaign: GroupFundedCampaignSummary) {
-  if (!campaign.targetAmountCents) {
-    return 0;
-  }
-
-  return Math.min(100, Math.round((campaign.fundedAmountCents / campaign.targetAmountCents) * 100));
 }
 
 function formatScheduleDateTime(value: string | Date) {
@@ -1223,7 +1215,6 @@ export default function VendorProfilePage() {
                                       currency: campaign.currency
                                     }];
                                 const vendorDetailPath = `/vendors/${campaign.tenantSlug || vendor.slug}`;
-                                const fundingProgress = getCampaignProgress(campaign);
                                 const verifiedContributors = campaign.contributorReservationSummary?.verifiedContributorCount
                                   ?? campaign.paidParticipantCount;
                                 const pendingVerificationContributors = campaign.contributorReservationSummary?.pendingVerificationContributorCount ?? 0;
@@ -1282,10 +1273,10 @@ export default function VendorProfilePage() {
                                         </Badge>
                                       </Group>
                                       <div className="vendor-group-funded-card-funding">
-                                        <Text className="vendor-group-funded-card-funding-title" fw={800} size="sm">
-                                          Funding {formatPaymentAmount(campaign.fundedAmountCents, campaign.currency)} / {formatPaymentAmount(campaign.targetAmountCents, campaign.currency)}
-                                        </Text>
-                                        <Progress color="teal" radius="xl" value={fundingProgress} />
+                                        <CampaignFundingProgress
+                                          fundedAmountCents={campaign.fundedAmountCents}
+                                          targetAmountCents={campaign.targetAmountCents}
+                                        />
                                         <SimpleGrid className="vendor-group-funded-card-funding-details" cols={{ base: 1, sm: 2 }} spacing="xs">
                                           <div className="vendor-group-funded-card-funding-detail">
                                             <Text c="dimmed" size="xs">Join fee</Text>
