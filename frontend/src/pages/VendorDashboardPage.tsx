@@ -111,6 +111,7 @@ import type {
   VendorGroupFundedRefundSummary,
   GroupFundedRefundStatus
 } from "@shared";
+import { DEFAULT_TIMEZONE, getTimeZoneOptions } from "../../../shared/timezones";
 import { API_BASE_URL } from "../api/client";
 import PhilippineMobileInput from "../components/PhilippineMobileInput";
 import FiveStarRatingInput from "../components/FiveStarRatingInput";
@@ -149,6 +150,7 @@ type RawGroupFundedBundleItem = GroupFundedBundleItemSummary & {
 
 const dashboardSections = new Set(["queue", "tenants", "services", "bookings", "staff", "clients", "history", "reports", "settings"]);
 const SERVICE_TREND_USER_LIMIT = 30;
+const timeZoneOptions = getTimeZoneOptions();
 
 function IconActionButton({
   label,
@@ -326,7 +328,7 @@ const emptyLocationForm = {
   country: "Philippines",
   contactEmail: "",
   contactPhone: "",
-  timezone: "Asia/Manila",
+  timezone: DEFAULT_TIMEZONE,
   paymentMethodLabel: "",
   paymentBankName: "",
   paymentAccountDisplayName: "",
@@ -1047,6 +1049,7 @@ export default function VendorDashboardPage() {
   const [staffSeatLimit, setStaffSeatLimit] = useState(0);
   const [counterLimit, setCounterLimit] = useState(0);
   const [activeLocationLimit, setActiveLocationLimit] = useState(1);
+  const [platformDefaultTimezone, setPlatformDefaultTimezone] = useState(DEFAULT_TIMEZONE);
   const [locationDialogOpen, setLocationDialogOpen] = useState(false);
   const [editingLocationSlug, setEditingLocationSlug] = useState("");
   const [editingLocationId, setEditingLocationId] = useState("");
@@ -1474,6 +1477,7 @@ export default function VendorDashboardPage() {
     setError("");
     setLocations(locationsResponse.locations);
     setActiveLocationLimit(locationsResponse.activeLocationLimit);
+    setPlatformDefaultTimezone(locationsResponse.defaultTimezone);
     if (!selectedLocationSlug || !locationsResponse.locations.some((item) => item.slug === selectedLocationSlug)) {
       setSelectedLocationSlug(locationsResponse.locations.find((item) => item.isPrimary)?.slug || locationsResponse.locations[0]?.slug || "");
     }
@@ -3777,13 +3781,24 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     <Text span size="sm" fw={500}>
                       Slug
                     </Text>
+                    <Text aria-hidden="true" c="red" component="span" size="sm">
+                      *
+                    </Text>
                     <ModalHelpIcon label="This becomes part of the public URL for the location. Keep it short, lowercase, and URL-safe." />
                   </Group>
                 }
                 required
-                description={checkingLocationSlug ? "Checking slug availability..." : locationSlugMessage}
+                withAsterisk={false}
+                readOnly={Boolean(editingLocationSlug)}
+                description={
+                  editingLocationSlug
+                    ? "Slug cannot be changed after the location is created."
+                    : checkingLocationSlug
+                      ? "Checking slug availability..."
+                      : locationSlugMessage
+                }
                 error={
-                  !locationSlugAvailable && locationForm.slug
+                  !editingLocationSlug && !locationSlugAvailable && locationForm.slug
                     ? locationSlugMessage || "That location slug is already taken for this vendor."
                     : undefined
                 }
@@ -3845,13 +3860,16 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   setLocationForm((current) => ({ ...current, contactPhone: nextValue }))
                 }
               />
-              <TextInput
+              <Select
                 name="timezone"
                 label="Timezone"
                 description="Used for public hours and queue timing."
+                data={timeZoneOptions}
+                allowDeselect={false}
+                searchable
                 value={locationForm.timezone}
-                onChange={(event) =>
-                  setLocationForm((current) => ({ ...current, timezone: event.target.value }))
+                onChange={(value) =>
+                  value && setLocationForm((current) => ({ ...current, timezone: value }))
                 }
               />
             </SimpleGrid>
@@ -5266,23 +5284,30 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       setLocationSlugMessage("");
       setLocationSlugAvailable(false);
       setCheckingLocationSlug(false);
-      setLocationForm(emptyLocationForm);
+      setLocationForm({ ...emptyLocationForm, timezone: platformDefaultTimezone });
     }
 
     setLocationDialogOpen(true);
   }
 
   useEffect(() => {
-    if (!locationDialogOpen || locationSlugManuallyEdited) {
+    if (!locationDialogOpen || editingLocationSlug || locationSlugManuallyEdited) {
       return;
     }
 
     const nextSlug = buildLocationSlug(locationForm.name);
     setLocationForm((current) => ({ ...current, slug: nextSlug }));
-  }, [locationDialogOpen, locationForm.name, locationSlugManuallyEdited]);
+  }, [editingLocationSlug, locationDialogOpen, locationForm.name, locationSlugManuallyEdited]);
 
   useEffect(() => {
     if (!locationDialogOpen) {
+      return undefined;
+    }
+
+    if (editingLocationSlug) {
+      setLocationSlugAvailable(true);
+      setLocationSlugMessage("");
+      setCheckingLocationSlug(false);
       return undefined;
     }
 
@@ -5332,20 +5357,20 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       window.clearTimeout(timeout);
       controller.abort();
     };
-  }, [locationDialogOpen, locationForm.slug, token, selectedTenantSlug, editingLocationId]);
+  }, [editingLocationId, editingLocationSlug, locationDialogOpen, locationForm.slug, selectedTenantSlug, token]);
 
   async function saveLocation() {
     setBusyAction("location");
     setError("");
 
     try {
-      if (!locationSlugAvailable) {
+      if (!editingLocationSlug && !locationSlugAvailable) {
         setError(locationSlugMessage || "Choose an available location slug before saving.");
         return;
       }
       const payload = {
         name: locationForm.name,
-        slug: locationForm.slug,
+        ...(!editingLocationSlug ? { slug: locationForm.slug } : {}),
         imageUrl: locationForm.imageUrl,
         addressLine1: locationForm.addressLine1,
         addressLine2: locationForm.addressLine2,

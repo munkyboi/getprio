@@ -94,7 +94,11 @@ test("platform repository maps analytics, lists entities, and upserts settings",
       }
 
       if (String(query).includes("SELECT value FROM platform_settings WHERE key = $1 LIMIT 1")) {
-        return { rows: [{ value: "ops@example.com" }] };
+        return {
+          rows: [{
+            value: params[0] === "default_timezone" ? "Pacific/Auckland" : "ops@example.com"
+          }]
+        };
       }
 
       if (String(query).includes("INSERT INTO platform_settings")) {
@@ -142,12 +146,15 @@ test("platform repository maps analytics, lists entities, and upserts settings",
 
   const settings = await platformRepository.getPlatformSettings({ client });
   assert.equal(settings.enterpriseInquiryEmail, "ops@example.com");
+  assert.equal(settings.defaultTimezone, "Pacific/Auckland");
 
   const updated = await platformRepository.updatePlatformSettings({
     enterpriseInquiryEmail: "new@example.com",
+    defaultTimezone: "Asia/Manila",
     userId: 9
   }, { client });
   assert.equal(updated.enterpriseInquiryEmail, "ops@example.com");
+  assert.equal(updated.defaultTimezone, "Pacific/Auckland");
 
   assert.equal(calls.length > 0, true);
 });
