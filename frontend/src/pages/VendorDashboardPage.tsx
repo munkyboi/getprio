@@ -116,6 +116,7 @@ import { API_BASE_URL } from "../api/client";
 import PhilippineMobileInput from "../components/PhilippineMobileInput";
 import FiveStarRatingInput from "../components/FiveStarRatingInput";
 import RichCampaignDescription from "../components/RichCampaignDescription";
+import CampaignFundingProgress from "../components/CampaignFundingProgress";
 import * as vendorDashboardBookings from "../api/vendorDashboardBookings";
 import * as vendorDashboardQueue from "../api/vendorDashboardQueue";
 import * as vendorDashboardCatalog from "../api/vendorDashboardCatalog";
@@ -7399,9 +7400,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   <Table.Tbody>
                     {campaigns.map((campaign) => {
                       const fundingTargetAmountCents = getCampaignFundingTargetAmountCents(campaign);
-                      const progress = fundingTargetAmountCents > 0
-                        ? Math.min(100, Math.round((campaign.fundedAmountCents / fundingTargetAmountCents) * 100))
-                        : 0;
                       return (
                         <Table.Tr key={campaign.id}>
                           <Table.Td
@@ -7455,10 +7453,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           </Table.Td>
                           <Table.Td>
                             <Stack gap={4}>
-                              <Text fw={700}>
-                                {formatMoney(campaign.fundedAmountCents, campaign.currency)} / {formatMoney(fundingTargetAmountCents, campaign.currency)}
-                              </Text>
-                              <Slider value={progress} disabled label={null} color="teal" />
+                              <CampaignFundingProgress
+                                fundedAmountCents={campaign.fundedAmountCents}
+                                targetAmountCents={fundingTargetAmountCents}
+                              />
                               <Text c="dimmed" size="sm">
                                 {campaign.paidParticipantCount}/{campaign.requiredContributors} verified · {formatMoney(campaign.requiredContributionAmountCents, campaign.currency)} each
                               </Text>
