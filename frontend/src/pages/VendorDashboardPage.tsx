@@ -429,22 +429,52 @@ const groupFundedContributionRejectionReasons = [
 function normalizeGroupFundedSettings(
   settings?: Partial<GroupFundedLocationServiceSettings> | null
 ): GroupFundedLocationServiceSettings {
+  const minRequiredContributors =
+    settings?.minRequiredContributors ??
+    defaultGroupFundedSettings.minRequiredContributors ??
+    2;
+  const maxRequiredContributors = Math.max(
+    minRequiredContributors,
+    settings?.maxRequiredContributors ??
+      defaultGroupFundedSettings.maxRequiredContributors ??
+      12
+  );
+  const defaultRequiredContributors = Math.min(
+    maxRequiredContributors,
+    Math.max(
+      minRequiredContributors,
+      defaultGroupFundedSettings.defaultRequiredContributors ?? 4
+    )
+  );
+
   return {
     enabled: settings?.enabled === true,
-    minRequiredContributors:
-      settings?.minRequiredContributors ?? defaultGroupFundedSettings.minRequiredContributors,
-    maxRequiredContributors:
-      settings?.maxRequiredContributors ?? defaultGroupFundedSettings.maxRequiredContributors,
-    defaultRequiredContributors:
-      settings?.defaultRequiredContributors ?? defaultGroupFundedSettings.defaultRequiredContributors,
-    minContributionAmountCents: settings?.minContributionAmountCents ?? null,
-    maxContributionAmountCents: settings?.maxContributionAmountCents ?? null,
+    minRequiredContributors,
+    maxRequiredContributors,
+    defaultRequiredContributors,
+    minContributionAmountCents: null,
+    maxContributionAmountCents: null,
     minDeadlineHours:
       settings?.minDeadlineHours ?? defaultGroupFundedSettings.minDeadlineHours,
     maxDeadlineDays:
       settings?.maxDeadlineDays ?? defaultGroupFundedSettings.maxDeadlineDays,
     allowPublicCampaigns: settings?.allowPublicCampaigns === true
   };
+}
+
+function updateGroupFundedContributorBounds(
+  settings: Partial<GroupFundedLocationServiceSettings> | null | undefined,
+  changes: Partial<
+    Pick<
+      GroupFundedLocationServiceSettings,
+      "minRequiredContributors" | "maxRequiredContributors"
+    >
+  >
+): GroupFundedLocationServiceSettings {
+  return normalizeGroupFundedSettings({
+    ...normalizeGroupFundedSettings(settings),
+    ...changes
+  });
 }
 
 type ServiceLocationFormEntry = NonNullable<SaveVendorServiceRequest["locationServices"]>[number];
@@ -5837,7 +5867,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                               </Group>
                               {groupFunded.enabled ? (
                                 <Stack gap="sm">
-                                  <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="sm">
+                                  <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
                                     <NumberInput
                                       allowDecimal={false}
                                       allowNegative={false}
@@ -5849,28 +5879,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                       onChange={(value) =>
                                         updateLocationEntry((entry) => ({
                                           ...entry,
-                                          groupFunded: {
-                                            ...normalizeGroupFundedSettings(entry.groupFunded),
+                                          groupFunded: updateGroupFundedContributorBounds(
+                                            entry.groupFunded,
+                                            {
                                             minRequiredContributors: Number(value) || 2
-                                          }
-                                        }))
-                                      }
-                                    />
-                                    <NumberInput
-                                      allowDecimal={false}
-                                      allowNegative={false}
-                                      clampBehavior="strict"
-                                      label="Default contributors"
-                                      min={2}
-                                      max={100}
-                                      value={groupFunded.defaultRequiredContributors || 4}
-                                      onChange={(value) =>
-                                        updateLocationEntry((entry) => ({
-                                          ...entry,
-                                          groupFunded: {
-                                            ...normalizeGroupFundedSettings(entry.groupFunded),
-                                            defaultRequiredContributors: Number(value) || 4
-                                          }
+                                            }
+                                          )
                                         }))
                                       }
                                     />
@@ -5885,102 +5899,64 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                       onChange={(value) =>
                                         updateLocationEntry((entry) => ({
                                           ...entry,
-                                          groupFunded: {
-                                            ...normalizeGroupFundedSettings(entry.groupFunded),
+                                          groupFunded: updateGroupFundedContributorBounds(
+                                            entry.groupFunded,
+                                            {
                                             maxRequiredContributors: Number(value) || 12
-                                          }
+                                            }
+                                          )
                                         }))
                                       }
                                     />
                                   </SimpleGrid>
-                                  <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
-                                    <NumberInput
-                                      allowDecimal={false}
-                                      allowNegative={false}
-                                      clampBehavior="strict"
-                                      label="Min deadline hours"
-                                      min={1}
-                                      max={720}
-                                      value={groupFunded.minDeadlineHours || 24}
-                                      onChange={(value) =>
-                                        updateLocationEntry((entry) => ({
-                                          ...entry,
-                                          groupFunded: {
-                                            ...normalizeGroupFundedSettings(entry.groupFunded),
-                                            minDeadlineHours: Number(value) || 24
+                                  <Paper p="sm" radius="md" withBorder>
+                                    <details>
+                                      <summary>
+                                        <Text component="span" fw={700}>Advanced funding window</Text>
+                                      </summary>
+                                      <Text c="dimmed" size="sm" mt="xs">
+                                        Limit how soon or how far ahead customers can set a funding deadline.
+                                      </Text>
+                                      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm" mt="sm">
+                                        <NumberInput
+                                          allowDecimal={false}
+                                          allowNegative={false}
+                                          clampBehavior="strict"
+                                          label="Min deadline hours"
+                                          min={1}
+                                          max={720}
+                                          value={groupFunded.minDeadlineHours || 24}
+                                          onChange={(value) =>
+                                            updateLocationEntry((entry) => ({
+                                              ...entry,
+                                              groupFunded: {
+                                                ...normalizeGroupFundedSettings(entry.groupFunded),
+                                                minDeadlineHours: Number(value) || 24
+                                              }
+                                            }))
                                           }
-                                        }))
-                                      }
-                                    />
-                                    <NumberInput
-                                      allowDecimal={false}
-                                      allowNegative={false}
-                                      clampBehavior="strict"
-                                      label="Max deadline days"
-                                      min={1}
-                                      max={90}
-                                      value={groupFunded.maxDeadlineDays || 14}
-                                      onChange={(value) =>
-                                        updateLocationEntry((entry) => ({
-                                          ...entry,
-                                          groupFunded: {
-                                            ...normalizeGroupFundedSettings(entry.groupFunded),
-                                            maxDeadlineDays: Number(value) || 14
+                                        />
+                                        <NumberInput
+                                          allowDecimal={false}
+                                          allowNegative={false}
+                                          clampBehavior="strict"
+                                          label="Max deadline days"
+                                          min={1}
+                                          max={90}
+                                          value={groupFunded.maxDeadlineDays || 14}
+                                          onChange={(value) =>
+                                            updateLocationEntry((entry) => ({
+                                              ...entry,
+                                              groupFunded: {
+                                                ...normalizeGroupFundedSettings(entry.groupFunded),
+                                                maxDeadlineDays: Number(value) || 14
+                                              }
+                                            }))
                                           }
-                                        }))
-                                      }
-                                    />
-                                  </SimpleGrid>
-                                  <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
-                                    <NumberInput
-                                      allowDecimal={false}
-                                      allowNegative={false}
-                                      label="Min share"
-                                      min={0}
-                                      prefix="PHP "
-                                      value={
-                                        groupFunded.minContributionAmountCents === null
-                                          ? undefined
-                                          : groupFunded.minContributionAmountCents / 100
-                                      }
-                                      onChange={(value) =>
-                                        updateLocationEntry((entry) => ({
-                                          ...entry,
-                                          groupFunded: {
-                                            ...normalizeGroupFundedSettings(entry.groupFunded),
-                                            minContributionAmountCents:
-                                              value === "" || value === null
-                                                ? null
-                                                : Math.max(0, Math.round((Number(value) || 0) * 100))
-                                          }
-                                        }))
-                                      }
-                                    />
-                                    <NumberInput
-                                      allowDecimal={false}
-                                      allowNegative={false}
-                                      label="Max share"
-                                      min={0}
-                                      prefix="PHP "
-                                      value={
-                                        groupFunded.maxContributionAmountCents === null
-                                          ? undefined
-                                          : groupFunded.maxContributionAmountCents / 100
-                                      }
-                                      onChange={(value) =>
-                                        updateLocationEntry((entry) => ({
-                                          ...entry,
-                                          groupFunded: {
-                                            ...normalizeGroupFundedSettings(entry.groupFunded),
-                                            maxContributionAmountCents:
-                                              value === "" || value === null
-                                                ? null
-                                                : Math.max(0, Math.round((Number(value) || 0) * 100))
-                                          }
-                                        }))
-                                      }
-                                    />
-                                  </SimpleGrid>
+                                        />
+                                      </SimpleGrid>
+                                    </details>
+                                  </Paper>
                                   <Switch
                                     checked={groupFunded.allowPublicCampaigns}
                                     label="Allow public campaigns on vendor profile"
