@@ -1861,3 +1861,19 @@ test("booking schedule formatters honor the booking location timezone", () => {
   assert.equal(formatBookingScheduleDate(instant, "Asia/Manila"), "20 Aug 2026");
   assert.equal(formatBookingScheduleTimeRange(instant, "2026-08-20T00:30:00.000Z", "Asia/Manila"), "7:30 am - 8:30 am");
 });
+
+test("location slugs become immutable and new locations inherit the platform timezone", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const vendorDashboard = fs.readFileSync(path.join(frontendRoot, "src", "pages", "VendorDashboardPage.tsx"), "utf8");
+  const platformDashboard = fs.readFileSync(path.resolve(frontendRoot, "..", "platform-dashboard", "src", "main.tsx"), "utf8");
+  const sharedTypes = fs.readFileSync(path.resolve(frontendRoot, "..", "shared", "types.ts"), "utf8");
+
+  assert.match(vendorDashboard, /readOnly=\{Boolean\(editingLocationSlug\)\}/);
+  assert.match(vendorDashboard, /Slug cannot be changed after the location is created\./);
+  assert.match(vendorDashboard, /<Select[\s\S]*?name="timezone"[\s\S]*?searchable/);
+  assert.match(vendorDashboard, /timezone: platformDefaultTimezone/);
+  assert.match(vendorDashboard, /setPlatformDefaultTimezone\(locationsResponse\.defaultTimezone\)/);
+  assert.match(platformDashboard, /label="Default timezone"/);
+  assert.match(platformDashboard, /searchable/);
+  assert.match(sharedTypes, /defaultTimezone: string/);
+});

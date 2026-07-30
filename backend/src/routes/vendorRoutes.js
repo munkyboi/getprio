@@ -9,6 +9,7 @@ const locationServiceRepository = require("../repositories/locationServices");
 const vendorAvailabilityRepository = require("../repositories/vendorAvailability");
 const bookingRepository = require("../repositories/bookings");
 const organizerCampaignRepository = require("../repositories/organizerCampaigns");
+const platformRepository = require("../repositories/platform");
 const ratingRepository = require("../repositories/ratings");
 const userRepository = require("../repositories/users");
 const asyncHandler = require("../middleware/asyncHandler");
@@ -226,9 +227,11 @@ router.get(
       billing.subscription?.entitlements?.locations ||
       billing.plans.find((plan) => plan.slug === billing.subscription?.planSlug)?.entitlements.locations ||
       1;
+    const platformSettings = await platformRepository.getPlatformSettings();
 
     res.json({
       activeLocationLimit,
+      defaultTimezone: platformSettings.defaultTimezone,
       locations: await Promise.all(locations.map((location) => formatLocation(location, tenant)))
     });
   })
@@ -340,6 +343,7 @@ router.post(
       assertTenantPermission,
       billingService,
       storeLocationRepository,
+      platformRepository,
       normalizeLocationPayload,
       formatLocation,
       getLocationForTenant

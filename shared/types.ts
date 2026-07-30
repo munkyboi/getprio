@@ -238,6 +238,7 @@ export type StoreLocationWithHours = StoreLocationSummary;
 export interface StoreLocationsResponse {
   locations: StoreLocationWithHours[];
   activeLocationLimit: number;
+  defaultTimezone: string;
 }
 
 export type BookingCapacityScope = "service" | "location";
@@ -1629,11 +1630,13 @@ export interface PlatformQueueFeesResponse {
 export interface PlatformSettingsResponse {
   settings: {
     enterpriseInquiryEmail: string;
+    defaultTimezone: string;
   };
 }
 
 export interface UpdatePlatformSettingsRequest {
   enterpriseInquiryEmail: string;
+  defaultTimezone: string;
 }
 
 export interface UpdatePlatformQueueFeesRequest {
