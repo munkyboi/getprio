@@ -11,6 +11,7 @@ const subscriptionPlanRepository = require("../repositories/subscriptionPlans");
 const organizerCampaignRepository = require("../repositories/organizerCampaigns");
 const ratingRepository = require("../repositories/ratings");
 const paymentProofStorageService = require("../services/paymentProofStorageService");
+const { isValidTimeZone, normalizeTimeZone } = require("../utils/timezones");
 
 const router = express.Router();
 
@@ -109,8 +110,14 @@ router.patch(
   requirePlatformPermission("platform.settings.manage"),
   asyncHandler(async (req, res) => {
     const enterpriseInquiryEmail = normalizeEmail(req.body.enterpriseInquiryEmail);
+    const defaultTimezone = normalizeTimeZone(req.body.defaultTimezone, "");
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(enterpriseInquiryEmail)) {
       const error = new Error("A valid enterprise inquiry email is required.");
+      error.statusCode = 400;
+      throw error;
+    }
+    if (!isValidTimeZone(defaultTimezone)) {
+      const error = new Error("A valid default timezone is required.");
       error.statusCode = 400;
       throw error;
     }
@@ -118,6 +125,7 @@ router.patch(
     res.json({
       settings: await platformRepository.updatePlatformSettings({
         enterpriseInquiryEmail,
+        defaultTimezone,
         userId: req.user?._id
       })
     });

@@ -48,6 +48,7 @@ function getVendorMediaStyle(vendor: PublicVendorProfile): CSSProperties | undef
   return {
     "--vendor-theme-card-bg": theme.cardBackgroundColor,
     "--vendor-theme-logo-fit": theme.logoFit,
+    ...(theme.logoFit === "cover" ? { "--vendor-theme-logo-frame-padding": "0px" } : {}),
     ...(theme.backgroundImageUrl
       ? {
           backgroundImage: `linear-gradient(rgba(255,255,255,0.2), rgba(255,255,255,0.2)), url(${theme.backgroundImageUrl})`

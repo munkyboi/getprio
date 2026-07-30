@@ -51,7 +51,8 @@ function mapCampaign(row) {
         name: row.location_name,
         slug: row.location_slug,
         city: row.location_city || "",
-        province: row.location_province || ""
+        province: row.location_province || "",
+        timezone: row.location_timezone || "Asia/Manila"
       }
     } : {}),
     status: row.campaign_status,
@@ -70,6 +71,7 @@ function mapCampaign(row) {
     paymentInstructions: row.payment_instructions,
     currency: row.currency,
     scheduledStartAt: row.scheduled_start_at || null,
+    scheduledEndAt: row.scheduled_end_at || null,
     publishedAt: row.published_at || null,
     collectedAt: row.collected_at || null,
     cancellationReason: row.cancellation_reason || null,
@@ -97,15 +99,24 @@ function mapPublicCampaign(row) {
       count: Number(row.organizer_trust_count || 0)
     },
     scheduledStartAt: row.scheduled_start_at,
+    scheduledEndAt: row.scheduled_end_at,
     vendor: { name: row.tenant_name, slug: row.tenant_slug },
-    location: { name: row.location_name, slug: row.location_slug },
+    location: {
+      name: row.location_name,
+      slug: row.location_slug,
+      city: row.location_city || "",
+      province: row.location_province || "",
+      timezone: row.location_timezone || "Asia/Manila"
+    },
     service: { name: row.service_name, slug: row.service_slug }, publishedAt: row.published_at
   };
 }
 
-const PUBLIC_CAMPAIGN_SELECT = `SELECT campaigns.*, bookings.scheduled_start_at,
+const PUBLIC_CAMPAIGN_SELECT = `SELECT campaigns.*, bookings.scheduled_start_at, bookings.scheduled_end_at,
   tenants.name AS tenant_name, tenants.slug AS tenant_slug, store_locations.name AS location_name,
-  store_locations.slug AS location_slug, vendor_services.name AS service_name, vendor_services.slug AS service_slug,
+  store_locations.slug AS location_slug, store_locations.city AS location_city,
+  store_locations.province AS location_province, store_locations.timezone AS location_timezone,
+  vendor_services.name AS service_name, vendor_services.slug AS service_slug,
   COALESCE(NULLIF(users.display_name, ''), users.name) AS organizer_display_name,
   users.avatar_url AS organizer_avatar_url,
   (SELECT COALESCE(ROUND(AVG(ratings.stars)::numeric, 1), 0)::float
@@ -252,7 +263,7 @@ async function createCampaign({
 
 async function findCampaignById(id) {
   const { rows } = await db.pool.query(
-    `SELECT campaigns.*, bookings.scheduled_start_at,
+    `SELECT campaigns.*, bookings.scheduled_start_at, bookings.scheduled_end_at,
        COALESCE(NULLIF(users.display_name, ''), users.name) AS organizer_display_name,
        users.avatar_url AS organizer_avatar_url,
        COALESCE((
@@ -321,7 +332,7 @@ async function listCampaignsForOrganizer(organizerUserId) {
 
 async function listCampaignsForCustomer(userId) {
   const { rows } = await db.pool.query(
-    `SELECT campaigns.*, bookings.scheduled_start_at,
+    `SELECT campaigns.*, bookings.scheduled_start_at, bookings.scheduled_end_at,
        COALESCE(NULLIF(users.display_name, ''), users.name) AS organizer_display_name,
        users.avatar_url AS organizer_avatar_url,
        tenants.name AS tenant_name,
@@ -330,6 +341,7 @@ async function listCampaignsForCustomer(userId) {
        store_locations.slug AS location_slug,
        store_locations.city AS location_city,
        store_locations.province AS location_province,
+       store_locations.timezone AS location_timezone,
        (SELECT COALESCE(ROUND(AVG(ratings.stars)::numeric, 1), 0)::float
         FROM user_trust_ratings ratings
         WHERE ratings.subject_user_id = campaigns.organizer_user_id

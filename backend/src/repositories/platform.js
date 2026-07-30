@@ -308,14 +308,24 @@ async function getPlatformSettings(options = {}) {
       "enterprise_inquiry_email",
       "carlo.abella@gmail.com",
       options
+    ),
+    defaultTimezone: await getSetting(
+      "default_timezone",
+      "Asia/Manila",
+      options
     )
   };
 }
 
-async function updatePlatformSettings({ enterpriseInquiryEmail, userId }, options = {}) {
+async function updatePlatformSettings({ enterpriseInquiryEmail, defaultTimezone, userId }, options = {}) {
   await upsertSetting({
     key: "enterprise_inquiry_email",
     value: enterpriseInquiryEmail,
+    userId
+  }, options);
+  await upsertSetting({
+    key: "default_timezone",
+    value: defaultTimezone,
     userId
   }, options);
 

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Avatar, Badge, Box, Button, Card, Container, Divider, FileInput, Group, Image, Modal, Notification, NumberInput, Paper, Portal, Progress, ScrollArea, SimpleGrid, Slider, Stack, Text, Textarea, TextInput, Title } from "@mantine/core";
+import { Alert, Avatar, Badge, Box, Button, Card, Container, FileInput, Group, Image, Modal, Notification, NumberInput, Paper, Portal, Progress, ScrollArea, SimpleGrid, Slider, Stack, Text, Textarea, TextInput, Title } from "@mantine/core";
 import { IconAlertCircle, IconBellRinging, IconCalendarTime, IconCircleCheck, IconClock, IconCopy, IconExternalLink, IconEye, IconRefresh, IconStar, IconUpload } from "@tabler/icons-react";
 import { Link, Navigate, useParams } from "react-router-dom";
-import type { OrganizerCampaign, OrganizerCampaignStatus, OrganizerContributionStatus } from "@shared";
+import type { OrganizerCampaign, OrganizerContributionStatus } from "@shared";
 import { API_BASE_URL, apiRequest } from "../api/client";
 import { customerAccountApi } from "../api/customerAccount";
 import { useAuth } from "../context/AuthContext";
@@ -15,6 +15,7 @@ import CampaignContributorProgress from "../components/CampaignContributorProgre
 import { ConfirmActionModal } from "../components/ConfirmActionModal";
 import { PromptActionModal } from "../components/PromptActionModal";
 import { formatBookingScheduleDate, formatBookingScheduleTimeRange } from "../utils/dates";
+import CampaignSummaryCard from "../components/CampaignSummaryCard";
 
 function money(cents: number, currency = "PHP") {
   return new Intl.NumberFormat("en-PH", { style: "currency", currency }).format(cents / 100);
@@ -30,31 +31,42 @@ function getInitials(value = "") {
   return value.trim().split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase() || "").join("") || "U";
 }
 
-const CAMPAIGN_STATUS_PRESENTATION: Record<OrganizerCampaignStatus, { color: string; label: string }> = {
-  draft: { color: "gray", label: "Draft" },
-  collecting: { color: "orange", label: "Collecting" },
-  collected: { color: "teal", label: "Collected" },
-  refund_pending: { color: "yellow", label: "Refund pending" },
-  cancelled: { color: "red", label: "Cancelled" },
-  frozen: { color: "indigo", label: "Frozen" }
-};
+type CampaignFilters = { search: string; date: string };
 
-function formatCampaignListDate(value: string | Date) {
-  return new Intl.DateTimeFormat("en-GB", {
-    day: "numeric",
-    month: "long",
+function formatCampaignFilterDate(value: string | Date, timeZone = "Asia/Manila") {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-US", {
+    day: "2-digit",
+    month: "2-digit",
     year: "numeric",
-    timeZone: "Asia/Manila"
-  }).format(new Date(value));
+    timeZone
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
 }
 
-function campaignLocationLabel(campaign: OrganizerCampaign) {
-  return [
-    campaign.vendor?.name,
-    campaign.location?.name,
-    campaign.location?.city,
-    campaign.location?.province
-  ].filter(Boolean).join(", ") || "Location unavailable";
+function campaignMatchesFilters(campaign: OrganizerCampaign, filters: CampaignFilters) {
+  const search = filters.search.trim().toLocaleLowerCase();
+  if (search) {
+    const searchableText = [
+      campaign.title,
+      campaign.organizerDisplayName,
+      campaign.vendor?.name,
+      campaign.location?.name,
+      campaign.location?.city,
+      campaign.location?.province,
+      campaign.booking?.locationAddress
+    ].filter(Boolean).join(" ").toLocaleLowerCase();
+    if (!searchableText.includes(search)) return false;
+  }
+
+  if (!filters.date) return true;
+  const scheduledStartAt = campaign.scheduledStartAt || campaign.booking?.scheduledStartAt;
+  return Boolean(
+    scheduledStartAt
+      && formatCampaignFilterDate(scheduledStartAt, campaign.location?.timezone || campaign.booking?.locationTimezone) === filters.date
+  );
 }
 
 function contributionStatus(status: OrganizerContributionStatus) {
@@ -194,39 +206,6 @@ function DraftCampaignEditor({ campaign, token, onSaved }: { campaign: Organizer
   return <Card p="lg"><Stack><Title order={3}>Campaign setup</Title><TextInput label="Title" maxLength={120} value={form.title} onChange={(e) => setForm((v) => ({ ...v, title: e.currentTarget.value }))}/><Stack gap={4}><Text fw={500} size="sm">Description</Text><CampaignDescriptionEditor disabled={busy} value={form.description} onChange={(description) => setForm((v) => ({ ...v, description }))}/></Stack><CampaignDeadlinePicker disabled={busy} onChange={(deadlineAt) => setForm((v) => ({ ...v, deadlineAt }))} scheduledStartAt={campaign.scheduledStartAt} value={form.deadlineAt}/><NumberInput label="Contribution fee per person (PHP)" min={1} value={form.contributionFeePhp} onChange={(value) => setForm((v) => ({ ...v, contributionFeePhp: Number(value) || 0 }))}/><Stack gap={6}><Group justify="space-between"><Text size="sm">Contributor slots</Text><Badge>{form.requiredContributors} people</Badge></Group><Slider aria-label="Contributor slots" max={100} min={1} onChange={(value) => setForm((v) => ({ ...v, requiredContributors: value }))} value={form.requiredContributors}/></Stack><Stack gap={4}><Text fw={500} size="sm">Private payment instructions</Text><Text c="dimmed" size="xs">Shown only to joined, signed-in contributors.</Text><CampaignDescriptionEditor disabled={busy} maxCharacters={2000} value={form.paymentInstructions} onChange={(paymentInstructions) => setForm((v) => ({ ...v, paymentInstructions }))}/></Stack>{error ? <Alert color="red">{error}</Alert> : null}<Button loading={busy} onClick={save}>Save draft</Button></Stack></Card>;
 }
 
-function CampaignListCard({ item }: { item: OrganizerCampaign }) {
-  const status = CAMPAIGN_STATUS_PRESENTATION[item.status];
-  const joinedContributors = item.joinedContributors ?? item.acceptedContributors ?? 0;
-  const rating = item.organizerTrustRating;
-
-  return (
-    <Card component={Link} className="campaign-list-card campaign-summary-card" p="lg" to={`/account/campaigns/${item.id}/manage`}>
-      <Stack className="campaign-summary-card__content" gap="sm">
-        <Group justify="space-between" wrap="nowrap">
-          <Badge color={status.color} radius="xl" tt="uppercase" variant="filled">{status.label}</Badge>
-          <Text fw={800}>{money(item.contributionFeeCents, item.currency)}</Text>
-        </Group>
-        <Title order={3}>{item.title}</Title>
-        <Group className="campaign-list-organizer" gap="xs" wrap="nowrap">
-          <Avatar alt={`${item.organizerDisplayName || "Organizer"} profile photo`} color="orange" radius="xl" size={30} src={item.organizerAvatarUrl || undefined}>{getInitials(item.organizerDisplayName || "Organizer")}</Avatar>
-          <Group gap={6} wrap="wrap">
-            <Text size="sm">Organized by <Text component="span" fw={800}>{item.organizerDisplayName || "Organizer"}</Text></Text>
-            <Text aria-hidden="true" c="dimmed" size="sm">|</Text>
-            {rating?.count ? <Group gap={4} wrap="nowrap"><IconStar aria-hidden="true" color="#ffd000" fill="#ffd000" size={15}/><Text size="sm">{rating.average.toFixed(1)} ({rating.count})</Text></Group> : <Group gap={4} wrap="nowrap"><IconStar aria-hidden="true" color="var(--mantine-color-gray-5)" size={15}/><Text c="dimmed" size="sm">No rating yet</Text></Group>}
-          </Group>
-        </Group>
-        {item.description ? <RichCampaignDescription className="campaign-list-description" content={item.description}/> : null}
-        <Divider mt="xs"/>
-        <SimpleGrid className="campaign-list-facts" cols={{ base: 1, xs: 3 }} spacing={0}>
-          <div className="campaign-list-fact"><Text c="dimmed" size="xs">Location</Text><Text fw={700} size="sm">{campaignLocationLabel(item)}</Text></div>
-          <div className="campaign-list-fact"><Text c="dimmed" size="xs">Deadline</Text><Text fw={700} size="sm">{formatCampaignListDate(item.deadlineAt)}</Text></div>
-          <div className="campaign-list-fact"><Text c="dimmed" size="xs">Contributors</Text><Text fw={700} size="sm">{joinedContributors}/{item.requiredContributors} Joined</Text></div>
-        </SimpleGrid>
-      </Stack>
-    </Card>
-  );
-}
-
 export default function CampaignControlCenterPage() {
   const { campaignId } = useParams();
   const { token, user, loading } = useAuth();
@@ -252,6 +231,8 @@ export default function CampaignControlCenterPage() {
   } | null>(null);
   const [overlayNotices, setOverlayNotices] = useState<NonNullable<OrganizerCampaign["notices"]>>([]);
   const [reservationClock, setReservationClock] = useState(Date.now());
+  const [campaignFilters, setCampaignFilters] = useState<CampaignFilters>({ search: "", date: "" });
+  const [appliedCampaignFilters, setAppliedCampaignFilters] = useState<CampaignFilters>({ search: "", date: "" });
   const dismissedNoticeIdsRef = useRef<Set<string>>(new Set());
 
   const load = useCallback(async () => {
@@ -343,6 +324,10 @@ export default function CampaignControlCenterPage() {
     : null;
   const retryAvailable = !ownContribution?.retryAvailableAt
     || new Date(ownContribution.retryAvailableAt).getTime() <= reservationClock;
+  const filteredCampaigns = useMemo(
+    () => campaigns.filter((item) => campaignMatchesFilters(item, appliedCampaignFilters)),
+    [appliedCampaignFilters, campaigns]
+  );
 
   function dismissNotice(noticeId: string) {
     dismissedNoticeIdsRef.current.add(noticeId);
@@ -496,8 +481,28 @@ export default function CampaignControlCenterPage() {
       </Group>
       <Card className="finazze-auth-card customer-account-card campaign-control-page" p="xl">
         <Stack gap="lg">
+          <Card className="campaign-discovery-filters" component="form" onSubmit={(event) => {
+            event.preventDefault();
+            setAppliedCampaignFilters({
+              search: campaignFilters.search.trim(),
+              date: campaignFilters.date
+            });
+          }} p="md">
+            <SimpleGrid cols={{ base: 1, md: 3 }}>
+              <TextInput label="Search campaigns" maxLength={120} onChange={(event) => {
+                const search = event.currentTarget.value;
+                setCampaignFilters((current) => ({ ...current, search }));
+              }} placeholder="Campaign title, organizer, vendor, or address" type="search" value={campaignFilters.search}/>
+              <TextInput label="Booking date" onChange={(event) => {
+                const date = event.currentTarget.value;
+                setCampaignFilters((current) => ({ ...current, date }));
+              }} type="date" value={campaignFilters.date}/>
+              <Button mt={{ base: 0, md: 25 }} type="submit">Apply filters</Button>
+            </SimpleGrid>
+          </Card>
           {error ? <Alert color="red">{error}</Alert> : null}
-          <SimpleGrid cols={{ base: 1, sm: 2 }}>{campaigns.map((item) => <CampaignListCard item={item} key={item.id}/>)}</SimpleGrid>
+          <SimpleGrid cols={{ base: 1, sm: 2 }}>{filteredCampaigns.map((item) => <CampaignSummaryCard campaign={item} key={item.id} to={`/account/campaigns/${item.id}/manage`}/>)}</SimpleGrid>
+          {campaigns.length > 0 && !filteredCampaigns.length && !error ? <Alert color="gray">No campaigns match the selected filters.</Alert> : null}
           {!campaigns.length && !error ? <Alert color="gray">Confirmed bookings selected for campaigns will appear here.</Alert> : null}
         </Stack>
       </Card>

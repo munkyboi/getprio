@@ -64,6 +64,7 @@ import type {
   UpdatePlatformSettingsRequest,
   UserSummary
 } from "@shared";
+import { getTimeZoneOptions } from "../../shared/timezones";
 import { apiRequest } from "./api";
 import { PortalDataTable } from "./components/PortalDataTable";
 import { ConfirmActionModal } from "./components/ConfirmActionModal";
@@ -76,6 +77,7 @@ import "./styles.css";
 const STORAGE_KEY = "prio-platform-auth";
 const APPEARANCE_KEY = "prio-platform-appearance";
 const PHP = new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" });
+const timeZoneOptions = getTimeZoneOptions();
 type PortalAppearance = "dark" | "light";
 const theme = createTheme({
   primaryColor: "orange",
@@ -395,7 +397,16 @@ function SettingsPage({ token }: { token: string }) {
   return (
     <Paper className="portal-card" p="lg">
       <Stack>
-        <TextInput label="Enterprise inquiry recipient" value={settings?.enterpriseInquiryEmail || ""} onChange={(event) => setSettings({ enterpriseInquiryEmail: event.target.value })} />
+        <TextInput label="Enterprise inquiry recipient" value={settings?.enterpriseInquiryEmail || ""} onChange={(event) => setSettings((current) => current ? { ...current, enterpriseInquiryEmail: event.target.value } : current)} />
+        <Select
+          allowDeselect={false}
+          data={timeZoneOptions}
+          description="Used as the initial timezone for newly created vendor locations."
+          label="Default timezone"
+          onChange={(value) => setSettings((current) => current && value ? { ...current, defaultTimezone: value } : current)}
+          searchable
+          value={settings?.defaultTimezone || null}
+        />
         <Group justify="flex-end"><Button onClick={save}>Save settings</Button></Group>
       </Stack>
     </Paper>

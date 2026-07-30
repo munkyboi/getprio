@@ -2,6 +2,7 @@ const storeLocationRepository = require("../repositories/storeLocations");
 const vendorServiceRepository = require("../repositories/vendorServices");
 const storeHoursService = require("../services/storeHoursService");
 const { assertPublicTextFieldsAllowed } = require("../services/contentModeration");
+const { isValidTimeZone } = require("../utils/timezones");
 
 const BOOKING_CAPACITY_SCOPES = new Set(["service", "location"]);
 
@@ -128,6 +129,12 @@ function normalizeLocationPayload(body, existingLocation = null) {
     if (Object.prototype.hasOwnProperty.call(next, field) && typeof next[field] === "string") {
       next[field] = next[field].trim();
     }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(next, "timezone") && !isValidTimeZone(next.timezone)) {
+    const error = new Error("A valid location timezone is required.");
+    error.statusCode = 400;
+    throw error;
   }
 
   assertPublicTextFieldsAllowed({

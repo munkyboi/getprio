@@ -209,10 +209,14 @@ test("public campaign preview exposes the organizer trust aggregate", async () =
           organizer_trust_average: 4.4,
           organizer_trust_count: 5,
           scheduled_start_at: new Date("2026-08-20T02:00:00.000Z"),
+          scheduled_end_at: new Date("2026-08-20T05:00:00.000Z"),
           tenant_name: "VD Sports Club",
           tenant_slug: "vd-sports-club",
           location_name: "Tulik",
           location_slug: "tulik",
+          location_city: "Argao",
+          location_province: "Cebu",
+          location_timezone: "Asia/Manila",
           service_name: "Pickleball",
           service_slug: "pickleball"
         }]
@@ -223,6 +227,14 @@ test("public campaign preview exposes the organizer trust aggregate", async () =
   const campaign = await repository.findPublicCampaignByToken("public-token");
 
   assert.deepEqual(campaign.organizerTrustRating, { average: 4.4, count: 5 });
+  assert.equal(campaign.scheduledEndAt.toISOString(), "2026-08-20T05:00:00.000Z");
+  assert.deepEqual(campaign.location, {
+    name: "Tulik",
+    slug: "tulik",
+    city: "Argao",
+    province: "Cebu",
+    timezone: "Asia/Manila"
+  });
   assert.equal(campaign.organizerAvatarUrl, "https://cdn.example.test/sadie.png");
   assert.equal(campaign.bookingId, "91");
   assert.deepEqual(campaign.vendor, { name: "VD Sports Club", slug: "vd-sports-club" });
@@ -401,6 +413,9 @@ test("customer campaign list includes campaign-wide contribution aggregates", as
             location_slug: "tulik",
             location_city: "Argao",
             location_province: "Cebu",
+            location_timezone: "Asia/Manila",
+            scheduled_start_at: new Date("2026-08-20T11:30:00.000Z"),
+            scheduled_end_at: new Date("2026-08-20T14:30:00.000Z"),
             campaign_status: "collecting",
             visibility: "private_link",
             title: "Open play",
@@ -412,6 +427,8 @@ test("customer campaign list includes campaign-wide contribution aggregates", as
             currency: "PHP",
             accepted_contributors: 4,
             joined_contributors: 4,
+            reserved_contributors: 1,
+            under_review_contributors: 0,
             accepted_amount_cents: 40000
           }]
         };
@@ -426,18 +443,23 @@ test("customer campaign list includes campaign-wide contribution aggregates", as
   assert.match(calls[0].query, /accepted_amount_cents/);
   assert.match(calls[0].query, /tenants\.name AS tenant_name/);
   assert.match(calls[0].query, /store_locations\.city AS location_city/);
+  assert.match(calls[0].query, /bookings\.scheduled_end_at/);
+  assert.match(calls[0].query, /store_locations\.timezone AS location_timezone/);
   assert.match(calls[0].query, /AVG\(ratings\.stars\)/);
   assert.deepEqual(calls[0].params, [7]);
   assert.equal(campaigns[0].acceptedContributors, 4);
   assert.equal(campaigns[0].joinedContributors, 4);
+  assert.equal(campaigns[0].reservedContributors, 1);
   assert.equal(campaigns[0].acceptedAmountCents, 40000);
+  assert.equal(campaigns[0].scheduledEndAt.toISOString(), "2026-08-20T14:30:00.000Z");
   assert.deepEqual(campaigns[0].organizerTrustRating, { average: 4.4, count: 51 });
   assert.deepEqual(campaigns[0].vendor, { name: "VD Sports Club", slug: "vd-sports-club" });
   assert.deepEqual(campaigns[0].location, {
     name: "Tulik",
     slug: "tulik",
     city: "Argao",
-    province: "Cebu"
+    province: "Cebu",
+    timezone: "Asia/Manila"
   });
 });
 

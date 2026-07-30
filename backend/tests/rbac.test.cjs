@@ -244,6 +244,9 @@ test("vendor location payment QR settings are private vendor-managed configurati
       listHoursByLocationId: async () => [],
       replaceHours: async () => []
     },
+    "../repositories/platform": {
+      getPlatformSettings: async () => ({ defaultTimezone: "Asia/Manila" })
+    },
     "../repositories/tickets": {
       listHistoryTickets: async () => [],
       listClientTickets: async () => []

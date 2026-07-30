@@ -238,6 +238,7 @@ export type StoreLocationWithHours = StoreLocationSummary;
 export interface StoreLocationsResponse {
   locations: StoreLocationWithHours[];
   activeLocationLimit: number;
+  defaultTimezone: string;
 }
 
 export type BookingCapacityScope = "service" | "location";
@@ -835,7 +836,7 @@ export interface OrganizerCampaign {
   organizerDisplayName: string;
   organizerAvatarUrl?: string;
   vendor?: { name: string; slug: string };
-  location?: { name: string; slug: string; city: string; province: string };
+  location?: { name: string; slug: string; city: string; province: string; timezone: string };
   status: OrganizerCampaignStatus;
   visibility: "private_link" | "public";
   title: string;
@@ -852,6 +853,7 @@ export interface OrganizerCampaign {
   paymentInstructions: string;
   currency: string;
   scheduledStartAt?: string | Date;
+  scheduledEndAt?: string | Date;
   booking?: {
     id: string;
     reference: string;
@@ -900,9 +902,10 @@ export interface PublicOrganizerCampaign {
   organizerAvatarUrl?: string;
   organizerTrustRating?: { average: number; count: number };
   scheduledStartAt: string | Date;
+  scheduledEndAt: string | Date;
   currency: string;
   vendor: { name: string; slug: string };
-  location: { name: string; slug: string };
+  location: { name: string; slug: string; city: string; province: string; timezone: string };
   service: { name: string; slug: string };
   booking?: {
     vendorName: string;
@@ -1627,11 +1630,13 @@ export interface PlatformQueueFeesResponse {
 export interface PlatformSettingsResponse {
   settings: {
     enterpriseInquiryEmail: string;
+    defaultTimezone: string;
   };
 }
 
 export interface UpdatePlatformSettingsRequest {
   enterpriseInquiryEmail: string;
+  defaultTimezone: string;
 }
 
 export interface UpdatePlatformQueueFeesRequest {
