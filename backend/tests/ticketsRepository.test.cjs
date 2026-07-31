@@ -202,6 +202,37 @@ test("tickets repository applies carried-over filters for overflow and history v
   assert.match(calls[1].query, /AND carried_over_at IS NULL AND COALESCE\(carry_over_count, 0\) = 0/);
 });
 
+test("tickets repository lists unexpired tickets waiting for carry-over activation", async () => {
+  const { calls, client } = createQueryClient([
+    {
+      id: 9,
+      tenant_id: 1,
+      location_id: 2,
+      lookup_code: "3912FF7E",
+      ticket_number: "VD002",
+      customer_name: "Alex Boyer",
+      status: "pending_carry_over",
+      carry_over_expires_at: "2026-08-07T17:00:06.389Z"
+    }
+  ]);
+  const ticketsRepository = requireWithMocks("../src/repositories/tickets.js", {
+    "../config/db": { pool: client }
+  });
+
+  const [ticket] = await ticketsRepository.listPendingCarryOverTickets(1, {
+    client,
+    locationId: 2,
+    limit: 50
+  });
+
+  assert.equal(ticket.lookupCode, "3912FF7E");
+  assert.match(calls[0].query, /status = 'pending_carry_over'/);
+  assert.match(calls[0].query, /carry_over_consumed = FALSE/);
+  assert.match(calls[0].query, /carry_over_expires_at > NOW\(\)/);
+  assert.match(calls[0].query, /ORDER BY pending_carry_over_since ASC, id ASC/);
+  assert.deepEqual(calls[0].params, [1, 2, 50]);
+});
+
 test("customer account ticket history is isolated by linked user ownership", async () => {
   const calls = [];
   const client = {

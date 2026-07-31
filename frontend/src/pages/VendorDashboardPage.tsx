@@ -142,6 +142,7 @@ import { getErrorMessage } from "../utils/errors";
 import { getWeeklyAvailabilityDefaults } from "../utils/availability";
 import { isBrowserPushSupported, subscribeToBrowserPush } from "../utils/pushNotifications";
 import {
+  getTicketStateSummary,
   getQueueDaySyncNotice,
   resolveQueueDayState,
   selectFreshestQueueSnapshot
@@ -4813,7 +4814,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   <Group justify="space-between" align="flex-start">
                     <div>
                       <Text className="neura-label">Overflow queue</Text>
-                      <Title order={3}>Carried-over tickets</Title>
+                      <Title order={3}>Carry-over tickets</Title>
                     </div>
                     <Badge variant="light">
                       {overflowTickets.length} ticket{overflowTickets.length === 1 ? "" : "s"}
@@ -4826,8 +4827,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           <Table.Th>ID</Table.Th>
                           <Table.Th>Ticket</Table.Th>
                           <Table.Th>Channel</Table.Th>
-                          <Table.Th>Priority</Table.Th>
-                          <Table.Th>Carried over</Table.Th>
+                          <Table.Th>Status</Table.Th>
+                          <Table.Th>Activated at</Table.Th>
                           <Table.Th>Joined</Table.Th>
                         </Table.Tr>
                       </Table.Thead>
@@ -4842,8 +4843,13 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                               </Table.Td>
                               <Table.Td><Badge variant="light">{ticket.joinChannel}</Badge></Table.Td>
                               <Table.Td>
-                                <Badge color="orange" variant="light">
-                                  carry_over
+                                <Badge
+                                  color={ticket.status === "pending_carry_over" ? "blue" : "orange"}
+                                  variant="light"
+                                >
+                                  {ticket.status === "pending_carry_over"
+                                    ? getTicketStateSummary(ticket.status).label
+                                    : "Carried over"}
                                 </Badge>
                               </Table.Td>
                               <Table.Td>{ticket.carriedOverAt ? formatDateTime(ticket.carriedOverAt) : "--"}</Table.Td>
