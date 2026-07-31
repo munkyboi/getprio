@@ -16,6 +16,11 @@ const PAYMENT_COLUMNS = `
   queue_join_payments.metadata,
   queue_join_payments.ticket_id,
   queue_join_payments.ticket_lookup_code,
+  queue_join_payments.queue_day_id,
+  queue_join_payments.queue_day_version_at_checkout,
+  queue_join_payments.ticket_issuance_status,
+  queue_join_payments.ticket_issuance_reason,
+  queue_join_payments.ticket_issuance_attempted_at,
   queue_join_payments.paid_at,
   queue_join_payments.created_at,
   queue_join_payments.updated_at
@@ -48,6 +53,13 @@ function mapPayment(row) {
     metadata: row.metadata || {},
     ticketId: row.ticket_id ? String(row.ticket_id) : null,
     ticketLookupCode: row.ticket_lookup_code,
+    queueDayId: row.queue_day_id ? String(row.queue_day_id) : null,
+    queueDayVersionAtCheckout: row.queue_day_version_at_checkout == null
+      ? null
+      : Number(row.queue_day_version_at_checkout),
+    ticketIssuanceStatus: row.ticket_issuance_status || "pending",
+    ticketIssuanceReason: row.ticket_issuance_reason || null,
+    ticketIssuanceAttemptedAt: row.ticket_issuance_attempted_at,
     paidAt: row.paid_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at
@@ -90,9 +102,11 @@ async function createPayment(data, options = {}) {
         amount_cents,
         currency,
         payload,
-        metadata
+        metadata,
+        queue_day_id,
+        queue_day_version_at_checkout
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       ON CONFLICT (tenant_id, otp_id) DO UPDATE
       SET metadata = queue_join_payments.metadata || EXCLUDED.metadata
       RETURNING ${PAYMENT_COLUMNS}
@@ -105,7 +119,9 @@ async function createPayment(data, options = {}) {
       Number(data.amountCents),
       data.currency || "PHP",
       JSON.stringify(data.payload || {}),
-      JSON.stringify(data.metadata || {})
+      JSON.stringify(data.metadata || {}),
+      data.queueDayId ? Number(data.queueDayId) : null,
+      data.queueDayVersionAtCheckout == null ? null : Number(data.queueDayVersionAtCheckout)
     ]
   );
 
@@ -220,6 +236,9 @@ async function markPaidWithTicket(paymentId, data, options = {}) {
         paid_at = COALESCE($3::timestamptz, paid_at, NOW()),
         ticket_id = $4,
         ticket_lookup_code = $5,
+        ticket_issuance_status = 'issued',
+        ticket_issuance_reason = NULL,
+        ticket_issuance_attempted_at = NOW(),
         metadata = metadata || $6::jsonb
       WHERE id = $1
       RETURNING ${PAYMENT_COLUMNS}
@@ -234,6 +253,30 @@ async function markPaidWithTicket(paymentId, data, options = {}) {
     ]
   );
 
+  return mapPayment(result.rows[0]);
+}
+
+async function markPaidTicketBlocked(paymentId, data, options = {}) {
+  const result = await buildQueryClient(options.client).query(
+    `UPDATE queue_join_payments
+     SET status = 'paid',
+         provider_payment_id = COALESCE($2, provider_payment_id),
+         paid_at = COALESCE($3::timestamptz, paid_at, NOW()),
+         ticket_issuance_status = 'refund_pending',
+         ticket_issuance_reason = $4,
+         ticket_issuance_attempted_at = NOW(),
+         metadata = metadata || $5::jsonb,
+         updated_at = NOW()
+     WHERE id = $1
+     RETURNING ${PAYMENT_COLUMNS}`,
+    [
+      Number(paymentId),
+      data.providerPaymentId || null,
+      normalizeTimestampForPostgres(data.paidAt),
+      data.reason || "queue_day_unavailable",
+      JSON.stringify(data.metadata || {})
+    ]
+  );
   return mapPayment(result.rows[0]);
 }
 
@@ -276,5 +319,6 @@ module.exports = {
   findPaymentByProviderId,
   findPaymentByProviderIdForUpdate,
   markPaidWithTicket,
+  markPaidTicketBlocked,
   listPayments
 };

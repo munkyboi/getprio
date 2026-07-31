@@ -11,7 +11,9 @@ load_env_file() {
     [[ -z "${key:-}" ]] && continue
     [[ "${key:0:1}" == "#" ]] && continue
     value="${value%$'\r'}"
-    export "$key=$value"
+    if [[ -z "${!key+x}" ]]; then
+      export "$key=$value"
+    fi
   done < <(
     awk -F= '
       /^[[:space:]]*#/ { next }
@@ -41,7 +43,8 @@ database_has_user_tables() {
 }
 
 run_psql() {
-  if command -v docker >/dev/null 2>&1 && docker compose ps database >/dev/null 2>&1; then
+  if command -v docker >/dev/null 2>&1 &&
+    [[ -n "$(docker compose ps --status running -q database 2>/dev/null)" ]]; then
     docker compose exec -T database env DATABASE_URL="$DATABASE_URL" psql "$DATABASE_URL" "$@"
     return
   fi

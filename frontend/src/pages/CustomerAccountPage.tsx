@@ -56,6 +56,7 @@ import { getErrorMessage } from "../utils/errors";
 import { showCustomerError, showCustomerSuccess } from "../utils/customerNotifications";
 import { isBrowserPushSupported, subscribeToBrowserPush } from "../utils/pushNotifications";
 import CustomerAccountLayout, { type CustomerAccountSection } from "../components/CustomerAccountLayout";
+import { getTicketStateSummary } from "../utils/queueStatus";
 
 const CUSTOMER_TABLE_PAGE_SIZE = 10;
 
@@ -71,8 +72,12 @@ function getTicketBadgeColor(status: TicketStatus): "gray" | "red" | "yellow" | 
       return "yellow";
     case "cancelled":
       return "red";
+    case "pending_carry_over":
+      return "blue";
     case "unserved":
       return "orange";
+    case "expired":
+      return "red";
     default:
       return "gray";
   }
@@ -665,9 +670,20 @@ export default function CustomerAccountPage() {
                     </Table.Td>
                     <Table.Td>{ticket.locationName}</Table.Td>
                     <Table.Td>
-                      <Badge color={getTicketBadgeColor(ticket.status)} variant="light">
-                        {ticket.status}
-                      </Badge>
+                      <Stack gap={3}>
+                        <Badge color={getTicketBadgeColor(ticket.status)} variant="light" w="fit-content">
+                          {getTicketStateSummary(ticket.status).label}
+                        </Badge>
+                        {ticket.status === "pending_carry_over" && ticket.carryOverExpiresAt ? (
+                          <Text c="dimmed" size="xs">
+                            Retained until {formatDateTime(ticket.carryOverExpiresAt)}
+                          </Text>
+                        ) : ticket.status === "expired" || ticket.status === "unserved" ? (
+                          <Text c="dimmed" size="xs">
+                            Final outcome
+                          </Text>
+                        ) : null}
+                      </Stack>
                     </Table.Td>
                     <Table.Td>{formatDateTime(ticket.createdAt)}</Table.Td>
                     <Table.Td style={{ width: 1, whiteSpace: "nowrap" }}>

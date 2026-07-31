@@ -4,10 +4,12 @@ const notificationDeliveryRepository = require("../repositories/notificationDeli
 const queueEventRepository = require("../repositories/queueEvents");
 const queueDayClosureRepository = require("../repositories/queueDayClosures");
 const queueDayPauseRepository = require("../repositories/queueDayPauses");
+const queueDayRepository = require("../repositories/queueDays");
 const ticketRepository = require("../repositories/tickets");
 const bookingRepository = require("../repositories/bookings");
 const queueEvents = require("./queueEvents");
 const queueLifecycle = require("./queueLifecycle");
+const queueDayLifecycleService = require("./queueDayLifecycleService");
 const notificationService = require("./notificationService");
 const pushNotificationService = require("./pushNotificationService");
 const {
@@ -89,6 +91,36 @@ async function getTenantUsage(tenantId) {
 }
 
 async function assertQueueDayOpen(tenant, location, options = {}) {
+  if (location?.queueLifecycleMode === "enforced") {
+    const queueDay = await queueDayLifecycleService.getAuthoritativeQueueDay(
+      tenant._id,
+      location._id,
+      { client: options.client, state: "open", forUpdate: Boolean(options.client) }
+    );
+    if (queueDay && new Date(queueDay.currentClosesAt) > new Date()) {
+      return queueDay;
+    }
+    if (queueDay && options.client) {
+      await queueDayLifecycleService.closeLockedQueueDay(
+        options.client,
+        tenant,
+        location,
+        queueDay,
+        { source: "request_reconciliation", reason: "effective_hours_ended" }
+      );
+    } else if (queueDay) {
+      await queueDayLifecycleService.closeQueueDay(tenant, location, {
+        source: "request_reconciliation",
+        reason: "effective_hours_ended"
+      });
+    }
+    throw Object.assign(new Error(queueDay
+      ? "The Queue Day deadline has passed."
+      : "The queue has not been opened by staff."), {
+      statusCode: 409,
+      code: queueDay ? "QUEUE_DAY_OVERDUE" : "QUEUE_DAY_UNOPENED"
+    });
+  }
   const queueDateKey = options.queueDateKey || getDateKey();
   const activeClosure = await queueDayClosureRepository.findActiveClosure(
     tenant._id,
@@ -107,10 +139,76 @@ async function assertQueueDayOpen(tenant, location, options = {}) {
 }
 
 async function getQueueSnapshot(tenant, options = {}) {
-  return buildQueueSnapshot(tenant, options, getTenantUsage);
+  const snapshot = await buildQueueSnapshot(tenant, options, getTenantUsage);
+  const location = options.location || (snapshot.location
+    ? await resolveLocation(tenant, { locationSlug: snapshot.location.slug })
+    : null);
+  if (location?.queueLifecycleMode === "shadow") {
+    await queueDayLifecycleService.recordShadowComparison(
+      tenant,
+      location,
+      snapshot.queueDay
+    );
+    return snapshot;
+  }
+  if (location?.queueLifecycleMode !== "enforced") {
+    return snapshot;
+  }
+  let resolution = await queueDayLifecycleService.getQueueDayForSnapshot(
+    tenant,
+    location
+  );
+  let queueDay = resolution.queueDay;
+  if (
+    queueDay?.state === "open"
+    && queueDay.currentClosesAt
+    && new Date(queueDay.currentClosesAt) <= new Date()
+  ) {
+    await queueDayLifecycleService.closeQueueDay(tenant, location, {
+      source: "request_reconciliation",
+      reason: "effective_hours_ended"
+    });
+    resolution = await queueDayLifecycleService.getQueueDayForSnapshot(
+      tenant,
+      location
+    );
+    queueDay = resolution.queueDay;
+  }
+  snapshot.queueDay = queueDayLifecycleService.formatQueueDayStatus(
+    queueDay,
+    location,
+    new Date(),
+    resolution
+  );
+  if (queueDay?.state === "closed") {
+    const closeEvent = await queueEventRepository.findLatestLifecycleEvent(
+      queueDay._id,
+      "queue_day_closed"
+    );
+    snapshot.queueDay.outcomeCounts = closeEvent?.metadata?.outcomes || null;
+  }
+  snapshot.queueIntake = {
+    ...snapshot.queueIntake,
+    state: snapshot.queueDay.intakeMode === "paused"
+      ? "paused"
+      : snapshot.queueDay.state === "open"
+        ? snapshot.queueIntake.state
+        : "closed",
+    stateLabel: snapshot.queueDay.intakeMode === "paused"
+      ? "Paused"
+      : snapshot.queueDay.state === "open"
+        ? snapshot.queueIntake.stateLabel
+        : snapshot.queueDay.state === "unopened"
+          ? "Not opened"
+          : "Closed"
+  };
+  return snapshot;
 }
 
 async function assertQueueIntakeOpen(tenant, location, options = {}) {
+  if (location?.queueLifecycleMode === "enforced") {
+    return queueDayLifecycleService.assertIntakeOpen(tenant, location, options);
+  }
   await assertQueueDayOpen(tenant, location, options);
 
   const queueDateKey = options.queueDateKey || getDateKey();
@@ -243,11 +341,26 @@ async function createTicketForTenantInTransaction(client, {
   notes,
   servicePriorityBand
 }) {
-  const dateKey = getDateKey();
   const resolvedLocation = location || (await resolveLocation(tenant));
-  const sequence = await reserveNextSequence(client, tenant._id, resolvedLocation._id, dateKey);
+  let queueDay = null;
+  let dateKey;
+  let sequence;
+  if (resolvedLocation.queueLifecycleMode === "enforced") {
+    queueDay = await assertQueueIntakeOpen(tenant, resolvedLocation, { client });
+    dateKey = String(queueDay.businessDate).replace(/-/g, "");
+    sequence = await queueDayRepository.allocateSequence(queueDay._id, { client });
+    if (sequence == null) {
+      const error = new Error("Queue intake changed. Refresh and try again.");
+      error.statusCode = 409;
+      error.code = "QUEUE_STATE_CHANGED";
+      throw error;
+    }
+  } else {
+    dateKey = getDateKey(new Date(), resolvedLocation.timezone);
+    sequence = await reserveNextSequence(client, tenant._id, resolvedLocation._id, dateKey);
+  }
 
-  return createTicketRecord(client, {
+  const ticket = await createTicketRecord(client, {
     tenantId: tenant._id,
     locationId: resolvedLocation._id,
     userId,
@@ -261,14 +374,36 @@ async function createTicketForTenantInTransaction(client, {
     notifyBySms: Boolean(notifyBySms && customerPhone),
     joinChannel: joinChannel || "online",
     notes,
-    servicePriorityBand
+    servicePriorityBand,
+    originalQueueDayId: queueDay?._id,
+    currentQueueDayId: queueDay?._id
   });
+  if (queueDay) {
+    await client.query(
+      `INSERT INTO queue_ticket_segments (
+         ticket_id, queue_day_id, display_number, sequence, priority_band
+       )
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (ticket_id, queue_day_id) DO NOTHING`,
+      [
+        Number(ticket._id),
+        Number(queueDay._id),
+        ticket.ticketNumber,
+        ticket.sequence,
+        servicePriorityBand || "normal"
+      ]
+    );
+  }
+  return ticket;
 }
 
 async function callNextTicket(tenant, options = {}) {
   const location = await resolveLocation(tenant, options);
-  await assertQueueDayOpen(tenant, location);
-  const dateKey = options.queueDateKey || getDateKey();
+  const activeQueueDay = await assertQueueDayOpen(tenant, location);
+  const dateKey = options.queueDateKey
+    || (activeQueueDay?.businessDate
+      ? String(activeQueueDay.businessDate).replace(/-/g, "")
+      : getDateKey(new Date(), location.timezone));
   const ticket = await db.withTransaction(async (client) => {
     const activeTicket = await ticketRepository.findCurrentCalledTicket(tenant._id, {
       client,
@@ -346,7 +481,11 @@ async function callNextTicket(tenant, options = {}) {
 async function updateCurrentTicketStatus(tenant, status, options = {}) {
   const location = await resolveLocation(tenant, options);
   queueLifecycle.assertSupportedCurrentTicketResolution(status);
-  const dateKey = options.queueDateKey || getDateKey();
+  const activeQueueDay = await assertQueueDayOpen(tenant, location);
+  const dateKey = options.queueDateKey
+    || (activeQueueDay?.businessDate
+      ? String(activeQueueDay.businessDate).replace(/-/g, "")
+      : getDateKey(new Date(), location.timezone));
   const ticket = await db.withTransaction(async (client) => {
     const currentTicket = await ticketRepository.findCurrentCalledTicket(tenant._id, {
       client,
@@ -371,7 +510,14 @@ async function updateCurrentTicketStatus(tenant, status, options = {}) {
     if (["served", "cancelled"].includes(status)) {
       await bookingRepository.updateBookingByQueueTicketId(
         updatedTicket._id,
-        { status: status === "served" ? "completed" : "canceled" },
+        {
+          status: status === "served" ? "completed" : "canceled",
+          fulfillmentOutcomeReason: status === "served"
+            ? "ticket_served"
+            : "ticket_cancelled",
+          refundEligible: false,
+          fulfillmentResolvedAt: new Date()
+        },
         { client }
       );
     }
@@ -454,7 +600,10 @@ async function cancelTicket(tenant, lookupCode, options = {}) {
       actorRole: actor.actorRole,
       source: actor.source,
       metadata: {
-        lookupCode: cancelledTicket.lookupCode
+        lookupCode: cancelledTicket.lookupCode,
+        reason: existingTicket.status === "pending_carry_over"
+          ? "carry_over_declined"
+          : "customer_cancelled"
       }
     });
 
@@ -486,9 +635,16 @@ async function closeQueueDay(tenant, options = {}) {
     error.statusCode = 400;
     throw error;
   }
+  if (location.queueLifecycleMode === "enforced") {
+    await queueDayLifecycleService.closeQueueDay(tenant, location, options);
+    return publishSnapshot(tenant, { location });
+  }
 
-  const queueDateKey = options.queueDateKey || getDateKey();
-  const nextQueueDateKey = options.nextQueueDateKey || getDateKey(new Date(Date.now() + 24 * 60 * 60 * 1000));
+  const queueDateKey = options.queueDateKey || getDateKey(new Date(), location.timezone);
+  const nextQueueDateKey = options.nextQueueDateKey || getDateKey(
+    new Date(Date.now() + 24 * 60 * 60 * 1000),
+    location.timezone
+  );
   let unservedTicketsForPush = [];
   let carriedTicketsForPush = [];
   await db.withTransaction(async (client) => {
@@ -649,8 +805,12 @@ async function reopenQueueDay(tenant, options = {}) {
     error.statusCode = 400;
     throw error;
   }
+  if (location.queueLifecycleMode === "enforced") {
+    await queueDayLifecycleService.reopenQueueDay(tenant, location, options);
+    return publishSnapshot(tenant, { location });
+  }
 
-  const queueDateKey = options.queueDateKey || getDateKey();
+  const queueDateKey = options.queueDateKey || getDateKey(new Date(), location.timezone);
   let reopenedTicketsForPush = [];
   await db.withTransaction(async (client) => {
     const activeClosure = await queueDayClosureRepository.findActiveClosure(
@@ -763,6 +923,10 @@ async function pauseQueueDay(tenant, options = {}) {
     error.statusCode = 400;
     throw error;
   }
+  if (location.queueLifecycleMode === "enforced") {
+    await queueDayLifecycleService.setQueueIntake(tenant, location, "paused", options);
+    return publishSnapshot(tenant, { location });
+  }
 
   const queueDateKey = options.queueDateKey || getDateKey();
   await db.withTransaction(async (client) => {
@@ -843,6 +1007,10 @@ async function resumeQueueDay(tenant, options = {}) {
     error.statusCode = 400;
     throw error;
   }
+  if (location.queueLifecycleMode === "enforced") {
+    await queueDayLifecycleService.setQueueIntake(tenant, location, "accepting", options);
+    return publishSnapshot(tenant, { location });
+  }
 
   const queueDateKey = options.queueDateKey || getDateKey();
   await db.withTransaction(async (client) => {
@@ -890,7 +1058,13 @@ async function resumeQueueDay(tenant, options = {}) {
 
 async function restoreSkippedTicket(tenant, ticketId, options = {}) {
   const location = await resolveLocation(tenant, options);
-  const dateKey = options.queueDateKey || getDateKey();
+  const activeQueueDay = await assertQueueIntakeOpen(tenant, location, {
+    queueDateKey: options.queueDateKey
+  });
+  const dateKey = options.queueDateKey
+    || (activeQueueDay?.businessDate
+      ? String(activeQueueDay.businessDate).replace(/-/g, "")
+      : getDateKey(new Date(), location.timezone));
 
   const ticket = await db.withTransaction(async (client) => {
     await assertQueueIntakeOpen(tenant, location, { client, queueDateKey: dateKey });
@@ -989,6 +1163,40 @@ async function restoreSkippedTicket(tenant, ticketId, options = {}) {
   return { ticket, snapshot };
 }
 
+async function openQueueDay(tenant, options = {}) {
+  const location = await resolveLocation(tenant, options);
+  if (!location) {
+    const error = new Error("A location is required to open the queue.");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (location.queueLifecycleMode !== "enforced") {
+    const error = new Error("Manual Queue Day opening is not enabled for this location yet.");
+    error.statusCode = 409;
+    error.code = "QUEUE_LIFECYCLE_NOT_ENFORCED";
+    throw error;
+  }
+  await queueDayLifecycleService.openQueueDay(tenant, location, options);
+  return publishSnapshot(tenant, { location });
+}
+
+async function extendQueueDay(tenant, options = {}) {
+  const location = await resolveLocation(tenant, options);
+  if (!location) {
+    const error = new Error("A location is required to extend the queue.");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (location.queueLifecycleMode !== "enforced") {
+    const error = new Error("Queue Day extensions are not enabled for this location yet.");
+    error.statusCode = 409;
+    error.code = "QUEUE_LIFECYCLE_NOT_ENFORCED";
+    throw error;
+  }
+  await queueDayLifecycleService.extendQueueDay(tenant, location, options);
+  return publishSnapshot(tenant, { location });
+}
+
 module.exports = {
   resolveLocation,
   createTicket,
@@ -999,6 +1207,8 @@ module.exports = {
   updateCurrentTicketStatus,
   cancelTicket,
   closeQueueDay,
+  openQueueDay,
+  extendQueueDay,
   reopenQueueDay,
   pauseQueueDay,
   resumeQueueDay,

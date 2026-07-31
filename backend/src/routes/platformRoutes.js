@@ -10,12 +10,104 @@ const queueJoinPaymentService = require("../services/queueJoinPaymentService");
 const subscriptionPlanRepository = require("../repositories/subscriptionPlans");
 const organizerCampaignRepository = require("../repositories/organizerCampaigns");
 const ratingRepository = require("../repositories/ratings");
+const queueDayRepository = require("../repositories/queueDays");
+const queueNotificationOutboxRepository = require("../repositories/queueNotificationOutbox");
 const paymentProofStorageService = require("../services/paymentProofStorageService");
+const queueDayLifecycleService = require("../services/queueDayLifecycleService");
 const { isValidTimeZone, normalizeTimeZone } = require("../utils/timezones");
 
 const router = express.Router();
 
 router.use(authenticate);
+
+router.get(
+  "/queue-lifecycle/diagnostics",
+  requirePlatformPermission("platform.queue_lifecycle.read"),
+  asyncHandler(async (req, res) => {
+    res.json({
+      queueDays: await queueDayRepository.listDiagnostics({
+        state: req.query.state,
+        limit: req.query.limit
+      })
+    });
+  })
+);
+
+router.post(
+  "/queue-lifecycle/:queueDayId/reconcile",
+  requirePlatformPermission("platform.queue_lifecycle.reconcile"),
+  asyncHandler(async (req, res) => {
+    const result = await queueDayLifecycleService.reconcileQueueDayById(req.params.queueDayId);
+    res.json({ queueDay: result.queueDay, outcomes: result.outcomes, idempotent: result.idempotent });
+  })
+);
+
+router.post(
+  "/queue-lifecycle/notifications/:outboxId/requeue",
+  requirePlatformPermission("platform.queue_notifications.requeue"),
+  asyncHandler(async (req, res) => {
+    const notification = await queueNotificationOutboxRepository.requeue(req.params.outboxId);
+    if (!notification) {
+      const error = new Error("Retryable notification intent not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+    res.json({ notification });
+  })
+);
+
+router.post(
+  "/queue-lifecycle/repair/preview",
+  requirePlatformPermission("platform.queue_lifecycle.repair"),
+  asyncHandler(async (req, res) => {
+    const action = String(req.body?.action || "");
+    if (!["reconcile_overdue_queue_day", "requeue_notification"].includes(action)) {
+      const error = new Error("Repair action is not allowlisted.");
+      error.statusCode = 400;
+      throw error;
+    }
+    res.json({
+      preview: {
+        action,
+        targetId: String(req.body?.targetId || ""),
+        requiresMfa: true,
+        mutatesCustomerIdentity: false
+      }
+    });
+  })
+);
+
+router.post(
+  "/queue-lifecycle/repair/execute",
+  requirePlatformPermission("platform.queue_lifecycle.repair"),
+  asyncHandler(async (req, res) => {
+    if (req.get("x-mfa-confirmed") !== "true") {
+      const error = new Error("Recent MFA confirmation is required.");
+      error.statusCode = 403;
+      throw error;
+    }
+    const action = String(req.body?.action || "");
+    const targetId = req.body?.targetId;
+    if (action === "reconcile_overdue_queue_day") {
+      const result = await queueDayLifecycleService.reconcileQueueDayById(targetId);
+      res.json({ action, targetId: String(targetId), idempotent: result.idempotent });
+      return;
+    }
+    if (action === "requeue_notification") {
+      const notification = await queueNotificationOutboxRepository.requeue(targetId);
+      if (!notification) {
+        const error = new Error("Retryable notification intent not found.");
+        error.statusCode = 404;
+        throw error;
+      }
+      res.json({ action, targetId: String(targetId), notification });
+      return;
+    }
+    const error = new Error("Repair action is not allowlisted.");
+    error.statusCode = 400;
+    throw error;
+  })
+);
 
 router.get(
   "/overview",

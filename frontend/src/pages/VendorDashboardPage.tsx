@@ -117,6 +117,7 @@ import PhilippineMobileInput from "../components/PhilippineMobileInput";
 import FiveStarRatingInput from "../components/FiveStarRatingInput";
 import RichCampaignDescription from "../components/RichCampaignDescription";
 import CampaignFundingProgress from "../components/CampaignFundingProgress";
+import VendorQueueLifecycleTray from "../components/VendorQueueLifecycleTray";
 import * as vendorDashboardBookings from "../api/vendorDashboardBookings";
 import * as vendorDashboardQueue from "../api/vendorDashboardQueue";
 import * as vendorDashboardCatalog from "../api/vendorDashboardCatalog";
@@ -140,6 +141,8 @@ import {
 import { getErrorMessage } from "../utils/errors";
 import { getWeeklyAvailabilityDefaults } from "../utils/availability";
 import { isBrowserPushSupported, subscribeToBrowserPush } from "../utils/pushNotifications";
+import { resolveQueueDayState } from "../utils/queueStatus";
+import { getQueueCustomerFullNameLabel } from "../utils/queueNames";
 import { checkServiceSlugAvailability } from "../api/vendorDashboardCatalog";
 import { checkCounterSlugAvailability } from "../api/vendorDashboardOperations";
 
@@ -1132,6 +1135,12 @@ export default function VendorDashboardPage() {
   const knownQueueTicketIdsRef = useRef<Set<string> | null>(null);
   const [queueAlertIds, setQueueAlertIds] = useState<string[]>([]);
   const dismissedQueueAlertIdsRef = useRef<Set<string>>(new Set());
+  const previousQueueDayRef = useRef<{
+    id: string | null;
+    state: string | null;
+    deadlineVersion: number | null;
+    reconciliationError: string | null;
+  } | null>(null);
   const [bookingDetailModalId, setBookingDetailModalId] = useState<string | null>(null);
   const [bookingDetailOpen, setBookingDetailOpen] = useState(false);
   const [bookingDetailLoading, setBookingDetailLoading] = useState(false);
@@ -1224,7 +1233,8 @@ export default function VendorDashboardPage() {
     user?.tenants.find((tenant) => tenant.slug === selectedTenantSlug)?.role || null;
   const isOwner = selectedTenantRole === "owner";
   const isAdmin = selectedTenantRole === "admin";
-  const canManageQueueDay = isOwner || isAdmin;
+  const canOperateQueueDay = Boolean(selectedTenantRole);
+  const canReopenQueueDay = isOwner || isAdmin;
   const canManageContactSettings = isOwner;
   const canExportHistory = isOwner || isAdmin;
   const canAdminBookings = isOwner || isAdmin;
@@ -1539,6 +1549,43 @@ export default function VendorDashboardPage() {
   }, [dashboardBootstrapQuery.error]);
 
   useEffect(() => {
+    const queueDay = snapshot?.queueDay;
+    if (!queueDay) return;
+    const current = {
+      id: queueDay.id ? String(queueDay.id) : null,
+      state: queueDay.state || null,
+      deadlineVersion: queueDay.deadlineVersion ?? null,
+      reconciliationError: queueDay.reconciliationError || null
+    };
+    const previous = previousQueueDayRef.current;
+    previousQueueDayRef.current = current;
+    if (!previous || previous.id !== current.id || busyAction.startsWith("queue-")) return;
+
+    if (
+      current.deadlineVersion != null &&
+      previous.deadlineVersion != null &&
+      current.deadlineVersion > previous.deadlineVersion
+    ) {
+      showInfoNotification(
+        "Queue deadline updated",
+        `Another operator extended the Queue Day. The new close time is ${
+          queueDay.currentClosesAt ? formatDateTime(queueDay.currentClosesAt) : "available in the live status"
+        }.`
+      );
+    } else if (previous.state === "open" && current.state === "closed") {
+      showInfoNotification(
+        "Queue closed",
+        "Live status synchronized. Earlier ticket outcomes remain final even if an admin later reopens the Queue Day."
+      );
+    } else if (!previous.reconciliationError && current.reconciliationError) {
+      showInfoNotification(
+        "Queue status needs attention",
+        "Automatic reconciliation could not confirm a trustworthy state. Queue actions are locked."
+      );
+    }
+  }, [busyAction, snapshot?.queueDay]);
+
+  useEffect(() => {
     if (!staffQuery.data) {
       return;
     }
@@ -1829,7 +1876,7 @@ export default function VendorDashboardPage() {
   }, [location.pathname, location.search, navigate, selectedTenantSlug, token]);
 
   useEffect(() => {
-    if (!selectedTenantSlug || !selectedLocationSlug) {
+    if (!selectedTenantSlug || !selectedLocationSlug || !token) {
       return undefined;
     }
 
@@ -1838,8 +1885,16 @@ export default function VendorDashboardPage() {
     );
     eventSource.onmessage = (event) => {
       const payload = JSON.parse(event.data) as QueueSnapshot;
-      setSnapshot(payload);
       syncQueueAlerts(payload.nextUp || [], { detectNew: true });
+      void queryClient.invalidateQueries({
+        queryKey: [
+          "vendor-dashboard-bootstrap",
+          token,
+          selectedTenantSlug,
+          selectedLocationSlug,
+          locationQuery
+        ]
+      });
       if (currentSection === "bookings" && token && hasActiveSubscription && canOperateBookingQueue) {
         void queryClient.invalidateQueries({
           queryKey: [
@@ -1878,6 +1933,7 @@ export default function VendorDashboardPage() {
     bookingSearch,
     bookingStatusFilter,
     hasActiveSubscription,
+    locationQuery,
     queryClient,
     selectedLocationSlug,
     selectedTenantSlug,
@@ -2334,8 +2390,15 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         .filter((ticket): ticket is QueueListTicket => Boolean(ticket && ticket.status === "waiting")),
     [queueAlertIds, snapshot?.nextUp]
   );
-  const queueDayClosed = Boolean(snapshot?.queueDay?.isClosed);
+  const queueDayState = resolveQueueDayState(snapshot?.queueDay);
+  const queueDayClosed = queueDayState !== "open";
   const queueDayPaused = Boolean(snapshot?.queueDay?.isPaused);
+  const queueDayUnopened = queueDayState === "unopened";
+  const queueDayActuallyClosed = queueDayState === "closed";
+  const queueDayReconciling =
+    snapshot?.queueDay?.availabilityReason === "reconciling" ||
+    snapshot?.queueDay?.autoClosePhase === "overdue";
+  const queueDayExtended = snapshot?.queueDay?.autoClosePhase === "extended";
   const intakeState = snapshot?.queueIntake || null;
   const restoreBlockedByThreshold = Boolean(
     intakeState?.autoPauseEnabled &&
@@ -2350,6 +2413,14 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         .map((service) => ({ value: service.slug, label: service.name }))
     ],
     [services]
+  );
+  const locationOptions = useMemo(
+    () =>
+      locations.map((locationItem) => ({
+        value: locationItem.slug,
+        label: `${locationItem.name}${locationItem.isActive ? "" : " (Inactive)"}`
+      })),
+    [locations]
   );
   const serviceSlugById = useMemo(
     () => new Map(services.map((service) => [service.id, service.slug])),
@@ -2462,6 +2533,59 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     await queryClient.invalidateQueries({
       queryKey: ["vendor-dashboard-bootstrap", token, selectedTenantSlug, selectedLocationSlug, locationQuery]
     });
+  }
+
+  async function handleOpenQueueDay() {
+    const success = await runAction("queue-open", () =>
+      vendorDashboardQueue.openQueueDay(
+        token,
+        selectedTenantSlug,
+        locationQuery,
+        snapshot?.queueDay?.version
+      )
+    );
+    if (success) {
+      showSuccessNotification("Queue opened", "Customers can now join this location’s Queue Day.");
+      setQueueView("current");
+    }
+    return success;
+  }
+
+  async function handleExtendQueueDay() {
+    const success = await runAction("queue-extend", () =>
+      vendorDashboardQueue.extendQueueDay(
+        token,
+        selectedTenantSlug,
+        locationQuery,
+        snapshot?.queueDay?.version
+      )
+    );
+    if (success) {
+      showSuccessNotification(
+        "Auto-close extended",
+        "Thirty minutes were added and your action was recorded. Auto-close remains active."
+      );
+    }
+    return success;
+  }
+
+  async function handleCloseQueueDay() {
+    const success = await runAction("queue-close", () =>
+      vendorDashboardQueue.closeQueueDay(
+        token,
+        selectedTenantSlug,
+        locationQuery,
+        snapshot?.queueDay?.version
+      )
+    );
+    if (success) {
+      showSuccessNotification(
+        "Queue closed",
+        "Every unresolved ticket received its carry-over, expiration, skipped, or unserved outcome."
+      );
+      setQueueView("overflow");
+    }
+    return success;
   }
 
   async function handleUpdateBookingStatus(
@@ -3017,10 +3141,13 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   function openAvailabilityBlockDialog(block?: VendorAvailabilityBlockSummary) {
     const weekday = block?.weekday ?? 1;
-    const businessHourDefaults = getWeeklyAvailabilityDefaults(selectedLocation?.hours || [], weekday);
+    const blockLocation =
+      (block ? locations.find((locationItem) => locationItem.id === block.locationId) : null) ||
+      selectedLocation;
+    const businessHourDefaults = getWeeklyAvailabilityDefaults(blockLocation?.hours || [], weekday);
     setEditingAvailabilityBlockId(block?.id || "");
     setAvailabilityBlockForm({
-      locationSlug: selectedLocationSlug,
+      locationSlug: blockLocation?.slug || selectedLocationSlug,
       serviceSlug: block?.serviceId ? serviceSlugById.get(block.serviceId) || "" : "",
       weekday,
       startsAt: block?.startsAt || businessHourDefaults.startsAt,
@@ -3039,9 +3166,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     setError("");
 
     try {
+      const targetLocationSlug = availabilityBlockForm.locationSlug || selectedLocationSlug;
       const body = {
         ...availabilityBlockForm,
-        locationSlug: selectedLocationSlug
+        locationSlug: targetLocationSlug
       };
       if (editingAvailabilityBlockId) {
         await vendorDashboardCatalog.saveAvailabilityBlock(token, selectedTenantSlug, editingAvailabilityBlockId, body);
@@ -3050,6 +3178,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       }
       await reloadAvailability();
       await reloadBookings();
+      if (targetLocationSlug !== selectedLocationSlug) {
+        setSelectedLocationSlug(targetLocationSlug);
+      }
       setAvailabilityBlockDialogOpen(false);
       showSuccessNotification(
         editingAvailabilityBlockId ? "Availability updated" : "Availability added",
@@ -4320,11 +4451,61 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   onChange={(value) => setQueueView(value as QueueView)}
                 />
                 <Stack gap={6} align="flex-end">
-                  <Badge color={queueDayClosed ? "red" : queueDayPaused ? "yellow" : "teal"} variant="light">
-                    {queueDayClosed ? "Queue day closed" : queueDayPaused ? "Queue intake paused" : "Queue day open"}
+                  <Badge
+                    color={
+                      queueDayReconciling
+                        ? "orange"
+                        : queueDayClosed
+                          ? "red"
+                          : queueDayPaused
+                            ? "yellow"
+                            : queueDayExtended
+                              ? "blue"
+                              : "teal"
+                    }
+                    variant="light"
+                  >
+                    {queueDayReconciling
+                      ? "Queue closing"
+                      : queueDayUnopened
+                        ? "Queue not opened"
+                        : queueDayActuallyClosed
+                          ? "Queue day closed"
+                          : queueDayPaused
+                            ? "Queue intake paused"
+                            : queueDayExtended
+                              ? "Queue day extended"
+                              : "Queue day open"}
                   </Badge>
                   <Group gap="xs" justify="flex-end">
-                    {queueDayClosed ? null : queueDayPaused ? (
+                    {queueDayUnopened && canOperateQueueDay ? (
+                      <Button
+                        className="neura-primary-button"
+                        loading={busyAction === "queue-open"}
+                        onClick={() => void handleOpenQueueDay()}
+                      >
+                        Open queue
+                      </Button>
+                    ) : queueDayActuallyClosed && canReopenQueueDay ? (
+                      <Button
+                        className="neura-primary-button"
+                        disabled={busyAction === "queue-reopen"}
+                        onClick={async () => {
+                          const success = await runAction("queue-reopen", () =>
+                            vendorDashboardQueue.reopenQueueDay(token, selectedTenantSlug, locationQuery)
+                          );
+                          if (success) {
+                            showSuccessNotification(
+                              "Queue reopened",
+                              "The Queue Day is accepting joins again. Earlier ticket outcomes were not reversed."
+                            );
+                            setQueueView("current");
+                          }
+                        }}
+                      >
+                        {busyAction === "queue-reopen" ? "Reopening..." : "Reopen queue"}
+                      </Button>
+                    ) : !queueDayClosed && queueDayPaused ? (
                       <Button
                         color="yellow"
                         variant="light"
@@ -4340,7 +4521,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       >
                         {busyAction === "queue-resume" ? "Resuming..." : "Resume intake"}
                       </Button>
-                    ) : (
+                    ) : !queueDayClosed ? (
                       <Button
                         color="yellow"
                         variant="light"
@@ -4356,46 +4537,46 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       >
                         {busyAction === "queue-pause" ? "Pausing..." : "Pause intake"}
                       </Button>
-                    )}
-                  {canManageQueueDay ? (
-                    queueDayClosed ? (
-                      <Button
-                        className="neura-primary-button"
-                        disabled={busyAction === "queue-reopen"}
-                        onClick={async () => {
-                          const success = await runAction("queue-reopen", () =>
-                            vendorDashboardQueue.reopenQueueDay(token, selectedTenantSlug, locationQuery)
-                          );
-                          if (success) {
-                            showSuccessNotification("Queue reopened", "Customers can join and staff can resume service.");
-                            setQueueView("current");
-                          }
-                        }}
-                      >
-                        {busyAction === "queue-reopen" ? "Reopening..." : "Reopen queue"}
-                      </Button>
-                    ) : (
+                    ) : null}
+                    {!queueDayClosed && canOperateQueueDay ? (
                       <Button
                         color="red"
                         variant="light"
                         disabled={busyAction === "queue-close"}
-                        onClick={async () => {
-                          const success = await runAction("queue-close", () =>
-                            vendorDashboardQueue.closeQueueDay(token, selectedTenantSlug, locationQuery)
-                          );
-                          if (success) {
-                            showSuccessNotification("Queue closed", "Waiting tickets were carried over and active tickets were marked unserved.");
-                            setQueueView("overflow");
-                          }
+                        onClick={() => {
+                          setConfirmAction({
+                            title: `Close ${selectedLocation?.name || "this queue"} now?`,
+                            description:
+                              "Unresolved waiting tickets will carry over once or expire, called tickets become unserved, and skipped recovery ends. Reopening will not reverse these outcomes.",
+                            confirmLabel: "Close queue and reconcile",
+                            confirmColor: "red",
+                            onConfirm: async () => {
+                              await handleCloseQueueDay();
+                            }
+                          });
                         }}
                       >
                         {busyAction === "queue-close" ? "Closing..." : "Close queue"}
                       </Button>
-                    )
-                  ) : null}
+                    ) : null}
                   </Group>
                 </Stack>
               </Group>
+              {queueDayUnopened ? (
+                <Alert color="blue" icon={<IconInfoCircle size={18} />} variant="light">
+                  Store hours make this Queue Day eligible, but they do not open it automatically.
+                  An authorized operator must open the queue before customers can join.
+                </Alert>
+              ) : null}
+              {queueDayActuallyClosed && snapshot?.queueDay?.outcomeCounts ? (
+                <Alert color="gray" icon={<IconHistory size={18} />} title="Close reconciliation completed">
+                  {snapshot.queueDay.outcomeCounts.pendingCarryOver} saved for carry-over ·{" "}
+                  {snapshot.queueDay.outcomeCounts.expired} expired ·{" "}
+                  {snapshot.queueDay.outcomeCounts.unserved} unserved ·{" "}
+                  {snapshot.queueDay.outcomeCounts.skipped} skipped recovery ended. Reopening does not
+                  reverse these outcomes.
+                </Alert>
+              ) : null}
               {queueView === "current" ? (
                 <>
                   <Group justify="space-between" align="flex-end">
@@ -4480,13 +4661,31 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     </Paper>
                     <Paper withBorder radius="md" p="md">
                       <Text className="neura-label">Queue day</Text>
-                      <Title order={3}>{queueDayClosed ? "Closed" : queueDayPaused ? "Paused" : "Open"}</Title>
+                      <Title order={3}>
+                        {queueDayReconciling
+                          ? "Closing"
+                          : queueDayUnopened
+                            ? "Not opened"
+                            : queueDayActuallyClosed
+                              ? "Closed"
+                              : queueDayPaused
+                                ? "Paused"
+                                : queueDayExtended
+                                  ? "Extended"
+                                  : "Open"}
+                      </Title>
                       <Text c="dimmed" size="sm">
-                        {queueDayClosed && snapshot?.queueDay?.closedAt
+                        {queueDayReconciling
+                          ? "Ticket outcomes are being reconciled"
+                          : queueDayUnopened
+                            ? "Waiting for an authorized operator to open the Queue Day"
+                            : queueDayClosed && snapshot?.queueDay?.closedAt
                           ? `Closed ${formatDateTime(snapshot.queueDay.closedAt)}`
                           : queueDayPaused && snapshot?.queueDay?.pausedAt
                             ? `Paused ${formatDateTime(snapshot.queueDay.pausedAt)}`
-                            : "Customers can continue joining this queue"}
+                            : snapshot?.queueDay?.currentClosesAt
+                              ? `Scheduled close ${formatDateTime(snapshot.queueDay.currentClosesAt)}`
+                              : "Customers can continue joining this queue"}
                       </Text>
                     </Paper>
                     {intakeState?.autoPauseEnabled && intakeState.autoPauseThreshold ? (
@@ -4524,7 +4723,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                               <Table.Td fw={700}>{ticket.id}</Table.Td>
                               <Table.Td>
                                 <Text fw={700}>{ticket.ticketNumber}</Text>
-                                <Text c="dimmed" size="sm">{ticket.customerName}</Text>
+                                <Text c="dimmed" size="sm">
+                                  {getQueueCustomerFullNameLabel(
+                                    ticket.customerName,
+                                    ticket.customerDisplayName
+                                  )}
+                                </Text>
                                 {ticket.linkedBookingReference ? (
                                   <Text c="dimmed" size="xs">Booking {ticket.linkedBookingReference}</Text>
                                 ) : null}
@@ -9656,16 +9860,22 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           </Group>
           <Select
             className="neura-tenant-select"
-            data={locations.map((locationItem) => ({
-              label: locationItem.name,
-              value: locationItem.slug
-            }))}
+            data={locationOptions}
             label="Location"
             value={selectedLocationSlug}
             onChange={(value) => value && setSelectedLocationSlug(value)}
           />
         </header>
 
+        <VendorQueueLifecycleTray
+          busyAction={busyAction}
+          canOperate={canOperateQueueDay}
+          locationName={selectedLocation?.name || "This queue"}
+          onCloseNow={handleCloseQueueDay}
+          onExtend={handleExtendQueueDay}
+          onRefresh={reloadDashboardSnapshot}
+          snapshot={snapshot}
+        />
         {error ? <Text c="red" fw={700}>{error}</Text> : null}
         {renderCurrentSection()}
       </main>

@@ -6,7 +6,11 @@ const PLATFORM_PERMISSIONS = {
     "platform.plans.manage",
     "platform.queue_fees.manage",
     "platform.billing.read",
-    "platform.billing.manage"
+    "platform.billing.manage",
+    "platform.queue_lifecycle.read",
+    "platform.queue_lifecycle.reconcile",
+    "platform.queue_notifications.requeue",
+    "platform.queue_lifecycle.repair"
   ])
 };
 
@@ -14,6 +18,7 @@ const TENANT_PERMISSIONS = {
   owner: new Set([
     "tenant.queue.read",
     "tenant.queue.operate",
+    "tenant.queue.reopen",
     "tenant.ticket.read_limited",
     "tenant.ticket.update_state",
     "tenant.location.manage",
@@ -34,6 +39,7 @@ const TENANT_PERMISSIONS = {
   admin: new Set([
     "tenant.queue.read",
     "tenant.queue.operate",
+    "tenant.queue.reopen",
     "tenant.ticket.read_limited",
     "tenant.ticket.update_state",
     "tenant.location.manage",

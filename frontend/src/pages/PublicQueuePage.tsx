@@ -8,7 +8,12 @@ import type { QueueJoinPaymentSyncResponse, QueueListTicket, QueueSnapshot } fro
 import { API_BASE_URL, apiRequest } from "../api/client";
 import { buildJoinUrl, buildJoinedQueuePathWithTicket } from "../queuePaths";
 import { getErrorMessage } from "../utils/errors";
-import { getLocationStatusSummary, getQueueStateSummary, getTicketStateSummary } from "../utils/queueStatus";
+import {
+  getLocationStatusSummary,
+  getQueueStateSummary,
+  getTicketStateSummary,
+  isQueueAcceptingJoins
+} from "../utils/queueStatus";
 
 function hexToRgba(hex: string, alpha: number): string {
   const normalized = /^#[0-9a-f]{6}$/i.test(hex) ? hex : "#ffffff";
@@ -20,12 +25,25 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${red}, ${green}, ${blue}, ${Math.min(1, Math.max(0, alpha))})`;
 }
 
-function formatClock(timezone?: string): string {
+function formatClock(date: Date, timezone?: string): string {
   return new Intl.DateTimeFormat("en-US", {
     hour: "numeric",
     minute: "2-digit",
     timeZone: timezone || "Asia/Manila"
-  }).format(new Date());
+  }).format(date);
+}
+
+function formatCalendarDate(date: Date, timezone?: string) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    day: "numeric",
+    month: "short",
+    timeZone: timezone || "Asia/Manila"
+  }).formatToParts(date);
+
+  return {
+    day: parts.find((part) => part.type === "day")?.value || "",
+    month: (parts.find((part) => part.type === "month")?.value || "").toUpperCase()
+  };
 }
 
 function getLocationSubtitle(snapshot: QueueSnapshot | null, fallback: string) {
@@ -77,7 +95,7 @@ export default function PublicQueuePage() {
   const [snapshot, setSnapshot] = useState<QueueSnapshot | null>(null);
   const [error, setError] = useState("");
   const [paymentSyncing, setPaymentSyncing] = useState(false);
-  const [clockLabel, setClockLabel] = useState(() => formatClock());
+  const [clockNow, setClockNow] = useState(() => new Date());
   const hasSnapshotRef = useRef(false);
   const lookupCode = searchParams.get("ticket") || "";
   const paymentId = searchParams.get("payment");
@@ -90,8 +108,6 @@ export default function PublicQueuePage() {
   const joinQrUrl = `${joinUrl}?source=qr`;
   const vendorIsInactive = snapshot ? !snapshot.tenant.isActive : false;
   const locationIsClosed = snapshot?.location ? !snapshot.location.openStatus.isOpen : false;
-  const queueDayClosed = Boolean(snapshot?.queueDay?.isClosed);
-  const queueDayPaused = Boolean(snapshot?.queueDay?.isPaused);
   const theme = snapshot?.publicBoardTheme.theme;
   const businessName = snapshot?.tenant?.name || tenantSlugValue || "GetPrio";
   const heroTitle = businessName;
@@ -99,12 +115,12 @@ export default function PublicQueuePage() {
   const queueState = getQueueStateSummary(snapshot);
   const ticketState = getTicketStateSummary(snapshot?.focusTicket?.status);
   const locationState = getLocationStatusSummary(snapshot);
+  const clockLabel = formatClock(clockNow, snapshot?.location?.timezone);
+  const calendarDate = formatCalendarDate(clockNow, snapshot?.location?.timezone);
   const canJoinQueue =
-    Boolean(snapshot) &&
+    isQueueAcceptingJoins(snapshot) &&
     !vendorIsInactive &&
-    !locationIsClosed &&
-    !queueDayClosed &&
-    !queueDayPaused;
+    !locationIsClosed;
   const averageServiceMinutes = snapshot?.tenant.averageServiceMinutes || 5;
   const visibleTickets = (snapshot?.nextUp || []).slice(0, 19);
   const topTickets = visibleTickets.slice(0, 3);
@@ -131,14 +147,11 @@ export default function PublicQueuePage() {
   );
 
   useEffect(() => {
-    const intervalId = window.setInterval(
-      () => setClockLabel(formatClock(snapshot?.location?.timezone)),
-      30_000
-    );
-    setClockLabel(formatClock(snapshot?.location?.timezone));
+    const intervalId = window.setInterval(() => setClockNow(new Date()), 30_000);
+    setClockNow(new Date());
 
     return () => window.clearInterval(intervalId);
-  }, [snapshot?.location?.timezone]);
+  }, []);
 
   useEffect(() => {
     if (!tenantSlugValue || !paymentId) {
@@ -247,9 +260,8 @@ export default function PublicQueuePage() {
     };
     eventSource.onerror = () => {
       if (!hasSnapshotRef.current) {
-        setError("Live updates disconnected. Refresh to reconnect.");
+        setError("Live updates interrupted. Reconnecting…");
       }
-      eventSource.close();
     };
 
     return () => {
@@ -276,9 +288,27 @@ export default function PublicQueuePage() {
               <h1>{businessName}</h1>
               <p>{heroSubtitle}</p>
             </div>
-            <div className="public-board-tv-clock">
-              <strong>{clockLabel}</strong>
-              <span>Location {locationState.label} · Queue {queueState.label}</span>
+            <div
+              aria-label={`Current time ${clockLabel}. Location ${locationState.label}. Queue ${queueState.label}.`}
+              className="public-board-tv-clock"
+              role="group"
+            >
+              <div className="public-board-tv-calendar">
+                <span>{calendarDate.month}</span>
+                <strong>{calendarDate.day}</strong>
+              </div>
+              <div className="public-board-tv-clock-details">
+                <time>{clockLabel}</time>
+                <div className="public-board-tv-clock-statuses">
+                  <span>
+                    Location <strong>{locationState.label}</strong>
+                  </span>
+                  <i aria-hidden="true" />
+                  <span>
+                    Queue <strong>{queueState.label}</strong>
+                  </span>
+                </div>
+              </div>
             </div>
           </header>
 
@@ -324,7 +354,6 @@ export default function PublicQueuePage() {
                 <div>
                   <Text className="public-board-tv-eyebrow">Public queue list</Text>
                   <h2>Up next and waiting</h2>
-                  <p>Top tickets are emphasized; the rest use compact readable cards instead of a tall table.</p>
                 </div>
                 <div className="public-board-tv-count">
                   <span>Next visible</span>

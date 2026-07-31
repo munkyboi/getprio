@@ -95,6 +95,10 @@ function formatCustomerTicket(ticket) {
     locationName: ticket.locationName,
     locationSlug: ticket.locationSlug,
     status: ticket.status,
+    statusReason: ticket.statusReason,
+    carryOverExpiresAt: ticket.carryOverExpiresAt,
+    currentQueueDayId: ticket.currentQueueDayId,
+    journeySegments: ticket.journeySegments || [],
     createdAt: ticket.createdAt,
     updatedAt: ticket.updatedAt
   };
@@ -223,6 +227,9 @@ function formatCustomerBooking(booking) {
     pendingExpiresAt: booking.pendingExpiresAt,
     expiredAt: booking.expiredAt,
     expirationReason: booking.expirationReason,
+    fulfillmentOutcomeReason: booking.fulfillmentOutcomeReason,
+    refundEligible: booking.refundEligible,
+    fulfillmentResolvedAt: booking.fulfillmentResolvedAt,
     notifyByEmail: booking.notifyByEmail,
     notifyBySms: booking.notifyBySms,
     smsAlertFeePaymentId: booking.smsAlertFeePaymentId,
@@ -561,6 +568,12 @@ router.post(
       return;
     }
 
+    if (ticket.userId) {
+      const error = new Error("We could not verify that this ticket belongs to you.");
+      error.statusCode = 403;
+      throw error;
+    }
+
     if (!customerTicketAccess.userOwnsTicket(req.user, ticket)) {
       const error = new Error("We could not verify that this ticket belongs to you.");
       error.statusCode = 403;
@@ -568,6 +581,11 @@ router.post(
     }
 
     const claimedTicket = await ticketRepository.claimTicketForUser(ticket._id, req.user._id);
+    if (!claimedTicket) {
+      const error = new Error("This ticket has already been claimed by another account.");
+      error.statusCode = 409;
+      throw error;
+    }
 
     res.json({
       success: true,

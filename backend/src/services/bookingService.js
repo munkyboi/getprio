@@ -1587,6 +1587,7 @@ async function rescheduleVendorBooking({ tenant, bookingId, scheduledStartAt: sc
 async function checkInVendorBooking({ tenant, location, bookingId, user, overrideWindow, overrideReason }) {
   await expirePendingBookingsForTenant(tenant._id);
   const queueService = getQueueService();
+  await queueService.assertQueueIntakeOpen(tenant, location);
   const result = await db.withTransaction(async (client) => {
     const booking = await bookingRepository.findBookingByIdForUpdate(bookingId, { client });
     assertBookingBelongsToTenantLocation(booking, tenant, location);

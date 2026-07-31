@@ -53,12 +53,20 @@ function doesIdentityMatchTicket(ticket, candidate) {
 }
 
 function userOwnsTicket(user, ticket) {
+  if (ticket?.userId) {
+    return String(user?._id || "") === String(ticket.userId);
+  }
+
   return buildCustomerIdentityCandidates(user).some((candidate) =>
     doesIdentityMatchTicket(ticket, candidate)
   );
 }
 
 function requestMatchesTicket(requestBody, ticket) {
+  if (ticket?.userId) {
+    return false;
+  }
+
   const email = normalizeEmail(requestBody?.customerEmail);
   const phone = normalizePhone(requestBody?.customerPhone);
 

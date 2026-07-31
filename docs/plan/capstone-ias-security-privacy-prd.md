@@ -1,5 +1,17 @@
 # GetPrio IAS Security and Privacy PRD
 
+## Queue lifecycle operational security
+
+Queue availability is enforced server-side by tenant permission and assigned
+location. Vendor Staff and Vendor Admin/Owner may perform routine queue
+operations within their scope; Platform Admin recovery is a separate,
+allowlisted, reasoned, MFA-confirmed path. Public queue responses must not expose
+customer contact data, notification destinations, provider errors, or repair
+notes. Lifecycle events and notification outbox rows are restricted
+accountability records and must not contain credentials, payment evidence, or
+unnecessary personal data. Deployment, rollback, and incident procedures are in
+[Queue Day Lifecycle Rollout and Recovery Runbook](../operations/queue-day-lifecycle-runbook.md).
+
 ## Problem Statement
 
 GetPrio must support Information Assurance and Security deliverables that are specific to the actual capstone product. Security requirements, privacy analysis, authentication design, RBAC, and vulnerability assessment should not be generic documents; they must map to the same roles, screens, forms, endpoints, and data handled by the marketplace and booking experience.

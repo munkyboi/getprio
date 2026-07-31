@@ -3,7 +3,15 @@ export type AuthIntent = "login" | "register_customer" | "register_vendor";
 export type UserRole = "customer" | "vendor" | "platform_admin";
 export type TenantRole = "owner" | "admin" | "staff";
 export type JoinChannel = "online" | "qr" | "vendor";
-export type TicketStatus = "waiting" | "called" | "served" | "skipped" | "cancelled" | "unserved";
+export type TicketStatus =
+  | "waiting"
+  | "pending_carry_over"
+  | "called"
+  | "served"
+  | "skipped"
+  | "cancelled"
+  | "unserved"
+  | "expired";
 export type QueuePriorityBand = "carry_over" | "recovery" | "checked_in_booking" | "normal";
 export type SubscriptionPlanSlug = "economical" | "pro" | "enterprise";
 export type SubscriptionStatus = "active" | "unpaid" | "past_due" | "suspended" | "canceled" | "expired";
@@ -225,6 +233,7 @@ export interface StoreLocationSummary {
   paymentAccountIdentifierDisplay: string;
   paymentQrImageUrl: string;
   paymentQrActive: boolean;
+  queueLifecycleMode?: "legacy" | "shadow" | "enforced";
   isPrimary: boolean;
   isActive: boolean;
   joinUrl: string;
@@ -403,7 +412,16 @@ export interface VendorAvailabilityExceptionResponse {
   exception: VendorAvailabilityExceptionSummary;
 }
 
-export type BookingStatus = "pending" | "confirmed" | "rescheduled" | "completed" | "canceled" | "disputed" | "reviewed";
+export type BookingStatus =
+  | "pending"
+  | "confirmed"
+  | "rescheduled"
+  | "completed"
+  | "canceled"
+  | "disputed"
+  | "reviewed"
+  | "unfulfilled"
+  | "missed";
 export type BookingPaymentStatus = "unpaid" | "pending" | "paid" | "failed" | "refunded";
 export type BookingContactVerificationChannel = "email" | "sms";
 
@@ -506,6 +524,9 @@ export interface CustomerBookingSummary {
   pendingExpiresAt: string | Date | null;
   expiredAt: string | Date | null;
   expirationReason: string;
+  fulfillmentOutcomeReason?: string;
+  refundEligible?: boolean;
+  fulfillmentResolvedAt?: string | Date | null;
   notifyByEmail: boolean;
   notifyBySms: boolean;
   smsAlertFeePaymentId: string;
@@ -1277,6 +1298,7 @@ export interface QueueCurrentTicket {
   id: string;
   ticketNumber: string;
   customerName: string;
+  customerDisplayName?: string | null;
   calledAt: string | Date | null;
   servicePriorityBand?: QueuePriorityBand;
   linkedBookingReference?: string | null;
@@ -1286,6 +1308,7 @@ export interface QueueListTicket {
   id: string;
   ticketNumber: string;
   customerName: string;
+  customerDisplayName?: string | null;
   status: TicketStatus;
   position: number;
   joinChannel: JoinChannel;
@@ -1315,13 +1338,65 @@ export interface QueueFocusTicket {
   lookupCode: string;
   ticketNumber: string;
   customerName: string;
+  customerDisplayName?: string | null;
   status: TicketStatus;
+  statusReason?: string | null;
+  isCarriedOver?: boolean;
+  carryOverCount?: number;
+  servicePriorityBand?: QueuePriorityBand;
+  carryOverExpiresAt?: string | Date | null;
+  currentQueueDayId?: string | null;
   position: number | null;
   estimatedWaitMinutes: number;
   joinedAt: string | Date;
 }
 
+export interface QueueJourneySegment {
+  id: string;
+  queueDayId: string;
+  displayNumber: string;
+  sequence: number;
+  priorityBand: QueuePriorityBand;
+  activatedAt: string | Date;
+  endedAt: string | Date | null;
+  outcome: string | null;
+  outcomeReason: string | null;
+}
+
 export interface QueueDayStatus {
+  id?: string | null;
+  businessDate?: string;
+  state?: "unopened" | "open" | "closed";
+  availabilityReason?:
+    | "outside_store_hours"
+    | "not_opened"
+    | "accepting"
+    | "paused"
+    | "closing_soon"
+    | "reconciling"
+    | "extended"
+    | "closed";
+  intakeMode?: "accepting" | "paused" | null;
+  autoClosePhase?: "normal" | "warning" | "extended" | "overdue" | null;
+  timezone?: string;
+  effectiveOpensAt?: string | Date | null;
+  effectiveClosesAt?: string | Date | null;
+  currentClosesAt?: string | Date | null;
+  warningStartsAt?: string | Date | null;
+  finalWarningStartsAt?: string | Date | null;
+  serverNow?: string | Date;
+  version?: number | null;
+  deadlineVersion?: number | null;
+  closeReason?: string | null;
+  reconciliationError?: string | null;
+  reconciliationAttemptCount?: number;
+  lastReconciledAt?: string | Date | null;
+  outcomeCounts?: {
+    pendingCarryOver: number;
+    expired: number;
+    unserved: number;
+    skipped: number;
+  } | null;
   isClosed: boolean;
   isPaused: boolean;
   queueDateKey: string;
@@ -1343,7 +1418,7 @@ export interface QueueIntakeStatus {
   fillRatio: number | null;
   thresholdRemaining: number | null;
   resumeWaitingCount: number | null;
-  state: "disabled" | "open" | "near_limit" | "paused";
+  state: "disabled" | "open" | "near_limit" | "paused" | "closed";
   stateLabel: string;
 }
 
@@ -1749,6 +1824,10 @@ export interface CustomerAccountTicketSummary {
   locationName: string;
   locationSlug: string;
   status: TicketStatus;
+  statusReason?: string | null;
+  carryOverExpiresAt?: string | Date | null;
+  currentQueueDayId?: string | null;
+  journeySegments?: QueueJourneySegment[];
   createdAt: string | Date;
   updatedAt: string | Date;
 }
