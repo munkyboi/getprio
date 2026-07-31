@@ -20,6 +20,74 @@ export function resolveQueueDayState(
   return queueDay.state || (queueDay.isClosed ? "closed" : "open");
 }
 
+export function selectFreshestQueueSnapshot(
+  current: QueueSnapshot | null,
+  incoming: QueueSnapshot
+): QueueSnapshot {
+  if (!current) {
+    return incoming;
+  }
+  const currentServerTime = current.queueDay.serverNow instanceof Date
+    ? current.queueDay.serverNow.getTime()
+    : Date.parse(current.queueDay.serverNow || "");
+  const incomingServerTime = incoming.queueDay.serverNow instanceof Date
+    ? incoming.queueDay.serverNow.getTime()
+    : Date.parse(incoming.queueDay.serverNow || "");
+  if (
+    Number.isFinite(currentServerTime)
+    && Number.isFinite(incomingServerTime)
+    && incomingServerTime < currentServerTime
+  ) {
+    return current;
+  }
+  return incoming;
+}
+
+export type QueueDaySyncState = {
+  id: string | null;
+  state: NonNullable<QueueDayStatus["state"]> | null;
+  deadlineVersion: number | null;
+  reconciliationError: string | null;
+};
+
+export type LocalQueueDayUpdate = Pick<QueueDaySyncState, "id" | "state" | "deadlineVersion"> & {
+  kind: "deadline" | "state";
+};
+
+export function getQueueDaySyncNotice(
+  previous: QueueDaySyncState | null,
+  current: QueueDaySyncState,
+  localQueueDayUpdate: LocalQueueDayUpdate | null,
+  queueActionBusy = false
+): "local_update" | "defer" | "deadline_updated" | "closed" | "reconciliation_error" | null {
+  if (!previous || previous.id !== current.id) {
+    return null;
+  }
+  const matchesLocalUpdate = localQueueDayUpdate?.id === current.id
+    && localQueueDayUpdate.state === current.state
+    && localQueueDayUpdate.deadlineVersion === current.deadlineVersion;
+  if (
+    current.deadlineVersion != null
+    && previous.deadlineVersion != null
+    && current.deadlineVersion > previous.deadlineVersion
+  ) {
+    if (matchesLocalUpdate && localQueueDayUpdate.kind === "deadline") {
+      return "local_update";
+    }
+    return queueActionBusy ? "defer" : "deadline_updated";
+  }
+  if (previous.state === "open" && current.state === "closed") {
+    if (matchesLocalUpdate && localQueueDayUpdate.kind === "state") {
+      return "local_update";
+    }
+    return queueActionBusy ? "defer" : "closed";
+  }
+  if (!previous.reconciliationError && current.reconciliationError) {
+    return queueActionBusy ? "defer" : "reconciliation_error";
+  }
+  return null;
+}
+
 export function isQueueAcceptingJoins(
   snapshot: Pick<QueueSnapshot, "queueDay" | "queueIntake"> | null | undefined
 ): boolean {

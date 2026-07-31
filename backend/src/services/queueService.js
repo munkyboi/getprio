@@ -258,7 +258,9 @@ async function assertRestoreCapacityAvailable(tenant, location, options = {}) {
 
 async function publishSnapshot(tenant, options = {}) {
   const snapshot = await getQueueSnapshot(tenant, options);
-  queueEvents.publish(tenant.slug, snapshot);
+  queueEvents.publish(tenant.slug, snapshot, {
+    locationId: options.location?._id || snapshot.location?.id || null
+  });
   return snapshot;
 }
 

@@ -851,13 +851,17 @@ router.get(
 
     await writeSnapshot();
 
-    const unsubscribe = queueEvents.subscribe(tenant.slug, async (snapshot) => {
-      try {
-        await writeSnapshot(snapshot);
-      } catch (error) {
-        console.error(error);
-      }
-    });
+    const unsubscribe = queueEvents.subscribe(
+      tenant.slug,
+      async (snapshot) => {
+        try {
+          await writeSnapshot(snapshot);
+        } catch (error) {
+          console.error(error);
+        }
+      },
+      { locationId: location._id }
+    );
 
     const heartbeat = setInterval(() => {
       res.write(`event: heartbeat\ndata: ${Date.now()}\n\n`);

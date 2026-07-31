@@ -8,8 +8,10 @@ const path = require("node:path");
 const {
   getQueueStateSummary,
   getTicketStateSummary,
+  getQueueDaySyncNotice,
   isQueueAcceptingJoins,
-  resolveQueueDayState
+  resolveQueueDayState,
+  selectFreshestQueueSnapshot
 } = require("../src/utils/queueStatus.ts");
 const {
   getQueueCustomerDisplayName,
@@ -76,6 +78,47 @@ test("queue customer labels preserve staff identity and public privacy", () => {
   assert.equal(getQueueCustomerFullNameLabel("Alex Boyer", "  "), "Alex Boyer");
 });
 
+test("queue snapshots cannot move backward when an older request resolves last", () => {
+  const current = { queueDay: { serverNow: "2026-07-31T12:00:30.000Z" }, marker: "current" };
+  const stale = { queueDay: { serverNow: "2026-07-31T12:00:00.000Z" }, marker: "stale" };
+  const fresh = { queueDay: { serverNow: "2026-07-31T12:01:00.000Z" }, marker: "fresh" };
+
+  assert.equal(selectFreshestQueueSnapshot(current, stale), current);
+  assert.equal(selectFreshestQueueSnapshot(current, fresh), fresh);
+  assert.equal(selectFreshestQueueSnapshot(null, fresh), fresh);
+});
+
+test("queue deadline synchronization distinguishes the acting session from another operator", () => {
+  const previous = {
+    id: "10",
+    state: "open",
+    deadlineVersion: 2,
+    reconciliationError: null
+  };
+  const extended = { ...previous, deadlineVersion: 3 };
+
+  assert.equal(
+    getQueueDaySyncNotice(previous, extended, {
+      kind: "deadline",
+      id: "10",
+      state: "open",
+      deadlineVersion: 3
+    }),
+    "local_update"
+  );
+  assert.equal(
+    getQueueDaySyncNotice(previous, extended, {
+      kind: "state",
+      id: "10",
+      state: "open",
+      deadlineVersion: 3
+    }),
+    "deadline_updated"
+  );
+  assert.equal(getQueueDaySyncNotice(previous, extended, null, true), "defer");
+  assert.equal(getQueueDaySyncNotice(previous, extended, null), "deadline_updated");
+});
+
 test("vendor queue lifecycle UI exposes warning, extension, and close controls", () => {
   const dashboard = readSource("src/pages/VendorDashboardPage.tsx");
   const tray = readSource("src/components/VendorQueueLifecycleTray.tsx");
@@ -83,6 +126,7 @@ test("vendor queue lifecycle UI exposes warning, extension, and close controls",
 
   assert.match(dashboard, /<VendorQueueLifecycleTray/);
   assert.match(dashboard, /Close queue and reconcile/);
+  assert.match(dashboard, /refetchInterval:\s*30_000/);
   assert.match(tray, /Review & extend/);
   assert.match(tray, /Extend \$\{locationName\} by 30 minutes/);
   assert.match(tray, /Close queue now/);

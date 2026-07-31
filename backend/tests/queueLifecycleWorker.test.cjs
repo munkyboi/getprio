@@ -88,3 +88,50 @@ test("worker releases its local lease after a failed scan so the next run can re
   assert.equal(recovered.skipped, false);
   assert.equal(recovered.warningCount, 1);
 });
+
+test("worker broadcasts warning and close transitions after they commit", async () => {
+  const published = [];
+  const warningScope = { tenantId: "11", locationId: "21", transition: "warning" };
+  const closeScope = { tenantId: "11", locationId: "21", transition: "closed" };
+  const { createQueueLifecycleWorker } = loadWorker({
+    emitDueWarnings: async (options) => {
+      await options.onTransition(warningScope);
+      return 1;
+    },
+    reconcileDueQueueDays: async (_limit, options) => {
+      await options.onTransition(closeScope);
+      return 1;
+    },
+    expirePendingCarryOvers: async () => 0
+  });
+  const worker = createQueueLifecycleWorker({
+    publishLifecycleUpdate: async (scope) => published.push(scope),
+    outboxDispatcher: { runBatch: async () => 0 }
+  });
+
+  await worker.runOnce();
+  worker.stop();
+
+  assert.deepEqual(published, [warningScope, closeScope]);
+});
+
+test("lifecycle update publisher invalidates the tenant queue stream", async () => {
+  const emitted = [];
+  const { createQueueLifecycleUpdatePublisher } = loadWorker({});
+  const publishLifecycleUpdate = createQueueLifecycleUpdatePublisher({
+    tenantRepository: {
+      findTenantById: async (tenantId) => ({ _id: String(tenantId), slug: "vendor-one" })
+    },
+    queueEventBus: {
+      publish: (tenantSlug, payload, options) => emitted.push({ tenantSlug, payload, options })
+    }
+  });
+
+  await publishLifecycleUpdate({ tenantId: "11", locationId: "21" });
+
+  assert.deepEqual(emitted, [{
+    tenantSlug: "vendor-one",
+    payload: null,
+    options: { locationId: "21" }
+  }]);
+});
