@@ -4,8 +4,10 @@ const billingRepository = require("../repositories/billing");
 const paymentRepository = require("../repositories/queueJoinPayments");
 const tenantRepository = require("../repositories/tenants");
 const storeLocationRepository = require("../repositories/storeLocations");
+const queueDayRepository = require("../repositories/queueDays");
 const { buildMonitorUrl } = require("../publicLinks");
 const queueFeeService = require("./queueFeeService");
+const queueDayLifecycleService = require("./queueDayLifecycleService");
 const {
   createTicketForTenantInTransaction,
   maybeNotifyUpcomingTickets,
@@ -56,6 +58,10 @@ function formatPayment(payment) {
     status: payment.status,
     ticketId: payment.ticketId,
     ticketLookupCode: payment.ticketLookupCode,
+    queueDayId: payment.queueDayId,
+    queueDayVersionAtCheckout: payment.queueDayVersionAtCheckout,
+    ticketIssuanceStatus: payment.ticketIssuanceStatus,
+    ticketIssuanceReason: payment.ticketIssuanceReason,
     createdAt: payment.createdAt,
     updatedAt: payment.updatedAt
   };
@@ -148,6 +154,12 @@ async function createPayMongoCheckoutForJoin({ tenant, otpId, payload, queueFee 
     throw error;
   }
 
+  const checkoutLocation = payload.locationSlug
+    ? await storeLocationRepository.findLocationByTenantAndSlug(tenant._id, payload.locationSlug)
+    : await storeLocationRepository.findPrimaryLocationByTenantId(tenant._id);
+  const checkoutQueueDay = checkoutLocation?.queueLifecycleMode === "enforced"
+    ? await queueDayLifecycleService.assertIntakeOpen(tenant, checkoutLocation)
+    : null;
   const payment = await paymentRepository.createPayment({
     tenantId: tenant._id,
     otpId,
@@ -156,6 +168,8 @@ async function createPayMongoCheckoutForJoin({ tenant, otpId, payload, queueFee 
     amountCents: queueFee.amountCents,
     currency: queueFee.currency,
     payload,
+    queueDayId: checkoutQueueDay?._id,
+    queueDayVersionAtCheckout: checkoutQueueDay?.version,
     metadata: {
       purpose: "queue_join_fee",
       tenantId: String(tenant._id),
@@ -366,7 +380,42 @@ async function issueTicketForPaidPayment(payment, providerPaymentId, paymentAttr
         payment.payload.locationSlug,
         options
       )
-    : null;
+    : await storeLocationRepository.findPrimaryLocationByTenantId(tenant._id, options);
+
+  if (payment.queueDayId) {
+    const boundQueueDay = await queueDayRepository.findById(payment.queueDayId, {
+      client: options.client,
+      forUpdate: true
+    });
+    if (
+      !boundQueueDay
+      || boundQueueDay.state !== "open"
+      || boundQueueDay.intakeMode !== "accepting"
+      || new Date(boundQueueDay.currentClosesAt) <= new Date()
+      || String(boundQueueDay.locationId) !== String(location?._id)
+    ) {
+      const blockedPayment = await paymentRepository.markPaidTicketBlocked(
+        payment._id,
+        {
+          providerPaymentId,
+          paidAt: normalizeProviderTimestamp(paymentAttributes?.paid_at),
+          reason: "bound_queue_day_unavailable",
+          metadata: {
+            ticketIssuanceBlocked: true,
+            boundQueueDayId: payment.queueDayId
+          }
+        },
+        options
+      );
+      return {
+        payment: blockedPayment,
+        tenant,
+        ticket: null,
+        alreadyIssued: false,
+        ticketBlocked: true
+      };
+    }
+  }
 
   const ticket = await createTicketForTenantInTransaction(options.client, {
     tenant,
@@ -409,7 +458,7 @@ async function activatePaidPayment(paymentId, providerPaymentId, paymentAttribut
     return issueTicketForPaidPayment(lockedPayment, providerPaymentId, paymentAttributes, { client });
   });
 
-  if (!result.alreadyIssued) {
+  if (!result.alreadyIssued && !result.ticketBlocked) {
     await maybeNotifyUpcomingTickets(result.tenant, {
       locationSlug: result.payment.payload?.locationSlug
     });
@@ -423,7 +472,8 @@ async function activatePaidPayment(paymentId, providerPaymentId, paymentAttribut
   return {
     payment: result.payment,
     ticket: result.ticket,
-    snapshot
+    snapshot,
+    ticketBlocked: Boolean(result.ticketBlocked)
   };
 }
 
@@ -486,6 +536,7 @@ async function syncQueueJoinPayment({ tenant, paymentId }) {
     synced: true,
     paid: true,
     payment: formatPayment(activated.payment),
+    ticketBlocked: Boolean(activated.ticketBlocked),
     ticket: activated.snapshot.focusTicket
       ? {
           id: activated.snapshot.focusTicket.id,

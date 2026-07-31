@@ -1,26 +1,34 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ -x /usr/bin/psql ]]; then
-  psql_bin="/usr/bin/psql"
-elif command -v psql >/dev/null 2>&1; then
-  psql_bin="$(command -v psql)"
-  if [[ "$psql_bin" == *"/node_modules/"* ]]; then
-    echo "psql is required but the only available binary is the broken node_modules/psql wrapper." >&2
-    exit 1
-  fi
-else
-  echo "psql is required but not installed or not on PATH." >&2
-  exit 1
-fi
-
 : "${DATABASE_URL:?DATABASE_URL must be set}"
+
+run_psql() {
+  if command -v docker >/dev/null 2>&1 &&
+    [[ -n "$(docker compose ps --status running -q database 2>/dev/null)" ]]; then
+    docker compose exec -T database env DATABASE_URL="$DATABASE_URL" psql "$DATABASE_URL" "$@"
+    return
+  fi
+  if [[ -x /usr/bin/psql ]]; then
+    /usr/bin/psql "$DATABASE_URL" "$@"
+    return
+  fi
+  if command -v psql >/dev/null 2>&1; then
+    psql_path="$(command -v psql)"
+    if [[ "$psql_path" != *"/node_modules/"* ]]; then
+      psql "$DATABASE_URL" "$@"
+      return
+    fi
+  fi
+  echo "psql is required but not installed or not on PATH, and docker compose database is unavailable." >&2
+  exit 1
+}
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 migrations_dir="$repo_root/database/migrations"
 repo_migration_count="$(find "$migrations_dir" -maxdepth 1 -type f -name '*.sql' | wc -l | tr -d ' ')"
 
-if ! "$psql_bin" "$DATABASE_URL" -At -v ON_ERROR_STOP=1 -c "SELECT to_regclass('public.schema_migrations')" | grep -qx 'schema_migrations'; then
+if ! run_psql -At -v ON_ERROR_STOP=1 -c "SELECT to_regclass('public.schema_migrations')" | grep -qx 'schema_migrations'; then
   echo "Migration status:"
   echo "  repo files: $repo_migration_count"
   echo "  applied: 0"
@@ -30,8 +38,19 @@ if ! "$psql_bin" "$DATABASE_URL" -At -v ON_ERROR_STOP=1 -c "SELECT to_regclass('
   exit 0
 fi
 
-mapfile -t repo_migrations < <(find "$migrations_dir" -maxdepth 1 -type f -name '*.sql' -print | sort | while IFS= read -r file; do basename "$file"; done)
-mapfile -t applied_migrations < <("$psql_bin" "$DATABASE_URL" -At -v ON_ERROR_STOP=1 -c "SELECT filename FROM schema_migrations ORDER BY filename")
+repo_migrations=()
+while IFS= read -r migration; do
+  repo_migrations+=("$migration")
+done < <(
+  find "$migrations_dir" -maxdepth 1 -type f -name '*.sql' -print |
+    sort |
+    while IFS= read -r file; do basename "$file"; done
+)
+
+applied_migrations=()
+while IFS= read -r migration; do
+  applied_migrations+=("$migration")
+done < <(run_psql -At -v ON_ERROR_STOP=1 -c "SELECT filename FROM schema_migrations ORDER BY filename")
 
 pending_migrations=()
 for migration in "${repo_migrations[@]}"; do

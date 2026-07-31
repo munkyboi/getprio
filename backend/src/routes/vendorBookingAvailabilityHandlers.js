@@ -323,10 +323,13 @@ async function handleBookingMutation({ req, res, getAuthorizedTenant, assertTena
   res.json({ [responseKey]: formatVendorBooking(booking) });
 }
 
-async function handleCheckInBooking({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, bookingService }) {
+async function handleCheckInBooking({ req, res, getAuthorizedTenant, assertTenantPermission, assertQueueLocationAccess, getLocationForTenant, bookingService }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.queue.operate");
   const location = await getLocationForTenant(tenant, req.body.locationSlug || req.query.location);
+  if (assertQueueLocationAccess) {
+    await assertQueueLocationAccess(req.user, tenant, location);
+  }
   const result = await bookingService.checkInVendorBooking({
     tenant, location, bookingId: req.params.bookingId, user: req.user, overrideWindow: Boolean(req.body.overrideWindow), overrideReason: req.body.overrideReason
   });

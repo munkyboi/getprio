@@ -97,6 +97,14 @@ test("vendor routes queue mutations invoke the queue service helpers", async () 
     "../services/queueService": {
       createTicket: async () => ({ snapshot: { ok: true } }),
       getQueueSnapshot: async () => ({ ok: true }),
+      openQueueDay: async (...args) => {
+        calls.push(["openQueueDay", args]);
+        return { ok: true };
+      },
+      extendQueueDay: async (...args) => {
+        calls.push(["extendQueueDay", args]);
+        return { ok: true };
+      },
       callNextTicket: async (...args) => {
         calls.push(["callNextTicket", args]);
         return { ticket: { _id: "ticket-1", ticketNumber: "A001", status: "called" }, snapshot: { ok: true } };
@@ -285,6 +293,23 @@ test("vendor routes queue mutations invoke the queue service helpers", async () 
 
   const { server, baseUrl } = await startServer(router);
   try {
+    const openRes = await fetch(`${baseUrl}/tenant/demo/queue/open?location=main`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ expectedVersion: 1 })
+    });
+    assert.equal(openRes.status, 200, await openRes.text());
+
+    const extendRes = await fetch(`${baseUrl}/tenant/demo/queue/extend?location=main`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        expectedVersion: 2,
+        reason: "serve_remaining_customers"
+      })
+    });
+    assert.equal(extendRes.status, 200, await extendRes.text());
+
     const pauseRes = await fetch(`${baseUrl}/tenant/demo/queue/pause?location=main`, { method: "POST" });
     assert.equal(pauseRes.status, 200, await pauseRes.text());
 
@@ -326,6 +351,8 @@ test("vendor routes queue mutations invoke the queue service helpers", async () 
 
     assert.equal(calls.some(([name]) => name === "callNextTicket"), true);
     assert.equal(calls.some(([name]) => name === "restoreSkippedTicket"), true);
+    assert.equal(calls.some(([name]) => name === "openQueueDay"), true);
+    assert.equal(calls.some(([name]) => name === "extendQueueDay"), true);
     assert.deepEqual(calls.find(([name]) => name === "listVendorBookingRescheduleSlots"), [
       "listVendorBookingRescheduleSlots",
       [{ _id: "tenant-1", slug: "demo" }, "booking-1", "2026-06-24"]

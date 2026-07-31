@@ -20,6 +20,10 @@ test("permissions helpers resolve tenant roles, ignore inactive memberships, and
     "platform.billing.read",
     "platform.plans.manage",
     "platform.queue_fees.manage",
+    "platform.queue_lifecycle.read",
+    "platform.queue_lifecycle.reconcile",
+    "platform.queue_lifecycle.repair",
+    "platform.queue_notifications.requeue",
     "platform.settings.manage",
     "platform.tenants.read",
     "platform.users.read"

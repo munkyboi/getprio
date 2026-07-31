@@ -382,7 +382,9 @@ test("joined queue access tolerates invalid storage and missing lookup codes", a
 
 test("queue status summaries cover loading, state, and ticket variants", () => {
   assert.equal(getQueueStateSummary(null).label, "Loading");
-  assert.equal(getQueueStateSummary({ queueDay: { isClosed: true }, queueIntake: { state: "open" }, location: { openStatus: { isOpen: true } } }).label, "Closed");
+  assert.equal(getQueueStateSummary({ queueDay: { isClosed: true }, queueIntake: { state: "open" }, location: { openStatus: { isOpen: true } } }).label, "Queue closed");
+  assert.equal(getQueueStateSummary({ queueDay: { isClosed: true, state: "unopened", availabilityReason: "not_opened" }, queueIntake: { state: "closed" }, location: { openStatus: { isOpen: true } } }).label, "Not open yet");
+  assert.equal(getQueueStateSummary({ queueDay: { isClosed: false, state: "open", availabilityReason: "reconciling" }, queueIntake: { state: "closed" }, location: { openStatus: { isOpen: true } } }).label, "Queue closing");
   assert.equal(getQueueStateSummary({ queueDay: { isClosed: false, isPaused: true }, queueIntake: { state: "open" }, location: { openStatus: { isOpen: true } } }).label, "Paused");
   assert.equal(getQueueStateSummary({ queueDay: { isClosed: false, isPaused: false }, queueIntake: { state: "near_limit" }, location: { openStatus: { isOpen: true } } }).label, "Near limit");
   assert.equal(getQueueStateSummary({ queueDay: { isClosed: false, isPaused: false }, queueIntake: { state: "open" }, location: { openStatus: { isOpen: true } } }).label, "Open");
@@ -1513,11 +1515,12 @@ test("vendor profile hero uses the booking-ticket information hierarchy", () => 
   assert.match(source, /className="booking-detail-services-card vendor-profile-location-card"/);
   assert.match(source, /className="booking-detail-visual-card vendor-profile-ticket-visual"/);
   assert.match(source, /<Title className="booking-detail-ticket-number" order=\{2\}>\{vendor\.name\}<\/Title>/);
-  assert.match(source, /const \[heroBranchIndex, setHeroBranchIndex\] = useState\(0\)/);
-  assert.match(source, /window\.setInterval\(\(\) => \{\s+setHeroBranchIndex\(\(current\) => \(current \+ 1\) % heroBranches\.length\);\s+\}, 5000\)/);
+  assert.match(source, /selectedLocation \? \([\s\S]*?className="vendor-profile-branch-carousel-slide is-active"/);
+  assert.match(source, /queryKey: \["public-vendor-queue-status", profileSlug, selectedBookingLocationSlug\]/);
+  assert.match(source, /className="vendor-profile-join-queue-status"[\s\S]*?\{selectedQueueStatus\.label\}/);
   assert.match(source, /className="vendor-profile-branch-carousel"/);
   assert.match(source, /className="booking-detail-visual-tile vendor-profile-branch-carousel-card"/);
-  assert.match(source, /branch\.openStatus\?\.isOpen \? "Open" : "Closed"/);
+  assert.match(source, /selectedLocation\.openStatus\?\.isOpen \? "Open" : "Closed"/);
   assert.match(source, /<Text className="finazze-section-label">Branches<\/Text>/);
   assert.match(source, /vendor\.locations\.map\(\(branch\) => \{/);
   assert.match(source, /className="vendor-profile-hero-branch"/);
@@ -1600,8 +1603,8 @@ test("an unknown queue ticket uses the shared not-found recovery state", () => {
 
   assert.match(ticket, /import \{ API_BASE_URL, ApiError, apiRequest \} from "\.\.\/api\/client";/);
   assert.match(ticket, /setResponseStatus\(loadError instanceof ApiError \? loadError\.status : null\);/);
-  assert.match(ticket, /if \(lookupCode && !nextSnapshot\.focusTicket\)/);
-  assert.match(ticket, /if \(responseStatus === 404\)/);
+  assert.match(ticket, /setSnapshot\(null\);[\s\S]*?setResponseStatus\(loadError instanceof ApiError/);
+  assert.match(ticket, /if \(\[401, 403, 404\]\.includes\(responseStatus \|\| 0\)\)/);
   assert.match(ticket, /resourceName="queue ticket"/);
 });
 

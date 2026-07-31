@@ -1,4 +1,5 @@
 const express = require("express");
+const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
 const tenantRepository = require("../repositories/tenants");
 const storeLocationRepository = require("../repositories/storeLocations");
 const publicBoardThemeRepository = require("../repositories/publicBoardThemes");
@@ -30,6 +31,14 @@ const {
 const { normalizePhilippineMobileNumber } = require("../utils/phone");
 
 const router = express.Router();
+const queueTicketReadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `${req.user?._id || "anonymous"}:${ipKeyGenerator(req.ip)}`,
+  message: { message: "Too many queue status requests. Please try again later." }
+});
 router.use(moderatePublicText);
 router.get(
   "/campaigns/:publicToken/stream",
@@ -411,12 +420,72 @@ async function verifyQrTurnstileIfNeeded(req, joinChannel) {
   }
 }
 
+function assertQueueTicketDetailsAccess(req, ticket) {
+  if (!ticket?.userId) {
+    return;
+  }
+
+  if (!req.user) {
+    const error = new Error("Authentication required.");
+    error.statusCode = 401;
+    throw error;
+  }
+
+  if (!customerTicketAccess.userOwnsTicket(req.user, ticket)) {
+    const error = new Error("You do not have permission to view this queue ticket.");
+    error.statusCode = 403;
+    throw error;
+  }
+}
+
+function redactQueueTicketIdentity(ticket) {
+  if (!ticket) {
+    return ticket;
+  }
+
+  const {
+    customerName: _customerName,
+    customerDisplayName: _customerDisplayName,
+    lookupCode: _lookupCode,
+    ...publicTicket
+  } = ticket;
+
+  return publicTicket;
+}
+
+function formatPublicQueueSnapshot(snapshot) {
+  return {
+    ...snapshot,
+    current: redactQueueTicketIdentity(snapshot.current),
+    nextUp: (snapshot.nextUp || []).map(redactQueueTicketIdentity),
+    overflow: (snapshot.overflow || []).map(redactQueueTicketIdentity),
+    recovery: (snapshot.recovery || []).map(redactQueueTicketIdentity),
+    history: (snapshot.history || []).map(redactQueueTicketIdentity),
+    focusTicket: null
+  };
+}
+
 router.get(
   ["/tenant/:tenantSlug/queue", "/tenant/:tenantSlug/location/:locationSlug/queue"],
+  queueTicketReadLimiter,
+  maybeAuthenticate,
   asyncHandler(async (req, res) => {
     const tenant = await getTenantOrThrow(req.params.tenantSlug);
     const location = await getLocationOrPrimary(tenant, req.params.locationSlug);
-    const lookupCode = String(req.query.lookupCode || "").trim();
+    const lookupCode = String(req.query.lookupCode || "").trim().toUpperCase();
+    if (lookupCode) {
+      const ticket = await ticketRepository.findTicketByTenantAndLookupCode(
+        tenant._id,
+        lookupCode
+      );
+      if (!ticket) {
+        const error = new Error("Queue ticket not found.");
+        error.statusCode = 404;
+        throw error;
+      }
+      assertQueueTicketDetailsAccess(req, ticket);
+    }
+
     const snapshot = await getQueueSnapshot(tenant, {
       location,
       lookupCode
@@ -428,7 +497,7 @@ router.get(
       throw error;
     }
 
-    res.json(snapshot);
+    res.json(lookupCode ? snapshot : formatPublicQueueSnapshot(snapshot));
   })
 );
 
@@ -531,6 +600,8 @@ router.post(
 
 router.get(
   "/ticket/:lookupCode",
+  queueTicketReadLimiter,
+  maybeAuthenticate,
   asyncHandler(async (req, res) => {
     const ticket = await ticketRepository.findTicketByLookupCode(
       String(req.params.lookupCode).toUpperCase()
@@ -541,6 +612,8 @@ router.get(
       error.statusCode = 404;
       throw error;
     }
+
+    assertQueueTicketDetailsAccess(req, ticket);
 
     const tenant = await tenantRepository.findTenantById(ticket.tenantId);
     const location = ticket.locationId
@@ -741,10 +814,26 @@ router.delete(
 
 router.get(
   ["/tenant/:tenantSlug/stream", "/tenant/:tenantSlug/location/:locationSlug/stream"],
+  queueTicketReadLimiter,
+  maybeAuthenticate,
   asyncHandler(async (req, res) => {
     const tenant = await getTenantOrThrow(req.params.tenantSlug);
     const location = await getLocationOrPrimary(tenant, req.params.locationSlug);
-    const lookupCode = req.query.lookupCode ? String(req.query.lookupCode) : "";
+    const lookupCode = req.query.lookupCode
+      ? String(req.query.lookupCode).trim().toUpperCase()
+      : "";
+    if (lookupCode) {
+      const ticket = await ticketRepository.findTicketByTenantAndLookupCode(
+        tenant._id,
+        lookupCode
+      );
+      if (!ticket) {
+        const error = new Error("Queue ticket not found.");
+        error.statusCode = 404;
+        throw error;
+      }
+      assertQueueTicketDetailsAccess(req, ticket);
+    }
 
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
@@ -754,7 +843,9 @@ router.get(
     const writeSnapshot = async (snapshot) => {
       const payload = lookupCode
         ? await getQueueSnapshot(tenant, { lookupCode, location })
-        : snapshot || (await getQueueSnapshot(tenant, { location }));
+        : formatPublicQueueSnapshot(
+            snapshot || (await getQueueSnapshot(tenant, { location }))
+          );
       res.write(`data: ${JSON.stringify(payload)}\n\n`);
     };
 

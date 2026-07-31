@@ -506,6 +506,79 @@ test("customer cannot claim a ticket when contact details do not match", async (
   }
 });
 
+test("customer cannot claim a ticket already linked to another account", async () => {
+  const ticketClaims = [];
+  const router = requireWithMocks("../src/routes/accountRoutes.js", {
+    "../middleware/auth": buildAuthMock(),
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../repositories/tickets": {
+      listTicketsForCustomerAccount: async () => [],
+      findTicketByLookupCode: async (lookupCode) => ({
+        _id: "ticket-1",
+        lookupCode,
+        ticketNumber: "DMO-001",
+        customerEmail: "customer@example.com",
+        customerPhone: "09171234567",
+        userId: "other-user"
+      }),
+      claimTicketForUser: async (ticketId, userId) => {
+        ticketClaims.push({ ticketId, userId });
+        return null;
+      }
+    },
+    "../services/passwordResetService": {
+      changePassword: async () => {}
+    }
+  });
+
+  const { server, baseUrl } = await startServer(router, "/api/account");
+
+  try {
+    const response = await fetch(`${baseUrl}/tickets/abc12345/claim`, {
+      method: "POST",
+      headers: { Authorization: "Bearer token" }
+    });
+    assert.equal(response.status, 403);
+    assert.equal(ticketClaims.length, 0);
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("customer claim fails when another account wins the ownership race", async () => {
+  const router = requireWithMocks("../src/routes/accountRoutes.js", {
+    "../middleware/auth": buildAuthMock(),
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../repositories/tickets": {
+      listTicketsForCustomerAccount: async () => [],
+      findTicketByLookupCode: async (lookupCode) => ({
+        _id: "ticket-1",
+        lookupCode,
+        ticketNumber: "DMO-001",
+        customerEmail: "customer@example.com",
+        customerPhone: "09171234567",
+        userId: null
+      }),
+      claimTicketForUser: async () => null
+    },
+    "../services/passwordResetService": {
+      changePassword: async () => {}
+    }
+  });
+
+  const { server, baseUrl } = await startServer(router, "/api/account");
+
+  try {
+    const response = await fetch(`${baseUrl}/tickets/abc12345/claim`, {
+      method: "POST",
+      headers: { Authorization: "Bearer token" }
+    });
+    assert.equal(response.status, 409);
+  } finally {
+    await stopServer(server);
+  }
+});
+
 test("account push subscription route creates and updates tenant-scoped subscriptions", async () => {
   const permissionChecks = [];
   const saves = [];

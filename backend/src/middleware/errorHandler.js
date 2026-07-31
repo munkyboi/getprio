@@ -7,7 +7,8 @@ function errorHandler(error, req, res, _next) {
   }
 
   res.status(statusCode).json({
-    message
+    message,
+    ...(error.code ? { code: error.code } : {})
   });
 }
 

@@ -46,12 +46,14 @@ import type {
   GroupFundedCampaignsResponse,
   PublicVendorProfile,
   PublicVendorProfileResponse,
-  PublicVendorService
+  PublicVendorService,
+  QueueSnapshot
 } from "@shared";
 import { apiRequest } from "../api/client";
 import ContactForm from "../components/ContactForm";
 import CampaignFundingProgress from "../components/CampaignFundingProgress";
 import { getErrorMessage } from "../utils/errors";
+import { getQueueStateSummary } from "../utils/queueStatus";
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const GROUP_FUNDED_FILTER_STORAGE_KEY = "getprio:vendor-profile:group-funded-filters:v2";
@@ -424,7 +426,6 @@ export default function VendorProfilePage() {
   const [publicCampaigns] = useState<GroupFundedCampaignSummary[]>([]);
   const [publicCampaignPagination] = useState<GroupFundedCampaignsResponse["pagination"] | null>(null);
   const [campaignsLoading] = useState(false);
-  const [heroBranchIndex, setHeroBranchIndex] = useState(0);
   const [bookingOptionRoot, setBookingOptionRoot] = useState<HTMLDivElement | null>(null);
   const [bookingOptionControls, setBookingOptionControls] = useState<Record<BookingOption, HTMLButtonElement | null>>({
     standard: null,
@@ -465,8 +466,6 @@ export default function VendorProfilePage() {
       vendor.locations[0]
     );
   }, [selectedLocationSlug, vendor]);
-  const heroBranches = vendor?.locations || [];
-  const activeHeroBranch = heroBranches[heroBranchIndex] || heroBranches[0] || null;
   const locationLabel = useMemo(
     () => (selectedLocation ? getLocationLabel(selectedLocation) : vendor ? getLocationLabel(vendor.location) : ""),
     [selectedLocation, vendor]
@@ -512,6 +511,14 @@ export default function VendorProfilePage() {
     : undefined;
   const selectedBookingLocationSlug = selectedLocation?.slug || vendor?.location.slug || "";
   const profileSlug = vendor?.slug || tenantSlug;
+  const selectedQueueStatusQuery = useQuery({
+    queryKey: ["public-vendor-queue-status", profileSlug, selectedBookingLocationSlug],
+    queryFn: () => apiRequest<QueueSnapshot>(
+      `/public/tenant/${profileSlug}/location/${selectedBookingLocationSlug}/queue`
+    ),
+    enabled: Boolean(profileSlug && selectedBookingLocationSlug)
+  });
+  const selectedQueueStatus = getQueueStateSummary(selectedQueueStatusQuery.data || null);
   const standardBookingTabPath = `/vendors/${profileSlug}`;
   const groupFundedBookingTabPath = `/vendors/${profileSlug}/group-funded`;
   const bookingOption: BookingOption = location.pathname.endsWith("/group-funded") ? "group-funded" : "standard";
@@ -646,22 +653,6 @@ export default function VendorProfilePage() {
       return vendor.locations.find((location) => location.isPrimary)?.slug || vendor.locations[0].slug;
     });
   }, [vendor]);
-
-  useEffect(() => {
-    setHeroBranchIndex((current) => current < heroBranches.length ? current : 0);
-  }, [heroBranches.length]);
-
-  useEffect(() => {
-    if (heroBranches.length < 2) {
-      return undefined;
-    }
-
-    const intervalId = window.setInterval(() => {
-      setHeroBranchIndex((current) => (current + 1) % heroBranches.length);
-    }, 5000);
-
-    return () => window.clearInterval(intervalId);
-  }, [heroBranches.length]);
 
   useEffect(() => {
     if (!vendor || !selectedLocationSlug) {
@@ -973,23 +964,21 @@ export default function VendorProfilePage() {
                     </Stack>
                     <div className="booking-detail-visual-tile vendor-profile-branch-carousel-card">
                       <div aria-live="polite" className="vendor-profile-branch-carousel" role="status">
-                        {heroBranches.map((branch, index) => (
+                        {selectedLocation ? (
                           <Group
-                            className={`vendor-profile-branch-carousel-slide ${index === heroBranchIndex ? "is-active" : ""}`}
+                            className="vendor-profile-branch-carousel-slide is-active"
                             justify="space-between"
-                            key={branch.slug}
                             wrap="nowrap"
                           >
                             <Stack gap={0} miw={0} style={{ flex: "1 1 0" }}>
-                              <Text fw={800} truncate="end">{branch.name}</Text>
-                              <Text c="dimmed" size="sm" truncate="end">{getBranchAddress(branch)}</Text>
+                              <Text fw={800} truncate="end">{selectedLocation.name}</Text>
+                              <Text c="dimmed" size="sm" truncate="end">{getBranchAddress(selectedLocation)}</Text>
                             </Stack>
-                            <Badge className="vendor-profile-branch-status" color={branch.openStatus?.isOpen ? "teal" : "red"} size="lg" variant="filled">
-                              {branch.openStatus?.isOpen ? "Open" : "Closed"}
+                            <Badge className="vendor-profile-branch-status" color={selectedLocation.openStatus?.isOpen ? "teal" : "red"} size="lg" variant="filled">
+                              {selectedLocation.openStatus?.isOpen ? "Open" : "Closed"}
                             </Badge>
                           </Group>
-                        ))}
-                        {!activeHeroBranch ? <Text c="dimmed" size="sm">No branch available</Text> : null}
+                        ) : <Text c="dimmed" size="sm">No branch available</Text>}
                       </div>
                     </div>
                     <Stack className="booking-detail-visual-action vendor-profile-ticket-actions" gap="sm">
@@ -998,9 +987,20 @@ export default function VendorProfilePage() {
                         component={Link}
                         leftSection={<IconTicket size={18} />}
                         size="lg"
-                        to={activeHeroBranch?.slug ? `/join/${vendor.slug}/${activeHeroBranch.slug}` : `/join/${vendor.slug}`}
+                        to={selectedBookingLocationSlug ? `/join/${vendor.slug}/${selectedBookingLocationSlug}` : `/join/${vendor.slug}`}
                       >
-                        Join queue
+                        <span className="vendor-profile-join-queue-label">
+                          <span>Join queue</span>
+                          <Badge
+                            className="vendor-profile-join-queue-status"
+                            color={selectedQueueStatus.color}
+                            radius="xl"
+                            size="sm"
+                            variant="white"
+                          >
+                            {selectedQueueStatus.label}
+                          </Badge>
+                        </span>
                       </Button>
                       <Button className="vendor-theme-button vendor-theme-button-ghost" onClick={scrollToBookingOptions} size="lg" variant="subtle">
                         Start booking

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   Alert,
   Badge,
@@ -17,6 +17,7 @@ import {
 import { useMediaQuery } from "@mantine/hooks";
 import { notifications } from "@mantine/notifications";
 import { IconArrowLeft, IconBuildingStore, IconCalendar, IconCheck, IconClock, IconInfoCircle, IconMessageDots, IconTicket, IconX } from "@tabler/icons-react";
+import "jsbarcode/dist/barcodes/JsBarcode.code128.min.js";
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type { CancelQueueTicketRequest, QueueJoinPaymentSyncResponse, QueueSnapshot, StoreHourSummary } from "@shared";
 import { API_BASE_URL, ApiError, apiRequest } from "../api/client";
@@ -26,27 +27,15 @@ import { buildJoinPath, buildJoinedQueuePathWithTicket, buildMonitorPath } from 
 import ContactForm from "../components/ContactForm";
 import { clearJoinedQueueAccess, getJoinedQueueAccess } from "../utils/joinedQueueAccess";
 import { getErrorMessage } from "../utils/errors";
-import { getTicketStateSummary } from "../utils/queueStatus";
-
-function maskNamePart(namePart: string): string {
-  if (!namePart) {
-    return "";
-  }
-
-  if (namePart.length === 1) {
-    return `${namePart[0]}***`;
-  }
-
-  return `${namePart[0]}***${namePart[namePart.length - 1]}`;
-}
-
-function maskCustomerName(name: string): string {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .map(maskNamePart)
-    .join(" ");
-}
+import {
+  getQueueStateSummary,
+  getTicketStateSummary,
+  isQueueAcceptingJoins
+} from "../utils/queueStatus";
+import {
+  getQueueCustomerDisplayName,
+  getQueueCustomerFullNameLabel
+} from "../utils/queueNames";
 
 function hexToRgba(hex: string, alpha: number): string {
   const normalized = /^#[0-9a-f]{6}$/i.test(hex) ? hex : "#ffffff";
@@ -83,6 +72,31 @@ function formatDisplayTime(value: string): string {
   return `${displayHour}:${minuteValue.padStart(2, "0")} ${period}`;
 }
 
+function formatJoinedDate(value?: string | Date | null, timezone?: string): string {
+  if (!value) {
+    return "--";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "--";
+  }
+
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: timezone || "Asia/Manila"
+  }).formatToParts(date);
+  const valueFor = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((part) => part.type === type)?.value || "";
+
+  return `${valueFor("day")} ${valueFor("month")} ${valueFor("year")} at ${valueFor("hour")}:${valueFor("minute")} ${valueFor("dayPeriod").toUpperCase()}`;
+}
+
 function formatHoursLabel(hour: StoreHourSummary): string {
   if (hour.isClosed) {
     return "Closed";
@@ -101,22 +115,6 @@ function formatHoursLabel(hour: StoreHourSummary): string {
   return `${formatDisplayTime(hour.opensAt)} - ${formatDisplayTime(hour.closesAt)}${overnightLabel}`;
 }
 
-function getBusinessCategoryLabel(category?: string) {
-  if (!category) {
-    return "Generic Service Business";
-  }
-
-  const labels: Record<string, string> = {
-    "Health and Wellness": "Wellness & Self-care",
-    "Food and Beverage": "Food & Beverage",
-    "Retail and E-commerce": "Retail & E-commerce",
-    "Sports and Recreation": "Sports & Recreation",
-    "Generic Service Business": "Service Business"
-  };
-
-  return labels[category] || category;
-}
-
 function normalizeHours(hours: StoreHourSummary[] = []): StoreHourSummary[] {
   return Array.from({ length: 7 }, (_, weekday) => {
     const hour = hours.find((item) => item.weekday === weekday);
@@ -130,6 +128,40 @@ function normalizeHours(hours: StoreHourSummary[] = []): StoreHourSummary[] {
       }
     );
   });
+}
+
+function TicketBarcode({ value }: { value: string }) {
+  const barcodeRef = useRef<SVGSVGElement | null>(null);
+
+  useEffect(() => {
+    if (!barcodeRef.current || !value) {
+      return;
+    }
+
+    window.JsBarcode(barcodeRef.current, value, {
+      background: "transparent",
+      displayValue: false,
+      format: "CODE128",
+      height: 56,
+      lineColor: "#17202a",
+      margin: 0,
+      width: 2
+    });
+  }, [value]);
+
+  return (
+    <div className="ticket-page-barcode" aria-label={`Ticket ID ${value}`}>
+      <svg
+        ref={barcodeRef}
+        aria-label={`Barcode for ticket ID ${value}`}
+        preserveAspectRatio="none"
+        role="img"
+      />
+      <Text className="ticket-page-barcode-value" c="dimmed" size="sm">
+        {value}
+      </Text>
+    </div>
+  );
 }
 
 export default function JoinedQueuePage() {
@@ -229,10 +261,6 @@ export default function JoinedQueuePage() {
   const businessName = snapshot?.tenant?.name || tenantSlugValue;
   const locationName = snapshot?.location?.name || "Main location";
   const locationDetailLabel = [snapshot?.location?.city, snapshot?.location?.province].filter(Boolean).join(", ") || snapshot?.location?.country || "Philippines";
-  const heroDescription =
-    theme?.heroSubtitle ||
-    snapshot?.location?.openStatus.summary ||
-    "Your queue ticket is linked to this vendor profile, branch, and live service queue.";
   const ticketState = getTicketStateSummary(snapshot?.focusTicket?.status);
   const themedMediaStyle: CSSProperties | undefined = theme
     ? {
@@ -248,23 +276,28 @@ export default function JoinedQueuePage() {
   const bookingPath = `/vendors/${tenantSlugValue}/book${locationSlug ? `?location=${encodeURIComponent(locationSlug)}` : ""}`;
   const vendorIsInactive = snapshot ? !snapshot.tenant.isActive : false;
   const locationIsClosed = snapshot?.location ? !snapshot.location.openStatus.isOpen : false;
-  const queueDayClosed = Boolean(snapshot?.queueDay?.isClosed);
-  const queueDayPaused = Boolean(snapshot?.queueDay?.isPaused);
+  const queueState = getQueueStateSummary(snapshot);
   const ticketIsWaiting = snapshot?.focusTicket?.status === "waiting";
+  const ticketIsCarriedOver = Boolean(
+    snapshot?.focusTicket?.isCarriedOver ||
+    snapshot?.focusTicket?.servicePriorityBand === "carry_over" ||
+    Number(snapshot?.focusTicket?.carryOverCount || 0) > 0
+  );
   const canJoinAgain =
-    Boolean(snapshot) &&
+    isQueueAcceptingJoins(snapshot) &&
     !ticketIsWaiting &&
     !vendorIsInactive &&
-    !locationIsClosed &&
-    !queueDayClosed &&
-    !queueDayPaused;
+    !locationIsClosed;
   const queueProgressTickets = [
     ...(snapshot?.current
       ? [
           {
             id: `current-${snapshot.current.id}`,
             ticketNumber: snapshot.current.ticketNumber,
-            customerName: maskCustomerName(snapshot.current.customerName),
+            customerName: getQueueCustomerDisplayName(
+              snapshot.current.customerName,
+              snapshot.current.customerDisplayName
+            ),
             progressLabel: "Now serving"
           }
         ]
@@ -272,7 +305,10 @@ export default function JoinedQueuePage() {
     ...((snapshot?.nextUp || []).map((ticket) => ({
       id: ticket.id,
       ticketNumber: ticket.ticketNumber,
-      customerName: maskCustomerName(ticket.customerName),
+      customerName: getQueueCustomerDisplayName(
+        ticket.customerName,
+        ticket.customerDisplayName
+      ),
       progressLabel: `#${ticket.position}`
     })))
   ].slice(0, 10);
@@ -296,45 +332,49 @@ export default function JoinedQueuePage() {
     const query = `?lookupCode=${encodeURIComponent(lookupCode)}`;
     let active = true;
 
-    apiRequest<QueueSnapshot>(`${basePath}/queue${query}`)
-      .then((data) => {
-        if (active) {
-          setSnapshot(data);
-          setError("");
-          setResponseStatus(null);
-        }
-      })
-      .catch((loadError) => {
-        if (active) {
-          setError(getErrorMessage(loadError));
-          setResponseStatus(loadError instanceof ApiError ? loadError.status : null);
-        }
-      });
+    setSnapshot(null);
 
-    const eventSource = new EventSource(`${API_BASE_URL}${basePath}/stream${query}`);
-    eventSource.onmessage = (event) => {
-      const nextSnapshot = JSON.parse(event.data) as QueueSnapshot;
-      if (lookupCode && !nextSnapshot.focusTicket) {
-        setError("Queue ticket not found.");
-        setResponseStatus(404);
-        eventSource.close();
-        return;
-      }
+    const loadSnapshot = () =>
+      apiRequest<QueueSnapshot>(`${basePath}/queue${query}`, { token })
+        .then((data) => {
+          if (active) {
+            setSnapshot(data);
+            setError("");
+            setResponseStatus(null);
+          }
+        })
+        .catch((loadError) => {
+          if (active) {
+            setSnapshot(null);
+            setError(getErrorMessage(loadError));
+            setResponseStatus(loadError instanceof ApiError ? loadError.status : null);
+          }
+        });
 
-      setSnapshot(nextSnapshot);
-      setError("");
-      setResponseStatus(null);
+    void loadSnapshot();
+
+    const eventSource = new EventSource(`${API_BASE_URL}${basePath}/stream`);
+    eventSource.onmessage = () => {
+      void loadSnapshot();
     };
     eventSource.onerror = () => {
-      setError("Live updates disconnected. Refresh to reconnect.");
-      eventSource.close();
+      if (active) {
+        setError("Live updates interrupted. Reconnecting…");
+      }
     };
 
     return () => {
       active = false;
       eventSource.close();
     };
-  }, [locationSlug, lookupCode, missingLookupCode, missingTenant, tenantSlugValue]);
+  }, [
+    locationSlug,
+    lookupCode,
+    missingLookupCode,
+    missingTenant,
+    tenantSlugValue,
+    token
+  ]);
 
   useEffect(() => {
     if (!tenantSlugValue || !paymentId || paymentStatus === "cancelled") {
@@ -408,7 +448,7 @@ export default function JoinedQueuePage() {
     return <Navigate replace to={buildMonitorPath(tenantSlugValue, locationSlug)} />;
   }
 
-  if (responseStatus === 404) {
+  if ([401, 403, 404].includes(responseStatus || 0)) {
     return (
       <ResourceErrorState
         backLabel={backLabel}
@@ -609,75 +649,90 @@ export default function JoinedQueuePage() {
             intro="Use this form to ask about this vendor's services, booking details, or public profile."
           />
         </Modal>
-        {shouldAwaitPaymentSync || paymentSyncing ? (
-          <Alert color="blue" title="Confirming payment">
-            We are confirming your queue fee payment and loading your ticket.
-          </Alert>
+        {(shouldAwaitPaymentSync || paymentSyncing || (snapshot && queueState.label !== "Open")) ? (
+          <Stack className="ticket-page-notifications" gap="sm">
+            {shouldAwaitPaymentSync || paymentSyncing ? (
+              <Alert className="ticket-page-status-alert" color="blue" title="Confirming payment">
+                We are confirming your queue fee payment and loading your ticket.
+              </Alert>
+            ) : null}
+            {snapshot && queueState.label !== "Open" ? (
+              <Alert
+                className="ticket-page-status-alert ticket-page-queue-alert"
+                color={queueState.color}
+                icon={<IconInfoCircle size={18} />}
+                title={`Queue: ${queueState.label}`}
+              >
+                {queueState.message}
+              </Alert>
+            ) : null}
+          </Stack>
         ) : null}
         <Paper className="vendor-hero-shell ticket-page-hero booking-detail-page-hero" p={{ base: "lg", md: "xl" }}>
           <SimpleGrid cols={{ base: 1, lg: 2 }} spacing={{ base: "xl", lg: 48 }}>
             <Stack className="booking-detail-info-panel" gap="lg" justify="flex-start">
               <div>
-                <Group gap="sm" wrap="wrap">
-                  <Badge className="vendor-theme-badge vendor-theme-badge-primary" size="lg" variant="light">
-                    {getBusinessCategoryLabel()}
-                  </Badge>
-                  <Badge className={`booking-detail-ticket-status ticket-page-ticket-status--${snapshot?.focusTicket?.status || "waiting"}`} size="lg">
-                    {ticketState.label}
-                  </Badge>
-                </Group>
-                <Stack gap={4} mt="md">
+                <Stack gap={6}>
                   <Title className="vendor-hero-title ticket-page-title" order={1}>
                     Your queue ticket
                   </Title>
-                  <Text className="vendor-hero-subtitle" fw={700} size="lg">
-                    {businessName} · {locationName}
-                  </Text>
+                  <Group className="ticket-page-vendor-summary" gap="sm" justify="space-between">
+                    <Text className="vendor-hero-subtitle" fw={700} size="lg">
+                      {businessName} · {locationName}
+                    </Text>
+                    <Group className="ticket-page-business-hours" c="dimmed" gap={8}>
+                      <IconClock className="booking-detail-meta-icon" size={18} />
+                      <Text>{formatHoursLabel(locationHours[todayIndex])}</Text>
+                      <Button
+                        className="ticket-page-inline-hours-button"
+                        leftSection={<IconInfoCircle size={14} />}
+                        onClick={() => setHoursOpened(true)}
+                        radius="xl"
+                        size="xs"
+                        variant="subtle"
+                      >
+                        Business hours
+                      </Button>
+                    </Group>
+                  </Group>
                 </Stack>
               </div>
-
-              <Text className="vendor-hero-description">
-                {ticketState.message || heroDescription}
-              </Text>
 
               <Paper className="booking-detail-services-card ticket-page-ticket-details-card" p="md">
                 <Stack gap="sm">
                   <Text className="finazze-section-label">Ticket details</Text>
-                  <Group justify="space-between" wrap="nowrap">
-                    <div>
-                      <Text c="dimmed" size="sm">Ticket number</Text>
-                      <Text fw={900} size="xl">{snapshot?.focusTicket?.ticketNumber || lookupCode}</Text>
+                  <div className="ticket-page-ticket-details-summary">
+                    <div className="ticket-page-ticket-details-metadata">
+                      <div className="ticket-page-ticket-detail-item">
+                        <Text c="dimmed" size="sm">Ticket number</Text>
+                        <Text fw={900} size="xl">{snapshot?.focusTicket?.ticketNumber || lookupCode}</Text>
+                      </div>
+                      <Divider className="ticket-page-ticket-detail-divider" orientation="vertical" />
+                      <div className="ticket-page-ticket-detail-item">
+                        <Text c="dimmed" size="sm">Joined Date</Text>
+                        <Text fw={700} size="sm">
+                          {formatJoinedDate(
+                            snapshot?.focusTicket?.joinedAt,
+                            snapshot?.location?.timezone
+                          )}
+                        </Text>
+                      </div>
                     </div>
-                    <Badge className={`booking-detail-ticket-status ticket-page-ticket-status--${snapshot?.focusTicket?.status || "waiting"}`} size="lg">
-                      {ticketState.label}
-                    </Badge>
-                  </Group>
-                  <Text c="dimmed" size="sm">
-                    {snapshot?.focusTicket?.lookupCode || lookupCode}
-                  </Text>
+                    <Group className="ticket-page-ticket-badges" gap="xs">
+                      <Badge className={`booking-detail-ticket-status ticket-page-ticket-status ticket-page-ticket-status--${snapshot?.focusTicket?.status || "waiting"}`} size="lg">
+                        {ticketState.label}
+                      </Badge>
+                      {ticketIsCarriedOver ? (
+                        <Badge className="ticket-page-carry-over-badge" color="blue" size="lg" variant="light">
+                          Carried over
+                        </Badge>
+                      ) : null}
+                    </Group>
+                  </div>
+                  <Divider className="ticket-page-barcode-divider" />
+                  <TicketBarcode value={snapshot?.focusTicket?.lookupCode || lookupCode} />
                 </Stack>
               </Paper>
-
-              <Stack gap="xs">
-                <Group c="dimmed" gap={8} wrap="nowrap">
-                  <IconBuildingStore className="booking-detail-meta-icon" size={18} />
-                  <Text>{locationName}</Text>
-                </Group>
-                <Group c="dimmed" gap={8} wrap="nowrap">
-                  <IconClock className="booking-detail-meta-icon" size={18} />
-                  <Text>{formatHoursLabel(locationHours[todayIndex])}</Text>
-                  <Button
-                    className="ticket-page-inline-hours-button"
-                    leftSection={<IconInfoCircle size={14} />}
-                    onClick={() => setHoursOpened(true)}
-                    radius="xl"
-                    size="xs"
-                    variant="subtle"
-                  >
-                    Business hours
-                  </Button>
-                </Group>
-              </Stack>
 
               <Divider />
               <Group className="customer-action-row" gap="md">
@@ -715,7 +770,14 @@ export default function JoinedQueuePage() {
 
               <div className="booking-detail-visual-content">
                 <Stack align="center" gap={4}>
-                  <Text fw={800} size="lg">{snapshot?.focusTicket?.customerName ? maskCustomerName(snapshot.focusTicket.customerName) : "Your queue ticket"}</Text>
+                  <Text fw={800} size="lg">
+                    {snapshot?.focusTicket?.customerName
+                      ? getQueueCustomerFullNameLabel(
+                          snapshot.focusTicket.customerName,
+                          snapshot.focusTicket.customerDisplayName
+                        )
+                      : "Your queue ticket"}
+                  </Text>
                   <Text size="sm">{businessName} · {locationName}</Text>
                 </Stack>
                 <SimpleGrid cols={{ base: 1, sm: 3 }} mt="lg" spacing="sm">

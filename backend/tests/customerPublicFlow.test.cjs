@@ -396,17 +396,33 @@ function buildPublicRouter(ticket, cancelTicketMock) {
       getPlatformSettings: async () => ({ enterpriseInquiryEmail: "ops@getprio.test" })
     },
     "../services/queueService": {
-      getQueueSnapshot: async () => ({
+      getQueueSnapshot: async (_tenant, options = {}) => ({
         tenant: { name: "Demo Tenant", slug: "demo", isActive: true, queueFee: { enabled: false, amountCents: 0, currency: "PHP", displayAmount: "PHP 0.00", planSlug: "economical" } },
         location: { name: "Ayala", slug: "ayala", timezone: "Asia/Manila", openStatus: { isOpen: true }, hours: [] },
         publicBoardTheme: { scope: "location", theme: {} },
         queueDay: { isClosed: false, queueDateKey: "20260606", closedAt: null, reopenedAt: null, closureReason: null },
         stats: { waitingCount: 1, estimatedWaitMinutes: 5, servedToday: 0 },
         current: null,
-        nextUp: [],
+        nextUp: ticket
+          ? [{
+              id: ticket._id,
+              ticketNumber: ticket.ticketNumber,
+              customerName: ticket.customerName,
+              status: ticket.status,
+              position: 1
+            }]
+          : [],
         history: [],
         usage: { periodStart: new Date(), periodEnd: null, emailsSentThisPeriod: 0 },
-        focusTicket: null
+        focusTicket: options.lookupCode && ticket
+          ? {
+              id: ticket._id,
+              lookupCode: ticket.lookupCode,
+              ticketNumber: ticket.ticketNumber,
+              customerName: ticket.customerName,
+              status: ticket.status
+            }
+          : null
       }),
       cancelTicket: cancelTicketMock
     }
@@ -494,6 +510,126 @@ test("public queue snapshot returns 404 for an unknown ticket lookup code", asyn
     assert.equal(response.status, 404);
     const body = await response.json();
     assert.match(body.message, /queue ticket not found/i);
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("customer cannot load another account owner's queue ticket details", async () => {
+  const router = buildPublicRouter(
+    {
+      _id: "ticket-2",
+      tenantId: "tenant-1",
+      locationId: "location-1",
+      userId: "other-user",
+      lookupCode: "OTHER123",
+      ticketNumber: "DMO-002",
+      customerName: "Other Customer",
+      status: "waiting"
+    },
+    async () => ({})
+  );
+  const { server, baseUrl } = await startServer(router, "/api/public");
+
+  try {
+    const response = await fetch(
+      `${baseUrl}/tenant/demo/location/ayala/queue?lookupCode=OTHER123`,
+      { headers: { "x-test-auth-mode": "customer" } }
+    );
+
+    assert.equal(response.status, 403);
+    assert.doesNotMatch(await response.text(), /Other Customer/);
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("linked queue ticket details require their authenticated account owner", async () => {
+  const linkedTicket = {
+    _id: "ticket-1",
+    tenantId: "tenant-1",
+    locationId: "location-1",
+    userId: "user-1",
+    lookupCode: "OWNER123",
+    ticketNumber: "DMO-001",
+    customerName: "Customer One",
+    status: "waiting"
+  };
+  const router = buildPublicRouter(linkedTicket, async () => ({}));
+  const { server, baseUrl } = await startServer(router, "/api/public");
+
+  try {
+    const anonymousResponse = await fetch(
+      `${baseUrl}/tenant/demo/location/ayala/queue?lookupCode=OWNER123`
+    );
+    assert.equal(anonymousResponse.status, 401);
+
+    const ownerResponse = await fetch(
+      `${baseUrl}/tenant/demo/location/ayala/queue?lookupCode=OWNER123`,
+      { headers: { "x-test-auth-mode": "customer" } }
+    );
+    assert.equal(ownerResponse.status, 200);
+    assert.equal((await ownerResponse.json()).focusTicket.ticketNumber, "DMO-001");
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("legacy and streaming ticket detail endpoints reject another account owner", async () => {
+  const linkedTicket = {
+    _id: "ticket-2",
+    tenantId: "tenant-1",
+    locationId: "location-1",
+    userId: "other-user",
+    lookupCode: "OTHER123",
+    ticketNumber: "DMO-002",
+    customerName: "Other Customer",
+    status: "waiting"
+  };
+  const router = buildPublicRouter(linkedTicket, async () => ({}));
+  const { server, baseUrl } = await startServer(router, "/api/public");
+
+  try {
+    const legacyResponse = await fetch(
+      `${baseUrl}/ticket/OTHER123`,
+      { headers: { "x-test-auth-mode": "customer" } }
+    );
+    assert.equal(legacyResponse.status, 403);
+    assert.doesNotMatch(await legacyResponse.text(), /Other Customer/);
+
+    const streamResponse = await fetch(
+      `${baseUrl}/tenant/demo/location/ayala/stream?lookupCode=OTHER123`,
+      { headers: { "x-test-auth-mode": "customer" } }
+    );
+    assert.equal(streamResponse.status, 403);
+    assert.doesNotMatch(await streamResponse.text(), /Other Customer/);
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("public queue board snapshots do not expose raw customer identities", async () => {
+  const router = buildPublicRouter(
+    {
+      _id: "ticket-2",
+      tenantId: "tenant-1",
+      locationId: "location-1",
+      userId: "other-user",
+      lookupCode: "OTHER123",
+      ticketNumber: "DMO-002",
+      customerName: "Other Customer",
+      status: "waiting"
+    },
+    async () => ({})
+  );
+  const { server, baseUrl } = await startServer(router, "/api/public");
+
+  try {
+    const response = await fetch(`${baseUrl}/tenant/demo/location/ayala/queue`);
+    const body = await response.text();
+
+    assert.equal(response.status, 200);
+    assert.doesNotMatch(body, /Other Customer/);
   } finally {
     await stopServer(server);
   }

@@ -119,6 +119,14 @@ test("queue join checkout marks the payment failed when checkout creation fails"
         return null;
       }
     },
+    "../repositories/storeLocations": {
+      findLocationByTenantAndSlug: async () => ({
+        _id: "location-1",
+        slug: "main",
+        queueLifecycleMode: "legacy"
+      }),
+      findPrimaryLocationByTenantId: async () => null
+    },
     "../services/queueFeeService": {
       assertTenantCanAcceptCustomerJoins: async () => {},
       getQueueFeeForTenant: async () => ({
@@ -223,6 +231,14 @@ test("queue join checkout preserves provider identifiers when local linking fail
         markFailedCalls.push({ paymentId, data });
         return null;
       }
+    },
+    "../repositories/storeLocations": {
+      findLocationByTenantAndSlug: async () => ({
+        _id: "location-1",
+        slug: "main",
+        queueLifecycleMode: "legacy"
+      }),
+      findPrimaryLocationByTenantId: async () => null
     },
     "../services/queueFeeService": {
       assertTenantCanAcceptCustomerJoins: async () => {},

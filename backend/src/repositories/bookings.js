@@ -32,6 +32,9 @@ const BOOKING_COLUMNS = `
   bookings.pending_expires_at,
   bookings.expired_at,
   bookings.expiration_reason,
+  bookings.fulfillment_outcome_reason,
+  bookings.refund_eligible,
+  bookings.fulfillment_resolved_at,
   bookings.notify_by_email,
   bookings.notify_by_sms,
   bookings.sms_alert_fee_payment_id,
@@ -223,6 +226,9 @@ function mapBooking(row) {
     pendingExpiresAt: row.pending_expires_at || null,
     expiredAt: row.expired_at || null,
     expirationReason: row.expiration_reason || "",
+    fulfillmentOutcomeReason: row.fulfillment_outcome_reason || "",
+    refundEligible: Boolean(row.refund_eligible),
+    fulfillmentResolvedAt: row.fulfillment_resolved_at || null,
     notifyByEmail: row.notify_by_email !== false,
     notifyBySms: Boolean(row.notify_by_sms),
     smsAlertFeePaymentId: row.sms_alert_fee_payment_id || "",
@@ -859,7 +865,10 @@ async function updateBookingByQueueTicketId(queueTicketId, data, options = {}) {
 
   for (const [field, column] of [
     ["status", "status"],
-    ["notes", "notes"]
+    ["notes", "notes"],
+    ["fulfillmentOutcomeReason", "fulfillment_outcome_reason"],
+    ["refundEligible", "refund_eligible"],
+    ["fulfillmentResolvedAt", "fulfillment_resolved_at"]
   ]) {
     if (Object.prototype.hasOwnProperty.call(data, field)) {
       values.push(data[field]);

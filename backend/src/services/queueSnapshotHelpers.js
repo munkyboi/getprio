@@ -96,6 +96,7 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
     id: String(ticket._id),
     ticketNumber: ticket.ticketNumber,
     customerName: ticket.customerName,
+    customerDisplayName: ticket.customerDisplayName || null,
     status: ticket.status,
     position: index + 1,
     joinChannel: ticket.joinChannel,
@@ -111,6 +112,7 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
     id: String(ticket._id),
     ticketNumber: ticket.ticketNumber,
     customerName: ticket.customerName,
+    customerDisplayName: ticket.customerDisplayName || null,
     status: ticket.status,
     position: index + 1,
     joinChannel: ticket.joinChannel,
@@ -138,7 +140,18 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
       lookupCode: lookupTicket.lookupCode,
       ticketNumber: lookupTicket.ticketNumber,
       customerName: lookupTicket.customerName,
+      customerDisplayName: lookupTicket.customerDisplayName || null,
       status: lookupTicket.status,
+      statusReason: lookupTicket.statusReason || null,
+      isCarriedOver: Boolean(
+        lookupTicket.servicePriorityBand === "carry_over" ||
+        lookupTicket.carriedOverAt ||
+        lookupTicket.carryOverCount > 0
+      ),
+      carryOverCount: lookupTicket.carryOverCount || 0,
+      servicePriorityBand: lookupTicket.servicePriorityBand || "normal",
+      carryOverExpiresAt: lookupTicket.carryOverExpiresAt || null,
+      currentQueueDayId: lookupTicket.currentQueueDayId || null,
       position: position || null,
       estimatedWaitMinutes:
         position && position > 0 ? position * tenant.averageServiceMinutes : 0,
@@ -226,6 +239,7 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
           id: String(current._id),
           ticketNumber: current.ticketNumber,
           customerName: current.customerName,
+          customerDisplayName: current.customerDisplayName || null,
           calledAt: current.calledAt,
           servicePriorityBand: current.servicePriorityBand || "normal",
           linkedBookingReference: current.linkedBookingReference || null

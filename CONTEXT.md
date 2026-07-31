@@ -169,16 +169,92 @@ The time limit for unresolved pending booking requests. Pending bookings hold ca
 _Avoid_: Auto-reject, booking timeout
 
 **Checked-In Booking**:
-A confirmed booking whose customer has arrived for service-day execution and has been placed into the live queue by a vendor-side user. Checked-in bookings receive a queue priority above normal walk-ins, but below carry-over and missed-ticket recovery.
+A confirmed booking whose customer has arrived for service-day execution and has been placed into the live queue by a vendor-side user. Its Queue Ticket receives checked-in priority and the same one-time carry-over protection as other waiting tickets.
 _Avoid_: Auto-queued booking, appointment ticket
+
+**Unfulfilled Booking**:
+A terminal Checked-In Booking for which service was not delivered before its linked Queue Ticket became unserved or expired. It is distinct from completion, cancellation, and no-show, and makes the vendor-handled full-refund obligation explicit.
+_Avoid_: Completed booking, customer cancellation, confirmed booking
+
+**Missed Booking**:
+A terminal Checked-In Booking whose customer missed the called queue turn and was not restored before the Queue Day closed. It is distinct from no-show because the customer checked in, and it follows the existing non-refundable missed-turn policy.
+_Avoid_: No-show, unfulfilled booking, customer cancellation
 
 **Check-In Window**:
 The allowed arrival period around a confirmed booking's scheduled start time. For the MVP, the default check-in window is 15 minutes before through 15 minutes after the scheduled start time, with vendor-side override for late arrivals.
 _Avoid_: Grace period, attendance window
 
 **Queue Ticket**:
-A customer's active place in a vendor's same-day service queue, identified by its own queue ticket number. A queue ticket represents service-day execution and begins only when the customer joins or checks in to the live queue.
+A customer's tracked place in a vendor's service queue, with a stable lookup identity and a Queue Day-specific display number. Carry-over preserves the ticket identity but receives a fresh display number when attached to the later Queue Day.
 _Avoid_: Booking, appointment, reservation
+
+**Queue Day**:
+A location-scoped period of queue operation for one local business date, with an `unopened`, `open`, or `closed` lifecycle; an overnight Queue Day belongs to the local date on which its store-hours interval begins. Store hours make a Queue Day eligible to open, but an authorized Vendor-Side User must open it explicitly; reaching opening time never opens it automatically.
+_Avoid_: Store hours, paused queue, auto-close phase
+
+**Effective Store Hours**:
+The location-local interval that makes a business date eligible for a Queue Day. Missing or explicitly closed hours make the date ineligible, different opening and closing times form a same-day or overnight interval, and equal times on an active day mean a 24-hour interval.
+_Avoid_: Queue Day status, queue opening, global app time
+
+**Unopened Queue Day**:
+A business date whose Queue Day has not been opened and whose Effective Store Hours have not ended. Opening is unavailable before the interval begins, becomes eligible during the interval, and never happens automatically.
+_Avoid_: Closed store, paused queue, automatically open queue
+
+**Closed Queue Day**:
+A Queue Day whose live operation has ended, or whose Effective Store Hours ended without it ever opening. An early manually closed Queue Day may be reopened only within its snapshotted interval and before its current close deadline; an auto-closed, reconciled, or never-opened day remains closed.
+_Avoid_: Paused queue, closed store, permanently unavailable location
+
+**Queue Intake Mode**:
+The accepting-or-paused condition of an open Queue Day. Pausing blocks joins, check-ins, walk-ins, paid-ticket issuance, and skipped-ticket restoration while allowing staff to process existing tickets; it does not close the Queue Day or stop its auto-close schedule.
+_Avoid_: Queue Day status, store closure, auto-close phase
+
+**Queue Auto-Close Phase**:
+The time-relative condition of an open Queue Day as its scheduled close approaches: normal, warning, extended, or overdue. It is separate from the Queue Day lifecycle and Queue Intake Mode.
+_Avoid_: Queue Day status, intake pause, draining state
+
+**Queue Day Reconciliation**:
+The repeatable process that compares a Queue Day's durable state with its authoritative deadline and applies any missing warning, close, or ticket outcomes. Periodic, startup, and request-time attempts have the same meaning; repeated attempts do not duplicate outcomes.
+_Avoid_: Timer-owned close, manual repair, duplicate close
+
+**Queue Day Repair**:
+A reason-required, fully audited Platform Admin recovery action used only when normal Queue Day Reconciliation cannot restore a trustworthy state. It is not routine queue operation and does not grant Platform Admins authority to open, pause, extend, close, or reopen queues on a vendor's behalf.
+_Avoid_: Queue operation, reconciliation retry, silent state edit
+
+**Queue Day Lifecycle Event**:
+An immutable, actor-attributed record of a Queue Day warning, lifecycle or intake transition, deadline change, reconciliation result, ticket-outcome batch, or repair. It preserves the previous and resulting state plus operational context needed to explain what happened without becoming the mutable source of current Queue Day state.
+_Avoid_: Application log, editable history note, current Queue Day row
+
+**Queue Ticket Carry-Over**:
+The one-time continuation of an unresolved waiting Queue Ticket into the vendor location's next eligible open queue day. A closed day does not consume this opportunity; the ticket remains ahead of new same-day joins when the next queue day is manually opened.
+_Avoid_: Indefinite rollover, elapsed-day timeout, skipped-ticket recovery
+
+**Pending Queue Ticket Carry-Over**:
+An unresolved Queue Ticket in explicit `pending_carry_over` status while waiting up to seven calendar days between Queue Days for the first later eligible Queue Day that staff actually open. It is not live waiting and receives no position or near-turn notification until attached; merely reaching or skipping a calendar date does not consume its one carry-over opportunity.
+_Avoid_: Future-dated active ticket, predicted next-day ticket, repeated rollover
+
+**Queue Ticket Expiration**:
+The terminal system outcome for a carried-over Queue Ticket that remains unresolved when its one allowed carry-over Queue Day closes, or for pending carry-over that waits seven calendar days without another Queue Day opening. It is distinct from customer- or vendor-initiated cancellation.
+_Avoid_: Cancellation, repeated carry-over, silent deletion
+
+**Unserved Queue Ticket**:
+The terminal outcome for a called Queue Ticket that remains incomplete when its Queue Day closes. Staff must explicitly extend the Queue Day to keep the called ticket live; closing records and explains the unserved outcome rather than silently abandoning it.
+_Avoid_: Waiting ticket, cancellation, skipped ticket
+
+**Skipped Queue Ticket**:
+A Queue Ticket whose customer missed the called turn and may be restored only while the same Queue Day remains open and accepting intake. If that Queue Day closes first, the skipped outcome becomes terminal and never carries over.
+_Avoid_: Cancelled ticket, unserved ticket, pending carry-over
+
+**Replacement Queue Ticket**:
+A new Queue Ticket created by an authorized Vendor-Side User to accommodate a customer after an earlier ticket reached a terminal outcome. It links to the original ticket for accountability without changing or reviving the original outcome.
+_Avoid_: Reopened ticket, edited ticket history, restored terminal ticket
+
+**Queue Auto-Close Extension**:
+An authorized vendor-side decision to keep an open queue operating for 30 additional minutes after its current scheduled closing time. Extensions may repeat, but each requires a fresh explicit and auditable decision during the new warning period; an unattended queue still closes at its current deadline.
+_Avoid_: Permanent auto-close cancellation, silent after-hours operation, indefinite queue opening
+
+**Queue Operating Window**:
+The open Queue Day's snapshotted Effective Store Hours plus any audited Queue Auto-Close Extensions. An accepting queue may continue receiving Queue Tickets throughout this window without changing the location's recurring store hours or booking availability.
+_Avoid_: Recurring store hours, booking availability, permanent hours override
 
 **Service Workflow**:
 A post-MVP vendor-defined chain of service steps or counters attached primarily to a service. A queue ticket moves through the workflow while keeping the same ticket number; if no service workflow exists, the ticket follows the simple live queue model.

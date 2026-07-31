@@ -1,22 +1,30 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ -x /usr/bin/psql ]]; then
-  psql_bin="/usr/bin/psql"
-elif command -v psql >/dev/null 2>&1; then
-  psql_bin="$(command -v psql)"
-  if [[ "$psql_bin" == *"/node_modules/"* ]]; then
-    echo "psql is required but the only available binary is the broken node_modules/psql wrapper." >&2
-    exit 1
-  fi
-else
-  echo "psql is required but not installed or not on PATH." >&2
-  exit 1
-fi
-
 : "${DATABASE_URL:?DATABASE_URL must be set}"
 
-"$psql_bin" "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+run_psql() {
+  if command -v docker >/dev/null 2>&1 &&
+    [[ -n "$(docker compose ps --status running -q database 2>/dev/null)" ]]; then
+    docker compose exec -T database env DATABASE_URL="$DATABASE_URL" psql "$DATABASE_URL" "$@"
+    return
+  fi
+  if [[ -x /usr/bin/psql ]]; then
+    /usr/bin/psql "$DATABASE_URL" "$@"
+    return
+  fi
+  if command -v psql >/dev/null 2>&1; then
+    psql_path="$(command -v psql)"
+    if [[ "$psql_path" != *"/node_modules/"* ]]; then
+      psql "$DATABASE_URL" "$@"
+      return
+    fi
+  fi
+  echo "psql is required but not installed or not on PATH, and docker compose database is unavailable." >&2
+  exit 1
+}
+
+run_psql -v ON_ERROR_STOP=1 <<'SQL'
 DO $$
 DECLARE
   missing_columns text[];
@@ -79,10 +87,102 @@ BEGIN
       FROM information_schema.columns
       WHERE table_schema = 'public' AND table_name = 'bookings' AND column_name = 'pending_expires_at'
     )
+    UNION ALL
+    SELECT 'store_locations.queue_lifecycle_mode'
+    WHERE NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'store_locations'
+        AND column_name = 'queue_lifecycle_mode'
+    )
+    UNION ALL
+    SELECT 'tickets.current_queue_day_id'
+    WHERE NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'tickets'
+        AND column_name = 'current_queue_day_id'
+    )
+    UNION ALL
+    SELECT 'bookings.fulfillment_outcome_reason'
+    WHERE NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'bookings'
+        AND column_name = 'fulfillment_outcome_reason'
+    )
+    UNION ALL
+    SELECT 'queue_events.event_key'
+    WHERE NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'queue_events'
+        AND column_name = 'event_key'
+    )
   ) required_columns;
 
   IF missing_columns IS NOT NULL THEN
     RAISE EXCEPTION 'Schema verification failed. Missing columns: %', array_to_string(missing_columns, ', ');
+  END IF;
+END $$;
+
+DO $$
+DECLARE
+  missing_tables text[];
+BEGIN
+  SELECT array_agg(table_name)
+  INTO missing_tables
+  FROM (VALUES
+    ('queue_days'),
+    ('queue_day_extensions'),
+    ('queue_ticket_segments'),
+    ('queue_notification_outbox'),
+    ('tenant_membership_locations'),
+    ('queue_lifecycle_backfill_runs'),
+    ('queue_lifecycle_migration_anomalies')
+  ) required(table_name)
+  WHERE to_regclass('public.' || table_name) IS NULL;
+
+  IF missing_tables IS NOT NULL THEN
+    RAISE EXCEPTION 'Schema verification failed. Missing Queue Day tables: %',
+      array_to_string(missing_tables, ', ');
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public'
+      AND indexname = 'queue_events_event_key_idx'
+  ) THEN
+    RAISE EXCEPTION 'Schema verification failed. Missing queue event idempotency index.';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM tickets
+    WHERE status NOT IN (
+      'waiting', 'pending_carry_over', 'called', 'served',
+      'skipped', 'cancelled', 'unserved', 'expired'
+    )
+  ) THEN
+    RAISE EXCEPTION 'Schema verification failed. Unsupported ticket lifecycle status found.';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conrelid = 'tickets'::regclass
+      AND contype = 'c'
+      AND pg_get_constraintdef(oid) LIKE '%pending_carry_over%'
+      AND pg_get_constraintdef(oid) LIKE '%expired%'
+  ) THEN
+    RAISE EXCEPTION 'Schema verification failed. Ticket lifecycle status constraint is stale.';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conrelid = 'bookings'::regclass
+      AND contype = 'c'
+      AND pg_get_constraintdef(oid) LIKE '%unfulfilled%'
+      AND pg_get_constraintdef(oid) LIKE '%missed%'
+  ) THEN
+    RAISE EXCEPTION 'Schema verification failed. Booking outcome status constraint is stale.';
   END IF;
 END $$;
 

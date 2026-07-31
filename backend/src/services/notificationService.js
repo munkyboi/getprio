@@ -99,7 +99,7 @@ async function assertTransactionalEmailAllowance({ tenantId, purpose }) {
   }
 }
 
-async function recordEmailDelivery({ to, subject, tenantId, ticketId, purpose, provider, status, error, metadata }) {
+async function recordEmailDelivery({ to, subject, tenantId, ticketId, purpose, provider, status, error, metadata, outboxId }) {
   if (!tenantId) {
     return;
   }
@@ -115,14 +115,15 @@ async function recordEmailDelivery({ to, subject, tenantId, ticketId, purpose, p
       provider,
       status,
       errorMessage: error ? String(error.message || error).slice(0, 1000) : null,
-      metadata
+      metadata,
+      outboxId
     });
   } catch (recordError) {
     console.warn("[notification-tracking-failed]", recordError.message);
   }
 }
 
-async function sendEmail({ to, subject, text, html, tenantId, ticketId, purpose = "general", metadata }) {
+async function sendEmail({ to, subject, text, html, tenantId, ticketId, purpose = "general", metadata, outboxId }) {
   if (!to) {
     return false;
   }
@@ -202,7 +203,8 @@ async function sendEmail({ to, subject, text, html, tenantId, ticketId, purpose 
       purpose,
       provider,
       status: "sent",
-      metadata
+      metadata,
+      outboxId
     });
     return true;
   } catch (error) {
@@ -215,7 +217,8 @@ async function sendEmail({ to, subject, text, html, tenantId, ticketId, purpose 
       provider,
       status: "failed",
       error,
-      metadata
+      metadata,
+      outboxId
     });
     throw error;
   }

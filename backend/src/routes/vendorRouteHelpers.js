@@ -89,6 +89,7 @@ async function formatLocation(location, tenant) {
     paymentAccountIdentifierDisplay: location.paymentAccountIdentifierDisplay,
     paymentQrImageUrl: location.paymentQrImageUrl,
     paymentQrActive: location.paymentQrActive,
+    queueLifecycleMode: location.queueLifecycleMode || "legacy",
     isPrimary: location.isPrimary,
     isActive: location.isActive,
     joinUrl: `${process.env.APP_BASE_URL || "http://localhost:5173"}/join/${tenant.slug}/${location.slug}`,

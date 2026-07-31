@@ -310,6 +310,69 @@ test("push service sends customer queue notifications with ticket links", async 
   assert.equal(notifications[0].eventType, "customer_queue_called");
 });
 
+test("queue lifecycle push targets the affected location and explains terminal expiration", async () => {
+  const tenantLookups = [];
+  const vendorNotifications = [];
+  const customerNotifications = [];
+  const service = requireWithMocks("../src/services/pushNotificationService.js", {
+    "../config/env": {
+      vapidPublicKey: "public-key",
+      vapidPrivateKey: "private-key",
+      vapidSubject: "mailto:test@example.com"
+    },
+    "../repositories/pushSubscriptions": {
+      listActiveByTenantId: async (_tenantId, options) => {
+        tenantLookups.push(options);
+        return [{
+          _id: "vendor-sub",
+          endpoint: "https://push.example/vendor-location",
+          p256dh: "p256dh-key",
+          auth: "auth-key"
+        }];
+      },
+      listActiveByUserId: async () => [{
+        _id: "customer-sub",
+        endpoint: "https://push.example/customer-expired",
+        p256dh: "p256dh-key",
+        auth: "auth-key"
+      }],
+      recordPushSuccess: async () => {}
+    },
+    "../repositories/users": {
+      findUserById: async () => ({ notificationSettings: { queueAlerts: true } })
+    },
+    "web-push": {
+      setVapidDetails: () => {},
+      sendNotification: async (subscription, payload) => {
+        const parsed = JSON.parse(payload);
+        if (subscription.endpoint.includes("vendor-location")) vendorNotifications.push(parsed);
+        else customerNotifications.push(parsed);
+      }
+    }
+  });
+
+  await service.notifyVendorQueueLifecycle({
+    tenant: { _id: "tenant-1", name: "Demo" },
+    location: { _id: "location-9", name: "Downtown" },
+    action: "closing_15m",
+    stats: { deadlineVersion: 3 }
+  });
+  await service.notifyCustomerQueueUpdate({
+    tenant: { slug: "demo", name: "Demo" },
+    ticket: {
+      _id: "ticket-9",
+      userId: "user-9",
+      ticketNumber: "D009",
+      lookupCode: "EXPIRED9"
+    },
+    action: "expired"
+  });
+
+  assert.equal(tenantLookups[0].locationId, "location-9");
+  assert.match(vendorNotifications[0].body, /Extend by 30 minutes/);
+  assert.match(customerNotifications[0].body, /not a cancellation/);
+});
+
 test("push service targets explicit vendor roles for payment proof review alerts", async () => {
   const roleFilters = [];
   const notifications = [];

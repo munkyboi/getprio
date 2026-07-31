@@ -22,7 +22,8 @@ function mapNotificationDelivery(row) {
     errorMessage: row.error_message,
     metadata: row.metadata || {},
     sentAt: row.sent_at,
-    createdAt: row.created_at
+    createdAt: row.created_at,
+    outboxId: row.outbox_id ? String(row.outbox_id) : null
   };
 }
 
@@ -41,9 +42,10 @@ async function recordDelivery(data, options = {}) {
         status,
         error_message,
         metadata,
-        sent_at
+        sent_at,
+        outbox_id
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CASE WHEN $8 = 'sent' THEN NOW() ELSE NULL END)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CASE WHEN $8 = 'sent' THEN NOW() ELSE NULL END, $11)
       RETURNING *
     `,
     [
@@ -56,7 +58,8 @@ async function recordDelivery(data, options = {}) {
       data.provider || null,
       data.status,
       data.errorMessage || null,
-      JSON.stringify(data.metadata || {})
+      JSON.stringify(data.metadata || {}),
+      data.outboxId ? Number(data.outboxId) : null
     ]
   );
 

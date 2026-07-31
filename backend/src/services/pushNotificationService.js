@@ -145,7 +145,16 @@ async function sendToSubscription(subscription, payload) {
   }
 }
 
-async function sendTenantNotification({ tenant, title, body, url, tag, eventType, roles = VENDOR_ALERT_ROLES }) {
+async function sendTenantNotification({
+  tenant,
+  title,
+  body,
+  url,
+  tag,
+  eventType,
+  roles = VENDOR_ALERT_ROLES,
+  locationId = null
+}) {
   if (!tenant?._id) {
     return { attempted: 0, sent: 0 };
   }
@@ -166,7 +175,10 @@ async function sendTenantNotification({ tenant, title, body, url, tag, eventType
     return { attempted: 0, sent: 0, deduped: true };
   }
 
-  const subscriptions = await pushSubscriptionRepository.listActiveByTenantId(tenant._id, { roles });
+  const subscriptions = await pushSubscriptionRepository.listActiveByTenantId(
+    tenant._id,
+    { roles, locationId }
+  );
   let sent = 0;
   for (const subscription of subscriptions) {
     const delivered = await sendToSubscription(subscription, payload);
@@ -288,10 +300,13 @@ async function notifyVendorGroupFundedReviewReady({ tenant, campaign }) {
 
 async function notifyVendorQueueLifecycle({ tenant, location, action, stats = {} }) {
   const locationName = location?.name || "the queue";
+  const outcomeSummary = stats.outcomes
+    ? ` ${stats.outcomes.pendingCarryOver || 0} carried over, ${stats.outcomes.expired || 0} expired, ${stats.outcomes.unserved || 0} unserved.`
+    : "";
   const actionConfig = {
     closed: {
       title: "Queue closed",
-      body: `${locationName} was closed for the day.`,
+      body: `${locationName} was closed for the day.${outcomeSummary}`,
       eventType: "vendor_queue_closed"
     },
     reopened: {
@@ -318,6 +333,26 @@ async function notifyVendorQueueLifecycle({ tenant, location, action, stats = {}
       title: "Queue intake resumed",
       body: `${locationName} resumed after waiting tickets dropped below the threshold.`,
       eventType: "vendor_queue_auto_resumed"
+    },
+    closing_15m: {
+      title: "Queue closes in 15 minutes",
+      body: `${locationName} will close automatically in 15 minutes. Extend by 30 minutes if service should continue.`,
+      eventType: "vendor_queue_closing_15m"
+    },
+    closing_5m: {
+      title: "Queue closes in 5 minutes",
+      body: `${locationName} will close automatically in 5 minutes.`,
+      eventType: "vendor_queue_closing_5m"
+    },
+    extended: {
+      title: "Queue closing extended",
+      body: `${locationName} was extended by 30 minutes.`,
+      eventType: "vendor_queue_extended"
+    },
+    reconciliation_failed: {
+      title: "Queue reconciliation failed",
+      body: `${locationName} could not confirm a trustworthy closed state. Queue actions are locked until status is recovered.`,
+      eventType: "vendor_queue_reconciliation_failed"
     }
   };
   const config = actionConfig[action] || {
@@ -331,8 +366,9 @@ async function notifyVendorQueueLifecycle({ tenant, location, action, stats = {}
     title: config.title,
     body: config.body,
     url: "/dashboard/queue",
-    tag: `queue-lifecycle-${tenant._id}-${location?._id || "default"}-${action}`,
-    eventType: config.eventType
+    tag: `queue-lifecycle-${tenant._id}-${location?._id || "default"}-${action}-${stats.deadlineVersion || "current"}`,
+    eventType: config.eventType,
+    locationId: location?._id || null
   });
 }
 
@@ -422,7 +458,10 @@ function getQueueUpdateBody(tenant, ticket, action) {
     case "near_turn":
       return `${ticketNumber} is almost next in the queue.`;
     case "carried_over":
+    case "pending_carry_over":
       return `${tenantName} carried ${ticketNumber} over to the next queue day.`;
+    case "expired":
+      return `${ticketNumber} expired after its one carry-over opportunity ended without service. This is final and is not a cancellation.`;
     default:
       return `${tenantName} updated ${ticketNumber}.`;
   }

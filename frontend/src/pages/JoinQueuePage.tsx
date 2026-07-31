@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type FormEvent
+} from "react";
 import {
   Alert,
   Badge,
@@ -15,7 +23,7 @@ import {
   Title
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
-import { IconArrowLeft, IconCheck, IconInfoCircle } from "@tabler/icons-react";
+import { IconArrowLeft, IconCheck, IconInfoCircle, IconMapPin } from "@tabler/icons-react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type {
   JoinQueueRequest,
@@ -29,10 +37,11 @@ import type {
 import { API_BASE_URL, apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import PhilippineMobileInput from "../components/PhilippineMobileInput";
-import { buildJoinedQueuePathWithTicket, buildMonitorPath } from "../queuePaths";
+import { buildJoinedQueuePathWithTicket } from "../queuePaths";
 import { formatDisplayTime, toTimestamp } from "../utils/dates";
 import { saveJoinedQueueAccess } from "../utils/joinedQueueAccess";
 import { getErrorMessage } from "../utils/errors";
+import { getQueueStateSummary, isQueueAcceptingJoins } from "../utils/queueStatus";
 
 type JoinQueueFormState = Omit<JoinQueueRequest, "joinChannel" | "turnstileToken">;
 
@@ -111,7 +120,6 @@ export default function JoinQueuePage() {
   const lastAutoSubmittedOtpRef = useRef<string>("");
   const [now, setNow] = useState(() => Date.now());
   const tenantSlugValue = tenantSlug || "";
-  const monitorPath = tenantSlug ? buildMonitorPath(tenantSlug, locationSlug) : "/";
   const publicApiBase = locationSlug
     ? `/public/tenant/${tenantSlugValue}/location/${locationSlug}`
     : `/public/tenant/${tenantSlugValue}`;
@@ -131,24 +139,40 @@ export default function JoinQueuePage() {
       : "Send new code";
   const canSkipOtp = !form.notifyByEmail;
   const queueIntakePaused = Boolean(queueSnapshot?.queueDay?.isPaused);
-  const queueDayClosed = Boolean(queueSnapshot?.queueDay?.isClosed);
-  const queueStateBadge = queueDayClosed
-    ? { color: "red", label: "Closed" }
-    : queueIntakePaused
-      ? { color: "yellow", label: "Paused" }
-      : { color: "teal", label: "Open" };
+  const queueStateBadge = getQueueStateSummary(queueSnapshot);
+  const queueJoinUnavailable = !isQueueAcceptingJoins(queueSnapshot);
   const queuePauseMessage =
     queueSnapshot?.queueDay?.pauseReason ||
     "This queue is temporarily paused while the team works through the current line.";
-  const queueClosedMessage =
-    queueSnapshot?.queueDay?.closureReason ||
-    "This queue is closed for the day. Please check back during the next service window.";
+  const queueClosedMessage = queueStateBadge.message;
   const requiresEmail = form.notifyByEmail;
   const pageTitle = tenantInfo?.name || tenantSlugValue;
   const signedInCustomer = Boolean(user?.roles?.includes("customer"));
-  const customerAccountName = signedInCustomer && user ? user.name || "Customer account" : "";
-  const customerAccountEmail = signedInCustomer && user ? user.email || "" : "";
   const requiresPhone = false;
+  const theme = queueSnapshot?.publicBoardTheme?.theme;
+  const themeStyle: CSSProperties | undefined = theme
+    ? {
+        "--vendor-theme-page-bg": theme.pageBackgroundColor,
+        "--vendor-theme-card-bg": theme.cardBackgroundColor,
+        "--vendor-theme-card-alpha": String(theme.cardAlpha),
+        "--vendor-theme-card-border": theme.cardBorderColor,
+        "--vendor-theme-header": theme.headerColor,
+        "--vendor-theme-subheader": theme.subheaderColor,
+        "--vendor-theme-body": theme.bodyColor,
+        "--vendor-theme-button-bg": theme.buttonBackgroundColor,
+        "--vendor-theme-button-text": theme.buttonTextColor,
+        "--vendor-theme-button-border": theme.buttonBorderColor,
+        "--vendor-theme-button-border-width": theme.presetId === "sports" ? "0px" : "1px",
+        ...(theme.pageBackgroundImageUrl
+          ? {
+              "--vendor-theme-page-image": `url(${theme.pageBackgroundImageUrl})`,
+              "--vendor-theme-page-image-position": "center",
+              "--vendor-theme-page-image-repeat": "no-repeat",
+              "--vendor-theme-page-image-size": theme.pageBackgroundImageFit
+            }
+          : {})
+      } as CSSProperties
+    : undefined;
   const joinedQueueNavigationState = useMemo(
     () => ({
       registrationPrefill: {
@@ -159,10 +183,6 @@ export default function JoinQueuePage() {
     }),
     [form.customerEmail, form.customerName, form.customerPhone]
   );
-  const customerDetailsDescription = signedInCustomer
-    ? "Prefilled from your customer account. Changes here only affect this join."
-    : undefined;
-
   useEffect(() => {
     if (user) {
       setForm((current) => ({
@@ -213,8 +233,7 @@ export default function JoinQueuePage() {
       setError("");
     };
     eventSource.onerror = () => {
-      setError("Live queue updates disconnected. Refresh to reconnect.");
-      eventSource.close();
+      setError("Live queue updates interrupted. Reconnecting…");
     };
 
     return () => {
@@ -396,19 +415,6 @@ export default function JoinQueuePage() {
     }
   }
 
-  function restoreCustomerDetails() {
-    if (!signedInCustomer || !user) {
-      return;
-    }
-
-    setForm((current) => ({
-      ...current,
-      customerName: user.name || "",
-      customerEmail: user.email || "",
-      customerPhone: user.phone || ""
-    }));
-  }
-
   function buildJoinRequest(): JoinQueueRequest {
     return {
       ...form,
@@ -422,7 +428,7 @@ export default function JoinQueuePage() {
     setError("");
 
     try {
-      if (queueDayClosed) {
+      if (queueJoinUnavailable) {
         setError(queueClosedMessage);
         setSubmitting(false);
         return;
@@ -466,7 +472,7 @@ export default function JoinQueuePage() {
     setError("");
 
     try {
-      if (queueDayClosed) {
+      if (queueJoinUnavailable) {
         setError(queueClosedMessage);
         setSubmitting(false);
         return;
@@ -639,73 +645,72 @@ export default function JoinQueuePage() {
   }, [handleVerifyOtp, otp, otpCode, submitting]);
 
   return (
-    <Stack className="finazze-join-shell" gap="lg">
-      <Button
-        color="dark"
-        component={Link}
-        leftSection={<IconArrowLeft size={16} />}
-        to={`/vendors/${tenantSlugValue}`}
-        variant="subtle"
-        w="fit-content"
-      >
-        Back to vendor
-      </Button>
-      <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xl" className="finazze-join-layout">
-        <Paper className="finazze-auth-card finazze-join-card" p={{ base: "xl", md: 44 }}>
-          <Stack gap="md">
-            <Text className="finazze-section-label">Join queue</Text>
-            <Title order={1}>{pageTitle}</Title>
-            {locationName ? <Text fw={700}>{locationName}</Text> : null}
-            <Group gap="xs">
-              <Badge color={queueStateBadge.color} radius="xl" size="lg" variant="light">
-                {queueStateBadge.label}
-              </Badge>
-              <Text c="dimmed" size="sm">
-                {queueDayClosed
-                  ? "Queue closed for the day"
-                  : queueIntakePaused
-                    ? "New joins temporarily paused"
-                    : "Now accepting joins"}
-              </Text>
-            </Group>
-            <Text c="dimmed">
-              Join online, then monitor your ticket live from the public board.
-            </Text>
-            {user?.roles?.includes("customer") ? (
-              <Alert className="join-account-summary" color="teal" variant="light">
-                <Stack gap="md">
-                  <div>
-                    <Text className="finazze-section-label">Profile details</Text>
-                    <Title order={3}>Signed in as {customerAccountName}</Title>
-                    <Text c="dimmed" mt={4} size="sm">
-                      We will reuse your saved contact details when possible. You can review your account history anytime from the account page.
-                    </Text>
-                  </div>
-                  <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-                    <Stack gap={2} className="join-account-summary-item">
-                      <Text fw={700}>Display name</Text>
-                      <Text c="dimmed">{user.name || "Customer account"}</Text>
-                    </Stack>
-                    <Stack gap={2} className="join-account-summary-item">
-                      <Text fw={700}>Email</Text>
-                      <Text c="dimmed">{customerAccountEmail || "No email on file"}</Text>
-                    </Stack>
-                    <Stack gap={2} className="join-account-summary-item">
-                      <Text fw={700}>Phone</Text>
-                      <Text c="dimmed">{user.phone || "No phone on file"}</Text>
-                    </Stack>
-                  </SimpleGrid>
-                  <Group gap="sm" wrap="wrap">
-                    <Button color="dark" size="xs" variant="light" onClick={restoreCustomerDetails} type="button">
-                      Use account details
-                    </Button>
-                    <Button component={Link} size="xs" to="/account/settings" variant="light">
-                      View account
-                    </Button>
+    <Stack className="vendor-profile-page join-queue-page" gap="lg" style={themeStyle}>
+      <div className="join-queue-frame">
+        <Button
+          className="join-queue-back"
+          color="dark"
+          component={Link}
+          leftSection={<IconArrowLeft size={18} />}
+          to={`/vendors/${tenantSlugValue}`}
+          variant="subtle"
+        >
+          Back to vendor
+        </Button>
+
+        <Paper className="vendor-hero-shell join-queue-card" p={{ base: "lg", sm: "xl", md: 48 }}>
+          <Stack gap="xl">
+            <header className="join-queue-header">
+              <Stack gap="sm">
+                <Text className="vendor-hero-kicker">Join queue</Text>
+                <Title className="vendor-hero-title join-queue-title" order={1}>
+                  {pageTitle}
+                </Title>
+                <Text className="vendor-hero-description">
+                  Enter your details to get a priority number for this branch.
+                </Text>
+              </Stack>
+
+              <Paper className="booking-detail-services-card join-queue-status-card" p="md">
+                <Stack gap="sm">
+                  <Group className="join-queue-status-top" gap="sm" justify="space-between" wrap="nowrap">
+                    {locationName ? (
+                      <Group gap="xs" wrap="nowrap">
+                        <IconMapPin aria-hidden="true" size={18} />
+                        <Text fw={800}>{locationName}</Text>
+                      </Group>
+                    ) : null}
+                    <Badge
+                      className="join-queue-status-badge"
+                      color={queueStateBadge.color}
+                      radius="xl"
+                      size="lg"
+                      variant="light"
+                    >
+                      {queueStateBadge.label}
+                    </Badge>
                   </Group>
+                  <Text className="join-queue-status-message" size="sm">
+                    {queueStateBadge.message}
+                  </Text>
                 </Stack>
-              </Alert>
-            ) : null}
+              </Paper>
+            </header>
+
+            <div className="join-queue-form-section">
+              <Stack gap="md">
+                <div>
+                  <Title className="join-queue-form-title" order={2}>
+                    {otp ? "Verify your email" : "Your details"}
+                  </Title>
+                  <Text className="join-queue-form-intro" c="dimmed" mt={4} size="sm">
+                    {otp
+                      ? "Enter the code below to finish joining the queue."
+                      : signedInCustomer
+                        ? "Your saved contact details are prefilled. Changes here only apply to this queue visit."
+                        : "We use these details to identify your ticket and send queue updates."}
+                  </Text>
+                </div>
             {!form.notifyByEmail ? (
               <Text c="dimmed" size="sm">
                 Email verification is skipped when almost-next email alerts are off.
@@ -718,11 +723,9 @@ export default function JoinQueuePage() {
                 {" "}Please check back shortly.
               </Alert>
             ) : null}
-            {queueDayClosed ? (
+            {queueJoinUnavailable && !queueIntakePaused ? (
               <Alert color="red" icon={<IconInfoCircle size={18} />} radius="md" variant="light">
-                This queue is closed for the day.
-                {queueSnapshot?.queueDay?.closureReason ? ` ${queueSnapshot.queueDay.closureReason}.` : ""}
-                {" "}You can check the live board for updates on when service resumes.
+                {queueStateBadge.message}
               </Alert>
             ) : null}
             {otp ? (
@@ -751,8 +754,9 @@ export default function JoinQueuePage() {
                   />
                   {error ? <Alert color="red">{error}</Alert> : null}
                   <Button
+                    className="vendor-theme-button join-queue-primary-action"
                     color="dark"
-                    disabled={submitting || queueIntakePaused || queueDayClosed || otpCode.length !== 6}
+                    disabled={submitting || queueJoinUnavailable || otpCode.length !== 6}
                     type="submit"
                   >
                     {submitting ? "Verifying..." : "Verify and join queue"}
@@ -786,14 +790,14 @@ export default function JoinQueuePage() {
                     name="customerName"
                     required
                     label="Name"
-                    description={customerDetailsDescription}
+                    autoComplete="name"
                     value={form.customerName}
                     onChange={(event) => setForm((current) => ({ ...current, customerName: event.target.value }))}
                   />
                   <TextInput
                     name="customerEmail"
                     label="Email"
-                    description={customerDetailsDescription}
+                    autoComplete="email"
                     required={requiresEmail}
                     type="email"
                     value={form.customerEmail}
@@ -802,7 +806,7 @@ export default function JoinQueuePage() {
                   <PhilippineMobileInput
                     name="customerPhone"
                     label="Phone"
-                    description={customerDetailsDescription}
+                    autoComplete="tel"
                     required={requiresPhone}
                     value={form.customerPhone}
                     onChange={(nextValue) => setForm((current) => ({ ...current, customerPhone: nextValue }))}
@@ -829,9 +833,9 @@ export default function JoinQueuePage() {
                   ) : null}
                   {error ? <Alert color="red">{error}</Alert> : null}
                   <Button
-                    className="customer-primary-action"
+                    className="vendor-theme-button customer-primary-action join-queue-primary-action"
                     color="dark"
-                    disabled={submitting || queueIntakePaused || queueDayClosed || (shouldUseTurnstile && !turnstileReady)}
+                    disabled={submitting || queueJoinUnavailable || (shouldUseTurnstile && !turnstileReady)}
                     size="lg"
                     type="submit"
                   >
@@ -846,33 +850,11 @@ export default function JoinQueuePage() {
                 </Stack>
               </form>
             )}
+              </Stack>
+            </div>
           </Stack>
         </Paper>
-
-        <Paper className="finazze-auth-card finazze-join-side" p={{ base: "xl", md: 44 }}>
-          <Stack gap="lg">
-            <img
-              alt=""
-              className="join-side-art"
-              src="/illustrations/generated/customer-onboarding.png"
-            />
-            <Text className="finazze-section-label">What happens next</Text>
-            {[
-              ["1. Ticket issued instantly", "Your ticket number is generated immediately for this tenant."],
-              ["2. Monitor online", "After joining, you are redirected to a live board with your ticket highlighted."],
-              ["3. Near-turn notification", "Email alerts are sent when your turn is getting close, and browser notifications can be enabled in account settings."]
-            ].map(([title, text]) => (
-              <div key={title}>
-                <Title order={3}>{title}</Title>
-                <Text c="dimmed">{text}</Text>
-              </div>
-            ))}
-            <Button color="dark" component={Link} to={monitorPath} variant="subtle">
-              Open public board instead
-            </Button>
-          </Stack>
-        </Paper>
-      </SimpleGrid>
+      </div>
     </Stack>
   );
 }

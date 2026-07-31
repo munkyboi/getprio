@@ -12,6 +12,7 @@ const organizerCampaignRepository = require("../repositories/organizerCampaigns"
 const platformRepository = require("../repositories/platform");
 const ratingRepository = require("../repositories/ratings");
 const userRepository = require("../repositories/users");
+const tenantMembershipLocationRepository = require("../repositories/tenantMembershipLocations");
 const asyncHandler = require("../middleware/asyncHandler");
 const {
   authenticate,
@@ -29,6 +30,8 @@ const PDFDocument = require("pdfkit");
 const {
   createTicket,
   getQueueSnapshot,
+  openQueueDay,
+  extendQueueDay,
   callNextTicket,
   updateCurrentTicketStatus,
   closeQueueDay,
@@ -89,6 +92,31 @@ const {
 
 const router = express.Router();
 router.use(moderatePublicText);
+
+async function assertQueueLocationAccess(user, tenant, location) {
+  if (location?.queueLifecycleMode !== "enforced") {
+    return;
+  }
+  const membership = (user?.tenantMemberships || []).find(
+    (candidate) =>
+      String(candidate.tenantId) === String(tenant._id)
+      && candidate.isActive !== false
+  );
+  if (membership?.role !== "staff") {
+    return;
+  }
+  const allowed = await tenantMembershipLocationRepository.userHasLocationAssignment(
+    user._id,
+    tenant._id,
+    location._id
+  );
+  if (!allowed) {
+    const error = new Error("You are not assigned to operate this location.");
+    error.statusCode = 403;
+    error.code = "QUEUE_LOCATION_FORBIDDEN";
+    throw error;
+  }
+}
 function formatVendorBooking(booking) {
   const groupFundedCampaign = booking.groupFundedCampaign
     ? {
@@ -159,6 +187,9 @@ function formatVendorBooking(booking) {
     pendingExpiresAt: booking.pendingExpiresAt,
     expiredAt: booking.expiredAt,
     expirationReason: booking.expirationReason,
+    fulfillmentOutcomeReason: booking.fulfillmentOutcomeReason,
+    refundEligible: booking.refundEligible,
+    fulfillmentResolvedAt: booking.fulfillmentResolvedAt,
     notifyByEmail: booking.notifyByEmail,
     notifyBySms: booking.notifyBySms,
     smsAlertFeePaymentId: booking.smsAlertFeePaymentId,
@@ -698,6 +729,7 @@ router.post(
       res,
       getAuthorizedTenant,
       assertTenantPermission,
+      assertQueueLocationAccess,
       getLocationForTenant,
       bookingService
     })
@@ -828,10 +860,50 @@ router.post(
       res,
       getAuthorizedTenant,
       assertTenantPermission,
+      assertQueueLocationAccess,
       getLocationForTenant,
       createTicket
     })
   )
+);
+
+router.post(
+  "/tenant/:tenantSlug/queue/open",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.queue.operate");
+    const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
+    await assertQueueLocationAccess(req.user, tenant, location);
+    const snapshot = await openQueueDay(tenant, {
+      location,
+      actorUserId: req.user?._id,
+      actorRole: "vendor",
+      source: "vendor",
+      expectedVersion: req.body?.expectedVersion,
+      note: normalizeRequestText(req.body?.note)
+    });
+    res.json({ message: "Queue Day opened.", snapshot });
+  })
+);
+
+router.post(
+  "/tenant/:tenantSlug/queue/extend",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.queue.operate");
+    const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
+    await assertQueueLocationAccess(req.user, tenant, location);
+    const snapshot = await extendQueueDay(tenant, {
+      location,
+      actorUserId: req.user?._id,
+      actorRole: "vendor",
+      source: "vendor",
+      expectedVersion: req.body?.expectedVersion,
+      reason: normalizeRequestText(req.body?.reason),
+      note: normalizeRequestText(req.body?.note)
+    });
+    res.json({ message: "Queue Day extended by 30 minutes.", snapshot });
+  })
 );
 
 router.post(
@@ -840,13 +912,16 @@ router.post(
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.queue.operate");
     const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
+    await assertQueueLocationAccess(req.user, tenant, location);
     const snapshot = await pauseQueueDay(tenant, {
       location,
       actorUserId: req.user?._id,
       actorRole: "vendor",
       source: "vendor",
       reason: normalizeRequestText(req.body?.reason, "Paused from vendor dashboard"),
-      pauseMode: "manual"
+      pauseMode: "manual",
+      expectedVersion: req.body?.expectedVersion,
+      note: normalizeRequestText(req.body?.note)
     });
 
     res.json({ snapshot });
@@ -859,11 +934,13 @@ router.post(
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.queue.operate");
     const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
+    await assertQueueLocationAccess(req.user, tenant, location);
     const snapshot = await resumeQueueDay(tenant, {
       location,
       actorUserId: req.user?._id,
       actorRole: "vendor",
-      source: "vendor"
+      source: "vendor",
+      expectedVersion: req.body?.expectedVersion
     });
 
     res.json({ snapshot });
@@ -876,12 +953,15 @@ router.post(
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.queue.operate");
     const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
+    await assertQueueLocationAccess(req.user, tenant, location);
     const snapshot = await closeQueueDay(tenant, {
       location,
       reason: normalizeRequestText(req.body?.reason),
       actorUserId: req.user?._id,
       actorRole: "vendor",
-      source: "vendor"
+      source: "vendor",
+      expectedVersion: req.body?.expectedVersion,
+      note: normalizeRequestText(req.body?.note)
     });
 
     res.json({
@@ -895,13 +975,17 @@ router.post(
   "/tenant/:tenantSlug/queue/reopen",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantPermission(req.user, tenant._id, "tenant.queue.operate");
+    assertTenantPermission(req.user, tenant._id, "tenant.queue.reopen");
     const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
+    await assertQueueLocationAccess(req.user, tenant, location);
     const snapshot = await reopenQueueDay(tenant, {
       location,
       actorUserId: req.user?._id,
       actorRole: "vendor",
-      source: "vendor"
+      source: "vendor",
+      expectedVersion: req.body?.expectedVersion,
+      reason: normalizeRequestText(req.body?.reason, "manual_reopen"),
+      note: normalizeRequestText(req.body?.note)
     });
 
     res.json({
@@ -917,6 +1001,7 @@ router.post(
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.queue.operate");
     const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
+    await assertQueueLocationAccess(req.user, tenant, location);
     const serviceCounter = await getCounterForLocation(location, normalizeRequestText(req.body.counterSlug));
     const result = await callNextTicket(tenant, {
       location,
@@ -951,6 +1036,7 @@ router.post(
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.ticket.update_state");
     const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
+    await assertQueueLocationAccess(req.user, tenant, location);
     const lookupCode = String(req.body.lookupCode || "").trim().toUpperCase();
 
     if (!lookupCode) {
@@ -990,6 +1076,7 @@ router.post(
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.ticket.update_state");
     const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
+    await assertQueueLocationAccess(req.user, tenant, location);
     const result = await updateCurrentTicketStatus(tenant, "served", {
       location,
       actorUserId: req.user?._id,
@@ -1020,6 +1107,7 @@ router.post(
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.ticket.update_state");
     const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
+    await assertQueueLocationAccess(req.user, tenant, location);
     const result = await updateCurrentTicketStatus(tenant, "skipped", {
       location,
       actorUserId: req.user?._id,
@@ -1072,7 +1160,7 @@ router.patch("/tenant/:tenantSlug/counters/:counterSlug", asyncHandler((req, res
 
 router.delete("/tenant/:tenantSlug/counters/:counterSlug", asyncHandler((req, res) => handleDeleteCounter({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, serviceCounterRepository, getCounterForLocation })));
 
-router.get("/tenant/:tenantSlug/staff", asyncHandler((req, res) => handleListStaff({ req, res, getAuthorizedTenant, assertTenantPermission, billingService, userRepository, serviceCounterRepository })));
+router.get("/tenant/:tenantSlug/staff", asyncHandler((req, res) => handleListStaff({ req, res, getAuthorizedTenant, assertTenantPermission, billingService, userRepository, serviceCounterRepository, tenantMembershipLocationRepository })));
 
 router.post("/tenant/:tenantSlug/staff", asyncHandler((req, res) => handleInviteStaff({ req, res, getAuthorizedTenant, assertTenantPermission, billingService, userRepository })));
 
@@ -1101,8 +1189,9 @@ router.patch(
     const requesterRole = requesterMembership?.role || null;
     const hasRoleChange = Object.prototype.hasOwnProperty.call(req.body, "role");
     const hasStatusChange = Object.prototype.hasOwnProperty.call(req.body, "isActive");
+    const hasLocationChange = Object.prototype.hasOwnProperty.call(req.body, "assignedLocationIds");
 
-    if (!hasRoleChange && !hasStatusChange) {
+    if (!hasRoleChange && !hasStatusChange && !hasLocationChange) {
       const error = new Error("No staff updates were provided.");
       error.statusCode = 400;
       throw error;
@@ -1134,6 +1223,15 @@ router.patch(
       throw error;
     }
 
+    if (hasLocationChange) {
+      const prospectiveRole = hasRoleChange ? req.body.role : membership.role;
+      if (prospectiveRole !== "staff") {
+        const error = new Error("Location assignments apply only to Vendor Staff.");
+        error.statusCode = 400;
+        throw error;
+      }
+    }
+
     if (hasRoleChange) {
       const nextRole = req.body.role === "owner"
         ? "owner"
@@ -1152,6 +1250,15 @@ router.patch(
 
     if (hasStatusChange) {
       await userRepository.updateTenantMembershipStatus(user._id, tenant._id, req.body.isActive !== false);
+    }
+
+    if (hasLocationChange) {
+      await tenantMembershipLocationRepository.replaceUserLocationAssignments({
+        userId: user._id,
+        tenantId: tenant._id,
+        locationIds: req.body.assignedLocationIds,
+        assignedByUserId: req.user?._id
+      });
     }
 
     res.json({ userId: user._id });

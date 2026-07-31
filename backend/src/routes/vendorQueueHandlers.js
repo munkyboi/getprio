@@ -5,12 +5,16 @@ async function handleCreateTicket({
   res,
   getAuthorizedTenant,
   assertTenantPermission,
+  assertQueueLocationAccess,
   getLocationForTenant,
   createTicket
 }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.queue.operate");
   const location = await getLocationForTenant(tenant, req.body.locationSlug || req.query.location);
+  if (assertQueueLocationAccess) {
+    await assertQueueLocationAccess(req.user, tenant, location);
+  }
   const { customerName, customerEmail, customerPhone, notifyByEmail, notifyBySms, notes } = req.body;
 
   if (!customerName) {

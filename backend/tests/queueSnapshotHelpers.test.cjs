@@ -83,6 +83,8 @@ test("queue snapshot helpers prefer a ticket location when lookup code resolves"
     ticketNumber: "Q001",
     customerName: "Jane",
     status: "waiting",
+    servicePriorityBand: "carry_over",
+    carryOverCount: 1,
     createdAt: new Date("2026-06-30T00:00:00Z")
   });
   tickets.findCurrentCalledTicket = async () => null;
@@ -106,4 +108,7 @@ test("queue snapshot helpers prefer a ticket location when lookup code resolves"
   assert.equal(result.location.slug, "branch");
   assert.equal(result.focusTicket.lookupCode, "ABC123");
   assert.equal(result.focusTicket.position, null);
+  assert.equal(result.focusTicket.isCarriedOver, true);
+  assert.equal(result.focusTicket.carryOverCount, 1);
+  assert.equal(result.focusTicket.servicePriorityBand, "carry_over");
 });
