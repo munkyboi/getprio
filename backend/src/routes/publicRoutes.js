@@ -467,8 +467,8 @@ function formatPublicQueueSnapshot(snapshot) {
 
 router.get(
   ["/tenant/:tenantSlug/queue", "/tenant/:tenantSlug/location/:locationSlug/queue"],
-  maybeAuthenticate,
   queueTicketReadLimiter,
+  maybeAuthenticate,
   asyncHandler(async (req, res) => {
     const tenant = await getTenantOrThrow(req.params.tenantSlug);
     const location = await getLocationOrPrimary(tenant, req.params.locationSlug);
@@ -600,8 +600,8 @@ router.post(
 
 router.get(
   "/ticket/:lookupCode",
-  maybeAuthenticate,
   queueTicketReadLimiter,
+  maybeAuthenticate,
   asyncHandler(async (req, res) => {
     const ticket = await ticketRepository.findTicketByLookupCode(
       String(req.params.lookupCode).toUpperCase()
@@ -814,8 +814,8 @@ router.delete(
 
 router.get(
   ["/tenant/:tenantSlug/stream", "/tenant/:tenantSlug/location/:locationSlug/stream"],
-  maybeAuthenticate,
   queueTicketReadLimiter,
+  maybeAuthenticate,
   asyncHandler(async (req, res) => {
     const tenant = await getTenantOrThrow(req.params.tenantSlug);
     const location = await getLocationOrPrimary(tenant, req.params.locationSlug);

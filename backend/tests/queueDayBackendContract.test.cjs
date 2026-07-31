@@ -23,9 +23,9 @@ test("customer ticket detail authorization is rate-limited on public routes", ()
     "utf8"
   );
   assert.match(routes, /const queueTicketReadLimiter = rateLimit/);
-  assert.match(routes, /\["\/tenant\/:tenantSlug\/queue",[\s\S]*?maybeAuthenticate,\s*queueTicketReadLimiter,/);
-  assert.match(routes, /"\/ticket\/:lookupCode",\s*maybeAuthenticate,\s*queueTicketReadLimiter,/);
-  assert.match(routes, /\["\/tenant\/:tenantSlug\/stream",[\s\S]*?maybeAuthenticate,\s*queueTicketReadLimiter,/);
+  assert.match(routes, /\["\/tenant\/:tenantSlug\/queue",[\s\S]*?queueTicketReadLimiter,\s*maybeAuthenticate,/);
+  assert.match(routes, /"\/ticket\/:lookupCode",\s*queueTicketReadLimiter,\s*maybeAuthenticate,/);
+  assert.match(routes, /\["\/tenant\/:tenantSlug\/stream",[\s\S]*?queueTicketReadLimiter,\s*maybeAuthenticate,/);
 });
 
 test("all automatic recovery entry points share the same idempotent close command", () => {
