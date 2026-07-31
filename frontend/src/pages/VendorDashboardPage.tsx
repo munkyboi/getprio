@@ -141,7 +141,12 @@ import {
 import { getErrorMessage } from "../utils/errors";
 import { getWeeklyAvailabilityDefaults } from "../utils/availability";
 import { isBrowserPushSupported, subscribeToBrowserPush } from "../utils/pushNotifications";
-import { resolveQueueDayState } from "../utils/queueStatus";
+import {
+  getQueueDaySyncNotice,
+  resolveQueueDayState,
+  selectFreshestQueueSnapshot
+} from "../utils/queueStatus";
+import type { LocalQueueDayUpdate, QueueDaySyncState } from "../utils/queueStatus";
 import { getQueueCustomerFullNameLabel } from "../utils/queueNames";
 import { checkServiceSlugAvailability } from "../api/vendorDashboardCatalog";
 import { checkCounterSlugAvailability } from "../api/vendorDashboardOperations";
@@ -1135,12 +1140,8 @@ export default function VendorDashboardPage() {
   const knownQueueTicketIdsRef = useRef<Set<string> | null>(null);
   const [queueAlertIds, setQueueAlertIds] = useState<string[]>([]);
   const dismissedQueueAlertIdsRef = useRef<Set<string>>(new Set());
-  const previousQueueDayRef = useRef<{
-    id: string | null;
-    state: string | null;
-    deadlineVersion: number | null;
-    reconciliationError: string | null;
-  } | null>(null);
+  const previousQueueDayRef = useRef<QueueDaySyncState | null>(null);
+  const localQueueDayUpdateRef = useRef<LocalQueueDayUpdate | null>(null);
   const [bookingDetailModalId, setBookingDetailModalId] = useState<string | null>(null);
   const [bookingDetailOpen, setBookingDetailOpen] = useState(false);
   const [bookingDetailLoading, setBookingDetailLoading] = useState(false);
@@ -1280,6 +1281,17 @@ export default function VendorDashboardPage() {
       return vendorDashboardBootstrap.getBootstrap(token, selectedTenantSlug, locationQuery);
     },
     enabled: shouldEnableVendorDashboardBootstrap(token, selectedTenantSlug)
+  });
+  const queueLifecycleSnapshotQuery = useQuery({
+    queryKey: ["vendor-dashboard-queue-lifecycle", token, selectedTenantSlug, selectedLocationSlug, locationQuery],
+    queryFn: async () => {
+      if (!token || !selectedTenantSlug) {
+        throw new Error("Missing dashboard context.");
+      }
+      return vendorDashboardQueue.getQueueSnapshot(token, selectedTenantSlug, locationQuery);
+    },
+    enabled: shouldEnableVendorDashboardBootstrap(token, selectedTenantSlug),
+    refetchInterval: 30_000
   });
   const staffQuery = useQuery({
     queryKey: ["vendor-dashboard-staff", token, selectedTenantSlug],
@@ -1522,7 +1534,7 @@ export default function VendorDashboardPage() {
     if (!selectedLocationSlug || !locationsResponse.locations.some((item) => item.slug === selectedLocationSlug)) {
       setSelectedLocationSlug(locationsResponse.locations.find((item) => item.isPrimary)?.slug || locationsResponse.locations[0]?.slug || "");
     }
-    setSnapshot(snapshotResponse);
+    setSnapshot((current) => selectFreshestQueueSnapshot(current, snapshotResponse));
     setSettings({
       name: snapshotResponse.tenant.name || "",
       publicProfileCategory: snapshotResponse.tenant.publicProfileCategory || "",
@@ -1549,6 +1561,12 @@ export default function VendorDashboardPage() {
   }, [dashboardBootstrapQuery.error]);
 
   useEffect(() => {
+    if (queueLifecycleSnapshotQuery.data) {
+      setSnapshot((current) => selectFreshestQueueSnapshot(current, queueLifecycleSnapshotQuery.data));
+    }
+  }, [queueLifecycleSnapshotQuery.data]);
+
+  useEffect(() => {
     const queueDay = snapshot?.queueDay;
     if (!queueDay) return;
     const current = {
@@ -1558,26 +1576,40 @@ export default function VendorDashboardPage() {
       reconciliationError: queueDay.reconciliationError || null
     };
     const previous = previousQueueDayRef.current;
-    previousQueueDayRef.current = current;
-    if (!previous || previous.id !== current.id || busyAction.startsWith("queue-")) return;
+    if (!previous || previous.id !== current.id) {
+      previousQueueDayRef.current = current;
+      return;
+    }
 
-    if (
-      current.deadlineVersion != null &&
-      previous.deadlineVersion != null &&
-      current.deadlineVersion > previous.deadlineVersion
-    ) {
+    const syncNotice = getQueueDaySyncNotice(
+      previous,
+      current,
+      localQueueDayUpdateRef.current,
+      busyAction.startsWith("queue-")
+    );
+    if (syncNotice === "local_update") {
+      previousQueueDayRef.current = current;
+      localQueueDayUpdateRef.current = null;
+      return;
+    }
+    if (syncNotice === "defer") {
+      return;
+    }
+    previousQueueDayRef.current = current;
+
+    if (syncNotice === "deadline_updated") {
       showInfoNotification(
         "Queue deadline updated",
         `Another operator extended the Queue Day. The new close time is ${
           queueDay.currentClosesAt ? formatDateTime(queueDay.currentClosesAt) : "available in the live status"
         }.`
       );
-    } else if (previous.state === "open" && current.state === "closed") {
+    } else if (syncNotice === "closed") {
       showInfoNotification(
         "Queue closed",
         "Live status synchronized. Earlier ticket outcomes remain final even if an admin later reopens the Queue Day."
       );
-    } else if (!previous.reconciliationError && current.reconciliationError) {
+    } else if (syncNotice === "reconciliation_error") {
       showInfoNotification(
         "Queue status needs attention",
         "Automatic reconciliation could not confirm a trustworthy state. Queue actions are locked."
@@ -1888,7 +1920,7 @@ export default function VendorDashboardPage() {
       syncQueueAlerts(payload.nextUp || [], { detectNew: true });
       void queryClient.invalidateQueries({
         queryKey: [
-          "vendor-dashboard-bootstrap",
+          "vendor-dashboard-queue-lifecycle",
           token,
           selectedTenantSlug,
           selectedLocationSlug,
@@ -2452,8 +2484,17 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
     try {
       const data = await request();
-      if (data.snapshot) {
-        setSnapshot(data.snapshot);
+      const nextSnapshot = data.snapshot;
+      if (nextSnapshot) {
+        if (actionName === "queue-extend" || actionName === "queue-close") {
+          localQueueDayUpdateRef.current = {
+            kind: actionName === "queue-extend" ? "deadline" : "state",
+            id: nextSnapshot.queueDay.id ? String(nextSnapshot.queueDay.id) : null,
+            state: nextSnapshot.queueDay.state || null,
+            deadlineVersion: nextSnapshot.queueDay.deadlineVersion ?? null
+          };
+        }
+        setSnapshot((current) => selectFreshestQueueSnapshot(current, nextSnapshot));
       }
       return true;
     } catch (actionError) {
@@ -2531,7 +2572,13 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   async function reloadDashboardSnapshot() {
     await queryClient.invalidateQueries({
-      queryKey: ["vendor-dashboard-bootstrap", token, selectedTenantSlug, selectedLocationSlug, locationQuery]
+      queryKey: [
+        "vendor-dashboard-queue-lifecycle",
+        token,
+        selectedTenantSlug,
+        selectedLocationSlug,
+        locationQuery
+      ]
     });
   }
 

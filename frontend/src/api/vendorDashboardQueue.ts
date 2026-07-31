@@ -1,10 +1,14 @@
-import type { CreateWalkInTicketRequest, TicketStatus } from "@shared";
+import type { CreateWalkInTicketRequest, QueueSnapshot, TicketStatus } from "@shared";
 import { apiRequest } from "./client";
 
 type VendorDashboardActionResponse = {
   message?: string;
   snapshot?: import("@shared").QueueSnapshot;
 };
+
+export function getQueueSnapshot(token: string, tenantSlug: string, locationQuery: string) {
+  return apiRequest<QueueSnapshot>(`/vendor/tenant/${tenantSlug}/dashboard${locationQuery}`, { token });
+}
 
 export function createWalkInTicket(token: string, tenantSlug: string, locationQuery: string, body: CreateWalkInTicketRequest) {
   return apiRequest<

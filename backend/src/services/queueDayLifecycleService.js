@@ -817,11 +817,11 @@ async function expirePendingCarryOvers(limit = 100) {
   });
 }
 
-async function emitDueWarnings() {
+async function emitDueWarnings(options = {}) {
   const candidates = await queueDays.listWarningCandidates(200);
   let emitted = 0;
   for (const candidate of candidates) {
-    await db.withTransaction(async (client) => {
+    const transition = await db.withTransaction(async (client) => {
       const locked = await queueDays.findByScope(
         candidate.tenantId,
         candidate.locationId,
@@ -829,7 +829,7 @@ async function emitDueWarnings() {
         { client, forUpdate: true }
       );
       if (!locked || locked.state !== "open") {
-        return;
+        return null;
       }
       const remainingMs = new Date(locked.currentClosesAt).getTime() - Date.now();
       const warningMinutes = remainingMs <= 5 * 60_000 ? 5 : 15;
@@ -842,7 +842,6 @@ async function emitDueWarnings() {
         metadata: { warningMinutes }
       });
       if (event) {
-        emitted += 1;
         await enqueueStaffIntent(
           client,
           event,
@@ -850,27 +849,38 @@ async function emitDueWarnings() {
           warningMinutes === 5 ? "queue_closing_5m" : "queue_closing_15m",
           { expiresAt: locked.currentClosesAt, payload: { warningMinutes } }
         );
+        return {
+          tenantId: locked.tenantId,
+          locationId: locked.locationId,
+          transition: warningMinutes === 5 ? "warning_5m" : "warning_15m"
+        };
       }
+      return null;
     });
+    if (transition) {
+      emitted += 1;
+      await options.onTransition?.(transition);
+    }
   }
   return emitted;
 }
 
-async function reconcileDueQueueDays(limit = 50) {
+async function reconcileDueQueueDays(limit = 50, options = {}) {
   const candidateIds = await queueDays.listDueCandidateIds(limit);
   let reconciledCount = 0;
   for (const candidateId of candidateIds) {
+    let transition = null;
     try {
-      const didReconcile = await db.withTransaction(async (client) => {
+      transition = await db.withTransaction(async (client) => {
         const queueDay = await queueDays.findById(candidateId, { client, forUpdate: true });
         if (
           !queueDay
           || queueDay.state !== "open"
           || new Date(queueDay.currentClosesAt) > new Date()
         ) {
-          return false;
+          return null;
         }
-        await closeLockedQueueDay(
+        const result = await closeLockedQueueDay(
           client,
           { _id: queueDay.tenantId },
           { _id: queueDay.locationId },
@@ -880,14 +890,19 @@ async function reconcileDueQueueDays(limit = 50) {
             reason: "effective_hours_ended"
           }
         );
-        return true;
+        return {
+          tenantId: result.queueDay.tenantId,
+          locationId: result.queueDay.locationId,
+          transition: "closed"
+        };
       });
-      if (didReconcile) {
-        reconciledCount += 1;
-      }
     } catch (error) {
       await queueDays.recordReconciliationError(candidateId, error.message);
       await recordReconciliationFailure(candidateId, error);
+    }
+    if (transition) {
+      reconciledCount += 1;
+      await options.onTransition?.(transition);
     }
   }
   return reconciledCount;
