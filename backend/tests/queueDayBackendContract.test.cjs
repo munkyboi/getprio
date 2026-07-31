@@ -17,6 +17,17 @@ test("vendor API exposes manual open and audited 30-minute extension mutations",
   assert.match(routes, /expectedVersion/);
 });
 
+test("customer ticket detail authorization is rate-limited on public routes", () => {
+  const routes = fs.readFileSync(
+    path.join(root, "backend/src/routes/publicRoutes.js"),
+    "utf8"
+  );
+  assert.match(routes, /const queueTicketReadLimiter = rateLimit/);
+  assert.match(routes, /\["\/tenant\/:tenantSlug\/queue",[\s\S]*?maybeAuthenticate,\s*queueTicketReadLimiter,/);
+  assert.match(routes, /"\/ticket\/:lookupCode",\s*maybeAuthenticate,\s*queueTicketReadLimiter,/);
+  assert.match(routes, /\["\/tenant\/:tenantSlug\/stream",[\s\S]*?maybeAuthenticate,\s*queueTicketReadLimiter,/);
+});
+
 test("all automatic recovery entry points share the same idempotent close command", () => {
   const lifecycle = fs.readFileSync(
     path.join(root, "backend/src/services/queueDayLifecycleService.js"),

@@ -1,4 +1,5 @@
 const express = require("express");
+const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
 const tenantRepository = require("../repositories/tenants");
 const storeLocationRepository = require("../repositories/storeLocations");
 const publicBoardThemeRepository = require("../repositories/publicBoardThemes");
@@ -30,6 +31,14 @@ const {
 const { normalizePhilippineMobileNumber } = require("../utils/phone");
 
 const router = express.Router();
+const queueTicketReadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `${req.user?._id || "anonymous"}:${ipKeyGenerator(req.ip)}`,
+  message: { message: "Too many queue status requests. Please try again later." }
+});
 router.use(moderatePublicText);
 router.get(
   "/campaigns/:publicToken/stream",
@@ -459,6 +468,7 @@ function formatPublicQueueSnapshot(snapshot) {
 router.get(
   ["/tenant/:tenantSlug/queue", "/tenant/:tenantSlug/location/:locationSlug/queue"],
   maybeAuthenticate,
+  queueTicketReadLimiter,
   asyncHandler(async (req, res) => {
     const tenant = await getTenantOrThrow(req.params.tenantSlug);
     const location = await getLocationOrPrimary(tenant, req.params.locationSlug);
@@ -591,6 +601,7 @@ router.post(
 router.get(
   "/ticket/:lookupCode",
   maybeAuthenticate,
+  queueTicketReadLimiter,
   asyncHandler(async (req, res) => {
     const ticket = await ticketRepository.findTicketByLookupCode(
       String(req.params.lookupCode).toUpperCase()
@@ -804,6 +815,7 @@ router.delete(
 router.get(
   ["/tenant/:tenantSlug/stream", "/tenant/:tenantSlug/location/:locationSlug/stream"],
   maybeAuthenticate,
+  queueTicketReadLimiter,
   asyncHandler(async (req, res) => {
     const tenant = await getTenantOrThrow(req.params.tenantSlug);
     const location = await getLocationOrPrimary(tenant, req.params.locationSlug);
