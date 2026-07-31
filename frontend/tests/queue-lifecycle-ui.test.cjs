@@ -134,6 +134,16 @@ test("vendor queue lifecycle UI exposes warning, extension, and close controls",
   assert.match(styles, /\.queue-auto-close-modal \.mantine-Modal-content/);
 });
 
+test("vendor overflow identifies tickets saved for carry-over", () => {
+  const dashboard = readSource("src/pages/VendorDashboardPage.tsx");
+
+  assert.match(dashboard, /<Title order=\{3\}>Carry-over tickets<\/Title>/);
+  assert.match(dashboard, /<Table\.Th>Status<\/Table\.Th>/);
+  assert.match(dashboard, /<Table\.Th>Activated at<\/Table\.Th>/);
+  assert.match(dashboard, /getTicketStateSummary\(ticket\.status\)\.label/);
+  assert.match(dashboard, /:\s*"Carried over"/);
+});
+
 test("public and customer queue screens use the authoritative lifecycle state", () => {
   const joinPage = readSource("src/pages/JoinQueuePage.tsx");
   const ticketPage = readSource("src/pages/JoinedQueuePage.tsx");

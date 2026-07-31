@@ -1316,8 +1316,13 @@ export interface QueueListTicket {
   isCarriedOver?: boolean;
   carryOverCount?: number;
   carriedOverAt?: string | Date | null;
+  carryOverExpiresAt?: string | Date | null;
   servicePriorityBand?: QueuePriorityBand;
   linkedBookingReference?: string | null;
+}
+
+export interface QueueOverflowTicket extends Omit<QueueListTicket, "position"> {
+  position: number | null;
 }
 
 export interface QueueHistoryTicket {
@@ -1431,7 +1436,7 @@ export interface QueueSnapshot {
   stats: QueueStats;
   current: QueueCurrentTicket | null;
   nextUp: QueueListTicket[];
-  overflow: QueueListTicket[];
+  overflow: QueueOverflowTicket[];
   recovery: QueueHistoryTicket[];
   history: QueueHistoryTicket[];
   usage: QueueUsage;

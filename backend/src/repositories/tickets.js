@@ -252,6 +252,37 @@ async function listWaitingTickets(tenantId, options = {}) {
   return result.rows.map(mapTicket);
 }
 
+async function listPendingCarryOverTickets(tenantId, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const values = [Number(tenantId)];
+  let locationFilter = "";
+
+  if (options.locationId) {
+    values.push(Number(options.locationId));
+    locationFilter = `AND location_id = $${values.length}`;
+  }
+
+  const limit = Number(options.limit || 50);
+  values.push(limit);
+
+  const result = await queryClient.query(
+    `
+      SELECT ${withCustomerDisplayNameSelect()}
+      FROM tickets
+      WHERE tenant_id = $1
+        ${locationFilter}
+        AND status = 'pending_carry_over'
+        AND carry_over_consumed = FALSE
+        AND carry_over_expires_at > NOW()
+      ORDER BY pending_carry_over_since ASC, id ASC
+      LIMIT $${values.length}
+    `,
+    values
+  );
+
+  return result.rows.map(mapTicket);
+}
+
 async function listHistoryTickets(tenantId, options = {}) {
   const queryClient = buildQueryClient(options.client);
   const limit = Number(options.limit || 10);
@@ -885,6 +916,7 @@ module.exports = {
   findTicketByLookupCode,
   findTicketByTenantAndLookupCode,
   listWaitingTickets,
+  listPendingCarryOverTickets,
   listHistoryTickets,
   listSkippedTickets,
   listClientTickets,

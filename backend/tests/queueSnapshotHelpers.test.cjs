@@ -30,6 +30,7 @@ test("queue snapshot helpers resolve primary locations when none are specified",
   };
   originalTickets.findCurrentCalledTicket = async () => null;
   originalTickets.listWaitingTickets = async () => [];
+  originalTickets.listPendingCarryOverTickets = async () => [];
   originalTickets.listSkippedTickets = async () => [];
   originalTickets.listHistoryTickets = async () => [];
   originalTickets.countServedToday = async () => 0;
@@ -89,6 +90,7 @@ test("queue snapshot helpers prefer a ticket location when lookup code resolves"
   });
   tickets.findCurrentCalledTicket = async () => null;
   tickets.listWaitingTickets = async () => [];
+  tickets.listPendingCarryOverTickets = async () => [];
   tickets.listSkippedTickets = async () => [];
   tickets.listHistoryTickets = async () => [];
   tickets.countServedToday = async () => 0;
@@ -111,4 +113,78 @@ test("queue snapshot helpers prefer a ticket location when lookup code resolves"
   assert.equal(result.focusTicket.isCarriedOver, true);
   assert.equal(result.focusTicket.carryOverCount, 1);
   assert.equal(result.focusTicket.servicePriorityBand, "carry_over");
+});
+
+test("queue snapshot overflow includes tickets saved for future carry-over", async () => {
+  const storeLocations = require("../src/repositories/storeLocations");
+  const tickets = require("../src/repositories/tickets");
+  const closures = require("../src/repositories/queueDayClosures");
+  const pauses = require("../src/repositories/queueDayPauses");
+  const theme = require("../src/repositories/publicBoardThemes");
+  const queueFeeService = require("../src/services/queueFeeService");
+  const hours = require("../src/services/storeHoursService");
+
+  storeLocations.findPrimaryLocationByTenantId = async () => ({
+    _id: 1,
+    tenantId: 10,
+    slug: "main",
+    timezone: "Asia/Manila",
+    isPrimary: true,
+    isActive: true
+  });
+  storeLocations.findLocationByTenantAndSlug = async () => null;
+  storeLocations.findLocationById = async () => null;
+  storeLocations.listHoursByLocationId = async () => [];
+  tickets.findTicketByTenantAndLookupCode = async () => null;
+  tickets.findCurrentCalledTicket = async () => null;
+  tickets.listWaitingTickets = async (_tenantId, options = {}) => options.onlyCarriedOver ? [{
+    _id: 10,
+    tenantId: 10,
+    locationId: 1,
+    ticketNumber: "VD003",
+    customerName: "Activated Customer",
+    status: "waiting",
+    carriedOverAt: new Date("2026-08-01T01:00:00.000Z"),
+    carryOverCount: 1,
+    servicePriorityBand: "carry_over",
+    createdAt: new Date("2026-07-31T10:00:00.000Z")
+  }] : [];
+  tickets.listPendingCarryOverTickets = async () => [{
+    _id: 9,
+    tenantId: 10,
+    locationId: 1,
+    lookupCode: "3912FF7E",
+    ticketNumber: "VD002",
+    customerName: "Alex Boyer",
+    status: "pending_carry_over",
+    carryOverExpiresAt: new Date("2026-08-07T17:00:06.389Z"),
+    createdAt: new Date("2026-07-31T09:51:13.885Z")
+  }];
+  tickets.listSkippedTickets = async () => [];
+  tickets.listHistoryTickets = async () => [];
+  tickets.countServedToday = async () => 0;
+  closures.findActiveClosure = async () => null;
+  pauses.findActivePause = async () => null;
+  theme.getResolvedTheme = async () => null;
+  queueFeeService.getQueueFeeForTenant = async () => ({ amount: 0 });
+  queueFeeService.getActiveTenantSubscription = async () => null;
+  hours.getOpenStatus = async () => ({ isOpen: false, timezone: "Asia/Manila", summary: "Closed", today: null, nextOpenAt: null });
+
+  const result = await queueSnapshotHelpers.buildQueueSnapshot(
+    { _id: 10, name: "Tenant", slug: "tenant", averageServiceMinutes: 10 },
+    {},
+    async () => ({ emailsSentThisPeriod: 0 })
+  );
+
+  assert.equal(result.overflow.length, 2);
+  assert.equal(result.overflow[0].lookupCode, undefined);
+  assert.equal(result.overflow[0].ticketNumber, "VD002");
+  assert.equal(result.overflow[0].status, "pending_carry_over");
+  assert.equal(result.overflow[0].isCarriedOver, false);
+  assert.equal(result.overflow[0].position, null);
+  assert.equal(result.overflow[0].carryOverExpiresAt.toISOString(), "2026-08-07T17:00:06.389Z");
+  assert.equal(result.overflow[1].ticketNumber, "VD003");
+  assert.equal(result.overflow[1].status, "waiting");
+  assert.equal(result.overflow[1].isCarriedOver, true);
+  assert.equal(result.overflow[1].position, 1);
 });

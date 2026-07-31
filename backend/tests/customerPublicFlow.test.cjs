@@ -871,6 +871,7 @@ test("public queue snapshots redact tenant and location contact details", async 
     [storeLocationRepository, "findPrimaryLocationByTenantId"],
     [ticketRepository, "findCurrentCalledTicket"],
     [ticketRepository, "listWaitingTickets"],
+    [ticketRepository, "listPendingCarryOverTickets"],
     [ticketRepository, "listSkippedTickets"],
     [ticketRepository, "listHistoryTickets"],
     [ticketRepository, "countServedToday"],
@@ -890,6 +891,7 @@ test("public queue snapshots redact tenant and location contact details", async 
     storeLocationRepository.findPrimaryLocationByTenantId = async () => null;
     ticketRepository.findCurrentCalledTicket = async () => null;
     ticketRepository.listWaitingTickets = async () => [];
+    ticketRepository.listPendingCarryOverTickets = async () => [];
     ticketRepository.listSkippedTickets = async () => [];
     ticketRepository.listHistoryTickets = async () => [];
     ticketRepository.countServedToday = async () => 0;
@@ -981,6 +983,7 @@ test("public queue snapshots use the ticket location for lookup-code requests", 
     [storeLocationRepository, "findLocationById"],
     [ticketRepository, "findCurrentCalledTicket"],
     [ticketRepository, "listWaitingTickets"],
+    [ticketRepository, "listPendingCarryOverTickets"],
     [ticketRepository, "listSkippedTickets"],
     [ticketRepository, "listHistoryTickets"],
     [ticketRepository, "countServedToday"],
@@ -1034,6 +1037,7 @@ test("public queue snapshots use the ticket location for lookup-code requests", 
             }
           ]
         : [];
+    ticketRepository.listPendingCarryOverTickets = async () => [];
     ticketRepository.listSkippedTickets = async () => [];
     ticketRepository.listHistoryTickets = async () => [];
     ticketRepository.countServedToday = async () => 0;

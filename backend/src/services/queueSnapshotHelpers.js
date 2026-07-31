@@ -69,6 +69,10 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
     onlyCarriedOver: true,
     limit: 50
   });
+  const pendingCarryOverTickets = await ticketRepository.listPendingCarryOverTickets(
+    tenant._id,
+    { locationId, limit: 50 }
+  );
   const recoveryTickets = await ticketRepository.listSkippedTickets(tenant._id, {
     locationId,
     dateKey,
@@ -108,7 +112,22 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
     linkedBookingReference: ticket.linkedBookingReference || null
   }));
 
-  const overflow = overflowTickets.map((ticket, index) => ({
+  const pendingOverflow = pendingCarryOverTickets.map((ticket) => ({
+    id: String(ticket._id),
+    ticketNumber: ticket.ticketNumber,
+    customerName: ticket.customerName,
+    customerDisplayName: ticket.customerDisplayName || null,
+    status: ticket.status,
+    position: null,
+    joinChannel: ticket.joinChannel,
+    createdAt: ticket.createdAt,
+    isCarriedOver: false,
+    carryOverCount: ticket.carryOverCount || 0,
+    carriedOverAt: ticket.carriedOverAt || null,
+    carryOverExpiresAt: ticket.carryOverExpiresAt || null,
+    servicePriorityBand: ticket.servicePriorityBand || "normal"
+  }));
+  const activatedOverflow = overflowTickets.map((ticket, index) => ({
     id: String(ticket._id),
     ticketNumber: ticket.ticketNumber,
     customerName: ticket.customerName,
@@ -120,8 +139,10 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
     isCarriedOver: true,
     carryOverCount: ticket.carryOverCount || 0,
     carriedOverAt: ticket.carriedOverAt || null,
+    carryOverExpiresAt: ticket.carryOverExpiresAt || null,
     servicePriorityBand: ticket.servicePriorityBand || "normal"
   }));
+  const overflow = [...pendingOverflow, ...activatedOverflow];
 
   let focusTicket = null;
   if (lookupTicket) {
