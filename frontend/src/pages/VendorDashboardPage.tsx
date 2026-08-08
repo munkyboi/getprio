@@ -20,6 +20,7 @@ import {
   Notification,
   Pagination,
   Paper,
+  PasswordInput,
   Portal,
   ScrollArea,
   Select,
@@ -104,6 +105,7 @@ import type {
   VendorServiceSummary,
   UpdateVendorBookingStatusRequest,
   PaginationMetadata,
+  PasswordChangeRequest,
   GroupFundedLocationServiceSettings,
   GroupFundedBundleItemSummary,
   GroupFundedCampaignSummary,
@@ -780,7 +782,7 @@ const adminAllowedSections = new Set<DashboardSection>([
   "reports",
   "settings"
 ]);
-const staffAllowedSections = new Set<DashboardSection>(["queue", "bookings", "clients", "history"]);
+const staffAllowedSections = new Set<DashboardSection>(["queue", "bookings", "clients", "history", "settings"]);
 
 function getHistoryTimestamp(value: string | Date): number {
   return toTimestamp(value);
@@ -1067,7 +1069,7 @@ function DashboardEmptyState({
 }
 
 export default function VendorDashboardPage() {
-  const { token, user, loading, logout } = useAuth();
+  const { token, user, loading, logout, refreshUser, changePassword } = useAuth();
   const { section } = useParams<{ section: string }>();
   const location = useLocation();
   const navigate = useNavigate();
@@ -1117,6 +1119,22 @@ export default function VendorDashboardPage() {
   const [availabilityExceptionForm, setAvailabilityExceptionForm] = useState<SaveVendorAvailabilityExceptionRequest>(emptyAvailabilityExceptionForm);
   const [availabilityExceptionBlockEntireDay, setAvailabilityExceptionBlockEntireDay] = useState(false);
   const [settings, setSettings] = useState<UpdateTenantSettingsRequest>(defaultSettings);
+  const [mfaEnabled, setMfaEnabled] = useState(Boolean(user?.mfaEnabled));
+  const [mfaSecret, setMfaSecret] = useState("");
+  const [mfaEnrollmentUri, setMfaEnrollmentUri] = useState("");
+  const [mfaCode, setMfaCode] = useState("");
+  const [mfaRecoveryCodes, setMfaRecoveryCodes] = useState<string[]>([]);
+  const [mfaBusy, setMfaBusy] = useState(false);
+  const [passwordForm, setPasswordForm] = useState<PasswordChangeRequest>({ currentPassword: "", newPassword: "" });
+  const [passwordBusy, setPasswordBusy] = useState(false);
+  const [replacingMfa, setReplacingMfa] = useState(false);
+  const [replacementPassword, setReplacementPassword] = useState("");
+  const [replacementCode, setReplacementCode] = useState("");
+  const [removingMfa, setRemovingMfa] = useState(false);
+  const [removalPassword, setRemovalPassword] = useState("");
+  const [removalCode, setRemovalCode] = useState("");
+  const [removalRecoveryCode, setRemovalRecoveryCode] = useState("");
+  const [removalAcknowledged, setRemovalAcknowledged] = useState(false);
   const [vendorNotificationSettings, setVendorNotificationSettings] = useState<TenantNotificationSettings>(defaultNotificationSettings);
   const [browserPermission, setBrowserPermission] = useState<NotificationPermission>(
     typeof window !== "undefined" && typeof window.Notification !== "undefined"
@@ -1256,6 +1274,10 @@ export default function VendorDashboardPage() {
     rescheduleSlotsError,
     groupFundedProofError
   ].find(Boolean) || "";
+
+  useEffect(() => {
+    setMfaEnabled(Boolean(user?.mfaEnabled));
+  }, [user?.mfaEnabled]);
 
   useEffect(() => {
     if (!dashboardErrorMessage) {
@@ -2116,6 +2138,98 @@ export default function VendorDashboardPage() {
       message,
       title
     });
+  }
+
+  async function startMfaEnrollment() {
+    if (!token) return;
+    setMfaBusy(true);
+    setError("");
+    try {
+      const enrollment = await vendorDashboardOperations.startMfaEnrollment(token);
+      setMfaSecret(enrollment.secret);
+      setMfaEnrollmentUri(enrollment.otpAuthUri);
+      setMfaRecoveryCodes([]);
+    } catch (mfaError) {
+      setError(getErrorMessage(mfaError));
+    } finally {
+      setMfaBusy(false);
+    }
+  }
+
+  async function confirmMfaEnrollment() {
+    if (!token) return;
+    setMfaBusy(true);
+    setError("");
+    try {
+      const result = await vendorDashboardOperations.confirmMfaEnrollment(token, mfaCode);
+      setMfaEnabled(true);
+      setMfaSecret("");
+      setMfaEnrollmentUri("");
+      setMfaCode("");
+      setMfaRecoveryCodes(result.recoveryCodes);
+      await refreshUser();
+      showSuccessNotification("Authenticator enabled", "Save your recovery codes before leaving this page.");
+    } catch (mfaError) {
+      setError(getErrorMessage(mfaError));
+    } finally {
+      setMfaBusy(false);
+    }
+  }
+
+  async function handlePasswordChange(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPasswordBusy(true);
+    setError("");
+    try {
+      await changePassword(passwordForm);
+      navigate("/login", { replace: true });
+    } catch (passwordError) {
+      setError(getErrorMessage(passwordError));
+    } finally {
+      setPasswordBusy(false);
+    }
+  }
+
+  async function startMfaReplacement() {
+    if (!token) return;
+    setMfaBusy(true);
+    setError("");
+    try {
+      await vendorDashboardOperations.verifyMfaStepUp(token, replacementPassword, replacementCode);
+      const enrollment = await vendorDashboardOperations.startMfaEnrollment(token, replacementCode);
+      setMfaSecret(enrollment.secret);
+      setMfaEnrollmentUri(enrollment.otpAuthUri);
+      setMfaCode("");
+      setMfaRecoveryCodes([]);
+      setReplacingMfa(false);
+      setReplacementPassword("");
+      setReplacementCode("");
+    } catch (mfaError) {
+      setError(getErrorMessage(mfaError));
+    } finally {
+      setMfaBusy(false);
+    }
+  }
+
+  async function removeMfa() {
+    if (!token) return;
+    setMfaBusy(true);
+    setError("");
+    try {
+      await vendorDashboardOperations.disableMfa(token, removalPassword, removalCode, removalRecoveryCode);
+      setMfaEnabled(false);
+      setRemovingMfa(false);
+      setRemovalPassword("");
+      setRemovalCode("");
+      setRemovalRecoveryCode("");
+      setRemovalAcknowledged(false);
+      await refreshUser();
+      showSuccessNotification("MFA removed", "Your authenticator and recovery codes are no longer active.");
+    } catch (mfaError) {
+      setError(getErrorMessage(mfaError));
+    } finally {
+      setMfaBusy(false);
+    }
   }
 
   function syncVendorBookings(bookings: VendorBookingSummary[], options: { detectNew?: boolean } = {}) {
@@ -8771,16 +8885,87 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     );
   }
 
+  function renderSecurityPage() {
+    const mfaRequired = Boolean(user?.mfaRequired || isOwner || isAdmin);
+
+    return (
+      <Stack gap="md">
+        <Card className="neura-card vendor-security-card" padding="lg">
+          <Stack gap="md">
+            <div>
+              <Text className="neura-label">Account access</Text>
+              <Title order={2}>Change password</Title>
+              <Text c="dimmed" mt="xs">Changing your password closes this session and all other active sessions.</Text>
+            </div>
+            <form onSubmit={handlePasswordChange}>
+              <Stack gap="md">
+                <PasswordInput autoComplete="current-password" label="Current password" name="currentPassword" required value={passwordForm.currentPassword} onChange={(event) => setPasswordForm((current) => ({ ...current, currentPassword: event.target.value }))} />
+                <PasswordInput autoComplete="new-password" label="New password" name="newPassword" required value={passwordForm.newPassword} onChange={(event) => setPasswordForm((current) => ({ ...current, newPassword: event.target.value }))} />
+                <Button className="neura-primary-button" loading={passwordBusy} type="submit" w={{ base: "100%", sm: "fit-content" }}>Change password</Button>
+              </Stack>
+            </form>
+          </Stack>
+        </Card>
+
+        <Card className="neura-card vendor-security-card" padding="lg">
+          <Stack gap="md">
+            <div>
+              <Text className="neura-label">2FA/MFA</Text>
+              <Title order={2}>Multi-factor authentication</Title>
+              <Text c="dimmed" mt="xs">This protection applies across every vendor workspace you can access.</Text>
+            </div>
+            <Group gap="sm">
+              <Badge color={mfaEnabled ? "teal" : "gray"} variant="light">{mfaEnabled ? "Enabled" : "Not enabled"}</Badge>
+              <Badge color={mfaRequired ? "orange" : "gray"} variant="light">{mfaRequired ? "Required for your role" : "Optional"}</Badge>
+            </Group>
+            {mfaRequired && !mfaEnabled ? <Alert color="orange" title="Authenticator setup required">Vendor owners and admins must enable MFA.</Alert> : null}
+            {mfaRecoveryCodes.length ? (
+              <Alert color="teal" title="Save your recovery codes">
+                <Stack gap="sm">
+                  <Text size="sm">These recovery codes are shown only once.</Text>
+                  <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={6}>{mfaRecoveryCodes.map((code) => <Text ff="monospace" key={code}>{code}</Text>)}</SimpleGrid>
+                  <Button color="teal" onClick={() => setMfaRecoveryCodes([])} variant="light" w="fit-content">I saved these recovery codes</Button>
+                </Stack>
+              </Alert>
+            ) : null}
+            {!mfaEnabled && !mfaSecret && !mfaRecoveryCodes.length ? <Button className="neura-primary-button" loading={mfaBusy} onClick={() => void startMfaEnrollment()} w={{ base: "100%", sm: "fit-content" }}>Set up authenticator</Button> : null}
+            {mfaSecret ? (
+              <Stack gap="md">
+                <Stack align="center" gap="sm">
+                  <Text fw={700} ta="center">Scan with your authenticator app</Text>
+                  <div aria-label="GetPrio authenticator setup QR code" className="mfa-setup-qr" role="img"><QRCode aria-hidden="true" bgColor="#ffffff" fgColor="#111827" size={192} value={mfaEnrollmentUri} /></div>
+                </Stack>
+                <Alert color="blue" title="Cannot scan the QR code?">Enter this secret manually.<Text ff="monospace" mt="xs" style={{ overflowWrap: "anywhere" }}>{mfaSecret}</Text></Alert>
+                <TextInput autoComplete="one-time-code" inputMode="numeric" label="6-digit authenticator code" maxLength={6} value={mfaCode} onChange={(event) => setMfaCode(event.target.value.replace(/\D/g, ""))} />
+                <Button className="neura-primary-button" disabled={mfaCode.length !== 6} loading={mfaBusy} onClick={() => void confirmMfaEnrollment()} w={{ base: "100%", sm: "fit-content" }}>Verify and enable</Button>
+              </Stack>
+            ) : null}
+            {mfaEnabled && !mfaRecoveryCodes.length ? (
+              <Stack gap="md">
+                <Alert color="teal">Your authenticator is active.</Alert>
+                {!replacingMfa && !removingMfa ? <Group><Button onClick={() => setReplacingMfa(true)} variant="default">Replace authenticator</Button>{!mfaRequired ? <Button color="red" onClick={() => setRemovingMfa(true)} variant="light">Remove MFA</Button> : null}</Group> : null}
+                {replacingMfa ? (
+                  <Card padding="md" withBorder><Stack gap="md"><Title order={3}>Replace authenticator</Title><PasswordInput label="Current password" required value={replacementPassword} onChange={(event) => setReplacementPassword(event.target.value)} /><TextInput inputMode="numeric" label="Current authenticator code" maxLength={6} required value={replacementCode} onChange={(event) => setReplacementCode(event.target.value.replace(/\D/g, ""))} /><Group justify="flex-end"><Button onClick={() => setReplacingMfa(false)} variant="default">Cancel</Button><Button disabled={!replacementPassword || replacementCode.length !== 6} loading={mfaBusy} onClick={() => void startMfaReplacement()}>Verify and replace</Button></Group></Stack></Card>
+                ) : null}
+                {removingMfa && !mfaRequired ? (
+                  <Card padding="md" withBorder><Stack gap="md"><Alert color="red" title="Your account will be less secure">Removing MFA revokes the authenticator and all recovery codes.</Alert><PasswordInput label="Current password" required value={removalPassword} onChange={(event) => setRemovalPassword(event.target.value)} /><TextInput inputMode="numeric" label="Current authenticator code" maxLength={6} value={removalCode} onChange={(event) => setRemovalCode(event.target.value.replace(/\D/g, ""))} /><TextInput label="Recovery code" value={removalRecoveryCode} onChange={(event) => setRemovalRecoveryCode(event.target.value)} /><Checkbox checked={removalAcknowledged} label="I understand that removing MFA reduces my account security." onChange={(event) => setRemovalAcknowledged(event.target.checked)} /><Group justify="flex-end"><Button onClick={() => setRemovingMfa(false)} variant="default">Keep MFA</Button><Button color="red" disabled={!removalAcknowledged || !removalPassword || (removalCode.length !== 6 && !removalRecoveryCode.trim())} loading={mfaBusy} onClick={() => void removeMfa()}>Remove MFA</Button></Group></Stack></Card>
+                ) : null}
+              </Stack>
+            ) : null}
+          </Stack>
+        </Card>
+      </Stack>
+    );
+  }
+
   function renderSettingsPage() {
     return (
       <Stack gap="md">
         <Card className="neura-card" padding="lg">
-          <Tabs defaultValue="subscription">
+          <Tabs defaultValue={selectedTenantRole === "staff" ? "security" : "subscription"} keepMounted={false}>
             <Tabs.List>
-              <Tabs.Tab value="subscription">Subscription</Tabs.Tab>
-              <Tabs.Tab value="contact">Business profile</Tabs.Tab>
-              <Tabs.Tab value="queue">Queue settings</Tabs.Tab>
-              <Tabs.Tab value="notifications">Notifications</Tabs.Tab>
+              {selectedTenantRole !== "staff" ? <><Tabs.Tab value="subscription">Subscription</Tabs.Tab><Tabs.Tab value="contact">Business profile</Tabs.Tab><Tabs.Tab value="queue">Queue settings</Tabs.Tab><Tabs.Tab value="notifications">Notifications</Tabs.Tab></> : null}
+              <Tabs.Tab value="security">Security</Tabs.Tab>
             </Tabs.List>
 
             <Tabs.Panel pt="lg" value="subscription">
@@ -9097,6 +9282,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 />
               </Stack>
             </Tabs.Panel>
+            <Tabs.Panel pt="lg" value="security">{renderSecurityPage()}</Tabs.Panel>
           </Tabs>
         </Card>
 

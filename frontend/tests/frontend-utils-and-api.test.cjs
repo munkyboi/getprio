@@ -1983,3 +1983,34 @@ test("location slugs become immutable and new locations inherit the platform tim
   assert.match(platformDashboard, /searchable/);
   assert.match(sharedTypes, /defaultTimezone: string/);
 });
+
+test("vendor dashboard provides account-level MFA enrollment in Settings", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const dashboard = fs.readFileSync(path.join(frontendRoot, "src", "pages", "VendorDashboardPage.tsx"), "utf8");
+  const operations = fs.readFileSync(path.join(frontendRoot, "src", "api", "vendorDashboardOperations.ts"), "utf8");
+
+  assert.match(dashboard, /<Tabs\.Tab value="security">Security<\/Tabs\.Tab>/);
+  assert.match(dashboard, /<Tabs\.Panel pt="lg" value="security">\{renderSecurityPage\(\)\}<\/Tabs\.Panel>/);
+  assert.match(dashboard, /selectedTenantRole === "staff" \? "security" : "subscription"/);
+  assert.match(dashboard, /Scan with your authenticator app/);
+  assert.match(dashboard, /<QRCode[^>]+value=\{mfaEnrollmentUri\}/);
+  assert.match(dashboard, /Verify and enable/);
+  assert.match(dashboard, /These recovery codes are shown only once\./);
+  assert.match(operations, /\/auth\/mfa\/enrollment\/start/);
+  assert.match(operations, /\/auth\/mfa\/enrollment\/confirm/);
+});
+
+test("vendor Settings supports password changes and role-aware MFA management", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const dashboard = fs.readFileSync(path.join(frontendRoot, "src", "pages", "VendorDashboardPage.tsx"), "utf8");
+  const operations = fs.readFileSync(path.join(frontendRoot, "src", "api", "vendorDashboardOperations.ts"), "utf8");
+
+  assert.match(dashboard, /<Title order=\{2\}>Change password<\/Title>/);
+  assert.match(dashboard, /name="currentPassword"/);
+  assert.match(dashboard, /name="newPassword"/);
+  assert.match(dashboard, /await changePassword\(passwordForm\)/);
+  assert.match(dashboard, /Replace authenticator/);
+  assert.match(dashboard, /!mfaRequired[\s\S]*?>Remove MFA<\/Button>/);
+  assert.match(operations, /\/auth\/mfa\/step-up/);
+  assert.match(operations, /\/auth\/mfa\/disable/);
+});
