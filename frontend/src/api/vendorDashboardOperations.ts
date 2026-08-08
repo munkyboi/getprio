@@ -17,6 +17,34 @@ type VendorDashboardHistoryResponse = {
   tickets: import("@shared").QueueHistoryTicket[];
 };
 
+export function startMfaEnrollment(token: string, currentCode?: string) {
+  return apiRequest<{ secret: string; otpAuthUri: string }, { currentCode?: string }>(
+    "/auth/mfa/enrollment/start",
+    { method: "POST", token, body: currentCode ? { currentCode } : {} }
+  );
+}
+
+export function confirmMfaEnrollment(token: string, code: string) {
+  return apiRequest<{ success: boolean; recoveryCodes: string[]; message: string }, { code: string }>(
+    "/auth/mfa/enrollment/confirm",
+    { method: "POST", token, body: { code } }
+  );
+}
+
+export function verifyMfaStepUp(token: string, password: string, code: string) {
+  return apiRequest<{ success: boolean }, { password: string; code: string }>(
+    "/auth/mfa/step-up",
+    { method: "POST", token, body: { password, code } }
+  );
+}
+
+export function disableMfa(token: string, password: string, code: string, recoveryCode: string) {
+  return apiRequest<{ success: boolean; message: string }, { password: string; code: string; recoveryCode: string }>(
+    "/auth/mfa/disable",
+    { method: "POST", token, body: { password, code, recoveryCode } }
+  );
+}
+
 export function getHistory(token: string, tenantSlug: string, locationSlug: string) {
   return apiRequest<VendorDashboardHistoryResponse>(
     `/vendor/tenant/${tenantSlug}/history?limit=50&location=${encodeURIComponent(locationSlug)}`,

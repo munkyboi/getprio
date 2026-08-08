@@ -148,6 +148,8 @@ export interface UserSummary {
   roles: UserRole[];
   emailVerified: boolean;
   hasPassword: boolean;
+  mfaEnabled?: boolean;
+  mfaRequired?: boolean;
   oauthProviders: OAuthProviderId[];
   lastLoginProvider: string | null;
   tenants: TenantMembershipSummary[];
