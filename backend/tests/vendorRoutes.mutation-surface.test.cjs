@@ -107,8 +107,13 @@ test("vendor routes queue mutations invoke the queue service helpers", async () 
     "../services/billingService": {
       getBillingOverview: async () => ({})
     },
+    "../services/storeHoursService": {
+      assertLocationOpenForCustomerJoin: async () => {
+        calls.push(["assertLocationOpenForCustomerJoin"]);
+      }
+    },
     "../services/queueService": {
-      createTicket: async () => ({ snapshot: { ok: true } }),
+      createTicket: async () => ({ ticket: { _id: "ticket-1", ticketNumber: "A001", lookupCode: "LOOKUP1", status: "waiting" }, snapshot: { ok: true } }),
       getQueueSnapshot: async () => ({ ok: true }),
       openQueueDay: async (...args) => {
         calls.push(["openQueueDay", args]);
@@ -303,7 +308,12 @@ test("vendor routes queue mutations invoke the queue service helpers", async () 
     "../repositories/publicBoardThemes": { getResolvedTheme: async () => ({}) },
     "../services/publicBoardThemeUploadService": { createUpload: async () => ({}) , uploadBinary: async () => ({}) },
     "../services/locationPaymentQrUploadService": { uploadBinary: async () => ({}) },
-    "../services/storeHoursService": { getOpenStatus: async () => ({}) },
+    "../services/storeHoursService": {
+      getOpenStatus: async () => ({}),
+      assertLocationOpenForCustomerJoin: async () => {
+        calls.push(["assertLocationOpenForCustomerJoin"]);
+      }
+    },
     "pdfkit": function PDFDocument() {},
     "../utils/pagination": { parsePaginationParams: () => ({ page: 1, pageSize: 10 }), formatPaginationMetadata: () => ({}) }
   });
@@ -316,6 +326,13 @@ test("vendor routes queue mutations invoke the queue service helpers", async () 
       body: JSON.stringify({ expectedVersion: 1 })
     });
     assert.equal(openRes.status, 200, await openRes.text());
+
+    const walkInRes = await fetch(`${baseUrl}/tenant/demo/tickets`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ locationSlug: "main", customerName: "Jane Doe" })
+    });
+    assert.equal(walkInRes.status, 201, await walkInRes.text());
 
     const extendRes = await fetch(`${baseUrl}/tenant/demo/queue/extend?location=main`, {
       method: "POST",
@@ -390,6 +407,7 @@ test("vendor routes queue mutations invoke the queue service helpers", async () 
     assert.equal(calls.some(([name]) => name === "restoreSkippedTicket"), true);
     assert.equal(calls.some(([name]) => name === "openQueueDay"), true);
     assert.equal(calls.some(([name]) => name === "extendQueueDay"), true);
+    assert.equal(calls.some(([name]) => name === "assertLocationOpenForCustomerJoin"), true);
     assert.deepEqual(calls.find(([name]) => name === "listVendorBookingRescheduleSlots"), [
       "listVendorBookingRescheduleSlots",
       [{ _id: "tenant-1", slug: "demo" }, "booking-1", "2026-06-24"]
