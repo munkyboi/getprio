@@ -74,6 +74,7 @@ jobs:
           # Keep the server-side release control explicit; the API still enforces
           # platform permissions, recent authentication, confirmation, and audit.
           export PLAN_POLICY_MUTATIONS_ENABLED=true
+          export SUBSCRIPTION_LIFECYCLE_ENABLED=true
 
           if [ -n "$(git status --porcelain)" ]; then
             echo "Server working tree has local changes. Refusing to deploy."
