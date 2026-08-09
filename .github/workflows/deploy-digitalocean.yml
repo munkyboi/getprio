@@ -70,6 +70,11 @@ jobs:
             set +a
           fi
 
+          # Platform Operations has approved live Plan Matrix publishing.
+          # Keep the server-side release control explicit; the API still enforces
+          # platform permissions, recent authentication, confirmation, and audit.
+          export PLAN_POLICY_MUTATIONS_ENABLED=true
+
           if [ -n "$(git status --porcelain)" ]; then
             echo "Server working tree has local changes. Refusing to deploy."
             git status --short
