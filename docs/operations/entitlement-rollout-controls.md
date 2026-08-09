@@ -30,7 +30,7 @@ Before enabling a control, confirm its slice acceptance tests, database verifica
 | `ENTITLEMENT_OVERRIDES_ENABLED` | Permit tenant entitlement override reads and mutations. |
 | `ALLOWANCE_REPAIRS_ENABLED` | Permit allowance reversal and reconciliation operations. |
 | `SUBSCRIPTION_LIFECYCLE_ENABLED` | Permit new lifecycle transition, suspension, and due-execution APIs. |
-| `PLAN_POLICY_MUTATIONS_ENABLED` | Permit live plan default mutation. |
+| `PLAN_POLICY_MUTATIONS_ENABLED` | Permit live plan default mutation. Enabled for the production Plan Matrix deployment after Platform Operations approval; the API still enforces platform permissions, recent authentication, confirmation, idempotency, and audit. |
 | `VENDOR_CAPACITY_EXPERIENCE_ENABLED` | Expose vendor operational/commercial capacity APIs and UI. |
 
 All keys accept only `true` or `1`; any missing or other value is disabled. Mutation gates execute before idempotency claims, confirmation consumption, database writes, or provider calls. A disabled API returns `404` with code `RELEASE_CONTROL_DISABLED`. The Plan Matrix read surface and automatic Free assignment for newly approved vendors are core product behavior, not rollout-controlled operations; policy publishing, backfill, enforcement, overrides, and commerce remain independently gated.
