@@ -1,5 +1,6 @@
 const { assertPublicTextFieldsAllowed } = require("../services/contentModeration");
 const entitlementAdmissionService = require("../services/entitlementAdmissionService");
+const storeHoursService = require("../services/storeHoursService");
 
 async function handleCreateTicket({
   req,
@@ -17,6 +18,7 @@ async function handleCreateTicket({
   if (assertQueueLocationAccess) {
     await assertQueueLocationAccess(req.user, tenant, location);
   }
+  await storeHoursService.assertLocationOpenForCustomerJoin(location);
   const { customerName, customerEmail, customerPhone, notifyByEmail, notifyBySms, notes } = req.body;
 
   if (!customerName) {
