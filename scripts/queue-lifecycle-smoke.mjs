@@ -201,6 +201,30 @@ async function run() {
     [Number(opened.queueDay._id)]
   );
   const warningDay = await queueDays.findById(opened.queueDay._id);
+  const warningTransitions = [];
+  assert.equal(
+    await lifecycle.emitDueWarnings({
+      onTransition: async (transition) => warningTransitions.push(transition)
+    }),
+    1
+  );
+  assert.equal(await lifecycle.emitDueWarnings(), 0);
+  assert.deepEqual(warningTransitions, [{
+    tenantId: warningDay.tenantId,
+    locationId: warningDay.locationId,
+    transition: "warning_15m"
+  }]);
+  const warningIntent = await db.pool.query(
+    `SELECT template_name, deadline_version, status
+     FROM queue_notification_outbox
+     WHERE queue_day_id = $1 AND template_name = 'queue_closing_15m'`,
+    [Number(warningDay._id)]
+  );
+  assert.deepEqual(warningIntent.rows, [{
+    template_name: "queue_closing_15m",
+    deadline_version: 1,
+    status: "pending"
+  }]);
   const previousDeadline = new Date(warningDay.currentClosesAt).getTime();
   const extended = await lifecycle.extendQueueDay(fixture.tenant, fixture.location, {
     expectedVersion: warningDay.version,
@@ -373,7 +397,7 @@ async function run() {
     scenarios: [
       "manual-open",
       "store-hours-snapshot",
-      "warning-extension",
+      "warning-delivery-and-extension",
       "atomic-close-outcomes",
       "idempotent-close",
       "reopen-reclose",

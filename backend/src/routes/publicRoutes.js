@@ -40,6 +40,14 @@ const enterpriseInquiryLimiter = rateLimit({
   keyGenerator: (req) => ipKeyGenerator(req.ip),
   message: { message: "Too many Enterprise inquiries. Please try again later." }
 });
+const queueTicketReadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `${req.user?._id || "anonymous"}:${ipKeyGenerator(req.ip)}`,
+  message: { message: "Too many queue status requests. Please try again later." }
+});
 router.use(moderatePublicText);
 router.get(
   "/campaigns/:publicToken/stream",
@@ -486,6 +494,7 @@ function formatPublicQueueSnapshot(snapshot) {
 
 router.get(
   ["/tenant/:tenantSlug/queue", "/tenant/:tenantSlug/location/:locationSlug/queue"],
+  queueTicketReadLimiter,
   maybeAuthenticate,
   asyncHandler(async (req, res) => {
     const tenant = await getTenantOrThrow(req.params.tenantSlug);
@@ -640,6 +649,7 @@ router.post(
 
 router.get(
   "/ticket/:lookupCode",
+  queueTicketReadLimiter,
   maybeAuthenticate,
   asyncHandler(async (req, res) => {
     const ticket = await ticketRepository.findTicketByLookupCode(
@@ -858,6 +868,7 @@ router.delete(
 
 router.get(
   ["/tenant/:tenantSlug/stream", "/tenant/:tenantSlug/location/:locationSlug/stream"],
+  queueTicketReadLimiter,
   maybeAuthenticate,
   asyncHandler(async (req, res) => {
     const tenant = await getTenantOrThrow(req.params.tenantSlug);
