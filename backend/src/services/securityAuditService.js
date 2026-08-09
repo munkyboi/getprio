@@ -3,7 +3,7 @@ const repository = require("../repositories/securityAudit");
 function sanitizeText(value, max = 500) {
   return [...String(value || "")]
     .map((character) => {
-      const code = character.charCodeAt(0);
+      const code = character.codePointAt(0);
       return code < 32 || code === 127 ? " " : character;
     })
     .join("")

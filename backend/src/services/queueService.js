@@ -357,7 +357,7 @@ async function createTicketForTenantInTransaction(client, {
   let sequence;
   if (resolvedLocation.queueLifecycleMode === "enforced") {
     queueDay = await assertQueueIntakeOpen(tenant, resolvedLocation, { client });
-    dateKey = String(queueDay.businessDate).replace(/-/g, "");
+    dateKey = String(queueDay.businessDate).replaceAll("-", "");
     sequence = await queueDayRepository.allocateSequence(queueDay._id, { client });
     if (sequence == null) {
       const error = new Error("Queue intake changed. Refresh and try again.");
@@ -475,7 +475,7 @@ async function callNextTicket(tenant, options = {}) {
   const activeQueueDay = await assertQueueDayOpen(tenant, location);
   const dateKey = options.queueDateKey
     || (activeQueueDay?.businessDate
-      ? String(activeQueueDay.businessDate).replace(/-/g, "")
+      ? String(activeQueueDay.businessDate).replaceAll("-", "")
       : getDateKey(new Date(), location.timezone));
   const ticket = await db.withTransaction(async (client) => {
     const activeTicket = await ticketRepository.findCurrentCalledTicket(tenant._id, {
@@ -557,7 +557,7 @@ async function updateCurrentTicketStatus(tenant, status, options = {}) {
   const activeQueueDay = await assertQueueDayOpen(tenant, location);
   const dateKey = options.queueDateKey
     || (activeQueueDay?.businessDate
-      ? String(activeQueueDay.businessDate).replace(/-/g, "")
+      ? String(activeQueueDay.businessDate).replaceAll("-", "")
       : getDateKey(new Date(), location.timezone));
   const ticket = await db.withTransaction(async (client) => {
     const currentTicket = await ticketRepository.findCurrentCalledTicket(tenant._id, {
@@ -654,7 +654,7 @@ async function confirmCurrentTicket(tenant, lookupCode, options = {}) {
   const activeQueueDay = await assertQueueDayOpen(tenant, location);
   const dateKey = options.queueDateKey
     || (activeQueueDay?.businessDate
-      ? String(activeQueueDay.businessDate).replace(/-/g, "")
+      ? String(activeQueueDay.businessDate).replaceAll("-", "")
       : getDateKey(new Date(), location.timezone));
   const normalizedLookupCode = String(lookupCode || "").toUpperCase();
 
@@ -1218,7 +1218,7 @@ async function restoreSkippedTicket(tenant, ticketId, options = {}) {
   });
   const dateKey = options.queueDateKey
     || (activeQueueDay?.businessDate
-      ? String(activeQueueDay.businessDate).replace(/-/g, "")
+      ? String(activeQueueDay.businessDate).replaceAll("-", "")
       : getDateKey(new Date(), location.timezone));
 
   const ticket = await db.withTransaction(async (client) => {
