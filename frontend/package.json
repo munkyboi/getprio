@@ -26,14 +26,14 @@
     "@zxing/browser": "^0.1.5",
     "date-fns": "^4.4.0",
     "dayjs": "^1.11.21",
-    "dompurify": "^3.4.12",
+    "dompurify": "^3.4.13",
     "embla-carousel-react": "^8.6.0",
     "jsbarcode": "^3.12.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-hook-form": "^7.80.0",
     "react-qr-code": "^2.0.15",
-    "react-router-dom": "^7.18.0",
+    "react-router-dom": "^7.18.2",
     "zod": "^4.4.3"
   },
   "devDependencies": {
