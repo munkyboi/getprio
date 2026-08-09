@@ -14,6 +14,7 @@ const pushNotificationService = require("./pushNotificationService");
 const notificationService = require("./notificationService");
 const queueEvents = require("./queueEvents");
 const bookingService = require("./bookingService");
+const allowanceService = require("./allowanceService");
 
 const VENDOR_REVIEW_BUFFER_HOURS = 24;
 const VENDOR_REVIEW_HOLD_HOURS = 24;
@@ -117,21 +118,13 @@ function resolvePayableAmountCents(service, locationService, bookingQuantity) {
 
 function mergeBundleSettings(settingsList) {
   const base = settingsList[0] || {};
-  const minContributionValues = settingsList
-    .map((settings) => settings.minContributionAmountCents)
-    .filter((value) => value !== null && value !== undefined)
-    .map(Number);
-  const maxContributionValues = settingsList
-    .map((settings) => settings.maxContributionAmountCents)
-    .filter((value) => value !== null && value !== undefined)
-    .map(Number);
   return {
     ...base,
     minRequiredContributors: Math.max(...settingsList.map((settings) => Number(settings.minRequiredContributors || 2))),
     maxRequiredContributors: Math.min(...settingsList.map((settings) => Number(settings.maxRequiredContributors || 100))),
     defaultRequiredContributors: Number(base.defaultRequiredContributors || 2),
-    minContributionAmountCents: minContributionValues.length ? Math.max(...minContributionValues) : null,
-    maxContributionAmountCents: maxContributionValues.length ? Math.min(...maxContributionValues) : null,
+    minContributionAmountCents: null,
+    maxContributionAmountCents: null,
     minDeadlineHours: Math.max(...settingsList.map((settings) => Number(settings.minDeadlineHours || 1))),
     maxDeadlineDays: Math.min(...settingsList.map((settings) => Number(settings.maxDeadlineDays || 1))),
     allowPublicCampaigns: settingsList.every((settings) => Boolean(settings.allowPublicCampaigns))
@@ -769,19 +762,6 @@ async function createCampaign({ user, body }) {
   const targetAmountCents = bundleItems.reduce((sum, item) => sum + item.priceAmountCents, 0);
   const requiredContributionAmountCents = Math.ceil(targetAmountCents / requiredContributors);
   const roundingAdjustmentCents = (requiredContributionAmountCents * requiredContributors) - targetAmountCents;
-
-  if (
-    settings.minContributionAmountCents !== null &&
-    requiredContributionAmountCents < Number(settings.minContributionAmountCents)
-  ) {
-    throw makeHttpError("Computed contribution is below the vendor-configured minimum.", 400);
-  }
-  if (
-    settings.maxContributionAmountCents !== null &&
-    requiredContributionAmountCents > Number(settings.maxContributionAmountCents)
-  ) {
-    throw makeHttpError("Computed contribution is above the vendor-configured maximum.", 400);
-  }
 
   const campaign = await groupFundedRepository.withTransaction(async (client) => {
     const bundleItemSnapshots = summarizeBundleItems(bundleItems);
@@ -1971,6 +1951,15 @@ async function approveVendorCampaign({ tenant, user, campaignId }) {
       },
       { client }
     );
+    await allowanceService.consumeAllowance({
+      tenantId: campaign.tenantId,
+      resourceKey: "serviceBookings",
+      units: 1,
+      operationKey: `service-booking:${booking._id}:created`,
+      subjectType: "service_booking",
+      subjectId: booking._id,
+      reason: "Approved group-funded campaign created one Service Booking"
+    }, { client });
     const approvedCampaign = await groupFundedRepository.updateCampaignReviewFields(
       {
         campaignId: campaign._id,

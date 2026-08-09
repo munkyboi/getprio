@@ -6,7 +6,6 @@ import {
   Button,
   Card,
   Group,
-  Progress,
   Skeleton,
   Stack,
   Text,
@@ -29,6 +28,7 @@ import {
 import { Link, Navigate } from "react-router-dom";
 import type { QueueSnapshot } from "@shared";
 import CustomerAccountLayout from "../components/CustomerAccountLayout";
+import CampaignFundingProgress from "../components/CampaignFundingProgress";
 import { API_BASE_URL, apiRequest } from "../api/client";
 import { customerAccountApi } from "../api/customerAccount";
 import { useAuth } from "../context/AuthContext";
@@ -42,14 +42,6 @@ import {
 } from "../utils/customerDashboard";
 import { formatBookingScheduleDate, formatBookingScheduleTimeRange, formatDateTime } from "../utils/dates";
 import { getErrorMessage } from "../utils/errors";
-
-function formatCurrency(amountCents: number, currency = "PHP") {
-  return new Intl.NumberFormat("en-PH", {
-    style: "currency",
-    currency,
-    maximumFractionDigits: 2
-  }).format(amountCents / 100);
-}
 
 function formatDashboardDate(value: Date) {
   return new Intl.DateTimeFormat("en-PH", {
@@ -230,9 +222,9 @@ export default function CustomerDashboardPage() {
                   <Text c="dimmed" size="sm">({account.trustRating.count})</Text>
                 </Group>
               ) : (
-                <Group aria-label="No rating yet" className="customer-dashboard__rating" gap={7} wrap="nowrap">
+                <Group aria-label="Not yet rated" className="customer-dashboard__rating" gap={7} wrap="nowrap">
                   <IconStar aria-hidden className="customer-dashboard__rating-star" size={24} />
-                  <Text fw={700}>No rating yet</Text>
+                  <Text fw={700}>Not yet rated</Text>
                 </Group>
               )}
             </Stack>
@@ -368,8 +360,10 @@ export default function CustomerDashboardPage() {
                 </div>
                 {activeCampaign ? (
                   <div>
-                    <Title order={3}>{formatCurrency(campaignFunding.fundedAmountCents, activeCampaign.currency)} of {formatCurrency(campaignFunding.targetAmountCents, activeCampaign.currency)} funded</Title>
-                    <Progress aria-label="Campaign funding progress" color="orange" mt="xs" value={campaignFunding.progressPercent} />
+                    <CampaignFundingProgress
+                      fundedAmountCents={campaignFunding.fundedAmountCents}
+                      targetAmountCents={campaignFunding.targetAmountCents}
+                    />
                     <Group justify="space-between" mt="md">
                       <Text size="sm"><strong>{campaignFunding.acceptedContributors} of {activeCampaign.requiredContributors}</strong> contributors</Text>
                       <Button color="orange" component={Link} rightSection={<IconChevronRight size={17} />} size="compact-sm" to={`/account/campaigns/${activeCampaign.id}/manage`} variant="subtle">

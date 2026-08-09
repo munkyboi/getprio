@@ -40,10 +40,13 @@ function buildAccessToken(user, session) {
   );
 }
 
-async function createAuthSession({ user, authMethod, ipAddress, userAgent, deviceLabel, client }) {
+async function createAuthSession({ user, authMethod, ipAddress, userAgent, deviceLabel, mfaVerifiedAt, primaryAuthenticatedAt, client }) {
   const refreshToken = createOpaqueToken();
   const refreshTokenHash = hashOpaqueToken(refreshToken);
   const expiresAt = new Date(Date.now() + getRefreshTtlDays(user) * 24 * 60 * 60 * 1000);
+  const inactivityExpiresAt = new Date(
+    Math.min(expiresAt.getTime(), Date.now() + Number(env.sessionInactivityMinutes || 10080) * 60 * 1000)
+  );
 
   const session = await authSessionRepository.createSession(
     {
@@ -53,7 +56,11 @@ async function createAuthSession({ user, authMethod, ipAddress, userAgent, devic
       ipAddress,
       userAgent,
       deviceLabel,
-      expiresAt
+      mfaVerifiedAt,
+      primaryAuthenticatedAt: primaryAuthenticatedAt || new Date(),
+      expiresAt,
+      absoluteExpiresAt: expiresAt,
+      inactivityExpiresAt
     },
     { client }
   );
@@ -68,13 +75,54 @@ async function createAuthSession({ user, authMethod, ipAddress, userAgent, devic
 async function rotateRefreshSession({ session, user, client }) {
   const refreshToken = createOpaqueToken();
   const refreshTokenHash = hashOpaqueToken(refreshToken);
-  const expiresAt = new Date(Date.now() + getRefreshTtlDays(user) * 24 * 60 * 60 * 1000);
+  const requestedExpiresAt = new Date(
+    Date.now() + getRefreshTtlDays(user) * 24 * 60 * 60 * 1000
+  );
+  const absoluteExpiresAt = new Date(
+    session.absoluteExpiresAt || session.expiresAt || requestedExpiresAt
+  );
+  const expiresAt = new Date(
+    Math.min(
+      absoluteExpiresAt.getTime(),
+      requestedExpiresAt.getTime()
+    )
+  );
+  const inactivityExpiresAt = new Date(
+    Math.min(expiresAt.getTime(), Date.now() + Number(env.sessionInactivityMinutes || 10080) * 60 * 1000)
+  );
   const rotatedSession = await authSessionRepository.rotateSessionRefreshToken(
     session._id,
     refreshTokenHash,
     expiresAt,
-    { client }
+    {
+      client,
+      inactivityExpiresAt,
+      expectedRefreshTokenHash: session.refreshTokenHash || null
+    }
   );
+
+  if (!rotatedSession) {
+    const replayedSession = await authSessionRepository.findSessionByPreviousRefreshTokenHash(
+      session.refreshTokenHash,
+      { client }
+    );
+    const replayAge = replayedSession?.lastRotatedAt
+      ? Date.now() - new Date(replayedSession.lastRotatedAt).getTime()
+      : Number.POSITIVE_INFINITY;
+    if (replayedSession && replayAge >= 0 && replayAge <= 10_000) {
+      const error = new Error("Your session was already refreshed. Please retry the request.");
+      error.statusCode = 409;
+      error.code = "REFRESH_ALREADY_ROTATED";
+      throw error;
+    }
+    if (replayedSession) {
+      await authSessionRepository.revokeSession(replayedSession._id, "refresh_token_reuse", { client });
+    }
+    const error = new Error("Refresh session is no longer valid.");
+    error.statusCode = 401;
+    error.code = "REFRESH_REUSE_DETECTED";
+    throw error;
+  }
 
   return {
     session: rotatedSession,
@@ -92,10 +140,41 @@ async function revokeAllSessionsForUser(userId, revokeReason, options = {}) {
 }
 
 async function resolveSessionByRefreshToken(refreshToken, options = {}) {
-  return authSessionRepository.findSessionByRefreshTokenHash(
-    hashOpaqueToken(refreshToken),
+  const refreshTokenHash = hashOpaqueToken(refreshToken);
+  const session = await authSessionRepository.findSessionByRefreshTokenHash(
+    refreshTokenHash,
     options
   );
+  if (session) {
+    return session;
+  }
+  if (typeof authSessionRepository.findSessionByPreviousRefreshTokenHash !== "function") {
+    return null;
+  }
+
+  const replayedSession = await authSessionRepository.findSessionByPreviousRefreshTokenHash(
+    refreshTokenHash,
+    options
+  );
+  if (!replayedSession) {
+    return null;
+  }
+
+  const replayAge = replayedSession.lastRotatedAt
+    ? Date.now() - new Date(replayedSession.lastRotatedAt).getTime()
+    : Number.POSITIVE_INFINITY;
+  if (replayAge >= 0 && replayAge <= 10_000) {
+    const error = new Error("Your session was already refreshed. Please retry the request.");
+    error.statusCode = 409;
+    error.code = "REFRESH_ALREADY_ROTATED";
+    throw error;
+  }
+
+  await authSessionRepository.revokeSession(replayedSession._id, "refresh_token_reuse", options);
+  const error = new Error("Refresh session is no longer valid.");
+  error.statusCode = 401;
+  error.code = "REFRESH_REUSE_DETECTED";
+  throw error;
 }
 
 module.exports = {

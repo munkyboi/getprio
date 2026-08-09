@@ -102,6 +102,61 @@ test("tickets repository orders waiting tickets by carry-over, recovery, checked
   assert.deepEqual(calls[0].params, [1, 2, "20260606", 5]);
 });
 
+test("tickets repository includes the linked customer's display name in queue reads", async () => {
+  const { calls, client } = createQueryClient([
+    {
+      id: 7,
+      tenant_id: 1,
+      location_id: 2,
+      user_id: 11,
+      ticket_number: "DMO-007",
+      customer_name: "Doreen Mills",
+      customer_display_name: "Maldita",
+      status: "waiting"
+    }
+  ]);
+  const ticketsRepository = requireWithMocks("../src/repositories/tickets.js", {
+    "../config/db": { pool: client }
+  });
+
+  const [ticket] = await ticketsRepository.listWaitingTickets(1, {
+    client,
+    locationId: 2,
+    dateKey: "20260731"
+  });
+
+  assert.equal(ticket.customerDisplayName, "Maldita");
+  assert.match(calls[0].query, /users\.display_name/);
+});
+
+test("tickets repository includes the linked customer's display name in ticket lookups", async () => {
+  const { calls, client } = createQueryClient([
+    {
+      id: 8,
+      tenant_id: 1,
+      location_id: 2,
+      user_id: 12,
+      ticket_number: "VD002",
+      lookup_code: "11F7E486",
+      customer_name: "Alex Boyer",
+      customer_display_name: "LexBoy",
+      status: "waiting"
+    }
+  ]);
+  const ticketsRepository = requireWithMocks("../src/repositories/tickets.js", {
+    "../config/db": { pool: client }
+  });
+
+  const ticket = await ticketsRepository.findTicketByTenantAndLookupCode(
+    1,
+    "11F7E486",
+    { client }
+  );
+
+  assert.equal(ticket.customerDisplayName, "LexBoy");
+  assert.match(calls[0].query, /users\.display_name/);
+});
+
 test("tickets repository calls checked-in booking tickets before normal tickets", async () => {
   const { calls, client } = createQueryClient();
   const ticketsRepository = requireWithMocks("../src/repositories/tickets.js", {
@@ -147,7 +202,38 @@ test("tickets repository applies carried-over filters for overflow and history v
   assert.match(calls[1].query, /AND carried_over_at IS NULL AND COALESCE\(carry_over_count, 0\) = 0/);
 });
 
-test("customer account ticket history supports pagination metadata", async () => {
+test("tickets repository lists unexpired tickets waiting for carry-over activation", async () => {
+  const { calls, client } = createQueryClient([
+    {
+      id: 9,
+      tenant_id: 1,
+      location_id: 2,
+      lookup_code: "3912FF7E",
+      ticket_number: "VD002",
+      customer_name: "Alex Boyer",
+      status: "pending_carry_over",
+      carry_over_expires_at: "2026-08-07T17:00:06.389Z"
+    }
+  ]);
+  const ticketsRepository = requireWithMocks("../src/repositories/tickets.js", {
+    "../config/db": { pool: client }
+  });
+
+  const [ticket] = await ticketsRepository.listPendingCarryOverTickets(1, {
+    client,
+    locationId: 2,
+    limit: 50
+  });
+
+  assert.equal(ticket.lookupCode, "3912FF7E");
+  assert.match(calls[0].query, /status = 'pending_carry_over'/);
+  assert.match(calls[0].query, /carry_over_consumed = FALSE/);
+  assert.match(calls[0].query, /carry_over_expires_at > NOW\(\)/);
+  assert.match(calls[0].query, /ORDER BY pending_carry_over_since ASC, id ASC/);
+  assert.deepEqual(calls[0].params, [1, 2, 50]);
+});
+
+test("customer account ticket history is isolated by linked user ownership", async () => {
   const calls = [];
   const client = {
     query: async (query, params) => {
@@ -211,11 +297,59 @@ test("customer account ticket history supports pagination metadata", async () =>
 
   assert.equal(calls.length, 2);
   assert.match(calls[0].query, /SELECT COUNT\(\*\)/);
-  assert.deepEqual(calls[0].params, [11, "pat@example.com", "09170000000"]);
-  assert.match(calls[1].query, /LIMIT \$4 OFFSET \$5/);
-  assert.deepEqual(calls[1].params, [11, "pat@example.com", "09170000000", 5, 10]);
+  assert.match(calls[0].query, /WHERE tickets\.user_id = \$1/);
+  assert.doesNotMatch(calls[0].query, /customer_email|customer_phone/);
+  assert.deepEqual(calls[0].params, [11]);
+  assert.match(calls[1].query, /WHERE tickets\.user_id = \$1/);
+  assert.doesNotMatch(calls[1].query, /customer_email|customer_phone/);
+  assert.match(calls[1].query, /LIMIT \$2 OFFSET \$3/);
+  assert.deepEqual(calls[1].params, [11, 5, 10]);
   assert.equal(result.totalItems, 1);
   assert.equal(result.tickets[0].ticketNumber, "DMO-007");
+});
+
+test("claiming a ticket cannot replace an existing account owner", async () => {
+  const { calls, client } = createQueryClient();
+  const ticketsRepository = requireWithMocks("../src/repositories/tickets.js", {
+    "../config/db": { pool: client }
+  });
+
+  await ticketsRepository.claimTicketForUser(7, 11, { client });
+
+  assert.match(calls[0].query, /WHERE id = \$1\s+AND user_id IS NULL/);
+  assert.deepEqual(calls[0].params, [7, 11]);
+});
+
+test("tickets repository records customer confirmation without changing called status", async () => {
+  const confirmedAt = new Date("2026-08-09T03:00:00.000Z");
+  const { calls, client } = createQueryClient([
+    {
+      id: 7,
+      tenant_id: 1,
+      location_id: 2,
+      ticket_number: "P007",
+      lookup_code: "ABCD1234",
+      customer_name: "Pat",
+      status: "called",
+      customer_confirmed_at: confirmedAt
+    }
+  ]);
+  const ticketsRepository = requireWithMocks("../src/repositories/tickets.js", {
+    "../config/db": { pool: client }
+  });
+
+  const ticket = await ticketsRepository.confirmCurrentCalledTicket(1, 7, {
+    client,
+    locationId: 2,
+    dateKey: "20260809"
+  });
+
+  assert.match(calls[0].query, /customer_confirmed_at = COALESCE\(customer_confirmed_at, NOW\(\)\)/);
+  assert.match(calls[0].query, /AND status = 'called'/);
+  assert.doesNotMatch(calls[0].query, /SET status =/);
+  assert.deepEqual(calls[0].params, [7, 1, 2, "20260809"]);
+  assert.equal(ticket.status, "called");
+  assert.equal(ticket.customerConfirmedAt, confirmedAt);
 });
 
 test("tickets repository restores skipped tickets into the requested priority band", async () => {

@@ -1,4 +1,5 @@
 const express = require("express");
+const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
 const tenantRepository = require("../repositories/tenants");
 const storeLocationRepository = require("../repositories/storeLocations");
 const publicBoardThemeRepository = require("../repositories/publicBoardThemes");
@@ -28,8 +29,17 @@ const {
   cancelTicket
 } = require("../services/queueService");
 const { normalizePhilippineMobileNumber } = require("../utils/phone");
+const entitlementAdmissionService = require("../services/entitlementAdmissionService");
 
 const router = express.Router();
+const enterpriseInquiryLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => ipKeyGenerator(req.ip),
+  message: { message: "Too many Enterprise inquiries. Please try again later." }
+});
 router.use(moderatePublicText);
 router.get(
   "/campaigns/:publicToken/stream",
@@ -92,18 +102,21 @@ function formatPublicVendorService(service) {
 
 async function attachPublicVendorDetails(vendor) {
   const tenant = await tenantRepository.findTenantBySlug(vendor.slug, { activeOnly: true });
+  const capabilities = tenant
+    ? await entitlementAdmissionService.resolvePublicCapabilities(tenant._id)
+    : { queue: false, booking: false, campaigns: false, branding: false };
   const primaryLocation = vendor.location.slug && tenant
     ? await storeLocationRepository.findLocationByTenantAndSlug(tenant._id, vendor.location.slug)
     : null;
-  const publicBoardTheme = tenant
+  const publicBoardTheme = tenant && capabilities.branding
     ? await publicBoardThemeRepository.getResolvedTheme(tenant._id, primaryLocation?._id)
     : null;
-  const services = tenant
+  const services = tenant && capabilities.booking
     ? (await vendorServiceRepository.listServicesByTenantId(tenant._id))
         .filter((service) => service.isActive)
         .map(formatPublicVendorService)
     : [];
-  const locationServices = tenant
+  const locationServices = tenant && capabilities.booking
     ? (await locationServiceRepository.listLocationServicesByTenantId(tenant._id))
         .filter((item) => item.isActive)
         .map((item) => ({
@@ -133,6 +146,8 @@ async function attachPublicVendorDetails(vendor) {
 
         return {
           ...location,
+          contactEmail: fullLocation?.contactEmail || "",
+          contactPhone: fullLocation?.contactPhone || "",
           openStatus: openStatus
             ? { isOpen: openStatus.isOpen, summary: openStatus.summary }
             : undefined
@@ -140,8 +155,15 @@ async function attachPublicVendorDetails(vendor) {
       }))
     : vendor.locations;
 
+  const {
+    contactEmail: _legacyTenantContactEmail,
+    contactPhone: _legacyTenantContactPhone,
+    ...publicVendor
+  } = vendor;
+
   return {
-    ...vendor,
+    ...publicVendor,
+    capabilities,
     locations,
     services,
     locationServices,
@@ -156,8 +178,13 @@ router.get(
       search: req.query.search,
       limit: req.query.limit
     });
+    const discoverableVendors = (
+      await Promise.all(vendors.map(async (vendor) =>
+        (await entitlementAdmissionService.canDiscover(vendor._id)) ? vendor : null
+      ))
+    ).filter(Boolean);
     const vendorsWithDetails = await Promise.all(
-      vendors.map((vendor) => attachPublicVendorDetails(vendor))
+      discoverableVendors.map((vendor) => attachPublicVendorDetails(vendor))
     );
 
     res.json({ vendors: vendorsWithDetails });
@@ -187,6 +214,7 @@ router.get(
   "/vendors/:tenantSlug/locations/:locationSlug/services",
   asyncHandler(async (req, res) => {
     const tenant = await getPublicBookableTenant(req.params.tenantSlug);
+    await entitlementAdmissionService.admit({ tenantId: tenant._id, featureKey: "booking" });
     const location = await storeLocationRepository.findLocationByTenantAndSlug(
       tenant._id,
       String(req.params.locationSlug).toLowerCase()
@@ -411,12 +439,71 @@ async function verifyQrTurnstileIfNeeded(req, joinChannel) {
   }
 }
 
+function assertQueueTicketDetailsAccess(req, ticket) {
+  if (!ticket?.userId) {
+    return;
+  }
+
+  if (!req.user) {
+    const error = new Error("Authentication required.");
+    error.statusCode = 401;
+    throw error;
+  }
+
+  if (!customerTicketAccess.userOwnsTicket(req.user, ticket)) {
+    const error = new Error("You do not have permission to view this queue ticket.");
+    error.statusCode = 403;
+    throw error;
+  }
+}
+
+function redactQueueTicketIdentity(ticket) {
+  if (!ticket) {
+    return ticket;
+  }
+
+  const {
+    customerName: _customerName,
+    customerDisplayName: _customerDisplayName,
+    lookupCode: _lookupCode,
+    ...publicTicket
+  } = ticket;
+
+  return publicTicket;
+}
+
+function formatPublicQueueSnapshot(snapshot) {
+  return {
+    ...snapshot,
+    current: redactQueueTicketIdentity(snapshot.current),
+    nextUp: (snapshot.nextUp || []).map(redactQueueTicketIdentity),
+    overflow: (snapshot.overflow || []).map(redactQueueTicketIdentity),
+    recovery: (snapshot.recovery || []).map(redactQueueTicketIdentity),
+    history: (snapshot.history || []).map(redactQueueTicketIdentity),
+    focusTicket: null
+  };
+}
+
 router.get(
   ["/tenant/:tenantSlug/queue", "/tenant/:tenantSlug/location/:locationSlug/queue"],
+  maybeAuthenticate,
   asyncHandler(async (req, res) => {
     const tenant = await getTenantOrThrow(req.params.tenantSlug);
     const location = await getLocationOrPrimary(tenant, req.params.locationSlug);
-    const lookupCode = String(req.query.lookupCode || "").trim();
+    const lookupCode = String(req.query.lookupCode || "").trim().toUpperCase();
+    if (lookupCode) {
+      const ticket = await ticketRepository.findTicketByTenantAndLookupCode(
+        tenant._id,
+        lookupCode
+      );
+      if (!ticket) {
+        const error = new Error("Queue ticket not found.");
+        error.statusCode = 404;
+        throw error;
+      }
+      assertQueueTicketDetailsAccess(req, ticket);
+    }
+
     const snapshot = await getQueueSnapshot(tenant, {
       location,
       lookupCode
@@ -428,7 +515,7 @@ router.get(
       throw error;
     }
 
-    res.json(snapshot);
+    res.json(lookupCode ? snapshot : formatPublicQueueSnapshot(snapshot));
   })
 );
 
@@ -486,12 +573,34 @@ function buildJoinPayload(req, tenant, location) {
 
 router.post(
   "/enterprise-inquiries",
+  enterpriseInquiryLimiter,
   asyncHandler(async (req, res) => {
+    if (normalizeText(req.body.honeypot, 200)) {
+      res.status(201).json({ sent: true });
+      return;
+    }
+
+    const verification = await turnstileService.verifyTurnstileToken({
+      token: req.body.turnstileToken,
+      remoteIp: getRequestIp(req)
+    });
+    if (!verification.success) {
+      const error = new Error("Verification failed. Please retry the security check.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    if (typeof req.body.message === "string" && req.body.message.length > 1000) {
+      const error = new Error("Message must be 1,000 characters or fewer.");
+      error.statusCode = 400;
+      throw error;
+    }
+
     const businessName = normalizeText(req.body.businessName, 140);
     const contactName = normalizeText(req.body.contactName, 140);
     const email = normalizeEmail(req.body.email);
     const phone = normalizePhilippineMobileNumber(req.body.phone);
-    const message = normalizeText(req.body.message, 1200);
+    const message = normalizeText(req.body.message, 1000);
 
     if (!businessName || !contactName || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       const error = new Error("Business name, contact name, and a valid email are required.");
@@ -531,6 +640,7 @@ router.post(
 
 router.get(
   "/ticket/:lookupCode",
+  maybeAuthenticate,
   asyncHandler(async (req, res) => {
     const ticket = await ticketRepository.findTicketByLookupCode(
       String(req.params.lookupCode).toUpperCase()
@@ -541,6 +651,8 @@ router.get(
       error.statusCode = 404;
       throw error;
     }
+
+    assertQueueTicketDetailsAccess(req, ticket);
 
     const tenant = await tenantRepository.findTenantById(ticket.tenantId);
     const location = ticket.locationId
@@ -561,6 +673,8 @@ router.post(
     const tenant = await getTenantOrThrow(req.params.tenantSlug);
     const location = await getLocationOrPrimary(tenant, req.params.locationSlug);
     const payload = buildJoinPayload(req, tenant, location);
+
+    await entitlementAdmissionService.admit({ tenantId: tenant._id, featureKey: "queue" });
 
     await queueFeeService.assertTenantCanAcceptCustomerJoins(tenant._id);
     await storeHoursService.assertLocationOpenForCustomerJoin(location);
@@ -583,6 +697,8 @@ router.post(
     const location = await getLocationOrPrimary(tenant, req.params.locationSlug);
     const payload = buildJoinPayload(req, tenant, location);
 
+    await entitlementAdmissionService.admit({ tenantId: tenant._id, featureKey: "queue" });
+
     await queueFeeService.assertTenantCanAcceptCustomerJoins(tenant._id);
     await storeHoursService.assertLocationOpenForCustomerJoin(location);
     await verifyQrTurnstileIfNeeded(req, payload.joinChannel);
@@ -601,6 +717,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const tenant = await getTenantOrThrow(req.params.tenantSlug);
     const location = await getLocationOrPrimary(tenant, req.params.locationSlug);
+    await entitlementAdmissionService.admit({ tenantId: tenant._id, featureKey: "queue" });
     await queueFeeService.assertTenantCanAcceptCustomerJoins(tenant._id);
     await storeHoursService.assertLocationOpenForCustomerJoin(location);
     const payload = await queueJoinOtpService.verifyJoinOtp({
@@ -741,10 +858,25 @@ router.delete(
 
 router.get(
   ["/tenant/:tenantSlug/stream", "/tenant/:tenantSlug/location/:locationSlug/stream"],
+  maybeAuthenticate,
   asyncHandler(async (req, res) => {
     const tenant = await getTenantOrThrow(req.params.tenantSlug);
     const location = await getLocationOrPrimary(tenant, req.params.locationSlug);
-    const lookupCode = req.query.lookupCode ? String(req.query.lookupCode) : "";
+    const lookupCode = req.query.lookupCode
+      ? String(req.query.lookupCode).trim().toUpperCase()
+      : "";
+    if (lookupCode) {
+      const ticket = await ticketRepository.findTicketByTenantAndLookupCode(
+        tenant._id,
+        lookupCode
+      );
+      if (!ticket) {
+        const error = new Error("Queue ticket not found.");
+        error.statusCode = 404;
+        throw error;
+      }
+      assertQueueTicketDetailsAccess(req, ticket);
+    }
 
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
@@ -754,19 +886,25 @@ router.get(
     const writeSnapshot = async (snapshot) => {
       const payload = lookupCode
         ? await getQueueSnapshot(tenant, { lookupCode, location })
-        : snapshot || (await getQueueSnapshot(tenant, { location }));
+        : formatPublicQueueSnapshot(
+            snapshot || (await getQueueSnapshot(tenant, { location }))
+          );
       res.write(`data: ${JSON.stringify(payload)}\n\n`);
     };
 
     await writeSnapshot();
 
-    const unsubscribe = queueEvents.subscribe(tenant.slug, async (snapshot) => {
-      try {
-        await writeSnapshot(snapshot);
-      } catch (error) {
-        console.error(error);
-      }
-    });
+    const unsubscribe = queueEvents.subscribe(
+      tenant.slug,
+      async (snapshot) => {
+        try {
+          await writeSnapshot(snapshot);
+        } catch (error) {
+          console.error(error);
+        }
+      },
+      { locationId: location._id }
+    );
 
     const heartbeat = setInterval(() => {
       res.write(`event: heartbeat\ndata: ${Date.now()}\n\n`);

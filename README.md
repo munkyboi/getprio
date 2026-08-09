@@ -10,6 +10,9 @@ GetPrio is a multi-tenant queue platform for vendors that want QR-based ticketin
 - `database/init.sql`: database bootstrap schema for Dockerized PostgreSQL.
 - `scripts/db-apply.sh`: repo-supported SQL bootstrap and migration runner.
 - `scripts/db-verify-schema.sh`: deploy-time schema sanity check for critical tables/columns.
+- `scripts/entitlement-rollout.mjs`: explicit census, dry-run, apply, resume, and verification commands for Free assignment.
+- `scripts/queue-lifecycle-smoke.mjs`: destructive lifecycle verification guarded
+  to disposable databases whose name contains `smoke` or `test`.
 - `.env`: shared environment variables for local and Docker-based runs.
 - `docker-compose.yml`: local stack orchestration for the frontend, backend, and database.
 
@@ -30,9 +33,13 @@ GetPrio is a multi-tenant queue platform for vendors that want QR-based ticketin
 
 Database helpers:
 
+The controlled Free-plan rollout, allowance ledger, and Usage Credit incident procedures are in `docs/operations/free-tier-entitlements-rollout.md`. All new authority and commerce controls default off until a reviewed cohort promotion.
+
 - `npm run db:bootstrap` is destructive and intended for a fresh install. It drops the existing schema, rebuilds it from `database/init.sql`, and then applies all migrations. If the database already has app tables, the script prompts for `DELETE-AND-REBUILD` in an interactive shell or requires `DB_BOOTSTRAP_FORCE=1` in non-interactive runs.
 - `npm run db:migrate` applies only new migrations to an existing database.
 - `npm run db:verify` checks for the critical columns the app expects before you start the backend.
+- `npm run smoke:queue-lifecycle` verifies Queue Day transitions and recovery
+  against a disposable database.
 
 For QR join spam protection, local development can use Cloudflare Turnstile test keys:
 

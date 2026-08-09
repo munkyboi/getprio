@@ -11,7 +11,6 @@ import {
   Image,
   Modal,
   Paper,
-  Progress,
   Select,
   SimpleGrid,
   Spoiler,
@@ -40,6 +39,7 @@ import { API_BASE_URL, ApiError, apiRequest } from "../api/client";
 import CampaignDescriptionEditor from "../components/CampaignDescriptionEditor";
 import RichCampaignDescription from "../components/RichCampaignDescription";
 import ResourceErrorState from "../components/ResourceErrorState";
+import CampaignFundingProgress from "../components/CampaignFundingProgress";
 import { customerAccountApi } from "../api/customerAccount";
 import { useAuth } from "../context/AuthContext";
 import {
@@ -429,12 +429,6 @@ export default function GroupFundedCampaignPage() {
 
   const fundingAdjustmentCents = Math.max(0, Number(campaign?.roundingAdjustmentCents || 0));
   const fundingTargetAmountCents = Number(campaign?.targetAmountCents || 0) + fundingAdjustmentCents;
-  const progressValue = useMemo(() => {
-    if (!campaign || !fundingTargetAmountCents) {
-      return 0;
-    }
-    return Math.min(100, Math.round((campaign.fundedAmountCents / fundingTargetAmountCents) * 100));
-  }, [campaign, fundingTargetAmountCents]);
   const fundingDeadline = useMemo(() => {
     if (!campaign) {
       return { relativeLabel: "", tooltipLabel: "" };
@@ -1017,12 +1011,11 @@ export default function GroupFundedCampaignPage() {
 
               <div className="booking-detail-visual-content">
                 <Stack align="center" gap={6}>
-                  <Stack className="group-funded-ticket-funding" gap={6} w="100%">
-                    <Text fw={800} size="lg">
-                      Funding {formatPaymentAmount(campaign.fundedAmountCents, campaign.currency)} / {formatPaymentAmount(fundingTargetAmountCents, campaign.currency)}
-                    </Text>
-                    <Progress value={progressValue} />
-                  </Stack>
+                  <CampaignFundingProgress
+                    className="group-funded-ticket-funding"
+                    fundedAmountCents={campaign.fundedAmountCents}
+                    targetAmountCents={fundingTargetAmountCents}
+                  />
                 </Stack>
                 <SimpleGrid cols={{ base: 1, sm: 3 }} mt="lg" spacing="sm">
                   <div className="booking-detail-visual-tile">

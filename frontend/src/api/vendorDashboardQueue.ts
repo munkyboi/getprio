@@ -1,10 +1,14 @@
-import type { CreateWalkInTicketRequest, TicketStatus } from "@shared";
+import type { CreateWalkInTicketRequest, QueueSnapshot, TicketStatus } from "@shared";
 import { apiRequest } from "./client";
 
 type VendorDashboardActionResponse = {
   message?: string;
   snapshot?: import("@shared").QueueSnapshot;
 };
+
+export function getQueueSnapshot(token: string, tenantSlug: string, locationQuery: string) {
+  return apiRequest<QueueSnapshot>(`/vendor/tenant/${tenantSlug}/dashboard${locationQuery}`, { token });
+}
 
 export function createWalkInTicket(token: string, tenantSlug: string, locationQuery: string, body: CreateWalkInTicketRequest) {
   return apiRequest<
@@ -20,6 +24,37 @@ export function pauseQueueDay(token: string, tenantSlug: string, locationQuery: 
   );
 }
 
+export function openQueueDay(
+  token: string,
+  tenantSlug: string,
+  locationQuery: string,
+  expectedVersion?: number | null
+) {
+  return apiRequest<VendorDashboardActionResponse, { expectedVersion?: number | null }>(
+    `/vendor/tenant/${tenantSlug}/queue/open${locationQuery}`,
+    { method: "POST", token, body: { expectedVersion } }
+  );
+}
+
+export function extendQueueDay(
+  token: string,
+  tenantSlug: string,
+  locationQuery: string,
+  expectedVersion?: number | null
+) {
+  return apiRequest<VendorDashboardActionResponse, { expectedVersion?: number | null; reason: string }>(
+    `/vendor/tenant/${tenantSlug}/queue/extend${locationQuery}`,
+    {
+      method: "POST",
+      token,
+      body: {
+        expectedVersion,
+        reason: "Staff cancelled the scheduled auto-close from the vendor dashboard"
+      }
+    }
+  );
+}
+
 export function resumeQueueDay(token: string, tenantSlug: string, locationQuery: string) {
   return apiRequest<VendorDashboardActionResponse>(
     `/vendor/tenant/${tenantSlug}/queue/resume${locationQuery}`,
@@ -27,10 +62,19 @@ export function resumeQueueDay(token: string, tenantSlug: string, locationQuery:
   );
 }
 
-export function closeQueueDay(token: string, tenantSlug: string, locationQuery: string) {
-  return apiRequest<VendorDashboardActionResponse, { reason: string }>(
+export function closeQueueDay(
+  token: string,
+  tenantSlug: string,
+  locationQuery: string,
+  expectedVersion?: number | null
+) {
+  return apiRequest<VendorDashboardActionResponse, { reason: string; expectedVersion?: number | null }>(
     `/vendor/tenant/${tenantSlug}/queue/close${locationQuery}`,
-    { method: "POST", token, body: { reason: "Closed from vendor dashboard" } }
+    {
+      method: "POST",
+      token,
+      body: { reason: "Closed from vendor dashboard", expectedVersion }
+    }
   );
 }
 
@@ -52,6 +96,13 @@ export function serveCurrentTicket(token: string, tenantSlug: string, locationQu
   return apiRequest<VendorDashboardActionResponse>(
     `/vendor/tenant/${tenantSlug}/queue/current/serve${locationQuery}`,
     { method: "POST", token }
+  );
+}
+
+export function confirmCurrentTicket(token: string, tenantSlug: string, locationQuery: string, lookupCode: string) {
+  return apiRequest<VendorDashboardActionResponse, { lookupCode: string }>(
+    `/vendor/tenant/${tenantSlug}/queue/current/confirm${locationQuery}`,
+    { method: "POST", token, body: { lookupCode } }
   );
 }
 

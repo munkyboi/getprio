@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   Alert,
   Box,
@@ -29,10 +29,11 @@ import {
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { Link, useLocation } from "react-router-dom";
-import type { EnterpriseInquiryRequest, EnterpriseInquiryResponse } from "@shared";
+import type { BillingOverviewResponse, EnterpriseInquiryRequest, EnterpriseInquiryResponse, SubscriptionPlan } from "@shared";
 import PhilippineMobileInput from "../components/PhilippineMobileInput";
 import { apiRequest } from "../api/client";
 import { getErrorMessage } from "../utils/errors";
+import { getPlanPriceDisplay } from "../utils/subscriptionPlans";
 
 const services = [
   {
@@ -64,32 +65,17 @@ const steps = [
   "Get served"
 ] as const;
 
-const pricingPlans = [
-  {
-    name: "Economical",
-    price: "PHP 499/mo",
-    bestFor: "Solo vendors and small shops",
-    art: "/illustrations/generated/pricing-economical-transparent.png",
-    features: ["1 location", "QR join page", "Public board", "500 tickets/mo"],
-    highlight: false
-  },
-  {
-    name: "Pro",
-    price: "PHP 1,499/mo",
-    bestFor: "Growing clinics and busy teams",
-    art: "/illustrations/generated/pricing-pro-transparent.png",
-    features: ["3 locations", "Branded pages", "Analytics", "300 SMS/mo"],
-    highlight: true
-  },
-  {
-    name: "Enterprise",
-    price: "PHP 6,999+/mo",
-    bestFor: "Multi-branch operations",
-    art: "/illustrations/generated/pricing-enterprise-transparent.png",
-    features: ["10+ locations", "Advanced roles", "SLA support", "Custom rollout"],
-    highlight: false
-  }
-] as const;
+const planArt: Record<SubscriptionPlan["slug"], string> = {
+  free: "/illustrations/generated/pricing-economical-transparent.png",
+  economical: "/illustrations/generated/pricing-economical-transparent.png",
+  pro: "/illustrations/generated/pricing-pro-transparent.png",
+  enterprise: "/illustrations/generated/pricing-enterprise-transparent.png"
+};
+
+const monthlyPriceFormatter = new Intl.NumberFormat("en-PH", {
+  maximumFractionDigits: 2
+});
+const enterpriseMessageMaxLength = 1000;
 
 export default function LandingPage() {
   const location = useLocation();
@@ -99,10 +85,26 @@ export default function LandingPage() {
     contactName: "",
     email: "",
     phone: "",
-    message: ""
+    message: "",
+    honeypot: "",
+    turnstileToken: ""
   });
   const [enterpriseError, setEnterpriseError] = useState("");
   const [enterpriseSubmitting, setEnterpriseSubmitting] = useState(false);
+  const [pricingPlans, setPricingPlans] = useState<SubscriptionPlan[]>([]);
+  const [pricingError, setPricingError] = useState("");
+  const enterpriseTurnstileContainerRef = useRef<HTMLDivElement | null>(null);
+  const enterpriseTurnstileWidgetIdRef = useRef<string | null>(null);
+  const enterpriseSubmissionPendingRef = useRef(false);
+  const [enterpriseTurnstileReady, setEnterpriseTurnstileReady] = useState(false);
+  const enterpriseTurnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY || "";
+  const shouldUseEnterpriseTurnstile = Boolean(enterpriseTurnstileSiteKey);
+
+  useEffect(() => {
+    apiRequest<BillingOverviewResponse>("/billing/plans")
+      .then((data) => setPricingPlans(data.plans))
+      .catch(() => setPricingError("Pricing is temporarily unavailable. Please try again shortly."));
+  }, []);
 
   useEffect(() => {
     if (!location.hash) {
@@ -113,8 +115,96 @@ export default function LandingPage() {
     section?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [location.hash]);
 
+  useEffect(() => {
+    if (!enterpriseDialogOpen) {
+      return undefined;
+    }
+
+    setEnterpriseForm((current) => ({ ...current, turnstileToken: "" }));
+    if (!shouldUseEnterpriseTurnstile) {
+      setEnterpriseTurnstileReady(true);
+      return undefined;
+    }
+
+    let active = true;
+    setEnterpriseTurnstileReady(false);
+    const existingScript = document.querySelector<HTMLScriptElement>(
+      'script[src^="https://challenges.cloudflare.com/turnstile/v0/api.js"]'
+    );
+
+    function renderTurnstile() {
+      if (
+        !active ||
+        !enterpriseTurnstileContainerRef.current ||
+        !window.turnstile ||
+        enterpriseTurnstileWidgetIdRef.current
+      ) {
+        return;
+      }
+
+      enterpriseTurnstileWidgetIdRef.current = window.turnstile.render(
+        enterpriseTurnstileContainerRef.current,
+        {
+          sitekey: enterpriseTurnstileSiteKey,
+          callback: (token) => {
+            setEnterpriseForm((current) => ({ ...current, turnstileToken: token }));
+            setEnterpriseTurnstileReady(true);
+          },
+          "expired-callback": () => {
+            setEnterpriseForm((current) => ({ ...current, turnstileToken: "" }));
+            setEnterpriseTurnstileReady(false);
+          },
+          "error-callback": () => {
+            setEnterpriseForm((current) => ({ ...current, turnstileToken: "" }));
+            setEnterpriseTurnstileReady(false);
+            setEnterpriseError("Verification could not load. Please refresh and try again.");
+          }
+        }
+      );
+    }
+
+    if (window.turnstile) {
+      renderTurnstile();
+    } else if (existingScript) {
+      existingScript.addEventListener("load", renderTurnstile, { once: true });
+    } else {
+      const script = document.createElement("script");
+      script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+      script.async = true;
+      script.defer = true;
+      script.addEventListener("load", renderTurnstile, { once: true });
+      document.head.appendChild(script);
+    }
+
+    return () => {
+      active = false;
+      existingScript?.removeEventListener("load", renderTurnstile);
+      if (enterpriseTurnstileWidgetIdRef.current && window.turnstile) {
+        window.turnstile.remove(enterpriseTurnstileWidgetIdRef.current);
+        enterpriseTurnstileWidgetIdRef.current = null;
+      }
+    };
+  }, [enterpriseDialogOpen, enterpriseTurnstileSiteKey, shouldUseEnterpriseTurnstile]);
+
+  function resetEnterpriseTurnstile() {
+    setEnterpriseForm((current) => ({ ...current, turnstileToken: "" }));
+    if (enterpriseTurnstileWidgetIdRef.current && window.turnstile) {
+      setEnterpriseTurnstileReady(false);
+      window.turnstile.reset(enterpriseTurnstileWidgetIdRef.current);
+    }
+  }
+
   async function handleEnterpriseSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (enterpriseSubmissionPendingRef.current) {
+      return;
+    }
+    if (shouldUseEnterpriseTurnstile && !enterpriseForm.turnstileToken) {
+      setEnterpriseError("Complete the security check before sending your request.");
+      return;
+    }
+
+    enterpriseSubmissionPendingRef.current = true;
     setEnterpriseSubmitting(true);
     setEnterpriseError("");
 
@@ -137,12 +227,16 @@ export default function LandingPage() {
         contactName: "",
         email: "",
         phone: "",
-        message: ""
+        message: "",
+        honeypot: "",
+        turnstileToken: ""
       });
     } catch (submitError) {
       setEnterpriseError(getErrorMessage(submitError));
     } finally {
+      enterpriseSubmissionPendingRef.current = false;
       setEnterpriseSubmitting(false);
+      resetEnterpriseTurnstile();
     }
   }
 
@@ -283,24 +377,40 @@ export default function LandingPage() {
                 Choose the rhythm that fits your operation.
               </Title>
             </div>
-            <SimpleGrid cols={{ base: 1, md: 3 }} spacing="lg">
+            {pricingError ? <Alert color="red">{pricingError}</Alert> : null}
+            <SimpleGrid cols={{ base: 1, sm: 2, xl: 4 }} spacing="lg">
               {pricingPlans.map((plan) => (
                 <Paper
-                  className={plan.highlight ? "prio-pricing-card prio-pricing-card-featured" : "prio-pricing-card"}
-                  key={plan.name}
+                  className={plan.slug === "pro" ? "prio-pricing-card prio-pricing-card-featured" : "prio-pricing-card"}
+                  key={plan.slug}
                   p="xl"
                 >
                   <Stack gap="lg" h="100%">
-                    <img alt="" className="prio-plan-art" src={plan.art} />
+                    <img alt="" className="prio-plan-art" src={planArt[plan.slug]} />
                     <div>
                       <Title order={3}>{plan.name}</Title>
-                      <Text className="prio-price">{plan.price}</Text>
+                      <div
+                        aria-label={getPlanPriceDisplay(plan)}
+                        className="prio-price"
+                      >
+                        {plan.slug === "enterprise" ? (
+                          <Text className="prio-price-prefix">Starts at {plan.price.currency}</Text>
+                        ) : (
+                          <Text className="prio-price-currency">{plan.price.currency}</Text>
+                        )}
+                        <div className="prio-price-line">
+                          <span className="prio-price-amount">
+                            {monthlyPriceFormatter.format(plan.price.monthlyAmountCents / 100)}
+                          </span>
+                          <span className="prio-price-period">/mo</span>
+                        </div>
+                      </div>
                       <Text c="dimmed">{plan.bestFor}</Text>
                     </div>
                     <Stack gap="xs">
-                      {plan.features.map((feature) => (
+                      {plan.included.map((feature) => (
                         <Group gap="sm" key={feature} wrap="nowrap">
-                          <ThemeIcon color={plan.highlight ? "orange" : "dark"} radius="xl" size={22} variant="light">
+                          <ThemeIcon color={plan.slug === "pro" ? "orange" : "dark"} radius="xl" size={22} variant="light">
                             <IconCheck size={14} />
                           </ThemeIcon>
                           <Text size="sm">{feature}</Text>
@@ -313,13 +423,13 @@ export default function LandingPage() {
                       </Button>
                     ) : (
                       <Button
-                        color={plan.highlight ? "orange" : "dark"}
+                        color={plan.slug === "pro" ? "orange" : "dark"}
                         component={Link}
                         mt="auto"
                         to="/register/vendor"
-                        variant={plan.highlight ? "filled" : "outline"}
+                        variant={plan.slug === "pro" ? "filled" : "outline"}
                       >
-                        Choose plan
+                        {plan.slug === "free" ? "Start free" : "Choose plan"}
                       </Button>
                     )}
                   </Stack>
@@ -465,25 +575,60 @@ export default function LandingPage() {
                     }
                   />
                 </SimpleGrid>
-                <Textarea
-                  name="message"
-                  label="Message"
-                  minRows={6}
-                  placeholder="Tell us about branches, expected queue volume, or support needs."
-                  size="lg"
-                  value={enterpriseForm.message}
+                <Box className="enterprise-message-field">
+                  <Textarea
+                    autosize
+                    classNames={{ input: "enterprise-message-input" }}
+                    label="Message"
+                    maxLength={enterpriseMessageMaxLength}
+                    maxRows={10}
+                    minRows={4}
+                    name="message"
+                    placeholder="Tell us about branches, expected queue volume, or support needs."
+                    size="lg"
+                    value={enterpriseForm.message}
+                    onChange={(event) =>
+                      setEnterpriseForm((current) => ({
+                        ...current,
+                        message: event.currentTarget.value.slice(0, enterpriseMessageMaxLength)
+                      }))
+                    }
+                  />
+                  <Text aria-live="polite" className="enterprise-message-counter" c="dimmed" size="xs">
+                    {enterpriseForm.message.length}/{enterpriseMessageMaxLength} characters
+                  </Text>
+                </Box>
+                <TextInput
+                  aria-hidden="true"
+                  autoComplete="off"
+                  className="contact-form-honeypot"
+                  name="honeypot"
                   onChange={(event) =>
-                    setEnterpriseForm((current) => ({ ...current, message: event.target.value }))
+                    setEnterpriseForm((current) => ({ ...current, honeypot: event.currentTarget.value }))
                   }
+                  tabIndex={-1}
+                  value={enterpriseForm.honeypot}
                 />
+                {shouldUseEnterpriseTurnstile ? (
+                  <Box className="turnstile-panel">
+                    <div ref={enterpriseTurnstileContainerRef} />
+                  </Box>
+                ) : null}
                 {enterpriseError ? <Alert color="red">{enterpriseError}</Alert> : null}
               </Stack>
               </Box>
             </SimpleGrid>
           </ScrollArea>
           <Group className="customer-modal-actions enterprise-contact-modal-footer" justify="space-between">
-            <Text c="dimmed" size="sm">We only use this to respond to your Enterprise request.</Text>
-            <Button color="dark" disabled={enterpriseSubmitting} size="md" type="submit">
+            <Text c="dimmed" size="sm">
+              Protected by anti-abuse verification and rate limiting. We only use this to respond to your request.
+            </Text>
+            <Button
+              color="dark"
+              disabled={enterpriseSubmitting || (shouldUseEnterpriseTurnstile && !enterpriseTurnstileReady)}
+              size="md"
+              type="submit"
+            >
               {enterpriseSubmitting ? "Sending..." : "Send request"}
             </Button>
           </Group>

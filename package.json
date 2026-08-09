@@ -13,14 +13,22 @@
     "dev:frontend": "npm --workspace frontend run dev",
     "dev:platform": "npm --workspace platform-dashboard run dev",
     "db:migrate": "bash scripts/db-apply.sh migrate",
+    "db:migrate:free-tier": "bash scripts/db-apply.sh migrate-free-tier",
     "db:bootstrap": "bash scripts/db-apply.sh bootstrap",
     "db:status": "bash scripts/db-status.sh",
     "db:verify": "bash scripts/db-verify-schema.sh",
+    "entitlements:census": "node scripts/entitlement-rollout.mjs census",
+    "entitlements:dry-run": "node scripts/entitlement-rollout.mjs dry-run",
+    "entitlements:apply": "node scripts/entitlement-rollout.mjs apply",
+    "entitlements:verify": "node scripts/entitlement-rollout.mjs verify",
+    "entitlements:resume": "node scripts/entitlement-rollout.mjs resume",
+    "db:backfill:queue-lifecycle": "node -r dotenv/config scripts/queue-lifecycle-backfill.mjs",
     "oauth:smoke": "node scripts/oauth-smoke.mjs",
     "build": "npm --workspace frontend run build && npm --workspace platform-dashboard run build",
     "build:backend": "npm --workspace backend run build",
     "start": "npm --workspace backend run start",
     "smoke": "node scripts/smoke-test.mjs",
+    "smoke:queue-lifecycle": "node -r dotenv/config scripts/queue-lifecycle-smoke.mjs",
     "lint": "eslint backend/src frontend/src platform-dashboard/src shared",
     "lint:fix": "eslint backend/src frontend/src platform-dashboard/src shared --fix",
     "typecheck": "npm run typecheck:frontend && npm run typecheck:platform && npm run typecheck:backend",
@@ -29,6 +37,7 @@
     "typecheck:backend": "npm --workspace backend run typecheck",
     "test:frontend": "npm --workspace frontend run test",
     "test:frontend:coverage": "npm --workspace frontend run test:coverage",
+    "test:platform": "npm --workspace platform-dashboard run test",
     "test:backend": "npm --workspace backend run test",
     "test:backend:coverage": "npm --workspace backend run test:coverage",
     "prepare": "husky"
@@ -71,5 +80,22 @@
   },
   "dependencies": {
     "psql": "^0.0.1"
-  }
+  },
+  "description": "GetPrio is a multi-tenant queue platform for vendors that want QR-based ticketing, remote queue joins, live queue monitoring, and booking/queue notifications through email, in-app alerts, and planned browser Web Push.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/munkyboi/getprio.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/munkyboi/getprio/issues"
+  },
+  "homepage": "https://github.com/munkyboi/getprio#readme"
 }

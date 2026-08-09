@@ -69,6 +69,10 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
     onlyCarriedOver: true,
     limit: 50
   });
+  const pendingCarryOverTickets = await ticketRepository.listPendingCarryOverTickets(
+    tenant._id,
+    { locationId, limit: 50 }
+  );
   const recoveryTickets = await ticketRepository.listSkippedTickets(tenant._id, {
     locationId,
     dateKey,
@@ -96,6 +100,7 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
     id: String(ticket._id),
     ticketNumber: ticket.ticketNumber,
     customerName: ticket.customerName,
+    customerDisplayName: ticket.customerDisplayName || null,
     status: ticket.status,
     position: index + 1,
     joinChannel: ticket.joinChannel,
@@ -107,10 +112,26 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
     linkedBookingReference: ticket.linkedBookingReference || null
   }));
 
-  const overflow = overflowTickets.map((ticket, index) => ({
+  const pendingOverflow = pendingCarryOverTickets.map((ticket) => ({
     id: String(ticket._id),
     ticketNumber: ticket.ticketNumber,
     customerName: ticket.customerName,
+    customerDisplayName: ticket.customerDisplayName || null,
+    status: ticket.status,
+    position: null,
+    joinChannel: ticket.joinChannel,
+    createdAt: ticket.createdAt,
+    isCarriedOver: false,
+    carryOverCount: ticket.carryOverCount || 0,
+    carriedOverAt: ticket.carriedOverAt || null,
+    carryOverExpiresAt: ticket.carryOverExpiresAt || null,
+    servicePriorityBand: ticket.servicePriorityBand || "normal"
+  }));
+  const activatedOverflow = overflowTickets.map((ticket, index) => ({
+    id: String(ticket._id),
+    ticketNumber: ticket.ticketNumber,
+    customerName: ticket.customerName,
+    customerDisplayName: ticket.customerDisplayName || null,
     status: ticket.status,
     position: index + 1,
     joinChannel: ticket.joinChannel,
@@ -118,8 +139,10 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
     isCarriedOver: true,
     carryOverCount: ticket.carryOverCount || 0,
     carriedOverAt: ticket.carriedOverAt || null,
+    carryOverExpiresAt: ticket.carryOverExpiresAt || null,
     servicePriorityBand: ticket.servicePriorityBand || "normal"
   }));
+  const overflow = [...pendingOverflow, ...activatedOverflow];
 
   let focusTicket = null;
   if (lookupTicket) {
@@ -138,7 +161,20 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
       lookupCode: lookupTicket.lookupCode,
       ticketNumber: lookupTicket.ticketNumber,
       customerName: lookupTicket.customerName,
+      customerDisplayName: lookupTicket.customerDisplayName || null,
       status: lookupTicket.status,
+      customerConfirmedAt: lookupTicket.customerConfirmedAt || null,
+      statusReason: lookupTicket.statusReason || null,
+      isCarriedOver: Boolean(
+        lookupTicket.servicePriorityBand === "carry_over" ||
+        lookupTicket.carriedOverAt ||
+        lookupTicket.carryOverCount > 0
+      ),
+      carryOverCount: lookupTicket.carryOverCount || 0,
+      servicePriorityBand: lookupTicket.servicePriorityBand || "normal",
+      carryOverExpiresAt: lookupTicket.carryOverExpiresAt || null,
+      currentQueueDayId: lookupTicket.currentQueueDayId || null,
+      emailJourneyMode: lookupTicket.emailJourneyMode || "not_eligible",
       position: position || null,
       estimatedWaitMinutes:
         position && position > 0 ? position * tenant.averageServiceMinutes : 0,
@@ -226,7 +262,9 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
           id: String(current._id),
           ticketNumber: current.ticketNumber,
           customerName: current.customerName,
+          customerDisplayName: current.customerDisplayName || null,
           calledAt: current.calledAt,
+          customerConfirmedAt: current.customerConfirmedAt || null,
           servicePriorityBand: current.servicePriorityBand || "normal",
           linkedBookingReference: current.linkedBookingReference || null
         }

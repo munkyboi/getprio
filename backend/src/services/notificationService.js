@@ -3,6 +3,9 @@ const env = require("../config/env");
 const billingRepository = require("../repositories/billing");
 const notificationDeliveryRepository = require("../repositories/notificationDeliveries");
 const { getPlanEntitlements } = require("./subscriptionPlans");
+const releaseControls = require("../config/releaseControls");
+const queueEmailJourneyService = require("./queueEmailJourneyService");
+const { queueLifecycleEmail } = require("./queueEmailTemplates");
 
 let transport;
 const TRANSACTIONAL_EMAIL_PURPOSES = new Set(["almost_there", "called"]);
@@ -69,13 +72,14 @@ async function getEmailEntitlements(tenantId) {
   }
 
   return {
-    entitlements: await getPlanEntitlements("economical"),
+    entitlements: {},
     periodStart: getCurrentMonthStart(),
     periodEnd: null
   };
 }
 
 async function assertTransactionalEmailAllowance({ tenantId, purpose }) {
+  if (releaseControls.allowanceQueueEmailJourneys && TRANSACTIONAL_EMAIL_PURPOSES.has(purpose)) return;
   if (!tenantId || !TRANSACTIONAL_EMAIL_PURPOSES.has(purpose)) {
     return;
   }
@@ -99,7 +103,7 @@ async function assertTransactionalEmailAllowance({ tenantId, purpose }) {
   }
 }
 
-async function recordEmailDelivery({ to, subject, tenantId, ticketId, purpose, provider, status, error, metadata }) {
+async function recordEmailDelivery({ to, subject, tenantId, ticketId, purpose, provider, status, error, metadata, outboxId }) {
   if (!tenantId) {
     return;
   }
@@ -115,14 +119,15 @@ async function recordEmailDelivery({ to, subject, tenantId, ticketId, purpose, p
       provider,
       status,
       errorMessage: error ? String(error.message || error).slice(0, 1000) : null,
-      metadata
+      metadata,
+      outboxId
     });
   } catch (recordError) {
     console.warn("[notification-tracking-failed]", recordError.message);
   }
 }
 
-async function sendEmail({ to, subject, text, html, tenantId, ticketId, purpose = "general", metadata }) {
+async function sendEmail({ to, subject, text, html, tenantId, ticketId, purpose = "general", metadata, outboxId }) {
   if (!to) {
     return false;
   }
@@ -202,7 +207,8 @@ async function sendEmail({ to, subject, text, html, tenantId, ticketId, purpose 
       purpose,
       provider,
       status: "sent",
-      metadata
+      metadata,
+      outboxId
     });
     return true;
   } catch (error) {
@@ -215,7 +221,8 @@ async function sendEmail({ to, subject, text, html, tenantId, ticketId, purpose 
       provider,
       status: "failed",
       error,
-      metadata
+      metadata,
+      outboxId
     });
     throw error;
   }
@@ -261,14 +268,14 @@ async function notifyAlmostThere({ ticket, tenant, position }) {
 
   if (ticket.notifyByEmail && ticket.customerEmail) {
     try {
-      await sendEmail({
+      const email = queueLifecycleEmail({ tenant, ticket, kind: "near_turn", position });
+      await queueEmailJourneyService.withLifecycleSlot(ticket._id, "near_turn", `ticket:${ticket._id}:near-turn`, () => sendEmail({
         to: ticket.customerEmail,
-        subject: `${tenant.name}: you're almost next`,
-        text: message,
+        ...email,
         tenantId: tenant._id,
         ticketId: ticket._id,
         purpose: "almost_there"
-      });
+      }));
     } catch (error) {
       console.warn("[email-notification-skipped]", error.message);
     }
@@ -283,18 +290,18 @@ async function notifyAlmostThere({ ticket, tenant, position }) {
 }
 
 async function notifyCalled({ ticket, tenant }) {
-  const message = `${tenant.name}: Ticket ${ticket.ticketNumber} is now being served. Please proceed to the counter.`;
+  const message = `${tenant.name}: Ticket ${ticket.ticketNumber} has been called. Please proceed and present the barcode or ticket code for confirmation.`;
 
   if (ticket.notifyByEmail && ticket.customerEmail) {
     try {
-      await sendEmail({
+      const email = queueLifecycleEmail({ tenant, ticket, kind: "called" });
+      await queueEmailJourneyService.withLifecycleSlot(ticket._id, "called", `ticket:${ticket._id}:called`, () => sendEmail({
         to: ticket.customerEmail,
-        subject: `${tenant.name}: it is your turn`,
-        text: message,
+        ...email,
         tenantId: tenant._id,
         ticketId: ticket._id,
         purpose: "called"
-      });
+      }));
     } catch (error) {
       console.warn("[email-notification-skipped]", error.message);
     }
@@ -308,9 +315,26 @@ async function notifyCalled({ ticket, tenant }) {
   }
 }
 
+const JOURNEY_MESSAGE_KINDS = new Set(["joined", "exception", "continuation", "final"]);
+
+async function notifyJourneyLifecycle({ ticket, tenant, slot, action }) {
+  if (!ticket?.notifyByEmail || !ticket?.customerEmail || !JOURNEY_MESSAGE_KINDS.has(slot)) return false;
+  const email = queueLifecycleEmail({ tenant, ticket, kind: slot, action });
+  try {
+    return await queueEmailJourneyService.withLifecycleSlot(ticket._id, slot, `ticket:${ticket._id}:${slot}`, () => sendEmail({
+      to: ticket.customerEmail, ...email,
+      tenantId: tenant._id, ticketId: ticket._id, purpose: `queue_${slot}`
+    }));
+  } catch (error) {
+    console.warn("[email-journey-notification-skipped]", error.message);
+    return false;
+  }
+}
+
 module.exports = {
   sendEmail,
   sendSms,
   notifyAlmostThere,
-  notifyCalled
+  notifyCalled,
+  notifyJourneyLifecycle
 };

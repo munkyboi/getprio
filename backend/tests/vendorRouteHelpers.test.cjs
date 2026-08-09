@@ -121,7 +121,7 @@ test("vendor route helpers normalize group-funded location service settings", ()
       enabled: true,
       minRequiredContributors: 2,
       maxRequiredContributors: 8,
-      defaultRequiredContributors: 4,
+      defaultRequiredContributors: 7,
       minContributionAmountCents: 10000,
       maxContributionAmountCents: 200000,
       minDeadlineHours: 24,
@@ -135,27 +135,24 @@ test("vendor route helpers normalize group-funded location service settings", ()
     minRequiredContributors: 2,
     maxRequiredContributors: 8,
     defaultRequiredContributors: 4,
-    minContributionAmountCents: 10000,
-    maxContributionAmountCents: 200000,
+    minContributionAmountCents: null,
+    maxContributionAmountCents: null,
     minDeadlineHours: 24,
     maxDeadlineDays: 7,
     allowPublicCampaigns: true
   });
 
-  assert.throws(
-    () =>
-      helpers.normalizeGroupFundedLocationServicePayload({
-        groupFunded: {
-          enabled: true,
-          minRequiredContributors: 5,
-          maxRequiredContributors: 8,
-          defaultRequiredContributors: 4,
-          minDeadlineHours: 24,
-          maxDeadlineDays: 7
-        }
-      }),
-    /contributor bounds/
-  );
+  const clampedDefault = helpers.normalizeGroupFundedLocationServicePayload({
+    groupFunded: {
+      enabled: true,
+      minRequiredContributors: 5,
+      maxRequiredContributors: 8,
+      defaultRequiredContributors: 4,
+      minDeadlineHours: 24,
+      maxDeadlineDays: 7
+    }
+  });
+  assert.equal(clampedDefault.defaultRequiredContributors, 5);
 
   assert.throws(
     () =>
@@ -172,20 +169,18 @@ test("vendor route helpers normalize group-funded location service settings", ()
     /deadline bounds/
   );
 
-  assert.throws(
-    () =>
-      helpers.normalizeGroupFundedLocationServicePayload({
-        groupFunded: {
-          enabled: true,
-          minRequiredContributors: 2,
-          maxRequiredContributors: 8,
-          defaultRequiredContributors: 4,
-          minContributionAmountCents: 200000,
-          maxContributionAmountCents: 10000,
-          minDeadlineHours: 24,
-          maxDeadlineDays: 7
-        }
-      }),
-    /contribution bounds/
-  );
+  const ignoredShareBounds = helpers.normalizeGroupFundedLocationServicePayload({
+    groupFunded: {
+      enabled: true,
+      minRequiredContributors: 2,
+      maxRequiredContributors: 8,
+      defaultRequiredContributors: 4,
+      minContributionAmountCents: 200000,
+      maxContributionAmountCents: 10000,
+      minDeadlineHours: 24,
+      maxDeadlineDays: 7
+    }
+  });
+  assert.equal(ignoredShareBounds.minContributionAmountCents, null);
+  assert.equal(ignoredShareBounds.maxContributionAmountCents, null);
 });

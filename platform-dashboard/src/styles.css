@@ -224,9 +224,70 @@ body {
   text-transform: uppercase;
 }
 
+.plan-matrix__rail {
+  overflow-x: auto;
+}
+
+.plan-matrix__plan-actions {
+  align-items: flex-end;
+}
+
+.plan-matrix .mantine-Card-root,
+.plan-matrix .mantine-Paper-root {
+  min-width: 0;
+}
+
+.task-modal {
+  display: flex;
+  flex-direction: column;
+  max-height: min(88dvh, 48rem);
+  overflow: hidden;
+}
+
+.task-modal__body {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+@media (max-width: 48em) {
+  .plan-matrix__plan-header,
+  .plan-matrix__plan-actions,
+  .plan-matrix__save {
+    width: 100%;
+  }
+
+  .plan-matrix__plan-actions {
+    align-items: stretch;
+  }
+
+  .plan-matrix__rail .mantine-SegmentedControl-label {
+    min-width: 7.5rem;
+  }
+
+  .task-modal {
+    border-radius: 1.25rem 1.25rem 0 0;
+    max-height: min(92dvh, 48rem);
+  }
+}
+
 .subscription-editor__footer {
   padding-top: 1rem;
   padding-bottom: 1rem;
+}
+
+.mfa-setup-qr {
+  width: min(100%, 14rem);
+  padding: 1rem;
+  border: 1px solid var(--mantine-color-gray-4);
+  border-radius: var(--mantine-radius-lg);
+  background: #ffffff;
+  box-shadow: var(--mantine-shadow-sm);
+}
+
+.mfa-setup-qr svg {
+  display: block;
+  width: 100%;
+  height: auto;
 }
 
 .subscription-editor__submit {

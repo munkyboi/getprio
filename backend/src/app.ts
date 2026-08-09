@@ -11,6 +11,8 @@ import publicRoutes from "./routes/publicRoutes";
 import pushRoutes from "./routes/pushRoutes";
 import vendorRoutes from "./routes/vendorRoutes";
 import errorHandler from "./middleware/errorHandler";
+import requestContextModule from "./middleware/requestContext";
+import csrfProtectionModule from "./middleware/csrfProtection";
 
 function normalizeOrigin(origin?: string): string {
   return String(origin || "").replace(/\/$/, "");
@@ -43,6 +45,10 @@ function buildAllowedOrigins(): Set<string> {
 
 const allowedOrigins = buildAllowedOrigins();
 const app = express();
+const { createRequestContextMiddleware } = requestContextModule;
+const { createCsrfProtection } = csrfProtectionModule;
+
+app.use(createRequestContextMiddleware({ rolloutCohort: env.rolloutCohort }));
 
 app.use(
   cors({
@@ -60,7 +66,25 @@ app.use(
 app.use("/api/billing/webhooks", paymongoWebhookRoutes);
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
-app.use(morgan("dev"));
+app.use(createCsrfProtection({
+  allowedOrigins,
+  csrfSecret: env.csrfSecret,
+  authCookieSecure: env.authCookieSecure
+}));
+app.use(
+  morgan((tokens, req, res) =>
+    JSON.stringify({
+      type: "http_request",
+      correlationId: (req as typeof req & { context?: { correlationId?: string } }).context
+        ?.correlationId,
+      rolloutCohort: env.rolloutCohort,
+      method: tokens.method(req, res),
+      path: tokens.url(req, res),
+      status: Number(tokens.status(req, res) || 0),
+      responseTimeMs: Number(tokens["response-time"](req, res) || 0)
+    })
+  )
+);
 
 app.get("/api/health", (_req, res) => {
   res.json({

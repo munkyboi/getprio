@@ -1,16 +1,22 @@
 const { assertPublicTextFieldsAllowed } = require("../services/contentModeration");
+const entitlementAdmissionService = require("../services/entitlementAdmissionService");
 
 async function handleCreateTicket({
   req,
   res,
   getAuthorizedTenant,
   assertTenantPermission,
+  assertQueueLocationAccess,
   getLocationForTenant,
   createTicket
 }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.queue.operate");
+  await entitlementAdmissionService.admit({ tenantId: tenant._id, featureKey: "queue" });
   const location = await getLocationForTenant(tenant, req.body.locationSlug || req.query.location);
+  if (assertQueueLocationAccess) {
+    await assertQueueLocationAccess(req.user, tenant, location);
+  }
   const { customerName, customerEmail, customerPhone, notifyByEmail, notifyBySms, notes } = req.body;
 
   if (!customerName) {

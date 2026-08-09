@@ -124,9 +124,20 @@ async function listTenants(options = {}) {
         tenants.slug,
         tenants.is_active,
         tenants.created_at,
-        COALESCE(active_subscription.plan_slug, 'economical') AS plan_slug,
+        owner_account.username,
+        active_subscription.plan_slug AS plan_slug,
         COUNT(tickets.id)::int AS ticket_count
       FROM tenants
+      LEFT JOIN LATERAL (
+        SELECT users.username
+        FROM tenant_memberships
+        INNER JOIN users ON users.id = tenant_memberships.user_id
+        WHERE tenant_memberships.tenant_id = tenants.id
+          AND tenant_memberships.role = 'owner'
+          AND tenant_memberships.is_active = TRUE
+        ORDER BY tenant_memberships.id ASC
+        LIMIT 1
+      ) owner_account ON TRUE
       LEFT JOIN LATERAL (
         SELECT plan_slug
         FROM tenant_subscriptions
@@ -142,7 +153,7 @@ async function listTenants(options = {}) {
         LIMIT 1
       ) active_subscription ON TRUE
       LEFT JOIN tickets ON tickets.tenant_id = tenants.id
-      GROUP BY tenants.id, active_subscription.plan_slug
+      GROUP BY tenants.id, owner_account.username, active_subscription.plan_slug
       ORDER BY tenants.created_at DESC
       LIMIT $1
     `,
@@ -152,6 +163,7 @@ async function listTenants(options = {}) {
   return result.rows.map((row) => ({
     id: String(row.id),
     name: row.name,
+    username: row.username || "",
     slug: row.slug,
     isActive: row.is_active,
     planSlug: row.plan_slug,
@@ -165,7 +177,7 @@ async function listUsers(options = {}) {
   const limit = Math.min(Number(options.limit || 100), 250);
   const result = await queryClient.query(
     `
-      SELECT id, name, email, phone, roles, created_at, updated_at
+      SELECT id, name, username, email, phone, roles, created_at, updated_at
       FROM users
       ORDER BY created_at DESC
       LIMIT $1
@@ -176,6 +188,7 @@ async function listUsers(options = {}) {
   return result.rows.map((row) => ({
     id: String(row.id),
     name: row.name,
+    username: row.username,
     email: row.email,
     phone: row.phone,
     roles: row.roles || [],

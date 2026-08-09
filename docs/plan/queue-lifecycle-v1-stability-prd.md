@@ -14,7 +14,15 @@ The goal is to make queue state transitions deterministic, auditable, and safe a
 
 ## Implementation Status
 
-Status date: `2026-06-06`
+Status date: `2026-07-31`
+
+The authoritative location-timezone Queue Day lifecycle, deterministic
+carry-over/expiration outcomes, warning extensions, durable notification
+outbox, and recovery controls are now implemented. Production rollout and
+exception handling are defined in
+[Queue Day Lifecycle Rollout and Recovery Runbook](../operations/queue-day-lifecycle-runbook.md).
+The older procedural sections below remain historical context for the
+stabilization work.
 
 ### Done
 

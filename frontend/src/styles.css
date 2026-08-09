@@ -383,9 +383,57 @@ body {
 }
 
 .prio-price {
-  margin-top: 0.35rem;
-  font-size: clamp(1.8rem, 3vw, 2.5rem);
+  margin: 0.55rem 0 0.7rem;
+  color: #251e19;
+}
+
+.prio-price-currency {
+  margin-bottom: 0.15rem;
+  font-size: 0.95rem;
   font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.01em;
+}
+
+.prio-price-prefix {
+  margin-bottom: 0.25rem;
+  font-size: 0.82rem;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.prio-price-line {
+  display: flex;
+  align-items: baseline;
+  gap: 0.18rem;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.enterprise-message-field {
+  position: relative;
+}
+
+.enterprise-message-input {
+  padding-bottom: 2.15rem;
+}
+
+.enterprise-message-counter {
+  position: absolute;
+  right: 0.9rem;
+  bottom: 0.65rem;
+  pointer-events: none;
+}
+
+.prio-price-amount,
+.prio-price-period {
+  font-size: clamp(2rem, 3vw, 2.65rem);
+  font-weight: 850;
+  line-height: 1;
+  letter-spacing: 0.01em;
 }
 
 .prio-cta {
@@ -1006,6 +1054,19 @@ body {
   overflow: hidden;
 }
 
+.vendor-contact-channel {
+  min-height: 44px;
+  height: auto;
+  padding-inline: 0;
+  color: var(--vendor-theme-button-bg, #11151c);
+  overflow-wrap: anywhere;
+}
+
+.vendor-contact-channel :where(.mantine-Button-label) {
+  white-space: normal;
+  text-align: left;
+}
+
 .vendor-hero-title {
   max-width: none;
   font-size: clamp(2.5rem, 5vw, 4.9rem);
@@ -1223,6 +1284,11 @@ body {
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
+}
+
+.task-modal-form__main > * {
+  flex: 0 0 auto;
+  min-width: 0;
 }
 
 .theme-editor-modal__editor {
@@ -1485,6 +1551,24 @@ body {
 
 .vendor-profile-ticket-actions {
   align-items: stretch;
+}
+
+.vendor-profile-join-queue-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  min-width: 0;
+}
+
+.vendor-profile-join-queue-status {
+  flex: 0 0 auto;
+  max-width: none;
+}
+
+.vendor-profile-join-queue-status :where(.mantine-Badge-label) {
+  overflow: visible;
+  text-overflow: clip;
 }
 
 .booking-detail-services-card {
@@ -1952,11 +2036,74 @@ body {
   min-width: 0;
 }
 
+.ticket-page-ticket-details-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.ticket-page-ticket-details-metadata {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(4.75rem, 0.8fr) auto minmax(7rem, 1.2fr);
+  align-items: stretch;
+  gap: 0.75rem;
+}
+
+.ticket-page-ticket-detail-item {
+  min-width: 0;
+}
+
+.ticket-page-ticket-detail-item .mantine-Text-root {
+  overflow-wrap: anywhere;
+}
+
+.ticket-page-ticket-detail-divider {
+  height: 100%;
+  min-height: 3rem;
+}
+
+.ticket-page-ticket-badges {
+  justify-content: flex-end;
+}
+
+.ticket-page-carry-over-badge {
+  border: 1px solid color-mix(in srgb, var(--vendor-theme-button-bg, #1c7ed6) 28%, transparent);
+}
+
+.ticket-page-barcode {
+  width: 100%;
+  min-width: 0;
+}
+
+.ticket-page-barcode svg {
+  display: block;
+  width: 100%;
+  height: 3.5rem;
+}
+
+.ticket-page-barcode-value {
+  margin-top: 0.35rem;
+  margin-bottom: 0;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-align: center;
+}
+
+.ticket-page-ticket-status {
+  text-transform: uppercase;
+}
+
 .ticket-page-ticket-status--waiting {
-  background: #854d0e;
+  border-color: #f4d58d;
+  background: #fef3c7;
+  color: #92400e;
 }
 
 .ticket-page-ticket-status--called,
+.ticket-page-ticket-status--confirmed,
 .ticket-page-ticket-status--served {
   background: #065f46;
 }
@@ -1984,6 +2131,18 @@ body {
 
 .ticket-page-ticket-visual .ticket-page-card-actions .ticket-page-card-action-separator {
   display: none;
+}
+
+.ticket-page-ticket-visual .booking-detail-visual-tile .booking-detail-ticket-number {
+  color: var(--vendor-theme-button-bg, #ea6a1f);
+  text-align: left;
+}
+
+@media (max-width: 30em) {
+  .ticket-page-ticket-details-summary {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: start;
+  }
 }
 
 .vendor-hero-media-shell {
@@ -3649,14 +3808,112 @@ button {
   margin: clamp(2rem, 6vw, 5rem) auto;
 }
 
-.finazze-auth-card-wide,
-.finazze-join-card {
+.finazze-auth-card-wide {
   width: min(860px, calc(100vw - 2rem));
 }
 
-.finazze-join-shell {
-  width: min(1180px, calc(100vw - 2rem));
-  margin: clamp(2rem, 6vw, 5rem) auto;
+.join-queue-page {
+  min-height: calc(100dvh - 4.25rem);
+  padding-inline: 1rem;
+}
+
+.join-queue-frame {
+  width: min(54rem, 100%);
+  margin: 0 auto;
+}
+
+.join-queue-back {
+  margin-bottom: 1rem;
+  color: var(--vendor-theme-body, #24160f);
+}
+
+.join-queue-card {
+  width: 100%;
+  border-radius: clamp(1.5rem, 4vw, 2.25rem);
+}
+
+.join-queue-header {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.join-queue-title {
+  max-width: 12ch;
+}
+
+.join-queue-status-card {
+  align-self: start;
+  border-radius: 1.25rem;
+  color: var(--vendor-theme-body, #3f3027);
+}
+
+.join-queue-status-top {
+  width: 100%;
+}
+
+.join-queue-status-badge {
+  flex: 0 0 auto;
+  width: max-content;
+  max-width: none;
+  margin-inline-start: auto;
+}
+
+.join-queue-status-badge :where(.mantine-Badge-label) {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+
+.join-queue-status-message {
+  color: color-mix(in srgb, var(--vendor-theme-body, #3f3027) 72%, white);
+  text-align: left;
+}
+
+.join-queue-form-section {
+  padding: clamp(1.25rem, 4vw, 2rem);
+  border: 1px solid color-mix(in srgb, var(--vendor-theme-card-border, #eadccf) 65%, transparent);
+  border-radius: 1.5rem;
+  background: color-mix(in srgb, var(--vendor-theme-card-bg, #fffaf4) 74%, white);
+}
+
+.join-queue-form-title {
+  color: var(--vendor-theme-header, #24160f);
+  font-size: clamp(1.45rem, 4vw, 2rem);
+}
+
+.join-queue-form-intro {
+  max-width: 60ch;
+}
+
+.join-queue-primary-action {
+  width: 100%;
+  min-height: 3.25rem;
+}
+
+@media (min-width: 48.0625em) {
+  .join-queue-page {
+    padding-inline: 2rem;
+  }
+
+  .join-queue-header {
+    grid-template-columns: minmax(0, 1fr) minmax(15rem, 19rem);
+    align-items: end;
+  }
+}
+
+@media (max-width: 48em) {
+  .join-queue-page {
+    padding-top: 1.5rem;
+    padding-bottom: 2.5rem;
+  }
+
+  .join-queue-status-card :where(.mantine-Group-root) {
+    align-items: flex-start;
+  }
+
+  .join-queue-status-message {
+    text-align: left;
+  }
 }
 
 .onboarding-shell {
@@ -3682,8 +3939,7 @@ button {
   font-size: clamp(1.4rem, 2.2vw, 2rem);
 }
 
-.onboarding-art,
-.join-side-art {
+.onboarding-art {
   width: 100%;
   display: block;
   border-radius: 28px;
@@ -4060,34 +4316,6 @@ button {
   }
 }
 
-.finazze-join-layout {
-  width: 100%;
-  margin: 0;
-}
-
-.finazze-join-card,
-.finazze-join-side {
-  width: 100%;
-  margin: 0;
-}
-
-.join-account-summary {
-  border-radius: 18px;
-}
-
-.join-account-summary .mantine-Alert-body {
-  min-width: 0;
-  width: 100%;
-}
-
-.join-account-summary-item {
-  min-width: 0;
-}
-
-.join-account-summary-item .mantine-Text-root {
-  overflow-wrap: anywhere;
-}
-
 .public-board-hours-strip {
   width: 100%;
   padding: 0.35rem 0 0.1rem;
@@ -4167,6 +4395,32 @@ button {
   gap: 1.25rem;
 }
 
+.ticket-page-notifications {
+  margin-bottom: clamp(1.25rem, 3vw, 2rem);
+}
+
+.ticket-page-status-alert {
+  border: 1px solid color-mix(in srgb, currentColor 28%, #eadccf);
+  border-radius: 1rem;
+  background: #fffaf3;
+  box-shadow: 0 12px 30px rgba(36, 30, 25, 0.12);
+}
+
+.ticket-page-status-alert .mantine-Alert-title {
+  font-weight: 800;
+}
+
+.ticket-page-status-alert .mantine-Alert-message {
+  color: var(--vendor-theme-body, #23180f);
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.ticket-page-status-alert .mantine-Alert-icon {
+  align-self: flex-start;
+  margin-top: 0.1rem;
+}
+
 .ticket-page-hero-head {
   gap: 1.25rem;
 }
@@ -4208,13 +4462,38 @@ button {
   line-height: 1.05;
 }
 
+.ticket-page-vendor-summary {
+  align-items: center;
+}
+
+.ticket-page-business-hours {
+  min-width: 0;
+}
+
 .ticket-page-inline-hours-button {
+  min-height: 2.75rem;
   color: var(--vendor-theme-button-bg, #ea6a1f);
 }
 
 .ticket-page-inline-hours-button:hover {
   background: color-mix(in srgb, var(--vendor-theme-button-bg, #ea6a1f) 10%, transparent);
   color: var(--vendor-theme-button-bg, #ea6a1f);
+}
+
+@media (max-width: 48em) {
+  .ticket-page-vendor-summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .ticket-page-business-hours {
+    align-items: center;
+    row-gap: 0.25rem;
+  }
+
+  .ticket-page-ticket-badges {
+    justify-content: flex-start;
+  }
 }
 
 .ticket-hours-modal-card {
@@ -4525,29 +4804,87 @@ button {
 .public-board-tv-clock {
   justify-self: end;
   min-width: 340px;
-  padding: 18px 22px;
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 18px;
+  align-items: center;
+  padding: 12px 16px;
   border: 1px solid var(--public-board-border);
   border-radius: 22px;
   background: rgba(255, 255, 255, 0.64);
-  text-align: right;
 }
 
-.public-board-tv-clock strong {
+.public-board-tv-calendar {
+  overflow: hidden;
+  border: 1px solid var(--public-board-border);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 8px 18px rgba(33, 25, 20, 0.1);
+  text-align: center;
+}
+
+.public-board-tv-calendar span {
   display: block;
+  padding: 5px 8px;
+  color: var(--public-board-primary-ink);
+  background: var(--public-board-primary);
+  font-size: 16px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: 0.06em;
+}
+
+.public-board-tv-calendar strong {
+  display: grid;
+  min-height: 52px;
+  place-items: center;
   color: var(--public-board-ink);
-  font-size: 36px;
+  font-size: 34px;
+  font-weight: 800;
   line-height: 1;
 }
 
-.public-board-tv-clock span {
+.public-board-tv-clock-details {
+  min-width: 0;
+  text-align: right;
+}
+
+.public-board-tv-clock-details time {
   display: block;
-  margin-top: 8px;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  color: var(--public-board-ink);
+  font-size: 36px;
+  font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.public-board-tv-clock-statuses {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.public-board-tv-clock-statuses span {
   white-space: nowrap;
   color: var(--public-board-muted);
-  font-size: 19px;
-  font-weight: 750;
+  font-size: 13px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.public-board-tv-clock-statuses strong {
+  color: var(--public-board-primary);
+  font-weight: 950;
+}
+
+.public-board-tv-clock-statuses i {
+  width: 2px;
+  height: 18px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--public-board-border);
 }
 
 .public-board-tv-main {
@@ -6090,6 +6427,11 @@ h2 {
   color: #fff;
 }
 
+.neura-sidebar-account-copy {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .neura-sidebar-logout {
   flex: 0 0 auto;
   background: #dc2626;
@@ -6205,6 +6547,46 @@ h2 {
 
 .neura-primary-button:hover {
   background: #252b35;
+}
+
+.ticket-scanner-camera {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--mantine-color-gray-4);
+  border-radius: 1rem;
+  background: #111820;
+  aspect-ratio: 4 / 3;
+}
+
+.ticket-scanner-camera video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ticket-scanner-guide {
+  position: absolute;
+  inset: 28% 8%;
+  border: 2px solid var(--mantine-color-orange-5);
+  border-radius: 0.75rem;
+  box-shadow: 0 0 0 999px rgb(0 0 0 / 35%);
+  pointer-events: none;
+}
+
+.ticket-scanner-status {
+  position: absolute;
+  left: 50%;
+  bottom: 0.75rem;
+  z-index: 1;
+  width: max-content;
+  max-width: calc(100% - 2rem);
+  transform: translateX(-50%);
+  border-radius: 999px;
+  padding: 0.35rem 0.7rem;
+  background: rgb(17 24 32 / 85%);
+  color: #fff;
+  text-align: center;
 }
 
 .neura-secondary-button {
@@ -6756,6 +7138,10 @@ h2 {
   padding-bottom: 1rem;
 }
 
+.weekly-availability-actions .mantine-Select-root {
+  min-width: 15rem;
+}
+
 .vendor-location-modal .mantine-Modal-header {
   align-items: flex-start;
 }
@@ -6793,6 +7179,78 @@ h2 {
 
 .vendor-location-modal__footer {
   flex: 0 0 auto;
+}
+
+.queue-lifecycle-tray {
+  position: sticky;
+  top: 1rem;
+  z-index: 65;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--mantine-color-orange-5);
+  border-radius: 18px;
+  color: var(--mantine-color-orange-9);
+  background: color-mix(in srgb, var(--mantine-color-orange-0) 94%, white);
+  box-shadow: 0 18px 42px rgba(146, 64, 14, 0.18);
+}
+
+.queue-lifecycle-tray--final,
+.queue-lifecycle-tray--error {
+  border-color: var(--mantine-color-red-6);
+  color: var(--mantine-color-red-9);
+  background: color-mix(in srgb, var(--mantine-color-red-0) 95%, white);
+  box-shadow: 0 18px 42px rgba(153, 27, 27, 0.2);
+}
+
+.queue-lifecycle-tray__icon {
+  display: grid;
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border-radius: 14px;
+  color: white;
+  background: var(--mantine-color-orange-7);
+}
+
+.queue-lifecycle-tray--final .queue-lifecycle-tray__icon,
+.queue-lifecycle-tray--error .queue-lifecycle-tray__icon {
+  background: var(--mantine-color-red-7);
+}
+
+.queue-lifecycle-tray__message {
+  color: currentColor;
+  overflow-wrap: anywhere;
+}
+
+.queue-lifecycle-tray__action {
+  flex: 0 0 auto;
+  min-height: 44px;
+}
+
+.queue-auto-close-modal .mantine-Modal-content {
+  --getprio-modal-paper: var(--mantine-color-body);
+  max-height: min(88dvh, 48rem);
+  overflow: hidden;
+  background: var(--getprio-modal-paper);
+}
+
+.queue-auto-close-modal .mantine-Modal-body {
+  min-height: 0;
+  padding: 0;
+}
+
+.queue-auto-close-modal__main {
+  padding: 1rem;
+}
+
+.queue-auto-close-modal__outcome {
+  min-width: 0;
+  padding: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.queue-auto-close-modal__footer {
+  padding-inline: 1rem;
 }
 
 @media (max-width: 1180px) {
@@ -6844,9 +7302,46 @@ h2 {
   .neura-tenant-select {
     width: 100%;
   }
+
+  .queue-lifecycle-tray {
+    top: calc(64px + env(safe-area-inset-top) + 0.5rem);
+  }
+
+  .queue-lifecycle-tray > .mantine-Group-root {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .queue-lifecycle-tray__action {
+    width: 100%;
+  }
 }
 
 @media (max-width: 48em) {
+  .queue-auto-close-modal .mantine-Modal-inner {
+    align-items: flex-end !important;
+    padding: 8dvh 0 0 !important;
+  }
+
+  .queue-auto-close-modal .mantine-Modal-content {
+    width: 100% !important;
+    height: min(92dvh, 48rem) !important;
+    max-width: 100% !important;
+    max-height: min(92dvh, 48rem) !important;
+    border-radius: var(--mantine-radius-xl) var(--mantine-radius-xl) 0 0 !important;
+  }
+
+  .queue-auto-close-modal__footer > .mantine-Group-root {
+    align-items: stretch;
+    flex-direction: column-reverse;
+    width: 100%;
+  }
+
+  .queue-auto-close-modal__footer .mantine-Button-root {
+    width: 100%;
+    min-height: 44px;
+  }
+
   .confirm-action-modal .mantine-Modal-inner {
     padding: 5dvh 4vw !important;
     align-items: center !important;
@@ -6912,6 +7407,22 @@ h2 {
 }
 
 @media (max-width: 48em) {
+  .weekly-availability-header,
+  .weekly-availability-actions {
+    align-items: stretch;
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .weekly-availability-actions .mantine-Select-root,
+  .weekly-availability-actions .mantine-Button-root {
+    width: 100%;
+  }
+
+  .weekly-availability-actions .mantine-Button-root {
+    min-height: 44px;
+  }
+
   .customer-modal .mantine-Modal-inner {
     align-items: flex-end !important;
     justify-content: stretch !important;
@@ -7072,6 +7583,48 @@ h2 {
   border: 1px solid var(--mantine-color-gray-3);
   border-radius: var(--mantine-radius-md);
 }
+.campaign-funding-summary__target {
+  background: color-mix(in srgb, var(--mantine-color-orange-0) 62%, var(--mantine-color-body));
+  border-color: color-mix(in srgb, var(--mantine-color-orange-5) 38%, var(--mantine-color-gray-3));
+}
+.campaign-summary-actions {
+  padding-top: 0.25rem;
+}
+.customer-modal.campaign-history-modal .mantine-Modal-content {
+  display: flex;
+  flex-direction: column;
+  height: min(88dvh, 42rem) !important;
+  max-height: min(88dvh, 42rem) !important;
+  overflow: hidden !important;
+}
+.customer-modal.campaign-history-modal .mantine-Modal-body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden !important;
+}
+.campaign-history-modal-shell {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+}
+.campaign-history-modal-intro {
+  flex: 0 0 auto;
+  margin-bottom: 1rem;
+}
+.campaign-history-modal-main {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding-right: 0.25rem;
+}
+.campaign-history-event {
+  overflow-wrap: anywhere;
+}
+.campaign-history-modal-actions {
+  flex: 0 0 auto;
+  margin-top: 1rem;
+}
 .customer-modal.campaign-rating-modal .mantine-Modal-content {
   display: flex;
   flex-direction: column;
@@ -7097,6 +7650,34 @@ h2 {
   padding-right: 0.25rem;
 }
 .campaign-rating-modal-actions {
+  flex: 0 0 auto;
+  margin-top: 1rem;
+}
+.customer-modal.queue-rating-modal .mantine-Modal-content {
+  display: flex;
+  flex-direction: column;
+  height: min(88dvh, 36rem) !important;
+  max-height: min(88dvh, 36rem) !important;
+  overflow: hidden !important;
+}
+.customer-modal.queue-rating-modal .mantine-Modal-body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden !important;
+}
+.queue-rating-modal-shell {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+}
+.queue-rating-modal-main {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding-right: 0.25rem;
+}
+.queue-rating-modal-actions {
   flex: 0 0 auto;
   margin-top: 1rem;
 }
@@ -7179,4 +7760,75 @@ button:hover > .rating-star { transform: scale(1.08); }
     border-left: 0;
   }
 }
-@media (max-width: 48em) { .campaign-control-page { padding-inline: .75rem; } .campaign-control-page .mantine-Button-root { min-height: 44px; } .campaign-control-hero { border-radius: 22px; } .campaign-control-hero h1 { font-size: 1.75rem; } .campaign-participation-header { align-items: stretch; flex-direction: column; } .campaign-participation-slot { align-self: flex-start; } .campaign-participation-card .mantine-Button-root { width: 100%; } .campaign-proof-document { min-height: 22rem; } .customer-modal.campaign-rating-modal .mantine-Modal-content { height: min(92dvh, 36rem) !important; } .campaign-rating-modal-actions .mantine-Button-root { width: 100%; } }
+@media (max-width: 48em) { .campaign-control-page { padding-inline: .75rem; } .campaign-control-page .mantine-Button-root { min-height: 44px; } .campaign-control-hero { border-radius: 22px; } .campaign-control-hero h1 { font-size: 1.75rem; } .campaign-participation-header { align-items: stretch; flex-direction: column; } .campaign-participation-slot { align-self: flex-start; } .campaign-participation-card .mantine-Button-root { width: 100%; } .campaign-summary-actions { align-items: stretch; flex-direction: column; } .campaign-summary-actions .mantine-Button-root { width: 100%; } .campaign-history-cta { align-items: stretch; flex-direction: column; } .campaign-history-cta-button { width: 100%; } .campaign-proof-document { min-height: 22rem; } .customer-modal.campaign-history-modal .mantine-Modal-content { height: min(92dvh, 42rem) !important; } .campaign-history-modal-actions { align-items: stretch; flex-direction: column; } .campaign-history-modal-actions .mantine-Button-root { width: 100%; } .customer-modal.campaign-rating-modal .mantine-Modal-content, .customer-modal.queue-rating-modal .mantine-Modal-content { height: min(92dvh, 36rem) !important; } .campaign-rating-modal-actions .mantine-Button-root, .queue-rating-modal-actions .mantine-Button-root { width: 100%; } }
+
+.mfa-setup-qr {
+  width: min(100%, 14rem);
+  padding: 1rem;
+  border: 1px solid var(--mantine-color-gray-3);
+  border-radius: var(--mantine-radius-lg);
+  background: #ffffff;
+  box-shadow: var(--mantine-shadow-sm);
+}
+
+.mfa-setup-qr svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.customer-modal.mfa-removal-modal .mantine-Modal-content {
+  display: flex;
+  flex-direction: column;
+  height: min(88dvh, 40rem);
+  max-height: min(88dvh, 40rem);
+  overflow: hidden;
+}
+
+.customer-modal.mfa-removal-modal .mantine-Modal-body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.mfa-removal-modal__shell {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.mfa-removal-modal__main {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding-right: 0.25rem;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.mfa-removal-modal__footer {
+  flex: 0 0 auto;
+  padding-top: 1rem;
+  border-top: 1px solid var(--mantine-color-gray-3);
+  background: inherit;
+}
+
+@media (max-width: 48em) {
+  .customer-modal.mfa-removal-modal .mantine-Modal-content {
+    height: min(92dvh, 40rem) !important;
+    max-height: min(92dvh, 40rem) !important;
+  }
+
+  .mfa-removal-modal__footer {
+    align-items: stretch;
+    flex-direction: column-reverse;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .mfa-removal-modal__footer .mantine-Button-root {
+    width: 100%;
+    min-height: 44px;
+  }
+}

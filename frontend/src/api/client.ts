@@ -5,6 +5,14 @@ type AuthFailureHandler = () => void;
 
 let refreshTokenHandler: RefreshTokenHandler | null = null;
 let authFailureHandler: AuthFailureHandler | null = null;
+let refreshPromise: Promise<string | null> | null = null;
+
+function readCookie(name: string): string {
+  if (typeof document === "undefined") return "";
+  const prefix = `${name}=`;
+  const item = document.cookie.split(";").map((value) => value.trim()).find((value) => value.startsWith(prefix));
+  return item ? decodeURIComponent(item.slice(prefix.length)) : "";
+}
 
 export class ApiError extends Error {
   readonly status: number;
@@ -22,6 +30,7 @@ export interface ApiRequestOptions<TBody = unknown> {
   token?: string;
   signal?: AbortSignal;
   skipAuthRefresh?: boolean;
+  headers?: Record<string, string>;
 }
 
 export function setAuthHandlers(handlers: {
@@ -36,14 +45,26 @@ export async function apiRequest<TResponse, TBody = unknown>(
   path: string,
   options: ApiRequestOptions<TBody> = {}
 ): Promise<TResponse> {
-  const { method = "GET", body, token, signal, skipAuthRefresh = false } = options;
+  const { method = "GET", body, token, signal, skipAuthRefresh = false, headers = {} } = options;
+  const unsafe = !["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase());
+  const idempotencyKey = unsafe && typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : "";
 
   const makeRequest = async (authToken?: string) =>
     fetch(`${API_BASE_URL}${path}`, {
       method,
+      credentials: "include",
       headers: {
         "Content-Type": "application/json",
-        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {})
+        ...(unsafe && readCookie("prio_csrf")
+          ? { "X-CSRF-Token": readCookie("prio_csrf") }
+          : {}),
+        ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
+        ...(authToken && authToken !== "cookie-session"
+          ? { Authorization: `Bearer ${authToken}` }
+          : {}),
+        ...headers
       },
       body: body ? JSON.stringify(body) : undefined,
       signal
@@ -56,7 +77,10 @@ export async function apiRequest<TResponse, TBody = unknown>(
     !skipAuthRefresh &&
     refreshTokenHandler
   ) {
-    const nextToken = await refreshTokenHandler();
+    refreshPromise ||= refreshTokenHandler().finally(() => {
+      refreshPromise = null;
+    });
+    const nextToken = await refreshPromise;
     if (nextToken) {
       response = await makeRequest(nextToken);
     } else if (authFailureHandler) {

@@ -161,13 +161,19 @@ async function handleCheckCounterSlugAvailability({ req, res, getAuthorizedTenan
   res.json({ counterSlug: String(counterSlug || ""), ...result });
 }
 
-async function handleListStaff({ req, res, getAuthorizedTenant, assertTenantPermission, billingService, userRepository, serviceCounterRepository }) {
+async function handleListStaff({ req, res, getAuthorizedTenant, assertTenantPermission, billingService, userRepository, serviceCounterRepository, tenantMembershipLocationRepository }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.staff.read");
   const entitlements = await billingService.getTenantEntitlements(tenant._id);
   const staff = await userRepository.listUsersByTenantId(tenant._id);
   const assignedCountersByUserId = await serviceCounterRepository.listAssignedCounterIdsByUserIds(staff.map((user) => user._id));
-  res.json({ staffSeatLimit: entitlements.staffSeats || 0, staff: staff.map((user) => { const membership = user.tenantMemberships.find((item) => String(item.tenantId) === String(tenant._id)); return { id: user._id, name: user.name, email: user.email, phone: user.phone, role: membership?.role || "staff", isActive: membership?.isActive !== false, assignedCounterIds: assignedCountersByUserId.get(String(user._id)) || [] }; }) });
+  const assignedLocationsByUserId = tenantMembershipLocationRepository
+    ? await tenantMembershipLocationRepository.listAssignedLocationIdsByUserIds(
+        tenant._id,
+        staff.map((user) => user._id)
+      )
+    : new Map();
+  res.json({ staffSeatLimit: entitlements.staffSeats || 0, staff: staff.map((user) => { const membership = user.tenantMemberships.find((item) => String(item.tenantId) === String(tenant._id)); return { id: user._id, name: user.name, email: user.email, phone: user.phone, role: membership?.role || "staff", isActive: membership?.isActive !== false, assignedCounterIds: assignedCountersByUserId.get(String(user._id)) || [], assignedLocationIds: assignedLocationsByUserId.get(String(user._id)) || [] }; }) });
 }
 
 async function handleInviteStaff({ req, res, getAuthorizedTenant, assertTenantPermission, billingService, userRepository }) {

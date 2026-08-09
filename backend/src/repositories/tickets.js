@@ -23,6 +23,7 @@ const TICKET_COLUMNS = `
   notified_almost_there_at,
   notified_called_at,
   called_at,
+  customer_confirmed_at,
   served_at,
   skipped_at,
   cancelled_at,
@@ -31,6 +32,15 @@ const TICKET_COLUMNS = `
   carry_over_count,
   service_priority_band,
   rejoin_deadline_at,
+  original_queue_day_id,
+  current_queue_day_id,
+  status_reason,
+  pending_carry_over_since,
+  carry_over_expires_at,
+  carry_over_consumed,
+  terminal_at,
+  replacement_for_ticket_id,
+  email_journey_mode,
   created_at,
   updated_at
 `;
@@ -54,6 +64,7 @@ function mapTicket(row) {
     queueDateKey: row.queue_date_key,
     lookupCode: row.lookup_code,
     customerName: row.customer_name,
+    customerDisplayName: row.customer_display_name || "",
     customerEmail: row.customer_email,
     customerPhone: row.customer_phone,
     notifyByEmail: row.notify_by_email,
@@ -64,6 +75,7 @@ function mapTicket(row) {
     notifiedAlmostThereAt: row.notified_almost_there_at,
     notifiedCalledAt: row.notified_called_at,
     calledAt: row.called_at,
+    customerConfirmedAt: row.customer_confirmed_at,
     servedAt: row.served_at,
     skippedAt: row.skipped_at,
     cancelledAt: row.cancelled_at,
@@ -73,6 +85,20 @@ function mapTicket(row) {
     servicePriorityBand: row.service_priority_band || "normal",
     linkedBookingReference: row.linked_booking_reference || null,
     rejoinDeadlineAt: row.rejoin_deadline_at,
+    originalQueueDayId: row.original_queue_day_id ? String(row.original_queue_day_id) : null,
+    currentQueueDayId: row.current_queue_day_id ? String(row.current_queue_day_id) : null,
+    statusReason: row.status_reason || null,
+    pendingCarryOverSince: row.pending_carry_over_since,
+    carryOverExpiresAt: row.carry_over_expires_at,
+    carryOverConsumed: Boolean(row.carry_over_consumed),
+    terminalAt: row.terminal_at,
+    replacementForTicketId: row.replacement_for_ticket_id
+      ? String(row.replacement_for_ticket_id)
+      : null,
+    emailJourneyMode: row.email_journey_mode || "not_eligible",
+    journeySegments: Array.isArray(row.queue_journey_segments)
+      ? row.queue_journey_segments
+      : [],
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -80,13 +106,25 @@ function mapTicket(row) {
 
 function withLinkedBookingReferenceSelect() {
   return `
-    ${TICKET_COLUMNS},
+    ${withCustomerDisplayNameSelect()},
     (
       SELECT bookings.reference
       FROM bookings
       WHERE bookings.queue_ticket_id = tickets.id
       LIMIT 1
     ) AS linked_booking_reference
+  `;
+}
+
+function withCustomerDisplayNameSelect() {
+  return `
+    ${TICKET_COLUMNS},
+    (
+      SELECT NULLIF(BTRIM(users.display_name), '')
+      FROM users
+      WHERE users.id = tickets.user_id
+      LIMIT 1
+    ) AS customer_display_name
   `;
 }
 
@@ -118,9 +156,11 @@ async function createTicket(data, options = {}) {
         carried_over_at,
         carry_over_count,
         service_priority_band,
-        rejoin_deadline_at
+        rejoin_deadline_at,
+        original_queue_day_id,
+        current_queue_day_id
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
       RETURNING ${TICKET_COLUMNS}
     `,
     [
@@ -143,7 +183,9 @@ async function createTicket(data, options = {}) {
       data.carriedOverAt || null,
       Number(data.carryOverCount || 0),
       data.servicePriorityBand || "normal",
-      data.rejoinDeadlineAt || null
+      data.rejoinDeadlineAt || null,
+      data.originalQueueDayId ? Number(data.originalQueueDayId) : null,
+      data.currentQueueDayId ? Number(data.currentQueueDayId) : null
     ]
   );
 
@@ -173,7 +215,7 @@ async function findTicketById(ticketId, options = {}) {
 async function findTicketByTenantAndLookupCode(tenantId, lookupCode, options = {}) {
   const queryClient = buildQueryClient(options.client);
   const result = await queryClient.query(
-    `SELECT ${TICKET_COLUMNS} FROM tickets WHERE tenant_id = $1 AND lookup_code = $2 LIMIT 1`,
+    `SELECT ${withCustomerDisplayNameSelect()} FROM tickets WHERE tenant_id = $1 AND lookup_code = $2 LIMIT 1`,
     [Number(tenantId), lookupCode]
   );
 
@@ -211,6 +253,37 @@ async function listWaitingTickets(tenantId, options = {}) {
   }
 
   const result = await queryClient.query(query, values);
+  return result.rows.map(mapTicket);
+}
+
+async function listPendingCarryOverTickets(tenantId, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const values = [Number(tenantId)];
+  let locationFilter = "";
+
+  if (options.locationId) {
+    values.push(Number(options.locationId));
+    locationFilter = `AND location_id = $${values.length}`;
+  }
+
+  const limit = Number(options.limit || 50);
+  values.push(limit);
+
+  const result = await queryClient.query(
+    `
+      SELECT ${withCustomerDisplayNameSelect()}
+      FROM tickets
+      WHERE tenant_id = $1
+        ${locationFilter}
+        AND status = 'pending_carry_over'
+        AND carry_over_consumed = FALSE
+        AND carry_over_expires_at > NOW()
+      ORDER BY pending_carry_over_since ASC, id ASC
+      LIMIT $${values.length}
+    `,
+    values
+  );
+
   return result.rows.map(mapTicket);
 }
 
@@ -352,19 +425,7 @@ async function listTicketsByUserId(userId, options = {}) {
 async function listTicketsForCustomerAccount(user, options = {}) {
   const queryClient = buildQueryClient(options.client);
   const values = [Number(user._id)];
-  const identityFilters = [`tickets.user_id = $1`];
-
-  if (user.email) {
-    values.push(String(user.email).trim().toLowerCase());
-    identityFilters.push(`LOWER(COALESCE(tickets.customer_email, '')) = $${values.length}`);
-  }
-
-  if (user.phone) {
-    values.push(String(user.phone).trim());
-    identityFilters.push(`tickets.customer_phone = $${values.length}`);
-  }
-
-  const whereClause = identityFilters.map((filter) => `(${filter})`).join(" OR ");
+  const whereClause = "tickets.user_id = $1";
 
   if (options.page || options.pageSize || options.offset !== undefined) {
     const pageSize = Math.min(Math.max(Number(options.pageSize || options.limit || 10) || 10, 1), 100);
@@ -385,10 +446,26 @@ async function listTicketsForCustomerAccount(user, options = {}) {
           tenants.name AS tenant_name,
           tenants.slug AS tenant_slug,
           store_locations.name AS location_name,
-          store_locations.slug AS location_slug
+          store_locations.slug AS location_slug,
+          journey.segments AS queue_journey_segments
         FROM tickets
         INNER JOIN tenants ON tenants.id = tickets.tenant_id
         INNER JOIN store_locations ON store_locations.id = tickets.location_id
+        LEFT JOIN LATERAL (
+          SELECT json_agg(json_build_object(
+            'id', segment.id::text,
+            'queueDayId', segment.queue_day_id::text,
+            'displayNumber', segment.display_number,
+            'sequence', segment.sequence,
+            'priorityBand', segment.priority_band,
+            'activatedAt', segment.activated_at,
+            'endedAt', segment.ended_at,
+            'outcome', segment.segment_outcome,
+            'outcomeReason', segment.outcome_reason
+          ) ORDER BY segment.activated_at, segment.id) AS segments
+          FROM queue_ticket_segments AS segment
+          WHERE segment.ticket_id = tickets.id
+        ) AS journey ON TRUE
         WHERE ${whereClause}
         ORDER BY tickets.created_at DESC
         LIMIT $${listValues.length - 1} OFFSET $${listValues.length}
@@ -418,10 +495,26 @@ async function listTicketsForCustomerAccount(user, options = {}) {
         tenants.name AS tenant_name,
         tenants.slug AS tenant_slug,
         store_locations.name AS location_name,
-        store_locations.slug AS location_slug
+        store_locations.slug AS location_slug,
+        journey.segments AS queue_journey_segments
       FROM tickets
       INNER JOIN tenants ON tenants.id = tickets.tenant_id
       INNER JOIN store_locations ON store_locations.id = tickets.location_id
+      LEFT JOIN LATERAL (
+        SELECT json_agg(json_build_object(
+          'id', segment.id::text,
+          'queueDayId', segment.queue_day_id::text,
+          'displayNumber', segment.display_number,
+          'sequence', segment.sequence,
+          'priorityBand', segment.priority_band,
+          'activatedAt', segment.activated_at,
+          'endedAt', segment.ended_at,
+          'outcome', segment.segment_outcome,
+          'outcomeReason', segment.outcome_reason
+        ) ORDER BY segment.activated_at, segment.id) AS segments
+        FROM queue_ticket_segments AS segment
+        WHERE segment.ticket_id = tickets.id
+      ) AS journey ON TRUE
       WHERE ${whereClause}
       ORDER BY tickets.created_at DESC
       LIMIT $${values.length}
@@ -503,7 +596,11 @@ async function callNextWaitingTicket(tenantId, options = {}) {
         FOR UPDATE SKIP LOCKED
       )
       UPDATE tickets
-      SET status = 'called', called_at = NOW(), notified_called_at = NOW(), service_counter_id = $3
+      SET status = 'called',
+          called_at = NOW(),
+          notified_called_at = NOW(),
+          customer_confirmed_at = NULL,
+          service_counter_id = $3
       WHERE id IN (SELECT id FROM next_ticket)
       RETURNING ${TICKET_COLUMNS}
     `,
@@ -567,6 +664,31 @@ async function updateCurrentCalledTicketStatus(tenantId, status, options = {}) {
   return mapTicket(result.rows[0]);
 }
 
+async function confirmCurrentCalledTicket(tenantId, ticketId, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const result = await queryClient.query(
+    `
+      UPDATE tickets
+      SET customer_confirmed_at = COALESCE(customer_confirmed_at, NOW()),
+          updated_at = NOW()
+      WHERE id = $1
+        AND tenant_id = $2
+        AND location_id = $3
+        AND date_key = $4
+        AND status = 'called'
+      RETURNING ${TICKET_COLUMNS}
+    `,
+    [
+      Number(ticketId),
+      Number(tenantId),
+      Number(options.locationId),
+      String(options.dateKey)
+    ]
+  );
+
+  return mapTicket(result.rows[0]);
+}
+
 async function cancelWaitingTicket(tenantId, lookupCode, options = {}) {
   const queryClient = buildQueryClient(options.client);
   const result = await queryClient.query(
@@ -574,12 +696,22 @@ async function cancelWaitingTicket(tenantId, lookupCode, options = {}) {
       WITH cancellable_ticket AS (
         SELECT id
         FROM tickets
-        WHERE tenant_id = $1 AND lookup_code = $2 AND status = 'waiting'
+        WHERE tenant_id = $1
+          AND lookup_code = $2
+          AND status IN ('waiting', 'pending_carry_over')
         LIMIT 1
         FOR UPDATE SKIP LOCKED
       )
       UPDATE tickets
-      SET status = 'cancelled', cancelled_at = NOW()
+      SET status = 'cancelled',
+          status_reason = CASE
+            WHEN status = 'pending_carry_over' THEN 'carry_over_declined'
+            ELSE 'customer_cancelled'
+          END,
+          cancelled_at = NOW(),
+          current_queue_day_id = NULL,
+          terminal_at = NOW(),
+          updated_at = NOW()
       WHERE id IN (SELECT id FROM cancellable_ticket)
       RETURNING ${TICKET_COLUMNS}
     `,
@@ -597,6 +729,7 @@ async function claimTicketForUser(ticketId, userId, options = {}) {
       SET user_id = $2,
           updated_at = NOW()
       WHERE id = $1
+        AND user_id IS NULL
       RETURNING ${TICKET_COLUMNS}
     `,
     [Number(ticketId), Number(userId)]
@@ -789,6 +922,7 @@ async function restoreSkippedTicket(tenantId, ticketId, options = {}) {
           service_counter_id = NULL,
           called_at = NULL,
           notified_called_at = NULL,
+          customer_confirmed_at = NULL,
           service_priority_band = $4,
           rejoin_deadline_at = NULL,
           updated_at = NOW()
@@ -816,6 +950,7 @@ module.exports = {
   findTicketByLookupCode,
   findTicketByTenantAndLookupCode,
   listWaitingTickets,
+  listPendingCarryOverTickets,
   listHistoryTickets,
   listSkippedTickets,
   listClientTickets,
@@ -823,6 +958,7 @@ module.exports = {
   listTicketsForCustomerAccount,
   countServedToday,
   findCurrentCalledTicket,
+  confirmCurrentCalledTicket,
   callNextWaitingTicket,
   updateCurrentCalledTicketStatus,
   cancelWaitingTicket,

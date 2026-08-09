@@ -8,6 +8,8 @@ const SMOKE_EMAIL = process.env.SMOKE_EMAIL || "carlo.abella+store4@gmail.com";
 const SMOKE_PASSWORD = process.env.SMOKE_PASSWORD || "asdfasdf";
 const PLATFORM_SMOKE_EMAIL = process.env.PLATFORM_SMOKE_EMAIL || "getprio-smoke@getprio.local";
 const PLATFORM_SMOKE_PASSWORD = process.env.PLATFORM_SMOKE_PASSWORD || "Smoke1234!";
+const VENDOR_STAFF_SMOKE_EMAIL = String(process.env.VENDOR_STAFF_SMOKE_EMAIL || "").trim();
+const VENDOR_STAFF_SMOKE_PASSWORD = String(process.env.VENDOR_STAFF_SMOKE_PASSWORD || "").trim();
 const CAMPAIGN_SMOKE_ENABLED = ["1", "true", "yes"].includes(
   String(process.env.SMOKE_ORGANIZER_CAMPAIGN || process.env.SMOKE_GROUP_FUNDED || "").toLowerCase()
 );
@@ -442,6 +444,87 @@ async function smokeVendorStage() {
   }
 }
 
+function assertQueueDayContract(queueDay, context) {
+  if (!queueDay || !["unopened", "open", "closed"].includes(queueDay.state)) {
+    fail(`${context} missing authoritative Queue Day state`);
+  }
+  if (typeof queueDay.availabilityReason !== "string" || typeof queueDay.serverNow !== "string") {
+    fail(`${context} missing availability reason or server clock`);
+  }
+  if (queueDay.state === "open" && !["accepting", "paused"].includes(queueDay.intakeMode)) {
+    fail(`${context} returned an invalid open Queue Day intake mode`);
+  }
+}
+
+async function smokeQueueLifecycleReadStage() {
+  const auth = await login(SMOKE_EMAIL, SMOKE_PASSWORD);
+  const tenant = Array.isArray(auth.user.tenants) ? auth.user.tenants[0] : null;
+  if (!tenant?.slug) {
+    fail("queue lifecycle smoke requires a vendor tenant membership");
+  }
+  const headers = { Authorization: `Bearer ${auth.token}` };
+  const locations = await requestJson(
+    `${API_BASE_URL}/vendor/tenant/${tenant.slug}/locations`,
+    { headers }
+  );
+  assertOk(locations.response, "queue lifecycle vendor locations");
+  const locationSlug = locations.body?.locations?.[0]?.slug;
+  if (!locationSlug) {
+    fail("queue lifecycle smoke requires a vendor location");
+  }
+  const dashboard = await requestJson(
+    `${API_BASE_URL}/vendor/tenant/${tenant.slug}/dashboard?location=${encodeURIComponent(locationSlug)}`,
+    { headers }
+  );
+  assertOk(dashboard.response, "Vendor Admin queue lifecycle snapshot");
+  assertQueueDayContract(dashboard.body?.queueDay, "Vendor Admin queue lifecycle snapshot");
+  log("Vendor Admin queue lifecycle snapshot ok");
+
+  const publicQueue = await requestJson(
+    `${API_BASE_URL}/public/tenant/${tenant.slug}/location/${locationSlug}/queue`
+  );
+  assertOk(publicQueue.response, "public queue lifecycle snapshot");
+  assertQueueDayContract(publicQueue.body?.queueDay, "public queue lifecycle snapshot");
+  log("public queue lifecycle snapshot ok");
+
+  const customerOverview = await requestJson(`${API_BASE_URL}/account/overview`, { headers });
+  assertOk(customerOverview.response, "customer queue history");
+  if (!Array.isArray(customerOverview.body?.tickets)) {
+    fail("customer queue history missing tickets");
+  }
+  log("customer queue history ok");
+
+  if (VENDOR_STAFF_SMOKE_EMAIL && VENDOR_STAFF_SMOKE_PASSWORD) {
+    const staffAuth = await login(VENDOR_STAFF_SMOKE_EMAIL, VENDOR_STAFF_SMOKE_PASSWORD);
+    const staffTenant = Array.isArray(staffAuth.user.tenants)
+      ? staffAuth.user.tenants.find((item) => item.slug === tenant.slug)
+      : null;
+    if (!staffTenant) {
+      fail("Vendor Staff smoke account is not assigned to the queue lifecycle tenant");
+    }
+    const staffDashboard = await requestJson(
+      `${API_BASE_URL}/vendor/tenant/${tenant.slug}/dashboard?location=${encodeURIComponent(locationSlug)}`,
+      { headers: { Authorization: `Bearer ${staffAuth.token}` } }
+    );
+    assertOk(staffDashboard.response, "Vendor Staff queue lifecycle snapshot");
+    assertQueueDayContract(staffDashboard.body?.queueDay, "Vendor Staff queue lifecycle snapshot");
+    log("Vendor Staff queue lifecycle snapshot ok");
+  } else {
+    log("Vendor Staff queue lifecycle smoke skipped (set VENDOR_STAFF_SMOKE_EMAIL and VENDOR_STAFF_SMOKE_PASSWORD)");
+  }
+
+  const platformAuth = await login(PLATFORM_SMOKE_EMAIL, PLATFORM_SMOKE_PASSWORD);
+  const diagnostics = await requestJson(
+    `${API_BASE_URL}/platform/queue-lifecycle/diagnostics?limit=10`,
+    { headers: { Authorization: `Bearer ${platformAuth.token}` } }
+  );
+  assertOk(diagnostics.response, "Platform Admin queue lifecycle diagnostics");
+  if (!Array.isArray(diagnostics.body?.queueDays)) {
+    fail("Platform Admin queue lifecycle diagnostics missing queueDays");
+  }
+  log("Platform Admin queue lifecycle diagnostics ok");
+}
+
 async function smokeOrganizerCampaignStage() {
   if (!CAMPAIGN_SMOKE_ENABLED) {
     log("organizer campaign smoke skipped (set SMOKE_ORGANIZER_CAMPAIGN=1 to enable)");
@@ -550,6 +633,9 @@ async function main() {
   }
   if (SMOKE_STAGE === "all" || SMOKE_STAGE === "vendor") {
     await smokeVendorStage();
+  }
+  if (SMOKE_STAGE === "all" || SMOKE_STAGE === "queue") {
+    await smokeQueueLifecycleReadStage();
   }
   if (SMOKE_STAGE === "all" || SMOKE_STAGE === "campaign" || SMOKE_STAGE === "group-funded") {
     await smokeOrganizerCampaignStage();

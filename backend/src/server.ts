@@ -2,6 +2,8 @@ import app from "./app";
 import { connectDb } from "./config/db";
 import env from "./config/env";
 import organizerCampaignService from "./services/organizerCampaignService";
+import queueLifecycleWorkerModule from "./services/queueLifecycleWorker";
+import allowanceWarningService from "./services/allowanceWarningService";
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => {
@@ -42,11 +44,21 @@ async function start(): Promise<void> {
   const server = app.listen(env.port, () => {
     console.log(`Prio server listening on port ${env.port}`);
   });
+  const queueLifecycleWorker = queueLifecycleWorkerModule.createQueueLifecycleWorker();
+  queueLifecycleWorker.start();
   const campaignLifecycleTimer = setInterval(() => {
     organizerCampaignService.expireDueCampaigns().catch((error: Error) => console.error("Organizer campaign lifecycle scan failed", error));
   }, 60_000);
   campaignLifecycleTimer.unref();
-  server.on("close", () => clearInterval(campaignLifecycleTimer));
+  const allowanceWarningTimer = setInterval(() => {
+    allowanceWarningService.dispatchPendingWarnings().catch((error: Error) => console.error("Allowance warning dispatch failed", error));
+  }, 60_000);
+  allowanceWarningTimer.unref();
+  server.on("close", () => {
+    clearInterval(campaignLifecycleTimer);
+    clearInterval(allowanceWarningTimer);
+    queueLifecycleWorker.stop();
+  });
 }
 
 start().catch((error: unknown) => {

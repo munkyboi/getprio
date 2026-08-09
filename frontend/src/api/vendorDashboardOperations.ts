@@ -1,6 +1,8 @@
 import type {
   AddVendorStaffRequest,
   CheckoutSyncResponse,
+  CustomerProfileUpdateRequest,
+  CustomerProfileUpdateResponse,
   SavePublicBoardThemeRequest,
   StoreLocationWithHours,
   StoreHourSummary,
@@ -16,6 +18,48 @@ type VendorDashboardHistoryResponse = {
   historyLabel?: string;
   tickets: import("@shared").QueueHistoryTicket[];
 };
+
+export function startMfaEnrollment(token: string, currentCode?: string) {
+  return apiRequest<{ secret: string; otpAuthUri: string }, { currentCode?: string }>(
+    "/auth/mfa/enrollment/start",
+    { method: "POST", token, body: currentCode ? { currentCode } : {} }
+  );
+}
+
+export function confirmMfaEnrollment(token: string, code: string) {
+  return apiRequest<{ success: boolean; recoveryCodes: string[]; message: string }, { code: string }>(
+    "/auth/mfa/enrollment/confirm",
+    { method: "POST", token, body: { code } }
+  );
+}
+
+export function cancelMfaEnrollment(token: string) {
+  return apiRequest<{ success: boolean; canceled: boolean; message: string }>(
+    "/auth/mfa/enrollment/cancel",
+    { method: "POST", token }
+  );
+}
+
+export function verifyMfaStepUp(token: string, password: string, code: string) {
+  return apiRequest<{ success: boolean }, { password: string; code: string }>(
+    "/auth/mfa/step-up",
+    { method: "POST", token, body: { password, code } }
+  );
+}
+
+export function disableMfa(token: string, password: string, code: string, recoveryCode: string) {
+  return apiRequest<{ success: boolean; message: string }, { password: string; code: string; recoveryCode: string }>(
+    "/auth/mfa/disable",
+    { method: "POST", token, body: { password, code, recoveryCode } }
+  );
+}
+
+export function updateAccountProfile(token: string, body: CustomerProfileUpdateRequest) {
+  return apiRequest<CustomerProfileUpdateResponse, CustomerProfileUpdateRequest>(
+    "/account/profile",
+    { method: "PATCH", token, body }
+  );
+}
 
 export function getHistory(token: string, tenantSlug: string, locationSlug: string) {
   return apiRequest<VendorDashboardHistoryResponse>(

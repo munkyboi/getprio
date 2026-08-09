@@ -1,6 +1,6 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
-const { rateLimit } = require("express-rate-limit");
+const crypto = require("node:crypto");
 const db = require("../config/db");
 const tenantRepository = require("../repositories/tenants");
 const authSessionRepository = require("../repositories/authSessions");
@@ -23,21 +23,28 @@ const notificationService = require("../services/notificationService");
 const passwordResetService = require("../services/passwordResetService");
 const securityEventService = require("../services/securityEventService");
 const sessionService = require("../services/sessionService");
+const subscriptionLifecycleService = require("../services/subscriptionLifecycleService");
+const mfaFlowService = require("../services/mfaFlowService");
+const securityRateLimitService = require("../services/securityRateLimitService");
+const { userRequiresPrivilegedMfa } = require("../services/mfaService");
 const { assertPublicTextFieldsAllowed } = require("../services/contentModeration");
 const { normalizePhilippineMobileNumber } = require("../utils/phone");
+const env = require("../config/env");
+const {
+  clearBrowserSession,
+  getRefreshCookie,
+  issueBrowserSession,
+  parseCookies
+} = require("../services/browserSessionService");
 
 const router = express.Router();
 router.use(moderatePublicText);
 const OAUTH_INTENTS = new Set(["login", "register_customer", "register_vendor"]);
 const normalizeEmail = authService.normalizeEmail;
-const authAttemptLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    error: "Too many authentication attempts. Please try again later."
-  }
+const authAttemptLimiter = asyncHandler(async (req, _res, next) => {
+  const key = crypto.createHash("sha256").update(String(req.ip || req.socket?.remoteAddress || "unknown")).digest("hex");
+  await securityRateLimitService.consume({ bucketKey: `auth-attempt:${key}`, limit: 100, windowSeconds: 15 * 60, blockedMessage: "Too many authentication attempts. Please try again later." });
+  next();
 });
 
 function normalizeSlug(value) {
@@ -153,11 +160,23 @@ async function buildAvailableUsername(name, options = {}) {
   throw error;
 }
 
-function buildAuthResponse(user, sessionResult) {
+function buildAuthResponse(req, res, user, sessionResult) {
+  const { csrfToken } = issueBrowserSession(res, sessionResult, {
+    secure: env.authCookieSecure,
+    csrfSecret: env.csrfSecret,
+    accessMaxAgeSeconds: env.accessTokenTtlMinutes * 60
+  });
+  const compatibilityRequested =
+    env.authBearerCompatibilityEnabled &&
+    String(req.headers["x-auth-compatibility"] || "").toLowerCase() === "bearer-v1";
+
   return {
-    token: sessionResult.accessToken,
-    refreshToken: sessionResult.refreshToken,
-    user
+    user,
+    csrfToken,
+    sessionExpiresAt: sessionResult.session.inactivityExpiresAt || sessionResult.session.expiresAt,
+    ...(compatibilityRequested
+      ? { token: sessionResult.accessToken, refreshToken: sessionResult.refreshToken }
+      : {})
   };
 }
 
@@ -239,6 +258,8 @@ async function buildUserPayload(user) {
     roles: user.roles,
     emailVerified: Boolean(user.emailVerified),
     hasPassword: Boolean(user.passwordHash),
+    mfaEnabled: Boolean(user.mfaEnabled),
+    mfaRequired: Boolean(user.mfaRequired || userRequiresPrivilegedMfa(user)),
     oauthProviders: [...new Set((user.oauthAccounts || []).map((account) => account.provider))],
     lastLoginProvider: user.lastLoginProvider,
     tenants: memberships
@@ -464,10 +485,14 @@ router.all("/oauth/:provider/callback", async (req, res) => {
       req
     });
 
+    issueBrowserSession(res, sessionResult, {
+      secure: env.authCookieSecure,
+      csrfSecret: env.csrfSecret,
+      accessMaxAgeSeconds: env.accessTokenTtlMinutes * 60
+    });
+
     res.redirect(
       buildClientCallbackUrl({
-        token: sessionResult.accessToken,
-        refreshToken: sessionResult.refreshToken,
         next
       })
     );
@@ -548,6 +573,11 @@ router.post(
         },
         { client }
       );
+      await subscriptionLifecycleService.assignFreeToApprovedTenant(
+        tenant._id,
+        { reason: "Automatic Free assignment after vendor registration" },
+        { client }
+      );
 
       const user = await userRepository.createUser(
         {
@@ -584,7 +614,7 @@ router.post(
     });
 
     res.status(201).json({
-      ...buildAuthResponse(await buildUserPayload(result.user), sessionResult)
+      ...buildAuthResponse(req, res, await buildUserPayload(result.user), sessionResult)
     });
   })
 );
@@ -682,6 +712,11 @@ router.post(
         },
         { client }
       );
+      await subscriptionLifecycleService.assignFreeToApprovedTenant(
+        tenant._id,
+        { actorId: req.user._id, reason: "Automatic Free assignment after vendor registration" },
+        { client }
+      );
 
       await userRepository.addTenantMembership(req.user._id, tenant._id, "owner", { client });
 
@@ -706,7 +741,7 @@ router.post(
     });
 
     res.status(201).json({
-      ...buildAuthResponse(await buildUserPayload(user), sessionResult)
+      ...buildAuthResponse(req, res, await buildUserPayload(user), sessionResult)
     });
   })
 );
@@ -761,7 +796,7 @@ router.post(
     });
 
     res.status(201).json({
-      ...buildAuthResponse(await buildUserPayload(user), sessionResult)
+      ...buildAuthResponse(req, res, await buildUserPayload(user), sessionResult)
     });
   })
 );
@@ -835,6 +870,20 @@ router.post(
         client
       });
     });
+    if (updatedUser.mfaEnabled && userRequiresPrivilegedMfa(updatedUser)) {
+      const challenge = await mfaFlowService.issueLoginChallenge({
+        user: updatedUser,
+        ipAddress: authService.getRequestIp(req),
+        userAgent: authService.getUserAgent(req)
+      });
+      res.json({
+        mfaRequired: true,
+        challengeToken: challenge.token,
+        expiresAt: challenge.expiresAt,
+        methods: ["totp", "recovery"]
+      });
+      return;
+    }
     const sessionResult = await sessionService.createAuthSession({
       user: updatedUser,
       authMethod: "password",
@@ -851,7 +900,7 @@ router.post(
     });
 
     res.json({
-      ...buildAuthResponse(await buildUserPayload(updatedUser), sessionResult)
+      ...buildAuthResponse(req, res, await buildUserPayload(updatedUser), sessionResult)
     });
   })
 );
@@ -859,7 +908,9 @@ router.post(
 router.post(
   "/refresh",
   asyncHandler(async (req, res) => {
-    const refreshToken = String(req.body.refreshToken || "");
+    const refreshToken = String(
+      getRefreshCookie(parseCookies(req.headers.cookie), env.authCookieSecure) || req.body?.refreshToken || ""
+    );
     if (!refreshToken) {
       const error = new Error("refreshToken is required.");
       error.statusCode = 400;
@@ -892,7 +943,117 @@ router.post(
       metadata: {}
     });
 
-    res.json(buildAuthResponse(await buildUserPayload(user), sessionResult));
+    res.json(buildAuthResponse(req, res, await buildUserPayload(user), sessionResult));
+  })
+);
+
+router.post(
+  "/mfa/verify",
+  authAttemptLimiter,
+  asyncHandler(async (req, res) => {
+    const result = await mfaFlowService.verifyLoginChallenge({
+      challengeToken: req.body?.challengeToken,
+      code: req.body?.code,
+      recoveryCode: req.body?.recoveryCode
+    });
+    res.json(buildAuthResponse(req, res, await buildUserPayload(result.user), result.sessionResult));
+  })
+);
+
+router.post(
+  "/mfa/enrollment/start",
+  authenticate,
+  asyncHandler(async (req, res) => {
+    res.json(await mfaFlowService.startTotpEnrollment({
+      user: req.user,
+      session: req.auth.session,
+      currentCode: req.body?.currentCode
+    }));
+  })
+);
+
+router.post(
+  "/mfa/enrollment/confirm",
+  authenticate,
+  asyncHandler(async (req, res) => {
+    const result = await mfaFlowService.confirmTotpEnrollment({
+      user: req.user,
+      sessionId: req.auth.sessionId,
+      code: req.body?.code
+    });
+    res.json({
+      success: true,
+      recoveryCodes: result.recoveryCodes,
+      message: "Authenticator verification is now enabled. Save your recovery codes somewhere secure."
+    });
+  })
+);
+
+router.post(
+  "/mfa/enrollment/cancel",
+  authenticate,
+  asyncHandler(async (req, res) => {
+    const result = await mfaFlowService.cancelTotpEnrollment({ user: req.user });
+    res.json({
+      ...result,
+      message: "Pending authenticator setup canceled. Your active authenticator was not changed."
+    });
+  })
+);
+
+router.post(
+  "/mfa/disable",
+  authenticate,
+  authAttemptLimiter,
+  asyncHandler(async (req, res) => {
+    const passwordMatches = req.user.passwordHash &&
+      await authService.verifyPasswordLogin(req.user, String(req.body?.password || ""));
+    if (!passwordMatches) {
+      const error = new Error("We could not verify your sign-in details.");
+      error.statusCode = 401;
+      error.code = "PRIMARY_AUTHENTICATION_INVALID";
+      throw error;
+    }
+
+    await mfaFlowService.disableMfa({
+      user: req.user,
+      sessionId: req.auth.sessionId,
+      code: req.body?.code,
+      recoveryCode: req.body?.recoveryCode,
+      ipAddress: authService.getRequestIp(req),
+      userAgent: authService.getUserAgent(req)
+    });
+    res.json({
+      success: true,
+      message: "Multi-factor authentication has been removed from your account."
+    });
+  })
+);
+
+router.post(
+  "/mfa/step-up",
+  authenticate,
+  authAttemptLimiter,
+  asyncHandler(async (req, res) => {
+    const passwordMatches = req.user.passwordHash &&
+      await authService.verifyPasswordLogin(req.user, String(req.body?.password || ""));
+    if (!passwordMatches) {
+      const error = new Error("We could not verify your sign-in details.");
+      error.statusCode = 401;
+      throw error;
+    }
+    const mfaRepository = require("../repositories/mfa");
+    const { decryptSecret, verifyTotp } = require("../services/mfaService");
+    const factor = await mfaRepository.findTotpFactor(req.user._id, "active");
+    const secret = factor && decryptSecret(factor, env.mfaEncryptionSecret);
+    if (!secret || !verifyTotp(secret, req.body?.code)) {
+      const error = new Error("That security code could not be verified. Check the code and try again.");
+      error.statusCode = 400;
+      error.code = "MFA_CODE_INVALID";
+      throw error;
+    }
+    const session = await authSessionRepository.markRecentAuthentication(req.auth.sessionId);
+    res.json({ success: true, verifiedAt: session.mfaVerifiedAt });
   })
 );
 
@@ -971,7 +1132,9 @@ router.post(
   "/logout",
   maybeAuthenticate,
   asyncHandler(async (req, res) => {
-    const refreshToken = String(req.body.refreshToken || "");
+    const refreshToken = String(
+      getRefreshCookie(parseCookies(req.headers.cookie), env.authCookieSecure) || req.body?.refreshToken || ""
+    );
     let session = null;
 
     if (refreshToken) {
@@ -993,6 +1156,7 @@ router.post(
       });
     }
 
+    clearBrowserSession(res, { secure: env.authCookieSecure });
     res.json({ success: true });
   })
 );
@@ -1002,7 +1166,8 @@ router.get(
   authenticate,
   asyncHandler(async (req, res) => {
     res.json({
-      user: await buildUserPayload(req.user)
+      user: await buildUserPayload(req.user),
+      sessionExpiresAt: req.auth.session?.inactivityExpiresAt || req.auth.session?.expiresAt || null
     });
   })
 );

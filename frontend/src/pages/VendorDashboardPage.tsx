@@ -12,6 +12,7 @@ import {
   Divider,
   Drawer,
   FileInput,
+  Grid,
   Image,
   Group,
   Modal,
@@ -20,6 +21,7 @@ import {
   Notification,
   Pagination,
   Paper,
+  PasswordInput,
   Portal,
   ScrollArea,
   Select,
@@ -51,6 +53,7 @@ import {
   IconAlertTriangle,
   IconClipboardList,
   IconCheck,
+  IconCopy,
   IconExternalLink,
   IconHistory,
   IconHomeStats,
@@ -59,6 +62,7 @@ import {
   IconMapPin,
   IconPhoto,
   IconPencil,
+  IconUserCircle,
   IconQrcode,
   IconSparkles,
   IconStar,
@@ -67,6 +71,7 @@ import {
   IconX,
   IconClock,
   IconSettings,
+  IconUserPlus,
   IconUsersGroup
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
@@ -104,6 +109,7 @@ import type {
   VendorServiceSummary,
   UpdateVendorBookingStatusRequest,
   PaginationMetadata,
+  PasswordChangeRequest,
   GroupFundedLocationServiceSettings,
   GroupFundedBundleItemSummary,
   GroupFundedCampaignSummary,
@@ -116,6 +122,10 @@ import { API_BASE_URL } from "../api/client";
 import PhilippineMobileInput from "../components/PhilippineMobileInput";
 import FiveStarRatingInput from "../components/FiveStarRatingInput";
 import RichCampaignDescription from "../components/RichCampaignDescription";
+import CampaignFundingProgress from "../components/CampaignFundingProgress";
+import VendorQueueLifecycleTray from "../components/VendorQueueLifecycleTray";
+import VendorCapacityPanel from "../components/VendorCapacityPanel";
+import TicketScannerModal from "../components/TicketScannerModal";
 import * as vendorDashboardBookings from "../api/vendorDashboardBookings";
 import * as vendorDashboardQueue from "../api/vendorDashboardQueue";
 import * as vendorDashboardCatalog from "../api/vendorDashboardCatalog";
@@ -126,7 +136,11 @@ import * as vendorDashboardExport from "../api/vendorDashboardExport";
 import { useAuth } from "../context/AuthContext";
 import { ConfirmActionModal } from "../components/ConfirmActionModal";
 import { PromptActionModal } from "../components/PromptActionModal";
-import { shouldEnableVendorDashboardBootstrap } from "../lib/vendorDashboardBootstrap";
+import {
+  getAllowedHistoryExportRanges,
+  shouldEnableVendorDashboardBootstrap
+} from "../lib/vendorDashboardBootstrap";
+import { canAccessVendorSection } from "../lib/vendorDashboardNavigation";
 import { buildJoinUrl, buildMonitorUrl } from "../queuePaths";
 import {
   formatDateInputValue,
@@ -139,6 +153,15 @@ import {
 import { getErrorMessage } from "../utils/errors";
 import { getWeeklyAvailabilityDefaults } from "../utils/availability";
 import { isBrowserPushSupported, subscribeToBrowserPush } from "../utils/pushNotifications";
+import {
+  getQueueDaySyncNotice,
+  getTicketStateSummary,
+  resolveQueueDayState,
+  selectFreshestQueueSnapshot
+} from "../utils/queueStatus";
+import type { LocalQueueDayUpdate, QueueDaySyncState } from "../utils/queueStatus";
+import { getQueueCustomerFullNameLabel } from "../utils/queueNames";
+import { getPlanPriceDisplay } from "../utils/subscriptionPlans";
 import { checkServiceSlugAvailability } from "../api/vendorDashboardCatalog";
 import { checkCounterSlugAvailability } from "../api/vendorDashboardOperations";
 
@@ -148,7 +171,7 @@ type RawGroupFundedBundleItem = GroupFundedBundleItemSummary & {
   serviceSlugSnapshot?: string;
 };
 
-const dashboardSections = new Set(["queue", "tenants", "services", "bookings", "staff", "clients", "history", "reports", "settings"]);
+const dashboardSections = new Set(["queue", "tenants", "services", "bookings", "staff", "clients", "history", "reports", "settings", "account"]);
 const SERVICE_TREND_USER_LIMIT = 30;
 const timeZoneOptions = getTimeZoneOptions();
 
@@ -249,9 +272,7 @@ function formatTimeLabel(value: string) {
   return `${displayHour}:${minutes.padStart(2, "0")} ${suffix}`;
 }
 
-function formatPreviewHourRange(location: StoreLocationWithHours | null, weekday: number) {
-  const hour = location?.hours.find((entry) => entry.weekday === weekday);
-
+function formatStoreHourRange(hour: StoreHourSummary | null | undefined) {
   if (!hour || hour.isClosed) {
     return "Closed";
   }
@@ -265,8 +286,12 @@ function formatPreviewHourRange(location: StoreLocationWithHours | null, weekday
   }
 
   const overnightLabel = toMinutes(hour.closesAt) < toMinutes(hour.opensAt) ? " next day" : "";
-
   return `${formatTimeLabel(hour.opensAt)} - ${formatTimeLabel(hour.closesAt)}${overnightLabel}`;
+}
+
+function formatPreviewHourRange(location: StoreLocationWithHours | null, weekday: number) {
+  const hour = location?.hours.find((entry) => entry.weekday === weekday);
+  return formatStoreHourRange(hour);
 }
 
 function buildCounterSlug(value: string) {
@@ -289,17 +314,13 @@ const emptyWalkIn: CreateWalkInTicketRequest = {
 const defaultSettings: UpdateTenantSettingsRequest = {
   name: "",
   publicProfileCategory: "",
-  ownerName: "",
-  ownerDisplayName: "",
   queuePrefix: "P",
   averageServiceMinutes: 5,
   notificationThreshold: 2,
   autoPauseEnabled: false,
   autoPauseThreshold: 20,
   autoResumeEnabled: false,
-  autoResumeVacancyPercent: 20,
-  contactEmail: "",
-  contactPhone: ""
+  autoResumeVacancyPercent: 20
 };
 
 const defaultNotificationSettings = {
@@ -428,22 +449,52 @@ const groupFundedContributionRejectionReasons = [
 function normalizeGroupFundedSettings(
   settings?: Partial<GroupFundedLocationServiceSettings> | null
 ): GroupFundedLocationServiceSettings {
+  const minRequiredContributors =
+    settings?.minRequiredContributors ??
+    defaultGroupFundedSettings.minRequiredContributors ??
+    2;
+  const maxRequiredContributors = Math.max(
+    minRequiredContributors,
+    settings?.maxRequiredContributors ??
+      defaultGroupFundedSettings.maxRequiredContributors ??
+      12
+  );
+  const defaultRequiredContributors = Math.min(
+    maxRequiredContributors,
+    Math.max(
+      minRequiredContributors,
+      defaultGroupFundedSettings.defaultRequiredContributors ?? 4
+    )
+  );
+
   return {
     enabled: settings?.enabled === true,
-    minRequiredContributors:
-      settings?.minRequiredContributors ?? defaultGroupFundedSettings.minRequiredContributors,
-    maxRequiredContributors:
-      settings?.maxRequiredContributors ?? defaultGroupFundedSettings.maxRequiredContributors,
-    defaultRequiredContributors:
-      settings?.defaultRequiredContributors ?? defaultGroupFundedSettings.defaultRequiredContributors,
-    minContributionAmountCents: settings?.minContributionAmountCents ?? null,
-    maxContributionAmountCents: settings?.maxContributionAmountCents ?? null,
+    minRequiredContributors,
+    maxRequiredContributors,
+    defaultRequiredContributors,
+    minContributionAmountCents: null,
+    maxContributionAmountCents: null,
     minDeadlineHours:
       settings?.minDeadlineHours ?? defaultGroupFundedSettings.minDeadlineHours,
     maxDeadlineDays:
       settings?.maxDeadlineDays ?? defaultGroupFundedSettings.maxDeadlineDays,
     allowPublicCampaigns: settings?.allowPublicCampaigns === true
   };
+}
+
+function updateGroupFundedContributorBounds(
+  settings: Partial<GroupFundedLocationServiceSettings> | null | undefined,
+  changes: Partial<
+    Pick<
+      GroupFundedLocationServiceSettings,
+      "minRequiredContributors" | "maxRequiredContributors"
+    >
+  >
+): GroupFundedLocationServiceSettings {
+  return normalizeGroupFundedSettings({
+    ...normalizeGroupFundedSettings(settings),
+    ...changes
+  });
 }
 
 type ServiceLocationFormEntry = NonNullable<SaveVendorServiceRequest["locationServices"]>[number];
@@ -687,7 +738,9 @@ const presetBackgroundImageUrls = new Set(
     .filter(Boolean)
 );
 
-type DashboardSection = "queue" | "tenants" | "services" | "bookings" | "group-funded" | "staff" | "clients" | "history" | "reports" | "settings";
+type DashboardSection = "queue" | "tenants" | "services" | "bookings" | "group-funded" | "staff" | "clients" | "history" | "reports" | "settings" | "account";
+type AccountTab = "subscription" | "billing" | "profile" | "security";
+type SettingsTab = "contact" | "queue" | "notifications";
 type QueueView = "current" | "overflow" | "recovery";
 type ClientSort = "latestVisitDesc" | "latestVisitAsc" | "nameAsc" | "nameDesc" | "visitsDesc" | "visitsAsc";
 type HistorySort = "updatedDesc" | "updatedAsc" | "ticketAsc" | "ticketDesc" | "customerAsc" | "customerDesc";
@@ -716,7 +769,8 @@ const navItems = [
   { section: "clients", label: "Clients", icon: IconUsersGroup },
   { section: "history", label: "History", icon: IconHistory },
   { section: "reports", label: "Reports", icon: IconChartBar },
-  { section: "settings", label: "Settings", icon: IconSettings }
+  { section: "settings", label: "Settings", icon: IconSettings },
+  { section: "account", label: "Account", icon: IconUserCircle }
 ] as const;
 const dashboardSectionDescriptions: Partial<Record<DashboardSection, string>> = {
   queue: "Run the live queue, manage intake, and move customers through service.",
@@ -727,7 +781,8 @@ const dashboardSectionDescriptions: Partial<Record<DashboardSection, string>> = 
   clients: "Review recent customer activity and returning queue visitors.",
   history: "Inspect completed ticket activity and export queue records.",
   reports: "Track queue usage, service pace, and plan consumption over time.",
-  settings: "Adjust your business profile, subscription, and queue behavior for this workspace."
+  settings: "Adjust the business profile, queue behavior, and operational notifications for this workspace.",
+  account: "Manage your vendor account profile, security, subscription, and billing access."
 };
 const adminAllowedSections = new Set<DashboardSection>([
   "queue",
@@ -738,9 +793,10 @@ const adminAllowedSections = new Set<DashboardSection>([
   "clients",
   "history",
   "reports",
-  "settings"
+  "settings",
+  "account"
 ]);
-const staffAllowedSections = new Set<DashboardSection>(["queue", "bookings", "clients", "history"]);
+const staffAllowedSections = new Set<DashboardSection>(["queue", "bookings", "clients", "history", "account"]);
 
 function getHistoryTimestamp(value: string | Date): number {
   return toTimestamp(value);
@@ -1027,7 +1083,7 @@ function DashboardEmptyState({
 }
 
 export default function VendorDashboardPage() {
-  const { token, user, loading, logout } = useAuth();
+  const { token, user, loading, logout, refreshUser, changePassword } = useAuth();
   const { section } = useParams<{ section: string }>();
   const location = useLocation();
   const navigate = useNavigate();
@@ -1077,6 +1133,29 @@ export default function VendorDashboardPage() {
   const [availabilityExceptionForm, setAvailabilityExceptionForm] = useState<SaveVendorAvailabilityExceptionRequest>(emptyAvailabilityExceptionForm);
   const [availabilityExceptionBlockEntireDay, setAvailabilityExceptionBlockEntireDay] = useState(false);
   const [settings, setSettings] = useState<UpdateTenantSettingsRequest>(defaultSettings);
+  const [accountTab, setAccountTab] = useState<AccountTab>("subscription");
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>("contact");
+  const [accountProfileForm, setAccountProfileForm] = useState({
+    name: user?.name || "",
+    displayName: user?.displayName || ""
+  });
+  const [accountProfileBusy, setAccountProfileBusy] = useState(false);
+  const [mfaEnabled, setMfaEnabled] = useState(Boolean(user?.mfaEnabled));
+  const [mfaSecret, setMfaSecret] = useState("");
+  const [mfaEnrollmentUri, setMfaEnrollmentUri] = useState("");
+  const [mfaCode, setMfaCode] = useState("");
+  const [mfaRecoveryCodes, setMfaRecoveryCodes] = useState<string[]>([]);
+  const [mfaBusy, setMfaBusy] = useState(false);
+  const [passwordForm, setPasswordForm] = useState<PasswordChangeRequest>({ currentPassword: "", newPassword: "" });
+  const [passwordBusy, setPasswordBusy] = useState(false);
+  const [replacingMfa, setReplacingMfa] = useState(false);
+  const [replacementPassword, setReplacementPassword] = useState("");
+  const [replacementCode, setReplacementCode] = useState("");
+  const [removingMfa, setRemovingMfa] = useState(false);
+  const [removalPassword, setRemovalPassword] = useState("");
+  const [removalCode, setRemovalCode] = useState("");
+  const [removalRecoveryCode, setRemovalRecoveryCode] = useState("");
+  const [removalAcknowledged, setRemovalAcknowledged] = useState(false);
   const [vendorNotificationSettings, setVendorNotificationSettings] = useState<TenantNotificationSettings>(defaultNotificationSettings);
   const [browserPermission, setBrowserPermission] = useState<NotificationPermission>(
     typeof window !== "undefined" && typeof window.Notification !== "undefined"
@@ -1089,6 +1168,7 @@ export default function VendorDashboardPage() {
   const browserNotificationsSupported = isBrowserPushSupported();
   const browserNotificationsSecure = typeof window !== "undefined" ? window.isSecureContext : false;
   const [walkInForm, setWalkInForm] = useState<CreateWalkInTicketRequest>(emptyWalkIn);
+  const [walkInDialogOpen, setWalkInDialogOpen] = useState(false);
   const [billing, setBilling] = useState<BillingOverviewResponse | null>(null);
   const [history, setHistory] = useState<VendorHistoryResponse | null>(null);
   const [clients, setClients] = useState<VendorClientsResponse | null>(null);
@@ -1101,6 +1181,8 @@ export default function VendorDashboardPage() {
   const knownQueueTicketIdsRef = useRef<Set<string> | null>(null);
   const [queueAlertIds, setQueueAlertIds] = useState<string[]>([]);
   const dismissedQueueAlertIdsRef = useRef<Set<string>>(new Set());
+  const previousQueueDayRef = useRef<QueueDaySyncState | null>(null);
+  const localQueueDayUpdateRef = useRef<LocalQueueDayUpdate | null>(null);
   const [bookingDetailModalId, setBookingDetailModalId] = useState<string | null>(null);
   const [bookingDetailOpen, setBookingDetailOpen] = useState(false);
   const [bookingDetailLoading, setBookingDetailLoading] = useState(false);
@@ -1132,6 +1214,7 @@ export default function VendorDashboardPage() {
   const [error, setError] = useState("");
   const [busyAction, setBusyAction] = useState("");
   const [planDialogOpen, setPlanDialogOpen] = useState(false);
+  const [paidPlanDialogOnly, setPaidPlanDialogOnly] = useState(false);
   const [themeDialogOpen, setThemeDialogOpen] = useState(false);
   const [themeLocation, setThemeLocation] = useState<StoreLocationWithHours | null>(null);
   const [themeForm, setThemeForm] = useState<PublicBoardThemeSettings>(defaultPublicBoardTheme);
@@ -1160,6 +1243,8 @@ export default function VendorDashboardPage() {
   const [historyExportFormat, setHistoryExportFormat] = useState<"csv" | "pdf" | null>(null);
   const [historyExportRange, setHistoryExportRange] = useState<HistoryExportRange | null>(null);
   const [queueView, setQueueView] = useState<QueueView>("current");
+  const [ticketScannerOpen, setTicketScannerOpen] = useState(false);
+  const [ticketScannerError, setTicketScannerError] = useState("");
   const [clientsSearch, setClientsSearch] = useState("");
   const [clientsSort, setClientsSort] = useState<ClientSort>("latestVisitDesc");
   const [clientsPage, setClientsPage] = useState(1);
@@ -1184,26 +1269,28 @@ export default function VendorDashboardPage() {
   const [groupFundedProofContribution, setGroupFundedProofContribution] = useState<VendorGroupFundedContributionSummary | null>(null);
   const [groupFundedProofAccessUrl, setGroupFundedProofAccessUrl] = useState("");
   const [groupFundedProofError, setGroupFundedProofError] = useState("");
-  const hasActiveSubscription = billing?.subscription?.status === "active";
   const selectedLocation =
     locations.find((locationItem) => locationItem.slug === selectedLocationSlug) ||
     snapshot?.location ||
     null;
+  const availabilityBlockLocation =
+    locations.find((locationItem) => locationItem.slug === availabilityBlockForm.locationSlug) ||
+    selectedLocation;
   const selectedTenantRole =
     user?.tenants.find((tenant) => tenant.slug === selectedTenantSlug)?.role || null;
+  const hasActiveSubscription =
+    selectedTenantRole === "staff" || billing?.subscription?.status === "active";
   const isOwner = selectedTenantRole === "owner";
   const isAdmin = selectedTenantRole === "admin";
-  const canManageQueueDay = isOwner || isAdmin;
+  const requiresMfaEnrollment = Boolean(user?.mfaRequired && !user.mfaEnabled);
+  const canLoadProtectedDashboard = !requiresMfaEnrollment;
+  const canOperateQueueDay = Boolean(selectedTenantRole);
+  const canReopenQueueDay = isOwner || isAdmin;
   const canManageContactSettings = isOwner;
   const canExportHistory = isOwner || isAdmin;
   const canAdminBookings = isOwner || isAdmin;
   const canOperateBookingQueue = Boolean(selectedTenantRole);
   const confirmBusy = Boolean(confirmAction && busyAction);
-  const visibleNavItems = isOwner
-    ? navItems
-    : isAdmin
-      ? navItems.filter((item) => adminAllowedSections.has(item.section))
-      : navItems.filter((item) => staffAllowedSections.has(item.section));
   const locationQuery = selectedLocationSlug
     ? `?location=${encodeURIComponent(selectedLocationSlug)}`
     : "";
@@ -1213,6 +1300,17 @@ export default function VendorDashboardPage() {
     rescheduleSlotsError,
     groupFundedProofError
   ].find(Boolean) || "";
+
+  useEffect(() => {
+    setMfaEnabled(Boolean(user?.mfaEnabled));
+  }, [user?.mfaEnabled]);
+
+  useEffect(() => {
+    setAccountProfileForm({
+      name: user?.name || "",
+      displayName: user?.displayName || ""
+    });
+  }, [user?.displayName, user?.name]);
 
   useEffect(() => {
     if (!dashboardErrorMessage) {
@@ -1230,15 +1328,88 @@ export default function VendorDashboardPage() {
   }, [dashboardErrorMessage]);
 
   const dashboardBootstrapQuery = useQuery({
-    queryKey: ["vendor-dashboard-bootstrap", token, selectedTenantSlug, selectedLocationSlug, locationQuery],
+    queryKey: ["vendor-dashboard-bootstrap", token, selectedTenantSlug, selectedLocationSlug, locationQuery, selectedTenantRole],
     queryFn: async () => {
       if (!token || !selectedTenantSlug) {
         throw new Error("Missing dashboard context.");
       }
 
-      return vendorDashboardBootstrap.getBootstrap(token, selectedTenantSlug, locationQuery);
+      return vendorDashboardBootstrap.getBootstrap(
+        token,
+        selectedTenantSlug,
+        locationQuery,
+        isOwner || isAdmin
+      );
     },
-    enabled: shouldEnableVendorDashboardBootstrap(token, selectedTenantSlug)
+    enabled: shouldEnableVendorDashboardBootstrap(token, selectedTenantSlug, requiresMfaEnrollment)
+  });
+  const billingOverviewQuery = useQuery({
+    queryKey: ["vendor-dashboard-billing", token, selectedTenantSlug],
+    queryFn: async () => {
+      if (!token || !selectedTenantSlug) {
+        throw new Error("Missing billing context.");
+      }
+
+      return vendorDashboardBootstrap.getBillingOverview(token, selectedTenantSlug);
+    },
+    enabled: Boolean(
+      shouldEnableVendorDashboardBootstrap(token, selectedTenantSlug, requiresMfaEnrollment) &&
+      (isOwner || isAdmin)
+    )
+  });
+  const effectiveEntitlementsQuery = useQuery({
+    queryKey: ["vendor-dashboard-effective-entitlements", token, selectedTenantSlug],
+    queryFn: async () => {
+      if (!token || !selectedTenantSlug) {
+        throw new Error("Missing entitlement context.");
+      }
+
+      return vendorDashboardBootstrap.getEffectiveEntitlements(token, selectedTenantSlug);
+    },
+    enabled: shouldEnableVendorDashboardBootstrap(token, selectedTenantSlug, requiresMfaEnrollment)
+  });
+  const capacityExperienceQuery = useQuery({
+    queryKey: ["vendor-dashboard-capacity-experience", token, selectedTenantSlug],
+    queryFn: async () => {
+      if (!token || !selectedTenantSlug) {
+        throw new Error("Missing capacity context.");
+      }
+
+      return vendorDashboardBootstrap.getCapacityExperience(token, selectedTenantSlug);
+    },
+    enabled: shouldEnableVendorDashboardBootstrap(token, selectedTenantSlug, requiresMfaEnrollment)
+  });
+  const effectiveBilling = billingOverviewQuery.data || null;
+  const activeSubscription =
+    effectiveBilling?.subscription?.status === "active" ? effectiveBilling.subscription : null;
+  const currentPlan = activeSubscription
+    ? effectiveBilling?.plans.find((plan) => plan.slug === activeSubscription.planSlug)
+    : null;
+  const effectiveEntitlements =
+    activeSubscription?.entitlements ||
+    currentPlan?.entitlements ||
+    effectiveEntitlementsQuery.data?.entitlements;
+  const roleVisibleNavItems = requiresMfaEnrollment
+    ? navItems.filter((item) => item.section === "account")
+    : isOwner
+      ? navItems
+      : isAdmin
+        ? navItems.filter((item) => adminAllowedSections.has(item.section))
+        : navItems.filter((item) => staffAllowedSections.has(item.section));
+  const visibleNavItems = roleVisibleNavItems.filter((item) =>
+    canAccessVendorSection(item.section, effectiveEntitlements)
+  );
+  const defaultDashboardPath = `/dashboard/${visibleNavItems[0]?.section || "settings"}`;
+  const queueLifecycleSnapshotQuery = useQuery({
+    queryKey: ["vendor-dashboard-queue-lifecycle", token, selectedTenantSlug, selectedLocationSlug, locationQuery],
+    queryFn: async () => {
+      if (!token || !selectedTenantSlug) {
+        throw new Error("Missing dashboard context.");
+      }
+      return vendorDashboardQueue.getQueueSnapshot(token, selectedTenantSlug, locationQuery);
+    },
+    enabled: shouldEnableVendorDashboardBootstrap(token, selectedTenantSlug, requiresMfaEnrollment),
+    refetchInterval: 30_000
   });
   const staffQuery = useQuery({
     queryKey: ["vendor-dashboard-staff", token, selectedTenantSlug],
@@ -1249,7 +1420,12 @@ export default function VendorDashboardPage() {
 
       return vendorDashboardOperations.getStaff(token, selectedTenantSlug);
     },
-    enabled: Boolean(token && selectedTenantSlug)
+    enabled: Boolean(
+      canLoadProtectedDashboard &&
+      token &&
+      selectedTenantSlug &&
+      canAccessVendorSection("staff", effectiveEntitlements)
+    )
   });
   const servicesQuery = useQuery({
     queryKey: ["vendor-dashboard-services", token, selectedTenantSlug, isOwner, isAdmin],
@@ -1260,7 +1436,13 @@ export default function VendorDashboardPage() {
 
       return vendorDashboardCatalog.getServices(token, selectedTenantSlug);
     },
-    enabled: Boolean(token && selectedTenantSlug && (isOwner || isAdmin))
+    enabled: Boolean(
+      canLoadProtectedDashboard &&
+      token &&
+      selectedTenantSlug &&
+      (isOwner || isAdmin) &&
+      canAccessVendorSection("services", effectiveEntitlements)
+    )
   });
   const locationServicesQuery = useQuery({
     queryKey: ["vendor-dashboard-location-services", token, selectedTenantSlug, isOwner, isAdmin],
@@ -1271,7 +1453,13 @@ export default function VendorDashboardPage() {
 
       return vendorDashboardCatalog.getLocationServices(token, selectedTenantSlug);
     },
-    enabled: Boolean(token && selectedTenantSlug && (isOwner || isAdmin))
+    enabled: Boolean(
+      canLoadProtectedDashboard &&
+      token &&
+      selectedTenantSlug &&
+      (isOwner || isAdmin) &&
+      canAccessVendorSection("services", effectiveEntitlements)
+    )
   });
   const availabilityQuery = useQuery({
     queryKey: ["vendor-dashboard-availability", token, selectedTenantSlug, selectedLocationSlug, isOwner, isAdmin],
@@ -1282,7 +1470,14 @@ export default function VendorDashboardPage() {
 
       return vendorDashboardCatalog.getAvailability(token, selectedTenantSlug, selectedLocationSlug);
     },
-    enabled: Boolean(token && selectedTenantSlug && selectedLocationSlug && (isOwner || isAdmin))
+    enabled: Boolean(
+      canLoadProtectedDashboard &&
+      token &&
+      selectedTenantSlug &&
+      selectedLocationSlug &&
+      (isOwner || isAdmin) &&
+      canAccessVendorSection("services", effectiveEntitlements)
+    )
   });
   const countersQuery = useQuery({
     queryKey: ["vendor-dashboard-counters", token, selectedTenantSlug, selectedLocationSlug],
@@ -1293,7 +1488,7 @@ export default function VendorDashboardPage() {
 
       return vendorDashboardCatalog.getCounters(token, selectedTenantSlug, selectedLocationSlug);
     },
-    enabled: Boolean(token && selectedTenantSlug && selectedLocationSlug)
+    enabled: Boolean(canLoadProtectedDashboard && token && selectedTenantSlug && selectedLocationSlug)
   });
   const historyQuery = useQuery({
     queryKey: ["vendor-dashboard-history", token, selectedTenantSlug, selectedLocationSlug, currentSection, hasActiveSubscription],
@@ -1304,7 +1499,15 @@ export default function VendorDashboardPage() {
 
       return vendorDashboardOperations.getHistory(token, selectedTenantSlug, selectedLocationSlug);
     },
-    enabled: Boolean(token && selectedTenantSlug && selectedLocationSlug && currentSection === "history" && hasActiveSubscription)
+    enabled: Boolean(
+      canLoadProtectedDashboard &&
+      token &&
+      selectedTenantSlug &&
+      selectedLocationSlug &&
+      currentSection === "history" &&
+      hasActiveSubscription &&
+      canAccessVendorSection("history", effectiveEntitlements)
+    )
   });
   const clientsQuery = useQuery({
     queryKey: ["vendor-dashboard-clients", token, selectedTenantSlug, selectedLocationSlug, currentSection, hasActiveSubscription, locationQuery],
@@ -1315,7 +1518,15 @@ export default function VendorDashboardPage() {
 
       return vendorDashboardOperations.getClients(token, selectedTenantSlug, locationQuery);
     },
-    enabled: Boolean(token && selectedTenantSlug && selectedLocationSlug && currentSection === "clients" && hasActiveSubscription)
+    enabled: Boolean(
+      canLoadProtectedDashboard &&
+      token &&
+      selectedTenantSlug &&
+      selectedLocationSlug &&
+      currentSection === "clients" &&
+      hasActiveSubscription &&
+      canAccessVendorSection("clients", effectiveEntitlements)
+    )
   });
   const bookingListQuery = useQuery({
     queryKey: [
@@ -1338,7 +1549,16 @@ export default function VendorDashboardPage() {
         bookingDateRange[1] ? formatDateInputValue(bookingDateRange[1]) : null
       ]);
     },
-    enabled: Boolean(token && selectedTenantSlug && selectedLocationSlug && currentSection === "bookings" && hasActiveSubscription && canOperateBookingQueue)
+    enabled: Boolean(
+      canLoadProtectedDashboard &&
+      token &&
+      selectedTenantSlug &&
+      selectedLocationSlug &&
+      currentSection === "bookings" &&
+      hasActiveSubscription &&
+      canOperateBookingQueue &&
+      canAccessVendorSection("bookings", effectiveEntitlements)
+    )
   });
   const groupFundedCampaignsQuery = useQuery({
     queryKey: [
@@ -1361,12 +1581,14 @@ export default function VendorDashboardPage() {
       );
     },
     enabled: Boolean(
+      canLoadProtectedDashboard &&
       token &&
       selectedTenantSlug &&
       selectedLocation?.id &&
       currentSection === "group-funded" &&
       hasActiveSubscription &&
-      canOperateBookingQueue
+      canOperateBookingQueue &&
+      canAccessVendorSection("group-funded", effectiveEntitlements)
     )
   });
   const groupFundedDetailQuery = useQuery({
@@ -1378,7 +1600,13 @@ export default function VendorDashboardPage() {
 
       return vendorDashboardBookings.getGroupFundedCampaignDetail(token, selectedTenantSlug, groupFundedDetailId);
     },
-    enabled: Boolean(token && selectedTenantSlug && groupFundedDetailId)
+    enabled: Boolean(
+      canLoadProtectedDashboard &&
+      token &&
+      selectedTenantSlug &&
+      groupFundedDetailId &&
+      canAccessVendorSection("group-funded", effectiveEntitlements)
+    )
   });
   const bookingAlertsQuery = useQuery({
     queryKey: ["vendor-dashboard-booking-alerts", token, selectedTenantSlug, selectedLocationSlug],
@@ -1389,7 +1617,15 @@ export default function VendorDashboardPage() {
 
       return vendorDashboardBookings.getBookingAlerts(token, selectedTenantSlug, selectedLocationSlug);
     },
-    enabled: Boolean(token && selectedTenantSlug && selectedLocationSlug && hasActiveSubscription && canOperateBookingQueue),
+    enabled: Boolean(
+      canLoadProtectedDashboard &&
+      token &&
+      selectedTenantSlug &&
+      selectedLocationSlug &&
+      hasActiveSubscription &&
+      canOperateBookingQueue &&
+      canAccessVendorSection("bookings", effectiveEntitlements)
+    ),
     refetchInterval: 15000
   });
   useEffect(() => {
@@ -1469,11 +1705,25 @@ export default function VendorDashboardPage() {
   }, [selectedTenantSlug, user]);
 
   useEffect(() => {
+    if (requiresMfaEnrollment) {
+      setAccountTab("security");
+      if (currentSection !== "account") {
+        navigate("/dashboard/account", { replace: true });
+      }
+      return;
+    }
+
+    if (selectedTenantRole === "staff" && (accountTab === "subscription" || accountTab === "billing")) {
+      setAccountTab("profile");
+    }
+  }, [accountTab, currentSection, navigate, requiresMfaEnrollment, selectedTenantRole]);
+
+  useEffect(() => {
     if (!dashboardBootstrapQuery.data) {
       return;
     }
 
-    const { locationsResponse, snapshotResponse, billingResponse, notificationSettings } = dashboardBootstrapQuery.data;
+    const { locationsResponse, snapshotResponse, notificationSettings } = dashboardBootstrapQuery.data;
     setError("");
     setLocations(locationsResponse.locations);
     setActiveLocationLimit(locationsResponse.activeLocationLimit);
@@ -1481,31 +1731,89 @@ export default function VendorDashboardPage() {
     if (!selectedLocationSlug || !locationsResponse.locations.some((item) => item.slug === selectedLocationSlug)) {
       setSelectedLocationSlug(locationsResponse.locations.find((item) => item.isPrimary)?.slug || locationsResponse.locations[0]?.slug || "");
     }
-    setSnapshot(snapshotResponse);
+    setSnapshot((current) => selectFreshestQueueSnapshot(current, snapshotResponse));
     setSettings({
       name: snapshotResponse.tenant.name || "",
       publicProfileCategory: snapshotResponse.tenant.publicProfileCategory || "",
-      ownerName: user?.name || "",
-      ownerDisplayName: user?.displayName || "",
       queuePrefix: snapshotResponse.tenant.queuePrefix,
       averageServiceMinutes: snapshotResponse.tenant.averageServiceMinutes,
       notificationThreshold: snapshotResponse.tenant.notificationThreshold,
       autoPauseEnabled: snapshotResponse.tenant.autoPauseEnabled,
       autoPauseThreshold: snapshotResponse.tenant.autoPauseThreshold ?? 20,
       autoResumeEnabled: snapshotResponse.tenant.autoResumeEnabled,
-      autoResumeVacancyPercent: snapshotResponse.tenant.autoResumeVacancyPercent ?? 20,
-      contactEmail: snapshotResponse.tenant.contactEmail || "",
-      contactPhone: snapshotResponse.tenant.contactPhone || ""
+      autoResumeVacancyPercent: snapshotResponse.tenant.autoResumeVacancyPercent ?? 20
     });
-    setBilling(billingResponse);
     setVendorNotificationSettings(notificationSettings);
-  }, [dashboardBootstrapQuery.data, selectedLocationSlug, user?.displayName, user?.name]);
+  }, [dashboardBootstrapQuery.data, selectedLocationSlug]);
+
+  useEffect(() => {
+    if (billingOverviewQuery.data) {
+      setBilling(billingOverviewQuery.data);
+    }
+  }, [billingOverviewQuery.data]);
 
   useEffect(() => {
     if (dashboardBootstrapQuery.error) {
       setError(getErrorMessage(dashboardBootstrapQuery.error));
     }
   }, [dashboardBootstrapQuery.error]);
+
+  useEffect(() => {
+    if (queueLifecycleSnapshotQuery.data) {
+      setSnapshot((current) => selectFreshestQueueSnapshot(current, queueLifecycleSnapshotQuery.data));
+    }
+  }, [queueLifecycleSnapshotQuery.data]);
+
+  useEffect(() => {
+    const queueDay = snapshot?.queueDay;
+    if (!queueDay) return;
+    const current = {
+      id: queueDay.id ? String(queueDay.id) : null,
+      state: queueDay.state || null,
+      deadlineVersion: queueDay.deadlineVersion ?? null,
+      reconciliationError: queueDay.reconciliationError || null
+    };
+    const previous = previousQueueDayRef.current;
+    if (!previous || previous.id !== current.id) {
+      previousQueueDayRef.current = current;
+      return;
+    }
+
+    const syncNotice = getQueueDaySyncNotice(
+      previous,
+      current,
+      localQueueDayUpdateRef.current,
+      busyAction.startsWith("queue-")
+    );
+    if (syncNotice === "local_update") {
+      previousQueueDayRef.current = current;
+      localQueueDayUpdateRef.current = null;
+      return;
+    }
+    if (syncNotice === "defer") {
+      return;
+    }
+    previousQueueDayRef.current = current;
+
+    if (syncNotice === "deadline_updated") {
+      showInfoNotification(
+        "Queue deadline updated",
+        `Another operator extended the Queue Day. The new close time is ${
+          queueDay.currentClosesAt ? formatDateTime(queueDay.currentClosesAt) : "available in the live status"
+        }.`
+      );
+    } else if (syncNotice === "closed") {
+      showInfoNotification(
+        "Queue closed",
+        "Live status synchronized. Earlier ticket outcomes remain final even if an admin later reopens the Queue Day."
+      );
+    } else if (syncNotice === "reconciliation_error") {
+      showInfoNotification(
+        "Queue status needs attention",
+        "Automatic reconciliation could not confirm a trustworthy state. Queue actions are locked."
+      );
+    }
+  }, [busyAction, snapshot?.queueDay]);
 
   useEffect(() => {
     if (!staffQuery.data) {
@@ -1665,7 +1973,7 @@ export default function VendorDashboardPage() {
   }
 
   useEffect(() => {
-    if (!selectedTenantSlug || !selectedLocationSlug || !token) {
+    if (!canLoadProtectedDashboard || !selectedTenantSlug || !selectedLocationSlug || !token) {
       return;
     }
 
@@ -1683,10 +1991,17 @@ export default function VendorDashboardPage() {
         setServiceCounters([]);
         setCounterLimit(0);
       });
-  }, [selectedLocationSlug, selectedTenantSlug, token]);
+  }, [canLoadProtectedDashboard, selectedLocationSlug, selectedTenantSlug, token]);
 
   useEffect(() => {
-    if (!selectedTenantSlug || !token) {
+    if (
+      !canLoadProtectedDashboard ||
+      !selectedTenantSlug ||
+      !token ||
+      !canAccessVendorSection("staff", effectiveEntitlements)
+    ) {
+      setStaff([]);
+      setStaffSeatLimit(0);
       return;
     }
 
@@ -1699,10 +2014,16 @@ export default function VendorDashboardPage() {
         setStaff([]);
         setStaffSeatLimit(0);
       });
-  }, [selectedTenantSlug, token]);
+  }, [canLoadProtectedDashboard, effectiveEntitlements, selectedTenantSlug, token]);
 
   useEffect(() => {
-    if (!selectedTenantSlug || !token || !(isOwner || isAdmin)) {
+    if (
+      !canLoadProtectedDashboard ||
+      !selectedTenantSlug ||
+      !token ||
+      !(isOwner || isAdmin) ||
+      !canAccessVendorSection("services", effectiveEntitlements)
+    ) {
       setServices([]);
       return;
     }
@@ -1714,10 +2035,16 @@ export default function VendorDashboardPage() {
       .catch(() => {
         setServices([]);
       });
-  }, [isAdmin, isOwner, selectedTenantSlug, token]);
+  }, [canLoadProtectedDashboard, effectiveEntitlements, isAdmin, isOwner, selectedTenantSlug, token]);
 
   useEffect(() => {
-    if (!selectedTenantSlug || !selectedLocationSlug || !token || !(isOwner || isAdmin)) {
+    if (
+      !selectedTenantSlug ||
+      !selectedLocationSlug ||
+      !token ||
+      !(isOwner || isAdmin) ||
+      !canAccessVendorSection("services", effectiveEntitlements)
+    ) {
       setAvailabilityBlocks([]);
       setAvailabilityExceptions([]);
       return;
@@ -1732,7 +2059,7 @@ export default function VendorDashboardPage() {
         setAvailabilityBlocks([]);
         setAvailabilityExceptions([]);
       });
-  }, [isAdmin, isOwner, selectedLocationSlug, selectedTenantSlug, token]);
+  }, [effectiveEntitlements, isAdmin, isOwner, selectedLocationSlug, selectedTenantSlug, token]);
 
   useEffect(() => {
     if (!selectedTenantSlug || !token) {
@@ -1771,6 +2098,10 @@ export default function VendorDashboardPage() {
         }
 
         setBilling(data.billing);
+        queryClient.setQueryData(
+          ["vendor-dashboard-billing", token, selectedTenantSlug],
+          data.billing
+        );
         if (data.paid) {
           showSuccessNotification("Subscription activated", "Your plan is now active.");
         } else {
@@ -1795,10 +2126,10 @@ export default function VendorDashboardPage() {
     return () => {
       active = false;
     };
-  }, [location.pathname, location.search, navigate, selectedTenantSlug, token]);
+  }, [location.pathname, location.search, navigate, queryClient, selectedTenantSlug, token]);
 
   useEffect(() => {
-    if (!selectedTenantSlug || !selectedLocationSlug) {
+    if (!selectedTenantSlug || !selectedLocationSlug || !token) {
       return undefined;
     }
 
@@ -1807,9 +2138,23 @@ export default function VendorDashboardPage() {
     );
     eventSource.onmessage = (event) => {
       const payload = JSON.parse(event.data) as QueueSnapshot;
-      setSnapshot(payload);
       syncQueueAlerts(payload.nextUp || [], { detectNew: true });
-      if (currentSection === "bookings" && token && hasActiveSubscription && canOperateBookingQueue) {
+      void queryClient.invalidateQueries({
+        queryKey: [
+          "vendor-dashboard-queue-lifecycle",
+          token,
+          selectedTenantSlug,
+          selectedLocationSlug,
+          locationQuery
+        ]
+      });
+      if (
+        currentSection === "bookings" &&
+        token &&
+        hasActiveSubscription &&
+        canOperateBookingQueue &&
+        canAccessVendorSection("bookings", effectiveEntitlements)
+      ) {
         void queryClient.invalidateQueries({
           queryKey: [
             "vendor-dashboard-bookings",
@@ -1823,7 +2168,12 @@ export default function VendorDashboardPage() {
           ]
         });
       }
-      if (token && hasActiveSubscription && canOperateBookingQueue) {
+      if (
+        token &&
+        hasActiveSubscription &&
+        canOperateBookingQueue &&
+        canAccessVendorSection("group-funded", effectiveEntitlements)
+      ) {
         void queryClient.invalidateQueries({
           queryKey: ["vendor-dashboard-group-funded-campaigns", token, selectedTenantSlug]
         });
@@ -1842,11 +2192,13 @@ export default function VendorDashboardPage() {
   }, [
     canOperateBookingQueue,
     currentSection,
+    effectiveEntitlements,
     bookingDateRange,
     bookingPage,
     bookingSearch,
     bookingStatusFilter,
     hasActiveSubscription,
+    locationQuery,
     queryClient,
     selectedLocationSlug,
     selectedTenantSlug,
@@ -1901,13 +2253,6 @@ export default function VendorDashboardPage() {
     };
   }, [currentSection, hasActiveSubscription, locationQuery, selectedLocationSlug, selectedTenantSlug, token]);
 
-  const activeSubscription =
-    billing?.subscription?.status === "active" ? billing.subscription : null;
-  const currentPlan = activeSubscription
-    ? billing?.plans.find((plan) => plan.slug === activeSubscription.planSlug)
-    : null;
-  const effectiveEntitlements = activeSubscription?.entitlements || currentPlan?.entitlements;
-
   useEffect(() => {
     if (!effectiveEntitlements) {
       setHistoryExportFormat(null);
@@ -1919,14 +2264,15 @@ export default function VendorDashboardPage() {
       effectiveEntitlements.csvExport ? "csv" : null,
       effectiveEntitlements.pdfExport ? "pdf" : null
     ].filter(Boolean) as Array<"csv" | "pdf">;
+    const allowedHistoryExportRanges = getAllowedHistoryExportRanges(effectiveEntitlements);
 
     setHistoryExportFormat((current) =>
       current && availableFormats.includes(current) ? current : availableFormats[0] || null
     );
     setHistoryExportRange((current) =>
-      current && effectiveEntitlements.allowedHistoryExportRanges.includes(current)
+      current && allowedHistoryExportRanges.includes(current)
         ? current
-        : effectiveEntitlements.allowedHistoryExportRanges[0] || null
+        : allowedHistoryExportRanges[0] || null
     );
   }, [effectiveEntitlements]);
 
@@ -1996,6 +2342,175 @@ export default function VendorDashboardPage() {
       message,
       title
     });
+  }
+
+  async function copyLocationUrl(label: "Join URL" | "QR target" | "Monitor URL", url: string) {
+    try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error("Clipboard access is not available in this browser.");
+      }
+
+      await navigator.clipboard.writeText(url);
+      showSuccessNotification(`${label} copied`, `The ${label.toLowerCase()} has been copied to your clipboard.`);
+    } catch (copyError) {
+      notifications.show({
+        color: "red",
+        icon: <IconX size={18} />,
+        message: getErrorMessage(copyError),
+        title: "Could not copy URL"
+      });
+    }
+  }
+
+  async function startMfaEnrollment() {
+    if (!token) {
+      return;
+    }
+
+    setMfaBusy(true);
+    setError("");
+    try {
+      const enrollment = await vendorDashboardOperations.startMfaEnrollment(token);
+      setMfaSecret(enrollment.secret);
+      setMfaEnrollmentUri(enrollment.otpAuthUri);
+      setMfaRecoveryCodes([]);
+    } catch (mfaError) {
+      setError(getErrorMessage(mfaError));
+    } finally {
+      setMfaBusy(false);
+    }
+  }
+
+  async function confirmMfaEnrollment() {
+    if (!token) {
+      return;
+    }
+
+    setMfaBusy(true);
+    setError("");
+    try {
+      const result = await vendorDashboardOperations.confirmMfaEnrollment(token, mfaCode);
+      setMfaEnabled(true);
+      setMfaSecret("");
+      setMfaEnrollmentUri("");
+      setMfaCode("");
+      setMfaRecoveryCodes(result.recoveryCodes);
+      await refreshUser();
+      showSuccessNotification("Authenticator enabled", "Save your recovery codes before leaving this page.");
+    } catch (mfaError) {
+      setError(getErrorMessage(mfaError));
+    } finally {
+      setMfaBusy(false);
+    }
+  }
+
+  async function cancelMfaEnrollment() {
+    if (!token) {
+      return;
+    }
+
+    setMfaBusy(true);
+    setError("");
+    try {
+      await vendorDashboardOperations.cancelMfaEnrollment(token);
+      setMfaSecret("");
+      setMfaEnrollmentUri("");
+      setMfaCode("");
+      showSuccessNotification("Replacement canceled", "Your current authenticator is still active.");
+    } catch (mfaError) {
+      setError(getErrorMessage(mfaError));
+    } finally {
+      setMfaBusy(false);
+    }
+  }
+
+  async function handleAccountProfileSave(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!token || !accountProfileForm.name.trim()) {
+      return;
+    }
+
+    setAccountProfileBusy(true);
+    setError("");
+    try {
+      await vendorDashboardOperations.updateAccountProfile(token, {
+        name: accountProfileForm.name.trim(),
+        displayName: accountProfileForm.displayName.trim()
+      });
+      await refreshUser();
+      showSuccessNotification("Account profile saved", "Your vendor account details were updated.");
+    } catch (profileError) {
+      setError(getErrorMessage(profileError));
+    } finally {
+      setAccountProfileBusy(false);
+    }
+  }
+
+  async function handlePasswordChange(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPasswordBusy(true);
+    setError("");
+    try {
+      await changePassword(passwordForm);
+      navigate("/login", { replace: true });
+    } catch (passwordError) {
+      setError(getErrorMessage(passwordError));
+    } finally {
+      setPasswordBusy(false);
+    }
+  }
+
+  async function startMfaReplacement() {
+    if (!token) {
+      return;
+    }
+
+    setMfaBusy(true);
+    setError("");
+    try {
+      await vendorDashboardOperations.verifyMfaStepUp(token, replacementPassword, replacementCode);
+      const enrollment = await vendorDashboardOperations.startMfaEnrollment(token, replacementCode);
+      setMfaSecret(enrollment.secret);
+      setMfaEnrollmentUri(enrollment.otpAuthUri);
+      setMfaCode("");
+      setMfaRecoveryCodes([]);
+      setReplacingMfa(false);
+      setReplacementPassword("");
+      setReplacementCode("");
+    } catch (mfaError) {
+      setError(getErrorMessage(mfaError));
+    } finally {
+      setMfaBusy(false);
+    }
+  }
+
+  async function removeMfa() {
+    if (!token) {
+      return;
+    }
+
+    setMfaBusy(true);
+    setError("");
+    try {
+      await vendorDashboardOperations.disableMfa(
+        token,
+        removalPassword,
+        removalCode,
+        removalRecoveryCode
+      );
+      setMfaEnabled(false);
+      setRemovingMfa(false);
+      setRemovalPassword("");
+      setRemovalCode("");
+      setRemovalRecoveryCode("");
+      setRemovalAcknowledged(false);
+      await refreshUser();
+      showSuccessNotification("MFA removed", "Your authenticator and recovery codes are no longer active.");
+    } catch (mfaError) {
+      setError(getErrorMessage(mfaError));
+    } finally {
+      setMfaBusy(false);
+    }
   }
 
   function syncVendorBookings(bookings: VendorBookingSummary[], options: { detectNew?: boolean } = {}) {
@@ -2158,11 +2673,23 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     currentPlan?.entitlements.monthlyTickets ||
     0;
   const ticketUsage = snapshot?.stats.servedToday ?? 0;
-  const emailLimit = activeSubscription?.entitlements.emailAlerts
-    ? activeSubscription.entitlements.monthlyTransactionalEmails ??
+  const configuredEmailJourneyLimit = activeSubscription?.entitlements.emailAlerts
+    ? activeSubscription.entitlements.monthlyQueueEmailJourneys ??
+      activeSubscription.entitlements.monthlyTransactionalEmails ??
+      currentPlan?.entitlements.monthlyQueueEmailJourneys ??
       currentPlan?.entitlements.monthlyTransactionalEmails
     : 0;
-  const emailUsage = snapshot?.usage?.emailsSentThisPeriod ?? 0;
+  const emailJourneyResource =
+    capacityExperienceQuery.data?.capacity?.resources.queueEmailJourneys;
+  const emailJourneyLimit = emailJourneyResource?.limit ?? configuredEmailJourneyLimit;
+  const emailJourneyUsage = emailJourneyResource?.used ?? 0;
+  const emailJourneyDetail = capacityExperienceQuery.isPending
+    ? "Loading journey usage"
+    : capacityExperienceQuery.error
+      ? "Journey usage unavailable"
+      : capacityExperienceQuery.data?.enabled
+        ? "Journeys started this period"
+        : "Journey tracking pending rollout";
   const historyTickets = useMemo(() => history?.tickets || snapshot?.history || [], [history, snapshot]);
   const serviceTrendBars = useMemo(
     () =>
@@ -2303,8 +2830,15 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         .filter((ticket): ticket is QueueListTicket => Boolean(ticket && ticket.status === "waiting")),
     [queueAlertIds, snapshot?.nextUp]
   );
-  const queueDayClosed = Boolean(snapshot?.queueDay?.isClosed);
+  const queueDayState = resolveQueueDayState(snapshot?.queueDay);
+  const queueDayClosed = queueDayState !== "open";
   const queueDayPaused = Boolean(snapshot?.queueDay?.isPaused);
+  const queueDayUnopened = queueDayState === "unopened";
+  const queueDayActuallyClosed = queueDayState === "closed";
+  const queueDayReconciling =
+    snapshot?.queueDay?.availabilityReason === "reconciling" ||
+    snapshot?.queueDay?.autoClosePhase === "overdue";
+  const queueDayExtended = snapshot?.queueDay?.autoClosePhase === "extended";
   const intakeState = snapshot?.queueIntake || null;
   const restoreBlockedByThreshold = Boolean(
     intakeState?.autoPauseEnabled &&
@@ -2319,6 +2853,14 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         .map((service) => ({ value: service.slug, label: service.name }))
     ],
     [services]
+  );
+  const locationOptions = useMemo(
+    () =>
+      locations.map((locationItem) => ({
+        value: locationItem.slug,
+        label: `${locationItem.name}${locationItem.isActive ? "" : " (Inactive)"}`
+      })),
+    [locations]
   );
   const serviceSlugById = useMemo(
     () => new Map(services.map((service) => [service.id, service.slug])),
@@ -2350,12 +2892,46 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
     try {
       const data = await request();
-      if (data.snapshot) {
-        setSnapshot(data.snapshot);
+      const nextSnapshot = data.snapshot;
+      if (nextSnapshot) {
+        if (actionName === "queue-extend" || actionName === "queue-close") {
+          localQueueDayUpdateRef.current = {
+            kind: actionName === "queue-extend" ? "deadline" : "state",
+            id: nextSnapshot.queueDay.id ? String(nextSnapshot.queueDay.id) : null,
+            state: nextSnapshot.queueDay.state || null,
+            deadlineVersion: nextSnapshot.queueDay.deadlineVersion ?? null
+          };
+        }
+        setSnapshot((current) => selectFreshestQueueSnapshot(current, nextSnapshot));
       }
       return true;
     } catch (actionError) {
       setError(getErrorMessage(actionError));
+      return false;
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function handleConfirmCalledTicket(lookupCode: string): Promise<boolean> {
+    setTicketScannerError("");
+    setBusyAction("confirm-current");
+
+    try {
+      const data = await vendorDashboardQueue.confirmCurrentTicket(
+        token,
+        selectedTenantSlug,
+        locationQuery,
+        lookupCode
+      );
+      const confirmedSnapshot = data.snapshot;
+      if (confirmedSnapshot) {
+        setSnapshot((current) => selectFreshestQueueSnapshot(current, confirmedSnapshot));
+      }
+      showSuccessNotification("Customer confirmed", "The ticket is valid. You can now choose whether to serve the customer.");
+      return true;
+    } catch (confirmError) {
+      setTicketScannerError(getErrorMessage(confirmError));
       return false;
     } finally {
       setBusyAction("");
@@ -2370,6 +2946,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
     if (success) {
       setWalkInForm(emptyWalkIn);
+      setWalkInDialogOpen(false);
       showSuccessNotification("Ticket issued", "The walk-in ticket was added to the queue.");
     }
   }
@@ -2429,8 +3006,67 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   async function reloadDashboardSnapshot() {
     await queryClient.invalidateQueries({
-      queryKey: ["vendor-dashboard-bootstrap", token, selectedTenantSlug, selectedLocationSlug, locationQuery]
+      queryKey: [
+        "vendor-dashboard-queue-lifecycle",
+        token,
+        selectedTenantSlug,
+        selectedLocationSlug,
+        locationQuery
+      ]
     });
+  }
+
+  async function handleOpenQueueDay() {
+    const success = await runAction("queue-open", () =>
+      vendorDashboardQueue.openQueueDay(
+        token,
+        selectedTenantSlug,
+        locationQuery,
+        snapshot?.queueDay?.version
+      )
+    );
+    if (success) {
+      showSuccessNotification("Queue opened", "Customers can now join this location’s Queue Day.");
+      setQueueView("current");
+    }
+    return success;
+  }
+
+  async function handleExtendQueueDay() {
+    const success = await runAction("queue-extend", () =>
+      vendorDashboardQueue.extendQueueDay(
+        token,
+        selectedTenantSlug,
+        locationQuery,
+        snapshot?.queueDay?.version
+      )
+    );
+    if (success) {
+      showSuccessNotification(
+        "Auto-close extended",
+        "Thirty minutes were added and your action was recorded. Auto-close remains active."
+      );
+    }
+    return success;
+  }
+
+  async function handleCloseQueueDay() {
+    const success = await runAction("queue-close", () =>
+      vendorDashboardQueue.closeQueueDay(
+        token,
+        selectedTenantSlug,
+        locationQuery,
+        snapshot?.queueDay?.version
+      )
+    );
+    if (success) {
+      showSuccessNotification(
+        "Queue closed",
+        "Every unresolved ticket received its carry-over, expiration, skipped, or unserved outcome."
+      );
+      setQueueView("overflow");
+    }
+    return success;
   }
 
   async function handleUpdateBookingStatus(
@@ -2986,10 +3622,13 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   function openAvailabilityBlockDialog(block?: VendorAvailabilityBlockSummary) {
     const weekday = block?.weekday ?? 1;
-    const businessHourDefaults = getWeeklyAvailabilityDefaults(selectedLocation?.hours || [], weekday);
+    const blockLocation =
+      (block ? locations.find((locationItem) => locationItem.id === block.locationId) : null) ||
+      selectedLocation;
+    const businessHourDefaults = getWeeklyAvailabilityDefaults(blockLocation?.hours || [], weekday);
     setEditingAvailabilityBlockId(block?.id || "");
     setAvailabilityBlockForm({
-      locationSlug: selectedLocationSlug,
+      locationSlug: blockLocation?.slug || selectedLocationSlug,
       serviceSlug: block?.serviceId ? serviceSlugById.get(block.serviceId) || "" : "",
       weekday,
       startsAt: block?.startsAt || businessHourDefaults.startsAt,
@@ -3008,9 +3647,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     setError("");
 
     try {
+      const targetLocationSlug = availabilityBlockForm.locationSlug || selectedLocationSlug;
       const body = {
         ...availabilityBlockForm,
-        locationSlug: selectedLocationSlug
+        locationSlug: targetLocationSlug
       };
       if (editingAvailabilityBlockId) {
         await vendorDashboardCatalog.saveAvailabilityBlock(token, selectedTenantSlug, editingAvailabilityBlockId, body);
@@ -3019,6 +3659,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       }
       await reloadAvailability();
       await reloadBookings();
+      if (targetLocationSlug !== selectedLocationSlug) {
+        setSelectedLocationSlug(targetLocationSlug);
+      }
       setAvailabilityBlockDialogOpen(false);
       showSuccessNotification(
         editingAvailabilityBlockId ? "Availability updated" : "Availability added",
@@ -3411,7 +4054,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     }
   }
 
-  async function handleStartCheckout(planSlug: SubscriptionPlanSlug) {
+  async function handleStartCheckout(planSlug: Exclude<SubscriptionPlanSlug, "free">) {
     setError("");
     setBusyAction(`checkout:${planSlug}`);
 
@@ -3644,10 +4287,42 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     }
   }
 
-  function renderPlanCards() {
-    if (!billing?.plans.length) {
-      return <Text c="dimmed">Plans are still loading.</Text>;
+  function openPlanDialog(paidOnly = false) {
+    setPaidPlanDialogOnly(paidOnly);
+    setPlanDialogOpen(true);
+  }
+
+  function closePlanDialog() {
+    setPlanDialogOpen(false);
+    setPaidPlanDialogOnly(false);
+  }
+
+  function renderPlanCards({ paidOnly = false } = {}) {
+    if (billingOverviewQuery.isPending) {
+      return <Text c="dimmed">Plans are loading.</Text>;
     }
+
+    if (billingOverviewQuery.error) {
+      return (
+        <Stack gap="sm">
+          <Text c="red">Subscription plans could not be loaded.</Text>
+          <Button
+            className="neura-secondary-button"
+            onClick={() => void billingOverviewQuery.refetch()}
+            variant="default"
+            w="fit-content"
+          >
+            Retry
+          </Button>
+        </Stack>
+      );
+    }
+
+    if (!billing?.plans.length) {
+      return <Text c="dimmed">No subscription plans are available.</Text>;
+    }
+
+    const visiblePlans = billing.plans.filter((plan) => !paidOnly || plan.slug !== "free");
 
     return (
       <Stack gap="md">
@@ -3659,14 +4334,18 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           value={billingInterval}
           onChange={(value) => setBillingInterval(value as "monthly" | "annual")}
         />
-      <SimpleGrid cols={{ base: 1, md: 3 }} spacing="md">
-        {billing.plans.map((plan) => (
+      <SimpleGrid
+        className="subscription-plan-grid"
+        cols={{ base: 1, sm: Math.min(visiblePlans.length, 2), md: Math.min(visiblePlans.length, 4) }}
+        spacing="md"
+      >
+        {visiblePlans.map((plan) => (
           <Card className="neura-plan-card" key={plan.slug} padding="lg">
             <Stack gap="md" h="100%">
               <div>
                 <Text className="neura-label">{plan.name}</Text>
                 <Title order={3}>
-                  {billingInterval === "annual" ? plan.price.annualDisplay : plan.price.monthlyDisplay}
+                  {getPlanPriceDisplay(plan, billingInterval)}
                 </Title>
                 <Text c="dimmed" size="sm">{plan.bestFor}</Text>
               </div>
@@ -3675,12 +4354,18 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   <Text key={item} size="sm">• {item}</Text>
                 ))}
               </Stack>
-              {plan.checkoutEnabled ? (
+              {plan.slug === "free" ? (
+                <Button disabled mt="auto" variant="default">
+                  Free queue plan
+                </Button>
+              ) : plan.checkoutEnabled ? (
                 <Button
                   className={plan.slug === "pro" ? "neura-primary-button" : "neura-secondary-button"}
                   disabled={busyAction === `checkout:${plan.slug}`}
                   mt="auto"
-                  onClick={() => handleStartCheckout(plan.slug)}
+                  onClick={() => {
+                    if (plan.slug !== "free") handleStartCheckout(plan.slug);
+                  }}
                 >
                   {busyAction === `checkout:${plan.slug}` ? "Opening..." : "Choose plan"}
                 </Button>
@@ -3701,17 +4386,20 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     return (
       <Modal
         centered
+        className="subscription-plan-modal"
         opened={planDialogOpen}
-        onClose={() => setPlanDialogOpen(false)}
-        size="xl"
+        onClose={closePlanDialog}
+        size="90rem"
         title={
           <Stack className="getprio-modal-title" gap={2}>
             <Text className="getprio-modal-eyebrow">BILLING</Text>
-            <Text className="getprio-modal-heading">Choose a subscription plan</Text>
+            <Text className="getprio-modal-heading">
+              {paidPlanDialogOnly ? "Upgrade to a paid plan" : "Choose a subscription plan"}
+            </Text>
           </Stack>
         }
       >
-        {renderPlanCards()}
+        {renderPlanCards({ paidOnly: paidPlanDialogOnly })}
       </Modal>
     );
   }
@@ -4167,7 +4855,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         multiline
         label={
           <Stack gap={8} style={{ maxWidth: 300 }}>
-            <Text fw={700}>{currentPlan?.price.monthlyDisplay || activeSubscription.planName}</Text>
+            <Text fw={700}>
+              {currentPlan ? getPlanPriceDisplay(currentPlan) : activeSubscription.planName}
+            </Text>
             <Text size="sm">
               {activeSubscription.status} via {activeSubscription.provider}
               {activeSubscription.currentPeriodEnd
@@ -4275,8 +4965,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     return (
       <Stack gap="md">
         {renderStats()}
-        <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
-          <Card className="neura-card" padding="lg">
+        <Grid gutter="md">
+          <Grid.Col span={{ base: 12, lg: 8 }}>
+          <Card className="neura-card" h="100%" padding="lg">
             <Stack gap="md">
               <Group justify="space-between" align="flex-start">
                 <SegmentedControl
@@ -4289,11 +4980,61 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   onChange={(value) => setQueueView(value as QueueView)}
                 />
                 <Stack gap={6} align="flex-end">
-                  <Badge color={queueDayClosed ? "red" : queueDayPaused ? "yellow" : "teal"} variant="light">
-                    {queueDayClosed ? "Queue day closed" : queueDayPaused ? "Queue intake paused" : "Queue day open"}
+                  <Badge
+                    color={
+                      queueDayReconciling
+                        ? "orange"
+                        : queueDayClosed
+                          ? "red"
+                          : queueDayPaused
+                            ? "yellow"
+                            : queueDayExtended
+                              ? "blue"
+                              : "teal"
+                    }
+                    variant="light"
+                  >
+                    {queueDayReconciling
+                      ? "Queue closing"
+                      : queueDayUnopened
+                        ? "Queue not opened"
+                        : queueDayActuallyClosed
+                          ? "Queue day closed"
+                          : queueDayPaused
+                            ? "Queue intake paused"
+                            : queueDayExtended
+                              ? "Queue day extended"
+                              : "Queue day open"}
                   </Badge>
                   <Group gap="xs" justify="flex-end">
-                    {queueDayClosed ? null : queueDayPaused ? (
+                    {queueDayUnopened && canOperateQueueDay ? (
+                      <Button
+                        className="neura-primary-button"
+                        loading={busyAction === "queue-open"}
+                        onClick={() => void handleOpenQueueDay()}
+                      >
+                        Open queue
+                      </Button>
+                    ) : queueDayActuallyClosed && canReopenQueueDay ? (
+                      <Button
+                        className="neura-primary-button"
+                        disabled={busyAction === "queue-reopen"}
+                        onClick={async () => {
+                          const success = await runAction("queue-reopen", () =>
+                            vendorDashboardQueue.reopenQueueDay(token, selectedTenantSlug, locationQuery)
+                          );
+                          if (success) {
+                            showSuccessNotification(
+                              "Queue reopened",
+                              "The Queue Day is accepting joins again. Earlier ticket outcomes were not reversed."
+                            );
+                            setQueueView("current");
+                          }
+                        }}
+                      >
+                        {busyAction === "queue-reopen" ? "Reopening..." : "Reopen queue"}
+                      </Button>
+                    ) : !queueDayClosed && queueDayPaused ? (
                       <Button
                         color="yellow"
                         variant="light"
@@ -4309,7 +5050,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       >
                         {busyAction === "queue-resume" ? "Resuming..." : "Resume intake"}
                       </Button>
-                    ) : (
+                    ) : !queueDayClosed ? (
                       <Button
                         color="yellow"
                         variant="light"
@@ -4325,46 +5066,46 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       >
                         {busyAction === "queue-pause" ? "Pausing..." : "Pause intake"}
                       </Button>
-                    )}
-                  {canManageQueueDay ? (
-                    queueDayClosed ? (
-                      <Button
-                        className="neura-primary-button"
-                        disabled={busyAction === "queue-reopen"}
-                        onClick={async () => {
-                          const success = await runAction("queue-reopen", () =>
-                            vendorDashboardQueue.reopenQueueDay(token, selectedTenantSlug, locationQuery)
-                          );
-                          if (success) {
-                            showSuccessNotification("Queue reopened", "Customers can join and staff can resume service.");
-                            setQueueView("current");
-                          }
-                        }}
-                      >
-                        {busyAction === "queue-reopen" ? "Reopening..." : "Reopen queue"}
-                      </Button>
-                    ) : (
+                    ) : null}
+                    {!queueDayClosed && canOperateQueueDay ? (
                       <Button
                         color="red"
                         variant="light"
                         disabled={busyAction === "queue-close"}
-                        onClick={async () => {
-                          const success = await runAction("queue-close", () =>
-                            vendorDashboardQueue.closeQueueDay(token, selectedTenantSlug, locationQuery)
-                          );
-                          if (success) {
-                            showSuccessNotification("Queue closed", "Waiting tickets were carried over and active tickets were marked unserved.");
-                            setQueueView("overflow");
-                          }
+                        onClick={() => {
+                          setConfirmAction({
+                            title: `Close ${selectedLocation?.name || "this queue"} now?`,
+                            description:
+                              "Unresolved waiting tickets will carry over once or expire, called tickets become unserved, and skipped recovery ends. Reopening will not reverse these outcomes.",
+                            confirmLabel: "Close queue and reconcile",
+                            confirmColor: "red",
+                            onConfirm: async () => {
+                              await handleCloseQueueDay();
+                            }
+                          });
                         }}
                       >
                         {busyAction === "queue-close" ? "Closing..." : "Close queue"}
                       </Button>
-                    )
-                  ) : null}
+                    ) : null}
                   </Group>
                 </Stack>
               </Group>
+              {queueDayUnopened ? (
+                <Alert color="blue" icon={<IconInfoCircle size={18} />} variant="light">
+                  Store hours make this Queue Day eligible, but they do not open it automatically.
+                  An authorized operator must open the queue before customers can join.
+                </Alert>
+              ) : null}
+              {queueDayActuallyClosed && snapshot?.queueDay?.outcomeCounts ? (
+                <Alert color="gray" icon={<IconHistory size={18} />} title="Close reconciliation completed">
+                  {snapshot.queueDay.outcomeCounts.pendingCarryOver} saved for carry-over ·{" "}
+                  {snapshot.queueDay.outcomeCounts.expired} expired ·{" "}
+                  {snapshot.queueDay.outcomeCounts.unserved} unserved ·{" "}
+                  {snapshot.queueDay.outcomeCounts.skipped} skipped recovery ended. Reopening does not
+                  reverse these outcomes.
+                </Alert>
+              ) : null}
               {queueView === "current" ? (
                 <>
                   <Group justify="space-between" align="flex-end">
@@ -4393,26 +5134,42 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           vendorDashboardQueue.callNextTicket(token, selectedTenantSlug, locationQuery, selectedCounterSlug)
                         );
                         if (success) {
-                          showSuccessNotification("Customer called", "The next ticket is now being served.");
+                          showSuccessNotification("Customer called", "The next ticket is waiting for ticket confirmation.");
                         }
                       }}
                     >
                       {busyAction === "call-next" ? "Calling..." : "Call next"}
                     </Button>
-                    <Button
-                      className="neura-secondary-button"
-                      disabled={busyAction === "serve-current" || !activeTicket}
-                      onClick={async () => {
-                        const success = await runAction("serve-current", () =>
-                          vendorDashboardQueue.serveCurrentTicket(token, selectedTenantSlug, locationQuery)
-                        );
-                        if (success) {
-                          showSuccessNotification("Ticket served", "The current ticket was marked as served.");
-                        }
-                      }}
-                    >
-                      Serve current
-                    </Button>
+                    {activeTicket?.customerConfirmedAt ? (
+                      <Button
+                        className="neura-secondary-button"
+                        disabled={busyAction === "serve-current"}
+                        leftSection={<IconCheck size={16} />}
+                        loading={busyAction === "serve-current"}
+                        onClick={async () => {
+                          const success = await runAction("serve-current", () =>
+                            vendorDashboardQueue.serveCurrentTicket(token, selectedTenantSlug, locationQuery)
+                          );
+                          if (success) {
+                            showSuccessNotification("Customer served", "The confirmed ticket was marked as served.");
+                          }
+                        }}
+                      >
+                        Serve customer
+                      </Button>
+                    ) : (
+                      <Button
+                        className="neura-secondary-button"
+                        disabled={!activeTicket}
+                        leftSection={<IconQrcode size={16} />}
+                        onClick={() => {
+                          setTicketScannerError("");
+                          setTicketScannerOpen(true);
+                        }}
+                      >
+                        Confirm ticket
+                      </Button>
+                    )}
                     <Button
                       variant="default"
                       disabled={busyAction === "skip-current" || !activeTicket}
@@ -4437,6 +5194,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         {activeTicket && isCheckedInBookingTicket(activeTicket) ? (
                           <Badge color="blue" variant="light">Booking</Badge>
                         ) : null}
+                        {activeTicket?.customerConfirmedAt ? (
+                          <Badge color="teal" variant="light">Customer confirmed</Badge>
+                        ) : null}
                       </Group>
                       <Text c="dimmed" size="sm">
                         {activeTicket?.customerName || "No active ticket"}
@@ -4449,13 +5209,31 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     </Paper>
                     <Paper withBorder radius="md" p="md">
                       <Text className="neura-label">Queue day</Text>
-                      <Title order={3}>{queueDayClosed ? "Closed" : queueDayPaused ? "Paused" : "Open"}</Title>
+                      <Title order={3}>
+                        {queueDayReconciling
+                          ? "Closing"
+                          : queueDayUnopened
+                            ? "Not opened"
+                            : queueDayActuallyClosed
+                              ? "Closed"
+                              : queueDayPaused
+                                ? "Paused"
+                                : queueDayExtended
+                                  ? "Extended"
+                                  : "Open"}
+                      </Title>
                       <Text c="dimmed" size="sm">
-                        {queueDayClosed && snapshot?.queueDay?.closedAt
+                        {queueDayReconciling
+                          ? "Ticket outcomes are being reconciled"
+                          : queueDayUnopened
+                            ? "Waiting for an authorized operator to open the Queue Day"
+                            : queueDayClosed && snapshot?.queueDay?.closedAt
                           ? `Closed ${formatDateTime(snapshot.queueDay.closedAt)}`
                           : queueDayPaused && snapshot?.queueDay?.pausedAt
                             ? `Paused ${formatDateTime(snapshot.queueDay.pausedAt)}`
-                            : "Customers can continue joining this queue"}
+                            : snapshot?.queueDay?.currentClosesAt
+                              ? `Scheduled close ${formatDateTime(snapshot.queueDay.currentClosesAt)}`
+                              : "Customers can continue joining this queue"}
                       </Text>
                     </Paper>
                     {intakeState?.autoPauseEnabled && intakeState.autoPauseThreshold ? (
@@ -4493,7 +5271,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                               <Table.Td fw={700}>{ticket.id}</Table.Td>
                               <Table.Td>
                                 <Text fw={700}>{ticket.ticketNumber}</Text>
-                                <Text c="dimmed" size="sm">{ticket.customerName}</Text>
+                                <Text c="dimmed" size="sm">
+                                  {getQueueCustomerFullNameLabel(
+                                    ticket.customerName,
+                                    ticket.customerDisplayName
+                                  )}
+                                </Text>
                                 {ticket.linkedBookingReference ? (
                                   <Text c="dimmed" size="xs">Booking {ticket.linkedBookingReference}</Text>
                                 ) : null}
@@ -4531,7 +5314,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   <Group justify="space-between" align="flex-start">
                     <div>
                       <Text className="neura-label">Overflow queue</Text>
-                      <Title order={3}>Carried-over tickets</Title>
+                      <Title order={3}>Carry-over tickets</Title>
                     </div>
                     <Badge variant="light">
                       {overflowTickets.length} ticket{overflowTickets.length === 1 ? "" : "s"}
@@ -4544,8 +5327,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           <Table.Th>ID</Table.Th>
                           <Table.Th>Ticket</Table.Th>
                           <Table.Th>Channel</Table.Th>
-                          <Table.Th>Priority</Table.Th>
-                          <Table.Th>Carried over</Table.Th>
+                          <Table.Th>Status</Table.Th>
+                          <Table.Th>Activated at</Table.Th>
                           <Table.Th>Joined</Table.Th>
                         </Table.Tr>
                       </Table.Thead>
@@ -4560,8 +5343,13 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                               </Table.Td>
                               <Table.Td><Badge variant="light">{ticket.joinChannel}</Badge></Table.Td>
                               <Table.Td>
-                                <Badge color="orange" variant="light">
-                                  carry_over
+                                <Badge
+                                  color={ticket.status === "pending_carry_over" ? "blue" : "orange"}
+                                  variant="light"
+                                >
+                                  {ticket.status === "pending_carry_over"
+                                    ? getTicketStateSummary(ticket.status).label
+                                    : "Carried over"}
                                 </Badge>
                               </Table.Td>
                               <Table.Td>{ticket.carriedOverAt ? formatDateTime(ticket.carriedOverAt) : "--"}</Table.Td>
@@ -4694,17 +5482,29 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               )}
             </Stack>
           </Card>
+          </Grid.Col>
 
-          <Card className="neura-card" padding="lg">
+          <Grid.Col span={{ base: 12, lg: 4 }}>
+          <Card className="neura-card" h="100%" padding="lg">
             <Stack gap="md">
               <Group justify="space-between">
                 <div>
                   <Text className="neura-label">QR and public links</Text>
                   <Title order={3}>Customer self-service entry</Title>
                 </div>
-                <Button component="a" href={queueLinks.monitorUrl} target="_blank" variant="default">
-                  Open board
-                </Button>
+                <Group gap="sm">
+                  <Button component="a" href={queueLinks.monitorUrl} target="_blank" variant="default">
+                    Open board
+                  </Button>
+                  <Button
+                    className="neura-primary-button"
+                    disabled={queueDayClosed || queueDayPaused}
+                    leftSection={<IconUserPlus size={16} />}
+                    onClick={() => setWalkInDialogOpen(true)}
+                  >
+                    Add walk-in
+                  </Button>
+                </Group>
               </Group>
               <Group align="flex-start" gap="lg">
                 <Paper className="neura-qr-card" p="md">
@@ -4715,93 +5515,166 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   </Group>
                 </Paper>
                 <Stack flex={1} gap="sm">
-                  <TextInput label="Join URL" readOnly value={queueLinks.joinUrl} />
-                  <TextInput label="QR target" readOnly value={queueLinks.qrUrl} />
-                  <TextInput label="Monitor URL" readOnly value={queueLinks.monitorUrl} />
+                  <TextInput
+                    label="Join URL"
+                    onClick={() => void copyLocationUrl("Join URL", queueLinks.joinUrl)}
+                    onFocus={(event) => event.currentTarget.select()}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        void copyLocationUrl("Join URL", queueLinks.joinUrl);
+                      }
+                    }}
+                    readOnly
+                    rightSection={<IconCopy aria-hidden="true" size={16} />}
+                    rightSectionPointerEvents="none"
+                    styles={{ input: { cursor: "copy" } }}
+                    title="Click to copy Join URL"
+                    value={queueLinks.joinUrl}
+                  />
+                  <TextInput
+                    label="QR target"
+                    onClick={() => void copyLocationUrl("QR target", queueLinks.qrUrl)}
+                    onFocus={(event) => event.currentTarget.select()}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        void copyLocationUrl("QR target", queueLinks.qrUrl);
+                      }
+                    }}
+                    readOnly
+                    rightSection={<IconCopy aria-hidden="true" size={16} />}
+                    rightSectionPointerEvents="none"
+                    styles={{ input: { cursor: "copy" } }}
+                    title="Click to copy QR target"
+                    value={queueLinks.qrUrl}
+                  />
+                  <TextInput
+                    label="Monitor URL"
+                    onClick={() => void copyLocationUrl("Monitor URL", queueLinks.monitorUrl)}
+                    onFocus={(event) => event.currentTarget.select()}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        void copyLocationUrl("Monitor URL", queueLinks.monitorUrl);
+                      }
+                    }}
+                    readOnly
+                    rightSection={<IconCopy aria-hidden="true" size={16} />}
+                    rightSectionPointerEvents="none"
+                    styles={{ input: { cursor: "copy" } }}
+                    title="Click to copy Monitor URL"
+                    value={queueLinks.monitorUrl}
+                  />
                 </Stack>
               </Group>
             </Stack>
           </Card>
-        </SimpleGrid>
+          </Grid.Col>
+        </Grid>
 
-        <Card className="neura-card" padding="lg">
-          <form onSubmit={handleCreateWalkIn}>
-            <Stack gap="md">
-              <Group justify="space-between">
-                <div>
-                  <Text className="neura-label">Issue walk-in ticket</Text>
-                  <Title order={3}>Add customer at counter</Title>
-                </div>
-                <Button
-                  className="neura-primary-button"
-                  disabled={busyAction === "walk-in" || queueDayClosed || queueDayPaused}
-                  type="submit"
-                >
-                  {queueDayClosed
-                    ? "Queue closed"
-                    : queueDayPaused
-                      ? "Intake paused"
-                      : busyAction === "walk-in"
-                        ? "Issuing..."
-                        : "Issue ticket"}
-                </Button>
-              </Group>
-              <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
-                <TextInput
-                  name="walkInCustomerName"
-                  label="Customer name"
-                  required
-                  disabled={queueDayClosed || queueDayPaused}
-                  value={walkInForm.customerName}
-                  onChange={(event) =>
-                    setWalkInForm((current) => ({ ...current, customerName: event.target.value }))
-                  }
-                />
-                <TextInput
-                  name="walkInCustomerEmail"
-                  label="Email"
-                  type="email"
-                  disabled={queueDayClosed || queueDayPaused}
-                  value={walkInForm.customerEmail}
-                  onChange={(event) =>
-                    setWalkInForm((current) => ({ ...current, customerEmail: event.target.value }))
-                  }
-                />
-                <PhilippineMobileInput
-                  name="walkInCustomerPhone"
-                  label="Phone"
-                  disabled={queueDayClosed || queueDayPaused}
-                  value={walkInForm.customerPhone}
-                  onChange={(nextValue) =>
-                    setWalkInForm((current) => ({ ...current, customerPhone: nextValue }))
-                  }
-                />
-                <Textarea
-                  name="walkInNotes"
-                  label="Notes"
-                  minRows={2}
-                  disabled={queueDayClosed || queueDayPaused}
-                  value={walkInForm.notes}
-                  onChange={(event) =>
-                    setWalkInForm((current) => ({ ...current, notes: event.target.value }))
-                  }
-                />
-              </SimpleGrid>
-              <Group>
-                <Checkbox
-                  name="walkInNotifyByEmail"
-                  disabled={queueDayClosed}
-                  checked={walkInForm.notifyByEmail}
-                  label="Send email alerts"
-                  onChange={(event) =>
-                    setWalkInForm((current) => ({ ...current, notifyByEmail: event.target.checked }))
-                  }
-                />
-              </Group>
-            </Stack>
-          </form>
-        </Card>
       </Stack>
+    );
+  }
+
+  function renderWalkInDialog() {
+    const intakeUnavailable = queueDayClosed || queueDayPaused;
+
+    return (
+      <Modal
+        centered
+        className="customer-modal walk-in-modal"
+        closeOnClickOutside={busyAction !== "walk-in"}
+        closeOnEscape={busyAction !== "walk-in"}
+        onClose={() => {
+          if (busyAction !== "walk-in") {
+            setWalkInDialogOpen(false);
+          }
+        }}
+        opened={walkInDialogOpen}
+        radius="xl"
+        size="lg"
+        title={
+          <div>
+            <Text className="neura-label">WALK-IN CUSTOMER</Text>
+            <Text fw={800} size="xl">Add customer at counter</Text>
+          </div>
+        }
+      >
+        <form onSubmit={handleCreateWalkIn}>
+          <Stack gap="md">
+            <Text c="dimmed" size="sm">
+              Create a same-day queue ticket for a customer who is already at this location.
+            </Text>
+            {intakeUnavailable ? (
+              <Alert color="orange" icon={<IconInfoCircle size={18} />}>
+                {queueDayClosed ? "Open the queue before adding a walk-in customer." : "Resume intake before adding a walk-in customer."}
+              </Alert>
+            ) : null}
+            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+              <TextInput
+                autoFocus
+                disabled={intakeUnavailable}
+                label="Customer name"
+                name="walkInCustomerName"
+                onChange={(event) =>
+                  setWalkInForm((current) => ({ ...current, customerName: event.target.value }))
+                }
+                required
+                value={walkInForm.customerName}
+              />
+              <TextInput
+                disabled={intakeUnavailable}
+                label="Email"
+                name="walkInCustomerEmail"
+                onChange={(event) =>
+                  setWalkInForm((current) => ({ ...current, customerEmail: event.target.value }))
+                }
+                type="email"
+                value={walkInForm.customerEmail}
+              />
+              <PhilippineMobileInput
+                disabled={intakeUnavailable}
+                label="Phone"
+                name="walkInCustomerPhone"
+                onChange={(nextValue) =>
+                  setWalkInForm((current) => ({ ...current, customerPhone: nextValue }))
+                }
+                value={walkInForm.customerPhone}
+              />
+              <Textarea
+                disabled={intakeUnavailable}
+                label="Notes"
+                minRows={2}
+                name="walkInNotes"
+                onChange={(event) =>
+                  setWalkInForm((current) => ({ ...current, notes: event.target.value }))
+                }
+                value={walkInForm.notes}
+              />
+            </SimpleGrid>
+            <Checkbox
+              checked={walkInForm.notifyByEmail}
+              disabled={intakeUnavailable}
+              label="Send email alerts"
+              name="walkInNotifyByEmail"
+              onChange={(event) =>
+                setWalkInForm((current) => ({ ...current, notifyByEmail: event.target.checked }))
+              }
+            />
+            <Group className="customer-modal-actions" justify="flex-end">
+              <Button
+                className="neura-primary-button"
+                disabled={intakeUnavailable}
+                loading={busyAction === "walk-in"}
+                type="submit"
+              >
+                Issue ticket
+              </Button>
+            </Group>
+          </Stack>
+        </form>
+      </Modal>
     );
   }
 
@@ -5453,8 +6326,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 </div>
                 <Group gap="xs">
                   {locationItem.isPrimary ? <Badge>Primary</Badge> : null}
-                  <Badge color={locationItem.openStatus.isOpen ? "teal" : "red"}>
-                    {locationItem.openStatus.isOpen ? "Open" : "Closed"}
+                  <Badge color={locationItem.isActive && locationItem.openStatus.isOpen ? "teal" : "red"}>
+                    {locationItem.isActive && locationItem.openStatus.isOpen ? "Open" : "Closed"}
                   </Badge>
                   {locationItem.paymentQrActive ? (
                     <Badge color="yellow" variant="light">Payment QR</Badge>
@@ -5472,9 +6345,45 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 label={locationItem.isActive ? "Location enabled" : "Location disabled"}
                 onChange={(event) => handleToggleLocationActive(locationItem, event.currentTarget.checked)}
               />
-              <Text size="sm" c="dimmed">{locationItem.openStatus.summary}</Text>
-              <TextInput label="Join URL" readOnly value={locationItem.joinUrl} />
-              <TextInput label="Monitor URL" readOnly value={locationItem.monitorUrl} />
+              <Text size="sm" c="dimmed">
+                Today{locationItem.openStatus.today
+                  ? `, ${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][locationItem.openStatus.today.weekday]}`
+                  : ""} · {formatStoreHourRange(locationItem.openStatus.today)}
+              </Text>
+              <TextInput
+                label="Join URL"
+                onClick={() => void copyLocationUrl("Join URL", locationItem.joinUrl)}
+                onFocus={(event) => event.currentTarget.select()}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    void copyLocationUrl("Join URL", locationItem.joinUrl);
+                  }
+                }}
+                readOnly
+                rightSection={<IconCopy aria-hidden="true" size={16} />}
+                rightSectionPointerEvents="none"
+                styles={{ input: { cursor: "copy" } }}
+                title="Click to copy Join URL"
+                value={locationItem.joinUrl}
+              />
+              <TextInput
+                label="Monitor URL"
+                onClick={() => void copyLocationUrl("Monitor URL", locationItem.monitorUrl)}
+                onFocus={(event) => event.currentTarget.select()}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    void copyLocationUrl("Monitor URL", locationItem.monitorUrl);
+                  }
+                }}
+                readOnly
+                rightSection={<IconCopy aria-hidden="true" size={16} />}
+                rightSectionPointerEvents="none"
+                styles={{ input: { cursor: "copy" } }}
+                title="Click to copy Monitor URL"
+                value={locationItem.monitorUrl}
+              />
               <Group>
                 <Button variant="default" onClick={() => setSelectedLocationSlug(locationItem.slug)}>
                   Select
@@ -5836,7 +6745,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                               </Group>
                               {groupFunded.enabled ? (
                                 <Stack gap="sm">
-                                  <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="sm">
+                                  <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
                                     <NumberInput
                                       allowDecimal={false}
                                       allowNegative={false}
@@ -5848,28 +6757,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                       onChange={(value) =>
                                         updateLocationEntry((entry) => ({
                                           ...entry,
-                                          groupFunded: {
-                                            ...normalizeGroupFundedSettings(entry.groupFunded),
+                                          groupFunded: updateGroupFundedContributorBounds(
+                                            entry.groupFunded,
+                                            {
                                             minRequiredContributors: Number(value) || 2
-                                          }
-                                        }))
-                                      }
-                                    />
-                                    <NumberInput
-                                      allowDecimal={false}
-                                      allowNegative={false}
-                                      clampBehavior="strict"
-                                      label="Default contributors"
-                                      min={2}
-                                      max={100}
-                                      value={groupFunded.defaultRequiredContributors || 4}
-                                      onChange={(value) =>
-                                        updateLocationEntry((entry) => ({
-                                          ...entry,
-                                          groupFunded: {
-                                            ...normalizeGroupFundedSettings(entry.groupFunded),
-                                            defaultRequiredContributors: Number(value) || 4
-                                          }
+                                            }
+                                          )
                                         }))
                                       }
                                     />
@@ -5884,102 +6777,64 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                       onChange={(value) =>
                                         updateLocationEntry((entry) => ({
                                           ...entry,
-                                          groupFunded: {
-                                            ...normalizeGroupFundedSettings(entry.groupFunded),
+                                          groupFunded: updateGroupFundedContributorBounds(
+                                            entry.groupFunded,
+                                            {
                                             maxRequiredContributors: Number(value) || 12
-                                          }
+                                            }
+                                          )
                                         }))
                                       }
                                     />
                                   </SimpleGrid>
-                                  <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
-                                    <NumberInput
-                                      allowDecimal={false}
-                                      allowNegative={false}
-                                      clampBehavior="strict"
-                                      label="Min deadline hours"
-                                      min={1}
-                                      max={720}
-                                      value={groupFunded.minDeadlineHours || 24}
-                                      onChange={(value) =>
-                                        updateLocationEntry((entry) => ({
-                                          ...entry,
-                                          groupFunded: {
-                                            ...normalizeGroupFundedSettings(entry.groupFunded),
-                                            minDeadlineHours: Number(value) || 24
+                                  <Paper p="sm" radius="md" withBorder>
+                                    <details>
+                                      <summary>
+                                        <Text component="span" fw={700}>Advanced funding window</Text>
+                                      </summary>
+                                      <Text c="dimmed" size="sm" mt="xs">
+                                        Limit how soon or how far ahead customers can set a funding deadline.
+                                      </Text>
+                                      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm" mt="sm">
+                                        <NumberInput
+                                          allowDecimal={false}
+                                          allowNegative={false}
+                                          clampBehavior="strict"
+                                          label="Min deadline hours"
+                                          min={1}
+                                          max={720}
+                                          value={groupFunded.minDeadlineHours || 24}
+                                          onChange={(value) =>
+                                            updateLocationEntry((entry) => ({
+                                              ...entry,
+                                              groupFunded: {
+                                                ...normalizeGroupFundedSettings(entry.groupFunded),
+                                                minDeadlineHours: Number(value) || 24
+                                              }
+                                            }))
                                           }
-                                        }))
-                                      }
-                                    />
-                                    <NumberInput
-                                      allowDecimal={false}
-                                      allowNegative={false}
-                                      clampBehavior="strict"
-                                      label="Max deadline days"
-                                      min={1}
-                                      max={90}
-                                      value={groupFunded.maxDeadlineDays || 14}
-                                      onChange={(value) =>
-                                        updateLocationEntry((entry) => ({
-                                          ...entry,
-                                          groupFunded: {
-                                            ...normalizeGroupFundedSettings(entry.groupFunded),
-                                            maxDeadlineDays: Number(value) || 14
+                                        />
+                                        <NumberInput
+                                          allowDecimal={false}
+                                          allowNegative={false}
+                                          clampBehavior="strict"
+                                          label="Max deadline days"
+                                          min={1}
+                                          max={90}
+                                          value={groupFunded.maxDeadlineDays || 14}
+                                          onChange={(value) =>
+                                            updateLocationEntry((entry) => ({
+                                              ...entry,
+                                              groupFunded: {
+                                                ...normalizeGroupFundedSettings(entry.groupFunded),
+                                                maxDeadlineDays: Number(value) || 14
+                                              }
+                                            }))
                                           }
-                                        }))
-                                      }
-                                    />
-                                  </SimpleGrid>
-                                  <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
-                                    <NumberInput
-                                      allowDecimal={false}
-                                      allowNegative={false}
-                                      label="Min share"
-                                      min={0}
-                                      prefix="PHP "
-                                      value={
-                                        groupFunded.minContributionAmountCents === null
-                                          ? undefined
-                                          : groupFunded.minContributionAmountCents / 100
-                                      }
-                                      onChange={(value) =>
-                                        updateLocationEntry((entry) => ({
-                                          ...entry,
-                                          groupFunded: {
-                                            ...normalizeGroupFundedSettings(entry.groupFunded),
-                                            minContributionAmountCents:
-                                              value === "" || value === null
-                                                ? null
-                                                : Math.max(0, Math.round((Number(value) || 0) * 100))
-                                          }
-                                        }))
-                                      }
-                                    />
-                                    <NumberInput
-                                      allowDecimal={false}
-                                      allowNegative={false}
-                                      label="Max share"
-                                      min={0}
-                                      prefix="PHP "
-                                      value={
-                                        groupFunded.maxContributionAmountCents === null
-                                          ? undefined
-                                          : groupFunded.maxContributionAmountCents / 100
-                                      }
-                                      onChange={(value) =>
-                                        updateLocationEntry((entry) => ({
-                                          ...entry,
-                                          groupFunded: {
-                                            ...normalizeGroupFundedSettings(entry.groupFunded),
-                                            maxContributionAmountCents:
-                                              value === "" || value === null
-                                                ? null
-                                                : Math.max(0, Math.round((Number(value) || 0) * 100))
-                                          }
-                                        }))
-                                      }
-                                    />
-                                  </SimpleGrid>
+                                        />
+                                      </SimpleGrid>
+                                    </details>
+                                  </Paper>
                                   <Switch
                                     checked={groupFunded.allowPublicCampaigns}
                                     label="Allow public campaigns on vendor profile"
@@ -6140,7 +6995,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     }
                   />
                   <Text c="dimmed" size="xs">
-                    {formatPreviewHourRange(selectedLocation, availabilityBlockForm.weekday)}. Weekly availability must stay within these business hours.
+                    {formatPreviewHourRange(availabilityBlockLocation, availabilityBlockForm.weekday)}. Weekly availability must stay within these business hours.
                   </Text>
                   <NumberInput
                     label="Capacity"
@@ -6160,6 +7015,28 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     <Text className="service-dialog__label">Scope</Text>
                     <Text fw={700}>Service and state</Text>
                   </div>
+                  <Select
+                    allowDeselect={false}
+                    data={locationOptions}
+                    description="This weekly rule applies only to the selected branch."
+                    label="Branch"
+                    required
+                    searchable
+                    value={availabilityBlockForm.locationSlug || selectedLocationSlug}
+                    onChange={(value) => {
+                      if (!value) {
+                        return;
+                      }
+                      const nextLocation = locations.find((locationItem) => locationItem.slug === value);
+                      setAvailabilityBlockForm((current) => ({
+                        ...current,
+                        locationSlug: value,
+                        ...(!editingAvailabilityBlockId
+                          ? getWeeklyAvailabilityDefaults(nextLocation?.hours || [], current.weekday)
+                          : {})
+                      }));
+                    }}
+                  />
                   <Select
                     data={serviceOptions}
                     label="Service"
@@ -6573,14 +7450,25 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
             <Tabs.Panel pt="lg" value="weekly">
               <Stack gap="md">
-                <Group justify="space-between">
+                <Group className="weekly-availability-header" justify="space-between">
                   <div>
                     <Text className="neura-label">{selectedLocation?.name || "Selected location"}</Text>
                     <Title order={3}>Weekly availability</Title>
                   </div>
-                  <Button className="neura-secondary-button" onClick={() => openAvailabilityBlockDialog()}>
-                    Add weekly rule
-                  </Button>
+                  <Group align="flex-end" className="weekly-availability-actions" gap="sm">
+                    <Select
+                      allowDeselect={false}
+                      aria-label="Filter weekly availability by branch"
+                      data={locationOptions}
+                      label="Branch"
+                      searchable
+                      value={selectedLocationSlug}
+                      onChange={(value) => value && setSelectedLocationSlug(value)}
+                    />
+                    <Button className="neura-secondary-button" onClick={() => openAvailabilityBlockDialog()}>
+                      Add weekly rule
+                    </Button>
+                  </Group>
                 </Group>
                 {availabilitySummary?.hasSharedLocationCapacity && availabilitySummary?.hasServiceSpecificCapacity ? (
                   <Alert color="yellow" variant="light">
@@ -7399,9 +8287,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   <Table.Tbody>
                     {campaigns.map((campaign) => {
                       const fundingTargetAmountCents = getCampaignFundingTargetAmountCents(campaign);
-                      const progress = fundingTargetAmountCents > 0
-                        ? Math.min(100, Math.round((campaign.fundedAmountCents / fundingTargetAmountCents) * 100))
-                        : 0;
                       return (
                         <Table.Tr key={campaign.id}>
                           <Table.Td
@@ -7455,10 +8340,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           </Table.Td>
                           <Table.Td>
                             <Stack gap={4}>
-                              <Text fw={700}>
-                                {formatMoney(campaign.fundedAmountCents, campaign.currency)} / {formatMoney(fundingTargetAmountCents, campaign.currency)}
-                              </Text>
-                              <Slider value={progress} disabled label={null} color="teal" />
+                              <CampaignFundingProgress
+                                fundedAmountCents={campaign.fundedAmountCents}
+                                targetAmountCents={fundingTargetAmountCents}
+                              />
                               <Text c="dimmed" size="sm">
                                 {campaign.paidParticipantCount}/{campaign.requiredContributors} verified · {formatMoney(campaign.requiredContributionAmountCents, campaign.currency)} each
                               </Text>
@@ -8530,7 +9415,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               </div>
               <SimpleGrid cols={2}>
                 <MetricCard label="Tickets" value={`${ticketUsage}/${ticketLimit || "--"}`} detail="Current period" />
-                <MetricCard label="Emails" value={`${emailUsage}/${emailLimit ?? "--"}`} detail="Transactional" />
+                <MetricCard label="Email journeys" value={`${emailJourneyUsage}/${emailJourneyLimit ?? "--"}`} detail={emailJourneyDetail} />
               </SimpleGrid>
             </Stack>
           </Card>
@@ -8540,41 +9425,448 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     );
   }
 
+  function renderSecurityPage() {
+    const mfaRequired = Boolean(user?.mfaRequired || isOwner || isAdmin);
+
+    return (
+      <Stack gap="md">
+        {!requiresMfaEnrollment ? <Card className="neura-card vendor-security-card" padding="lg">
+          <Stack gap="md">
+            <div>
+              <Text className="neura-label">Account access</Text>
+              <Title order={3}>Change password</Title>
+              <Text c="dimmed" mt="xs">
+                Changing your password closes this session and all other active sessions.
+              </Text>
+            </div>
+            <form onSubmit={handlePasswordChange}>
+              <Stack gap="md">
+                <PasswordInput
+                  autoComplete="current-password"
+                  label="Current password"
+                  name="currentPassword"
+                  required
+                  value={passwordForm.currentPassword}
+                  onChange={(event) => setPasswordForm((current) => ({ ...current, currentPassword: event.target.value }))}
+                />
+                <PasswordInput
+                  autoComplete="new-password"
+                  label="New password"
+                  name="newPassword"
+                  required
+                  value={passwordForm.newPassword}
+                  onChange={(event) => setPasswordForm((current) => ({ ...current, newPassword: event.target.value }))}
+                />
+                <Button
+                  className="neura-primary-button"
+                  loading={passwordBusy}
+                  type="submit"
+                  w={{ base: "100%", sm: "fit-content" }}
+                >
+                  Change password
+                </Button>
+              </Stack>
+            </form>
+          </Stack>
+        </Card> : null}
+
+        <Card className="neura-card vendor-security-card" padding="lg">
+          <Stack gap="md">
+            <div>
+              <Text className="neura-label">2FA/MFA</Text>
+              <Title order={3}>Multi-factor authentication</Title>
+              <Text c="dimmed" mt="xs">
+                This protection belongs to your account and applies across every vendor workspace you can access.
+              </Text>
+            </div>
+            <Group gap="sm">
+              <Badge color={mfaEnabled ? "teal" : "gray"} variant="light">
+                {mfaEnabled ? "Enabled" : "Not enabled"}
+              </Badge>
+              <Badge color={mfaRequired ? "orange" : "gray"} variant="light">
+                {mfaRequired ? "Required for your role" : "Optional"}
+              </Badge>
+            </Group>
+
+            {mfaRequired && !mfaEnabled ? (
+              <Alert color="orange" title="Authenticator setup required" variant="light">
+                Vendor owners and admins must enable MFA to protect privileged business actions.
+              </Alert>
+            ) : null}
+
+            {mfaRecoveryCodes.length ? (
+              <Alert color="teal" title="Save your recovery codes" variant="light">
+                <Stack gap="sm">
+                  <Text size="sm">These recovery codes are shown only once.</Text>
+                  <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={6}>
+                    {mfaRecoveryCodes.map((code) => (
+                      <Text ff="monospace" key={code}>{code}</Text>
+                    ))}
+                  </SimpleGrid>
+                  <Button
+                    color="teal"
+                    onClick={() => setMfaRecoveryCodes([])}
+                    variant="light"
+                    w="fit-content"
+                  >
+                    I saved these recovery codes
+                  </Button>
+                </Stack>
+              </Alert>
+            ) : null}
+
+            {!mfaEnabled && !mfaSecret && !mfaRecoveryCodes.length ? (
+              <Button
+                className="neura-primary-button"
+                loading={mfaBusy}
+                onClick={() => void startMfaEnrollment()}
+                w={{ base: "100%", sm: "fit-content" }}
+              >
+                Set up authenticator
+              </Button>
+            ) : null}
+
+            {mfaSecret ? (
+              <Stack gap="md">
+                <Stack align="center" gap="sm">
+                  <Text fw={700} ta="center">Scan with your authenticator app</Text>
+                  <Text c="dimmed" maw={460} size="sm" ta="center">
+                    Add an account in your authenticator app, then scan this QR code.
+                  </Text>
+                  <div aria-label="GetPrio authenticator setup QR code" className="mfa-setup-qr" role="img">
+                    <QRCode aria-hidden="true" bgColor="#ffffff" fgColor="#111827" size={192} value={mfaEnrollmentUri} />
+                  </div>
+                </Stack>
+                <Alert color="blue" title="Cannot scan the QR code?" variant="light">
+                  Enter this secret manually in your authenticator app.
+                  <Text ff="monospace" mt="xs" style={{ overflowWrap: "anywhere" }}>{mfaSecret}</Text>
+                </Alert>
+                <TextInput
+                  autoFocus
+                  autoComplete="one-time-code"
+                  inputMode="numeric"
+                  label="6-digit authenticator code"
+                  maxLength={6}
+                  value={mfaCode}
+                  onChange={(event) => setMfaCode(event.target.value.replace(/\D/g, ""))}
+                />
+                <Group justify="flex-end">
+                  {mfaEnabled && mfaSecret ? (
+                    <Button disabled={mfaBusy} onClick={() => void cancelMfaEnrollment()} variant="default">
+                      Cancel
+                    </Button>
+                  ) : null}
+                  <Button
+                    className="neura-primary-button"
+                    disabled={mfaCode.length !== 6}
+                    loading={mfaBusy}
+                    onClick={() => void confirmMfaEnrollment()}
+                  >
+                    Verify and enable
+                  </Button>
+                </Group>
+              </Stack>
+            ) : null}
+
+            {mfaEnabled && !mfaSecret && !mfaRecoveryCodes.length ? (
+              <Stack gap="md">
+                <Alert color="teal" variant="light">
+                  Your authenticator is active. Protected sign-ins and sensitive actions can require a security code.
+                </Alert>
+                {!replacingMfa && !removingMfa ? (
+                  <Group align="stretch">
+                    <Button onClick={() => setReplacingMfa(true)} variant="default">
+                      Replace authenticator
+                    </Button>
+                    {!mfaRequired ? (
+                      <Button color="red" onClick={() => setRemovingMfa(true)} variant="light">Remove MFA</Button>
+                    ) : null}
+                  </Group>
+                ) : null}
+
+                {replacingMfa ? (
+                  <Card className="vendor-security-action" padding="md" withBorder>
+                    <Stack gap="md">
+                      <div>
+                        <Title order={3}>Replace authenticator</Title>
+                        <Text c="dimmed" size="sm">
+                          Confirm your password and current authenticator code before scanning a replacement QR code.
+                        </Text>
+                      </div>
+                      <PasswordInput
+                        autoComplete="current-password"
+                        label="Current password"
+                        required
+                        value={replacementPassword}
+                        onChange={(event) => setReplacementPassword(event.target.value)}
+                      />
+                      <TextInput
+                        autoComplete="one-time-code"
+                        inputMode="numeric"
+                        label="Current authenticator code"
+                        maxLength={6}
+                        required
+                        value={replacementCode}
+                        onChange={(event) => setReplacementCode(event.target.value.replace(/\D/g, ""))}
+                      />
+                      <Group justify="flex-end">
+                        <Button disabled={mfaBusy} onClick={() => setReplacingMfa(false)} variant="default">Cancel</Button>
+                        <Button
+                          className="neura-primary-button"
+                          disabled={!replacementPassword || replacementCode.length !== 6}
+                          loading={mfaBusy}
+                          onClick={() => void startMfaReplacement()}
+                        >
+                          Verify and replace
+                        </Button>
+                      </Group>
+                    </Stack>
+                  </Card>
+                ) : null}
+
+                {removingMfa && !mfaRequired ? (
+                  <Card className="vendor-security-action" padding="md" withBorder>
+                    <Stack gap="md">
+                      <Alert color="red" title="Your account will be less secure" variant="light">
+                        Removing MFA revokes your authenticator and every recovery code. Other sessions will be closed.
+                      </Alert>
+                      <PasswordInput
+                        autoComplete="current-password"
+                        label="Current password"
+                        required
+                        value={removalPassword}
+                        onChange={(event) => setRemovalPassword(event.target.value)}
+                      />
+                      <TextInput
+                        autoComplete="one-time-code"
+                        description="Use this or an unused recovery code below."
+                        inputMode="numeric"
+                        label="Current authenticator code"
+                        maxLength={6}
+                        value={removalCode}
+                        onChange={(event) => setRemovalCode(event.target.value.replace(/\D/g, ""))}
+                      />
+                      <TextInput
+                        autoComplete="one-time-code"
+                        description="Use this only if your authenticator is unavailable."
+                        label="Recovery code"
+                        value={removalRecoveryCode}
+                        onChange={(event) => setRemovalRecoveryCode(event.target.value)}
+                      />
+                      <Checkbox
+                        checked={removalAcknowledged}
+                        label="I understand that removing MFA reduces my account security."
+                        onChange={(event) => setRemovalAcknowledged(event.target.checked)}
+                      />
+                      <Group justify="flex-end">
+                        <Button disabled={mfaBusy} onClick={() => setRemovingMfa(false)} variant="default">Keep MFA</Button>
+                        <Button
+                          color="red"
+                          disabled={
+                            !removalAcknowledged ||
+                            !removalPassword ||
+                            (removalCode.length !== 6 && !removalRecoveryCode.trim())
+                          }
+                          loading={mfaBusy}
+                          onClick={() => void removeMfa()}
+                        >
+                          Remove MFA
+                        </Button>
+                      </Group>
+                    </Stack>
+                  </Card>
+                ) : null}
+              </Stack>
+            ) : null}
+          </Stack>
+        </Card>
+      </Stack>
+    );
+  }
+
+  function renderAccountPage() {
+    const canAccessBillingTabs = isOwner || isAdmin;
+    const subscription = billing?.subscription || null;
+    const isFreeSubscription = subscription?.planSlug === "free";
+    const plan = subscription
+      ? billing?.plans.find((item) => item.slug === subscription.planSlug) || null
+      : null;
+
+    return (
+      <Stack gap="md">
+        <Card className="neura-card" padding="lg">
+          <Tabs
+            keepMounted={false}
+            value={accountTab}
+            onChange={(value) => {
+              const nextTab = (value || "profile") as AccountTab;
+              if (!canAccessBillingTabs && (nextTab === "subscription" || nextTab === "billing")) {
+                setAccountTab("profile");
+                return;
+              }
+              setAccountTab(nextTab);
+            }}
+          >
+            <Tabs.List>
+              {canAccessBillingTabs && !requiresMfaEnrollment ? (
+                <>
+                  <Tabs.Tab value="subscription">Subscription</Tabs.Tab>
+                  <Tabs.Tab value="billing">Billing</Tabs.Tab>
+                </>
+              ) : null}
+              {!requiresMfaEnrollment ? <Tabs.Tab value="profile">Profile</Tabs.Tab> : null}
+              <Tabs.Tab value="security">Security</Tabs.Tab>
+            </Tabs.List>
+
+            {canAccessBillingTabs ? (
+              <Tabs.Panel pt="lg" value="subscription">
+                <Stack gap="md">
+                  <Group justify="space-between" align="flex-start">
+                    <div>
+                      <Text className="neura-label">Subscription</Text>
+                      <Title order={3}>{renderActivePlanName()}</Title>
+                      <Text c="dimmed" size="sm">
+                        {subscription
+                          ? `${subscription.status} plan access for ${snapshot?.tenant.name || selectedTenantSlug}.`
+                          : "Choose a plan to unlock tenant entitlements."}
+                      </Text>
+                    </div>
+                    {isFreeSubscription ? (
+                      <Button
+                        className="neura-primary-button"
+                        onClick={() => openPlanDialog(true)}
+                        w={{ base: "100%", sm: "fit-content" }}
+                      >
+                        Upgrade to paid plan
+                      </Button>
+                    ) : subscription?.currentPeriodEnd ? (
+                      <Badge variant="light">Renews {formatDate(subscription.currentPeriodEnd)}</Badge>
+                    ) : null}
+                  </Group>
+                  <SimpleGrid cols={{ base: 1, sm: 2 }}>
+                    <MetricCard label="Tickets" value={`${ticketUsage}/${ticketLimit || "--"}`} detail="Current period" />
+                    <MetricCard label="Email journeys" value={`${emailJourneyUsage}/${emailJourneyLimit ?? "--"}`} detail={emailJourneyDetail} />
+                  </SimpleGrid>
+                  {!activeSubscription ? <div>{renderPlanCards()}</div> : !isFreeSubscription ? (
+                    <Button onClick={() => openPlanDialog()} variant="light" w={{ base: "100%", sm: "fit-content" }}>
+                      Review available plans
+                    </Button>
+                  ) : null}
+                </Stack>
+              </Tabs.Panel>
+            ) : null}
+
+            {canAccessBillingTabs ? (
+              <Tabs.Panel pt="lg" value="billing">
+                <Stack gap="md">
+                  <div>
+                    <Text className="neura-label">Billing</Text>
+                    <Title order={3}>Billing details</Title>
+                    <Text c="dimmed" size="sm">
+                      Review the server-owned billing record and operational capacity for this workspace.
+                    </Text>
+                  </div>
+                  {isFreeSubscription ? (
+                    <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }}>
+                      <MetricCard
+                        label="Current plan"
+                        value={subscription.planName}
+                        detail={plan ? getPlanPriceDisplay(plan) : "No recurring charge"}
+                      />
+                    </SimpleGrid>
+                  ) : subscription ? (
+                    <>
+                      <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }}>
+                        <MetricCard
+                          label="Current plan"
+                          value={subscription.planName}
+                          detail={plan ? getPlanPriceDisplay(plan) : "Plan pricing"}
+                        />
+                        <MetricCard label="Billing interval" value={subscription.billingInterval} detail="Subscription cadence" />
+                        <MetricCard label="Provider" value={subscription.provider} detail="Payment processor" />
+                        <MetricCard
+                          label="Current period"
+                          value={subscription.currentPeriodEnd ? formatDate(subscription.currentPeriodEnd) : "Open-ended"}
+                          detail={subscription.currentPeriodEnd ? "Period end" : "No scheduled renewal"}
+                        />
+                      </SimpleGrid>
+                      <VendorCapacityPanel tenantSlug={selectedTenantSlug} token={token || ""} />
+                    </>
+                  ) : (
+                    <Alert color="blue" variant="light">
+                      This workspace has no billing record yet. Choose a plan from the Subscription tab to begin.
+                    </Alert>
+                  )}
+                </Stack>
+              </Tabs.Panel>
+            ) : null}
+
+            <Tabs.Panel pt="lg" value="profile">
+              <form onSubmit={handleAccountProfileSave}>
+                <Stack gap="md">
+                  <div>
+                    <Text className="neura-label">Vendor account</Text>
+                    <Title order={3}>Account details</Title>
+                    <Text c="dimmed" size="sm">
+                      These details belong to your user account and follow you across vendor workspaces.
+                    </Text>
+                  </div>
+                  <SimpleGrid cols={{ base: 1, md: 2 }}>
+                    <TextInput
+                      label="Full name"
+                      required
+                      value={accountProfileForm.name}
+                      onChange={(event) => setAccountProfileForm((current) => ({ ...current, name: event.target.value }))}
+                    />
+                    <TextInput
+                      label="Display name"
+                      description="Shown to teammates and customers where your account is identified."
+                      value={accountProfileForm.displayName}
+                      onChange={(event) => setAccountProfileForm((current) => ({ ...current, displayName: event.target.value }))}
+                    />
+                    <TextInput disabled label="Username" value={user?.username || "Not set"} />
+                    <TextInput disabled label="Email" value={user?.email || "Not set"} />
+                    <TextInput disabled label="Phone" value={user?.phone || "Not set"} />
+                    <TextInput disabled label="Workspace role" value={selectedTenantRole || "No active role"} />
+                  </SimpleGrid>
+                  <Text c="dimmed" size="sm">
+                    Contact support to change sign-in identifiers such as username, email, or phone.
+                  </Text>
+                  <Button
+                    className="neura-primary-button"
+                    loading={accountProfileBusy}
+                    type="submit"
+                    w={{ base: "100%", sm: "fit-content" }}
+                  >
+                    Save account details
+                  </Button>
+                </Stack>
+              </form>
+            </Tabs.Panel>
+
+            <Tabs.Panel pt="lg" value="security">
+              {renderSecurityPage()}
+            </Tabs.Panel>
+          </Tabs>
+        </Card>
+      </Stack>
+    );
+  }
+
   function renderSettingsPage() {
     return (
       <Stack gap="md">
         <Card className="neura-card" padding="lg">
-          <Tabs defaultValue="subscription">
+          <Tabs
+            keepMounted={false}
+            value={settingsTab}
+            onChange={(value) => setSettingsTab((value as SettingsTab | null) || "contact")}
+          >
             <Tabs.List>
-              <Tabs.Tab value="subscription">Subscription</Tabs.Tab>
               <Tabs.Tab value="contact">Business profile</Tabs.Tab>
               <Tabs.Tab value="queue">Queue settings</Tabs.Tab>
               <Tabs.Tab value="notifications">Notifications</Tabs.Tab>
             </Tabs.List>
-
-            <Tabs.Panel pt="lg" value="subscription">
-              <Stack gap="md">
-                <Group justify="space-between" align="flex-start">
-                  <div>
-                    <Text className="neura-label">Subscription</Text>
-                    <Title order={3}>{renderActivePlanName()}</Title>
-                    <Text c="dimmed" size="sm">
-                      {billing?.subscription
-                        ? `${billing.subscription.status} via ${billing.subscription.provider}`
-                        : "Choose a plan to unlock tenant entitlements."}
-                    </Text>
-                  </div>
-                  {billing?.subscription?.currentPeriodEnd ? (
-                    <Badge variant="light">Renews {formatDate(billing.subscription.currentPeriodEnd)}</Badge>
-                  ) : null}
-                </Group>
-                <SimpleGrid cols={{ base: 1, sm: 2 }}>
-                  <MetricCard label="Tickets" value={`${ticketUsage}/${ticketLimit || "--"}`} detail="Current period" />
-                  <MetricCard label="Emails" value={`${emailUsage}/${emailLimit ?? "--"}`} detail="Transactional" />
-                </SimpleGrid>
-                {!activeSubscription ? <div>{renderPlanCards()}</div> : null}
-              </Stack>
-            </Tabs.Panel>
 
             <Tabs.Panel pt="lg" value="contact">
               <form onSubmit={handleSaveSettings}>
@@ -8601,43 +9893,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     value={settings.publicProfileCategory}
                     onChange={(event) =>
                       setSettings((current) => ({ ...current, publicProfileCategory: event.target.value }))
-                    }
-                  />
-                  <TextInput
-                    name="contactEmail"
-                    label="Contact email"
-                    description={!canManageContactSettings ? "Only tenant owners can update contact details." : undefined}
-                    disabled={!canManageContactSettings}
-                    type="email"
-                    value={settings.contactEmail}
-                    onChange={(event) =>
-                      setSettings((current) => ({ ...current, contactEmail: event.target.value }))
-                    }
-                  />
-                  <PhilippineMobileInput
-                    name="contactPhone"
-                    label="Contact phone"
-                    disabled={!canManageContactSettings}
-                    value={settings.contactPhone}
-                    onChange={(nextValue) =>
-                      setSettings((current) => ({ ...current, contactPhone: nextValue }))
-                    }
-                  />
-                  <TextInput
-                    label="Owner name"
-                    disabled={!canManageContactSettings}
-                    value={settings.ownerName}
-                    onChange={(event) =>
-                      setSettings((current) => ({ ...current, ownerName: event.target.value }))
-                    }
-                  />
-                  <TextInput
-                    label="Owner display name"
-                    description="This name is shown where the business owner is identified."
-                    disabled={!canManageContactSettings}
-                    value={settings.ownerDisplayName}
-                    onChange={(event) =>
-                      setSettings((current) => ({ ...current, ownerDisplayName: event.target.value }))
                     }
                   />
                   <Button className="neura-secondary-button" disabled={busyAction === "settings"} type="submit">
@@ -8759,11 +10014,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           }
                         }}
                       />
-                    ) : (
-                      <Text c="dimmed" size="sm">
-                        Only applies to queues paused automatically by threshold.
-                      </Text>
-                    )}
+                    ) : null}
                     <Text c="dimmed" size="sm">
                       {settings.autoPauseEnabled && settings.autoResumeEnabled
                         ? `With a threshold of ${Number(settings.autoPauseThreshold) || 0}, intake will reopen at ${
@@ -8866,6 +10117,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 />
               </Stack>
             </Tabs.Panel>
+
           </Tabs>
         </Card>
 
@@ -9042,8 +10294,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         </ScrollArea>
 
         <Paper className="neura-sidebar-card" p="md">
-          <Group align="flex-start" justify="space-between" gap="sm">
-            <div>
+          <Group align="flex-start" justify="space-between" gap="sm" wrap="nowrap">
+            <div className="neura-sidebar-account-copy">
               <Text size="xs" c="dimmed">Current tenant</Text>
               <Text fw={700}>{snapshot?.tenant.name || user?.tenants[0]?.name || "Tenant"}</Text>
               <Text size="sm" c="dimmed">{selectedLocation?.name || "Primary location"}</Text>
@@ -9564,8 +10816,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   function renderCurrentSection() {
-    if (!activeSubscription && currentSection !== "settings") {
-      return <ActivationPanel onViewPlans={() => setPlanDialogOpen(true)} />;
+    if (!activeSubscription && currentSection !== "settings" && currentSection !== "account") {
+      return <ActivationPanel onViewPlans={() => openPlanDialog()} />;
     }
 
     if (currentSection === "queue") {
@@ -9604,6 +10856,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       return renderReportsPage();
     }
 
+    if (currentSection === "account") {
+      return renderAccountPage();
+    }
+
     return renderSettingsPage();
   }
 
@@ -9615,11 +10871,22 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     return <Navigate to="/dashboard/queue" replace />;
   }
 
+  if (requiresMfaEnrollment && currentSection !== "account") {
+    return <Navigate to="/dashboard/account" replace />;
+  }
+
+  if (
+    !effectiveEntitlementsQuery.isPending &&
+    !canAccessVendorSection(currentSection, effectiveEntitlements)
+  ) {
+    return <Navigate to={defaultDashboardPath} replace />;
+  }
+
   if (
     (selectedTenantRole === "staff" && !staffAllowedSections.has(currentSection)) ||
     (selectedTenantRole === "admin" && !adminAllowedSections.has(currentSection))
   ) {
-    return <Navigate to="/dashboard/queue" replace />;
+    return <Navigate to={defaultDashboardPath} replace />;
   }
 
   if (!user) {
@@ -9671,27 +10938,39 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         <header className="neura-header">
           <Group align="flex-start" gap="md">
             <div>
-              <Text className="neura-label">Analytics dashboard</Text>
+              <Text className="neura-label">{requiresMfaEnrollment ? "Account security" : "Analytics dashboard"}</Text>
               <Title order={1}>
-                {currentSection === "queue"
+                {requiresMfaEnrollment
+                  ? "Secure your account"
+                  : currentSection === "queue"
                   ? "Live queue"
                   : navItems.find((item) => item.section === currentSection)?.label}
               </Title>
-              <Text c="dimmed">{dashboardSectionDescriptions[currentSection]}</Text>
+              <Text c="dimmed">
+                {requiresMfaEnrollment
+                  ? "Set up an authenticator to continue to your vendor workspace. Your sign-in session remains active during setup."
+                  : dashboardSectionDescriptions[currentSection]}
+              </Text>
             </div>
           </Group>
-          <Select
+          {!requiresMfaEnrollment ? <Select
             className="neura-tenant-select"
-            data={locations.map((locationItem) => ({
-              label: locationItem.name,
-              value: locationItem.slug
-            }))}
+            data={locationOptions}
             label="Location"
             value={selectedLocationSlug}
             onChange={(value) => value && setSelectedLocationSlug(value)}
-          />
+          /> : <Badge color="orange" variant="light">MFA setup required</Badge>}
         </header>
 
+        {!requiresMfaEnrollment ? <VendorQueueLifecycleTray
+          busyAction={busyAction}
+          canOperate={canOperateQueueDay}
+          locationName={selectedLocation?.name || "This queue"}
+          onCloseNow={handleCloseQueueDay}
+          onExtend={handleExtendQueueDay}
+          onRefresh={reloadDashboardSnapshot}
+          snapshot={snapshot}
+        /> : null}
         {error ? <Text c="red" fw={700}>{error}</Text> : null}
         {renderCurrentSection()}
       </main>
@@ -9706,6 +10985,20 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       {renderThemeDialog()}
       {renderDashboardAlertOverlay()}
       {renderRescheduleBlockedModal()}
+      {renderWalkInDialog()}
+      <TicketScannerModal
+        error={ticketScannerError}
+        loading={busyAction === "confirm-current"}
+        onClose={() => {
+          if (busyAction !== "confirm-current") {
+            setTicketScannerOpen(false);
+            setTicketScannerError("");
+          }
+        }}
+        onConfirm={handleConfirmCalledTicket}
+        opened={ticketScannerOpen}
+        ticketNumber={snapshot?.current?.ticketNumber}
+      />
       <Drawer
         classNames={{ body: "neura-drawer-body", content: "neura-drawer-content", header: "neura-drawer-header" }}
         hiddenFrom="lg"

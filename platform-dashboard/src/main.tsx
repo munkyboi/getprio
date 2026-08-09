@@ -6,11 +6,9 @@ import {
   Burger,
   Button,
   Card,
-  Checkbox,
   Container,
   Group,
   MantineProvider,
-  NumberInput,
   Paper,
   PasswordInput,
   SimpleGrid,
@@ -27,7 +25,6 @@ import { useDisclosure } from "@mantine/hooks";
 import { Notifications, notifications } from "@mantine/notifications";
 import {
   IconChartBar,
-  IconCreditCard,
   IconLogout,
   IconSettings,
   IconUsers,
@@ -38,38 +35,30 @@ import {
   IconChevronRight,
   IconMoon,
   IconSun,
-  IconPencil,
-  IconPower,
-  IconAlertTriangle,
-  IconTrash,
   IconPlus,
-  IconBellRinging,
   IconShieldExclamation,
   IconStar
 } from "@tabler/icons-react";
 import { createRoot } from "react-dom/client";
+import QRCode from "react-qr-code";
 import { BrowserRouter, Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import type {
   AuthResponse,
+  AuthLoginResponse,
   LoginRequest,
   PlatformListResponse,
   PlatformOverviewResponse,
-  PlatformPlansResponse,
-  PlatformQueueFeesResponse,
   PlatformSettingsResponse,
-  QueueFeeSetting,
   SubscriptionPlan,
-  UpdatePlatformPlanRequest,
-  UpdatePlatformQueueFeesRequest,
   UpdatePlatformSettingsRequest,
   UserSummary
 } from "@shared";
 import { getTimeZoneOptions } from "../../shared/timezones";
 import { apiRequest } from "./api";
 import { PortalDataTable } from "./components/PortalDataTable";
-import { ConfirmActionModal } from "./components/ConfirmActionModal";
 import { PromptActionModal } from "./components/PromptActionModal";
 import { ModalWheelBridge } from "./components/ModalWheelBridge";
+import { PlanMatrixPage } from "./pages/PlanMatrixPage";
 import "@mantine/core/styles.css";
 import "@mantine/notifications/styles.css";
 import "./styles.css";
@@ -88,12 +77,12 @@ type GenericRecord = Record<string, unknown>;
 
 const navItems = [
   { to: "/overview", label: "Overview", icon: IconChartBar },
-  { to: "/queue-fees", label: "Queue fees", icon: IconCreditCard },
-  { to: "/plans", label: "Plans", icon: IconCalendarDollar },
+  { to: "/plans", label: "Plan Matrix", icon: IconCalendarDollar },
   { to: "/tenants", label: "Tenants", icon: IconBuildingStore },
   { to: "/subscriptions", label: "Subscriptions", icon: IconListDetails },
   { to: "/users", label: "Users", icon: IconUsers },
   { to: "/billing-events", label: "Billing events", icon: IconReceipt },
+  { to: "/security-audit", label: "Security audit", icon: IconShieldExclamation },
   { to: "/campaign-reports", label: "Campaign reports", icon: IconShieldExclamation },
   { to: "/rating-disputes", label: "Rating disputes", icon: IconStar },
   { to: "/settings", label: "Settings", icon: IconSettings }
@@ -108,7 +97,8 @@ function formatDate(value: unknown) {
 }
 
 function readToken() {
-  return localStorage.getItem(STORAGE_KEY) || "";
+  localStorage.removeItem(STORAGE_KEY);
+  return "cookie-session";
 }
 
 function readAppearance(): PortalAppearance {
@@ -148,43 +138,6 @@ function StatusBadge({ value }: { value: unknown }) {
   return <Badge color={color}>{status}</Badge>;
 }
 
-function mergeSubscriptionRow(existing: GenericRecord | undefined, updated: GenericRecord) {
-  return {
-    ...(existing || {}),
-    ...updated,
-    tenantName: updated.tenantName ?? existing?.tenantName,
-    tenantSlug: updated.tenantSlug ?? existing?.tenantSlug
-  };
-}
-
-function IconActionButton({
-  label,
-  children,
-  color = "gray",
-  onClick,
-  disabled = false
-}: {
-  label: string;
-  children: ReactNode;
-  color?: string;
-  onClick: () => void;
-  disabled?: boolean;
-}) {
-  return (
-    <Tooltip label={label} withArrow>
-      <ActionIcon
-        aria-label={label}
-        color={color}
-        disabled={disabled}
-        onClick={onClick}
-        variant="light"
-      >
-        {children}
-      </ActionIcon>
-    </Tooltip>
-  );
-}
-
 function LoginPanel({
   appearance,
   onAppearanceToggle,
@@ -192,25 +145,50 @@ function LoginPanel({
 }: {
   appearance: PortalAppearance;
   onAppearanceToggle: () => void;
-  onLogin: (token: string, user: UserSummary) => void;
+  onLogin: (token: string, user: UserSummary, sessionExpiresAt?: string | Date | null) => void;
 }) {
   const [form, setForm] = useState<LoginRequest>({ identifier: "", password: "" });
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [mfaChallengeToken, setMfaChallengeToken] = useState("");
+  const [mfaCode, setMfaCode] = useState("");
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitting(true);
     setError("");
     try {
-      const data = await apiRequest<AuthResponse, LoginRequest>("/auth/login", { method: "POST", body: form });
+      const data = await apiRequest<AuthLoginResponse, LoginRequest>("/auth/login", { method: "POST", body: form });
+      if ("mfaRequired" in data) {
+        setMfaChallengeToken(data.challengeToken);
+        return;
+      }
       if (!data.user.roles.includes("platform_admin")) {
         throw new Error("This account does not have platform admin access.");
       }
-      localStorage.setItem(STORAGE_KEY, data.token);
-      onLogin(data.token, data.user);
+      onLogin("cookie-session", data.user, data.sessionExpiresAt);
     } catch (loginError) {
       setError(loginError instanceof Error ? loginError.message : "Unable to sign in.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleMfaSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSubmitting(true);
+    setError("");
+    try {
+      const data = await apiRequest<AuthResponse, { challengeToken: string; code: string }>("/auth/mfa/verify", {
+        method: "POST",
+        body: { challengeToken: mfaChallengeToken, code: mfaCode }
+      });
+      if (!data.user.roles.includes("platform_admin")) {
+        throw new Error("This account does not have platform admin access.");
+      }
+      onLogin("cookie-session", data.user, data.sessionExpiresAt);
+    } catch (loginError) {
+      setError(loginError instanceof Error ? loginError.message : "Unable to verify that code.");
     } finally {
       setSubmitting(false);
     }
@@ -219,7 +197,7 @@ function LoginPanel({
   return (
     <main className="portal-login">
       <Paper className="portal-card portal-login-card" p="xl">
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={mfaChallengeToken ? handleMfaSubmit : handleSubmit}>
           <Stack gap="lg">
             <Group align="flex-start" justify="space-between" gap="md">
               <div>
@@ -236,8 +214,17 @@ function LoginPanel({
               </div>
               <AppearanceToggle appearance={appearance} onToggle={onAppearanceToggle} />
             </Group>
-            <TextInput label="Email or username" value={form.identifier} onChange={(event) => setForm((current) => ({ ...current, identifier: event.target.value }))} />
-            <PasswordInput label="Password" value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} />
+            {mfaChallengeToken ? (
+              <>
+                <Text c="dimmed">Enter the six-digit code from your authenticator app to finish signing in.</Text>
+                <TextInput autoFocus autoComplete="one-time-code" inputMode="numeric" label="Authenticator code" value={mfaCode} onChange={(event) => setMfaCode(event.target.value)} />
+              </>
+            ) : (
+              <>
+                <TextInput label="Email or username" value={form.identifier} onChange={(event) => setForm((current) => ({ ...current, identifier: event.target.value }))} />
+                <PasswordInput label="Password" value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} />
+              </>
+            )}
             {error ? <Text c="red">{error}</Text> : null}
             <Button type="submit" loading={submitting}>Sign in</Button>
           </Stack>
@@ -297,104 +284,74 @@ function OverviewPage({ token }: { token: string }) {
   );
 }
 
-function QueueFeesPage({ token }: { token: string }) {
-  const [fees, setFees] = useState<QueueFeeSetting[]>([]);
-  useEffect(() => { apiRequest<PlatformQueueFeesResponse>("/platform/queue-fees", { token }).then((data) => setFees(data.queueFees)); }, [token]);
-  async function save() {
-    const data = await apiRequest<PlatformQueueFeesResponse, UpdatePlatformQueueFeesRequest>("/platform/queue-fees", {
-      method: "PATCH", token, body: { queueFees: fees }
-    });
-    setFees(data.queueFees);
-    showSaved("Queue fees updated");
-  }
-  return (
-    <Stack>
-      <SimpleGrid cols={{ base: 1, md: 3 }}>
-        {fees.map((fee, index) => (
-          <Card className="portal-card" key={fee.planSlug} padding="lg">
-            <Stack>
-              <Title order={3}>{fee.planSlug}</Title>
-              <Checkbox checked={fee.enabled} label="Enabled" onChange={(event) => setFees((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, enabled: event.target.checked } : item))} />
-              <NumberInput label="Amount in centavos" value={fee.amountCents} onChange={(value) => setFees((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, amountCents: Number(value) || 0 } : item))} />
-            </Stack>
-          </Card>
-        ))}
-      </SimpleGrid>
-      <Group justify="flex-end"><Button onClick={save}>Save fee policy</Button></Group>
-    </Stack>
-  );
-}
-
-const historyRanges = ["today", "week", "month", "quarter", "year"] as const;
-
-function PlansPage({ token }: { token: string }) {
-  const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
-  useEffect(() => { apiRequest<PlatformPlansResponse>("/platform/plans", { token }).then((data) => setPlans(data.plans)); }, [token]);
-  async function save(plan: SubscriptionPlan) {
-    const data = await apiRequest<{ plan: SubscriptionPlan }, UpdatePlatformPlanRequest>(`/platform/plans/${plan.slug}`, {
-      method: "PATCH",
-      token,
-      body: { plan }
-    });
-    setPlans((current) => current.map((item) => item.slug === data.plan.slug ? data.plan : item));
-    showSaved(`${plan.name} updated`);
-  }
-  return (
-    <Stack gap="lg">
-      {plans.map((plan) => (
-        <Card className="portal-card" key={plan.slug} padding="lg">
-          <Stack>
-            <Group grow align="flex-start">
-              <TextInput label="Name" value={plan.name} onChange={(event) => setPlans((current) => current.map((item) => item.slug === plan.slug ? { ...item, name: event.target.value } : item))} />
-              <NumberInput label="Monthly price (centavos)" value={plan.price.monthlyAmountCents} onChange={(value) => setPlans((current) => current.map((item) => item.slug === plan.slug ? { ...item, price: { ...item.price, monthlyAmountCents: Number(value) || 0 } } : item))} />
-              <NumberInput label="Annual price (centavos)" value={plan.price.annualAmountCents} onChange={(value) => setPlans((current) => current.map((item) => item.slug === plan.slug ? { ...item, price: { ...item.price, annualAmountCents: Number(value) || 0 } } : item))} />
-            </Group>
-            <SimpleGrid cols={{ base: 1, md: 3 }}>
-              {[
-                ["monthlyTickets", "Tickets"],
-                ["monthlyTransactionalEmails", "Transactional emails"],
-                ["smsAllowance", "SMS notifications"],
-                ["locations", "Locations"],
-                ["counters", "Counters"],
-                ["staffSeats", "Staff seats"]
-              ].map(([key, label]) => (
-                <NumberInput key={key} label={label} value={Number(plan.entitlements[key as keyof typeof plan.entitlements] ?? 0)} onChange={(value) => setPlans((current) => current.map((item) => item.slug === plan.slug ? { ...item, entitlements: { ...item.entitlements, [key]: Number(value) || 0 } } : item))} />
-              ))}
-            </SimpleGrid>
-            <Group>
-              {[
-                ["brandedQueuePages", "Rebrand public board"],
-                ["csvExport", "CSV export"],
-                ["pdfExport", "PDF export"]
-              ].map(([key, label]) => (
-                <Checkbox key={key} checked={Boolean(plan.entitlements[key as keyof typeof plan.entitlements])} label={label} onChange={(event) => setPlans((current) => current.map((item) => item.slug === plan.slug ? { ...item, entitlements: { ...item.entitlements, [key]: event.target.checked } } : item))} />
-              ))}
-            </Group>
-            <Checkbox.Group
-              label="Allowed history export ranges"
-              value={plan.entitlements.allowedHistoryExportRanges}
-              onChange={(value) => setPlans((current) => current.map((item) => item.slug === plan.slug ? { ...item, entitlements: { ...item.entitlements, allowedHistoryExportRanges: value as typeof plan.entitlements.allowedHistoryExportRanges } } : item))}
-            >
-              <Group mt="xs">{historyRanges.map((range) => <Checkbox key={range} value={range} label={range} />)}</Group>
-            </Checkbox.Group>
-            <Group justify="flex-end"><Button onClick={() => save(plan)}>Save plan</Button></Group>
-          </Stack>
-        </Card>
-      ))}
-    </Stack>
-  );
-}
-
-function SettingsPage({ token }: { token: string }) {
+function SettingsPage({ token, user }: { token: string; user: UserSummary & { mfaEnabled?: boolean } }) {
   const [settings, setSettings] = useState<PlatformSettingsResponse["settings"] | null>(null);
+  const [mfaSecret, setMfaSecret] = useState("");
+  const [mfaUri, setMfaUri] = useState("");
+  const [mfaCode, setMfaCode] = useState("");
+  const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
+  const [mfaActive, setMfaActive] = useState(Boolean(user.mfaEnabled));
+  const [replacingMfa, setReplacingMfa] = useState(false);
+  const [mfaPassword, setMfaPassword] = useState("");
+  const [currentMfaCode, setCurrentMfaCode] = useState("");
+  const [mfaBusy, setMfaBusy] = useState(false);
   useEffect(() => { apiRequest<PlatformSettingsResponse>("/platform/settings", { token }).then((data) => setSettings(data.settings)); }, [token]);
+  useEffect(() => { setMfaActive(Boolean(user.mfaEnabled)); }, [user.mfaEnabled]);
   async function save() {
     if (!settings) return;
     const data = await apiRequest<PlatformSettingsResponse, UpdatePlatformSettingsRequest>("/platform/settings", { method: "PATCH", token, body: settings });
     setSettings(data.settings);
     showSaved("Settings updated");
   }
+  async function startMfa() {
+    setMfaBusy(true);
+    try {
+      if (mfaActive) {
+        await apiRequest<{ success: boolean }, { password: string; code: string }>("/auth/mfa/step-up", {
+          method: "POST",
+          token,
+          body: { password: mfaPassword, code: currentMfaCode }
+        });
+      }
+      const data = await apiRequest<{ secret: string; otpAuthUri: string }, { currentCode?: string }>("/auth/mfa/enrollment/start", {
+        method: "POST",
+        token,
+        body: mfaActive ? { currentCode: currentMfaCode } : {}
+      });
+      setMfaSecret(data.secret);
+      setMfaUri(data.otpAuthUri);
+      setRecoveryCodes([]);
+      setReplacingMfa(false);
+      setMfaPassword("");
+      setCurrentMfaCode("");
+    } catch (mfaError) {
+      notifications.show({
+        color: "red",
+        title: mfaActive ? "Authenticator replacement could not start" : "Authenticator setup could not start",
+        message: mfaError instanceof Error ? mfaError.message : "Please try again."
+      });
+    } finally {
+      setMfaBusy(false);
+    }
+  }
+  async function confirmMfa() {
+    setMfaBusy(true);
+    try {
+      const data = await apiRequest<{ recoveryCodes: string[] }>("/auth/mfa/enrollment/confirm", { method: "POST", token, body: { code: mfaCode } });
+      setRecoveryCodes(data.recoveryCodes);
+      setMfaSecret("");
+      setMfaUri("");
+      setMfaCode("");
+      setMfaActive(true);
+      notifications.show({ color: "teal", title: "Authenticator enabled", message: "Save the recovery codes shown on this page." });
+    } catch (mfaError) {
+      notifications.show({ color: "red", title: "Code not verified", message: mfaError instanceof Error ? mfaError.message : "Please try again." });
+    } finally {
+      setMfaBusy(false);
+    }
+  }
   return (
+    <Stack>
     <Paper className="portal-card" p="lg">
       <Stack>
         <TextInput label="Enterprise inquiry recipient" value={settings?.enterpriseInquiryEmail || ""} onChange={(event) => setSettings((current) => current ? { ...current, enterpriseInquiryEmail: event.target.value } : current)} />
@@ -410,6 +367,57 @@ function SettingsPage({ token }: { token: string }) {
         <Group justify="flex-end"><Button onClick={save}>Save settings</Button></Group>
       </Stack>
     </Paper>
+    <Paper className="portal-card" p="lg">
+      <Stack>
+        <div><Text className="neura-label">PLATFORM SECURITY</Text><Title order={3}>Authenticator verification</Title><Text c="dimmed">Required for plan, credit, lifecycle, and repair confirmations.</Text></div>
+        {recoveryCodes.length ? <Card withBorder><Text fw={700}>Save these one-time recovery codes</Text>{recoveryCodes.map((code) => <Text ff="monospace" key={code}>{code}</Text>)}</Card> : null}
+        {mfaActive && !mfaSecret && !replacingMfa && !recoveryCodes.length ? (
+          <Stack gap="sm">
+            <Group><Badge color="teal">Enabled</Badge><Text c="dimmed" size="sm">Your authenticator is active.</Text></Group>
+            <Button variant="light" onClick={() => setReplacingMfa(true)}>Replace authenticator</Button>
+          </Stack>
+        ) : null}
+        {replacingMfa && !mfaSecret ? (
+          <Card withBorder>
+            <Stack gap="md">
+              <div>
+                <Text fw={700}>Confirm before replacing your authenticator</Text>
+                <Text c="dimmed" size="sm">Enter your password and a code from your current authenticator. Your current authenticator stays active until the new one is verified.</Text>
+              </div>
+              <PasswordInput autoComplete="current-password" label="Password" value={mfaPassword} onChange={(event) => setMfaPassword(event.target.value)} />
+              <TextInput autoComplete="one-time-code" inputMode="numeric" label="Current authenticator code" maxLength={6} value={currentMfaCode} onChange={(event) => setCurrentMfaCode(event.target.value.replace(/\D/g, ""))}/>
+              <Group justify="flex-end">
+                <Button disabled={mfaBusy} variant="subtle" onClick={() => { setReplacingMfa(false); setMfaPassword(""); setCurrentMfaCode(""); }}>Cancel</Button>
+                <Button disabled={!mfaPassword || currentMfaCode.length !== 6} loading={mfaBusy} onClick={() => void startMfa()}>Verify and replace</Button>
+              </Group>
+            </Stack>
+          </Card>
+        ) : null}
+        {!mfaActive && !mfaSecret ? <Button loading={mfaBusy} onClick={() => void startMfa()}>Set up authenticator</Button> : null}
+        {mfaSecret ? (
+          <Stack gap="md">
+            <Stack align="center" gap="sm">
+              <Text fw={700} ta="center">Scan with your authenticator app</Text>
+              <Text c="dimmed" maw={440} size="sm" ta="center">Add an account in your authenticator app, then scan this QR code.</Text>
+              <div aria-label="GetPrio authenticator setup QR code" className="mfa-setup-qr" role="img">
+                <QRCode aria-hidden="true" bgColor="#ffffff" fgColor="#111827" size={192} value={mfaUri} />
+              </div>
+            </Stack>
+            <Card withBorder>
+              <Stack gap="xs">
+                <Text fw={700}>Can’t scan the QR code?</Text>
+                <Text c="dimmed" size="sm">Open the setup link on this device or enter the secret manually.</Text>
+                <Text component="a" href={mfaUri} style={{ overflowWrap: "anywhere" }}>Open authenticator setup</Text>
+                <Text ff="monospace" style={{ overflowWrap: "anywhere" }}>{mfaSecret}</Text>
+              </Stack>
+            </Card>
+            <TextInput autoComplete="one-time-code" inputMode="numeric" label="6-digit code" maxLength={6} value={mfaCode} onChange={(event) => setMfaCode(event.target.value.replace(/\D/g, ""))}/>
+            <Button disabled={mfaCode.length !== 6} loading={mfaBusy} onClick={() => void confirmMfa()}>Verify and enable</Button>
+          </Stack>
+        ) : null}
+      </Stack>
+    </Paper>
+    </Stack>
   );
 }
 
@@ -480,26 +488,11 @@ function SubscriptionsPage({ token }: { token: string }) {
   const [rows, setRows] = useState<GenericRecord[]>([]);
   const [tenants, setTenants] = useState<GenericRecord[]>([]);
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
-  const [confirmAction, setConfirmAction] = useState<null | {
-    title: string;
-    description: string;
-    confirmLabel: string;
-    confirmColor?: "red" | "orange" | "yellow" | "blue" | "dark";
-    loadingKey?: string;
-    onConfirm: () => Promise<void>;
-  }>(null);
-  const [confirmBusy, setConfirmBusy] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
-  const [editingSubscriptionId, setEditingSubscriptionId] = useState<string | null>(null);
   const [form, setForm] = useState({
     tenantId: "",
-    planSlug: "economical",
-    status: "active",
-    provider: "manual",
-    billingInterval: "monthly",
-    providerCustomerId: "",
-    providerSubscriptionId: "",
-    providerCheckoutSessionId: ""
+    planSlug: "free",
+    reason: ""
   });
   const tenantOptions = tenants.map((tenant) => ({
     value: String(tenant.id),
@@ -509,7 +502,7 @@ function SubscriptionsPage({ token }: { token: string }) {
     value: plan.slug,
     label: `${plan.name} · ${plan.price.monthlyDisplay}`
   }));
-  const editorTitle = editingSubscriptionId ? "Edit subscription" : "Add subscription";
+  const editorTitle = "Schedule plan transition";
 
   const load = async () => {
     const [subscriptionData, tenantData, planData] = await Promise.all([
@@ -525,91 +518,27 @@ function SubscriptionsPage({ token }: { token: string }) {
   useEffect(() => { load(); }, [token]);
 
   function openNewSubscription() {
-    setEditingSubscriptionId(null);
     setForm({
       tenantId: "",
-      planSlug: plans[0]?.slug || "economical",
-      status: "active",
-      provider: "manual",
-      billingInterval: "monthly",
-      providerCustomerId: "",
-      providerSubscriptionId: "",
-      providerCheckoutSessionId: ""
-    });
-    setEditorOpen(true);
-  }
-
-  function openEditSubscription(subscription: GenericRecord) {
-    setEditingSubscriptionId(String(subscription.id));
-    setForm({
-      tenantId: String(subscription.tenantId || ""),
-      planSlug: String(subscription.planSlug || "economical") as typeof form.planSlug,
-      status: String(subscription.status || "active") as typeof form.status,
-      provider: String(subscription.provider || "manual"),
-      billingInterval: String(subscription.billingInterval || "monthly") as typeof form.billingInterval,
-      providerCustomerId: String(subscription.providerCustomerId || ""),
-      providerSubscriptionId: String(subscription.providerSubscriptionId || ""),
-      providerCheckoutSessionId: String(subscription.providerCheckoutSessionId || "")
+      planSlug: plans[0]?.slug || "free",
+      reason: ""
     });
     setEditorOpen(true);
   }
 
   async function createSubscription(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const body = {
-      ...form,
-      tenantId: Number(form.tenantId)
-    };
-    if (editingSubscriptionId) {
-      const subscription = await apiRequest<{ subscription: GenericRecord }, GenericRecord>(
-        `/platform/subscriptions/${editingSubscriptionId}`,
-        {
-          method: "PATCH",
-          token,
-          body
-        }
-      );
-      setRows((current) =>
-        current.map((item) =>
-          String(item.id) === editingSubscriptionId ? mergeSubscriptionRow(item, subscription.subscription) : item
-        )
-      );
-      showSaved("Subscription updated");
-    } else {
-      const subscription = await apiRequest<{ subscription: GenericRecord }, GenericRecord>("/platform/subscriptions", {
-        method: "POST",
-        token,
-        body
-      });
-      const tenant = tenants.find((item) => String(item.id) === String(body.tenantId));
-      setRows((current) => [
-        mergeSubscriptionRow(tenant as GenericRecord | undefined, subscription.subscription),
-        ...current
-      ]);
-      showSaved("Subscription added");
-    }
+    const body = { tenantId: Number(form.tenantId), planSlug: form.planSlug, reason: form.reason };
+    const payload = { tenantId: String(body.tenantId), planSlug: body.planSlug };
+    const preview = await apiRequest<{ confirmation: { token: string }; preview: { revision: string } }>("/platform/privileged-actions/preview", {
+      method: "POST", token, body: { action: "subscription.transition", target: String(body.tenantId), reason: body.reason, payload, previewRevision: "subscription-transition-v1" }
+    });
+    await apiRequest<{ transition: GenericRecord }, GenericRecord>("/platform/subscriptions", {
+      method: "POST", token, headers: { "X-Transaction-Confirmation": preview.confirmation.token }, body: { ...body, previewRevision: preview.preview.revision }
+    });
+    await load();
+    showSaved("Subscription transition scheduled");
     setEditorOpen(false);
-  }
-
-  async function updateSubscription(subscriptionId: string, nextStatus?: string) {
-    const subscription = await apiRequest<{ subscription: GenericRecord }, GenericRecord>(`/platform/subscriptions/${subscriptionId}`, {
-      method: "PATCH",
-      token,
-      body: nextStatus ? { status: nextStatus } : {}
-    });
-    setRows((current) =>
-      current.map((item) => String(item.id) === subscriptionId ? mergeSubscriptionRow(item, subscription.subscription) : item)
-    );
-    showSaved("Subscription updated");
-  }
-
-  async function removeSubscription(subscriptionId: string) {
-    await apiRequest<{ subscription: GenericRecord }>(`/platform/subscriptions/${subscriptionId}`, {
-      method: "DELETE",
-      token
-    });
-    setRows((current) => current.filter((item) => String(item.id) !== subscriptionId));
-    showSaved("Subscription removed");
   }
 
   return (
@@ -619,12 +548,12 @@ function SubscriptionsPage({ token }: { token: string }) {
           <Text className="portal-label">Subscriptions</Text>
           <Title order={2}>Tenant subscription records</Title>
           <Text c="dimmed" size="sm">
-            Create, edit, suspend, or remove tenant subscriptions from one place.
+            Preserve subscription history and move tenants through auditable lifecycle transitions.
           </Text>
         </div>
-        <Tooltip label="Add subscription" withArrow>
+        <Tooltip label="Schedule plan transition" withArrow>
           <Button className="subscription-editor__submit" leftSection={<IconPlus size={16} />} onClick={openNewSubscription}>
-            Add subscription
+            Schedule transition
           </Button>
         </Tooltip>
       </Group>
@@ -639,19 +568,7 @@ function SubscriptionsPage({ token }: { token: string }) {
               key: "tenantName",
               label: "Tenant",
               width: 260,
-              render: (row) => (
-              <Tooltip label="Edit subscription" withArrow>
-                <Button
-                  className="subscription-tenant-link"
-                  leftSection={<IconPencil size={16} />}
-                  variant="subtle"
-                  onClick={() => openEditSubscription(row)}
-                  p={0}
-                >
-                  {String(row.tenantName || row.tenantSlug || "--")}
-                </Button>
-              </Tooltip>
-              )
+              render: (row) => <Text fw={700}>{String(row.tenantName || row.tenantSlug || "--")}</Text>
             },
           { key: "planSlug", label: "Plan", width: 120 },
           { key: "status", label: "Status", width: 120, render: (row) => <StatusBadge value={row.status} /> },
@@ -662,52 +579,7 @@ function SubscriptionsPage({ token }: { token: string }) {
               label: "Actions",
               width: 132,
               render: (row) => (
-                <Group gap="xs" justify="flex-end" wrap="nowrap">
-                  <IconActionButton
-                    label={row.status === "suspended" ? "Resume subscription" : "Suspend subscription"}
-                    color={row.status === "suspended" ? "blue" : "orange"}
-                    onClick={() =>
-                      setConfirmAction({
-                        title: row.status === "suspended" ? "Resume subscription?" : "Suspend subscription?",
-                        description:
-                          row.status === "suspended"
-                            ? "This will reactivate the subscription for the tenant."
-                            : "This will suspend the subscription and limit tenant access according to subscription checks.",
-                        confirmLabel: row.status === "suspended" ? "Resume subscription" : "Suspend subscription",
-                        confirmColor: row.status === "suspended" ? "blue" : "orange",
-                        onConfirm: async () => {
-                          await updateSubscription(String(row.id), row.status === "suspended" ? "active" : "suspended");
-                        }
-                      })
-                    }
-                  >
-                    {row.status === "suspended" ? <IconPower size={16} /> : <IconAlertTriangle size={16} />}
-                  </IconActionButton>
-                  <IconActionButton
-                    label="Mark subscription past due"
-                    color="orange"
-                    onClick={() => updateSubscription(String(row.id), "past_due")}
-                  >
-                    <IconBellRinging size={16} />
-                  </IconActionButton>
-                  <IconActionButton
-                    label="Remove subscription"
-                    color="red"
-                    onClick={() =>
-                      setConfirmAction({
-                        title: "Remove subscription?",
-                        description: "This permanently deletes the subscription record from the platform dashboard.",
-                        confirmLabel: "Remove subscription",
-                        confirmColor: "red",
-                        onConfirm: async () => {
-                          await removeSubscription(String(row.id));
-                        }
-                      })
-                    }
-                  >
-                    <IconTrash size={16} />
-                  </IconActionButton>
-                </Group>
+                <Button size="xs" variant="light" onClick={() => { setForm({ tenantId: String(row.tenantId), planSlug: String(row.planSlug || "free"), reason: "" }); setEditorOpen(true); }}>Schedule transition</Button>
               )
             }
         ]}
@@ -730,9 +602,7 @@ function SubscriptionsPage({ token }: { token: string }) {
             <Group justify="space-between" align="flex-start" className="subscription-editor__header">
               <div>
                 <Text c="dimmed" size="sm">
-                  {editingSubscriptionId
-                    ? "Update the tenant subscription settings and provider references."
-                    : "Create or stage a tenant subscription record before billing reconciliation or manual activation."}
+                  Choose the destination plan and record why the lifecycle change is required. Paid downgrades and exits take effect at term end; restricted subscriptions are never converted to Free implicitly.
                 </Text>
               </div>
               <Badge variant="light" color="orange">
@@ -740,7 +610,7 @@ function SubscriptionsPage({ token }: { token: string }) {
               </Badge>
             </Group>
 
-            <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
+            <SimpleGrid cols={{ base: 1 }} spacing="md">
               <Card className="subscription-editor__panel" withBorder radius="xl" p="md">
                 <Stack gap="md">
                   <div>
@@ -761,70 +631,10 @@ function SubscriptionsPage({ token }: { token: string }) {
                     label="Plan"
                     value={form.planSlug}
                     onChange={(value: string | null) =>
-                      setForm((current) => ({ ...current, planSlug: (value as typeof current.planSlug) || "economical" }))
+                      setForm((current) => ({ ...current, planSlug: value || "free" }))
                     }
                   />
-                  <Select
-                    data={[
-                      { value: "active", label: "Active" },
-                      { value: "unpaid", label: "Unpaid" },
-                      { value: "past_due", label: "Past due" },
-                      { value: "suspended", label: "Suspended" },
-                      { value: "canceled", label: "Canceled" },
-                      { value: "expired", label: "Expired" }
-                    ]}
-                    label="Status"
-                    value={form.status}
-                    onChange={(value: string | null) =>
-                      setForm((current) => ({ ...current, status: (value as typeof current.status) || "active" }))
-                    }
-                  />
-                  <Select
-                    data={[
-                      { value: "monthly", label: "Monthly" },
-                      { value: "annual", label: "Annual" },
-                      { value: "custom", label: "Custom" }
-                    ]}
-                    label="Billing interval"
-                    value={form.billingInterval}
-                    onChange={(value: string | null) =>
-                      setForm((current) => ({
-                        ...current,
-                        billingInterval: (value as typeof current.billingInterval) || "monthly"
-                      }))
-                    }
-                  />
-                </Stack>
-              </Card>
-
-              <Card className="subscription-editor__panel" withBorder radius="xl" p="md">
-                <Stack gap="md">
-                  <div>
-                    <Text className="subscription-editor__label">Identifiers</Text>
-                    <Text fw={700}>Provider references</Text>
-                  </div>
-                  <TextInput
-                    label="Provider"
-                    value={form.provider}
-                    onChange={(event) => setForm((current) => ({ ...current, provider: event.target.value }))}
-                  />
-                  <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-                    <TextInput
-                      label="Provider customer ID"
-                      value={form.providerCustomerId}
-                      onChange={(event) => setForm((current) => ({ ...current, providerCustomerId: event.target.value }))}
-                    />
-                    <TextInput
-                      label="Provider subscription ID"
-                      value={form.providerSubscriptionId}
-                      onChange={(event) => setForm((current) => ({ ...current, providerSubscriptionId: event.target.value }))}
-                    />
-                  </SimpleGrid>
-                  <TextInput
-                    label="Provider checkout session ID"
-                    value={form.providerCheckoutSessionId}
-                    onChange={(event) => setForm((current) => ({ ...current, providerCheckoutSessionId: event.target.value }))}
-                  />
+                  <TextInput label="Reason" description="Required for the transition and security audit." value={form.reason} onChange={(event) => setForm((current) => ({ ...current, reason: event.target.value }))} />
                 </Stack>
               </Card>
             </SimpleGrid>
@@ -832,52 +642,17 @@ function SubscriptionsPage({ token }: { token: string }) {
           </Stack>
           <Group justify="space-between" align="center" className="subscription-editor__footer">
               <Text c="dimmed" size="sm">
-                {editingSubscriptionId ? "Update the existing record and return to the table." : "Saved records will appear in the list below after creation."}
+                The transition keeps subscription history and records its effective timing.
               </Text>
               <Group gap="sm">
                 <Button variant="default" onClick={() => setEditorOpen(false)}>
                   Cancel
                 </Button>
-                <Button className="subscription-editor__submit" type="submit">
-                  {editingSubscriptionId ? "Save changes" : "Add subscription"}
-                </Button>
+                <Button className="subscription-editor__submit" type="submit" disabled={!form.tenantId || form.reason.trim().length < 8}>Schedule transition</Button>
               </Group>
           </Group>
         </form>
       </Modal>
-      <ConfirmActionModal
-        opened={Boolean(confirmAction)}
-        title={confirmAction?.title || ""}
-        description={confirmAction?.description || ""}
-        confirmLabel={confirmAction?.confirmLabel || "Confirm"}
-        confirmColor={confirmAction?.confirmColor || "red"}
-        loading={confirmBusy}
-        onClose={() => {
-          if (!confirmBusy) {
-            setConfirmAction(null);
-          }
-        }}
-        onConfirm={async () => {
-          const action = confirmAction;
-          if (!action || confirmBusy) {
-            return;
-          }
-
-          setConfirmBusy(true);
-          try {
-            await action.onConfirm();
-            setConfirmAction(null);
-          } catch (error) {
-            notifications.show({
-              color: "red",
-              title: "Subscription removal failed",
-              message: error instanceof Error ? error.message : "Unable to remove the subscription."
-            });
-          } finally {
-            setConfirmBusy(false);
-          }
-        }}
-      />
     </Stack>
   );
 }
@@ -891,33 +666,41 @@ function PortalApp({
 }) {
   const [token, setToken] = useState(readToken);
   const [user, setUser] = useState<UserSummary | null>(null);
+  const [sessionExpiresAt, setSessionExpiresAt] = useState<number | null>(null);
+  const [expiryWarningOpen, setExpiryWarningOpen] = useState(false);
   const [opened, { toggle, close }] = useDisclosure(false);
   const location = useLocation();
   const navigate = useNavigate();
   useEffect(() => {
     if (!token) return;
-    apiRequest<{ user: UserSummary }>("/auth/me", { token }).then((data) => {
+    apiRequest<{ user: UserSummary; sessionExpiresAt?: string | Date | null }>("/auth/me", { token }).then((data) => {
       if (!data.user.roles.includes("platform_admin")) throw new Error("Platform admin access required.");
       setUser(data.user);
+      setSessionExpiresAt(data.sessionExpiresAt ? new Date(data.sessionExpiresAt).getTime() : null);
     }).catch(() => {
-      localStorage.removeItem(STORAGE_KEY);
       setToken("");
     });
   }, [token]);
+  useEffect(() => {
+    if (!sessionExpiresAt || !user) return;
+    const timer = window.setTimeout(() => setExpiryWarningOpen(true), Math.max(0, sessionExpiresAt - Date.now() - 5 * 60_000));
+    return () => window.clearTimeout(timer);
+  }, [sessionExpiresAt, user]);
 
   if (!token || !user) {
     return (
       <LoginPanel
         appearance={appearance}
         onAppearanceToggle={onAppearanceToggle}
-        onLogin={(nextToken, nextUser) => { setToken(nextToken); setUser(nextUser); }}
+        onLogin={(nextToken, nextUser, expiresAt) => { setToken(nextToken); setUser(nextUser); setSessionExpiresAt(expiresAt ? new Date(expiresAt).getTime() : null); }}
       />
     );
   }
 
-  const pageTitle = navItems.find((item) => item.to === location.pathname)?.label || "Overview";
+  const visibleNavItems = navItems;
+  const pageTitle = visibleNavItems.find((item) => item.to === location.pathname)?.label || "Overview";
   return (
-    <AppShell
+    <><AppShell
       className="portal-shell"
       navbar={{ width: 280, breakpoint: "md", collapsed: { mobile: !opened } }}
       padding="lg"
@@ -948,7 +731,7 @@ function PortalApp({
             </Paper>
             <Text className="portal-nav-heading">Workspace</Text>
             <Stack gap={6}>
-              {navItems.map((item) => {
+              {visibleNavItems.map((item) => {
                 const Icon = item.icon;
                 return (
                   <NavLink className="portal-nav-link" key={item.to} to={item.to} onClick={close}>
@@ -962,8 +745,12 @@ function PortalApp({
               })}
             </Stack>
           </Stack>
-          <Button leftSection={<IconLogout size={16} />} color="red" variant="light" onClick={() => {
-            localStorage.removeItem(STORAGE_KEY);
+          <Button leftSection={<IconLogout size={16} />} color="red" variant="light" onClick={async () => {
+            try {
+              await apiRequest<{ success: boolean }>("/auth/logout", { method: "POST", body: {} });
+            } catch {
+              // Clear the local view even if the server is temporarily unreachable.
+            }
             setToken("");
             setUser(null);
             navigate("/overview");
@@ -991,18 +778,26 @@ function PortalApp({
             <Routes>
               <Route path="/" element={<Navigate to="/overview" replace />} />
               <Route path="/overview" element={<OverviewPage token={token} />} />
-              <Route path="/queue-fees" element={<QueueFeesPage token={token} />} />
-              <Route path="/plans" element={<PlansPage token={token} />} />
-              <Route path="/settings" element={<SettingsPage token={token} />} />
+              <Route path="/queue-fees" element={<Navigate to="/plans" replace />} />
+              <Route path="/plans" element={<PlanMatrixPage token={token} />} />
+              <Route path="/settings" element={<SettingsPage token={token} user={user} />} />
               <Route path="/tenants" element={<RecordsPage token={token} endpoint="/platform/tenants" emptyLabel="No tenants." columns={[
-                { key: "name", label: "Tenant" }, { key: "slug", label: "Slug" }, { key: "planSlug", label: "Plan" }, { key: "ticketCount", label: "Tickets" }, { key: "createdAt", label: "Created", render: (row) => formatDate(row.createdAt) }
+                { key: "name", label: "Tenant" }, { key: "username", label: "Username" }, { key: "slug", label: "Slug" }, { key: "planSlug", label: "Plan" }, { key: "ticketCount", label: "Tickets" }, { key: "createdAt", label: "Created", render: (row) => formatDate(row.createdAt) }
               ]} />} />
               <Route path="/subscriptions" element={<SubscriptionsPage token={token} />} />
               <Route path="/users" element={<RecordsPage token={token} endpoint="/platform/users" emptyLabel="No users." columns={[
-                { key: "name", label: "Name" }, { key: "email", label: "Email" }, { key: "roles", label: "Roles", render: (row) => (row.roles as string[] || []).join(", ") }, { key: "createdAt", label: "Created", render: (row) => formatDate(row.createdAt) }
+                { key: "name", label: "Name" }, { key: "username", label: "Username" }, { key: "email", label: "Email" }, { key: "roles", label: "Roles", render: (row) => (row.roles as string[] || []).join(", ") }, { key: "createdAt", label: "Created", render: (row) => formatDate(row.createdAt) }
               ]} />} />
               <Route path="/billing-events" element={<RecordsPage token={token} endpoint="/platform/billing-events" emptyLabel="No billing events." columns={[
                 { key: "eventType", label: "Event" }, { key: "provider", label: "Provider" }, { key: "tenantName", label: "Tenant" }, { key: "processedAt", label: "Processed", render: (row) => formatDate(row.processedAt) }
+              ]} />} />
+              <Route path="/security-audit" element={<RecordsPage token={token} endpoint="/platform/security-audit-events" emptyLabel="No security audit events." columns={[
+                { key: "occurred_at", label: "Occurred", render: (row) => formatDate(row.occurred_at) },
+                { key: "action_key", label: "Action" },
+                { key: "outcome", label: "Outcome", render: (row) => <StatusBadge value={row.outcome} /> },
+                { key: "actor_email", label: "Actor" },
+                { key: "resource_type", label: "Resource" },
+                { key: "reason", label: "Reason" }
               ]} />} />
               <Route path="/campaign-reports" element={<CampaignReportsPage token={token} />} />
               <Route path="/rating-disputes" element={<RatingDisputesPage token={token} />} />
@@ -1010,7 +805,7 @@ function PortalApp({
           </Stack>
         </Container>
       </AppShell.Main>
-    </AppShell>
+    </AppShell><Modal centered closeOnClickOutside={false} closeOnEscape={false} opened={expiryWarningOpen} onClose={() => undefined} title={<div><Text className="portal-label">SESSION SECURITY</Text><Title order={3}>Your admin session will expire soon</Title></div>}><Stack><Text>Continue now to keep your secure Platform session active.</Text><Button onClick={async () => { const data = await apiRequest<AuthResponse>("/auth/refresh", { method: "POST", body: {} }); setUser(data.user); setSessionExpiresAt(data.sessionExpiresAt ? new Date(data.sessionExpiresAt).getTime() : null); setExpiryWarningOpen(false); }}>Continue session</Button><Button variant="subtle" onClick={() => { setToken(""); setUser(null); setSessionExpiresAt(null); }}>Sign out</Button></Stack></Modal></>
   );
 }
 

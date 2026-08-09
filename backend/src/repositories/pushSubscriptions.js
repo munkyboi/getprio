@@ -120,6 +120,7 @@ async function listActiveByTenantId(tenantId, options = {}) {
   const roles = Array.isArray(options.roles) && options.roles.length
     ? options.roles.map((role) => String(role))
     : ["owner", "admin", "staff"];
+  const locationId = options.locationId ? Number(options.locationId) : null;
   const result = await queryClient.query(
     `
       SELECT push_subscriptions.*
@@ -131,9 +132,19 @@ async function listActiveByTenantId(tenantId, options = {}) {
       WHERE push_subscriptions.tenant_id = $1
         AND push_subscriptions.is_active = TRUE
         AND tenant_memberships.role = ANY($2::TEXT[])
+        AND (
+          $3::BIGINT IS NULL
+          OR tenant_memberships.role IN ('owner', 'admin')
+          OR EXISTS (
+            SELECT 1
+            FROM tenant_membership_locations AS assignment
+            WHERE assignment.tenant_membership_id = tenant_memberships.id
+              AND assignment.location_id = $3
+          )
+        )
       ORDER BY push_subscriptions.updated_at DESC
     `,
-    [Number(tenantId), roles]
+    [Number(tenantId), roles, locationId]
   );
 
   return result.rows.map(mapPushSubscription);

@@ -95,6 +95,10 @@ function formatCustomerTicket(ticket) {
     locationName: ticket.locationName,
     locationSlug: ticket.locationSlug,
     status: ticket.status,
+    statusReason: ticket.statusReason,
+    carryOverExpiresAt: ticket.carryOverExpiresAt,
+    currentQueueDayId: ticket.currentQueueDayId,
+    journeySegments: ticket.journeySegments || [],
     createdAt: ticket.createdAt,
     updatedAt: ticket.updatedAt
   };
@@ -223,6 +227,9 @@ function formatCustomerBooking(booking) {
     pendingExpiresAt: booking.pendingExpiresAt,
     expiredAt: booking.expiredAt,
     expirationReason: booking.expirationReason,
+    fulfillmentOutcomeReason: booking.fulfillmentOutcomeReason,
+    refundEligible: booking.refundEligible,
+    fulfillmentResolvedAt: booking.fulfillmentResolvedAt,
     notifyByEmail: booking.notifyByEmail,
     notifyBySms: booking.notifyBySms,
     smsAlertFeePaymentId: booking.smsAlertFeePaymentId,
@@ -426,6 +433,8 @@ router.post(
 );
 
 router.post("/bookings/:bookingId/rating", asyncHandler(async (req, res) => res.status(201).json({ rating: await ratingService.rateVendor({ user: req.user, bookingId: req.params.bookingId, body: req.body || {} }) })));
+router.get("/tickets/:lookupCode/rating", asyncHandler(async (req, res) => res.json(await ratingService.getQueueTicketRating({ user: req.user, lookupCode: req.params.lookupCode }))));
+router.post("/tickets/:lookupCode/rating", asyncHandler(async (req, res) => res.status(201).json({ rating: await ratingService.rateQueueTicket({ user: req.user, lookupCode: req.params.lookupCode, body: req.body || {} }) })));
 router.post("/campaigns/:campaignId/contributions/:contributionId/rating", asyncHandler(async (req, res) => res.status(201).json({ rating: await ratingService.rateCampaignUser({ user: req.user, campaignId: req.params.campaignId, contributionId: req.params.contributionId, body: req.body || {} }) })));
 router.post("/ratings/dispute", asyncHandler(async (req, res) => res.status(201).json({ dispute: await ratingService.disputeRating({ user: req.user, body: req.body || {} }) })));
 router.patch("/ratings/vendor-reviews/:reviewId", asyncHandler(async (req, res) => res.json({ rating: await ratingService.reviseVendorReview({ user: req.user, reviewId: req.params.reviewId, body: req.body || {} }) })));
@@ -561,6 +570,12 @@ router.post(
       return;
     }
 
+    if (ticket.userId) {
+      const error = new Error("We could not verify that this ticket belongs to you.");
+      error.statusCode = 403;
+      throw error;
+    }
+
     if (!customerTicketAccess.userOwnsTicket(req.user, ticket)) {
       const error = new Error("We could not verify that this ticket belongs to you.");
       error.statusCode = 403;
@@ -568,6 +583,11 @@ router.post(
     }
 
     const claimedTicket = await ticketRepository.claimTicketForUser(ticket._id, req.user._id);
+    if (!claimedTicket) {
+      const error = new Error("This ticket has already been claimed by another account.");
+      error.statusCode = 409;
+      throw error;
+    }
 
     res.json({
       success: true,

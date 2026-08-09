@@ -5,13 +5,49 @@ BEGIN;
 -- Running it manually against an existing database will remove app data.
 
 DROP TABLE IF EXISTS billing_events CASCADE;
+DROP TABLE IF EXISTS usage_credit_disputes CASCADE;
+DROP TABLE IF EXISTS usage_credit_refunds CASCADE;
+DROP TABLE IF EXISTS usage_credit_lots CASCADE;
+DROP TABLE IF EXISTS usage_credit_purchases CASCADE;
+DROP TABLE IF EXISTS usage_credit_pack_revisions CASCADE;
+DROP TABLE IF EXISTS usage_credit_packs CASCADE;
+DROP TABLE IF EXISTS allowance_reconciliation_records CASCADE;
+DROP TABLE IF EXISTS allowance_warning_claims CASCADE;
+DROP TABLE IF EXISTS queue_email_slots CASCADE;
+DROP TABLE IF EXISTS queue_email_journeys CASCADE;
+DROP TABLE IF EXISTS allowance_reservation_allocations CASCADE;
+DROP TABLE IF EXISTS allowance_reservations CASCADE;
+DROP TABLE IF EXISTS allowance_allocations CASCADE;
+DROP TABLE IF EXISTS allowance_operations CASCADE;
+DROP TABLE IF EXISTS subscription_allowance_periods CASCADE;
+DROP TABLE IF EXISTS usage_accounts CASCADE;
+DROP TABLE IF EXISTS privacy_disposal_jobs CASCADE;
+DROP TABLE IF EXISTS security_rate_limit_buckets CASCADE;
+DROP TABLE IF EXISTS security_audit_events CASCADE;
+DROP TABLE IF EXISTS idempotency_records CASCADE;
 DROP TABLE IF EXISTS billing_checkout_sessions CASCADE;
+DROP TABLE IF EXISTS entitlement_rollout_anomalies CASCADE;
+DROP TABLE IF EXISTS entitlement_rollout_runs CASCADE;
+DROP TABLE IF EXISTS subscription_transitions CASCADE;
+DROP TABLE IF EXISTS tenant_entitlement_overrides CASCADE;
+DROP TABLE IF EXISTS plan_policy_baselines CASCADE;
+DROP TABLE IF EXISTS privileged_transaction_confirmations CASCADE;
 DROP TABLE IF EXISTS tenant_subscriptions CASCADE;
 DROP TABLE IF EXISTS schema_migrations CASCADE;
+DROP TABLE IF EXISTS queue_lifecycle_migration_anomalies CASCADE;
+DROP TABLE IF EXISTS queue_lifecycle_backfill_runs CASCADE;
+DROP TABLE IF EXISTS tenant_membership_locations CASCADE;
+DROP TABLE IF EXISTS queue_notification_outbox CASCADE;
+DROP TABLE IF EXISTS queue_ticket_segments CASCADE;
+DROP TABLE IF EXISTS queue_day_extensions CASCADE;
+DROP TABLE IF EXISTS queue_days CASCADE;
 DROP TABLE IF EXISTS queue_day_pauses CASCADE;
 DROP TABLE IF EXISTS queue_day_closures CASCADE;
 DROP TABLE IF EXISTS queue_events CASCADE;
 DROP TABLE IF EXISTS auth_security_events CASCADE;
+DROP TABLE IF EXISTS auth_mfa_challenges CASCADE;
+DROP TABLE IF EXISTS auth_mfa_recovery_codes CASCADE;
+DROP TABLE IF EXISTS auth_mfa_factors CASCADE;
 DROP TABLE IF EXISTS auth_login_attempts CASCADE;
 DROP TABLE IF EXISTS password_reset_tokens CASCADE;
 DROP TABLE IF EXISTS auth_sessions CASCADE;
@@ -44,6 +80,8 @@ DROP TABLE IF EXISTS location_services CASCADE;
 DROP TABLE IF EXISTS service_counter_assignments CASCADE;
 DROP TABLE IF EXISTS service_counters CASCADE;
 DROP TABLE IF EXISTS subscription_plans CASCADE;
+DROP TABLE IF EXISTS plan_allowances CASCADE;
+DROP TABLE IF EXISTS plan_feature_entitlements CASCADE;
 DROP TABLE IF EXISTS queue_join_payments CASCADE;
 DROP TABLE IF EXISTS queue_fee_settings CASCADE;
 DROP TABLE IF EXISTS platform_settings CASCADE;
@@ -131,14 +169,19 @@ CREATE TABLE auth_sessions (
   id BIGSERIAL PRIMARY KEY,
   user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   refresh_token_hash TEXT NOT NULL UNIQUE,
+  previous_refresh_token_hash TEXT,
   status TEXT NOT NULL CHECK (status IN ('active', 'revoked', 'expired')),
   auth_method TEXT NOT NULL CHECK (auth_method IN ('password', 'google', 'facebook')),
   mfa_verified_at TIMESTAMPTZ,
+  primary_authenticated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   ip_address TEXT,
   user_agent TEXT,
   device_label TEXT,
   last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   expires_at TIMESTAMPTZ NOT NULL,
+  absolute_expires_at TIMESTAMPTZ NOT NULL,
+  inactivity_expires_at TIMESTAMPTZ NOT NULL,
+  last_rotated_at TIMESTAMPTZ,
   revoked_at TIMESTAMPTZ,
   revoke_reason TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -147,6 +190,131 @@ CREATE TABLE auth_sessions (
 
 CREATE INDEX auth_sessions_user_status_idx ON auth_sessions (user_id, status);
 CREATE INDEX auth_sessions_expires_at_idx ON auth_sessions (expires_at);
+CREATE INDEX auth_sessions_previous_refresh_hash_idx
+  ON auth_sessions (previous_refresh_token_hash)
+  WHERE previous_refresh_token_hash IS NOT NULL;
+
+CREATE TABLE auth_mfa_factors (
+  id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  factor_type TEXT NOT NULL CHECK (factor_type IN ('totp', 'webauthn')),
+  label TEXT NOT NULL DEFAULT 'Authenticator',
+  secret_ciphertext TEXT,
+  secret_iv TEXT,
+  secret_auth_tag TEXT,
+  public_key JSONB,
+  status TEXT NOT NULL CHECK (status IN ('pending', 'active', 'revoked')),
+  verified_at TIMESTAMPTZ,
+  revoked_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX auth_mfa_factors_active_type_idx
+  ON auth_mfa_factors (user_id, factor_type)
+  WHERE status = 'active';
+CREATE UNIQUE INDEX auth_mfa_factors_pending_type_idx
+  ON auth_mfa_factors (user_id, factor_type)
+  WHERE status = 'pending';
+
+CREATE TABLE auth_mfa_recovery_codes (
+  id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  code_hash TEXT NOT NULL,
+  used_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (user_id, code_hash)
+);
+
+CREATE TABLE auth_mfa_challenges (
+  id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL UNIQUE,
+  challenge_type TEXT NOT NULL CHECK (challenge_type IN ('login', 'step_up', 'recovery')),
+  primary_authenticated_at TIMESTAMPTZ NOT NULL,
+  ip_address TEXT,
+  user_agent TEXT,
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE privileged_transaction_confirmations (
+  id BIGSERIAL PRIMARY KEY,
+  token_hash TEXT NOT NULL UNIQUE,
+  actor_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  session_id BIGINT NOT NULL REFERENCES auth_sessions(id) ON DELETE CASCADE,
+  action_key TEXT NOT NULL,
+  target_key TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  payload_digest TEXT NOT NULL,
+  preview_revision TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX privileged_confirmations_expiry_idx
+  ON privileged_transaction_confirmations (expires_at)
+  WHERE used_at IS NULL;
+
+CREATE TABLE idempotency_records (
+  id BIGSERIAL PRIMARY KEY,
+  actor_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  scope TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  request_hash TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending','completed','failed')),
+  response_status INTEGER,
+  response_body JSONB,
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (actor_user_id, scope, idempotency_key)
+);
+CREATE INDEX idempotency_records_expiry_idx ON idempotency_records (expires_at);
+
+CREATE TABLE security_audit_events (
+  id BIGSERIAL PRIMARY KEY,
+  actor_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  actor_role TEXT,
+  session_id BIGINT REFERENCES auth_sessions(id) ON DELETE SET NULL,
+  tenant_id BIGINT REFERENCES tenants(id) ON DELETE SET NULL,
+  action_key TEXT NOT NULL,
+  resource_type TEXT NOT NULL,
+  resource_id TEXT,
+  reason TEXT,
+  outcome TEXT NOT NULL CHECK (outcome IN ('success','denied','conflict','pending','failed')),
+  before_state JSONB,
+  after_state JSONB,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  previous_digest TEXT,
+  event_digest TEXT NOT NULL UNIQUE,
+  occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  retention_until TIMESTAMPTZ,
+  legal_hold BOOLEAN NOT NULL DEFAULT FALSE
+);
+CREATE INDEX security_audit_events_tenant_time_idx ON security_audit_events (tenant_id, occurred_at DESC);
+
+CREATE TABLE security_rate_limit_buckets (
+  bucket_key TEXT PRIMARY KEY,
+  window_started_at TIMESTAMPTZ NOT NULL,
+  hit_count INTEGER NOT NULL CHECK (hit_count >= 0),
+  blocked_until TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE privacy_disposal_jobs (
+  id BIGSERIAL PRIMARY KEY,
+  resource_type TEXT NOT NULL,
+  resource_id TEXT NOT NULL,
+  retention_until TIMESTAMPTZ NOT NULL,
+  legal_hold BOOLEAN NOT NULL DEFAULT FALSE,
+  status TEXT NOT NULL DEFAULT 'disabled' CHECK (status IN ('disabled','pending','completed','failed')),
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (resource_type, resource_id)
+);
 
 CREATE TABLE push_subscriptions (
   id BIGSERIAL PRIMARY KEY,
@@ -851,6 +1019,7 @@ CREATE TABLE tickets (
   notified_almost_there_at TIMESTAMPTZ,
   notified_called_at TIMESTAMPTZ,
   called_at TIMESTAMPTZ,
+  customer_confirmed_at TIMESTAMPTZ,
   served_at TIMESTAMPTZ,
   skipped_at TIMESTAMPTZ,
   cancelled_at TIMESTAMPTZ,
@@ -939,6 +1108,11 @@ CREATE TABLE queue_join_otps (
   payload JSONB NOT NULL DEFAULT '{}'::JSONB,
   expires_at TIMESTAMPTZ NOT NULL,
   used_at TIMESTAMPTZ,
+  chain_id UUID NOT NULL DEFAULT gen_random_uuid(),
+  parent_otp_id BIGINT REFERENCES queue_join_otps(id) ON DELETE SET NULL,
+  resend_ordinal INTEGER NOT NULL DEFAULT 0 CHECK (resend_ordinal BETWEEN 0 AND 3),
+  incorrect_attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (incorrect_attempt_count BETWEEN 0 AND 5),
+  locked_until TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -1010,7 +1184,7 @@ CREATE TABLE public_board_themes (
 );
 
 CREATE TABLE queue_fee_settings (
-  plan_slug TEXT PRIMARY KEY CHECK (plan_slug IN ('economical', 'pro', 'enterprise')),
+  plan_slug TEXT PRIMARY KEY CHECK (plan_slug IN ('free', 'economical', 'pro', 'enterprise')),
   enabled BOOLEAN NOT NULL DEFAULT TRUE,
   amount_cents INTEGER NOT NULL DEFAULT 0 CHECK (amount_cents >= 0),
   currency TEXT NOT NULL DEFAULT 'PHP',
@@ -1020,7 +1194,7 @@ CREATE TABLE queue_fee_settings (
 );
 
 CREATE TABLE subscription_plans (
-  slug TEXT PRIMARY KEY CHECK (slug IN ('economical', 'pro', 'enterprise')),
+  slug TEXT PRIMARY KEY CHECK (slug IN ('free', 'economical', 'pro', 'enterprise')),
   name TEXT NOT NULL,
   best_for TEXT NOT NULL,
   checkout_enabled BOOLEAN NOT NULL DEFAULT TRUE,
@@ -1029,6 +1203,9 @@ CREATE TABLE subscription_plans (
   currency TEXT NOT NULL DEFAULT 'PHP',
   entitlements JSONB NOT NULL DEFAULT '{}'::JSONB,
   included JSONB NOT NULL DEFAULT '[]'::JSONB,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  policy_revision INTEGER NOT NULL DEFAULT 1,
+  system_managed BOOLEAN NOT NULL DEFAULT FALSE,
   updated_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -1036,6 +1213,7 @@ CREATE TABLE subscription_plans (
 
 INSERT INTO queue_fee_settings (plan_slug, enabled, amount_cents, currency)
 VALUES
+  ('free', FALSE, 0, 'PHP'),
   ('economical', TRUE, 5000, 'PHP'),
   ('pro', TRUE, 2500, 'PHP'),
   ('enterprise', FALSE, 0, 'PHP');
@@ -1049,9 +1227,26 @@ INSERT INTO subscription_plans (
   annual_amount_cents,
   currency,
   entitlements,
-  included
+  included,
+  sort_order,
+  policy_revision,
+  system_managed
 )
 VALUES
+  (
+    'free',
+    'Free',
+    'New and queue-only vendors',
+    FALSE,
+    0,
+    0,
+    'PHP',
+    '{"locations":1,"counters":1,"staffSeats":1,"monthlyTickets":500,"monthlyTransactionalEmails":500,"monthlyQueueEmailJourneys":500,"monthlyServiceBookings":0,"historyDays":7,"historyLabel":"7-day history","emailAlerts":true,"smsAllowance":0,"smsBundleType":"none","qrJoinPage":true,"publicQueueBoard":true,"basicDashboard":true,"queueSettings":true,"brandedQueuePages":false,"analytics":false,"csvExport":false,"pdfExport":false,"allowedHistoryExportRanges":[],"advancedRoles":false,"slaSupport":false,"supportLevel":"self_serve","customDomain":false,"sso":false,"queueSystemAccess":true,"publicFacingBranding":false,"marketplaceDiscovery":false,"serviceBookingAccess":false,"groupFundedCampaignAccess":false}',
+    '["1 location","1 counter","1 vendor seat","QR join page","GetPrio-branded public queue page","Basic queue dashboard","500 Queue Tickets/mo","500 Queue Email Journeys/mo","7-day queue history"]',
+    10,
+    1,
+    TRUE
+  ),
   (
     'economical',
     'Economical',
@@ -1060,8 +1255,11 @@ VALUES
     49900,
     498000,
     'PHP',
-    '{"locations":1,"counters":1,"staffSeats":1,"monthlyTickets":500,"monthlyTransactionalEmails":100,"historyDays":30,"historyLabel":"30-day history","emailAlerts":true,"smsAllowance":0,"smsBundleType":"none","qrJoinPage":true,"publicQueueBoard":true,"basicDashboard":true,"queueSettings":false,"brandedQueuePages":false,"analytics":false,"csvExport":false,"pdfExport":false,"allowedHistoryExportRanges":["today","month"],"advancedRoles":false,"slaSupport":false,"supportLevel":"self_serve","customDomain":false,"sso":false}',
-    '["1 location","1 counter","1 vendor seat","QR join page","Public queue board","Basic dashboard","Email alerts","100 transactional emails/mo","500 tickets/mo","30-day history"]'
+    '{"locations":1,"counters":1,"staffSeats":1,"monthlyTickets":1000,"monthlyTransactionalEmails":1000,"monthlyQueueEmailJourneys":1000,"monthlyServiceBookings":100,"historyDays":30,"historyLabel":"30-day history","emailAlerts":true,"smsAllowance":0,"smsBundleType":"none","qrJoinPage":true,"publicQueueBoard":true,"basicDashboard":true,"queueSettings":false,"brandedQueuePages":false,"analytics":false,"csvExport":false,"pdfExport":false,"allowedHistoryExportRanges":["today","month"],"advancedRoles":false,"slaSupport":false,"supportLevel":"self_serve","customDomain":false,"sso":false,"queueSystemAccess":true,"publicFacingBranding":false,"marketplaceDiscovery":true,"serviceBookingAccess":true,"groupFundedCampaignAccess":true}',
+    '["1 location","1 counter","1 vendor seat","QR join page","Public queue board","Basic dashboard","Email alerts","1,000 Queue Email Journeys/mo","1,000 Queue Tickets/mo","100 Service Bookings/mo","30-day history"]',
+    20,
+    1,
+    FALSE
   ),
   (
     'pro',
@@ -1071,8 +1269,11 @@ VALUES
     149900,
     1499000,
     'PHP',
-    '{"locations":3,"counters":5,"staffSeats":10,"monthlyTickets":5000,"monthlyTransactionalEmails":500,"historyDays":365,"historyLabel":"365-day history","emailAlerts":true,"smsAllowance":300,"smsBundleType":"fixed","qrJoinPage":true,"publicQueueBoard":true,"basicDashboard":true,"queueSettings":true,"brandedQueuePages":true,"analytics":true,"csvExport":true,"pdfExport":true,"allowedHistoryExportRanges":["today","week","month","quarter","year"],"advancedRoles":false,"slaSupport":false,"supportLevel":"standard","customDomain":false,"sso":false}',
-    '["3 locations","5 counters","10 staff seats","Branded queue pages","Analytics","CSV export","PDF export","Queue settings","Email alerts","500 transactional emails/mo","5,000 tickets/mo","300 SMS/mo"]'
+    '{"locations":3,"counters":5,"staffSeats":10,"monthlyTickets":5000,"monthlyTransactionalEmails":5000,"monthlyQueueEmailJourneys":5000,"monthlyServiceBookings":1000,"historyDays":365,"historyLabel":"365-day history","emailAlerts":true,"smsAllowance":300,"smsBundleType":"fixed","qrJoinPage":true,"publicQueueBoard":true,"basicDashboard":true,"queueSettings":true,"brandedQueuePages":true,"analytics":true,"csvExport":true,"pdfExport":true,"allowedHistoryExportRanges":["today","week","month","quarter","year"],"advancedRoles":false,"slaSupport":false,"supportLevel":"standard","customDomain":false,"sso":false,"queueSystemAccess":true,"publicFacingBranding":true,"marketplaceDiscovery":true,"serviceBookingAccess":true,"groupFundedCampaignAccess":true}',
+    '["3 locations","5 counters","10 staff seats","Branded queue pages","Analytics","CSV export","PDF export","Queue settings","Email alerts","5,000 Queue Email Journeys/mo","5,000 Queue Tickets/mo","1,000 Service Bookings/mo","300 SMS/mo"]',
+    30,
+    1,
+    FALSE
   ),
   (
     'enterprise',
@@ -1082,15 +1283,52 @@ VALUES
     699900,
     6999000,
     'PHP',
-    '{"locations":10,"counters":20,"staffSeats":50,"monthlyTickets":25000,"monthlyTransactionalEmails":null,"historyDays":1095,"historyLabel":"1,095-day history","emailAlerts":true,"smsAllowance":0,"smsBundleType":"custom","qrJoinPage":true,"publicQueueBoard":true,"basicDashboard":true,"queueSettings":true,"brandedQueuePages":true,"analytics":true,"csvExport":true,"pdfExport":true,"allowedHistoryExportRanges":["today","week","month","quarter","year"],"advancedRoles":true,"slaSupport":true,"supportLevel":"sla","customDomain":true,"sso":true}',
-    '["10+ locations","20 counters","Advanced roles","SLA/support","Longer history","Custom SMS bundle","Optional custom domain/SSO"]'
+    '{"locations":10,"counters":20,"staffSeats":50,"monthlyTickets":50000,"monthlyTransactionalEmails":50000,"monthlyQueueEmailJourneys":50000,"monthlyServiceBookings":10000,"historyDays":1095,"historyLabel":"1,095-day history","emailAlerts":true,"smsAllowance":0,"smsBundleType":"custom","qrJoinPage":true,"publicQueueBoard":true,"basicDashboard":true,"queueSettings":true,"brandedQueuePages":true,"analytics":true,"csvExport":true,"pdfExport":true,"allowedHistoryExportRanges":["today","week","month","quarter","year"],"advancedRoles":true,"slaSupport":true,"supportLevel":"sla","customDomain":true,"sso":true,"queueSystemAccess":true,"publicFacingBranding":true,"marketplaceDiscovery":true,"serviceBookingAccess":true,"groupFundedCampaignAccess":true}',
+    '["10+ locations","20 counters","Advanced roles","SLA/support","Longer history","50,000 Queue Tickets/mo","50,000 Queue Email Journeys/mo","10,000 Service Bookings/mo","Custom SMS bundle","Optional custom domain/SSO"]',
+    40,
+    1,
+    FALSE
   );
+
+CREATE TABLE plan_feature_entitlements (
+  plan_slug TEXT NOT NULL REFERENCES subscription_plans(slug) ON DELETE CASCADE,
+  feature_key TEXT NOT NULL CHECK (feature_key IN ('queue', 'branding', 'discovery', 'booking', 'campaigns')),
+  enabled BOOLEAN NOT NULL,
+  updated_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (plan_slug, feature_key)
+);
+
+CREATE TABLE plan_allowances (
+  plan_slug TEXT NOT NULL REFERENCES subscription_plans(slug) ON DELETE CASCADE,
+  allowance_key TEXT NOT NULL CHECK (allowance_key IN ('queueTickets', 'queueEmailJourneys', 'serviceBookings')),
+  monthly_limit INTEGER NOT NULL CHECK (monthly_limit >= 0),
+  updated_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (plan_slug, allowance_key)
+);
+
+INSERT INTO plan_feature_entitlements (plan_slug, feature_key, enabled)
+SELECT * FROM (VALUES
+  ('free','queue',TRUE),('free','branding',FALSE),('free','discovery',FALSE),('free','booking',FALSE),('free','campaigns',FALSE),
+  ('economical','queue',TRUE),('economical','branding',FALSE),('economical','discovery',TRUE),('economical','booking',TRUE),('economical','campaigns',TRUE),
+  ('pro','queue',TRUE),('pro','branding',TRUE),('pro','discovery',TRUE),('pro','booking',TRUE),('pro','campaigns',TRUE),
+  ('enterprise','queue',TRUE),('enterprise','branding',TRUE),('enterprise','discovery',TRUE),('enterprise','booking',TRUE),('enterprise','campaigns',TRUE)
+) AS defaults(plan_slug, feature_key, enabled);
+
+INSERT INTO plan_allowances (plan_slug, allowance_key, monthly_limit)
+SELECT * FROM (VALUES
+  ('free','queueTickets',500),('free','queueEmailJourneys',500),('free','serviceBookings',0),
+  ('economical','queueTickets',1000),('economical','queueEmailJourneys',1000),('economical','serviceBookings',100),
+  ('pro','queueTickets',5000),('pro','queueEmailJourneys',5000),('pro','serviceBookings',1000),
+  ('enterprise','queueTickets',50000),('enterprise','queueEmailJourneys',50000),('enterprise','serviceBookings',10000)
+) AS defaults(plan_slug, allowance_key, monthly_limit);
 
 CREATE TABLE queue_join_payments (
   id BIGSERIAL PRIMARY KEY,
   tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   otp_id BIGINT NOT NULL REFERENCES queue_join_otps(id) ON DELETE CASCADE,
-  plan_slug TEXT NOT NULL CHECK (plan_slug IN ('economical', 'pro', 'enterprise')),
+  plan_slug TEXT NOT NULL CHECK (plan_slug IN ('free', 'economical', 'pro', 'enterprise')),
   provider TEXT NOT NULL DEFAULT 'paymongo',
   provider_checkout_session_id TEXT UNIQUE,
   provider_payment_id TEXT,
@@ -1114,7 +1352,7 @@ CREATE TABLE booking_sms_alert_payments (
   id BIGSERIAL PRIMARY KEY,
   tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   booking_otp_id BIGINT NOT NULL REFERENCES booking_otps(id) ON DELETE CASCADE,
-  plan_slug TEXT NOT NULL CHECK (plan_slug IN ('economical', 'pro', 'enterprise')),
+  plan_slug TEXT NOT NULL CHECK (plan_slug IN ('free', 'economical', 'pro', 'enterprise')),
   provider TEXT NOT NULL DEFAULT 'paymongo',
   provider_checkout_session_id TEXT UNIQUE,
   provider_payment_id TEXT,
@@ -1135,7 +1373,7 @@ CREATE TABLE booking_sms_alert_payments (
 CREATE TABLE tenant_subscriptions (
   id BIGSERIAL PRIMARY KEY,
   tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  plan_slug TEXT NOT NULL CHECK (plan_slug IN ('economical', 'pro', 'enterprise')),
+  plan_slug TEXT NOT NULL CHECK (plan_slug IN ('free', 'economical', 'pro', 'enterprise')),
   status TEXT NOT NULL DEFAULT 'unpaid' CHECK (
     status IN ('active', 'unpaid', 'past_due', 'suspended', 'canceled', 'expired')
   ),
@@ -1147,9 +1385,92 @@ CREATE TABLE tenant_subscriptions (
   current_period_start TIMESTAMPTZ,
   current_period_end TIMESTAMPTZ,
   entitlements JSONB NOT NULL DEFAULT '{}'::JSONB,
+  entitlement_model_version INTEGER NOT NULL DEFAULT 1,
+  entitlement_comparison_hash TEXT,
+  entitlement_converted_at TIMESTAMPTZ,
   metadata JSONB NOT NULL DEFAULT '{}'::JSONB,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE plan_policy_baselines (
+  id BIGSERIAL PRIMARY KEY,
+  plan_slug TEXT NOT NULL REFERENCES subscription_plans(slug) ON DELETE RESTRICT,
+  policy_revision INTEGER NOT NULL,
+  features JSONB NOT NULL,
+  allowances JSONB NOT NULL,
+  captured_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (plan_slug, policy_revision)
+);
+
+INSERT INTO plan_policy_baselines (plan_slug, policy_revision, features, allowances)
+SELECT
+  plan.slug,
+  plan.policy_revision,
+  CASE WHEN plan.slug = 'free'
+    THEN (SELECT jsonb_object_agg(feature_key, enabled) FROM plan_feature_entitlements WHERE plan_slug = plan.slug)
+    ELSE '{}'::jsonb
+  END,
+  CASE plan.slug
+    WHEN 'free' THEN (SELECT jsonb_object_agg(allowance_key, monthly_limit) FROM plan_allowances WHERE plan_slug = plan.slug)
+    WHEN 'economical' THEN '{"queueTickets":500}'::jsonb
+    WHEN 'pro' THEN '{"queueTickets":5000}'::jsonb
+    WHEN 'enterprise' THEN '{"queueTickets":25000}'::jsonb
+  END
+FROM subscription_plans AS plan;
+
+CREATE TABLE tenant_entitlement_overrides (
+  id BIGSERIAL PRIMARY KEY,
+  subscription_id BIGINT NOT NULL REFERENCES tenant_subscriptions(id) ON DELETE CASCADE,
+  policy_key TEXT NOT NULL,
+  value JSONB NOT NULL,
+  reason TEXT NOT NULL,
+  created_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  expires_at TIMESTAMPTZ,
+  revoked_at TIMESTAMPTZ,
+  revoked_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX tenant_entitlement_overrides_current_idx
+  ON tenant_entitlement_overrides (subscription_id, policy_key)
+  WHERE revoked_at IS NULL;
+
+CREATE TABLE subscription_transitions (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  from_subscription_id BIGINT REFERENCES tenant_subscriptions(id) ON DELETE SET NULL,
+  from_plan_slug TEXT REFERENCES subscription_plans(slug) ON DELETE RESTRICT,
+  to_plan_slug TEXT NOT NULL REFERENCES subscription_plans(slug) ON DELETE RESTRICT,
+  transition_type TEXT NOT NULL CHECK (transition_type IN ('upgrade','downgrade','paid_exit','admin_resolution','free_assignment')),
+  status TEXT NOT NULL CHECK (status IN ('scheduled','pending_payment','effective','canceled','failed')),
+  reason TEXT NOT NULL,
+  effective_at TIMESTAMPTZ NOT NULL,
+  completed_at TIMESTAMPTZ,
+  created_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE entitlement_rollout_runs (
+  id BIGSERIAL PRIMARY KEY,
+  run_type TEXT NOT NULL,
+  cohort TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('started','completed','failed','rolled_back')),
+  summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+  started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  completed_at TIMESTAMPTZ
+);
+
+CREATE TABLE entitlement_rollout_anomalies (
+  id BIGSERIAL PRIMARY KEY,
+  rollout_run_id BIGINT NOT NULL REFERENCES entitlement_rollout_runs(id) ON DELETE CASCADE,
+  tenant_id BIGINT REFERENCES tenants(id) ON DELETE SET NULL,
+  anomaly_code TEXT NOT NULL,
+  blocking BOOLEAN NOT NULL DEFAULT TRUE,
+  details JSONB NOT NULL DEFAULT '{}'::jsonb,
+  resolved_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE billing_checkout_sessions (
@@ -1408,5 +1729,239 @@ CREATE TRIGGER set_billing_checkout_sessions_updated_at
 BEFORE UPDATE ON billing_checkout_sessions
 FOR EACH ROW
 EXECUTE FUNCTION set_updated_at();
+
+CREATE TABLE usage_accounts (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  resource_key TEXT NOT NULL CHECK (resource_key IN ('queueTickets','queueEmailJourneys','serviceBookings')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (tenant_id, resource_key)
+);
+
+CREATE TABLE subscription_allowance_periods (
+  id BIGSERIAL PRIMARY KEY,
+  subscription_id BIGINT NOT NULL REFERENCES tenant_subscriptions(id) ON DELETE CASCADE,
+  period_start TIMESTAMPTZ NOT NULL,
+  period_end TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CHECK (period_end > period_start),
+  UNIQUE (subscription_id, period_start)
+);
+
+CREATE TABLE allowance_operations (
+  id BIGSERIAL PRIMARY KEY,
+  usage_account_id BIGINT NOT NULL REFERENCES usage_accounts(id) ON DELETE RESTRICT,
+  allowance_period_id BIGINT REFERENCES subscription_allowance_periods(id) ON DELETE RESTRICT,
+  operation_key TEXT NOT NULL,
+  operation_type TEXT NOT NULL CHECK (operation_type IN ('baseline','consume','reserve','release','reversal','adjustment')),
+  signed_units INTEGER NOT NULL CHECK (signed_units <> 0),
+  subject_type TEXT NOT NULL,
+  subject_id TEXT NOT NULL,
+  actor_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  reason TEXT,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  reverses_operation_id BIGINT REFERENCES allowance_operations(id) ON DELETE RESTRICT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (usage_account_id, operation_key)
+);
+CREATE INDEX allowance_operations_period_idx
+  ON allowance_operations (allowance_period_id, usage_account_id, created_at);
+CREATE UNIQUE INDEX allowance_operations_one_reversal_idx
+  ON allowance_operations (reverses_operation_id) WHERE reverses_operation_id IS NOT NULL;
+
+CREATE TABLE allowance_allocations (
+  id BIGSERIAL PRIMARY KEY,
+  operation_id BIGINT NOT NULL REFERENCES allowance_operations(id) ON DELETE RESTRICT,
+  source_type TEXT NOT NULL CHECK (source_type IN ('base','credit')),
+  allowance_period_id BIGINT REFERENCES subscription_allowance_periods(id) ON DELETE RESTRICT,
+  credit_lot_id BIGINT,
+  units INTEGER NOT NULL CHECK (units > 0),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE allowance_reservations (
+  id BIGSERIAL PRIMARY KEY,
+  usage_account_id BIGINT NOT NULL REFERENCES usage_accounts(id) ON DELETE RESTRICT,
+  allowance_period_id BIGINT REFERENCES subscription_allowance_periods(id) ON DELETE RESTRICT,
+  reservation_key TEXT NOT NULL,
+  subject_type TEXT NOT NULL,
+  subject_id TEXT NOT NULL,
+  units INTEGER NOT NULL CHECK (units > 0),
+  status TEXT NOT NULL CHECK (status IN ('active','committed','released','expired')),
+  expires_at TIMESTAMPTZ NOT NULL,
+  committed_operation_id BIGINT REFERENCES allowance_operations(id) ON DELETE RESTRICT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (usage_account_id, reservation_key)
+);
+CREATE INDEX allowance_reservations_active_expiry_idx
+  ON allowance_reservations (expires_at) WHERE status = 'active';
+CREATE TABLE allowance_reservation_allocations (
+  id BIGSERIAL PRIMARY KEY,
+  reservation_id BIGINT NOT NULL REFERENCES allowance_reservations(id) ON DELETE RESTRICT,
+  source_type TEXT NOT NULL CHECK (source_type IN ('base','credit')),
+  allowance_period_id BIGINT REFERENCES subscription_allowance_periods(id) ON DELETE RESTRICT,
+  credit_lot_id BIGINT,
+  units INTEGER NOT NULL CHECK (units > 0)
+);
+
+CREATE TABLE allowance_warning_claims (
+  id BIGSERIAL PRIMARY KEY,
+  usage_account_id BIGINT NOT NULL REFERENCES usage_accounts(id) ON DELETE CASCADE,
+  allowance_period_id BIGINT NOT NULL REFERENCES subscription_allowance_periods(id) ON DELETE CASCADE,
+  threshold_percent INTEGER NOT NULL CHECK (threshold_percent IN (80,90,100)),
+  claimed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  delivery_status TEXT NOT NULL DEFAULT 'pending' CHECK (delivery_status IN ('pending','processing','delivered','failed')),
+  delivery_attempts INTEGER NOT NULL DEFAULT 0,
+  last_delivery_attempt_at TIMESTAMPTZ,
+  delivered_at TIMESTAMPTZ,
+  last_delivery_error TEXT,
+  UNIQUE (usage_account_id, allowance_period_id, threshold_percent)
+);
+
+CREATE TABLE allowance_reconciliation_records (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  resource_key TEXT NOT NULL,
+  expected_units INTEGER NOT NULL,
+  ledger_units INTEGER NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('matched','anomaly','repaired')),
+  details JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  repaired_at TIMESTAMPTZ
+);
+
+ALTER TABLE tickets
+  ADD COLUMN email_journey_mode TEXT NOT NULL DEFAULT 'not_eligible'
+  CHECK (email_journey_mode IN ('not_eligible','metered','journey_exhausted'));
+
+CREATE TABLE queue_email_journeys (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  ticket_id BIGINT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  mode TEXT NOT NULL CHECK (mode IN ('metered','journey_exhausted')),
+  otp_chain_id UUID,
+  email_opted_out_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (ticket_id)
+);
+CREATE UNIQUE INDEX queue_email_journeys_otp_chain_idx ON queue_email_journeys (otp_chain_id) WHERE otp_chain_id IS NOT NULL;
+
+CREATE TABLE queue_email_slots (
+  id BIGSERIAL PRIMARY KEY,
+  journey_id BIGINT NOT NULL REFERENCES queue_email_journeys(id) ON DELETE CASCADE,
+  slot_key TEXT NOT NULL CHECK (slot_key IN ('otp_1','otp_2','otp_3','otp_4','joined','near_turn','called','exception','continuation','final')),
+  logical_message_key TEXT,
+  status TEXT NOT NULL DEFAULT 'unused' CHECK (status IN ('unused','queued','sent','failed','suppressed')),
+  event_key TEXT,
+  queued_at TIMESTAMPTZ,
+  sent_at TIMESTAMPTZ,
+  failed_at TIMESTAMPTZ,
+  UNIQUE (journey_id, slot_key),
+  UNIQUE (journey_id, logical_message_key)
+);
+
+CREATE TABLE usage_credit_packs (
+  id BIGSERIAL PRIMARY KEY,
+  code TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  state TEXT NOT NULL DEFAULT 'enabled' CHECK (state IN ('draft','enabled','disabled','archived')),
+  current_revision INTEGER NOT NULL DEFAULT 1 CHECK (current_revision > 0),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE usage_credit_pack_revisions (
+  id BIGSERIAL PRIMARY KEY,
+  pack_id BIGINT NOT NULL REFERENCES usage_credit_packs(id) ON DELETE RESTRICT,
+  revision INTEGER NOT NULL CHECK (revision > 0),
+  ticket_units INTEGER NOT NULL CHECK (ticket_units >= 0),
+  journey_units INTEGER NOT NULL CHECK (journey_units >= 0),
+  price_cents INTEGER NOT NULL CHECK (price_cents > 0),
+  currency TEXT NOT NULL DEFAULT 'PHP' CHECK (currency = 'PHP'),
+  created_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  reason TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (pack_id, revision),
+  CHECK (ticket_units > 0 OR journey_units > 0)
+);
+
+INSERT INTO usage_credit_packs (code, name, state)
+VALUES ('P100','P100 Usage Credits','enabled'), ('P500','P500 Usage Credits','enabled'), ('P1000','P1000 Usage Credits','enabled');
+INSERT INTO usage_credit_pack_revisions (pack_id, revision, ticket_units, journey_units, price_cents, currency, reason)
+SELECT id, 1,
+  CASE code WHEN 'P100' THEN 100 WHEN 'P500' THEN 500 ELSE 1000 END,
+  CASE code WHEN 'P100' THEN 100 WHEN 'P500' THEN 500 ELSE 1000 END,
+  CASE code WHEN 'P100' THEN 9900 WHEN 'P500' THEN 39900 ELSE 69900 END,
+  'PHP', 'Initial settled Usage Credit catalog'
+FROM usage_credit_packs;
+
+CREATE TABLE usage_credit_purchases (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
+  pack_id BIGINT NOT NULL REFERENCES usage_credit_packs(id) ON DELETE RESTRICT,
+  pack_revision_id BIGINT NOT NULL REFERENCES usage_credit_pack_revisions(id) ON DELETE RESTRICT,
+  purchase_key TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending','paid','fulfilled','refund_pending','refunded','failed','disputed')),
+  ticket_units INTEGER NOT NULL CHECK (ticket_units >= 0),
+  journey_units INTEGER NOT NULL CHECK (journey_units >= 0),
+  amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
+  currency TEXT NOT NULL CHECK (currency = 'PHP'),
+  provider TEXT NOT NULL DEFAULT 'manual',
+  provider_checkout_id TEXT,
+  checkout_url TEXT,
+  provider_payment_id TEXT,
+  purchased_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  paid_at TIMESTAMPTZ,
+  fulfilled_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (tenant_id, purchase_key)
+);
+CREATE UNIQUE INDEX usage_credit_purchase_provider_checkout_idx ON usage_credit_purchases (provider, provider_checkout_id) WHERE provider_checkout_id IS NOT NULL;
+
+CREATE TABLE usage_credit_lots (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
+  resource_key TEXT NOT NULL CHECK (resource_key IN ('queueTickets','queueEmailJourneys')),
+  source_type TEXT NOT NULL CHECK (source_type IN ('promotional','purchased')),
+  source_reference TEXT NOT NULL,
+  granted_units INTEGER NOT NULL CHECK (granted_units > 0),
+  revoked_units INTEGER NOT NULL DEFAULT 0 CHECK (revoked_units >= 0),
+  frozen_units INTEGER NOT NULL DEFAULT 0 CHECK (frozen_units >= 0),
+  expires_at TIMESTAMPTZ,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','frozen','revoked','expired')),
+  created_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  reason TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (tenant_id, resource_key, source_type, source_reference),
+  CHECK (revoked_units + frozen_units <= granted_units)
+);
+CREATE INDEX usage_credit_lots_consumption_idx ON usage_credit_lots (tenant_id, resource_key, status, expires_at, created_at);
+ALTER TABLE allowance_allocations ADD CONSTRAINT allowance_allocations_credit_lot_fk FOREIGN KEY (credit_lot_id) REFERENCES usage_credit_lots(id) ON DELETE RESTRICT;
+ALTER TABLE allowance_reservation_allocations ADD CONSTRAINT allowance_reservation_allocations_credit_lot_fk FOREIGN KEY (credit_lot_id) REFERENCES usage_credit_lots(id) ON DELETE RESTRICT;
+
+CREATE TABLE usage_credit_refunds (
+  id BIGSERIAL PRIMARY KEY,
+  purchase_id BIGINT NOT NULL UNIQUE REFERENCES usage_credit_purchases(id) ON DELETE RESTRICT,
+  status TEXT NOT NULL CHECK (status IN ('requested','provider_pending','confirmed','failed')),
+  reason TEXT NOT NULL,
+  requested_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  provider_refund_id TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE usage_credit_disputes (
+  id BIGSERIAL PRIMARY KEY,
+  purchase_id BIGINT NOT NULL REFERENCES usage_credit_purchases(id) ON DELETE RESTRICT,
+  provider_dispute_id TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL CHECK (status IN ('open','won','lost','closed')),
+  consumed_exposure_units INTEGER NOT NULL DEFAULT 0 CHECK (consumed_exposure_units >= 0),
+  details JSONB NOT NULL DEFAULT '{}'::jsonb,
+  opened_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  resolved_at TIMESTAMPTZ
+);
 
 COMMIT;
