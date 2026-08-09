@@ -119,4 +119,6 @@ test("database rollout scripts preserve explicit environment targets and support
   assert.match(apply, /if \[\[ -z "\$\{!key\+x\}" \]\]/);
   const status = fs.readFileSync(path.join(root, "scripts", "db-status.sh"), "utf8");
   assert.doesNotMatch(status, /mapfile/);
+  assert.match(apply, /SELECT TRIM\(filename\) FROM schema_migrations/);
+  assert.match(status, /SELECT TRIM\(filename\) FROM schema_migrations/);
 });
