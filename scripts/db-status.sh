@@ -57,14 +57,14 @@ done < <(run_psql -At -v ON_ERROR_STOP=1 -c "SELECT TRIM(filename) FROM schema_m
 
 pending_migrations=()
 for migration in "${repo_migrations[@]}"; do
-  if ! printf '%s\n' "${applied_migrations[@]:-}" | grep -Fxq "$migration"; then
+  if ! printf '%s\n' "${applied_migrations[@]:-}" | grep -Fx "$migration" >/dev/null; then
     pending_migrations+=("$migration")
   fi
 done
 
 missing_migrations=()
 for migration in "${applied_migrations[@]:-}"; do
-  if ! printf '%s\n' "${repo_migrations[@]:-}" | grep -Fxq "$migration"; then
+  if ! printf '%s\n' "${repo_migrations[@]:-}" | grep -Fx "$migration" >/dev/null; then
     missing_migrations+=("$migration")
   fi
 done
