@@ -45,6 +45,15 @@ test("transaction confirmation binds action, target, reason, payload, and previe
   assert.equal(created.previewRevision, "revision-7");
 });
 
+test("payload digests are stable across nested object key insertion order", () => {
+  const service = requireWithMockRepository({});
+
+  assert.equal(
+    service.buildPayloadDigest({ zeta: true, limits: { tickets: 5000, emails: 500 } }),
+    service.buildPayloadDigest({ limits: { emails: 500, tickets: 5000 }, zeta: true })
+  );
+});
+
 test("transaction confirmation rejects stale primary or MFA assurance", async () => {
   const service = requireWithMockRepository({ createConfirmation: async () => null });
   await assert.rejects(
