@@ -1,4 +1,5 @@
 const API_BASE_URL = import.meta.env?.VITE_API_URL || "http://localhost:5001/api";
+const CSRF_STORAGE_KEY = "prio_csrf";
 
 type RefreshTokenHandler = () => Promise<string | null>;
 type AuthFailureHandler = () => void;
@@ -7,11 +8,34 @@ let refreshTokenHandler: RefreshTokenHandler | null = null;
 let authFailureHandler: AuthFailureHandler | null = null;
 let refreshPromise: Promise<string | null> | null = null;
 
+function readStoredCsrfToken(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    return window.sessionStorage.getItem(CSRF_STORAGE_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function rememberCsrfToken(data: unknown): void {
+  const csrfToken = (data as { csrfToken?: unknown })?.csrfToken;
+  if (typeof csrfToken !== "string" || !csrfToken || typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(CSRF_STORAGE_KEY, csrfToken);
+  } catch {
+    // The API cookie remains available when storage is restricted.
+  }
+}
+
 function readCookie(name: string): string {
   if (typeof document === "undefined") return "";
   const prefix = `${name}=`;
   const item = document.cookie.split(";").map((value) => value.trim()).find((value) => value.startsWith(prefix));
   return item ? decodeURIComponent(item.slice(prefix.length)) : "";
+}
+
+function readCsrfToken(): string {
+  return readStoredCsrfToken() || readCookie("prio_csrf");
 }
 
 export class ApiError extends Error {
@@ -57,8 +81,8 @@ export async function apiRequest<TResponse, TBody = unknown>(
       credentials: "include",
       headers: {
         "Content-Type": "application/json",
-        ...(unsafe && readCookie("prio_csrf")
-          ? { "X-CSRF-Token": readCookie("prio_csrf") }
+        ...(unsafe && readCsrfToken()
+          ? { "X-CSRF-Token": readCsrfToken() }
           : {}),
         ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
         ...(authToken && authToken !== "cookie-session"
@@ -89,6 +113,7 @@ export async function apiRequest<TResponse, TBody = unknown>(
   }
 
   const data = (await response.json().catch(() => ({}))) as { message?: string };
+  rememberCsrfToken(data);
   if (!response.ok) {
     if (response.status === 401 && authFailureHandler && skipAuthRefresh) {
       authFailureHandler();
