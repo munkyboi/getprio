@@ -208,4 +208,5 @@ test("MFA schema permits one active factor and one pending replacement", () => {
     assert.match(source, /auth_mfa_factors_pending_type_idx[\s\S]*WHERE status = 'pending'/);
   }
   assert.match(repair, /DROP INDEX IF EXISTS auth_mfa_factors_active_type_idx/);
+  assert.match(repair, /CREATE UNIQUE INDEX IF NOT EXISTS auth_mfa_factors_pending_type_idx/);
 });
