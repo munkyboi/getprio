@@ -74,3 +74,10 @@ test("platform MFA login focuses the authenticator code field", () => {
   const source = fs.readFileSync(path.resolve(__dirname, "../src/main.tsx"), "utf8");
   assert.match(source, /<TextInput autoFocus autoComplete="one-time-code" inputMode="numeric" label="Authenticator code"/);
 });
+
+test("platform API retains the server-issued CSRF token for cross-subdomain requests", () => {
+  const source = fs.readFileSync(path.resolve(__dirname, "../src/api.ts"), "utf8");
+  assert.match(source, /sessionStorage\.getItem\(CSRF_STORAGE_KEY\)/);
+  assert.match(source, /sessionStorage\.setItem\(CSRF_STORAGE_KEY, csrfToken\)/);
+  assert.match(source, /rememberCsrfToken\(data\)/);
+});
