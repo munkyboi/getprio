@@ -80,22 +80,5 @@
   },
   "dependencies": {
     "psql": "^0.0.1"
-  },
-  "description": "GetPrio is a multi-tenant queue platform for vendors that want QR-based ticketing, remote queue joins, live queue monitoring, and booking/queue notifications through email, in-app alerts, and planned browser Web Push.",
-  "main": "index.js",
-  "directories": {
-    "doc": "docs"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/munkyboi/getprio.git"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
-  "bugs": {
-    "url": "https://github.com/munkyboi/getprio/issues"
-  },
-  "homepage": "https://github.com/munkyboi/getprio#readme"
+  }
 }

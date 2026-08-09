@@ -4,7 +4,7 @@
  * Three variants of the vendor queue auto-close warning, switchable through
  * ?queueClosePrototype=1&variant=A|B|C on the existing /dashboard/queue route.
  */
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Alert,
   Badge,
@@ -591,11 +591,11 @@ export default function QueueAutoClosePrototype() {
     scenario === "reconnected" ? "Live countdown synchronized from the server." : ""
   );
 
-  function updateParams(changes: Record<string, string>) {
+  const updateParams = useCallback((changes: Record<string, string>) => {
     const next = new URLSearchParams(location.search);
     Object.entries(changes).forEach(([key, value]) => next.set(key, value));
     navigate(`${location.pathname}?${next.toString()}`, { replace: true });
-  }
+  }, [location.pathname, location.search, navigate]);
 
   useEffect(() => {
     setSecondsRemaining(initialSeconds(scenario));
@@ -619,7 +619,7 @@ export default function QueueAutoClosePrototype() {
       });
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [scenario]);
+  }, [scenario, updateParams]);
 
   if (!import.meta.env.DEV) return null;
 
