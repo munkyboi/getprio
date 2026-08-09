@@ -53,7 +53,7 @@ done < <(
 applied_migrations=()
 while IFS= read -r migration; do
   applied_migrations+=("$migration")
-done < <(run_psql -At -v ON_ERROR_STOP=1 -c "SELECT filename FROM schema_migrations ORDER BY filename")
+done < <(run_psql -At -v ON_ERROR_STOP=1 -c "SELECT TRIM(filename) FROM schema_migrations ORDER BY TRIM(filename)")
 
 pending_migrations=()
 for migration in "${repo_migrations[@]}"; do

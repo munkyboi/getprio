@@ -146,7 +146,7 @@ case "$mode" in
     ;;
 esac
 
-applied_migrations="$(run_psql -At -v ON_ERROR_STOP=1 -c "SELECT filename FROM schema_migrations ORDER BY filename")"
+applied_migrations="$(run_psql -At -v ON_ERROR_STOP=1 -c "SELECT TRIM(filename) FROM schema_migrations ORDER BY TRIM(filename)")"
 
 free_tier_migrations=(
   "20260804_01_harden_auth_sessions.sql"
