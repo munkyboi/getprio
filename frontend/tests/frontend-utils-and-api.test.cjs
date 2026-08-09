@@ -747,6 +747,14 @@ test("apiRequest handles auth refresh and errors", async () => {
   setAuthHandlers({ refreshToken: null, onAuthFailure: null });
 });
 
+test("frontend API retains the server-issued CSRF token across API origins", () => {
+  const source = fs.readFileSync(path.resolve(__dirname, "../src/api/client.ts"), "utf8");
+  assert.match(source, /sessionStorage\.getItem\(CSRF_STORAGE_KEY\)/);
+  assert.match(source, /sessionStorage\.setItem\(CSRF_STORAGE_KEY, csrfToken\)/);
+  assert.match(source, /rememberCsrfToken\(data\)/);
+  assert.match(source, /readStoredCsrfToken\(\) \|\| readCookie\("prio_csrf"\)/);
+});
+
 test("vendor dashboard api helpers build the expected paths", async () => {
   const calls = [];
 
