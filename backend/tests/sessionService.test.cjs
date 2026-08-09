@@ -129,6 +129,8 @@ test("session service uses role-based refresh TTLs and hashes refresh tokens", a
       { expiresIn: "15m" }
     ));
     assert.equal(new Date(createCalls[0].expiresAt).toISOString(), "2026-07-31T00:00:00.000Z");
+    assert.equal(createCalls[0].absoluteExpiresAt, createCalls[0].expiresAt);
+    assert.equal(new Date(createCalls[0].inactivityExpiresAt).toISOString(), "2026-07-08T00:00:00.000Z");
 
     const rotated = await sessionService.rotateRefreshSession({
       session: { _id: "session-1" },
