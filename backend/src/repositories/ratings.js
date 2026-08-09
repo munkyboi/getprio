@@ -1,11 +1,29 @@
 const db = require("../config/db");
 
-async function createVendorReview({ bookingId, tenantId, customerUserId, stars, comment }) {
+async function createVendorReview({ bookingId, ticketId, tenantId, customerUserId, stars, comment }) {
   const { rows } = await db.pool.query(
-    `INSERT INTO vendor_reviews (booking_id, tenant_id, customer_user_id, stars, comment)
-     VALUES ($1,$2,$3,$4,$5) RETURNING *`, [Number(bookingId), Number(tenantId), Number(customerUserId), stars, comment || null]
+    `INSERT INTO vendor_reviews (booking_id, ticket_id, tenant_id, customer_user_id, stars, comment)
+     VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+    [
+      bookingId ? Number(bookingId) : null,
+      ticketId ? Number(ticketId) : null,
+      Number(tenantId),
+      Number(customerUserId),
+      stars,
+      comment || null
+    ]
   );
   return rows[0];
+}
+
+async function findVendorReviewByTicketId(ticketId, customerUserId) {
+  const { rows } = await db.pool.query(
+    `SELECT * FROM vendor_reviews
+     WHERE ticket_id = $1 AND customer_user_id = $2
+     LIMIT 1`,
+    [Number(ticketId), Number(customerUserId)]
+  );
+  return rows[0] || null;
 }
 
 async function createTrustRating(data) {
@@ -109,4 +127,4 @@ async function createDispute({ ratingType, ratingId, reporterUserId, reason }) {
   });
 }
 
-module.exports = { createDispute, createTrustRating, createVendorReview, findTrustRatingById, findVendorReviewById, getUserTrustAggregate, getVendorAggregate, listDisputes, listPublicVendorReviews, replyToVendorReview, resolveDispute, reviseVendorReview };
+module.exports = { createDispute, createTrustRating, createVendorReview, findTrustRatingById, findVendorReviewById, findVendorReviewByTicketId, getUserTrustAggregate, getVendorAggregate, listDisputes, listPublicVendorReviews, replyToVendorReview, resolveDispute, reviseVendorReview };

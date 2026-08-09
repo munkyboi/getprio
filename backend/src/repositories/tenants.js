@@ -90,12 +90,20 @@ function mapPublicVendorProfile(row) {
     isPrimary: false
   };
 
+  const publicContact = Object.prototype.hasOwnProperty.call(row, "contact_email")
+    ? {
+        contactEmail: row.contact_email || "",
+        contactPhone: row.contact_phone || ""
+      }
+    : {};
+
   return {
     name: row.name,
     slug: row.slug,
     category: row.public_profile_category || "",
     description: row.public_profile_description || "",
     imageUrl: row.public_profile_image_url || "",
+    ...publicContact,
     locations,
     location: {
       name: primaryLocation.name,
@@ -375,6 +383,8 @@ async function findPublicVendorProfileBySlug(slug, options = {}) {
         tenants.public_profile_description,
         tenants.public_profile_category,
         tenants.public_profile_image_url,
+        tenants.contact_email,
+        tenants.contact_phone,
         COALESCE(active_locations.locations, '[]'::JSONB) AS locations
       FROM tenants
       LEFT JOIN LATERAL (

@@ -383,9 +383,57 @@ body {
 }
 
 .prio-price {
-  margin-top: 0.35rem;
-  font-size: clamp(1.8rem, 3vw, 2.5rem);
+  margin: 0.55rem 0 0.7rem;
+  color: #251e19;
+}
+
+.prio-price-currency {
+  margin-bottom: 0.15rem;
+  font-size: 0.95rem;
   font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.01em;
+}
+
+.prio-price-prefix {
+  margin-bottom: 0.25rem;
+  font-size: 0.82rem;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.prio-price-line {
+  display: flex;
+  align-items: baseline;
+  gap: 0.18rem;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.enterprise-message-field {
+  position: relative;
+}
+
+.enterprise-message-input {
+  padding-bottom: 2.15rem;
+}
+
+.enterprise-message-counter {
+  position: absolute;
+  right: 0.9rem;
+  bottom: 0.65rem;
+  pointer-events: none;
+}
+
+.prio-price-amount,
+.prio-price-period {
+  font-size: clamp(2rem, 3vw, 2.65rem);
+  font-weight: 850;
+  line-height: 1;
+  letter-spacing: 0.01em;
 }
 
 .prio-cta {
@@ -1006,6 +1054,19 @@ body {
   overflow: hidden;
 }
 
+.vendor-contact-channel {
+  min-height: 44px;
+  height: auto;
+  padding-inline: 0;
+  color: var(--vendor-theme-button-bg, #11151c);
+  overflow-wrap: anywhere;
+}
+
+.vendor-contact-channel :where(.mantine-Button-label) {
+  white-space: normal;
+  text-align: left;
+}
+
 .vendor-hero-title {
   max-width: none;
   font-size: clamp(2.5rem, 5vw, 4.9rem);
@@ -1223,6 +1284,11 @@ body {
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
+}
+
+.task-modal-form__main > * {
+  flex: 0 0 auto;
+  min-width: 0;
 }
 
 .theme-editor-modal__editor {
@@ -2037,6 +2103,7 @@ body {
 }
 
 .ticket-page-ticket-status--called,
+.ticket-page-ticket-status--confirmed,
 .ticket-page-ticket-status--served {
   background: #065f46;
 }
@@ -6360,6 +6427,11 @@ h2 {
   color: #fff;
 }
 
+.neura-sidebar-account-copy {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .neura-sidebar-logout {
   flex: 0 0 auto;
   background: #dc2626;
@@ -6475,6 +6547,46 @@ h2 {
 
 .neura-primary-button:hover {
   background: #252b35;
+}
+
+.ticket-scanner-camera {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--mantine-color-gray-4);
+  border-radius: 1rem;
+  background: #111820;
+  aspect-ratio: 4 / 3;
+}
+
+.ticket-scanner-camera video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ticket-scanner-guide {
+  position: absolute;
+  inset: 28% 8%;
+  border: 2px solid var(--mantine-color-orange-5);
+  border-radius: 0.75rem;
+  box-shadow: 0 0 0 999px rgb(0 0 0 / 35%);
+  pointer-events: none;
+}
+
+.ticket-scanner-status {
+  position: absolute;
+  left: 50%;
+  bottom: 0.75rem;
+  z-index: 1;
+  width: max-content;
+  max-width: calc(100% - 2rem);
+  transform: translateX(-50%);
+  border-radius: 999px;
+  padding: 0.35rem 0.7rem;
+  background: rgb(17 24 32 / 85%);
+  color: #fff;
+  text-align: center;
 }
 
 .neura-secondary-button {
@@ -7026,6 +7138,10 @@ h2 {
   padding-bottom: 1rem;
 }
 
+.weekly-availability-actions .mantine-Select-root {
+  min-width: 15rem;
+}
+
 .vendor-location-modal .mantine-Modal-header {
   align-items: flex-start;
 }
@@ -7291,6 +7407,22 @@ h2 {
 }
 
 @media (max-width: 48em) {
+  .weekly-availability-header,
+  .weekly-availability-actions {
+    align-items: stretch;
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .weekly-availability-actions .mantine-Select-root,
+  .weekly-availability-actions .mantine-Button-root {
+    width: 100%;
+  }
+
+  .weekly-availability-actions .mantine-Button-root {
+    min-height: 44px;
+  }
+
   .customer-modal .mantine-Modal-inner {
     align-items: flex-end !important;
     justify-content: stretch !important;
@@ -7521,6 +7653,34 @@ h2 {
   flex: 0 0 auto;
   margin-top: 1rem;
 }
+.customer-modal.queue-rating-modal .mantine-Modal-content {
+  display: flex;
+  flex-direction: column;
+  height: min(88dvh, 36rem) !important;
+  max-height: min(88dvh, 36rem) !important;
+  overflow: hidden !important;
+}
+.customer-modal.queue-rating-modal .mantine-Modal-body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden !important;
+}
+.queue-rating-modal-shell {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+}
+.queue-rating-modal-main {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding-right: 0.25rem;
+}
+.queue-rating-modal-actions {
+  flex: 0 0 auto;
+  margin-top: 1rem;
+}
 .campaign-hero-secondary { color: #cbd5e1; }
 .campaign-hero-stat { background: rgba(255,255,255,.09); color: white; border: 1px solid rgba(255,255,255,.16); }
 .campaign-contributor-progress {
@@ -7600,4 +7760,75 @@ button:hover > .rating-star { transform: scale(1.08); }
     border-left: 0;
   }
 }
-@media (max-width: 48em) { .campaign-control-page { padding-inline: .75rem; } .campaign-control-page .mantine-Button-root { min-height: 44px; } .campaign-control-hero { border-radius: 22px; } .campaign-control-hero h1 { font-size: 1.75rem; } .campaign-participation-header { align-items: stretch; flex-direction: column; } .campaign-participation-slot { align-self: flex-start; } .campaign-participation-card .mantine-Button-root { width: 100%; } .campaign-summary-actions { align-items: stretch; flex-direction: column; } .campaign-summary-actions .mantine-Button-root { width: 100%; } .campaign-history-cta { align-items: stretch; flex-direction: column; } .campaign-history-cta-button { width: 100%; } .campaign-proof-document { min-height: 22rem; } .customer-modal.campaign-history-modal .mantine-Modal-content { height: min(92dvh, 42rem) !important; } .campaign-history-modal-actions { align-items: stretch; flex-direction: column; } .campaign-history-modal-actions .mantine-Button-root { width: 100%; } .customer-modal.campaign-rating-modal .mantine-Modal-content { height: min(92dvh, 36rem) !important; } .campaign-rating-modal-actions .mantine-Button-root { width: 100%; } }
+@media (max-width: 48em) { .campaign-control-page { padding-inline: .75rem; } .campaign-control-page .mantine-Button-root { min-height: 44px; } .campaign-control-hero { border-radius: 22px; } .campaign-control-hero h1 { font-size: 1.75rem; } .campaign-participation-header { align-items: stretch; flex-direction: column; } .campaign-participation-slot { align-self: flex-start; } .campaign-participation-card .mantine-Button-root { width: 100%; } .campaign-summary-actions { align-items: stretch; flex-direction: column; } .campaign-summary-actions .mantine-Button-root { width: 100%; } .campaign-history-cta { align-items: stretch; flex-direction: column; } .campaign-history-cta-button { width: 100%; } .campaign-proof-document { min-height: 22rem; } .customer-modal.campaign-history-modal .mantine-Modal-content { height: min(92dvh, 42rem) !important; } .campaign-history-modal-actions { align-items: stretch; flex-direction: column; } .campaign-history-modal-actions .mantine-Button-root { width: 100%; } .customer-modal.campaign-rating-modal .mantine-Modal-content, .customer-modal.queue-rating-modal .mantine-Modal-content { height: min(92dvh, 36rem) !important; } .campaign-rating-modal-actions .mantine-Button-root, .queue-rating-modal-actions .mantine-Button-root { width: 100%; } }
+
+.mfa-setup-qr {
+  width: min(100%, 14rem);
+  padding: 1rem;
+  border: 1px solid var(--mantine-color-gray-3);
+  border-radius: var(--mantine-radius-lg);
+  background: #ffffff;
+  box-shadow: var(--mantine-shadow-sm);
+}
+
+.mfa-setup-qr svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.customer-modal.mfa-removal-modal .mantine-Modal-content {
+  display: flex;
+  flex-direction: column;
+  height: min(88dvh, 40rem);
+  max-height: min(88dvh, 40rem);
+  overflow: hidden;
+}
+
+.customer-modal.mfa-removal-modal .mantine-Modal-body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.mfa-removal-modal__shell {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.mfa-removal-modal__main {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding-right: 0.25rem;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.mfa-removal-modal__footer {
+  flex: 0 0 auto;
+  padding-top: 1rem;
+  border-top: 1px solid var(--mantine-color-gray-3);
+  background: inherit;
+}
+
+@media (max-width: 48em) {
+  .customer-modal.mfa-removal-modal .mantine-Modal-content {
+    height: min(92dvh, 40rem) !important;
+    max-height: min(92dvh, 40rem) !important;
+  }
+
+  .mfa-removal-modal__footer {
+    align-items: stretch;
+    flex-direction: column-reverse;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .mfa-removal-modal__footer .mantine-Button-root {
+    width: 100%;
+    min-height: 44px;
+  }
+}

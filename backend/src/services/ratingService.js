@@ -3,6 +3,7 @@ const campaignRepository = require("../repositories/organizerCampaigns");
 const ratingRepository = require("../repositories/ratings");
 const { assertPublicTextFieldsAllowed } = require("./contentModeration");
 const organizerCampaignEvents = require("./organizerCampaignEvents");
+const ticketRepository = require("../repositories/tickets");
 
 function error(message, statusCode) { const next = new Error(message); next.statusCode = statusCode; return next; }
 function stars(value) { const parsed = Number(value); if (!Number.isInteger(parsed) || parsed < 1 || parsed > 5) throw error("Rating must be between 1 and 5 stars.", 400); return parsed; }
@@ -13,15 +14,55 @@ function lowReason(value, score) {
   return reason || null;
 }
 
+function vendorReviewFields(body) {
+  const score = stars(body?.stars);
+  const comment = String(body?.comment || "").trim();
+  if (comment.length > 1000) throw error("Review comment must be 1000 characters or fewer.", 400);
+  assertPublicTextFieldsAllowed({ "Review comment": comment });
+  return { stars: score, comment };
+}
+
 async function rateVendor({ user, bookingId, body }) {
   const booking = await bookingRepository.findBookingById(bookingId);
   if (!booking || String(booking.customerUserId) !== String(user?._id)) throw error("Booking not found.", 404);
   if (!["completed", "reviewed"].includes(booking.status)) throw error("The service must be completed before rating the vendor.", 409);
-  const score = stars(body?.stars); const comment = String(body?.comment || "").trim();
-  if (comment.length > 1000) throw error("Review comment must be 1000 characters or fewer.", 400);
-  assertPublicTextFieldsAllowed({ "Review comment": comment });
-  try { return await ratingRepository.createVendorReview({ bookingId: booking._id, tenantId: booking.tenantId, customerUserId: user._id, stars: score, comment }); }
+  const review = vendorReviewFields(body);
+  try { return await ratingRepository.createVendorReview({ bookingId: booking._id, ticketId: null, tenantId: booking.tenantId, customerUserId: user._id, ...review }); }
   catch (next) { if (next?.code === "23505") throw error("You have already rated this booking.", 409); throw next; }
+}
+
+async function getQueueTicketRating({ user, lookupCode }) {
+  const ticket = await ticketRepository.findTicketByLookupCode(String(lookupCode || "").trim().toUpperCase());
+  if (!ticket || !ticket.userId || String(ticket.userId) !== String(user?._id)) {
+    throw error("Queue ticket not found.", 404);
+  }
+
+  const rating = await ratingRepository.findVendorReviewByTicketId(ticket._id, user._id);
+  return { eligible: ticket.status === "served", rating };
+}
+
+async function rateQueueTicket({ user, lookupCode, body }) {
+  const ticket = await ticketRepository.findTicketByLookupCode(String(lookupCode || "").trim().toUpperCase());
+  if (!ticket || !ticket.userId || String(ticket.userId) !== String(user?._id)) {
+    throw error("Queue ticket not found.", 404);
+  }
+  if (ticket.status !== "served") {
+    throw error("The queue service must be completed before rating the vendor.", 409);
+  }
+
+  const review = vendorReviewFields(body);
+  try {
+    return await ratingRepository.createVendorReview({
+      bookingId: null,
+      ticketId: ticket._id,
+      tenantId: ticket.tenantId,
+      customerUserId: user._id,
+      ...review
+    });
+  } catch (next) {
+    if (next?.code === "23505") throw error("You have already rated this queue visit.", 409);
+    throw next;
+  }
 }
 
 async function rateCampaignUser({ user, campaignId, contributionId, body }) {
@@ -82,4 +123,4 @@ async function replyToVendorReview({ user, tenant, reviewId, body }) {
   return review;
 }
 
-module.exports = { disputeRating, rateCampaignUser, rateOrganizerFromVendor, rateVendor, replyToVendorReview, reviseVendorReview };
+module.exports = { disputeRating, getQueueTicketRating, rateCampaignUser, rateOrganizerFromVendor, rateQueueTicket, rateVendor, replyToVendorReview, reviseVendorReview };

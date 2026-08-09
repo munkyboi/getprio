@@ -29,8 +29,17 @@ const {
   cancelTicket
 } = require("../services/queueService");
 const { normalizePhilippineMobileNumber } = require("../utils/phone");
+const entitlementAdmissionService = require("../services/entitlementAdmissionService");
 
 const router = express.Router();
+const enterpriseInquiryLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => ipKeyGenerator(req.ip),
+  message: { message: "Too many Enterprise inquiries. Please try again later." }
+});
 const queueTicketReadLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 300,
@@ -101,18 +110,21 @@ function formatPublicVendorService(service) {
 
 async function attachPublicVendorDetails(vendor) {
   const tenant = await tenantRepository.findTenantBySlug(vendor.slug, { activeOnly: true });
+  const capabilities = tenant
+    ? await entitlementAdmissionService.resolvePublicCapabilities(tenant._id)
+    : { queue: false, booking: false, campaigns: false, branding: false };
   const primaryLocation = vendor.location.slug && tenant
     ? await storeLocationRepository.findLocationByTenantAndSlug(tenant._id, vendor.location.slug)
     : null;
-  const publicBoardTheme = tenant
+  const publicBoardTheme = tenant && capabilities.branding
     ? await publicBoardThemeRepository.getResolvedTheme(tenant._id, primaryLocation?._id)
     : null;
-  const services = tenant
+  const services = tenant && capabilities.booking
     ? (await vendorServiceRepository.listServicesByTenantId(tenant._id))
         .filter((service) => service.isActive)
         .map(formatPublicVendorService)
     : [];
-  const locationServices = tenant
+  const locationServices = tenant && capabilities.booking
     ? (await locationServiceRepository.listLocationServicesByTenantId(tenant._id))
         .filter((item) => item.isActive)
         .map((item) => ({
@@ -142,6 +154,8 @@ async function attachPublicVendorDetails(vendor) {
 
         return {
           ...location,
+          contactEmail: fullLocation?.contactEmail || "",
+          contactPhone: fullLocation?.contactPhone || "",
           openStatus: openStatus
             ? { isOpen: openStatus.isOpen, summary: openStatus.summary }
             : undefined
@@ -149,8 +163,15 @@ async function attachPublicVendorDetails(vendor) {
       }))
     : vendor.locations;
 
+  const {
+    contactEmail: _legacyTenantContactEmail,
+    contactPhone: _legacyTenantContactPhone,
+    ...publicVendor
+  } = vendor;
+
   return {
-    ...vendor,
+    ...publicVendor,
+    capabilities,
     locations,
     services,
     locationServices,
@@ -165,8 +186,13 @@ router.get(
       search: req.query.search,
       limit: req.query.limit
     });
+    const discoverableVendors = (
+      await Promise.all(vendors.map(async (vendor) =>
+        (await entitlementAdmissionService.canDiscover(vendor._id)) ? vendor : null
+      ))
+    ).filter(Boolean);
     const vendorsWithDetails = await Promise.all(
-      vendors.map((vendor) => attachPublicVendorDetails(vendor))
+      discoverableVendors.map((vendor) => attachPublicVendorDetails(vendor))
     );
 
     res.json({ vendors: vendorsWithDetails });
@@ -196,6 +222,7 @@ router.get(
   "/vendors/:tenantSlug/locations/:locationSlug/services",
   asyncHandler(async (req, res) => {
     const tenant = await getPublicBookableTenant(req.params.tenantSlug);
+    await entitlementAdmissionService.admit({ tenantId: tenant._id, featureKey: "booking" });
     const location = await storeLocationRepository.findLocationByTenantAndSlug(
       tenant._id,
       String(req.params.locationSlug).toLowerCase()
@@ -555,12 +582,34 @@ function buildJoinPayload(req, tenant, location) {
 
 router.post(
   "/enterprise-inquiries",
+  enterpriseInquiryLimiter,
   asyncHandler(async (req, res) => {
+    if (normalizeText(req.body.honeypot, 200)) {
+      res.status(201).json({ sent: true });
+      return;
+    }
+
+    const verification = await turnstileService.verifyTurnstileToken({
+      token: req.body.turnstileToken,
+      remoteIp: getRequestIp(req)
+    });
+    if (!verification.success) {
+      const error = new Error("Verification failed. Please retry the security check.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    if (typeof req.body.message === "string" && req.body.message.length > 1000) {
+      const error = new Error("Message must be 1,000 characters or fewer.");
+      error.statusCode = 400;
+      throw error;
+    }
+
     const businessName = normalizeText(req.body.businessName, 140);
     const contactName = normalizeText(req.body.contactName, 140);
     const email = normalizeEmail(req.body.email);
     const phone = normalizePhilippineMobileNumber(req.body.phone);
-    const message = normalizeText(req.body.message, 1200);
+    const message = normalizeText(req.body.message, 1000);
 
     if (!businessName || !contactName || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       const error = new Error("Business name, contact name, and a valid email are required.");
@@ -635,6 +684,8 @@ router.post(
     const location = await getLocationOrPrimary(tenant, req.params.locationSlug);
     const payload = buildJoinPayload(req, tenant, location);
 
+    await entitlementAdmissionService.admit({ tenantId: tenant._id, featureKey: "queue" });
+
     await queueFeeService.assertTenantCanAcceptCustomerJoins(tenant._id);
     await storeHoursService.assertLocationOpenForCustomerJoin(location);
     await verifyQrTurnstileIfNeeded(req, payload.joinChannel);
@@ -656,6 +707,8 @@ router.post(
     const location = await getLocationOrPrimary(tenant, req.params.locationSlug);
     const payload = buildJoinPayload(req, tenant, location);
 
+    await entitlementAdmissionService.admit({ tenantId: tenant._id, featureKey: "queue" });
+
     await queueFeeService.assertTenantCanAcceptCustomerJoins(tenant._id);
     await storeHoursService.assertLocationOpenForCustomerJoin(location);
     await verifyQrTurnstileIfNeeded(req, payload.joinChannel);
@@ -674,6 +727,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const tenant = await getTenantOrThrow(req.params.tenantSlug);
     const location = await getLocationOrPrimary(tenant, req.params.locationSlug);
+    await entitlementAdmissionService.admit({ tenantId: tenant._id, featureKey: "queue" });
     await queueFeeService.assertTenantCanAcceptCustomerJoins(tenant._id);
     await storeHoursService.assertLocationOpenForCustomerJoin(location);
     const payload = await queueJoinOtpService.verifyJoinOtp({

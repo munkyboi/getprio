@@ -32,7 +32,9 @@ import {
   IconClock,
   IconEye,
   IconInfoCircle,
+  IconMail,
   IconMapPin,
+  IconPhone,
   IconPhoto,
   IconStar,
   IconTicket,
@@ -53,6 +55,8 @@ import { apiRequest } from "../api/client";
 import ContactForm from "../components/ContactForm";
 import CampaignFundingProgress from "../components/CampaignFundingProgress";
 import { getErrorMessage } from "../utils/errors";
+import { formatPhilippineMobileNumber } from "../utils/phones";
+import { formatRatingCount } from "../utils/ratings";
 import { getQueueStateSummary } from "../utils/queueStatus";
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -516,7 +520,7 @@ export default function VendorProfilePage() {
     queryFn: () => apiRequest<QueueSnapshot>(
       `/public/tenant/${profileSlug}/location/${selectedBookingLocationSlug}/queue`
     ),
-    enabled: Boolean(profileSlug && selectedBookingLocationSlug)
+    enabled: Boolean(vendor?.capabilities.queue && profileSlug && selectedBookingLocationSlug)
   });
   const selectedQueueStatus = getQueueStateSummary(selectedQueueStatusQuery.data || null);
   const standardBookingTabPath = `/vendors/${profileSlug}`;
@@ -566,7 +570,7 @@ export default function VendorProfilePage() {
   }
 
   function handleServiceCardBooking(service: PublicVendorService) {
-    if (service.groupFunded?.enabled) {
+    if (vendor?.capabilities.campaigns && service.groupFunded?.enabled) {
       setBookingChoiceService(service);
       return;
     }
@@ -655,8 +659,9 @@ export default function VendorProfilePage() {
   }, [vendor]);
 
   useEffect(() => {
-    if (!vendor || !selectedLocationSlug) {
+    if (!vendor?.capabilities.booking || !selectedLocationSlug) {
       setLocationServices([]);
+      setServicesLoading(false);
       return;
     }
 
@@ -688,7 +693,9 @@ export default function VendorProfilePage() {
   // The vendor-side discovery and booking mode was retired. Campaigns now begin
   // only after a customer pays and the vendor confirms a normal booking.
   const hasGroupFundedServices = false;
-  const firstGroupFundedService = locationServices.find((service) => service.groupFunded?.enabled) || null;
+  const firstGroupFundedService = vendor?.capabilities.campaigns
+    ? locationServices.find((service) => service.groupFunded?.enabled) || null
+    : null;
   const campaignFiltersChanged = Boolean(
     campaignSearch ||
     !campaignOngoingOnly ||
@@ -813,7 +820,7 @@ export default function VendorProfilePage() {
                   <Group justify="space-between" mt="xs">
                     <Text fw={800}>{service.priceDisplay || `PHP ${(service.priceAmountCents / 100).toLocaleString()}`}</Text>
                     <Group gap="xs">
-                      {service.groupFunded?.enabled ? (
+                      {vendor?.capabilities.campaigns && service.groupFunded?.enabled ? (
                         <Button
                           onClick={(event) => {
                             event.stopPropagation();
@@ -960,7 +967,19 @@ export default function VendorProfilePage() {
                   <div className="booking-detail-visual-content">
                     <Stack align="center" gap={6}>
                       <Title className="booking-detail-ticket-number" order={2}>{vendor.name}</Title>
-                      <Group aria-label={`${vendorRatingQuery.data?.rating.count || 0} vendor ratings`} gap={6}><IconStar color="#ffd000" fill="#ffd000" size={22}/><Text fw={900}>{vendorRatingQuery.data?.rating.count ? vendorRatingQuery.data.rating.average.toFixed(1) : "—"}</Text></Group>
+                      {vendorRatingQuery.data?.rating.count ? (
+                        <Group aria-label={`${vendorRatingQuery.data.rating.count} vendor ratings`} gap={6}>
+                          <IconStar color="#ffd000" fill="#ffd000" size={22}/>
+                          <Text fw={900}>
+                            {vendorRatingQuery.data.rating.average.toFixed(1)} ({formatRatingCount(vendorRatingQuery.data.rating.count)})
+                          </Text>
+                        </Group>
+                      ) : (
+                        <Group aria-label="Not yet rated" gap={6}>
+                          <IconStar color="currentColor" fill="none" size={22}/>
+                          <Text fw={700}>Not yet rated</Text>
+                        </Group>
+                      )}
                     </Stack>
                     <div className="booking-detail-visual-tile vendor-profile-branch-carousel-card">
                       <div aria-live="polite" className="vendor-profile-branch-carousel" role="status">
@@ -982,29 +1001,33 @@ export default function VendorProfilePage() {
                       </div>
                     </div>
                     <Stack className="booking-detail-visual-action vendor-profile-ticket-actions" gap="sm">
-                      <Button
-                        className="vendor-theme-button booking-detail-primary-action"
-                        component={Link}
-                        leftSection={<IconTicket size={18} />}
-                        size="lg"
-                        to={selectedBookingLocationSlug ? `/join/${vendor.slug}/${selectedBookingLocationSlug}` : `/join/${vendor.slug}`}
-                      >
-                        <span className="vendor-profile-join-queue-label">
-                          <span>Join queue</span>
-                          <Badge
-                            className="vendor-profile-join-queue-status"
-                            color={selectedQueueStatus.color}
-                            radius="xl"
-                            size="sm"
-                            variant="white"
-                          >
-                            {selectedQueueStatus.label}
-                          </Badge>
-                        </span>
-                      </Button>
-                      <Button className="vendor-theme-button vendor-theme-button-ghost" onClick={scrollToBookingOptions} size="lg" variant="subtle">
-                        Start booking
-                      </Button>
+                      {vendor.capabilities.queue ? (
+                        <Button
+                          className="vendor-theme-button booking-detail-primary-action"
+                          component={Link}
+                          leftSection={<IconTicket size={18} />}
+                          size="lg"
+                          to={selectedBookingLocationSlug ? `/join/${vendor.slug}/${selectedBookingLocationSlug}` : `/join/${vendor.slug}`}
+                        >
+                          <span className="vendor-profile-join-queue-label">
+                            <span>Join queue</span>
+                            <Badge
+                              className="vendor-profile-join-queue-status"
+                              color={selectedQueueStatus.color}
+                              radius="xl"
+                              size="sm"
+                              variant="white"
+                            >
+                              {selectedQueueStatus.label}
+                            </Badge>
+                          </span>
+                        </Button>
+                      ) : null}
+                      {vendor.capabilities.booking ? (
+                        <Button className="vendor-theme-button vendor-theme-button-ghost" onClick={scrollToBookingOptions} size="lg" variant="subtle">
+                          Start booking
+                        </Button>
+                      ) : null}
                       <Button className="vendor-theme-button vendor-theme-button-ghost" onClick={() => setContactOpen(true)} size="lg" variant="subtle">
                         Contact vendor
                       </Button>
@@ -1014,7 +1037,7 @@ export default function VendorProfilePage() {
               </SimpleGrid>
             </Paper>
 
-            {vendorRatingQuery.data?.reviews.length ? <Paper p={{ base: "md", sm: "xl" }}><Stack gap="md"><Group justify="space-between"><Title order={2}>Customer reviews</Title><Group gap={6}><IconStar color="#ffd000" fill="#ffd000" size={20}/><Text fw={900}>{vendorRatingQuery.data.rating.average.toFixed(1)} ({vendorRatingQuery.data.rating.count})</Text></Group></Group><SimpleGrid cols={{ base: 1, md: 2 }}>{vendorRatingQuery.data.reviews.map((review) => <Card key={review.id} p="md"><Stack gap="xs"><Group justify="space-between"><Text fw={700}>{review.customer_display_name}</Text><Group gap={4}><IconStar color="#ffd000" fill="#ffd000" size={16}/><Text fw={800}>{review.stars}.0</Text></Group></Group>{review.comment ? <Text>{review.comment}</Text> : null}{review.vendor_reply ? <Alert color="gray" title="Vendor reply">{review.vendor_reply}</Alert> : null}</Stack></Card>)}</SimpleGrid></Stack></Paper> : null}
+            {vendorRatingQuery.data?.reviews.length ? <Paper p={{ base: "md", sm: "xl" }}><Stack gap="md"><Group justify="space-between"><Title order={2}>Customer reviews</Title><Group gap={6}><IconStar color="#ffd000" fill="#ffd000" size={20}/><Text fw={900}>{vendorRatingQuery.data.rating.average.toFixed(1)} ({formatRatingCount(vendorRatingQuery.data.rating.count)})</Text></Group></Group><SimpleGrid cols={{ base: 1, md: 2 }}>{vendorRatingQuery.data.reviews.map((review) => <Card key={review.id} p="md"><Stack gap="xs"><Group justify="space-between"><Text fw={700}>{review.customer_display_name}</Text><Group gap={4}><IconStar color="#ffd000" fill="#ffd000" size={16}/><Text fw={800}>{review.stars}.0</Text></Group></Group>{review.comment ? <Text>{review.comment}</Text> : null}{review.vendor_reply ? <Alert color="gray" title="Vendor reply">{review.vendor_reply}</Alert> : null}</Stack></Card>)}</SimpleGrid></Stack></Paper> : null}
 
             <Stack gap="md">
               <div>
@@ -1068,7 +1091,8 @@ export default function VendorProfilePage() {
               )}
             </Stack>
 
-            <Paper className="vendor-info-panel vendor-booking-options-panel" p={{ base: "md", sm: "xl" }} ref={bookingOptionsRef} tabIndex={-1}>
+            {vendor.capabilities.booking ? (
+              <Paper className="vendor-info-panel vendor-booking-options-panel" p={{ base: "md", sm: "xl" }} ref={bookingOptionsRef} tabIndex={-1}>
               <Stack gap="lg">
                 <div>
                   <Text className="prio-label">Booking options</Text>
@@ -1387,7 +1411,8 @@ export default function VendorProfilePage() {
                   renderServiceSelectionList()
                 )}
               </Stack>
-            </Paper>
+              </Paper>
+            ) : null}
 
             <Paper className="vendor-info-panel" p="xl">
               <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="xl">
@@ -1416,8 +1441,39 @@ export default function VendorProfilePage() {
                       {locationLabel}
                     </Text>
                     <Divider my="xs" />
-                    <Text size="sm">Address and channel details can be surfaced here.</Text>
-                    <Text size="sm">This is the placeholder block for contact methods and expectations.</Text>
+                    {selectedLocation?.contactEmail || selectedLocation?.contactPhone ? (
+                      <Stack gap="xs">
+                        <Text className="prio-label">Location contact</Text>
+                        {selectedLocation?.contactEmail ? (
+                          <Button
+                            className="vendor-contact-channel"
+                            component="a"
+                            href={`mailto:${selectedLocation.contactEmail}`}
+                            justify="flex-start"
+                            leftSection={<IconMail aria-hidden="true" size={18} />}
+                            variant="subtle"
+                          >
+                            {selectedLocation.contactEmail}
+                          </Button>
+                        ) : null}
+                        {selectedLocation?.contactPhone ? (
+                          <Button
+                            className="vendor-contact-channel"
+                            component="a"
+                            href={`tel:${selectedLocation.contactPhone}`}
+                            justify="flex-start"
+                            leftSection={<IconPhone aria-hidden="true" size={18} />}
+                            variant="subtle"
+                          >
+                            {formatPhilippineMobileNumber(selectedLocation.contactPhone)}
+                          </Button>
+                        ) : null}
+                      </Stack>
+                    ) : (
+                      <Text c="dimmed" size="sm">
+                        Direct contact details are not available. Use the contact form to reach this vendor.
+                      </Text>
+                    )}
                   </Stack>
                 </Paper>
               </SimpleGrid>
@@ -1512,19 +1568,21 @@ export default function VendorProfilePage() {
               >
                 Standard booking
               </Button>
-              <Button
-                color="orange"
-                disabled={!bookingChoiceService.groupFunded?.enabled}
-                fullWidth
-                justify="center"
-                leftSection={<IconUsers size={18} />}
-                onClick={() => startServiceBooking(bookingChoiceService.slug, "group-funded")}
-                size="lg"
-              >
-                Start group-funded campaign
-              </Button>
+              {vendor?.capabilities.campaigns ? (
+                <Button
+                  color="orange"
+                  disabled={!bookingChoiceService.groupFunded?.enabled}
+                  fullWidth
+                  justify="center"
+                  leftSection={<IconUsers size={18} />}
+                  onClick={() => startServiceBooking(bookingChoiceService.slug, "group-funded")}
+                  size="lg"
+                >
+                  Start group-funded campaign
+                </Button>
+              ) : null}
             </Stack>
-            {!bookingChoiceService.groupFunded?.enabled ? (
+            {vendor?.capabilities.campaigns && !bookingChoiceService.groupFunded?.enabled ? (
               <Alert color="yellow" variant="light">
                 Group-funded booking is not enabled for this service at the selected branch.
               </Alert>

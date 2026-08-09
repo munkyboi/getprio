@@ -271,7 +271,7 @@ export default function RegisterVendorPage() {
         await registerVendor({ ...payload, password: values.password || "" });
       }
 
-      navigate("/dashboard", { replace: true });
+      navigate("/dashboard/account", { replace: true });
     } catch (submitError) {
       setError(getErrorMessage(submitError));
     }

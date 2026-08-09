@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const { handleListServices, handleCreateService, handleDeleteService } = require("../src/routes/vendorServiceHandlers");
 
 test("vendor service handler lists and creates services", async () => {
+  const admissions = [];
   const listResponse = { body: null, json(payload) { this.body = payload; } };
   await handleListServices({
     req: { user: {}, params: { tenantSlug: "tenant" } },
@@ -25,6 +26,9 @@ test("vendor service handler lists and creates services", async () => {
     res: createResponse,
     getAuthorizedTenant: async () => ({ _id: 1 }),
     assertTenantPermission: () => {},
+    entitlementAdmissionService: {
+      admit: async (request) => admissions.push(request)
+    },
     vendorServiceRepository: {
       createService: async (payload) => ({ _id: 8, slug: "consultation", ...payload })
     },
@@ -34,6 +38,7 @@ test("vendor service handler lists and creates services", async () => {
   });
   assert.equal(createResponse.statusCode, 201);
   assert.equal(createResponse.body.service.name, "Consultation");
+  assert.deepEqual(admissions, [{ tenantId: 1, featureKey: "booking" }]);
 });
 
 test("vendor service handler persists group-funded branch settings", async () => {
@@ -89,6 +94,9 @@ test("vendor service handler persists group-funded branch settings", async () =>
       res: response,
       getAuthorizedTenant: async () => ({ _id: 1 }),
       assertTenantPermission: () => {},
+      entitlementAdmissionService: {
+        admit: async () => ({ allowed: true })
+      },
       vendorServiceRepository: {
         createService: async (payload) => ({ _id: 8, slug: "vip-court", ...payload })
       },
@@ -117,6 +125,35 @@ test("vendor service handler persists group-funded branch settings", async () =>
   } finally {
     storeLocationRepository.findLocationByTenantAndSlug = originalFindLocationByTenantAndSlug;
   }
+});
+
+test("vendor service handler checks plan admission before creating a service", async () => {
+  let createCalled = false;
+
+  await assert.rejects(
+    handleCreateService({
+      req: { user: {}, params: { tenantSlug: "tenant" }, body: { name: "Restricted" } },
+      res: {},
+      getAuthorizedTenant: async () => ({ _id: 1 }),
+      assertTenantPermission: () => {},
+      entitlementAdmissionService: {
+        admit: async () => {
+          const error = new Error("This feature is not included in the current plan.");
+          error.statusCode = 403;
+          throw error;
+        }
+      },
+      vendorServiceRepository: {
+        createService: async () => {
+          createCalled = true;
+        }
+      },
+      locationServiceRepository: {}
+    }),
+    (error) => error.statusCode === 403
+  );
+
+  assert.equal(createCalled, false);
 });
 
 test("vendor service handler deletes services through injected repository", async () => {

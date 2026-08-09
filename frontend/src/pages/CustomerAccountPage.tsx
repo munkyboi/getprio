@@ -11,6 +11,7 @@ import {
   FileInput,
   Group,
   Checkbox,
+  Modal,
   Pagination,
   Select,
   PasswordInput,
@@ -31,6 +32,7 @@ import {
   IconRepeat
 } from "@tabler/icons-react";
 import { Navigate, Link, useLocation, useNavigate } from "react-router-dom";
+import QRCode from "react-qr-code";
 import type {
   BookingStatus,
   CustomerAccountOverviewResponse,
@@ -225,6 +227,18 @@ export default function CustomerAccountPage() {
     newPassword: ""
   });
   const [changingPassword, setChangingPassword] = useState(false);
+  const [mfaSecret, setMfaSecret] = useState("");
+  const [mfaUri, setMfaUri] = useState("");
+  const [mfaCode, setMfaCode] = useState("");
+  const [mfaRecoveryCodes, setMfaRecoveryCodes] = useState<string[]>([]);
+  const [mfaBusy, setMfaBusy] = useState(false);
+  const [mfaRemoved, setMfaRemoved] = useState(false);
+  const [mfaRemovalOpened, setMfaRemovalOpened] = useState(false);
+  const [mfaRemovalPassword, setMfaRemovalPassword] = useState("");
+  const [mfaRemovalCode, setMfaRemovalCode] = useState("");
+  const [mfaRemovalRecoveryCode, setMfaRemovalRecoveryCode] = useState("");
+  const [mfaRemovalAcknowledged, setMfaRemovalAcknowledged] = useState(false);
+  const [mfaRemovalBusy, setMfaRemovalBusy] = useState(false);
   const [browserPermission, setBrowserPermission] = useState<NotificationPermission>(
     typeof window !== "undefined" && typeof window.Notification !== "undefined"
       ? window.Notification.permission
@@ -253,6 +267,73 @@ export default function CustomerAccountPage() {
     () => avatarFile ? URL.createObjectURL(avatarFile) : "",
     [avatarFile]
   );
+
+  async function startMfaEnrollment() {
+    setMfaBusy(true);
+    try {
+      const data = await apiRequest<{ secret: string; otpAuthUri: string }>("/auth/mfa/enrollment/start", { method: "POST", token, body: {} });
+      setMfaSecret(data.secret); setMfaUri(data.otpAuthUri); setMfaRecoveryCodes([]);
+    } catch (mfaError) { showCustomerError(getErrorMessage(mfaError), "Authenticator setup could not start"); }
+    finally { setMfaBusy(false); }
+  }
+
+  async function confirmMfaEnrollment() {
+    setMfaBusy(true);
+    try {
+      const data = await apiRequest<{ success: boolean; recoveryCodes: string[]; message: string }>("/auth/mfa/enrollment/confirm", { method: "POST", token, body: { code: mfaCode } });
+      setMfaRecoveryCodes(data.recoveryCodes);
+      setMfaSecret("");
+      setMfaUri("");
+      setMfaCode("");
+      setMfaRemoved(false);
+      await Promise.all([
+        refreshUser(),
+        queryClient.invalidateQueries({ queryKey: ["customer-account", token] })
+      ]);
+      showCustomerSuccess("Authenticator enabled", "Save your recovery codes before leaving this page.");
+    } catch (mfaError) { showCustomerError(getErrorMessage(mfaError), "Code not verified"); }
+    finally { setMfaBusy(false); }
+  }
+
+  function closeMfaRemoval() {
+    if (mfaRemovalBusy) return;
+    setMfaRemovalOpened(false);
+    setMfaRemovalPassword("");
+    setMfaRemovalCode("");
+    setMfaRemovalRecoveryCode("");
+    setMfaRemovalAcknowledged(false);
+  }
+
+  async function removeMfa() {
+    setMfaRemovalBusy(true);
+    try {
+      await apiRequest<{ success: boolean; message: string }, { password: string; code: string; recoveryCode: string }>("/auth/mfa/disable", {
+        method: "POST",
+        token,
+        body: {
+          password: mfaRemovalPassword,
+          code: mfaRemovalCode,
+          recoveryCode: mfaRemovalRecoveryCode
+        }
+      });
+      setMfaRemoved(true);
+      setMfaRecoveryCodes([]);
+      setMfaRemovalOpened(false);
+      setMfaRemovalPassword("");
+      setMfaRemovalCode("");
+      setMfaRemovalRecoveryCode("");
+      setMfaRemovalAcknowledged(false);
+      await Promise.all([
+        refreshUser(),
+        queryClient.invalidateQueries({ queryKey: ["customer-account", token] })
+      ]);
+      showCustomerSuccess("MFA removed", "Your authenticator and recovery codes are no longer active.");
+    } catch (mfaError) {
+      showCustomerError(getErrorMessage(mfaError), "MFA could not be removed");
+    } finally {
+      setMfaRemovalBusy(false);
+    }
+  }
   const accountQuery = useQuery({
     queryKey: ["customer-account", token],
     queryFn: async () => {
@@ -375,6 +456,7 @@ export default function CustomerAccountPage() {
     navigate(`/account/bookings/${booking.id}`);
   }
   const accountUser = account?.user;
+  const mfaEnabled = !mfaRemoved && Boolean(accountUser?.mfaEnabled || mfaRecoveryCodes.length);
 
   useEffect(() => {
     return () => {
@@ -1407,18 +1489,81 @@ export default function CustomerAccountPage() {
             <Title order={2}>Multi-factor authentication</Title>
           </div>
           <Group gap="sm">
-            <Badge color={accountUser?.mfaEnabled ? "teal" : "gray"} variant="light">
-              {accountUser?.mfaEnabled ? "Enabled" : "Not enabled"}
+            <Badge color={mfaEnabled ? "teal" : "gray"} variant="light">
+              {mfaEnabled ? "Enabled" : "Not enabled"}
             </Badge>
             <Badge color={accountUser?.mfaRequired ? "orange" : "gray"} variant="light">
               {accountUser?.mfaRequired ? "Required" : "Optional"}
             </Badge>
           </Group>
-          <Alert color="blue" variant="light">
-            MFA enrollment is represented in the account model, but a customer self-service enrollment and verification flow has not been implemented yet.
-          </Alert>
+          {mfaRecoveryCodes.length ? <Alert color="teal" title="Save these one-time recovery codes" variant="light"><Stack gap={4}>{mfaRecoveryCodes.map((code) => <Text ff="monospace" key={code}>{code}</Text>)}</Stack></Alert> : null}
+          {!mfaEnabled && !mfaSecret && !mfaRecoveryCodes.length ? <Button className="customer-primary-action" color="dark" loading={mfaBusy} onClick={() => void startMfaEnrollment()}>Set up authenticator</Button> : null}
+          {mfaSecret ? (
+            <Stack gap="md">
+              <Stack align="center" gap="sm">
+                <Text fw={700} ta="center">Scan with your authenticator app</Text>
+                <Text c="dimmed" maw={440} size="sm" ta="center">
+                  In Google Authenticator, Microsoft Authenticator, or another TOTP app, add an account and scan this QR code.
+                </Text>
+                <div aria-label="GetPrio authenticator setup QR code" className="mfa-setup-qr" role="img">
+                  <QRCode aria-hidden="true" bgColor="#ffffff" fgColor="#111827" size={192} value={mfaUri} />
+                </div>
+              </Stack>
+              <Alert color="blue" title="Can’t scan the QR code?">
+                Open the setup link on this device or enter the secret manually.
+                <Text ff="monospace" mt="xs" style={{ overflowWrap: "anywhere" }}>{mfaSecret}</Text>
+                <Text component="a" href={mfaUri} mt="xs" style={{ display: "block", overflowWrap: "anywhere" }}>Open authenticator setup</Text>
+              </Alert>
+              <TextInput autoComplete="one-time-code" inputMode="numeric" label="6-digit authenticator code" maxLength={6} value={mfaCode} onChange={(event) => setMfaCode(event.target.value.replace(/\D/g, ""))}/>
+              <Button className="customer-primary-action" color="dark" disabled={mfaCode.length !== 6} loading={mfaBusy} onClick={() => void confirmMfaEnrollment()}>Verify and enable</Button>
+            </Stack>
+          ) : null}
+          {mfaEnabled && !mfaRecoveryCodes.length ? (
+            <Stack gap="sm">
+              <Alert color="teal" variant="light">Your authenticator is active. You will be asked for a security code during protected sign-ins and sensitive actions.</Alert>
+              {!accountUser?.mfaRequired ? <Button color="red" variant="light" onClick={() => setMfaRemovalOpened(true)}>Remove MFA</Button> : null}
+            </Stack>
+          ) : null}
         </Stack>
       </Card>
+      <Modal
+        className="customer-modal mfa-removal-modal"
+        closeOnClickOutside={!mfaRemovalBusy}
+        closeOnEscape={!mfaRemovalBusy}
+        opened={mfaRemovalOpened}
+        onClose={closeMfaRemoval}
+        overlayProps={{ blur: 6, backgroundOpacity: 0.35 }}
+        size="lg"
+        title={(
+          <div>
+            <Text className="finazze-section-label">ACCOUNT SECURITY</Text>
+            <Title order={3}>Remove multi-factor authentication</Title>
+          </div>
+        )}
+      >
+        <Stack className="mfa-removal-modal__shell" gap="md">
+          <Alert color="red" title="Your account will be less secure" variant="light">
+            Removing MFA revokes your authenticator and every recovery code. Other signed-in sessions will be closed.
+          </Alert>
+          <Stack className="mfa-removal-modal__main" gap="md">
+            <PasswordInput autoComplete="current-password" label="Current password" required value={mfaRemovalPassword} onChange={(event) => setMfaRemovalPassword(event.target.value)} />
+            <TextInput autoComplete="one-time-code" description="Use this or an unused recovery code below." inputMode="numeric" label="Current authenticator code" maxLength={6} value={mfaRemovalCode} onChange={(event) => setMfaRemovalCode(event.target.value.replace(/\D/g, ""))}/>
+            <TextInput autoComplete="one-time-code" description="Use this only if your authenticator is unavailable." label="Recovery code" value={mfaRemovalRecoveryCode} onChange={(event) => setMfaRemovalRecoveryCode(event.target.value)} />
+            <Checkbox checked={mfaRemovalAcknowledged} label="I understand that removing MFA reduces my account security." onChange={(event) => setMfaRemovalAcknowledged(event.target.checked)} />
+          </Stack>
+          <Group className="mfa-removal-modal__footer" justify="flex-end">
+            <Button disabled={mfaRemovalBusy} variant="default" onClick={closeMfaRemoval}>Keep MFA</Button>
+            <Button
+              color="red"
+              disabled={!mfaRemovalPassword || (!mfaRemovalRecoveryCode.trim() && mfaRemovalCode.length !== 6) || !mfaRemovalAcknowledged}
+              loading={mfaRemovalBusy}
+              onClick={() => void removeMfa()}
+            >
+              Remove MFA
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
     </Stack>
   );
 

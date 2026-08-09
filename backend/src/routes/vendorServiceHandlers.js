@@ -12,9 +12,10 @@ async function handleListServices({ req, res, getAuthorizedTenant, assertTenantP
   res.json({ services: services.map(formatVendorService), locationServices });
 }
 
-async function handleCreateService({ req, res, getAuthorizedTenant, assertTenantPermission, vendorServiceRepository, locationServiceRepository }) {
+async function handleCreateService({ req, res, getAuthorizedTenant, assertTenantPermission, entitlementAdmissionService, vendorServiceRepository, locationServiceRepository }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.service.manage");
+  await entitlementAdmissionService.admit({ tenantId: tenant._id, featureKey: "booking" });
   const service = await vendorServiceRepository.createService({
     tenantId: tenant._id,
     ...normalizeServicePayload(req.body || {})
@@ -29,9 +30,10 @@ async function handleCreateService({ req, res, getAuthorizedTenant, assertTenant
   res.status(201).json({ service: formatVendorService(service), locationServices });
 }
 
-async function handleUpdateService({ req, res, getAuthorizedTenant, assertTenantPermission, vendorServiceRepository, locationServiceRepository }) {
+async function handleUpdateService({ req, res, getAuthorizedTenant, assertTenantPermission, entitlementAdmissionService, vendorServiceRepository, locationServiceRepository }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.service.manage");
+  await entitlementAdmissionService.admit({ tenantId: tenant._id, featureKey: "booking" });
   const service = await vendorServiceRepository.findServiceByTenantAndSlug(
     tenant._id,
     req.params.serviceSlug

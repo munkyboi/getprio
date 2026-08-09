@@ -15,6 +15,7 @@ import CustomerAccountPage from "./pages/CustomerAccountPage";
 import CustomerDashboardPage from "./pages/CustomerDashboardPage";
 import CustomerBookingDetailPage from "./pages/CustomerBookingDetailPage";
 import VendorDashboardPage from "./pages/VendorDashboardPage";
+import QueueAutoClosePrototype from "./pages/prototypes/QueueAutoClosePrototype";
 import VendorDiscoveryPage from "./pages/VendorDiscoveryPage";
 import VendorProfilePage from "./pages/VendorProfilePage";
 import BookingRequestPage from "./pages/BookingRequestPage";
@@ -112,7 +113,7 @@ function AppShell({ children }: { children: ReactNode }) {
         <Menu.Item component={Link} to="/dashboard">Dashboard</Menu.Item>
         <Menu.Item component={Link} to={`/vendors/${primaryTenant.slug}`}>View vendor page</Menu.Item>
         <Menu.Item component={Link} to={buildMonitorPath(primaryTenant.slug)}>View queue board</Menu.Item>
-        <Menu.Item component={Link} to="/dashboard/settings">Settings</Menu.Item>
+        <Menu.Item component={Link} to="/dashboard/account">Account</Menu.Item>
         <Menu.Divider />
         <Menu.Item color="red" leftSection={<IconLogout size={14} />} onClick={handleLogout}>
           Sign out
@@ -172,7 +173,7 @@ function AppShell({ children }: { children: ReactNode }) {
                     <Button component={Link} to="/dashboard" variant="subtle" color="dark">Dashboard</Button>
                     <Button component={Link} to={`/vendors/${primaryTenant?.slug || ""}`} variant="subtle" color="dark">View vendor page</Button>
                     <Button component={Link} to={buildMonitorPath(primaryTenant?.slug || "")} variant="subtle" color="dark">View queue board</Button>
-                    <Button component={Link} to="/dashboard/settings" variant="subtle" color="dark">Settings</Button>
+                    <Button component={Link} to="/dashboard/account" variant="subtle" color="dark">Account</Button>
                   </>
                 ) : (
                   <>
@@ -249,6 +250,16 @@ function DashboardRedirect() {
       to={`/dashboard/queue${location.search}${location.hash}`}
     />
   );
+}
+
+function VendorDashboardRoute() {
+  const location = useLocation();
+  const prototypeEnabled =
+    import.meta.env.DEV &&
+    location.pathname === "/dashboard/queue" &&
+    new URLSearchParams(location.search).get("queueClosePrototype") === "1";
+
+  return prototypeEnabled ? <QueueAutoClosePrototype /> : <VendorDashboardPage />;
 }
 
 function getVendorBookingTabRoute(pathname: string) {
@@ -342,7 +353,7 @@ export default function App() {
         <Route path="/vendors/:tenantSlug/group-funded" element={<LegacyVendorCampaignRedirect />} />
         <Route path="/vendors/:tenantSlug" element={<AppShell><VendorProfilePage /></AppShell>} />
         <Route path="/dashboard" element={<DashboardRedirect />} />
-        <Route path="/dashboard/:section" element={<AppShell><VendorDashboardPage /></AppShell>} />
+        <Route path="/dashboard/:section" element={<AppShell><VendorDashboardRoute /></AppShell>} />
         <Route path="/join/:tenantSlug/:locationSlug?" element={<AppShell><JoinQueuePage /></AppShell>} />
         <Route path="*" element={<AppShell><NotFoundPage /></AppShell>} />
       </Routes>

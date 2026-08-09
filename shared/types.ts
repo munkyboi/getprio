@@ -13,12 +13,16 @@ export type TicketStatus =
   | "unserved"
   | "expired";
 export type QueuePriorityBand = "carry_over" | "recovery" | "checked_in_booking" | "normal";
-export type SubscriptionPlanSlug = "economical" | "pro" | "enterprise";
+export type SubscriptionPlanSlug = "free" | "economical" | "pro" | "enterprise";
+export type PaidSubscriptionPlanSlug = Exclude<SubscriptionPlanSlug, "free">;
 export type SubscriptionStatus = "active" | "unpaid" | "past_due" | "suspended" | "canceled" | "expired";
 export type BillingInterval = "monthly" | "annual" | "custom";
 export type SmsBundleType = "none" | "fixed" | "custom";
 export type SupportLevel = "self_serve" | "standard" | "sla";
 export type HistoryExportRange = "today" | "week" | "month" | "quarter" | "year";
+export type PlanFeatureKey = "queue" | "branding" | "discovery" | "booking" | "campaigns";
+export type AllowanceResourceKey = "queueTickets" | "queueEmailJourneys" | "serviceBookings";
+export type EntitlementValueSource = "plan" | "override" | "restriction";
 
 export interface SubscriptionEntitlements {
   locations: number;
@@ -26,6 +30,8 @@ export interface SubscriptionEntitlements {
   staffSeats: number;
   monthlyTickets: number;
   monthlyTransactionalEmails: number | null;
+  monthlyQueueEmailJourneys?: number;
+  monthlyServiceBookings?: number;
   historyDays: number;
   historyLabel: string;
   emailAlerts: boolean;
@@ -45,6 +51,11 @@ export interface SubscriptionEntitlements {
   supportLevel: SupportLevel;
   customDomain: boolean;
   sso: boolean;
+  queueSystemAccess?: boolean;
+  publicFacingBranding?: boolean;
+  marketplaceDiscovery?: boolean;
+  serviceBookingAccess?: boolean;
+  groupFundedCampaignAccess?: boolean;
 }
 
 export interface SubscriptionPlan {
@@ -61,6 +72,10 @@ export interface SubscriptionPlan {
   checkoutEnabled: boolean;
   entitlements: SubscriptionEntitlements;
   included: string[];
+  sortOrder?: number;
+  policyRevision?: number;
+  features?: Record<PlanFeatureKey, boolean>;
+  allowances?: Record<AllowanceResourceKey, number>;
 }
 
 export interface BillingAddOn {
@@ -88,7 +103,7 @@ export interface BillingOverviewResponse {
 }
 
 export interface CreateCheckoutRequest {
-  planSlug: SubscriptionPlanSlug;
+  planSlug: PaidSubscriptionPlanSlug;
   billingInterval: Extract<BillingInterval, "monthly" | "annual">;
 }
 
@@ -148,6 +163,8 @@ export interface UserSummary {
   roles: UserRole[];
   emailVerified: boolean;
   hasPassword: boolean;
+  mfaEnabled?: boolean;
+  mfaRequired?: boolean;
   oauthProviders: OAuthProviderId[];
   lastLoginProvider: string | null;
   tenants: TenantMembershipSummary[];
@@ -1300,6 +1317,7 @@ export interface QueueCurrentTicket {
   customerName: string;
   customerDisplayName?: string | null;
   calledAt: string | Date | null;
+  customerConfirmedAt?: string | Date | null;
   servicePriorityBand?: QueuePriorityBand;
   linkedBookingReference?: string | null;
 }
@@ -1345,12 +1363,14 @@ export interface QueueFocusTicket {
   customerName: string;
   customerDisplayName?: string | null;
   status: TicketStatus;
+  customerConfirmedAt?: string | Date | null;
   statusReason?: string | null;
   isCarriedOver?: boolean;
   carryOverCount?: number;
   servicePriorityBand?: QueuePriorityBand;
   carryOverExpiresAt?: string | Date | null;
   currentQueueDayId?: string | null;
+  emailJourneyMode?: "not_eligible" | "metered" | "journey_exhausted";
   position: number | null;
   estimatedWaitMinutes: number;
   joinedAt: string | Date;
@@ -1444,10 +1464,21 @@ export interface QueueSnapshot {
 }
 
 export interface AuthResponse {
-  token: string;
-  refreshToken: string;
+  token?: string;
+  refreshToken?: string;
+  csrfToken?: string;
   user: UserSummary;
+  sessionExpiresAt?: string | Date | null;
 }
+
+export interface MfaChallengeResponse {
+  mfaRequired: true;
+  challengeToken: string;
+  expiresAt: string | Date;
+  methods: Array<"totp" | "recovery">;
+}
+
+export type AuthLoginResponse = AuthResponse | MfaChallengeResponse;
 
 export interface LoginRequest {
   identifier: string;
@@ -1504,6 +1535,8 @@ export interface PublicVendorLocation {
   city: string;
   province: string;
   country: string;
+  contactEmail: string;
+  contactPhone: string;
   addressLine1?: string;
   addressLine2?: string;
   isPrimary: boolean;
@@ -1535,6 +1568,12 @@ export interface PublicVendorProfile {
   category: string;
   description: string;
   imageUrl: string;
+  capabilities: {
+    queue: boolean;
+    booking: boolean;
+    campaigns: boolean;
+    branding: boolean;
+  };
   services: PublicVendorService[];
   locations: PublicVendorLocation[];
   locationServices?: LocationServiceSummary[];
@@ -1643,8 +1682,6 @@ export interface CreateWalkInTicketRequest {
 export interface UpdateTenantSettingsRequest {
   name: string;
   publicProfileCategory: string;
-  ownerName: string;
-  ownerDisplayName: string;
   queuePrefix: string;
   averageServiceMinutes: number | string;
   notificationThreshold: number | string;
@@ -1652,8 +1689,6 @@ export interface UpdateTenantSettingsRequest {
   autoPauseThreshold: number | string;
   autoResumeEnabled: boolean;
   autoResumeVacancyPercent: number | string;
-  contactEmail: string;
-  contactPhone: string;
 }
 
 export interface CustomerNotificationSettings {
@@ -1884,6 +1919,8 @@ export interface EnterpriseInquiryRequest {
   email: string;
   phone: string;
   message: string;
+  honeypot?: string;
+  turnstileToken?: string;
 }
 
 export interface EnterpriseInquiryResponse {

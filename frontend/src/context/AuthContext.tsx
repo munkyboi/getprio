@@ -1,7 +1,9 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { Button, Modal, Stack, Text, Title } from "@mantine/core";
 import type {
   AuthActionResponse,
   AuthIntent,
+  AuthLoginResponse,
   AuthResponse,
   CompleteVendorOnboardingRequest,
   LoginRequest,
@@ -19,44 +21,22 @@ import { API_BASE_URL, apiRequest, setAuthHandlers } from "../api/client";
 import type { AuthContextValue } from "./AuthContext.types";
 
 const AuthContext = createContext<AuthContextValue | null>(null);
-const STORAGE_KEY = "prio-auth";
+const COOKIE_SESSION = "cookie-session";
 const EMPTY_OAUTH_PROVIDERS: OAuthProviderAvailability = {
   google: false,
   facebook: false
 };
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [token, setToken] = useState(() => {
-    const stored = localStorage.getItem(STORAGE_KEY) || "";
-    if (!stored) {
-      return "";
-    }
-
-    try {
-      const parsed = JSON.parse(stored) as { token?: string };
-      return parsed.token || "";
-    } catch {
-      return stored;
-    }
-  });
-  const [refreshToken, setRefreshToken] = useState(() => {
-    const stored = localStorage.getItem(STORAGE_KEY) || "";
-    if (!stored) {
-      return "";
-    }
-
-    try {
-      const parsed = JSON.parse(stored) as { refreshToken?: string };
-      return parsed.refreshToken || "";
-    } catch {
-      return "";
-    }
-  });
+  const [token, setToken] = useState("");
+  const [refreshToken, setRefreshToken] = useState("");
   const [user, setUser] = useState<UserSummary | null>(null);
-  const [loading, setLoading] = useState(Boolean(localStorage.getItem(STORAGE_KEY)));
+  const [loading, setLoading] = useState(true);
   const [oauthProviders, setOauthProviders] =
     useState<OAuthProviderAvailability>(EMPTY_OAUTH_PROVIDERS);
   const [oauthLoading, setOauthLoading] = useState(true);
+  const [sessionExpiresAt, setSessionExpiresAt] = useState<number | null>(null);
+  const [expiryWarningOpen, setExpiryWarningOpen] = useState(false);
 
   useEffect(() => {
     apiRequest<OAuthProvidersResponse>("/auth/oauth/providers")
@@ -75,38 +55,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!token || !refreshToken) {
-      setUser(null);
-      setLoading(false);
-      localStorage.removeItem(STORAGE_KEY);
-      return undefined;
-    }
-
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ token, refreshToken }));
-    setLoading(true);
-
-    apiRequest<{ user: UserSummary }>("/auth/me", { token })
+    localStorage.removeItem("prio-auth");
+    apiRequest<{ user: UserSummary; sessionExpiresAt?: string | Date | null }>("/auth/me", { skipAuthRefresh: true })
       .then((data) => {
         setUser(data.user);
+        setToken(COOKIE_SESSION);
+        setRefreshToken(COOKIE_SESSION);
+        setSessionExpiresAt(data.sessionExpiresAt ? new Date(data.sessionExpiresAt).getTime() : null);
       })
       .catch(() => {
         setToken("");
+        setRefreshToken("");
         setUser(null);
-        localStorage.removeItem(STORAGE_KEY);
       })
       .finally(() => {
         setLoading(false);
       });
+  }, []);
 
-    return undefined;
-  }, [refreshToken, token]);
+  useEffect(() => {
+    if (!sessionExpiresAt || !user) { setExpiryWarningOpen(false); return; }
+    const delay = Math.max(0, sessionExpiresAt - Date.now() - 5 * 60_000);
+    const timer = window.setTimeout(() => setExpiryWarningOpen(true), delay);
+    return () => window.clearTimeout(timer);
+  }, [sessionExpiresAt, user]);
 
   useEffect(() => {
     const clearAuthState = () => {
       setToken("");
       setRefreshToken("");
       setUser(null);
-      localStorage.removeItem(STORAGE_KEY);
+      setSessionExpiresAt(null);
     };
 
     async function refreshAccessToken() {
@@ -115,22 +94,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       try {
-        const data = await apiRequest<AuthResponse, { refreshToken: string }>(
+        const data = await apiRequest<AuthResponse, Record<string, never>>(
           "/auth/refresh",
           {
             method: "POST",
-            body: { refreshToken },
+            body: {},
             skipAuthRefresh: true
           }
         );
-        setToken(data.token);
-        setRefreshToken(data.refreshToken);
+        setToken(COOKIE_SESSION);
+        setRefreshToken(COOKIE_SESSION);
         setUser(data.user);
-        localStorage.setItem(
-          STORAGE_KEY,
-          JSON.stringify({ token: data.token, refreshToken: data.refreshToken })
-        );
-        return data.token;
+        setSessionExpiresAt(data.sessionExpiresAt ? new Date(data.sessionExpiresAt).getTime() : null);
+        setExpiryWarningOpen(false);
+        return COOKIE_SESSION;
       } catch {
         clearAuthState();
         return null;
@@ -157,14 +134,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loading,
     oauthProviders,
     oauthLoading,
-    async login(credentials: LoginRequest): Promise<AuthResponse> {
-      const data = await apiRequest<AuthResponse, LoginRequest>("/auth/login", {
+    async login(credentials: LoginRequest): Promise<AuthLoginResponse> {
+      const data = await apiRequest<AuthLoginResponse, LoginRequest>("/auth/login", {
         method: "POST",
         body: credentials
       });
-      setToken(data.token);
-      setRefreshToken(data.refreshToken);
+      if ("mfaRequired" in data) {
+        return data;
+      }
+      setToken(COOKIE_SESSION);
+      setRefreshToken(COOKIE_SESSION);
       setUser(data.user);
+      setSessionExpiresAt(data.sessionExpiresAt ? new Date(data.sessionExpiresAt).getTime() : null);
+      return data;
+    },
+    async verifyMfaChallenge(payload): Promise<AuthResponse> {
+      const data = await apiRequest<AuthResponse, typeof payload>("/auth/mfa/verify", {
+        method: "POST",
+        body: payload
+      });
+      setToken(COOKIE_SESSION);
+      setRefreshToken(COOKIE_SESSION);
+      setUser(data.user);
+      setSessionExpiresAt(data.sessionExpiresAt ? new Date(data.sessionExpiresAt).getTime() : null);
       return data;
     },
     async registerVendor(payload: RegisterVendorRequest): Promise<AuthResponse> {
@@ -172,9 +164,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         method: "POST",
         body: payload
       });
-      setToken(data.token);
-      setRefreshToken(data.refreshToken);
+      setToken(COOKIE_SESSION);
+      setRefreshToken(COOKIE_SESSION);
       setUser(data.user);
+      setSessionExpiresAt(data.sessionExpiresAt ? new Date(data.sessionExpiresAt).getTime() : null);
       return data;
     },
     async completeVendorOnboarding(
@@ -188,9 +181,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           token
         }
       );
-      setToken(data.token);
-      setRefreshToken(data.refreshToken);
+      setToken(COOKIE_SESSION);
+      setRefreshToken(COOKIE_SESSION);
       setUser(data.user);
+      setSessionExpiresAt(data.sessionExpiresAt ? new Date(data.sessionExpiresAt).getTime() : null);
       return data;
     },
     async registerCustomer(payload: RegisterCustomerRequest): Promise<AuthResponse> {
@@ -201,9 +195,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           body: payload
         }
       );
-      setToken(data.token);
-      setRefreshToken(data.refreshToken);
+      setToken(COOKIE_SESSION);
+      setRefreshToken(COOKIE_SESSION);
       setUser(data.user);
+      setSessionExpiresAt(data.sessionExpiresAt ? new Date(data.sessionExpiresAt).getTime() : null);
       return data;
     },
     async requestPasswordReset(payload: PasswordResetRequest): Promise<AuthActionResponse> {
@@ -228,21 +223,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setToken("");
       setRefreshToken("");
       setUser(null);
-      localStorage.removeItem(STORAGE_KEY);
+      setSessionExpiresAt(null);
       return result;
     },
     async refreshUser(): Promise<UserSummary | null> {
-      if (!token) {
-        return null;
-      }
-      const data = await apiRequest<{ user: UserSummary }>("/auth/me", { token });
+      const data = await apiRequest<{ user: UserSummary; sessionExpiresAt?: string | Date | null }>("/auth/me", { token: undefined });
+      setToken(COOKIE_SESSION);
+      setRefreshToken(COOKIE_SESSION);
       setUser(data.user);
+      setSessionExpiresAt(data.sessionExpiresAt ? new Date(data.sessionExpiresAt).getTime() : null);
       return data.user;
     },
-    acceptAuthToken(nextToken: string, nextRefreshToken: string) {
+    acceptAuthToken(_nextToken: string, _nextRefreshToken: string) {
       setLoading(true);
-      setToken(nextToken);
-      setRefreshToken(nextRefreshToken);
+      setToken(COOKIE_SESSION);
+      setRefreshToken(COOKIE_SESSION);
     },
     startOAuth(provider: OAuthProviderId, intent: AuthIntent) {
       if (!oauthProviders[provider]) {
@@ -256,10 +251,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async logout() {
       try {
         if (refreshToken) {
-          await apiRequest<{ success: boolean }, { refreshToken: string }>("/auth/logout", {
+          await apiRequest<{ success: boolean }, Record<string, never>>("/auth/logout", {
             method: "POST",
-            body: { refreshToken },
-            token,
+            body: {},
             skipAuthRefresh: true
           });
         }
@@ -269,12 +263,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setToken("");
         setRefreshToken("");
         setUser(null);
-        localStorage.removeItem(STORAGE_KEY);
+        setSessionExpiresAt(null);
       }
     }
   };
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={value}>{children}<Modal centered closeOnClickOutside={false} closeOnEscape={false} opened={expiryWarningOpen} onClose={() => undefined} title={<div><Text c="orange" fw={700} size="xs">SESSION SECURITY</Text><Title order={3}>Your session will expire soon</Title></div>}><Stack><Text>For your security, you’ll be signed out soon. Continue your session to keep working without losing your place.</Text><Button onClick={async () => { const next = await apiRequest<AuthResponse, Record<string, never>>("/auth/refresh", { method: "POST", body: {}, skipAuthRefresh: true }); setUser(next.user); setToken(COOKIE_SESSION); setRefreshToken(COOKIE_SESSION); setSessionExpiresAt(next.sessionExpiresAt ? new Date(next.sessionExpiresAt).getTime() : null); setExpiryWarningOpen(false); }}>Continue session</Button><Button variant="subtle" onClick={() => void value.logout()}>Sign out now</Button></Stack></Modal></AuthContext.Provider>;
 }
 
 export function useAuth(): AuthContextValue {

@@ -59,7 +59,7 @@ function requireWithMocks(targetPath, mocks) {
   }
 }
 
-test("queue join checkout marks the payment failed when checkout creation fails", async () => {
+test("enabled queue fee starts checkout without notification opt-ins and marks checkout failures", async () => {
   const createPaymentCalls = [];
   const updateProviderDataCalls = [];
   const markFailedCalls = [];
@@ -170,7 +170,7 @@ test("queue join checkout marks the payment failed when checkout creation fails"
             customerEmail: "customer@example.com",
             customerPhone: "09170000000",
             notifyByEmail: false,
-            notifyBySms: true,
+            notifyBySms: false,
             joinChannel: "online",
             locationSlug: "main",
             notes: ""

@@ -25,6 +25,7 @@ const publicBoardThemeUploadService = require("../services/publicBoardThemeUploa
 const vendorMediaUploadService = require("../services/vendorMediaUploadService");
 const locationPaymentQrUploadService = require("../services/locationPaymentQrUploadService");
 const bookingService = require("../services/bookingService");
+const entitlementAdmissionService = require("../services/entitlementAdmissionService");
 const ratingService = require("../services/ratingService");
 const PDFDocument = require("pdfkit");
 const {
@@ -33,6 +34,7 @@ const {
   openQueueDay,
   extendQueueDay,
   callNextTicket,
+  confirmCurrentTicket,
   updateCurrentTicketStatus,
   closeQueueDay,
   reopenQueueDay,
@@ -248,6 +250,15 @@ router.get(
 );
 
 router.get(
+  "/tenant/:tenantSlug/entitlements",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.queue.read");
+    res.json({ entitlements: await billingService.getTenantEntitlements(tenant._id) });
+  })
+);
+
+router.get(
   "/tenant/:tenantSlug/locations",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
@@ -285,6 +296,7 @@ router.patch(
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.theme.manage");
+    await entitlementAdmissionService.admit({ tenantId: tenant._id, featureKey: "branding" });
     const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
 
     if (!location && !req.body.applyToAllLocations) {
@@ -310,6 +322,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.theme.manage");
+    await entitlementAdmissionService.admit({ tenantId: tenant._id, featureKey: "branding" });
     const entitlements = await billingService.getTenantEntitlements(tenant._id);
     if (!entitlements.brandedQueuePages) {
       const error = new Error("Public board rebranding is not available for this plan.");
@@ -337,6 +350,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.theme.manage");
+    await entitlementAdmissionService.admit({ tenantId: tenant._id, featureKey: "branding" });
     if (!req.body || !Buffer.isBuffer(req.body) || !req.body.length) {
       const error = new Error("Image upload payload is required.");
       error.statusCode = 400;
@@ -528,9 +542,9 @@ router.get(
 );
 router.get("/tenant/:tenantSlug/services/slug-availability", asyncHandler((req, res) => handleCheckServiceSlugAvailability({ req, res, getAuthorizedTenant, assertTenantPermission, vendorServiceRepository })));
 
-router.post("/tenant/:tenantSlug/services", asyncHandler((req, res) => handleCreateService({ req, res, getAuthorizedTenant, assertTenantPermission, vendorServiceRepository, locationServiceRepository })));
+router.post("/tenant/:tenantSlug/services", asyncHandler((req, res) => handleCreateService({ req, res, getAuthorizedTenant, assertTenantPermission, entitlementAdmissionService, vendorServiceRepository, locationServiceRepository })));
 
-router.patch("/tenant/:tenantSlug/services/:serviceSlug", asyncHandler((req, res) => handleUpdateService({ req, res, getAuthorizedTenant, assertTenantPermission, vendorServiceRepository, locationServiceRepository })));
+router.patch("/tenant/:tenantSlug/services/:serviceSlug", asyncHandler((req, res) => handleUpdateService({ req, res, getAuthorizedTenant, assertTenantPermission, entitlementAdmissionService, vendorServiceRepository, locationServiceRepository })));
 
 router.delete("/tenant/:tenantSlug/services/:serviceSlug", asyncHandler((req, res) => handleDeleteService({ req, res, getAuthorizedTenant, assertTenantPermission, vendorServiceRepository })));
 
@@ -872,6 +886,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.queue.operate");
+    await entitlementAdmissionService.admit({ tenantId: tenant._id, featureKey: "queue" });
     const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
     await assertQueueLocationAccess(req.user, tenant, location);
     const snapshot = await openQueueDay(tenant, {
@@ -1056,6 +1071,45 @@ router.post(
     if (!result) {
       const error = new Error("Skipped ticket not found.");
       error.statusCode = 404;
+      throw error;
+    }
+
+    res.json({
+      ticket: {
+        id: String(result.ticket._id),
+        ticketNumber: result.ticket.ticketNumber,
+        status: result.ticket.status
+      },
+      snapshot: result.snapshot
+    });
+  })
+);
+
+router.post(
+  "/tenant/:tenantSlug/queue/current/confirm",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.ticket.update_state");
+    const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
+    await assertQueueLocationAccess(req.user, tenant, location);
+    const lookupCode = String(req.body.lookupCode || "").trim().toUpperCase();
+
+    if (!/^[A-F0-9]{8}$/.test(lookupCode)) {
+      const error = new Error("Enter or scan a valid ticket code.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const result = await confirmCurrentTicket(tenant, lookupCode, {
+      location,
+      actorUserId: req.user?._id,
+      actorRole: "vendor",
+      source: "vendor_barcode_scan"
+    });
+
+    if (!result) {
+      const error = new Error("There is no called ticket to confirm.");
+      error.statusCode = 400;
       throw error;
     }
 

@@ -84,6 +84,7 @@ test("queue snapshot helpers prefer a ticket location when lookup code resolves"
     ticketNumber: "Q001",
     customerName: "Jane",
     status: "waiting",
+    customerConfirmedAt: new Date("2026-06-30T00:05:00Z"),
     servicePriorityBand: "carry_over",
     carryOverCount: 1,
     createdAt: new Date("2026-06-30T00:00:00Z")
@@ -113,6 +114,7 @@ test("queue snapshot helpers prefer a ticket location when lookup code resolves"
   assert.equal(result.focusTicket.isCarriedOver, true);
   assert.equal(result.focusTicket.carryOverCount, 1);
   assert.equal(result.focusTicket.servicePriorityBand, "carry_over");
+  assert.equal(result.focusTicket.customerConfirmedAt.toISOString(), "2026-06-30T00:05:00.000Z");
 });
 
 test("queue snapshot overflow includes tickets saved for future carry-over", async () => {

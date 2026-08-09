@@ -146,7 +146,7 @@ export default function RegisterCustomerPage() {
         phone: values.phone || ""
       });
       if (claimLookupCode) {
-        await customerAccountApi.claimTicket(authResponse.token, claimLookupCode);
+        await customerAccountApi.claimTicket(authResponse.token || "cookie-session", claimLookupCode);
       }
       navigate(redirectTo, { replace: true });
     } catch (submitError) {

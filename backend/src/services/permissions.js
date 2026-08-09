@@ -10,7 +10,22 @@ const PLATFORM_PERMISSIONS = {
     "platform.queue_lifecycle.read",
     "platform.queue_lifecycle.reconcile",
     "platform.queue_notifications.requeue",
-    "platform.queue_lifecycle.repair"
+    "platform.queue_lifecycle.repair",
+    "platform.plan_policy.read",
+    "platform.plan_policy.manage",
+    "platform.entitlement_overrides.manage",
+    "platform.usage.read",
+    "platform.capacity.read",
+    "platform.credit_catalog.manage",
+    "platform.credit_commerce.read",
+    "platform.credit_grants.manage",
+    "platform.credit_revocations.manage",
+    "platform.credit_adjustments.manage",
+    "platform.credit_disputes.manage",
+    "platform.credit_reconcile",
+    "platform.subscription_lifecycle.manage",
+    "platform.security_audit.read",
+    "platform.security_audit.export"
   ])
 };
 
@@ -34,6 +49,9 @@ const TENANT_PERMISSIONS = {
     "tenant.booking.manage",
     "tenant.billing.read",
     "tenant.billing.manage",
+    "tenant.capacity.read_commercial",
+    "tenant.credits.purchase",
+    "tenant.credits.refund_request",
     "tenant.reports.read"
   ]),
   admin: new Set([
@@ -52,6 +70,10 @@ const TENANT_PERMISSIONS = {
     "tenant.availability.manage",
     "tenant.booking.manage",
     "tenant.billing.read",
+    "tenant.billing.manage",
+    "tenant.capacity.read_commercial",
+    "tenant.credits.purchase",
+    "tenant.credits.refund_request",
     "tenant.reports.read"
   ]),
   staff: new Set([
@@ -60,7 +82,7 @@ const TENANT_PERMISSIONS = {
     "tenant.ticket.read_limited",
     "tenant.ticket.update_state",
     "tenant.staff.read",
-    "tenant.billing.read",
+    "tenant.capacity.read_operational",
     "tenant.reports.read"
   ])
 };

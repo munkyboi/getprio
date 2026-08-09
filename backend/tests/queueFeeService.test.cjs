@@ -97,7 +97,10 @@ test("queue fee service formats summaries and enforces subscription and input ru
   assert.equal((await queueFeeService.getActiveTenantSubscription("tenant-active")).planSlug, "pro");
   assert.equal(await queueFeeService.getActiveTenantSubscription("tenant-paused"), null);
   assert.equal((await queueFeeService.getTenantPlanSlug("tenant-active")), "pro");
-  assert.equal((await queueFeeService.getTenantPlanSlug("tenant-paused")), "economical");
+  await assert.rejects(
+    () => queueFeeService.getTenantPlanSlug("tenant-paused"),
+    (error) => error.statusCode === 403 && error.code === "SUBSCRIPTION_REQUIRED"
+  );
   assert.deepEqual(await queueFeeService.getQueueFeeForTenant("tenant-active"), {
     enabled: true,
     amountCents: 1250,

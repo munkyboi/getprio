@@ -23,6 +23,7 @@ const TICKET_COLUMNS = `
   notified_almost_there_at,
   notified_called_at,
   called_at,
+  customer_confirmed_at,
   served_at,
   skipped_at,
   cancelled_at,
@@ -39,6 +40,7 @@ const TICKET_COLUMNS = `
   carry_over_consumed,
   terminal_at,
   replacement_for_ticket_id,
+  email_journey_mode,
   created_at,
   updated_at
 `;
@@ -73,6 +75,7 @@ function mapTicket(row) {
     notifiedAlmostThereAt: row.notified_almost_there_at,
     notifiedCalledAt: row.notified_called_at,
     calledAt: row.called_at,
+    customerConfirmedAt: row.customer_confirmed_at,
     servedAt: row.served_at,
     skippedAt: row.skipped_at,
     cancelledAt: row.cancelled_at,
@@ -92,6 +95,7 @@ function mapTicket(row) {
     replacementForTicketId: row.replacement_for_ticket_id
       ? String(row.replacement_for_ticket_id)
       : null,
+    emailJourneyMode: row.email_journey_mode || "not_eligible",
     journeySegments: Array.isArray(row.queue_journey_segments)
       ? row.queue_journey_segments
       : [],
@@ -592,7 +596,11 @@ async function callNextWaitingTicket(tenantId, options = {}) {
         FOR UPDATE SKIP LOCKED
       )
       UPDATE tickets
-      SET status = 'called', called_at = NOW(), notified_called_at = NOW(), service_counter_id = $3
+      SET status = 'called',
+          called_at = NOW(),
+          notified_called_at = NOW(),
+          customer_confirmed_at = NULL,
+          service_counter_id = $3
       WHERE id IN (SELECT id FROM next_ticket)
       RETURNING ${TICKET_COLUMNS}
     `,
@@ -650,6 +658,31 @@ async function updateCurrentCalledTicketStatus(tenantId, status, options = {}) {
       Number(options.locationId),
       String(options.dateKey),
       options.rejoinDeadlineAt || null
+    ]
+  );
+
+  return mapTicket(result.rows[0]);
+}
+
+async function confirmCurrentCalledTicket(tenantId, ticketId, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const result = await queryClient.query(
+    `
+      UPDATE tickets
+      SET customer_confirmed_at = COALESCE(customer_confirmed_at, NOW()),
+          updated_at = NOW()
+      WHERE id = $1
+        AND tenant_id = $2
+        AND location_id = $3
+        AND date_key = $4
+        AND status = 'called'
+      RETURNING ${TICKET_COLUMNS}
+    `,
+    [
+      Number(ticketId),
+      Number(tenantId),
+      Number(options.locationId),
+      String(options.dateKey)
     ]
   );
 
@@ -889,6 +922,7 @@ async function restoreSkippedTicket(tenantId, ticketId, options = {}) {
           service_counter_id = NULL,
           called_at = NULL,
           notified_called_at = NULL,
+          customer_confirmed_at = NULL,
           service_priority_band = $4,
           rejoin_deadline_at = NULL,
           updated_at = NOW()
@@ -924,6 +958,7 @@ module.exports = {
   listTicketsForCustomerAccount,
   countServedToday,
   findCurrentCalledTicket,
+  confirmCurrentCalledTicket,
   callNextWaitingTicket,
   updateCurrentCalledTicketStatus,
   cancelWaitingTicket,

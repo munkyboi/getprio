@@ -62,6 +62,11 @@ function createMockRes() {
     statusCode: 200,
     jsonBody: null,
     redirectUrl: null,
+    cookies: [],
+    append(name, value) {
+      if (name === "Set-Cookie") this.cookies.push(value);
+      return this;
+    },
     status(code) {
       this.statusCode = code;
       return this;
@@ -199,7 +204,7 @@ test("oauth callback route completes login and redirects with tokens", async () 
       buildAuthorizationUrl: () => "",
       buildClientCallbackUrl: (payload) => {
         receivedCallbackArgs = payload;
-        return "https://app.example/oauth/callback#token=ok";
+        return "https://app.example/oauth/callback";
       },
       buildProviderAvailability: () => ({ google: true, facebook: false }),
       createOAuthState: () => "",
@@ -244,10 +249,6 @@ test("oauth callback route completes login and redirects with tokens", async () 
     code: "auth-code",
     requestBody: {}
   });
-  assert.deepEqual(receivedCallbackArgs, {
-    token: "access-token",
-    refreshToken: "refresh-token",
-    next: "/"
-  });
-  assert.equal(res.redirectUrl, "https://app.example/oauth/callback#token=ok");
+  assert.deepEqual(receivedCallbackArgs, { next: "/" });
+  assert.equal(res.redirectUrl, "https://app.example/oauth/callback");
 });

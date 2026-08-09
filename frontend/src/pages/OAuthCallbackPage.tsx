@@ -5,14 +5,12 @@ import { useAuth } from "../context/AuthContext";
 
 export default function OAuthCallbackPage() {
   const navigate = useNavigate();
-  const { acceptAuthToken } = useAuth();
+  const { refreshUser } = useAuth();
   const [error, setError] = useState("");
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
     const next = params.get("next") || "/";
-    const token = params.get("token");
-    const refreshToken = params.get("refreshToken");
     const callbackError = params.get("error");
 
     if (callbackError) {
@@ -20,14 +18,13 @@ export default function OAuthCallbackPage() {
       return;
     }
 
-    if (!token || !refreshToken) {
-      setError("Missing sign-in token. Please try again.");
-      return;
-    }
-
-    acceptAuthToken(token, refreshToken);
-    navigate(next, { replace: true });
-  }, [acceptAuthToken, navigate]);
+    refreshUser()
+      .then((nextUser) => {
+        if (!nextUser) throw new Error("Missing secure sign-in session.");
+        navigate(next, { replace: true });
+      })
+      .catch((cause) => setError(cause instanceof Error ? cause.message : "Unable to finish sign-in."));
+  }, [navigate, refreshUser]);
 
   return (
     <Paper className="finazze-auth-card" p={{ base: "xl", md: 44 }}>

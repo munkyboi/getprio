@@ -6,6 +6,8 @@ const MODERATED_FIELD_NAMES = new Set([
   "tenantname",
   "ownername",
   "ownerdisplayname",
+  "businessname",
+  "contactname",
   "slug",
   "tenantslug",
   "locationslug",

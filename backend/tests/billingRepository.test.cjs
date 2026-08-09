@@ -221,7 +221,9 @@ test("billing repository normalizes metadata, maps defaults, and activates subsc
     currentPeriodStart: new Date("2026-07-01T00:00:00.000Z"),
     currentPeriodEnd: new Date("2027-07-01T00:00:00.000Z"),
     entitlements: { staffSeats: 5 },
-    metadata: { source: "manual" }
+    metadata: { source: "manual" },
+    expectedSubscriptionId: "5",
+    expectedPlanSlug: "economical"
   });
   assert.equal(activated._id, "20");
 

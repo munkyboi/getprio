@@ -7,6 +7,7 @@ const ticketRepository = require("../repositories/tickets");
 const userRepository = require("../repositories/users");
 const notificationService = require("./notificationService");
 const pushNotificationService = require("./pushNotificationService");
+const { queueLifecycleEmail, queueReconciliationEmail } = require("./queueEmailTemplates");
 
 function warningAction(templateName) {
   if (templateName === "queue_closing_15m") {
@@ -38,30 +39,7 @@ function customerAction(templateName) {
 }
 
 function customerEmailCopy(tenant, ticket, action) {
-  const tenantName = tenant?.name || "GetPrio";
-  const ticketNumber = ticket.ticketNumber || "Your ticket";
-  if (action === "pending_carry_over") {
-    return {
-      subject: `${ticketNumber} was saved for carry-over`,
-      text: `${tenantName} closed before serving ${ticketNumber}. Your ticket is retained for one later eligible Queue Day, but it has no live position until staff opens that Queue Day.`
-    };
-  }
-  if (action === "expired") {
-    return {
-      subject: `${ticketNumber} expired`,
-      text: `${ticketNumber} reached its final expiration after the one carry-over opportunity ended without service. This is not a cancellation. Contact ${tenantName} about the appropriate next step.`
-    };
-  }
-  if (action === "unserved") {
-    return {
-      subject: `${ticketNumber} was not served before closing`,
-      text: `${tenantName} closed after ${ticketNumber} was called. The unserved outcome is final and is not a cancellation. Contact the vendor about the appropriate next step.`
-    };
-  }
-  return {
-    subject: "Your queue ticket was updated",
-    text: `${ticketNumber}: ${action.replaceAll("_", " ")}.`
-  };
+  return queueLifecycleEmail({ tenant, ticket, kind: action, action });
 }
 
 async function dispatchIntent(intent) {
@@ -109,11 +87,11 @@ async function dispatchIntent(intent) {
         ["owner", "admin"].includes(membership.role)
       )
     );
+    const email = queueReconciliationEmail({ tenant, location });
     for (const recipient of recipients) {
       await notificationService.sendEmail({
         to: recipient.email,
-        subject: `Queue reconciliation needs attention: ${location?.name || tenant.name}`,
-        text: `${location?.name || "The queue"} could not confirm a trustworthy closed state. Queue actions are locked. Review the vendor dashboard and escalate to Platform Admin repair only if retry cannot restore the state.`,
+        ...email,
         tenantId: tenant._id,
         purpose: "queue_reconciliation_failure",
         metadata: {
@@ -155,8 +133,7 @@ async function dispatchIntent(intent) {
     const copy = customerEmailCopy(tenant, ticket, action);
     await notificationService.sendEmail({
       to: ticket.customerEmail,
-      subject: copy.subject,
-      text: copy.text,
+      ...copy,
       tenantId: tenant._id,
       ticketId: ticket._id,
       purpose: "queue_lifecycle",

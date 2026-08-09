@@ -9,6 +9,7 @@ const userRepository = require("../repositories/users");
 const ratingRepository = require("../repositories/ratings");
 const { assertPublicTextFieldsAllowed } = require("./contentModeration");
 const organizerCampaignEvents = require("./organizerCampaignEvents");
+const entitlementAdmissionService = require("./entitlementAdmissionService");
 
 function makeHttpError(message, statusCode) {
   const error = new Error(message);
@@ -136,6 +137,7 @@ async function createCampaign({ user, body }) {
   if (!booking || String(booking.customerUserId) !== String(user?._id)) {
     throw makeHttpError("Booking not found.", 404);
   }
+  await entitlementAdmissionService.admit({ tenantId: booking.tenantId, featureKey: "campaigns" });
   if (booking.status !== "confirmed" || booking.paymentStatus !== "paid") {
     throw makeHttpError("Only a paid, vendor-validated booking can start a campaign.", 409);
   }
@@ -285,6 +287,7 @@ async function publishCampaign({ user, campaignId, visibility = "private_link", 
   if (!booking || String(booking.customerUserId) !== String(user._id) || booking.status !== "confirmed" || booking.paymentStatus !== "paid") {
     throw makeHttpError("The linked booking is no longer eligible for publishing.", 409);
   }
+  await entitlementAdmissionService.admit({ tenantId: booking.tenantId, featureKey: "campaigns" });
   parseDeadline(campaign.deadlineAt, booking.scheduledStartAt);
 
   if (visibility === "public") {

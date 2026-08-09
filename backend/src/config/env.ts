@@ -92,6 +92,16 @@ export const b2PublicBaseUrl = process.env.B2_PUBLIC_BASE_URL || "";
 export const vapidPublicKey = process.env.VAPID_PUBLIC_KEY || "";
 export const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY || "";
 export const vapidSubject = process.env.VAPID_SUBJECT || "mailto:admin@getprio.local";
+export const rolloutCohort = process.env.ROLLOUT_COHORT || "off";
+export const csrfSecret = process.env.CSRF_SECRET || jwtSecret;
+export const authCookieSecure = process.env.AUTH_COOKIE_SECURE
+  ? process.env.AUTH_COOKIE_SECURE === "true"
+  : nodeEnv === "production";
+export const authBearerCompatibilityEnabled =
+  process.env.AUTH_BEARER_COMPATIBILITY_ENABLED !== "false";
+export const sessionInactivityMinutes = Number(process.env.SESSION_INACTIVITY_MINUTES || 10080);
+export const mfaEncryptionSecret = process.env.MFA_ENCRYPTION_SECRET || jwtSecret;
+export const mfaRecoveryPepper = process.env.MFA_RECOVERY_PEPPER || jwtSecret;
 
 const env = {
   nodeEnv,
@@ -151,7 +161,14 @@ const env = {
   b2PublicBaseUrl,
   vapidPublicKey,
   vapidPrivateKey,
-  vapidSubject
+  vapidSubject,
+  rolloutCohort,
+  csrfSecret,
+  authCookieSecure,
+  authBearerCompatibilityEnabled,
+  sessionInactivityMinutes,
+  mfaEncryptionSecret,
+  mfaRecoveryPepper
 };
 
 export default env;

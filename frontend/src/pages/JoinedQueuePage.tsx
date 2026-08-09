@@ -8,28 +8,31 @@ import {
   Group,
   Modal,
   Paper,
+  ScrollArea,
   SimpleGrid,
   Stack,
   Table,
   Text,
+  Textarea,
   Title
 } from "@mantine/core";
 import { useMediaQuery } from "@mantine/hooks";
 import { notifications } from "@mantine/notifications";
-import { IconArrowLeft, IconBuildingStore, IconCalendar, IconCheck, IconClock, IconInfoCircle, IconMessageDots, IconTicket, IconX } from "@tabler/icons-react";
+import { IconArrowLeft, IconBuildingStore, IconCalendar, IconCheck, IconClock, IconInfoCircle, IconMessageDots, IconStar, IconTicket, IconX } from "@tabler/icons-react";
 import "jsbarcode/dist/barcodes/JsBarcode.code128.min.js";
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import type { CancelQueueTicketRequest, QueueJoinPaymentSyncResponse, QueueSnapshot, StoreHourSummary } from "@shared";
+import type { CancelQueueTicketRequest, PublicVendorProfileResponse, QueueJoinPaymentSyncResponse, QueueSnapshot, StoreHourSummary } from "@shared";
 import { API_BASE_URL, ApiError, apiRequest } from "../api/client";
 import ResourceErrorState from "../components/ResourceErrorState";
 import { useAuth } from "../context/AuthContext";
 import { buildJoinPath, buildJoinedQueuePathWithTicket, buildMonitorPath } from "../queuePaths";
 import ContactForm from "../components/ContactForm";
+import FiveStarRatingInput from "../components/FiveStarRatingInput";
 import { clearJoinedQueueAccess, getJoinedQueueAccess } from "../utils/joinedQueueAccess";
 import { getErrorMessage } from "../utils/errors";
 import {
+  getCustomerTicketStateSummary,
   getQueueStateSummary,
-  getTicketStateSummary,
   isQueueAcceptingJoins
 } from "../utils/queueStatus";
 import {
@@ -171,6 +174,7 @@ export default function JoinedQueuePage() {
   const [searchParams] = useSearchParams();
   const { token, user } = useAuth();
   const [snapshot, setSnapshot] = useState<QueueSnapshot | null>(null);
+  const [bookingAvailable, setBookingAvailable] = useState(false);
   const [error, setError] = useState("");
   const [responseStatus, setResponseStatus] = useState<number | null>(null);
   const [paymentSyncing, setPaymentSyncing] = useState(false);
@@ -179,6 +183,14 @@ export default function JoinedQueuePage() {
   const [cancelErrorModalOpen, setCancelErrorModalOpen] = useState(false);
   const [hoursOpened, setHoursOpened] = useState(false);
   const [contactOpen, setContactOpen] = useState(false);
+  const [queueRatingOpen, setQueueRatingOpen] = useState(false);
+  const [queueRatingStars, setQueueRatingStars] = useState(0);
+  const [queueRatingComment, setQueueRatingComment] = useState("");
+  const [queueRatingSubmitting, setQueueRatingSubmitting] = useState(false);
+  const [queueRatingStatus, setQueueRatingStatus] = useState<{
+    eligible: boolean;
+    rating: { id: string; stars: number; comment?: string | null } | null;
+  } | null>(null);
   const isMobile = useMediaQuery("(max-width: 48em)");
   const lookupCode = searchParams.get("ticket") || "";
   const paymentId = searchParams.get("payment");
@@ -261,7 +273,16 @@ export default function JoinedQueuePage() {
   const businessName = snapshot?.tenant?.name || tenantSlugValue;
   const locationName = snapshot?.location?.name || "Main location";
   const locationDetailLabel = [snapshot?.location?.city, snapshot?.location?.province].filter(Boolean).join(", ") || snapshot?.location?.country || "Philippines";
-  const ticketState = getTicketStateSummary(snapshot?.focusTicket?.status);
+  const ticketIsConfirmed = Boolean(
+    snapshot?.focusTicket?.status === "called" && snapshot.focusTicket.customerConfirmedAt
+  );
+  const ticketState = getCustomerTicketStateSummary(
+    snapshot?.focusTicket?.status,
+    snapshot?.focusTicket?.customerConfirmedAt
+  );
+  const ticketDisplayStatus = ticketIsConfirmed
+    ? "confirmed"
+    : snapshot?.focusTicket?.status || "waiting";
   const themedMediaStyle: CSSProperties | undefined = theme
     ? {
         backgroundColor: hexToRgba(theme.cardBackgroundColor, Math.min(1, theme.cardAlpha + 0.08)),
@@ -320,6 +341,59 @@ export default function JoinedQueuePage() {
   };
   const canCancelTicket = snapshot?.focusTicket?.status === "waiting";
   const ownershipVerificationError = "We could not verify that this ticket belongs to you.";
+
+  useEffect(() => {
+    if (!tenantSlugValue) {
+      setBookingAvailable(false);
+      return undefined;
+    }
+
+    let active = true;
+    setBookingAvailable(false);
+
+    void apiRequest<PublicVendorProfileResponse>(`/public/vendors/${tenantSlugValue}`)
+      .then((data) => {
+        if (active) {
+          setBookingAvailable(Boolean(data.vendor.capabilities.booking));
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setBookingAvailable(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [tenantSlugValue]);
+
+  useEffect(() => {
+    if (!token || !userIsCustomer || snapshot?.focusTicket?.status !== "served" || !lookupCode) {
+      setQueueRatingStatus(null);
+      return undefined;
+    }
+
+    let active = true;
+    void apiRequest<{
+      eligible: boolean;
+      rating: { id: string; stars: number; comment?: string | null } | null;
+    }>(`/account/tickets/${encodeURIComponent(lookupCode)}/rating`, { token })
+      .then((data) => {
+        if (active) {
+          setQueueRatingStatus(data);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setQueueRatingStatus({ eligible: false, rating: null });
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [lookupCode, snapshot?.focusTicket?.status, token, userIsCustomer]);
 
   useEffect(() => {
     if (missingTenant || missingLookupCode) {
@@ -504,6 +578,41 @@ export default function JoinedQueuePage() {
     }
   }
 
+  async function handleSubmitQueueRating() {
+    if (!token || !queueRatingStars || queueRatingSubmitting) {
+      return;
+    }
+
+    setQueueRatingSubmitting(true);
+    try {
+      const data = await apiRequest<{
+        rating: { id: string; stars: number; comment?: string | null };
+      }, { stars: number; comment: string }>(
+        `/account/tickets/${encodeURIComponent(lookupCode)}/rating`,
+        {
+          method: "POST",
+          token,
+          body: { stars: queueRatingStars, comment: queueRatingComment }
+        }
+      );
+      setQueueRatingStatus({ eligible: true, rating: data.rating });
+      setQueueRatingOpen(false);
+      notifications.show({
+        color: "teal",
+        title: "Rating submitted",
+        message: "Thank you for rating this vendor."
+      });
+    } catch (ratingError) {
+      notifications.show({
+        color: "red",
+        title: "Could not submit rating",
+        message: getErrorMessage(ratingError)
+      });
+    } finally {
+      setQueueRatingSubmitting(false);
+    }
+  }
+
   return (
     <Stack className="vendor-profile-page" gap="xl" style={themeStyle}>
       <Container size="xl" w="100%">
@@ -606,9 +715,11 @@ export default function JoinedQueuePage() {
                 <Button className="ticket-hours-modal-primary-action" component={Link} size="sm" to={joinPath} variant="light">
                   Join this queue
                 </Button>
-                <Button className="ticket-page-card-action" component={Link} size="sm" to={bookingPath} variant="subtle">
-                  Book here
-                </Button>
+                {bookingAvailable ? (
+                  <Button className="ticket-page-card-action" component={Link} size="sm" to={bookingPath} variant="subtle">
+                    Book here
+                  </Button>
+                ) : null}
               </Group>
             </Stack>
           </Paper>
@@ -649,7 +760,66 @@ export default function JoinedQueuePage() {
             intro="Use this form to ask about this vendor's services, booking details, or public profile."
           />
         </Modal>
-        {(shouldAwaitPaymentSync || paymentSyncing || (snapshot && queueState.label !== "Open")) ? (
+        <Modal
+          centered
+          className="customer-modal queue-rating-modal"
+          closeOnClickOutside={!queueRatingSubmitting}
+          closeOnEscape={!queueRatingSubmitting}
+          onClose={() => {
+            if (!queueRatingSubmitting) {
+              setQueueRatingOpen(false);
+            }
+          }}
+          opened={queueRatingOpen}
+          size="md"
+          title={
+            <Stack className="getprio-modal-title" gap={2}>
+              <Text className="getprio-modal-eyebrow">QUEUE EXPERIENCE</Text>
+              <Text className="getprio-modal-heading">Rate {businessName}</Text>
+            </Stack>
+          }
+          transitionProps={{ transition: "slide-up", duration: 240, timingFunction: "ease-out" }}
+        >
+          <div className="queue-rating-modal-shell">
+            <ScrollArea
+              className="queue-rating-modal-main"
+              scrollbars="y"
+              scrollbarSize={8}
+              styles={{ root: { flex: 1, minHeight: 0 }, viewport: { height: "100%" } }}
+              type="hover"
+            >
+              <Stack gap="md">
+                <Text c="dimmed" size="sm">
+                  Share a public rating for your completed queue visit. Your comment will appear on the vendor profile.
+                </Text>
+                <FiveStarRatingInput
+                  label={`Rating for ${businessName}`}
+                  onChange={setQueueRatingStars}
+                  value={queueRatingStars}
+                />
+                <Textarea
+                  autosize
+                  label="Optional public comment"
+                  maxLength={1000}
+                  minRows={3}
+                  onChange={(event) => setQueueRatingComment(event.currentTarget.value)}
+                  value={queueRatingComment}
+                />
+              </Stack>
+            </ScrollArea>
+            <Group className="customer-modal-actions queue-rating-modal-actions" justify="flex-end">
+              <Button
+                disabled={!queueRatingStars}
+                loading={queueRatingSubmitting}
+                onClick={() => void handleSubmitQueueRating()}
+                size="lg"
+              >
+                Submit rating
+              </Button>
+            </Group>
+          </div>
+        </Modal>
+        {(shouldAwaitPaymentSync || paymentSyncing || snapshot?.focusTicket?.emailJourneyMode === "journey_exhausted" || (snapshot && queueState.label !== "Open")) ? (
           <Stack className="ticket-page-notifications" gap="sm">
             {shouldAwaitPaymentSync || paymentSyncing ? (
               <Alert className="ticket-page-status-alert" color="blue" title="Confirming payment">
@@ -664,6 +834,11 @@ export default function JoinedQueuePage() {
                 title={`Queue: ${queueState.label}`}
               >
                 {queueState.message}
+              </Alert>
+            ) : null}
+            {snapshot?.focusTicket?.emailJourneyMode === "journey_exhausted" ? (
+              <Alert className="ticket-page-status-alert" color="blue" icon={<IconInfoCircle size={18} />} title="Follow updates here">
+                Your ticket is active. This vendor has reached its monthly email journey allowance, so email updates are paused. Keep this page open or enable browser notifications for live updates.
               </Alert>
             ) : null}
           </Stack>
@@ -719,7 +894,7 @@ export default function JoinedQueuePage() {
                       </div>
                     </div>
                     <Group className="ticket-page-ticket-badges" gap="xs">
-                      <Badge className={`booking-detail-ticket-status ticket-page-ticket-status ticket-page-ticket-status--${snapshot?.focusTicket?.status || "waiting"}`} size="lg">
+                      <Badge className={`booking-detail-ticket-status ticket-page-ticket-status ticket-page-ticket-status--${ticketDisplayStatus}`} size="lg">
                         {ticketState.label}
                       </Badge>
                       {ticketIsCarriedOver ? (
@@ -803,7 +978,26 @@ export default function JoinedQueuePage() {
                     </Button>
                   ) : null}
                   {!ticketIsWaiting ? (
-                    <div className="ticket-page-card-actions">
+                    <Stack gap="sm">
+                      {snapshot?.focusTicket?.status === "served" && queueRatingStatus?.eligible ? (
+                        queueRatingStatus.rating ? (
+                          <Group gap={6} justify="center">
+                            <IconStar color="#ffd000" fill="#ffd000" size={18} />
+                            <Text fw={700}>Rating submitted</Text>
+                          </Group>
+                        ) : (
+                          <Button
+                            className="ticket-page-card-action"
+                            leftSection={<IconStar size={16} />}
+                            onClick={() => setQueueRatingOpen(true)}
+                            radius="xl"
+                            variant="light"
+                          >
+                            Rate vendor
+                          </Button>
+                        )
+                      ) : null}
+                      <div className="ticket-page-card-actions">
                       <Button
                         className="ticket-page-card-action"
                         component={Link}
@@ -815,13 +1009,18 @@ export default function JoinedQueuePage() {
                       >
                         Join again
                       </Button>
-                      <Text className="ticket-page-card-action-separator" fw={700} size="sm">
-                        or
-                      </Text>
-                      <Button className="ticket-page-card-action" component={Link} leftSection={<IconCalendar size={16} />} radius="xl" to={bookingPath} variant="subtle">
-                        Start booking
-                      </Button>
-                    </div>
+                      {bookingAvailable ? (
+                        <>
+                          <Text className="ticket-page-card-action-separator" fw={700} size="sm">
+                            or
+                          </Text>
+                          <Button className="ticket-page-card-action" component={Link} leftSection={<IconCalendar size={16} />} radius="xl" to={bookingPath} variant="subtle">
+                            Start booking
+                          </Button>
+                        </>
+                      ) : null}
+                      </div>
+                    </Stack>
                   ) : null}
                 </Stack>
               </div>

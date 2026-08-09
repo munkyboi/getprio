@@ -6,7 +6,10 @@ set -euo pipefail
 run_psql() {
   if command -v docker >/dev/null 2>&1 &&
     [[ -n "$(docker compose ps --status running -q database 2>/dev/null)" ]]; then
-    docker compose exec -T database env DATABASE_URL="$DATABASE_URL" psql "$DATABASE_URL" "$@"
+    local docker_database_url
+    docker_database_url="${DATABASE_URL/127.0.0.1/host.docker.internal}"
+    docker_database_url="${docker_database_url/localhost/host.docker.internal}"
+    docker compose exec -T database psql "$docker_database_url" "$@"
     return
   fi
   if [[ -x /usr/bin/psql ]]; then

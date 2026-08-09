@@ -50,7 +50,11 @@ async function assertTenantCanAcceptCustomerJoins(tenantId, options = {}) {
 
 async function getTenantPlanSlug(tenantId) {
   const subscription = await getActiveTenantSubscription(tenantId);
-  return subscription?.planSlug || "economical";
+  if (subscription) return subscription.planSlug;
+  const error = new Error("This vendor does not have an active subscription.");
+  error.statusCode = 403;
+  error.code = "SUBSCRIPTION_REQUIRED";
+  throw error;
 }
 
 async function getQueueFeeForTenant(tenantId) {
@@ -59,11 +63,11 @@ async function getQueueFeeForTenant(tenantId) {
   return buildFeeSummary(fee, planSlug);
 }
 
-async function listQueueFees() {
-  return queueFeeRepository.listQueueFees();
+async function listQueueFees(options = {}) {
+  return queueFeeRepository.listQueueFees(options);
 }
 
-async function updateQueueFees({ queueFees, user }) {
+async function updateQueueFees({ queueFees, user }, options = {}) {
   if (!Array.isArray(queueFees)) {
     const error = new Error("queueFees must be an array.");
     error.statusCode = 400;
@@ -71,7 +75,7 @@ async function updateQueueFees({ queueFees, user }) {
   }
 
   for (const fee of queueFees) {
-    if (!["economical", "pro", "enterprise"].includes(fee.planSlug)) {
+    if (!["free", "economical", "pro", "enterprise"].includes(fee.planSlug)) {
       const error = new Error("Unknown plan slug in queue fee settings.");
       error.statusCode = 400;
       throw error;
@@ -83,10 +87,10 @@ async function updateQueueFees({ queueFees, user }) {
       amountCents: sanitizeAmountCents(fee.amountCents),
       currency: "PHP",
       updatedByUserId: user?._id
-    });
+    }, options);
   }
 
-  return listQueueFees();
+  return listQueueFees(options);
 }
 
 module.exports = {

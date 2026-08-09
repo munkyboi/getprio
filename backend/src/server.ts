@@ -3,6 +3,7 @@ import { connectDb } from "./config/db";
 import env from "./config/env";
 import organizerCampaignService from "./services/organizerCampaignService";
 import queueLifecycleWorkerModule from "./services/queueLifecycleWorker";
+import allowanceWarningService from "./services/allowanceWarningService";
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => {
@@ -49,8 +50,13 @@ async function start(): Promise<void> {
     organizerCampaignService.expireDueCampaigns().catch((error: Error) => console.error("Organizer campaign lifecycle scan failed", error));
   }, 60_000);
   campaignLifecycleTimer.unref();
+  const allowanceWarningTimer = setInterval(() => {
+    allowanceWarningService.dispatchPendingWarnings().catch((error: Error) => console.error("Allowance warning dispatch failed", error));
+  }, 60_000);
+  allowanceWarningTimer.unref();
   server.on("close", () => {
     clearInterval(campaignLifecycleTimer);
+    clearInterval(allowanceWarningTimer);
     queueLifecycleWorker.stop();
   });
 }

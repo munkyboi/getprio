@@ -1,7 +1,20 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const express = require("express");
+const fs = require("node:fs");
 const path = require("node:path");
+
+test("vendor entitlements endpoint supports role-safe navigation without exposing billing", () => {
+  const source = fs.readFileSync(path.resolve(__dirname, "../src/routes/vendorRoutes.js"), "utf8");
+  assert.match(
+    source,
+    /"\/tenant\/:tenantSlug\/entitlements"[\s\S]*?"tenant\.queue\.read"[\s\S]*?getTenantEntitlements\(tenant\._id\)/
+  );
+  assert.doesNotMatch(
+    source.match(/"\/tenant\/:tenantSlug\/entitlements"[\s\S]*?\n\);/)?.[0] || "",
+    /getBillingOverview/
+  );
+});
 
 function resolveMockPath(requestPath, baseDir) {
   if (!requestPath.startsWith(".")) {
@@ -107,6 +120,10 @@ test("vendor routes queue mutations invoke the queue service helpers", async () 
       },
       callNextTicket: async (...args) => {
         calls.push(["callNextTicket", args]);
+        return { ticket: { _id: "ticket-1", ticketNumber: "A001", status: "called" }, snapshot: { ok: true } };
+      },
+      confirmCurrentTicket: async (...args) => {
+        calls.push(["confirmCurrentTicket", args]);
         return { ticket: { _id: "ticket-1", ticketNumber: "A001", status: "called" }, snapshot: { ok: true } };
       },
       updateCurrentTicketStatus: async (...args) => {
@@ -320,6 +337,13 @@ test("vendor routes queue mutations invoke the queue service helpers", async () 
     });
     assert.equal(callNextRes.status, 200);
 
+    const confirmCurrentRes = await fetch(`${baseUrl}/tenant/demo/queue/current/confirm?location=main`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lookupCode: "abcd1234" })
+    });
+    assert.equal(confirmCurrentRes.status, 200);
+
     const restoreRes = await fetch(`${baseUrl}/tenant/demo/queue/tickets/ticket-1/restore?location=main`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -350,6 +374,19 @@ test("vendor routes queue mutations invoke the queue service helpers", async () 
     });
 
     assert.equal(calls.some(([name]) => name === "callNextTicket"), true);
+    assert.deepEqual(calls.find(([name]) => name === "confirmCurrentTicket"), [
+      "confirmCurrentTicket",
+      [
+        { _id: "tenant-1", slug: "demo" },
+        "ABCD1234",
+        {
+          location: { _id: "location-1", slug: "main" },
+          actorUserId: "user-1",
+          actorRole: "vendor",
+          source: "vendor_barcode_scan"
+        }
+      ]
+    ]);
     assert.equal(calls.some(([name]) => name === "restoreSkippedTicket"), true);
     assert.equal(calls.some(([name]) => name === "openQueueDay"), true);
     assert.equal(calls.some(([name]) => name === "extendQueueDay"), true);

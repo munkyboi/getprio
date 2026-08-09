@@ -14,6 +14,7 @@ const pushNotificationService = require("./pushNotificationService");
 const notificationService = require("./notificationService");
 const queueEvents = require("./queueEvents");
 const bookingService = require("./bookingService");
+const allowanceService = require("./allowanceService");
 
 const VENDOR_REVIEW_BUFFER_HOURS = 24;
 const VENDOR_REVIEW_HOLD_HOURS = 24;
@@ -1950,6 +1951,15 @@ async function approveVendorCampaign({ tenant, user, campaignId }) {
       },
       { client }
     );
+    await allowanceService.consumeAllowance({
+      tenantId: campaign.tenantId,
+      resourceKey: "serviceBookings",
+      units: 1,
+      operationKey: `service-booking:${booking._id}:created`,
+      subjectType: "service_booking",
+      subjectId: booking._id,
+      reason: "Approved group-funded campaign created one Service Booking"
+    }, { client });
     const approvedCampaign = await groupFundedRepository.updateCampaignReviewFields(
       {
         campaignId: campaign._id,

@@ -120,7 +120,12 @@ async function stopServer(server) {
   });
 }
 
-function buildPublicRouter(ticket, cancelTicketMock) {
+function buildPublicRouter(ticket, cancelTicketMock, publicCapabilities = {
+  queue: true,
+  booking: true,
+  campaigns: true,
+  branding: true
+}, enterpriseInquiryMocks = {}) {
   const vendorProfiles = [
     {
       name: "Demo Tenant",
@@ -135,6 +140,8 @@ function buildPublicRouter(ticket, cancelTicketMock) {
           city: "Cebu City",
           province: "Cebu",
           country: "Philippines",
+          contactEmail: "hello@demo.test",
+          contactPhone: "+639171234567",
           isPrimary: true,
           hours: [
             { weekday: 0, opensAt: "08:00", closesAt: "17:00", isClosed: false },
@@ -147,6 +154,8 @@ function buildPublicRouter(ticket, cancelTicketMock) {
           city: "Mandaue",
           province: "Cebu",
           country: "Philippines",
+          contactEmail: "west@demo.test",
+          contactPhone: "+639179876543",
           isPrimary: false,
           hours: [
             { weekday: 0, opensAt: "10:00", closesAt: "19:00", isClosed: false }
@@ -167,10 +176,12 @@ function buildPublicRouter(ticket, cancelTicketMock) {
     "../middleware/auth": buildPublicAuthMock(),
     "../middleware/asyncHandler": buildAsyncHandlerMock(),
     "../repositories/tenants": {
-      listPublicVendorProfiles: async ({ search } = {}) =>
-        search && !JSON.stringify(vendorProfiles).toLowerCase().includes(String(search).toLowerCase())
+      listPublicVendorProfiles: async ({ search } = {}) => {
+        const discoveryProfiles = vendorProfiles;
+        return search && !JSON.stringify(discoveryProfiles).toLowerCase().includes(String(search).toLowerCase())
           ? []
-          : vendorProfiles,
+          : discoveryProfiles;
+      },
       findPublicVendorProfileBySlug: async (slug) =>
         slug === "demo" ? vendorProfiles[0] : null,
       findTenantBySlug: async () => ({
@@ -200,6 +211,8 @@ function buildPublicRouter(ticket, cancelTicketMock) {
               tenantId: "tenant-1",
               slug: "west",
               name: "West",
+              contactEmail: "west@demo.test",
+              contactPhone: "+639179876543",
               timezone: "Asia/Manila",
               isPrimary: false,
               isActive: true
@@ -209,6 +222,8 @@ function buildPublicRouter(ticket, cancelTicketMock) {
               tenantId: "tenant-1",
               slug: "ayala",
               name: "Ayala",
+              contactEmail: "hello@demo.test",
+              contactPhone: "+639171234567",
               timezone: "Asia/Manila",
               isPrimary: true,
               isActive: true
@@ -368,7 +383,7 @@ function buildPublicRouter(ticket, cancelTicketMock) {
       subscribe: () => () => {}
     },
     "../services/turnstileService": {
-      verifyTurnstileToken: async () => ({ success: true })
+      verifyTurnstileToken: enterpriseInquiryMocks.verifyTurnstileToken || (async () => ({ success: true }))
     },
     "../services/queueJoinOtpService": {
       requestJoinOtp: async () => ({ otpId: "otp-1" }),
@@ -388,8 +403,13 @@ function buildPublicRouter(ticket, cancelTicketMock) {
       assertLocationOpenForCustomerJoin: async () => {},
       getOpenStatus: async () => ({ isOpen: true, timezone: "Asia/Manila", summary: "Open", today: null, nextOpenAt: null })
     },
+    "../services/entitlementAdmissionService": {
+      admit: async () => ({ allowed: true, enforced: true }),
+      canDiscover: async () => true,
+      resolvePublicCapabilities: async () => publicCapabilities
+    },
     "../services/notificationService": {
-      sendEmail: async () => {},
+      sendEmail: enterpriseInquiryMocks.sendEmail || (async () => {}),
       sendSms: async () => {}
     },
     "../repositories/platform": {
@@ -429,6 +449,88 @@ function buildPublicRouter(ticket, cancelTicketMock) {
   });
 }
 
+test("enterprise inquiries require verification and enforce anti-abuse controls", async () => {
+  const deliveries = [];
+  const verifications = [];
+  const router = buildPublicRouter(
+    null,
+    async () => ({}),
+    undefined,
+    {
+      verifyTurnstileToken: async (input) => {
+        verifications.push(input);
+        return { success: input.token === "valid-token" };
+      },
+      sendEmail: async (payload) => deliveries.push(payload)
+    }
+  );
+  const { server, baseUrl } = await startServer(router, "/api/public");
+  const validInquiry = {
+    businessName: "Demo Business",
+    contactName: "Maria Santos",
+    email: "maria@example.com",
+    phone: "09171234567",
+    message: "We need queue support for three branches.",
+    honeypot: "",
+    turnstileToken: "valid-token"
+  };
+
+  try {
+    const validResponse = await fetch(`${baseUrl}/enterprise-inquiries`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(validInquiry)
+    });
+    assert.equal(validResponse.status, 201);
+    assert.equal(deliveries.length, 1);
+    assert.equal(verifications.length, 1);
+    assert.equal(verifications[0].token, "valid-token");
+
+    const failedVerificationResponse = await fetch(`${baseUrl}/enterprise-inquiries`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...validInquiry, turnstileToken: "invalid-token" })
+    });
+    assert.equal(failedVerificationResponse.status, 400);
+    assert.match((await failedVerificationResponse.json()).message, /verification failed/i);
+    assert.equal(deliveries.length, 1);
+
+    const oversizedResponse = await fetch(`${baseUrl}/enterprise-inquiries`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...validInquiry, message: "x".repeat(1001) })
+    });
+    assert.equal(oversizedResponse.status, 400);
+    assert.match((await oversizedResponse.json()).message, /1,000 characters or fewer/i);
+    assert.equal(deliveries.length, 1);
+
+    const honeypotResponse = await fetch(`${baseUrl}/enterprise-inquiries`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...validInquiry, honeypot: "https://spam.example" })
+    });
+    assert.equal(honeypotResponse.status, 201);
+    assert.equal(deliveries.length, 1);
+    assert.equal(verifications.length, 3);
+
+    const finalAllowedResponse = await fetch(`${baseUrl}/enterprise-inquiries`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...validInquiry, honeypot: "spam" })
+    });
+    assert.equal(finalAllowedResponse.status, 201);
+
+    const rateLimitedResponse = await fetch(`${baseUrl}/enterprise-inquiries`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(validInquiry)
+    });
+    assert.equal(rateLimitedResponse.status, 429);
+  } finally {
+    await stopServer(server);
+  }
+});
+
 test("public vendor discovery returns approved public profile cards", async () => {
   const router = buildPublicRouter(null, async () => ({}));
   const { server, baseUrl } = await startServer(router, "/api/public");
@@ -440,6 +542,7 @@ test("public vendor discovery returns approved public profile cards", async () =
     const body = await response.json();
     assert.equal(body.vendors.length, 1);
     assert.deepEqual(Object.keys(body.vendors[0]).sort(), [
+      "capabilities",
       "category",
       "description",
       "imageUrl",
@@ -650,6 +753,38 @@ test("public vendor profile includes the resolved public board theme", async () 
     assert.equal(body.vendor.services[0].slug, "general-consultation");
     assert.equal(body.vendor.services[0].manualPaymentRequired, true);
     assert.equal(body.vendor.locations[0].hours[0].closesAt, "17:00");
+    assert.equal(body.vendor.contactEmail, undefined);
+    assert.equal(body.vendor.contactPhone, undefined);
+    assert.equal(body.vendor.locations[0].contactEmail, "hello@demo.test");
+    assert.equal(body.vendor.locations[0].contactPhone, "+639171234567");
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("public vendor profile suppresses surfaces excluded by the effective plan", async () => {
+  const router = buildPublicRouter(null, async () => ({}), {
+    queue: true,
+    booking: false,
+    campaigns: false,
+    branding: false
+  });
+  const { server, baseUrl } = await startServer(router, "/api/public");
+
+  try {
+    const response = await fetch(`${baseUrl}/vendors/demo`);
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(body.vendor.capabilities, {
+      queue: true,
+      booking: false,
+      campaigns: false,
+      branding: false
+    });
+    assert.deepEqual(body.vendor.services, []);
+    assert.deepEqual(body.vendor.locationServices, []);
+    assert.equal(body.vendor.publicBoardTheme, null);
   } finally {
     await stopServer(server);
   }

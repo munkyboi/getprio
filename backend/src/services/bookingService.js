@@ -13,6 +13,8 @@ const pushNotificationService = require("./pushNotificationService");
 const organizerCampaignService = require("./organizerCampaignService");
 const { assertPublicTextFieldsAllowed } = require("./contentModeration");
 const { normalizePhilippineMobileNumber } = require("../utils/phone");
+const entitlementAdmissionService = require("./entitlementAdmissionService");
+const allowanceService = require("./allowanceService");
 
 const CHECK_IN_WINDOW_MINUTES = 15;
 const PENDING_BOOKING_EXPIRATION_MINUTES = 15;
@@ -764,6 +766,9 @@ async function evaluateComposedBookingSlots({
     error.statusCode = 404;
     throw error;
   }
+  if (requirePublicVendor) {
+    await entitlementAdmissionService.admit({ tenantId: tenant._id, featureKey: "booking" });
+  }
   const location = await storeLocationRepository.findLocationByTenantAndSlug(tenant._id, locationSlug);
   if (!location || !location.isActive) {
     const error = new Error("Location not found.");
@@ -935,6 +940,7 @@ async function listGroupFundedCandidateSlots({ tenantSlug: tenantSlugValue, loca
     error.statusCode = 404;
     throw error;
   }
+  await entitlementAdmissionService.admit({ tenantId: tenant._id, featureKey: "booking" });
   const location = await storeLocationRepository.findLocationByTenantAndSlug(tenant._id, locationSlug);
   if (!location || !location.isActive) {
     const error = new Error("Location not found.");
@@ -1132,29 +1138,42 @@ async function createCustomerBooking({ user, body }) {
     });
   }
 
-  const booking = await db.withTransaction((client) => bookingRepository.createBooking({
-    tenantId: tenant._id,
-    locationId: location._id,
-    serviceId: service._id,
-    customerUserId: user._id,
-    customerName: verifiedCustomerName,
-    customerEmail: verifiedCustomerEmail,
-    customerPhone: verifiedCustomerPhone,
-    bookingQuantity,
-    executionMode,
-    scheduledStartAt: scheduledStartAt.toISOString(),
-    scheduledEndAt: scheduledEndAt.toISOString(),
-    notes,
-    paymentReference: String(body.paymentReference || "").trim(),
-    pendingExpiresAt: getPendingBookingExpiration(),
-    notifyByEmail: Boolean(verifiedCustomerEmail),
-    notifyBySms,
-    smsAlertFeePaymentId,
-    contactVerifiedAt: verifiedBooking.contactVerifiedAt,
-    contactVerificationChannel: verifiedBooking.contactVerificationChannel,
-    organizerCampaignOptIn: Boolean(body.organizerCampaignOptIn),
-    bundleItems: bookingBundleItems
-  }, { client }));
+  const booking = await db.withTransaction(async (client) => {
+    const createdBooking = await bookingRepository.createBooking({
+      tenantId: tenant._id,
+      locationId: location._id,
+      serviceId: service._id,
+      customerUserId: user._id,
+      customerName: verifiedCustomerName,
+      customerEmail: verifiedCustomerEmail,
+      customerPhone: verifiedCustomerPhone,
+      bookingQuantity,
+      executionMode,
+      scheduledStartAt: scheduledStartAt.toISOString(),
+      scheduledEndAt: scheduledEndAt.toISOString(),
+      notes,
+      paymentReference: String(body.paymentReference || "").trim(),
+      pendingExpiresAt: getPendingBookingExpiration(),
+      notifyByEmail: Boolean(verifiedCustomerEmail),
+      notifyBySms,
+      smsAlertFeePaymentId,
+      contactVerifiedAt: verifiedBooking.contactVerifiedAt,
+      contactVerificationChannel: verifiedBooking.contactVerificationChannel,
+      organizerCampaignOptIn: Boolean(body.organizerCampaignOptIn),
+      bundleItems: bookingBundleItems
+    }, { client });
+    await allowanceService.consumeAllowance({
+      tenantId: tenant._id,
+      resourceKey: "serviceBookings",
+      units: 1,
+      operationKey: `service-booking:${createdBooking._id}:created`,
+      subjectType: "service_booking",
+      subjectId: createdBooking._id,
+      actorUserId: user._id,
+      reason: "Service Booking created"
+    }, { client });
+    return createdBooking;
+  });
 
   await bookingOtpService.consumeBookingVerificationToken(verifiedBooking.otpId);
   await sendBookingSubmittedNotification({ tenant, booking });

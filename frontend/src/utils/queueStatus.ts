@@ -198,6 +198,21 @@ export function getTicketStateSummary(status?: TicketStatus | null): QueueStatus
   }
 }
 
+export function getCustomerTicketStateSummary(
+  status?: TicketStatus | null,
+  customerConfirmedAt?: string | Date | null
+): QueueStatusSummary {
+  if (status === "called" && customerConfirmedAt) {
+    return makeSummary(
+      "teal",
+      "Confirmed",
+      "Your ticket was confirmed. Please wait for staff to begin service."
+    );
+  }
+
+  return getTicketStateSummary(status);
+}
+
 export function getLocationStatusSummary(snapshot: QueueSnapshot | null): QueueStatusSummary {
   if (!snapshot) {
     return makeSummary("gray", "Loading", "Loading live queue status.");

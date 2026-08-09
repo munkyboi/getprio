@@ -6,7 +6,10 @@ set -euo pipefail
 run_psql() {
   if command -v docker >/dev/null 2>&1 &&
     [[ -n "$(docker compose ps --status running -q database 2>/dev/null)" ]]; then
-    docker compose exec -T database env DATABASE_URL="$DATABASE_URL" psql "$DATABASE_URL" "$@"
+    local docker_database_url
+    docker_database_url="${DATABASE_URL/127.0.0.1/host.docker.internal}"
+    docker_database_url="${docker_database_url/localhost/host.docker.internal}"
+    docker compose exec -T database psql "$docker_database_url" "$@"
     return
   fi
   if [[ -x /usr/bin/psql ]]; then
@@ -115,6 +118,15 @@ BEGIN
       WHERE table_schema = 'public' AND table_name = 'queue_events'
         AND column_name = 'event_key'
     )
+    UNION ALL
+    SELECT 'tickets.email_journey_mode'
+    WHERE NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='tickets' AND column_name='email_journey_mode')
+    UNION ALL
+    SELECT 'tickets.customer_confirmed_at'
+    WHERE NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='tickets' AND column_name='customer_confirmed_at')
+    UNION ALL
+    SELECT 'queue_join_otps.chain_id'
+    WHERE NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='queue_join_otps' AND column_name='chain_id')
   ) required_columns;
 
   IF missing_columns IS NOT NULL THEN
@@ -135,7 +147,36 @@ BEGIN
     ('queue_notification_outbox'),
     ('tenant_membership_locations'),
     ('queue_lifecycle_backfill_runs'),
-    ('queue_lifecycle_migration_anomalies')
+    ('queue_lifecycle_migration_anomalies'),
+    ('auth_mfa_factors'),
+    ('auth_mfa_challenges'),
+    ('auth_mfa_recovery_codes'),
+    ('privileged_transaction_confirmations'),
+    ('idempotency_records'),
+    ('security_audit_events'),
+    ('security_rate_limit_buckets'),
+    ('plan_feature_entitlements'),
+    ('plan_allowances'),
+    ('plan_policy_baselines'),
+    ('tenant_entitlement_overrides'),
+    ('subscription_transitions'),
+    ('usage_accounts'),
+    ('subscription_allowance_periods'),
+    ('allowance_operations'),
+    ('allowance_allocations'),
+    ('allowance_reservations'),
+    ('allowance_reservation_allocations'),
+    ('allowance_reconciliation_records'),
+    ('usage_credit_packs'),
+    ('usage_credit_pack_revisions'),
+    ('usage_credit_purchases'),
+    ('usage_credit_lots'),
+    ('usage_credit_refunds'),
+    ('usage_credit_disputes'),
+    ('queue_email_journeys'),
+    ('queue_email_slots'),
+    ('entitlement_rollout_runs'),
+    ('entitlement_rollout_anomalies')
   ) required(table_name)
   WHERE to_regclass('public.' || table_name) IS NULL;
 
@@ -236,6 +277,94 @@ BEGIN
 
   IF mismatched_bundle_count > 0 THEN
     RAISE EXCEPTION 'Schema verification failed. Found % cross-boundary booking bundle rows.', mismatched_bundle_count;
+  END IF;
+END $$;
+
+DO $$
+DECLARE
+  plan_count integer;
+BEGIN
+  SELECT COUNT(*) INTO plan_count
+  FROM subscription_plans
+  WHERE slug IN ('free', 'economical', 'pro', 'enterprise');
+  IF plan_count <> 4 THEN
+    RAISE EXCEPTION 'Schema verification failed. Expected all four subscription plans.';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM subscription_plans
+    WHERE (slug = 'free' AND (monthly_amount_cents <> 0 OR annual_amount_cents <> 0 OR checkout_enabled))
+       OR (slug = 'economical' AND (monthly_amount_cents <> 49900 OR annual_amount_cents <> 498000))
+       OR (slug = 'pro' AND (monthly_amount_cents <> 149900 OR annual_amount_cents <> 1499000))
+       OR (slug = 'enterprise' AND (monthly_amount_cents <> 699900 OR annual_amount_cents <> 6999000))
+  ) THEN
+    RAISE EXCEPTION 'Schema verification failed. Subscription price invariants changed.';
+  END IF;
+
+  IF (SELECT COUNT(*) FROM queue_fee_settings WHERE plan_slug IN ('free','economical','pro','enterprise')) <> 4 THEN
+    RAISE EXCEPTION 'Schema verification failed. Queue fee settings do not cover all plans.';
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM billing_checkout_sessions WHERE plan_slug = 'free') THEN
+    RAISE EXCEPTION 'Schema verification failed. Free cannot have a subscription checkout.';
+  END IF;
+
+  IF EXISTS (
+    SELECT required.table_name
+    FROM (VALUES
+      ('plan_feature_entitlements'), ('plan_allowances'), ('plan_policy_baselines'),
+      ('tenant_entitlement_overrides'), ('subscription_transitions'),
+      ('entitlement_rollout_runs'), ('entitlement_rollout_anomalies'),
+      ('auth_mfa_factors'), ('auth_mfa_challenges'),
+      ('privileged_transaction_confirmations'),
+      ('usage_accounts'), ('subscription_allowance_periods'), ('allowance_operations'),
+      ('allowance_allocations'), ('allowance_reservations'), ('allowance_warning_claims'),
+      ('allowance_reconciliation_records'), ('queue_email_journeys'), ('queue_email_slots'),
+      ('usage_credit_packs'), ('usage_credit_pack_revisions'), ('usage_credit_purchases'),
+      ('usage_credit_lots'), ('usage_credit_refunds'), ('usage_credit_disputes')
+    ) AS required(table_name)
+    WHERE to_regclass('public.' || required.table_name) IS NULL
+  ) THEN
+    RAISE EXCEPTION 'Schema verification failed. Entitlement or security foundation tables are missing.';
+  END IF;
+
+  IF EXISTS (
+    SELECT required.column_name
+    FROM (VALUES
+      ('tenant_subscriptions', 'entitlement_model_version'),
+      ('tenant_subscriptions', 'entitlement_comparison_hash'),
+      ('tenant_subscriptions', 'entitlement_converted_at'),
+      ('entitlement_rollout_anomalies', 'blocking')
+    ) AS required(table_name, column_name)
+    LEFT JOIN information_schema.columns actual
+      ON actual.table_schema = 'public'
+     AND actual.table_name = required.table_name
+     AND actual.column_name = required.column_name
+    WHERE actual.column_name IS NULL
+  ) THEN
+    RAISE EXCEPTION 'Schema verification failed. Entitlement compatibility authority columns are missing.';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM (VALUES
+      ('free','queueTickets',500),('free','queueEmailJourneys',500),('free','serviceBookings',0),
+      ('economical','queueTickets',1000),('economical','queueEmailJourneys',1000),('economical','serviceBookings',100),
+      ('pro','queueTickets',5000),('pro','queueEmailJourneys',5000),('pro','serviceBookings',1000),
+      ('enterprise','queueTickets',50000),('enterprise','queueEmailJourneys',50000),('enterprise','serviceBookings',10000)
+    ) expected(plan_slug, allowance_key, monthly_limit)
+    LEFT JOIN plan_allowances actual USING (plan_slug, allowance_key)
+    WHERE actual.monthly_limit IS DISTINCT FROM expected.monthly_limit
+  ) THEN RAISE EXCEPTION 'Schema verification failed. Plan allowance ladder drifted.'; END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM (VALUES ('P100',100,100,9900),('P500',500,500,39900),('P1000',1000,1000,69900)) expected(code,tickets,journeys,price)
+    LEFT JOIN usage_credit_packs p ON p.code=expected.code
+    LEFT JOIN usage_credit_pack_revisions r ON r.pack_id=p.id AND r.revision=p.current_revision
+    WHERE r.ticket_units IS DISTINCT FROM expected.tickets OR r.journey_units IS DISTINCT FROM expected.journeys OR r.price_cents IS DISTINCT FROM expected.price
+  ) THEN RAISE EXCEPTION 'Schema verification failed. Usage Credit catalog drifted.'; END IF;
+
+  IF EXISTS (SELECT 1 FROM usage_credit_lots WHERE revoked_units + frozen_units > granted_units) THEN
+    RAISE EXCEPTION 'Schema verification failed. Usage Credit lot has a negative available invariant.';
   END IF;
 END $$;
 SQL

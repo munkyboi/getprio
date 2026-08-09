@@ -164,3 +164,67 @@ test("session service uses role-based refresh TTLs and hashes refresh tokens", a
     Date.now = originalNow;
   }
 });
+
+test("session service rejects concurrent rotation without revoking the winner", async () => {
+  let revoked = false;
+  const sessionService = requireWithMocks("../src/services/sessionService.js", {
+    "../config/env": {
+      jwtSecret: "test-secret",
+      accessTokenTtlMinutes: 15,
+      refreshTokenTtlDaysCustomer: 30,
+      refreshTokenTtlDaysVendorStaff: 14,
+      refreshTokenTtlDaysVendorAdmin: 7,
+      refreshTokenTtlDaysPlatformAdmin: 7,
+      sessionInactivityMinutes: 10080
+    },
+    "../repositories/authSessions": {
+      rotateSessionRefreshToken: async () => null,
+      findSessionByPreviousRefreshTokenHash: async () => ({
+        _id: "session-1",
+        lastRotatedAt: new Date()
+      }),
+      revokeSession: async () => { revoked = true; }
+    }
+  });
+
+  await assert.rejects(
+    () => sessionService.rotateRefreshSession({
+      session: { _id: "session-1", refreshTokenHash: "old-hash" },
+      user: { _id: "user-1", roles: ["customer"], tenantMemberships: [] }
+    }),
+    (error) => error.statusCode === 409 && error.code === "REFRESH_ALREADY_ROTATED"
+  );
+  assert.equal(revoked, false);
+});
+
+test("session service revokes replayed refresh credentials outside concurrency grace", async () => {
+  let revoked = false;
+  const sessionService = requireWithMocks("../src/services/sessionService.js", {
+    "../config/env": {
+      jwtSecret: "test-secret",
+      accessTokenTtlMinutes: 15,
+      refreshTokenTtlDaysCustomer: 30,
+      refreshTokenTtlDaysVendorStaff: 14,
+      refreshTokenTtlDaysVendorAdmin: 7,
+      refreshTokenTtlDaysPlatformAdmin: 7,
+      sessionInactivityMinutes: 10080
+    },
+    "../repositories/authSessions": {
+      rotateSessionRefreshToken: async () => null,
+      findSessionByPreviousRefreshTokenHash: async () => ({
+        _id: "session-1",
+        lastRotatedAt: new Date(Date.now() - 60_000)
+      }),
+      revokeSession: async () => { revoked = true; }
+    }
+  });
+
+  await assert.rejects(
+    () => sessionService.rotateRefreshSession({
+      session: { _id: "session-1", refreshTokenHash: "old-hash" },
+      user: { _id: "user-1", roles: ["customer"], tenantMemberships: [] }
+    }),
+    (error) => error.statusCode === 401 && error.code === "REFRESH_REUSE_DETECTED"
+  );
+  assert.equal(revoked, true);
+});

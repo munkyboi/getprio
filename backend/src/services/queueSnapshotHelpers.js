@@ -163,6 +163,7 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
       customerName: lookupTicket.customerName,
       customerDisplayName: lookupTicket.customerDisplayName || null,
       status: lookupTicket.status,
+      customerConfirmedAt: lookupTicket.customerConfirmedAt || null,
       statusReason: lookupTicket.statusReason || null,
       isCarriedOver: Boolean(
         lookupTicket.servicePriorityBand === "carry_over" ||
@@ -173,6 +174,7 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
       servicePriorityBand: lookupTicket.servicePriorityBand || "normal",
       carryOverExpiresAt: lookupTicket.carryOverExpiresAt || null,
       currentQueueDayId: lookupTicket.currentQueueDayId || null,
+      emailJourneyMode: lookupTicket.emailJourneyMode || "not_eligible",
       position: position || null,
       estimatedWaitMinutes:
         position && position > 0 ? position * tenant.averageServiceMinutes : 0,
@@ -262,6 +264,7 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
           customerName: current.customerName,
           customerDisplayName: current.customerDisplayName || null,
           calledAt: current.calledAt,
+          customerConfirmedAt: current.customerConfirmedAt || null,
           servicePriorityBand: current.servicePriorityBand || "normal",
           linkedBookingReference: current.linkedBookingReference || null
         }

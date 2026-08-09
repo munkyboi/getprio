@@ -81,7 +81,9 @@ test("platform recovery is separate from routine vendor queue operation", () => 
   assert.match(permissions, /platform\.queue_lifecycle\.reconcile/);
   assert.match(permissions, /platform\.queue_notifications\.requeue/);
   assert.match(routes, /queue-lifecycle\/repair\/preview/);
-  assert.match(routes, /x-mfa-confirmed/);
+  assert.doesNotMatch(routes, /x-mfa-confirmed/);
+  assert.match(routes, /x-transaction-confirmation/);
+  assert.match(routes, /privilegedTransactionService\.consumeConfirmation/);
 });
 
 test("headless smoke covers authoritative queue state across product roles", () => {

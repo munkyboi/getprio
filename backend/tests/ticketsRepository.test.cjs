@@ -320,6 +320,38 @@ test("claiming a ticket cannot replace an existing account owner", async () => {
   assert.deepEqual(calls[0].params, [7, 11]);
 });
 
+test("tickets repository records customer confirmation without changing called status", async () => {
+  const confirmedAt = new Date("2026-08-09T03:00:00.000Z");
+  const { calls, client } = createQueryClient([
+    {
+      id: 7,
+      tenant_id: 1,
+      location_id: 2,
+      ticket_number: "P007",
+      lookup_code: "ABCD1234",
+      customer_name: "Pat",
+      status: "called",
+      customer_confirmed_at: confirmedAt
+    }
+  ]);
+  const ticketsRepository = requireWithMocks("../src/repositories/tickets.js", {
+    "../config/db": { pool: client }
+  });
+
+  const ticket = await ticketsRepository.confirmCurrentCalledTicket(1, 7, {
+    client,
+    locationId: 2,
+    dateKey: "20260809"
+  });
+
+  assert.match(calls[0].query, /customer_confirmed_at = COALESCE\(customer_confirmed_at, NOW\(\)\)/);
+  assert.match(calls[0].query, /AND status = 'called'/);
+  assert.doesNotMatch(calls[0].query, /SET status =/);
+  assert.deepEqual(calls[0].params, [7, 1, 2, "20260809"]);
+  assert.equal(ticket.status, "called");
+  assert.equal(ticket.customerConfirmedAt, confirmedAt);
+});
+
 test("tickets repository restores skipped tickets into the requested priority band", async () => {
   const { calls, client } = createQueryClient([
     {

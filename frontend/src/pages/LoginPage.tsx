@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -37,7 +37,7 @@ type ResetConfirmValues = z.infer<typeof resetConfirmSchema>;
 export default function LoginPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { login, loading, requestPasswordReset, confirmPasswordReset, user } = useAuth();
+  const { login, loading, requestPasswordReset, confirmPasswordReset, verifyMfaChallenge, user } = useAuth();
   const resetToken = searchParams.get("resetToken") || "";
   const passwordChanged = searchParams.get("passwordChanged") === "1";
   const passwordResetSuccess = searchParams.get("reset") === "success";
@@ -46,6 +46,10 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [resetRequestMessage, setResetRequestMessage] = useState("");
   const [resetConfirmMessage, setResetConfirmMessage] = useState("");
+  const [mfaChallengeToken, setMfaChallengeToken] = useState("");
+  const [mfaCode, setMfaCode] = useState("");
+  const [mfaRecoveryCode, setMfaRecoveryCode] = useState("");
+  const [mfaSubmitting, setMfaSubmitting] = useState(false);
 
   const signInForm = useForm<SignInValues>({
     resolver: zodResolver(signInSchema),
@@ -62,7 +66,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (user?.tenants?.length) {
-      navigate(nextPath || "/dashboard", { replace: true });
+      navigate(user.mfaRequired && !user.mfaEnabled ? "/dashboard/account" : nextPath || "/dashboard", { replace: true });
     }
   }, [navigate, nextPath, user]);
 
@@ -82,11 +86,42 @@ export default function LoginPage() {
     setError("");
     try {
       const result = await login(values);
-      navigate(nextPath || (result.user.tenants.length ? "/dashboard" : "/"), { replace: true });
+      if ("mfaRequired" in result) {
+        setMfaChallengeToken(result.challengeToken);
+        return;
+      }
+      navigate(
+        result.user.mfaRequired && !result.user.mfaEnabled
+          ? "/dashboard/account"
+          : nextPath || (result.user.tenants.length ? "/dashboard" : "/"),
+        { replace: true }
+      );
     } catch (submitError) {
       setError(getErrorMessage(submitError));
     }
   });
+
+  async function handleMfaVerification(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    setMfaSubmitting(true);
+    try {
+      const result = await verifyMfaChallenge({
+        challengeToken: mfaChallengeToken,
+        ...(mfaRecoveryCode.trim() ? { recoveryCode: mfaRecoveryCode } : { code: mfaCode })
+      });
+      navigate(
+        result.user.mfaRequired && !result.user.mfaEnabled
+          ? "/dashboard/account"
+          : nextPath || (result.user.tenants.length ? "/dashboard" : "/"),
+        { replace: true }
+      );
+    } catch (submitError) {
+      setError(getErrorMessage(submitError));
+    } finally {
+      setMfaSubmitting(false);
+    }
+  }
 
   const handlePasswordResetRequest = resetRequestForm.handleSubmit(async (values) => {
     setError("");
@@ -155,7 +190,33 @@ export default function LoginPage() {
           </form>
         ) : (
           <>
-            <form onSubmit={handleSignIn}>
+            {mfaChallengeToken ? (
+              <form onSubmit={handleMfaVerification}>
+                <Stack gap="md">
+                  <Alert color="blue">For your security, confirm the code from your authenticator app. You can use one saved recovery code if your authenticator is unavailable.</Alert>
+                  <TextInput
+                    autoComplete="one-time-code"
+                    autoFocus
+                    inputMode="numeric"
+                    label="Authenticator code"
+                    value={mfaCode}
+                    onChange={(event) => { setMfaCode(event.currentTarget.value); setMfaRecoveryCode(""); }}
+                  />
+                  <TextInput
+                    label="Recovery code (optional)"
+                    value={mfaRecoveryCode}
+                    onChange={(event) => { setMfaRecoveryCode(event.currentTarget.value); setMfaCode(""); }}
+                  />
+                  {error ? <Alert color="red">{error}</Alert> : null}
+                  <Button className="auth-primary-action" color="dark" loading={mfaSubmitting} size="lg" type="submit">
+                    Confirm and sign in
+                  </Button>
+                  <Anchor component="button" type="button" onClick={() => { setMfaChallengeToken(""); setError(""); }}>
+                    Return to sign in
+                  </Anchor>
+                </Stack>
+              </form>
+            ) : <form onSubmit={handleSignIn}>
               <Stack gap="md">
                 <TextInput
                   label="Email or username"
@@ -191,7 +252,7 @@ export default function LoginPage() {
                   Sign in
                 </Button>
               </Stack>
-            </form>
+            </form>}
             {showResetRequest ? (
               <form onSubmit={handlePasswordResetRequest}>
                 <Stack gap="md">

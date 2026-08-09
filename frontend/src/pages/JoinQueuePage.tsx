@@ -137,7 +137,10 @@ export default function JoinQueuePage() {
           resendSecondsRemaining % 60
         ).padStart(2, "0")}`
       : "Send new code";
-  const canSkipOtp = !form.notifyByEmail;
+  const requiresQueuePayment = Boolean(
+    tenantInfo?.queueFee.enabled && Number(tenantInfo.queueFee.amountCents || 0) > 0
+  );
+  const canSkipOtp = !form.notifyByEmail && !requiresQueuePayment;
   const queueIntakePaused = Boolean(queueSnapshot?.queueDay?.isPaused);
   const queueStateBadge = getQueueStateSummary(queueSnapshot);
   const queueJoinUnavailable = !isQueueAcceptingJoins(queueSnapshot);
@@ -145,10 +148,10 @@ export default function JoinQueuePage() {
     queueSnapshot?.queueDay?.pauseReason ||
     "This queue is temporarily paused while the team works through the current line.";
   const queueClosedMessage = queueStateBadge.message;
-  const requiresEmail = form.notifyByEmail;
+  const requiresEmail = form.notifyByEmail || (requiresQueuePayment && !form.customerPhone.trim());
   const pageTitle = tenantInfo?.name || tenantSlugValue;
   const signedInCustomer = Boolean(user?.roles?.includes("customer"));
-  const requiresPhone = false;
+  const requiresPhone = requiresQueuePayment && !form.customerEmail.trim();
   const theme = queueSnapshot?.publicBoardTheme?.theme;
   const themeStyle: CSSProperties | undefined = theme
     ? {
@@ -701,20 +704,27 @@ export default function JoinQueuePage() {
               <Stack gap="md">
                 <div>
                   <Title className="join-queue-form-title" order={2}>
-                    {otp ? "Verify your email" : "Your details"}
+                    {otp ? "Verify your queue join" : "Your details"}
                   </Title>
                   <Text className="join-queue-form-intro" c="dimmed" mt={4} size="sm">
                     {otp
-                      ? "Enter the code below to finish joining the queue."
+                      ? "Enter the code below to continue to checkout and finish joining the queue."
                       : signedInCustomer
                         ? "Your saved contact details are prefilled. Changes here only apply to this queue visit."
                         : "We use these details to identify your ticket and send queue updates."}
                   </Text>
                 </div>
-            {!form.notifyByEmail ? (
+            {!form.notifyByEmail && !requiresQueuePayment ? (
               <Text c="dimmed" size="sm">
                 Email verification is skipped when almost-next email alerts are off.
               </Text>
+            ) : null}
+            {requiresQueuePayment && tenantInfo ? (
+              <Alert color="blue" icon={<IconInfoCircle size={18} />} radius="md" variant="light">
+                A queue fee of {tenantInfo.queueFee.displayAmount} is required to join. We will verify your
+                contact details before opening secure checkout. Your ticket is issued only after payment is
+                confirmed.
+              </Alert>
             ) : null}
             {queueIntakePaused ? (
               <Alert color="yellow" icon={<IconInfoCircle size={18} />} radius="md" variant="light">

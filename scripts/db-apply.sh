@@ -45,7 +45,10 @@ database_has_user_tables() {
 run_psql() {
   if command -v docker >/dev/null 2>&1 &&
     [[ -n "$(docker compose ps --status running -q database 2>/dev/null)" ]]; then
-    docker compose exec -T database env DATABASE_URL="$DATABASE_URL" psql "$DATABASE_URL" "$@"
+    local docker_database_url
+    docker_database_url="${DATABASE_URL/127.0.0.1/host.docker.internal}"
+    docker_database_url="${docker_database_url/localhost/host.docker.internal}"
+    docker compose exec -T database psql "$docker_database_url" "$@"
     return
   fi
 
@@ -70,10 +73,12 @@ usage() {
   cat <<'EOF'
 Usage:
   scripts/db-apply.sh migrate
+  scripts/db-apply.sh migrate-free-tier
   scripts/db-apply.sh bootstrap
 
 Commands:
   migrate   Apply all SQL files under database/migrations/ in filename order.
+  migrate-free-tier Apply only the reviewed Free-tier/security migration manifest.
   bootstrap Rebuild from database/init.sql, then apply all migrations.
 
 Environment:
@@ -133,7 +138,7 @@ case "$mode" in
     echo "Running destructive bootstrap from database/init.sql"
     run_sql_file "$init_sql"
     ;;
-  migrate)
+  migrate|migrate-free-tier)
     ;;
   *)
     usage
@@ -143,8 +148,49 @@ esac
 
 applied_migrations="$(run_psql -At -v ON_ERROR_STOP=1 -c "SELECT filename FROM schema_migrations ORDER BY filename")"
 
+free_tier_migrations=(
+  "20260804_01_harden_auth_sessions.sql"
+  "20260804_02_add_mfa_and_privileged_confirmations.sql"
+  "20260804_03_add_free_plan_and_live_policies.sql"
+  "20260804_04_add_idempotency_and_security_audit.sql"
+  "20260804_05_add_allowance_ledger.sql"
+  "20260804_06_add_usage_credit_commerce.sql"
+  "20260804_07_add_queue_otp_chains.sql"
+  "20260809_01_finalize_free_tier_rollout.sql"
+  "20260809_02_repair_free_plan_entitlement_shape.sql"
+  "20260809_03_repair_mfa_replacement_indexes.sql"
+)
+
+queue_day_prerequisites=(
+  "20260731_01_add_queue_day_lifecycle_foundation.sql"
+  "20260731_02_expand_queue_ticket_booking_lifecycle.sql"
+  "20260731_03_expand_queue_events_and_add_outbox.sql"
+  "20260731_04_add_queue_location_assignments_and_payments.sql"
+  "20260801_enforce_queue_lifecycle_mode.sql"
+)
+
+if [[ "$mode" == "migrate-free-tier" ]]; then
+  for prerequisite in "${queue_day_prerequisites[@]}"; do
+    if ! printf '%s\n' "$applied_migrations" | grep -Fxq "$prerequisite"; then
+      echo "Free-tier migration refused: independently qualify and apply Queue Day prerequisite $prerequisite first." >&2
+      exit 1
+    fi
+  done
+fi
+
+should_apply_file() {
+  local filename="$1"
+  if [[ "$mode" != "migrate-free-tier" ]]; then
+    return 0
+  fi
+  printf '%s\n' "${free_tier_migrations[@]}" | grep -Fxq "$filename"
+}
+
 while IFS= read -r file; do
   filename="$(basename "$file")"
+  if ! should_apply_file "$filename"; then
+    continue
+  fi
   if printf '%s\n' "$applied_migrations" | grep -Fxq "$filename"; then
     echo "Skipping already applied $filename"
     continue

@@ -72,13 +72,13 @@ test("platform repository maps analytics, lists entities, and upserts settings",
       if (String(query).includes("FROM tenants\n      LEFT JOIN LATERAL")) {
         return {
           rows: [
-            { id: 1, name: "Tenant One", slug: "tenant-one", is_active: true, created_at: new Date("2026-07-01T00:00:00.000Z"), plan_slug: "economical", ticket_count: 7 }
+            { id: 1, name: "Tenant One", username: "tenant_owner", slug: "tenant-one", is_active: true, created_at: new Date("2026-07-01T00:00:00.000Z"), plan_slug: "economical", ticket_count: 7 }
           ]
         };
       }
 
       if (String(query).includes("FROM users\n      ORDER BY created_at DESC")) {
-        return { rows: [{ id: 2, name: "Admin", email: "admin@example.com", phone: "0917", roles: ["platform_admin"], created_at: new Date("2026-07-01T00:00:00.000Z"), updated_at: new Date("2026-07-01T00:00:00.000Z") }] };
+        return { rows: [{ id: 2, name: "Admin", username: "platform-admin", email: "admin@example.com", phone: "0917", roles: ["platform_admin"], created_at: new Date("2026-07-01T00:00:00.000Z"), updated_at: new Date("2026-07-01T00:00:00.000Z") }] };
       }
 
       if (String(query).includes("FROM tenant_subscriptions") && String(query).includes("tenant_name")) {
@@ -131,8 +131,10 @@ test("platform repository maps analytics, lists entities, and upserts settings",
 
   const tenants = await platformRepository.listTenants({ client });
   assert.equal(tenants[0].planSlug, "economical");
+  assert.equal(tenants[0].username, "tenant_owner");
 
   const users = await platformRepository.listUsers({ client });
+  assert.equal(users[0].username, "platform-admin");
   assert.equal(users[0].roles[0], "platform_admin");
 
   const subscriptions = await platformRepository.listSubscriptions({ client });

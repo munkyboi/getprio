@@ -12,6 +12,7 @@ const queueLifecycle = require("./queueLifecycle");
 const queueDayLifecycleService = require("./queueDayLifecycleService");
 const notificationService = require("./notificationService");
 const pushNotificationService = require("./pushNotificationService");
+const allowanceService = require("./allowanceService");
 const {
   buildQueueEventActor,
   formatTicketNumber,
@@ -277,7 +278,9 @@ async function createTicket({
   notes,
   actorUserId,
   actorRole,
-  servicePriorityBand
+  servicePriorityBand,
+  otpChainId,
+  allowanceReservationKey
 }) {
   const resolvedLocation = await resolveLocation(tenant, { location });
   await assertQueueIntakeOpen(tenant, resolvedLocation);
@@ -293,7 +296,9 @@ async function createTicket({
       notifyBySms,
       joinChannel,
       notes,
-      servicePriorityBand
+      servicePriorityBand,
+      otpChainId,
+      allowanceReservationKey
     });
 
     const actor = buildQueueEventActor({
@@ -326,6 +331,7 @@ async function createTicket({
       console.warn("[web-push-queue-join-skipped]", error.message);
     });
   }
+  await notificationService.notifyJourneyLifecycle({ ticket, tenant, slot: "joined", action: "joined" });
 
   return { ticket, snapshot };
 }
@@ -341,7 +347,9 @@ async function createTicketForTenantInTransaction(client, {
   notifyBySms,
   joinChannel,
   notes,
-  servicePriorityBand
+  servicePriorityBand,
+  otpChainId,
+  allowanceReservationKey
 }) {
   const resolvedLocation = location || (await resolveLocation(tenant));
   let queueDay = null;
@@ -349,7 +357,7 @@ async function createTicketForTenantInTransaction(client, {
   let sequence;
   if (resolvedLocation.queueLifecycleMode === "enforced") {
     queueDay = await assertQueueIntakeOpen(tenant, resolvedLocation, { client });
-    dateKey = String(queueDay.businessDate).replace(/-/g, "");
+    dateKey = String(queueDay.businessDate).replaceAll("-", "");
     sequence = await queueDayRepository.allocateSequence(queueDay._id, { client });
     if (sequence == null) {
       const error = new Error("Queue intake changed. Refresh and try again.");
@@ -380,6 +388,69 @@ async function createTicketForTenantInTransaction(client, {
     originalQueueDayId: queueDay?._id,
     currentQueueDayId: queueDay?._id
   });
+  const ticketAllowanceInput = {
+    tenantId: tenant._id,
+    resourceKey: "queueTickets",
+    operationKey: `queue-ticket:${ticket._id}:created`,
+    subjectType: "queue_ticket",
+    subjectId: ticket._id,
+    reason: "Queue Ticket created"
+  };
+  if (allowanceReservationKey) {
+    await allowanceService.commitReservation(
+      { ...ticketAllowanceInput, reservationKey: allowanceReservationKey },
+      { client }
+    );
+  } else {
+    await allowanceService.consumeAllowance({ ...ticketAllowanceInput, units: 1 }, { client });
+  }
+
+  const otpRows = otpChainId
+    ? (await client.query(
+      `SELECT id, resend_ordinal, delivery_channel FROM queue_join_otps
+       WHERE chain_id = $1 ORDER BY resend_ordinal`, [otpChainId]
+    )).rows
+    : [];
+  const emailEligible = Boolean(ticket.notifyByEmail && ticket.customerEmail)
+    || otpRows.some((otp) => otp.delivery_channel === "email");
+  if (emailEligible) {
+    const journeyAdmission = await allowanceService.consumeAllowance({
+      tenantId: tenant._id,
+      resourceKey: "queueEmailJourneys",
+      units: 1,
+      operationKey: `queue-email-journey:${ticket._id}:created`,
+      subjectType: "queue_ticket",
+      subjectId: ticket._id,
+      reason: "Queue Email Journey created",
+      hard: false
+    }, { client });
+    if (!journeyAdmission.bypassed) {
+      const journeyMode = journeyAdmission.consumed ? "metered" : "journey_exhausted";
+      await client.query(`UPDATE tickets SET email_journey_mode = $2 WHERE id = $1`, [Number(ticket._id), journeyMode]);
+      const journeyResult = await client.query(
+        `INSERT INTO queue_email_journeys (tenant_id, ticket_id, mode, otp_chain_id, email_opted_out_at)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (ticket_id) DO UPDATE SET mode = EXCLUDED.mode, otp_chain_id = COALESCE(queue_email_journeys.otp_chain_id, EXCLUDED.otp_chain_id)
+         RETURNING id`,
+        [Number(tenant._id), Number(ticket._id), journeyMode, otpChainId || null, ticket.notifyByEmail ? null : new Date()]
+      );
+      if (journeyMode === "metered") {
+        await client.query(
+          `INSERT INTO queue_email_slots (journey_id, slot_key)
+           SELECT $1, slot_key FROM unnest($2::text[]) AS slot_key
+           ON CONFLICT (journey_id, slot_key) DO NOTHING`,
+          [journeyResult.rows[0].id, ["otp_1","otp_2","otp_3","otp_4","joined","near_turn","called","exception","continuation","final"]]
+        );
+        for (const otp of otpRows.filter((row) => row.delivery_channel === "email")) {
+          await client.query(
+            `UPDATE queue_email_slots SET logical_message_key = $3, status = 'sent', sent_at = NOW()
+             WHERE journey_id = $1 AND slot_key = $2 AND status = 'unused'`,
+            [journeyResult.rows[0].id, `otp_${Number(otp.resend_ordinal) + 1}`, `queue-otp:${otp.id}`]
+          );
+        }
+      }
+    }
+  }
   if (queueDay) {
     await client.query(
       `INSERT INTO queue_ticket_segments (
@@ -404,7 +475,7 @@ async function callNextTicket(tenant, options = {}) {
   const activeQueueDay = await assertQueueDayOpen(tenant, location);
   const dateKey = options.queueDateKey
     || (activeQueueDay?.businessDate
-      ? String(activeQueueDay.businessDate).replace(/-/g, "")
+      ? String(activeQueueDay.businessDate).replaceAll("-", "")
       : getDateKey(new Date(), location.timezone));
   const ticket = await db.withTransaction(async (client) => {
     const activeTicket = await ticketRepository.findCurrentCalledTicket(tenant._id, {
@@ -486,7 +557,7 @@ async function updateCurrentTicketStatus(tenant, status, options = {}) {
   const activeQueueDay = await assertQueueDayOpen(tenant, location);
   const dateKey = options.queueDateKey
     || (activeQueueDay?.businessDate
-      ? String(activeQueueDay.businessDate).replace(/-/g, "")
+      ? String(activeQueueDay.businessDate).replaceAll("-", "")
       : getDateKey(new Date(), location.timezone));
   const ticket = await db.withTransaction(async (client) => {
     const currentTicket = await ticketRepository.findCurrentCalledTicket(tenant._id, {
@@ -496,6 +567,12 @@ async function updateCurrentTicketStatus(tenant, status, options = {}) {
     });
     if (!currentTicket) {
       return null;
+    }
+
+    if (status === "served" && !currentTicket.customerConfirmedAt) {
+      const error = new Error("Confirm the called ticket before serving this customer.");
+      error.statusCode = 409;
+      throw error;
     }
 
     queueLifecycle.assertValidTransition(currentTicket.status, status);
@@ -554,6 +631,11 @@ async function updateCurrentTicketStatus(tenant, status, options = {}) {
   if (status === "served" || status === "cancelled") {
     await maybeAutoResumeQueueDay(tenant, { location, queueDateKey: dateKey });
   }
+  await notificationService.notifyJourneyLifecycle({
+    ticket, tenant,
+    slot: ["served", "cancelled"].includes(status) ? "final" : "exception",
+    action: status
+  });
   await maybeNotifyUpcomingTickets(tenant, { location });
   const snapshot = await publishSnapshot(tenant, { location });
   pushNotificationService.notifyCustomerQueueUpdate({
@@ -565,6 +647,75 @@ async function updateCurrentTicketStatus(tenant, status, options = {}) {
   });
 
   return { ticket, snapshot };
+}
+
+async function confirmCurrentTicket(tenant, lookupCode, options = {}) {
+  const location = await resolveLocation(tenant, options);
+  const activeQueueDay = await assertQueueDayOpen(tenant, location);
+  const dateKey = options.queueDateKey
+    || (activeQueueDay?.businessDate
+      ? String(activeQueueDay.businessDate).replaceAll("-", "")
+      : getDateKey(new Date(), location.timezone));
+  const normalizedLookupCode = String(lookupCode || "").toUpperCase();
+
+  const ticket = await db.withTransaction(async (client) => {
+    const currentTicket = await ticketRepository.findCurrentCalledTicket(tenant._id, {
+      client,
+      locationId: location?._id,
+      dateKey
+    });
+    if (!currentTicket) {
+      return null;
+    }
+
+    if (String(currentTicket.lookupCode || "").toUpperCase() !== normalizedLookupCode) {
+      const error = new Error("Scanned ticket does not match the current called ticket.");
+      error.statusCode = 409;
+      throw error;
+    }
+
+    if (currentTicket.customerConfirmedAt) {
+      return currentTicket;
+    }
+
+    const confirmedTicket = await ticketRepository.confirmCurrentCalledTicket(
+      tenant._id,
+      currentTicket._id,
+      {
+        client,
+        locationId: location?._id,
+        dateKey
+      }
+    );
+    if (!confirmedTicket) {
+      return null;
+    }
+
+    const actor = buildQueueEventActor({
+      actorUserId: options.actorUserId,
+      actorRole: options.actorRole,
+      source: options.source || "vendor_barcode_scan"
+    });
+    await appendQueueEvent(client, confirmedTicket, "ticket_confirmed", {
+      fromStatus: "called",
+      toStatus: "called",
+      actorUserId: actor.actorUserId,
+      actorRole: actor.actorRole,
+      source: actor.source,
+      metadata: { confirmationMethod: "barcode" }
+    });
+
+    return confirmedTicket;
+  });
+
+  if (!ticket) {
+    return null;
+  }
+
+  return {
+    ticket,
+    snapshot: await publishSnapshot(tenant, { location })
+  };
 }
 
 async function cancelTicket(tenant, lookupCode, options = {}) {
@@ -770,6 +921,7 @@ async function closeQueueDay(tenant, options = {}) {
   });
 
   for (const ticket of unservedTicketsForPush) {
+    await notificationService.notifyJourneyLifecycle({ ticket, tenant, slot: "exception", action: "unserved" });
     pushNotificationService.notifyCustomerQueueUpdate({
       tenant,
       ticket,
@@ -780,6 +932,7 @@ async function closeQueueDay(tenant, options = {}) {
   }
 
   for (const ticket of carriedTicketsForPush) {
+    await notificationService.notifyJourneyLifecycle({ ticket, tenant, slot: "continuation", action: "carried over" });
     pushNotificationService.notifyCustomerQueueUpdate({
       tenant,
       ticket,
@@ -1065,7 +1218,7 @@ async function restoreSkippedTicket(tenant, ticketId, options = {}) {
   });
   const dateKey = options.queueDateKey
     || (activeQueueDay?.businessDate
-      ? String(activeQueueDay.businessDate).replace(/-/g, "")
+      ? String(activeQueueDay.businessDate).replaceAll("-", "")
       : getDateKey(new Date(), location.timezone));
 
   const ticket = await db.withTransaction(async (client) => {
@@ -1206,6 +1359,7 @@ module.exports = {
   assertQueueIntakeOpen,
   getQueueSnapshot,
   callNextTicket,
+  confirmCurrentTicket,
   updateCurrentTicketStatus,
   cancelTicket,
   closeQueueDay,
