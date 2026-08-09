@@ -121,4 +121,6 @@ test("database rollout scripts preserve explicit environment targets and support
   assert.doesNotMatch(status, /mapfile/);
   assert.match(apply, /SELECT TRIM\(filename\) FROM schema_migrations/);
   assert.match(status, /SELECT TRIM\(filename\) FROM schema_migrations/);
+  assert.doesNotMatch(apply, /grep -Fxq/);
+  assert.doesNotMatch(status, /grep -Fxq/);
 });

@@ -171,7 +171,7 @@ queue_day_prerequisites=(
 
 if [[ "$mode" == "migrate-free-tier" ]]; then
   for prerequisite in "${queue_day_prerequisites[@]}"; do
-    if ! printf '%s\n' "$applied_migrations" | grep -Fxq "$prerequisite"; then
+    if ! printf '%s\n' "$applied_migrations" | grep -Fx "$prerequisite" >/dev/null; then
       echo "Free-tier migration refused: independently qualify and apply Queue Day prerequisite $prerequisite first." >&2
       exit 1
     fi
@@ -183,7 +183,7 @@ should_apply_file() {
   if [[ "$mode" != "migrate-free-tier" ]]; then
     return 0
   fi
-  printf '%s\n' "${free_tier_migrations[@]}" | grep -Fxq "$filename"
+  printf '%s\n' "${free_tier_migrations[@]}" | grep -Fx "$filename" >/dev/null
 }
 
 while IFS= read -r file; do
@@ -191,7 +191,7 @@ while IFS= read -r file; do
   if ! should_apply_file "$filename"; then
     continue
   fi
-  if printf '%s\n' "$applied_migrations" | grep -Fxq "$filename"; then
+  if printf '%s\n' "$applied_migrations" | grep -Fx "$filename" >/dev/null; then
     echo "Skipping already applied $filename"
     continue
   fi
