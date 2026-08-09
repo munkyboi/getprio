@@ -1,6 +1,6 @@
 const { assertPublicTextFieldsAllowed } = require("../services/contentModeration");
 const entitlementAdmissionService = require("../services/entitlementAdmissionService");
-const storeHoursService = require("../services/storeHoursService");
+const defaultStoreHoursService = require("../services/storeHoursService");
 
 async function handleCreateTicket({
   req,
@@ -9,7 +9,8 @@ async function handleCreateTicket({
   assertTenantPermission,
   assertQueueLocationAccess,
   getLocationForTenant,
-  createTicket
+  createTicket,
+  storeHoursService = defaultStoreHoursService
 }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.queue.operate");
