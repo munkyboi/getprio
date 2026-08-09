@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import morgan from "morgan";
+import { ipKeyGenerator, rateLimit } from "express-rate-limit";
 import env from "./config/env";
 import authRoutes from "./routes/authRoutes";
 import accountRoutes from "./routes/accountRoutes";
@@ -47,8 +48,17 @@ const allowedOrigins = buildAllowedOrigins();
 const app = express();
 const { createRequestContextMiddleware } = requestContextModule;
 const { createCsrfProtection } = csrfProtectionModule;
+const apiRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 1_000,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => ipKeyGenerator(req.ip || req.socket.remoteAddress || "unknown"),
+  message: { message: "Too many requests. Please try again later." }
+});
 
 app.use(createRequestContextMiddleware({ rolloutCohort: env.rolloutCohort }));
+app.use("/api", apiRateLimiter);
 
 app.use(
   cors({

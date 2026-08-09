@@ -1,4 +1,5 @@
 const express = require("express");
+const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
 const tenantRepository = require("../repositories/tenants");
 const asyncHandler = require("../middleware/asyncHandler");
 const {
@@ -20,6 +21,15 @@ const releaseControls = require("../config/releaseControls");
 const { assertReleaseControl, requireReleaseControl } = require("../middleware/releaseControl");
 
 const router = express.Router();
+const billingHttpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => ipKeyGenerator(req.ip || req.socket?.remoteAddress || "unknown"),
+  message: { message: "Too many billing requests. Please try again later." }
+});
+router.use(billingHttpLimiter);
 
 async function getAuthorizedTenant(user, tenantSlug) {
   const tenant = await tenantRepository.findTenantBySlug(String(tenantSlug).toLowerCase());

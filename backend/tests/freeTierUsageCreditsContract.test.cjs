@@ -89,6 +89,16 @@ test("Plan Matrix core is permanent while mutations and vendor capacity remain s
   assert.match(billingRoutes, /vendorCapacityExperience: releaseControls\.vendorCapacityExperience/);
 });
 
+test("auth and billing API families retain explicit HTTP rate limits", () => {
+  const app = fs.readFileSync(path.join(__dirname, "../src/app.ts"), "utf8");
+  const authRoutes = fs.readFileSync(path.join(__dirname, "../src/routes/authRoutes.js"), "utf8");
+  const billingRoutes = fs.readFileSync(path.join(__dirname, "../src/routes/billingRoutes.js"), "utf8");
+
+  assert.match(app, /app\.use\("\/api", apiRateLimiter\)/);
+  assert.match(authRoutes, /router\.use\(authHttpLimiter\)/);
+  assert.match(billingRoutes, /router\.use\(billingHttpLimiter\)/);
+});
+
 test("new Free-tier API families have fail-closed server route gates", () => {
   const platformRoutes = fs.readFileSync(path.join(__dirname, "../src/routes/platformRoutes.js"), "utf8");
   const billingRoutes = fs.readFileSync(path.join(__dirname, "../src/routes/billingRoutes.js"), "utf8");

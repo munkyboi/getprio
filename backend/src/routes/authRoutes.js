@@ -1,4 +1,5 @@
 const express = require("express");
+const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
 const bcrypt = require("bcryptjs");
 const crypto = require("node:crypto");
 const db = require("../config/db");
@@ -38,6 +39,15 @@ const {
 } = require("../services/browserSessionService");
 
 const router = express.Router();
+const authHttpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => ipKeyGenerator(req.ip || req.socket?.remoteAddress || "unknown"),
+  message: { message: "Too many authentication requests. Please try again later." }
+});
+router.use(authHttpLimiter);
 router.use(moderatePublicText);
 const OAUTH_INTENTS = new Set(["login", "register_customer", "register_vendor"]);
 const normalizeEmail = authService.normalizeEmail;
