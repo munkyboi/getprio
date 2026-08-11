@@ -451,19 +451,32 @@ router.post(
 
 router.post(
   "/tenant/:tenantSlug/location-media/uploads/direct",
+  express.raw({ type: ["image/jpeg", "image/png", "image/webp"], limit: "8mb" }),
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.location.manage");
-    const requestedLocationSlug = normalizeRequestText(req.body.locationSlug || req.query.locationSlug);
+    const fileBuffer = Buffer.isBuffer(req.body) ? Buffer.from(req.body) : null;
+    if (!fileBuffer || !fileBuffer.length) {
+      const error = new Error("Image upload payload is required.");
+      error.statusCode = 400;
+      throw error;
+    }
+    const requestedLocationSlug = normalizeRequestText(req.query.locationSlug);
     const location = requestedLocationSlug
       ? await getLocationForTenant(tenant, requestedLocationSlug)
       : null;
-    const upload = await vendorMediaUploadService.createUpload({
+    const upload = await vendorMediaUploadService.uploadBinary({
       tenant,
       location,
       user: req.user,
-      body: req.body
-    }, "location");
+      body: {
+        fileName: normalizeRequestText(req.query.fileName),
+        contentType: req.headers["content-type"],
+        sizeBytes: fileBuffer.length
+      },
+      fileBuffer,
+      assetType: "location"
+    });
 
     res.status(201).json(upload);
   })
@@ -471,18 +484,31 @@ router.post(
 
 router.post(
   "/tenant/:tenantSlug/service-media/uploads/direct",
+  express.raw({ type: ["image/jpeg", "image/png", "image/webp"], limit: "8mb" }),
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.service.manage");
-    const location = req.body.locationSlug
-      ? await getLocationForTenant(tenant, req.body.locationSlug)
+    const fileBuffer = Buffer.isBuffer(req.body) ? Buffer.from(req.body) : null;
+    if (!fileBuffer || !fileBuffer.length) {
+      const error = new Error("Image upload payload is required.");
+      error.statusCode = 400;
+      throw error;
+    }
+    const location = req.query.locationSlug
+      ? await getLocationForTenant(tenant, normalizeRequestText(req.query.locationSlug))
       : null;
-    const upload = await vendorMediaUploadService.createUpload({
+    const upload = await vendorMediaUploadService.uploadBinary({
       tenant,
       location,
       user: req.user,
-      body: req.body
-    }, "service");
+      body: {
+        fileName: normalizeRequestText(req.query.fileName),
+        contentType: req.headers["content-type"],
+        sizeBytes: fileBuffer.length
+      },
+      fileBuffer,
+      assetType: "service"
+    });
 
     res.status(201).json(upload);
   })
