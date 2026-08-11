@@ -96,6 +96,8 @@ const {
   saveLocationHours,
   saveTheme,
   uploadLocationPaymentQr: uploadLocationPaymentQrOperation,
+  uploadLocationMedia,
+  uploadServiceMedia,
   uploadThemeAsset,
   syncCheckout,
   updateLocation,
@@ -765,6 +767,25 @@ test("apiUpload uses cookie authentication without sending cookie-session as a b
     assert.equal(requestOptions.headers["Content-Type"], "image/png");
     assert.equal(requestOptions.credentials, "include");
   });
+});
+
+test("vendor media uploads send image bytes only to the authenticated API", async () => {
+  const calls = [];
+  const file = new Blob(["image"], { type: "image/png" });
+
+  await withFetch(async (url, options) => {
+    calls.push([String(url), options]);
+    return mockResponse(201, { asset: { id: "asset-1" } });
+  }, async () => {
+    await uploadLocationMedia("token", "tenant", "main", file);
+    await uploadServiceMedia("token", "tenant", "main", file);
+  });
+
+  assert.equal(calls.length, 2);
+  assert.ok(calls.every(([, options]) => options.method === "POST"));
+  assert.ok(calls.every(([url]) => url.startsWith(`${API_BASE_URL}/vendor/tenant/tenant/`)));
+  assert.ok(calls.every(([, options]) => options.body === file));
+  assert.ok(calls.every(([, options]) => options.headers["Content-Type"] === "image/png"));
 });
 
 test("frontend API retains the server-issued CSRF token across API origins", () => {
