@@ -124,4 +124,57 @@ export async function apiRequest<TResponse, TBody = unknown>(
   return data as TResponse;
 }
 
+export async function apiUpload<TResponse>(
+  path: string,
+  options: {
+    body: BodyInit;
+    contentType: string;
+    token?: string;
+    signal?: AbortSignal;
+    skipAuthRefresh?: boolean;
+    headers?: Record<string, string>;
+  }
+): Promise<TResponse> {
+  const { body, contentType, token, signal, skipAuthRefresh = false, headers = {} } = options;
+  const makeRequest = async (authToken?: string) =>
+    fetch(`${API_BASE_URL}${path}`, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": contentType,
+        ...(readCsrfToken() ? { "X-CSRF-Token": readCsrfToken() } : {}),
+        ...(authToken && authToken !== "cookie-session"
+          ? { Authorization: `Bearer ${authToken}` }
+          : {}),
+        ...headers
+      },
+      body,
+      signal
+    });
+
+  let response = await makeRequest(token);
+  if (response.status === 401 && token && !skipAuthRefresh && refreshTokenHandler) {
+    refreshPromise ||= refreshTokenHandler().finally(() => {
+      refreshPromise = null;
+    });
+    const nextToken = await refreshPromise;
+    if (nextToken) {
+      response = await makeRequest(nextToken);
+    } else if (authFailureHandler) {
+      authFailureHandler();
+    }
+  }
+
+  const data = (await response.json().catch(() => ({}))) as { message?: string };
+  rememberCsrfToken(data);
+  if (!response.ok) {
+    if (response.status === 401 && authFailureHandler && skipAuthRefresh) {
+      authFailureHandler();
+    }
+    throw new ApiError(data.message || "Request failed.", response.status);
+  }
+
+  return data as TResponse;
+}
+
 export { API_BASE_URL };

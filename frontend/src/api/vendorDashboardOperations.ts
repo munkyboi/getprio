@@ -11,7 +11,7 @@ import type {
   UpdateTenantNotificationSettingsResponse,
   UpdateVendorStaffRequest
 } from "@shared";
-import { API_BASE_URL, apiRequest } from "./client";
+import { apiRequest, apiUpload } from "./client";
 
 type VendorDashboardHistoryResponse = {
   historyDays?: number;
@@ -184,31 +184,17 @@ export function saveTheme(token: string, tenantSlug: string, locationSlug: strin
 }
 
 export function uploadThemeAsset(token: string, tenantSlug: string, locationSlug: string, assetType: "background" | "logo", file: File) {
-  return fetch(
-    `${API_BASE_URL}/vendor/tenant/${tenantSlug}/public-board-theme/uploads/direct?location=${encodeURIComponent(locationSlug)}&assetType=${encodeURIComponent(assetType)}&fileName=${encodeURIComponent(file.name)}`,
-    {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": file.type },
-      body: file
-    }
-  ).then(async (response) => {
-    if (!response.ok) throw new Error("Upload failed.");
-    return (await response.json()) as import("@shared").PublicBoardThemeUploadResponse;
-  });
+  return apiUpload<import("@shared").PublicBoardThemeUploadResponse>(
+    `/vendor/tenant/${tenantSlug}/public-board-theme/uploads/direct?location=${encodeURIComponent(locationSlug)}&assetType=${encodeURIComponent(assetType)}&fileName=${encodeURIComponent(file.name)}`,
+    { token, body: file, contentType: file.type }
+  );
 }
 
 export function uploadLocationPaymentQr(token: string, tenantSlug: string, locationSlug: string, file: File) {
-  return fetch(
-    `${API_BASE_URL}/vendor/tenant/${tenantSlug}/location-payment-qrs/uploads/direct?locationSlug=${encodeURIComponent(locationSlug)}&fileName=${encodeURIComponent(file.name)}`,
-    {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": file.type },
-      body: file
-    }
-  ).then(async (response) => {
-    if (!response.ok) throw new Error("Payment QR upload failed.");
-    return (await response.json()) as import("@shared").LocationPaymentQrUploadResponse;
-  });
+  return apiUpload<import("@shared").LocationPaymentQrUploadResponse>(
+    `/vendor/tenant/${tenantSlug}/location-payment-qrs/uploads/direct?locationSlug=${encodeURIComponent(locationSlug)}&fileName=${encodeURIComponent(file.name)}`,
+    { token, body: file, contentType: file.type }
+  );
 }
 
 async function uploadSignedAsset(uploadUrl: string, file: File, contentType: string) {

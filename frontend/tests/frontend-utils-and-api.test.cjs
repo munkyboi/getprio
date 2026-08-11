@@ -5,7 +5,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const { ApiError, apiRequest, setAuthHandlers, API_BASE_URL } = require("../src/api/client.ts");
+const { ApiError, apiRequest, apiUpload, setAuthHandlers, API_BASE_URL } = require("../src/api/client.ts");
 const { getErrorMessage } = require("../src/utils/errors.ts");
 const {
   buildTenantSlugFromName,
@@ -745,6 +745,26 @@ test("apiRequest handles auth refresh and errors", async () => {
   );
 
   setAuthHandlers({ refreshToken: null, onAuthFailure: null });
+});
+
+test("apiUpload uses cookie authentication without sending cookie-session as a bearer token", async () => {
+  let requestOptions;
+
+  await withFetch(async (_url, options) => {
+    requestOptions = options;
+    return mockResponse(200, { uploaded: true });
+  }, async () => {
+    const result = await apiUpload("/vendor/upload", {
+      token: "cookie-session",
+      body: new Blob(["image"]),
+      contentType: "image/png"
+    });
+
+    assert.deepEqual(result, { uploaded: true });
+    assert.equal(requestOptions.headers.Authorization, undefined);
+    assert.equal(requestOptions.headers["Content-Type"], "image/png");
+    assert.equal(requestOptions.credentials, "include");
+  });
 });
 
 test("frontend API retains the server-issued CSRF token across API origins", () => {
