@@ -179,10 +179,17 @@ TWILIO_ACCOUNT_SID=
 TWILIO_AUTH_TOKEN=
 TWILIO_FROM_NUMBER=
 
-PAYMONGO_SECRET_KEY=
+PAYMONGO_MODE=live
+PAYMONGO_SANDBOX_SECRET_KEY=sk_test_...
+PAYMONGO_SANDBOX_WEBHOOK_SECRET=
+PAYMONGO_LIVE_SECRET_KEY=sk_live_...
+PAYMONGO_LIVE_WEBHOOK_SECRET=
 PAYMONGO_API_URL=https://api.paymongo.com/v1
-PAYMONGO_WEBHOOK_SECRET=
 PAYMONGO_PAYMENT_METHOD_TYPES=card
+
+`PAYMONGO_MODE` must be `live` or `sandbox`. The app selects the matching secret key and webhook secret from the two credential sets, validates the key prefix (`sk_live_` or `sk_test_`), and rejects webhook payloads from the opposite environment. The API URL remains `https://api.paymongo.com/v1` for both modes. The old `PAYMONGO_SECRET_KEY` and `PAYMONGO_WEBHOOK_SECRET` variables remain supported as a compatibility fallback.
+
+The production deployment workflow reads the five PayMongo values from the GitHub `production` Environment secrets and securely synchronizes them to this server `.env` over SSH. Configure `PAYMONGO_MODE`, `PAYMONGO_SANDBOX_SECRET_KEY`, `PAYMONGO_SANDBOX_WEBHOOK_SECRET`, `PAYMONGO_LIVE_SECRET_KEY`, and `PAYMONGO_LIVE_WEBHOOK_SECRET` as protected Environment secrets. The workflow does not print their values.
 
 B2_S3_ENDPOINT=
 B2_REGION=us-east-005

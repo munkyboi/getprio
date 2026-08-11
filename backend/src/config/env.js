@@ -59,9 +59,37 @@ const sendgridApiUrl = process.env.SENDGRID_API_URL || "https://api.sendgrid.com
 const smsAccountSid = process.env.TWILIO_ACCOUNT_SID || "";
 const smsAuthToken = process.env.TWILIO_AUTH_TOKEN || "";
 const smsFromNumber = process.env.TWILIO_FROM_NUMBER || "";
-const paymongoSecretKey = process.env.PAYMONGO_SECRET_KEY || "";
+function resolvePaymongoMode(source = process.env) {
+  const configured = String(source.PAYMONGO_MODE || "").trim().toLowerCase();
+  if (configured && configured !== "sandbox" && configured !== "live") {
+    throw new Error("PAYMONGO_MODE must be either sandbox or live.");
+  }
+  if (configured) return configured === "sandbox" ? "sandbox" : "live";
+  if (String(source.PAYMONGO_SECRET_KEY || "").startsWith("sk_test_")) return "sandbox";
+  if (source.PAYMONGO_SANDBOX_SECRET_KEY && !source.PAYMONGO_LIVE_SECRET_KEY) return "sandbox";
+  return "live";
+}
+const paymongoMode = resolvePaymongoMode();
+function resolvePaymongoCredentials(source = process.env, mode = resolvePaymongoMode(source)) {
+  const selectedSecretKey = mode === "sandbox"
+    ? source.PAYMONGO_SANDBOX_SECRET_KEY
+    : source.PAYMONGO_LIVE_SECRET_KEY;
+  const selectedWebhookSecret = mode === "sandbox"
+    ? source.PAYMONGO_SANDBOX_WEBHOOK_SECRET
+    : source.PAYMONGO_LIVE_WEBHOOK_SECRET;
+
+  return {
+    secretKey: selectedSecretKey || source.PAYMONGO_SECRET_KEY || "",
+    webhookSecret: selectedWebhookSecret || source.PAYMONGO_WEBHOOK_SECRET || "",
+  };
+}
+const paymongoCredentials = resolvePaymongoCredentials();
+const paymongoSecretKey = paymongoCredentials.secretKey;
+if (paymongoSecretKey.startsWith("sk_") && !paymongoSecretKey.startsWith(paymongoMode === "sandbox" ? "sk_test_" : "sk_live_")) {
+  throw new Error(`Selected PayMongo secret key does not match PAYMONGO_MODE=${paymongoMode}.`);
+}
 const paymongoApiUrl = process.env.PAYMONGO_API_URL || "https://api.paymongo.com/v1";
-const paymongoWebhookSecret = process.env.PAYMONGO_WEBHOOK_SECRET || "";
+const paymongoWebhookSecret = paymongoCredentials.webhookSecret;
 const paymongoPaymentMethodTypes = (process.env.PAYMONGO_PAYMENT_METHOD_TYPES || "card")
   .split(",")
   .map((method) => method.trim())
@@ -131,6 +159,7 @@ const env = {
   smsAccountSid,
   smsAuthToken,
   smsFromNumber,
+  paymongoMode,
   paymongoSecretKey,
   paymongoApiUrl,
   paymongoWebhookSecret,
@@ -159,3 +188,5 @@ const env = {
 
 module.exports = env;
 module.exports.default = env;
+module.exports.resolvePaymongoMode = resolvePaymongoMode;
+module.exports.resolvePaymongoCredentials = resolvePaymongoCredentials;

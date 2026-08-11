@@ -328,6 +328,9 @@ function safeCompare(left, right) {
 }
 
 function verifyPayMongoWebhook({ rawBody, signatureHeader, livemode }) {
+  if (env.paymongoMode && Boolean(livemode) !== (env.paymongoMode === "live")) {
+    return false;
+  }
   if (!env.paymongoWebhookSecret) {
     return true;
   }
