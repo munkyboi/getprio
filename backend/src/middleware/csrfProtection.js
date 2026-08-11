@@ -30,11 +30,12 @@ function requestOrigin(req) {
   }
 }
 
-function isLoginRequest(req) {
+function isAuthRecoveryRequest(req) {
   const path = String(req.originalUrl || req.url || "")
     .split("?")[0]
     .replace(/^\/api(?=\/)/, "");
-  return String(req.method || "GET").toUpperCase() === "POST" && path === "/auth/login";
+  return String(req.method || "GET").toUpperCase() === "POST" &&
+    ["/auth/login", "/auth/mfa/verify"].includes(path);
 }
 
 function createCsrfProtection({ allowedOrigins, csrfSecret, authCookieSecure = true }) {
@@ -73,7 +74,7 @@ function createCsrfProtection({ allowedOrigins, csrfSecret, authCookieSecure = t
       next(csrfError("This request format is not supported. Please refresh and try again."));
       return;
     }
-    if (isLoginRequest(req)) {
+    if (isAuthRecoveryRequest(req)) {
       next();
       return;
     }
