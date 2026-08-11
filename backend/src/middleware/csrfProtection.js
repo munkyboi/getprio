@@ -30,6 +30,13 @@ function requestOrigin(req) {
   }
 }
 
+function isLoginRequest(req) {
+  const path = String(req.originalUrl || req.url || "")
+    .split("?")[0]
+    .replace(/^\/api(?=\/)/, "");
+  return String(req.method || "GET").toUpperCase() === "POST" && path === "/auth/login";
+}
+
 function createCsrfProtection({ allowedOrigins, csrfSecret, authCookieSecure = true }) {
   const origins = allowedOrigins instanceof Set ? allowedOrigins : new Set(allowedOrigins || []);
 
@@ -64,6 +71,10 @@ function createCsrfProtection({ allowedOrigins, csrfSecret, authCookieSecure = t
     }
     if (!ALLOWED_CONTENT_TYPES.some((allowed) => contentType.startsWith(allowed))) {
       next(csrfError("This request format is not supported. Please refresh and try again."));
+      return;
+    }
+    if (isLoginRequest(req)) {
+      next();
       return;
     }
     if (!headerToken || headerToken !== cookieToken || !verifyCsrfToken(headerToken, csrfSecret)) {

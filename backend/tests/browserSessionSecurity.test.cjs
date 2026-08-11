@@ -104,6 +104,27 @@ test("cookie-authenticated mutation requires same-origin session-bound CSRF", as
   await new Promise((resolve, reject) => protect(request, response, (error) => error ? reject(error) : resolve()));
 });
 
+test("login can recover from a stale browser session without bypassing origin checks", async () => {
+  const protect = createCsrfProtection({
+    allowedOrigins: new Set(["https://app.getprio.test"]),
+    csrfSecret: "test-csrf-secret"
+  });
+  const response = buildResponse();
+  const request = {
+    method: "POST",
+    originalUrl: "/api/auth/login",
+    headers: {
+      cookie: `${ACCESS_COOKIE}=stale-access; ${CSRF_COOKIE}=stale-csrf`,
+      origin: "https://app.getprio.test",
+      "sec-fetch-site": "same-origin",
+      "content-type": "application/json",
+      "x-csrf-token": "stale-header"
+    }
+  };
+
+  await new Promise((resolve, reject) => protect(request, response, (error) => error ? reject(error) : resolve()));
+});
+
 test("cookie-authenticated mutation rejects foreign origin and missing CSRF", async () => {
   const protect = createCsrfProtection({
     allowedOrigins: new Set(["https://app.getprio.test"]),
