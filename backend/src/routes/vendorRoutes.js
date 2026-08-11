@@ -455,7 +455,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.location.manage");
-    const fileBuffer = Buffer.isBuffer(req.body) ? req.body : null;
+    const fileBuffer = Buffer.isBuffer(req.body) ? Buffer.from(req.body) : null;
     if (!fileBuffer || !fileBuffer.length) {
       const error = new Error("Image upload payload is required.");
       error.statusCode = 400;
@@ -488,7 +488,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.service.manage");
-    const fileBuffer = Buffer.isBuffer(req.body) ? req.body : null;
+    const fileBuffer = Buffer.isBuffer(req.body) ? Buffer.from(req.body) : null;
     if (!fileBuffer || !fileBuffer.length) {
       const error = new Error("Image upload payload is required.");
       error.statusCode = 400;

@@ -129,7 +129,7 @@ async function createUpload({ tenant, location, user, body, assetType = "locatio
 
 async function uploadBinary({ tenant, location, user, body, fileBuffer, assetType = "location" }) {
   assertB2Configured();
-  const uploadBuffer = Buffer.isBuffer(fileBuffer) ? fileBuffer : null;
+  const uploadBuffer = Buffer.isBuffer(fileBuffer) ? Buffer.from(fileBuffer) : null;
   const fileName = normalizeFileName(body.fileName, `${assetType}-image`);
   const contentType = String(body.contentType || "").toLowerCase();
   const sizeBytes = Number(body.sizeBytes || uploadBuffer?.length || 0);
