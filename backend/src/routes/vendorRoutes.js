@@ -455,7 +455,8 @@ router.post(
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.location.manage");
-    if (!req.body || !Buffer.isBuffer(req.body) || !req.body.length) {
+    const fileBuffer = Buffer.isBuffer(req.body) ? req.body : null;
+    if (!fileBuffer || !fileBuffer.length) {
       const error = new Error("Image upload payload is required.");
       error.statusCode = 400;
       throw error;
@@ -471,9 +472,9 @@ router.post(
       body: {
         fileName: normalizeRequestText(req.query.fileName),
         contentType: req.headers["content-type"],
-        sizeBytes: req.body.length
+        sizeBytes: fileBuffer.length
       },
-      fileBuffer: req.body,
+      fileBuffer,
       assetType: "location"
     });
 
@@ -487,7 +488,8 @@ router.post(
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.service.manage");
-    if (!req.body || !Buffer.isBuffer(req.body) || !req.body.length) {
+    const fileBuffer = Buffer.isBuffer(req.body) ? req.body : null;
+    if (!fileBuffer || !fileBuffer.length) {
       const error = new Error("Image upload payload is required.");
       error.statusCode = 400;
       throw error;
@@ -502,9 +504,9 @@ router.post(
       body: {
         fileName: normalizeRequestText(req.query.fileName),
         contentType: req.headers["content-type"],
-        sizeBytes: req.body.length
+        sizeBytes: fileBuffer.length
       },
-      fileBuffer: req.body,
+      fileBuffer,
       assetType: "service"
     });
 

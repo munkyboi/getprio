@@ -129,15 +129,16 @@ async function createUpload({ tenant, location, user, body, assetType = "locatio
 
 async function uploadBinary({ tenant, location, user, body, fileBuffer, assetType = "location" }) {
   assertB2Configured();
+  const uploadBuffer = Buffer.isBuffer(fileBuffer) ? fileBuffer : null;
   const fileName = normalizeFileName(body.fileName, `${assetType}-image`);
   const contentType = String(body.contentType || "").toLowerCase();
-  const sizeBytes = Number(body.sizeBytes || fileBuffer?.length || 0);
+  const sizeBytes = Number(body.sizeBytes || uploadBuffer?.length || 0);
   if (!ALLOWED_CONTENT_TYPES.has(contentType)) {
     const error = new Error("Only JPEG, PNG, and WebP images are supported.");
     error.statusCode = 400;
     throw error;
   }
-  if (!Buffer.isBuffer(fileBuffer) || !fileBuffer.length || fileBuffer.length > MAX_UPLOAD_BYTES) {
+  if (!uploadBuffer || !uploadBuffer.length || uploadBuffer.length > MAX_UPLOAD_BYTES) {
     const error = new Error("Image must be between 1 byte and 8 MB.");
     error.statusCode = 400;
     throw error;
@@ -149,7 +150,7 @@ async function uploadBinary({ tenant, location, user, body, fileBuffer, assetTyp
     Bucket: env.b2BucketPublicBoard,
     Key: objectKey,
     ContentType: contentType,
-    Body: fileBuffer
+    Body: uploadBuffer
   }));
 
   const asset = await publicBoardThemeRepository.createAsset({
