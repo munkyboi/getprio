@@ -116,8 +116,8 @@ jobs:
                 }
               }
               END {
-                for (index = 1; index <= count; index++) {
-                  if (!(order[index] in seen)) print patch[order[index]]
+                for (position = 1; position <= count; position++) {
+                  if (!(order[position] in seen)) print patch[order[position]]
                 }
               }
             ' "${paymongo_patch_file}" "${paymongo_env_file}" > "${paymongo_tmp_file}"
