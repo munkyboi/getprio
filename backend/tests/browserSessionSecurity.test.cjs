@@ -104,7 +104,7 @@ test("cookie-authenticated mutation requires same-origin session-bound CSRF", as
   await new Promise((resolve, reject) => protect(request, response, (error) => error ? reject(error) : resolve()));
 });
 
-test("login can recover from a stale browser session without bypassing origin checks", async () => {
+test("login and MFA verification can recover from a stale browser session without bypassing origin checks", async () => {
   const protect = createCsrfProtection({
     allowedOrigins: new Set(["https://app.getprio.test"]),
     csrfSecret: "test-csrf-secret"
@@ -123,6 +123,11 @@ test("login can recover from a stale browser session without bypassing origin ch
   };
 
   await new Promise((resolve, reject) => protect(request, response, (error) => error ? reject(error) : resolve()));
+
+  await new Promise((resolve, reject) => protect({
+    ...request,
+    originalUrl: "/api/auth/mfa/verify"
+  }, response, (error) => error ? reject(error) : resolve()));
 });
 
 test("cookie-authenticated mutation rejects foreign origin and missing CSRF", async () => {
