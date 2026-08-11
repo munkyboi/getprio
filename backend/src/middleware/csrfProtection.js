@@ -10,7 +10,10 @@ const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 const ALLOWED_CONTENT_TYPES = [
   "application/json",
   "application/x-www-form-urlencoded",
-  "multipart/form-data"
+  "multipart/form-data",
+  "image/jpeg",
+  "image/png",
+  "image/webp"
 ];
 
 function csrfError(message) {
