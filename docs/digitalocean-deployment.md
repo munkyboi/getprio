@@ -179,10 +179,13 @@ TWILIO_ACCOUNT_SID=
 TWILIO_AUTH_TOKEN=
 TWILIO_FROM_NUMBER=
 
-PAYMONGO_SECRET_KEY=
+PAYMONGO_MODE=live
+PAYMONGO_SECRET_KEY=sk_live_...
 PAYMONGO_API_URL=https://api.paymongo.com/v1
 PAYMONGO_WEBHOOK_SECRET=
 PAYMONGO_PAYMENT_METHOD_TYPES=card
+
+`PAYMONGO_MODE` must be `live` or `sandbox` and must match the secret-key prefix (`sk_live_` or `sk_test_`). Use the webhook signing secret from the same PayMongo mode. The API URL remains `https://api.paymongo.com/v1` for both modes. The mode also rejects webhook payloads from the opposite environment.
 
 B2_S3_ENDPOINT=
 B2_REGION=us-east-005

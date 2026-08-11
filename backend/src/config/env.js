@@ -59,7 +59,19 @@ const sendgridApiUrl = process.env.SENDGRID_API_URL || "https://api.sendgrid.com
 const smsAccountSid = process.env.TWILIO_ACCOUNT_SID || "";
 const smsAuthToken = process.env.TWILIO_AUTH_TOKEN || "";
 const smsFromNumber = process.env.TWILIO_FROM_NUMBER || "";
+function resolvePaymongoMode(source = process.env) {
+  const configured = String(source.PAYMONGO_MODE || "").trim().toLowerCase();
+  if (configured && configured !== "sandbox" && configured !== "live") {
+    throw new Error("PAYMONGO_MODE must be either sandbox or live.");
+  }
+  if (configured) return configured === "sandbox" ? "sandbox" : "live";
+  return String(source.PAYMONGO_SECRET_KEY || "").startsWith("sk_test_") ? "sandbox" : "live";
+}
+const paymongoMode = resolvePaymongoMode();
 const paymongoSecretKey = process.env.PAYMONGO_SECRET_KEY || "";
+if (paymongoSecretKey.startsWith("sk_") && !paymongoSecretKey.startsWith(paymongoMode === "sandbox" ? "sk_test_" : "sk_live_")) {
+  throw new Error(`PAYMONGO_SECRET_KEY does not match PAYMONGO_MODE=${paymongoMode}.`);
+}
 const paymongoApiUrl = process.env.PAYMONGO_API_URL || "https://api.paymongo.com/v1";
 const paymongoWebhookSecret = process.env.PAYMONGO_WEBHOOK_SECRET || "";
 const paymongoPaymentMethodTypes = (process.env.PAYMONGO_PAYMENT_METHOD_TYPES || "card")
@@ -131,6 +143,7 @@ const env = {
   smsAccountSid,
   smsAuthToken,
   smsFromNumber,
+  paymongoMode,
   paymongoSecretKey,
   paymongoApiUrl,
   paymongoWebhookSecret,
@@ -159,3 +172,4 @@ const env = {
 
 module.exports = env;
 module.exports.default = env;
+module.exports.resolvePaymongoMode = resolvePaymongoMode;
