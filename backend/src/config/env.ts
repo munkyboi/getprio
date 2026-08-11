@@ -72,16 +72,36 @@ export function resolvePaymongoMode(source: NodeJS.ProcessEnv = process.env): "s
     throw new Error("PAYMONGO_MODE must be either sandbox or live.");
   }
   if (configured) return configured === "sandbox" ? "sandbox" : "live";
-  return String(source.PAYMONGO_SECRET_KEY || "").startsWith("sk_test_") ? "sandbox" : "live";
+  if (String(source.PAYMONGO_SECRET_KEY || "").startsWith("sk_test_")) return "sandbox";
+  if (source.PAYMONGO_SANDBOX_SECRET_KEY && !source.PAYMONGO_LIVE_SECRET_KEY) return "sandbox";
+  return "live";
 }
 
 export const paymongoMode = resolvePaymongoMode();
-export const paymongoSecretKey = process.env.PAYMONGO_SECRET_KEY || "";
+export function resolvePaymongoCredentials(
+  source: NodeJS.ProcessEnv = process.env,
+  mode: "sandbox" | "live" = resolvePaymongoMode(source),
+) {
+  const selectedSecretKey = mode === "sandbox"
+    ? source.PAYMONGO_SANDBOX_SECRET_KEY
+    : source.PAYMONGO_LIVE_SECRET_KEY;
+  const selectedWebhookSecret = mode === "sandbox"
+    ? source.PAYMONGO_SANDBOX_WEBHOOK_SECRET
+    : source.PAYMONGO_LIVE_WEBHOOK_SECRET;
+
+  return {
+    secretKey: selectedSecretKey || source.PAYMONGO_SECRET_KEY || "",
+    webhookSecret: selectedWebhookSecret || source.PAYMONGO_WEBHOOK_SECRET || "",
+  };
+}
+
+const paymongoCredentials = resolvePaymongoCredentials();
+export const paymongoSecretKey = paymongoCredentials.secretKey;
 if (paymongoSecretKey.startsWith("sk_") && !paymongoSecretKey.startsWith(paymongoMode === "sandbox" ? "sk_test_" : "sk_live_")) {
-  throw new Error(`PAYMONGO_SECRET_KEY does not match PAYMONGO_MODE=${paymongoMode}.`);
+  throw new Error(`Selected PayMongo secret key does not match PAYMONGO_MODE=${paymongoMode}.`);
 }
 export const paymongoApiUrl = process.env.PAYMONGO_API_URL || "https://api.paymongo.com/v1";
-export const paymongoWebhookSecret = process.env.PAYMONGO_WEBHOOK_SECRET || "";
+export const paymongoWebhookSecret = paymongoCredentials.webhookSecret;
 export const paymongoPaymentMethodTypes = (
   process.env.PAYMONGO_PAYMENT_METHOD_TYPES || "card"
 )

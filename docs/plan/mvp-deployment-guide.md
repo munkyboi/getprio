@@ -154,8 +154,11 @@ If you use booking, payment, upload, or notification features, also configure:
 - `TWILIO_ACCOUNT_SID`
 - `TWILIO_AUTH_TOKEN`
 - `TWILIO_FROM_NUMBER`
-- `PAYMONGO_SECRET_KEY`
-- `PAYMONGO_WEBHOOK_SECRET`
+- `PAYMONGO_MODE` (`sandbox` or `live`)
+- `PAYMONGO_SANDBOX_SECRET_KEY`
+- `PAYMONGO_SANDBOX_WEBHOOK_SECRET`
+- `PAYMONGO_LIVE_SECRET_KEY`
+- `PAYMONGO_LIVE_WEBHOOK_SECRET`
 - `B2_*` upload settings for Backblaze storage
 - `B2_BUCKET_PUBLIC_BOARD`
 - `B2_BUCKET_PAYMENT_PROOF`
