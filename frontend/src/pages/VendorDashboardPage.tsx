@@ -9924,6 +9924,54 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     );
   }
 
+  function renderBusinessProfilePreview() {
+    const selectedTenant = user?.tenants.find((tenant) => tenant.slug === selectedTenantSlug);
+    const previewName = settings.name || selectedTenant?.name || "Your business";
+    const previewLocation = selectedLocation
+      ? [selectedLocation.name, selectedLocation.city, selectedLocation.province].filter(Boolean).join(", ")
+      : "Main location";
+    const previewStyle = {
+      "--vendor-theme-card-bg": businessProfileTheme.cardBackgroundColor,
+      "--vendor-theme-logo-fit": businessProfileTheme.logoFit,
+      "--vendor-theme-logo-frame-padding": businessProfileTheme.logoFit === "cover" ? "0px" : undefined,
+      ...(businessProfileTheme.backgroundImageUrl
+        ? {
+            backgroundImage: `linear-gradient(rgba(255,255,255,0.2), rgba(255,255,255,0.2)), url(${businessProfileTheme.backgroundImageUrl})`
+          }
+        : {})
+    } as CSSProperties;
+
+    return (
+      <Stack gap="xs">
+        <Text fw={700}>Profile preview</Text>
+        <Text c="dimmed" size="sm">This is how the default profile media will appear on public profile cards.</Text>
+        <Paper className="vendor-card vendor-profile-settings-preview" component="div" p={{ base: "md", sm: "lg" }}>
+          <Stack gap="md">
+            <div
+              className={businessProfileTheme.backgroundImageUrl || businessProfileTheme.logoUrl
+                ? "vendor-card-image vendor-card-image-themed"
+                : "vendor-card-image"}
+              style={previewStyle}
+            >
+              {businessProfileTheme.logoUrl ? (
+                <div className="vendor-card-logo-frame">
+                  <img alt={`${previewName} logo`} src={businessProfileTheme.logoUrl} />
+                </div>
+              ) : <IconTicket aria-hidden="true" size={42} />}
+            </div>
+            {settings.publicProfileCategory ? <Badge color="orange" variant="light">{settings.publicProfileCategory}</Badge> : null}
+            <Title order={3}>{previewName}</Title>
+            <Group c="dimmed" gap={6} wrap="nowrap">
+              <IconMapPin size={16} />
+              <Text size="sm">{previewLocation || "Philippines"}</Text>
+            </Group>
+            <Text c="dimmed" lineClamp={2}>{"This vendor is preparing a public service profile."}</Text>
+          </Stack>
+        </Paper>
+      </Stack>
+    );
+  }
+
   function renderSettingsPage() {
     return (
       <Stack gap="md">
@@ -10037,6 +10085,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       onChange={(value) => setBusinessProfileThemeField("logoFit", value === "cover" ? "cover" : "contain")}
                     />
                   </SimpleGrid>
+                  {renderBusinessProfilePreview()}
                   <Button className="neura-secondary-button" disabled={busyAction === "settings"} type="submit">
                     {busyAction === "settings" || busyAction === "business-profile-theme-save" ? "Saving..." : "Save business profile"}
                   </Button>

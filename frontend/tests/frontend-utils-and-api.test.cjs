@@ -1724,6 +1724,14 @@ test("vendor settings provide an editable business profile", () => {
   assert.doesNotMatch(source, /<Tabs defaultValue="contact"/);
   assert.match(source, /label="Business name"/);
   assert.match(source, /label="Business category"/);
+  assert.match(source, /<Text fw=\{700\}>Default profile media<\/Text>/);
+  assert.match(source, /label="Profile background"/);
+  assert.match(source, /label="Profile background fit"/);
+  assert.match(source, /label="Profile background URL"/);
+  assert.match(source, /label="Company logo"/);
+  assert.match(source, /label="Logo URL"/);
+  assert.match(source, /label="Profile logo fit"/);
+  assert.match(source, /Profile preview/);
   assert.doesNotMatch(source, /label="Owner name"/);
   assert.doesNotMatch(source, /label="Owner display name"/);
   assert.match(source, /label="Full name"/);

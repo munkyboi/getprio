@@ -42,6 +42,7 @@ import { formatDisplayTime, toTimestamp } from "../utils/dates";
 import { saveJoinedQueueAccess } from "../utils/joinedQueueAccess";
 import { getErrorMessage } from "../utils/errors";
 import { getQueueStateSummary, isQueueAcceptingJoins } from "../utils/queueStatus";
+import { resolveVendorProfileMedia } from "../utils/vendorTheme";
 
 type JoinQueueFormState = Omit<JoinQueueRequest, "joinChannel" | "turnstileToken">;
 
@@ -152,7 +153,10 @@ export default function JoinQueuePage() {
   const pageTitle = tenantInfo?.name || tenantSlugValue;
   const signedInCustomer = Boolean(user?.roles?.includes("customer"));
   const requiresPhone = requiresQueuePayment && !form.customerEmail.trim();
-  const theme = queueSnapshot?.publicBoardTheme?.theme;
+  const theme = resolveVendorProfileMedia(
+    queueSnapshot?.publicBoardTheme?.theme,
+    queueSnapshot?.businessProfileTheme?.theme
+  );
   const themeStyle: CSSProperties | undefined = theme
     ? {
         "--vendor-theme-page-bg": theme.pageBackgroundColor,

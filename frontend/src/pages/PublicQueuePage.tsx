@@ -8,6 +8,7 @@ import type { QueueJoinPaymentSyncResponse, QueueListTicket, QueueSnapshot } fro
 import { API_BASE_URL, apiRequest } from "../api/client";
 import { buildJoinUrl, buildJoinedQueuePathWithTicket } from "../queuePaths";
 import { getErrorMessage } from "../utils/errors";
+import { resolveVendorProfileMedia } from "../utils/vendorTheme";
 import {
   getLocationStatusSummary,
   getQueueStateSummary,
@@ -108,7 +109,10 @@ export default function PublicQueuePage() {
   const joinQrUrl = `${joinUrl}?source=qr`;
   const vendorIsInactive = snapshot ? !snapshot.tenant.isActive : false;
   const locationIsClosed = snapshot?.location ? !snapshot.location.openStatus.isOpen : false;
-  const theme = snapshot?.publicBoardTheme.theme;
+  const theme = resolveVendorProfileMedia(
+    snapshot?.publicBoardTheme.theme,
+    snapshot?.businessProfileTheme?.theme
+  );
   const businessName = snapshot?.tenant?.name || tenantSlugValue || "GetPrio";
   const heroTitle = businessName;
   const heroSubtitle = getLocationSubtitle(snapshot, theme?.heroSubtitle || locationSlug || "Main location");

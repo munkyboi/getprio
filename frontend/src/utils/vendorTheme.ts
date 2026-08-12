@@ -1,6 +1,27 @@
 import type { CSSProperties } from "react";
 import type { PublicBoardThemeSettings } from "@shared";
 
+export function resolveVendorProfileMedia(
+  theme?: PublicBoardThemeSettings | null,
+  defaultTheme?: PublicBoardThemeSettings | null
+): PublicBoardThemeSettings | null {
+  if (!theme && !defaultTheme) {
+    return null;
+  }
+
+  const resolved = { ...(theme || defaultTheme!) };
+  if (defaultTheme?.backgroundImageUrl) {
+    resolved.backgroundImageUrl = defaultTheme.backgroundImageUrl;
+    resolved.backgroundImageFit = defaultTheme.backgroundImageFit;
+  }
+  if (defaultTheme?.logoUrl) {
+    resolved.logoUrl = defaultTheme.logoUrl;
+    resolved.logoFit = defaultTheme.logoFit;
+  }
+
+  return resolved;
+}
+
 export function buildVendorThemeStyle(theme?: PublicBoardThemeSettings | null): CSSProperties | undefined {
   if (!theme) {
     return undefined;

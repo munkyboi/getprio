@@ -17,6 +17,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import type { PublicVendorListResponse, PublicVendorProfile } from "@shared";
 import { apiRequest } from "../api/client";
 import { getErrorMessage } from "../utils/errors";
+import { resolveVendorProfileMedia } from "../utils/vendorTheme";
 
 function getLocationLabel(vendor: PublicVendorProfile) {
   const parts = [
@@ -39,7 +40,7 @@ function getBranchLabel(location: PublicVendorProfile["locations"][number]) {
 }
 
 function getVendorMediaStyle(vendor: PublicVendorProfile): CSSProperties | undefined {
-  const theme = vendor.publicBoardTheme?.theme;
+  const theme = getVendorMediaTheme(vendor);
 
   if (!theme) {
     return undefined;
@@ -55,6 +56,13 @@ function getVendorMediaStyle(vendor: PublicVendorProfile): CSSProperties | undef
         }
       : {})
   } as CSSProperties;
+}
+
+function getVendorMediaTheme(vendor: PublicVendorProfile) {
+  return resolveVendorProfileMedia(
+    vendor.publicBoardTheme?.theme,
+    vendor.businessProfileTheme?.theme
+  );
 }
 
 export default function VendorDiscoveryPage() {
@@ -173,20 +181,22 @@ export default function VendorDiscoveryPage() {
           ) : null}
 
           <SimpleGrid className="vendor-discovery-grid" cols={{ base: 1, sm: 2, lg: 3 }} spacing="lg">
-            {vendors.map((vendor) => (
+            {vendors.map((vendor) => {
+              const theme = getVendorMediaTheme(vendor);
+              return (
               <Paper className="vendor-card" component={Link} key={vendor.slug} p={{ base: "md", sm: "lg" }} to={`/vendors/${vendor.slug}`}>
                 <Stack gap="md" h="100%">
                   <div
-                    className={vendor.publicBoardTheme?.theme.backgroundImageUrl || vendor.publicBoardTheme?.theme.logoUrl
+                    className={theme?.backgroundImageUrl || theme?.logoUrl
                       ? "vendor-card-image vendor-card-image-themed"
                       : "vendor-card-image"}
                     style={getVendorMediaStyle(vendor)}
                   >
-                    {vendor.publicBoardTheme?.theme.logoUrl ? (
+                    {theme?.logoUrl ? (
                       <div className="vendor-card-logo-frame">
                         <img
                           alt={`${vendor.name} logo`}
-                          src={vendor.publicBoardTheme.theme.logoUrl}
+                          src={theme.logoUrl}
                           style={{ objectFit: "cover" }}
                         />
                       </div>
@@ -244,7 +254,8 @@ export default function VendorDiscoveryPage() {
                   ) : null}
                 </Stack>
               </Paper>
-            ))}
+              );
+            })}
           </SimpleGrid>
         </Stack>
       </Container>
