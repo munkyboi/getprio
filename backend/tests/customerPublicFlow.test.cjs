@@ -250,8 +250,8 @@ function buildPublicRouter(ticket, cancelTicketMock, publicCapabilities = {
             }
     },
     "../repositories/publicBoardThemes": {
-      getResolvedTheme: async () => ({
-        scope: "location",
+      getResolvedTheme: async (_tenantId, _locationId, options = {}) => ({
+        scope: options.mediaOnly ? "tenant" : "location",
         theme: {
           presetId: "classic",
           heroTitle: "Demo board",
@@ -542,6 +542,7 @@ test("public vendor discovery returns approved public profile cards", async () =
     const body = await response.json();
     assert.equal(body.vendors.length, 1);
     assert.deepEqual(Object.keys(body.vendors[0]).sort(), [
+      "businessProfileTheme",
       "capabilities",
       "category",
       "description",
@@ -566,6 +567,7 @@ test("public vendor discovery returns approved public profile cards", async () =
     assert.equal(body.vendors[0].services[0].manualPaymentRequired, true);
     assert.equal(body.vendors[0].services[0].tenantId, undefined);
     assert.equal(body.vendors[0].publicBoardTheme.theme.logoUrl, "https://cdn.example.test/logo.png");
+    assert.equal(body.vendors[0].businessProfileTheme.theme.logoUrl, "https://cdn.example.test/logo.png");
     assert.equal(body.vendors[0].contactEmail, undefined);
   } finally {
     await stopServer(server);
@@ -785,6 +787,8 @@ test("public vendor profile suppresses surfaces excluded by the effective plan",
     assert.deepEqual(body.vendor.services, []);
     assert.deepEqual(body.vendor.locationServices, []);
     assert.equal(body.vendor.publicBoardTheme, null);
+    assert.equal(body.vendor.businessProfileTheme.scope, "tenant");
+    assert.equal(body.vendor.businessProfileTheme.theme.logoUrl, "https://cdn.example.test/logo.png");
   } finally {
     await stopServer(server);
   }

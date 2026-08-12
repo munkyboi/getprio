@@ -58,6 +58,7 @@ import { getErrorMessage } from "../utils/errors";
 import { formatPhilippineMobileNumber } from "../utils/phones";
 import { formatRatingCount } from "../utils/ratings";
 import { getQueueStateSummary } from "../utils/queueStatus";
+import { resolveVendorProfileMedia } from "../utils/vendorTheme";
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const GROUP_FUNDED_FILTER_STORAGE_KEY = "getprio:vendor-profile:group-funded-filters:v2";
@@ -474,7 +475,10 @@ export default function VendorProfilePage() {
     () => (selectedLocation ? getLocationLabel(selectedLocation) : vendor ? getLocationLabel(vendor.location) : ""),
     [selectedLocation, vendor]
   );
-  const theme = vendor?.publicBoardTheme?.theme;
+  const theme = resolveVendorProfileMedia(
+    vendor?.publicBoardTheme?.theme,
+    vendor?.businessProfileTheme?.theme
+  );
   const themeStyle: CSSProperties | undefined = theme
     ? {
         "--vendor-theme-page-bg": theme.pageBackgroundColor,

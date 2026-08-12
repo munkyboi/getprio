@@ -1451,6 +1451,7 @@ export interface QueueSnapshot {
   tenant: TenantSummary;
   location: StoreLocationSummary | null;
   publicBoardTheme: PublicBoardThemeResponse;
+  businessProfileTheme?: PublicBoardThemeResponse;
   queueDay: QueueDayStatus;
   queueIntake: QueueIntakeStatus;
   stats: QueueStats;
@@ -1578,6 +1579,7 @@ export interface PublicVendorProfile {
   locations: PublicVendorLocation[];
   locationServices?: LocationServiceSummary[];
   publicBoardTheme?: PublicBoardThemeResponse | null;
+  businessProfileTheme?: PublicBoardThemeResponse | null;
   location: {
     name: string;
     slug: string;

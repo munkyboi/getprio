@@ -16,6 +16,14 @@ test("vendor entitlements endpoint supports role-safe navigation without exposin
   );
 });
 
+test("default profile theme saves do not fall back to the primary location", () => {
+  const source = fs.readFileSync(path.resolve(__dirname, "../src/routes/vendorRoutes.js"), "utf8");
+  assert.match(
+    source,
+    /const requestedLocationSlug = normalizeRequestText\(req\.query\.location\);\s+const location = requestedLocationSlug\s+\? await getLocationForTenant\(tenant, requestedLocationSlug\)\s+: null;/
+  );
+});
+
 function resolveMockPath(requestPath, baseDir) {
   if (!requestPath.startsWith(".")) {
     return require.resolve(requestPath, { paths: [baseDir] });

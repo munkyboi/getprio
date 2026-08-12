@@ -95,6 +95,11 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
     tenant._id,
     locationToUse?._id
   );
+  const businessProfileTheme = await publicBoardThemeRepository.getResolvedTheme(
+    tenant._id,
+    undefined,
+    { mediaOnly: true }
+  );
 
   const nextUp = waitingTickets.slice(0, 10).map((ticket, index) => ({
     id: String(ticket._id),
@@ -229,6 +234,7 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
         : null
     ),
     publicBoardTheme,
+    businessProfileTheme,
     queueDay: {
       isClosed: Boolean(queueDayClosure),
       isPaused: Boolean(queueDayPause) && !queueDayClosure,

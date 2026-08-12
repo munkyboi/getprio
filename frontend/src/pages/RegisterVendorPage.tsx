@@ -15,6 +15,7 @@ import SocialAuthButtons from "../components/SocialAuthButtons";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { getErrorMessage } from "../utils/errors";
+import { BUSINESS_CATEGORIES } from "../constants/businessCategories";
 import {
   buildTenantSlugFromName,
   buildUsernameFromName,
@@ -44,14 +45,6 @@ const vendorSchema = z.object({
 });
 
 type VendorFormValues = z.infer<typeof vendorSchema>;
-
-const BUSINESS_CATEGORIES = [
-  { value: "Sports and Recreation", label: "Sports and Recreation" },
-  { value: "Health and Wellness", label: "Health and Wellness" },
-  { value: "Retail and E-commerce", label: "Retail and E-commerce" },
-  { value: "Food and Beverage", label: "Food and Beverage" },
-  { value: "Generic Service Business", label: "Generic Service Business" }
-] as const;
 
 export default function RegisterVendorPage() {
   const navigate = useNavigate();

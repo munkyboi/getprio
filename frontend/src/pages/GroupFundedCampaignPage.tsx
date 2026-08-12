@@ -48,7 +48,7 @@ import {
 } from "../utils/dates";
 import { getErrorMessage } from "../utils/errors";
 import { showCustomerError, showCustomerSuccess } from "../utils/customerNotifications";
-import { buildVendorThemeMediaStyle, buildVendorThemeStyle } from "../utils/vendorTheme";
+import { buildVendorThemeMediaStyle, buildVendorThemeStyle, resolveVendorProfileMedia } from "../utils/vendorTheme";
 
 function formatPaymentAmount(amountCents: number, currency: string) {
   return new Intl.NumberFormat("en-PH", {
@@ -383,7 +383,7 @@ export default function GroupFundedCampaignPage() {
     const controller = new AbortController();
     apiRequest<PublicVendorProfileResponse>(`/public/vendors/${campaign.tenantSlug}`, { signal: controller.signal })
       .then((data) => {
-        setVendorTheme(data.vendor.publicBoardTheme?.theme || null);
+        setVendorTheme(resolveVendorProfileMedia(data.vendor.publicBoardTheme?.theme, data.vendor.businessProfileTheme?.theme));
         setVendorProfile(data.vendor);
       })
       .catch((themeError) => {

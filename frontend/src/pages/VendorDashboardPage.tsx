@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert,
   ActionIcon,
+  Autocomplete,
   Badge,
   Burger,
   Button,
@@ -118,6 +119,7 @@ import type {
   GroupFundedRefundStatus
 } from "@shared";
 import { DEFAULT_TIMEZONE, getTimeZoneOptions } from "../../../shared/timezones";
+import { BUSINESS_CATEGORIES } from "../constants/businessCategories";
 import { API_BASE_URL } from "../api/client";
 import PhilippineMobileInput from "../components/PhilippineMobileInput";
 import FiveStarRatingInput from "../components/FiveStarRatingInput";
@@ -4140,6 +4142,13 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     value: PublicBoardThemeSettings[K]
   ) {
     setThemeForm((current) => ({ ...current, [field]: value }));
+  }
+
+  function setBusinessProfileThemeField<K extends keyof PublicBoardThemeSettings>(
+    field: K,
+    value: PublicBoardThemeSettings[K]
+  ) {
+    setBusinessProfileTheme((current) => ({ ...current, [field]: value }));
   }
 
   function applyThemePreset(presetId: string) {
@@ -9917,6 +9926,54 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     );
   }
 
+  function renderBusinessProfilePreview() {
+    const selectedTenant = user?.tenants.find((tenant) => tenant.slug === selectedTenantSlug);
+    const previewName = settings.name || selectedTenant?.name || "Your business";
+    const previewLocation = selectedLocation
+      ? [selectedLocation.name, selectedLocation.city, selectedLocation.province].filter(Boolean).join(", ")
+      : "Main location";
+    const previewStyle = {
+      "--vendor-theme-card-bg": businessProfileTheme.cardBackgroundColor,
+      "--vendor-theme-logo-fit": businessProfileTheme.logoFit,
+      "--vendor-theme-logo-frame-padding": businessProfileTheme.logoFit === "cover" ? "0px" : undefined,
+      ...(businessProfileTheme.backgroundImageUrl
+        ? {
+            backgroundImage: `linear-gradient(rgba(255,255,255,0.2), rgba(255,255,255,0.2)), url(${businessProfileTheme.backgroundImageUrl})`
+          }
+        : {})
+    } as CSSProperties;
+
+    return (
+      <Stack gap="xs">
+        <Text fw={700}>Profile preview</Text>
+        <Text c="dimmed" size="sm">This is how the default profile media will appear on public profile cards.</Text>
+        <Paper className="vendor-card vendor-profile-settings-preview" component="div" p={{ base: "md", sm: "lg" }}>
+          <Stack gap="md">
+            <div
+              className={businessProfileTheme.backgroundImageUrl || businessProfileTheme.logoUrl
+                ? "vendor-card-image vendor-card-image-themed"
+                : "vendor-card-image"}
+              style={previewStyle}
+            >
+              {businessProfileTheme.logoUrl ? (
+                <div className="vendor-card-logo-frame">
+                  <img alt={`${previewName} logo`} src={businessProfileTheme.logoUrl} />
+                </div>
+              ) : <IconTicket aria-hidden="true" size={42} />}
+            </div>
+            {settings.publicProfileCategory ? <Badge color="orange" variant="light">{settings.publicProfileCategory}</Badge> : null}
+            <Title order={3}>{previewName}</Title>
+            <Group c="dimmed" gap={6} wrap="nowrap">
+              <IconMapPin size={16} />
+              <Text size="sm">{previewLocation || "Philippines"}</Text>
+            </Group>
+            <Text c="dimmed" lineClamp={2}>{"This vendor is preparing a public service profile."}</Text>
+          </Stack>
+        </Paper>
+      </Stack>
+    );
+  }
+
   function renderSettingsPage() {
     return (
       <Stack gap="md">
@@ -9950,45 +10007,92 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       setSettings((current) => ({ ...current, name: event.target.value }))
                     }
                   />
-                  <TextInput
+                  <Autocomplete
                     label="Business category"
+                    description="Search and select the category that best describes your business."
+                    data={[...BUSINESS_CATEGORIES]}
                     disabled={!canManageContactSettings}
                     placeholder="e.g. Sports and recreation"
                     value={settings.publicProfileCategory}
-                    onChange={(event) =>
-                      setSettings((current) => ({ ...current, publicProfileCategory: event.target.value }))
+                    onChange={(value) =>
+                      setSettings((current) => ({ ...current, publicProfileCategory: value }))
                     }
                   />
                   <Divider />
                   <div>
-                    <Text fw={700}>Default profile images</Text>
-                    <Text c="dimmed" size="sm">
-                      Used by your public profile and directory cards unless a location has its own theme setup.
+                    <Text fw={700}>Default profile media</Text>
+                  <Text c="dimmed" size="sm">
+                      Set the default logo and profile background. Location theme setup can override these values.
                     </Text>
                   </div>
-                  <SimpleGrid cols={{ base: 1, sm: 2 }}>
-                    <Stack gap="xs">
-                      <FileInput
-                        accept="image/png,image/jpeg,image/webp"
-                        clearable
-                        disabled={!canManageContactSettings || busyAction === "business-profile-upload:background"}
-                        label="Profile cover"
-                        placeholder="Upload cover"
-                        onChange={(file) => void uploadBusinessProfileAsset("background", file)}
-                      />
-                      {businessProfileTheme.backgroundImageUrl ? <Image alt="Profile cover preview" h={120} radius="md" src={businessProfileTheme.backgroundImageUrl} /> : null}
+                  <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xl">
+                    <Stack gap="md">
+                      <SimpleGrid cols={1}>
+                        <FileInput
+                          name="defaultBackgroundImageFile"
+                          accept="image/png,image/jpeg,image/webp"
+                          clearable
+                          label="Profile background"
+                          description="Upload a custom image for the profile visual area."
+                          disabled={!canManageContactSettings || busyAction === "business-profile-upload:background"}
+                          onChange={(file) => void uploadBusinessProfileAsset("background", file)}
+                        />
+                        <Select
+                          name="defaultBackgroundImageFit"
+                          label="Profile background fit"
+                          description="Cover fills the profile visual area. Contain shows the full image."
+                          data={[
+                            { value: "cover", label: "Cover" },
+                            { value: "contain", label: "Contain" }
+                          ]}
+                          disabled={!canManageContactSettings}
+                          value={businessProfileTheme.backgroundImageFit}
+                          onChange={(value) => setBusinessProfileThemeField("backgroundImageFit", value === "contain" ? "contain" : "cover")}
+                        />
+                      </SimpleGrid>
+                      <SimpleGrid cols={1}>
+                        <TextInput
+                          name="defaultBackgroundImageUrl"
+                          label="Profile background URL"
+                          description="Paste a hosted image URL for the profile visual area."
+                          disabled={!canManageContactSettings}
+                          value={businessProfileTheme.backgroundImageUrl}
+                          onChange={(event) => setBusinessProfileThemeField("backgroundImageUrl", event.target.value)}
+                        />
+                        <FileInput
+                          name="defaultLogoFile"
+                          accept="image/png,image/jpeg,image/webp"
+                          clearable
+                          label="Company logo"
+                          description="Displayed inside the circular logo frame."
+                          disabled={!canManageContactSettings || busyAction === "business-profile-upload:logo"}
+                          onChange={(file) => void uploadBusinessProfileAsset("logo", file)}
+                        />
+                      </SimpleGrid>
+                      <SimpleGrid cols={1}>
+                        <TextInput
+                          name="defaultLogoUrl"
+                          label="Logo URL"
+                          description="Paste a hosted logo URL when not uploading a file."
+                          disabled={!canManageContactSettings}
+                          value={businessProfileTheme.logoUrl}
+                          onChange={(event) => setBusinessProfileThemeField("logoUrl", event.target.value)}
+                        />
+                        <Select
+                          name="defaultLogoFit"
+                          label="Profile logo fit"
+                          description="Contain shows the full logo. Cover fills the circular frame."
+                          data={[
+                            { value: "contain", label: "Contain" },
+                            { value: "cover", label: "Cover" }
+                          ]}
+                          disabled={!canManageContactSettings}
+                          value={businessProfileTheme.logoFit}
+                          onChange={(value) => setBusinessProfileThemeField("logoFit", value === "cover" ? "cover" : "contain")}
+                        />
+                      </SimpleGrid>
                     </Stack>
-                    <Stack gap="xs">
-                      <FileInput
-                        accept="image/png,image/jpeg,image/webp"
-                        clearable
-                        disabled={!canManageContactSettings || busyAction === "business-profile-upload:logo"}
-                        label="Business logo"
-                        placeholder="Upload logo"
-                        onChange={(file) => void uploadBusinessProfileAsset("logo", file)}
-                      />
-                      {businessProfileTheme.logoUrl ? <Image alt="Business logo preview" fit={businessProfileTheme.logoFit} h={120} radius="md" src={businessProfileTheme.logoUrl} /> : null}
-                    </Stack>
+                    {renderBusinessProfilePreview()}
                   </SimpleGrid>
                   <Button className="neura-secondary-button" disabled={busyAction === "settings"} type="submit">
                     {busyAction === "settings" || busyAction === "business-profile-theme-save" ? "Saving..." : "Save business profile"}

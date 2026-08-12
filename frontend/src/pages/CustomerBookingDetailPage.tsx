@@ -31,7 +31,7 @@ import {
 } from "../utils/dates";
 import { getErrorMessage } from "../utils/errors";
 import { showCustomerError } from "../utils/customerNotifications";
-import { buildVendorThemeMediaStyle, buildVendorThemeStyle } from "../utils/vendorTheme";
+import { buildVendorThemeMediaStyle, buildVendorThemeStyle, resolveVendorProfileMedia } from "../utils/vendorTheme";
 
 function getBookingBadgeColor(status: BookingStatus): "gray" | "red" | "yellow" | "orange" | "teal" | "blue" {
   switch (status) {
@@ -281,7 +281,7 @@ export default function CustomerBookingDetailPage() {
     const controller = new AbortController();
     apiRequest<PublicVendorProfileResponse>(`/public/vendors/${booking.tenantSlug}`, { signal: controller.signal })
       .then((data) => {
-        setVendorTheme(data.vendor.publicBoardTheme?.theme || null);
+        setVendorTheme(resolveVendorProfileMedia(data.vendor.publicBoardTheme?.theme, data.vendor.businessProfileTheme?.theme));
         setVendorProfile(data.vendor);
       })
       .catch((themeError) => {

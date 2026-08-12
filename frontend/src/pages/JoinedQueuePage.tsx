@@ -29,6 +29,7 @@ import { buildJoinPath, buildJoinedQueuePathWithTicket, buildMonitorPath } from 
 import ContactForm from "../components/ContactForm";
 import FiveStarRatingInput from "../components/FiveStarRatingInput";
 import { clearJoinedQueueAccess, getJoinedQueueAccess } from "../utils/joinedQueueAccess";
+import { resolveVendorProfileMedia } from "../utils/vendorTheme";
 import { getErrorMessage } from "../utils/errors";
 import {
   getCustomerTicketStateSummary,
@@ -217,7 +218,10 @@ export default function JoinedQueuePage() {
   const backLabel = user ? "Back to queue list" : "Back to vendors";
   const locationHours = normalizeHours(snapshot?.location?.hours || []);
   const todayIndex = getTodayIndex(snapshot?.location?.timezone);
-  const theme = snapshot?.publicBoardTheme.theme;
+  const theme = resolveVendorProfileMedia(
+    snapshot?.publicBoardTheme.theme,
+    snapshot?.businessProfileTheme?.theme
+  );
   const cardStyle: CSSProperties = theme
     ? {
         backgroundColor: hexToRgba(theme.cardBackgroundColor, theme.cardAlpha),
