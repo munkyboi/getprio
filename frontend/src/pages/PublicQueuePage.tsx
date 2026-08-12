@@ -2,13 +2,13 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { Box, Text } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { IconCheck, IconInfoCircle } from "@tabler/icons-react";
-import QRCode from "react-qr-code";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type { QueueJoinPaymentSyncResponse, QueueListTicket, QueueSnapshot } from "@shared";
 import { API_BASE_URL, apiRequest } from "../api/client";
 import { buildJoinUrl, buildJoinedQueuePathWithTicket } from "../queuePaths";
 import { getErrorMessage } from "../utils/errors";
 import { resolveVendorProfileMedia } from "../utils/vendorTheme";
+import StyledQRCode from "../components/StyledQRCode";
 import {
   getLocationStatusSummary,
   getQueueStateSummary,
@@ -98,7 +98,6 @@ export default function PublicQueuePage() {
   );
   const businessName = snapshot?.tenant?.name || tenantSlugValue || "GetPrio";
   const heroTitle = businessName;
-  const heroSubtitle = snapshot?.tenant?.publicProfileDescription || "";
   const queueState = getQueueStateSummary(snapshot);
   const ticketState = getTicketStateSummary(snapshot?.focusTicket?.status);
   const locationState = getLocationStatusSummary(snapshot);
@@ -273,7 +272,6 @@ export default function PublicQueuePage() {
               )}
             <div className="public-board-tv-title">
               <h1>{businessName}</h1>
-              {heroSubtitle ? <p>{heroSubtitle}</p> : null}
             </div>
             <div
               aria-label={`Current time ${clockLabel}. Location ${locationState.label}. Queue ${queueState.label}.`}
@@ -311,7 +309,7 @@ export default function PublicQueuePage() {
 
               <section className="public-board-tv-qr">
                 <div className="public-board-tv-qr-code">
-                  <QRCode size={124} value={joinQrUrl} />
+                  <StyledQRCode size={124} value={joinQrUrl} />
                 </div>
                 <div>
                   <Text className="public-board-tv-eyebrow">Join from phone</Text>

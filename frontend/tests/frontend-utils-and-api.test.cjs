@@ -572,6 +572,8 @@ test("public queue board uses the compact calendar and status clock", () => {
   assert.match(source, /className="public-board-tv-clock-statuses"/);
   assert.match(source, /Location <strong>\{locationState\.label\}<\/strong>/);
   assert.match(source, /Queue <strong>\{queueState\.label\}<\/strong>/);
+  assert.doesNotMatch(source, /publicProfileDescription/);
+  assert.match(styles, /\.public-board-tv-title h1 \{[\s\S]*?font-size: clamp\(50px, 4vw, 64px\);/);
   assert.doesNotMatch(source, /Top tickets are emphasized/);
   assert.match(styles, /\.public-board-tv-clock \{[\s\S]*?grid-template-columns: 88px minmax\(0, 1fr\)/);
 });
@@ -1443,6 +1445,7 @@ test("vendor discovery uses a mobile-first search and card layout", () => {
   assert.match(styles, /\.vendor-search-input \{\s+flex: 0 1 auto;/);
   assert.match(styles, /\.vendor-card-actions > \.mantine-Button-root \{\s+min-height: 3\.25rem;/);
   assert.match(styles, /\.vendor-card \{\s+min-height: 0;/);
+  assert.match(styles, /\.vendor-card-description \{[\s\S]*?-webkit-line-clamp: 2;/);
   assert.match(source, /"--vendor-theme-logo-fit": "cover"/);
   assert.match(source, /"--vendor-theme-logo-frame-padding": "0px"/);
   assert.match(source, /style=\{\{ objectFit: "cover" \}\}/);
@@ -1724,7 +1727,8 @@ test("vendor settings provide an editable business profile", () => {
   assert.doesNotMatch(source, /<Tabs defaultValue="contact"/);
   assert.match(source, /label="Business name"/);
   assert.match(source, /label="Business display name"/);
-  assert.match(source, /label="Business description"/);
+  assert.match(source, /<Text fw=\{500\} size="sm">Business description<\/Text>/);
+  assert.match(source, /<CampaignDescriptionEditor[\s\S]*?maxCharacters=\{1000\}/);
   assert.match(source, /<Autocomplete[\s\S]*?label="Business category"[\s\S]*?data=\{\[\.\.\.BUSINESS_CATEGORIES\]\}/);
   assert.match(source, /<Text fw=\{700\}>Default profile media<\/Text>/);
   assert.match(source, /label="Profile background"/);
@@ -2114,8 +2118,8 @@ test("customer MFA enrollment renders a local authenticator QR with manual fallb
     "utf8"
   );
 
-  assert.match(source, /import QRCode from "react-qr-code"/);
-  assert.match(source, /<QRCode[\s\S]*?value=\{mfaUri\}/);
+  assert.match(source, /import StyledQRCode from "\.\.\/components\/StyledQRCode"/);
+  assert.match(source, /<StyledQRCode[\s\S]*?value=\{mfaUri\}/);
   assert.match(source, /GetPrio authenticator setup QR code/);
   assert.match(source, /Can’t scan the QR code\?/);
   assert.match(source, />\{mfaSecret\}<\/Text>/);
@@ -2481,6 +2485,20 @@ test("vendor queue public links copy to the clipboard with confirmation", () => 
   assert.match(source, /copyLocationUrl\("QR target", queueLinks\.qrUrl\)/);
   assert.match(source, /copyLocationUrl\("Monitor URL", queueLinks\.monitorUrl\)/);
   assert.match(source, /title="Click to copy QR target"/);
+  assert.match(source, /canvas\.width = 500/);
+  assert.match(source, /canvas\.height = 500/);
+  assert.match(source, /canvas\.toBlob\([\s\S]*?"image\/jpeg"/);
+  assert.match(source, />\s*Save QR\s*</);
+});
+
+test("generated QR codes render at high resolution", () => {
+  const source = fs.readFileSync(
+    path.join(path.resolve(__dirname, ".."), "src", "components", "StyledQRCode.tsx"),
+    "utf8"
+  );
+
+  assert.match(source, /const renderSize = size \* 4/);
+  assert.match(source, /canvas\.style\.width = `\$\{size\}px`/);
 });
 
 test("vendor dashboard provides account-level MFA enrollment with a QR code", () => {
@@ -2497,7 +2515,7 @@ test("vendor dashboard provides account-level MFA enrollment with a QR code", ()
   assert.match(dashboard, /navItems\.filter\(\(item\) => item\.section === "account"\)/);
   assert.match(dashboard, /!requiresMfaEnrollment \? <Card className="neura-card vendor-security-card"/);
   assert.match(dashboard, /Scan with your authenticator app/);
-  assert.match(dashboard, /<QRCode[^>]+value=\{mfaEnrollmentUri\}/);
+  assert.match(dashboard, /<StyledQRCode[^>]+value=\{mfaEnrollmentUri\}/);
   assert.match(dashboard, /autoFocus[\s\S]*?label="6-digit authenticator code"/);
   assert.match(dashboard, /Verify and enable/);
   assert.match(dashboard, /mfaEnabled && mfaSecret[\s\S]*?cancelMfaEnrollment/);

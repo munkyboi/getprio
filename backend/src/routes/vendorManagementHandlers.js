@@ -1,4 +1,5 @@
 const PDFDocument = require("pdfkit");
+const sanitizeHtml = require("sanitize-html");
 const { normalizeCounterSlug, normalizeTenantNotificationSettings } = require("./vendorRouteHelpers");
 const { assertPublicTextFieldsAllowed } = require("../services/contentModeration");
 const { normalizePhilippineMobileNumber } = require("../utils/phone");
@@ -15,11 +16,37 @@ function toCsvValue(value) {
   return `"${String(value ?? "").replace(/"/g, '""')}"`;
 }
 
+function normalizeBusinessDescription(value) {
+  const richText = sanitizeHtml(String(value || "").trim(), {
+    allowedAttributes: {},
+    allowedTags: ["p", "br", "strong", "em", "s", "ul", "ol", "li", "blockquote"],
+    disallowedTagsMode: "discard"
+  }).trim();
+  const plainText = sanitizeHtml(richText, { allowedAttributes: {}, allowedTags: [] })
+    .replace(/\s+/g, " ")
+    .trim();
+  if (plainText.length > 1000) {
+    const error = new Error("Business description must be 1000 characters or fewer.");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (richText.length > 20000) {
+    const error = new Error("Business description formatting is too complex. Simplify it and try again.");
+    error.statusCode = 400;
+    throw error;
+  }
+  assertPublicTextFieldsAllowed({ "Business description": plainText });
+  return richText;
+}
+
 async function handleUpdateSettings({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, tenantRepository, userRepository, getQueueSnapshot }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.settings.manage");
   await getLocationForTenant(tenant, req.query.location);
   const { name, publicProfileDisplayName, publicProfileDescription, publicProfileCategory, ownerName, ownerDisplayName, queuePrefix, averageServiceMinutes, notificationThreshold, autoPauseEnabled, autoPauseThreshold, autoResumeEnabled, autoResumeVacancyPercent, contactEmail, contactPhone } = req.body;
+  const normalizedPublicProfileDescription = typeof publicProfileDescription === "string"
+    ? normalizeBusinessDescription(publicProfileDescription)
+    : tenant.publicProfileDescription;
   const wantsToChangeBusinessProfile = [
     name,
     publicProfileDisplayName,
@@ -37,7 +64,6 @@ async function handleUpdateSettings({ req, res, getAuthorizedTenant, assertTenan
     "Business name": name,
     "Business category": publicProfileCategory,
     "Business display name": publicProfileDisplayName,
-    "Business description": publicProfileDescription,
     "Owner name": ownerName,
     "Owner display name": ownerDisplayName
   });
@@ -48,7 +74,7 @@ async function handleUpdateSettings({ req, res, getAuthorizedTenant, assertTenan
   const updatedTenant = await tenantRepository.updateTenant(tenant._id, {
     name: typeof name === "string" && name.trim() ? name.trim().slice(0, 120) : tenant.name,
     publicProfileDisplayName: typeof publicProfileDisplayName === "string" ? publicProfileDisplayName.trim().slice(0, 120) : tenant.publicProfileDisplayName,
-    publicProfileDescription: typeof publicProfileDescription === "string" ? publicProfileDescription.trim().slice(0, 500) : tenant.publicProfileDescription,
+    publicProfileDescription: normalizedPublicProfileDescription,
     publicProfileCategory: typeof publicProfileCategory === "string" ? publicProfileCategory.trim().slice(0, 80) : tenant.publicProfileCategory,
     queuePrefix: queuePrefix ? String(queuePrefix).slice(0, 4).toUpperCase() : tenant.queuePrefix,
     averageServiceMinutes: averageServiceMinutes ? Number(averageServiceMinutes) : tenant.averageServiceMinutes,

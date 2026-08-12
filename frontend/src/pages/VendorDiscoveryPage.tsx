@@ -18,6 +18,7 @@ import type { PublicVendorListResponse, PublicVendorProfile } from "@shared";
 import { apiRequest } from "../api/client";
 import { getErrorMessage } from "../utils/errors";
 import { resolveVendorProfileMedia } from "../utils/vendorTheme";
+import RichCampaignDescription from "../components/RichCampaignDescription";
 
 function getLocationLabel(vendor: PublicVendorProfile) {
   const parts = [
@@ -214,7 +215,7 @@ export default function VendorDiscoveryPage() {
                       <Text size="sm">{getLocationLabel(vendor)}</Text>
                     </Group>
                   </div>
-                  {vendor.description ? <Text c="dimmed" lineClamp={3}>{vendor.description}</Text> : null}
+                  {vendor.description ? <RichCampaignDescription className="vendor-card-description" content={vendor.description} /> : null}
                   <Text c="dimmed" size="sm">
                     {vendor.locations.length === 1 ? "1 active location" : `${vendor.locations.length} active locations`}
                   </Text>

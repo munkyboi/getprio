@@ -53,8 +53,8 @@ test("subscription administration retires direct editing and permanent deletion"
 
 test("platform MFA enrollment renders a local authenticator QR with manual fallback", () => {
   const source = fs.readFileSync(path.resolve(__dirname, "../src/main.tsx"), "utf8");
-  assert.match(source, /import QRCode from "react-qr-code"/);
-  assert.match(source, /<QRCode[\s\S]*?value=\{mfaUri\}/);
+  assert.match(source, /import StyledQRCode from "\.\/components\/StyledQRCode"/);
+  assert.match(source, /<StyledQRCode[\s\S]*?value=\{mfaUri\}/);
   assert.match(source, /GetPrio authenticator setup QR code/);
   assert.match(source, /Can’t scan the QR code\?/);
   assert.match(source, />\{mfaSecret\}<\/Text>/);

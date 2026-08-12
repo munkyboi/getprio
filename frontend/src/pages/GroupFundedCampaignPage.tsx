@@ -983,7 +983,7 @@ export default function GroupFundedCampaignPage() {
                   </Group>
                 </Group>
                 {campaign.vendorDescription ? (
-                  <Text c="dimmed" size="sm">{campaign.vendorDescription}</Text>
+                  <RichCampaignDescription className="vendor-description" content={campaign.vendorDescription} />
                 ) : null}
                 <Group c="dimmed" gap={8} wrap="nowrap">
                   <IconCalendar className="booking-detail-meta-icon" size={18} />

@@ -856,6 +856,13 @@ body {
   min-width: 0;
 }
 
+.vendor-card-description {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
 .vendor-card-actions {
   align-items: stretch;
 }
@@ -4787,23 +4794,8 @@ button {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 50px;
+  font-size: clamp(50px, 4vw, 64px);
   line-height: 1;
-}
-
-.public-board-tv-title p {
-  margin: 10px 0 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--public-board-muted);
-  font-size: 24px;
-  font-weight: 700;
-  line-height: 1.15;
-}
-
-.public-board-tv-title p.public-board-tv-eyebrow {
-  font-size: 14px;
 }
 
 .public-board-tv-clock {
