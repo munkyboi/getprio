@@ -296,7 +296,10 @@ router.patch(
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.theme.manage");
-    const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
+    const requestedLocationSlug = normalizeRequestText(req.query.location);
+    const location = requestedLocationSlug
+      ? await getLocationForTenant(tenant, requestedLocationSlug)
+      : null;
     if (location || req.body.applyToAllLocations) {
       await entitlementAdmissionService.admit({ tenantId: tenant._id, featureKey: "branding" });
     }
