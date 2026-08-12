@@ -50,15 +50,17 @@ TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA
 
 Replace those with real Turnstile keys outside local development.
 
-Local smoke tests use the default customer/vendor account below when `SMOKE_EMAIL`
-and `SMOKE_PASSWORD` are not provided:
+Local smoke tests require an explicit customer/vendor fixture. Set `SMOKE_EMAIL`
+and `SMOKE_PASSWORD` to a real seeded account before running authenticated smoke:
 
 ```env
-SMOKE_EMAIL=carlo.abella+store4@gmail.com
-SMOKE_PASSWORD=asdfasdf
+SMOKE_EMAIL=<seeded-customer-or-vendor-email>
+SMOKE_PASSWORD=<fixture-password>
 ```
 
-The smoke harness uses that account for customer, booking, and vendor checks.
+The smoke harness uses that account for customer, booking, and vendor checks. If
+the values are missing, the authenticated stages skip instead of silently using
+stale defaults.
 
 Email delivery uses Resend in the current MVP setup:
 
