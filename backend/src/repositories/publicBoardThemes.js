@@ -200,6 +200,35 @@ async function findLocationTheme(locationId, options = {}) {
   return mapTheme(result.rows[0]);
 }
 
+async function findLegacyTenantDefaultTheme(tenantId, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const result = await queryClient.query(
+    `
+      SELECT
+        public_board_themes.id,
+        public_board_themes.tenant_id,
+        public_board_themes.location_id,
+        public_board_themes.theme,
+        public_board_themes.updated_by_user_id,
+        public_board_themes.created_at,
+        public_board_themes.updated_at
+      FROM public_board_themes
+      INNER JOIN store_locations ON store_locations.id = public_board_themes.location_id
+      WHERE public_board_themes.tenant_id = $1
+        AND public_board_themes.location_id IS NOT NULL
+        AND store_locations.is_primary = TRUE
+        AND (
+          public_board_themes.theme->>'logoUrl' ILIKE '%/tenant-default/%'
+          OR public_board_themes.theme->>'backgroundImageUrl' ILIKE '%/tenant-default/%'
+        )
+      LIMIT 1
+    `,
+    [Number(tenantId)]
+  );
+
+  return mapTheme(result.rows[0]);
+}
+
 async function getResolvedTheme(tenantId, locationId, options = {}) {
   const formatTheme = (scope, theme) => {
     const response = {
@@ -220,6 +249,13 @@ async function getResolvedTheme(tenantId, locationId, options = {}) {
   const tenantTheme = await findTenantDefaultTheme(tenantId, options);
   if (tenantTheme) {
     return formatTheme("tenant", tenantTheme.theme);
+  }
+
+  if (options.mediaOnly) {
+    const legacyTenantTheme = await findLegacyTenantDefaultTheme(tenantId, options);
+    if (legacyTenantTheme) {
+      return formatTheme("tenant", legacyTenantTheme.theme);
+    }
   }
 
   return formatTheme("fallback", DEFAULT_PUBLIC_BOARD_THEME);
@@ -367,6 +403,7 @@ module.exports = {
   normalizeTheme,
   findTenantDefaultTheme,
   findLocationTheme,
+  findLegacyTenantDefaultTheme,
   getResolvedTheme,
   saveTheme,
   createAsset

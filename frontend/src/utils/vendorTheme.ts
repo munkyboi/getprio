@@ -10,11 +10,11 @@ export function resolveVendorProfileMedia(
   }
 
   const resolved = { ...(theme || defaultTheme!) };
-  if (defaultTheme?.backgroundImageUrl) {
+  if (!resolved.backgroundImageUrl && defaultTheme?.backgroundImageUrl) {
     resolved.backgroundImageUrl = defaultTheme.backgroundImageUrl;
     resolved.backgroundImageFit = defaultTheme.backgroundImageFit;
   }
-  if (defaultTheme?.logoUrl) {
+  if (!resolved.logoUrl && defaultTheme?.logoUrl) {
     resolved.logoUrl = defaultTheme.logoUrl;
     resolved.logoFit = defaultTheme.logoFit;
   }

@@ -284,8 +284,15 @@ router.get(
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.queue.read");
-    const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
-    const theme = await publicBoardThemeRepository.getResolvedTheme(tenant._id, location?._id);
+    const requestedLocationSlug = normalizeRequestText(req.query.location);
+    const location = requestedLocationSlug
+      ? await getLocationForTenant(tenant, requestedLocationSlug)
+      : null;
+    const theme = await publicBoardThemeRepository.getResolvedTheme(
+      tenant._id,
+      location?._id,
+      requestedLocationSlug ? {} : { mediaOnly: true }
+    );
 
     res.json(theme);
   })
