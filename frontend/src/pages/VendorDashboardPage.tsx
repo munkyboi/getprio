@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert,
   ActionIcon,
+  Autocomplete,
   Badge,
   Burger,
   Button,
@@ -118,6 +119,7 @@ import type {
   GroupFundedRefundStatus
 } from "@shared";
 import { DEFAULT_TIMEZONE, getTimeZoneOptions } from "../../../shared/timezones";
+import { BUSINESS_CATEGORIES } from "../constants/businessCategories";
 import { API_BASE_URL } from "../api/client";
 import PhilippineMobileInput from "../components/PhilippineMobileInput";
 import FiveStarRatingInput from "../components/FiveStarRatingInput";
@@ -10005,13 +10007,15 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       setSettings((current) => ({ ...current, name: event.target.value }))
                     }
                   />
-                  <TextInput
+                  <Autocomplete
                     label="Business category"
+                    description="Search and select the category that best describes your business."
+                    data={[...BUSINESS_CATEGORIES]}
                     disabled={!canManageContactSettings}
                     placeholder="e.g. Sports and recreation"
                     value={settings.publicProfileCategory}
-                    onChange={(event) =>
-                      setSettings((current) => ({ ...current, publicProfileCategory: event.target.value }))
+                    onChange={(value) =>
+                      setSettings((current) => ({ ...current, publicProfileCategory: value }))
                     }
                   />
                   <Divider />
