@@ -1444,6 +1444,7 @@ test("vendor discovery uses a mobile-first search and card layout", () => {
   assert.match(styles, /\.vendor-card-actions > \.mantine-Button-root \{\s+min-height: 3\.25rem;/);
   assert.match(styles, /\.vendor-card \{\s+min-height: 0;/);
   assert.match(source, /"--vendor-theme-logo-fit": "cover"/);
+  assert.match(source, /vendor\.businessProfileTheme\?\.theme/);
   assert.match(source, /"--vendor-theme-logo-frame-padding": "0px"/);
   assert.match(source, /style=\{\{ objectFit: "cover" \}\}/);
   assert.match(dashboard, /themeForm\.logoFit === "cover" \? \{ "--vendor-theme-logo-frame-padding": "0px" \} : \{\}/);

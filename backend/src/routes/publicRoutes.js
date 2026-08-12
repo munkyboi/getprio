@@ -119,6 +119,9 @@ async function attachPublicVendorDetails(vendor) {
   const publicBoardTheme = tenant && capabilities.branding
     ? await publicBoardThemeRepository.getResolvedTheme(tenant._id, primaryLocation?._id)
     : null;
+  const businessProfileTheme = tenant && capabilities.branding
+    ? await publicBoardThemeRepository.getResolvedTheme(tenant._id)
+    : null;
   const services = tenant && capabilities.booking
     ? (await vendorServiceRepository.listServicesByTenantId(tenant._id))
         .filter((service) => service.isActive)
@@ -175,7 +178,8 @@ async function attachPublicVendorDetails(vendor) {
     locations,
     services,
     locationServices,
-    publicBoardTheme
+    publicBoardTheme,
+    businessProfileTheme
   };
 }
 

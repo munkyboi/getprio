@@ -39,7 +39,7 @@ function getBranchLabel(location: PublicVendorProfile["locations"][number]) {
 }
 
 function getVendorMediaStyle(vendor: PublicVendorProfile): CSSProperties | undefined {
-  const theme = vendor.publicBoardTheme?.theme;
+  const theme = vendor.businessProfileTheme?.theme;
 
   if (!theme) {
     return undefined;
@@ -177,16 +177,16 @@ export default function VendorDiscoveryPage() {
               <Paper className="vendor-card" component={Link} key={vendor.slug} p={{ base: "md", sm: "lg" }} to={`/vendors/${vendor.slug}`}>
                 <Stack gap="md" h="100%">
                   <div
-                    className={vendor.publicBoardTheme?.theme.backgroundImageUrl || vendor.publicBoardTheme?.theme.logoUrl
+                    className={vendor.businessProfileTheme?.theme.backgroundImageUrl || vendor.businessProfileTheme?.theme.logoUrl
                       ? "vendor-card-image vendor-card-image-themed"
                       : "vendor-card-image"}
                     style={getVendorMediaStyle(vendor)}
                   >
-                    {vendor.publicBoardTheme?.theme.logoUrl ? (
+                    {vendor.businessProfileTheme?.theme.logoUrl ? (
                       <div className="vendor-card-logo-frame">
                         <img
                           alt={`${vendor.name} logo`}
-                          src={vendor.publicBoardTheme.theme.logoUrl}
+                          src={vendor.businessProfileTheme.theme.logoUrl}
                           style={{ objectFit: "cover" }}
                         />
                       </div>

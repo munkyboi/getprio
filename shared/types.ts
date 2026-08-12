@@ -1578,6 +1578,7 @@ export interface PublicVendorProfile {
   locations: PublicVendorLocation[];
   locationServices?: LocationServiceSummary[];
   publicBoardTheme?: PublicBoardThemeResponse | null;
+  businessProfileTheme?: PublicBoardThemeResponse | null;
   location: {
     name: string;
     slug: string;
