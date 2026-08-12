@@ -1218,6 +1218,7 @@ export default function VendorDashboardPage() {
   const [themeDialogOpen, setThemeDialogOpen] = useState(false);
   const [themeLocation, setThemeLocation] = useState<StoreLocationWithHours | null>(null);
   const [themeForm, setThemeForm] = useState<PublicBoardThemeSettings>(defaultPublicBoardTheme);
+  const [businessProfileTheme, setBusinessProfileTheme] = useState<PublicBoardThemeSettings>(defaultPublicBoardTheme);
   const [applyThemeToAllLocations, setApplyThemeToAllLocations] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [billingInterval, setBillingInterval] = useState<"monthly" | "annual">("monthly");
@@ -1745,6 +1746,16 @@ export default function VendorDashboardPage() {
     });
     setVendorNotificationSettings(notificationSettings);
   }, [dashboardBootstrapQuery.data, selectedLocationSlug]);
+
+  useEffect(() => {
+    if (!token || !selectedTenantSlug || !canManageContactSettings) {
+      return;
+    }
+
+    vendorDashboardOperations.getTheme(token, selectedTenantSlug, "")
+      .then((data) => setBusinessProfileTheme(mergeTheme(data.theme)))
+      .catch((themeError) => setError(getErrorMessage(themeError)));
+  }, [canManageContactSettings, selectedTenantSlug, token]);
 
   useEffect(() => {
     if (billingOverviewQuery.data) {
@@ -4054,6 +4065,19 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     }
   }
 
+  async function handleSaveBusinessProfile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const success = await runAction("settings", () => vendorDashboardOperations.updateSettings(token, selectedTenantSlug, settings));
+    if (!success) {
+      return;
+    }
+
+    const themeSaved = await handleSaveBusinessProfileTheme();
+    if (themeSaved) {
+      showSuccessNotification("Business profile saved", "Your business details and default images were updated.");
+    }
+  }
+
   async function handleStartCheckout(planSlug: Exclude<SubscriptionPlanSlug, "free">) {
     setError("");
     setBusyAction(`checkout:${planSlug}`);
@@ -4168,6 +4192,46 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       );
     } catch (uploadError) {
       setError(getErrorMessage(uploadError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function uploadBusinessProfileAsset(assetType: "background" | "logo", file: File | null) {
+    if (!file || !token) return;
+
+    setError("");
+    setBusyAction(`business-profile-upload:${assetType}`);
+    try {
+      const data = await vendorDashboardOperations.uploadThemeAsset(token, selectedTenantSlug, "", assetType, file);
+      const field = assetType === "logo" ? "logoUrl" : "backgroundImageUrl";
+      setBusinessProfileTheme((current) => ({ ...current, [field]: data.asset.publicUrl }));
+      showSuccessNotification(
+        `${assetType === "logo" ? "Logo" : "Cover"} uploaded`,
+        "Save the business profile to publish this default image."
+      );
+    } catch (uploadError) {
+      setError(getErrorMessage(uploadError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function handleSaveBusinessProfileTheme() {
+    if (!token) return false;
+
+    setError("");
+    setBusyAction("business-profile-theme-save");
+    try {
+      const data = await vendorDashboardOperations.saveTheme(token, selectedTenantSlug, "", {
+        theme: businessProfileTheme,
+        applyToAllLocations: false
+      });
+      setBusinessProfileTheme(mergeTheme(data.theme));
+      return true;
+    } catch (saveError) {
+      setError(getErrorMessage(saveError));
+      return false;
     } finally {
       setBusyAction("");
     }
@@ -9869,7 +9933,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             </Tabs.List>
 
             <Tabs.Panel pt="lg" value="contact">
-              <form onSubmit={handleSaveSettings}>
+              <form onSubmit={handleSaveBusinessProfile}>
                 <Stack gap="md">
                   <div>
                     <Text className="neura-label">Tenant settings</Text>
@@ -9895,8 +9959,39 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       setSettings((current) => ({ ...current, publicProfileCategory: event.target.value }))
                     }
                   />
+                  <Divider />
+                  <div>
+                    <Text fw={700}>Default profile images</Text>
+                    <Text c="dimmed" size="sm">
+                      Used by your public profile and directory cards unless a location has its own theme setup.
+                    </Text>
+                  </div>
+                  <SimpleGrid cols={{ base: 1, sm: 2 }}>
+                    <Stack gap="xs">
+                      <FileInput
+                        accept="image/png,image/jpeg,image/webp"
+                        clearable
+                        disabled={!canManageContactSettings || busyAction === "business-profile-upload:background"}
+                        label="Profile cover"
+                        placeholder="Upload cover"
+                        onChange={(file) => void uploadBusinessProfileAsset("background", file)}
+                      />
+                      {businessProfileTheme.backgroundImageUrl ? <Image alt="Profile cover preview" h={120} radius="md" src={businessProfileTheme.backgroundImageUrl} /> : null}
+                    </Stack>
+                    <Stack gap="xs">
+                      <FileInput
+                        accept="image/png,image/jpeg,image/webp"
+                        clearable
+                        disabled={!canManageContactSettings || busyAction === "business-profile-upload:logo"}
+                        label="Business logo"
+                        placeholder="Upload logo"
+                        onChange={(file) => void uploadBusinessProfileAsset("logo", file)}
+                      />
+                      {businessProfileTheme.logoUrl ? <Image alt="Business logo preview" fit={businessProfileTheme.logoFit} h={120} radius="md" src={businessProfileTheme.logoUrl} /> : null}
+                    </Stack>
+                  </SimpleGrid>
                   <Button className="neura-secondary-button" disabled={busyAction === "settings"} type="submit">
-                    {busyAction === "settings" ? "Saving..." : "Save business profile"}
+                    {busyAction === "settings" || busyAction === "business-profile-theme-save" ? "Saving..." : "Save business profile"}
                   </Button>
                 </Stack>
               </form>

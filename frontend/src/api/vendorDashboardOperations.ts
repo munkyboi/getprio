@@ -170,22 +170,25 @@ export function saveLocationHours(token: string, tenantSlug: string, locationSlu
 }
 
 export function getTheme(token: string, tenantSlug: string, locationSlug: string) {
+  const locationQuery = locationSlug ? `?location=${encodeURIComponent(locationSlug)}` : "";
   return apiRequest<import("@shared").PublicBoardThemeResponse>(
-    `/vendor/tenant/${tenantSlug}/public-board-theme?location=${encodeURIComponent(locationSlug)}`,
+    `/vendor/tenant/${tenantSlug}/public-board-theme${locationQuery}`,
     { token }
   );
 }
 
 export function saveTheme(token: string, tenantSlug: string, locationSlug: string, body: SavePublicBoardThemeRequest) {
+  const locationQuery = locationSlug ? `?location=${encodeURIComponent(locationSlug)}` : "";
   return apiRequest<import("@shared").PublicBoardThemeResponse, SavePublicBoardThemeRequest>(
-    `/vendor/tenant/${tenantSlug}/public-board-theme?location=${encodeURIComponent(locationSlug)}`,
+    `/vendor/tenant/${tenantSlug}/public-board-theme${locationQuery}`,
     { method: "PATCH", token, body }
   );
 }
 
 export function uploadThemeAsset(token: string, tenantSlug: string, locationSlug: string, assetType: "background" | "logo", file: File) {
+  const locationQuery = locationSlug ? `location=${encodeURIComponent(locationSlug)}&` : "";
   return apiUpload<import("@shared").PublicBoardThemeUploadResponse>(
-    `/vendor/tenant/${tenantSlug}/public-board-theme/uploads/direct?location=${encodeURIComponent(locationSlug)}&assetType=${encodeURIComponent(assetType)}&fileName=${encodeURIComponent(file.name)}`,
+    `/vendor/tenant/${tenantSlug}/public-board-theme/uploads/direct?${locationQuery}assetType=${encodeURIComponent(assetType)}&fileName=${encodeURIComponent(file.name)}`,
     { token, body: file, contentType: file.type }
   );
 }

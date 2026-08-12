@@ -66,8 +66,9 @@ export function uploadThemeAsset(
   assetType: "background" | "logo",
   file: File
 ) {
+  const locationQuery = locationSlug ? `location=${encodeURIComponent(locationSlug)}&` : "";
   return apiUpload<PublicBoardThemeUploadResponse>(
-    `/vendor/tenant/${tenantSlug}/public-board-theme/uploads/direct?location=${encodeURIComponent(locationSlug)}&assetType=${encodeURIComponent(assetType)}&fileName=${encodeURIComponent(file.name)}`,
+    `/vendor/tenant/${tenantSlug}/public-board-theme/uploads/direct?${locationQuery}assetType=${encodeURIComponent(assetType)}&fileName=${encodeURIComponent(file.name)}`,
     { token, body: file, contentType: file.type }
   );
 }

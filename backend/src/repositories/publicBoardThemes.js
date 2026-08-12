@@ -290,6 +290,19 @@ async function saveTheme({ tenantId, locationId, theme, applyToAllLocations, use
       };
     }
 
+    if (!locationId) {
+      const tenantTheme = await upsertTenantDefaultTheme({
+        tenantId,
+        theme: normalizedTheme,
+        userId
+      }, { client });
+
+      return {
+        scope: "tenant",
+        theme: normalizeTheme(tenantTheme.theme)
+      };
+    }
+
     const locationTheme = await upsertLocationTheme({
       tenantId,
       locationId,

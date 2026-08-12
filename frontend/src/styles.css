@@ -932,6 +932,7 @@ body {
   aspect-ratio: 1;
   padding: var(--vendor-theme-logo-frame-padding, 0.6rem);
   border-radius: 9999px;
+  border: 6px solid var(--vendor-theme-card-bg, rgba(255, 255, 255, 0.82));
   background: linear-gradient(135deg, var(--vendor-theme-card-bg, rgba(255, 255, 255, 0.82)), color-mix(in srgb, var(--vendor-theme-card-bg, rgba(255, 255, 255, 0.82)) 74%, white));
   box-shadow: 0 18px 42px rgba(36, 30, 25, 0.18);
   transform: translateY(20%);
