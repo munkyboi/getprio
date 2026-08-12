@@ -299,12 +299,6 @@ router.patch(
     await entitlementAdmissionService.admit({ tenantId: tenant._id, featureKey: "branding" });
     const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
 
-    if (!location && !req.body.applyToAllLocations) {
-      const error = new Error("A location is required when saving a location theme.");
-      error.statusCode = 400;
-      throw error;
-    }
-
     const theme = await publicBoardThemeRepository.saveTheme({
       tenantId: tenant._id,
       locationId: location?._id,
