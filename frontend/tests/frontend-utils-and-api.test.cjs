@@ -2518,6 +2518,8 @@ test("vendor account menu separates user security from role-restricted billing",
   assert.match(dashboard, /section: "account", label: "Account"/);
   assert.match(dashboard, /const staffAllowedSections = new Set<DashboardSection>\(\["queue", "bookings", "clients", "history", "account"\]\)/);
   assert.match(dashboard, /const canAccessBillingTabs = isOwner \|\| isAdmin/);
+  assert.match(dashboard, /if \(!hasActiveSubscription && currentSection !== "settings" && currentSection !== "account"\)/);
+  assert.doesNotMatch(dashboard, /if \(!activeSubscription && currentSection !== "settings" && currentSection !== "account"\)/);
   assert.match(dashboard, /canAccessBillingTabs && !requiresMfaEnrollment/);
   assert.match(dashboard, /<Tabs\.Tab value="subscription">Subscription<\/Tabs\.Tab>/);
   assert.match(dashboard, /<Tabs\.Tab value="billing">Billing<\/Tabs\.Tab>/);

@@ -170,6 +170,17 @@ async function replaceAssignments(counterId, userIds, options = {}) {
   }
 }
 
+async function removeAssignmentsForUserAndTenant(userId, tenantId, options = {}) {
+  await buildQueryClient(options.client).query(
+    `DELETE FROM service_counter_assignments assignments
+     USING service_counters counters
+     WHERE assignments.counter_id = counters.id
+       AND assignments.user_id = $1
+       AND counters.tenant_id = $2`,
+    [Number(userId), Number(tenantId)]
+  );
+}
+
 module.exports = {
   listCountersByLocationId,
   findCounterByLocationAndSlug,
@@ -178,5 +189,6 @@ module.exports = {
   updateCounter,
   deleteCounter,
   replaceAssignments,
+  removeAssignmentsForUserAndTenant,
   listAssignedCounterIdsByUserIds
 };

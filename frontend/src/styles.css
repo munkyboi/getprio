@@ -7820,6 +7820,20 @@ button:hover > .rating-star { transform: scale(1.08); }
   background: inherit;
 }
 
+.email-change-panel {
+  margin-top: 1rem;
+}
+
+.email-change-option.is-selected {
+  border-color: var(--mantine-color-orange-5);
+  background: var(--mantine-color-orange-0);
+  color: var(--mantine-color-orange-9);
+}
+
+.email-change-panel .mantine-Button-root {
+  min-height: 44px;
+}
+
 @media (max-width: 48em) {
   .customer-modal.mfa-removal-modal .mantine-Modal-content {
     height: min(92dvh, 40rem) !important;

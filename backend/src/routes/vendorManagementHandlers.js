@@ -125,7 +125,7 @@ async function handleListCounters({ req, res, getAuthorizedTenant, assertTenantP
   res.json({ counterLimit: entitlements.counters || 0, counters: counters.map((counter) => ({ id: counter._id, tenantId: counter.tenantId, locationId: counter.locationId, name: counter.name, slug: counter.slug, isActive: counter.isActive, assignedUserIds: counter.assignedUserIds })) });
 }
 
-async function handleUpdateCounter({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, billingService, serviceCounterRepository, getCounterForLocation }) {
+async function handleUpdateCounter({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, billingService, serviceCounterRepository, getCounterForLocation, tenantMembershipLocationRepository }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.counter.manage");
   const location = await getLocationForTenant(tenant, req.query.location);
@@ -140,7 +140,14 @@ async function handleUpdateCounter({ req, res, getAuthorizedTenant, assertTenant
   const slug = normalizeCounterSlug(req.body.slug || req.body.name);
   assertPublicTextFieldsAllowed({ "Counter name": req.body.name, "Counter slug": slug });
   const updatedCounter = await serviceCounterRepository.updateCounter(counter._id, { name: req.body.name, slug, isActive: req.body.isActive !== false });
-  await serviceCounterRepository.replaceAssignments(updatedCounter._id, req.body.assignedUserIds || []);
+  const assignedUserIds = req.body.assignedUserIds || [];
+  await serviceCounterRepository.replaceAssignments(updatedCounter._id, assignedUserIds);
+  await tenantMembershipLocationRepository.ensureUserLocationAssignments({
+    userIds: assignedUserIds,
+    tenantId: tenant._id,
+    locationId: location._id,
+    assignedByUserId: req.user?._id
+  });
   res.json({ counter: updatedCounter });
 }
 

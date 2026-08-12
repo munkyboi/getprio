@@ -138,6 +138,8 @@ import * as vendorDashboardExport from "../api/vendorDashboardExport";
 import { useAuth } from "../context/AuthContext";
 import { ConfirmActionModal } from "../components/ConfirmActionModal";
 import { PromptActionModal } from "../components/PromptActionModal";
+import EmailChangePanel from "../components/EmailChangePanel";
+import PhoneChangePanel from "../components/PhoneChangePanel";
 import {
   getAllowedHistoryExportRanges,
   shouldEnableVendorDashboardBootstrap
@@ -1394,6 +1396,7 @@ export default function VendorDashboardPage() {
     activeSubscription?.entitlements ||
     currentPlan?.entitlements ||
     effectiveEntitlementsQuery.data?.entitlements;
+  const tenantPlan = effectiveEntitlementsQuery.data?.plan;
   const roleVisibleNavItems = requiresMfaEnrollment
     ? navItems.filter((item) => item.section === "account")
     : isOwner
@@ -3999,6 +4002,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   async function handleRemoveStaff(member: VendorStaffSummary) {
     await vendorDashboardOperations.removeStaff(token, selectedTenantSlug, member.id);
     await reloadStaff();
+    await reloadCounters();
     await reloadBookings();
     showSuccessNotification("Staff removed", `${member.name} no longer has tenant access.`);
   }
@@ -4048,9 +4052,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           assignedUserIds: counter.assignedUserIds
         }
       );
-      setServiceCounters((current) =>
-        current.map((item) => (item.id === response.counter.id ? response.counter : item))
-      );
+      await reloadCounters();
       showSuccessNotification(
         isActive ? "Counter enabled" : "Counter disabled",
         `${response.counter.name} is now ${isActive ? "active" : "inactive"}.`
@@ -9876,9 +9878,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     <TextInput disabled label="Phone" value={user?.phone || "Not set"} />
                     <TextInput disabled label="Workspace role" value={selectedTenantRole || "No active role"} />
                   </SimpleGrid>
-                  <Text c="dimmed" size="sm">
-                    Contact support to change sign-in identifiers such as username, email, or phone.
-                  </Text>
                   <Button
                     className="neura-primary-button"
                     loading={accountProfileBusy}
@@ -9889,6 +9888,16 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   </Button>
                 </Stack>
               </form>
+              <EmailChangePanel
+                currentEmail={user?.email || ""}
+                onCompleted={async () => { await refreshUser(); }}
+                token={token || ""}
+              />
+              <PhoneChangePanel
+                currentPhone={user?.phone}
+                onCompleted={async () => { await refreshUser(); }}
+                token={token || ""}
+              />
             </Tabs.Panel>
 
             <Tabs.Panel pt="lg" value="security">
@@ -10496,18 +10505,18 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               <Text size="xs" c="dimmed">Current tenant</Text>
               <Text fw={700}>{snapshot?.tenant.name || user?.tenants[0]?.name || "Tenant"}</Text>
               <Text size="sm" c="dimmed">{selectedLocation?.name || "Primary location"}</Text>
-              <Badge color={activeSubscription ? "teal" : "orange"} mt="sm">
-                {activeSubscription ? activeSubscription.planName : "No active plan"}
+              <Badge color={activeSubscription || tenantPlan?.planName ? "teal" : "orange"} mt="sm">
+                {activeSubscription?.planName || tenantPlan?.planName || "No active plan"}
               </Badge>
               <Divider my="sm" />
               <Stack gap={2}>
                 <Text size="xs" c="dimmed">Logged in user:</Text>
                 <Text fw={600} size="sm">{user?.name || "Unknown user"}</Text>
-                <Text c="dimmed" size="xs">
+                <Badge color="gray" size="sm" variant="light">
                   {selectedTenantRole
                     ? selectedTenantRole.charAt(0).toUpperCase() + selectedTenantRole.slice(1)
                     : "No tenant role"}
-                </Text>
+                </Badge>
               </Stack>
             </div>
             <Tooltip label="Log out" withArrow>
@@ -11013,7 +11022,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   function renderCurrentSection() {
-    if (!activeSubscription && currentSection !== "settings" && currentSection !== "account") {
+    if (!hasActiveSubscription && currentSection !== "settings" && currentSection !== "account") {
       return <ActivationPanel onViewPlans={() => openPlanDialog()} />;
     }
 

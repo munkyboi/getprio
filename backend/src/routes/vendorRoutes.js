@@ -254,7 +254,11 @@ router.get(
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.queue.read");
-    res.json({ entitlements: await billingService.getTenantEntitlements(tenant._id) });
+    const [entitlements, plan] = await Promise.all([
+      billingService.getTenantEntitlements(tenant._id),
+      billingService.getTenantPlanSummary(tenant._id)
+    ]);
+    res.json({ entitlements, plan });
   })
 );
 
@@ -1246,7 +1250,7 @@ router.get("/tenant/:tenantSlug/counters/slug-availability", asyncHandler((req, 
 
 router.get("/tenant/:tenantSlug/locations/slug-availability", asyncHandler((req, res) => handleCheckLocationSlugAvailability({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, storeLocationRepository })));
 
-router.patch("/tenant/:tenantSlug/counters/:counterSlug", asyncHandler((req, res) => handleUpdateCounter({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, billingService, serviceCounterRepository, getCounterForLocation })));
+router.patch("/tenant/:tenantSlug/counters/:counterSlug", asyncHandler((req, res) => handleUpdateCounter({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, billingService, serviceCounterRepository, getCounterForLocation, tenantMembershipLocationRepository })));
 
 router.delete("/tenant/:tenantSlug/counters/:counterSlug", asyncHandler((req, res) => handleDeleteCounter({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, serviceCounterRepository, getCounterForLocation })));
 
@@ -1388,6 +1392,7 @@ router.delete(
       throw error;
     }
 
+    await serviceCounterRepository.removeAssignmentsForUserAndTenant(user._id, tenant._id);
     await userRepository.removeTenantMembership(user._id, tenant._id);
     res.status(204).send();
   })
@@ -1415,7 +1420,14 @@ router.post(
       isActive: req.body.isActive !== false
     });
 
-    await serviceCounterRepository.replaceAssignments(counter._id, req.body.assignedUserIds || []);
+    const assignedUserIds = req.body.assignedUserIds || [];
+    await serviceCounterRepository.replaceAssignments(counter._id, assignedUserIds);
+    await tenantMembershipLocationRepository.ensureUserLocationAssignments({
+      userIds: assignedUserIds,
+      tenantId: tenant._id,
+      locationId: location._id,
+      assignedByUserId: req.user?._id
+    });
     res.status(201).json({ counter });
   })
 );

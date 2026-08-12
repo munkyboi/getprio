@@ -50,6 +50,8 @@ DROP TABLE IF EXISTS auth_mfa_recovery_codes CASCADE;
 DROP TABLE IF EXISTS auth_mfa_factors CASCADE;
 DROP TABLE IF EXISTS auth_login_attempts CASCADE;
 DROP TABLE IF EXISTS password_reset_tokens CASCADE;
+DROP TABLE IF EXISTS account_email_change_challenges CASCADE;
+DROP TABLE IF EXISTS account_phone_change_challenges CASCADE;
 DROP TABLE IF EXISTS auth_sessions CASCADE;
 DROP TABLE IF EXISTS rating_disputes CASCADE;
 DROP TABLE IF EXISTS vendor_review_revisions CASCADE;
@@ -154,6 +156,24 @@ CREATE TABLE users (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE TABLE account_phone_change_challenges (
+  id UUID PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  new_phone TEXT NOT NULL,
+  code_hash TEXT NOT NULL,
+  code_expires_at TIMESTAMPTZ NOT NULL,
+  code_attempts INTEGER NOT NULL DEFAULT 0,
+  used_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX account_phone_change_challenges_user_created_idx
+  ON account_phone_change_challenges (user_id, created_at DESC);
+
+CREATE INDEX account_phone_change_challenges_active_idx
+  ON account_phone_change_challenges (user_id, used_at, code_expires_at);
 
 CREATE TABLE oauth_accounts (
   id BIGSERIAL PRIMARY KEY,

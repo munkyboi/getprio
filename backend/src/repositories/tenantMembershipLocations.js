@@ -5,13 +5,25 @@ async function userHasLocationAssignment(userId, tenantId, locationId, options =
   const result = await client.query(
     `SELECT 1
      FROM tenant_memberships AS membership
-     INNER JOIN tenant_membership_locations AS assignment
+     LEFT JOIN tenant_membership_locations AS assignment
        ON assignment.tenant_membership_id = membership.id
      WHERE membership.user_id = $1
        AND membership.tenant_id = $2
        AND membership.role = 'staff'
        AND membership.is_active = TRUE
-       AND assignment.location_id = $3
+       AND (
+         assignment.location_id = $3
+         OR EXISTS (
+           SELECT 1
+           FROM service_counter_assignments AS counter_assignment
+           INNER JOIN service_counters AS counter
+             ON counter.id = counter_assignment.counter_id
+           WHERE counter_assignment.user_id = membership.user_id
+             AND counter.tenant_id = membership.tenant_id
+             AND counter.location_id = $3
+             AND counter.is_active = TRUE
+         )
+       )
      LIMIT 1`,
     [Number(userId), Number(tenantId), Number(locationId)]
   );
@@ -91,8 +103,34 @@ async function replaceUserLocationAssignments(data, options = {}) {
   return { role: membership.role, locationIds: locationIds.map(String) };
 }
 
+async function ensureUserLocationAssignments({ userIds, tenantId, locationId, assignedByUserId }, options = {}) {
+  const client = options.client || db.pool;
+  const normalizedUserIds = [...new Set((userIds || []).map(Number).filter(Number.isFinite))];
+  if (!normalizedUserIds.length) return;
+
+  const memberships = await client.query(
+    `SELECT id
+     FROM tenant_memberships
+     WHERE tenant_id = $1
+       AND user_id = ANY($2::BIGINT[])
+       AND role = 'staff'
+       AND is_active = TRUE`,
+    [Number(tenantId), normalizedUserIds]
+  );
+  for (const membership of memberships.rows) {
+    await client.query(
+      `INSERT INTO tenant_membership_locations (
+         tenant_membership_id, location_id, assignment_source, assigned_by_user_id
+       ) VALUES ($1, $2, 'explicit', $3)
+       ON CONFLICT (tenant_membership_id, location_id) DO NOTHING`,
+      [membership.id, Number(locationId), assignedByUserId ? Number(assignedByUserId) : null]
+    );
+  }
+}
+
 module.exports = {
   listAssignedLocationIdsByUserIds,
   replaceUserLocationAssignments,
+  ensureUserLocationAssignments,
   userHasLocationAssignment
 };
