@@ -135,6 +135,15 @@ function normalizeTheme(input = {}, fallback = DEFAULT_PUBLIC_BOARD_THEME) {
   };
 }
 
+function normalizeProfileMediaTheme(theme) {
+  return normalizeTheme({
+    logoUrl: theme?.logoUrl,
+    logoFit: theme?.logoFit,
+    backgroundImageUrl: theme?.backgroundImageUrl,
+    backgroundImageFit: theme?.backgroundImageFit
+  });
+}
+
 function mapTheme(row) {
   if (!row) {
     return null;
@@ -192,26 +201,28 @@ async function findLocationTheme(locationId, options = {}) {
 }
 
 async function getResolvedTheme(tenantId, locationId, options = {}) {
+  const formatTheme = (scope, theme) => {
+    const response = {
+      scope,
+      theme: normalizeTheme(theme)
+    };
+
+    return options.mediaOnly
+      ? { ...response, theme: normalizeProfileMediaTheme(response.theme) }
+      : response;
+  };
+
   const locationTheme = locationId ? await findLocationTheme(locationId, options) : null;
   if (locationTheme) {
-    return {
-      scope: "location",
-      theme: normalizeTheme(locationTheme.theme)
-    };
+    return formatTheme("location", locationTheme.theme);
   }
 
   const tenantTheme = await findTenantDefaultTheme(tenantId, options);
   if (tenantTheme) {
-    return {
-      scope: "tenant",
-      theme: normalizeTheme(tenantTheme.theme)
-    };
+    return formatTheme("tenant", tenantTheme.theme);
   }
 
-  return {
-    scope: "fallback",
-    theme: normalizeTheme(DEFAULT_PUBLIC_BOARD_THEME)
-  };
+  return formatTheme("fallback", DEFAULT_PUBLIC_BOARD_THEME);
 }
 
 async function upsertTenantDefaultTheme({ tenantId, theme, userId }, options = {}) {

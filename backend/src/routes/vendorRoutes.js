@@ -296,8 +296,10 @@ router.patch(
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.theme.manage");
-    await entitlementAdmissionService.admit({ tenantId: tenant._id, featureKey: "branding" });
     const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
+    if (location || req.body.applyToAllLocations) {
+      await entitlementAdmissionService.admit({ tenantId: tenant._id, featureKey: "branding" });
+    }
 
     const theme = await publicBoardThemeRepository.saveTheme({
       tenantId: tenant._id,
@@ -316,17 +318,19 @@ router.post(
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.theme.manage");
-    await entitlementAdmissionService.admit({ tenantId: tenant._id, featureKey: "branding" });
     const entitlements = await billingService.getTenantEntitlements(tenant._id);
-    if (!entitlements.brandedQueuePages) {
-      const error = new Error("Public board rebranding is not available for this plan.");
-      error.statusCode = 403;
-      throw error;
-    }
     const requestedLocationSlug = normalizeRequestText(req.body.locationSlug || req.query.location);
     const location = requestedLocationSlug
       ? await getLocationForTenant(tenant, requestedLocationSlug)
       : null;
+    if (location) {
+      await entitlementAdmissionService.admit({ tenantId: tenant._id, featureKey: "branding" });
+      if (!entitlements.brandedQueuePages) {
+        const error = new Error("Public board rebranding is not available for this plan.");
+        error.statusCode = 403;
+        throw error;
+      }
+    }
     const upload = await publicBoardThemeUploadService.createUpload({
       tenant,
       location,
@@ -344,7 +348,6 @@ router.post(
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.theme.manage");
-    await entitlementAdmissionService.admit({ tenantId: tenant._id, featureKey: "branding" });
     if (!req.body || !Buffer.isBuffer(req.body) || !req.body.length) {
       const error = new Error("Image upload payload is required.");
       error.statusCode = 400;
@@ -355,6 +358,9 @@ router.post(
     const location = requestedLocationSlug
       ? await getLocationForTenant(tenant, requestedLocationSlug)
       : null;
+    if (location) {
+      await entitlementAdmissionService.admit({ tenantId: tenant._id, featureKey: "branding" });
+    }
     const upload = await publicBoardThemeUploadService.uploadBinary({
       tenant,
       location,

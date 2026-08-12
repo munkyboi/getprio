@@ -250,8 +250,8 @@ function buildPublicRouter(ticket, cancelTicketMock, publicCapabilities = {
             }
     },
     "../repositories/publicBoardThemes": {
-      getResolvedTheme: async () => ({
-        scope: "location",
+      getResolvedTheme: async (_tenantId, _locationId, options = {}) => ({
+        scope: options.mediaOnly ? "tenant" : "location",
         theme: {
           presetId: "classic",
           heroTitle: "Demo board",
@@ -787,6 +787,8 @@ test("public vendor profile suppresses surfaces excluded by the effective plan",
     assert.deepEqual(body.vendor.services, []);
     assert.deepEqual(body.vendor.locationServices, []);
     assert.equal(body.vendor.publicBoardTheme, null);
+    assert.equal(body.vendor.businessProfileTheme.scope, "tenant");
+    assert.equal(body.vendor.businessProfileTheme.theme.logoUrl, "https://cdn.example.test/logo.png");
   } finally {
     await stopServer(server);
   }
