@@ -207,6 +207,8 @@ export interface TenantSummary {
   autoResumeVacancyPercent: number | null;
   contactEmail: string;
   contactPhone: string;
+  publicProfileDisplayName?: string;
+  publicProfileDescription?: string;
   publicProfileCategory: string;
   joinUrl: string;
   monitorUrl: string;
@@ -743,6 +745,7 @@ export interface GroupFundedCampaignSummary {
   tenantId: string;
   tenantSlug?: string | null;
   vendorName?: string;
+  vendorDescription?: string;
   vendorCategory?: string;
   locationId: string;
   serviceId: string;
@@ -1565,6 +1568,7 @@ export interface PublicVendorService {
 
 export interface PublicVendorProfile {
   name: string;
+  businessName?: string;
   slug: string;
   category: string;
   description: string;
@@ -1683,6 +1687,8 @@ export interface CreateWalkInTicketRequest {
 
 export interface UpdateTenantSettingsRequest {
   name: string;
+  publicProfileDisplayName?: string;
+  publicProfileDescription?: string;
   publicProfileCategory: string;
   queuePrefix: string;
   averageServiceMinutes: number | string;

@@ -15,6 +15,7 @@ const TENANT_COLUMNS = `
   contact_email,
   contact_phone,
   public_profile_enabled,
+  public_profile_display_name,
   public_profile_description,
   public_profile_category,
   public_profile_image_url,
@@ -44,6 +45,7 @@ function mapTenant(row) {
     contactEmail: row.contact_email,
     contactPhone: row.contact_phone,
     publicProfileEnabled: row.public_profile_enabled,
+    publicProfileDisplayName: row.public_profile_display_name || "",
     publicProfileDescription: row.public_profile_description || "",
     publicProfileCategory: row.public_profile_category || "",
     publicProfileImageUrl: row.public_profile_image_url || "",
@@ -98,7 +100,7 @@ function mapPublicVendorProfile(row) {
     : {};
 
   return {
-    name: row.name,
+    name: row.public_profile_display_name || row.name,
     slug: row.slug,
     category: row.public_profile_category || "",
     description: row.public_profile_description || "",
@@ -308,6 +310,7 @@ async function listPublicVendorProfiles(options = {}) {
     `
       SELECT
         tenants.name,
+        tenants.public_profile_display_name,
         tenants.slug,
         tenants.public_profile_description,
         tenants.public_profile_category,

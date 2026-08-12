@@ -116,6 +116,7 @@ CREATE TABLE tenants (
   contact_phone TEXT,
   notification_settings JSONB NOT NULL DEFAULT '{"queueJoin":true,"bookingIntake":true,"paymentProofReview":true,"bookingStatusChanges":true}'::JSONB,
   public_profile_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  public_profile_display_name TEXT,
   public_profile_description TEXT,
   public_profile_category TEXT,
   public_profile_image_url TEXT,

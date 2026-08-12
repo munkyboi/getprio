@@ -19,9 +19,11 @@ async function handleUpdateSettings({ req, res, getAuthorizedTenant, assertTenan
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.settings.manage");
   await getLocationForTenant(tenant, req.query.location);
-  const { name, publicProfileCategory, ownerName, ownerDisplayName, queuePrefix, averageServiceMinutes, notificationThreshold, autoPauseEnabled, autoPauseThreshold, autoResumeEnabled, autoResumeVacancyPercent, contactEmail, contactPhone } = req.body;
+  const { name, publicProfileDisplayName, publicProfileDescription, publicProfileCategory, ownerName, ownerDisplayName, queuePrefix, averageServiceMinutes, notificationThreshold, autoPauseEnabled, autoPauseThreshold, autoResumeEnabled, autoResumeVacancyPercent, contactEmail, contactPhone } = req.body;
   const wantsToChangeBusinessProfile = [
     name,
+    publicProfileDisplayName,
+    publicProfileDescription,
     publicProfileCategory,
     ownerName,
     ownerDisplayName,
@@ -34,6 +36,8 @@ async function handleUpdateSettings({ req, res, getAuthorizedTenant, assertTenan
   assertPublicTextFieldsAllowed({
     "Business name": name,
     "Business category": publicProfileCategory,
+    "Business display name": publicProfileDisplayName,
+    "Business description": publicProfileDescription,
     "Owner name": ownerName,
     "Owner display name": ownerDisplayName
   });
@@ -43,6 +47,8 @@ async function handleUpdateSettings({ req, res, getAuthorizedTenant, assertTenan
   const normalizedAutoResumeVacancyPercent = normalizedAutoResumeEnabled ? Math.max(5, Math.min(50, Number(autoResumeVacancyPercent || 20))) : null;
   const updatedTenant = await tenantRepository.updateTenant(tenant._id, {
     name: typeof name === "string" && name.trim() ? name.trim().slice(0, 120) : tenant.name,
+    publicProfileDisplayName: typeof publicProfileDisplayName === "string" ? publicProfileDisplayName.trim().slice(0, 120) : tenant.publicProfileDisplayName,
+    publicProfileDescription: typeof publicProfileDescription === "string" ? publicProfileDescription.trim().slice(0, 500) : tenant.publicProfileDescription,
     publicProfileCategory: typeof publicProfileCategory === "string" ? publicProfileCategory.trim().slice(0, 80) : tenant.publicProfileCategory,
     queuePrefix: queuePrefix ? String(queuePrefix).slice(0, 4).toUpperCase() : tenant.queuePrefix,
     averageServiceMinutes: averageServiceMinutes ? Number(averageServiceMinutes) : tenant.averageServiceMinutes,
@@ -58,7 +64,7 @@ async function handleUpdateSettings({ req, res, getAuthorizedTenant, assertTenan
     name: typeof ownerName === "string" && ownerName.trim() ? ownerName.trim().slice(0, 120) : req.user.name,
     displayName: typeof ownerDisplayName === "string" ? ownerDisplayName.trim().slice(0, 60) || null : req.user.displayName || null
   });
-  res.json({ tenant: { id: String(updatedTenant._id), name: updatedTenant.name, slug: updatedTenant.slug, publicProfileCategory: updatedTenant.publicProfileCategory, queuePrefix: updatedTenant.queuePrefix, averageServiceMinutes: updatedTenant.averageServiceMinutes, notificationThreshold: updatedTenant.notificationThreshold, autoPauseEnabled: updatedTenant.autoPauseEnabled, autoPauseThreshold: updatedTenant.autoPauseThreshold, autoResumeEnabled: updatedTenant.autoResumeEnabled, autoResumeVacancyPercent: updatedTenant.autoResumeVacancyPercent, contactEmail: updatedTenant.contactEmail, contactPhone: updatedTenant.contactPhone }, owner: { id: String(owner._id), name: owner.name, displayName: owner.displayName || "" }, snapshot: await getQueueSnapshot(updatedTenant, { location: await getLocationForTenant(updatedTenant, req.query.location) }) });
+  res.json({ tenant: { id: String(updatedTenant._id), name: updatedTenant.name, slug: updatedTenant.slug, publicProfileDisplayName: updatedTenant.publicProfileDisplayName, publicProfileDescription: updatedTenant.publicProfileDescription, publicProfileCategory: updatedTenant.publicProfileCategory, queuePrefix: updatedTenant.queuePrefix, averageServiceMinutes: updatedTenant.averageServiceMinutes, notificationThreshold: updatedTenant.notificationThreshold, autoPauseEnabled: updatedTenant.autoPauseEnabled, autoPauseThreshold: updatedTenant.autoPauseThreshold, autoResumeEnabled: updatedTenant.autoResumeEnabled, autoResumeVacancyPercent: updatedTenant.autoResumeVacancyPercent, contactEmail: updatedTenant.contactEmail, contactPhone: updatedTenant.contactPhone }, owner: { id: String(owner._id), name: owner.name, displayName: owner.displayName || "" }, snapshot: await getQueueSnapshot(updatedTenant, { location: await getLocationForTenant(updatedTenant, req.query.location) }) });
 }
 
 async function handleGetNotificationSettings({ req, res, getAuthorizedTenant, assertTenantPermission }) {

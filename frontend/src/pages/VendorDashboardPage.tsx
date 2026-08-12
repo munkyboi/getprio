@@ -315,6 +315,8 @@ const emptyWalkIn: CreateWalkInTicketRequest = {
 
 const defaultSettings: UpdateTenantSettingsRequest = {
   name: "",
+  publicProfileDisplayName: "",
+  publicProfileDescription: "",
   publicProfileCategory: "",
   queuePrefix: "P",
   averageServiceMinutes: 5,
@@ -1737,6 +1739,8 @@ export default function VendorDashboardPage() {
     setSnapshot((current) => selectFreshestQueueSnapshot(current, snapshotResponse));
     setSettings({
       name: snapshotResponse.tenant.name || "",
+      publicProfileDisplayName: snapshotResponse.tenant.publicProfileDisplayName || "",
+      publicProfileDescription: snapshotResponse.tenant.publicProfileDescription || "",
       publicProfileCategory: snapshotResponse.tenant.publicProfileCategory || "",
       queuePrefix: snapshotResponse.tenant.queuePrefix,
       averageServiceMinutes: snapshotResponse.tenant.averageServiceMinutes,
@@ -5754,7 +5758,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   function renderThemePreview() {
     const previewLocation = themeLocation || selectedLocation;
     const selectedTenant = user?.tenants.find((tenant) => tenant.slug === selectedTenantSlug);
-    const previewVendorName = snapshot?.tenant.name || selectedTenant?.name || "Public vendor";
+    const previewVendorName = settings.publicProfileDisplayName || snapshot?.tenant.name || selectedTenant?.name || "Public vendor";
     const previewLocationLabel = previewLocation
       ? [previewLocation.name, previewLocation.city, previewLocation.province].filter(Boolean).join(", ") ||
         previewLocation.country ||
@@ -5810,16 +5814,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   <Title className="vendor-hero-title" order={1}>
                     {previewVendorName}
                   </Title>
-                  <Text className="vendor-hero-subtitle" fw={700} size="lg">
-                    {themeForm.heroTitle || "Book ahead or join the public queue when same-day service is available."}
-                  </Text>
+                  {settings.publicProfileDescription ? <Text className="vendor-hero-description">{settings.publicProfileDescription}</Text> : null}
                 </Stack>
               </div>
 
-              <Text className="vendor-hero-description">
-                {themeForm.heroSubtitle ||
-                  "This vendor is preparing detailed service information. You can still continue to the public queue when same-day service is available."}
-              </Text>
 
               <Stack gap="xs">
                 <Group c="dimmed" gap={8} wrap="nowrap">
@@ -5982,30 +5980,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   value={themeForm.presetId}
                   onChange={(value) => value && applyThemePreset(value)}
                 />
-              </ModalSection>
-
-              <ModalSection
-                title="Public hero copy"
-                description="Controls the subtitle and descriptive message displayed in the public vendor hero."
-              >
-                <SimpleGrid cols={1}>
-                  <TextInput
-                    name="heroTitle"
-                    label="Hero subtitle"
-                    description="Short line shown below the vendor name."
-                    value={themeForm.heroTitle}
-                    placeholder={themeLocation?.name || "Book ahead or join the queue."}
-                    onChange={(event) => setThemeField("heroTitle", event.target.value)}
-                  />
-                  <TextInput
-                    name="heroSubtitle"
-                    label="Hero description"
-                    description="Longer supporting text in the hero body."
-                    value={themeForm.heroSubtitle}
-                    placeholder="Customers can monitor their turn remotely."
-                    onChange={(event) => setThemeField("heroSubtitle", event.target.value)}
-                  />
-                </SimpleGrid>
               </ModalSection>
 
               <ModalSection
@@ -9967,7 +9941,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               <IconMapPin size={16} />
               <Text size="sm">{previewLocation || "Philippines"}</Text>
             </Group>
-            <Text c="dimmed" lineClamp={2}>{"This vendor is preparing a public service profile."}</Text>
+            {settings.publicProfileDescription ? (
+              <Text c="dimmed" lineClamp={2}>{settings.publicProfileDescription}</Text>
+            ) : null}
           </Stack>
         </Paper>
       </Stack>
@@ -10016,6 +9992,28 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     value={settings.publicProfileCategory}
                     onChange={(value) =>
                       setSettings((current) => ({ ...current, publicProfileCategory: value }))
+                    }
+                  />
+                  <TextInput
+                    label="Business display name"
+                    description="Shown publicly when set; otherwise the Business name is used."
+                    disabled={!canManageContactSettings}
+                    value={settings.publicProfileDisplayName || ""}
+                    onChange={(event) =>
+                      setSettings((current) => ({ ...current, publicProfileDisplayName: event.target.value }))
+                    }
+                  />
+                  <Textarea
+                    label="Business description"
+                    description="Shown on public vendor pages and related customer screens."
+                    autosize
+                    minRows={3}
+                    maxRows={6}
+                    maxLength={500}
+                    disabled={!canManageContactSettings}
+                    value={settings.publicProfileDescription || ""}
+                    onChange={(event) =>
+                      setSettings((current) => ({ ...current, publicProfileDescription: event.target.value }))
                     }
                   />
                   <Divider />
