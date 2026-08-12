@@ -10017,75 +10017,79 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   <Divider />
                   <div>
                     <Text fw={700}>Default profile media</Text>
-                    <Text c="dimmed" size="sm">
+                  <Text c="dimmed" size="sm">
                       Set the default logo and profile background. Location theme setup can override these values.
                     </Text>
                   </div>
-                  <SimpleGrid cols={1}>
-                    <FileInput
-                      name="defaultBackgroundImageFile"
-                      accept="image/png,image/jpeg,image/webp"
-                      clearable
-                      label="Profile background"
-                      description="Upload a custom image for the profile visual area."
-                      disabled={!canManageContactSettings || busyAction === "business-profile-upload:background"}
-                      onChange={(file) => void uploadBusinessProfileAsset("background", file)}
-                    />
-                    <Select
-                      name="defaultBackgroundImageFit"
-                      label="Profile background fit"
-                      description="Cover fills the profile visual area. Contain shows the full image."
-                      data={[
-                        { value: "cover", label: "Cover" },
-                        { value: "contain", label: "Contain" }
-                      ]}
-                      disabled={!canManageContactSettings}
-                      value={businessProfileTheme.backgroundImageFit}
-                      onChange={(value) => setBusinessProfileThemeField("backgroundImageFit", value === "contain" ? "contain" : "cover")}
-                    />
+                  <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xl">
+                    <Stack gap="md">
+                      <SimpleGrid cols={1}>
+                        <FileInput
+                          name="defaultBackgroundImageFile"
+                          accept="image/png,image/jpeg,image/webp"
+                          clearable
+                          label="Profile background"
+                          description="Upload a custom image for the profile visual area."
+                          disabled={!canManageContactSettings || busyAction === "business-profile-upload:background"}
+                          onChange={(file) => void uploadBusinessProfileAsset("background", file)}
+                        />
+                        <Select
+                          name="defaultBackgroundImageFit"
+                          label="Profile background fit"
+                          description="Cover fills the profile visual area. Contain shows the full image."
+                          data={[
+                            { value: "cover", label: "Cover" },
+                            { value: "contain", label: "Contain" }
+                          ]}
+                          disabled={!canManageContactSettings}
+                          value={businessProfileTheme.backgroundImageFit}
+                          onChange={(value) => setBusinessProfileThemeField("backgroundImageFit", value === "contain" ? "contain" : "cover")}
+                        />
+                      </SimpleGrid>
+                      <SimpleGrid cols={1}>
+                        <TextInput
+                          name="defaultBackgroundImageUrl"
+                          label="Profile background URL"
+                          description="Paste a hosted image URL for the profile visual area."
+                          disabled={!canManageContactSettings}
+                          value={businessProfileTheme.backgroundImageUrl}
+                          onChange={(event) => setBusinessProfileThemeField("backgroundImageUrl", event.target.value)}
+                        />
+                        <FileInput
+                          name="defaultLogoFile"
+                          accept="image/png,image/jpeg,image/webp"
+                          clearable
+                          label="Company logo"
+                          description="Displayed inside the circular logo frame."
+                          disabled={!canManageContactSettings || busyAction === "business-profile-upload:logo"}
+                          onChange={(file) => void uploadBusinessProfileAsset("logo", file)}
+                        />
+                      </SimpleGrid>
+                      <SimpleGrid cols={1}>
+                        <TextInput
+                          name="defaultLogoUrl"
+                          label="Logo URL"
+                          description="Paste a hosted logo URL when not uploading a file."
+                          disabled={!canManageContactSettings}
+                          value={businessProfileTheme.logoUrl}
+                          onChange={(event) => setBusinessProfileThemeField("logoUrl", event.target.value)}
+                        />
+                        <Select
+                          name="defaultLogoFit"
+                          label="Profile logo fit"
+                          description="Contain shows the full logo. Cover fills the circular frame."
+                          data={[
+                            { value: "contain", label: "Contain" },
+                            { value: "cover", label: "Cover" }
+                          ]}
+                          disabled={!canManageContactSettings}
+                          value={businessProfileTheme.logoFit}
+                          onChange={(value) => setBusinessProfileThemeField("logoFit", value === "cover" ? "cover" : "contain")}
+                        />
+                      </SimpleGrid>
+                    </Stack>
+                    {renderBusinessProfilePreview()}
                   </SimpleGrid>
-                  <SimpleGrid cols={1}>
-                    <TextInput
-                      name="defaultBackgroundImageUrl"
-                      label="Profile background URL"
-                      description="Paste a hosted image URL for the profile visual area."
-                      disabled={!canManageContactSettings}
-                      value={businessProfileTheme.backgroundImageUrl}
-                      onChange={(event) => setBusinessProfileThemeField("backgroundImageUrl", event.target.value)}
-                    />
-                    <FileInput
-                      name="defaultLogoFile"
-                      accept="image/png,image/jpeg,image/webp"
-                      clearable
-                      label="Company logo"
-                      description="Displayed inside the circular logo frame."
-                      disabled={!canManageContactSettings || busyAction === "business-profile-upload:logo"}
-                      onChange={(file) => void uploadBusinessProfileAsset("logo", file)}
-                    />
-                  </SimpleGrid>
-                  <SimpleGrid cols={1}>
-                    <TextInput
-                      name="defaultLogoUrl"
-                      label="Logo URL"
-                      description="Paste a hosted logo URL when not uploading a file."
-                      disabled={!canManageContactSettings}
-                      value={businessProfileTheme.logoUrl}
-                      onChange={(event) => setBusinessProfileThemeField("logoUrl", event.target.value)}
-                    />
-                    <Select
-                      name="defaultLogoFit"
-                      label="Profile logo fit"
-                      description="Contain shows the full logo. Cover fills the circular frame."
-                      data={[
-                        { value: "contain", label: "Contain" },
-                        { value: "cover", label: "Cover" }
-                      ]}
-                      disabled={!canManageContactSettings}
-                      value={businessProfileTheme.logoFit}
-                      onChange={(value) => setBusinessProfileThemeField("logoFit", value === "cover" ? "cover" : "contain")}
-                    />
-                  </SimpleGrid>
-                  {renderBusinessProfilePreview()}
                   <Button className="neura-secondary-button" disabled={busyAction === "settings"} type="submit">
                     {busyAction === "settings" || busyAction === "business-profile-theme-save" ? "Saving..." : "Save business profile"}
                   </Button>
