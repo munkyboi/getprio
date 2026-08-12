@@ -4065,6 +4065,19 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     }
   }
 
+  async function handleSaveBusinessProfile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const success = await runAction("settings", () => vendorDashboardOperations.updateSettings(token, selectedTenantSlug, settings));
+    if (!success) {
+      return;
+    }
+
+    const themeSaved = await handleSaveBusinessProfileTheme();
+    if (themeSaved) {
+      showSuccessNotification("Business profile saved", "Your business details and default images were updated.");
+    }
+  }
+
   async function handleStartCheckout(planSlug: Exclude<SubscriptionPlanSlug, "free">) {
     setError("");
     setBusyAction(`checkout:${planSlug}`);
@@ -4205,7 +4218,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   async function handleSaveBusinessProfileTheme() {
-    if (!token) return;
+    if (!token) return false;
 
     setError("");
     setBusyAction("business-profile-theme-save");
@@ -4215,12 +4228,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         applyToAllLocations: false
       });
       setBusinessProfileTheme(mergeTheme(data.theme));
-      showSuccessNotification(
-        "Business profile images saved",
-        "These images are now the default for locations without their own theme."
-      );
+      return true;
     } catch (saveError) {
       setError(getErrorMessage(saveError));
+      return false;
     } finally {
       setBusyAction("");
     }
@@ -9922,7 +9933,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             </Tabs.List>
 
             <Tabs.Panel pt="lg" value="contact">
-              <form onSubmit={handleSaveSettings}>
+              <form onSubmit={handleSaveBusinessProfile}>
                 <Stack gap="md">
                   <div>
                     <Text className="neura-label">Tenant settings</Text>
@@ -9979,15 +9990,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       {businessProfileTheme.logoUrl ? <Image alt="Business logo preview" fit={businessProfileTheme.logoFit} h={120} radius="md" src={businessProfileTheme.logoUrl} /> : null}
                     </Stack>
                   </SimpleGrid>
-                  <Button
-                    className="neura-secondary-button"
-                    disabled={!canManageContactSettings || busyAction === "business-profile-theme-save"}
-                    onClick={() => void handleSaveBusinessProfileTheme()}
-                  >
-                    {busyAction === "business-profile-theme-save" ? "Saving..." : "Save default images"}
-                  </Button>
                   <Button className="neura-secondary-button" disabled={busyAction === "settings"} type="submit">
-                    {busyAction === "settings" ? "Saving..." : "Save business profile"}
+                    {busyAction === "settings" || busyAction === "business-profile-theme-save" ? "Saving..." : "Save business profile"}
                   </Button>
                 </Stack>
               </form>
