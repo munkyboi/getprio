@@ -42,7 +42,22 @@ function invalidCode(message = "That verification code could not be verified. Ch
 
 function validateNewEmail(value, currentEmail) {
   const email = authService.normalizeEmail(value);
-  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+  const atIndex = email.indexOf("@");
+  const lastAtIndex = email.lastIndexOf("@");
+  const dotIndex = email.lastIndexOf(".");
+  const validEmail = Boolean(
+    email &&
+    email.length <= 254 &&
+    atIndex > 0 &&
+    atIndex === lastAtIndex &&
+    dotIndex > atIndex + 1 &&
+    dotIndex < email.length - 1 &&
+    !email.includes(" ") &&
+    !email.includes("\t") &&
+    !email.includes("\n") &&
+    !email.includes("\r")
+  );
+  if (!validEmail) {
     const error = new Error("Enter a valid new email address."); error.statusCode = 400; throw error;
   }
   if (email === authService.normalizeEmail(currentEmail)) {
