@@ -47,8 +47,8 @@ function getVendorMediaStyle(vendor: PublicVendorProfile): CSSProperties | undef
 
   return {
     "--vendor-theme-card-bg": theme.cardBackgroundColor,
-    "--vendor-theme-logo-fit": theme.logoFit,
-    ...(theme.logoFit === "cover" ? { "--vendor-theme-logo-frame-padding": "0px" } : {}),
+    "--vendor-theme-logo-fit": "cover",
+    "--vendor-theme-logo-frame-padding": "0px",
     ...(theme.backgroundImageUrl
       ? {
           backgroundImage: `linear-gradient(rgba(255,255,255,0.2), rgba(255,255,255,0.2)), url(${theme.backgroundImageUrl})`
@@ -187,7 +187,7 @@ export default function VendorDiscoveryPage() {
                         <img
                           alt={`${vendor.name} logo`}
                           src={vendor.publicBoardTheme.theme.logoUrl}
-                          style={{ objectFit: vendor.publicBoardTheme.theme.logoFit }}
+                          style={{ objectFit: "cover" }}
                         />
                       </div>
                     ) : vendor.imageUrl ? (
