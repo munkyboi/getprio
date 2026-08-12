@@ -55,6 +55,7 @@ import {
   IconClipboardList,
   IconCheck,
   IconCopy,
+  IconDownload,
   IconExternalLink,
   IconHistory,
   IconHomeStats,
@@ -78,7 +79,6 @@ import {
 import { notifications } from "@mantine/notifications";
 import { useMediaQuery } from "@mantine/hooks";
 import { differenceInMinutes, getDay } from "date-fns";
-import QRCode from "react-qr-code";
 import { Navigate, NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
 import type {
   BillingOverviewResponse,
@@ -123,7 +123,9 @@ import { BUSINESS_CATEGORIES } from "../constants/businessCategories";
 import { API_BASE_URL } from "../api/client";
 import PhilippineMobileInput from "../components/PhilippineMobileInput";
 import FiveStarRatingInput from "../components/FiveStarRatingInput";
+import CampaignDescriptionEditor from "../components/CampaignDescriptionEditor";
 import RichCampaignDescription from "../components/RichCampaignDescription";
+import StyledQRCode, { getStyledQRCodeCanvas } from "../components/StyledQRCode";
 import CampaignFundingProgress from "../components/CampaignFundingProgress";
 import VendorQueueLifecycleTray from "../components/VendorQueueLifecycleTray";
 import VendorCapacityPanel from "../components/VendorCapacityPanel";
@@ -1101,6 +1103,8 @@ export default function VendorDashboardPage() {
   const [selectedTenantSlug, setSelectedTenantSlug] = useState("");
   const [selectedLocationSlug, setSelectedLocationSlug] = useState("");
   const [snapshot, setSnapshot] = useState<QueueSnapshot | null>(null);
+  const [savingQueueQr, setSavingQueueQr] = useState(false);
+  const queueQrRef = useRef<HTMLDivElement>(null);
   const [locations, setLocations] = useState<StoreLocationWithHours[]>([]);
   const [services, setServices] = useState<VendorServiceSummary[]>([]);
   const [availabilityBlocks, setAvailabilityBlocks] = useState<VendorAvailabilityBlockSummary[]>([]);
@@ -2379,6 +2383,55 @@ export default function VendorDashboardPage() {
         message: getErrorMessage(copyError),
         title: "Could not copy URL"
       });
+    }
+  }
+
+  async function saveQueueQr() {
+    const qrCanvas = getStyledQRCodeCanvas(queueQrRef.current);
+    if (!qrCanvas || typeof window === "undefined") {
+      return;
+    }
+
+    setSavingQueueQr(true);
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = 500;
+      canvas.height = 500;
+      const context = canvas.getContext("2d");
+      if (!context) {
+        throw new Error("Your browser could not prepare the QR image.");
+      }
+      context.fillStyle = "#ffffff";
+      context.fillRect(0, 0, 500, 500);
+      context.drawImage(qrCanvas, 0, 0, 500, 500);
+
+      const jpeg = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob((blob) => {
+          if (blob) {
+            resolve(blob);
+          } else {
+            reject(new Error("The QR image could not be exported."));
+          }
+        }, "image/jpeg", 0.95);
+      });
+      const downloadUrl = URL.createObjectURL(jpeg);
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.download = `${selectedTenantSlug || "queue"}-${selectedLocationSlug || "location"}-join-qr.jpg`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 0);
+      showSuccessNotification("QR code download started", "Your 500 × 500 JPG QR image is being saved to this device.");
+    } catch (downloadError) {
+      notifications.show({
+        color: "red",
+        icon: <IconX size={18} />,
+        message: getErrorMessage(downloadError),
+        title: "Could not save QR code"
+      });
+    } finally {
+      setSavingQueueQr(false);
     }
   }
 
@@ -5587,11 +5640,16 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               </Group>
               <Group align="flex-start" gap="lg">
                 <Paper className="neura-qr-card" p="md">
-                  <QRCode size={160} value={queueLinks.qrUrl} />
+                  <div ref={queueQrRef}>
+                    <StyledQRCode size={160} value={queueLinks.qrUrl} />
+                  </div>
                   <Group gap={6} justify="center" mt="sm">
                     <IconQrcode size={16} />
                     <Text className="neura-label">Join QR</Text>
                   </Group>
+                  <Button fullWidth leftSection={<IconDownload size={16} />} loading={savingQueueQr} mt="md" onClick={() => void saveQueueQr()} variant="default">
+                    Save QR
+                  </Button>
                 </Paper>
                 <Stack flex={1} gap="sm">
                   <TextInput
@@ -5816,7 +5874,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   <Title className="vendor-hero-title" order={1}>
                     {previewVendorName}
                   </Title>
-                  {settings.publicProfileDescription ? <Text className="vendor-hero-description">{settings.publicProfileDescription}</Text> : null}
+                  {settings.publicProfileDescription ? <RichCampaignDescription className="vendor-hero-description" content={settings.publicProfileDescription} /> : null}
                 </Stack>
               </div>
 
@@ -5896,7 +5954,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 <div className="vendor-hero-media-slide vendor-hero-media-slide-qr">
                   <div className="vendor-hero-qr-panel">
                     <div className="vendor-hero-qr-code">
-                      <QRCode aria-label="Join queue QR code preview" value={heroJoinUrl || window.location.href} />
+                      <StyledQRCode aria-label="Join queue QR code preview" value={heroJoinUrl || window.location.href} />
                     </div>
                     <div className="vendor-hero-qr-copy">
                       <Text className="vendor-hero-qr-kicker">Scan to join</Text>
@@ -9583,7 +9641,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     Add an account in your authenticator app, then scan this QR code.
                   </Text>
                   <div aria-label="GetPrio authenticator setup QR code" className="mfa-setup-qr" role="img">
-                    <QRCode aria-hidden="true" bgColor="#ffffff" fgColor="#111827" size={192} value={mfaEnrollmentUri} />
+                    <StyledQRCode aria-label="Authenticator setup QR code" size={192} value={mfaEnrollmentUri} />
                   </div>
                 </Stack>
                 <Alert color="blue" title="Cannot scan the QR code?" variant="light">
@@ -9951,7 +10009,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               <Text size="sm">{previewLocation || "Philippines"}</Text>
             </Group>
             {settings.publicProfileDescription ? (
-              <Text c="dimmed" lineClamp={2}>{settings.publicProfileDescription}</Text>
+              <RichCampaignDescription className="vendor-profile-preview-description" content={settings.publicProfileDescription} />
             ) : null}
           </Stack>
         </Paper>
@@ -10012,19 +10070,18 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       setSettings((current) => ({ ...current, publicProfileDisplayName: event.target.value }))
                     }
                   />
-                  <Textarea
-                    label="Business description"
-                    description="Shown on public vendor pages and related customer screens."
-                    autosize
-                    minRows={3}
-                    maxRows={6}
-                    maxLength={500}
-                    disabled={!canManageContactSettings}
-                    value={settings.publicProfileDescription || ""}
-                    onChange={(event) =>
-                      setSettings((current) => ({ ...current, publicProfileDescription: event.target.value }))
-                    }
-                  />
+                  <Stack gap={4}>
+                    <Text fw={500} size="sm">Business description</Text>
+                    <Text c="dimmed" size="xs">Shown on public vendor pages and related customer screens.</Text>
+                    <CampaignDescriptionEditor
+                      disabled={!canManageContactSettings}
+                      maxCharacters={1000}
+                      onChange={(value) =>
+                        setSettings((current) => ({ ...current, publicProfileDescription: value }))
+                      }
+                      value={settings.publicProfileDescription || ""}
+                    />
+                  </Stack>
                   <Divider />
                   <div>
                     <Text fw={700}>Default profile media</Text>

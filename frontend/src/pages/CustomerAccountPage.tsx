@@ -32,7 +32,6 @@ import {
   IconRepeat
 } from "@tabler/icons-react";
 import { Navigate, Link, useLocation, useNavigate } from "react-router-dom";
-import QRCode from "react-qr-code";
 import type {
   BookingStatus,
   CustomerAccountOverviewResponse,
@@ -47,6 +46,7 @@ import type {
 } from "@shared";
 import { apiRequest } from "../api/client";
 import { customerAccountApi } from "../api/customerAccount";
+import StyledQRCode from "../components/StyledQRCode";
 import { useAuth } from "../context/AuthContext";
 import { buildJoinPath, buildJoinedQueuePathWithTicket } from "../queuePaths";
 import {
@@ -1512,7 +1512,7 @@ export default function CustomerAccountPage() {
                   In Google Authenticator, Microsoft Authenticator, or another TOTP app, add an account and scan this QR code.
                 </Text>
                 <div aria-label="GetPrio authenticator setup QR code" className="mfa-setup-qr" role="img">
-                  <QRCode aria-hidden="true" bgColor="#ffffff" fgColor="#111827" size={192} value={mfaUri} />
+                  <StyledQRCode aria-label="Authenticator setup QR code" size={192} value={mfaUri} />
                 </div>
               </Stack>
               <Alert color="blue" title="Can’t scan the QR code?">

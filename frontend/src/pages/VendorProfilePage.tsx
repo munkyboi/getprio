@@ -59,6 +59,7 @@ import { formatPhilippineMobileNumber } from "../utils/phones";
 import { formatRatingCount } from "../utils/ratings";
 import { getQueueStateSummary } from "../utils/queueStatus";
 import { resolveVendorProfileMedia } from "../utils/vendorTheme";
+import RichCampaignDescription from "../components/RichCampaignDescription";
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const GROUP_FUNDED_FILTER_STORAGE_KEY = "getprio:vendor-profile:group-funded-filters:v2";
@@ -898,7 +899,7 @@ export default function VendorProfilePage() {
                     </Stack>
                   </div>
 
-                  {vendor.description ? <Text className="vendor-hero-description">{vendor.description}</Text> : null}
+                  {vendor.description ? <RichCampaignDescription className="vendor-hero-description" content={vendor.description} /> : null}
 
                   <Group gap="sm" wrap="wrap">
                     <Badge className="group-funded-hero-category-badge" size="lg" variant="light">

@@ -40,8 +40,8 @@ import {
   IconStar
 } from "@tabler/icons-react";
 import { createRoot } from "react-dom/client";
-import QRCode from "react-qr-code";
 import { BrowserRouter, Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import StyledQRCode from "./components/StyledQRCode";
 import type {
   AuthResponse,
   AuthLoginResponse,
@@ -400,7 +400,7 @@ function SettingsPage({ token, user }: { token: string; user: UserSummary & { mf
               <Text fw={700} ta="center">Scan with your authenticator app</Text>
               <Text c="dimmed" maw={440} size="sm" ta="center">Add an account in your authenticator app, then scan this QR code.</Text>
               <div aria-label="GetPrio authenticator setup QR code" className="mfa-setup-qr" role="img">
-                <QRCode aria-hidden="true" bgColor="#ffffff" fgColor="#111827" size={192} value={mfaUri} />
+                <StyledQRCode aria-label="Authenticator setup QR code" size={192} value={mfaUri} />
               </div>
             </Stack>
             <Card withBorder>
