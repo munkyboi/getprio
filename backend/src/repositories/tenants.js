@@ -240,6 +240,7 @@ async function updateTenant(tenantId, changes, options = {}) {
     contactEmail: "contact_email",
     contactPhone: "contact_phone",
     publicProfileEnabled: "public_profile_enabled",
+    publicProfileDisplayName: "public_profile_display_name",
     publicProfileDescription: "public_profile_description",
     publicProfileCategory: "public_profile_category",
     publicProfileImageUrl: "public_profile_image_url",
