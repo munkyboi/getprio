@@ -4,10 +4,10 @@ const API_BASE_URL = process.env.SMOKE_API_URL || process.env.VITE_API_URL || "h
 const APP_BASE_URL = process.env.SMOKE_APP_URL || process.env.APP_BASE_URL || "http://localhost:5173";
 const PLATFORM_BASE_URL = process.env.SMOKE_PLATFORM_URL || process.env.PLATFORM_BASE_URL || "http://localhost:7100";
 
-const SMOKE_EMAIL = process.env.SMOKE_EMAIL || "carlo.abella+store4@gmail.com";
-const SMOKE_PASSWORD = process.env.SMOKE_PASSWORD || "asdfasdf";
-const PLATFORM_SMOKE_EMAIL = process.env.PLATFORM_SMOKE_EMAIL || "getprio-smoke@getprio.local";
-const PLATFORM_SMOKE_PASSWORD = process.env.PLATFORM_SMOKE_PASSWORD || "Smoke1234!";
+const SMOKE_EMAIL = String(process.env.SMOKE_EMAIL || "").trim();
+const SMOKE_PASSWORD = String(process.env.SMOKE_PASSWORD || "").trim();
+const PLATFORM_SMOKE_EMAIL = String(process.env.PLATFORM_SMOKE_EMAIL || "getprio-smoke@getprio.local").trim();
+const PLATFORM_SMOKE_PASSWORD = String(process.env.PLATFORM_SMOKE_PASSWORD || "Smoke1234!").trim();
 const VENDOR_STAFF_SMOKE_EMAIL = String(process.env.VENDOR_STAFF_SMOKE_EMAIL || "").trim();
 const VENDOR_STAFF_SMOKE_PASSWORD = String(process.env.VENDOR_STAFF_SMOKE_PASSWORD || "").trim();
 const CAMPAIGN_SMOKE_ENABLED = ["1", "true", "yes"].includes(
@@ -195,7 +195,7 @@ async function smokePublicStage() {
 
 async function smokeCustomerStage() {
   if (!SMOKE_EMAIL || !SMOKE_PASSWORD) {
-    log("customer smoke skipped (set SMOKE_EMAIL and SMOKE_PASSWORD to enable)");
+    log("customer smoke skipped (set SMOKE_EMAIL and SMOKE_PASSWORD to a seeded fixture)");
     return;
   }
 
@@ -277,7 +277,7 @@ async function smokeCustomerStage() {
 
 async function smokeBookingStage() {
   if (!SMOKE_EMAIL || !SMOKE_PASSWORD) {
-    log("booking smoke skipped (set SMOKE_EMAIL and SMOKE_PASSWORD to enable)");
+    log("booking smoke skipped (set SMOKE_EMAIL and SMOKE_PASSWORD to a seeded fixture)");
     return;
   }
 
@@ -339,7 +339,7 @@ async function smokeBookingStage() {
 
 async function smokeVendorStage() {
   if (!SMOKE_EMAIL || !SMOKE_PASSWORD) {
-    log("vendor smoke skipped (set SMOKE_EMAIL and SMOKE_PASSWORD to enable)");
+    log("vendor smoke skipped (set SMOKE_EMAIL and SMOKE_PASSWORD to a seeded fixture)");
     return;
   }
 
@@ -531,7 +531,7 @@ async function smokeOrganizerCampaignStage() {
     return;
   }
   if (!SMOKE_EMAIL || !SMOKE_PASSWORD) {
-    log("organizer campaign smoke skipped (set SMOKE_EMAIL and SMOKE_PASSWORD to enable)");
+    log("organizer campaign smoke skipped (set SMOKE_EMAIL and SMOKE_PASSWORD to a seeded fixture)");
     return;
   }
 
