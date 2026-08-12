@@ -214,9 +214,7 @@ export default function VendorDiscoveryPage() {
                       <Text size="sm">{getLocationLabel(vendor)}</Text>
                     </Group>
                   </div>
-                  <Text c="dimmed" lineClamp={3}>
-                    {vendor.description || "This vendor is preparing a public service profile."}
-                  </Text>
+                  {vendor.description ? <Text c="dimmed" lineClamp={3}>{vendor.description}</Text> : null}
                   <Text c="dimmed" size="sm">
                     {vendor.locations.length === 1 ? "1 active location" : `${vendor.locations.length} active locations`}
                   </Text>

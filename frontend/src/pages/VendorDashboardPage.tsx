@@ -138,6 +138,8 @@ import * as vendorDashboardExport from "../api/vendorDashboardExport";
 import { useAuth } from "../context/AuthContext";
 import { ConfirmActionModal } from "../components/ConfirmActionModal";
 import { PromptActionModal } from "../components/PromptActionModal";
+import EmailChangePanel from "../components/EmailChangePanel";
+import PhoneChangePanel from "../components/PhoneChangePanel";
 import {
   getAllowedHistoryExportRanges,
   shouldEnableVendorDashboardBootstrap
@@ -315,6 +317,8 @@ const emptyWalkIn: CreateWalkInTicketRequest = {
 
 const defaultSettings: UpdateTenantSettingsRequest = {
   name: "",
+  publicProfileDisplayName: "",
+  publicProfileDescription: "",
   publicProfileCategory: "",
   queuePrefix: "P",
   averageServiceMinutes: 5,
@@ -1392,6 +1396,7 @@ export default function VendorDashboardPage() {
     activeSubscription?.entitlements ||
     currentPlan?.entitlements ||
     effectiveEntitlementsQuery.data?.entitlements;
+  const tenantPlan = effectiveEntitlementsQuery.data?.plan;
   const roleVisibleNavItems = requiresMfaEnrollment
     ? navItems.filter((item) => item.section === "account")
     : isOwner
@@ -1737,6 +1742,8 @@ export default function VendorDashboardPage() {
     setSnapshot((current) => selectFreshestQueueSnapshot(current, snapshotResponse));
     setSettings({
       name: snapshotResponse.tenant.name || "",
+      publicProfileDisplayName: snapshotResponse.tenant.publicProfileDisplayName || "",
+      publicProfileDescription: snapshotResponse.tenant.publicProfileDescription || "",
       publicProfileCategory: snapshotResponse.tenant.publicProfileCategory || "",
       queuePrefix: snapshotResponse.tenant.queuePrefix,
       averageServiceMinutes: snapshotResponse.tenant.averageServiceMinutes,
@@ -3995,6 +4002,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   async function handleRemoveStaff(member: VendorStaffSummary) {
     await vendorDashboardOperations.removeStaff(token, selectedTenantSlug, member.id);
     await reloadStaff();
+    await reloadCounters();
     await reloadBookings();
     showSuccessNotification("Staff removed", `${member.name} no longer has tenant access.`);
   }
@@ -4044,9 +4052,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           assignedUserIds: counter.assignedUserIds
         }
       );
-      setServiceCounters((current) =>
-        current.map((item) => (item.id === response.counter.id ? response.counter : item))
-      );
+      await reloadCounters();
       showSuccessNotification(
         isActive ? "Counter enabled" : "Counter disabled",
         `${response.counter.name} is now ${isActive ? "active" : "inactive"}.`
@@ -5754,7 +5760,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   function renderThemePreview() {
     const previewLocation = themeLocation || selectedLocation;
     const selectedTenant = user?.tenants.find((tenant) => tenant.slug === selectedTenantSlug);
-    const previewVendorName = snapshot?.tenant.name || selectedTenant?.name || "Public vendor";
+    const previewVendorName = settings.publicProfileDisplayName || snapshot?.tenant.name || selectedTenant?.name || "Public vendor";
     const previewLocationLabel = previewLocation
       ? [previewLocation.name, previewLocation.city, previewLocation.province].filter(Boolean).join(", ") ||
         previewLocation.country ||
@@ -5810,16 +5816,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   <Title className="vendor-hero-title" order={1}>
                     {previewVendorName}
                   </Title>
-                  <Text className="vendor-hero-subtitle" fw={700} size="lg">
-                    {themeForm.heroTitle || "Book ahead or join the public queue when same-day service is available."}
-                  </Text>
+                  {settings.publicProfileDescription ? <Text className="vendor-hero-description">{settings.publicProfileDescription}</Text> : null}
                 </Stack>
               </div>
 
-              <Text className="vendor-hero-description">
-                {themeForm.heroSubtitle ||
-                  "This vendor is preparing detailed service information. You can still continue to the public queue when same-day service is available."}
-              </Text>
 
               <Stack gap="xs">
                 <Group c="dimmed" gap={8} wrap="nowrap">
@@ -5982,30 +5982,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   value={themeForm.presetId}
                   onChange={(value) => value && applyThemePreset(value)}
                 />
-              </ModalSection>
-
-              <ModalSection
-                title="Public hero copy"
-                description="Controls the subtitle and descriptive message displayed in the public vendor hero."
-              >
-                <SimpleGrid cols={1}>
-                  <TextInput
-                    name="heroTitle"
-                    label="Hero subtitle"
-                    description="Short line shown below the vendor name."
-                    value={themeForm.heroTitle}
-                    placeholder={themeLocation?.name || "Book ahead or join the queue."}
-                    onChange={(event) => setThemeField("heroTitle", event.target.value)}
-                  />
-                  <TextInput
-                    name="heroSubtitle"
-                    label="Hero description"
-                    description="Longer supporting text in the hero body."
-                    value={themeForm.heroSubtitle}
-                    placeholder="Customers can monitor their turn remotely."
-                    onChange={(event) => setThemeField("heroSubtitle", event.target.value)}
-                  />
-                </SimpleGrid>
               </ModalSection>
 
               <ModalSection
@@ -9902,9 +9878,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     <TextInput disabled label="Phone" value={user?.phone || "Not set"} />
                     <TextInput disabled label="Workspace role" value={selectedTenantRole || "No active role"} />
                   </SimpleGrid>
-                  <Text c="dimmed" size="sm">
-                    Contact support to change sign-in identifiers such as username, email, or phone.
-                  </Text>
                   <Button
                     className="neura-primary-button"
                     loading={accountProfileBusy}
@@ -9915,6 +9888,16 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   </Button>
                 </Stack>
               </form>
+              <EmailChangePanel
+                currentEmail={user?.email || ""}
+                onCompleted={async () => { await refreshUser(); }}
+                token={token || ""}
+              />
+              <PhoneChangePanel
+                currentPhone={user?.phone}
+                onCompleted={async () => { await refreshUser(); }}
+                token={token || ""}
+              />
             </Tabs.Panel>
 
             <Tabs.Panel pt="lg" value="security">
@@ -9967,7 +9950,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               <IconMapPin size={16} />
               <Text size="sm">{previewLocation || "Philippines"}</Text>
             </Group>
-            <Text c="dimmed" lineClamp={2}>{"This vendor is preparing a public service profile."}</Text>
+            {settings.publicProfileDescription ? (
+              <Text c="dimmed" lineClamp={2}>{settings.publicProfileDescription}</Text>
+            ) : null}
           </Stack>
         </Paper>
       </Stack>
@@ -10016,6 +10001,28 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     value={settings.publicProfileCategory}
                     onChange={(value) =>
                       setSettings((current) => ({ ...current, publicProfileCategory: value }))
+                    }
+                  />
+                  <TextInput
+                    label="Business display name"
+                    description="Shown publicly when set; otherwise the Business name is used."
+                    disabled={!canManageContactSettings}
+                    value={settings.publicProfileDisplayName || ""}
+                    onChange={(event) =>
+                      setSettings((current) => ({ ...current, publicProfileDisplayName: event.target.value }))
+                    }
+                  />
+                  <Textarea
+                    label="Business description"
+                    description="Shown on public vendor pages and related customer screens."
+                    autosize
+                    minRows={3}
+                    maxRows={6}
+                    maxLength={500}
+                    disabled={!canManageContactSettings}
+                    value={settings.publicProfileDescription || ""}
+                    onChange={(event) =>
+                      setSettings((current) => ({ ...current, publicProfileDescription: event.target.value }))
                     }
                   />
                   <Divider />
@@ -10498,18 +10505,18 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               <Text size="xs" c="dimmed">Current tenant</Text>
               <Text fw={700}>{snapshot?.tenant.name || user?.tenants[0]?.name || "Tenant"}</Text>
               <Text size="sm" c="dimmed">{selectedLocation?.name || "Primary location"}</Text>
-              <Badge color={activeSubscription ? "teal" : "orange"} mt="sm">
-                {activeSubscription ? activeSubscription.planName : "No active plan"}
+              <Badge color={activeSubscription || tenantPlan?.planName ? "teal" : "orange"} mt="sm">
+                {activeSubscription?.planName || tenantPlan?.planName || "No active plan"}
               </Badge>
               <Divider my="sm" />
               <Stack gap={2}>
                 <Text size="xs" c="dimmed">Logged in user:</Text>
                 <Text fw={600} size="sm">{user?.name || "Unknown user"}</Text>
-                <Text c="dimmed" size="xs">
+                <Badge color="gray" size="sm" variant="light">
                   {selectedTenantRole
                     ? selectedTenantRole.charAt(0).toUpperCase() + selectedTenantRole.slice(1)
                     : "No tenant role"}
-                </Text>
+                </Badge>
               </Stack>
             </div>
             <Tooltip label="Log out" withArrow>
@@ -11015,7 +11022,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   function renderCurrentSection() {
-    if (!activeSubscription && currentSection !== "settings" && currentSection !== "account") {
+    if (!hasActiveSubscription && currentSection !== "settings" && currentSection !== "account") {
       return <ActivationPanel onViewPlans={() => openPlanDialog()} />;
     }
 

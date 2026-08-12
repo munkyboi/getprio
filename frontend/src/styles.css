@@ -912,6 +912,7 @@ body {
 }
 
 .vendor-card-image {
+  position: relative;
   height: 150px;
   border-radius: 22px;
   transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 220ms ease;
@@ -926,6 +927,10 @@ body {
 }
 
 .vendor-card-logo-frame {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -30%);
   display: grid;
   place-items: center;
   width: min(120px, 60%);
@@ -935,7 +940,6 @@ body {
   border: 6px solid var(--vendor-theme-card-bg, rgba(255, 255, 255, 0.82));
   background: linear-gradient(135deg, var(--vendor-theme-card-bg, rgba(255, 255, 255, 0.82)), color-mix(in srgb, var(--vendor-theme-card-bg, rgba(255, 255, 255, 0.82)) 74%, white));
   box-shadow: 0 18px 42px rgba(36, 30, 25, 0.18);
-  transform: translateY(20%);
   overflow: hidden;
 }
 
@@ -7814,6 +7818,20 @@ button:hover > .rating-star { transform: scale(1.08); }
   padding-top: 1rem;
   border-top: 1px solid var(--mantine-color-gray-3);
   background: inherit;
+}
+
+.email-change-panel {
+  margin-top: 1rem;
+}
+
+.email-change-option.is-selected {
+  border-color: var(--mantine-color-orange-5);
+  background: var(--mantine-color-orange-0);
+  color: var(--mantine-color-orange-9);
+}
+
+.email-change-panel .mantine-Button-root {
+  min-height: 44px;
 }
 
 @media (max-width: 48em) {

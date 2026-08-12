@@ -52,7 +52,10 @@ export function getBillingOverview(token: string, tenantSlug: string) {
 }
 
 export function getEffectiveEntitlements(token: string, tenantSlug: string) {
-  return apiRequest<{ entitlements: BillingOverviewResponse["plans"][number]["entitlements"] }>(
+  return apiRequest<{
+    entitlements: BillingOverviewResponse["plans"][number]["entitlements"];
+    plan?: { planName: string | null; planSlug: string | null; subscriptionStatus: string | null };
+  }>(
     `/vendor/tenant/${tenantSlug}/entitlements`,
     { token }
   );

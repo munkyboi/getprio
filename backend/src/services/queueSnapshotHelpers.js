@@ -190,7 +190,9 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
   return {
     tenant: redactPublicContactDetails({
       id: String(tenant._id),
-      name: tenant.name,
+      name: tenant.publicProfileDisplayName || tenant.name,
+      businessName: tenant.name,
+      publicProfileDescription: tenant.publicProfileDescription || "",
       slug: tenant.slug,
       publicProfileCategory: tenant.publicProfileCategory || "",
       queuePrefix: tenant.queuePrefix,

@@ -982,6 +982,9 @@ export default function GroupFundedCampaignPage() {
                     {campaign.locationName ? <Text>· {campaign.locationName}</Text> : null}
                   </Group>
                 </Group>
+                {campaign.vendorDescription ? (
+                  <Text c="dimmed" size="sm">{campaign.vendorDescription}</Text>
+                ) : null}
                 <Group c="dimmed" gap={8} wrap="nowrap">
                   <IconCalendar className="booking-detail-meta-icon" size={18} />
                   <Text>

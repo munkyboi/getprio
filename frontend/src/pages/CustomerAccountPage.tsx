@@ -58,6 +58,7 @@ import { getErrorMessage } from "../utils/errors";
 import { showCustomerError, showCustomerSuccess } from "../utils/customerNotifications";
 import { isBrowserPushSupported, subscribeToBrowserPush } from "../utils/pushNotifications";
 import CustomerAccountLayout, { type CustomerAccountSection } from "../components/CustomerAccountLayout";
+import EmailChangePanel from "../components/EmailChangePanel";
 import { getTicketStateSummary } from "../utils/queueStatus";
 
 const CUSTOMER_TABLE_PAGE_SIZE = 10;
@@ -1313,14 +1314,19 @@ export default function CustomerAccountPage() {
                 value={accountUser?.phone || user.phone || ""}
               />
             </SimpleGrid>
-            <Alert color="yellow" variant="light">
-              Email and phone updates need a dedicated account OTP flow before they can be changed. They are shown read-only here until that validation endpoint exists.
-            </Alert>
             <Button className="customer-primary-action" color="dark" disabled={savingProfile} size="lg" type="submit">
               {savingProfile ? "Saving..." : "Save profile details"}
             </Button>
           </Stack>
         </form>
+        <EmailChangePanel
+          currentEmail={accountUser?.email || user.email || ""}
+          onCompleted={async () => {
+            await refreshUser();
+            await queryClient.invalidateQueries({ queryKey: ["customer-account", token] });
+          }}
+          token={token || ""}
+        />
       </Stack>
       </Card>
     </Stack>

@@ -139,6 +139,19 @@ async function getTenantEntitlements(tenantId) {
   return {};
 }
 
+async function getTenantPlanSummary(tenantId) {
+  const subscription = tenantId
+    ? await billingRepository.getActiveSubscriptionByTenantId(tenantId)
+    : null;
+  const plan = subscription?.planSlug ? await findPlanBySlug(subscription.planSlug) : null;
+
+  return {
+    planName: subscription?.status === "active" ? (plan?.name || subscription.planSlug || null) : null,
+    planSlug: subscription?.status === "active" ? subscription.planSlug : null,
+    subscriptionStatus: subscription?.status || null
+  };
+}
+
 async function createPayMongoCheckout({
   tenant,
   user,
@@ -636,6 +649,7 @@ async function handlePayMongoWebhook(rawBody, signatureHeader) {
 module.exports = {
   getBillingOverview,
   getTenantEntitlements,
+  getTenantPlanSummary,
   createPayMongoCheckout,
   syncPayMongoCheckout,
   handlePayMongoWebhook

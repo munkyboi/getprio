@@ -1723,6 +1723,8 @@ test("vendor settings provide an editable business profile", () => {
   assert.match(source, /value=\{settingsTab\}[\s\S]*?setSettingsTab\(\(value as SettingsTab \| null\) \|\| "contact"\)/);
   assert.doesNotMatch(source, /<Tabs defaultValue="contact"/);
   assert.match(source, /label="Business name"/);
+  assert.match(source, /label="Business display name"/);
+  assert.match(source, /label="Business description"/);
   assert.match(source, /<Autocomplete[\s\S]*?label="Business category"[\s\S]*?data=\{\[\.\.\.BUSINESS_CATEGORIES\]\}/);
   assert.match(source, /<Text fw=\{700\}>Default profile media<\/Text>/);
   assert.match(source, /label="Profile background"/);
@@ -1732,6 +1734,7 @@ test("vendor settings provide an editable business profile", () => {
   assert.match(source, /label="Logo URL"/);
   assert.match(source, /label="Profile logo fit"/);
   assert.match(source, /Profile preview/);
+  assert.doesNotMatch(source, /Public hero copy/);
   assert.doesNotMatch(source, /label="Owner name"/);
   assert.doesNotMatch(source, /label="Owner display name"/);
   assert.match(source, /label="Full name"/);
@@ -2515,6 +2518,8 @@ test("vendor account menu separates user security from role-restricted billing",
   assert.match(dashboard, /section: "account", label: "Account"/);
   assert.match(dashboard, /const staffAllowedSections = new Set<DashboardSection>\(\["queue", "bookings", "clients", "history", "account"\]\)/);
   assert.match(dashboard, /const canAccessBillingTabs = isOwner \|\| isAdmin/);
+  assert.match(dashboard, /if \(!hasActiveSubscription && currentSection !== "settings" && currentSection !== "account"\)/);
+  assert.doesNotMatch(dashboard, /if \(!activeSubscription && currentSection !== "settings" && currentSection !== "account"\)/);
   assert.match(dashboard, /canAccessBillingTabs && !requiresMfaEnrollment/);
   assert.match(dashboard, /<Tabs\.Tab value="subscription">Subscription<\/Tabs\.Tab>/);
   assert.match(dashboard, /<Tabs\.Tab value="billing">Billing<\/Tabs\.Tab>/);

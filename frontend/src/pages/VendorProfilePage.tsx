@@ -895,17 +895,10 @@ export default function VendorProfilePage() {
                       <Title className="vendor-hero-title ticket-page-title" order={1}>
                         {vendor.name}
                       </Title>
-                      <Text className="vendor-hero-subtitle" fw={700} size="lg">
-                        {theme?.heroTitle || "Book ahead or join the public queue when same-day service is available."}
-                      </Text>
                     </Stack>
                   </div>
 
-                  <Text className="vendor-hero-description">
-                    {theme?.heroSubtitle ||
-                      vendor.description ||
-                      "This vendor is preparing detailed service information. You can still continue to the public queue when same-day service is available."}
-                  </Text>
+                  {vendor.description ? <Text className="vendor-hero-description">{vendor.description}</Text> : null}
 
                   <Group gap="sm" wrap="wrap">
                     <Badge className="group-funded-hero-category-badge" size="lg" variant="light">

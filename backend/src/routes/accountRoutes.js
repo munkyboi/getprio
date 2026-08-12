@@ -13,6 +13,9 @@ const bookingService = require("../services/bookingService");
 const organizerCampaignService = require("../services/organizerCampaignService");
 const ratingService = require("../services/ratingService");
 const passwordResetService = require("../services/passwordResetService");
+const emailChangeService = require("../services/emailChangeService");
+const phoneChangeService = require("../services/phoneChangeService");
+const authService = require("../services/authService");
 const pushNotificationService = require("../services/pushNotificationService");
 const userAvatarUploadService = require("../services/userAvatarUploadService");
 const customerTicketAccess = require("../services/customerTicketAccess");
@@ -40,6 +43,15 @@ const avatarUploadLimiter = rateLimit({
 
 router.use(authenticate);
 router.use(moderatePublicText);
+
+const emailChangeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `${req.user?._id || "anonymous"}:${ipKeyGenerator(req.ip)}`,
+  message: { message: "Too many email change verification attempts. Please try again later." }
+});
 
 function normalizeRequestText(value, fallback = "") {
   if (Array.isArray(value)) {
@@ -508,6 +520,77 @@ router.patch(
       success: true,
       message: "Profile details updated."
     });
+  })
+);
+
+router.post(
+  "/email-change/start",
+  emailChangeLimiter,
+  asyncHandler(async (req, res) => {
+    const result = await emailChangeService.start({
+      user: req.user,
+      newEmail: req.body?.newEmail,
+      method: req.body?.method === "mfa" ? "mfa" : "current_email",
+      password: req.body?.password,
+      totpCode: req.body?.totpCode
+    });
+    res.json(result);
+  })
+);
+
+router.post(
+  "/email-change/verify-current",
+  emailChangeLimiter,
+  asyncHandler(async (req, res) => {
+    res.json(await emailChangeService.verifyCurrent({
+      user: req.user,
+      challengeId: req.body?.challengeId,
+      code: req.body?.code
+    }));
+  })
+);
+
+router.post(
+  "/email-change/verify-new",
+  emailChangeLimiter,
+  asyncHandler(async (req, res) => {
+    const updatedUser = await emailChangeService.verifyNew({
+      user: req.user,
+      challengeId: req.body?.challengeId,
+      code: req.body?.code,
+      sessionId: req.auth.sessionId,
+      ipAddress: authService.getRequestIp(req),
+      userAgent: authService.getUserAgent(req)
+    });
+    res.json({ user: formatAccountUser(updatedUser), success: true, message: "Your email address has been changed." });
+  })
+);
+
+router.post(
+  "/phone-change/start",
+  emailChangeLimiter,
+  asyncHandler(async (req, res) => {
+    const result = await phoneChangeService.start({
+      user: req.user,
+      newPhone: req.body?.newPhone,
+      method: req.body?.method === "totp" ? "totp" : "email",
+      totpCode: req.body?.totpCode
+    });
+    res.json({ ...result, user: result.user ? formatAccountUser(result.user) : undefined });
+  })
+);
+
+router.post(
+  "/phone-change/verify-email",
+  emailChangeLimiter,
+  asyncHandler(async (req, res) => {
+    const result = await phoneChangeService.verifyEmail({
+      user: req.user,
+      challengeId: req.body?.challengeId,
+      code: req.body?.code,
+      password: req.body?.password
+    });
+    res.json({ ...result, user: formatAccountUser(result.user) });
   })
 );
 

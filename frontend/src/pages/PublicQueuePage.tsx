@@ -47,23 +47,6 @@ function formatCalendarDate(date: Date, timezone?: string) {
   };
 }
 
-function getLocationSubtitle(snapshot: QueueSnapshot | null, fallback: string) {
-  const location = snapshot?.location;
-
-  if (!location) {
-    return fallback || "Main location";
-  }
-
-  const address = [
-    location.name,
-    location.addressLine1,
-    location.city,
-    location.province
-  ].filter(Boolean);
-
-  return address.length ? address.join(" - ") : location.name || fallback;
-}
-
 function getInitials(name: string) {
   return name
     .split(/\s+/)
@@ -115,7 +98,7 @@ export default function PublicQueuePage() {
   );
   const businessName = snapshot?.tenant?.name || tenantSlugValue || "GetPrio";
   const heroTitle = businessName;
-  const heroSubtitle = getLocationSubtitle(snapshot, theme?.heroSubtitle || locationSlug || "Main location");
+  const heroSubtitle = snapshot?.tenant?.publicProfileDescription || "";
   const queueState = getQueueStateSummary(snapshot);
   const ticketState = getTicketStateSummary(snapshot?.focusTicket?.status);
   const locationState = getLocationStatusSummary(snapshot);
@@ -290,7 +273,7 @@ export default function PublicQueuePage() {
               )}
             <div className="public-board-tv-title">
               <h1>{businessName}</h1>
-              <p>{heroSubtitle}</p>
+              {heroSubtitle ? <p>{heroSubtitle}</p> : null}
             </div>
             <div
               aria-label={`Current time ${clockLabel}. Location ${locationState.label}. Queue ${queueState.label}.`}
