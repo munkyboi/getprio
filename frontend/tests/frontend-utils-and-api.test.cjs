@@ -1443,12 +1443,13 @@ test("vendor discovery uses a mobile-first search and card layout", () => {
   assert.match(styles, /\.vendor-search-input \{\s+flex: 0 1 auto;/);
   assert.match(styles, /\.vendor-card-actions > \.mantine-Button-root \{\s+min-height: 3\.25rem;/);
   assert.match(styles, /\.vendor-card \{\s+min-height: 0;/);
-  assert.match(source, /"--vendor-theme-logo-fit": theme\.logoFit/);
-  assert.match(source, /theme\.logoFit === "cover" \? \{ "--vendor-theme-logo-frame-padding": "0px" \} : \{\}/);
-  assert.match(source, /style=\{\{ objectFit: vendor\.publicBoardTheme\.theme\.logoFit \}\}/);
+  assert.match(source, /"--vendor-theme-logo-fit": "cover"/);
+  assert.match(source, /"--vendor-theme-logo-frame-padding": "0px"/);
+  assert.match(source, /style=\{\{ objectFit: "cover" \}\}/);
   assert.match(dashboard, /themeForm\.logoFit === "cover" \? \{ "--vendor-theme-logo-frame-padding": "0px" \} : \{\}/);
   assert.match(themeUtils, /theme\.logoFit === "cover" \? \{ "--vendor-theme-logo-frame-padding": "0px" \} : \{\}/);
   assert.match(styles, /\.vendor-card-logo-frame \{[\s\S]*?padding: var\(--vendor-theme-logo-frame-padding, 0\.6rem\);/);
+  assert.match(styles, /\.vendor-card-logo-frame \{[\s\S]*?border: 6px solid var\(--vendor-theme-card-bg/);
   assert.match(styles, /\.vendor-card-logo-frame img \{[\s\S]*?object-fit: var\(--vendor-theme-logo-fit, contain\);/);
   assert.match(styles, /\.vendor-profile-logo-frame \{[\s\S]*?padding: var\(--vendor-theme-logo-frame-padding, 1rem\);/);
 });
