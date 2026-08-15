@@ -5,7 +5,6 @@ import { IconAlertCircle, IconArrowLeft, IconBuildingBank, IconBuildingStore, Ic
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import type {
   BookingPaymentProofAccessResponse,
-  BookingPaymentProofUploadResponse,
   BookingStatus,
   CancelCustomerBookingResponse,
   CustomerBookingDetailResponse,
@@ -16,6 +15,7 @@ import type {
   SubmitBookingPaymentProofRequest
 } from "@shared";
 import { API_BASE_URL, ApiError, apiRequest } from "../api/client";
+import { customerAccountApi } from "../api/customerAccount";
 import ResourceErrorState from "../components/ResourceErrorState";
 import FiveStarRatingInput from "../components/FiveStarRatingInput";
 import CampaignCreateForm from "../components/CampaignCreateForm";
@@ -359,22 +359,7 @@ export default function CustomerBookingDetailPage() {
     setProofBusy(true);
     setError("");
     try {
-      const uploadResponse = await fetch(
-        `${API_BASE_URL}/account/bookings/${booking.id}/payment-proof/uploads/direct?fileName=${encodeURIComponent(paymentProofFile.name)}`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": paymentProofFile.type
-          },
-          body: paymentProofFile
-        }
-      );
-
-      if (!uploadResponse.ok) {
-        throw new Error("Payment proof upload failed. Please try again.");
-      }
-      const uploadData = await uploadResponse.json() as BookingPaymentProofUploadResponse;
+      const uploadData = await customerAccountApi.uploadBookingPaymentProof(token, booking.id, paymentProofFile);
 
       const payload: SubmitBookingPaymentProofRequest = {
         paymentReference: trimmedReference,

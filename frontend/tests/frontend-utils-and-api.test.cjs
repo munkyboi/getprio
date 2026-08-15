@@ -111,6 +111,7 @@ const {
   rateOrganizer,
   rescheduleBooking
 } = require("../src/api/vendorDashboardBookings.ts");
+const { customerAccountApi } = require("../src/api/customerAccount.ts");
 
 function mockResponse(status, body) {
   return {
@@ -788,6 +789,43 @@ test("vendor media uploads send image bytes only to the authenticated API", asyn
   assert.ok(calls.every(([url]) => url.startsWith(`${API_BASE_URL}/vendor/tenant/tenant/`)));
   assert.ok(calls.every(([, options]) => options.body === file));
   assert.ok(calls.every(([, options]) => options.headers["Content-Type"] === "image/png"));
+});
+
+test("customer image and proof uploads use cookie authentication with binary bodies", async () => {
+  const calls = [];
+  const file = Object.assign(new Blob(["image"], { type: "image/webp" }), {
+    name: "proof image.webp"
+  });
+
+  await withFetch(async (url, options) => {
+    calls.push([String(url), options]);
+    return mockResponse(201, {
+      user: { id: "customer-1" },
+      avatarUrl: "https://cdn.example/avatar.webp",
+      proof: { objectKey: "proofs/proof.webp" },
+      contribution: { id: "contribution-1" },
+      reimbursement: { id: "reimbursement-1" },
+      attachment: { objectKey: "reports/report.webp" }
+    });
+  }, async () => {
+    await customerAccountApi.uploadAvatar("cookie-session", file);
+    await customerAccountApi.uploadBookingPaymentProof("cookie-session", "booking-2", file);
+    await customerAccountApi.uploadCampaignContributionProof("cookie-session", "campaign-3", "reference 4", file);
+    await customerAccountApi.uploadCampaignReimbursementEvidence("cookie-session", "campaign-3", "contribution-5", file);
+  });
+
+  assert.equal(calls.length, 4);
+  assert.ok(calls.every(([, options]) => options.method === "POST"));
+  assert.ok(calls.every(([, options]) => options.credentials === "include"));
+  assert.ok(calls.every(([, options]) => options.body === file));
+  assert.ok(calls.every(([, options]) => options.headers.Authorization === undefined));
+  assert.ok(calls.every(([, options]) => options.headers["Content-Type"] === "image/webp"));
+  assert.deepEqual(calls.map(([url]) => url), [
+    `${API_BASE_URL}/account/profile/avatar?fileName=proof%20image.webp`,
+    `${API_BASE_URL}/account/bookings/booking-2/payment-proof/uploads/direct?fileName=proof%20image.webp`,
+    `${API_BASE_URL}/account/campaigns/campaign-3/contributions/proof?fileName=proof%20image.webp&paymentReference=reference%204`,
+    `${API_BASE_URL}/account/campaigns/campaign-3/contributions/contribution-5/reimbursement/evidence?fileName=proof%20image.webp`
+  ]);
 });
 
 test("frontend API retains the server-issued CSRF token across API origins", () => {
@@ -2108,7 +2146,8 @@ test("customer settings upload and preview a campaign profile photo", () => {
   assert.match(account, /customerAccountApi\.uploadAvatar\(token, avatarFile\)/);
   assert.match(account, /src=\{avatarPreviewUrl \|\| accountUser\?\.avatarUrl \|\| undefined\}/);
   assert.match(api, /\/account\/profile\/avatar\?fileName=/);
-  assert.match(api, /"Content-Type": file\.type/);
+  assert.match(api, /apiUpload<CustomerAvatarUploadResponse>/);
+  assert.match(api, /contentType: file\.type/);
   assert.match(app, /src=\{user\?\.avatarUrl \|\| undefined\}/);
 });
 

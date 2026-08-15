@@ -1,5 +1,6 @@
-import { API_BASE_URL, apiRequest } from "./client";
+import { apiRequest, apiUpload } from "./client";
 import type {
+  BookingPaymentProofUploadResponse,
   CustomerAvatarUploadResponse,
   CustomerAccountHistoryResponse,
   CustomerAccountOverviewResponse,
@@ -114,25 +115,29 @@ export const customerAccountApi = {
       body
     });
   },
-  async uploadAvatar(token: string, file: File) {
-    const response = await fetch(
-      `${API_BASE_URL}/account/profile/avatar?fileName=${encodeURIComponent(file.name)}`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": file.type
-        },
-        body: file
-      }
+  uploadAvatar(token: string, file: File) {
+    return apiUpload<CustomerAvatarUploadResponse>(
+      `/account/profile/avatar?fileName=${encodeURIComponent(file.name)}`,
+      { token, body: file, contentType: file.type }
     );
-    const payload = await response.json().catch(() => null) as CustomerAvatarUploadResponse | { message?: string } | null;
-    if (!response.ok) {
-      throw new Error(payload && "message" in payload && payload.message
-        ? payload.message
-        : "Profile photo upload failed.");
-    }
-    return payload as CustomerAvatarUploadResponse;
+  },
+  uploadBookingPaymentProof(token: string, bookingId: string, file: File) {
+    return apiUpload<BookingPaymentProofUploadResponse>(
+      `/account/bookings/${encodeURIComponent(bookingId)}/payment-proof/uploads/direct?fileName=${encodeURIComponent(file.name)}`,
+      { token, body: file, contentType: file.type }
+    );
+  },
+  uploadCampaignContributionProof(token: string, campaignId: string, paymentReference: string, file: File) {
+    return apiUpload<{ contribution: OrganizerCampaign["contribution"] }>(
+      `/account/campaigns/${encodeURIComponent(campaignId)}/contributions/proof?fileName=${encodeURIComponent(file.name)}&paymentReference=${encodeURIComponent(paymentReference)}`,
+      { token, body: file, contentType: file.type }
+    );
+  },
+  uploadCampaignReimbursementEvidence(token: string, campaignId: string, contributionId: string, file: File) {
+    return apiUpload<{ reimbursement: unknown }>(
+      `/account/campaigns/${encodeURIComponent(campaignId)}/contributions/${encodeURIComponent(contributionId)}/reimbursement/evidence?fileName=${encodeURIComponent(file.name)}`,
+      { token, body: file, contentType: file.type }
+    );
   },
   getGroupFundedCampaigns(token: string) {
     return apiRequest<GroupFundedCampaignsResponse>("/account/group-funded-campaigns", { token });
