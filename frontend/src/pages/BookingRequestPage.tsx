@@ -31,7 +31,6 @@ import { addDays, format } from "date-fns";
 import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import CampaignDescriptionEditor from "../components/CampaignDescriptionEditor";
 import type {
-  BookingPaymentProofUploadResponse,
   BookingOtpResponse,
   BookingSlotsResponse,
   BookingSlotSummary,
@@ -46,7 +45,8 @@ import type {
   VerifyBookingOtpRequest,
   VerifyBookingOtpResponse
 } from "@shared";
-import { API_BASE_URL, apiRequest } from "../api/client";
+import { apiRequest } from "../api/client";
+import { customerAccountApi } from "../api/customerAccount";
 import { useAuth } from "../context/AuthContext";
 import PhilippineMobileInput from "../components/PhilippineMobileInput";
 import {
@@ -1005,23 +1005,7 @@ export default function BookingRequestPage() {
     setProofSubmitting(true);
     setError("");
     try {
-      const uploadResponse = await fetch(
-        `${API_BASE_URL}/account/bookings/${booking.id}/payment-proof/uploads/direct?fileName=${encodeURIComponent(paymentProofFile.name)}`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": paymentProofFile.type
-          },
-          body: paymentProofFile
-        }
-      );
-
-      if (!uploadResponse.ok) {
-        throw new Error("Payment proof upload failed. Please try again.");
-      }
-
-      const uploadData = await uploadResponse.json() as BookingPaymentProofUploadResponse;
+      const uploadData = await customerAccountApi.uploadBookingPaymentProof(token, booking.id, paymentProofFile);
       const payload: SubmitBookingPaymentProofRequest = {
         paymentReference: trimmedReference,
         objectKey: uploadData.proof.objectKey,

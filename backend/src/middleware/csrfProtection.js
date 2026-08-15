@@ -9,6 +9,7 @@ const {
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 const ALLOWED_CONTENT_TYPES = [
   "application/json",
+  "application/pdf",
   "application/x-www-form-urlencoded",
   "multipart/form-data",
   "image/jpeg",

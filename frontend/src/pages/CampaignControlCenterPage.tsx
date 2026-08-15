@@ -397,8 +397,7 @@ export default function CampaignControlCenterPage() {
     if (!campaign || !proof || !paymentReference.trim() || (ownContribution?.status === "rejected" && !retryAvailable)) return;
     setBusy(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/account/campaigns/${campaign.id}/contributions/proof?fileName=${encodeURIComponent(proof.name)}&paymentReference=${encodeURIComponent(paymentReference.trim())}`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": proof.type }, body: proof });
-      if (!response.ok) throw new Error((await response.json().catch(() => null))?.message || "Proof upload failed.");
+      await customerAccountApi.uploadCampaignContributionProof(token, campaign.id, paymentReference.trim(), proof);
       await load(); setProof(null); setPaymentReference("");
     } catch (nextError) { setError(getErrorMessage(nextError)); }
     finally { setBusy(false); }
@@ -446,7 +445,7 @@ export default function CampaignControlCenterPage() {
   async function uploadReimbursementEvidence(contributionId: string, file: File) {
     if (!campaign) return;
     setBusy(true);
-    try { const response = await fetch(`${API_BASE_URL}/account/campaigns/${campaign.id}/contributions/${contributionId}/reimbursement/evidence?fileName=${encodeURIComponent(file.name)}`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": file.type }, body: file }); if (!response.ok) throw new Error((await response.json().catch(() => null))?.message || "Evidence upload failed."); await load(); }
+    try { await customerAccountApi.uploadCampaignReimbursementEvidence(token, campaign.id, contributionId, file); await load(); }
     catch (nextError) { setError(getErrorMessage(nextError)); } finally { setBusy(false); }
   }
 

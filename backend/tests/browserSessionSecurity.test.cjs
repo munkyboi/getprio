@@ -128,6 +128,30 @@ test("cookie-authenticated image upload requires the same CSRF checks", async ()
   }, response, (error) => error ? reject(error) : resolve()));
 });
 
+test("cookie-authenticated PDF evidence upload requires the same CSRF checks", async () => {
+  const protect = createCsrfProtection({
+    allowedOrigins: new Set(["https://app.getprio.test"]),
+    csrfSecret: "test-csrf-secret"
+  });
+  const response = buildResponse();
+  const { csrfToken } = issueBrowserSession(response, {
+    accessToken: "access-secret",
+    refreshToken: "refresh-secret",
+    session: { _id: "42", expiresAt: "2026-09-01T00:00:00.000Z" }
+  }, { secure: true, csrfSecret: "test-csrf-secret" });
+
+  await new Promise((resolve, reject) => protect({
+    method: "POST",
+    headers: {
+      cookie: `${ACCESS_COOKIE}=access-secret; ${CSRF_COOKIE}=${encodeURIComponent(csrfToken)}`,
+      origin: "https://app.getprio.test",
+      "sec-fetch-site": "same-origin",
+      "content-type": "application/pdf",
+      "x-csrf-token": csrfToken
+    }
+  }, response, (error) => error ? reject(error) : resolve()));
+});
+
 test("login and MFA verification can recover from a stale browser session without bypassing origin checks", async () => {
   const protect = createCsrfProtection({
     allowedOrigins: new Set(["https://app.getprio.test"]),
