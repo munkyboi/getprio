@@ -1,18 +1,25 @@
+const crypto = require("node:crypto");
+const path = require("node:path");
 const webPush = require("web-push");
 const env = require("../config/env");
 const pushSubscriptionRepository = require("../repositories/pushSubscriptions");
 const userRepository = require("../repositories/users");
+const mobilePushService = require(path.resolve(__dirname, "../../mobile/fcmRegistrationService.js"));
 
 const VENDOR_ALERT_ROLES = ["owner", "admin", "staff"];
 const DEDUPE_WINDOW_MS = 2 * 60 * 1000;
 const recentNotificationKeys = new Map();
 
 function isPushConfigured() {
+  return isWebPushConfigured() || mobilePushService.isConfigured();
+}
+
+function isWebPushConfigured() {
   return Boolean(env.vapidPublicKey && env.vapidPrivateKey && env.vapidSubject);
 }
 
 function configureWebPush() {
-  if (!isPushConfigured()) {
+  if (!isWebPushConfigured()) {
     return false;
   }
 
@@ -104,7 +111,7 @@ function logPushSendAttempt({ subscription, payload, outcome, reason }) {
 }
 
 async function sendToSubscription(subscription, payload) {
-  if (!isPushConfigured()) {
+  if (!isWebPushConfigured()) {
     logPushSendAttempt({
       subscription,
       payload,
@@ -159,7 +166,7 @@ async function sendTenantNotification({
     return { attempted: 0, sent: 0 };
   }
 
-  if (!isPushConfigured()) {
+  if (!isWebPushConfigured()) {
     return { attempted: 0, sent: 0 };
   }
 
@@ -202,30 +209,33 @@ async function sendUserNotification({ userId, title, body, url, tag, eventType }
     return { attempted: 0, sent: 0 };
   }
 
-  const subscriptions = await pushSubscriptionRepository.listActiveByUserId(userId);
   const payload = {
     title,
     body,
     url: url || "/account",
     tag: tag || eventType || "getprio-customer-notification",
-    eventType: eventType || "customer_alert"
+    eventType: eventType || "customer_alert",
+    notificationId: crypto.randomUUID()
   };
 
   if (!claimNotificationKey(`user:${userId}:${payload.tag}`)) {
     return { attempted: 0, sent: 0, deduped: true };
   }
 
+  const subscriptions = isWebPushConfigured()
+    ? await pushSubscriptionRepository.listActiveByUserId(userId)
+    : [];
   let sent = 0;
   for (const subscription of subscriptions) {
-    const delivered = await sendToSubscription(subscription, payload);
-    if (delivered) {
+    if (await sendToSubscription(subscription, payload)) {
       sent += 1;
     }
   }
+  const fcm = await mobilePushService.sendToUser({ userId, payload });
 
   return {
-    attempted: subscriptions.length,
-    sent
+    attempted: subscriptions.length + fcm.attempted,
+    sent: sent + fcm.sent
   };
 }
 

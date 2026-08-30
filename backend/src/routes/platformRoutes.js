@@ -480,6 +480,31 @@ function normalizeEmail(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+function normalizeMobileApprovedHosts(value) {
+  if (!Array.isArray(value)) {
+    const error = new Error("mobileApprovedHosts must be an array.");
+    error.statusCode = 400;
+    throw error;
+  }
+  const hosts = [...new Set(value.map((item) => String(item || "").trim().toLowerCase()).filter(Boolean))];
+  if (hosts.length > 20) {
+    const error = new Error("At most 20 mobile HTTPS hosts may be maintained.");
+    error.statusCode = 400;
+    throw error;
+  }
+  for (const host of hosts) {
+    try {
+      const url = new URL(`https://${host}`);
+      if (url.hostname !== host || url.pathname !== "/" || url.search || url.hash || url.username || url.password) throw new Error();
+    } catch {
+      const error = new Error("Each mobile approved host must be a hostname with no path and no credentials.");
+      error.statusCode = 400;
+      throw error;
+    }
+  }
+  return hosts;
+}
+
 router.get(
   "/settings",
   requirePlatformPermission("platform.settings.manage"),
@@ -496,6 +521,9 @@ router.patch(
   asyncHandler(async (req, res) => {
     const enterpriseInquiryEmail = normalizeEmail(req.body.enterpriseInquiryEmail);
     const defaultTimezone = normalizeTimeZone(req.body.defaultTimezone, "");
+    const mobileApprovedHosts = Object.prototype.hasOwnProperty.call(req.body, "mobileApprovedHosts")
+      ? normalizeMobileApprovedHosts(req.body.mobileApprovedHosts)
+      : undefined;
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(enterpriseInquiryEmail)) {
       const error = new Error("A valid enterprise inquiry email is required.");
       error.statusCode = 400;
@@ -511,6 +539,7 @@ router.patch(
       settings: await platformRepository.updatePlatformSettings({
         enterpriseInquiryEmail,
         defaultTimezone,
+        mobileApprovedHosts,
         userId: req.user?._id
       })
     });

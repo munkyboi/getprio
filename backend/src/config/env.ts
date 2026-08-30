@@ -125,6 +125,9 @@ export const b2PublicBaseUrl = process.env.B2_PUBLIC_BASE_URL || "";
 export const vapidPublicKey = process.env.VAPID_PUBLIC_KEY || "";
 export const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY || "";
 export const vapidSubject = process.env.VAPID_SUBJECT || "mailto:admin@getprio.local";
+export const fcmProjectId = process.env.FCM_PROJECT_ID || "";
+export const fcmClientEmail = process.env.FCM_CLIENT_EMAIL || "";
+export const fcmPrivateKey = (process.env.FCM_PRIVATE_KEY || "").replace(/\\n/g, "\n");
 export const rolloutCohort = process.env.ROLLOUT_COHORT || "off";
 export const csrfSecret = process.env.CSRF_SECRET || jwtSecret;
 export const authCookieSecure = process.env.AUTH_COOKIE_SECURE
@@ -196,6 +199,9 @@ const env = {
   vapidPublicKey,
   vapidPrivateKey,
   vapidSubject,
+  fcmProjectId,
+  fcmClientEmail,
+  fcmPrivateKey,
   rolloutCohort,
   csrfSecret,
   authCookieSecure,

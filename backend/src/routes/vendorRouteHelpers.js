@@ -70,6 +70,7 @@ async function formatLocation(location, tenant) {
 
   return {
     id: String(location._id),
+    queueJoinId: location.queueJoinId,
     tenantId: String(location.tenantId),
     name: location.name,
     slug: location.slug,
@@ -93,6 +94,7 @@ async function formatLocation(location, tenant) {
     isPrimary: location.isPrimary,
     isActive: location.isActive,
     joinUrl: `${process.env.APP_BASE_URL || "http://localhost:5173"}/join/${tenant.slug}/${location.slug}`,
+    qrJoinUrl: `${process.env.APP_BASE_URL || "http://localhost:5173"}/join/${tenant.slug}/${location.slug}?source=qr&id=${encodeURIComponent(location.queueJoinId)}`,
     monitorUrl: `${process.env.APP_BASE_URL || "http://localhost:5173"}/monitor/${tenant.slug}/${location.slug}`,
     openStatus,
     hours: hours.map((hour) => ({

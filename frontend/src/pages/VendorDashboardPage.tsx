@@ -2735,7 +2735,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     buildJoinUrl(window.location.origin, selectedTenantSlug, selectedLocationSlug);
   const queueLinks = {
     joinUrl,
-    qrUrl: `${joinUrl}?source=qr`,
+    qrUrl: snapshot?.location?.qrJoinUrl || `${joinUrl}?source=qr`,
     monitorUrl:
       snapshot?.location?.monitorUrl ||
       snapshot?.tenant.monitorUrl ||
@@ -4084,6 +4084,30 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       );
     } catch (toggleError) {
       setError(getErrorMessage(toggleError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function handleRegenerateLocationQueueQr(locationItem: StoreLocationWithHours) {
+    setBusyAction(`location-qr:${locationItem.slug}`);
+    setError("");
+    try {
+      const response = await vendorDashboardOperations.regenerateLocationQueueQr(
+        token,
+        selectedTenantSlug,
+        locationItem.slug
+      );
+      setLocations((current) => current.map((item) => item.id === response.location.id ? response.location : item));
+      setSnapshot((current) => current && current.location?.id === response.location.id
+        ? { ...current, location: response.location }
+        : current);
+      showSuccessNotification(
+        "Queue QR regenerated",
+        "The previous QR id is no longer valid. Save and redistribute the new QR code."
+      );
+    } catch (regenerateError) {
+      setError(getErrorMessage(regenerateError));
     } finally {
       setBusyAction("");
     }
@@ -6475,6 +6499,17 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 value={locationItem.joinUrl}
               />
               <TextInput
+                label="Mobile queue QR target"
+                onClick={() => void copyLocationUrl("QR target", locationItem.qrJoinUrl || locationItem.joinUrl)}
+                onFocus={(event) => event.currentTarget.select()}
+                readOnly
+                rightSection={<IconCopy aria-hidden="true" size={16} />}
+                rightSectionPointerEvents="none"
+                styles={{ input: { cursor: "copy" } }}
+                title="Click to copy mobile queue QR target"
+                value={locationItem.qrJoinUrl || locationItem.joinUrl}
+              />
+              <TextInput
                 label="Monitor URL"
                 onClick={() => void copyLocationUrl("Monitor URL", locationItem.monitorUrl)}
                 onFocus={(event) => event.currentTarget.select()}
@@ -6492,6 +6527,13 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 value={locationItem.monitorUrl}
               />
               <Group>
+                <Button
+                  disabled={busyAction === `location-qr:${locationItem.slug}`}
+                  onClick={() => void handleRegenerateLocationQueueQr(locationItem)}
+                  variant="light"
+                >
+                  {busyAction === `location-qr:${locationItem.slug}` ? "Regenerating..." : "Regenerate queue QR"}
+                </Button>
                 <Button variant="default" onClick={() => setSelectedLocationSlug(locationItem.slug)}>
                   Select
                 </Button>

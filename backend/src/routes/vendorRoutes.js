@@ -428,6 +428,17 @@ router.patch(
 );
 
 router.post(
+  "/tenant/:tenantSlug/locations/:locationSlug/queue-join-id/regenerate",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.location.manage");
+    const location = await getLocationForTenant(tenant, req.params.locationSlug);
+    const regeneratedLocation = await storeLocationRepository.regenerateQueueJoinId(location._id);
+    res.json({ location: await formatLocation(regeneratedLocation, tenant) });
+  })
+);
+
+router.post(
   "/tenant/:tenantSlug/location-payment-qrs/uploads/direct",
   express.raw({ type: ["image/jpeg", "image/png", "image/webp"], limit: "8mb" }),
   asyncHandler(async (req, res) => {

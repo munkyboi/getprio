@@ -40,6 +40,12 @@ function buildReturnUrl(tenant, payment, status) {
       : locationSlug
         ? `/join/${tenant.slug}/${locationSlug}`
         : `/join/${tenant.slug}`;
+  const mobileReturnUrl = payment.payload?.mobileReturnUrl;
+  if (mobileReturnUrl) {
+    const mobileUrl = new URL(mobileReturnUrl);
+    mobileUrl.search = params.toString();
+    return mobileUrl.toString();
+  }
   return getClientUrl(`${path}?${params.toString()}`);
 }
 

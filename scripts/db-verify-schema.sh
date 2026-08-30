@@ -127,6 +127,9 @@ BEGIN
     UNION ALL
     SELECT 'queue_join_otps.chain_id'
     WHERE NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='queue_join_otps' AND column_name='chain_id')
+    UNION ALL
+    SELECT 'store_locations.queue_join_id'
+    WHERE NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='store_locations' AND column_name='queue_join_id')
   ) required_columns;
 
   IF missing_columns IS NOT NULL THEN
@@ -176,7 +179,9 @@ BEGIN
     ('queue_email_journeys'),
     ('queue_email_slots'),
     ('entitlement_rollout_runs'),
-    ('entitlement_rollout_anomalies')
+    ('entitlement_rollout_anomalies'),
+    ('mobile_push_registrations'),
+    ('mobile_oauth_codes')
   ) required(table_name)
   WHERE to_regclass('public.' || table_name) IS NULL;
 
@@ -191,6 +196,14 @@ BEGIN
       AND indexname = 'queue_events_event_key_idx'
   ) THEN
     RAISE EXCEPTION 'Schema verification failed. Missing queue event idempotency index.';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public'
+      AND indexname = 'store_locations_queue_join_id_idx'
+  ) THEN
+    RAISE EXCEPTION 'Schema verification failed. Missing location QR id index.';
   END IF;
 
   IF EXISTS (

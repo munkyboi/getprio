@@ -2,6 +2,7 @@ const db = require("../config/db");
 
 const LOCATION_COLUMNS = `
   id,
+  queue_join_id,
   tenant_id,
   name,
   slug,
@@ -46,6 +47,7 @@ function mapLocation(row) {
 
   return {
     _id: String(row.id),
+    queueJoinId: row.queue_join_id,
     tenantId: String(row.tenant_id),
     name: row.name,
     slug: row.slug,
@@ -197,6 +199,36 @@ async function findPrimaryLocationByTenantId(tenantId, options = {}) {
       LIMIT 1
     `,
     [Number(tenantId)]
+  );
+
+  return mapLocation(result.rows[0]);
+}
+
+async function findLocationByQueueJoinId(queueJoinId, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const result = await queryClient.query(
+    `
+      SELECT ${LOCATION_COLUMNS}
+      FROM store_locations
+      WHERE queue_join_id = $1
+      LIMIT 1
+    `,
+    [String(queueJoinId).trim()]
+  );
+
+  return mapLocation(result.rows[0]);
+}
+
+async function regenerateQueueJoinId(locationId, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const result = await queryClient.query(
+    `
+      UPDATE store_locations
+      SET queue_join_id = gen_random_uuid()
+      WHERE id = $1
+      RETURNING ${LOCATION_COLUMNS}
+    `,
+    [Number(locationId)]
   );
 
   return mapLocation(result.rows[0]);
@@ -409,7 +441,9 @@ module.exports = {
   findLocationByTenantAndSlug,
   isLocationSlugAvailable,
   findLocationById,
+  findLocationByQueueJoinId,
   findPrimaryLocationByTenantId,
+  regenerateQueueJoinId,
   createLocation,
   updateLocation,
   listHoursByLocationId,
