@@ -31,6 +31,25 @@ GetPrio is a multi-tenant queue platform for vendors that want QR-based ticketin
 3. Start the frontend, platform dashboard, and backend together with `npm run dev`.
 4. Start PostgreSQL separately or use Docker Compose.
 
+### Physical iPhone queue QR testing
+
+Keep the normal browser URLs on localhost, but give mobile queue QR payloads an HTTPS-form origin using the Mac's current LAN address:
+
+```env
+APP_BASE_URL=http://localhost:5173
+MOBILE_QR_BASE_URL=https://192.168.1.22:5173
+```
+
+Then launch the Flutter app from `../mobile-app` with the same host approved for QR parsing:
+
+```bash
+flutter run -d "Zero32 Domain" \
+  --dart-define=GETPRIO_API_BASE_URL=http://192.168.1.22:5001 \
+  --dart-define=GETPRIO_APPROVED_HOSTS=192.168.1.22
+```
+
+The GetPrio scanner validates the HTTPS-form QR target but does not open it; it resolves the UUID through the configured API. Use a real HTTPS origin or tunnel when also testing the QR with the iPhone's regular Camera app. Update both values if the Mac's LAN address changes.
+
 Database helpers:
 
 The controlled Free-plan rollout, allowance ledger, and Usage Credit incident procedures are in `docs/operations/free-tier-entitlements-rollout.md`. All new authority and commerce controls default off until a reviewed cohort promotion.

@@ -1,5 +1,6 @@
 const path = require("path");
 const dotenv = require("dotenv");
+const { resolveMobileQrBaseUrl } = require("./mobileQrBaseUrl");
 
 const rootEnvPath = path.resolve(__dirname, "../../../.env");
 dotenv.config({ path: rootEnvPath });
@@ -19,6 +20,7 @@ const jwtSecret = process.env.JWT_SECRET || "change-me";
 const serverUrl = process.env.SERVER_URL || `http://localhost:${port}`;
 const clientUrl = process.env.CLIENT_URL || `http://localhost:${frontendPort}`;
 const appBaseUrl = process.env.APP_BASE_URL || `http://localhost:${frontendPort}`;
+const mobileQrBaseUrl = resolveMobileQrBaseUrl(process.env, appBaseUrl, frontendPort);
 const platformDashboardUrl =
   process.env.PLATFORM_DASHBOARD_URL || `http://localhost:${platformDashboardPort}`;
 const appTimezone = process.env.APP_TIMEZONE || "Asia/Manila";
@@ -129,6 +131,7 @@ const env = {
   serverUrl,
   clientUrl,
   appBaseUrl,
+  mobileQrBaseUrl,
   platformDashboardUrl,
   appTimezone,
   oauthCallbackPath,
@@ -196,3 +199,4 @@ module.exports = env;
 module.exports.default = env;
 module.exports.resolvePaymongoMode = resolvePaymongoMode;
 module.exports.resolvePaymongoCredentials = resolvePaymongoCredentials;
+module.exports.resolveMobileQrBaseUrl = resolveMobileQrBaseUrl;

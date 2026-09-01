@@ -2540,6 +2540,21 @@ test("generated QR codes render at high resolution", () => {
   assert.match(source, /canvas\.style\.width = `\$\{size\}px`/);
 });
 
+test("vendor dashboard preview uses the canonical location queue QR target", () => {
+  const dashboard = fs.readFileSync(
+    path.join(path.resolve(__dirname, ".."), "src", "pages", "VendorDashboardPage.tsx"),
+    "utf8"
+  );
+
+  assert.match(dashboard, /qrUrl: selectedLocation\?\.qrJoinUrl \|\| ""/);
+  assert.match(dashboard, /const heroQrTarget = previewLocation\?\.qrJoinUrl \|\| ""/);
+  assert.match(dashboard, /value=\{heroQrTarget\}/);
+  assert.doesNotMatch(
+    dashboard,
+    /<StyledQRCode[^>]+value=\{[^}]+ \|\| window\.location\.href\}/
+  );
+});
+
 test("vendor dashboard provides account-level MFA enrollment with a QR code", () => {
   const frontendRoot = path.resolve(__dirname, "..");
   const dashboard = fs.readFileSync(path.join(frontendRoot, "src", "pages", "VendorDashboardPage.tsx"), "utf8");

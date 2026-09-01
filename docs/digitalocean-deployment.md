@@ -147,6 +147,7 @@ JWT_SECRET=CHANGE_THIS_TO_A_LONG_RANDOM_SECRET
 SERVER_URL=https://api.getprio.online
 CLIENT_URL=https://getprio.online
 APP_BASE_URL=https://getprio.online
+MOBILE_QR_BASE_URL=https://getprio.online
 PLATFORM_DASHBOARD_URL=https://platform.getprio.online
 VITE_API_URL=https://api.getprio.online/api
 
@@ -227,6 +228,7 @@ Notes:
 
 - `VITE_API_URL` should include `/api`.
 - `SERVER_URL` should not include `/api`.
+- `MOBILE_QR_BASE_URL` must be an HTTPS origin whose hostname is included in the mobile app's approved-host configuration. It may differ from `APP_BASE_URL` for enterprise or physical-device testing.
 - `B2_BUCKET_PUBLIC_BOARD` is reused for public board assets and location payment QR images.
 - `B2_BUCKET_PAYMENT_PROOF` should stay private.
 - Payment proof uploads now go through the backend direct-upload route, not direct browser-to-B2 upload.

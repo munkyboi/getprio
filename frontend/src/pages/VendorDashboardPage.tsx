@@ -213,6 +213,17 @@ function ModalHelpIcon({ label }: { label: string }) {
   );
 }
 
+function QueueQrUnavailable() {
+  return (
+    <div aria-label="Queue QR unavailable" className="vendor-empty-art" role="img">
+      <IconQrcode size={42} stroke={1.5} />
+      <Text c="dimmed" fw={700} mt="sm" size="sm">
+        Queue QR unavailable
+      </Text>
+    </div>
+  );
+}
+
 function ModalSection({
   title,
   description,
@@ -2735,7 +2746,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     buildJoinUrl(window.location.origin, selectedTenantSlug, selectedLocationSlug);
   const queueLinks = {
     joinUrl,
-    qrUrl: snapshot?.location?.qrJoinUrl || `${joinUrl}?source=qr`,
+    qrUrl: selectedLocation?.qrJoinUrl || "",
     monitorUrl:
       snapshot?.location?.monitorUrl ||
       snapshot?.tenant.monitorUrl ||
@@ -5664,14 +5675,18 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               </Group>
               <Group align="flex-start" gap="lg">
                 <Paper className="neura-qr-card" p="md">
-                  <div ref={queueQrRef}>
-                    <StyledQRCode size={160} value={queueLinks.qrUrl} />
-                  </div>
+                  {queueLinks.qrUrl ? (
+                    <div ref={queueQrRef}>
+                      <StyledQRCode size={160} value={queueLinks.qrUrl} />
+                    </div>
+                  ) : (
+                    <QueueQrUnavailable />
+                  )}
                   <Group gap={6} justify="center" mt="sm">
                     <IconQrcode size={16} />
                     <Text className="neura-label">Join QR</Text>
                   </Group>
-                  <Button fullWidth leftSection={<IconDownload size={16} />} loading={savingQueueQr} mt="md" onClick={() => void saveQueueQr()} variant="default">
+                  <Button disabled={!queueLinks.qrUrl} fullWidth leftSection={<IconDownload size={16} />} loading={savingQueueQr} mt="md" onClick={() => void saveQueueQr()} variant="default">
                     Save QR
                   </Button>
                 </Paper>
@@ -5881,7 +5896,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           backgroundSize: themeForm.backgroundImageFit
         }
       : undefined;
-    const heroJoinUrl = previewLocation ? buildJoinUrl(window.location.origin, selectedTenantSlug, previewLocation.slug) : "";
+    const heroQrTarget = previewLocation?.qrJoinUrl || "";
 
     return (
       <Stack className="vendor-profile-page" gap="xl" style={themeStyle}>
@@ -5978,7 +5993,11 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 <div className="vendor-hero-media-slide vendor-hero-media-slide-qr">
                   <div className="vendor-hero-qr-panel">
                     <div className="vendor-hero-qr-code">
-                      <StyledQRCode aria-label="Join queue QR code preview" value={heroJoinUrl || window.location.href} />
+                      {heroQrTarget ? (
+                        <StyledQRCode aria-label="Join queue QR code preview" value={heroQrTarget} />
+                      ) : (
+                        <QueueQrUnavailable />
+                      )}
                     </div>
                     <div className="vendor-hero-qr-copy">
                       <Text className="vendor-hero-qr-kicker">Scan to join</Text>

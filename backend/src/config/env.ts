@@ -1,5 +1,8 @@
 import path from "path";
 import dotenv from "dotenv";
+import { resolveMobileQrBaseUrl } from "./mobileQrBaseUrl.js";
+
+export { resolveMobileQrBaseUrl };
 
 const rootEnvPath = path.resolve(__dirname, "../../../.env");
 dotenv.config({ path: rootEnvPath });
@@ -19,6 +22,7 @@ export const jwtSecret = process.env.JWT_SECRET || "change-me";
 export const serverUrl = process.env.SERVER_URL || `http://localhost:${port}`;
 export const clientUrl = process.env.CLIENT_URL || `http://localhost:${frontendPort}`;
 export const appBaseUrl = process.env.APP_BASE_URL || `http://localhost:${frontendPort}`;
+export const mobileQrBaseUrl = resolveMobileQrBaseUrl(process.env, appBaseUrl, frontendPort);
 export const platformDashboardUrl =
   process.env.PLATFORM_DASHBOARD_URL || `http://localhost:${platformDashboardPort}`;
 export const appTimezone = process.env.APP_TIMEZONE || "Asia/Manila";
@@ -148,6 +152,7 @@ const env = {
   serverUrl,
   clientUrl,
   appBaseUrl,
+  mobileQrBaseUrl,
   platformDashboardUrl,
   appTimezone,
   oauthCallbackPath,
