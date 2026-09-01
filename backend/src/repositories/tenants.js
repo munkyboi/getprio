@@ -383,6 +383,7 @@ async function findPublicVendorProfileBySlug(slug, options = {}) {
     `
       SELECT
         tenants.name,
+        tenants.public_profile_display_name,
         tenants.slug,
         tenants.public_profile_description,
         tenants.public_profile_category,

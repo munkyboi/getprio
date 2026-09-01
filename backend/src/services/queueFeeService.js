@@ -45,6 +45,7 @@ async function assertTenantCanAcceptCustomerJoins(tenantId, options = {}) {
 
   const error = new Error("This queue is not accepting online joins until the vendor activates a subscription plan.");
   error.statusCode = 403;
+  error.code = "SUBSCRIPTION_REQUIRED";
   throw error;
 }
 

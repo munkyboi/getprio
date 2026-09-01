@@ -114,3 +114,145 @@ test("mobile route wiring keeps OAuth and queue contracts under the mobile names
   assert.match(queue, /userId: req\.user\._id/);
   assert.doesNotMatch(queue, /customerName: req\.body/);
 });
+
+test("mobile queue resolve reports open availability and an inactive-plan reason", async () => {
+  const queueJoinId = "123e4567-e89b-42d3-a456-426614174000";
+  let hasActivePlan = true;
+  const subscriptionError = () => Object.assign(
+    new Error("This queue is not accepting online joins until the vendor activates a subscription plan."),
+    { statusCode: 403 }
+  );
+  const router = requireWithMocks("../mobile/queueJoinRoutes.js", {
+    "../src/middleware/auth": {
+      authenticate(req, _res, next) {
+        req.user = { _id: "customer-7", name: "Customer Seven", roles: ["customer"] };
+        next();
+      }
+    },
+    "../src/middleware/asyncHandler": (handler) => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next),
+    "../src/middleware/idempotency": {
+      requireIdempotency: () => (_req, _res, next) => next()
+    },
+    "../src/repositories/tenants": {
+      async findTenantById() {
+        return {
+          _id: "tenant-14",
+          name: "BOSS LOT",
+          slug: "bosslot",
+          publicProfileDisplayName: "Boss Lot Wellness",
+          publicProfileCategory: "Health and Wellness",
+          publicProfileDescription: "Fast, friendly service.",
+          publicProfileImageUrl: "https://cdn.example.com/vendor-card.webp",
+          isActive: true
+        };
+      }
+    },
+    "../src/repositories/storeLocations": {
+      async findLocationByQueueJoinId() {
+        return {
+          _id: "location-15",
+          tenantId: "tenant-14",
+          name: "Main location",
+          slug: "main",
+          queueJoinId,
+          queueLifecycleMode: "enforced",
+          isActive: true
+        };
+      }
+    },
+    "../src/services/queueFeeService": {
+      async getQueueFeeForTenant() {
+        if (!hasActivePlan) throw subscriptionError();
+        return {
+          enabled: true,
+          amountCents: 2000,
+          currency: "PHP",
+          displayAmount: "PHP 20.00"
+        };
+      }
+    },
+    "../src/services/queueJoinPaymentService": {},
+    "../src/repositories/queueJoinPayments": {},
+    "../src/services/entitlementAdmissionService": {
+      async resolvePublicCapabilities() {
+        return { queue: hasActivePlan, branding: true };
+      }
+    },
+    "../src/services/storeHoursService": {
+      async assertLocationOpenForCustomerJoin() {
+        throw Object.assign(new Error("Recurring hours are closed."), { statusCode: 403 });
+      }
+    },
+    "../src/services/queueService": {
+      async assertQueueIntakeOpen() {
+        return { state: "open", intakeMode: "accepting" };
+      },
+      async getQueueSnapshot() {
+        if (!hasActivePlan) throw subscriptionError();
+        return {
+          tenant: {
+            name: "Boss Lot Wellness",
+            publicProfileDescription: "Fast, friendly service.",
+            publicProfileCategory: "Health and Wellness"
+          },
+          queueDay: { state: "open", intakeMode: "accepting" },
+          location: {
+            id: "location-15",
+            name: "Main location",
+            slug: "main",
+            city: "Quezon City",
+            country: "Philippines",
+            openStatus: { isOpen: true, summary: "Open 24 hours" }
+          },
+          businessProfileTheme: {
+            scope: "tenant",
+            theme: {
+              logoUrl: "https://cdn.example.com/logo.webp",
+              logoFit: "contain",
+              backgroundImageUrl: "https://cdn.example.com/cover.webp",
+              backgroundImageFit: "cover"
+            }
+          }
+        };
+      }
+    },
+    "../src/utils/phone": {
+      normalizePhilippineMobileNumber: (value) => value
+    }
+  });
+  const app = express();
+  app.use("/api/mobile", router);
+  app.use((error, _req, res, _next) => res.status(error.statusCode || 500).json({ message: error.message }));
+  const server = await new Promise((resolve) => {
+    const nextServer = app.listen(0, () => resolve(nextServer));
+  });
+
+  try {
+    const response = await fetch(
+      `http://127.0.0.1:${server.address().port}/api/mobile/queue-join/resolve?id=${queueJoinId}`
+    );
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.joinable, true);
+    assert.equal(body.unavailableReason, null);
+    assert.equal(body.vendorSlug, "bosslot");
+    assert.equal(body.locationName, "Main location");
+
+    hasActivePlan = false;
+    const unavailableResponse = await fetch(
+      `http://127.0.0.1:${server.address().port}/api/mobile/queue-join/resolve?id=${queueJoinId}`
+    );
+    assert.equal(unavailableResponse.status, 200);
+    const unavailableBody = await unavailableResponse.json();
+    assert.equal(unavailableBody.joinable, false);
+    assert.equal(
+      unavailableBody.unavailableReason,
+      "This queue is not accepting online joins until the vendor activates a subscription plan."
+    );
+    assert.equal(unavailableBody.vendorName, "BOSS LOT");
+    assert.equal(unavailableBody.vendorSlug, "bosslot");
+    assert.equal(unavailableBody.locationName, "Main location");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});

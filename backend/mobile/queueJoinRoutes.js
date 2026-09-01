@@ -8,7 +8,8 @@ const queueFeeService = require("../src/services/queueFeeService");
 const queueJoinPaymentService = require("../src/services/queueJoinPaymentService");
 const paymentRepository = require("../src/repositories/queueJoinPayments");
 const entitlementAdmissionService = require("../src/services/entitlementAdmissionService");
-const { getQueueSnapshot } = require("../src/services/queueService");
+const storeHoursService = require("../src/services/storeHoursService");
+const { assertQueueIntakeOpen, getQueueSnapshot } = require("../src/services/queueService");
 const { normalizePhilippineMobileNumber } = require("../src/utils/phone");
 
 const router = express.Router();
@@ -45,7 +46,6 @@ async function resolveLocationOrThrow(id) {
 
 async function resolveQueueState(location, tenant) {
   const capabilities = await entitlementAdmissionService.resolvePublicCapabilities(tenant._id);
-  const snapshot = await getQueueSnapshot(tenant, { location });
   let queueFee = { enabled: false, amountCents: 0, currency: "PHP", displayAmount: "PHP 0.00" };
   let feeError = null;
   try {
@@ -53,8 +53,25 @@ async function resolveQueueState(location, tenant) {
   } catch (error) {
     feeError = error;
   }
+  const snapshot = feeError ? null : await getQueueSnapshot(tenant, { location });
 
-  const joinable = Boolean(capabilities.queue && snapshot.joinable && !feeError);
+  let availabilityError = null;
+  if (capabilities.queue && !feeError) {
+    try {
+      if (location.queueLifecycleMode !== "enforced") {
+        await storeHoursService.assertLocationOpenForCustomerJoin(location);
+      }
+      await assertQueueIntakeOpen(tenant, location);
+    } catch (error) {
+      if (Number(error.statusCode) >= 400 && Number(error.statusCode) < 500) {
+        availabilityError = error;
+      } else {
+        throw error;
+      }
+    }
+  }
+
+  const joinable = Boolean(capabilities.queue && !feeError && !availabilityError);
   return {
     location,
     tenant,
@@ -62,11 +79,13 @@ async function resolveQueueState(location, tenant) {
     snapshot,
     queueFee,
     joinable,
-    unavailableReason: !capabilities.queue
-      ? "Queueing is not available for this vendor."
-      : feeError
-        ? feeError.message
-        : snapshot.joinUnavailableReason || (snapshot.joinable ? null : "This queue is not accepting joins right now.")
+    unavailableReason: feeError
+      ? feeError.message
+      : !capabilities.queue
+        ? "Queueing is not available for this vendor."
+        : availabilityError
+          ? availabilityError.message
+          : null
   };
 }
 
