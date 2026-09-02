@@ -155,7 +155,7 @@ router.post(
       customerPhone: normalizePhilippineMobileNumber(req.user.phone),
       notifyByEmail: false,
       notifyBySms: false,
-      joinChannel: "mobile_qr",
+      joinChannel: "qr",
       locationSlug: location.slug,
       mobileReturnUrl: buildMobilePaymentReturnUrl(),
       notes: null
