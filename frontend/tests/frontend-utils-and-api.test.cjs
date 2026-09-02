@@ -1981,6 +1981,21 @@ test("the app has a recovery boundary and a dedicated mobile-first 404 page", ()
   assert.equal(fs.existsSync(path.join(frontendRoot, "public", "illustrations", "generated", "not-found-wayfinding-transparent.png")), true);
 });
 
+test("payment return links have a browser fallback route", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const app = fs.readFileSync(path.join(frontendRoot, "src", "App.tsx"), "utf8");
+  const paymentReturn = fs.readFileSync(
+    path.join(frontendRoot, "src", "pages", "PaymentReturnPage.tsx"),
+    "utf8"
+  );
+
+  assert.match(app, /PaymentReturnPage/);
+  assert.match(app, /path="\/payment\/return"/);
+  assert.match(paymentReturn, /\/public\/payment-returns/);
+  assert.match(paymentReturn, /buildJoinedQueuePath/);
+  assert.match(paymentReturn, /buildJoinPath/);
+});
+
 test("missing campaign and booking responses use the shared recovery state", () => {
   const frontendRoot = path.resolve(__dirname, "..");
   const campaign = fs.readFileSync(path.join(frontendRoot, "src", "pages", "GroupFundedCampaignPage.tsx"), "utf8");

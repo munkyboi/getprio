@@ -2,6 +2,7 @@ const express = require("express");
 const { authenticate } = require("../src/middleware/auth");
 const asyncHandler = require("../src/middleware/asyncHandler");
 const { requireIdempotency } = require("../src/middleware/idempotency");
+const env = require("../src/config/env");
 const tenantRepository = require("../src/repositories/tenants");
 const locationRepository = require("../src/repositories/storeLocations");
 const queueFeeService = require("../src/services/queueFeeService");
@@ -14,6 +15,19 @@ const { normalizePhilippineMobileNumber } = require("../src/utils/phone");
 
 const router = express.Router();
 router.use(authenticate);
+
+function buildMobilePaymentReturnUrl() {
+  const configuredBaseUrl = env.mobilePaymentReturnUrl ||
+    (new URL(env.appBaseUrl).protocol === "https:"
+      ? env.appBaseUrl
+      : env.mobileQrBaseUrl);
+  const baseUrl = new URL(configuredBaseUrl);
+  if (baseUrl.protocol !== "https:") return null;
+  baseUrl.pathname = "/payment/return";
+  baseUrl.search = "";
+  baseUrl.hash = "";
+  return baseUrl.toString();
+}
 
 function normalizeQrId(value) {
   const id = String(value || "").trim().toLowerCase();
@@ -94,6 +108,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const { location, tenant } = await resolveLocationOrThrow(normalizeQrId(req.query.id));
     const state = await resolveQueueState(location, tenant);
+    res.setHeader("Cache-Control", "no-store");
     res.json({
       locationQrId: location.queueJoinId,
       vendorName: tenant.name,
@@ -132,6 +147,7 @@ router.post(
       notifyBySms: false,
       joinChannel: "mobile_qr",
       locationSlug: location.slug,
+      mobileReturnUrl: buildMobilePaymentReturnUrl(),
       notes: null
     };
     const result = await queueJoinPaymentService.handleVerifiedJoin({

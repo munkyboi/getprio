@@ -115,14 +115,26 @@ test("mobile route wiring keeps OAuth and queue contracts under the mobile names
   assert.doesNotMatch(queue, /customerName: req\.body/);
 });
 
+test("mobile paid joins configure the PayMongo return target for the app", () => {
+  const queue = fs.readFileSync(path.join(repositoryRoot, "backend/mobile/queueJoinRoutes.js"), "utf8");
+  assert.match(queue, /mobileReturnUrl/);
+  assert.match(queue, /\/payment\/return/);
+});
+
 test("mobile queue resolve reports open availability and an inactive-plan reason", async () => {
   const queueJoinId = "123e4567-e89b-42d3-a456-426614174000";
   let hasActivePlan = true;
+  let queueOpen = false;
+  const paymentJoinCalls = [];
   const subscriptionError = () => Object.assign(
     new Error("This queue is not accepting online joins until the vendor activates a subscription plan."),
     { statusCode: 403 }
   );
   const router = requireWithMocks("../mobile/queueJoinRoutes.js", {
+    "../src/config/env": {
+      appBaseUrl: "http://localhost:5173",
+      mobileQrBaseUrl: "https://192.168.1.22:5173"
+    },
     "../src/middleware/auth": {
       authenticate(req, _res, next) {
         req.user = { _id: "customer-7", name: "Customer Seven", roles: ["customer"] };
@@ -171,7 +183,17 @@ test("mobile queue resolve reports open availability and an inactive-plan reason
         };
       }
     },
-    "../src/services/queueJoinPaymentService": {},
+    "../src/services/queueJoinPaymentService": {
+      async handleVerifiedJoin({ payload }) {
+        paymentJoinCalls.push(payload);
+        return {
+          requiresPayment: true,
+          payment: { id: "payment-1" },
+          checkoutSession: { checkoutUrl: "https://paymongo.example/checkout/1" },
+          queueFee: { amountCents: 2000, currency: "PHP" }
+        };
+      }
+    },
     "../src/repositories/queueJoinPayments": {},
     "../src/services/entitlementAdmissionService": {
       async resolvePublicCapabilities() {
@@ -185,6 +207,12 @@ test("mobile queue resolve reports open availability and an inactive-plan reason
     },
     "../src/services/queueService": {
       async assertQueueIntakeOpen() {
+        if (!queueOpen) {
+          throw Object.assign(new Error("The queue has not been opened by staff."), {
+            statusCode: 409,
+            code: "QUEUE_DAY_UNOPENED"
+          });
+        }
         return { state: "open", intakeMode: "accepting" };
       },
       async getQueueSnapshot() {
@@ -221,6 +249,7 @@ test("mobile queue resolve reports open availability and an inactive-plan reason
     }
   });
   const app = express();
+  app.use(express.json());
   app.use("/api/mobile", router);
   app.use((error, _req, res, _next) => res.status(error.statusCode || 500).json({ message: error.message }));
   const server = await new Promise((resolve) => {
@@ -233,17 +262,46 @@ test("mobile queue resolve reports open availability and an inactive-plan reason
     );
     assert.equal(response.status, 200);
     const body = await response.json();
-    assert.equal(body.joinable, true);
-    assert.equal(body.unavailableReason, null);
+    assert.equal(body.joinable, false);
+    assert.equal(body.unavailableReason, "The queue has not been opened by staff.");
+    assert.equal(response.headers.get("cache-control"), "no-store");
     assert.equal(body.vendorSlug, "bosslot");
     assert.equal(body.locationName, "Main location");
 
-    hasActivePlan = false;
+    queueOpen = true;
     const unavailableResponse = await fetch(
       `http://127.0.0.1:${server.address().port}/api/mobile/queue-join/resolve?id=${queueJoinId}`
     );
     assert.equal(unavailableResponse.status, 200);
-    const unavailableBody = await unavailableResponse.json();
+    const openBody = await unavailableResponse.json();
+    assert.equal(openBody.joinable, true);
+    assert.equal(openBody.unavailableReason, null);
+    assert.equal(unavailableResponse.headers.get("cache-control"), "no-store");
+    assert.equal(openBody.vendorName, "BOSS LOT");
+    assert.equal(openBody.vendorSlug, "bosslot");
+    assert.equal(openBody.locationName, "Main location");
+
+    const joinResponse = await fetch(
+      `http://127.0.0.1:${server.address().port}/api/mobile/queue-join`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: queueJoinId })
+      }
+    );
+    assert.equal(joinResponse.status, 201);
+    assert.equal(paymentJoinCalls.length, 1);
+    assert.equal(
+      paymentJoinCalls[0].mobileReturnUrl,
+      "https://192.168.1.22:5173/payment/return"
+    );
+
+    hasActivePlan = false;
+    const inactivePlanResponse = await fetch(
+      `http://127.0.0.1:${server.address().port}/api/mobile/queue-join/resolve?id=${queueJoinId}`
+    );
+    assert.equal(inactivePlanResponse.status, 200);
+    const unavailableBody = await inactivePlanResponse.json();
     assert.equal(unavailableBody.joinable, false);
     assert.equal(
       unavailableBody.unavailableReason,

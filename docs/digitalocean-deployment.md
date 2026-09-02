@@ -229,6 +229,7 @@ Notes:
 - `VITE_API_URL` should include `/api`.
 - `SERVER_URL` should not include `/api`.
 - `MOBILE_QR_BASE_URL` must be an HTTPS origin whose hostname is included in the mobile app's approved-host configuration. It may differ from `APP_BASE_URL` for enterprise or physical-device testing.
+- `MOBILE_PAYMENT_RETURN_URL` may override the paid mobile return origin; otherwise the backend uses HTTPS `APP_BASE_URL`, or HTTPS `MOBILE_QR_BASE_URL` for local device testing. The resulting `/payment/return` host must be included in the mobile app's approved-host configuration and verified-link setup.
 - `B2_BUCKET_PUBLIC_BOARD` is reused for public board assets and location payment QR images.
 - `B2_BUCKET_PAYMENT_PROOF` should stay private.
 - Payment proof uploads now go through the backend direct-upload route, not direct browser-to-B2 upload.
@@ -271,6 +272,11 @@ server {
 
   root /var/www/getprio/frontend/dist;
   index index.html;
+
+  location = /.well-known/apple-app-site-association {
+    default_type application/json;
+    try_files $uri =404;
+  }
 
   location / {
     try_files $uri $uri/ /index.html;

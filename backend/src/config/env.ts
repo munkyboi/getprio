@@ -23,6 +23,7 @@ export const serverUrl = process.env.SERVER_URL || `http://localhost:${port}`;
 export const clientUrl = process.env.CLIENT_URL || `http://localhost:${frontendPort}`;
 export const appBaseUrl = process.env.APP_BASE_URL || `http://localhost:${frontendPort}`;
 export const mobileQrBaseUrl = resolveMobileQrBaseUrl(process.env, appBaseUrl, frontendPort);
+export const mobilePaymentReturnUrl = process.env.MOBILE_PAYMENT_RETURN_URL || "";
 export const platformDashboardUrl =
   process.env.PLATFORM_DASHBOARD_URL || `http://localhost:${platformDashboardPort}`;
 export const appTimezone = process.env.APP_TIMEZONE || "Asia/Manila";
@@ -153,6 +154,7 @@ const env = {
   clientUrl,
   appBaseUrl,
   mobileQrBaseUrl,
+  mobilePaymentReturnUrl,
   platformDashboardUrl,
   appTimezone,
   oauthCallbackPath,

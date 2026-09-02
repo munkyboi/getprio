@@ -26,6 +26,7 @@ import CampaignCreatePage from "./pages/CampaignCreatePage";
 import PublicQueuePage from "./pages/PublicQueuePage";
 import JoinQueuePage from "./pages/JoinQueuePage";
 import JoinedQueuePage from "./pages/JoinedQueuePage";
+import PaymentReturnPage from "./pages/PaymentReturnPage";
 import TermsPage from "./pages/TermsPage";
 import NotFoundPage from "./pages/NotFoundPage";
 import SiteFooter from "./components/SiteFooter";
@@ -325,6 +326,7 @@ export default function App() {
         <Route path="/" element={<AppShell><LandingPage /></AppShell>} />
         <Route path="/login" element={<AppShell><LoginPage /></AppShell>} />
         <Route path="/oauth/callback" element={<AppShell><OAuthCallbackPage /></AppShell>} />
+        <Route path="/payment/return" element={<AppShell><PaymentReturnPage /></AppShell>} />
         <Route path="/privacy-policy" element={<AppShell><PrivacyPolicyPage /></AppShell>} />
         <Route path="/contact" element={<AppShell><ContactPage /></AppShell>} />
         <Route path="/terms" element={<AppShell><TermsPage /></AppShell>} />
