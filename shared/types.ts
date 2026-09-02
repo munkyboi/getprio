@@ -234,6 +234,7 @@ export interface StoreOpenStatus {
 export interface StoreLocationSummary {
   id: string;
   tenantId: string;
+  queueJoinId?: string;
   name: string;
   slug: string;
   imageUrl: string;
@@ -256,6 +257,7 @@ export interface StoreLocationSummary {
   isPrimary: boolean;
   isActive: boolean;
   joinUrl: string;
+  qrJoinUrl?: string;
   monitorUrl: string;
   openStatus: StoreOpenStatus;
   hours: StoreHourSummary[];
@@ -1754,12 +1756,14 @@ export interface PlatformSettingsResponse {
   settings: {
     enterpriseInquiryEmail: string;
     defaultTimezone: string;
+    mobileApprovedHosts: string[];
   };
 }
 
 export interface UpdatePlatformSettingsRequest {
   enterpriseInquiryEmail: string;
   defaultTimezone: string;
+  mobileApprovedHosts: string[];
 }
 
 export interface UpdatePlatformQueueFeesRequest {

@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const helpers = require("../src/routes/vendorRouteHelpers");
+const { resolveMobileQrBaseUrl } = require("../src/config/env");
 
 test("vendor route helpers normalize tenant and location data", async () => {
   const tenantRepository = {
@@ -30,6 +31,7 @@ test("vendor route helpers normalize payloads and format entities", async () => 
   const location = {
     _id: 5,
     tenantId: 10,
+    queueJoinId: "123e4567-e89b-42d3-a456-426614174000",
     name: "Main",
     slug: "main",
     addressLine1: "A",
@@ -58,6 +60,10 @@ test("vendor route helpers normalize payloads and format entities", async () => 
   const formatted = await helpers.formatLocation(location, { slug: "tenant" });
   assert.equal(formatted.slug, "main");
   assert.equal(formatted.hours.length, 1);
+  assert.match(
+    formatted.qrJoinUrl,
+    /^https:\/\/[^/]+\/join\/tenant\/main\?source=qr&id=123e4567-e89b-42d3-a456-426614174000$/
+  );
 
   assert.equal(helpers.normalizeTenantNotificationSettings({ bookingIntake: false }).bookingIntake, false);
   assert.equal(helpers.normalizeTenantNotificationSettings({ queueJoin: false }).queueJoin, false);
@@ -109,6 +115,60 @@ test("vendor route helpers normalize payloads and format entities", async () => 
   const formattedService = helpers.formatVendorService({ _id: 1, tenantId: 10, name: "Cut", slug: "cut", bookingCapacityScope: "location" });
   assert.equal(formattedService.slug, "cut");
   assert.equal(formattedService.bookingCapacityScope, "location");
+});
+
+test("vendor route helpers build mobile queue QR links from the dedicated HTTPS origin", () => {
+  const links = helpers.buildLocationLinks(
+    {
+      slug: "main",
+      queueJoinId: "123e4567-e89b-42d3-a456-426614174000"
+    },
+    { slug: "tenant" },
+    {
+      appBaseUrl: "http://localhost:5173/",
+      mobileQrBaseUrl: "https://192.168.1.22:5173/"
+    }
+  );
+
+  assert.deepEqual(links, {
+    joinUrl: "http://localhost:5173/join/tenant/main",
+    qrJoinUrl:
+      "https://192.168.1.22:5173/join/tenant/main?source=qr&id=123e4567-e89b-42d3-a456-426614174000",
+    monitorUrl: "http://localhost:5173/monitor/tenant/main"
+  });
+});
+
+test("mobile queue QR configuration requires a path-free HTTPS origin", () => {
+  assert.equal(
+    resolveMobileQrBaseUrl(
+      { MOBILE_QR_BASE_URL: "https://192.168.1.22:5173/" },
+      "http://localhost:5173",
+      5173
+    ),
+    "https://192.168.1.22:5173"
+  );
+  assert.equal(
+    resolveMobileQrBaseUrl({ NODE_ENV: "development" }, "http://localhost:5173", 5173),
+    "https://localhost:5173"
+  );
+  assert.throws(
+    () =>
+      resolveMobileQrBaseUrl(
+        { MOBILE_QR_BASE_URL: "http://192.168.1.22:5173" },
+        "http://localhost:5173",
+        5173
+      ),
+    /MOBILE_QR_BASE_URL must be an HTTPS origin/
+  );
+  assert.throws(
+    () =>
+      resolveMobileQrBaseUrl(
+        { MOBILE_QR_BASE_URL: "https://getprio.example/mobile" },
+        "http://localhost:5173",
+        5173
+      ),
+    /MOBILE_QR_BASE_URL must be an HTTPS origin/
+  );
 });
 
 test("vendor route helpers normalize group-funded location service settings", () => {

@@ -1,5 +1,6 @@
 const path = require("path");
 const dotenv = require("dotenv");
+const { resolveMobileQrBaseUrl } = require("./mobileQrBaseUrl");
 
 const rootEnvPath = path.resolve(__dirname, "../../../.env");
 dotenv.config({ path: rootEnvPath });
@@ -19,6 +20,8 @@ const jwtSecret = process.env.JWT_SECRET || "change-me";
 const serverUrl = process.env.SERVER_URL || `http://localhost:${port}`;
 const clientUrl = process.env.CLIENT_URL || `http://localhost:${frontendPort}`;
 const appBaseUrl = process.env.APP_BASE_URL || `http://localhost:${frontendPort}`;
+const mobileQrBaseUrl = resolveMobileQrBaseUrl(process.env, appBaseUrl, frontendPort);
+const mobilePaymentReturnUrl = process.env.MOBILE_PAYMENT_RETURN_URL || "";
 const platformDashboardUrl =
   process.env.PLATFORM_DASHBOARD_URL || `http://localhost:${platformDashboardPort}`;
 const appTimezone = process.env.APP_TIMEZONE || "Asia/Manila";
@@ -107,6 +110,9 @@ const b2PublicBaseUrl = process.env.B2_PUBLIC_BASE_URL || "";
 const vapidPublicKey = process.env.VAPID_PUBLIC_KEY || "";
 const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY || "";
 const vapidSubject = process.env.VAPID_SUBJECT || "mailto:admin@getprio.local";
+const fcmProjectId = process.env.FCM_PROJECT_ID || "";
+const fcmClientEmail = process.env.FCM_CLIENT_EMAIL || "";
+const fcmPrivateKey = (process.env.FCM_PRIVATE_KEY || "").replace(/\\n/g, "\n");
 const rolloutCohort = process.env.ROLLOUT_COHORT || "off";
 const csrfSecret = process.env.CSRF_SECRET || jwtSecret;
 const authCookieSecure = process.env.AUTH_COOKIE_SECURE
@@ -126,6 +132,8 @@ const env = {
   serverUrl,
   clientUrl,
   appBaseUrl,
+  mobileQrBaseUrl,
+  mobilePaymentReturnUrl,
   platformDashboardUrl,
   appTimezone,
   oauthCallbackPath,
@@ -177,6 +185,9 @@ const env = {
   vapidPublicKey,
   vapidPrivateKey,
   vapidSubject,
+  fcmProjectId,
+  fcmClientEmail,
+  fcmPrivateKey,
   rolloutCohort,
   csrfSecret,
   authCookieSecure,
@@ -190,3 +201,4 @@ module.exports = env;
 module.exports.default = env;
 module.exports.resolvePaymongoMode = resolvePaymongoMode;
 module.exports.resolvePaymongoCredentials = resolvePaymongoCredentials;
+module.exports.resolveMobileQrBaseUrl = resolveMobileQrBaseUrl;

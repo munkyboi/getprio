@@ -1981,6 +1981,21 @@ test("the app has a recovery boundary and a dedicated mobile-first 404 page", ()
   assert.equal(fs.existsSync(path.join(frontendRoot, "public", "illustrations", "generated", "not-found-wayfinding-transparent.png")), true);
 });
 
+test("payment return links have a browser fallback route", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const app = fs.readFileSync(path.join(frontendRoot, "src", "App.tsx"), "utf8");
+  const paymentReturn = fs.readFileSync(
+    path.join(frontendRoot, "src", "pages", "PaymentReturnPage.tsx"),
+    "utf8"
+  );
+
+  assert.match(app, /PaymentReturnPage/);
+  assert.match(app, /path="\/payment\/return"/);
+  assert.match(paymentReturn, /\/public\/payment-returns/);
+  assert.match(paymentReturn, /buildJoinedQueuePath/);
+  assert.match(paymentReturn, /buildJoinPath/);
+});
+
 test("missing campaign and booking responses use the shared recovery state", () => {
   const frontendRoot = path.resolve(__dirname, "..");
   const campaign = fs.readFileSync(path.join(frontendRoot, "src", "pages", "GroupFundedCampaignPage.tsx"), "utf8");
@@ -2538,6 +2553,21 @@ test("generated QR codes render at high resolution", () => {
 
   assert.match(source, /const renderSize = size \* 4/);
   assert.match(source, /canvas\.style\.width = `\$\{size\}px`/);
+});
+
+test("vendor dashboard preview uses the canonical location queue QR target", () => {
+  const dashboard = fs.readFileSync(
+    path.join(path.resolve(__dirname, ".."), "src", "pages", "VendorDashboardPage.tsx"),
+    "utf8"
+  );
+
+  assert.match(dashboard, /qrUrl: selectedLocation\?\.qrJoinUrl \|\| ""/);
+  assert.match(dashboard, /const heroQrTarget = previewLocation\?\.qrJoinUrl \|\| ""/);
+  assert.match(dashboard, /value=\{heroQrTarget\}/);
+  assert.doesNotMatch(
+    dashboard,
+    /<StyledQRCode[^>]+value=\{[^}]+ \|\| window\.location\.href\}/
+  );
 });
 
 test("vendor dashboard provides account-level MFA enrollment with a QR code", () => {

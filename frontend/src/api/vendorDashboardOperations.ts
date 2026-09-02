@@ -123,6 +123,13 @@ export function updateLocation(token: string, tenantSlug: string, locationSlug: 
   );
 }
 
+export function regenerateLocationQueueQr(token: string, tenantSlug: string, locationSlug: string) {
+  return apiRequest<{ location: StoreLocationWithHours }>(
+    `/vendor/tenant/${tenantSlug}/locations/${locationSlug}/queue-join-id/regenerate`,
+    { method: "POST", token }
+  );
+}
+
 export function checkLocationSlugAvailability(
   token: string,
   tenantSlug: string,

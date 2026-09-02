@@ -26,12 +26,14 @@ function getClientUrl(path) {
 }
 
 function buildReturnUrl(tenant, payment, status) {
+  const locationSlug = payment.payload?.locationSlug;
   const params = new URLSearchParams({
     payment: payment._id,
-    payment_status: status
+    payment_status: status,
+    tenantSlug: tenant.slug,
+    ...(locationSlug ? { locationSlug } : {})
   });
 
-  const locationSlug = payment.payload?.locationSlug;
   const path =
     status === "success"
       ? locationSlug
@@ -40,6 +42,12 @@ function buildReturnUrl(tenant, payment, status) {
       : locationSlug
         ? `/join/${tenant.slug}/${locationSlug}`
         : `/join/${tenant.slug}`;
+  const mobileReturnUrl = payment.payload?.mobileReturnUrl;
+  if (mobileReturnUrl) {
+    const mobileUrl = new URL(mobileReturnUrl);
+    mobileUrl.search = params.toString();
+    return mobileUrl.toString();
+  }
   return getClientUrl(`${path}?${params.toString()}`);
 }
 

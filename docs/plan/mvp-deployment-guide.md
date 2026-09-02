@@ -140,6 +140,7 @@ Core variables to set:
 - `SERVER_URL`
 - `CLIENT_URL`
 - `APP_BASE_URL`
+- `MOBILE_QR_BASE_URL` (approved HTTPS origin encoded into vendor queue QR codes)
 - `PLATFORM_DASHBOARD_URL`
 - `VITE_API_URL`
 

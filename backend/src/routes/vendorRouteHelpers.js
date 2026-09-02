@@ -3,6 +3,11 @@ const vendorServiceRepository = require("../repositories/vendorServices");
 const storeHoursService = require("../services/storeHoursService");
 const { assertPublicTextFieldsAllowed } = require("../services/contentModeration");
 const { isValidTimeZone } = require("../utils/timezones");
+const {
+  appBaseUrl: configuredAppBaseUrl,
+  mobileQrBaseUrl: configuredMobileQrBaseUrl
+} = require("../config/env");
+const { buildJoinUrl, buildMonitorUrl, buildQueueQrUrl } = require("../publicLinks.ts");
 
 const BOOKING_CAPACITY_SCOPES = new Set(["service", "location"]);
 
@@ -64,12 +69,36 @@ function normalizeTenantNotificationSettings(settings = {}) {
   };
 }
 
+function normalizeBaseUrl(value) {
+  return String(value || "").trim().replace(/\/+$/, "");
+}
+
+function buildLocationLinks(location, tenant, options = {}) {
+  const appBaseUrl = normalizeBaseUrl(options.appBaseUrl || configuredAppBaseUrl);
+  const mobileQrBaseUrl = normalizeBaseUrl(
+    options.mobileQrBaseUrl || configuredMobileQrBaseUrl || appBaseUrl
+  );
+
+  return {
+    joinUrl: buildJoinUrl(appBaseUrl, tenant.slug, location.slug),
+    qrJoinUrl: buildQueueQrUrl(
+      mobileQrBaseUrl,
+      tenant.slug,
+      location.slug,
+      location.queueJoinId
+    ),
+    monitorUrl: buildMonitorUrl(appBaseUrl, tenant.slug, location.slug)
+  };
+}
+
 async function formatLocation(location, tenant) {
   const hours = await storeLocationRepository.listHoursByLocationId(location._id);
   const openStatus = await storeHoursService.getOpenStatus(location, { hours });
+  const locationLinks = buildLocationLinks(location, tenant);
 
   return {
     id: String(location._id),
+    queueJoinId: location.queueJoinId,
     tenantId: String(location.tenantId),
     name: location.name,
     slug: location.slug,
@@ -92,8 +121,7 @@ async function formatLocation(location, tenant) {
     queueLifecycleMode: location.queueLifecycleMode || "legacy",
     isPrimary: location.isPrimary,
     isActive: location.isActive,
-    joinUrl: `${process.env.APP_BASE_URL || "http://localhost:5173"}/join/${tenant.slug}/${location.slug}`,
-    monitorUrl: `${process.env.APP_BASE_URL || "http://localhost:5173"}/monitor/${tenant.slug}/${location.slug}`,
+    ...locationLinks,
     openStatus,
     hours: hours.map((hour) => ({
       weekday: hour.weekday,
@@ -455,6 +483,7 @@ async function normalizeLocationServicesPayload(body, existingService, tenant) {
 }
 
 module.exports = {
+  buildLocationLinks,
   buildPriceDisplay,
   formatLocation,
   formatVendorService,

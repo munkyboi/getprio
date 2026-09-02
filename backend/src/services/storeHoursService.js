@@ -1,11 +1,7 @@
 const storeLocationRepository = require("../repositories/storeLocations");
+const { resolveEffectiveStoreInterval } = require("./queueDayTime");
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-function toMinutes(value) {
-  const [hours = "0", minutes = "0"] = String(value || "00:00").split(":");
-  return Number(hours) * 60 + Number(minutes);
-}
 
 function getLocationParts(date, timezone) {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -23,25 +19,6 @@ function getLocationParts(date, timezone) {
     weekday: WEEKDAY_LABELS.indexOf(weekdayName),
     minuteOfDay: hour * 60 + minute
   };
-}
-
-function isOpenForHour(hour, weekday, minuteOfDay) {
-  if (!hour || hour.isClosed) {
-    return false;
-  }
-
-  const open = toMinutes(hour.opensAt);
-  const close = toMinutes(hour.closesAt);
-
-  if (open === close) {
-    return true;
-  }
-
-  if (open < close) {
-    return minuteOfDay >= open && minuteOfDay < close;
-  }
-
-  return minuteOfDay >= open || minuteOfDay < close;
 }
 
 function buildHoursSummary(hours) {
@@ -76,9 +53,9 @@ async function getOpenStatus(location, options = {}) {
   const hours = options.hours || (await storeLocationRepository.listHoursByLocationId(location._id));
   const now = options.now || new Date();
   const timezone = location.timezone || "Asia/Manila";
-  const { weekday, minuteOfDay } = getLocationParts(now, timezone);
+  const { weekday } = getLocationParts(now, timezone);
   const todaysHours = hours.find((hour) => hour.weekday === weekday);
-  const isOpen = isOpenForHour(todaysHours, weekday, minuteOfDay);
+  const isOpen = Boolean(resolveEffectiveStoreInterval({ now, timezone, hours }));
 
   return {
     isOpen,

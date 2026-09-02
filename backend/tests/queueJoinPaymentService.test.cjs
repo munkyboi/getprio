@@ -63,6 +63,7 @@ test("enabled queue fee starts checkout without notification opt-ins and marks c
   const createPaymentCalls = [];
   const updateProviderDataCalls = [];
   const markFailedCalls = [];
+  let checkoutRequest;
 
   const queueJoinPaymentService = requireWithMocks("../src/services/queueJoinPaymentService.js", {
     "../config/env": {
@@ -148,12 +149,15 @@ test("enabled queue fee starts checkout without notification opt-ins and marks c
   });
 
   const originalFetch = global.fetch;
-  global.fetch = async () => ({
-    ok: false,
-    json: async () => ({
-      errors: [{ detail: "checkout failed" }]
-    })
-  });
+  global.fetch = async (_url, options) => {
+    checkoutRequest = JSON.parse(options.body);
+    return {
+      ok: false,
+      json: async () => ({
+        errors: [{ detail: "checkout failed" }]
+      })
+    };
+  };
 
   try {
     await assert.rejects(
@@ -173,6 +177,7 @@ test("enabled queue fee starts checkout without notification opt-ins and marks c
             notifyBySms: false,
             joinChannel: "online",
             locationSlug: "main",
+            mobileReturnUrl: "https://getprio.online/payment/return",
             notes: ""
           }
         }),
@@ -182,6 +187,10 @@ test("enabled queue fee starts checkout without notification opt-ins and marks c
     assert.equal(createPaymentCalls.length, 1);
     assert.equal(updateProviderDataCalls.length, 0);
     assert.equal(markFailedCalls.length, 1);
+    assert.equal(
+      checkoutRequest.data.attributes.success_url,
+      "https://getprio.online/payment/return?payment=payment-1&payment_status=success&tenantSlug=demo&locationSlug=main"
+    );
     assert.match(markFailedCalls[0].data.metadata.failureReason, /checkout failed/i);
     assert.equal(markFailedCalls[0].data.metadata.failureStatusCode, 502);
   } finally {

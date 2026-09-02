@@ -40,7 +40,7 @@ function mapPayment(row) {
     tenantId: String(row.tenant_id),
     tenantName: row.tenant_name || undefined,
     tenantSlug: row.tenant_slug || undefined,
-    otpId: String(row.otp_id),
+    otpId: row.otp_id ? String(row.otp_id) : null,
     planSlug: row.plan_slug,
     provider: row.provider,
     providerCheckoutSessionId: row.provider_checkout_session_id,
@@ -113,7 +113,7 @@ async function createPayment(data, options = {}) {
     `,
     [
       Number(data.tenantId),
-      Number(data.otpId),
+      data.otpId ? Number(data.otpId) : null,
       data.planSlug,
       data.provider,
       Number(data.amountCents),

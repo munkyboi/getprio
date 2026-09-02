@@ -17,6 +17,7 @@ import {
   Select,
   Tooltip,
   Text,
+  Textarea,
   TextInput,
   Title,
   createTheme
@@ -363,6 +364,12 @@ function SettingsPage({ token, user }: { token: string; user: UserSummary & { mf
           onChange={(value) => setSettings((current) => current && value ? { ...current, defaultTimezone: value } : current)}
           searchable
           value={settings?.defaultTimezone || null}
+        />
+        <Textarea
+          description="One HTTPS hostname per line. These hosts are accepted by the mobile QR scanner."
+          label="Approved mobile HTTPS hosts"
+          value={(settings?.mobileApprovedHosts || []).join("\n")}
+          onChange={(event) => setSettings((current) => current ? { ...current, mobileApprovedHosts: event.target.value.split(/\n|,/).map((host) => host.trim()).filter(Boolean) } : current)}
         />
         <Group justify="flex-end"><Button onClick={save}>Save settings</Button></Group>
       </Stack>

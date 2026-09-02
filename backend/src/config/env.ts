@@ -1,5 +1,8 @@
 import path from "path";
 import dotenv from "dotenv";
+import { resolveMobileQrBaseUrl } from "./mobileQrBaseUrl.js";
+
+export { resolveMobileQrBaseUrl };
 
 const rootEnvPath = path.resolve(__dirname, "../../../.env");
 dotenv.config({ path: rootEnvPath });
@@ -19,6 +22,8 @@ export const jwtSecret = process.env.JWT_SECRET || "change-me";
 export const serverUrl = process.env.SERVER_URL || `http://localhost:${port}`;
 export const clientUrl = process.env.CLIENT_URL || `http://localhost:${frontendPort}`;
 export const appBaseUrl = process.env.APP_BASE_URL || `http://localhost:${frontendPort}`;
+export const mobileQrBaseUrl = resolveMobileQrBaseUrl(process.env, appBaseUrl, frontendPort);
+export const mobilePaymentReturnUrl = process.env.MOBILE_PAYMENT_RETURN_URL || "";
 export const platformDashboardUrl =
   process.env.PLATFORM_DASHBOARD_URL || `http://localhost:${platformDashboardPort}`;
 export const appTimezone = process.env.APP_TIMEZONE || "Asia/Manila";
@@ -125,6 +130,9 @@ export const b2PublicBaseUrl = process.env.B2_PUBLIC_BASE_URL || "";
 export const vapidPublicKey = process.env.VAPID_PUBLIC_KEY || "";
 export const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY || "";
 export const vapidSubject = process.env.VAPID_SUBJECT || "mailto:admin@getprio.local";
+export const fcmProjectId = process.env.FCM_PROJECT_ID || "";
+export const fcmClientEmail = process.env.FCM_CLIENT_EMAIL || "";
+export const fcmPrivateKey = (process.env.FCM_PRIVATE_KEY || "").replace(/\\n/g, "\n");
 export const rolloutCohort = process.env.ROLLOUT_COHORT || "off";
 export const csrfSecret = process.env.CSRF_SECRET || jwtSecret;
 export const authCookieSecure = process.env.AUTH_COOKIE_SECURE
@@ -145,6 +153,8 @@ const env = {
   serverUrl,
   clientUrl,
   appBaseUrl,
+  mobileQrBaseUrl,
+  mobilePaymentReturnUrl,
   platformDashboardUrl,
   appTimezone,
   oauthCallbackPath,
@@ -196,6 +206,9 @@ const env = {
   vapidPublicKey,
   vapidPrivateKey,
   vapidSubject,
+  fcmProjectId,
+  fcmClientEmail,
+  fcmPrivateKey,
   rolloutCohort,
   csrfSecret,
   authCookieSecure,

@@ -13,6 +13,7 @@ const queueEvents = require("../services/queueEvents");
 const turnstileService = require("../services/turnstileService");
 const queueJoinOtpService = require("../services/queueJoinOtpService");
 const queueJoinPaymentService = require("../services/queueJoinPaymentService");
+const queueJoinPaymentRepository = require("../repositories/queueJoinPayments");
 const queueFeeService = require("../services/queueFeeService");
 const bookingService = require("../services/bookingService");
 const bookingOtpService = require("../services/bookingOtpService");
@@ -767,6 +768,34 @@ router.post(
     });
 
     res.json(result);
+  })
+);
+
+router.get(
+  "/payment-returns/:paymentId",
+  asyncHandler(async (req, res) => {
+    const paymentId = Number(req.params.paymentId);
+    if (!Number.isInteger(paymentId) || paymentId <= 0) {
+      const error = new Error("Payment return not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const payment = await queueJoinPaymentRepository.findPaymentById(paymentId);
+    const tenant = payment
+      ? await tenantRepository.findTenantById(payment.tenantId)
+      : null;
+    if (!payment || !tenant || !tenant.isActive) {
+      const error = new Error("Payment return not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    res.setHeader("Cache-Control", "no-store");
+    res.json({
+      tenantSlug: tenant.slug,
+      locationSlug: payment.payload?.locationSlug || null
+    });
   })
 );
 

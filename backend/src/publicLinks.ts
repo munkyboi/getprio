@@ -14,6 +14,16 @@ export function buildJoinUrl(baseUrl: string, tenantSlug: string, locationSlug?:
   return buildAbsoluteUrl(baseUrl, buildJoinPath(tenantSlug, locationSlug));
 }
 
+export function buildQueueQrUrl(
+  baseUrl: string,
+  tenantSlug: string,
+  locationSlug: string,
+  queueJoinId: string
+): string {
+  const searchParams = new URLSearchParams({ source: "qr", id: queueJoinId });
+  return `${buildJoinUrl(baseUrl, tenantSlug, locationSlug)}?${searchParams.toString()}`;
+}
+
 export function buildMonitorUrl(baseUrl: string, tenantSlug: string, locationSlug?: string): string {
   return buildAbsoluteUrl(baseUrl, buildMonitorPath(tenantSlug, locationSlug));
 }

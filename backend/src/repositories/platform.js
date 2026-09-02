@@ -316,6 +316,17 @@ async function upsertSetting({ key, value, userId }, options = {}) {
 }
 
 async function getPlatformSettings(options = {}) {
+  const rawMobileApprovedHosts = await getSetting("mobile_approved_hosts", "", options);
+  let mobileApprovedHosts = [];
+  try {
+    const parsed = JSON.parse(rawMobileApprovedHosts);
+    if (Array.isArray(parsed)) mobileApprovedHosts = parsed.map((host) => String(host));
+  } catch {
+    mobileApprovedHosts = String(rawMobileApprovedHosts || "")
+      .split(/[\n,]/)
+      .map((host) => host.trim())
+      .filter(Boolean);
+  }
   return {
     enterpriseInquiryEmail: await getSetting(
       "enterprise_inquiry_email",
@@ -326,11 +337,12 @@ async function getPlatformSettings(options = {}) {
       "default_timezone",
       "Asia/Manila",
       options
-    )
+    ),
+    mobileApprovedHosts
   };
 }
 
-async function updatePlatformSettings({ enterpriseInquiryEmail, defaultTimezone, userId }, options = {}) {
+async function updatePlatformSettings({ enterpriseInquiryEmail, defaultTimezone, mobileApprovedHosts, userId }, options = {}) {
   await upsertSetting({
     key: "enterprise_inquiry_email",
     value: enterpriseInquiryEmail,
@@ -341,6 +353,13 @@ async function updatePlatformSettings({ enterpriseInquiryEmail, defaultTimezone,
     value: defaultTimezone,
     userId
   }, options);
+  if (Array.isArray(mobileApprovedHosts)) {
+    await upsertSetting({
+      key: "mobile_approved_hosts",
+      value: JSON.stringify(mobileApprovedHosts),
+      userId
+    }, options);
+  }
 
   return getPlatformSettings(options);
 }

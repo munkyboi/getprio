@@ -111,7 +111,7 @@ test("queue fee service formats summaries and enforces subscription and input ru
 
   await assert.rejects(
     () => queueFeeService.assertTenantCanAcceptCustomerJoins("tenant-paused"),
-    (error) => error.statusCode === 403
+    (error) => error.statusCode === 403 && error.code === "SUBSCRIPTION_REQUIRED"
   );
 
   await assert.rejects(

@@ -25,6 +25,8 @@ DROP TABLE IF EXISTS privacy_disposal_jobs CASCADE;
 DROP TABLE IF EXISTS security_rate_limit_buckets CASCADE;
 DROP TABLE IF EXISTS security_audit_events CASCADE;
 DROP TABLE IF EXISTS idempotency_records CASCADE;
+DROP TABLE IF EXISTS mobile_oauth_codes CASCADE;
+DROP TABLE IF EXISTS mobile_push_registrations CASCADE;
 DROP TABLE IF EXISTS billing_checkout_sessions CASCADE;
 DROP TABLE IF EXISTS entitlement_rollout_anomalies CASCADE;
 DROP TABLE IF EXISTS entitlement_rollout_runs CASCADE;
