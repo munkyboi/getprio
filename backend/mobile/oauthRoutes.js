@@ -1,5 +1,6 @@
 const crypto = require("node:crypto");
 const express = require("express");
+const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
 const {
   buildAuthorizationUrl,
   createOAuthState,
@@ -18,6 +19,15 @@ const asyncHandler = require("../src/middleware/asyncHandler");
 const codeRepository = require("./oauthCodeRepository");
 
 const router = express.Router();
+const mobileOAuthLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => ipKeyGenerator(req.ip || req.socket?.remoteAddress || "unknown"),
+  message: { message: "Too many mobile sign-in requests. Please try again later." }
+});
+router.use(mobileOAuthLimiter);
 const MOBILE_OAUTH_CALLBACK = "/api/mobile/auth/oauth";
 const MOBILE_REDIRECT_URI = process.env.MOBILE_OAUTH_REDIRECT_URI || "getprio://oauth/callback";
 

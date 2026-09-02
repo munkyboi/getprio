@@ -1,4 +1,5 @@
 const express = require("express");
+const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
 const { authenticate } = require("../src/middleware/auth");
 const asyncHandler = require("../src/middleware/asyncHandler");
 const { requireIdempotency } = require("../src/middleware/idempotency");
@@ -14,6 +15,15 @@ const { assertQueueIntakeOpen, getQueueSnapshot } = require("../src/services/que
 const { normalizePhilippineMobileNumber } = require("../src/utils/phone");
 
 const router = express.Router();
+const mobileQueueLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => ipKeyGenerator(req.ip || req.socket?.remoteAddress || "unknown"),
+  message: { message: "Too many mobile queue requests. Please try again later." }
+});
+router.use(mobileQueueLimiter);
 router.use(authenticate);
 
 function buildMobilePaymentReturnUrl() {

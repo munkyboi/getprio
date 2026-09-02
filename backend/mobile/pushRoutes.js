@@ -1,9 +1,19 @@
 const express = require("express");
+const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
 const { authenticate } = require("../src/middleware/auth");
 const asyncHandler = require("../src/middleware/asyncHandler");
 const repository = require("./pushRegistrationRepository");
 
 const router = express.Router();
+const mobilePushLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => ipKeyGenerator(req.ip || req.socket?.remoteAddress || "unknown"),
+  message: { message: "Too many mobile push requests. Please try again later." }
+});
+router.use(mobilePushLimiter);
 router.use(authenticate);
 
 function requiredText(value, label, maxLength = 200) {

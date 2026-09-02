@@ -105,11 +105,15 @@ test("mobile push registration routes bind writes and deactivation to the bearer
 test("mobile route wiring keeps OAuth and queue contracts under the mobile namespace", () => {
   const app = fs.readFileSync(path.join(repositoryRoot, "backend/src/app.ts"), "utf8");
   const oauth = fs.readFileSync(path.join(repositoryRoot, "backend/mobile/oauthRoutes.js"), "utf8");
+  const push = fs.readFileSync(path.join(repositoryRoot, "backend/mobile/pushRoutes.js"), "utf8");
   const queue = fs.readFileSync(path.join(repositoryRoot, "backend/mobile/queueJoinRoutes.js"), "utf8");
   assert.match(app, /app\.use\("\/api\/mobile\/auth", mobileOAuthRoutes\)/);
   assert.match(app, /app\.use\("\/api\/mobile\/push", mobilePushRoutes\)/);
   assert.match(oauth, /codeChallenge/);
   assert.match(oauth, /codeRepository\.consume/);
+  assert.match(oauth, /router\.use\(mobileOAuthLimiter\)/);
+  assert.match(push, /router\.use\(mobilePushLimiter\)/);
+  assert.match(queue, /router\.use\(mobileQueueLimiter\)/);
   assert.match(queue, /requireIdempotency\("mobile\.queue_join"\)/);
   assert.match(queue, /userId: req\.user\._id/);
   assert.doesNotMatch(queue, /customerName: req\.body/);
