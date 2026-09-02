@@ -295,6 +295,7 @@ test("mobile queue resolve reports open availability and an inactive-plan reason
     );
     assert.equal(joinResponse.status, 201);
     assert.equal(paymentJoinCalls.length, 1);
+    assert.equal(paymentJoinCalls[0].joinChannel, "qr");
     assert.equal(
       paymentJoinCalls[0].mobileReturnUrl,
       "https://192.168.1.22:5173/payment/return"
