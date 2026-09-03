@@ -179,6 +179,7 @@ export default function JoinedQueuePage() {
   const [error, setError] = useState("");
   const [responseStatus, setResponseStatus] = useState<number | null>(null);
   const [paymentSyncing, setPaymentSyncing] = useState(false);
+  const [paymentSyncPending, setPaymentSyncPending] = useState(false);
   const [cancelSubmitting, setCancelSubmitting] = useState(false);
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
   const [cancelErrorModalOpen, setCancelErrorModalOpen] = useState(false);
@@ -209,7 +210,7 @@ export default function JoinedQueuePage() {
     [location.hash, location.pathname, location.search, lookupCode, prefill]
   );
   const missingTenant = !tenantSlugValue;
-  const shouldAwaitPaymentSync = Boolean(paymentId) && paymentStatus !== "cancelled";
+  const shouldAwaitPaymentSync = Boolean(paymentId) && paymentStatus !== "cancelled" && !lookupCode;
   const missingLookupCode = !lookupCode && !shouldAwaitPaymentSync;
 
   const joinPath = buildJoinPath(tenantSlugValue, locationSlug);
@@ -455,12 +456,13 @@ export default function JoinedQueuePage() {
   ]);
 
   useEffect(() => {
-    if (!tenantSlugValue || !paymentId || paymentStatus === "cancelled") {
+    if (!tenantSlugValue || !paymentId || paymentStatus === "cancelled" || lookupCode) {
       return;
     }
 
     let active = true;
     setPaymentSyncing(true);
+    setPaymentSyncPending(false);
     setError("");
 
     notifications.show({
@@ -495,6 +497,7 @@ export default function JoinedQueuePage() {
           return;
         }
 
+        setPaymentSyncPending(true);
         notifications.show({
           color: "blue",
           icon: <IconInfoCircle size={18} />,
@@ -505,6 +508,8 @@ export default function JoinedQueuePage() {
       .catch((syncError) => {
         if (active) {
           setError(getErrorMessage(syncError));
+          setResponseStatus(syncError instanceof ApiError ? syncError.status : null);
+          setPaymentSyncPending(false);
         }
       })
       .finally(() => {
@@ -516,7 +521,7 @@ export default function JoinedQueuePage() {
     return () => {
       active = false;
     };
-  }, [locationSlug, navigate, paymentId, paymentStatus, tenantSlugValue]);
+  }, [locationSlug, lookupCode, navigate, paymentId, paymentStatus, tenantSlugValue]);
 
   if (missingTenant) {
     return <Navigate replace to="/" />;
@@ -536,6 +541,51 @@ export default function JoinedQueuePage() {
         resourceName="queue ticket"
         status={responseStatus}
       />
+    );
+  }
+
+  if (shouldAwaitPaymentSync && !lookupCode) {
+    return (
+      <Stack className="vendor-profile-page" gap="xl" style={themeStyle}>
+        <Container size="sm" w="100%">
+          <Button
+            className="ticket-page-back-button"
+            component={Link}
+            leftSection={<IconArrowLeft size={18} />}
+            mb="md"
+            to={backLink}
+            variant="subtle"
+            w="fit-content"
+          >
+            {backLabel}
+          </Button>
+          <Paper className="booking-detail-services-card" p={{ base: "lg", md: "xl" }}>
+            <Stack gap="md">
+              {error ? (
+                <Alert color="red" title="Payment confirmation failed">
+                  {error}
+                </Alert>
+              ) : paymentSyncPending ? (
+                <Alert color="yellow" title="Payment confirmation is still pending">
+                  We have not received the final payment confirmation yet. Refresh this page in a moment to load your ticket.
+                </Alert>
+              ) : (
+                <Alert color="blue" title="Confirming payment">
+                  We are confirming your queue fee payment and will load your ticket as soon as it is issued.
+                </Alert>
+              )}
+              <Group>
+                <Button loading={paymentSyncing} onClick={() => window.location.reload()}>
+                  Refresh payment status
+                </Button>
+                <Button component={Link} to={backLink} variant="subtle">
+                  {backLabel}
+                </Button>
+              </Group>
+            </Stack>
+          </Paper>
+        </Container>
+      </Stack>
     );
   }
 

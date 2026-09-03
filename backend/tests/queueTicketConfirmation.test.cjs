@@ -11,6 +11,8 @@ test("called ticket confirmation validates identity without serving and gates se
   assert.match(confirmation, /currentTicket\.lookupCode/);
   assert.match(confirmation, /confirmCurrentCalledTicket/);
   assert.match(confirmation, /"ticket_confirmed"/);
+  assert.match(confirmation, /notifyCustomerQueueUpdate/);
+  assert.match(confirmation, /action: "confirmed"/);
   assert.doesNotMatch(confirmation, /updateCurrentCalledTicketStatus/);
   assert.doesNotMatch(confirmation, /notifyJourneyLifecycle|notifyCalled/);
   assert.match(transition, /status === "served" && !currentTicket\.customerConfirmedAt/);

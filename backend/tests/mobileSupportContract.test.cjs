@@ -115,6 +115,8 @@ test("mobile route wiring keeps OAuth and queue contracts under the mobile names
   assert.match(push, /router\.use\(mobilePushLimiter\)/);
   assert.match(queue, /router\.use\(mobileQueueLimiter\)/);
   assert.match(queue, /requireIdempotency\("mobile\.queue_join"\)/);
+  assert.match(queue, /\/queue-join\/direct/);
+  assert.match(queue, /requireIdempotency\("mobile\.queue_join_direct"\)/);
   assert.match(queue, /userId: req\.user\._id/);
   assert.doesNotMatch(queue, /customerName: req\.body/);
 });
@@ -161,10 +163,40 @@ test("mobile queue resolve reports open availability and an inactive-plan reason
           publicProfileImageUrl: "https://cdn.example.com/vendor-card.webp",
           isActive: true
         };
+      },
+      async findTenantBySlug() {
+        return {
+          _id: "tenant-14",
+          name: "BOSS LOT",
+          slug: "bosslot",
+          isActive: true
+        };
       }
     },
     "../src/repositories/storeLocations": {
       async findLocationByQueueJoinId() {
+        return {
+          _id: "location-15",
+          tenantId: "tenant-14",
+          name: "Main location",
+          slug: "main",
+          queueJoinId,
+          queueLifecycleMode: "enforced",
+          isActive: true
+        };
+      },
+      async findLocationByTenantAndSlug() {
+        return {
+          _id: "location-15",
+          tenantId: "tenant-14",
+          name: "Main location",
+          slug: "main",
+          queueJoinId,
+          queueLifecycleMode: "enforced",
+          isActive: true
+        };
+      },
+      async findPrimaryLocationByTenantId() {
         return {
           _id: "location-15",
           tenantId: "tenant-14",
@@ -298,6 +330,23 @@ test("mobile queue resolve reports open availability and an inactive-plan reason
     assert.equal(paymentJoinCalls[0].joinChannel, "qr");
     assert.equal(
       paymentJoinCalls[0].mobileReturnUrl,
+      "https://192.168.1.22:5173/payment/return"
+    );
+
+    const directJoinResponse = await fetch(
+      `http://127.0.0.1:${server.address().port}/api/mobile/queue-join/direct`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tenantSlug: "bosslot", locationSlug: "main" })
+      }
+    );
+    assert.equal(directJoinResponse.status, 201);
+    assert.equal(paymentJoinCalls.length, 2);
+    assert.equal(paymentJoinCalls[1].joinChannel, "online");
+    assert.equal(paymentJoinCalls[1].locationSlug, "main");
+    assert.equal(
+      paymentJoinCalls[1].mobileReturnUrl,
       "https://192.168.1.22:5173/payment/return"
     );
 

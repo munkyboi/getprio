@@ -453,6 +453,8 @@ function getQueueUpdateBody(tenant, ticket, action) {
   const ticketNumber = ticket.ticketNumber || "your queue ticket";
 
   switch (action) {
+    case "confirmed":
+      return `${tenantName} confirmed your arrival for ${ticketNumber}.`;
     case "called":
       return `${tenantName} is calling ${ticketNumber}.`;
     case "served":

@@ -5295,7 +5295,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   <Group>
                     <Button
                       className="neura-primary-button"
-                      disabled={busyAction === "call-next" || !selectedCounterSlug || queueDayClosed}
+                      disabled={
+                        busyAction === "call-next" ||
+                        !selectedCounterSlug ||
+                        queueDayClosed ||
+                        Boolean(activeTicket)
+                      }
                       onClick={async () => {
                         const success = await runAction("call-next", () =>
                           vendorDashboardQueue.callNextTicket(token, selectedTenantSlug, locationQuery, selectedCounterSlug)
