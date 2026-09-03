@@ -870,8 +870,8 @@ router.delete(
       ? await storeLocationRepository.findLocationById(existingTicket.locationId)
       : requestedLocation;
 
-    if (existingTicket.status !== "waiting") {
-      const error = new Error("Only waiting tickets can be cancelled.");
+    if (!["waiting", "pending_carry_over"].includes(existingTicket.status)) {
+      const error = new Error("Only waiting or carried-over tickets can be cancelled.");
       error.statusCode = 409;
       throw error;
     }

@@ -919,6 +919,44 @@ test("public cancellation allows authenticated customer owner without contact pa
   }
 });
 
+test("public cancellation allows a pending carry-over ticket", async () => {
+  let cancelled = false;
+  const router = buildPublicRouter(
+    {
+      _id: "ticket-carry-over",
+      tenantId: "tenant-1",
+      userId: null,
+      lookupCode: "CARRY010",
+      customerEmail: "owner@example.com",
+      customerPhone: "09998887777",
+      status: "pending_carry_over"
+    },
+    async () => {
+      cancelled = true;
+      return {
+        ticket: { lookupCode: "CARRY010", status: "cancelled" },
+        snapshot: { queueDay: { isClosed: true } }
+      };
+    }
+  );
+  const { server, baseUrl } = await startServer(router, "/api/public");
+
+  try {
+    const response = await fetch(`${baseUrl}/tenant/demo/tickets/CARRY010`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ customerEmail: "owner@example.com" })
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(cancelled, true);
+    const body = await response.json();
+    assert.equal(body.ticket.status, "cancelled");
+  } finally {
+    await stopServer(server);
+  }
+});
+
 test("public cancellation returns 409 for non-waiting tickets", async () => {
   const router = buildPublicRouter(
     {
@@ -945,7 +983,7 @@ test("public cancellation returns 409 for non-waiting tickets", async () => {
 
     assert.equal(response.status, 409);
     const body = await response.json();
-    assert.match(body.message, /only waiting tickets can be cancelled/i);
+    assert.match(body.message, /only waiting or carried-over tickets can be cancelled/i);
   } finally {
     await stopServer(server);
   }
