@@ -134,6 +134,15 @@ test("vendor queue lifecycle UI exposes warning, extension, and close controls",
   assert.match(styles, /\.queue-auto-close-modal \.mantine-Modal-content/);
 });
 
+test("vendor queue UI blocks calling next while a current ticket is unresolved", () => {
+  const dashboard = readSource("src/pages/VendorDashboardPage.tsx");
+
+  assert.match(
+    dashboard,
+    /disabled=\{[\s\S]*?busyAction === "call-next"[\s\S]*?Boolean\(activeTicket\)[\s\S]*?\}/
+  );
+});
+
 test("vendor overflow identifies tickets saved for carry-over", () => {
   const dashboard = readSource("src/pages/VendorDashboardPage.tsx");
 
@@ -164,4 +173,15 @@ test("public and customer queue screens use the authoritative lifecycle state", 
     /to=\{selectedBookingLocationSlug \? `\/join\/\$\{vendor\.slug\}\/\$\{selectedBookingLocationSlug\}`/
   );
   assert.match(vendorProfile, /vendor-profile-join-queue-status/);
+});
+
+test("payment return does not render an empty ticket shell while sync awaits a ticket", () => {
+  const ticketPage = readSource("src/pages/JoinedQueuePage.tsx");
+
+  assert.match(ticketPage, /const \[paymentSyncPending, setPaymentSyncPending\] = useState\(false\);/);
+  assert.match(ticketPage, /setPaymentSyncPending\(true\);/);
+  assert.match(ticketPage, /setPaymentSyncPending\(false\);/);
+  assert.match(ticketPage, /if \(shouldAwaitPaymentSync && !lookupCode\) \{/);
+  assert.match(ticketPage, /Payment confirmation is still pending/);
+  assert.match(ticketPage, /Refresh payment status/);
 });

@@ -91,6 +91,36 @@ async function getTenantUsage(tenantId) {
   };
 }
 
+function getQueueDayBusinessDateKey(resolution) {
+  const businessDate = resolution?.businessDate || resolution?.queueDay?.businessDate;
+  return businessDate ? String(businessDate).replace(/-/g, "") : null;
+}
+
+async function resolveQueueDayForSnapshot(tenant, location) {
+  let resolution = await queueDayLifecycleService.getQueueDayForSnapshot(
+    tenant,
+    location
+  );
+  const queueDay = resolution.queueDay;
+
+  if (
+    queueDay?.state === "open"
+    && queueDay.currentClosesAt
+    && new Date(queueDay.currentClosesAt) <= new Date()
+  ) {
+    await queueDayLifecycleService.closeQueueDay(tenant, location, {
+      source: "request_reconciliation",
+      reason: "effective_hours_ended"
+    });
+    resolution = await queueDayLifecycleService.getQueueDayForSnapshot(
+      tenant,
+      location
+    );
+  }
+
+  return resolution;
+}
+
 async function assertQueueDayOpen(tenant, location, options = {}) {
   if (location?.queueLifecycleMode === "enforced") {
     const queueDay = await queueDayLifecycleService.getAuthoritativeQueueDay(
@@ -140,10 +170,24 @@ async function assertQueueDayOpen(tenant, location, options = {}) {
 }
 
 async function getQueueSnapshot(tenant, options = {}) {
-  const snapshot = await buildQueueSnapshot(tenant, options, getTenantUsage);
-  const location = options.location || (snapshot.location
-    ? await resolveLocation(tenant, { locationSlug: snapshot.location.slug })
-    : null);
+  const location = await resolveLocation(tenant, options);
+  const queueDayResolution = location?.queueLifecycleMode === "enforced"
+    ? await resolveQueueDayForSnapshot(tenant, location)
+    : null;
+  const queueDateKey = getQueueDayBusinessDateKey(queueDayResolution);
+  const snapshot = await buildQueueSnapshot(
+    tenant,
+    {
+      ...options,
+      location,
+      ...(
+        queueDateKey && !options.queueDateKey
+          ? { queueDateKey }
+          : {}
+      )
+    },
+    getTenantUsage
+  );
   if (location?.queueLifecycleMode === "shadow") {
     await queueDayLifecycleService.recordShadowComparison(
       tenant,
@@ -155,26 +199,8 @@ async function getQueueSnapshot(tenant, options = {}) {
   if (location?.queueLifecycleMode !== "enforced") {
     return snapshot;
   }
-  let resolution = await queueDayLifecycleService.getQueueDayForSnapshot(
-    tenant,
-    location
-  );
-  let queueDay = resolution.queueDay;
-  if (
-    queueDay?.state === "open"
-    && queueDay.currentClosesAt
-    && new Date(queueDay.currentClosesAt) <= new Date()
-  ) {
-    await queueDayLifecycleService.closeQueueDay(tenant, location, {
-      source: "request_reconciliation",
-      reason: "effective_hours_ended"
-    });
-    resolution = await queueDayLifecycleService.getQueueDayForSnapshot(
-      tenant,
-      location
-    );
-    queueDay = resolution.queueDay;
-  }
+  const resolution = queueDayResolution;
+  const queueDay = resolution.queueDay;
   snapshot.queueDay = queueDayLifecycleService.formatQueueDayStatus(
     queueDay,
     location,
@@ -712,10 +738,16 @@ async function confirmCurrentTicket(tenant, lookupCode, options = {}) {
     return null;
   }
 
-  return {
+  const snapshot = await publishSnapshot(tenant, { location });
+  pushNotificationService.notifyCustomerQueueUpdate({
+    tenant,
     ticket,
-    snapshot: await publishSnapshot(tenant, { location })
-  };
+    action: "confirmed"
+  }).catch((error) => {
+    console.warn("[web-push-customer-queue-confirmed-skipped]", error.message);
+  });
+
+  return { ticket, snapshot };
 }
 
 async function cancelTicket(tenant, lookupCode, options = {}) {

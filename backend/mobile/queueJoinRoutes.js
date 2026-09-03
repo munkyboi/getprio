@@ -68,6 +68,37 @@ async function resolveLocationOrThrow(id) {
   return { location, tenant };
 }
 
+async function resolveDirectLocationOrThrow(tenantSlug, locationSlug) {
+  const normalizedTenantSlug = String(tenantSlug || "").trim().toLowerCase();
+  if (!normalizedTenantSlug) {
+    const error = new Error("A vendor slug is required.");
+    error.statusCode = 400;
+    error.code = "VENDOR_SLUG_REQUIRED";
+    throw error;
+  }
+
+  const tenant = await tenantRepository.findTenantBySlug(normalizedTenantSlug, { activeOnly: true });
+  if (!tenant || !tenant.isActive) {
+    const error = new Error("This vendor is no longer available.");
+    error.statusCode = 404;
+    error.code = "VENDOR_NOT_FOUND";
+    throw error;
+  }
+
+  const normalizedLocationSlug = String(locationSlug || "").trim();
+  const location = normalizedLocationSlug
+    ? await locationRepository.findLocationByTenantAndSlug(tenant._id, normalizedLocationSlug)
+    : await locationRepository.findPrimaryLocationByTenantId(tenant._id);
+  if (!location || !location.isActive) {
+    const error = new Error("This queue location is no longer available.");
+    error.statusCode = 404;
+    error.code = "LOCATION_NOT_FOUND";
+    throw error;
+  }
+
+  return { location, tenant };
+}
+
 async function resolveQueueState(location, tenant) {
   const capabilities = await entitlementAdmissionService.resolvePublicCapabilities(tenant._id);
   let queueFee = { enabled: false, amountCents: 0, currency: "PHP", displayAmount: "PHP 0.00" };
@@ -164,6 +195,56 @@ router.post(
       tenant,
       otpId: null,
       payload
+    });
+
+    if (result.requiresPayment) {
+      res.status(201).json({
+        paymentRequired: true,
+        paymentAttemptId: result.payment.id,
+        checkoutUrl: result.checkoutSession.checkoutUrl,
+        tenantSlug: tenant.slug,
+        locationSlug: location.slug,
+        payment: result.payment,
+        queueFee: result.queueFee
+      });
+      return;
+    }
+
+    res.status(201).json(result);
+  })
+);
+
+router.post(
+  "/queue-join/direct",
+  requireIdempotency("mobile.queue_join_direct"),
+  asyncHandler(async (req, res) => {
+    const { location, tenant } = await resolveDirectLocationOrThrow(
+      req.body?.tenantSlug,
+      req.body?.locationSlug
+    );
+    const state = await resolveQueueState(location, tenant);
+    if (!state.joinable) {
+      const error = new Error(state.unavailableReason || "This queue is not available right now.");
+      error.statusCode = 409;
+      error.code = "QUEUE_JOIN_UNAVAILABLE";
+      throw error;
+    }
+
+    const result = await queueJoinPaymentService.handleVerifiedJoin({
+      tenant,
+      otpId: null,
+      payload: {
+        userId: req.user._id,
+        customerName: req.user.displayName || req.user.name,
+        customerEmail: req.user.email || null,
+        customerPhone: normalizePhilippineMobileNumber(req.user.phone),
+        notifyByEmail: false,
+        notifyBySms: false,
+        joinChannel: "online",
+        locationSlug: location.slug,
+        mobileReturnUrl: buildMobilePaymentReturnUrl(),
+        notes: null
+      }
     });
 
     if (result.requiresPayment) {
