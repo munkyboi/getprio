@@ -4,9 +4,9 @@ function queryClient(client) {
   return client || db.pool;
 }
 
-function mapRegistration(row) {
+function mapRegistration(row, options = {}) {
   if (!row) return null;
-  return {
+  const registration = {
     id: String(row.id),
     userId: String(row.user_id),
     installationId: row.installation_id,
@@ -17,6 +17,10 @@ function mapRegistration(row) {
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
+  if (options.includeToken) {
+    registration.token = row.token;
+  }
+  return registration;
 }
 
 async function upsert(data, options = {}) {
@@ -93,7 +97,7 @@ async function listActiveByUserId(userId, options = {}) {
     `,
     [Number(userId)]
   );
-  return result.rows.map(mapRegistration);
+  return result.rows.map((row) => mapRegistration(row, { includeToken: true }));
 }
 
 async function recordSuccess(id, options = {}) {
