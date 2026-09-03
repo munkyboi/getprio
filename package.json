@@ -54,6 +54,10 @@
     ]
   },
   "devDependencies": {
+    "@tiptap/core": "3.31.0",
+    "@tiptap/extension-link": "3.31.0",
+    "@tiptap/pm": "3.31.0",
+    "@tiptap/react": "3.31.0",
     "@eslint/js": "^9.7.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/cors": "^2.8.19",
