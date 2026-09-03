@@ -102,6 +102,33 @@ test("mobile push registration routes bind writes and deactivation to the bearer
   }
 });
 
+test("mobile push delivery retains tokens without exposing them in mapped responses", async () => {
+  const row = {
+    id: 1,
+    user_id: 30,
+    installation_id: "install-1",
+    token: "fcm-token",
+    platform: "ios",
+    app_version: "1.0.0",
+    locale: "en-PH",
+    is_active: true,
+    created_at: "2026-09-03T08:34:47.000Z",
+    updated_at: "2026-09-03T08:34:47.000Z"
+  };
+  const repository = requireWithMocks("../mobile/pushRegistrationRepository.js", {
+    "../src/config/db": {
+      pool: {
+        query: async () => ({ rows: [row] })
+      }
+    }
+  });
+
+  const registrations = await repository.listActiveByUserId(30);
+
+  assert.equal(registrations[0].token, "fcm-token");
+  assert.equal(repository.mapRegistration(row).token, undefined);
+});
+
 test("mobile route wiring keeps OAuth and queue contracts under the mobile namespace", () => {
   const app = fs.readFileSync(path.join(repositoryRoot, "backend/src/app.ts"), "utf8");
   const oauth = fs.readFileSync(path.join(repositoryRoot, "backend/mobile/oauthRoutes.js"), "utf8");
