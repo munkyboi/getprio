@@ -1,4 +1,3 @@
-const crypto = require("node:crypto");
 const db = require("../config/db");
 const env = require("../config/env");
 const authSessionRepository = require("../repositories/authSessions");
@@ -9,36 +8,20 @@ const authService = require("./authService");
 const notificationService = require("./notificationService");
 const securityEventService = require("./securityEventService");
 const { decryptSecret, verifyTotp } = require("./mfaService");
+const {
+  OTP_TTL_MS,
+  MAX_ATTEMPTS,
+  createInvalidCode,
+  hashCode,
+  issueCode,
+  maskEmail,
+  matchesCode
+} = require("./otpUtils");
 
-const OTP_TTL_MS = 10 * 60 * 1000;
-const MAX_ATTEMPTS = 5;
-
-function hashCode(code) {
-  return crypto.createHash("sha256").update(String(code || "")).digest("hex");
-}
-
-function matchesCode(code, expectedHash) {
-  const actual = Buffer.from(hashCode(code), "hex");
-  const expected = Buffer.from(String(expectedHash || ""), "hex");
-  return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
-}
-
-function issueCode() {
-  return String(crypto.randomInt(100000, 1000000));
-}
-
-function maskEmail(email) {
-  const [local, domain] = String(email || "").split("@");
-  if (!local || !domain) return "your email address";
-  return `${local.slice(0, 1)}${"*".repeat(Math.max(1, Math.min(6, local.length - 1)))}@${domain}`;
-}
-
-function invalidCode(message = "That verification code could not be verified. Check it and try again.") {
-  const error = new Error(message);
-  error.statusCode = 400;
-  error.code = "EMAIL_CHANGE_CODE_INVALID";
-  return error;
-}
+const invalidCode = createInvalidCode(
+  "EMAIL_CHANGE_CODE_INVALID",
+  "That verification code could not be verified. Check it and try again."
+);
 
 function validateNewEmail(value, currentEmail) {
   const email = authService.normalizeEmail(value);

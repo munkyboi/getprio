@@ -1,46 +1,19 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const path = require("node:path");
-
-function resolveMockPath(requestPath, baseDir) {
-  if (!requestPath.startsWith(".")) {
-    return require.resolve(requestPath, { paths: [baseDir] });
-  }
-
-  const absoluteBase = path.resolve(baseDir, requestPath);
-  const candidates = [absoluteBase, `${absoluteBase}.js`, `${absoluteBase}.ts`];
-  for (const candidate of candidates) {
-    try {
-      return require.resolve(candidate);
-    } catch {
-      // Try the next candidate.
-    }
-  }
-  throw new Error(`Unable to resolve mock path: ${requestPath}`);
-}
+const Module = require("node:module");
 
 function requireWithMocks(targetPath, mocks) {
   const resolvedTarget = require.resolve(targetPath);
-  const originals = new Map();
+  const originalLoad = Module._load;
+  Module._load = (request, parent, isMain) => Object.hasOwn(mocks, request)
+    ? mocks[request]
+    : originalLoad.call(Module, request, parent, isMain);
   try {
-    for (const [requestPath, mockExports] of Object.entries(mocks)) {
-      const resolvedDependency = resolveMockPath(requestPath, path.dirname(resolvedTarget));
-      originals.set(resolvedDependency, require.cache[resolvedDependency]);
-      require.cache[resolvedDependency] = {
-        id: resolvedDependency,
-        filename: resolvedDependency,
-        loaded: true,
-        exports: mockExports
-      };
-    }
     delete require.cache[resolvedTarget];
     return require(resolvedTarget);
   } finally {
+    Module._load = originalLoad;
     delete require.cache[resolvedTarget];
-    for (const [resolvedDependency, originalEntry] of originals.entries()) {
-      if (originalEntry) require.cache[resolvedDependency] = originalEntry;
-      else delete require.cache[resolvedDependency];
-    }
   }
 }
 
@@ -98,7 +71,7 @@ test("customer registration OTP sends a code and only creates a session after ve
         return user;
       }
     },
-    "../services/notificationService": {
+    "./notificationService": {
       sendEmail: async (email) => sentEmails.push(email)
     },
     "./sessionService": {
@@ -142,7 +115,7 @@ test("customer registration password validation enforces the client requirements
     "../config/db": {},
     "../repositories/customerRegistrationOtps": {},
     "../repositories/users": {},
-    "../services/notificationService": {},
+    "./notificationService": {},
     "./sessionService": {}
   });
 
