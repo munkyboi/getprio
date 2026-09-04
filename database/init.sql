@@ -53,6 +53,7 @@ DROP TABLE IF EXISTS auth_mfa_factors CASCADE;
 DROP TABLE IF EXISTS auth_login_attempts CASCADE;
 DROP TABLE IF EXISTS password_reset_tokens CASCADE;
 DROP TABLE IF EXISTS account_email_change_challenges CASCADE;
+DROP TABLE IF EXISTS customer_registration_otps CASCADE;
 DROP TABLE IF EXISTS account_phone_change_challenges CASCADE;
 DROP TABLE IF EXISTS auth_sessions CASCADE;
 DROP TABLE IF EXISTS rating_disputes CASCADE;

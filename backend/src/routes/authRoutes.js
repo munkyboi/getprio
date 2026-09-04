@@ -26,6 +26,7 @@ const securityEventService = require("../services/securityEventService");
 const sessionService = require("../services/sessionService");
 const subscriptionLifecycleService = require("../services/subscriptionLifecycleService");
 const mfaFlowService = require("../services/mfaFlowService");
+const customerRegistrationOtpService = require("../services/customerRegistrationOtpService");
 const securityRateLimitService = require("../services/securityRateLimitService");
 const { userRequiresPrivilegedMfa } = require("../services/mfaService");
 const { assertPublicTextFieldsAllowed } = require("../services/contentModeration");
@@ -55,6 +56,14 @@ const authAttemptLimiter = asyncHandler(async (req, _res, next) => {
   const key = crypto.createHash("sha256").update(String(req.ip || req.socket?.remoteAddress || "unknown")).digest("hex");
   await securityRateLimitService.consume({ bucketKey: `auth-attempt:${key}`, limit: 100, windowSeconds: 15 * 60, blockedMessage: "Too many authentication attempts. Please try again later." });
   next();
+});
+const customerRegistrationOtpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => ipKeyGenerator(req.ip || req.socket?.remoteAddress || "unknown"),
+  message: { message: "Too many registration verification requests. Please try again later." }
 });
 
 function normalizeSlug(value) {
@@ -117,6 +126,27 @@ function validateUsername(value) {
     valid: true,
     message: ""
   };
+}
+
+function validateCustomerEmail(value) {
+  const email = normalizeEmail(value);
+  const atIndex = email.indexOf("@");
+  const lastAtIndex = email.lastIndexOf("@");
+  const dotIndex = email.lastIndexOf(".");
+  if (
+    !email ||
+    email.length > 254 ||
+    atIndex <= 0 ||
+    atIndex !== lastAtIndex ||
+    dotIndex <= atIndex + 1 ||
+    dotIndex >= email.length - 1 ||
+    /\s/.test(email)
+  ) {
+    const error = new Error("Enter a valid email address.");
+    error.statusCode = 400;
+    throw error;
+  }
+  return email;
 }
 
 async function assertUsernameAvailable(username, options = {}) {
@@ -433,6 +463,80 @@ router.get(
       valid: true,
       message: existingTenant ? "That tenant slug is already taken." : "Tenant slug is available."
     });
+  })
+);
+
+router.post(
+  "/register/customer/otp",
+  customerRegistrationOtpLimiter,
+  asyncHandler(async (req, res) => {
+    const { name, username, email, password } = req.body || {};
+    if (!name || !username || !email || !password) {
+      const error = new Error("name, username, email, and password are required.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const normalizedName = String(name).trim();
+    if (normalizedName.length < 2) {
+      const error = new Error("Enter your full name.");
+      error.statusCode = 400;
+      throw error;
+    }
+    const normalizedEmail = validateCustomerEmail(email);
+    const normalizedUsername = await assertUsernameAvailable(username);
+    assertPublicTextFieldsAllowed({ "Account name": name, Username: normalizedUsername });
+    customerRegistrationOtpService.assertValidPassword(password);
+    const existingUser = await userRepository.findUserByEmail(normalizedEmail);
+    if (existingUser) {
+      const error = new Error(buildExistingAccountMessage(existingUser));
+      error.statusCode = 409;
+      throw error;
+    }
+
+    const challenge = await customerRegistrationOtpService.start({
+      name: normalizedName,
+      username: normalizedUsername,
+      email: normalizedEmail,
+      passwordHash: await bcrypt.hash(password, 10)
+    });
+    res.status(201).json(challenge);
+  })
+);
+
+router.post(
+  "/register/customer/otp/verify",
+  customerRegistrationOtpLimiter,
+  asyncHandler(async (req, res) => {
+    const result = await customerRegistrationOtpService.verify({
+      challengeId: req.body?.challengeId,
+      code: req.body?.code,
+      ipAddress: authService.getRequestIp(req),
+      userAgent: authService.getUserAgent(req)
+    });
+    await authService.recordLoginAttempt({
+      email: result.user.email,
+      success: true,
+      user: result.user,
+      sessionId: result.sessionResult.session._id,
+      req
+    });
+    res.json(buildAuthResponse(
+      req,
+      res,
+      await buildUserPayload(result.user),
+      result.sessionResult
+    ));
+  })
+);
+
+router.post(
+  "/register/customer/otp/resend",
+  customerRegistrationOtpLimiter,
+  asyncHandler(async (req, res) => {
+    res.json(await customerRegistrationOtpService.resend({
+      challengeId: req.body?.challengeId
+    }));
   })
 );
 
