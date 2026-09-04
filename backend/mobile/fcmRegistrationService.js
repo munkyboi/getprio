@@ -80,22 +80,52 @@ async function send(registration, payload) {
   throw error;
 }
 
-async function sendToUser({ userId, payload }) {
-  if (!isConfigured()) return { attempted: 0, sent: 0, configured: false };
-  const registrations = await repository.listActiveByUserId(userId);
+async function sendToRegistrations({ registrations = [], payload }) {
+  if (!isConfigured()) {
+    return {
+      attempted: 0,
+      sent: 0,
+      configured: false,
+      outcomes: []
+    };
+  }
+
   let sent = 0;
+  const outcomes = [];
   for (const registration of registrations) {
     try {
-      if (await send(registration, payload)) sent += 1;
+      if (await send(registration, payload)) {
+        sent += 1;
+        outcomes.push({
+          registrationId: registration.id,
+          installationId: registration.installationId,
+          platform: registration.platform,
+          status: "accepted"
+        });
+      }
     } catch (error) {
       console.warn("[fcm-push-failed]", { registrationId: registration.id, error: error.message });
+      outcomes.push({
+        registrationId: registration.id,
+        installationId: registration.installationId,
+        platform: registration.platform,
+        status: "failed",
+        statusCode: error.statusCode || null,
+        error: error.message
+      });
     }
   }
-  return { attempted: registrations.length, sent, configured: true };
+  return { attempted: registrations.length, sent, configured: true, outcomes };
+}
+
+async function sendToUser({ userId, payload }) {
+  if (!isConfigured()) return { attempted: 0, sent: 0, configured: false, outcomes: [] };
+  const registrations = await repository.listActiveByUserId(userId);
+  return sendToRegistrations({ registrations, payload });
 }
 
 function newNotificationId() {
   return crypto.randomUUID();
 }
 
-module.exports = { isConfigured, sendToUser, newNotificationId };
+module.exports = { isConfigured, sendToRegistrations, sendToUser, newNotificationId };
