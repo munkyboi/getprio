@@ -891,6 +891,113 @@ test("register customer returns a tracked session and normalized username", asyn
   }
 });
 
+test("customer OTP registration verifies email before returning a bearer session", async () => {
+  let startPayload = null;
+  let verifyPayload = null;
+  const router = requireWithMocks("../src/routes/authRoutes.js", {
+    "../config/db": {},
+    "../repositories/tenants": {
+      findTenantsByIds: async () => []
+    },
+    "../repositories/authSessions": {},
+    "../repositories/users": {
+      findUserByEmail: async () => null,
+      findUserByUsername: async () => null
+    },
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../middleware/auth": buildAuthMock(),
+    "../services/authService": {
+      normalizeEmail: (value) => String(value || "").trim().toLowerCase(),
+      getRequestIp: () => "127.0.0.1",
+      getUserAgent: () => "test-agent",
+      recordLoginAttempt: async () => {}
+    },
+    "../services/customerRegistrationOtpService": {
+      assertValidPassword: () => {},
+      start: async (payload) => {
+        startPayload = payload;
+        return {
+          challengeId: "challenge-1",
+          step: "email_otp",
+          deliveryTarget: "j***@example.com",
+          expiresAt: "2026-09-04T10:10:00Z"
+        };
+      },
+      verify: async (payload) => {
+        verifyPayload = payload;
+        return {
+          user: {
+            _id: "user-1",
+            name: "Jane Doe",
+            username: "jane_doe",
+            email: "jane@example.com",
+            roles: ["customer"],
+            emailVerified: true,
+            oauthAccounts: [],
+            tenantMemberships: []
+          },
+          sessionResult: {
+            accessToken: "access-1",
+            refreshToken: "refresh-1",
+            session: { _id: "session-1", expiresAt: new Date("2026-09-04T10:30:00Z") }
+          }
+        };
+      },
+      resend: async () => ({})
+    },
+    "../services/oauthService": {
+      buildAuthorizationUrl: () => "",
+      buildClientCallbackUrl: () => "",
+      buildProviderAvailability: () => ({ google: false, facebook: false }),
+      createOAuthState: () => "",
+      exchangeCodeForProfile: async () => ({}),
+      ensureSupportedProvider: () => {},
+      getProviderLabel: (provider) => provider,
+      readOAuthState: () => ({ provider: "google", intent: "login" })
+    },
+    "../services/notificationService": {},
+    "../services/passwordResetService": {},
+    "../services/securityEventService": {},
+    "../services/sessionService": {}
+  });
+
+  const { server, baseUrl } = await startServer(router, "/api/auth");
+  try {
+    const startResponse = await fetch(`${baseUrl}/register/customer/otp`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "Jane Doe",
+        username: "Jane_Doe",
+        email: "Jane@Example.com",
+        password: "Upper!12"
+      })
+    });
+    assert.equal(startResponse.status, 201);
+    assert.equal((await startResponse.json()).step, "email_otp");
+    assert.equal(startPayload.email, "jane@example.com");
+    assert.equal(startPayload.username, "jane_doe");
+
+    const verifyResponse = await fetch(`${baseUrl}/register/customer/otp/verify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Auth-Compatibility": "bearer-v1" },
+      body: JSON.stringify({ challengeId: "challenge-1", code: "123456" })
+    });
+    assert.equal(verifyResponse.status, 200);
+    const body = await verifyResponse.json();
+    assert.equal(body.token, "access-1");
+    assert.equal(body.refreshToken, "refresh-1");
+    assert.deepEqual(verifyPayload, {
+      challengeId: "challenge-1",
+      code: "123456",
+      ipAddress: "127.0.0.1",
+      userAgent: "test-agent"
+    });
+  } finally {
+    await stopServer(server);
+  }
+});
+
 test("register vendor returns a tracked session and tenant membership", async () => {
   let createdTenant = null;
   let createdUser = null;
