@@ -24,6 +24,7 @@
     "entitlements:resume": "node scripts/entitlement-rollout.mjs resume",
     "db:backfill:queue-lifecycle": "node -r dotenv/config scripts/queue-lifecycle-backfill.mjs",
     "oauth:smoke": "node scripts/oauth-smoke.mjs",
+    "push:test": "node scripts/push-test.mjs",
     "build": "npm --workspace frontend run build && npm --workspace platform-dashboard run build",
     "build:backend": "npm --workspace backend run build",
     "start": "npm --workspace backend run start",
