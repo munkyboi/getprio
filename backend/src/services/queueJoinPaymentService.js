@@ -482,7 +482,7 @@ async function activatePaidPayment(paymentId, providerPaymentId, paymentAttribut
   });
 
   if (!result.alreadyIssued && !result.ticketBlocked) {
-    await pushNotificationService.notifyCustomerQueueUpdate({
+    pushNotificationService.notifyCustomerQueueUpdate({
       tenant: result.tenant, ticket: result.ticket, action: "joined"
     }).catch((error) => {
       console.warn("[push-customer-queue-joined-skipped]", error.message);

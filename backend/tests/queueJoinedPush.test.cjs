@@ -88,7 +88,8 @@ test("paid ticket sends joined push once after commit, even when payment is repl
   assert.equal(pushes[0].ticket.userId, 'customer');
 });
 
-test("free ticket sends joined push after commit and push failure does not fail joining", async () => {
+for (const pending of [false, true]) {
+test(`free ticket completes after commit when joined push ${pending ? "stays pending" : "fails"}`, { timeout: 1000 }, async () => {
   let committed = false;
   const pushes = [];
   const location = { _id: '4' };
@@ -107,7 +108,9 @@ test("free ticket sends joined push after commit and push failure does not fail 
     './queueAutomationHelpers': { maybeNotifyUpcomingTickets: async () => {}, maybeAutoPauseQueueDay: async () => {} },
     './notificationService': { notifyJourneyLifecycle: async () => {} },
     './pushNotificationService': { notifyCustomerQueueUpdate: async (input) => {
-      assert.equal(committed, true); pushes.push(input); throw new Error('Push unavailable');
+      assert.equal(committed, true); pushes.push(input);
+      if (pending) return new Promise(() => {});
+      throw new Error('Push unavailable');
     } }
   });
   const result = await service.createTicket({ tenant: { _id: '2', slug: 'clinic', queuePrefix: 'A', notificationSettings: { queueJoin: false } }, userId: 'customer' });
@@ -115,3 +118,5 @@ test("free ticket sends joined push after commit and push failure does not fail 
   assert.equal(pushes.length, 1);
   assert.equal(pushes[0].action, 'joined');
 });
+
+}
