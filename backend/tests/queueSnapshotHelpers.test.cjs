@@ -28,7 +28,7 @@ test("queue snapshot helpers resolve primary locations when none are specified",
     lookupCalls += 1;
     return null;
   };
-  originalTickets.findCurrentCalledTicket = async () => null;
+  originalTickets.findCurrentCalledTicket = async () => ({ _id: 42, joinChannel: "vendor", customerConfirmedAt: null });
   originalTickets.listWaitingTickets = async () => [];
   originalTickets.listPendingCarryOverTickets = async () => [];
   originalTickets.listSkippedTickets = async () => [];
@@ -50,6 +50,8 @@ test("queue snapshot helpers resolve primary locations when none are specified",
   assert.equal(primaryCalls, 1);
   assert.equal(lookupCalls, 0);
   assert.equal(result.location.slug, "main");
+  assert.equal(result.current.joinChannel, "vendor");
+  assert.equal(result.current.customerConfirmedAt, null);
 });
 
 test("queue snapshot helpers prefer a ticket location when lookup code resolves", async () => {

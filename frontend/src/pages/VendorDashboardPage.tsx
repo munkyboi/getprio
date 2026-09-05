@@ -5311,13 +5311,13 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           vendorDashboardQueue.callNextTicket(token, selectedTenantSlug, locationQuery, selectedCounterSlug)
                         );
                         if (success) {
-                          showSuccessNotification("Customer called", "The next ticket is waiting for ticket confirmation.");
+                          showSuccessNotification("Customer called", "The next customer has been called to the counter.");
                         }
                       }}
                     >
                       {busyAction === "call-next" ? "Calling..." : "Call next"}
                     </Button>
-                    {activeTicket?.customerConfirmedAt ? (
+                    {activeTicket && (activeTicket.customerConfirmedAt || activeTicket.joinChannel === "vendor") ? (
                       <Button
                         className="neura-secondary-button"
                         disabled={busyAction === "serve-current"}
@@ -5328,7 +5328,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                             vendorDashboardQueue.serveCurrentTicket(token, selectedTenantSlug, locationQuery)
                           );
                           if (success) {
-                            showSuccessNotification("Customer served", "The confirmed ticket was marked as served.");
+                            showSuccessNotification("Customer served", "The ticket was marked as served.");
                           }
                         }}
                       >

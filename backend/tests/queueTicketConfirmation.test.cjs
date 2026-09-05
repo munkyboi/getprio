@@ -31,3 +31,47 @@ test("customer confirmation persistence is present in bootstrap, migration, and 
   assert.match(migration, /ADD COLUMN IF NOT EXISTS customer_confirmed_at TIMESTAMPTZ/);
   assert.match(verify, /tickets\.customer_confirmed_at/);
 });
+
+for (const joinChannel of ["vendor", "online", "qr", undefined]) {
+  for (const confirmed of [false, true]) {
+    test(`${joinChannel || "legacy"} called ticket ${confirmed ? "with" : "without"} confirmation has the correct serving gate`, async () => {
+      require("tsx/cjs");
+      const servicePath = path.resolve(__dirname, "../src/services/queueService.js");
+      const localRequire = require("node:module").createRequire(servicePath);
+      const current = { _id: "7", tenantId: "1", locationId: "2", status: "called", joinChannel, customerConfirmedAt: confirmed ? new Date() : null };
+      const events = [];
+      const writes = [];
+      const mocks = {
+        "../config/db": { withTransaction: async (run) => run({}) },
+        "../repositories/queueDayClosures": { findActiveClosure: async () => null },
+        "../repositories/tickets": {
+          findCurrentCalledTicket: async () => current,
+          updateCurrentCalledTicketStatus: async (_tenantId, status) => { writes.push(status); return { ...current, status }; }
+        },
+        "../repositories/bookings": { updateBookingByQueueTicketId: async () => {} },
+        "../repositories/queueEvents": { createQueueEvent: async (event) => events.push(event.eventType) },
+        "./queueSnapshotHelpers": { resolveLocation: async () => ({ _id: "2" }), buildQueueSnapshot: async () => ({ current: null }) },
+        "./queueAutomationHelpers": { maybeAutoResumeQueueDay: async () => {}, maybeNotifyUpcomingTickets: async () => {} },
+        "./queueEvents": { publish: () => {} },
+        "./notificationService": { notifyJourneyLifecycle: async () => {} },
+        "./pushNotificationService": { notifyCustomerQueueUpdate: async () => {} }
+      };
+      const module = { exports: {} };
+      require("node:vm").runInNewContext(fs.readFileSync(servicePath, "utf8"), {
+        module, require: (name) => mocks[name] || localRequire(name), console
+      });
+      const serving = module.exports.updateCurrentTicketStatus({ _id: "1", slug: "clinic" }, "served");
+      if (confirmed || joinChannel === "vendor") {
+        const result = await serving;
+        assert.equal(result.ticket.status, "served");
+        assert.equal(result.ticket.customerConfirmedAt, current.customerConfirmedAt);
+        assert.deepEqual(writes, ["served"]);
+        assert.deepEqual(events, ["ticket_served"]);
+      } else {
+        await assert.rejects(serving, { statusCode: 409, message: "Confirm the called ticket before serving this customer." });
+        assert.deepEqual(writes, []);
+        assert.deepEqual(events, []);
+      }
+    });
+  }
+}

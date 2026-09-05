@@ -1280,3 +1280,20 @@ test("public queue snapshots use the ticket location for lookup-code requests", 
     }
   }
 });
+
+test("public direct and OTP joins cannot claim the vendor walk-in channel", async () => {
+  const { server, baseUrl } = await startServer(buildPublicRouter(null, async () => ({})), "/api/public");
+  try {
+    for (const route of ["join", "join-otp"]) {
+      for (const joinChannel of ["vendor", "online", "qr"]) {
+        const response = await fetch(`${baseUrl}/tenant/demo/${route}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ customerName: "Walk-in test", joinChannel, turnstileToken: "valid-token" })
+        });
+        assert.equal(response.status, joinChannel === "vendor" ? 400 : 201);
+        if (joinChannel === "vendor") assert.match((await response.json()).message, /online or QR/);
+      }
+    }
+  } finally { await stopServer(server); }
+});

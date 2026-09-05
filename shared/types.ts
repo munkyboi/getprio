@@ -1323,6 +1323,7 @@ export interface QueueCurrentTicket {
   customerName: string;
   customerDisplayName?: string | null;
   calledAt: string | Date | null;
+  joinChannel?: JoinChannel;
   customerConfirmedAt?: string | Date | null;
   servicePriorityBand?: QueuePriorityBand;
   linkedBookingReference?: string | null;
