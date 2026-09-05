@@ -12,6 +12,7 @@ test("vendor management handler updates settings through injected repositories",
   await handleUpdateSettings({
     req: { user: { _id: 4, name: "Owner", displayName: "" }, params: { tenantSlug: "tenant" }, query: { location: "main" }, body: { name: "Updated Tenant", publicProfileDisplayName: "Public Tenant", publicProfileDescription: "<p>A <strong>public</strong> description.</p><script>alert(1)</script>", publicProfileCategory: "Sports", ownerName: "Updated Owner", ownerDisplayName: "Owner Display", queuePrefix: "ab" } },
     res: response,
+    categoryRepository: { resolve: async () => ({ id: "1", name: "Sports" }) },
     getAuthorizedTenant: async () => ({ _id: 1, queuePrefix: "OLD" }),
     assertTenantPermission: () => {},
     getLocationForTenant: async () => ({ _id: 2 }),

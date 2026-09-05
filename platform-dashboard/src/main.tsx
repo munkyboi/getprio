@@ -1,3 +1,5 @@
+import { BusinessCategoriesPanel } from "./components/BusinessCategoriesPanel";
+import { TenantEntitlementsPage } from "./pages/TenantEntitlementsPage";
 import { ManagedRecordsPage } from "./components/ManagedRecordsPage";
 import { StrictMode, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import {
@@ -17,6 +19,7 @@ import {
   Modal,
   Select,
   Tooltip,
+  Tabs,
   Text,
   Textarea,
   TextInput,
@@ -353,79 +356,91 @@ function SettingsPage({ token, user }: { token: string; user: UserSummary & { mf
     }
   }
   return (
-    <Stack>
-    <Paper className="portal-card" p="lg">
-      <Stack>
-        <TextInput label="Enterprise inquiry recipient" value={settings?.enterpriseInquiryEmail || ""} onChange={(event) => setSettings((current) => current ? { ...current, enterpriseInquiryEmail: event.target.value } : current)} />
-        <Select
-          allowDeselect={false}
-          data={timeZoneOptions}
-          description="Used as the initial timezone for newly created vendor locations."
-          label="Default timezone"
-          onChange={(value) => setSettings((current) => current && value ? { ...current, defaultTimezone: value } : current)}
-          searchable
-          value={settings?.defaultTimezone || null}
-        />
-        <Textarea
-          description="One HTTPS hostname per line. These hosts are accepted by the mobile QR scanner."
-          label="Approved mobile HTTPS hosts"
-          value={(settings?.mobileApprovedHosts || []).join("\n")}
-          onChange={(event) => setSettings((current) => current ? { ...current, mobileApprovedHosts: event.target.value.split(/\n|,/).map((host) => host.trim()).filter(Boolean) } : current)}
-        />
-        <Group justify="flex-end"><Button onClick={save}>Save settings</Button></Group>
-      </Stack>
-    </Paper>
-    <Paper className="portal-card" p="lg">
-      <Stack>
-        <div><Text className="neura-label">PLATFORM SECURITY</Text><Title order={3}>Authenticator verification</Title><Text c="dimmed">Required for plan, credit, lifecycle, and repair confirmations.</Text></div>
-        {recoveryCodes.length ? <Card withBorder><Text fw={700}>Save these one-time recovery codes</Text>{recoveryCodes.map((code) => <Text ff="monospace" key={code}>{code}</Text>)}</Card> : null}
-        {mfaActive && !mfaSecret && !replacingMfa && !recoveryCodes.length ? (
-          <Stack gap="sm">
-            <Group><Badge color="teal">Enabled</Badge><Text c="dimmed" size="sm">Your authenticator is active.</Text></Group>
-            <Button variant="light" onClick={() => setReplacingMfa(true)}>Replace authenticator</Button>
+    <Tabs className="settings-tabs" defaultValue="general" keepMounted>
+      <Tabs.List aria-label="Settings sections" grow>
+        <Tabs.Tab value="general">General</Tabs.Tab>
+        <Tabs.Tab value="categories">Business Categories</Tabs.Tab>
+        <Tabs.Tab value="security">Account Security</Tabs.Tab>
+      </Tabs.List>
+      <Tabs.Panel value="general" pt="lg">
+        <Paper className="portal-card" p="lg">
+          <Stack>
+            <TextInput label="Enterprise inquiry recipient" value={settings?.enterpriseInquiryEmail || ""} onChange={(event) => setSettings((current) => current ? { ...current, enterpriseInquiryEmail: event.target.value } : current)} />
+            <Select
+              allowDeselect={false}
+              data={timeZoneOptions}
+              description="Used as the initial timezone for newly created vendor locations."
+              label="Default timezone"
+              onChange={(value) => setSettings((current) => current && value ? { ...current, defaultTimezone: value } : current)}
+              searchable
+              value={settings?.defaultTimezone || null}
+            />
+            <Textarea
+              description="One HTTPS hostname per line. These hosts are accepted by the mobile QR scanner."
+              label="Approved mobile HTTPS hosts"
+              value={(settings?.mobileApprovedHosts || []).join("\n")}
+              onChange={(event) => setSettings((current) => current ? { ...current, mobileApprovedHosts: event.target.value.split(/\n|,/).map((host) => host.trim()).filter(Boolean) } : current)}
+            />
+            <Group justify="flex-end"><Button onClick={save}>Save settings</Button></Group>
           </Stack>
-        ) : null}
-        {replacingMfa && !mfaSecret ? (
-          <Card withBorder>
-            <Stack gap="md">
-              <div>
-                <Text fw={700}>Confirm before replacing your authenticator</Text>
-                <Text c="dimmed" size="sm">Enter your password and a code from your current authenticator. Your current authenticator stays active until the new one is verified.</Text>
-              </div>
-              <PasswordInput autoComplete="current-password" label="Password" value={mfaPassword} onChange={(event) => setMfaPassword(event.target.value)} />
-              <TextInput autoComplete="one-time-code" inputMode="numeric" label="Current authenticator code" maxLength={6} value={currentMfaCode} onChange={(event) => setCurrentMfaCode(event.target.value.replace(/\D/g, ""))}/>
-              <Group justify="flex-end">
-                <Button disabled={mfaBusy} variant="subtle" onClick={() => { setReplacingMfa(false); setMfaPassword(""); setCurrentMfaCode(""); }}>Cancel</Button>
-                <Button disabled={!mfaPassword || currentMfaCode.length !== 6} loading={mfaBusy} onClick={() => void startMfa()}>Verify and replace</Button>
-              </Group>
-            </Stack>
-          </Card>
-        ) : null}
-        {!mfaActive && !mfaSecret ? <Button loading={mfaBusy} onClick={() => void startMfa()}>Set up authenticator</Button> : null}
-        {mfaSecret ? (
-          <Stack gap="md">
-            <Stack align="center" gap="sm">
-              <Text fw={700} ta="center">Scan with your authenticator app</Text>
-              <Text c="dimmed" maw={440} size="sm" ta="center">Add an account in your authenticator app, then scan this QR code.</Text>
-              <div aria-label="GetPrio authenticator setup QR code" className="mfa-setup-qr" role="img">
-                <StyledQRCode aria-label="Authenticator setup QR code" size={192} value={mfaUri} />
-              </div>
-            </Stack>
-            <Card withBorder>
-              <Stack gap="xs">
-                <Text fw={700}>Can’t scan the QR code?</Text>
-                <Text c="dimmed" size="sm">Open the setup link on this device or enter the secret manually.</Text>
-                <Text component="a" href={mfaUri} style={{ overflowWrap: "anywhere" }}>Open authenticator setup</Text>
-                <Text ff="monospace" style={{ overflowWrap: "anywhere" }}>{mfaSecret}</Text>
+        </Paper>
+      </Tabs.Panel>
+      <Tabs.Panel value="categories" pt="lg">
+        <BusinessCategoriesPanel token={token} />
+      </Tabs.Panel>
+      <Tabs.Panel value="security" pt="lg">
+        <Paper className="portal-card" p="lg">
+          <Stack>
+            <div><Text className="neura-label">PLATFORM SECURITY</Text><Title order={3}>Authenticator verification</Title><Text c="dimmed">Required for plan, credit, lifecycle, and repair confirmations.</Text></div>
+            {recoveryCodes.length ? <Card withBorder><Text fw={700}>Save these one-time recovery codes</Text>{recoveryCodes.map((code) => <Text ff="monospace" key={code}>{code}</Text>)}</Card> : null}
+            {mfaActive && !mfaSecret && !replacingMfa && !recoveryCodes.length ? (
+              <Stack gap="sm">
+                <Group><Badge color="teal">Enabled</Badge><Text c="dimmed" size="sm">Your authenticator is active.</Text></Group>
+                <Button variant="light" onClick={() => setReplacingMfa(true)}>Replace authenticator</Button>
               </Stack>
-            </Card>
-            <TextInput autoComplete="one-time-code" inputMode="numeric" label="6-digit code" maxLength={6} value={mfaCode} onChange={(event) => setMfaCode(event.target.value.replace(/\D/g, ""))}/>
-            <Button disabled={mfaCode.length !== 6} loading={mfaBusy} onClick={() => void confirmMfa()}>Verify and enable</Button>
+            ) : null}
+            {replacingMfa && !mfaSecret ? (
+              <Card withBorder>
+                <Stack gap="md">
+                  <div>
+                    <Text fw={700}>Confirm before replacing your authenticator</Text>
+                    <Text c="dimmed" size="sm">Enter your password and a code from your current authenticator. Your current authenticator stays active until the new one is verified.</Text>
+                  </div>
+                  <PasswordInput autoComplete="current-password" label="Password" value={mfaPassword} onChange={(event) => setMfaPassword(event.target.value)} />
+                  <TextInput autoComplete="one-time-code" inputMode="numeric" label="Current authenticator code" maxLength={6} value={currentMfaCode} onChange={(event) => setCurrentMfaCode(event.target.value.replace(/\D/g, ""))}/>
+                  <Group justify="flex-end">
+                    <Button disabled={mfaBusy} variant="subtle" onClick={() => { setReplacingMfa(false); setMfaPassword(""); setCurrentMfaCode(""); }}>Cancel</Button>
+                    <Button disabled={!mfaPassword || currentMfaCode.length !== 6} loading={mfaBusy} onClick={() => void startMfa()}>Verify and replace</Button>
+                  </Group>
+                </Stack>
+              </Card>
+            ) : null}
+            {!mfaActive && !mfaSecret ? <Button loading={mfaBusy} onClick={() => void startMfa()}>Set up authenticator</Button> : null}
+            {mfaSecret ? (
+              <Stack gap="md">
+                <Stack align="center" gap="sm">
+                  <Text fw={700} ta="center">Scan with your authenticator app</Text>
+                  <Text c="dimmed" maw={440} size="sm" ta="center">Add an account in your authenticator app, then scan this QR code.</Text>
+                  <div aria-label="GetPrio authenticator setup QR code" className="mfa-setup-qr" role="img">
+                    <StyledQRCode aria-label="Authenticator setup QR code" size={192} value={mfaUri} />
+                  </div>
+                </Stack>
+                <Card withBorder>
+                  <Stack gap="xs">
+                    <Text fw={700}>Can’t scan the QR code?</Text>
+                    <Text c="dimmed" size="sm">Open the setup link on this device or enter the secret manually.</Text>
+                    <Text component="a" href={mfaUri} style={{ overflowWrap: "anywhere" }}>Open authenticator setup</Text>
+                    <Text ff="monospace" style={{ overflowWrap: "anywhere" }}>{mfaSecret}</Text>
+                  </Stack>
+                </Card>
+                <TextInput autoComplete="one-time-code" inputMode="numeric" label="6-digit code" maxLength={6} value={mfaCode} onChange={(event) => setMfaCode(event.target.value.replace(/\D/g, ""))}/>
+                <Button disabled={mfaCode.length !== 6} loading={mfaBusy} onClick={() => void confirmMfa()}>Verify and enable</Button>
+              </Stack>
+            ) : null}
           </Stack>
-        ) : null}
-      </Stack>
-    </Paper>
-    </Stack>
+        </Paper>
+      </Tabs.Panel>
+    </Tabs>
   );
 }
 
@@ -706,7 +721,7 @@ function PortalApp({
   }
 
   const visibleNavItems = navItems;
-  const pageTitle = visibleNavItems.find((item) => item.to === location.pathname)?.label || "Overview";
+  const pageTitle = location.pathname.startsWith("/tenants/") ? "Vendor entitlement administration" : visibleNavItems.find((item) => item.to === location.pathname)?.label || "Overview";
   return (
     <><AppShell
       className="portal-shell"
@@ -789,6 +804,7 @@ function PortalApp({
               <Route path="/queue-fees" element={<Navigate to="/plans" replace />} />
               <Route path="/plans" element={<PlanMatrixPage token={token} />} />
               <Route path="/settings" element={<SettingsPage token={token} user={user} />} />
+              <Route path="/tenants/:tenantId/entitlements" element={<TenantEntitlementsPage token={token} />} />
               <Route path="/tenants" element={<ManagedRecordsPage key="tenants" token={token} kind="tenants" emptyLabel="No tenants." columns={[
                 { key: "userId", label: "User ID" }, { key: "name", label: "Tenant" }, { key: "username", label: "Username" }, { key: "slug", label: "Slug" }, { key: "planSlug", label: "Plan" }, { key: "ticketCount", label: "Tickets" }, { key: "createdAt", label: "Created", render: (row) => formatDate(row.createdAt) }
               ]} />} />

@@ -15,7 +15,8 @@ export function PortalDataTable<T extends Record<string, unknown>>({
   minWidth = 680,
   pinFirstColumn = false,
   pinLastColumn = false,
-  virtualized = false
+  virtualized = false,
+  onRowClick
 }: {
   rows: T[];
   columns: Array<PortalTableColumn<T>>;
@@ -24,6 +25,7 @@ export function PortalDataTable<T extends Record<string, unknown>>({
   pinFirstColumn?: boolean;
   pinLastColumn?: boolean;
   virtualized?: boolean;
+  onRowClick?: (row: T) => void;
 }) {
   const [scrollTop, setScrollTop] = useState(0);
   const rowHeight = 56;
@@ -67,7 +69,7 @@ export function PortalDataTable<T extends Record<string, unknown>>({
             {start > 0 && <Table.Tr aria-hidden="true"><Table.Td colSpan={columns.length} style={{ height: start * rowHeight, padding: 0 }} /></Table.Tr>}
             {rows.length ? (
               rows.slice(start, end).map((row, index) => (
-                <Table.Tr key={String((row.id as string | number | undefined) ?? index)} style={virtualized ? { height: rowHeight } : undefined}>
+                <Table.Tr onClick={onRowClick ? (event) => { if (!(event.target as HTMLElement).closest("a, button, input, select, textarea")) onRowClick(row); } : undefined} className={onRowClick ? "portal-data-table__linked-row" : undefined} key={String((row.id as string | number | undefined) ?? index)} style={virtualized ? { height: rowHeight } : undefined}>
                   {columns.map((column) => (
                     <Table.Td
                       key={column.key}

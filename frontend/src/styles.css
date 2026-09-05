@@ -7843,3 +7843,26 @@ button:hover > .rating-star { transform: scale(1.08); }
     min-height: 44px;
   }
 }
+
+.vendor-account-tabs > .mantine-Tabs-list {
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  overflow-x: auto;
+  gap: .5rem;
+}
+
+.vendor-account-tabs > .mantine-Tabs-list > .mantine-Tabs-tab {
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding-inline: 1rem;
+  border-radius: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--mantine-color-dimmed);
+}
+
+.vendor-account-tabs > .mantine-Tabs-list > .mantine-Tabs-tab[data-active] {
+  background: transparent;
+  border-bottom-color: var(--mantine-color-text);
+  color: var(--mantine-color-text);
+  font-weight: 700;
+}

@@ -558,3 +558,26 @@ body {
 
 .managed-records .mantine-Input-input { min-height: 44px; }
 .managed-records .mantine-Switch-body { min-height: 44px; align-items: center; }
+
+.portal-data-table__linked-row { cursor: pointer; }
+.tenant-record-link { display: inline-flex; align-items: center; min-height: 44px; text-decoration: underline; text-underline-offset: 3px; }
+.tenant-entitlements { min-width: 0; overflow-wrap: anywhere; }
+.tenant-entitlements .mantine-Button-root { min-height: 44px; }
+.tenant-entitlements .mantine-Badge-root { max-width: 100%; height: auto; min-height: 20px; white-space: normal; }
+
+.tenant-entitlements .mantine-Card-root, .tenant-entitlements .mantine-Paper-root { min-width: 0; }
+
+.business-categories .mantine-Button-root, .business-categories .mantine-Input-input { min-height: 44px; }
+.business-categories .mantine-Switch-body { min-height: 44px; align-items: center; }
+.business-categories { overflow-wrap: anywhere; min-width: 0; }
+
+.settings-tabs { min-width: 0; }
+.settings-tabs > .mantine-Tabs-list { flex-wrap: nowrap; }
+.settings-tabs > .mantine-Tabs-list > .mantine-Tabs-tab {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 44px;
+  padding-inline: 8px;
+  white-space: normal;
+}
+.settings-tabs .mantine-Tabs-tabLabel { line-height: 1.4; }

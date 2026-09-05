@@ -1,3 +1,4 @@
+const businessCategories = require("../repositories/businessCategories");
 const express = require("express");
 const asyncHandler = require("../middleware/asyncHandler");
 const { authenticate, requirePlatformPermission } = require("../middleware/auth");
@@ -36,6 +37,17 @@ const db = require("../config/db");
 const router = express.Router();
 
 router.use(authenticate);
+
+router.get("/business-categories", requirePlatformPermission("platform.settings.manage"), asyncHandler(async (_req, res) => {
+  res.json({ items: await businessCategories.list(true) });
+}));
+router.post("/business-categories", requirePlatformPermission("platform.settings.manage"), asyncHandler(async (req, res) => {
+  res.status(201).json({ category: await businessCategories.save(null, req.body, { actorId: req.user._id, actorRole: "platform_admin", sessionId: req.auth.sessionId }) });
+}));
+router.patch("/business-categories/:categoryId", requirePlatformPermission("platform.settings.manage"), asyncHandler(async (req, res) => {
+  res.json({ category: await businessCategories.save(req.params.categoryId, req.body, { actorId: req.user._id, actorRole: "platform_admin", sessionId: req.auth.sessionId }) });
+}));
+
 
 router.get("/capabilities", requirePlatformPermission("platform.plan_policy.read"), (_req, res) => {
   res.json({
@@ -141,7 +153,15 @@ router.get("/credit-purchases", requirePlatformPermission("platform.credit_comme
   res.json({ purchases, ...cases });
 }));
 
-router.get("/tenants/:tenantId/capacity", requirePlatformPermission("platform.capacity.read"), asyncHandler(async (req, res) => res.json({ capacity: await usageCreditService.getTenantCapacity(req.params.tenantId, true) })));
+router.get("/tenants/:tenantId/capacity", requirePlatformPermission("platform.capacity.read"), asyncHandler(async (req, res) => {
+  if (!/^\d{1,18}$/.test(req.params.tenantId)) return res.status(400).json({ message: "Invalid tenant ID." });
+  const tenant = await tenantRepository.findTenantById(req.params.tenantId);
+  if (!tenant) return res.status(404).json({ message: "Tenant not found." });
+  res.json({
+    tenant: { id: String(tenant._id), name: tenant.name, slug: tenant.slug },
+    capacity: await usageCreditService.getTenantCapacity(req.params.tenantId, true)
+  });
+}));
 router.get("/tenants/:tenantId/entitlement-overrides", requirePlatformPermission("platform.plan_policy.read"), requireReleaseControl("entitlementOverrides"), asyncHandler(async (req,res) => {
   res.json({ overrides: await entitlementOverrideRepository.listForTenant(req.params.tenantId) });
 }));

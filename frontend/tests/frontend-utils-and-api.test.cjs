@@ -1531,8 +1531,8 @@ test("signup forms use provider icons, helpful labels, and touch-friendly action
   assert.match(labelSource, /<Tooltip label=\{tooltip\}/);
   assert.match(labelSource, /IconInfoCircle/);
   assert.match(labelSource, /signup-label-required/);
-  assert.match(vendorSource, /<SignupFieldLabel label="Business category" required/);
-  assert.match(vendorSource, /withAsterisk=\{false\}/);
+  assert.match(vendorSource, /<BusinessCategorySelect required/);
+  assert.match(fs.readFileSync(path.join(frontendRoot, "src", "components", "BusinessCategorySelect.tsx"), "utf8"), /withAsterisk=\{false\}/);
   assert.match(vendorSource, /<SignupFieldLabel label="Phone"/);
   assert.match(vendorSource, /className="auth-primary-action"/);
   assert.match(vendorSource, /navigate\("\/dashboard\/account", \{ replace: true \}\)/);
@@ -1767,7 +1767,7 @@ test("vendor settings provide an editable business profile", () => {
   assert.match(source, /label="Business display name"/);
   assert.match(source, /<Text fw=\{500\} size="sm">Business description<\/Text>/);
   assert.match(source, /<CampaignDescriptionEditor[\s\S]*?maxCharacters=\{1000\}/);
-  assert.match(source, /<Autocomplete[\s\S]*?label="Business category"[\s\S]*?data=\{\[\.\.\.BUSINESS_CATEGORIES\]\}/);
+  assert.match(source, /<BusinessCategorySelect[\s\S]*?value=\{settings.businessCategoryId/);
   assert.match(source, /<Text fw=\{700\}>Default profile media<\/Text>/);
   assert.match(source, /label="Profile background"/);
   assert.match(source, /label="Profile background fit"/);

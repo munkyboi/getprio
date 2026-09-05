@@ -125,15 +125,7 @@ function getBusinessCategoryLabel(category: string) {
     return "Generic Service Business";
   }
 
-  const labels: Record<string, string> = {
-    "Health and Wellness": "Wellness & Self-care",
-    "Food and Beverage": "Food & Beverage",
-    "Retail and E-commerce": "Retail & E-commerce",
-    "Sports and Recreation": "Sports & Recreation",
-    "Generic Service Business": "Service Business"
-  };
-
-  return labels[category] || category;
+  return category;
 }
 
 function formatPaymentAmount(amountCents: number, currency: string) {

@@ -1,6 +1,11 @@
-export function canAccessVendorSection(section, entitlements) {
+/** @param {{ planSlug?: string | null, subscriptionStatus?: string | null } | null} [plan] */
+export function canAccessVendorSection(section, entitlements, plan = null) {
   if (section === "settings" || section === "account") {
     return true;
+  }
+
+  if (section === "ratings") {
+    return plan?.subscriptionStatus === "active" && Boolean(plan.planSlug) && plan.planSlug !== "free";
   }
 
   if (!entitlements) {

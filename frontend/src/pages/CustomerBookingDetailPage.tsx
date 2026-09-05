@@ -548,7 +548,7 @@ export default function CustomerBookingDetailPage() {
 
         {["completed", "reviewed"].includes(booking.status) && !ratingSubmitted ? (
           <Card mb="md" p="lg">
-            <Stack gap="sm"><Group justify="space-between"><Title order={3}>Rate this vendor</Title>{ratingStars ? <Group gap={6}><IconStar color="#ffd000" fill="#ffd000" size={22}/><Text fw={900}>{ratingStars}.0</Text></Group> : null}</Group><FiveStarRatingInput value={ratingStars} onChange={setRatingStars}/><Textarea label="Optional public comment" maxLength={1000} value={ratingComment} onChange={(event) => setRatingComment(event.currentTarget.value)}/><Button disabled={!ratingStars} loading={busy} onClick={submitVendorRating} w="fit-content">Submit rating</Button></Stack>
+            <Stack gap="sm"><Group justify="space-between"><Title order={3}>Rate this vendor</Title>{ratingStars ? <Group gap={6}><IconStar color="#ffd000" fill="#ffd000" size={22}/><Text fw={900}>{ratingStars}.0</Text></Group> : null}</Group><FiveStarRatingInput value={ratingStars} onChange={setRatingStars}/><Textarea label="Optional public comment" maxLength={500} value={ratingComment} onChange={(event) => setRatingComment(event.currentTarget.value)}/><Button disabled={!ratingStars} loading={busy} onClick={submitVendorRating} w="fit-content">Submit rating</Button></Stack>
           </Card>
         ) : null}
 

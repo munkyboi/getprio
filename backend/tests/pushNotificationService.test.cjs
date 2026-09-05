@@ -489,3 +489,12 @@ test("push service de-duplicates repeated sends with the same notification tag",
   assert.equal(subscriptionLookups, 1);
   assert.equal(sendCount, 1);
 });
+
+test("vendor walk-ins never send new-queue-join pushes", async () => {
+  const service = requireWithMocks("../src/services/pushNotificationService.js", {
+    "../repositories/pushSubscriptions": {
+      listActiveForTenant: async () => { throw new Error("Walk-in must not reach push delivery"); }
+    }
+  });
+  assert.deepEqual(await service.notifyVendorQueueJoin({ tenant: { _id: "1" }, ticket: { joinChannel: "vendor" } }), { attempted: 0, sent: 0 });
+});

@@ -113,3 +113,18 @@ test("only a private trust rating participant can appeal it within 30 days", asy
   await service.disputeRating({ user: { _id: "8" }, body: { ratingType: "user_trust", ratingId: "3", reason: "Incorrect" } });
   assert.equal(created[0].reporterUserId, "8");
 });
+
+test("reviews enforce the 500 character limit on creation and revision", async () => {
+  const service = load({
+    "../repositories/bookings": {}, "../repositories/organizerCampaigns": {},
+    "../repositories/tickets": { findTicketByLookupCode: async () => ({ _id: '1', tenantId: '2', userId: '7', status: 'served' }) },
+    "../repositories/ratings": { createVendorReview: async data => data, reviseVendorReview: async data => data },
+    "./contentModeration": { assertPublicTextFieldsAllowed: () => {} }
+  });
+  for (const length of [0, 500]) {
+    const review = await service.rateQueueTicket({ user: { _id: '7' }, lookupCode: 'TICKET', body: { stars: 4, comment: 'x'.repeat(length) } });
+    assert.equal(review.comment.length, length);
+  }
+  await assert.rejects(() => service.rateQueueTicket({ user: { _id: '7' }, lookupCode: 'TICKET', body: { stars: 4, comment: 'x'.repeat(501) } }), { statusCode: 400 });
+  await assert.rejects(() => service.reviseVendorReview({ user: { _id: '7' }, reviewId: '1', body: { stars: 4, comment: 'x'.repeat(501) } }), { statusCode: 400 });
+});

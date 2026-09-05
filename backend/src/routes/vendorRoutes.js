@@ -755,11 +755,30 @@ router.post(
   })
 );
 
+router.get("/tenant/:tenantSlug/ratings", asyncHandler(async (req, res) => {
+  const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+  assertTenantPermission(req.user, tenant._id, "tenant.settings.manage");
+  await billingService.assertPaidReviewAccess(tenant._id);
+  const { parsePaginationParams } = require("../utils/pagination");
+  const { page, pageSize, offset } = parsePaginationParams(req.query);
+  const rows = await ratingRepository.listVendorReviews(tenant._id, pageSize + 1, offset);
+  res.json({ reviews: rows.slice(0, pageSize), page, hasMore: rows.length > pageSize });
+}));
+router.patch("/tenant/:tenantSlug/ratings/:reviewId", asyncHandler(async (req, res) => {
+  const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+  assertTenantPermission(req.user, tenant._id, "tenant.settings.manage");
+  await billingService.assertPaidReviewAccess(tenant._id);
+  if (typeof req.body?.visible !== "boolean" || !/^[1-9]\d*$/.test(req.params.reviewId)) return res.status(400).json({ message: "Choose a review and visibility." });
+  const review = await ratingRepository.setReviewVisibility(tenant._id, req.params.reviewId, req.body.visible);
+  if (!review) return res.status(404).json({ message: "Review not found." });
+  res.json({ review });
+}));
 router.post(
   "/tenant/:tenantSlug/vendor-reviews/:reviewId/reply",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantPermission(req.user, tenant._id, "tenant.booking.manage");
+    assertTenantPermission(req.user, tenant._id, "tenant.settings.manage");
+    await billingService.assertPaidReviewAccess(tenant._id);
     res.json({ rating: await ratingService.replyToVendorReview({ user: req.user, tenant, reviewId: req.params.reviewId, body: req.body || {} }) });
   })
 );

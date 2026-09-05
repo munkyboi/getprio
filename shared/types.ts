@@ -210,6 +210,7 @@ export interface TenantSummary {
   publicProfileDisplayName?: string;
   publicProfileDescription?: string;
   publicProfileCategory: string;
+  businessCategoryId?: string | null;
   joinUrl: string;
   monitorUrl: string;
   isActive: boolean;
@@ -1501,6 +1502,7 @@ export interface RegisterCustomerRequest {
 }
 
 export interface RegisterVendorRequest {
+  categoryId?: string;
   tenantName: string;
   tenantSlug: string;
   category: string;
@@ -1512,6 +1514,7 @@ export interface RegisterVendorRequest {
 }
 
 export interface CompleteVendorOnboardingRequest {
+  categoryId?: string;
   tenantName: string;
   tenantSlug: string;
   category?: string;
@@ -1692,6 +1695,7 @@ export interface UpdateTenantSettingsRequest {
   publicProfileDisplayName?: string;
   publicProfileDescription?: string;
   publicProfileCategory: string;
+  businessCategoryId?: string | null;
   queuePrefix: string;
   averageServiceMinutes: number | string;
   notificationThreshold: number | string;

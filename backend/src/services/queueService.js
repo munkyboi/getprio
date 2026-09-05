@@ -352,7 +352,7 @@ async function createTicket({
     location: resolvedLocation
   });
 
-  if (tenant.notificationSettings?.queueJoin !== false) {
+  if (joinChannel !== "vendor" && tenant.notificationSettings?.queueJoin !== false) {
     pushNotificationService.notifyVendorQueueJoin({ tenant, ticket }).catch((error) => {
       console.warn("[web-push-queue-join-skipped]", error.message);
     });

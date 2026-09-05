@@ -1,3 +1,4 @@
+import { Link, useNavigate } from "react-router-dom";
 import { useEffect, useRef, useState } from "react";
 import { Alert, Button, Group, Paper, Select, SimpleGrid, Stack, Switch, Text, TextInput } from "@mantine/core";
 import { apiRequest, ApiError } from "../api";
@@ -10,6 +11,7 @@ type Filters = Record<string, string>;
 export function ManagedRecordsPage({ token, kind, columns, emptyLabel }: {
   token: string; kind: "tenants" | "users" | "audit"; columns: PortalTableColumn<Row>[]; emptyLabel: string;
 }) {
+  const navigate = useNavigate();
   const [filters, setFilters] = useState<Filters>({});
   const [query, setQuery] = useState<Filters>({});
   const [page, setPage] = useState(1);
@@ -100,12 +102,12 @@ export function ManagedRecordsPage({ token, kind, columns, emptyLabel }: {
     </Paper>
     {error && <Alert color="red" title="Could not update records">{error} Use Refresh to retry.</Alert>}
     <Text size="sm" c="dimmed" role="status">{loading || changing ? "Updating records…" : updated ? `Updated ${updated}` : "Loading records…"}{audit && page > 1 ? " · Auto-refresh paused while viewing older events." : ""}</Text>
-    <PortalDataTable key={`${page}-${limit}-${JSON.stringify(query)}`} rows={currentData?.items || []} columns={audit ? [...columns, { key: "details", label: "Details", render: (row) => <Button variant="subtle" mih={44} onClick={() => setDetail(row)}>View event</Button> }] : columns} emptyLabel={loading || changing ? "Loading records…" : error ? "Records unavailable." : emptyLabel} virtualized={audit} />
+    <PortalDataTable key={`${page}-${limit}-${JSON.stringify(query)}`} rows={currentData?.items || []} onRowClick={kind === "tenants" ? (row) => navigate(`/tenants/${encodeURIComponent(String(row.id))}/entitlements`) : undefined} columns={kind === "tenants" ? columns.map((column) => column.key === "name" ? { ...column, render: (row) => <Text component={Link} to={`/tenants/${encodeURIComponent(String(row.id))}/entitlements`} className="tenant-record-link">{String(row.name)}</Text> } : column) : audit ? [...columns, { key: "details", label: "Details", render: (row) => <Button variant="subtle" mih={44} onClick={() => setDetail(row)}>View event</Button> }] : columns} emptyLabel={loading || changing ? "Loading records…" : error ? "Records unavailable." : emptyLabel} virtualized={audit} />
     {detail && <Paper ref={detailRef} tabIndex={-1} className="portal-card" p="md" role="region" aria-label="Event details"><Group justify="space-between"><Text fw={700}>Event {String(detail.id)}</Text><Button variant="subtle" mih={44} onClick={() => setDetail(null)}>Close details</Button></Group>{Object.entries(detail).map(([key, value]) => <Text key={key} style={{ overflowWrap: "anywhere" }}><strong>{key.replaceAll("_", " ")}: </strong>{String(value ?? "—")}</Text>)}</Paper>}
     <Group justify="space-between" className="records-pagination">
       <Select label="Rows per page" value={limit} data={["25", "50", "100"]} onChange={(value) => { setLimit(value || "25"); setPage(1); snapshot.current = undefined; }} allowDeselect={false} />
       <Group><Button mih={44} variant="default" disabled={page === 1 || loading || changing} onClick={() => setPage((value) => value - 1)}>Previous</Button><Text>Page {page}</Text><Button mih={44} variant="default" disabled={!currentData?.pagination.hasNext || loading || changing || !!error} onClick={() => setPage((value) => value + 1)}>Next</Button></Group>
     </Group>
-    <Text size="xs" c="dimmed">Scroll the table horizontally to view all columns.{kind === "tenants" ? " User ID identifies the first active owner account." : ""}</Text>
+    <Text size="xs" c="dimmed">Scroll the table horizontally to view all columns.{kind === "tenants" ? " Select a tenant row to manage its entitlements. User ID identifies the first active owner account." : ""}</Text>
   </Stack>;
 }
