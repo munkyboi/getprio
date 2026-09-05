@@ -2645,6 +2645,7 @@ test("vendor queue confirms called tickets through a barcode scan", () => {
   assert.match(dashboard, /<TicketScannerModal/);
   assert.match(dashboard, />\s*Confirm ticket\s*<\/Button>/);
   assert.match(dashboard, /activeTicket\?\.customerConfirmedAt \? \(/);
+  assert.match(dashboard, /activeTicket && \(activeTicket\.customerConfirmedAt \|\| activeTicket\.joinChannel === "vendor"\) \? \(/);
   assert.match(dashboard, />\s*Serve customer\s*<\/Button>/);
   assert.doesNotMatch(dashboard, />\s*Serve current\s*<\/Button>/);
   assert.match(scanner, /BrowserMultiFormatReader/);

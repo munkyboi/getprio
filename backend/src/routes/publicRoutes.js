@@ -557,6 +557,11 @@ function buildJoinPayload(req, tenant, location) {
     joinChannel
   } = req.body;
   const normalizedJoinChannel = joinChannel || (req.user ? "online" : "qr");
+  if (!["online", "qr"].includes(normalizedJoinChannel)) {
+    const error = new Error("Choose an online or QR join channel.");
+    error.statusCode = 400;
+    throw error;
+  }
   const payload = {
     userId: req.user?._id,
     customerName: customerName || req.user?.name,

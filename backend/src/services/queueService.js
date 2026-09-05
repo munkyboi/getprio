@@ -598,7 +598,7 @@ async function updateCurrentTicketStatus(tenant, status, options = {}) {
       return null;
     }
 
-    if (status === "served" && !currentTicket.customerConfirmedAt) {
+    if (status === "served" && !currentTicket.customerConfirmedAt && currentTicket.joinChannel !== "vendor") {
       const error = new Error("Confirm the called ticket before serving this customer.");
       error.statusCode = 409;
       throw error;

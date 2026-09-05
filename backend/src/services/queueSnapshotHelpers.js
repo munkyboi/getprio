@@ -273,6 +273,7 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
           customerName: current.customerName,
           customerDisplayName: current.customerDisplayName || null,
           calledAt: current.calledAt,
+          joinChannel: current.joinChannel,
           customerConfirmedAt: current.customerConfirmedAt || null,
           servicePriorityBand: current.servicePriorityBand || "normal",
           linkedBookingReference: current.linkedBookingReference || null
