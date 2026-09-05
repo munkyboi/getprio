@@ -26,6 +26,9 @@ jobs:
 
     env:
       ALLOWANCE_TEST_DATABASE_URL: postgresql://getprio_test:getprio_test@127.0.0.1:5432/getprio_test
+      BUSINESS_CATEGORY_TEST_CONTAINER: ${{ job.services.postgres.id }}
+      FAVORITES_REVIEW_TEST_CONTAINER: ${{ job.services.postgres.id }}
+      PLATFORM_RECORDS_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
 
     steps:
       - name: Checkout

@@ -2629,9 +2629,9 @@ test("vendor navigation combines tenant role RBAC with effective plan entitlemen
 
   assert.match(
     dashboard,
-    /roleVisibleNavItems\.filter\(\(item\) =>\s*canAccessVendorSection\(item\.section, effectiveEntitlements\)\s*\)/
+    /roleVisibleNavItems\.filter\(\(item\) =>\s*canAccessVendorSection\(item\.section, effectiveEntitlements, tenantPlan\)\s*\)/
   );
-  assert.match(dashboard, /!canAccessVendorSection\(currentSection, effectiveEntitlements\)/);
+  assert.match(dashboard, /!canAccessVendorSection\(currentSection, effectiveEntitlements, tenantPlan\)/);
   assert.match(dashboard, /canAccessVendorSection\("services", effectiveEntitlements\)/);
   assert.match(dashboard, /canAccessVendorSection\("bookings", effectiveEntitlements\)/);
 });
@@ -2688,7 +2688,7 @@ test("registered customers can rate a served queue visit from the ticket page", 
   assert.match(source, /className="customer-modal-actions queue-rating-modal-actions"/);
   assert.match(source, /<FiveStarRatingInput/);
   assert.match(source, /label="Optional public comment"/);
-  assert.match(source, /maxLength=\{1000\}/);
+  assert.match(source, /maxLength=\{500\}/);
   assert.match(source, />\s*Rating submitted\s*</);
 });
 
