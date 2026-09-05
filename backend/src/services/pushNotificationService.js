@@ -454,6 +454,8 @@ function getQueueUpdateBody(tenant, ticket, action) {
   const ticketNumber = ticket.ticketNumber || "your queue ticket";
 
   switch (action) {
+    case "joined":
+      return `You joined the queue at ${tenantName}. Your ticket number is ${ticketNumber}.`;
     case "confirmed":
       return `${tenantName} confirmed your arrival for ${ticketNumber}.`;
     case "called":
@@ -496,7 +498,7 @@ async function notifyCustomerQueueUpdate({ tenant, ticket, action }) {
 
   return sendUserNotification({
     userId: ticket.userId,
-    title: "Queue update",
+    title: action === "joined" ? "Joined queue" : "Queue update",
     body: getQueueUpdateBody(tenant, ticket, action),
     url: ticket.lookupCode
       ? `/ticket/${tenant.slug}?ticket=${encodeURIComponent(ticket.lookupCode)}`

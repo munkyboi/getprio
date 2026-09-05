@@ -322,6 +322,16 @@ test("push service sends customer queue notifications with ticket links", async 
 
   assert.equal(notifications[1].body, "Demo Tenant confirmed your arrival for D001.");
   assert.equal(notifications[1].eventType, "customer_queue_confirmed");
+
+  await service.notifyCustomerQueueUpdate({
+    tenant: { slug: "demo", name: "Demo Tenant" },
+    ticket: { _id: "ticket-1", userId: "user-1", ticketNumber: "D001", lookupCode: "ABC12345" },
+    action: "joined"
+  });
+  assert.equal(notifications[2].title, "Joined queue");
+  assert.equal(notifications[2].body, "You joined the queue at Demo Tenant. Your ticket number is D001.");
+  assert.equal(notifications[2].eventType, "customer_queue_joined");
+  assert.equal(notifications[2].url, "/ticket/demo?ticket=ABC12345");
 });
 
 test("queue lifecycle push targets the affected location and explains terminal expiration", async () => {
