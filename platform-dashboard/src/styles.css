@@ -547,3 +547,14 @@ body {
     padding-bottom: calc(env(safe-area-inset-bottom) + 1rem);
   }
 }
+
+.portal-data-table--virtual { table-layout: fixed; }
+.portal-data-table--virtual th { width: 180px; }
+.portal-data-table--virtual td { height: 56px; box-sizing: border-box; }
+.portal-data-table__cell-preview { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.records-pagination .mantine-Select-root { width: 100%; }
+@media (min-width: 48em) { .records-pagination .mantine-Select-root { width: 150px; } }
+.portal-data-table--virtual td { padding-top: 5px; padding-bottom: 5px; }
+
+.managed-records .mantine-Input-input { min-height: 44px; }
+.managed-records .mantine-Switch-body { min-height: 44px; align-items: center; }

@@ -1,3 +1,4 @@
+import { ManagedRecordsPage } from "./components/ManagedRecordsPage";
 import { StrictMode, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import {
   AppShell,
@@ -788,17 +789,17 @@ function PortalApp({
               <Route path="/queue-fees" element={<Navigate to="/plans" replace />} />
               <Route path="/plans" element={<PlanMatrixPage token={token} />} />
               <Route path="/settings" element={<SettingsPage token={token} user={user} />} />
-              <Route path="/tenants" element={<RecordsPage token={token} endpoint="/platform/tenants" emptyLabel="No tenants." columns={[
-                { key: "name", label: "Tenant" }, { key: "username", label: "Username" }, { key: "slug", label: "Slug" }, { key: "planSlug", label: "Plan" }, { key: "ticketCount", label: "Tickets" }, { key: "createdAt", label: "Created", render: (row) => formatDate(row.createdAt) }
+              <Route path="/tenants" element={<ManagedRecordsPage key="tenants" token={token} kind="tenants" emptyLabel="No tenants." columns={[
+                { key: "userId", label: "User ID" }, { key: "name", label: "Tenant" }, { key: "username", label: "Username" }, { key: "slug", label: "Slug" }, { key: "planSlug", label: "Plan" }, { key: "ticketCount", label: "Tickets" }, { key: "createdAt", label: "Created", render: (row) => formatDate(row.createdAt) }
               ]} />} />
               <Route path="/subscriptions" element={<SubscriptionsPage token={token} />} />
-              <Route path="/users" element={<RecordsPage token={token} endpoint="/platform/users" emptyLabel="No users." columns={[
-                { key: "name", label: "Name" }, { key: "username", label: "Username" }, { key: "email", label: "Email" }, { key: "roles", label: "Roles", render: (row) => (row.roles as string[] || []).join(", ") }, { key: "createdAt", label: "Created", render: (row) => formatDate(row.createdAt) }
+              <Route path="/users" element={<ManagedRecordsPage key="users" token={token} kind="users" emptyLabel="No users." columns={[
+                { key: "id", label: "User ID" }, { key: "name", label: "Name" }, { key: "username", label: "Username" }, { key: "email", label: "Email" }, { key: "roles", label: "Roles", render: (row) => (row.roles as string[] || []).join(", ") }, { key: "createdAt", label: "Created", render: (row) => formatDate(row.createdAt) }
               ]} />} />
               <Route path="/billing-events" element={<RecordsPage token={token} endpoint="/platform/billing-events" emptyLabel="No billing events." columns={[
                 { key: "eventType", label: "Event" }, { key: "provider", label: "Provider" }, { key: "tenantName", label: "Tenant" }, { key: "processedAt", label: "Processed", render: (row) => formatDate(row.processedAt) }
               ]} />} />
-              <Route path="/security-audit" element={<RecordsPage token={token} endpoint="/platform/security-audit-events" emptyLabel="No security audit events." columns={[
+              <Route path="/security-audit" element={<ManagedRecordsPage key="audit" token={token} kind="audit" emptyLabel="No security audit events." columns={[
                 { key: "occurred_at", label: "Occurred", render: (row) => formatDate(row.occurred_at) },
                 { key: "action_key", label: "Action" },
                 { key: "outcome", label: "Outcome", render: (row) => <StatusBadge value={row.outcome} /> },

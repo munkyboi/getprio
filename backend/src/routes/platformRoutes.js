@@ -2,6 +2,7 @@ const express = require("express");
 const asyncHandler = require("../middleware/asyncHandler");
 const { authenticate, requirePlatformPermission } = require("../middleware/auth");
 const platformRepository = require("../repositories/platform");
+const platformRecords = require("../repositories/platformRecords");
 const queueJoinPaymentRepository = require("../repositories/queueJoinPayments");
 const tenantRepository = require("../repositories/tenants");
 const billingRepository = require("../repositories/billing");
@@ -146,9 +147,10 @@ router.get("/tenants/:tenantId/entitlement-overrides", requirePlatformPermission
 }));
 
 router.get("/security-audit-events", requirePlatformPermission("platform.security_audit.read"), asyncHandler(async (req,res) => {
-  const items = await securityAuditRepository.listEvents({ limit: req.query.limit, tenantId: req.query.tenantId });
+  const result = req.query.page !== undefined ? await platformRecords.listRecords("audit", req.query) : null;
+  const items = result ? result.items : await securityAuditRepository.listEvents({ limit: req.query.limit, tenantId: req.query.tenantId });
   await securityAuditService.record({ actorId:req.user._id, actorRole:"platform_admin", sessionId:req.auth.sessionId, action:"security.audit.read", resourceType:"security_audit", resourceId:req.query.tenantId || "platform", reason:"Platform audit review", outcome:"success", metadata:{returned:items.length} });
-  res.json({ items });
+  res.json(result || { items });
 }));
 
 router.post(
@@ -565,7 +567,7 @@ router.get(
   "/tenants",
   requirePlatformPermission("platform.tenants.read"),
   asyncHandler(async (req, res) => {
-    res.json({
+    res.json(req.query.page !== undefined ? await platformRecords.listRecords("tenants", req.query) : {
       items: await platformRepository.listTenants({ limit: req.query.limit })
     });
   })
@@ -670,7 +672,7 @@ router.get(
   "/users",
   requirePlatformPermission("platform.users.read"),
   asyncHandler(async (req, res) => {
-    res.json({
+    res.json(req.query.page !== undefined ? await platformRecords.listRecords("users", req.query) : {
       items: await platformRepository.listUsers({ limit: req.query.limit })
     });
   })
