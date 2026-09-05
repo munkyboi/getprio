@@ -1,3 +1,4 @@
+const businessCategories = require("../repositories/businessCategories");
 const express = require("express");
 const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
 const tenantRepository = require("../repositories/tenants");
@@ -33,6 +34,7 @@ const { normalizePhilippineMobileNumber } = require("../utils/phone");
 const entitlementAdmissionService = require("../services/entitlementAdmissionService");
 
 const router = express.Router();
+router.get("/business-categories", asyncHandler(async (_req, res) => res.json({ items: await businessCategories.list() })));
 const enterpriseInquiryLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 5,
@@ -86,8 +88,11 @@ router.get(
   asyncHandler(async (req, res) => {
     const tenant = await tenantRepository.findTenantBySlug(req.params.tenantSlug, { activeOnly: true });
     if (!tenant) { const error = new Error("Vendor not found."); error.statusCode = 404; throw error; }
-    const [rating, reviews] = await Promise.all([ratingRepository.getVendorAggregate(tenant._id), ratingRepository.listPublicVendorReviews(tenant._id)]);
-    res.json({ rating, reviews });
+    if (!tenant.publicProfileEnabled || tenant.vendorApprovalStatus !== 'approved') return res.status(404).json({ message: "Vendor not found." });
+    const { parsePaginationParams, formatPaginationMetadata } = require("../utils/pagination");
+    const { page, pageSize, offset } = parsePaginationParams(req.query);
+    const [rating, reviews, total] = await Promise.all([ratingRepository.getVendorAggregate(tenant._id), ratingRepository.listPublicVendorReviews(tenant._id, pageSize, offset), ratingRepository.countPublicVendorReviews(tenant._id)]);
+    res.json({ rating, reviews, pagination: formatPaginationMetadata(total, page, pageSize) });
   })
 );
 router.all(/^\/group-funded-campaigns(?:\/|$)/, (_req, res) => {

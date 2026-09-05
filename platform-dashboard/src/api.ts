@@ -49,6 +49,7 @@ export async function apiRequest<TResponse, TBody = unknown>(
     body?: TBody;
     token?: string;
     headers?: Record<string, string>;
+    signal?: AbortSignal;
   } = {}
 ): Promise<TResponse> {
   const unsafe = !["GET", "HEAD", "OPTIONS"].includes((options.method || "GET").toUpperCase());
@@ -56,6 +57,7 @@ export async function apiRequest<TResponse, TBody = unknown>(
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: options.method || "GET",
     credentials: "include",
+    signal: options.signal,
     headers: {
       "Content-Type": "application/json",
       ...(unsafe && readCsrfToken()

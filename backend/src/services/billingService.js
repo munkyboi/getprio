@@ -152,6 +152,16 @@ async function getTenantPlanSummary(tenantId) {
   };
 }
 
+async function assertPaidReviewAccess(tenantId) {
+  const plan = await getTenantPlanSummary(tenantId);
+  if (plan.subscriptionStatus !== "active" || !plan.planSlug || plan.planSlug === "free") {
+    const error = new Error("Review controls require an active paid plan.");
+    error.statusCode = 403;
+    error.code = "PAID_PLAN_REQUIRED";
+    throw error;
+  }
+}
+
 async function createPayMongoCheckout({
   tenant,
   user,
@@ -647,6 +657,7 @@ async function handlePayMongoWebhook(rawBody, signatureHeader) {
 }
 
 module.exports = {
+  assertPaidReviewAccess,
   getBillingOverview,
   getTenantEntitlements,
   getTenantPlanSummary,

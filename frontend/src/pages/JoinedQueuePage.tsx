@@ -854,7 +854,7 @@ export default function JoinedQueuePage() {
                 <Textarea
                   autosize
                   label="Optional public comment"
-                  maxLength={1000}
+                  maxLength={500}
                   minRows={3}
                   onChange={(event) => setQueueRatingComment(event.currentTarget.value)}
                   value={queueRatingComment}

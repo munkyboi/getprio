@@ -56,6 +56,10 @@ jobs:
         run: npm run test:frontend:coverage
 
       - name: Backend coverage
+        env:
+          BUSINESS_CATEGORY_TEST_CONTAINER: ${{ job.services.postgres.id }}
+          FAVORITES_REVIEW_TEST_CONTAINER: ${{ job.services.postgres.id }}
+          PLATFORM_RECORDS_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
         run: npm run test:backend:coverage
 
       - name: Build frontend and platform dashboard

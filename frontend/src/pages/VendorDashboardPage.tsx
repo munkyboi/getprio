@@ -1,9 +1,9 @@
+import { VendorRatingsPanel } from "../components/VendorRatingsPanel";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert,
   ActionIcon,
-  Autocomplete,
   Badge,
   Burger,
   Button,
@@ -119,7 +119,7 @@ import type {
   GroupFundedRefundStatus
 } from "@shared";
 import { DEFAULT_TIMEZONE, getTimeZoneOptions } from "../../../shared/timezones";
-import { BUSINESS_CATEGORIES } from "../constants/businessCategories";
+import { BusinessCategorySelect } from "../components/BusinessCategorySelect";
 import { API_BASE_URL } from "../api/client";
 import PhilippineMobileInput from "../components/PhilippineMobileInput";
 import FiveStarRatingInput from "../components/FiveStarRatingInput";
@@ -177,7 +177,7 @@ type RawGroupFundedBundleItem = GroupFundedBundleItemSummary & {
   serviceSlugSnapshot?: string;
 };
 
-const dashboardSections = new Set(["queue", "tenants", "services", "bookings", "staff", "clients", "history", "reports", "settings", "account"]);
+const dashboardSections = new Set(["queue", "tenants", "services", "bookings", "staff", "clients", "history", "reports", "ratings", "settings", "account"]);
 const SERVICE_TREND_USER_LIMIT = 30;
 const timeZoneOptions = getTimeZoneOptions();
 
@@ -333,6 +333,7 @@ const defaultSettings: UpdateTenantSettingsRequest = {
   publicProfileDisplayName: "",
   publicProfileDescription: "",
   publicProfileCategory: "",
+  businessCategoryId: null as string | null,
   queuePrefix: "P",
   averageServiceMinutes: 5,
   notificationThreshold: 2,
@@ -757,7 +758,7 @@ const presetBackgroundImageUrls = new Set(
     .filter(Boolean)
 );
 
-type DashboardSection = "queue" | "tenants" | "services" | "bookings" | "group-funded" | "staff" | "clients" | "history" | "reports" | "settings" | "account";
+type DashboardSection = "queue" | "tenants" | "services" | "bookings" | "group-funded" | "staff" | "clients" | "history" | "reports" | "ratings" | "settings" | "account";
 type AccountTab = "subscription" | "billing" | "profile" | "security";
 type SettingsTab = "contact" | "queue" | "notifications";
 type QueueView = "current" | "overflow" | "recovery";
@@ -787,6 +788,7 @@ const navItems = [
   { section: "staff", label: "Staff", icon: IconUsersGroup },
   { section: "clients", label: "Clients", icon: IconUsersGroup },
   { section: "history", label: "History", icon: IconHistory },
+  { section: "ratings", label: "Ratings", icon: IconChartBar },
   { section: "reports", label: "Reports", icon: IconChartBar },
   { section: "settings", label: "Settings", icon: IconSettings },
   { section: "account", label: "Account", icon: IconUserCircle }
@@ -812,6 +814,7 @@ const adminAllowedSections = new Set<DashboardSection>([
   "clients",
   "history",
   "reports",
+  "ratings",
   "settings",
   "account"
 ]);
@@ -1420,7 +1423,7 @@ export default function VendorDashboardPage() {
         ? navItems.filter((item) => adminAllowedSections.has(item.section))
         : navItems.filter((item) => staffAllowedSections.has(item.section));
   const visibleNavItems = roleVisibleNavItems.filter((item) =>
-    canAccessVendorSection(item.section, effectiveEntitlements)
+    canAccessVendorSection(item.section, effectiveEntitlements, tenantPlan)
   );
   const defaultDashboardPath = `/dashboard/${visibleNavItems[0]?.section || "settings"}`;
   const queueLifecycleSnapshotQuery = useQuery({
@@ -1760,6 +1763,7 @@ export default function VendorDashboardPage() {
       publicProfileDisplayName: snapshotResponse.tenant.publicProfileDisplayName || "",
       publicProfileDescription: snapshotResponse.tenant.publicProfileDescription || "",
       publicProfileCategory: snapshotResponse.tenant.publicProfileCategory || "",
+      businessCategoryId: snapshotResponse.tenant.businessCategoryId || null,
       queuePrefix: snapshotResponse.tenant.queuePrefix,
       averageServiceMinutes: snapshotResponse.tenant.averageServiceMinutes,
       notificationThreshold: snapshotResponse.tenant.notificationThreshold,
@@ -2690,6 +2694,7 @@ export default function VendorDashboardPage() {
         .filter(
           (ticket) =>
             ticket.status === "waiting" &&
+            ticket.joinChannel !== "vendor" &&
             !previousIds.has(ticket.id) &&
             !dismissedIds.has(ticket.id)
         )
@@ -5797,6 +5802,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 autoFocus
                 disabled={intakeUnavailable}
                 label="Customer name"
+                data-autofocus
                 name="walkInCustomerName"
                 onChange={(event) =>
                   setWalkInForm((current) => ({ ...current, customerName: event.target.value }))
@@ -9869,6 +9875,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       <Stack gap="md">
         <Card className="neura-card" padding="lg">
           <Tabs
+            className="vendor-account-tabs"
             keepMounted={false}
             value={accountTab}
             onChange={(value) => {
@@ -10116,16 +10123,11 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       setSettings((current) => ({ ...current, name: event.target.value }))
                     }
                   />
-                  <Autocomplete
-                    label="Business category"
-                    description="Search and select the category that best describes your business."
-                    data={[...BUSINESS_CATEGORIES]}
+                  <BusinessCategorySelect
                     disabled={!canManageContactSettings}
-                    placeholder="e.g. Sports and recreation"
-                    value={settings.publicProfileCategory}
-                    onChange={(value) =>
-                      setSettings((current) => ({ ...current, publicProfileCategory: value }))
-                    }
+                    value={settings.businessCategoryId || null}
+                    currentLabel={settings.publicProfileCategory}
+                    onChange={(id, name) => setSettings((current) => ({ ...current, businessCategoryId: id, publicProfileCategory: name }))}
                   />
                   <TextInput
                     label="Business display name"
@@ -11185,6 +11187,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       return renderReportsPage();
     }
 
+    if (currentSection === "ratings") {
+      return <VendorRatingsPanel key={selectedTenantSlug} token={token!} tenantSlug={selectedTenantSlug} />;
+    }
+
     if (currentSection === "account") {
       return renderAccountPage();
     }
@@ -11204,9 +11210,15 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     return <Navigate to="/dashboard/account" replace />;
   }
 
+  if (currentSection === "ratings" && !canAccessVendorSection("ratings", effectiveEntitlements, tenantPlan)) {
+    return effectiveEntitlementsQuery.isPending
+      ? <Card className="neura-card">Loading plan access...</Card>
+      : <Navigate to={defaultDashboardPath} replace />;
+  }
+
   if (
     !effectiveEntitlementsQuery.isPending &&
-    !canAccessVendorSection(currentSection, effectiveEntitlements)
+    !canAccessVendorSection(currentSection, effectiveEntitlements, tenantPlan)
   ) {
     return <Navigate to={defaultDashboardPath} replace />;
   }

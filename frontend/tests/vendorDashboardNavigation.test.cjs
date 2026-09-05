@@ -41,3 +41,11 @@ test("paid module visibility follows effective entitlements rather than plan nam
   assert.equal(canAccessVendorSection("account", null), true);
   assert.equal(canAccessVendorSection("services", null), false);
 });
+
+test("Ratings controls require an active paid plan, including direct navigation", () => {
+  const entitlements = { analytics: true, serviceBookingAccess: true };
+  for (const plan of [null, {}, { planSlug: 'free', subscriptionStatus: 'active' }, { planSlug: 'economical', subscriptionStatus: 'cancelled' }, { planSlug: 'economical', subscriptionStatus: 'past_due' }]) {
+    assert.equal(canAccessVendorSection('ratings', entitlements, plan), false);
+  }
+  assert.equal(canAccessVendorSection('ratings', {}, { planSlug: 'economical', subscriptionStatus: 'active' }), true);
+});

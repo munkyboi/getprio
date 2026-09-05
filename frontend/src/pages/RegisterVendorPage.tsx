@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
-import { Alert, Button, Paper, PasswordInput, Select, SimpleGrid, Stack, Text, TextInput, Title } from "@mantine/core";
+import { Alert, Button, Paper, PasswordInput, SimpleGrid, Stack, Text, TextInput, Title } from "@mantine/core";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import type {
   OAuthProviderId,
@@ -15,7 +15,7 @@ import SocialAuthButtons from "../components/SocialAuthButtons";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { getErrorMessage } from "../utils/errors";
-import { BUSINESS_CATEGORIES } from "../constants/businessCategories";
+import { BusinessCategorySelect } from "../components/BusinessCategorySelect";
 import {
   buildTenantSlugFromName,
   buildUsernameFromName,
@@ -65,7 +65,7 @@ export default function RegisterVendorPage() {
     defaultValues: {
       tenantName: "",
       tenantSlug: "",
-      category: "Health and Wellness",
+      category: "",
       name: "",
       username: "",
       email: "",
@@ -251,7 +251,8 @@ export default function RegisterVendorPage() {
       const payload = {
         tenantName: values.tenantName,
         tenantSlug: values.tenantSlug,
-        category: values.category,
+        category: "",
+        categoryId: values.category,
         name: values.name,
         username: values.username,
         email: values.email,
@@ -302,15 +303,9 @@ export default function RegisterVendorPage() {
                 error={form.formState.errors.tenantName?.message}
                 {...form.register("tenantName")}
               />
-              <Select
-                label={<SignupFieldLabel label="Business category" required tooltip="This helps customers understand your business and shapes your public profile theme." />}
-                required
-                withAsterisk={false}
-                data={BUSINESS_CATEGORIES}
+              <BusinessCategorySelect required value={category || null}
                 error={form.formState.errors.category?.message}
-                value={category}
-                onChange={(value) => form.setValue("category", value || "", { shouldValidate: true })}
-              />
+                onChange={(id) => form.setValue("category", id, { shouldValidate: true })} />
               <TextInput
                 description={checkingTenantSlug ? "Checking tenant slug..." : tenantSlugMessage}
                 error={form.formState.errors.tenantSlug?.message || (tenantSlug && tenantSlugMessage && !tenantSlugAvailable ? tenantSlugMessage : undefined)}

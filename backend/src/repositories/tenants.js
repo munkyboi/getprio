@@ -18,6 +18,7 @@ const TENANT_COLUMNS = `
   public_profile_display_name,
   public_profile_description,
   public_profile_category,
+  business_category_id,
   public_profile_image_url,
   vendor_approval_status,
   notification_settings,
@@ -48,6 +49,7 @@ function mapTenant(row) {
     publicProfileDisplayName: row.public_profile_display_name || "",
     publicProfileDescription: row.public_profile_description || "",
     publicProfileCategory: row.public_profile_category || "",
+    businessCategoryId: row.business_category_id ? String(row.business_category_id) : null,
     publicProfileImageUrl: row.public_profile_image_url || "",
     vendorApprovalStatus: row.vendor_approval_status || "approved",
     notificationSettings: row.notification_settings || {},
@@ -178,9 +180,10 @@ async function createTenant(data, options = {}) {
         public_profile_category,
         public_profile_image_url,
         vendor_approval_status,
-        is_active
+        is_active,
+        business_category_id
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
       RETURNING ${TENANT_COLUMNS}
     `,
     [
@@ -200,7 +203,8 @@ async function createTenant(data, options = {}) {
       data.publicProfileCategory || null,
       data.publicProfileImageUrl || null,
       data.vendorApprovalStatus || "approved",
-      data.isActive ?? true
+      data.isActive ?? true,
+      data.businessCategoryId || null
     ]
   );
 
@@ -243,6 +247,7 @@ async function updateTenant(tenantId, changes, options = {}) {
     publicProfileDisplayName: "public_profile_display_name",
     publicProfileDescription: "public_profile_description",
     publicProfileCategory: "public_profile_category",
+    businessCategoryId: "business_category_id",
     publicProfileImageUrl: "public_profile_image_url",
     vendorApprovalStatus: "vendor_approval_status",
     notificationSettings: "notification_settings",
@@ -288,6 +293,7 @@ async function listPublicVendorProfiles(options = {}) {
       AND (
         LOWER(tenants.name) LIKE $${values.length}
         OR LOWER(COALESCE(tenants.public_profile_category, '')) LIKE $${values.length}
+        OR EXISTS (SELECT 1 FROM business_category_aliases aliases WHERE aliases.category_id=tenants.business_category_id AND aliases.label_key LIKE $${values.length})
         OR LOWER(COALESCE(tenants.public_profile_description, '')) LIKE $${values.length}
         OR EXISTS (
           SELECT 1

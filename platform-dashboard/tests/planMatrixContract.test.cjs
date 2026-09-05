@@ -19,8 +19,8 @@ test("tenant records show the owner username between tenant name and slug", () =
   );
 });
 
-test("Option A Plan Matrix includes all settled controls and auditable credit administration", () => {
-  const source = fs.readFileSync(path.resolve(__dirname, "../src/pages/PlanMatrixPage.tsx"), "utf8");
+test("plan and tenant pages retain settled controls and auditable credit administration", () => {
+  const source = ["../src/pages/PlanMatrixPage.tsx", "../src/pages/TenantEntitlementsPage.tsx", "../src/pages/planControls.ts", "../src/main.tsx"].map((file) => fs.readFileSync(path.resolve(__dirname, file), "utf8")).join("\n");
   for (const feature of ["Queue system", "Public-facing branding", "Marketplace discovery", "Service booking", "Group-funded campaigns"]) assert.match(source, new RegExp(feature));
   for (const allowance of ["Queue Tickets / month", "Queue Email Journeys / month", "Service Bookings / month"]) assert.match(source, new RegExp(allowance));
   assert.match(source, /Vendor entitlement administration/);
@@ -33,8 +33,8 @@ test("Option A Plan Matrix includes all settled controls and auditable credit ad
   assert.doesNotMatch(source, /window\.prompt/);
 });
 
-test("Plan Matrix privileged tasks use canonical modal anatomy and expose allowance warnings", () => {
-  const source = fs.readFileSync(path.resolve(__dirname, "../src/pages/PlanMatrixPage.tsx"), "utf8");
+test("plan and tenant privileged tasks retain canonical modal anatomy and allowance warnings", () => {
+  const source = ["../src/pages/PlanMatrixPage.tsx", "../src/pages/TenantEntitlementsPage.tsx", "../src/components/CreditTaskModal.tsx"].map((file) => fs.readFileSync(path.resolve(__dirname, file), "utf8")).join("\n");
   assert.equal((source.match(/className="task-modal-form"/g) || []).length, 4);
   assert.equal((source.match(/className="task-modal-form__main"/g) || []).length, 4);
   assert.equal((source.match(/className="subscription-editor__footer"/g) || []).length, 4);
@@ -80,4 +80,17 @@ test("platform API retains the server-issued CSRF token for cross-subdomain requ
   assert.match(source, /sessionStorage\.getItem\(CSRF_STORAGE_KEY\)/);
   assert.match(source, /sessionStorage\.setItem\(CSRF_STORAGE_KEY, csrfToken\)/);
   assert.match(source, /rememberCsrfToken\(data\)/);
+});
+
+
+test("tenant entitlements have a direct route and are removed from the Plan Matrix", () => {
+  const main = fs.readFileSync(path.resolve(__dirname, "../src/main.tsx"), "utf8");
+  const plans = fs.readFileSync(path.resolve(__dirname, "../src/pages/PlanMatrixPage.tsx"), "utf8");
+  const tenant = fs.readFileSync(path.resolve(__dirname, "../src/pages/TenantEntitlementsPage.tsx"), "utf8");
+  assert.match(main, /path="\/tenants\/:tenantId\/entitlements"/);
+  assert.doesNotMatch(plans, /loadCapacity|Grant credits|Add override|Remove unused/);
+  assert.match(tenant, /useParams/);
+  assert.match(tenant, /key=\{tenantId\}/);
+  assert.doesNotMatch(tenant, /label="Vendor"|platform\/tenants\?limit/);
+  assert.match(tenant, /Back to Tenants/);
 });

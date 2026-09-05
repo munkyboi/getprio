@@ -43,6 +43,16 @@ const avatarUploadLimiter = rateLimit({
 
 router.use(authenticate);
 router.use(moderatePublicText);
+const favorites = require("../repositories/favorites");
+router.get("/favorites", asyncHandler(async (req, res) => res.json({ vendors: await favorites.list(req.user._id) })));
+router.put("/favorites/:tenantSlug", asyncHandler(async (req, res) => {
+  if (!await favorites.add(req.user._id, req.params.tenantSlug)) return res.status(404).json({ message: "Vendor not found." });
+  res.json({ favorite: true });
+}));
+router.delete("/favorites/:tenantSlug", asyncHandler(async (req, res) => {
+  await favorites.remove(req.user._id, req.params.tenantSlug);
+  res.json({ favorite: false });
+}));
 
 const emailChangeLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,

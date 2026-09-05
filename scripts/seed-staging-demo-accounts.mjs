@@ -31,7 +31,7 @@ const vendors = [
     email: "vendor1@getprio.test",
     tenantName: "PrioCare Doctor Clinic",
     tenantSlug: "vendor1-doctor",
-    category: "Doctor",
+    category: "Health and Wellness",
     queuePrefix: "DR"
   },
   {
@@ -40,7 +40,7 @@ const vendors = [
     email: "vendor2@getprio.test",
     tenantName: "PrioCut Barber Salon",
     tenantSlug: "vendor2-barber-salon",
-    category: "Barber Salon",
+    category: "Health and Wellness",
     queuePrefix: "BS"
   },
   {
@@ -49,7 +49,7 @@ const vendors = [
     email: "vendor3@getprio.test",
     tenantName: "PrioPlay Pickleball Court",
     tenantSlug: "vendor3-pickleball-court",
-    category: "Pickleball Court",
+    category: "Sports and Recreation",
     queuePrefix: "PC"
   }
 ];

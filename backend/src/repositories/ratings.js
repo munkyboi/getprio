@@ -40,15 +40,33 @@ async function getVendorAggregate(tenantId) {
   return rows[0];
 }
 
-async function listPublicVendorReviews(tenantId, limit = 20) {
+function maskCustomerName(name) {
+  const parts = String(name || "Customer").trim().split(/\s+/);
+  if (parts.length < 2) return parts[0] || "Customer";
+  const last = [...parts[parts.length - 1]];
+  return `${parts[0]} ${last[0]}***${last.length > 1 ? last[last.length - 1] : ""}`;
+}
+async function listPublicVendorReviews(tenantId, limit = 20, offset = 0) {
   const { rows } = await db.pool.query(
     `SELECT reviews.id, reviews.stars, reviews.comment, reviews.vendor_reply, reviews.created_at,
       COALESCE(NULLIF(users.display_name, ''), users.name) AS customer_display_name
      FROM vendor_reviews reviews JOIN users ON users.id = reviews.customer_user_id
-     WHERE reviews.tenant_id = $1 AND reviews.moderation_status = 'active'
-     ORDER BY reviews.created_at DESC LIMIT $2`, [Number(tenantId), Number(limit)]
+     WHERE reviews.tenant_id = $1 AND reviews.moderation_status = 'active' AND reviews.public_visible = TRUE
+     ORDER BY reviews.created_at DESC, reviews.id DESC LIMIT $2 OFFSET $3`, [Number(tenantId), Number(limit), Number(offset)]
   );
+  return rows.map(row => ({ ...row, customer_display_name: maskCustomerName(row.customer_display_name) }));
+}
+async function countPublicVendorReviews(tenantId) {
+  const { rows } = await db.pool.query("SELECT count(*)::int AS count FROM vendor_reviews WHERE tenant_id = $1 AND moderation_status = 'active' AND public_visible = TRUE", [Number(tenantId)]);
+  return rows[0].count;
+}
+async function listVendorReviews(tenantId, limit, offset) {
+  const { rows } = await db.pool.query(`SELECT id, stars, comment, created_at, moderation_status, public_visible FROM vendor_reviews WHERE tenant_id = $1 ORDER BY created_at DESC, id DESC LIMIT $2 OFFSET $3`, [Number(tenantId), limit, offset]);
   return rows;
+}
+async function setReviewVisibility(tenantId, reviewId, visible) {
+  const { rows } = await db.pool.query(`UPDATE vendor_reviews SET public_visible = $3 WHERE tenant_id = $1 AND id = $2 RETURNING id, public_visible`, [Number(tenantId), Number(reviewId), visible]);
+  return rows[0] || null;
 }
 
 async function getUserTrustAggregate(subjectUserId) {
@@ -127,4 +145,4 @@ async function createDispute({ ratingType, ratingId, reporterUserId, reason }) {
   });
 }
 
-module.exports = { createDispute, createTrustRating, createVendorReview, findTrustRatingById, findVendorReviewById, findVendorReviewByTicketId, getUserTrustAggregate, getVendorAggregate, listDisputes, listPublicVendorReviews, replyToVendorReview, resolveDispute, reviseVendorReview };
+module.exports = { maskCustomerName, countPublicVendorReviews, listVendorReviews, setReviewVisibility, createDispute, createTrustRating, createVendorReview, findTrustRatingById, findVendorReviewById, findVendorReviewByTicketId, getUserTrustAggregate, getVendorAggregate, listDisputes, listPublicVendorReviews, replyToVendorReview, resolveDispute, reviseVendorReview };

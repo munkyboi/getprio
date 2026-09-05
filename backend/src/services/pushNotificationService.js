@@ -240,6 +240,7 @@ async function sendUserNotification({ userId, title, body, url, tag, eventType }
 }
 
 async function notifyVendorQueueJoin({ tenant, ticket }) {
+  if (ticket.joinChannel === "vendor") return { attempted: 0, sent: 0 };
   return sendTenantNotification({
     tenant,
     title: "New queue join",

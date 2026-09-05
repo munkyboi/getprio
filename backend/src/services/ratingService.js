@@ -17,7 +17,7 @@ function lowReason(value, score) {
 function vendorReviewFields(body) {
   const score = stars(body?.stars);
   const comment = String(body?.comment || "").trim();
-  if (comment.length > 1000) throw error("Review comment must be 1000 characters or fewer.", 400);
+  if ([...comment].length > 500) throw error("Review comment must be 500 characters or fewer.", 400);
   assertPublicTextFieldsAllowed({ "Review comment": comment });
   return { stars: score, comment };
 }
@@ -108,7 +108,7 @@ async function rateOrganizerFromVendor({ user, tenant, bookingId, body }) {
 }
 
 async function reviseVendorReview({ user, reviewId, body }) {
-  const score = stars(body?.stars); const comment = String(body?.comment || "").trim();
+  const { stars: score, comment } = vendorReviewFields(body);
   assertPublicTextFieldsAllowed({ "Review comment": comment });
   const review = await ratingRepository.reviseVendorReview({ reviewId, customerUserId: user._id, stars: score, comment });
   if (!review) throw error("This review can no longer be revised.", 409);

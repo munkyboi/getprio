@@ -1,3 +1,4 @@
+const businessCategories = require("../repositories/businessCategories");
 const express = require("express");
 const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
 const bcrypt = require("bcryptjs");
@@ -622,7 +623,7 @@ router.post(
     const normalizedPhone = normalizePhilippineMobileNumber(phone);
     const normalizedCategory = String(category || "").trim();
 
-    if (!tenantName || !tenantSlug || !normalizedCategory || !name || !username || !email || !password) {
+    if (!tenantName || !tenantSlug || (!normalizedCategory && !req.body.categoryId) || !name || !username || !email || !password) {
       const error = new Error("tenantName, tenantSlug, category, name, username, email, and password are required.");
       error.statusCode = 400;
       throw error;
@@ -677,13 +678,16 @@ router.post(
         throw error;
       }
 
+      const selectedCategory = await businessCategories.resolve({ id: req.body.categoryId, label: normalizedCategory }, client);
+      if (!selectedCategory) { const error = new Error("Choose an active business category."); error.statusCode = 400; throw error; }
       const tenant = await tenantRepository.createTenant(
         {
           name: tenantName,
           slug: normalizedSlug,
           contactEmail: normalizedEmail,
           contactPhone: normalizedPhone,
-          publicProfileCategory: normalizedCategory
+          publicProfileCategory: selectedCategory.name,
+          businessCategoryId: selectedCategory.id
         },
         { client }
       );
@@ -741,7 +745,7 @@ router.post(
     const normalizedPhone = normalizePhilippineMobileNumber(phone);
     const normalizedCategory = String(category || "").trim();
 
-    if (!tenantName || !tenantSlug || !normalizedCategory) {
+    if (!tenantName || !tenantSlug || (!normalizedCategory && !req.body.categoryId)) {
       const error = new Error("tenantName, tenantSlug, and category are required.");
       error.statusCode = 400;
       throw error;
@@ -816,13 +820,16 @@ router.post(
         throw error;
       }
 
+      const selectedCategory = await businessCategories.resolve({ id: req.body.categoryId, label: normalizedCategory }, client);
+      if (!selectedCategory) { const error = new Error("Choose an active business category."); error.statusCode = 400; throw error; }
       const tenant = await tenantRepository.createTenant(
         {
           name: tenantName,
           slug: normalizedSlug,
           contactEmail: normalizedEmail,
           contactPhone: normalizedPhone || req.user.phone,
-          publicProfileCategory: normalizedCategory
+          publicProfileCategory: selectedCategory.name,
+          businessCategoryId: selectedCategory.id
         },
         { client }
       );

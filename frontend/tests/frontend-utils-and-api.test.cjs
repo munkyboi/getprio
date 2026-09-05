@@ -1531,8 +1531,8 @@ test("signup forms use provider icons, helpful labels, and touch-friendly action
   assert.match(labelSource, /<Tooltip label=\{tooltip\}/);
   assert.match(labelSource, /IconInfoCircle/);
   assert.match(labelSource, /signup-label-required/);
-  assert.match(vendorSource, /<SignupFieldLabel label="Business category" required/);
-  assert.match(vendorSource, /withAsterisk=\{false\}/);
+  assert.match(vendorSource, /<BusinessCategorySelect required/);
+  assert.match(fs.readFileSync(path.join(frontendRoot, "src", "components", "BusinessCategorySelect.tsx"), "utf8"), /withAsterisk=\{false\}/);
   assert.match(vendorSource, /<SignupFieldLabel label="Phone"/);
   assert.match(vendorSource, /className="auth-primary-action"/);
   assert.match(vendorSource, /navigate\("\/dashboard\/account", \{ replace: true \}\)/);
@@ -1767,7 +1767,7 @@ test("vendor settings provide an editable business profile", () => {
   assert.match(source, /label="Business display name"/);
   assert.match(source, /<Text fw=\{500\} size="sm">Business description<\/Text>/);
   assert.match(source, /<CampaignDescriptionEditor[\s\S]*?maxCharacters=\{1000\}/);
-  assert.match(source, /<Autocomplete[\s\S]*?label="Business category"[\s\S]*?data=\{\[\.\.\.BUSINESS_CATEGORIES\]\}/);
+  assert.match(source, /<BusinessCategorySelect[\s\S]*?value=\{settings.businessCategoryId/);
   assert.match(source, /<Text fw=\{700\}>Default profile media<\/Text>/);
   assert.match(source, /label="Profile background"/);
   assert.match(source, /label="Profile background fit"/);
@@ -2629,9 +2629,9 @@ test("vendor navigation combines tenant role RBAC with effective plan entitlemen
 
   assert.match(
     dashboard,
-    /roleVisibleNavItems\.filter\(\(item\) =>\s*canAccessVendorSection\(item\.section, effectiveEntitlements\)\s*\)/
+    /roleVisibleNavItems\.filter\(\(item\) =>\s*canAccessVendorSection\(item\.section, effectiveEntitlements, tenantPlan\)\s*\)/
   );
-  assert.match(dashboard, /!canAccessVendorSection\(currentSection, effectiveEntitlements\)/);
+  assert.match(dashboard, /!canAccessVendorSection\(currentSection, effectiveEntitlements, tenantPlan\)/);
   assert.match(dashboard, /canAccessVendorSection\("services", effectiveEntitlements\)/);
   assert.match(dashboard, /canAccessVendorSection\("bookings", effectiveEntitlements\)/);
 });
@@ -2688,7 +2688,7 @@ test("registered customers can rate a served queue visit from the ticket page", 
   assert.match(source, /className="customer-modal-actions queue-rating-modal-actions"/);
   assert.match(source, /<FiveStarRatingInput/);
   assert.match(source, /label="Optional public comment"/);
-  assert.match(source, /maxLength=\{1000\}/);
+  assert.match(source, /maxLength=\{500\}/);
   assert.match(source, />\s*Rating submitted\s*</);
 });
 

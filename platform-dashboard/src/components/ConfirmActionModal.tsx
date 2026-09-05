@@ -27,6 +27,7 @@ export function ConfirmActionModal({
     <Modal
       className={["task-modal", "confirm-action-modal", className].filter(Boolean).join(" ")}
       centered
+      closeButtonProps={{ "aria-label": "Close confirmation" }}
       opened={opened}
       onClose={onClose}
       title={title}

@@ -195,6 +195,7 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
       publicProfileDescription: tenant.publicProfileDescription || "",
       slug: tenant.slug,
       publicProfileCategory: tenant.publicProfileCategory || "",
+      businessCategoryId: tenant.businessCategoryId || null,
       queuePrefix: tenant.queuePrefix,
       averageServiceMinutes: tenant.averageServiceMinutes,
       notificationThreshold: tenant.notificationThreshold,

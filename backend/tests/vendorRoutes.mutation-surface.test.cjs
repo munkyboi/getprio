@@ -436,3 +436,45 @@ test("vendor routes queue mutations invoke the queue service helpers", async () 
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("review endpoints block unpaid vendors before accessing reviews", async () => {
+  let paid = false;
+  let reviewCalls = 0;
+  const router = requireWithMocks("../src/routes/vendorRoutes.js", {
+    "../middleware/auth": {
+      authenticate: (req, _res, next) => { req.user = { _id: "1" }; next(); },
+      maybeAuthenticate: (_req, _res, next) => next(),
+      userHasTenantAccess: () => true,
+      assertTenantPermission: () => {}
+    },
+    "../repositories/tenants": { findTenantBySlug: async () => ({ _id: "2", slug: "demo" }) },
+    "../services/billingService": { assertPaidReviewAccess: async tenantId => {
+      assert.equal(tenantId, "2");
+      if (!paid) throw Object.assign(new Error("Paid plan required"), { statusCode: 403 });
+    } },
+    "../repositories/ratings": {
+      listVendorReviews: async () => { reviewCalls++; return []; },
+      setReviewVisibility: async () => { reviewCalls++; return { id: "1", public_visible: false }; }
+    },
+    "../services/ratingService": { replyToVendorReview: async () => { reviewCalls++; return { id: "1" }; } }
+  });
+  const { server, baseUrl } = await startServer(router);
+  try {
+    const requests = [
+      ["GET", "/tenant/demo/ratings", undefined],
+      ["PATCH", "/tenant/demo/ratings/1", { visible: false }],
+      ["POST", "/tenant/demo/vendor-reviews/1/reply", { reply: "Thank you" }]
+    ];
+    for (const [method, route, body] of requests) {
+      const response = await fetch(baseUrl + route, { method, headers: { "Content-Type": "application/json" }, body: body && JSON.stringify(body) });
+      assert.equal(response.status, 403);
+    }
+    assert.equal(reviewCalls, 0);
+    paid = true;
+    for (const [method, route, body] of requests) {
+      const response = await fetch(baseUrl + route, { method, headers: { "Content-Type": "application/json" }, body: body && JSON.stringify(body) });
+      assert.equal(response.status, 200);
+    }
+    assert.equal(reviewCalls, 3);
+  } finally { await new Promise(resolve => server.close(resolve)); }
+});

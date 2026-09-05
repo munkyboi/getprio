@@ -1,7 +1,9 @@
+const businessCategories = require("../repositories/businessCategories");
 const express = require("express");
 const asyncHandler = require("../middleware/asyncHandler");
 const { authenticate, requirePlatformPermission } = require("../middleware/auth");
 const platformRepository = require("../repositories/platform");
+const platformRecords = require("../repositories/platformRecords");
 const queueJoinPaymentRepository = require("../repositories/queueJoinPayments");
 const tenantRepository = require("../repositories/tenants");
 const billingRepository = require("../repositories/billing");
@@ -35,6 +37,17 @@ const db = require("../config/db");
 const router = express.Router();
 
 router.use(authenticate);
+
+router.get("/business-categories", requirePlatformPermission("platform.settings.manage"), asyncHandler(async (_req, res) => {
+  res.json({ items: await businessCategories.list(true) });
+}));
+router.post("/business-categories", requirePlatformPermission("platform.settings.manage"), asyncHandler(async (req, res) => {
+  res.status(201).json({ category: await businessCategories.save(null, req.body, { actorId: req.user._id, actorRole: "platform_admin", sessionId: req.auth.sessionId }) });
+}));
+router.patch("/business-categories/:categoryId", requirePlatformPermission("platform.settings.manage"), asyncHandler(async (req, res) => {
+  res.json({ category: await businessCategories.save(req.params.categoryId, req.body, { actorId: req.user._id, actorRole: "platform_admin", sessionId: req.auth.sessionId }) });
+}));
+
 
 router.get("/capabilities", requirePlatformPermission("platform.plan_policy.read"), (_req, res) => {
   res.json({
@@ -140,15 +153,24 @@ router.get("/credit-purchases", requirePlatformPermission("platform.credit_comme
   res.json({ purchases, ...cases });
 }));
 
-router.get("/tenants/:tenantId/capacity", requirePlatformPermission("platform.capacity.read"), asyncHandler(async (req, res) => res.json({ capacity: await usageCreditService.getTenantCapacity(req.params.tenantId, true) })));
+router.get("/tenants/:tenantId/capacity", requirePlatformPermission("platform.capacity.read"), asyncHandler(async (req, res) => {
+  if (!/^\d{1,18}$/.test(req.params.tenantId)) return res.status(400).json({ message: "Invalid tenant ID." });
+  const tenant = await tenantRepository.findTenantById(req.params.tenantId);
+  if (!tenant) return res.status(404).json({ message: "Tenant not found." });
+  res.json({
+    tenant: { id: String(tenant._id), name: tenant.name, slug: tenant.slug },
+    capacity: await usageCreditService.getTenantCapacity(req.params.tenantId, true)
+  });
+}));
 router.get("/tenants/:tenantId/entitlement-overrides", requirePlatformPermission("platform.plan_policy.read"), requireReleaseControl("entitlementOverrides"), asyncHandler(async (req,res) => {
   res.json({ overrides: await entitlementOverrideRepository.listForTenant(req.params.tenantId) });
 }));
 
 router.get("/security-audit-events", requirePlatformPermission("platform.security_audit.read"), asyncHandler(async (req,res) => {
-  const items = await securityAuditRepository.listEvents({ limit: req.query.limit, tenantId: req.query.tenantId });
+  const result = req.query.page !== undefined ? await platformRecords.listRecords("audit", req.query) : null;
+  const items = result ? result.items : await securityAuditRepository.listEvents({ limit: req.query.limit, tenantId: req.query.tenantId });
   await securityAuditService.record({ actorId:req.user._id, actorRole:"platform_admin", sessionId:req.auth.sessionId, action:"security.audit.read", resourceType:"security_audit", resourceId:req.query.tenantId || "platform", reason:"Platform audit review", outcome:"success", metadata:{returned:items.length} });
-  res.json({ items });
+  res.json(result || { items });
 }));
 
 router.post(
@@ -565,7 +587,7 @@ router.get(
   "/tenants",
   requirePlatformPermission("platform.tenants.read"),
   asyncHandler(async (req, res) => {
-    res.json({
+    res.json(req.query.page !== undefined ? await platformRecords.listRecords("tenants", req.query) : {
       items: await platformRepository.listTenants({ limit: req.query.limit })
     });
   })
@@ -670,7 +692,7 @@ router.get(
   "/users",
   requirePlatformPermission("platform.users.read"),
   asyncHandler(async (req, res) => {
-    res.json({
+    res.json(req.query.page !== undefined ? await platformRecords.listRecords("users", req.query) : {
       items: await platformRepository.listUsers({ limit: req.query.limit })
     });
   })

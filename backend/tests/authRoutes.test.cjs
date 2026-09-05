@@ -1004,6 +1004,7 @@ test("register vendor returns a tracked session and tenant membership", async ()
   let sessionPayload = null;
   let assignedFreeTenantId = null;
   const router = requireWithMocks("../src/routes/authRoutes.js", {
+    "../repositories/businessCategories": { resolve: async () => ({ id: "1", name: "Sports and Recreation" }) },
     "../config/db": {
       withTransaction: async (callback) => callback({})
     },
@@ -1097,6 +1098,8 @@ test("register vendor returns a tracked session and tenant membership", async ()
     assert.equal(body.refreshToken, "refresh-token");
     assert.equal(body.user.username, "vendor_one");
     assert.equal(createdTenant.slug, "demo-tenant");
+    assert.equal(createdTenant.businessCategoryId, "1");
+    assert.equal(createdTenant.publicProfileCategory, "Sports and Recreation");
     assert.equal(createdUser.email, "vendor@example.com");
     assert.equal(sessionPayload.authMethod, "password");
     assert.equal(assignedFreeTenantId, "tenant-1");
