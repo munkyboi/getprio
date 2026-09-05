@@ -8,6 +8,7 @@ const queueDayRepository = require("../repositories/queueDays");
 const { buildMonitorUrl } = require("../publicLinks");
 const queueFeeService = require("./queueFeeService");
 const queueDayLifecycleService = require("./queueDayLifecycleService");
+const pushNotificationService = require("./pushNotificationService");
 const allowanceService = require("./allowanceService");
 const {
   createTicketForTenantInTransaction,
@@ -481,6 +482,11 @@ async function activatePaidPayment(paymentId, providerPaymentId, paymentAttribut
   });
 
   if (!result.alreadyIssued && !result.ticketBlocked) {
+    await pushNotificationService.notifyCustomerQueueUpdate({
+      tenant: result.tenant, ticket: result.ticket, action: "joined"
+    }).catch((error) => {
+      console.warn("[push-customer-queue-joined-skipped]", error.message);
+    });
     await maybeNotifyUpcomingTickets(result.tenant, {
       locationSlug: result.payment.payload?.locationSlug
     });

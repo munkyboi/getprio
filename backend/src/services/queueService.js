@@ -345,6 +345,9 @@ async function createTicket({
     return createdTicket;
   });
 
+  await pushNotificationService.notifyCustomerQueueUpdate({ tenant, ticket, action: "joined" }).catch((error) => {
+    console.warn("[push-customer-queue-joined-skipped]", error.message);
+  });
   await maybeNotifyUpcomingTickets(tenant, { location: resolvedLocation });
   await maybeAutoPauseQueueDay(tenant, { location: resolvedLocation });
   const snapshot = await publishSnapshot(tenant, {

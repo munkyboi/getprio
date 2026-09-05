@@ -159,6 +159,7 @@ test("mobile queue resolve reports open availability and an inactive-plan reason
   let hasActivePlan = true;
   let queueOpen = false;
   const paymentJoinCalls = [];
+  const otpPayloads = [];
   const subscriptionError = () => Object.assign(
     new Error("This queue is not accepting online joins until the vendor activates a subscription plan."),
     { statusCode: 403 }
@@ -170,7 +171,7 @@ test("mobile queue resolve reports open availability and an inactive-plan reason
     },
     "../src/middleware/auth": {
       authenticate(req, _res, next) {
-        req.user = { _id: "customer-7", name: "Customer Seven", roles: ["customer"] };
+        req.user = { _id: "customer-7", email: "customer@example.com", name: "Customer Seven", roles: ["customer"] };
         next();
       }
     },
@@ -244,6 +245,24 @@ test("mobile queue resolve reports open availability and an inactive-plan reason
           currency: "PHP",
           displayAmount: "PHP 20.00"
         };
+      }
+    },
+    "../src/services/queueJoinOtpService": {
+      async requestJoinOtp({ payload }) {
+        otpPayloads.push(payload);
+        return { otpId: String(otpPayloads.length), deliveryTarget: payload.customerEmail };
+      },
+      async verifyJoinOtp({ otpId, code }) {
+        if (code !== "123456") throw Object.assign(new Error("Incorrect code"), { statusCode: 400 });
+        return otpPayloads[Number(otpId) - 1];
+      },
+      async resendJoinOtp({ otpId }) {
+        return { otpId, deliveryTarget: "customer@example.com" };
+      }
+    },
+    "../src/repositories/queueJoinOtps": {
+      async findOtpById(id) {
+        return { tenantId: "tenant-14", payload: id === "99" ? { userId: "another-customer" } : otpPayloads[Number(id) - 1] };
       }
     },
     "../src/services/queueJoinPaymentService": {
@@ -353,12 +372,9 @@ test("mobile queue resolve reports open availability and an inactive-plan reason
       }
     );
     assert.equal(joinResponse.status, 201);
-    assert.equal(paymentJoinCalls.length, 1);
-    assert.equal(paymentJoinCalls[0].joinChannel, "qr");
-    assert.equal(
-      paymentJoinCalls[0].mobileReturnUrl,
-      "https://192.168.1.22:5173/payment/return"
-    );
+    assert.equal((await joinResponse.json()).otpRequired, true);
+    assert.equal(paymentJoinCalls.length, 0);
+    assert.equal(otpPayloads[0].joinChannel, "qr");
 
     const directJoinResponse = await fetch(
       `http://127.0.0.1:${server.address().port}/api/mobile/queue-join/direct`,
@@ -369,13 +385,28 @@ test("mobile queue resolve reports open availability and an inactive-plan reason
       }
     );
     assert.equal(directJoinResponse.status, 201);
-    assert.equal(paymentJoinCalls.length, 2);
-    assert.equal(paymentJoinCalls[1].joinChannel, "online");
-    assert.equal(paymentJoinCalls[1].locationSlug, "main");
-    assert.equal(
-      paymentJoinCalls[1].mobileReturnUrl,
-      "https://192.168.1.22:5173/payment/return"
-    );
+    assert.equal((await directJoinResponse.json()).otpRequired, true);
+    assert.equal(paymentJoinCalls.length, 0);
+    assert.equal(otpPayloads[1].joinChannel, "online");
+    assert.equal(otpPayloads[1].locationSlug, "main");
+    const postOtp = (action, body) => fetch(`http://127.0.0.1:${server.address().port}/api/mobile/queue-join/otp/${action}`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
+    });
+    assert.equal((await postOtp("verify", { otpId: "99", code: "123456" })).status, 404);
+    assert.equal((await postOtp("resend", { otpId: "99" })).status, 404);
+    assert.equal((await postOtp("verify", { otpId: "2", code: "000000" })).status, 400);
+    assert.equal(paymentJoinCalls.length, 0);
+    queueOpen = false;
+    assert.equal((await postOtp("verify", { otpId: "2", code: "123456" })).status, 409);
+    assert.equal(paymentJoinCalls.length, 0);
+    queueOpen = true;
+    assert.equal((await postOtp("resend", { otpId: "2" })).status, 201);
+    const verified = await postOtp("verify", { otpId: "2", code: "123456" });
+    assert.equal(verified.status, 201);
+    assert.equal((await verified.json()).paymentRequired, true);
+    assert.equal(paymentJoinCalls.length, 1);
+    assert.equal(paymentJoinCalls[0].locationSlug, "main");
+    assert.equal(paymentJoinCalls[0].mobileReturnUrl, "https://192.168.1.22:5173/payment/return");
 
     hasActivePlan = false;
     const inactivePlanResponse = await fetch(

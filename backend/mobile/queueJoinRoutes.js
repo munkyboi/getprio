@@ -8,6 +8,8 @@ const tenantRepository = require("../src/repositories/tenants");
 const locationRepository = require("../src/repositories/storeLocations");
 const queueFeeService = require("../src/services/queueFeeService");
 const queueJoinPaymentService = require("../src/services/queueJoinPaymentService");
+const queueJoinOtpService = require("../src/services/queueJoinOtpService");
+const otpRepository = require("../src/repositories/queueJoinOtps");
 const paymentRepository = require("../src/repositories/queueJoinPayments");
 const entitlementAdmissionService = require("../src/services/entitlementAdmissionService");
 const storeHoursService = require("../src/services/storeHoursService");
@@ -166,51 +168,45 @@ router.get(
   })
 );
 
+async function assertJoinable(location, tenant) {
+  const state = await resolveQueueState(location, tenant);
+  if (!state.joinable) {
+    throw Object.assign(new Error(state.unavailableReason || "This queue is not available right now."), {
+      statusCode: 409, code: "QUEUE_JOIN_UNAVAILABLE"
+    });
+  }
+}
+
+async function startEmailVerification(req, res, location, tenant, joinChannel) {
+  await assertJoinable(location, tenant);
+  if (!req.user.email) {
+    throw Object.assign(new Error("Add an email address to your account before joining a queue."), {
+      statusCode: 400, code: "QUEUE_EMAIL_REQUIRED"
+    });
+  }
+  const challenge = await queueJoinOtpService.requestJoinOtp({
+    tenant,
+    payload: {
+      userId: req.user._id,
+      customerName: req.user.displayName || req.user.name,
+      customerEmail: req.user.email,
+      customerPhone: normalizePhilippineMobileNumber(req.user.phone),
+      notifyByEmail: false,
+      notifyBySms: false,
+      joinChannel,
+      locationSlug: location.slug,
+      notes: null
+    }
+  });
+  res.status(201).json({ ...challenge, otpRequired: true, tenantSlug: tenant.slug, locationSlug: location.slug });
+}
+
 router.post(
   "/queue-join",
   requireIdempotency("mobile.queue_join"),
   asyncHandler(async (req, res) => {
     const { location, tenant } = await resolveLocationOrThrow(normalizeQrId(req.body?.id));
-    const state = await resolveQueueState(location, tenant);
-    if (!state.joinable) {
-      const error = new Error(state.unavailableReason || "This queue is not available right now.");
-      error.statusCode = 409;
-      error.code = "QUEUE_JOIN_UNAVAILABLE";
-      throw error;
-    }
-
-    const payload = {
-      userId: req.user._id,
-      customerName: req.user.displayName || req.user.name,
-      customerEmail: req.user.email || null,
-      customerPhone: normalizePhilippineMobileNumber(req.user.phone),
-      notifyByEmail: false,
-      notifyBySms: false,
-      joinChannel: "qr",
-      locationSlug: location.slug,
-      mobileReturnUrl: buildMobilePaymentReturnUrl(),
-      notes: null
-    };
-    const result = await queueJoinPaymentService.handleVerifiedJoin({
-      tenant,
-      otpId: null,
-      payload
-    });
-
-    if (result.requiresPayment) {
-      res.status(201).json({
-        paymentRequired: true,
-        paymentAttemptId: result.payment.id,
-        checkoutUrl: result.checkoutSession.checkoutUrl,
-        tenantSlug: tenant.slug,
-        locationSlug: location.slug,
-        payment: result.payment,
-        queueFee: result.queueFee
-      });
-      return;
-    }
-
-    res.status(201).json(result);
+    await startEmailVerification(req, res, location, tenant, "qr");
   })
 );
 
@@ -218,35 +214,39 @@ router.post(
   "/queue-join/direct",
   requireIdempotency("mobile.queue_join_direct"),
   asyncHandler(async (req, res) => {
-    const { location, tenant } = await resolveDirectLocationOrThrow(
-      req.body?.tenantSlug,
-      req.body?.locationSlug
-    );
-    const state = await resolveQueueState(location, tenant);
-    if (!state.joinable) {
-      const error = new Error(state.unavailableReason || "This queue is not available right now.");
-      error.statusCode = 409;
-      error.code = "QUEUE_JOIN_UNAVAILABLE";
-      throw error;
-    }
+    const { location, tenant } = await resolveDirectLocationOrThrow(req.body?.tenantSlug, req.body?.locationSlug);
+    await startEmailVerification(req, res, location, tenant, "online");
+  })
+);
 
+async function resolveOwnedOtp(req) {
+  const otpId = String(req.body?.otpId || "");
+  const otp = /^[1-9]\d*$/.test(otpId) ? await otpRepository.findOtpById(otpId) : null;
+  if (!otp || String(otp.payload?.userId || "") !== String(req.user._id)) {
+    throw Object.assign(new Error("Verification code not found. Please start again."), { statusCode: 404 });
+  }
+  const tenant = await tenantRepository.findTenantById(otp.tenantId);
+  if (!tenant?.isActive) {
+    throw Object.assign(new Error("This vendor is no longer available."), { statusCode: 404 });
+  }
+  const location = await locationRepository.findLocationByTenantAndSlug(tenant._id, otp.payload.locationSlug);
+  if (!location?.isActive) {
+    throw Object.assign(new Error("This queue location is no longer available."), { statusCode: 404 });
+  }
+  await assertJoinable(location, tenant);
+  return { tenant, location, otpId };
+}
+
+router.post(
+  "/queue-join/otp/verify",
+  requireIdempotency("mobile.queue_join_otp_verify"),
+  asyncHandler(async (req, res) => {
+    const { tenant, location, otpId } = await resolveOwnedOtp(req);
+    const payload = await queueJoinOtpService.verifyJoinOtp({ tenant, otpId, code: req.body?.code });
     const result = await queueJoinPaymentService.handleVerifiedJoin({
-      tenant,
-      otpId: null,
-      payload: {
-        userId: req.user._id,
-        customerName: req.user.displayName || req.user.name,
-        customerEmail: req.user.email || null,
-        customerPhone: normalizePhilippineMobileNumber(req.user.phone),
-        notifyByEmail: false,
-        notifyBySms: false,
-        joinChannel: "online",
-        locationSlug: location.slug,
-        mobileReturnUrl: buildMobilePaymentReturnUrl(),
-        notes: null
-      }
+      tenant, otpId,
+      payload: { ...payload, mobileReturnUrl: buildMobilePaymentReturnUrl() }
     });
-
     if (result.requiresPayment) {
       res.status(201).json({
         paymentRequired: true,
@@ -259,8 +259,17 @@ router.post(
       });
       return;
     }
+    res.status(201).json({ ...result, tenantSlug: tenant.slug, locationSlug: location.slug });
+  })
+);
 
-    res.status(201).json(result);
+router.post(
+  "/queue-join/otp/resend",
+  requireIdempotency("mobile.queue_join_otp_resend"),
+  asyncHandler(async (req, res) => {
+    const { tenant, location, otpId } = await resolveOwnedOtp(req);
+    const challenge = await queueJoinOtpService.resendJoinOtp({ tenant, otpId });
+    res.status(201).json({ ...challenge, otpRequired: true, tenantSlug: tenant.slug, locationSlug: location.slug });
   })
 );
 
