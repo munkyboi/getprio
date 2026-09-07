@@ -187,6 +187,64 @@ test("oauth providers endpoint exposes configured availability", async () => {
   }
 });
 
+for (const roles of [["customer"], ["platform_admin"]]) {
+  for (const bearer of [false, true]) {
+    test(`MFA-enabled ${roles[0]} password login challenges before issuing a session (${bearer ? "bearer" : "cookie"})`, async () => {
+      const user = {
+        _id: "user-mfa", username: "qqq3", email: "mfa@example.com",
+        passwordHash: "hash", roles, tenantMemberships: [], mfaEnabled: true
+      };
+      let sessionCalls = 0;
+      let challengedUser;
+      const router = requireWithMocks("../src/routes/authRoutes.js", {
+        "../config/db": { withTransaction: async (callback) => callback({}) },
+        "../repositories/users": { findUserByUsername: async (username) => {
+          assert.equal(username, "qqq3");
+          return user;
+        } },
+        "../middleware/asyncHandler": buildAsyncHandlerMock(),
+        "../middleware/auth": buildAuthMock(),
+        "../services/authService": {
+          normalizeEmail: (value) => value,
+          normalizeLoginIdentifier: (value) => ({ identifierType: "username", identifierValue: value }),
+          isUserLocked: () => false,
+          verifyPasswordLogin: async () => true,
+          handleSuccessfulPasswordLogin: async ({ user }) => user,
+          getRequestIp: () => "127.0.0.1",
+          getUserAgent: () => "test-agent",
+          recordLoginAttempt: async () => {}
+        },
+        "../services/mfaFlowService": { issueLoginChallenge: async ({ user }) => {
+          challengedUser = user;
+          return { token: "challenge-only", expiresAt: "2026-09-07T12:00:00Z" };
+        } },
+        "../services/sessionService": { createAuthSession: async () => {
+          sessionCalls++;
+          throw new Error("A session must not be issued before MFA verification");
+        } }
+      });
+      const { server, baseUrl } = await startServer(router, "/api/auth");
+      try {
+        const response = await fetch(`${baseUrl}/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...(bearer ? { "X-Auth-Compatibility": "bearer-v1" } : {}) },
+          body: JSON.stringify({ identifier: "qqq3", password: "test-password" })
+        });
+        assert.equal(response.status, 200);
+        assert.deepEqual(await response.json(), {
+          mfaRequired: true, challengeToken: "challenge-only",
+          expiresAt: "2026-09-07T12:00:00Z", methods: ["totp", "recovery"]
+        });
+        assert.equal(response.headers.get("set-cookie"), null);
+        assert.equal(challengedUser, user);
+        assert.equal(sessionCalls, 0);
+      } finally {
+        await stopServer(server);
+      }
+    });
+  }
+}
+
 test("login route returns tracked session tokens", async () => {
   const sessionResult = {
     accessToken: "access-token",

@@ -991,7 +991,7 @@ router.post(
         client
       });
     });
-    if (updatedUser.mfaEnabled && userRequiresPrivilegedMfa(updatedUser)) {
+    if (updatedUser.mfaEnabled) {
       const challenge = await mfaFlowService.issueLoginChallenge({
         user: updatedUser,
         ipAddress: authService.getRequestIp(req),
