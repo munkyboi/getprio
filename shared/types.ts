@@ -3,14 +3,26 @@ export type AuthIntent = "login" | "register_customer" | "register_vendor";
 export type UserRole = "customer" | "vendor" | "platform_admin";
 export type TenantRole = "owner" | "admin" | "staff";
 export type JoinChannel = "online" | "qr" | "vendor";
-export type TicketStatus = "waiting" | "called" | "served" | "skipped" | "cancelled" | "unserved";
+export type TicketStatus =
+  | "waiting"
+  | "pending_carry_over"
+  | "called"
+  | "served"
+  | "skipped"
+  | "cancelled"
+  | "unserved"
+  | "expired";
 export type QueuePriorityBand = "carry_over" | "recovery" | "checked_in_booking" | "normal";
-export type SubscriptionPlanSlug = "economical" | "pro" | "enterprise";
+export type SubscriptionPlanSlug = "free" | "economical" | "pro" | "enterprise";
+export type PaidSubscriptionPlanSlug = Exclude<SubscriptionPlanSlug, "free">;
 export type SubscriptionStatus = "active" | "unpaid" | "past_due" | "suspended" | "canceled" | "expired";
 export type BillingInterval = "monthly" | "annual" | "custom";
 export type SmsBundleType = "none" | "fixed" | "custom";
 export type SupportLevel = "self_serve" | "standard" | "sla";
 export type HistoryExportRange = "today" | "week" | "month" | "quarter" | "year";
+export type PlanFeatureKey = "queue" | "branding" | "discovery" | "booking" | "campaigns";
+export type AllowanceResourceKey = "queueTickets" | "queueEmailJourneys" | "serviceBookings";
+export type EntitlementValueSource = "plan" | "override" | "restriction";
 
 export interface SubscriptionEntitlements {
   locations: number;
@@ -18,6 +30,8 @@ export interface SubscriptionEntitlements {
   staffSeats: number;
   monthlyTickets: number;
   monthlyTransactionalEmails: number | null;
+  monthlyQueueEmailJourneys?: number;
+  monthlyServiceBookings?: number;
   historyDays: number;
   historyLabel: string;
   emailAlerts: boolean;
@@ -37,6 +51,11 @@ export interface SubscriptionEntitlements {
   supportLevel: SupportLevel;
   customDomain: boolean;
   sso: boolean;
+  queueSystemAccess?: boolean;
+  publicFacingBranding?: boolean;
+  marketplaceDiscovery?: boolean;
+  serviceBookingAccess?: boolean;
+  groupFundedCampaignAccess?: boolean;
 }
 
 export interface SubscriptionPlan {
@@ -53,6 +72,10 @@ export interface SubscriptionPlan {
   checkoutEnabled: boolean;
   entitlements: SubscriptionEntitlements;
   included: string[];
+  sortOrder?: number;
+  policyRevision?: number;
+  features?: Record<PlanFeatureKey, boolean>;
+  allowances?: Record<AllowanceResourceKey, number>;
 }
 
 export interface BillingAddOn {
@@ -80,7 +103,7 @@ export interface BillingOverviewResponse {
 }
 
 export interface CreateCheckoutRequest {
-  planSlug: SubscriptionPlanSlug;
+  planSlug: PaidSubscriptionPlanSlug;
   billingInterval: Extract<BillingInterval, "monthly" | "annual">;
 }
 
@@ -132,12 +155,16 @@ export interface TenantMembershipSummary {
 export interface UserSummary {
   id: string;
   name: string;
+  displayName: string;
+  avatarUrl?: string;
   username: string | null;
   email: string | null;
   phone: string | null;
   roles: UserRole[];
   emailVerified: boolean;
   hasPassword: boolean;
+  mfaEnabled?: boolean;
+  mfaRequired?: boolean;
   oauthProviders: OAuthProviderId[];
   lastLoginProvider: string | null;
   tenants: TenantMembershipSummary[];
@@ -180,6 +207,10 @@ export interface TenantSummary {
   autoResumeVacancyPercent: number | null;
   contactEmail: string;
   contactPhone: string;
+  publicProfileDisplayName?: string;
+  publicProfileDescription?: string;
+  publicProfileCategory: string;
+  businessCategoryId?: string | null;
   joinUrl: string;
   monitorUrl: string;
   isActive: boolean;
@@ -204,8 +235,10 @@ export interface StoreOpenStatus {
 export interface StoreLocationSummary {
   id: string;
   tenantId: string;
+  queueJoinId?: string;
   name: string;
   slug: string;
+  imageUrl: string;
   addressLine1: string;
   addressLine2: string;
   city: string;
@@ -216,13 +249,16 @@ export interface StoreLocationSummary {
   contactPhone: string;
   timezone: string;
   paymentMethodLabel: string;
+  paymentBankName: string;
   paymentAccountDisplayName: string;
   paymentAccountIdentifierDisplay: string;
   paymentQrImageUrl: string;
   paymentQrActive: boolean;
+  queueLifecycleMode?: "legacy" | "shadow" | "enforced";
   isPrimary: boolean;
   isActive: boolean;
   joinUrl: string;
+  qrJoinUrl?: string;
   monitorUrl: string;
   openStatus: StoreOpenStatus;
   hours: StoreHourSummary[];
@@ -233,7 +269,10 @@ export type StoreLocationWithHours = StoreLocationSummary;
 export interface StoreLocationsResponse {
   locations: StoreLocationWithHours[];
   activeLocationLimit: number;
+  defaultTimezone: string;
 }
+
+export type BookingCapacityScope = "service" | "location";
 
 export interface VendorServiceSummary {
   id: string;
@@ -242,9 +281,11 @@ export interface VendorServiceSummary {
   slug: string;
   description: string;
   durationMinutes: number;
+  imageUrl: string;
   allowBookingQuantity: boolean;
   bookingQuantityLabel: string;
   manualPaymentRequired: boolean;
+  bookingCapacityScope: BookingCapacityScope;
   priceAmountCents: number;
   currency: "PHP";
   priceDisplay: string;
@@ -254,6 +295,33 @@ export interface VendorServiceSummary {
   updatedAt: string | Date;
 }
 
+export interface LocationServiceSummary {
+  id: string;
+  tenantId: string;
+  locationId: string;
+  serviceId: string;
+  capacity: number;
+  isActive: boolean;
+  sortOrder: number;
+  priceAmountCents: number | null;
+  priceDisplay: string | null;
+  groupFunded?: GroupFundedLocationServiceSettings;
+  createdAt: string | Date;
+  updatedAt: string | Date;
+}
+
+export interface GroupFundedLocationServiceSettings {
+  enabled: boolean;
+  minRequiredContributors: number | null;
+  maxRequiredContributors: number | null;
+  defaultRequiredContributors: number | null;
+  minContributionAmountCents: number | null;
+  maxContributionAmountCents: number | null;
+  minDeadlineHours: number | null;
+  maxDeadlineDays: number | null;
+  allowPublicCampaigns: boolean;
+}
+
 export interface VendorServicesResponse {
   services: VendorServiceSummary[];
 }
@@ -261,19 +329,34 @@ export interface VendorServicesResponse {
 export interface SaveVendorServiceRequest {
   name: string;
   slug?: string;
+  imageUrl?: string;
   description?: string;
   durationMinutes: number;
   allowBookingQuantity?: boolean;
   bookingQuantityLabel?: string;
   manualPaymentRequired?: boolean;
+  bookingCapacityScope?: BookingCapacityScope;
   priceAmountCents: number;
   priceDisplay?: string;
   isActive?: boolean;
   sortOrder?: number;
+  locationServices?: Array<{
+    locationSlug: string;
+    capacity: number;
+    isActive?: boolean;
+    sortOrder?: number;
+    priceAmountCents?: number | null;
+    priceDisplay?: string | null;
+    groupFunded?: GroupFundedLocationServiceSettings;
+  }>;
 }
 
 export interface VendorServiceResponse {
   service: VendorServiceSummary;
+}
+
+export interface LocationServicesResponse {
+  locationServices: LocationServiceSummary[];
 }
 
 export interface VendorAvailabilityBlockSummary {
@@ -284,6 +367,7 @@ export interface VendorAvailabilityBlockSummary {
   weekday: number;
   startsAt: string;
   endsAt: string;
+  endsNextDay: boolean;
   capacity: number;
   isActive: boolean;
   notes: string;
@@ -309,6 +393,14 @@ export interface VendorAvailabilityExceptionSummary {
 export interface VendorAvailabilityResponse {
   blocks: VendorAvailabilityBlockSummary[];
   exceptions: VendorAvailabilityExceptionSummary[];
+  summary?: {
+    sharedBlocks: number;
+    serviceSpecificBlocks: number;
+    sharedExceptions: number;
+    serviceSpecificExceptions: number;
+    hasSharedLocationCapacity: boolean;
+    hasServiceSpecificCapacity: boolean;
+  };
 }
 
 export interface SaveVendorAvailabilityBlockRequest {
@@ -317,6 +409,7 @@ export interface SaveVendorAvailabilityBlockRequest {
   weekday: number;
   startsAt: string;
   endsAt: string;
+  endsNextDay?: boolean;
   capacity: number;
   isActive?: boolean;
   notes?: string;
@@ -341,7 +434,16 @@ export interface VendorAvailabilityExceptionResponse {
   exception: VendorAvailabilityExceptionSummary;
 }
 
-export type BookingStatus = "pending" | "confirmed" | "rescheduled" | "completed" | "canceled" | "disputed" | "reviewed";
+export type BookingStatus =
+  | "pending"
+  | "confirmed"
+  | "rescheduled"
+  | "completed"
+  | "canceled"
+  | "disputed"
+  | "reviewed"
+  | "unfulfilled"
+  | "missed";
 export type BookingPaymentStatus = "unpaid" | "pending" | "paid" | "failed" | "refunded";
 export type BookingContactVerificationChannel = "email" | "sms";
 
@@ -361,12 +463,48 @@ export interface BookingPaymentProofSummary {
 
 export interface BookingManualPaymentDestination {
   methodLabel: string;
+  bankName?: string;
   accountDisplayName: string;
   accountIdentifierDisplay: string;
-  qrImageUrl: string;
+  qrImageUrl?: string;
   amountCents: number;
   currency: "PHP";
   unitPriceDisplay: string;
+}
+
+export type BookingPaymentSource = "standard" | "group_funded";
+
+export interface BookingGroupFundedCampaignSummary {
+  id: string | null;
+  publicToken: string;
+  organizerDisplayName?: string;
+  campaignStatus: GroupFundedCampaignStatus;
+  visibility: "private_link" | "public";
+  campaignTitle: string;
+  description: string;
+  fundingDeadlineAt: string | Date;
+  currency: "PHP";
+  targetAmountCents: number;
+  requiredContributionAmountCents: number;
+  roundingAdjustmentCents?: number;
+  requiredContributors: number;
+  paidParticipantCount: number;
+  fundedAmountCents: number;
+  fundedAt: string | Date | null;
+  confirmedAt: string | Date | null;
+  bundleItems?: GroupFundedBundleItemSummary[];
+  contributions?: Array<{
+    id: string;
+    contributorDisplayName: string;
+    amountCents: number;
+    currency: "PHP";
+    contributionStatus: GroupFundedContributionStatus;
+    submittedAt: string | Date | null;
+    verifiedAt: string | Date | null;
+    rejectedAt: string | Date | null;
+    rejectionReason: string;
+    refundStatus: GroupFundedRefundStatus | null;
+  }>;
 }
 
 export interface CustomerBookingSummary {
@@ -385,6 +523,8 @@ export interface CustomerBookingSummary {
   servicePriceAmountCents: number;
   serviceCurrency: "PHP";
   servicePriceDisplay: string;
+  bundleItems?: BookingBundleItemSummary[];
+  executionMode: "parallel" | "sequential";
   bookingQuantity: number;
   scheduledStartAt: string | Date;
   scheduledEndAt: string | Date;
@@ -392,6 +532,12 @@ export interface CustomerBookingSummary {
   notes: string;
   paymentReference: string;
   paymentStatus: BookingPaymentStatus;
+  groupFundedBookingId: string | null;
+  bookingPaymentSource: BookingPaymentSource;
+  organizerCampaignOptIn: boolean;
+  organizerCampaign?: { id: string; status: OrganizerCampaignStatus } | null;
+  organizerTrustRating?: { average: number; count: number } | null;
+  groupFundedCampaign: BookingGroupFundedCampaignSummary | null;
   manualPaymentDestination: BookingManualPaymentDestination | null;
   paymentProof: BookingPaymentProofSummary | null;
   paymentVerifiedAt: string | Date | null;
@@ -400,6 +546,9 @@ export interface CustomerBookingSummary {
   pendingExpiresAt: string | Date | null;
   expiredAt: string | Date | null;
   expirationReason: string;
+  fulfillmentOutcomeReason?: string;
+  refundEligible?: boolean;
+  fulfillmentResolvedAt?: string | Date | null;
   notifyByEmail: boolean;
   notifyBySms: boolean;
   smsAlertFeePaymentId: string;
@@ -414,6 +563,7 @@ export interface CustomerBookingSummary {
 
 export interface CustomerBookingsResponse {
   bookings: CustomerBookingSummary[];
+  pagination?: PaginationMetadata;
 }
 
 export interface CreateCustomerBookingRequest {
@@ -422,6 +572,11 @@ export interface CreateCustomerBookingRequest {
   serviceSlug: string;
   scheduledStartAt: string;
   bookingQuantity?: number;
+  executionMode?: "parallel" | "sequential";
+  bundleItems?: Array<{
+    serviceSlug: string;
+    bookingQuantity?: number;
+  }>;
   customerName?: string;
   customerEmail?: string;
   customerPhone?: string;
@@ -430,10 +585,25 @@ export interface CreateCustomerBookingRequest {
   notifyBySms?: boolean;
   smsAlertFeePaymentId?: string;
   bookingVerificationToken?: string;
+  organizerCampaignOptIn?: boolean;
 }
 
 export interface CustomerBookingResponse {
   booking: CustomerBookingSummary;
+}
+
+export interface BookingBundleItemSummary {
+  id: string;
+  serviceId: string;
+  serviceName: string;
+  serviceSlug: string;
+  imageUrl?: string;
+  bookingQuantity: number;
+  priceAmountCents: number;
+  currency: string;
+  scheduledStartAt: string | Date;
+  scheduledEndAt: string | Date;
+  sortOrder: number;
 }
 
 export interface CustomerBookingDetailResponse {
@@ -529,6 +699,404 @@ export interface SubmitBookingPaymentProofRequest {
   fileName: string;
   contentType: string;
   sizeBytes: number;
+}
+
+export type GroupFundedCampaignStatus =
+  | "draft"
+  | "funding"
+  | "organizer_canceled"
+  | "funding_failed"
+  | "funded"
+  | "slot_recovery"
+  | "vendor_review"
+  | "replacement_proposed"
+  | "vendor_approved"
+  | "vendor_rejected"
+  | "vendor_review_expired"
+  | "confirmed"
+  | "vendor_canceled"
+  | "policy_review_required";
+
+export type GroupFundedContributionStatus =
+  | "pending_proof"
+  | "submitted"
+  | "verified"
+  | "rejected"
+  | "refund_pending"
+  | "refunded"
+  | "policy_review_required";
+
+export type GroupFundedRefundStatus = "pending" | "in_progress" | "completed" | "rejected" | "policy_review_required";
+
+export interface GroupFundedBundleItemSummary {
+  id: string | null;
+  serviceId: string;
+  serviceName: string;
+  serviceSlug: string;
+  bookingQuantity: number;
+  priceAmountCents: number;
+  currency: "PHP";
+  executionMode: "parallel" | "sequential";
+  scheduledStartAt: string | Date;
+  scheduledEndAt: string | Date;
+  sortOrder: number;
+}
+
+export interface GroupFundedCampaignSummary {
+  id: string;
+  publicToken: string;
+  tenantId: string;
+  tenantSlug?: string | null;
+  vendorName?: string;
+  vendorDescription?: string;
+  vendorCategory?: string;
+  locationId: string;
+  serviceId: string;
+  isOrganizer?: boolean;
+  campaignStatus: GroupFundedCampaignStatus;
+  visibility: "private_link" | "public";
+  organizerDisplayName: string;
+  campaignTitle: string;
+  description: string;
+  serviceName: string;
+  serviceSlug: string;
+  bundleItems?: GroupFundedBundleItemSummary[];
+  executionMode: "parallel" | "sequential";
+  locationName: string;
+  locationSlug: string;
+  bookingQuantity: number;
+  scheduledStartAt: string | Date;
+  scheduledEndAt: string | Date;
+  fundingDeadlineAt: string | Date;
+  currency: "PHP";
+  targetAmountCents: number;
+  requiredContributionAmountCents: number;
+  roundingAdjustmentCents: number;
+  requiredContributors: number;
+  paidParticipantCount: number;
+  fundedAmountCents: number;
+  fundedAt: string | Date | null;
+  contributorReservationSummary?: {
+    verifiedContributorCount: number;
+    pendingVerificationContributorCount: number;
+    vacantContributorCount: number;
+    filledContributorCount: number;
+  } | null;
+  linkedBookingId: string | null;
+  paymentDestination?: {
+    methodLabel: string;
+    bankName?: string;
+    accountDisplayName: string;
+    accountIdentifierDisplay: string;
+    qrImageUrl?: string;
+  } | null;
+  refundSummary?: {
+    totalCount: number;
+    completedCount: number;
+    eligibleContributionCount: number;
+  } | null;
+  replacementSlot?: {
+    scheduledStartAt: string | Date;
+    scheduledEndAt: string | Date;
+    proposedAt: string | Date | null;
+    note: string;
+  } | null;
+  createdAt: string | Date;
+  updatedAt: string | Date;
+}
+
+export interface GroupFundedContributionSummary {
+  id: string;
+  amountCents: number;
+  currency: "PHP";
+  contributionStatus: GroupFundedContributionStatus;
+  paymentReference: string;
+  paymentProof: BookingPaymentProofSummary | null;
+  submittedAt: string | Date | null;
+  verifiedAt: string | Date | null;
+  rejectedAt: string | Date | null;
+  rejectionReason: string;
+  refundStatus: GroupFundedRefundStatus | null;
+}
+
+export interface GroupFundedRefundSummary {
+  id: string;
+  contributionId: string;
+  amountCents: number;
+  currency: "PHP";
+  refundReason: string;
+  refundStatus: GroupFundedRefundStatus;
+  completedAt: string | Date | null;
+  createdAt: string | Date;
+}
+
+export interface GroupFundedCampaignResponse {
+  campaign: GroupFundedCampaignSummary & {
+    contribution?: GroupFundedContributionSummary | null;
+    refunds?: GroupFundedRefundSummary[];
+  };
+}
+
+export interface GroupFundedCampaignsResponse {
+  campaigns: Array<GroupFundedCampaignSummary & {
+    contribution?: GroupFundedContributionSummary | null;
+  }>;
+  pagination?: PaginationMetadata;
+}
+
+export type OrganizerCampaignStatus = "draft" | "collecting" | "collected" | "refund_pending" | "cancelled" | "frozen";
+export type OrganizerContributionStatus = "pending_proof" | "submitted" | "review_overdue" | "accepted" | "rejected" | "expired" | "withdrawn" | "refund_pending" | "refund_sent" | "refund_confirmed" | "refund_disputed";
+
+export interface OrganizerCampaignContribution {
+  id: string;
+  campaignId: string;
+  contributorUserId: string;
+  contributorDisplayName?: string;
+  contributorAvatarUrl?: string;
+  slotNumber?: number;
+  status: OrganizerContributionStatus;
+  amountCents: number;
+  currency: string;
+  paymentReference: string;
+  paymentProof?: {
+    fileName: string;
+    contentType: string;
+    sizeBytes: number;
+  } | null;
+  rejectionReason?: string | null;
+  resubmissionCount: number;
+  reservationExpiresAt?: string | Date | null;
+  reservationAttemptCount: number;
+  retryAvailableAt?: string | Date | null;
+  submittedAt?: string | Date | null;
+  trustRating?: { average: number; count: number };
+}
+
+export interface OrganizerCampaign {
+  id: string;
+  publicToken: string;
+  bookingId: string;
+  organizerUserId: string;
+  organizerDisplayName: string;
+  organizerAvatarUrl?: string;
+  vendor?: { name: string; slug: string };
+  location?: { name: string; slug: string; city: string; province: string; timezone: string };
+  status: OrganizerCampaignStatus;
+  visibility: "private_link" | "public";
+  title: string;
+  description: string;
+  deadlineAt: string | Date;
+  contributionFeeCents: number;
+  requiredContributors: number;
+  acceptedContributors?: number;
+  joinedContributors?: number;
+  reservedContributors?: number;
+  underReviewContributors?: number;
+  availableContributors?: number;
+  acceptedAmountCents?: number;
+  paymentInstructions: string;
+  currency: string;
+  scheduledStartAt?: string | Date;
+  scheduledEndAt?: string | Date;
+  booking?: {
+    id: string;
+    reference: string;
+    vendorName: string;
+    vendorSlug: string;
+    locationName: string;
+    locationSlug: string;
+    locationAddress?: string;
+    locationTimezone: string;
+    scheduledStartAt: string | Date;
+    scheduledEndAt: string | Date;
+    bundleItems: BookingBundleItemSummary[];
+  };
+  contributions?: OrganizerCampaignContribution[];
+  contribution?: OrganizerCampaignContribution;
+  reimbursements?: Array<{ id: string; contributionId: string; contributorUserId: string; status: "pending" | "sent" | "confirmed" | "disputed"; amountCents: number }>;
+  reimbursement?: { id: string; contributionId: string; contributorUserId: string; status: "pending" | "sent" | "confirmed" | "disputed"; amountCents: number } | null;
+  organizerTrustRating?: { average: number; count: number };
+  events?: Array<{
+    id: string;
+    eventType: string;
+    actorRole?: string | null;
+    actorDisplayName?: string | null;
+    source: string;
+    metadata: Record<string, unknown>;
+    createdAt: string | Date;
+  }>;
+  notices?: Array<{ id: string; eventType: string; title: string; body: string; createdAt: string | Date }>;
+}
+
+export interface PublicOrganizerCampaign {
+  id: string;
+  publicToken: string;
+  status: OrganizerCampaignStatus;
+  title: string;
+  description: string;
+  deadlineAt: string | Date;
+  contributionFeeCents: number;
+  requiredContributors: number;
+  acceptedContributors: number;
+  filledContributors: number;
+  reservedContributors: number;
+  underReviewContributors: number;
+  availableContributors: number;
+  organizerDisplayName: string;
+  organizerAvatarUrl?: string;
+  organizerTrustRating?: { average: number; count: number };
+  scheduledStartAt: string | Date;
+  scheduledEndAt: string | Date;
+  currency: string;
+  vendor: { name: string; slug: string };
+  location: { name: string; slug: string; city: string; province: string; timezone: string };
+  service: { name: string; slug: string };
+  booking?: {
+    vendorName: string;
+    vendorSlug: string;
+    locationName: string;
+    locationAddress?: string;
+    locationTimezone: string;
+    scheduledStartAt: string | Date;
+    scheduledEndAt: string | Date;
+    bundleItems: BookingBundleItemSummary[];
+  };
+}
+
+export type GroupFundedVendorAlertEventType =
+  | "campaign_created"
+  | "contribution_submitted"
+  | "funding_completed"
+  | "capacity_hold_created"
+  | "replacement_slot_accepted"
+  | "replacement_slot_declined"
+  | "vendor_rejected"
+  | "vendor_approved"
+  | "funding_deadline_expired"
+  | "vendor_review_expired";
+
+export interface GroupFundedVendorAlertEvent {
+  id: string;
+  campaignId: string;
+  eventType: GroupFundedVendorAlertEventType;
+  actorRole: string;
+  source: string;
+  metadata: Record<string, unknown>;
+  createdAt: string | Date;
+  campaign: GroupFundedCampaignSummary;
+}
+
+export interface GroupFundedVendorAlertEventsResponse {
+  events: GroupFundedVendorAlertEvent[];
+}
+
+export interface VendorGroupFundedContributionSummary extends GroupFundedContributionSummary {
+  campaignId: string;
+  userId: string;
+  participantDisplayName: string;
+  verifiedByUserId: string | null;
+  rejectedByUserId: string | null;
+}
+
+export interface VendorGroupFundedRefundSummary extends GroupFundedRefundSummary {
+  campaignId: string;
+  userId: string;
+  notes: string;
+  updatedAt: string | Date;
+}
+
+export interface VendorGroupFundedCapacityHoldSummary {
+  id: string;
+  campaignId: string;
+  holdStatus: string;
+  scheduledStartAt: string | Date;
+  scheduledEndAt: string | Date;
+  expiresAt: string | Date;
+  releasedAt: string | Date | null;
+  convertedBookingId: string | null;
+}
+
+export interface VendorGroupFundedCampaignDetailResponse {
+  campaign: GroupFundedCampaignSummary & {
+    vendorReviewStartedAt?: string | Date | null;
+    vendorReviewExpiresAt?: string | Date | null;
+    confirmedAt?: string | Date | null;
+    canceledAt?: string | Date | null;
+    cancellationReason?: string;
+  };
+  contributions: VendorGroupFundedContributionSummary[];
+  refunds: VendorGroupFundedRefundSummary[];
+  capacityHolds: VendorGroupFundedCapacityHoldSummary[];
+}
+
+export interface VendorGroupFundedContributionMutationResponse {
+  campaign: Partial<GroupFundedCampaignSummary> & {
+    id: string;
+    campaignStatus: GroupFundedCampaignStatus;
+  };
+  contribution: VendorGroupFundedContributionSummary;
+  refund?: VendorGroupFundedRefundSummary;
+}
+
+export interface VendorGroupFundedCampaignMutationResponse {
+  campaign: GroupFundedCampaignSummary;
+  refunds?: VendorGroupFundedRefundSummary[];
+  booking?: VendorBookingSummary;
+}
+
+export interface VendorGroupFundedRefundMutationResponse {
+  campaign: GroupFundedCampaignSummary;
+  refund: VendorGroupFundedRefundSummary;
+}
+
+export interface RejectVendorGroupFundedContributionRequest {
+  reason: string;
+  refundDisposition?: "not_required" | "required";
+}
+
+export interface RejectVendorGroupFundedCampaignRequest {
+  reason: string;
+}
+
+export interface UpdateVendorGroupFundedRefundRequest {
+  refundStatus: Extract<GroupFundedRefundStatus, "in_progress" | "completed" | "policy_review_required">;
+  notes?: string;
+  evidenceObjectKey?: string;
+  evidenceFileName?: string;
+  evidenceContentType?: string;
+  evidenceSizeBytes?: number;
+}
+
+export interface CreateGroupFundedCampaignRequest {
+  tenantSlug: string;
+  locationSlug: string;
+  serviceSlug: string;
+  scheduledStartAt: string;
+  bookingQuantity?: number;
+  executionMode?: "parallel" | "sequential";
+  bundleItems?: Array<{
+    serviceSlug: string;
+    bookingQuantity?: number;
+  }>;
+  requiredContributors: number;
+  fundingDeadlineAt: string;
+  visibility: "private_link" | "public";
+  campaignTitle?: string;
+  description?: string;
+}
+
+export interface SubmitGroupFundedContributionProofRequest {
+  paymentReference: string;
+  paymentProofObjectKey: string;
+  paymentProofFileName: string;
+  paymentProofContentType: string;
+  paymentProofSizeBytes: number;
+}
+
+export interface UpdateGroupFundedCampaignRequest {
+  campaignTitle: string;
+  description: string;
+  visibility: "private_link" | "public";
 }
 
 export interface BookingPaymentProofAccessResponse {
@@ -633,16 +1201,29 @@ export interface BookingSmsPaymentSyncResponse {
   payment: BookingSmsPaymentSummary;
 }
 
-export type PublicBoardThemePresetId = "classic" | "neura" | "clinic";
+export type PublicBoardThemePresetId =
+  | "classic"
+  | "neura"
+  | "clinic"
+  | "sports"
+  | "wellness"
+  | "retail"
+  | "food"
+  | "generic";
 export type PublicBoardThemeAssetType = "background" | "logo";
 export type PublicBoardThemeScope = "fallback" | "tenant" | "location";
+export type PublicBoardThemeBackgroundFit = "cover" | "contain";
 
 export interface PublicBoardThemeSettings {
   presetId: PublicBoardThemePresetId;
   heroTitle: string;
   heroSubtitle: string;
   logoUrl: string;
+  logoFit: PublicBoardThemeBackgroundFit;
   backgroundImageUrl: string;
+  backgroundImageFit: PublicBoardThemeBackgroundFit;
+  pageBackgroundImageUrl: string;
+  pageBackgroundImageFit: PublicBoardThemeBackgroundFit;
   pageBackgroundColor: string;
   cardBackgroundColor: string;
   cardAlpha: number;
@@ -740,7 +1321,10 @@ export interface QueueCurrentTicket {
   id: string;
   ticketNumber: string;
   customerName: string;
+  customerDisplayName?: string | null;
   calledAt: string | Date | null;
+  joinChannel?: JoinChannel;
+  customerConfirmedAt?: string | Date | null;
   servicePriorityBand?: QueuePriorityBand;
   linkedBookingReference?: string | null;
 }
@@ -749,6 +1333,7 @@ export interface QueueListTicket {
   id: string;
   ticketNumber: string;
   customerName: string;
+  customerDisplayName?: string | null;
   status: TicketStatus;
   position: number;
   joinChannel: JoinChannel;
@@ -756,8 +1341,13 @@ export interface QueueListTicket {
   isCarriedOver?: boolean;
   carryOverCount?: number;
   carriedOverAt?: string | Date | null;
+  carryOverExpiresAt?: string | Date | null;
   servicePriorityBand?: QueuePriorityBand;
   linkedBookingReference?: string | null;
+}
+
+export interface QueueOverflowTicket extends Omit<QueueListTicket, "position"> {
+  position: number | null;
 }
 
 export interface QueueHistoryTicket {
@@ -778,13 +1368,67 @@ export interface QueueFocusTicket {
   lookupCode: string;
   ticketNumber: string;
   customerName: string;
+  customerDisplayName?: string | null;
   status: TicketStatus;
+  customerConfirmedAt?: string | Date | null;
+  statusReason?: string | null;
+  isCarriedOver?: boolean;
+  carryOverCount?: number;
+  servicePriorityBand?: QueuePriorityBand;
+  carryOverExpiresAt?: string | Date | null;
+  currentQueueDayId?: string | null;
+  emailJourneyMode?: "not_eligible" | "metered" | "journey_exhausted";
   position: number | null;
   estimatedWaitMinutes: number;
   joinedAt: string | Date;
 }
 
+export interface QueueJourneySegment {
+  id: string;
+  queueDayId: string;
+  displayNumber: string;
+  sequence: number;
+  priorityBand: QueuePriorityBand;
+  activatedAt: string | Date;
+  endedAt: string | Date | null;
+  outcome: string | null;
+  outcomeReason: string | null;
+}
+
 export interface QueueDayStatus {
+  id?: string | null;
+  businessDate?: string;
+  state?: "unopened" | "open" | "closed";
+  availabilityReason?:
+    | "outside_store_hours"
+    | "not_opened"
+    | "accepting"
+    | "paused"
+    | "closing_soon"
+    | "reconciling"
+    | "extended"
+    | "closed";
+  intakeMode?: "accepting" | "paused" | null;
+  autoClosePhase?: "normal" | "warning" | "extended" | "overdue" | null;
+  timezone?: string;
+  effectiveOpensAt?: string | Date | null;
+  effectiveClosesAt?: string | Date | null;
+  currentClosesAt?: string | Date | null;
+  warningStartsAt?: string | Date | null;
+  finalWarningStartsAt?: string | Date | null;
+  serverNow?: string | Date;
+  version?: number | null;
+  deadlineVersion?: number | null;
+  closeReason?: string | null;
+  reconciliationError?: string | null;
+  reconciliationAttemptCount?: number;
+  lastReconciledAt?: string | Date | null;
+  outcomeCounts?: {
+    pendingCarryOver: number;
+    expired: number;
+    unserved: number;
+    skipped: number;
+  } | null;
   isClosed: boolean;
   isPaused: boolean;
   queueDateKey: string;
@@ -806,7 +1450,7 @@ export interface QueueIntakeStatus {
   fillRatio: number | null;
   thresholdRemaining: number | null;
   resumeWaitingCount: number | null;
-  state: "disabled" | "open" | "near_limit" | "paused";
+  state: "disabled" | "open" | "near_limit" | "paused" | "closed";
   stateLabel: string;
 }
 
@@ -814,12 +1458,13 @@ export interface QueueSnapshot {
   tenant: TenantSummary;
   location: StoreLocationSummary | null;
   publicBoardTheme: PublicBoardThemeResponse;
+  businessProfileTheme?: PublicBoardThemeResponse;
   queueDay: QueueDayStatus;
   queueIntake: QueueIntakeStatus;
   stats: QueueStats;
   current: QueueCurrentTicket | null;
   nextUp: QueueListTicket[];
-  overflow: QueueListTicket[];
+  overflow: QueueOverflowTicket[];
   recovery: QueueHistoryTicket[];
   history: QueueHistoryTicket[];
   usage: QueueUsage;
@@ -827,13 +1472,25 @@ export interface QueueSnapshot {
 }
 
 export interface AuthResponse {
-  token: string;
-  refreshToken: string;
+  token?: string;
+  refreshToken?: string;
+  csrfToken?: string;
   user: UserSummary;
+  sessionExpiresAt?: string | Date | null;
 }
 
+export interface MfaChallengeResponse {
+  mfaRequired: true;
+  challengeToken: string;
+  expiresAt: string | Date;
+  methods: Array<"totp" | "recovery">;
+}
+
+export type AuthLoginResponse = AuthResponse | MfaChallengeResponse;
+
 export interface LoginRequest {
-  email: string;
+  identifier: string;
+  email?: string;
   password: string;
 }
 
@@ -846,8 +1503,10 @@ export interface RegisterCustomerRequest {
 }
 
 export interface RegisterVendorRequest {
+  categoryId?: string;
   tenantName: string;
   tenantSlug: string;
+  category: string;
   name: string;
   username: string;
   email: string;
@@ -856,8 +1515,10 @@ export interface RegisterVendorRequest {
 }
 
 export interface CompleteVendorOnboardingRequest {
+  categoryId?: string;
   tenantName: string;
   tenantSlug: string;
+  category?: string;
   name: string;
   username?: string;
   email: string;
@@ -884,8 +1545,14 @@ export interface PublicVendorLocation {
   city: string;
   province: string;
   country: string;
+  contactEmail: string;
+  contactPhone: string;
+  addressLine1?: string;
+  addressLine2?: string;
   isPrimary: boolean;
   hours: StoreHourSummary[];
+  imageUrl?: string;
+  openStatus?: Pick<StoreOpenStatus, "isOpen" | "summary">;
 }
 
 export interface PublicVendorService {
@@ -899,17 +1566,30 @@ export interface PublicVendorService {
   priceAmountCents: number;
   currency: "PHP";
   priceDisplay: string;
+  imageUrl?: string;
+  locationServiceId?: string;
+  capacity?: number;
+  groupFunded?: GroupFundedLocationServiceSettings;
 }
 
 export interface PublicVendorProfile {
   name: string;
+  businessName?: string;
   slug: string;
   category: string;
   description: string;
   imageUrl: string;
+  capabilities: {
+    queue: boolean;
+    booking: boolean;
+    campaigns: boolean;
+    branding: boolean;
+  };
   services: PublicVendorService[];
   locations: PublicVendorLocation[];
+  locationServices?: LocationServiceSummary[];
   publicBoardTheme?: PublicBoardThemeResponse | null;
+  businessProfileTheme?: PublicBoardThemeResponse | null;
   location: {
     name: string;
     slug: string;
@@ -1012,6 +1692,11 @@ export interface CreateWalkInTicketRequest {
 }
 
 export interface UpdateTenantSettingsRequest {
+  name: string;
+  publicProfileDisplayName?: string;
+  publicProfileDescription?: string;
+  publicProfileCategory: string;
+  businessCategoryId?: string | null;
   queuePrefix: string;
   averageServiceMinutes: number | string;
   notificationThreshold: number | string;
@@ -1019,16 +1704,17 @@ export interface UpdateTenantSettingsRequest {
   autoPauseThreshold: number | string;
   autoResumeEnabled: boolean;
   autoResumeVacancyPercent: number | string;
-  contactEmail: string;
-  contactPhone: string;
 }
 
 export interface CustomerNotificationSettings {
   bookingAlerts: boolean;
   queueAlerts: boolean;
+  campaignAlerts: boolean;
+  preferredContactMethod: "in_app" | "email" | "sms";
 }
 
 export interface TenantNotificationSettings {
+  queueJoin: boolean;
   bookingIntake: boolean;
   paymentProofReview: boolean;
   bookingStatusChanges: boolean;
@@ -1074,11 +1760,15 @@ export interface PlatformQueueFeesResponse {
 export interface PlatformSettingsResponse {
   settings: {
     enterpriseInquiryEmail: string;
+    defaultTimezone: string;
+    mobileApprovedHosts: string[];
   };
 }
 
 export interface UpdatePlatformSettingsRequest {
   enterpriseInquiryEmail: string;
+  defaultTimezone: string;
+  mobileApprovedHosts: string[];
 }
 
 export interface UpdatePlatformQueueFeesRequest {
@@ -1191,6 +1881,10 @@ export interface CustomerAccountTicketSummary {
   locationName: string;
   locationSlug: string;
   status: TicketStatus;
+  statusReason?: string | null;
+  carryOverExpiresAt?: string | Date | null;
+  currentQueueDayId?: string | null;
+  journeySegments?: QueueJourneySegment[];
   createdAt: string | Date;
   updatedAt: string | Date;
 }
@@ -1199,6 +1893,8 @@ export interface CustomerAccountOverviewResponse {
   user: {
     id: string;
     name: string;
+    displayName: string;
+    avatarUrl: string;
     username: string | null;
     email: string | null;
     phone: string | null;
@@ -1206,20 +1902,28 @@ export interface CustomerAccountOverviewResponse {
     mfaEnabled: boolean;
     mfaRequired: boolean;
   };
+  trustRating: { average: number; count: number };
   notificationSettings: CustomerNotificationSettings;
   tickets: CustomerAccountTicketSummary[];
 }
 
 export interface CustomerProfileUpdateRequest {
   name: string;
+  displayName?: string;
 }
 
 export interface CustomerProfileUpdateResponse extends AuthActionResponse {
   user: CustomerAccountOverviewResponse["user"];
 }
 
+export interface CustomerAvatarUploadResponse extends AuthActionResponse {
+  user: CustomerAccountOverviewResponse["user"];
+  avatarUrl: string;
+}
+
 export interface CustomerAccountHistoryResponse {
   tickets: CustomerAccountTicketSummary[];
+  pagination?: PaginationMetadata;
 }
 
 export interface OAuthProvidersResponse {
@@ -1232,6 +1936,8 @@ export interface EnterpriseInquiryRequest {
   email: string;
   phone: string;
   message: string;
+  honeypot?: string;
+  turnstileToken?: string;
 }
 
 export interface EnterpriseInquiryResponse {

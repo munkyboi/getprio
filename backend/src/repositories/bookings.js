@@ -12,6 +12,7 @@ const BOOKING_COLUMNS = `
   bookings.customer_email,
   bookings.customer_phone,
   bookings.booking_quantity,
+  bookings.execution_mode,
   bookings.scheduled_start_at,
   bookings.scheduled_end_at,
   bookings.status,
@@ -31,6 +32,9 @@ const BOOKING_COLUMNS = `
   bookings.pending_expires_at,
   bookings.expired_at,
   bookings.expiration_reason,
+  bookings.fulfillment_outcome_reason,
+  bookings.refund_eligible,
+  bookings.fulfillment_resolved_at,
   bookings.notify_by_email,
   bookings.notify_by_sms,
   bookings.sms_alert_fee_payment_id,
@@ -41,26 +45,95 @@ const BOOKING_COLUMNS = `
   bookings.checked_in_by_user_id,
   bookings.no_show_at,
   bookings.no_show_by_user_id,
+  bookings.check_in_window_notified_at,
+  bookings.check_in_closing_notified_at,
+  bookings.group_funded_booking_id,
+  bookings.booking_payment_source,
+  bookings.organizer_campaign_opt_in,
   bookings.created_at,
   bookings.updated_at,
+  group_funded_bookings.public_token AS group_funded_public_token,
+  COALESCE(NULLIF(group_funded_organizer.display_name, ''), group_funded_bookings.organizer_display_name) AS group_funded_organizer_display_name,
+  group_funded_bookings.campaign_status AS group_funded_campaign_status,
+  group_funded_bookings.visibility AS group_funded_visibility,
+  group_funded_bookings.campaign_title AS group_funded_campaign_title,
+  group_funded_bookings.description AS group_funded_description,
+  group_funded_bookings.funding_deadline_at AS group_funded_funding_deadline_at,
+  group_funded_bookings.target_amount_cents AS group_funded_target_amount_cents,
+  group_funded_bookings.required_contribution_amount_cents AS group_funded_required_contribution_amount_cents,
+  group_funded_bookings.rounding_adjustment_cents AS group_funded_rounding_adjustment_cents,
+  group_funded_bookings.required_contributors AS group_funded_required_contributors,
+  group_funded_bookings.paid_participant_count AS group_funded_paid_participant_count,
+  group_funded_bookings.funded_amount_cents AS group_funded_funded_amount_cents,
+  group_funded_bookings.funded_at AS group_funded_funded_at,
+  group_funded_bookings.confirmed_at AS group_funded_confirmed_at,
   tenants.name AS tenant_name,
   tenants.slug AS tenant_slug,
   store_locations.name AS location_name,
   store_locations.slug AS location_slug,
+  store_locations.address_line1 AS location_address_line1,
+  store_locations.address_line2 AS location_address_line2,
+  store_locations.city AS location_city,
+  store_locations.province AS location_province,
+  store_locations.timezone AS location_timezone,
   vendor_services.name AS service_name,
   vendor_services.slug AS service_slug,
+  vendor_services.image_url AS service_image_url,
   vendor_services.manual_payment_required AS service_manual_payment_required,
   vendor_services.price_amount_cents AS service_price_amount_cents,
   vendor_services.currency AS service_currency,
   vendor_services.price_display AS service_price_display,
   store_locations.payment_method_label AS location_payment_method_label,
+  store_locations.payment_bank_name AS location_payment_bank_name,
   store_locations.payment_account_display_name AS location_payment_account_display_name,
   store_locations.payment_account_identifier_display AS location_payment_account_identifier_display,
   store_locations.payment_qr_image_url AS location_payment_qr_image_url,
   store_locations.payment_qr_active AS location_payment_qr_active,
   tickets.ticket_number AS queue_ticket_number,
   tickets.lookup_code AS queue_ticket_lookup_code,
-  tickets.status AS queue_ticket_status
+  tickets.status AS queue_ticket_status,
+  COALESCE((
+    SELECT json_agg(json_build_object(
+      'id', booking_bundle_items.id,
+      'serviceId', booking_bundle_items.service_id,
+      'serviceName', booking_bundle_items.service_name_snapshot,
+      'serviceSlug', booking_bundle_items.service_slug_snapshot,
+      'imageUrl', (
+        SELECT bundle_services.image_url
+        FROM vendor_services bundle_services
+        WHERE bundle_services.id = booking_bundle_items.service_id
+          AND bundle_services.tenant_id = booking_bundle_items.tenant_id
+        LIMIT 1
+      ),
+      'bookingQuantity', booking_bundle_items.booking_quantity,
+      'priceAmountCents', booking_bundle_items.price_amount_cents,
+      'currency', booking_bundle_items.currency,
+      'scheduledStartAt', booking_bundle_items.scheduled_start_at,
+      'scheduledEndAt', booking_bundle_items.scheduled_end_at,
+      'sortOrder', booking_bundle_items.sort_order
+    ) ORDER BY booking_bundle_items.sort_order, booking_bundle_items.id)
+    FROM booking_bundle_items
+    WHERE booking_bundle_items.booking_id = bookings.id
+      AND booking_bundle_items.tenant_id = bookings.tenant_id
+      AND booking_bundle_items.location_id = bookings.location_id
+  ), '[]'::json) AS booking_bundle_items,
+  COALESCE((
+    SELECT json_agg(json_build_object(
+      'id', group_funded_booking_items.id,
+      'serviceId', group_funded_booking_items.service_id,
+      'serviceName', group_funded_booking_items.service_name_snapshot,
+      'serviceSlug', group_funded_booking_items.service_slug_snapshot,
+      'bookingQuantity', group_funded_booking_items.booking_quantity,
+      'priceAmountCents', group_funded_booking_items.price_amount_cents,
+      'currency', group_funded_booking_items.currency,
+      'executionMode', group_funded_booking_items.execution_mode,
+      'scheduledStartAt', group_funded_booking_items.scheduled_start_at,
+      'scheduledEndAt', group_funded_booking_items.scheduled_end_at,
+      'sortOrder', group_funded_booking_items.sort_order
+    ) ORDER BY group_funded_booking_items.sort_order, group_funded_booking_items.id)
+    FROM group_funded_booking_items
+    WHERE group_funded_booking_items.campaign_id = bookings.group_funded_booking_id
+  ), '[]'::json) AS group_funded_bundle_items
 `;
 
 function buildQueryClient(client) {
@@ -81,14 +154,49 @@ function mapBooking(row) {
     locationId: String(row.location_id),
     locationName: row.location_name || "",
     locationSlug: row.location_slug || "",
+    locationAddress: [
+      row.location_address_line1,
+      row.location_address_line2,
+      row.location_city,
+      row.location_province
+    ].filter(Boolean).join(", "),
+    locationTimezone: row.location_timezone || "Asia/Manila",
     serviceId: String(row.service_id),
     serviceName: row.service_name || "",
     serviceSlug: row.service_slug || "",
+    serviceImageUrl: row.service_image_url || "",
     serviceManualPaymentRequired: Boolean(row.service_manual_payment_required),
     servicePriceAmountCents: Number(row.service_price_amount_cents || 0),
     serviceCurrency: row.service_currency || "PHP",
     servicePriceDisplay: row.service_price_display || "",
+    bundleItems: Array.isArray(row.booking_bundle_items) ? row.booking_bundle_items.map((item) => ({
+      id: String(item.id),
+      serviceId: String(item.serviceId),
+      serviceName: item.serviceName,
+      serviceSlug: item.serviceSlug,
+      imageUrl: item.imageUrl || "",
+      bookingQuantity: Number(item.bookingQuantity),
+      priceAmountCents: Number(item.priceAmountCents),
+      currency: item.currency || "PHP",
+      scheduledStartAt: item.scheduledStartAt,
+      scheduledEndAt: item.scheduledEndAt,
+      sortOrder: Number(item.sortOrder || 0)
+    })) : [],
+    groupFundedBundleItems: Array.isArray(row.group_funded_bundle_items) ? row.group_funded_bundle_items.map((item) => ({
+      _id: String(item.id),
+      serviceId: String(item.serviceId),
+      serviceNameSnapshot: item.serviceName,
+      serviceSlugSnapshot: item.serviceSlug,
+      bookingQuantity: Number(item.bookingQuantity || 1),
+      priceAmountCents: Number(item.priceAmountCents || 0),
+      currency: item.currency || "PHP",
+      executionMode: item.executionMode || "parallel",
+      scheduledStartAt: item.scheduledStartAt,
+      scheduledEndAt: item.scheduledEndAt,
+      sortOrder: Number(item.sortOrder || 0)
+    })) : [],
     locationPaymentMethodLabel: row.location_payment_method_label || "",
+    locationPaymentBankName: row.location_payment_bank_name || "",
     locationPaymentAccountDisplayName: row.location_payment_account_display_name || "",
     locationPaymentAccountIdentifierDisplay: row.location_payment_account_identifier_display || "",
     locationPaymentQrImageUrl: row.location_payment_qr_image_url || "",
@@ -98,6 +206,7 @@ function mapBooking(row) {
     customerEmail: row.customer_email || "",
     customerPhone: row.customer_phone || "",
     bookingQuantity: Number(row.booking_quantity || 1),
+    executionMode: row.execution_mode || "parallel",
     scheduledStartAt: row.scheduled_start_at,
     scheduledEndAt: row.scheduled_end_at,
     status: row.status,
@@ -117,6 +226,9 @@ function mapBooking(row) {
     pendingExpiresAt: row.pending_expires_at || null,
     expiredAt: row.expired_at || null,
     expirationReason: row.expiration_reason || "",
+    fulfillmentOutcomeReason: row.fulfillment_outcome_reason || "",
+    refundEligible: Boolean(row.refund_eligible),
+    fulfillmentResolvedAt: row.fulfillment_resolved_at || null,
     notifyByEmail: row.notify_by_email !== false,
     notifyBySms: Boolean(row.notify_by_sms),
     smsAlertFeePaymentId: row.sms_alert_fee_payment_id || "",
@@ -130,6 +242,32 @@ function mapBooking(row) {
     checkedInByUserId: row.checked_in_by_user_id ? String(row.checked_in_by_user_id) : null,
     noShowAt: row.no_show_at || null,
     noShowByUserId: row.no_show_by_user_id ? String(row.no_show_by_user_id) : null,
+    checkInWindowNotifiedAt: row.check_in_window_notified_at || null,
+    checkInClosingNotifiedAt: row.check_in_closing_notified_at || null,
+    groupFundedBookingId: row.group_funded_booking_id ? String(row.group_funded_booking_id) : null,
+    bookingPaymentSource: row.booking_payment_source || "standard",
+    organizerCampaignOptIn: Boolean(row.organizer_campaign_opt_in),
+    groupFundedCampaign: row.group_funded_public_token
+      ? {
+          id: row.group_funded_booking_id ? String(row.group_funded_booking_id) : null,
+          publicToken: row.group_funded_public_token,
+          organizerDisplayName: row.group_funded_organizer_display_name || "",
+          campaignStatus: row.group_funded_campaign_status,
+          visibility: row.group_funded_visibility,
+          campaignTitle: row.group_funded_campaign_title || row.service_name || "",
+          description: row.group_funded_description || "",
+          fundingDeadlineAt: row.group_funded_funding_deadline_at,
+          currency: row.service_currency || "PHP",
+          targetAmountCents: Number(row.group_funded_target_amount_cents || 0),
+          requiredContributionAmountCents: Number(row.group_funded_required_contribution_amount_cents || 0),
+          roundingAdjustmentCents: Number(row.group_funded_rounding_adjustment_cents || 0),
+          requiredContributors: Number(row.group_funded_required_contributors || 0),
+          paidParticipantCount: Number(row.group_funded_paid_participant_count || 0),
+          fundedAmountCents: Number(row.group_funded_funded_amount_cents || 0),
+          fundedAt: row.group_funded_funded_at || null,
+          confirmedAt: row.group_funded_confirmed_at || null
+        }
+      : null,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -156,6 +294,7 @@ async function createBooking(data, options = {}) {
             customer_email,
             customer_phone,
             booking_quantity,
+            execution_mode,
             scheduled_start_at,
             scheduled_end_at,
             status,
@@ -167,9 +306,10 @@ async function createBooking(data, options = {}) {
             notify_by_sms,
             sms_alert_fee_payment_id,
             contact_verified_at,
-            contact_verification_channel
+            contact_verification_channel,
+            organizer_campaign_opt_in
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'pending', $12, $13, 'unpaid', $14, $15, $16, $17, $18, $19)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'pending', $13, $14, 'unpaid', $15, $16, $17, $18, $19, $20, $21)
           RETURNING *
         `,
         [
@@ -182,6 +322,7 @@ async function createBooking(data, options = {}) {
           data.customerEmail || null,
           data.customerPhone || null,
           Number(data.bookingQuantity || 1),
+          data.executionMode || "parallel",
           data.scheduledStartAt,
           data.scheduledEndAt,
           data.notes || null,
@@ -191,11 +332,133 @@ async function createBooking(data, options = {}) {
           Boolean(data.notifyBySms),
           data.smsAlertFeePaymentId || null,
           data.contactVerifiedAt || null,
-          data.contactVerificationChannel || null
+          data.contactVerificationChannel || null,
+          Boolean(data.organizerCampaignOptIn)
         ]
       );
 
-      return findBookingById(result.rows[0].id, { client: queryClient });
+      const bookingId = result.rows[0].id;
+      if (Array.isArray(data.bundleItems) && data.bundleItems.length) {
+        for (const item of data.bundleItems) {
+          await queryClient.query(
+            `
+              INSERT INTO booking_bundle_items (
+                booking_id, tenant_id, location_id, service_id, service_name_snapshot, service_slug_snapshot,
+                booking_quantity, price_amount_cents, currency, scheduled_start_at, scheduled_end_at, sort_order
+              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            `,
+            [
+              Number(bookingId), Number(data.tenantId), Number(data.locationId), Number(item.serviceId),
+              item.serviceName, item.serviceSlug, Number(item.bookingQuantity), Number(item.priceAmountCents),
+              item.currency || "PHP", item.scheduledStartAt, item.scheduledEndAt, Number(item.sortOrder || 0)
+            ]
+          );
+        }
+      }
+      return findBookingById(bookingId, { client: queryClient });
+    } catch (error) {
+      if (error.code !== "23505" || attempt === 4) {
+        throw error;
+      }
+    }
+  }
+
+  return null;
+}
+
+async function createGroupFundedBooking(data, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      const result = await queryClient.query(
+        `
+          INSERT INTO bookings (
+            reference,
+            tenant_id,
+            location_id,
+            service_id,
+            customer_user_id,
+            customer_name,
+            customer_email,
+            customer_phone,
+            booking_quantity,
+            execution_mode,
+            scheduled_start_at,
+            scheduled_end_at,
+            status,
+            notes,
+            payment_reference,
+            payment_status,
+            payment_verified_at,
+            payment_verified_by_user_id,
+            pending_expires_at,
+            notify_by_email,
+            notify_by_sms,
+            contact_verified_at,
+            contact_verification_channel,
+            group_funded_booking_id,
+            booking_payment_source
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'confirmed', $13, $14, 'paid', $15, $16, NULL, $17, $18, $19, $20, $21, 'group_funded')
+          RETURNING *
+        `,
+        [
+          generateBookingReference(),
+          Number(data.tenantId),
+          Number(data.locationId),
+          Number(data.serviceId),
+          data.customerUserId ? Number(data.customerUserId) : null,
+          data.customerName,
+          data.customerEmail || null,
+          data.customerPhone || null,
+          Number(data.bookingQuantity || 1),
+          data.executionMode || "parallel",
+          data.scheduledStartAt,
+          data.scheduledEndAt,
+          data.notes || null,
+          data.paymentReference || null,
+          data.paymentVerifiedAt || new Date().toISOString(),
+          data.paymentVerifiedByUserId ? Number(data.paymentVerifiedByUserId) : null,
+          data.notifyByEmail !== false,
+          Boolean(data.notifyBySms),
+          data.contactVerifiedAt || null,
+          data.contactVerificationChannel || null,
+          Number(data.groupFundedBookingId)
+        ]
+      );
+
+      const bookingId = result.rows[0].id;
+      const bundleItems = Array.isArray(data.bundleItems) && data.bundleItems.length
+        ? data.bundleItems
+        : [{
+            serviceId: data.serviceId,
+            serviceName: data.serviceName || "Service",
+            serviceSlug: data.serviceSlug || "",
+            bookingQuantity: data.bookingQuantity || 1,
+            priceAmountCents: data.priceAmountCents || 0,
+            currency: data.currency || "PHP",
+            scheduledStartAt: data.scheduledStartAt,
+            scheduledEndAt: data.scheduledEndAt,
+            sortOrder: 0
+          }];
+      for (const item of bundleItems) {
+        await queryClient.query(
+          `
+            INSERT INTO booking_bundle_items (
+              booking_id, tenant_id, location_id, service_id, service_name_snapshot, service_slug_snapshot,
+              booking_quantity, price_amount_cents, currency, scheduled_start_at, scheduled_end_at, sort_order
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+          `,
+          [
+            Number(bookingId), Number(data.tenantId), Number(data.locationId), Number(item.serviceId),
+            item.serviceName, item.serviceSlug, Number(item.bookingQuantity), Number(item.priceAmountCents),
+            item.currency || "PHP", item.scheduledStartAt, item.scheduledEndAt, Number(item.sortOrder || 0)
+          ]
+        );
+      }
+
+      return findBookingById(bookingId, { client: queryClient });
     } catch (error) {
       if (error.code !== "23505" || attempt === 4) {
         throw error;
@@ -214,6 +477,8 @@ async function findBookingById(id, options = {}) {
       INNER JOIN tenants ON tenants.id = bookings.tenant_id
       INNER JOIN store_locations ON store_locations.id = bookings.location_id
       INNER JOIN vendor_services ON vendor_services.id = bookings.service_id
+      LEFT JOIN group_funded_bookings ON group_funded_bookings.id = bookings.group_funded_booking_id
+      LEFT JOIN users group_funded_organizer ON group_funded_organizer.id = group_funded_bookings.organizer_user_id
       LEFT JOIN tickets ON tickets.id = bookings.queue_ticket_id
       WHERE bookings.id = $1
       LIMIT 1
@@ -232,6 +497,8 @@ async function findBookingByIdForUpdate(id, options = {}) {
       INNER JOIN tenants ON tenants.id = bookings.tenant_id
       INNER JOIN store_locations ON store_locations.id = bookings.location_id
       INNER JOIN vendor_services ON vendor_services.id = bookings.service_id
+      LEFT JOIN group_funded_bookings ON group_funded_bookings.id = bookings.group_funded_booking_id
+      LEFT JOIN users group_funded_organizer ON group_funded_organizer.id = group_funded_bookings.organizer_user_id
       LEFT JOIN tickets ON tickets.id = bookings.queue_ticket_id
       WHERE bookings.id = $1
       FOR UPDATE OF bookings
@@ -244,6 +511,78 @@ async function findBookingByIdForUpdate(id, options = {}) {
 }
 
 async function listBookingsForCustomer(userId, options = {}) {
+  if (options.page || options.pageSize || options.offset !== undefined) {
+    const pageSize = Math.min(Math.max(Number(options.pageSize || options.limit || 10) || 10, 1), 100);
+    const offset = Math.max(Number(options.offset || 0) || 0, 0);
+    const queryClient = buildQueryClient(options.client);
+    const params = [Number(userId)];
+    const filters = ["bookings.customer_user_id = $1"];
+
+    if (options.status && options.status !== "all") {
+      params.push(String(options.status));
+      filters.push(`bookings.status = $${params.length}`);
+    }
+
+    if (options.scheduledDateFrom && options.scheduledDateTo) {
+      params.push(String(options.scheduledDateFrom));
+      params.push(String(options.scheduledDateTo));
+      filters.push(`(bookings.scheduled_start_at AT TIME ZONE store_locations.timezone)::date BETWEEN $${params.length - 1}::date AND $${params.length}::date`);
+    } else if (options.scheduledDateFrom) {
+      params.push(String(options.scheduledDateFrom));
+      filters.push(`(bookings.scheduled_start_at AT TIME ZONE store_locations.timezone)::date >= $${params.length}::date`);
+    } else if (options.scheduledDateTo) {
+      params.push(String(options.scheduledDateTo));
+      filters.push(`(bookings.scheduled_start_at AT TIME ZONE store_locations.timezone)::date <= $${params.length}::date`);
+    }
+
+    if (options.search) {
+      const searchPattern = `%${options.search}%`;
+      params.push(searchPattern);
+      filters.push(`(
+        bookings.reference ILIKE $${params.length} OR
+        bookings.customer_name ILIKE $${params.length} OR
+        bookings.customer_email ILIKE $${params.length} OR
+        vendor_services.name ILIKE $${params.length} OR
+        tenants.name ILIKE $${params.length}
+      )`);
+    }
+
+    const whereClause = filters.join(" AND ");
+    const countResult = await queryClient.query(
+      `
+        SELECT COUNT(*)::int AS count
+        FROM bookings
+        INNER JOIN tenants ON tenants.id = bookings.tenant_id
+        INNER JOIN store_locations ON store_locations.id = bookings.location_id
+        INNER JOIN vendor_services ON vendor_services.id = bookings.service_id
+        WHERE ${whereClause}
+      `,
+      params
+    );
+    const listParams = [...params, pageSize, offset];
+    const result = await queryClient.query(
+      `
+        SELECT ${BOOKING_COLUMNS}
+        FROM bookings
+        INNER JOIN tenants ON tenants.id = bookings.tenant_id
+        INNER JOIN store_locations ON store_locations.id = bookings.location_id
+        INNER JOIN vendor_services ON vendor_services.id = bookings.service_id
+        LEFT JOIN group_funded_bookings ON group_funded_bookings.id = bookings.group_funded_booking_id
+        LEFT JOIN users group_funded_organizer ON group_funded_organizer.id = group_funded_bookings.organizer_user_id
+        LEFT JOIN tickets ON tickets.id = bookings.queue_ticket_id
+        WHERE ${whereClause}
+        ORDER BY bookings.scheduled_start_at ASC, bookings.created_at ASC
+        LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+      `,
+      listParams
+    );
+
+    return {
+      bookings: result.rows.map(mapBooking),
+      totalItems: Number(countResult.rows[0]?.count || 0)
+    };
+  }
+
   const limit = Math.min(Math.max(Number(options.limit || 50) || 50, 1), 100);
   const result = await buildQueryClient(options.client).query(
     `
@@ -252,9 +591,11 @@ async function listBookingsForCustomer(userId, options = {}) {
       INNER JOIN tenants ON tenants.id = bookings.tenant_id
       INNER JOIN store_locations ON store_locations.id = bookings.location_id
       INNER JOIN vendor_services ON vendor_services.id = bookings.service_id
+      LEFT JOIN group_funded_bookings ON group_funded_bookings.id = bookings.group_funded_booking_id
+      LEFT JOIN users group_funded_organizer ON group_funded_organizer.id = group_funded_bookings.organizer_user_id
       LEFT JOIN tickets ON tickets.id = bookings.queue_ticket_id
       WHERE bookings.customer_user_id = $1
-      ORDER BY bookings.scheduled_start_at DESC, bookings.created_at DESC
+      ORDER BY bookings.scheduled_start_at ASC, bookings.created_at ASC
       LIMIT $2
     `,
     [Number(userId), limit]
@@ -345,11 +686,14 @@ async function listBookingsForTenant(tenantId, options = {}) {
     INNER JOIN tenants ON tenants.id = bookings.tenant_id
     INNER JOIN store_locations ON store_locations.id = bookings.location_id
     INNER JOIN vendor_services ON vendor_services.id = bookings.service_id
+    LEFT JOIN group_funded_bookings ON group_funded_bookings.id = bookings.group_funded_booking_id
+    LEFT JOIN users group_funded_organizer ON group_funded_organizer.id = group_funded_bookings.organizer_user_id
     LEFT JOIN tickets ON tickets.id = bookings.queue_ticket_id
     WHERE ${whereClause}
     ORDER BY
-      bookings.created_at DESC,
-      bookings.id DESC
+      bookings.scheduled_start_at ASC,
+      bookings.created_at ASC,
+      bookings.id ASC
     LIMIT $${limitPlaceholder} OFFSET $${offsetPlaceholder}
   `;
 
@@ -366,19 +710,20 @@ async function countOverlappingActiveBookings(tenantId, options = {}) {
   const result = await buildQueryClient(options.client).query(
     `
       SELECT COUNT(*)::int AS count
-      FROM bookings
-      WHERE tenant_id = $1
-        AND location_id = $2
-        AND service_id = $3
-        AND status = ANY($4::text[])
-        AND scheduled_start_at < $6::timestamptz
-        AND scheduled_end_at > $5::timestamptz
-        AND ($7::bigint IS NULL OR id <> $7::bigint)
+      FROM booking_bundle_items
+      INNER JOIN bookings ON bookings.id = booking_bundle_items.booking_id
+      WHERE booking_bundle_items.tenant_id = $1
+        AND booking_bundle_items.location_id = $2
+        AND ($3::bigint IS NULL OR booking_bundle_items.service_id = $3::bigint)
+        AND bookings.status = ANY($4::text[])
+        AND booking_bundle_items.scheduled_start_at < $6::timestamptz
+        AND booking_bundle_items.scheduled_end_at > $5::timestamptz
+        AND ($7::bigint IS NULL OR bookings.id <> $7::bigint)
     `,
     [
       Number(tenantId),
       Number(options.locationId),
-      Number(options.serviceId),
+      options.serviceId ? Number(options.serviceId) : null,
       ["pending", "confirmed", "rescheduled"],
       options.startsAt,
       options.endsAt,
@@ -422,7 +767,9 @@ async function updateBooking(id, data, options = {}) {
     ["checkedInAt", "checked_in_at"],
     ["checkedInByUserId", "checked_in_by_user_id"],
     ["noShowAt", "no_show_at"],
-    ["noShowByUserId", "no_show_by_user_id"]
+    ["noShowByUserId", "no_show_by_user_id"],
+    ["checkInWindowNotifiedAt", "check_in_window_notified_at"],
+    ["checkInClosingNotifiedAt", "check_in_closing_notified_at"]
   ]) {
     if (Object.prototype.hasOwnProperty.call(data, field)) {
       values.push(data[field]);
@@ -447,13 +794,81 @@ async function updateBooking(id, data, options = {}) {
   return findBookingById(id, options);
 }
 
+async function listBookingsForCheckInReminder(options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const now = options.now || new Date().toISOString();
+  const type = options.type === "closing" ? "closing" : "window";
+  const filters = [
+    "bookings.status IN ('confirmed', 'rescheduled')",
+    "bookings.queue_ticket_id IS NULL",
+    "bookings.checked_in_at IS NULL"
+  ];
+  const values = [now];
+
+  if (type === "closing") {
+    filters.push("bookings.check_in_closing_notified_at IS NULL");
+    filters.push("bookings.scheduled_start_at + INTERVAL '10 minutes' <= $1::timestamptz");
+    filters.push("bookings.scheduled_start_at + INTERVAL '15 minutes' >= $1::timestamptz");
+  } else {
+    filters.push("bookings.check_in_window_notified_at IS NULL");
+    filters.push("bookings.scheduled_start_at - INTERVAL '15 minutes' <= $1::timestamptz");
+    filters.push("bookings.scheduled_start_at + INTERVAL '15 minutes' >= $1::timestamptz");
+  }
+
+  if (options.tenantId) {
+    values.push(Number(options.tenantId));
+    filters.push(`bookings.tenant_id = $${values.length}`);
+  }
+
+  if (options.customerUserId) {
+    values.push(Number(options.customerUserId));
+    filters.push(`bookings.customer_user_id = $${values.length}`);
+  }
+
+  const result = await queryClient.query(
+    `
+      SELECT ${BOOKING_COLUMNS}
+      FROM bookings
+      INNER JOIN tenants ON tenants.id = bookings.tenant_id
+      INNER JOIN store_locations ON store_locations.id = bookings.location_id
+      INNER JOIN vendor_services ON vendor_services.id = bookings.service_id
+      LEFT JOIN group_funded_bookings ON group_funded_bookings.id = bookings.group_funded_booking_id
+      LEFT JOIN users group_funded_organizer ON group_funded_organizer.id = group_funded_bookings.organizer_user_id
+      LEFT JOIN tickets ON tickets.id = bookings.queue_ticket_id
+      WHERE ${filters.join(" AND ")}
+      ORDER BY bookings.scheduled_start_at ASC
+      LIMIT 100
+    `,
+    values
+  );
+
+  return result.rows.map(mapBooking);
+}
+
+async function markBookingCheckInReminderSent(id, type, options = {}) {
+  const column = type === "closing"
+    ? "check_in_closing_notified_at"
+    : "check_in_window_notified_at";
+  await buildQueryClient(options.client).query(
+    `
+      UPDATE bookings
+      SET ${column} = NOW()
+      WHERE id = $1
+    `,
+    [Number(id)]
+  );
+}
+
 async function updateBookingByQueueTicketId(queueTicketId, data, options = {}) {
   const sets = [];
   const values = [];
 
   for (const [field, column] of [
     ["status", "status"],
-    ["notes", "notes"]
+    ["notes", "notes"],
+    ["fulfillmentOutcomeReason", "fulfillment_outcome_reason"],
+    ["refundEligible", "refund_eligible"],
+    ["fulfillmentResolvedAt", "fulfillment_resolved_at"]
   ]) {
     if (Object.prototype.hasOwnProperty.call(data, field)) {
       values.push(data[field]);
@@ -524,12 +939,15 @@ async function expirePendingBookings(options = {}) {
 
 module.exports = {
   createBooking,
+  createGroupFundedBooking,
   findBookingById,
   findBookingByIdForUpdate,
   listBookingsForCustomer,
   listBookingsForTenant,
   countOverlappingActiveBookings,
   expirePendingBookings,
+  listBookingsForCheckInReminder,
+  markBookingCheckInReminderSent,
   updateBooking,
   updateBookingByQueueTicketId
 };

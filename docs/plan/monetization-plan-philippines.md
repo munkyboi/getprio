@@ -4,11 +4,12 @@
 
 GetPrio should be priced in PHP and monetized around location count, staff seats, ticket volume, SMS usage, and support level. The main commercial target is the Pro plan, with Economical kept simple for small vendors and Enterprise quoted for larger organizations with heavier onboarding and support needs.
 
-Recommended monthly tiers:
+Settled tiers:
 
-- Economical: `PHP 499/mo`
-- Pro: `PHP 1,499/mo`
-- Enterprise: from `PHP 6,999/mo`
+- Free: `PHP 0`, queue-only, no payment checkout
+- Economical: `PHP 499/mo` or `PHP 4,980/year`
+- Pro: `PHP 1,499/mo` or `PHP 14,990/year`
+- Enterprise: `PHP 6,999/mo` or `PHP 69,990/year`
 
 For the MVP, use PayMongo for local payment checkout and Semaphore for SMS notifications. Later, evaluate Xendit PH for production billing and ITEXMO for production SMS once real usage, approval requirements, support quality, and pricing are clearer.
 
@@ -16,11 +17,26 @@ For the MVP, use PayMongo for local payment checkout and Semaphore for SMS notif
 
 | Tier | Price | Best For | Included |
 | --- | ---: | --- | --- |
-| Economical | `PHP 499/mo` | Solo vendors, small shops, small clinics | 1 location, 1 vendor seat, QR join page, public queue board, basic dashboard, email alerts, 100 transactional emails/mo, 500 tickets/mo, 30-day history |
-| Pro | `PHP 1,499/mo` | Clinics, salons, offices, busier service counters | 3 locations, 10 staff seats, branded queue pages, analytics, CSV export, queue settings, email alerts, 500 transactional emails/mo, 5,000 tickets/mo, 300 SMS/mo |
-| Enterprise | `PHP 6,999+/mo` | Multi-branch businesses, schools, LGUs, hospitals | 10+ locations, advanced roles, SLA/support, 1,095-day history, custom SMS bundle, optional custom domain/SSO |
+| Free | `PHP 0` | Vendors starting with queues | Queue System Access; 500 Queue Tickets and 500 Queue Email Journeys per month; no Branding, Discovery, Booking, or Campaigns |
+| Economical | `PHP 499/mo` | Solo vendors, small shops, small clinics | Queue, Discovery, Booking, and Campaigns; no public-facing Branding; 1,000 Tickets, 1,000 Journeys, and 100 Service Bookings per month |
+| Pro | `PHP 1,499/mo` | Clinics, salons, offices, busier service counters | All five features; 5,000 Tickets, 5,000 Journeys, and 1,000 Service Bookings per month |
+| Enterprise | `PHP 6,999/mo` | Multi-branch businesses, schools, LGUs, hospitals | All five features; 50,000 Tickets, 50,000 Journeys, and 10,000 Service Bookings per month |
 
 The `Included` column is both customer-facing pricing copy and the source for backend entitlement rules. Each item should map to a numeric limit, feature flag, support level, or custom-quoted Enterprise entitlement so billing, dashboard display, and future feature gating stay consistent.
+
+Branding applies to every public-facing vendor page, not only the queue board. Campaign access depends on Booking access. Platform Admin may independently enable or disable the customer queue fee and set its amount for each plan; this fee is not part of the vendor's allowance balance.
+
+## Usage Credits
+
+Usage Credits let a vendor continue after its monthly Queue Ticket or Queue Email Journey allowance is used. They never enable a disabled feature and never bypass the Service Booking allowance.
+
+| Pack | Queue Tickets | Queue Email Journeys | Price |
+| --- | ---: | ---: | ---: |
+| P100 | 100 | 100 | `PHP 99` |
+| P500 | 500 | 500 | `PHP 399` |
+| P1000 | 1,000 | 1,000 | `PHP 699` |
+
+A Queue Email Journey is the ticket-producing queue flow: up to four OTP messages plus six once-only lifecycle messages. The Journey is consumed at most once when the Ticket is admitted; abandoned or failed OTP attempts do not consume a Journey. Credits are auditable resource-specific lots and are used after the base allowance, with expiring promotional credits before non-expiring promotional and purchased credits.
 
 ## Add-Ons And Setup Fees
 

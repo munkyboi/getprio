@@ -1,4 +1,5 @@
 const db = require("../config/db");
+const { findPlanBySlug } = require("../services/subscriptionPlans");
 
 function buildQueryClient(client) {
   return client || db.pool;
@@ -244,6 +245,17 @@ async function recordBillingEvent(data, options = {}) {
 
 async function activateTenantSubscription(data, options = {}) {
   const queryClient = buildQueryClient(options.client);
+  const currentResult = await queryClient.query(
+    `SELECT * FROM tenant_subscriptions WHERE tenant_id = $1 AND status IN ('active','past_due','unpaid','suspended') ORDER BY updated_at DESC FOR UPDATE`,
+    [Number(data.tenantId)]
+  );
+  if (currentResult.rows.length > 1) throw Object.assign(new Error("Multiple current subscription records require reconciliation."), { statusCode: 409, code: "SUBSCRIPTION_AMBIGUOUS" });
+  const current = currentResult.rows[0] || null;
+  if (current && ["past_due", "unpaid", "suspended"].includes(current.status)) throw Object.assign(new Error("Restricted subscriptions require provider recovery before a plan change."), { statusCode: 409, code: "SUBSCRIPTION_RESTRICTED" });
+  const expectedSubscriptionId = data.expectedSubscriptionId ? String(data.expectedSubscriptionId) : null;
+  if ((current ? String(current.id) : null) !== expectedSubscriptionId || (current && data.expectedPlanSlug && current.plan_slug !== data.expectedPlanSlug)) {
+    throw Object.assign(new Error("The subscription changed after checkout began. The paid checkout requires reconciliation before activation."), { statusCode: 409, code: "SUBSCRIPTION_REVISION_CONFLICT" });
+  }
   await queryClient.query(
     `
       UPDATE tenant_subscriptions
@@ -281,6 +293,14 @@ async function activateTenantSubscription(data, options = {}) {
       JSON.stringify(data.entitlements || {}),
       JSON.stringify(data.metadata || {})
     ]
+  );
+
+  await queryClient.query(
+    `INSERT INTO subscription_transitions
+       (tenant_id, from_subscription_id, from_plan_slug, to_plan_slug, transition_type, status, reason, effective_at, completed_at, metadata)
+     VALUES ($1,$2,$3,$4,$5,'effective','Provider-confirmed paid upgrade',NOW(),NOW(),$6::jsonb)`,
+    [Number(data.tenantId), current?.id || null, current?.plan_slug || null, data.planSlug,
+      current ? "upgrade" : "admin_resolution", JSON.stringify({ toSubscriptionId: String(result.rows[0].id), provider: data.provider, providerCheckoutSessionId: data.providerCheckoutSessionId || null })]
   );
 
   return mapSubscription(result.rows[0]);
@@ -327,9 +347,10 @@ async function createTenantSubscription(data, options = {}) {
         current_period_start,
         current_period_end,
         entitlements,
+        entitlement_model_version,
         metadata
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
       RETURNING *
     `,
     [
@@ -344,6 +365,7 @@ async function createTenantSubscription(data, options = {}) {
       timestamps.currentPeriodStart,
       timestamps.currentPeriodEnd,
       JSON.stringify(data.entitlements || {}),
+      Number(data.entitlementModelVersion || 1),
       JSON.stringify(data.metadata || {})
     ]
   );
@@ -353,6 +375,8 @@ async function createTenantSubscription(data, options = {}) {
 
 async function updateTenantSubscription(subscriptionId, changes, options = {}) {
   const queryClient = buildQueryClient(options.client);
+  const nextPlan = changes.planSlug ? await findPlanBySlug(changes.planSlug, { client: queryClient }) : null;
+  const nextEntitlements = changes.entitlements || (changes.planSlug ? nextPlan?.entitlements || {} : null);
   const result = await queryClient.query(
     `
       UPDATE tenant_subscriptions
@@ -385,23 +409,9 @@ async function updateTenantSubscription(subscriptionId, changes, options = {}) {
       changes.billingInterval || null,
       changes.currentPeriodStart ?? null,
       changes.currentPeriodEnd ?? null,
-      changes.entitlements ? JSON.stringify(changes.entitlements) : null,
+      nextEntitlements ? JSON.stringify(nextEntitlements) : null,
       changes.metadata ? JSON.stringify(changes.metadata) : null
     ]
-  );
-
-  return mapSubscription(result.rows[0]);
-}
-
-async function deleteTenantSubscription(subscriptionId, options = {}) {
-  const queryClient = buildQueryClient(options.client);
-  const result = await queryClient.query(
-    `
-      DELETE FROM tenant_subscriptions
-      WHERE id = $1
-      RETURNING *
-    `,
-    [Number(subscriptionId)]
   );
 
   return mapSubscription(result.rows[0]);
@@ -418,6 +428,5 @@ module.exports = {
   activateTenantSubscription,
   listSubscriptions,
   createTenantSubscription,
-  updateTenantSubscription,
-  deleteTenantSubscription
+  updateTenantSubscription
 };

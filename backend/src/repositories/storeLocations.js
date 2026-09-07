@@ -2,9 +2,11 @@ const db = require("../config/db");
 
 const LOCATION_COLUMNS = `
   id,
+  queue_join_id,
   tenant_id,
   name,
   slug,
+  image_url,
   address_line1,
   address_line2,
   city,
@@ -15,10 +17,12 @@ const LOCATION_COLUMNS = `
   contact_phone,
   timezone,
   payment_method_label,
+  payment_bank_name,
   payment_account_display_name,
   payment_account_identifier_display,
   payment_qr_image_url,
   payment_qr_active,
+  queue_lifecycle_mode,
   is_primary,
   is_active,
   created_at,
@@ -43,9 +47,11 @@ function mapLocation(row) {
 
   return {
     _id: String(row.id),
+    queueJoinId: row.queue_join_id,
     tenantId: String(row.tenant_id),
     name: row.name,
     slug: row.slug,
+    imageUrl: row.image_url || "",
     addressLine1: row.address_line1 || "",
     addressLine2: row.address_line2 || "",
     city: row.city || "",
@@ -56,10 +62,12 @@ function mapLocation(row) {
     contactPhone: row.contact_phone || "",
     timezone: row.timezone || "Asia/Manila",
     paymentMethodLabel: row.payment_method_label || "",
+    paymentBankName: row.payment_bank_name || "",
     paymentAccountDisplayName: row.payment_account_display_name || "",
     paymentAccountIdentifierDisplay: row.payment_account_identifier_display || "",
     paymentQrImageUrl: row.payment_qr_image_url || "",
     paymentQrActive: Boolean(row.payment_qr_active),
+    queueLifecycleMode: row.queue_lifecycle_mode || "legacy",
     isPrimary: Boolean(row.is_primary),
     isActive: Boolean(row.is_active),
     createdAt: row.created_at,
@@ -89,12 +97,26 @@ function buildQueryClient(client) {
 }
 
 function normalizeSlug(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 80);
+  const input = String(value || "").trim().toLowerCase();
+  let slug = "";
+  let pendingDash = false;
+
+  for (const char of input) {
+    if ((char >= "a" && char <= "z") || (char >= "0" && char <= "9")) {
+      if (pendingDash && slug.length > 0) {
+        slug += "-";
+      }
+      slug += char;
+      pendingDash = false;
+      continue;
+    }
+
+    if (slug.length > 0) {
+      pendingDash = true;
+    }
+  }
+
+  return slug.slice(0, 80);
 }
 
 async function listLocationsByTenantId(tenantId, options = {}) {
@@ -127,6 +149,35 @@ async function findLocationByTenantAndSlug(tenantId, slug, options = {}) {
   return mapLocation(result.rows[0]);
 }
 
+async function isLocationSlugAvailable(tenantId, slug, excludeLocationId = null, options = {}) {
+  const normalizedSlug = normalizeSlug(slug);
+  if (!normalizedSlug) {
+    return { available: false, valid: false, message: "Enter a location slug." };
+  }
+
+  const queryClient = buildQueryClient(options.client);
+  const values = [Number(tenantId), normalizedSlug];
+  let query = `
+    SELECT id
+    FROM store_locations
+    WHERE tenant_id = $1 AND slug = $2
+  `;
+
+  if (excludeLocationId) {
+    values.push(Number(excludeLocationId));
+    query += ` AND id <> $${values.length}`;
+  }
+
+  query += " LIMIT 1";
+
+  const result = await queryClient.query(query, values);
+  return {
+    available: result.rows.length === 0,
+    valid: Boolean(normalizedSlug),
+    message: result.rows.length === 0 ? "Slug is available." : "That location slug is already taken."
+  };
+}
+
 async function findLocationById(id, options = {}) {
   const queryClient = buildQueryClient(options.client);
   const result = await queryClient.query(
@@ -153,6 +204,36 @@ async function findPrimaryLocationByTenantId(tenantId, options = {}) {
   return mapLocation(result.rows[0]);
 }
 
+async function findLocationByQueueJoinId(queueJoinId, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const result = await queryClient.query(
+    `
+      SELECT ${LOCATION_COLUMNS}
+      FROM store_locations
+      WHERE queue_join_id = $1
+      LIMIT 1
+    `,
+    [String(queueJoinId).trim()]
+  );
+
+  return mapLocation(result.rows[0]);
+}
+
+async function regenerateQueueJoinId(locationId, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const result = await queryClient.query(
+    `
+      UPDATE store_locations
+      SET queue_join_id = gen_random_uuid()
+      WHERE id = $1
+      RETURNING ${LOCATION_COLUMNS}
+    `,
+    [Number(locationId)]
+  );
+
+  return mapLocation(result.rows[0]);
+}
+
 async function createLocation(data, options = {}) {
   const queryClient = buildQueryClient(options.client);
   const isPrimary = Boolean(data.isPrimary);
@@ -170,6 +251,7 @@ async function createLocation(data, options = {}) {
         tenant_id,
         name,
         slug,
+        image_url,
         address_line1,
         address_line2,
         city,
@@ -180,6 +262,7 @@ async function createLocation(data, options = {}) {
         contact_phone,
         timezone,
         payment_method_label,
+        payment_bank_name,
         payment_account_display_name,
         payment_account_identifier_display,
         payment_qr_image_url,
@@ -187,13 +270,14 @@ async function createLocation(data, options = {}) {
         is_primary,
         is_active
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
       RETURNING ${LOCATION_COLUMNS}
     `,
     [
       Number(data.tenantId),
       data.name,
       normalizeSlug(data.slug || data.name),
+      data.imageUrl || null,
       data.addressLine1 || null,
       data.addressLine2 || null,
       data.city || null,
@@ -204,6 +288,7 @@ async function createLocation(data, options = {}) {
       data.contactPhone || null,
       data.timezone || "Asia/Manila",
       data.paymentMethodLabel || null,
+      data.paymentBankName || null,
       data.paymentAccountDisplayName || null,
       data.paymentAccountIdentifierDisplay || null,
       data.paymentQrImageUrl || null,
@@ -223,6 +308,7 @@ async function updateLocation(locationId, changes, options = {}) {
   const setters = {
     name: "name",
     slug: "slug",
+    imageUrl: "image_url",
     addressLine1: "address_line1",
     addressLine2: "address_line2",
     city: "city",
@@ -233,6 +319,7 @@ async function updateLocation(locationId, changes, options = {}) {
     contactPhone: "contact_phone",
     timezone: "timezone",
     paymentMethodLabel: "payment_method_label",
+    paymentBankName: "payment_bank_name",
     paymentAccountDisplayName: "payment_account_display_name",
     paymentAccountIdentifierDisplay: "payment_account_identifier_display",
     paymentQrImageUrl: "payment_qr_image_url",
@@ -352,8 +439,11 @@ module.exports = {
   normalizeSlug,
   listLocationsByTenantId,
   findLocationByTenantAndSlug,
+  isLocationSlugAvailable,
   findLocationById,
+  findLocationByQueueJoinId,
   findPrimaryLocationByTenantId,
+  regenerateQueueJoinId,
   createLocation,
   updateLocation,
   listHoursByLocationId,

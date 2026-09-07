@@ -5,6 +5,7 @@ async function handleCreateLocation({
   assertTenantPermission,
   billingService,
   storeLocationRepository,
+  platformRepository,
   normalizeLocationPayload,
   formatLocation
 }) {
@@ -22,10 +23,11 @@ async function handleCreateLocation({
   }
 
   const locationPayload = normalizeLocationPayload(req.body || {});
+  const platformSettings = await platformRepository.getPlatformSettings();
   const location = await storeLocationRepository.createLocation({
     tenantId: tenant._id,
     ...locationPayload,
-    timezone: locationPayload.timezone || "Asia/Manila"
+    timezone: locationPayload.timezone || platformSettings.defaultTimezone
   });
   await storeLocationRepository.createDefaultHours(location._id);
 
@@ -59,15 +61,40 @@ async function handleUpdateLocation({
     }
   }
 
-  const updatedLocation = await storeLocationRepository.updateLocation(
-    location._id,
-    normalizeLocationPayload(req.body || {}, location)
-  );
+  const changes = normalizeLocationPayload(req.body || {}, location);
+  if (Object.prototype.hasOwnProperty.call(changes, "slug") && changes.slug !== location.slug) {
+    const error = new Error("Location slug cannot be changed after creation.");
+    error.statusCode = 400;
+    throw error;
+  }
+  delete changes.slug;
+
+  const updatedLocation = await storeLocationRepository.updateLocation(location._id, changes);
 
   res.json({ location: await formatLocation(updatedLocation, tenant) });
 }
 
+async function handleCheckLocationSlugAvailability({
+  req,
+  res,
+  getAuthorizedTenant,
+  assertTenantPermission,
+  storeLocationRepository
+}) {
+  const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+  assertTenantPermission(req.user, tenant._id, "tenant.location.manage");
+  const locationSlug = req.query.location || req.query.slug || "";
+  const excludeLocationId = req.query.excludeLocationId || req.query.locationId || null;
+  const result = await storeLocationRepository.isLocationSlugAvailable(
+    tenant._id,
+    locationSlug,
+    excludeLocationId
+  );
+  res.json({ locationSlug: String(locationSlug || ""), ...result });
+}
+
 module.exports = {
   handleCreateLocation,
-  handleUpdateLocation
+  handleUpdateLocation,
+  handleCheckLocationSlugAvailability
 };

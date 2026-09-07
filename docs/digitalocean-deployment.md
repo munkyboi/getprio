@@ -147,6 +147,7 @@ JWT_SECRET=CHANGE_THIS_TO_A_LONG_RANDOM_SECRET
 SERVER_URL=https://api.getprio.online
 CLIENT_URL=https://getprio.online
 APP_BASE_URL=https://getprio.online
+MOBILE_QR_BASE_URL=https://getprio.online
 PLATFORM_DASHBOARD_URL=https://platform.getprio.online
 VITE_API_URL=https://api.getprio.online/api
 
@@ -179,10 +180,24 @@ TWILIO_ACCOUNT_SID=
 TWILIO_AUTH_TOKEN=
 TWILIO_FROM_NUMBER=
 
-PAYMONGO_SECRET_KEY=
+PAYMONGO_MODE=live
+PAYMONGO_SANDBOX_SECRET_KEY=sk_test_...
+PAYMONGO_SANDBOX_WEBHOOK_SECRET=
+PAYMONGO_LIVE_SECRET_KEY=sk_live_...
+PAYMONGO_LIVE_WEBHOOK_SECRET=
 PAYMONGO_API_URL=https://api.paymongo.com/v1
-PAYMONGO_WEBHOOK_SECRET=
 PAYMONGO_PAYMENT_METHOD_TYPES=card
+
+# Native mobile push through Firebase Cloud Messaging
+FCM_PROJECT_ID=getprio
+FCM_CLIENT_EMAIL=
+FCM_PRIVATE_KEY=
+
+`PAYMONGO_MODE` must be `live` or `sandbox`. The app selects the matching secret key and webhook secret from the two credential sets, validates the key prefix (`sk_live_` or `sk_test_`), and rejects webhook payloads from the opposite environment. The API URL remains `https://api.paymongo.com/v1` for both modes. The old `PAYMONGO_SECRET_KEY` and `PAYMONGO_WEBHOOK_SECRET` variables remain supported as a compatibility fallback.
+
+The production deployment workflow reads the five PayMongo values from the GitHub `production` Environment secrets and securely synchronizes them to this server `.env` over SSH. Configure `PAYMONGO_MODE`, `PAYMONGO_SANDBOX_SECRET_KEY`, `PAYMONGO_SANDBOX_WEBHOOK_SECRET`, `PAYMONGO_LIVE_SECRET_KEY`, and `PAYMONGO_LIVE_WEBHOOK_SECRET` as protected Environment secrets. The workflow does not print their values.
+
+The production deployment workflow also requires `FCM_PROJECT_ID`, `FCM_CLIENT_EMAIL`, and `FCM_PRIVATE_KEY` in the GitHub `production` Environment. Create these from a Firebase service-account key: use the Firebase project ID, the service account's `client_email`, and its `private_key`. Keep the private key out of the repository. The workflow writes the key into the server `.env`, validates all three values, and refuses to restart the API when the configuration is missing or malformed. Store the private key as one value with its `\\n` line breaks preserved.
 
 B2_S3_ENDPOINT=
 B2_REGION=us-east-005
@@ -220,6 +235,8 @@ Notes:
 
 - `VITE_API_URL` should include `/api`.
 - `SERVER_URL` should not include `/api`.
+- `MOBILE_QR_BASE_URL` must be an HTTPS origin whose hostname is included in the mobile app's approved-host configuration. It may differ from `APP_BASE_URL` for enterprise or physical-device testing.
+- `MOBILE_PAYMENT_RETURN_URL` may override the paid mobile return origin; otherwise the backend uses HTTPS `APP_BASE_URL`, or HTTPS `MOBILE_QR_BASE_URL` for local device testing. The resulting `/payment/return` host must be included in the mobile app's approved-host configuration and verified-link setup.
 - `B2_BUCKET_PUBLIC_BOARD` is reused for public board assets and location payment QR images.
 - `B2_BUCKET_PAYMENT_PROOF` should stay private.
 - Payment proof uploads now go through the backend direct-upload route, not direct browser-to-B2 upload.
@@ -262,6 +279,11 @@ server {
 
   root /var/www/getprio/frontend/dist;
   index index.html;
+
+  location = /.well-known/apple-app-site-association {
+    default_type application/json;
+    try_files $uri =404;
+  }
 
   location / {
     try_files $uri $uri/ /index.html;

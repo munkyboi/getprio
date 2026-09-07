@@ -170,9 +170,47 @@ test("repository mapping helpers and update paths preserve defaults and normaliz
   assert.equal(service.slug, "service");
   assert.equal(service.allowBookingQuantity, true);
 
+  const createServiceQuery = queries.find(({ sql }) => sql.includes("INSERT INTO vendor_services"));
+  assert.match(createServiceQuery.sql, /\$15\)/);
+  assert.equal(createServiceQuery.values.length, 15);
+  assert.equal(createServiceQuery.values.at(-1), 0);
+
   const updatedService = await vendorServices.updateService(2, { slug: "Updated Name", description: "", isActive: false }, { client });
   assert.equal(updatedService.slug, "updated-name");
   assert.equal(updatedService.isActive, false);
 
   assert.equal(queries.length > 0, true);
+});
+
+test("public vendor detail selects and returns the configured display name", async () => {
+  let querySql = "";
+  const client = {
+    async query(sql) {
+      querySql = String(sql);
+      return {
+        rows: [{
+          name: "Internal Tenant Name",
+          public_profile_display_name: "Customer-Facing Vendor Name",
+          slug: "customer-facing-vendor",
+          public_profile_description: "",
+          public_profile_category: "Services",
+          public_profile_image_url: "",
+          contact_email: "",
+          contact_phone: "",
+          locations: []
+        }]
+      };
+    }
+  };
+  const tenants = requireWithMocks("../src/repositories/tenants.js", {
+    "../config/db": { pool: client }
+  });
+
+  const vendor = await tenants.findPublicVendorProfileBySlug(
+    "customer-facing-vendor",
+    { client }
+  );
+
+  assert.match(querySql, /tenants\.public_profile_display_name/);
+  assert.equal(vendor.name, "Customer-Facing Vendor Name");
 });

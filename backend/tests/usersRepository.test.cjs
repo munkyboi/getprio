@@ -42,6 +42,7 @@ test("users repository hydrates relationships, creates linked records, and norma
               {
                 id: 8,
                 name: "Bob",
+                display_name: "Bobby",
                 username: "bob",
                 email: "bob@example.com",
                 phone: null,
@@ -69,6 +70,7 @@ test("users repository hydrates relationships, creates linked records, and norma
             {
               id: 7,
               name: "Alice",
+              display_name: "A.",
               username: "alice",
               email: "alice@example.com",
               phone: "09170000000",
@@ -125,6 +127,7 @@ test("users repository hydrates relationships, creates linked records, and norma
             {
               id: 8,
               name: "Bob",
+              display_name: "Bobby",
               username: "bob",
               email: "bob@example.com",
               phone: null,
@@ -177,6 +180,7 @@ test("users repository hydrates relationships, creates linked records, and norma
             {
               id: 7,
               name: "Alice",
+              display_name: "A.",
               username: "alice",
               email: "alice@example.com",
               phone: "09170000000",
@@ -212,12 +216,14 @@ test("users repository hydrates relationships, creates linked records, and norma
 
   const hydrated = await users.findUserById(7, { client });
   assert.equal(hydrated._id, "7");
+  assert.equal(hydrated.displayName, "A.");
   assert.equal(hydrated.oauthAccounts[0].provider, "google");
   assert.equal(hydrated.tenantMemberships[0].tenantId, "3");
   assert.equal(hydrated.mfaEnabled, true);
 
   const created = await users.createUser({
     name: "Bob",
+    displayName: "Bobby",
     username: "bob",
     email: "bob@example.com",
     passwordHash: "hash2",
@@ -226,14 +232,19 @@ test("users repository hydrates relationships, creates linked records, and norma
     tenantMemberships: [{ tenantId: 5, role: "staff" }]
   }, { client });
   assert.equal(created._id, "8");
+  assert.equal(created.displayName, "Bobby");
 
   const updated = await users.updateUser(7, {
+    displayName: "Al",
     username: "AliceUpdated",
     email: "",
     roles: ["customer", "vendor"],
     notificationSettings: { sms: true }
   }, { client });
   assert.equal(updated.username, "alice");
+  const updateUserCall = calls.find((call) => call.query.includes("UPDATE users SET") && call.params?.[0] === 7);
+  assert.match(updateUserCall.query, /display_name = \$2/);
+  assert.equal(updateUserCall.params[1], "Al");
 
   const addedOauth = await users.addOauthAccount(7, {
     provider: "apple",

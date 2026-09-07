@@ -7,17 +7,25 @@ function eventName(tenantSlug) {
   return `queue:${tenantSlug}`;
 }
 
-function subscribe(tenantSlug, handler) {
+function subscribe(tenantSlug, handler, options = {}) {
   const name = eventName(tenantSlug);
-  emitter.on(name, handler);
+  const locationId = options.locationId ? String(options.locationId) : null;
+  const listener = (payload, eventOptions = {}) => {
+    const eventLocationId = eventOptions.locationId ? String(eventOptions.locationId) : null;
+    if (locationId && eventLocationId && locationId !== eventLocationId) {
+      return;
+    }
+    handler(payload);
+  };
+  emitter.on(name, listener);
 
   return () => {
-    emitter.off(name, handler);
+    emitter.off(name, listener);
   };
 }
 
-function publish(tenantSlug, payload) {
-  emitter.emit(eventName(tenantSlug), payload);
+function publish(tenantSlug, payload, options = {}) {
+  emitter.emit(eventName(tenantSlug), payload, options);
 }
 
 module.exports = {

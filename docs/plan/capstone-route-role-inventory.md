@@ -32,6 +32,7 @@ Current implementation sources:
 | Permission Area | Current Permissions | Capstone Interpretation |
 | --- | --- | --- |
 | Account self-service | `account.read_self`, `account.change_password` | Customer/vendor/platform users can manage own account basics. |
+| Customer group-funded booking | Authenticated account ownership checks plus participant/organizer checks | Customers can create campaigns, submit own contribution proof, see own contribution/refund state, and cancel organizer-owned funding-stage campaigns. |
 | Platform operations | `platform.tenants.read`, `platform.users.read`, `platform.settings.manage`, `platform.plans.manage`, `platform.queue_fees.manage`, `platform.billing.read` | Existing Platform Admin foundation. Needs approval, moderation, dispute, audit, report, and compliance permissions later. |
 | Tenant queue operations | `tenant.queue.read`, `tenant.queue.operate`, `tenant.ticket.read_limited`, `tenant.ticket.update_state` | Reusable same-day service operations foundation. Future booking operations should add booking-specific permissions. |
 | Tenant configuration | `tenant.location.manage`, `tenant.counter.manage`, `tenant.settings.manage`, `tenant.settings.manage_contact`, `tenant.theme.manage` | Reusable vendor administration foundation for profile, locations, public display, and availability work. |
@@ -48,6 +49,8 @@ Current implementation sources:
 | `/register/vendor` | Vendor registration page | Public or authenticated setup | Vendor Admin | Creates vendor tenant/workspace and owner account. | Treat as vendor onboarding; later add approval/compliance state. |
 | `/register/customer` | Customer registration page | Public | Customer | Creates customer profile. | Extend toward booking history, reviews, notifications, and profile settings. |
 | `/account` | Customer account page | Authenticated user; customer UI intent | Customer | Customer profile, ticket/account reuse, password controls. | Add route guard/unauthorized state and expand to full profile/account settings. |
+| `/account/group-funded` | Customer group-funded campaigns | Authenticated customer/account user | Customer | Lists organizer and contributor campaign state. | Keep contributor proof/refund visibility scoped to the authenticated participant. |
+| `/group-funded/:publicToken` | Group-funded campaign detail | Public read, authenticated contribution | Guest, Customer | Shows safe campaign metadata publicly; authenticated customers can contribute through account APIs. | Public payload must remain privacy-minimized and report-abuse enabled. |
 | `/dashboard` | Redirect to `/dashboard/queue` | Authenticated tenant user intended | Vendor Staff, Vendor Admin | Vendor dashboard default route. | Keep redirect, but route access should be enforced by tenant membership and section permission. |
 | `/dashboard/:section` | Vendor dashboard sections | Authenticated tenant user intended | Vendor Staff, Vendor Admin | Queue, operations, staff, customers, reports, settings, billing, and theme workflows. | Split future booking/service/catalog/availability sections by Vendor Staff vs Vendor Admin. |
 | `/join/:tenantSlug/:locationSlug?` | Join queue page | Public, optionally authenticated | Guest, Customer | Customer/guest queue join flow with OTP/payment-gated join support. | Reframe as same-day service entry; later connect from vendor profile/service detail. |
@@ -78,9 +81,9 @@ All platform dashboard routes require successful login and `platform_admin` in t
 | --- | --- | --- | --- | --- |
 | Health | `/api/health` | Public | Operational | Basic health check. |
 | Auth | `/api/auth` | Public, optional auth, or authenticated depending on endpoint | Guest, Customer, Vendor Admin, Platform Admin | Registration, login, OAuth, refresh, password reset, logout, session lookup. |
-| Account | `/api/account` | Authenticated | Customer, Vendor Staff, Vendor Admin, Platform Admin | Self profile, customer tickets, password change. |
-| Public | `/api/public` | Public with optional auth on selected flows | Guest, Customer | Tenant queue snapshots, join OTP, payment sync, ticket create/cancel/lookup, SSE stream. |
-| Vendor | `/api/vendor` | Authenticated tenant permission checks | Vendor Staff, Vendor Admin | Tenant dashboard, locations, counters, queue operations, tickets, staff, settings, history, public board theme. |
+| Account | `/api/account` | Authenticated | Customer, Vendor Staff, Vendor Admin, Platform Admin | Self profile, customer tickets/bookings, password change, customer group-funded campaign participation. |
+| Public | `/api/public` | Public with optional auth on selected flows | Guest, Customer | Tenant queue snapshots, public vendor discovery/profile, booking OTP, payment sync, ticket create/cancel/lookup, public group-funded campaign discovery/detail/reporting, SSE stream. |
+| Vendor | `/api/vendor` | Authenticated tenant permission checks | Vendor Staff, Vendor Admin | Tenant dashboard, locations, counters, queue operations, tickets, staff, settings, history, public board theme, services, availability, bookings, group-funded campaign review/refund operations. |
 | Billing | `/api/billing` | Authenticated tenant/user context depending on endpoint | Vendor Admin, Customer for payment-related flow | Subscription and checkout/payment integration. |
 | Billing webhooks | `/api/billing/webhooks` | Provider webhook verification | System | Payment provider event intake. |
 | Platform | `/api/platform` | Authenticated platform permission checks | Platform Admin | Platform overview, queue fees, plans, settings, payments, tenants, subscriptions, users, billing events. |
@@ -107,6 +110,12 @@ All platform dashboard routes require successful login and `platform_admin` in t
 | --- | --- | --- | --- |
 | `GET /api/account/me` | Authenticated | Customer/account self-service | Reads own account profile. |
 | `GET /api/account/tickets` | Authenticated | Customer | Current customer queue/ticket history foundation. |
+| `GET /api/account/group-funded-campaigns` | Authenticated | Customer | Lists campaigns where the user is organizer or participant. |
+| `POST /api/account/group-funded-campaigns` | Authenticated | Customer organizer | Creates a private-link or public group-funded campaign from an eligible branch/service/slot. |
+| `GET /api/account/group-funded-campaigns/:campaignIdOrToken/self` | Authenticated owner/participant | Customer | Returns the campaign plus only the authenticated user's contribution/refund state. |
+| `POST /api/account/group-funded-campaigns/:campaignIdOrToken/contributions/payment-proof` | Authenticated customer | Customer contributor | Submits exact-share payment reference and proof metadata for vendor review. |
+| `PATCH /api/account/group-funded-campaigns/:campaignIdOrToken/cancel` | Authenticated organizer | Customer organizer | Cancels funding-stage campaign before full funding and creates refund obligations where applicable. |
+| `PATCH /api/account/group-funded-campaigns/:campaignIdOrToken/replacement-slot/*` | Authenticated organizer | Customer organizer | Accepts or declines vendor replacement slot proposals. |
 | `POST /api/account/password` | Authenticated | All authenticated roles | Changes own password. |
 
 ## Public API Endpoint Inventory
@@ -123,6 +132,9 @@ All platform dashboard routes require successful login and `platform_admin` in t
 | `POST /api/public/tenant/:tenantSlug/tickets` | Public or customer | Guest, Customer | Creates queue ticket. |
 | `DELETE /api/public/tenant/:tenantSlug/tickets/:lookupCode` | Public with ownership proof or authenticated owner | Guest, Customer | Cancels customer ticket with ownership checks. |
 | `GET /api/public/ticket/:lookupCode` | Public with lookup code | Guest, Customer | Looks up joined ticket state. |
+| `GET /api/public/vendors/:tenantSlug/locations/:locationSlug/group-funded-campaigns` | Public | Guest, Customer | Lists public group-funded campaigns for one vendor branch using privacy-minimized payloads. |
+| `GET /api/public/group-funded-campaigns/:publicToken` | Public | Guest, Customer | Shows safe public campaign detail without participant, proof, refund, or event internals. |
+| `POST /api/public/group-funded-campaigns/:publicToken/report-abuse` | Public with optional auth, rate-limited | Guest, Customer | Records internal abuse report event for public campaign moderation. |
 
 ## Vendor API Endpoint Inventory
 
@@ -138,6 +150,7 @@ All platform dashboard routes require successful login and `platform_admin` in t
 | History | `GET /api/vendor/tenant/:tenantSlug/history` and export | `tenant.reports.read` | Vendor Admin; current staff also has reports read | Future analytics should be reviewed because staff currently has reporting access. |
 | Staff | `GET/POST/PATCH/DELETE /api/vendor/tenant/:tenantSlug/staff...` | `tenant.staff.read`, `tenant.staff.invite`, `tenant.staff.manage` | Vendor Admin, limited Vendor Staff read currently | Capstone should restrict management to Vendor Admin. |
 | Public board theme | `GET/PATCH/POST /api/vendor/tenant/:tenantSlug/public-board-theme...` | `tenant.theme.manage` for changes | Vendor Admin | Reusable public branding/profile asset foundation. |
+| Group-funded campaigns | `GET/PATCH /api/vendor/tenant/:tenantSlug/group-funded-campaigns...` | `tenant.booking.manage` | Vendor Admin; Vendor Staff denied by current permission map | Vendor proof verification/rejection, vendor review approval/rejection, replacement proposals, review expiry, and manual refund updates. |
 
 ## Billing and Platform API Endpoint Inventory
 

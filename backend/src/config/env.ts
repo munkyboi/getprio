@@ -1,5 +1,8 @@
 import path from "path";
 import dotenv from "dotenv";
+import { resolveMobileQrBaseUrl } from "./mobileQrBaseUrl.js";
+
+export { resolveMobileQrBaseUrl };
 
 const rootEnvPath = path.resolve(__dirname, "../../../.env");
 dotenv.config({ path: rootEnvPath });
@@ -19,6 +22,8 @@ export const jwtSecret = process.env.JWT_SECRET || "change-me";
 export const serverUrl = process.env.SERVER_URL || `http://localhost:${port}`;
 export const clientUrl = process.env.CLIENT_URL || `http://localhost:${frontendPort}`;
 export const appBaseUrl = process.env.APP_BASE_URL || `http://localhost:${frontendPort}`;
+export const mobileQrBaseUrl = resolveMobileQrBaseUrl(process.env, appBaseUrl, frontendPort);
+export const mobilePaymentReturnUrl = process.env.MOBILE_PAYMENT_RETURN_URL || "";
 export const platformDashboardUrl =
   process.env.PLATFORM_DASHBOARD_URL || `http://localhost:${platformDashboardPort}`;
 export const appTimezone = process.env.APP_TIMEZONE || "Asia/Manila";
@@ -66,9 +71,42 @@ export const sendgridApiUrl =
 export const smsAccountSid = process.env.TWILIO_ACCOUNT_SID || "";
 export const smsAuthToken = process.env.TWILIO_AUTH_TOKEN || "";
 export const smsFromNumber = process.env.TWILIO_FROM_NUMBER || "";
-export const paymongoSecretKey = process.env.PAYMONGO_SECRET_KEY || "";
+export function resolvePaymongoMode(source: NodeJS.ProcessEnv = process.env): "sandbox" | "live" {
+  const configured = String(source.PAYMONGO_MODE || "").trim().toLowerCase();
+  if (configured && configured !== "sandbox" && configured !== "live") {
+    throw new Error("PAYMONGO_MODE must be either sandbox or live.");
+  }
+  if (configured) return configured === "sandbox" ? "sandbox" : "live";
+  if (String(source.PAYMONGO_SECRET_KEY || "").startsWith("sk_test_")) return "sandbox";
+  if (source.PAYMONGO_SANDBOX_SECRET_KEY && !source.PAYMONGO_LIVE_SECRET_KEY) return "sandbox";
+  return "live";
+}
+
+export const paymongoMode = resolvePaymongoMode();
+export function resolvePaymongoCredentials(
+  source: NodeJS.ProcessEnv = process.env,
+  mode: "sandbox" | "live" = resolvePaymongoMode(source),
+) {
+  const selectedSecretKey = mode === "sandbox"
+    ? source.PAYMONGO_SANDBOX_SECRET_KEY
+    : source.PAYMONGO_LIVE_SECRET_KEY;
+  const selectedWebhookSecret = mode === "sandbox"
+    ? source.PAYMONGO_SANDBOX_WEBHOOK_SECRET
+    : source.PAYMONGO_LIVE_WEBHOOK_SECRET;
+
+  return {
+    secretKey: selectedSecretKey || source.PAYMONGO_SECRET_KEY || "",
+    webhookSecret: selectedWebhookSecret || source.PAYMONGO_WEBHOOK_SECRET || "",
+  };
+}
+
+const paymongoCredentials = resolvePaymongoCredentials();
+export const paymongoSecretKey = paymongoCredentials.secretKey;
+if (paymongoSecretKey.startsWith("sk_") && !paymongoSecretKey.startsWith(paymongoMode === "sandbox" ? "sk_test_" : "sk_live_")) {
+  throw new Error(`Selected PayMongo secret key does not match PAYMONGO_MODE=${paymongoMode}.`);
+}
 export const paymongoApiUrl = process.env.PAYMONGO_API_URL || "https://api.paymongo.com/v1";
-export const paymongoWebhookSecret = process.env.PAYMONGO_WEBHOOK_SECRET || "";
+export const paymongoWebhookSecret = paymongoCredentials.webhookSecret;
 export const paymongoPaymentMethodTypes = (
   process.env.PAYMONGO_PAYMENT_METHOD_TYPES || "card"
 )
@@ -89,6 +127,22 @@ export const b2BucketPaymentProof = process.env.B2_BUCKET_PAYMENT_PROOF || "";
 export const b2KeyId = process.env.B2_KEY_ID || "";
 export const b2ApplicationKey = process.env.B2_APPLICATION_KEY || "";
 export const b2PublicBaseUrl = process.env.B2_PUBLIC_BASE_URL || "";
+export const vapidPublicKey = process.env.VAPID_PUBLIC_KEY || "";
+export const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY || "";
+export const vapidSubject = process.env.VAPID_SUBJECT || "mailto:admin@getprio.local";
+export const fcmProjectId = process.env.FCM_PROJECT_ID || "";
+export const fcmClientEmail = process.env.FCM_CLIENT_EMAIL || "";
+export const fcmPrivateKey = (process.env.FCM_PRIVATE_KEY || "").replace(/\\n/g, "\n");
+export const rolloutCohort = process.env.ROLLOUT_COHORT || "off";
+export const csrfSecret = process.env.CSRF_SECRET || jwtSecret;
+export const authCookieSecure = process.env.AUTH_COOKIE_SECURE
+  ? process.env.AUTH_COOKIE_SECURE === "true"
+  : nodeEnv === "production";
+export const authBearerCompatibilityEnabled =
+  process.env.AUTH_BEARER_COMPATIBILITY_ENABLED !== "false";
+export const sessionInactivityMinutes = Number(process.env.SESSION_INACTIVITY_MINUTES || 10080);
+export const mfaEncryptionSecret = process.env.MFA_ENCRYPTION_SECRET || jwtSecret;
+export const mfaRecoveryPepper = process.env.MFA_RECOVERY_PEPPER || jwtSecret;
 
 const env = {
   nodeEnv,
@@ -99,6 +153,8 @@ const env = {
   serverUrl,
   clientUrl,
   appBaseUrl,
+  mobileQrBaseUrl,
+  mobilePaymentReturnUrl,
   platformDashboardUrl,
   appTimezone,
   oauthCallbackPath,
@@ -132,6 +188,7 @@ const env = {
   smsAccountSid,
   smsAuthToken,
   smsFromNumber,
+  paymongoMode,
   paymongoSecretKey,
   paymongoApiUrl,
   paymongoWebhookSecret,
@@ -145,7 +202,20 @@ const env = {
   b2BucketPaymentProof,
   b2KeyId,
   b2ApplicationKey,
-  b2PublicBaseUrl
+  b2PublicBaseUrl,
+  vapidPublicKey,
+  vapidPrivateKey,
+  vapidSubject,
+  fcmProjectId,
+  fcmClientEmail,
+  fcmPrivateKey,
+  rolloutCohort,
+  csrfSecret,
+  authCookieSecure,
+  authBearerCompatibilityEnabled,
+  sessionInactivityMinutes,
+  mfaEncryptionSecret,
+  mfaRecoveryPepper
 };
 
 export default env;

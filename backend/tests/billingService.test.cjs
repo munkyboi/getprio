@@ -152,3 +152,12 @@ test("billing service creates checkout, syncs payment, and handles non-subscript
   assert.equal(webhook.ignored, true);
   assert.equal(fetchCalls.length >= 1, true);
 });
+
+test("review controls reject Free and inactive subscriptions and allow active paid plans", async () => {
+  for (const subscription of [null, { planSlug: 'free', status: 'active' }, { planSlug: 'economical', status: 'past_due' }, { planSlug: 'economical', status: 'cancelled' }, { status: 'active' }]) {
+    const service = buildService({ '../repositories/billing': { getActiveSubscriptionByTenantId: async () => subscription } });
+    await assert.rejects(() => service.assertPaidReviewAccess('tenant-1'), { statusCode: 403, code: 'PAID_PLAN_REQUIRED' });
+  }
+  const service = buildService({ '../repositories/billing': { getActiveSubscriptionByTenantId: async () => ({ planSlug: 'economical', status: 'active' }) } });
+  await service.assertPaidReviewAccess('tenant-1');
+});

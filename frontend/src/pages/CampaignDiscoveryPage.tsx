@@ -1,0 +1,31 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Alert, Button, Card, SimpleGrid, Stack, Text, TextInput, Title } from "@mantine/core";
+import { Navigate } from "react-router-dom";
+import type { PublicOrganizerCampaign } from "@shared";
+import { customerAccountApi } from "../api/customerAccount";
+import { useAuth } from "../context/AuthContext";
+import { getErrorMessage } from "../utils/errors";
+import CampaignSummaryCard from "../components/CampaignSummaryCard";
+
+export default function CampaignDiscoveryPage() {
+  const { token, user, loading } = useAuth();
+  const [campaigns, setCampaigns] = useState<PublicOrganizerCampaign[]>([]);
+  const [error, setError] = useState("");
+  const [filters, setFilters] = useState({ search: "", date: "" });
+  const loadRequestId = useRef(0);
+  const load = useCallback(async (requestedFilters: typeof filters) => {
+    if (!token) return;
+    const requestId = ++loadRequestId.current;
+    setError("");
+    try {
+      const data = await customerAccountApi.getCampaignDiscovery(token, requestedFilters);
+      if (requestId === loadRequestId.current) setCampaigns(data.campaigns);
+    } catch (next) {
+      if (requestId === loadRequestId.current) setError(getErrorMessage(next));
+    }
+  }, [token]);
+  useEffect(() => { void load({ search: "", date: "" }); }, [load]);
+  if (loading) return null;
+  if (!user || !token) return <Navigate replace to="/login" />;
+  return <Stack gap="lg"><div className="customer-section-header"><Text className="finazze-section-label">Campaign discovery</Text><Title order={1}>Public campaigns</Title><Text c="dimmed">Find a campaign to support. Payment details and contributor identities stay private.</Text></div><Card className="finazze-auth-card customer-account-card campaign-discovery-page" p="xl"><Stack gap="lg"><Card className="campaign-discovery-filters" component="form" onSubmit={(event) => { event.preventDefault(); void load(filters); }} p="md"><SimpleGrid cols={{ base: 1, md: 3 }}><TextInput label="Search campaigns" maxLength={120} placeholder="Campaign title, organizer, vendor, or address" type="search" value={filters.search} onChange={(event) => { const search = event.currentTarget.value; setFilters((current) => ({ ...current, search })); }}/><TextInput label="Booking date" type="date" value={filters.date} onChange={(event) => { const date = event.currentTarget.value; setFilters((current) => ({ ...current, date })); }}/><Button mt={{ base: 0, md: 25 }} type="submit">Apply filters</Button></SimpleGrid></Card>{error ? <Alert color="red">{error}</Alert> : null}<SimpleGrid cols={{ base: 1, md: 2 }}>{campaigns.map((campaign) => <CampaignSummaryCard action={{ label: "View campaign", to: `/campaign/${campaign.publicToken}` }} campaign={campaign} descriptionClassName="rich-campaign-description campaign-list-description campaign-discovery-description" key={campaign.id}/>)}</SimpleGrid>{!campaigns.length && !error ? <Alert color="gray">No public campaigns are collecting right now.</Alert> : null}</Stack></Card></Stack>;
+}

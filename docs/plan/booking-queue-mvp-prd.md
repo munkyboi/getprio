@@ -54,6 +54,8 @@ Customer-facing slot starts use the full requested duration as the interval. Boo
 
 Capacity belongs to the booking availability block. `pending`, `confirmed`, and `rescheduled` bookings consume capacity. Canceled, completed, reviewed, and disputed bookings do not make new customer slots unavailable.
 
+Services can choose how booking capacity is consumed. The default `service` scope keeps capacity isolated to bookings for the same service, except when the matching availability block or exception applies to all services. All-service availability blocks and exceptions share branch capacity across services by definition. The `location` scope also treats active bookings for any service at the selected branch as consuming the same slot capacity, which prevents mixed-duration services from overlapping when they compete for the same staff, counter, room, or equipment pool. Slot starts are still generated from the selected service's duration; conflict checks compare the candidate start/end interval against active booking start/end intervals in the selected capacity scope.
+
 Pending bookings hold capacity from booking creation until a vendor-side user confirms, reschedules, cancels them, or the pending booking expires. The default pending booking expiration is 15 minutes from booking creation and applies to all pending bookings, not only payment-required bookings.
 
 Expired pending bookings use the existing `canceled` booking status with an expiration reason instead of adding a separate `expired` booking status. Expiration releases the held slot capacity and should be presented to customers as an expired booking.
@@ -101,6 +103,8 @@ Email booking alerts are automatic when an email address is available.
 Browser notifications are customer-enabled after login and cover booking status changes plus queue-day updates. Permission should be requested after login, with email remaining the fallback if browser notifications are denied or unavailable.
 
 Browser notifications should also be available to vendor staff and vendor admins for booking intake, payment-proof review, and booking status changes relevant to their role.
+
+Implementation note: the current product has browser-permission and preference UI plus live in-app operational alerts. True OS/browser Web Push delivery still requires the service worker, Push API subscription storage, VAPID configuration, and backend send pipeline tracked in `docs/plan/web-push-notifications-execution-checklist.md`.
 
 When a booking becomes a queue ticket:
 
@@ -331,6 +335,7 @@ Avoid storing generated booking slots as durable rows in MVP.
 - Replace SMS booking alerts with browser notifications and email fallback.
 - Request browser notification permission after login and preserve booking and queue submission when permission is denied.
 - Carry browser notification preferences through booking and queue flows.
+- Implement true OS/browser Web Push delivery using `docs/plan/web-push-notifications-execution-checklist.md`; do not count permission UI alone as complete push delivery.
 
 ### Slice B: Manual QR booking payment
 

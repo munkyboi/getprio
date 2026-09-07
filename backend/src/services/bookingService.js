@@ -3,11 +3,18 @@ const db = require("../config/db");
 const tenantRepository = require("../repositories/tenants");
 const storeLocationRepository = require("../repositories/storeLocations");
 const vendorServiceRepository = require("../repositories/vendorServices");
+const locationServiceRepository = require("../repositories/locationServices");
 const vendorAvailabilityRepository = require("../repositories/vendorAvailability");
 const bookingOtpService = require("./bookingOtpService");
 const bookingSmsAlertPaymentService = require("./bookingSmsAlertPaymentService");
 const notificationService = require("./notificationService");
 const paymentProofStorageService = require("./paymentProofStorageService");
+const pushNotificationService = require("./pushNotificationService");
+const organizerCampaignService = require("./organizerCampaignService");
+const { assertPublicTextFieldsAllowed } = require("./contentModeration");
+const { normalizePhilippineMobileNumber } = require("../utils/phone");
+const entitlementAdmissionService = require("./entitlementAdmissionService");
+const allowanceService = require("./allowanceService");
 
 const CHECK_IN_WINDOW_MINUTES = 15;
 const PENDING_BOOKING_EXPIRATION_MINUTES = 15;
@@ -62,6 +69,22 @@ function getBookingDurationMinutes(service, bookingQuantity) {
   return getServiceDurationMinutes(service) * bookingQuantity;
 }
 
+function getBookingCapacityServiceId(service, capacityScope = "service") {
+  return service.bookingCapacityScope === "location" || capacityScope === "location" ? null : service._id;
+}
+
+function resolveEffectiveCapacity(serviceCapacity, availabilityCapacity) {
+  return Math.max(Number(serviceCapacity || 1), Number(availabilityCapacity || 1));
+}
+
+async function getLocationServiceForBooking(tenantId, locationId, service) {
+  return locationServiceRepository.findLocationServiceByLocationAndServiceId(
+    tenantId,
+    locationId,
+    service._id
+  );
+}
+
 function normalizeServiceBookingQuantity(service, value) {
   const bookingQuantity = normalizeBookingQuantity(value);
   if (!service.allowBookingQuantity && bookingQuantity !== 1) {
@@ -70,6 +93,28 @@ function normalizeServiceBookingQuantity(service, value) {
     throw error;
   }
   return service.allowBookingQuantity ? bookingQuantity : 1;
+}
+
+function normalizeBookingBundleItems(body, primaryServiceSlug) {
+  const rawItems = Array.isArray(body.bundleItems) && body.bundleItems.length
+    ? body.bundleItems
+    : [{ serviceSlug: primaryServiceSlug, bookingQuantity: body.bookingQuantity }];
+  if (rawItems.length > 12) {
+    const error = new Error("A booking bundle can contain at most 12 services.");
+    error.statusCode = 400;
+    throw error;
+  }
+  const seen = new Set();
+  return rawItems.map((item, sortOrder) => {
+    const serviceSlug = vendorServiceRepository.normalizeServiceSlug(item?.serviceSlug || primaryServiceSlug);
+    if (!serviceSlug || seen.has(serviceSlug)) {
+      const error = new Error("Booking bundle services must be unique.");
+      error.statusCode = 400;
+      throw error;
+    }
+    seen.add(serviceSlug);
+    return { serviceSlug, bookingQuantity: item?.bookingQuantity, sortOrder };
+  });
 }
 
 function buildLinkedQueueTicketSummary(ticket) {
@@ -119,7 +164,9 @@ function hasActiveLocationPaymentQr(location) {
     location?.paymentQrActive &&
       location.paymentMethodLabel &&
       location.paymentAccountDisplayName &&
-      location.paymentQrImageUrl
+      (location.paymentMethodLabel === "Bank Transfer"
+        ? location.paymentBankName && location.paymentAccountIdentifierDisplay
+        : location.paymentQrImageUrl)
   );
 }
 
@@ -140,18 +187,75 @@ async function expirePendingBookings(options = {}) {
     return [];
   }
 
-  return bookingRepository.expirePendingBookings({
+  const expiredIds = await bookingRepository.expirePendingBookings({
     ...options,
     reason: PENDING_BOOKING_EXPIRATION_REASON
   });
+
+  for (const bookingId of expiredIds) {
+    const booking = await bookingRepository.findBookingById(bookingId);
+    if (!booking) {
+      continue;
+    }
+
+    pushNotificationService.notifyCustomerBookingUpdate({
+      booking,
+      action: "pending_expired"
+    }).catch((error) => {
+      console.warn("[web-push-customer-booking-expired-skipped]", error.message);
+    });
+  }
+
+  return expiredIds;
 }
 
 async function expirePendingBookingsForTenant(tenantId) {
-  return expirePendingBookings({ tenantId });
+  const expired = await expirePendingBookings({ tenantId });
+  await notifyDueCheckInReminderBookings({ tenantId });
+  return expired;
 }
 
 async function expirePendingBookingsForCustomer(customerUserId) {
-  return expirePendingBookings({ customerUserId });
+  const expired = await expirePendingBookings({ customerUserId });
+  await notifyDueCheckInReminderBookings({ customerUserId });
+  return expired;
+}
+
+async function notifyDueCheckInReminderBookings(options = {}) {
+  if (
+    !bookingRepository.listBookingsForCheckInReminder ||
+    !bookingRepository.markBookingCheckInReminderSent
+  ) {
+    return;
+  }
+
+  const windowBookings = await bookingRepository.listBookingsForCheckInReminder({
+    ...options,
+    type: "window"
+  });
+  for (const booking of windowBookings) {
+    pushNotificationService.notifyCustomerBookingUpdate({
+      booking,
+      action: "check_in_window_open"
+    }).catch((error) => {
+      console.warn("[web-push-customer-booking-check-in-window-skipped]", error.message);
+    });
+    await bookingRepository.markBookingCheckInReminderSent(booking._id, "window");
+  }
+
+  const closingBookings = await bookingRepository.listBookingsForCheckInReminder({
+    ...options,
+    type: "closing"
+  });
+  for (const booking of closingBookings) {
+    pushNotificationService.notifyCustomerBookingUpdate({
+      booking,
+      action: "check_in_closing"
+    }).catch((error) => {
+      console.warn("[web-push-customer-booking-check-in-closing-skipped]", error.message);
+    });
+    await bookingRepository.markBookingCheckInReminderSent(booking._id, "closing");
+  }
 }
 
 function assertVerifiedPayloadMatchesRequest(verifiedPayload, requestBody) {
@@ -160,18 +264,28 @@ function assertVerifiedPayloadMatchesRequest(verifiedPayload, requestBody) {
     locationSlug: String(requestBody.locationSlug || "").trim().toLowerCase(),
     serviceSlug: vendorServiceRepository.normalizeServiceSlug(requestBody.serviceSlug),
     scheduledStartAt: String(requestBody.scheduledStartAt || "").trim(),
-    bookingQuantity: normalizeBookingQuantity(requestBody.bookingQuantity)
+    bookingQuantity: normalizeBookingQuantity(requestBody.bookingQuantity),
+    executionMode: normalizeExecutionMode(requestBody.executionMode)
   };
 
   for (const [field, value] of Object.entries(expected)) {
     const actualValue = field === "bookingQuantity"
       ? normalizeBookingQuantity(verifiedPayload[field])
+      : field === "executionMode"
+        ? normalizeExecutionMode(verifiedPayload[field])
       : verifiedPayload[field];
     if (actualValue !== value) {
       const error = new Error("Booking verification does not match this booking request. Please verify again.");
       error.statusCode = 400;
       throw error;
     }
+  }
+  const normalizeBundle = (items) => normalizeBookingBundleItems({ bundleItems: items }, expected.serviceSlug)
+    .map((item) => `${item.serviceSlug}:${normalizeBookingQuantity(item.bookingQuantity)}`).join("|");
+  if (normalizeBundle(verifiedPayload.bundleItems) !== normalizeBundle(requestBody.bundleItems)) {
+    const error = new Error("Booking verification does not match this booking request. Please verify again.");
+    error.statusCode = 400;
+    throw error;
   }
 }
 
@@ -250,10 +364,8 @@ function getLocalTimeMinutes(date) {
 }
 
 function dateKeyAndMinutesToDate(dateKey, minutes) {
-  const hours = Math.floor(minutes / 60);
-  const mins = minutes % 60;
-  const time = `${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
-  return new Date(`${dateKey}T${time}:00+08:00`);
+  const startOfDay = new Date(`${dateKey}T00:00:00+08:00`);
+  return new Date(startOfDay.getTime() + minutes * 60 * 1000);
 }
 
 function bookingFitsTimeRange({ startsAt, endsAt }, startMinutes, endMinutes) {
@@ -268,7 +380,9 @@ function bookingFitsTimeRange({ startsAt, endsAt }, startMinutes, endMinutes) {
     return startMinutes >= openMinutes && endMinutes <= closeMinutes;
   }
 
-  return startMinutes >= openMinutes || endMinutes <= closeMinutes;
+  const normalizedStart = startMinutes < openMinutes ? startMinutes + 24 * 60 : startMinutes;
+  const normalizedEnd = endMinutes < openMinutes ? endMinutes + 24 * 60 : endMinutes;
+  return normalizedStart >= openMinutes && normalizedEnd > normalizedStart && normalizedEnd <= closeMinutes + 24 * 60;
 }
 
 function rangesOverlap(startA, endA, startB, endB) {
@@ -284,6 +398,21 @@ function bookingFitsRule(rule, startMinutes, endMinutes) {
     startMinutes,
     endMinutes
   );
+}
+
+function isOvernightBlockForPreviousDay(block, weekday) {
+  return Boolean(block.endsNextDay) && block.weekday === (weekday + 6) % 7;
+}
+
+function blockAllowsBookingOnWeekday(block, weekday, startMinutes, endMinutes) {
+  if (block.weekday === weekday) {
+    if (block.endsNextDay && startMinutes < minutesFromTime(block.startsAt)) {
+      return false;
+    }
+    return bookingFitsRule(block, startMinutes, endMinutes);
+  }
+
+  return isOvernightBlockForPreviousDay(block, weekday) && endMinutes <= minutesFromTime(block.endsAt);
 }
 
 function ruleOverlapsBooking(rule, startMinutes, endMinutes) {
@@ -332,6 +461,14 @@ async function assertAvailabilityAllowsBooking({ availability, location, service
   return decision;
 }
 
+async function assertServiceScheduleAvailability({ tenant, location, service, scheduledStartAt, scheduledEndAt }) {
+  const availability = await vendorAvailabilityRepository.listAvailabilityByLocation(
+    tenant._id,
+    location._id
+  );
+  return assertAvailabilityAllowsBooking({ availability, location, service, scheduledStartAt, scheduledEndAt });
+}
+
 async function getBookingAvailabilityDecision({ availability, location, service, scheduledStartAt, scheduledEndAt }) {
   const dateKey = getLocalDateKey(scheduledStartAt);
   const startMinutes = getLocalTimeMinutes(scheduledStartAt);
@@ -359,16 +496,16 @@ async function getBookingAvailabilityDecision({ availability, location, service,
   if (availableException) {
     return {
       allowed: true,
-      capacity: availableException.capacity || 1
+      capacity: availableException.capacity || 1,
+      capacityScope: availableException.serviceId ? "service" : "location"
     };
   }
 
   const activeBlocks = availability.blocks.filter((block) => block.isActive);
   const weekday = getWeekdayInManila(scheduledStartAt);
   const matchingBlock = activeBlocks.find((block) =>
-      block.weekday === weekday &&
       (!block.serviceId || String(block.serviceId) === String(service._id)) &&
-      bookingFitsRule(block, startMinutes, endMinutes)
+      blockAllowsBookingOnWeekday(block, weekday, startMinutes, endMinutes)
   );
 
   if (!activeBlocks.length) {
@@ -376,7 +513,8 @@ async function getBookingAvailabilityDecision({ availability, location, service,
     if (storeHoursAllowBooking({ hours, scheduledStartAt, startMinutes, endMinutes })) {
       return {
         allowed: true,
-        capacity: 1
+        capacity: 1,
+        capacityScope: "service"
       };
     }
   }
@@ -390,7 +528,8 @@ async function getBookingAvailabilityDecision({ availability, location, service,
 
   return {
     allowed: true,
-    capacity: matchingBlock.capacity || 1
+    capacity: matchingBlock.capacity || 1,
+    capacityScope: matchingBlock.serviceId ? "service" : "location"
   };
 }
 
@@ -401,17 +540,26 @@ function buildAvailabilityWindows({ availability, hours, service, location, date
 
   if (activeBlocks.length) {
     for (const block of activeBlocks) {
-      if (block.weekday !== weekday) {
-        continue;
-      }
       if (block.serviceId && String(block.serviceId) !== String(service._id)) {
         continue;
       }
-      windows.push({
-        startsAt: block.startsAt,
-        endsAt: block.endsAt,
-        capacity: block.capacity || 1
-      });
+      if (block.weekday === weekday) {
+        windows.push({
+          startsAt: block.startsAt,
+          endsAt: block.endsAt,
+          endsNextDay: Boolean(block.endsNextDay),
+          capacity: block.capacity || 1,
+          capacityScope: block.serviceId ? "service" : "location"
+        });
+      }
+      if (isOvernightBlockForPreviousDay(block, weekday)) {
+        windows.push({
+          startsAt: "00:00",
+          endsAt: block.endsAt,
+          capacity: block.capacity || 1,
+          capacityScope: block.serviceId ? "service" : "location"
+        });
+      }
     }
   } else {
     const hour = hours.find((entry) => entry.weekday === weekday);
@@ -419,7 +567,8 @@ function buildAvailabilityWindows({ availability, hours, service, location, date
       windows.push({
         startsAt: hour.opensAt,
         endsAt: hour.closesAt,
-        capacity: 1
+        capacity: 1,
+        capacityScope: "service"
       });
     }
   }
@@ -438,28 +587,349 @@ function buildAvailabilityWindows({ availability, hours, service, location, date
     windows.push({
       startsAt: exception.startsAt,
       endsAt: exception.endsAt,
-      capacity: exception.capacity || 1
+      capacity: exception.capacity || 1,
+      capacityScope: exception.serviceId ? "service" : "location"
     });
   }
 
   return windows
     .map((window) => ({
       startMinutes: minutesFromTime(window.startsAt),
-      endMinutes: minutesFromTime(window.endsAt),
+      endMinutes: minutesFromTime(window.endsAt) + (window.endsNextDay ? 24 * 60 : 0),
       capacity: window.capacity,
+      capacityScope: window.capacityScope,
       locationId: location._id
     }))
     .filter((window) => window.startMinutes < window.endMinutes);
 }
 
-async function listBookingSlots({ tenantSlug: tenantSlugValue, locationSlug: locationSlugValue, serviceSlug: serviceSlugValue, date, bookingQuantity: bookingQuantityValue }) {
+function normalizeExecutionMode(value) {
+  const executionMode = String(value || "parallel").trim().toLowerCase();
+  if (!["parallel", "sequential"].includes(executionMode)) {
+    const error = new Error("executionMode must be either parallel or sequential.");
+    error.statusCode = 400;
+    throw error;
+  }
+  return executionMode;
+}
+
+function normalizeComposedPlanItems(itemsValue) {
+  if (!Array.isArray(itemsValue) || !itemsValue.length) {
+    const error = new Error("items must contain at least one service.");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (itemsValue.length > 12) {
+    const error = new Error("A composed visit can contain at most 12 services.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const seen = new Set();
+  return itemsValue.map((item, sortOrder) => {
+    const serviceSlug = vendorServiceRepository.normalizeServiceSlug(item?.serviceSlug);
+    if (!serviceSlug || seen.has(serviceSlug)) {
+      const error = new Error("Composed visit services must be unique.");
+      error.statusCode = 400;
+      throw error;
+    }
+    seen.add(serviceSlug);
+    return { serviceSlug, bookingQuantity: item?.bookingQuantity, sortOrder };
+  });
+}
+
+async function loadComposedBookingPlan({ tenant, location, items: itemValues, executionMode: executionModeValue }) {
+  const executionMode = normalizeExecutionMode(executionModeValue);
+  const requestedItems = normalizeComposedPlanItems(itemValues);
+  const items = [];
+
+  for (const requestedItem of requestedItems) {
+    const service = await vendorServiceRepository.findServiceByTenantAndSlug(tenant._id, requestedItem.serviceSlug);
+    if (!service || !service.isActive) {
+      const error = new Error("A selected service was not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+    const locationService = await getLocationServiceForBooking(tenant._id, location._id, service);
+    if (!locationService || !locationService.isActive) {
+      const error = new Error("A selected service is not available at this location.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const bookingQuantity = normalizeServiceBookingQuantity(service, requestedItem.bookingQuantity);
+    assertManualPaymentDestinationAvailable({ service, location });
+    items.push({
+      service,
+      locationService,
+      bookingQuantity,
+      durationMinutes: getBookingDurationMinutes(service, bookingQuantity),
+      sortOrder: requestedItem.sortOrder
+    });
+  }
+
+  if (new Set(items.map((item) => Boolean(item.service.manualPaymentRequired))).size > 1) {
+    const error = new Error("Selected services must use the same payment requirement.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return { executionMode, items };
+}
+
+function materializeComposedPlanAt({ plan, scheduledStartAt }) {
+  let cursorAt = new Date(scheduledStartAt);
+  const items = plan.items.map((item) => {
+    const itemStartAt = plan.executionMode === "sequential" ? new Date(cursorAt) : new Date(scheduledStartAt);
+    const itemEndAt = new Date(itemStartAt.getTime() + item.durationMinutes * 60 * 1000);
+    if (plan.executionMode === "sequential") {
+      cursorAt = itemEndAt;
+    }
+    return {
+      ...item,
+      scheduledStartAt: itemStartAt,
+      scheduledEndAt: itemEndAt
+    };
+  });
+  const scheduledEndAt = new Date(Math.max(...items.map((item) => item.scheduledEndAt.getTime())));
+  return { ...plan, items, scheduledStartAt: new Date(scheduledStartAt), scheduledEndAt };
+}
+
+async function evaluateComposedPlanAvailability({ tenant, location, availability, plan, excludeBookingId }) {
+  const allocations = [];
+  let remainingCapacity = Number.POSITIVE_INFINITY;
+  for (const item of plan.items) {
+    const decision = await getBookingAvailabilityDecision({
+      availability,
+      location,
+      service: item.service,
+      scheduledStartAt: item.scheduledStartAt,
+      scheduledEndAt: item.scheduledEndAt
+    });
+    if (!decision.allowed) {
+      return { available: false, reason: "outside_availability", message: decision.message };
+    }
+
+    const capacity = resolveEffectiveCapacity(item.locationService.capacity || 1, decision.capacity || 1);
+    const capacityScope = decision.capacityScope || "service";
+    const serviceId = getBookingCapacityServiceId(item.service, capacityScope);
+    const activeCount = await bookingRepository.countOverlappingActiveBookings(tenant._id, {
+      locationId: location._id,
+      serviceId,
+      startsAt: item.scheduledStartAt.toISOString(),
+      endsAt: item.scheduledEndAt.toISOString(),
+      excludeBookingId
+    });
+    const activeHoldCount = 0;
+    const plannedCount = allocations.filter((allocation) =>
+      String(allocation.serviceId || "") === String(serviceId || "") &&
+      rangesOverlap(
+        item.scheduledStartAt.getTime(),
+        item.scheduledEndAt.getTime(),
+        allocation.scheduledStartAt.getTime(),
+        allocation.scheduledEndAt.getTime()
+      )
+    ).length;
+    const itemRemainingCapacity = capacity - activeCount - activeHoldCount - plannedCount;
+    if (itemRemainingCapacity <= 0) {
+      return { available: false, reason: "capacity_full" };
+    }
+    allocations.push({ serviceId, scheduledStartAt: item.scheduledStartAt, scheduledEndAt: item.scheduledEndAt });
+    remainingCapacity = Math.min(remainingCapacity, itemRemainingCapacity);
+  }
+  return { available: true, remainingCapacity };
+}
+
+async function evaluateComposedBookingSlots({
+  tenantSlug: tenantSlugValue,
+  locationSlug: locationSlugValue,
+  date,
+  items,
+  executionMode,
+  includeUnavailableSlots = false,
+  excludeBookingId,
+  slotIntervalMinutes: slotIntervalMinutesValue,
+  requirePublicVendor = true
+}) {
   const tenantSlug = String(tenantSlugValue || "").trim().toLowerCase();
   const locationSlug = String(locationSlugValue || "").trim().toLowerCase();
-  const serviceSlug = vendorServiceRepository.normalizeServiceSlug(serviceSlugValue);
   const dateKey = parseDateKey(date);
+  if (!tenantSlug || !locationSlug || !dateKey) {
+    const error = new Error("tenantSlug, locationSlug, and date are required.");
+    error.statusCode = 400;
+    throw error;
+  }
 
-  if (!tenantSlug || !locationSlug || !serviceSlug || !dateKey) {
+  const tenant = await tenantRepository.findTenantBySlug(tenantSlug, { activeOnly: true });
+  if (!tenant || (requirePublicVendor && (!tenant.publicProfileEnabled || tenant.vendorApprovalStatus !== "approved"))) {
+    const error = new Error("Vendor not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+  if (requirePublicVendor) {
+    await entitlementAdmissionService.admit({ tenantId: tenant._id, featureKey: "booking" });
+  }
+  const location = await storeLocationRepository.findLocationByTenantAndSlug(tenant._id, locationSlug);
+  if (!location || !location.isActive) {
+    const error = new Error("Location not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const plan = await loadComposedBookingPlan({ tenant, location, items, executionMode });
+  const slotIntervalMinutes = Number(slotIntervalMinutesValue || (plan.items.length === 1 ? plan.items[0].durationMinutes : 30));
+  if (!Number.isInteger(slotIntervalMinutes) || slotIntervalMinutes < 15 || slotIntervalMinutes > 24 * 60) {
+    const error = new Error("slotIntervalMinutes must be between 15 and 1440 minutes.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  await expirePendingBookingsForTenant(tenant._id);
+  const availability = await vendorAvailabilityRepository.listAvailabilityByLocation(tenant._id, location._id);
+  const hours = availability.blocks.some((block) => block.isActive)
+    ? []
+    : await storeLocationRepository.listHoursByLocationId(location._id);
+  const windows = buildAvailabilityWindows({ availability, hours, service: plan.items[0].service, location, dateKey });
+  const slots = [];
+  const unavailableReasons = new Set();
+  for (const window of windows) {
+    for (let startMinutes = window.startMinutes; startMinutes + plan.items[0].durationMinutes <= window.endMinutes; startMinutes += slotIntervalMinutes) {
+      const scheduledStartAt = dateKeyAndMinutesToDate(dateKey, startMinutes);
+      if (scheduledStartAt.getTime() <= Date.now()) continue;
+      const materializedPlan = materializeComposedPlanAt({ plan, scheduledStartAt });
+      const result = await evaluateComposedPlanAvailability({
+        tenant, location, availability, plan: materializedPlan, excludeBookingId
+      });
+      if (!result.available) {
+        unavailableReasons.add(result.reason);
+        if (includeUnavailableSlots && result.reason === "capacity_full") {
+          slots.push({
+            startAt: materializedPlan.scheduledStartAt.toISOString(),
+            endAt: materializedPlan.scheduledEndAt.toISOString(),
+            remainingCapacity: 0,
+            isAvailable: false,
+            disabledReason: result.reason,
+            executionMode: materializedPlan.executionMode,
+            items: materializedPlan.items.map((item) => ({
+              serviceSlug: item.service.slug,
+              bookingQuantity: item.bookingQuantity,
+              startAt: item.scheduledStartAt.toISOString(),
+              endAt: item.scheduledEndAt.toISOString(),
+              sortOrder: item.sortOrder
+            }))
+          });
+        }
+        continue;
+      }
+      slots.push({
+        startAt: materializedPlan.scheduledStartAt.toISOString(),
+        endAt: materializedPlan.scheduledEndAt.toISOString(),
+        remainingCapacity: result.remainingCapacity,
+        isAvailable: true,
+        executionMode: materializedPlan.executionMode,
+        items: materializedPlan.items.map((item) => ({
+          serviceSlug: item.service.slug,
+          bookingQuantity: item.bookingQuantity,
+          startAt: item.scheduledStartAt.toISOString(),
+          endAt: item.scheduledEndAt.toISOString(),
+          sortOrder: item.sortOrder
+        }))
+      });
+    }
+  }
+  const slotsByStart = new Map();
+  for (const slot of slots) {
+    const existing = slotsByStart.get(slot.startAt);
+    if (!existing || Number(slot.remainingCapacity) > Number(existing.remainingCapacity)) {
+      slotsByStart.set(slot.startAt, slot);
+    }
+  }
+  return {
+    slots: [...slotsByStart.values()].sort((left, right) => left.startAt.localeCompare(right.startAt)),
+    unavailableReasons: [...unavailableReasons].sort()
+  };
+}
+
+async function assertComposedBookingPlanAt({
+  tenant,
+  location,
+  items,
+  executionMode,
+  scheduledStartAt,
+  excludeBookingId
+}) {
+  const startAt = normalizeDateTime(scheduledStartAt);
+  if (!startAt) {
+    const error = new Error("scheduledStartAt must be a valid date and time.");
+    error.statusCode = 400;
+    throw error;
+  }
+  const plan = materializeComposedPlanAt({
+    plan: await loadComposedBookingPlan({ tenant, location, items, executionMode }),
+    scheduledStartAt: startAt
+  });
+  const availability = await vendorAvailabilityRepository.listAvailabilityByLocation(tenant._id, location._id);
+  const result = await evaluateComposedPlanAvailability({
+    tenant,
+    location,
+    availability,
+    plan,
+    excludeBookingId
+  });
+  if (!result.available) {
+    const error = new Error(
+      result.reason === "capacity_full"
+        ? "This slot is no longer available. Please choose another time."
+        : result.message || "The selected time is outside the vendor's availability."
+    );
+    error.statusCode = 409;
+    throw error;
+  }
+  return plan;
+}
+
+async function listBookingSlots({
+  tenantSlug: tenantSlugValue,
+  locationSlug: locationSlugValue,
+  serviceSlug: serviceSlugValue,
+  date,
+  bookingQuantity: bookingQuantityValue,
+  excludeBookingId,
+  slotIntervalMinutes: slotIntervalMinutesValue,
+  requirePublicVendor = true
+}) {
+  const serviceSlug = vendorServiceRepository.normalizeServiceSlug(serviceSlugValue);
+  if (!serviceSlug) {
     const error = new Error("tenantSlug, locationSlug, serviceSlug, and date are required.");
+    error.statusCode = 400;
+    throw error;
+  }
+  const result = await evaluateComposedBookingSlots({
+    tenantSlug: tenantSlugValue,
+    locationSlug: locationSlugValue,
+    date,
+    items: [{ serviceSlug, bookingQuantity: bookingQuantityValue }],
+    executionMode: "parallel",
+    excludeBookingId,
+    includeUnavailableSlots: true,
+    slotIntervalMinutes: slotIntervalMinutesValue,
+    requirePublicVendor
+  });
+  return result.slots.map(({ executionMode: _executionMode, items: _items, ...slot }) => slot);
+}
+
+async function listGroupFundedCandidateSlots({ tenantSlug: tenantSlugValue, locationSlug: locationSlugValue, date, durationMinutes: durationMinutesValue }) {
+  const tenantSlug = String(tenantSlugValue || "").trim().toLowerCase();
+  const locationSlug = String(locationSlugValue || "").trim().toLowerCase();
+  const dateKey = parseDateKey(date);
+  const durationMinutes = Number(durationMinutesValue || 60);
+  if (!tenantSlug || !locationSlug || !dateKey) {
+    const error = new Error("tenantSlug, locationSlug, and date are required.");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (!Number.isInteger(durationMinutes) || durationMinutes < 30 || durationMinutes > 24 * 60) {
+    const error = new Error("durationMinutes must be between 30 and 1440.");
     error.statusCode = 400;
     throw error;
   }
@@ -470,7 +940,7 @@ async function listBookingSlots({ tenantSlug: tenantSlugValue, locationSlug: loc
     error.statusCode = 404;
     throw error;
   }
-
+  await entitlementAdmissionService.admit({ tenantId: tenant._id, featureKey: "booking" });
   const location = await storeLocationRepository.findLocationByTenantAndSlug(tenant._id, locationSlug);
   if (!location || !location.isActive) {
     const error = new Error("Location not found.");
@@ -478,83 +948,57 @@ async function listBookingSlots({ tenantSlug: tenantSlugValue, locationSlug: loc
     throw error;
   }
 
-  const service = await vendorServiceRepository.findServiceByTenantAndSlug(tenant._id, serviceSlug);
-  if (!service || !service.isActive) {
-    const error = new Error("Service not found.");
-    error.statusCode = 404;
-    throw error;
+  const weekday = getWeekdayForDateKey(dateKey);
+  const hours = await storeLocationRepository.listHoursByLocationId(location._id);
+  const hour = hours.find((entry) => Number(entry.weekday) === weekday);
+  if (!hour || hour.isClosed || !hour.opensAt || !hour.closesAt) {
+    return [];
   }
-  const bookingQuantity = normalizeServiceBookingQuantity(service, bookingQuantityValue);
-  await expirePendingBookingsForTenant(tenant._id);
 
-  const availability = await vendorAvailabilityRepository.listAvailabilityByLocation(
-    tenant._id,
-    location._id
-  );
-  const hours = availability.blocks.some((block) => block.isActive)
-    ? []
-    : await storeLocationRepository.listHoursByLocationId(location._id);
-  const windows = buildAvailabilityWindows({ availability, hours, service, location, dateKey });
-  const slotsByStart = new Map();
-  const bookingDurationMinutes = getBookingDurationMinutes(service, bookingQuantity);
-
-  for (const window of windows) {
-    for (
-      let startMinutes = window.startMinutes;
-      startMinutes + bookingDurationMinutes <= window.endMinutes;
-      startMinutes += bookingDurationMinutes
-    ) {
-      const endMinutes = startMinutes + bookingDurationMinutes;
-      const scheduledStartAt = dateKeyAndMinutesToDate(dateKey, startMinutes);
-      const scheduledEndAt = dateKeyAndMinutesToDate(dateKey, endMinutes);
-
-      if (scheduledStartAt.getTime() <= Date.now()) {
-        continue;
-      }
-
-      const decision = await getBookingAvailabilityDecision({
-        availability,
-        location,
-        service,
-        scheduledStartAt,
-        scheduledEndAt
+  const startMinutes = minutesFromTime(hour.opensAt);
+  const endMinutes = minutesFromTime(hour.closesAt) + (minutesFromTime(hour.closesAt) <= startMinutes ? 24 * 60 : 0);
+  const slots = [];
+  for (let minute = startMinutes; minute + durationMinutes <= endMinutes; minute += 30) {
+    const startAt = dateKeyAndMinutesToDate(dateKey, minute);
+    if (startAt.getTime() > Date.now()) {
+      slots.push({
+        startAt: startAt.toISOString(),
+        endAt: dateKeyAndMinutesToDate(dateKey, minute + durationMinutes).toISOString(),
+        remainingCapacity: 1,
+        isAvailable: true
       });
-
-      if (!decision.allowed) {
-        continue;
-      }
-
-      const capacity = decision.capacity || window.capacity || 1;
-      const activeCount = await bookingRepository.countOverlappingActiveBookings(tenant._id, {
-        locationId: location._id,
-        serviceId: service._id,
-        startsAt: scheduledStartAt.toISOString(),
-        endsAt: scheduledEndAt.toISOString()
-      });
-      const remainingCapacity = Math.max(capacity - activeCount, 0);
-      const slot = {
-        startAt: scheduledStartAt.toISOString(),
-        endAt: scheduledEndAt.toISOString(),
-        remainingCapacity,
-        isAvailable: remainingCapacity > 0,
-        ...(remainingCapacity > 0 ? {} : { disabledReason: "capacity_full" })
-      };
-      const existing = slotsByStart.get(slot.startAt);
-      if (!existing || slot.remainingCapacity > existing.remainingCapacity) {
-        slotsByStart.set(slot.startAt, slot);
-      }
     }
   }
-
-  return [...slotsByStart.values()].sort((left, right) => left.startAt.localeCompare(right.startAt));
+  return slots;
 }
 
-async function assertSlotCapacityAvailable({ tenant, location, service, scheduledStartAt, scheduledEndAt, capacity, excludeBookingId }) {
+async function listVendorBookingRescheduleSlots({ tenant, bookingId, date }) {
+  const booking = await bookingRepository.findBookingById(bookingId);
+  assertBookingBelongsToTenantLocation(booking, tenant);
+
+  if (!["pending", "confirmed", "rescheduled"].includes(booking.status)) {
+    const error = new Error("This booking can no longer be rescheduled.");
+    error.statusCode = 409;
+    throw error;
+  }
+
+  return listBookingSlots({
+    tenantSlug: tenant.slug,
+    locationSlug: booking.locationSlug,
+    serviceSlug: booking.serviceSlug,
+    date,
+    bookingQuantity: booking.bookingQuantity,
+    excludeBookingId: booking._id,
+    requirePublicVendor: false
+  });
+}
+
+async function assertSlotCapacityAvailable({ tenant, location, service, scheduledStartAt, scheduledEndAt, capacity, capacityScope = "service", excludeBookingId }) {
   await expirePendingBookingsForTenant(tenant._id);
 
   const activeCount = await bookingRepository.countOverlappingActiveBookings(tenant._id, {
     locationId: location._id,
-    serviceId: service._id,
+    serviceId: getBookingCapacityServiceId(service, capacityScope),
     startsAt: scheduledStartAt.toISOString(),
     endsAt: scheduledEndAt.toISOString(),
     excludeBookingId
@@ -573,7 +1017,7 @@ async function createCustomerBooking({ user, body }) {
   const serviceSlug = vendorServiceRepository.normalizeServiceSlug(body.serviceSlug);
   const scheduledStartAt = normalizeDateTime(body.scheduledStartAt);
   const customerEmail = String(body.customerEmail || user.email || "").trim().toLowerCase();
-  const customerPhone = String(body.customerPhone || user.phone || "").trim();
+  const customerPhone = normalizePhilippineMobileNumber(body.customerPhone || user.phone);
   const bookingVerificationToken = String(body.bookingVerificationToken || "").trim();
 
   if (!tenantSlug || !locationSlug || !serviceSlug) {
@@ -608,8 +1052,20 @@ async function createCustomerBooking({ user, body }) {
     error.statusCode = 404;
     throw error;
   }
-  assertManualPaymentDestinationAvailable({ service, location });
-  const bookingQuantity = normalizeServiceBookingQuantity(service, body.bookingQuantity);
+  const locationService = await getLocationServiceForBooking(tenant._id, location._id, service);
+  if (!locationService || !locationService.isActive) {
+    const error = new Error("Service not available at this location.");
+    error.statusCode = 404;
+    throw error;
+  }
+  const requestedBundleItems = normalizeBookingBundleItems(body, serviceSlug);
+  if (requestedBundleItems[0]?.serviceSlug !== serviceSlug) {
+    const error = new Error("The selected service must be the first item in the booking bundle.");
+    error.statusCode = 400;
+    throw error;
+  }
+  const executionMode = normalizeExecutionMode(body.executionMode);
+  normalizeServiceBookingQuantity(service, body.bookingQuantity);
   await expirePendingBookingsForTenant(tenant._id);
 
   if (!bookingVerificationToken) {
@@ -630,25 +1086,46 @@ async function createCustomerBooking({ user, body }) {
     error.statusCode = 400;
     throw error;
   }
+  const notes = String(verifiedBooking.payload.notes || body.notes || "").trim();
+  assertPublicTextFieldsAllowed({ "Customer name": verifiedCustomerName, "Booking notes": notes });
 
   const verifiedCustomerEmail = verifiedBooking.payload.customerEmail || customerEmail;
   const verifiedCustomerPhone = verifiedBooking.payload.customerPhone || customerPhone;
   const notifyBySms = Boolean(verifiedBooking.payload.notifyBySms);
 
-  const scheduledEndAt = new Date(scheduledStartAt.getTime() + getBookingDurationMinutes(service, bookingQuantity) * 60 * 1000);
+  const composedPlan = materializeComposedPlanAt({
+    plan: await loadComposedBookingPlan({ tenant, location, items: requestedBundleItems, executionMode }),
+    scheduledStartAt
+  });
+  const bookingQuantity = composedPlan.items[0].bookingQuantity;
+  const scheduledEndAt = composedPlan.scheduledEndAt;
   const availability = await vendorAvailabilityRepository.listAvailabilityByLocation(
     tenant._id,
     location._id
   );
-  const decision = await assertAvailabilityAllowsBooking({ availability, location, service, scheduledStartAt, scheduledEndAt });
-  await assertSlotCapacityAvailable({
-    tenant,
-    location,
-    service,
-    scheduledStartAt,
-    scheduledEndAt,
-    capacity: decision.capacity || 1
+  const availabilityResult = await evaluateComposedPlanAvailability({
+    tenant, location, availability, plan: composedPlan
   });
+  if (!availabilityResult.available) {
+    const error = new Error(
+      availabilityResult.reason === "capacity_full"
+        ? "This slot is no longer available. Please choose another time."
+        : availabilityResult.message || "The selected time is outside the vendor's availability."
+    );
+    error.statusCode = 409;
+    throw error;
+  }
+  const bookingBundleItems = composedPlan.items.map((item) => ({
+    serviceId: item.service._id,
+    serviceName: item.service.name,
+    serviceSlug: item.service.slug,
+    bookingQuantity: item.bookingQuantity,
+    priceAmountCents: Number(item.service.priceAmountCents || 0) * item.bookingQuantity,
+    currency: item.service.currency || "PHP",
+    scheduledStartAt: item.scheduledStartAt.toISOString(),
+    scheduledEndAt: item.scheduledEndAt.toISOString(),
+    sortOrder: item.sortOrder
+  }));
 
   const smsFee = await bookingSmsAlertPaymentService.getBookingSmsFeeForTenant(tenant._id);
   let smsAlertFeePaymentId = null;
@@ -661,30 +1138,51 @@ async function createCustomerBooking({ user, body }) {
     });
   }
 
-  const booking = await bookingRepository.createBooking({
-    tenantId: tenant._id,
-    locationId: location._id,
-    serviceId: service._id,
-    customerUserId: user._id,
-    customerName: verifiedCustomerName,
-    customerEmail: verifiedCustomerEmail,
-    customerPhone: verifiedCustomerPhone,
-    bookingQuantity,
-    scheduledStartAt: scheduledStartAt.toISOString(),
-    scheduledEndAt: scheduledEndAt.toISOString(),
-    notes: String(verifiedBooking.payload.notes || body.notes || "").trim(),
-    paymentReference: String(body.paymentReference || "").trim(),
-    pendingExpiresAt: getPendingBookingExpiration(),
-    notifyByEmail: Boolean(verifiedCustomerEmail),
-    notifyBySms,
-    smsAlertFeePaymentId,
-    contactVerifiedAt: verifiedBooking.contactVerifiedAt,
-    contactVerificationChannel: verifiedBooking.contactVerificationChannel
+  const booking = await db.withTransaction(async (client) => {
+    const createdBooking = await bookingRepository.createBooking({
+      tenantId: tenant._id,
+      locationId: location._id,
+      serviceId: service._id,
+      customerUserId: user._id,
+      customerName: verifiedCustomerName,
+      customerEmail: verifiedCustomerEmail,
+      customerPhone: verifiedCustomerPhone,
+      bookingQuantity,
+      executionMode,
+      scheduledStartAt: scheduledStartAt.toISOString(),
+      scheduledEndAt: scheduledEndAt.toISOString(),
+      notes,
+      paymentReference: String(body.paymentReference || "").trim(),
+      pendingExpiresAt: getPendingBookingExpiration(),
+      notifyByEmail: Boolean(verifiedCustomerEmail),
+      notifyBySms,
+      smsAlertFeePaymentId,
+      contactVerifiedAt: verifiedBooking.contactVerifiedAt,
+      contactVerificationChannel: verifiedBooking.contactVerificationChannel,
+      organizerCampaignOptIn: Boolean(body.organizerCampaignOptIn),
+      bundleItems: bookingBundleItems
+    }, { client });
+    await allowanceService.consumeAllowance({
+      tenantId: tenant._id,
+      resourceKey: "serviceBookings",
+      units: 1,
+      operationKey: `service-booking:${createdBooking._id}:created`,
+      subjectType: "service_booking",
+      subjectId: createdBooking._id,
+      actorUserId: user._id,
+      reason: "Service Booking created"
+    }, { client });
+    return createdBooking;
   });
 
   await bookingOtpService.consumeBookingVerificationToken(verifiedBooking.otpId);
   await sendBookingSubmittedNotification({ tenant, booking });
   await publishBookingSnapshot(tenant, location);
+  if (tenant.notificationSettings?.bookingIntake !== false) {
+    pushNotificationService.notifyVendorBookingIntake({ tenant, booking }).catch((error) => {
+      console.warn("[web-push-booking-intake-skipped]", error.message);
+    });
+  }
 
   return booking;
 }
@@ -702,7 +1200,13 @@ async function getCustomerOwnedBooking({ user, bookingId }) {
 }
 
 function assertBookingCanAcceptPaymentProof(booking) {
-  if (!booking.serviceManualPaymentRequired && !booking.locationPaymentQrActive) {
+  if (booking.bookingPaymentSource === "group_funded" || booking.groupFundedBookingId) {
+    const error = new Error("Group-funded bookings do not accept manual payment proof.");
+    error.statusCode = 409;
+    throw error;
+  }
+
+  if (!booking.serviceManualPaymentRequired) {
     const error = new Error("This booking does not have an active manual payment QR.");
     error.statusCode = 409;
     throw error;
@@ -783,6 +1287,11 @@ async function submitCustomerPaymentProof({ user, bookingId, body }) {
     : null;
   if (tenant && location) {
     await publishBookingSnapshot(tenant, location);
+    if (tenant.notificationSettings?.paymentProofReview !== false) {
+      pushNotificationService.notifyVendorPaymentProofReview({ tenant, booking: updated }).catch((error) => {
+        console.warn("[web-push-payment-proof-review-skipped]", error.message);
+      });
+    }
   }
 
   return updated;
@@ -833,7 +1342,15 @@ async function updateVendorBookingStatus({ tenant, bookingId, status }) {
     throw error;
   }
 
-  return bookingRepository.updateBooking(booking._id, { status });
+  const updated = await bookingRepository.updateBooking(booking._id, { status });
+  pushNotificationService.notifyCustomerBookingUpdate({
+    booking: updated,
+    action: status
+  }).catch((error) => {
+    console.warn("[web-push-customer-booking-status-skipped]", error.message);
+  });
+
+  return updated;
 }
 
 function assertVendorCanReviewBookingPayment(booking, tenant) {
@@ -879,7 +1396,7 @@ async function verifyVendorBookingPayment({ tenant, bookingId, user }) {
     throw error;
   }
 
-  return bookingRepository.updateBooking(booking._id, {
+  const updated = await bookingRepository.updateBooking(booking._id, {
     paymentStatus: "paid",
     paymentVerifiedAt: new Date().toISOString(),
     paymentVerifiedByUserId: user?._id || null,
@@ -887,6 +1404,15 @@ async function verifyVendorBookingPayment({ tenant, bookingId, user }) {
     paymentRejectedByUserId: null,
     paymentRejectionReason: ""
   });
+
+  pushNotificationService.notifyCustomerBookingUpdate({
+    booking: updated,
+    action: "payment_verified"
+  }).catch((error) => {
+    console.warn("[web-push-customer-payment-verified-skipped]", error.message);
+  });
+
+  return updated;
 }
 
 async function rejectVendorBookingPayment({ tenant, bookingId, user, reason }) {
@@ -932,6 +1458,12 @@ async function rejectVendorBookingPayment({ tenant, bookingId, user, reason }) {
       body: message
     });
   }
+  pushNotificationService.notifyCustomerBookingUpdate({
+    booking: updated,
+    action: "payment_rejected"
+  }).catch((error) => {
+    console.warn("[web-push-customer-payment-rejected-skipped]", error.message);
+  });
 
   return updated;
 }
@@ -961,6 +1493,7 @@ async function cancelCustomerBooking({ user, bookingId, reason }) {
     status: "canceled",
     notes: cancellationReason || booking.notes || ""
   });
+  if (booking.organizerCampaignOptIn) await organizerCampaignService.cancelCampaignForBooking({ bookingId: updated._id, reason: cancellationReason || "The linked booking was cancelled." });
 
   const message = `${updated.tenantName}: Your booking request ${updated.reference} was cancelled.`;
   if (updated.customerEmail) {
@@ -979,6 +1512,12 @@ async function cancelCustomerBooking({ user, bookingId, reason }) {
       body: message
     });
   }
+  pushNotificationService.notifyCustomerBookingUpdate({
+    booking: updated,
+    action: "canceled"
+  }).catch((error) => {
+    console.warn("[web-push-customer-booking-cancel-skipped]", error.message);
+  });
   const tenant = tenantRepository.findTenantBySlug
     ? await tenantRepository.findTenantBySlug(updated.tenantSlug)
     : null;
@@ -1042,10 +1581,11 @@ async function rescheduleVendorBooking({ tenant, bookingId, scheduledStartAt: sc
     scheduledStartAt,
     scheduledEndAt,
     capacity: decision.capacity || 1,
+    capacityScope: decision.capacityScope || "service",
     excludeBookingId: booking._id
   });
 
-  return bookingRepository.updateBooking(booking._id, {
+  const updated = await bookingRepository.updateBooking(booking._id, {
     scheduledStartAt: scheduledStartAt.toISOString(),
     scheduledEndAt: scheduledEndAt.toISOString(),
     status: "rescheduled",
@@ -1053,11 +1593,20 @@ async function rescheduleVendorBooking({ tenant, bookingId, scheduledStartAt: sc
     checkedInAt: null,
     checkedInByUserId: null
   });
+  pushNotificationService.notifyCustomerBookingUpdate({
+    booking: updated,
+    action: "rescheduled"
+  }).catch((error) => {
+    console.warn("[web-push-customer-booking-reschedule-skipped]", error.message);
+  });
+
+  return updated;
 }
 
 async function checkInVendorBooking({ tenant, location, bookingId, user, overrideWindow, overrideReason }) {
   await expirePendingBookingsForTenant(tenant._id);
   const queueService = getQueueService();
+  await queueService.assertQueueIntakeOpen(tenant, location);
   const result = await db.withTransaction(async (client) => {
     const booking = await bookingRepository.findBookingByIdForUpdate(bookingId, { client });
     assertBookingBelongsToTenantLocation(booking, tenant, location);
@@ -1123,6 +1672,12 @@ async function checkInVendorBooking({ tenant, location, bookingId, user, overrid
     lookupCode: result.ticket.lookupCode,
     location
   });
+  pushNotificationService.notifyCustomerBookingUpdate({
+    booking: result.booking,
+    action: "checked_in"
+  }).catch((error) => {
+    console.warn("[web-push-customer-booking-check-in-skipped]", error.message);
+  });
 
   return {
     booking: result.booking,
@@ -1159,6 +1714,7 @@ async function markVendorBookingNoShow({ tenant, location, bookingId, user }) {
     noShowAt: new Date().toISOString(),
     noShowByUserId: user?._id || null
   });
+  if (booking.organizerCampaignOptIn) await organizerCampaignService.cancelCampaignForBooking({ bookingId: updated._id, reason: "The linked booking was cancelled as a no-show." });
 
   const message = `${updated.tenantName}: Your booking request ${updated.reference} was cancelled as a no-show.`;
   if (updated.customerEmail) {
@@ -1177,13 +1733,24 @@ async function markVendorBookingNoShow({ tenant, location, bookingId, user }) {
       body: message
     });
   }
+  pushNotificationService.notifyCustomerBookingUpdate({
+    booking: updated,
+    action: "no_show"
+  }).catch((error) => {
+    console.warn("[web-push-customer-booking-no-show-skipped]", error.message);
+  });
 
   return updated;
 }
 
 module.exports = {
   _setQueueServiceForTest: setQueueServiceForTest,
+  _getCheckInWindowState: getCheckInWindowState,
+  createComposedBookingPlan: loadComposedBookingPlan,
+  materializeComposedBookingPlanAt: materializeComposedPlanAt,
   cancelCustomerBooking,
+  assertServiceScheduleAvailability,
+  assertComposedBookingPlanAt,
   checkInVendorBooking,
   createCustomerBooking,
   createCustomerPaymentProofAccess,
@@ -1192,7 +1759,11 @@ module.exports = {
   createVendorPaymentProofAccess,
   expirePendingBookingsForCustomer,
   expirePendingBookingsForTenant,
+  evaluateComposedBookingSlots,
+  notifyDueCheckInReminderBookings,
   listBookingSlots,
+  listGroupFundedCandidateSlots,
+  listVendorBookingRescheduleSlots,
   markVendorBookingNoShow,
   rejectVendorBookingPayment,
   submitCustomerPaymentProof,

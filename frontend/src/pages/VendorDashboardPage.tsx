@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { VendorRatingsPanel } from "../components/VendorRatingsPanel";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert,
   ActionIcon,
   Badge,
+  Burger,
   Button,
   Card,
   Checkbox,
@@ -11,6 +13,7 @@ import {
   Divider,
   Drawer,
   FileInput,
+  Grid,
   Image,
   Group,
   Modal,
@@ -19,12 +22,14 @@ import {
   Notification,
   Pagination,
   Paper,
+  PasswordInput,
   Portal,
   ScrollArea,
   Select,
   SegmentedControl,
   SimpleGrid,
   Slider,
+  Spoiler,
   Stack,
   Switch,
   Table,
@@ -32,6 +37,7 @@ import {
   Text,
   TextInput,
   Textarea,
+  ThemeIcon,
   Title,
   Tooltip,
   Box
@@ -39,6 +45,7 @@ import {
 import { DatePickerInput } from "@mantine/dates";
 import {
   IconBellRinging,
+  IconBuildingBank,
   IconChartBar,
   IconBriefcase,
   IconCalendar,
@@ -47,22 +54,31 @@ import {
   IconAlertTriangle,
   IconClipboardList,
   IconCheck,
+  IconCopy,
+  IconDownload,
   IconExternalLink,
   IconHistory,
   IconHomeStats,
   IconInfoCircle,
   IconLogout,
-  IconMenu2,
+  IconMapPin,
+  IconPhoto,
   IconPencil,
+  IconUserCircle,
   IconQrcode,
+  IconSparkles,
+  IconStar,
+  IconTicket,
   IconTrash,
   IconX,
+  IconClock,
   IconSettings,
+  IconUserPlus,
   IconUsersGroup
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
-import { addDays, differenceInMinutes } from "date-fns";
-import QRCode from "react-qr-code";
+import { useMediaQuery } from "@mantine/hooks";
+import { differenceInMinutes, getDay } from "date-fns";
 import { Navigate, NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
 import type {
   BillingOverviewResponse,
@@ -87,13 +103,33 @@ import type {
   TenantNotificationSettings,
   VendorAvailabilityBlockSummary,
   VendorAvailabilityExceptionSummary,
+  VendorAvailabilityResponse,
   VendorBookingSummary,
+  BookingSlotSummary,
   VendorClientsResponse,
   VendorServiceSummary,
   UpdateVendorBookingStatusRequest,
-  PaginationMetadata
+  PaginationMetadata,
+  PasswordChangeRequest,
+  GroupFundedLocationServiceSettings,
+  GroupFundedBundleItemSummary,
+  GroupFundedCampaignSummary,
+  VendorGroupFundedContributionSummary,
+  VendorGroupFundedRefundSummary,
+  GroupFundedRefundStatus
 } from "@shared";
+import { DEFAULT_TIMEZONE, getTimeZoneOptions } from "../../../shared/timezones";
+import { BusinessCategorySelect } from "../components/BusinessCategorySelect";
 import { API_BASE_URL } from "../api/client";
+import PhilippineMobileInput from "../components/PhilippineMobileInput";
+import FiveStarRatingInput from "../components/FiveStarRatingInput";
+import CampaignDescriptionEditor from "../components/CampaignDescriptionEditor";
+import RichCampaignDescription from "../components/RichCampaignDescription";
+import StyledQRCode, { getStyledQRCodeCanvas } from "../components/StyledQRCode";
+import CampaignFundingProgress from "../components/CampaignFundingProgress";
+import VendorQueueLifecycleTray from "../components/VendorQueueLifecycleTray";
+import VendorCapacityPanel from "../components/VendorCapacityPanel";
+import TicketScannerModal from "../components/TicketScannerModal";
 import * as vendorDashboardBookings from "../api/vendorDashboardBookings";
 import * as vendorDashboardQueue from "../api/vendorDashboardQueue";
 import * as vendorDashboardCatalog from "../api/vendorDashboardCatalog";
@@ -103,20 +139,47 @@ import * as vendorDashboardBootstrap from "../api/vendorDashboardBootstrap";
 import * as vendorDashboardExport from "../api/vendorDashboardExport";
 import { useAuth } from "../context/AuthContext";
 import { ConfirmActionModal } from "../components/ConfirmActionModal";
-import { shouldEnableVendorDashboardBootstrap } from "../lib/vendorDashboardBootstrap";
+import { PromptActionModal } from "../components/PromptActionModal";
+import EmailChangePanel from "../components/EmailChangePanel";
+import PhoneChangePanel from "../components/PhoneChangePanel";
+import {
+  getAllowedHistoryExportRanges,
+  shouldEnableVendorDashboardBootstrap
+} from "../lib/vendorDashboardBootstrap";
+import { canAccessVendorSection } from "../lib/vendorDashboardNavigation";
 import { buildJoinUrl, buildMonitorUrl } from "../queuePaths";
 import {
   formatDateInputValue,
   formatDateTime,
-  formatDateTimeInputValue,
   formatBookingScheduleDateTime,
+  formatBookingScheduleTimeRange,
   formatDisplayDate,
   toTimestamp
 } from "../utils/dates";
 import { getErrorMessage } from "../utils/errors";
+import { getWeeklyAvailabilityDefaults } from "../utils/availability";
+import { isBrowserPushSupported, subscribeToBrowserPush } from "../utils/pushNotifications";
+import {
+  getQueueDaySyncNotice,
+  getTicketStateSummary,
+  resolveQueueDayState,
+  selectFreshestQueueSnapshot
+} from "../utils/queueStatus";
+import type { LocalQueueDayUpdate, QueueDaySyncState } from "../utils/queueStatus";
+import { getQueueCustomerFullNameLabel } from "../utils/queueNames";
+import { getPlanPriceDisplay } from "../utils/subscriptionPlans";
+import { checkServiceSlugAvailability } from "../api/vendorDashboardCatalog";
+import { checkCounterSlugAvailability } from "../api/vendorDashboardOperations";
 
-const dashboardSections = new Set(["queue", "tenants", "services", "bookings", "staff", "clients", "history", "reports", "settings"]);
+type RawGroupFundedBundleItem = GroupFundedBundleItemSummary & {
+  _id?: string | null;
+  serviceNameSnapshot?: string;
+  serviceSlugSnapshot?: string;
+};
+
+const dashboardSections = new Set(["queue", "tenants", "services", "bookings", "staff", "clients", "history", "reports", "ratings", "settings", "account"]);
 const SERVICE_TREND_USER_LIMIT = 30;
+const timeZoneOptions = getTimeZoneOptions();
 
 function IconActionButton({
   label,
@@ -140,6 +203,122 @@ function IconActionButton({
   );
 }
 
+function ModalHelpIcon({ label }: { label: string }) {
+  return (
+    <Tooltip label={label} withArrow multiline w={260}>
+      <ActionIcon aria-label={label} color="gray" size="sm" variant="subtle">
+        <IconInfoCircle size={14} />
+      </ActionIcon>
+    </Tooltip>
+  );
+}
+
+function QueueQrUnavailable() {
+  return (
+    <div aria-label="Queue QR unavailable" className="vendor-empty-art" role="img">
+      <IconQrcode size={42} stroke={1.5} />
+      <Text c="dimmed" fw={700} mt="sm" size="sm">
+        Queue QR unavailable
+      </Text>
+    </div>
+  );
+}
+
+function ModalSection({
+  title,
+  description,
+  children
+}: {
+  title: string;
+  description: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Card withBorder radius="xl" p="md" className="service-dialog__panel vendor-location-modal__section">
+      <Stack gap="sm">
+        <div>
+          <Group gap="xs" align="center" wrap="nowrap">
+            <Text className="service-dialog__label">{title}</Text>
+          </Group>
+          <Text c="dimmed" size="sm" mt={4}>
+            {description}
+          </Text>
+        </div>
+        {children}
+      </Stack>
+    </Card>
+  );
+}
+
+function buildServiceSlug(value: string) {
+  const source = String(value || "").trim().toLowerCase();
+  let normalizedSlug = "";
+  let previousWasDash = false;
+
+  for (const char of source) {
+    const isAlphaNumeric = (char >= "a" && char <= "z") || (char >= "0" && char <= "9");
+    if (isAlphaNumeric) {
+      normalizedSlug += char;
+      previousWasDash = false;
+    } else if (!previousWasDash && normalizedSlug.length > 0) {
+      normalizedSlug += "-";
+      previousWasDash = true;
+    }
+  }
+
+  if (normalizedSlug.endsWith("-")) {
+    normalizedSlug = normalizedSlug.slice(0, -1);
+  }
+
+  normalizedSlug = normalizedSlug.slice(0, 80);
+
+  return normalizedSlug;
+}
+
+function toMinutes(value: string) {
+  const [hours = "0", minutes = "0"] = value.split(":");
+  return Number(hours) * 60 + Number(minutes);
+}
+
+function formatTimeLabel(value: string) {
+  const [hours = "0", minutes = "0"] = value.split(":");
+  const hour = Number(hours);
+  const suffix = hour >= 12 ? "PM" : "AM";
+  const displayHour = hour % 12 || 12;
+
+  return `${displayHour}:${minutes.padStart(2, "0")} ${suffix}`;
+}
+
+function formatStoreHourRange(hour: StoreHourSummary | null | undefined) {
+  if (!hour || hour.isClosed) {
+    return "Closed";
+  }
+
+  if (hour.opensAt === hour.closesAt) {
+    return "Open 24 hours";
+  }
+
+  if (!hour.opensAt || !hour.closesAt) {
+    return "Hours unavailable";
+  }
+
+  const overnightLabel = toMinutes(hour.closesAt) < toMinutes(hour.opensAt) ? " next day" : "";
+  return `${formatTimeLabel(hour.opensAt)} - ${formatTimeLabel(hour.closesAt)}${overnightLabel}`;
+}
+
+function formatPreviewHourRange(location: StoreLocationWithHours | null, weekday: number) {
+  const hour = location?.hours.find((entry) => entry.weekday === weekday);
+  return formatStoreHourRange(hour);
+}
+
+function buildCounterSlug(value: string) {
+  return buildServiceSlug(value);
+}
+
+function buildLocationSlug(value: string) {
+  return buildServiceSlug(value);
+}
+
 const emptyWalkIn: CreateWalkInTicketRequest = {
   customerName: "",
   customerEmail: "",
@@ -150,18 +329,22 @@ const emptyWalkIn: CreateWalkInTicketRequest = {
 };
 
 const defaultSettings: UpdateTenantSettingsRequest = {
+  name: "",
+  publicProfileDisplayName: "",
+  publicProfileDescription: "",
+  publicProfileCategory: "",
+  businessCategoryId: null as string | null,
   queuePrefix: "P",
   averageServiceMinutes: 5,
   notificationThreshold: 2,
   autoPauseEnabled: false,
   autoPauseThreshold: 20,
   autoResumeEnabled: false,
-  autoResumeVacancyPercent: 20,
-  contactEmail: "",
-  contactPhone: ""
+  autoResumeVacancyPercent: 20
 };
 
 const defaultNotificationSettings = {
+  queueJoin: true,
   bookingIntake: true,
   paymentProofReview: true,
   bookingStatusChanges: true
@@ -177,6 +360,7 @@ const defaultHours: StoreHourSummary[] = Array.from({ length: 7 }, (_, weekday) 
 const emptyLocationForm = {
   name: "",
   slug: "",
+  imageUrl: "",
   addressLine1: "",
   addressLine2: "",
   city: "",
@@ -185,8 +369,9 @@ const emptyLocationForm = {
   country: "Philippines",
   contactEmail: "",
   contactPhone: "",
-  timezone: "Asia/Manila",
+  timezone: DEFAULT_TIMEZONE,
   paymentMethodLabel: "",
+  paymentBankName: "",
   paymentAccountDisplayName: "",
   paymentAccountIdentifierDisplay: "",
   paymentQrImageUrl: "",
@@ -201,14 +386,150 @@ const emptyServiceForm: SaveVendorServiceRequest = {
   slug: "",
   description: "",
   durationMinutes: 30,
+  imageUrl: "",
   allowBookingQuantity: false,
   bookingQuantityLabel: "Units",
   manualPaymentRequired: false,
+  bookingCapacityScope: "service",
   priceAmountCents: 0,
   priceDisplay: "",
   isActive: true,
-  sortOrder: 0
+  sortOrder: 0,
+  locationServices: []
 };
+
+const defaultGroupFundedSettings: GroupFundedLocationServiceSettings = {
+  enabled: false,
+  minRequiredContributors: 2,
+  maxRequiredContributors: 12,
+  defaultRequiredContributors: 4,
+  minContributionAmountCents: null,
+  maxContributionAmountCents: null,
+  minDeadlineHours: 24,
+  maxDeadlineDays: 14,
+  allowPublicCampaigns: false
+};
+
+const groupFundedCampaignRejectionReasons = [
+  {
+    label: "Schedule no longer available",
+    value: "schedule_unavailable",
+    reason: "The requested schedule is no longer available for this group-funded booking. Please contact the vendor or start a new campaign with another available slot."
+  },
+  {
+    label: "Capacity cannot be reserved",
+    value: "capacity_unavailable",
+    reason: "The branch cannot reserve enough capacity for this group-funded booking at the selected schedule. Verified contributions will be marked refund-eligible."
+  },
+  {
+    label: "Payment proof issue",
+    value: "payment_proof_issue",
+    reason: "One or more verified contribution proofs require additional review before this campaign can be accepted. Verified contributions will be marked refund-eligible for this campaign."
+  },
+  {
+    label: "Service unavailable",
+    value: "service_unavailable",
+    reason: "The selected service is not available for group-funded booking at this time. Verified contributions will be marked refund-eligible."
+  },
+  {
+    label: "Vendor cannot fulfill request",
+    value: "vendor_unavailable",
+    reason: "The vendor cannot fulfill this group-funded booking request at the selected date and time. Verified contributions will be marked refund-eligible."
+  }
+];
+
+const groupFundedContributionRejectionReasons = [
+  {
+    label: "Payment reference cannot be matched",
+    value: "reference_unmatched",
+    reason: "The payment reference could not be matched to a received payment. Please verify the reference and submit a new proof if needed."
+  },
+  {
+    label: "Proof is unreadable or incomplete",
+    value: "proof_unreadable",
+    reason: "The payment proof is unreadable or does not show enough information to verify the payment. Please submit a clearer proof."
+  },
+  {
+    label: "Payment amount does not match",
+    value: "amount_mismatch",
+    reason: "The payment amount does not match the required contribution for this campaign."
+  },
+  {
+    label: "Duplicate payment proof",
+    value: "duplicate_proof",
+    reason: "This payment proof duplicates a contribution that has already been submitted for this campaign."
+  },
+  {
+    label: "Campaign contributor positions are full",
+    value: "campaign_full",
+    reason: "The campaign has already filled all contributor positions, so this contribution cannot be accepted."
+  }
+];
+
+function normalizeGroupFundedSettings(
+  settings?: Partial<GroupFundedLocationServiceSettings> | null
+): GroupFundedLocationServiceSettings {
+  const minRequiredContributors =
+    settings?.minRequiredContributors ??
+    defaultGroupFundedSettings.minRequiredContributors ??
+    2;
+  const maxRequiredContributors = Math.max(
+    minRequiredContributors,
+    settings?.maxRequiredContributors ??
+      defaultGroupFundedSettings.maxRequiredContributors ??
+      12
+  );
+  const defaultRequiredContributors = Math.min(
+    maxRequiredContributors,
+    Math.max(
+      minRequiredContributors,
+      defaultGroupFundedSettings.defaultRequiredContributors ?? 4
+    )
+  );
+
+  return {
+    enabled: settings?.enabled === true,
+    minRequiredContributors,
+    maxRequiredContributors,
+    defaultRequiredContributors,
+    minContributionAmountCents: null,
+    maxContributionAmountCents: null,
+    minDeadlineHours:
+      settings?.minDeadlineHours ?? defaultGroupFundedSettings.minDeadlineHours,
+    maxDeadlineDays:
+      settings?.maxDeadlineDays ?? defaultGroupFundedSettings.maxDeadlineDays,
+    allowPublicCampaigns: settings?.allowPublicCampaigns === true
+  };
+}
+
+function updateGroupFundedContributorBounds(
+  settings: Partial<GroupFundedLocationServiceSettings> | null | undefined,
+  changes: Partial<
+    Pick<
+      GroupFundedLocationServiceSettings,
+      "minRequiredContributors" | "maxRequiredContributors"
+    >
+  >
+): GroupFundedLocationServiceSettings {
+  return normalizeGroupFundedSettings({
+    ...normalizeGroupFundedSettings(settings),
+    ...changes
+  });
+}
+
+type ServiceLocationFormEntry = NonNullable<SaveVendorServiceRequest["locationServices"]>[number];
+
+function buildDefaultServiceLocationEntry(locationSlug: string): ServiceLocationFormEntry {
+  return {
+    locationSlug,
+    capacity: 1,
+    isActive: true,
+    sortOrder: 0,
+    priceAmountCents: null,
+    priceDisplay: null,
+    groupFunded: normalizeGroupFundedSettings()
+  };
+}
 
 const emptyAvailabilityBlockForm: SaveVendorAvailabilityBlockRequest = {
   locationSlug: "",
@@ -216,6 +537,7 @@ const emptyAvailabilityBlockForm: SaveVendorAvailabilityBlockRequest = {
   weekday: 1,
   startsAt: "09:00",
   endsAt: "17:00",
+  endsNextDay: false,
   capacity: 1,
   isActive: true,
   notes: ""
@@ -248,7 +570,11 @@ const publicBoardThemePresets: Record<string, PublicBoardThemeSettings> = {
     heroTitle: "",
     heroSubtitle: "",
     logoUrl: "",
+    logoFit: "contain",
     backgroundImageUrl: "",
+    backgroundImageFit: "cover",
+    pageBackgroundImageUrl: "/theme-backgrounds/classic-brushed-warmth.svg",
+    pageBackgroundImageFit: "cover",
     pageBackgroundColor: "#f8efe3",
     cardBackgroundColor: "#fffaf4",
     cardAlpha: 0.9,
@@ -262,12 +588,154 @@ const publicBoardThemePresets: Record<string, PublicBoardThemeSettings> = {
     buttonTextColor: "#ffffff",
     buttonBorderColor: "#ea6a1f"
   },
+  generic: {
+    presetId: "generic",
+    heroTitle: "",
+    heroSubtitle: "",
+    logoUrl: "",
+    logoFit: "contain",
+    backgroundImageUrl: "",
+    backgroundImageFit: "cover",
+    pageBackgroundImageUrl: "/theme-backgrounds/generic-paper-glow.svg",
+    pageBackgroundImageFit: "cover",
+    pageBackgroundColor: "#fbf7f1",
+    cardBackgroundColor: "#fffaf4",
+    cardAlpha: 0.9,
+    cardBorderSize: 1,
+    cardBorderRadius: 28,
+    cardBorderColor: "#e6d8ca",
+    headerColor: "#24180f",
+    subheaderColor: "#8a6a52",
+    bodyColor: "#4b3a2f",
+    buttonBackgroundColor: "#ea6a1f",
+    buttonTextColor: "#ffffff",
+    buttonBorderColor: "#ea6a1f"
+  },
+  sports: {
+    presetId: "sports",
+    heroTitle: "",
+    heroSubtitle: "",
+    logoUrl: "",
+    logoFit: "contain",
+    backgroundImageUrl: "",
+    backgroundImageFit: "cover",
+    pageBackgroundImageUrl: "/theme-backgrounds/sports-recreation-halftone.svg",
+    pageBackgroundImageFit: "cover",
+    pageBackgroundColor: "#F6D600",
+    cardBackgroundColor: "#ffffff",
+    cardAlpha: 0.95,
+    cardBorderSize: 2,
+    cardBorderRadius: 24,
+    cardBorderColor: "#A3C1AD",
+    headerColor: "#003DA5",
+    subheaderColor: "#A50034",
+    bodyColor: "#1E2A36",
+    buttonBackgroundColor: "#003DA5",
+    buttonTextColor: "#ffffff",
+    buttonBorderColor: "#003DA5"
+  },
+  wellness: {
+    presetId: "wellness",
+    heroTitle: "",
+    heroSubtitle: "",
+    logoUrl: "",
+    logoFit: "contain",
+    backgroundImageUrl: "",
+    backgroundImageFit: "cover",
+    pageBackgroundImageUrl: "/theme-backgrounds/health-wellness-lotus.svg",
+    pageBackgroundImageFit: "cover",
+    pageBackgroundColor: "#F0F2F2",
+    cardBackgroundColor: "#FFF9F0",
+    cardAlpha: 0.94,
+    cardBorderSize: 1,
+    cardBorderRadius: 30,
+    cardBorderColor: "#73C7E3",
+    headerColor: "#2E4A70",
+    subheaderColor: "#24B0BA",
+    bodyColor: "#2E4A70",
+    buttonBackgroundColor: "#24B0BA",
+    buttonTextColor: "#ffffff",
+    buttonBorderColor: "#24B0BA"
+  },
+  retail: {
+    presetId: "retail",
+    heroTitle: "",
+    heroSubtitle: "",
+    logoUrl: "",
+    logoFit: "contain",
+    backgroundImageUrl: "",
+    backgroundImageFit: "cover",
+    pageBackgroundImageUrl: "/theme-backgrounds/retail-catalog-panels.svg",
+    pageBackgroundImageFit: "cover",
+    pageBackgroundColor: "#E0E7FF",
+    cardBackgroundColor: "#ffffff",
+    cardAlpha: 0.93,
+    cardBorderSize: 1,
+    cardBorderRadius: 22,
+    cardBorderColor: "#A5B4FC",
+    headerColor: "#1E1B4B",
+    subheaderColor: "#312E81",
+    bodyColor: "#312E81",
+    buttonBackgroundColor: "#F59E0B",
+    buttonTextColor: "#ffffff",
+    buttonBorderColor: "#312E81"
+  },
+  food: {
+    presetId: "food",
+    heroTitle: "",
+    heroSubtitle: "",
+    logoUrl: "",
+    logoFit: "contain",
+    backgroundImageUrl: "",
+    backgroundImageFit: "cover",
+    pageBackgroundImageUrl: "/theme-backgrounds/food-confetti-sprinkles.svg",
+    pageBackgroundImageFit: "cover",
+    pageBackgroundColor: "#FFC86F",
+    cardBackgroundColor: "#F3F0EF",
+    cardAlpha: 0.94,
+    cardBorderSize: 1,
+    cardBorderRadius: 24,
+    cardBorderColor: "#8DDDBD",
+    headerColor: "#3EA789",
+    subheaderColor: "#D13366",
+    bodyColor: "#4B4746",
+    buttonBackgroundColor: "#D13366",
+    buttonTextColor: "#ffffff",
+    buttonBorderColor: "#3EA789"
+  },
+  clinic: {
+    presetId: "clinic",
+    heroTitle: "",
+    heroSubtitle: "",
+    logoUrl: "",
+    logoFit: "contain",
+    backgroundImageUrl: "",
+    backgroundImageFit: "cover",
+    pageBackgroundImageUrl: "/theme-backgrounds/clinic-crosswave.svg",
+    pageBackgroundImageFit: "cover",
+    pageBackgroundColor: "#eef8f6",
+    cardBackgroundColor: "#ffffff",
+    cardAlpha: 0.92,
+    cardBorderSize: 1,
+    cardBorderRadius: 24,
+    cardBorderColor: "#c9e1dd",
+    headerColor: "#14342f",
+    subheaderColor: "#24756b",
+    bodyColor: "#28423d",
+    buttonBackgroundColor: "#0f766e",
+    buttonTextColor: "#ffffff",
+    buttonBorderColor: "#0f766e"
+  },
   neura: {
     presetId: "neura",
     heroTitle: "",
     heroSubtitle: "",
     logoUrl: "",
+    logoFit: "contain",
     backgroundImageUrl: "",
+    backgroundImageFit: "cover",
+    pageBackgroundImageUrl: "/theme-backgrounds/neura-signal-grid.svg",
+    pageBackgroundImageFit: "cover",
     pageBackgroundColor: "#eef1f5",
     cardBackgroundColor: "#ffffff",
     cardAlpha: 0.86,
@@ -281,34 +749,23 @@ const publicBoardThemePresets: Record<string, PublicBoardThemeSettings> = {
     buttonTextColor: "#ffffff",
     buttonBorderColor: "#11151c"
   },
-  clinic: {
-    presetId: "clinic",
-    heroTitle: "",
-    heroSubtitle: "",
-    logoUrl: "",
-    backgroundImageUrl: "",
-    pageBackgroundColor: "#eef8f6",
-    cardBackgroundColor: "#ffffff",
-    cardAlpha: 0.92,
-    cardBorderSize: 1,
-    cardBorderRadius: 24,
-    cardBorderColor: "#c9e1dd",
-    headerColor: "#14342f",
-    subheaderColor: "#24756b",
-    bodyColor: "#28423d",
-    buttonBackgroundColor: "#0f766e",
-    buttonTextColor: "#ffffff",
-    buttonBorderColor: "#0f766e"
-  }
 };
 
-const defaultPublicBoardTheme = publicBoardThemePresets.classic;
+const defaultPublicBoardTheme = publicBoardThemePresets.generic;
+const presetBackgroundImageUrls = new Set(
+  Object.values(publicBoardThemePresets)
+    .map((preset) => preset.pageBackgroundImageUrl)
+    .filter(Boolean)
+);
 
-type DashboardSection = "queue" | "tenants" | "services" | "bookings" | "staff" | "clients" | "history" | "reports" | "settings";
+type DashboardSection = "queue" | "tenants" | "services" | "bookings" | "group-funded" | "staff" | "clients" | "history" | "reports" | "ratings" | "settings" | "account";
+type AccountTab = "subscription" | "billing" | "profile" | "security";
+type SettingsTab = "contact" | "queue" | "notifications";
 type QueueView = "current" | "overflow" | "recovery";
 type ClientSort = "latestVisitDesc" | "latestVisitAsc" | "nameAsc" | "nameDesc" | "visitsDesc" | "visitsAsc";
 type HistorySort = "updatedDesc" | "updatedAsc" | "ticketAsc" | "ticketDesc" | "customerAsc" | "customerDesc";
 type BookingStatusFilter = "all" | "pending" | "confirmed" | "rescheduled" | "canceled";
+type GroupFundedStatusFilter = "all" | "funding" | "vendor_review" | "slot_recovery" | "replacement_proposed" | "confirmed" | "vendor_rejected" | "funding_failed";
 
 const CLIENTS_PAGE_SIZE = 10;
 const HISTORY_PAGE_SIZE = 10;
@@ -331,10 +788,12 @@ const navItems = [
   { section: "staff", label: "Staff", icon: IconUsersGroup },
   { section: "clients", label: "Clients", icon: IconUsersGroup },
   { section: "history", label: "History", icon: IconHistory },
+  { section: "ratings", label: "Ratings", icon: IconChartBar },
   { section: "reports", label: "Reports", icon: IconChartBar },
-  { section: "settings", label: "Settings", icon: IconSettings }
+  { section: "settings", label: "Settings", icon: IconSettings },
+  { section: "account", label: "Account", icon: IconUserCircle }
 ] as const;
-const dashboardSectionDescriptions: Record<DashboardSection, string> = {
+const dashboardSectionDescriptions: Partial<Record<DashboardSection, string>> = {
   queue: "Run the live queue, manage intake, and move customers through service.",
   tenants: "Configure locations, counters, and the public entry points for each branch.",
   services: "Manage bookable services, durations, pricing, and public availability state.",
@@ -343,7 +802,8 @@ const dashboardSectionDescriptions: Record<DashboardSection, string> = {
   clients: "Review recent customer activity and returning queue visitors.",
   history: "Inspect completed ticket activity and export queue records.",
   reports: "Track queue usage, service pace, and plan consumption over time.",
-  settings: "Adjust subscription, contact details, and queue behavior for this workspace."
+  settings: "Adjust the business profile, queue behavior, and operational notifications for this workspace.",
+  account: "Manage your vendor account profile, security, subscription, and billing access."
 };
 const adminAllowedSections = new Set<DashboardSection>([
   "queue",
@@ -354,9 +814,11 @@ const adminAllowedSections = new Set<DashboardSection>([
   "clients",
   "history",
   "reports",
-  "settings"
+  "ratings",
+  "settings",
+  "account"
 ]);
-const staffAllowedSections = new Set<DashboardSection>(["queue", "bookings", "clients", "history"]);
+const staffAllowedSections = new Set<DashboardSection>(["queue", "bookings", "clients", "history", "account"]);
 
 function getHistoryTimestamp(value: string | Date): number {
   return toTimestamp(value);
@@ -364,6 +826,64 @@ function getHistoryTimestamp(value: string | Date): number {
 
 function formatDate(value: string | Date | null): string {
   return formatDisplayDate(value);
+}
+
+function formatMoney(amountCents: number, currency = "PHP"): string {
+  return new Intl.NumberFormat("en-PH", {
+    style: "currency",
+    currency,
+    minimumFractionDigits: 2
+  }).format(Number(amountCents || 0) / 100);
+}
+
+function getCampaignFundingTargetAmountCents(campaign: {
+  targetAmountCents?: number;
+  roundingAdjustmentCents?: number;
+}): number {
+  return Number(campaign.targetAmountCents || 0) + Number(campaign.roundingAdjustmentCents || 0);
+}
+
+function getGroupFundedStatusColor(status: string) {
+  if (status === "confirmed") {
+    return "teal";
+  }
+  if (["vendor_review", "slot_recovery", "replacement_proposed", "funded"].includes(status)) {
+    return "blue";
+  }
+  if (status === "funding") {
+    return "yellow";
+  }
+  if (["vendor_rejected", "funding_failed", "vendor_review_expired", "organizer_canceled", "vendor_canceled"].includes(status)) {
+    return "red";
+  }
+  return "gray";
+}
+
+function getGroupFundedRefundStatusColor(status: GroupFundedRefundStatus) {
+  if (status === "completed") {
+    return "teal";
+  }
+  if (status === "in_progress") {
+    return "blue";
+  }
+  if (status === "policy_review_required") {
+    return "orange";
+  }
+  if (status === "rejected") {
+    return "red";
+  }
+  return "yellow";
+}
+
+function isGroupFundedCampaignFullyRefunded(campaign: GroupFundedCampaignSummary) {
+  const refundSummary = campaign.refundSummary;
+  return Boolean(
+    campaign.campaignStatus === "vendor_rejected" &&
+    refundSummary &&
+    refundSummary.totalCount > 0 &&
+    refundSummary.completedCount === refundSummary.totalCount &&
+    refundSummary.totalCount === refundSummary.eligibleContributionCount
+  );
 }
 
 function formatBytes(sizeBytes: number | null): string {
@@ -377,12 +897,6 @@ function formatBytes(sizeBytes: number | null): string {
 
   return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
 }
-
-function getTodayDateInputValue(): string {
-  return formatDateInputValue();
-}
-
-const formatDateTimeInput = formatDateTimeInputValue;
 
 function getBookingBadgeColor(status: VendorBookingSummary["status"]): "gray" | "red" | "yellow" | "orange" | "teal" | "blue" {
   switch (status) {
@@ -422,6 +936,22 @@ function getBookingCheckInState(booking: VendorBookingSummary) {
     isEligibleStatus: ["confirmed", "rescheduled"].includes(booking.status),
     minutesFromStart
   };
+}
+
+function GroupFundedBookingIndicator({ booking }: { booking: VendorBookingSummary }) {
+  if (!booking.groupFundedBookingId && booking.bookingPaymentSource !== "group_funded") {
+    return null;
+  }
+
+  const campaignId = booking.groupFundedBookingId || booking.groupFundedCampaign?.id;
+  const campaignTitle = booking.groupFundedCampaign?.campaignTitle || "Group-funded campaign";
+  return (
+    <Tooltip label={campaignTitle} withArrow>
+      <Badge color="blue" variant="light" w="fit-content">
+        Group-funded{campaignId ? ` · Campaign #${campaignId}` : ""}
+      </Badge>
+    </Tooltip>
+  );
 }
 
 function QueueIntakeGauge({
@@ -496,20 +1026,18 @@ function QueueIntakeGauge({
   );
 }
 
-function hexToRgba(hex: string, alpha: number): string {
-  const normalized = /^#[0-9a-f]{6}$/i.test(hex) ? hex : "#ffffff";
-  const value = normalized.replace("#", "");
-  const red = parseInt(value.slice(0, 2), 16);
-  const green = parseInt(value.slice(2, 4), 16);
-  const blue = parseInt(value.slice(4, 6), 16);
-
-  return `rgba(${red}, ${green}, ${blue}, ${Math.min(1, Math.max(0, alpha))})`;
-}
-
 function mergeTheme(theme?: Partial<PublicBoardThemeSettings>): PublicBoardThemeSettings {
-  return {
+  const merged = {
     ...defaultPublicBoardTheme,
     ...(theme || {})
+  };
+  const preset = publicBoardThemePresets[merged.presetId] || defaultPublicBoardTheme;
+
+  return {
+    ...merged,
+    backgroundImageFit: merged.backgroundImageFit || preset.backgroundImageFit,
+    pageBackgroundImageUrl: merged.pageBackgroundImageUrl || preset.pageBackgroundImageUrl,
+    pageBackgroundImageFit: merged.pageBackgroundImageFit || preset.pageBackgroundImageFit
   };
 }
 
@@ -577,7 +1105,7 @@ function DashboardEmptyState({
 }
 
 export default function VendorDashboardPage() {
-  const { token, user, loading, logout } = useAuth();
+  const { token, user, loading, logout, refreshUser, changePassword } = useAuth();
   const { section } = useParams<{ section: string }>();
   const location = useLocation();
   const navigate = useNavigate();
@@ -589,22 +1117,37 @@ export default function VendorDashboardPage() {
   const [selectedTenantSlug, setSelectedTenantSlug] = useState("");
   const [selectedLocationSlug, setSelectedLocationSlug] = useState("");
   const [snapshot, setSnapshot] = useState<QueueSnapshot | null>(null);
+  const [savingQueueQr, setSavingQueueQr] = useState(false);
+  const queueQrRef = useRef<HTMLDivElement>(null);
   const [locations, setLocations] = useState<StoreLocationWithHours[]>([]);
   const [services, setServices] = useState<VendorServiceSummary[]>([]);
   const [availabilityBlocks, setAvailabilityBlocks] = useState<VendorAvailabilityBlockSummary[]>([]);
   const [availabilityExceptions, setAvailabilityExceptions] = useState<VendorAvailabilityExceptionSummary[]>([]);
+  const [availabilitySummary, setAvailabilitySummary] = useState<VendorAvailabilityResponse["summary"] | null>(null);
   const [serviceCounters, setServiceCounters] = useState<ServiceCounterSummary[]>([]);
   const [staff, setStaff] = useState<VendorStaffSummary[]>([]);
   const [staffSeatLimit, setStaffSeatLimit] = useState(0);
   const [counterLimit, setCounterLimit] = useState(0);
   const [activeLocationLimit, setActiveLocationLimit] = useState(1);
+  const [platformDefaultTimezone, setPlatformDefaultTimezone] = useState(DEFAULT_TIMEZONE);
   const [locationDialogOpen, setLocationDialogOpen] = useState(false);
   const [editingLocationSlug, setEditingLocationSlug] = useState("");
+  const [editingLocationId, setEditingLocationId] = useState("");
   const [locationForm, setLocationForm] = useState(emptyLocationForm);
+  const [locationSlugManuallyEdited, setLocationSlugManuallyEdited] = useState(false);
+  const [locationSlugMessage, setLocationSlugMessage] = useState("");
+  const [locationSlugAvailable, setLocationSlugAvailable] = useState(false);
+  const [checkingLocationSlug, setCheckingLocationSlug] = useState(false);
+  const isMobileHoursLayout = useMediaQuery("(max-width: 48em)");
   const [paymentQrUploadFile, setPaymentQrUploadFile] = useState<File | null>(null);
   const [serviceDialogOpen, setServiceDialogOpen] = useState(false);
   const [editingServiceSlug, setEditingServiceSlug] = useState("");
+  const [editingServiceId, setEditingServiceId] = useState("");
   const [serviceForm, setServiceForm] = useState<SaveVendorServiceRequest>(emptyServiceForm);
+  const [serviceSlugManuallyEdited, setServiceSlugManuallyEdited] = useState(false);
+  const [serviceSlugMessage, setServiceSlugMessage] = useState("");
+  const [serviceSlugAvailable, setServiceSlugAvailable] = useState(false);
+  const [checkingServiceSlug, setCheckingServiceSlug] = useState(false);
   const [servicesTab, setServicesTab] = useState<"catalog" | "weekly" | "exceptions">("catalog");
   const [availabilityBlockDialogOpen, setAvailabilityBlockDialogOpen] = useState(false);
   const [editingAvailabilityBlockId, setEditingAvailabilityBlockId] = useState("");
@@ -614,6 +1157,29 @@ export default function VendorDashboardPage() {
   const [availabilityExceptionForm, setAvailabilityExceptionForm] = useState<SaveVendorAvailabilityExceptionRequest>(emptyAvailabilityExceptionForm);
   const [availabilityExceptionBlockEntireDay, setAvailabilityExceptionBlockEntireDay] = useState(false);
   const [settings, setSettings] = useState<UpdateTenantSettingsRequest>(defaultSettings);
+  const [accountTab, setAccountTab] = useState<AccountTab>("subscription");
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>("contact");
+  const [accountProfileForm, setAccountProfileForm] = useState({
+    name: user?.name || "",
+    displayName: user?.displayName || ""
+  });
+  const [accountProfileBusy, setAccountProfileBusy] = useState(false);
+  const [mfaEnabled, setMfaEnabled] = useState(Boolean(user?.mfaEnabled));
+  const [mfaSecret, setMfaSecret] = useState("");
+  const [mfaEnrollmentUri, setMfaEnrollmentUri] = useState("");
+  const [mfaCode, setMfaCode] = useState("");
+  const [mfaRecoveryCodes, setMfaRecoveryCodes] = useState<string[]>([]);
+  const [mfaBusy, setMfaBusy] = useState(false);
+  const [passwordForm, setPasswordForm] = useState<PasswordChangeRequest>({ currentPassword: "", newPassword: "" });
+  const [passwordBusy, setPasswordBusy] = useState(false);
+  const [replacingMfa, setReplacingMfa] = useState(false);
+  const [replacementPassword, setReplacementPassword] = useState("");
+  const [replacementCode, setReplacementCode] = useState("");
+  const [removingMfa, setRemovingMfa] = useState(false);
+  const [removalPassword, setRemovalPassword] = useState("");
+  const [removalCode, setRemovalCode] = useState("");
+  const [removalRecoveryCode, setRemovalRecoveryCode] = useState("");
+  const [removalAcknowledged, setRemovalAcknowledged] = useState(false);
   const [vendorNotificationSettings, setVendorNotificationSettings] = useState<TenantNotificationSettings>(defaultNotificationSettings);
   const [browserPermission, setBrowserPermission] = useState<NotificationPermission>(
     typeof window !== "undefined" && typeof window.Notification !== "undefined"
@@ -621,10 +1187,12 @@ export default function VendorDashboardPage() {
       : "default"
   );
   const [requestingBrowserPermission, setRequestingBrowserPermission] = useState(false);
+  const [browserPushSubscribed, setBrowserPushSubscribed] = useState(false);
   const [savingNotificationSettings, setSavingNotificationSettings] = useState(false);
-  const browserNotificationsSupported = typeof window !== "undefined" && typeof window.Notification !== "undefined";
+  const browserNotificationsSupported = isBrowserPushSupported();
   const browserNotificationsSecure = typeof window !== "undefined" ? window.isSecureContext : false;
   const [walkInForm, setWalkInForm] = useState<CreateWalkInTicketRequest>(emptyWalkIn);
+  const [walkInDialogOpen, setWalkInDialogOpen] = useState(false);
   const [billing, setBilling] = useState<BillingOverviewResponse | null>(null);
   const [history, setHistory] = useState<VendorHistoryResponse | null>(null);
   const [clients, setClients] = useState<VendorClientsResponse | null>(null);
@@ -637,12 +1205,29 @@ export default function VendorDashboardPage() {
   const knownQueueTicketIdsRef = useRef<Set<string> | null>(null);
   const [queueAlertIds, setQueueAlertIds] = useState<string[]>([]);
   const dismissedQueueAlertIdsRef = useRef<Set<string>>(new Set());
+  const previousQueueDayRef = useRef<QueueDaySyncState | null>(null);
+  const localQueueDayUpdateRef = useRef<LocalQueueDayUpdate | null>(null);
   const [bookingDetailModalId, setBookingDetailModalId] = useState<string | null>(null);
   const [bookingDetailOpen, setBookingDetailOpen] = useState(false);
   const [bookingDetailLoading, setBookingDetailLoading] = useState(false);
   const [bookingDetailBooking, setBookingDetailBooking] = useState<VendorBookingSummary | null>(null);
   const [bookingDetailError, setBookingDetailError] = useState("");
   const [paymentRejectionReason, setPaymentRejectionReason] = useState("");
+  const [organizerRatingStars, setOrganizerRatingStars] = useState(0);
+  const [organizerRatingSubmitted, setOrganizerRatingSubmitted] = useState(false);
+  const [organizerRatingBooking, setOrganizerRatingBooking] = useState<VendorBookingSummary | null>(null);
+  const [organizerRatingReason, setOrganizerRatingReason] = useState("");
+  const [groupFundedStatusFilter, setGroupFundedStatusFilter] = useState<GroupFundedStatusFilter>("all");
+  const [groupFundedDetailId, setGroupFundedDetailId] = useState<string | null>(null);
+  const [groupFundedRejectReason, setGroupFundedRejectReason] = useState("");
+  const [groupFundedRejectReasonPreset, setGroupFundedRejectReasonPreset] = useState<string | null>(null);
+  const [groupFundedUseCustomRejectReason, setGroupFundedUseCustomRejectReason] = useState(false);
+  const [groupFundedContributionToReject, setGroupFundedContributionToReject] = useState<VendorGroupFundedContributionSummary | null>(null);
+  const [groupFundedContributionRejectReason, setGroupFundedContributionRejectReason] = useState("");
+  const [groupFundedContributionRejectReasonPreset, setGroupFundedContributionRejectReasonPreset] = useState<string | null>(null);
+  const [groupFundedContributionUseCustomRejectReason, setGroupFundedContributionUseCustomRejectReason] = useState(false);
+  const [groupFundedContributionRefundRequired, setGroupFundedContributionRefundRequired] = useState(false);
+  const [groupFundedRefundNotes, setGroupFundedRefundNotes] = useState<Record<string, string>>({});
   const [confirmAction, setConfirmAction] = useState<null | {
     title: string;
     description: string;
@@ -653,15 +1238,22 @@ export default function VendorDashboardPage() {
   const [error, setError] = useState("");
   const [busyAction, setBusyAction] = useState("");
   const [planDialogOpen, setPlanDialogOpen] = useState(false);
+  const [paidPlanDialogOnly, setPaidPlanDialogOnly] = useState(false);
   const [themeDialogOpen, setThemeDialogOpen] = useState(false);
   const [themeLocation, setThemeLocation] = useState<StoreLocationWithHours | null>(null);
   const [themeForm, setThemeForm] = useState<PublicBoardThemeSettings>(defaultPublicBoardTheme);
+  const [businessProfileTheme, setBusinessProfileTheme] = useState<PublicBoardThemeSettings>(defaultPublicBoardTheme);
   const [applyThemeToAllLocations, setApplyThemeToAllLocations] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [billingInterval, setBillingInterval] = useState<"monthly" | "annual">("monthly");
   const [selectedCounterSlug, setSelectedCounterSlug] = useState("");
   const [counterDialogOpen, setCounterDialogOpen] = useState(false);
   const [editingCounterSlug, setEditingCounterSlug] = useState("");
+  const [editingCounterId, setEditingCounterId] = useState("");
+  const [counterSlugManuallyEdited, setCounterSlugManuallyEdited] = useState(false);
+  const [counterSlugMessage, setCounterSlugMessage] = useState("");
+  const [counterSlugAvailable, setCounterSlugAvailable] = useState(false);
+  const [checkingCounterSlug, setCheckingCounterSlug] = useState(false);
   const [counterForm, setCounterForm] = useState<SaveServiceCounterRequest>({
     name: "",
     slug: "",
@@ -676,6 +1268,8 @@ export default function VendorDashboardPage() {
   const [historyExportFormat, setHistoryExportFormat] = useState<"csv" | "pdf" | null>(null);
   const [historyExportRange, setHistoryExportRange] = useState<HistoryExportRange | null>(null);
   const [queueView, setQueueView] = useState<QueueView>("current");
+  const [ticketScannerOpen, setTicketScannerOpen] = useState(false);
+  const [ticketScannerError, setTicketScannerError] = useState("");
   const [clientsSearch, setClientsSearch] = useState("");
   const [clientsSort, setClientsSort] = useState<ClientSort>("latestVisitDesc");
   const [clientsPage, setClientsPage] = useState(1);
@@ -684,50 +1278,164 @@ export default function VendorDashboardPage() {
   const [historyPage, setHistoryPage] = useState(1);
   const [bookingSearch, setBookingSearch] = useState("");
   const [bookingStatusFilter, setBookingStatusFilter] = useState<BookingStatusFilter>("all");
-  const [bookingDateRange, setBookingDateRange] = useState<[Date | null, Date | null]>(() => [
-    new Date(`${getTodayDateInputValue()}T00:00:00`),
-    addDays(new Date(`${getTodayDateInputValue()}T00:00:00`), 14)
-  ]);
+  const [bookingDateRange, setBookingDateRange] = useState<[Date | null, Date | null]>([null, null]);
   const [bookingPage, setBookingPage] = useState(1);
   const [bookingPagination, setBookingPagination] = useState<PaginationMetadata | null>(null);
 
   const [rescheduleDialogOpen, setRescheduleDialogOpen] = useState(false);
   const [reschedulingBooking, setReschedulingBooking] = useState<VendorBookingSummary | null>(null);
   const [rescheduleStartAt, setRescheduleStartAt] = useState("");
+  const [rescheduleDate, setRescheduleDate] = useState("");
+  const [rescheduleSlots, setRescheduleSlots] = useState<BookingSlotSummary[]>([]);
+  const [rescheduleSlotsLoading, setRescheduleSlotsLoading] = useState(false);
+  const [rescheduleSlotsError, setRescheduleSlotsError] = useState("");
   const [rescheduleBlockModalOpen, setRescheduleBlockModalOpen] = useState(false);
-  const hasActiveSubscription = billing?.subscription?.status === "active";
+  const [groupFundedProofModalOpen, setGroupFundedProofModalOpen] = useState(false);
+  const [groupFundedProofContribution, setGroupFundedProofContribution] = useState<VendorGroupFundedContributionSummary | null>(null);
+  const [groupFundedProofAccessUrl, setGroupFundedProofAccessUrl] = useState("");
+  const [groupFundedProofError, setGroupFundedProofError] = useState("");
   const selectedLocation =
     locations.find((locationItem) => locationItem.slug === selectedLocationSlug) ||
     snapshot?.location ||
     null;
+  const availabilityBlockLocation =
+    locations.find((locationItem) => locationItem.slug === availabilityBlockForm.locationSlug) ||
+    selectedLocation;
   const selectedTenantRole =
     user?.tenants.find((tenant) => tenant.slug === selectedTenantSlug)?.role || null;
+  const hasActiveSubscription =
+    selectedTenantRole === "staff" || billing?.subscription?.status === "active";
   const isOwner = selectedTenantRole === "owner";
   const isAdmin = selectedTenantRole === "admin";
-  const canManageQueueDay = isOwner || isAdmin;
+  const requiresMfaEnrollment = Boolean(user?.mfaRequired && !user.mfaEnabled);
+  const canLoadProtectedDashboard = !requiresMfaEnrollment;
+  const canOperateQueueDay = Boolean(selectedTenantRole);
+  const canReopenQueueDay = isOwner || isAdmin;
   const canManageContactSettings = isOwner;
   const canExportHistory = isOwner || isAdmin;
   const canAdminBookings = isOwner || isAdmin;
   const canOperateBookingQueue = Boolean(selectedTenantRole);
   const confirmBusy = Boolean(confirmAction && busyAction);
-  const visibleNavItems = isOwner
-    ? navItems
-    : isAdmin
-      ? navItems.filter((item) => adminAllowedSections.has(item.section))
-      : navItems.filter((item) => staffAllowedSections.has(item.section));
   const locationQuery = selectedLocationSlug
     ? `?location=${encodeURIComponent(selectedLocationSlug)}`
     : "";
+  const dashboardErrorMessage = [
+    error,
+    bookingDetailError,
+    rescheduleSlotsError,
+    groupFundedProofError
+  ].find(Boolean) || "";
+
+  useEffect(() => {
+    setMfaEnabled(Boolean(user?.mfaEnabled));
+  }, [user?.mfaEnabled]);
+
+  useEffect(() => {
+    setAccountProfileForm({
+      name: user?.name || "",
+      displayName: user?.displayName || ""
+    });
+  }, [user?.displayName, user?.name]);
+
+  useEffect(() => {
+    if (!dashboardErrorMessage) {
+      return;
+    }
+
+    notifications.show({
+      id: "vendor-dashboard-error",
+      color: "red",
+      icon: <IconX size={18} />,
+      title: "Could not complete that action",
+      message: dashboardErrorMessage,
+      autoClose: 7000
+    });
+  }, [dashboardErrorMessage]);
+
   const dashboardBootstrapQuery = useQuery({
-    queryKey: ["vendor-dashboard-bootstrap", token, selectedTenantSlug, selectedLocationSlug, locationQuery],
+    queryKey: ["vendor-dashboard-bootstrap", token, selectedTenantSlug, selectedLocationSlug, locationQuery, selectedTenantRole],
     queryFn: async () => {
       if (!token || !selectedTenantSlug) {
         throw new Error("Missing dashboard context.");
       }
 
-      return vendorDashboardBootstrap.getBootstrap(token, selectedTenantSlug, locationQuery);
+      return vendorDashboardBootstrap.getBootstrap(
+        token,
+        selectedTenantSlug,
+        locationQuery,
+        isOwner || isAdmin
+      );
     },
-    enabled: shouldEnableVendorDashboardBootstrap(token, selectedTenantSlug)
+    enabled: shouldEnableVendorDashboardBootstrap(token, selectedTenantSlug, requiresMfaEnrollment)
+  });
+  const billingOverviewQuery = useQuery({
+    queryKey: ["vendor-dashboard-billing", token, selectedTenantSlug],
+    queryFn: async () => {
+      if (!token || !selectedTenantSlug) {
+        throw new Error("Missing billing context.");
+      }
+
+      return vendorDashboardBootstrap.getBillingOverview(token, selectedTenantSlug);
+    },
+    enabled: Boolean(
+      shouldEnableVendorDashboardBootstrap(token, selectedTenantSlug, requiresMfaEnrollment) &&
+      (isOwner || isAdmin)
+    )
+  });
+  const effectiveEntitlementsQuery = useQuery({
+    queryKey: ["vendor-dashboard-effective-entitlements", token, selectedTenantSlug],
+    queryFn: async () => {
+      if (!token || !selectedTenantSlug) {
+        throw new Error("Missing entitlement context.");
+      }
+
+      return vendorDashboardBootstrap.getEffectiveEntitlements(token, selectedTenantSlug);
+    },
+    enabled: shouldEnableVendorDashboardBootstrap(token, selectedTenantSlug, requiresMfaEnrollment)
+  });
+  const capacityExperienceQuery = useQuery({
+    queryKey: ["vendor-dashboard-capacity-experience", token, selectedTenantSlug],
+    queryFn: async () => {
+      if (!token || !selectedTenantSlug) {
+        throw new Error("Missing capacity context.");
+      }
+
+      return vendorDashboardBootstrap.getCapacityExperience(token, selectedTenantSlug);
+    },
+    enabled: shouldEnableVendorDashboardBootstrap(token, selectedTenantSlug, requiresMfaEnrollment)
+  });
+  const effectiveBilling = billingOverviewQuery.data || null;
+  const activeSubscription =
+    effectiveBilling?.subscription?.status === "active" ? effectiveBilling.subscription : null;
+  const currentPlan = activeSubscription
+    ? effectiveBilling?.plans.find((plan) => plan.slug === activeSubscription.planSlug)
+    : null;
+  const effectiveEntitlements =
+    activeSubscription?.entitlements ||
+    currentPlan?.entitlements ||
+    effectiveEntitlementsQuery.data?.entitlements;
+  const tenantPlan = effectiveEntitlementsQuery.data?.plan;
+  const roleVisibleNavItems = requiresMfaEnrollment
+    ? navItems.filter((item) => item.section === "account")
+    : isOwner
+      ? navItems
+      : isAdmin
+        ? navItems.filter((item) => adminAllowedSections.has(item.section))
+        : navItems.filter((item) => staffAllowedSections.has(item.section));
+  const visibleNavItems = roleVisibleNavItems.filter((item) =>
+    canAccessVendorSection(item.section, effectiveEntitlements, tenantPlan)
+  );
+  const defaultDashboardPath = `/dashboard/${visibleNavItems[0]?.section || "settings"}`;
+  const queueLifecycleSnapshotQuery = useQuery({
+    queryKey: ["vendor-dashboard-queue-lifecycle", token, selectedTenantSlug, selectedLocationSlug, locationQuery],
+    queryFn: async () => {
+      if (!token || !selectedTenantSlug) {
+        throw new Error("Missing dashboard context.");
+      }
+      return vendorDashboardQueue.getQueueSnapshot(token, selectedTenantSlug, locationQuery);
+    },
+    enabled: shouldEnableVendorDashboardBootstrap(token, selectedTenantSlug, requiresMfaEnrollment),
+    refetchInterval: 30_000
   });
   const staffQuery = useQuery({
     queryKey: ["vendor-dashboard-staff", token, selectedTenantSlug],
@@ -738,7 +1446,12 @@ export default function VendorDashboardPage() {
 
       return vendorDashboardOperations.getStaff(token, selectedTenantSlug);
     },
-    enabled: Boolean(token && selectedTenantSlug)
+    enabled: Boolean(
+      canLoadProtectedDashboard &&
+      token &&
+      selectedTenantSlug &&
+      canAccessVendorSection("staff", effectiveEntitlements)
+    )
   });
   const servicesQuery = useQuery({
     queryKey: ["vendor-dashboard-services", token, selectedTenantSlug, isOwner, isAdmin],
@@ -749,7 +1462,30 @@ export default function VendorDashboardPage() {
 
       return vendorDashboardCatalog.getServices(token, selectedTenantSlug);
     },
-    enabled: Boolean(token && selectedTenantSlug && (isOwner || isAdmin))
+    enabled: Boolean(
+      canLoadProtectedDashboard &&
+      token &&
+      selectedTenantSlug &&
+      (isOwner || isAdmin) &&
+      canAccessVendorSection("services", effectiveEntitlements)
+    )
+  });
+  const locationServicesQuery = useQuery({
+    queryKey: ["vendor-dashboard-location-services", token, selectedTenantSlug, isOwner, isAdmin],
+    queryFn: async () => {
+      if (!token || !selectedTenantSlug) {
+        throw new Error("Missing dashboard context.");
+      }
+
+      return vendorDashboardCatalog.getLocationServices(token, selectedTenantSlug);
+    },
+    enabled: Boolean(
+      canLoadProtectedDashboard &&
+      token &&
+      selectedTenantSlug &&
+      (isOwner || isAdmin) &&
+      canAccessVendorSection("services", effectiveEntitlements)
+    )
   });
   const availabilityQuery = useQuery({
     queryKey: ["vendor-dashboard-availability", token, selectedTenantSlug, selectedLocationSlug, isOwner, isAdmin],
@@ -760,7 +1496,14 @@ export default function VendorDashboardPage() {
 
       return vendorDashboardCatalog.getAvailability(token, selectedTenantSlug, selectedLocationSlug);
     },
-    enabled: Boolean(token && selectedTenantSlug && selectedLocationSlug && (isOwner || isAdmin))
+    enabled: Boolean(
+      canLoadProtectedDashboard &&
+      token &&
+      selectedTenantSlug &&
+      selectedLocationSlug &&
+      (isOwner || isAdmin) &&
+      canAccessVendorSection("services", effectiveEntitlements)
+    )
   });
   const countersQuery = useQuery({
     queryKey: ["vendor-dashboard-counters", token, selectedTenantSlug, selectedLocationSlug],
@@ -771,7 +1514,7 @@ export default function VendorDashboardPage() {
 
       return vendorDashboardCatalog.getCounters(token, selectedTenantSlug, selectedLocationSlug);
     },
-    enabled: Boolean(token && selectedTenantSlug && selectedLocationSlug)
+    enabled: Boolean(canLoadProtectedDashboard && token && selectedTenantSlug && selectedLocationSlug)
   });
   const historyQuery = useQuery({
     queryKey: ["vendor-dashboard-history", token, selectedTenantSlug, selectedLocationSlug, currentSection, hasActiveSubscription],
@@ -782,7 +1525,15 @@ export default function VendorDashboardPage() {
 
       return vendorDashboardOperations.getHistory(token, selectedTenantSlug, selectedLocationSlug);
     },
-    enabled: Boolean(token && selectedTenantSlug && selectedLocationSlug && currentSection === "history" && hasActiveSubscription)
+    enabled: Boolean(
+      canLoadProtectedDashboard &&
+      token &&
+      selectedTenantSlug &&
+      selectedLocationSlug &&
+      currentSection === "history" &&
+      hasActiveSubscription &&
+      canAccessVendorSection("history", effectiveEntitlements)
+    )
   });
   const clientsQuery = useQuery({
     queryKey: ["vendor-dashboard-clients", token, selectedTenantSlug, selectedLocationSlug, currentSection, hasActiveSubscription, locationQuery],
@@ -793,7 +1544,15 @@ export default function VendorDashboardPage() {
 
       return vendorDashboardOperations.getClients(token, selectedTenantSlug, locationQuery);
     },
-    enabled: Boolean(token && selectedTenantSlug && selectedLocationSlug && currentSection === "clients" && hasActiveSubscription)
+    enabled: Boolean(
+      canLoadProtectedDashboard &&
+      token &&
+      selectedTenantSlug &&
+      selectedLocationSlug &&
+      currentSection === "clients" &&
+      hasActiveSubscription &&
+      canAccessVendorSection("clients", effectiveEntitlements)
+    )
   });
   const bookingListQuery = useQuery({
     queryKey: [
@@ -816,7 +1575,64 @@ export default function VendorDashboardPage() {
         bookingDateRange[1] ? formatDateInputValue(bookingDateRange[1]) : null
       ]);
     },
-    enabled: Boolean(token && selectedTenantSlug && selectedLocationSlug && currentSection === "bookings" && hasActiveSubscription && canOperateBookingQueue)
+    enabled: Boolean(
+      canLoadProtectedDashboard &&
+      token &&
+      selectedTenantSlug &&
+      selectedLocationSlug &&
+      currentSection === "bookings" &&
+      hasActiveSubscription &&
+      canOperateBookingQueue &&
+      canAccessVendorSection("bookings", effectiveEntitlements)
+    )
+  });
+  const groupFundedCampaignsQuery = useQuery({
+    queryKey: [
+      "vendor-dashboard-group-funded-campaigns",
+      token,
+      selectedTenantSlug,
+      selectedLocation?.id,
+      groupFundedStatusFilter
+    ],
+    queryFn: async () => {
+      if (!token || !selectedTenantSlug || !selectedLocation?.id) {
+        throw new Error("Missing dashboard context.");
+      }
+
+      return vendorDashboardBookings.getGroupFundedCampaigns(
+        token,
+        selectedTenantSlug,
+        selectedLocation.id,
+        groupFundedStatusFilter
+      );
+    },
+    enabled: Boolean(
+      canLoadProtectedDashboard &&
+      token &&
+      selectedTenantSlug &&
+      selectedLocation?.id &&
+      currentSection === "group-funded" &&
+      hasActiveSubscription &&
+      canOperateBookingQueue &&
+      canAccessVendorSection("group-funded", effectiveEntitlements)
+    )
+  });
+  const groupFundedDetailQuery = useQuery({
+    queryKey: ["vendor-dashboard-group-funded-detail", token, selectedTenantSlug, groupFundedDetailId],
+    queryFn: async () => {
+      if (!token || !selectedTenantSlug || !groupFundedDetailId) {
+        throw new Error("Missing campaign context.");
+      }
+
+      return vendorDashboardBookings.getGroupFundedCampaignDetail(token, selectedTenantSlug, groupFundedDetailId);
+    },
+    enabled: Boolean(
+      canLoadProtectedDashboard &&
+      token &&
+      selectedTenantSlug &&
+      groupFundedDetailId &&
+      canAccessVendorSection("group-funded", effectiveEntitlements)
+    )
   });
   const bookingAlertsQuery = useQuery({
     queryKey: ["vendor-dashboard-booking-alerts", token, selectedTenantSlug, selectedLocationSlug],
@@ -827,10 +1643,17 @@ export default function VendorDashboardPage() {
 
       return vendorDashboardBookings.getBookingAlerts(token, selectedTenantSlug, selectedLocationSlug);
     },
-    enabled: Boolean(token && selectedTenantSlug && selectedLocationSlug && hasActiveSubscription && canOperateBookingQueue),
+    enabled: Boolean(
+      canLoadProtectedDashboard &&
+      token &&
+      selectedTenantSlug &&
+      selectedLocationSlug &&
+      hasActiveSubscription &&
+      canOperateBookingQueue &&
+      canAccessVendorSection("bookings", effectiveEntitlements)
+    ),
     refetchInterval: 15000
   });
-
   useEffect(() => {
     if (!bookingDetailOpen || !bookingDetailModalId || !token || !selectedTenantSlug) {
       return;
@@ -865,44 +1688,171 @@ export default function VendorDashboardPage() {
   }, [bookingDetailModalId, bookingDetailOpen, selectedLocationSlug, selectedTenantSlug, token]);
 
   useEffect(() => {
+    if (!rescheduleDialogOpen || !reschedulingBooking || !rescheduleDate || !token || !selectedTenantSlug) {
+      return;
+    }
+
+    let active = true;
+    setRescheduleSlotsLoading(true);
+    setRescheduleSlotsError("");
+
+    vendorDashboardBookings
+      .getRescheduleSlots(token, selectedTenantSlug, reschedulingBooking.id, rescheduleDate)
+      .then((response) => {
+        if (!active) {
+          return;
+        }
+        setRescheduleSlots(response.slots);
+        if (!response.slots.some((slot) => String(slot.startAt) === rescheduleStartAt)) {
+          setRescheduleStartAt("");
+        }
+      })
+      .catch((slotsError) => {
+        if (active) {
+          setRescheduleSlots([]);
+          setRescheduleSlotsError(getErrorMessage(slotsError));
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setRescheduleSlotsLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [rescheduleDate, rescheduleDialogOpen, rescheduleStartAt, reschedulingBooking, selectedTenantSlug, token]);
+
+  useEffect(() => {
     if (!selectedTenantSlug && user?.tenants?.length) {
       setSelectedTenantSlug(user.tenants[0].slug);
     }
   }, [selectedTenantSlug, user]);
 
   useEffect(() => {
+    if (requiresMfaEnrollment) {
+      setAccountTab("security");
+      if (currentSection !== "account") {
+        navigate("/dashboard/account", { replace: true });
+      }
+      return;
+    }
+
+    if (selectedTenantRole === "staff" && (accountTab === "subscription" || accountTab === "billing")) {
+      setAccountTab("profile");
+    }
+  }, [accountTab, currentSection, navigate, requiresMfaEnrollment, selectedTenantRole]);
+
+  useEffect(() => {
     if (!dashboardBootstrapQuery.data) {
       return;
     }
 
-    const { locationsResponse, snapshotResponse, billingResponse, notificationSettings } = dashboardBootstrapQuery.data;
+    const { locationsResponse, snapshotResponse, notificationSettings } = dashboardBootstrapQuery.data;
     setError("");
     setLocations(locationsResponse.locations);
     setActiveLocationLimit(locationsResponse.activeLocationLimit);
+    setPlatformDefaultTimezone(locationsResponse.defaultTimezone);
     if (!selectedLocationSlug || !locationsResponse.locations.some((item) => item.slug === selectedLocationSlug)) {
       setSelectedLocationSlug(locationsResponse.locations.find((item) => item.isPrimary)?.slug || locationsResponse.locations[0]?.slug || "");
     }
-    setSnapshot(snapshotResponse);
+    setSnapshot((current) => selectFreshestQueueSnapshot(current, snapshotResponse));
     setSettings({
+      name: snapshotResponse.tenant.name || "",
+      publicProfileDisplayName: snapshotResponse.tenant.publicProfileDisplayName || "",
+      publicProfileDescription: snapshotResponse.tenant.publicProfileDescription || "",
+      publicProfileCategory: snapshotResponse.tenant.publicProfileCategory || "",
+      businessCategoryId: snapshotResponse.tenant.businessCategoryId || null,
       queuePrefix: snapshotResponse.tenant.queuePrefix,
       averageServiceMinutes: snapshotResponse.tenant.averageServiceMinutes,
       notificationThreshold: snapshotResponse.tenant.notificationThreshold,
       autoPauseEnabled: snapshotResponse.tenant.autoPauseEnabled,
       autoPauseThreshold: snapshotResponse.tenant.autoPauseThreshold ?? 20,
       autoResumeEnabled: snapshotResponse.tenant.autoResumeEnabled,
-      autoResumeVacancyPercent: snapshotResponse.tenant.autoResumeVacancyPercent ?? 20,
-      contactEmail: snapshotResponse.tenant.contactEmail || "",
-      contactPhone: snapshotResponse.tenant.contactPhone || ""
+      autoResumeVacancyPercent: snapshotResponse.tenant.autoResumeVacancyPercent ?? 20
     });
-    setBilling(billingResponse);
     setVendorNotificationSettings(notificationSettings);
   }, [dashboardBootstrapQuery.data, selectedLocationSlug]);
+
+  useEffect(() => {
+    if (!token || !selectedTenantSlug || !canManageContactSettings) {
+      return;
+    }
+
+    vendorDashboardOperations.getTheme(token, selectedTenantSlug, "")
+      .then((data) => setBusinessProfileTheme(mergeTheme(data.theme)))
+      .catch((themeError) => setError(getErrorMessage(themeError)));
+  }, [canManageContactSettings, selectedTenantSlug, token]);
+
+  useEffect(() => {
+    if (billingOverviewQuery.data) {
+      setBilling(billingOverviewQuery.data);
+    }
+  }, [billingOverviewQuery.data]);
 
   useEffect(() => {
     if (dashboardBootstrapQuery.error) {
       setError(getErrorMessage(dashboardBootstrapQuery.error));
     }
   }, [dashboardBootstrapQuery.error]);
+
+  useEffect(() => {
+    if (queueLifecycleSnapshotQuery.data) {
+      setSnapshot((current) => selectFreshestQueueSnapshot(current, queueLifecycleSnapshotQuery.data));
+    }
+  }, [queueLifecycleSnapshotQuery.data]);
+
+  useEffect(() => {
+    const queueDay = snapshot?.queueDay;
+    if (!queueDay) return;
+    const current = {
+      id: queueDay.id ? String(queueDay.id) : null,
+      state: queueDay.state || null,
+      deadlineVersion: queueDay.deadlineVersion ?? null,
+      reconciliationError: queueDay.reconciliationError || null
+    };
+    const previous = previousQueueDayRef.current;
+    if (!previous || previous.id !== current.id) {
+      previousQueueDayRef.current = current;
+      return;
+    }
+
+    const syncNotice = getQueueDaySyncNotice(
+      previous,
+      current,
+      localQueueDayUpdateRef.current,
+      busyAction.startsWith("queue-")
+    );
+    if (syncNotice === "local_update") {
+      previousQueueDayRef.current = current;
+      localQueueDayUpdateRef.current = null;
+      return;
+    }
+    if (syncNotice === "defer") {
+      return;
+    }
+    previousQueueDayRef.current = current;
+
+    if (syncNotice === "deadline_updated") {
+      showInfoNotification(
+        "Queue deadline updated",
+        `Another operator extended the Queue Day. The new close time is ${
+          queueDay.currentClosesAt ? formatDateTime(queueDay.currentClosesAt) : "available in the live status"
+        }.`
+      );
+    } else if (syncNotice === "closed") {
+      showInfoNotification(
+        "Queue closed",
+        "Live status synchronized. Earlier ticket outcomes remain final even if an admin later reopens the Queue Day."
+      );
+    } else if (syncNotice === "reconciliation_error") {
+      showInfoNotification(
+        "Queue status needs attention",
+        "Automatic reconciliation could not confirm a trustworthy state. Queue actions are locked."
+      );
+    }
+  }, [busyAction, snapshot?.queueDay]);
 
   useEffect(() => {
     if (!staffQuery.data) {
@@ -928,6 +1878,7 @@ export default function VendorDashboardPage() {
 
     setAvailabilityBlocks(availabilityQuery.data.blocks);
     setAvailabilityExceptions(availabilityQuery.data.exceptions);
+    setAvailabilitySummary(availabilityQuery.data.summary || null);
   }, [availabilityQuery.data]);
 
   useEffect(() => {
@@ -981,6 +1932,15 @@ export default function VendorDashboardPage() {
   }, [browserNotificationsSupported]);
 
   async function handleRequestBrowserPermission() {
+    if (!token || !selectedTenantSlug) {
+      notifications.show({
+        color: "red",
+        title: "Sign in required",
+        message: "Sign in and select a tenant before enabling browser notifications."
+      });
+      return;
+    }
+
     if (!browserNotificationsSupported || !window.Notification) {
       notifications.show({
         color: "red",
@@ -1001,12 +1961,19 @@ export default function VendorDashboardPage() {
 
     setRequestingBrowserPermission(true);
     try {
-      const permission = await window.Notification.requestPermission();
+      const { permission } = await subscribeToBrowserPush({ token, tenantSlug: selectedTenantSlug });
       setBrowserPermission(permission);
+      setBrowserPushSubscribed(true);
+      notifications.show({
+        color: "teal",
+        title: "Browser notifications enabled",
+        message: "This browser is subscribed to vendor operational alerts."
+      });
     } catch (permissionError) {
+      setBrowserPermission(window.Notification.permission);
       notifications.show({
         color: "red",
-        title: "Permission request failed",
+        title: "Browser notifications unavailable",
         message: getErrorMessage(permissionError)
       });
     } finally {
@@ -1045,7 +2012,7 @@ export default function VendorDashboardPage() {
   }
 
   useEffect(() => {
-    if (!selectedTenantSlug || !selectedLocationSlug || !token) {
+    if (!canLoadProtectedDashboard || !selectedTenantSlug || !selectedLocationSlug || !token) {
       return;
     }
 
@@ -1063,10 +2030,17 @@ export default function VendorDashboardPage() {
         setServiceCounters([]);
         setCounterLimit(0);
       });
-  }, [selectedLocationSlug, selectedTenantSlug, token]);
+  }, [canLoadProtectedDashboard, selectedLocationSlug, selectedTenantSlug, token]);
 
   useEffect(() => {
-    if (!selectedTenantSlug || !token) {
+    if (
+      !canLoadProtectedDashboard ||
+      !selectedTenantSlug ||
+      !token ||
+      !canAccessVendorSection("staff", effectiveEntitlements)
+    ) {
+      setStaff([]);
+      setStaffSeatLimit(0);
       return;
     }
 
@@ -1079,10 +2053,16 @@ export default function VendorDashboardPage() {
         setStaff([]);
         setStaffSeatLimit(0);
       });
-  }, [selectedTenantSlug, token]);
+  }, [canLoadProtectedDashboard, effectiveEntitlements, selectedTenantSlug, token]);
 
   useEffect(() => {
-    if (!selectedTenantSlug || !token || !(isOwner || isAdmin)) {
+    if (
+      !canLoadProtectedDashboard ||
+      !selectedTenantSlug ||
+      !token ||
+      !(isOwner || isAdmin) ||
+      !canAccessVendorSection("services", effectiveEntitlements)
+    ) {
       setServices([]);
       return;
     }
@@ -1094,10 +2074,16 @@ export default function VendorDashboardPage() {
       .catch(() => {
         setServices([]);
       });
-  }, [isAdmin, isOwner, selectedTenantSlug, token]);
+  }, [canLoadProtectedDashboard, effectiveEntitlements, isAdmin, isOwner, selectedTenantSlug, token]);
 
   useEffect(() => {
-    if (!selectedTenantSlug || !selectedLocationSlug || !token || !(isOwner || isAdmin)) {
+    if (
+      !selectedTenantSlug ||
+      !selectedLocationSlug ||
+      !token ||
+      !(isOwner || isAdmin) ||
+      !canAccessVendorSection("services", effectiveEntitlements)
+    ) {
       setAvailabilityBlocks([]);
       setAvailabilityExceptions([]);
       return;
@@ -1112,7 +2098,7 @@ export default function VendorDashboardPage() {
         setAvailabilityBlocks([]);
         setAvailabilityExceptions([]);
       });
-  }, [isAdmin, isOwner, selectedLocationSlug, selectedTenantSlug, token]);
+  }, [effectiveEntitlements, isAdmin, isOwner, selectedLocationSlug, selectedTenantSlug, token]);
 
   useEffect(() => {
     if (!selectedTenantSlug || !token) {
@@ -1151,6 +2137,10 @@ export default function VendorDashboardPage() {
         }
 
         setBilling(data.billing);
+        queryClient.setQueryData(
+          ["vendor-dashboard-billing", token, selectedTenantSlug],
+          data.billing
+        );
         if (data.paid) {
           showSuccessNotification("Subscription activated", "Your plan is now active.");
         } else {
@@ -1175,10 +2165,10 @@ export default function VendorDashboardPage() {
     return () => {
       active = false;
     };
-  }, [location.pathname, location.search, navigate, selectedTenantSlug, token]);
+  }, [location.pathname, location.search, navigate, queryClient, selectedTenantSlug, token]);
 
   useEffect(() => {
-    if (!selectedTenantSlug || !selectedLocationSlug) {
+    if (!selectedTenantSlug || !selectedLocationSlug || !token) {
       return undefined;
     }
 
@@ -1187,9 +2177,23 @@ export default function VendorDashboardPage() {
     );
     eventSource.onmessage = (event) => {
       const payload = JSON.parse(event.data) as QueueSnapshot;
-      setSnapshot(payload);
       syncQueueAlerts(payload.nextUp || [], { detectNew: true });
-      if (currentSection === "bookings" && token && hasActiveSubscription && canOperateBookingQueue) {
+      void queryClient.invalidateQueries({
+        queryKey: [
+          "vendor-dashboard-queue-lifecycle",
+          token,
+          selectedTenantSlug,
+          selectedLocationSlug,
+          locationQuery
+        ]
+      });
+      if (
+        currentSection === "bookings" &&
+        token &&
+        hasActiveSubscription &&
+        canOperateBookingQueue &&
+        canAccessVendorSection("bookings", effectiveEntitlements)
+      ) {
         void queryClient.invalidateQueries({
           queryKey: [
             "vendor-dashboard-bookings",
@@ -1203,9 +2207,22 @@ export default function VendorDashboardPage() {
           ]
         });
       }
+      if (
+        token &&
+        hasActiveSubscription &&
+        canOperateBookingQueue &&
+        canAccessVendorSection("group-funded", effectiveEntitlements)
+      ) {
+        void queryClient.invalidateQueries({
+          queryKey: ["vendor-dashboard-group-funded-campaigns", token, selectedTenantSlug]
+        });
+        void queryClient.invalidateQueries({
+          queryKey: ["vendor-dashboard-group-funded-detail", token, selectedTenantSlug]
+        });
+      }
     };
     eventSource.onerror = () => {
-      eventSource.close();
+      // EventSource reconnects automatically after transient network/server hiccups.
     };
 
     return () => {
@@ -1214,7 +2231,14 @@ export default function VendorDashboardPage() {
   }, [
     canOperateBookingQueue,
     currentSection,
+    effectiveEntitlements,
+    bookingDateRange,
+    bookingPage,
+    bookingSearch,
+    bookingStatusFilter,
     hasActiveSubscription,
+    locationQuery,
+    queryClient,
     selectedLocationSlug,
     selectedTenantSlug,
     token
@@ -1268,13 +2292,6 @@ export default function VendorDashboardPage() {
     };
   }, [currentSection, hasActiveSubscription, locationQuery, selectedLocationSlug, selectedTenantSlug, token]);
 
-  const activeSubscription =
-    billing?.subscription?.status === "active" ? billing.subscription : null;
-  const currentPlan = activeSubscription
-    ? billing?.plans.find((plan) => plan.slug === activeSubscription.planSlug)
-    : null;
-  const effectiveEntitlements = activeSubscription?.entitlements || currentPlan?.entitlements;
-
   useEffect(() => {
     if (!effectiveEntitlements) {
       setHistoryExportFormat(null);
@@ -1286,14 +2303,15 @@ export default function VendorDashboardPage() {
       effectiveEntitlements.csvExport ? "csv" : null,
       effectiveEntitlements.pdfExport ? "pdf" : null
     ].filter(Boolean) as Array<"csv" | "pdf">;
+    const allowedHistoryExportRanges = getAllowedHistoryExportRanges(effectiveEntitlements);
 
     setHistoryExportFormat((current) =>
       current && availableFormats.includes(current) ? current : availableFormats[0] || null
     );
     setHistoryExportRange((current) =>
-      current && effectiveEntitlements.allowedHistoryExportRanges.includes(current)
+      current && allowedHistoryExportRanges.includes(current)
         ? current
-        : effectiveEntitlements.allowedHistoryExportRanges[0] || null
+        : allowedHistoryExportRanges[0] || null
     );
   }, [effectiveEntitlements]);
 
@@ -1365,6 +2383,224 @@ export default function VendorDashboardPage() {
     });
   }
 
+  async function copyLocationUrl(label: "Join URL" | "QR target" | "Monitor URL", url: string) {
+    try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error("Clipboard access is not available in this browser.");
+      }
+
+      await navigator.clipboard.writeText(url);
+      showSuccessNotification(`${label} copied`, `The ${label.toLowerCase()} has been copied to your clipboard.`);
+    } catch (copyError) {
+      notifications.show({
+        color: "red",
+        icon: <IconX size={18} />,
+        message: getErrorMessage(copyError),
+        title: "Could not copy URL"
+      });
+    }
+  }
+
+  async function saveQueueQr() {
+    const qrCanvas = getStyledQRCodeCanvas(queueQrRef.current);
+    if (!qrCanvas || typeof window === "undefined") {
+      return;
+    }
+
+    setSavingQueueQr(true);
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = 500;
+      canvas.height = 500;
+      const context = canvas.getContext("2d");
+      if (!context) {
+        throw new Error("Your browser could not prepare the QR image.");
+      }
+      context.fillStyle = "#ffffff";
+      context.fillRect(0, 0, 500, 500);
+      context.drawImage(qrCanvas, 0, 0, 500, 500);
+
+      const jpeg = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob((blob) => {
+          if (blob) {
+            resolve(blob);
+          } else {
+            reject(new Error("The QR image could not be exported."));
+          }
+        }, "image/jpeg", 0.95);
+      });
+      const downloadUrl = URL.createObjectURL(jpeg);
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.download = `${selectedTenantSlug || "queue"}-${selectedLocationSlug || "location"}-join-qr.jpg`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 0);
+      showSuccessNotification("QR code download started", "Your 500 × 500 JPG QR image is being saved to this device.");
+    } catch (downloadError) {
+      notifications.show({
+        color: "red",
+        icon: <IconX size={18} />,
+        message: getErrorMessage(downloadError),
+        title: "Could not save QR code"
+      });
+    } finally {
+      setSavingQueueQr(false);
+    }
+  }
+
+  async function startMfaEnrollment() {
+    if (!token) {
+      return;
+    }
+
+    setMfaBusy(true);
+    setError("");
+    try {
+      const enrollment = await vendorDashboardOperations.startMfaEnrollment(token);
+      setMfaSecret(enrollment.secret);
+      setMfaEnrollmentUri(enrollment.otpAuthUri);
+      setMfaRecoveryCodes([]);
+    } catch (mfaError) {
+      setError(getErrorMessage(mfaError));
+    } finally {
+      setMfaBusy(false);
+    }
+  }
+
+  async function confirmMfaEnrollment() {
+    if (!token) {
+      return;
+    }
+
+    setMfaBusy(true);
+    setError("");
+    try {
+      const result = await vendorDashboardOperations.confirmMfaEnrollment(token, mfaCode);
+      setMfaEnabled(true);
+      setMfaSecret("");
+      setMfaEnrollmentUri("");
+      setMfaCode("");
+      setMfaRecoveryCodes(result.recoveryCodes);
+      await refreshUser();
+      showSuccessNotification("Authenticator enabled", "Save your recovery codes before leaving this page.");
+    } catch (mfaError) {
+      setError(getErrorMessage(mfaError));
+    } finally {
+      setMfaBusy(false);
+    }
+  }
+
+  async function cancelMfaEnrollment() {
+    if (!token) {
+      return;
+    }
+
+    setMfaBusy(true);
+    setError("");
+    try {
+      await vendorDashboardOperations.cancelMfaEnrollment(token);
+      setMfaSecret("");
+      setMfaEnrollmentUri("");
+      setMfaCode("");
+      showSuccessNotification("Replacement canceled", "Your current authenticator is still active.");
+    } catch (mfaError) {
+      setError(getErrorMessage(mfaError));
+    } finally {
+      setMfaBusy(false);
+    }
+  }
+
+  async function handleAccountProfileSave(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!token || !accountProfileForm.name.trim()) {
+      return;
+    }
+
+    setAccountProfileBusy(true);
+    setError("");
+    try {
+      await vendorDashboardOperations.updateAccountProfile(token, {
+        name: accountProfileForm.name.trim(),
+        displayName: accountProfileForm.displayName.trim()
+      });
+      await refreshUser();
+      showSuccessNotification("Account profile saved", "Your vendor account details were updated.");
+    } catch (profileError) {
+      setError(getErrorMessage(profileError));
+    } finally {
+      setAccountProfileBusy(false);
+    }
+  }
+
+  async function handlePasswordChange(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPasswordBusy(true);
+    setError("");
+    try {
+      await changePassword(passwordForm);
+      navigate("/login", { replace: true });
+    } catch (passwordError) {
+      setError(getErrorMessage(passwordError));
+    } finally {
+      setPasswordBusy(false);
+    }
+  }
+
+  async function startMfaReplacement() {
+    if (!token) {
+      return;
+    }
+
+    setMfaBusy(true);
+    setError("");
+    try {
+      await vendorDashboardOperations.verifyMfaStepUp(token, replacementPassword, replacementCode);
+      const enrollment = await vendorDashboardOperations.startMfaEnrollment(token, replacementCode);
+      setMfaSecret(enrollment.secret);
+      setMfaEnrollmentUri(enrollment.otpAuthUri);
+      setMfaCode("");
+      setMfaRecoveryCodes([]);
+      setReplacingMfa(false);
+      setReplacementPassword("");
+      setReplacementCode("");
+    } catch (mfaError) {
+      setError(getErrorMessage(mfaError));
+    } finally {
+      setMfaBusy(false);
+    }
+  }
+
+  async function removeMfa() {
+    if (!token) {
+      return;
+    }
+
+    setMfaBusy(true);
+    setError("");
+    try {
+      await vendorDashboardOperations.disableMfa(
+        token,
+        removalPassword,
+        removalCode,
+        removalRecoveryCode
+      );
+      setMfaEnabled(false);
+      setRemovingMfa(false);
+      setRemovalPassword("");
+      setRemovalCode("");
+      setRemovalRecoveryCode("");
+      setRemovalAcknowledged(false);
+      await refreshUser();
+      showSuccessNotification("MFA removed", "Your authenticator and recovery codes are no longer active.");
+    } catch (mfaError) {
+      setError(getErrorMessage(mfaError));
+    } finally {
+      setMfaBusy(false);
+    }
+  }
+
   function syncVendorBookings(bookings: VendorBookingSummary[], options: { detectNew?: boolean } = {}) {
     const nextIds = new Set(bookings.map((booking) => booking.id));
     const previousIds = knownBookingIdsRef.current;
@@ -1397,6 +2633,20 @@ export default function VendorDashboardPage() {
     dismissedBookingAlertIdsRef.current.add(bookingId);
     setBookingAlertIds((current) => current.filter((item) => item !== bookingId));
     persistDismissedAlerts();
+  }
+
+  function resetGroupFundedCampaignDecision() {
+    setGroupFundedRejectReason("");
+    setGroupFundedRejectReasonPreset(null);
+    setGroupFundedUseCustomRejectReason(false);
+  }
+
+  function closeGroupFundedContributionRejectModal() {
+    setGroupFundedContributionToReject(null);
+    setGroupFundedContributionRejectReason("");
+    setGroupFundedContributionRejectReasonPreset(null);
+    setGroupFundedContributionUseCustomRejectReason(false);
+    setGroupFundedContributionRefundRequired(false);
   }
 
   function syncBookingAlerts(bookings: VendorBookingSummary[], options: { detectNew?: boolean } = {}) {
@@ -1444,6 +2694,7 @@ export default function VendorDashboardPage() {
         .filter(
           (ticket) =>
             ticket.status === "waiting" &&
+            ticket.joinChannel !== "vendor" &&
             !previousIds.has(ticket.id) &&
             !dismissedIds.has(ticket.id)
         )
@@ -1500,7 +2751,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     buildJoinUrl(window.location.origin, selectedTenantSlug, selectedLocationSlug);
   const queueLinks = {
     joinUrl,
-    qrUrl: `${joinUrl}?source=qr`,
+    qrUrl: selectedLocation?.qrJoinUrl || "",
     monitorUrl:
       snapshot?.location?.monitorUrl ||
       snapshot?.tenant.monitorUrl ||
@@ -1511,11 +2762,23 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     currentPlan?.entitlements.monthlyTickets ||
     0;
   const ticketUsage = snapshot?.stats.servedToday ?? 0;
-  const emailLimit = activeSubscription?.entitlements.emailAlerts
-    ? activeSubscription.entitlements.monthlyTransactionalEmails ??
+  const configuredEmailJourneyLimit = activeSubscription?.entitlements.emailAlerts
+    ? activeSubscription.entitlements.monthlyQueueEmailJourneys ??
+      activeSubscription.entitlements.monthlyTransactionalEmails ??
+      currentPlan?.entitlements.monthlyQueueEmailJourneys ??
       currentPlan?.entitlements.monthlyTransactionalEmails
     : 0;
-  const emailUsage = snapshot?.usage?.emailsSentThisPeriod ?? 0;
+  const emailJourneyResource =
+    capacityExperienceQuery.data?.capacity?.resources.queueEmailJourneys;
+  const emailJourneyLimit = emailJourneyResource?.limit ?? configuredEmailJourneyLimit;
+  const emailJourneyUsage = emailJourneyResource?.used ?? 0;
+  const emailJourneyDetail = capacityExperienceQuery.isPending
+    ? "Loading journey usage"
+    : capacityExperienceQuery.error
+      ? "Journey usage unavailable"
+      : capacityExperienceQuery.data?.enabled
+        ? "Journeys started this period"
+        : "Journey tracking pending rollout";
   const historyTickets = useMemo(() => history?.tickets || snapshot?.history || [], [history, snapshot]);
   const serviceTrendBars = useMemo(
     () =>
@@ -1656,8 +2919,15 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         .filter((ticket): ticket is QueueListTicket => Boolean(ticket && ticket.status === "waiting")),
     [queueAlertIds, snapshot?.nextUp]
   );
-  const queueDayClosed = Boolean(snapshot?.queueDay?.isClosed);
+  const queueDayState = resolveQueueDayState(snapshot?.queueDay);
+  const queueDayClosed = queueDayState !== "open";
   const queueDayPaused = Boolean(snapshot?.queueDay?.isPaused);
+  const queueDayUnopened = queueDayState === "unopened";
+  const queueDayActuallyClosed = queueDayState === "closed";
+  const queueDayReconciling =
+    snapshot?.queueDay?.availabilityReason === "reconciling" ||
+    snapshot?.queueDay?.autoClosePhase === "overdue";
+  const queueDayExtended = snapshot?.queueDay?.autoClosePhase === "extended";
   const intakeState = snapshot?.queueIntake || null;
   const restoreBlockedByThreshold = Boolean(
     intakeState?.autoPauseEnabled &&
@@ -1672,6 +2942,14 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         .map((service) => ({ value: service.slug, label: service.name }))
     ],
     [services]
+  );
+  const locationOptions = useMemo(
+    () =>
+      locations.map((locationItem) => ({
+        value: locationItem.slug,
+        label: `${locationItem.name}${locationItem.isActive ? "" : " (Inactive)"}`
+      })),
+    [locations]
   );
   const serviceSlugById = useMemo(
     () => new Map(services.map((service) => [service.id, service.slug])),
@@ -1703,12 +2981,46 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
     try {
       const data = await request();
-      if (data.snapshot) {
-        setSnapshot(data.snapshot);
+      const nextSnapshot = data.snapshot;
+      if (nextSnapshot) {
+        if (actionName === "queue-extend" || actionName === "queue-close") {
+          localQueueDayUpdateRef.current = {
+            kind: actionName === "queue-extend" ? "deadline" : "state",
+            id: nextSnapshot.queueDay.id ? String(nextSnapshot.queueDay.id) : null,
+            state: nextSnapshot.queueDay.state || null,
+            deadlineVersion: nextSnapshot.queueDay.deadlineVersion ?? null
+          };
+        }
+        setSnapshot((current) => selectFreshestQueueSnapshot(current, nextSnapshot));
       }
       return true;
     } catch (actionError) {
       setError(getErrorMessage(actionError));
+      return false;
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function handleConfirmCalledTicket(lookupCode: string): Promise<boolean> {
+    setTicketScannerError("");
+    setBusyAction("confirm-current");
+
+    try {
+      const data = await vendorDashboardQueue.confirmCurrentTicket(
+        token,
+        selectedTenantSlug,
+        locationQuery,
+        lookupCode
+      );
+      const confirmedSnapshot = data.snapshot;
+      if (confirmedSnapshot) {
+        setSnapshot((current) => selectFreshestQueueSnapshot(current, confirmedSnapshot));
+      }
+      showSuccessNotification("Customer confirmed", "The ticket is valid. You can now choose whether to serve the customer.");
+      return true;
+    } catch (confirmError) {
+      setTicketScannerError(getErrorMessage(confirmError));
       return false;
     } finally {
       setBusyAction("");
@@ -1723,6 +3035,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
     if (success) {
       setWalkInForm(emptyWalkIn);
+      setWalkInDialogOpen(false);
       showSuccessNotification("Ticket issued", "The walk-in ticket was added to the queue.");
     }
   }
@@ -1738,9 +3051,14 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   async function reloadServices() {
-    await queryClient.invalidateQueries({
-      queryKey: ["vendor-dashboard-services", token, selectedTenantSlug, isOwner, isAdmin]
-    });
+    await Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: ["vendor-dashboard-services", token, selectedTenantSlug, isOwner, isAdmin]
+      }),
+      queryClient.invalidateQueries({
+        queryKey: ["vendor-dashboard-location-services", token, selectedTenantSlug, isOwner, isAdmin]
+      })
+    ]);
   }
 
   async function reloadAvailability() {
@@ -1764,10 +3082,80 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     });
   }
 
+  async function reloadGroupFundedCampaigns() {
+    await Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: ["vendor-dashboard-group-funded-campaigns", token, selectedTenantSlug]
+      }),
+      queryClient.invalidateQueries({
+        queryKey: ["vendor-dashboard-group-funded-detail", token, selectedTenantSlug]
+      }),
+    ]);
+  }
+
   async function reloadDashboardSnapshot() {
     await queryClient.invalidateQueries({
-      queryKey: ["vendor-dashboard-bootstrap", token, selectedTenantSlug, selectedLocationSlug, locationQuery]
+      queryKey: [
+        "vendor-dashboard-queue-lifecycle",
+        token,
+        selectedTenantSlug,
+        selectedLocationSlug,
+        locationQuery
+      ]
     });
+  }
+
+  async function handleOpenQueueDay() {
+    const success = await runAction("queue-open", () =>
+      vendorDashboardQueue.openQueueDay(
+        token,
+        selectedTenantSlug,
+        locationQuery,
+        snapshot?.queueDay?.version
+      )
+    );
+    if (success) {
+      showSuccessNotification("Queue opened", "Customers can now join this location’s Queue Day.");
+      setQueueView("current");
+    }
+    return success;
+  }
+
+  async function handleExtendQueueDay() {
+    const success = await runAction("queue-extend", () =>
+      vendorDashboardQueue.extendQueueDay(
+        token,
+        selectedTenantSlug,
+        locationQuery,
+        snapshot?.queueDay?.version
+      )
+    );
+    if (success) {
+      showSuccessNotification(
+        "Auto-close extended",
+        "Thirty minutes were added and your action was recorded. Auto-close remains active."
+      );
+    }
+    return success;
+  }
+
+  async function handleCloseQueueDay() {
+    const success = await runAction("queue-close", () =>
+      vendorDashboardQueue.closeQueueDay(
+        token,
+        selectedTenantSlug,
+        locationQuery,
+        snapshot?.queueDay?.version
+      )
+    );
+    if (success) {
+      showSuccessNotification(
+        "Queue closed",
+        "Every unresolved ticket received its carry-over, expiration, skipped, or unserved outcome."
+      );
+      setQueueView("overflow");
+    }
+    return success;
   }
 
   async function handleUpdateBookingStatus(
@@ -1787,8 +3175,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         status === "confirmed" ? "Booking confirmed" : "Booking canceled",
         `${response.booking.reference} was ${status}.`
       );
+      return true;
     } catch (updateError) {
       setError(getErrorMessage(updateError));
+      return false;
     } finally {
       setBusyAction("");
     }
@@ -1801,7 +3191,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     }
 
     setReschedulingBooking(booking);
-    setRescheduleStartAt(formatDateTimeInput(booking.scheduledStartAt));
+    setRescheduleDate(formatDateInputValue(booking.scheduledStartAt));
+    setRescheduleStartAt(String(booking.scheduledStartAt));
+    setRescheduleSlots([]);
+    setRescheduleSlotsError("");
     setRescheduleDialogOpen(true);
   }
 
@@ -1827,6 +3220,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       clearBookingAlert(response.booking.id);
       setRescheduleDialogOpen(false);
       setReschedulingBooking(null);
+      setRescheduleDate("");
+      setRescheduleStartAt("");
+      setRescheduleSlots([]);
       await reloadBookings();
       await reloadDashboardSnapshot();
       showSuccessNotification("Booking rescheduled", `${response.booking.reference} has a new schedule.`);
@@ -1888,6 +3284,31 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     }
   }
 
+  async function handleViewGroupFundedContributionProof(contribution: VendorGroupFundedContributionSummary) {
+    if (!contribution.paymentProof) {
+      return;
+    }
+
+    setGroupFundedProofContribution(contribution);
+    setGroupFundedProofAccessUrl("");
+    setGroupFundedProofError("");
+    setGroupFundedProofModalOpen(true);
+    setBusyAction(`group-funded-proof:${contribution.id}`);
+
+    try {
+      const response = await vendorDashboardBookings.getGroupFundedContributionPaymentProof(
+        token,
+        selectedTenantSlug,
+        contribution.id
+      );
+      setGroupFundedProofAccessUrl(response.access.url);
+    } catch (proofError) {
+      setGroupFundedProofError(getErrorMessage(proofError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
   async function handleViewBookingPaymentProof(booking: VendorBookingSummary) {
     if (!booking.paymentProof) {
       return;
@@ -1930,7 +3351,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     const reason = paymentRejectionReason.trim();
     if (!reason) {
       setError("A customer-visible rejection reason is required.");
-      return;
+      return false;
     }
 
     setBusyAction(`booking-payment-reject:${booking.id}`);
@@ -1941,10 +3362,105 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       setVendorBookings((current) =>
         current.map((item) => (item.id === response.booking.id ? response.booking : item))
       );
+      setBookingDetailBooking(response.booking);
       setPaymentRejectionReason("");
       clearBookingAlert(response.booking.id);
       await reloadBookings();
       showSuccessNotification("Payment rejected", `${response.booking.reference} was canceled.`);
+      return true;
+    } catch (rejectError) {
+      setError(getErrorMessage(rejectError));
+      return false;
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function handleRateOrganizer(booking: VendorBookingSummary, reasonCategory?: string) {
+    if (!organizerRatingStars) return;
+    if (organizerRatingStars <= 2 && !reasonCategory?.trim()) {
+      setError("");
+      setOrganizerRatingBooking(booking);
+      setOrganizerRatingReason("");
+      return;
+    }
+    setBusyAction(`organizer-rating:${booking.id}`);
+    setError("");
+    try {
+      await vendorDashboardBookings.rateOrganizer(token, selectedTenantSlug, booking.id, {
+        stars: organizerRatingStars,
+        reasonCategory,
+        privateNote: ""
+      });
+      setOrganizerRatingSubmitted(true);
+      setOrganizerRatingBooking(null);
+      setOrganizerRatingReason("");
+      showSuccessNotification("Rating submitted", "The private organizer trust rating was saved.");
+    } catch (ratingError) {
+      setError(getErrorMessage(ratingError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function handleVerifyGroupFundedContribution(contribution: VendorGroupFundedContributionSummary) {
+    setBusyAction(`group-funded-contribution-verify:${contribution.id}`);
+    setError("");
+
+    try {
+      await vendorDashboardBookings.verifyGroupFundedContribution(token, selectedTenantSlug, contribution.id);
+      await reloadGroupFundedCampaigns();
+      showSuccessNotification("Contribution verified", "The campaign funding total was updated.");
+    } catch (verifyError) {
+      setError(getErrorMessage(verifyError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  function openGroupFundedContributionRejectModal(contribution: VendorGroupFundedContributionSummary) {
+    const campaign = groupFundedDetailQuery.data?.campaign;
+    const fundingTargetAmountCents = campaign ? getCampaignFundingTargetAmountCents(campaign) : 0;
+    const fundingReached = Boolean(
+      campaign && (
+        campaign.fundedAmountCents >= fundingTargetAmountCents ||
+        campaign.paidParticipantCount >= campaign.requiredContributors ||
+        campaign.campaignStatus !== "funding"
+      )
+    );
+    setGroupFundedContributionToReject(contribution);
+    setGroupFundedContributionRejectReason("");
+    setGroupFundedContributionRejectReasonPreset(null);
+    setGroupFundedContributionUseCustomRejectReason(false);
+    setGroupFundedContributionRefundRequired(fundingReached);
+  }
+
+  async function handleRejectGroupFundedContribution() {
+    const contribution = groupFundedContributionToReject;
+    if (!contribution) {
+      return;
+    }
+    const reason = groupFundedContributionRejectReason.trim();
+    if (!reason) {
+      setError("A contributor-visible rejection reason is required.");
+      return;
+    }
+
+    setBusyAction(`group-funded-contribution-reject:${contribution.id}`);
+    setError("");
+
+    try {
+      const refundRequired = groupFundedContributionRefundRequired;
+      await vendorDashboardBookings.rejectGroupFundedContribution(token, selectedTenantSlug, contribution.id, {
+        reason,
+        refundDisposition: refundRequired ? "required" : "not_required"
+      });
+      closeGroupFundedContributionRejectModal();
+      await reloadGroupFundedCampaigns();
+      showSuccessNotification(
+        refundRequired ? "Contribution moved to refunds" : "Contribution rejected",
+        refundRequired ? "A refund obligation was created for the contributor." : "The proof was rejected and the contributor can see the reason."
+      );
     } catch (rejectError) {
       setError(getErrorMessage(rejectError));
     } finally {
@@ -1952,23 +3468,162 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     }
   }
 
+  async function handleApproveGroupFundedCampaign(campaign: GroupFundedCampaignSummary) {
+    setBusyAction(`group-funded-approve:${campaign.id}`);
+    setError("");
+
+    try {
+      await vendorDashboardBookings.approveGroupFundedCampaign(token, selectedTenantSlug, campaign.id);
+      setGroupFundedDetailId(null);
+      await reloadGroupFundedCampaigns();
+      await reloadBookings();
+      showSuccessNotification("Group-funded booking approved", "A linked paid booking was created.");
+    } catch (approveError) {
+      setError(getErrorMessage(approveError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function handleRejectGroupFundedCampaign(campaign: GroupFundedCampaignSummary) {
+    const reason = groupFundedRejectReason.trim();
+    if (!reason) {
+      setError("A customer-visible rejection reason is required.");
+      return;
+    }
+
+    setBusyAction(`group-funded-reject:${campaign.id}`);
+    setError("");
+
+    try {
+      await vendorDashboardBookings.rejectGroupFundedCampaign(token, selectedTenantSlug, campaign.id, { reason });
+      resetGroupFundedCampaignDecision();
+      setGroupFundedDetailId(null);
+      await reloadGroupFundedCampaigns();
+      showSuccessNotification("Group-funded campaign rejected", "Verified contributions are now refund-eligible.");
+    } catch (rejectError) {
+      setError(getErrorMessage(rejectError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function handleUpdateGroupFundedRefund(
+    refund: VendorGroupFundedRefundSummary,
+    refundStatus: Extract<GroupFundedRefundStatus, "in_progress" | "completed" | "policy_review_required">
+  ) {
+    setBusyAction(`group-funded-refund:${refund.id}:${refundStatus}`);
+    setError("");
+
+    try {
+      await vendorDashboardBookings.updateGroupFundedRefund(token, selectedTenantSlug, refund.id, {
+        refundStatus,
+        notes: (groupFundedRefundNotes[refund.id] ?? refund.notes ?? "").trim()
+      });
+      await reloadGroupFundedCampaigns();
+      showSuccessNotification("Refund updated", `Refund marked ${refundStatus.replace(/_/g, " ")}.`);
+    } catch (refundError) {
+      setError(getErrorMessage(refundError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
   function openServiceDialog(service?: VendorServiceSummary) {
+    const locationServices = (locationServicesQuery.data?.locationServices || []).filter(
+      (entry) => service ? entry.serviceId === service.id : false
+    );
     setEditingServiceSlug(service?.slug || "");
+    setEditingServiceId(service?.id || "");
+    setServiceSlugManuallyEdited(Boolean(service?.slug));
+    setServiceSlugMessage("");
+    setServiceSlugAvailable(false);
+    setCheckingServiceSlug(false);
     setServiceForm({
       name: service?.name || "",
       slug: service?.slug || "",
+      imageUrl: service?.imageUrl || "",
       description: service?.description || "",
       durationMinutes: service?.durationMinutes || 30,
       allowBookingQuantity: service?.allowBookingQuantity || false,
       bookingQuantityLabel: service?.bookingQuantityLabel || "Units",
       manualPaymentRequired: service?.manualPaymentRequired || false,
+      bookingCapacityScope: service?.bookingCapacityScope || "service",
       priceAmountCents: service?.priceAmountCents || 0,
       priceDisplay: service?.priceDisplay || "",
       isActive: service?.isActive ?? true,
-      sortOrder: service?.sortOrder || 0
+      sortOrder: service?.sortOrder || 0,
+      locationServices: locations.map((location) => {
+        const existing = locationServices.find((entry) => entry.locationId === location.id);
+        return {
+          locationSlug: location.slug,
+          capacity: existing?.capacity || 1,
+          isActive: existing?.isActive ?? true,
+          sortOrder: existing?.sortOrder || 0,
+          priceAmountCents: existing?.priceAmountCents ?? null,
+          priceDisplay: existing?.priceDisplay ?? null,
+          groupFunded: normalizeGroupFundedSettings(existing?.groupFunded)
+        };
+      })
     });
     setServiceDialogOpen(true);
   }
+
+  useEffect(() => {
+    if (!serviceDialogOpen || serviceSlugManuallyEdited) {
+      return;
+    }
+
+    const nextSlug = buildServiceSlug(serviceForm.name);
+    setServiceForm((current) => ({ ...current, slug: nextSlug }));
+  }, [serviceDialogOpen, serviceForm.name, serviceSlugManuallyEdited]);
+
+  useEffect(() => {
+    if (!serviceDialogOpen) {
+      return undefined;
+    }
+
+    const nextSlug = buildServiceSlug(serviceForm.slug || "");
+    setServiceSlugAvailable(false);
+
+    if (!nextSlug) {
+      setServiceSlugMessage("");
+      setCheckingServiceSlug(false);
+      return undefined;
+    }
+
+    setCheckingServiceSlug(true);
+    const controller = new AbortController();
+    let isCurrent = true;
+    const timeout = window.setTimeout(() => {
+      checkServiceSlugAvailability(token, selectedTenantSlug, nextSlug, editingServiceId || undefined)
+        .then((response) => {
+          if (!isCurrent) {
+            return;
+          }
+          setServiceSlugAvailable(response.available && response.valid);
+          setServiceSlugMessage(response.message);
+        })
+        .catch((availabilityError) => {
+          if (!isCurrent || (availabilityError instanceof DOMException && availabilityError.name === "AbortError")) {
+            return;
+          }
+          setServiceSlugAvailable(false);
+          setServiceSlugMessage(getErrorMessage(availabilityError));
+        })
+        .finally(() => {
+          if (isCurrent) {
+            setCheckingServiceSlug(false);
+          }
+        });
+    }, 300);
+
+    return () => {
+      isCurrent = false;
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [serviceDialogOpen, serviceForm.slug, token, selectedTenantSlug, editingServiceId]);
 
   async function handleSaveService(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1976,6 +3631,11 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     setError("");
 
     try {
+      if (!serviceSlugAvailable) {
+        setError(serviceSlugMessage || "Choose an available service slug before saving.");
+        return;
+      }
+
       if (editingServiceSlug) {
         await vendorDashboardCatalog.saveService(token, selectedTenantSlug, editingServiceSlug, serviceForm);
       } else {
@@ -2007,6 +3667,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         durationMinutes: service.durationMinutes,
         allowBookingQuantity: service.allowBookingQuantity,
         bookingQuantityLabel: service.bookingQuantityLabel,
+        manualPaymentRequired: service.manualPaymentRequired,
+        bookingCapacityScope: service.bookingCapacityScope,
         priceAmountCents: service.priceAmountCents,
         priceDisplay: service.priceDisplay,
         isActive,
@@ -2048,13 +3710,19 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   function openAvailabilityBlockDialog(block?: VendorAvailabilityBlockSummary) {
+    const weekday = block?.weekday ?? 1;
+    const blockLocation =
+      (block ? locations.find((locationItem) => locationItem.id === block.locationId) : null) ||
+      selectedLocation;
+    const businessHourDefaults = getWeeklyAvailabilityDefaults(blockLocation?.hours || [], weekday);
     setEditingAvailabilityBlockId(block?.id || "");
     setAvailabilityBlockForm({
-      locationSlug: selectedLocationSlug,
+      locationSlug: blockLocation?.slug || selectedLocationSlug,
       serviceSlug: block?.serviceId ? serviceSlugById.get(block.serviceId) || "" : "",
-      weekday: block?.weekday ?? 1,
-      startsAt: block?.startsAt || "09:00",
-      endsAt: block?.endsAt || "17:00",
+      weekday,
+      startsAt: block?.startsAt || businessHourDefaults.startsAt,
+      endsAt: block?.endsAt || businessHourDefaults.endsAt,
+      endsNextDay: block ? block.endsNextDay : businessHourDefaults.endsNextDay,
       capacity: block?.capacity || 1,
       isActive: block?.isActive ?? true,
       notes: block?.notes || ""
@@ -2068,9 +3736,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     setError("");
 
     try {
+      const targetLocationSlug = availabilityBlockForm.locationSlug || selectedLocationSlug;
       const body = {
         ...availabilityBlockForm,
-        locationSlug: selectedLocationSlug
+        locationSlug: targetLocationSlug
       };
       if (editingAvailabilityBlockId) {
         await vendorDashboardCatalog.saveAvailabilityBlock(token, selectedTenantSlug, editingAvailabilityBlockId, body);
@@ -2079,6 +3748,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       }
       await reloadAvailability();
       await reloadBookings();
+      if (targetLocationSlug !== selectedLocationSlug) {
+        setSelectedLocationSlug(targetLocationSlug);
+      }
       setAvailabilityBlockDialogOpen(false);
       showSuccessNotification(
         editingAvailabilityBlockId ? "Availability updated" : "Availability added",
@@ -2102,6 +3774,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         weekday: block.weekday,
         startsAt: block.startsAt,
         endsAt: block.endsAt,
+        endsNextDay: block.endsNextDay,
         capacity: block.capacity,
         isActive,
         notes: block.notes
@@ -2248,6 +3921,11 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   function openCounterDialog(counter?: ServiceCounterSummary) {
     setEditingCounterSlug(counter?.slug || "");
+    setEditingCounterId(counter?.id || "");
+    setCounterSlugManuallyEdited(Boolean(counter?.slug));
+    setCounterSlugMessage("");
+    setCounterSlugAvailable(false);
+    setCheckingCounterSlug(false);
     setCounterForm({
       name: counter?.name || "",
       slug: counter?.slug || "",
@@ -2257,10 +3935,77 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     setCounterDialogOpen(true);
   }
 
+  useEffect(() => {
+    if (!counterDialogOpen || counterSlugManuallyEdited) {
+      return;
+    }
+
+    const nextSlug = buildCounterSlug(counterForm.name);
+    setCounterForm((current) => ({ ...current, slug: nextSlug }));
+  }, [counterDialogOpen, counterForm.name, counterSlugManuallyEdited]);
+
+  useEffect(() => {
+    if (!counterDialogOpen) {
+      return undefined;
+    }
+
+    const nextSlug = buildCounterSlug(counterForm.slug || "");
+    setCounterSlugAvailable(false);
+
+    if (!nextSlug) {
+      setCounterSlugMessage("");
+      setCheckingCounterSlug(false);
+      return undefined;
+    }
+
+    setCheckingCounterSlug(true);
+    const controller = new AbortController();
+    let isCurrent = true;
+    const timeout = window.setTimeout(() => {
+      checkCounterSlugAvailability(
+        token,
+        selectedTenantSlug,
+        selectedLocationSlug,
+        nextSlug,
+        editingCounterId || undefined
+      )
+        .then((response) => {
+          if (!isCurrent) {
+            return;
+          }
+          setCounterSlugAvailable(response.available && response.valid);
+          setCounterSlugMessage(response.message);
+        })
+        .catch((availabilityError) => {
+          if (!isCurrent || (availabilityError instanceof DOMException && availabilityError.name === "AbortError")) {
+            return;
+          }
+          setCounterSlugAvailable(false);
+          setCounterSlugMessage(getErrorMessage(availabilityError));
+        })
+        .finally(() => {
+          if (isCurrent) {
+            setCheckingCounterSlug(false);
+          }
+        });
+    }, 300);
+
+    return () => {
+      isCurrent = false;
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [counterDialogOpen, counterForm.slug, token, selectedTenantSlug, selectedLocationSlug, editingCounterId]);
+
   async function handleSaveCounter(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusyAction("counter-save");
+    setError("");
     try {
+      if (!counterSlugAvailable) {
+        setError(counterSlugMessage || "Choose an available counter slug before saving.");
+        return;
+      }
       await vendorDashboardCatalog.saveCounter(
         token,
         selectedTenantSlug,
@@ -2326,6 +4071,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   async function handleRemoveStaff(member: VendorStaffSummary) {
     await vendorDashboardOperations.removeStaff(token, selectedTenantSlug, member.id);
     await reloadStaff();
+    await reloadCounters();
     await reloadBookings();
     showSuccessNotification("Staff removed", `${member.name} no longer has tenant access.`);
   }
@@ -2359,6 +4105,30 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     }
   }
 
+  async function handleRegenerateLocationQueueQr(locationItem: StoreLocationWithHours) {
+    setBusyAction(`location-qr:${locationItem.slug}`);
+    setError("");
+    try {
+      const response = await vendorDashboardOperations.regenerateLocationQueueQr(
+        token,
+        selectedTenantSlug,
+        locationItem.slug
+      );
+      setLocations((current) => current.map((item) => item.id === response.location.id ? response.location : item));
+      setSnapshot((current) => current && current.location?.id === response.location.id
+        ? { ...current, location: response.location }
+        : current);
+      showSuccessNotification(
+        "Queue QR regenerated",
+        "The previous QR id is no longer valid. Save and redistribute the new QR code."
+      );
+    } catch (regenerateError) {
+      setError(getErrorMessage(regenerateError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
   async function handleToggleCounterActive(counter: ServiceCounterSummary, isActive: boolean) {
     setBusyAction(`counter-status:${counter.slug}`);
     setError("");
@@ -2375,9 +4145,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           assignedUserIds: counter.assignedUserIds
         }
       );
-      setServiceCounters((current) =>
-        current.map((item) => (item.id === response.counter.id ? response.counter : item))
-      );
+      await reloadCounters();
       showSuccessNotification(
         isActive ? "Counter enabled" : "Counter disabled",
         `${response.counter.name} is now ${isActive ? "active" : "inactive"}.`
@@ -2394,11 +4162,24 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     const success = await runAction("settings", () => vendorDashboardOperations.updateSettings(token, selectedTenantSlug, settings));
 
     if (success) {
-      showSuccessNotification("Settings saved", "Tenant queue settings were updated.");
+      showSuccessNotification("Business profile saved", "Your business profile and queue settings were updated.");
     }
   }
 
-  async function handleStartCheckout(planSlug: SubscriptionPlanSlug) {
+  async function handleSaveBusinessProfile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const success = await runAction("settings", () => vendorDashboardOperations.updateSettings(token, selectedTenantSlug, settings));
+    if (!success) {
+      return;
+    }
+
+    const themeSaved = await handleSaveBusinessProfileTheme();
+    if (themeSaved) {
+      showSuccessNotification("Business profile saved", "Your business details and default images were updated.");
+    }
+  }
+
+  async function handleStartCheckout(planSlug: Exclude<SubscriptionPlanSlug, "free">) {
     setError("");
     setBusyAction(`checkout:${planSlug}`);
 
@@ -2462,6 +4243,13 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     setThemeForm((current) => ({ ...current, [field]: value }));
   }
 
+  function setBusinessProfileThemeField<K extends keyof PublicBoardThemeSettings>(
+    field: K,
+    value: PublicBoardThemeSettings[K]
+  ) {
+    setBusinessProfileTheme((current) => ({ ...current, [field]: value }));
+  }
+
   function applyThemePreset(presetId: string) {
     const preset = publicBoardThemePresets[presetId] || publicBoardThemePresets.classic;
     setThemeForm((current) => ({
@@ -2469,11 +4257,22 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       heroTitle: current.heroTitle,
       heroSubtitle: current.heroSubtitle,
       logoUrl: current.logoUrl,
-      backgroundImageUrl: current.backgroundImageUrl
+      logoFit: current.logoFit || preset.logoFit,
+      backgroundImageUrl: current.backgroundImageUrl,
+      backgroundImageFit: current.backgroundImageFit || preset.backgroundImageFit,
+      pageBackgroundImageUrl:
+        current.pageBackgroundImageUrl && !presetBackgroundImageUrls.has(current.pageBackgroundImageUrl)
+          ? current.pageBackgroundImageUrl
+          : preset.pageBackgroundImageUrl,
+      pageBackgroundImageFit: current.pageBackgroundImageFit || preset.pageBackgroundImageFit
     }));
   }
 
-  async function uploadThemeAsset(assetType: "background" | "logo", file: File | null) {
+  async function uploadThemeAsset(
+    assetType: "background" | "logo",
+    file: File | null,
+    targetField: Extract<keyof PublicBoardThemeSettings, "backgroundImageUrl" | "pageBackgroundImageUrl" | "logoUrl"> = assetType === "logo" ? "logoUrl" : "backgroundImageUrl"
+  ) {
     if (!file || !themeLocation || !token) {
       return;
     }
@@ -2494,11 +4293,95 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         throw new Error("Upload completed without a usable asset URL.");
       }
 
-      setThemeField(assetType === "logo" ? "logoUrl" : "backgroundImageUrl", data.asset.publicUrl);
+      setThemeField(targetField, data.asset.publicUrl);
       showSuccessNotification(
         `${assetType === "logo" ? "Logo" : "Background"} uploaded`,
         "The image is ready to use in this public board theme."
       );
+    } catch (uploadError) {
+      setError(getErrorMessage(uploadError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function uploadBusinessProfileAsset(assetType: "background" | "logo", file: File | null) {
+    if (!file || !token) return;
+
+    setError("");
+    setBusyAction(`business-profile-upload:${assetType}`);
+    try {
+      const data = await vendorDashboardOperations.uploadThemeAsset(token, selectedTenantSlug, "", assetType, file);
+      const field = assetType === "logo" ? "logoUrl" : "backgroundImageUrl";
+      setBusinessProfileTheme((current) => ({ ...current, [field]: data.asset.publicUrl }));
+      showSuccessNotification(
+        `${assetType === "logo" ? "Logo" : "Cover"} uploaded`,
+        "Save the business profile to publish this default image."
+      );
+    } catch (uploadError) {
+      setError(getErrorMessage(uploadError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function handleSaveBusinessProfileTheme() {
+    if (!token) return false;
+
+    setError("");
+    setBusyAction("business-profile-theme-save");
+    try {
+      const data = await vendorDashboardOperations.saveTheme(token, selectedTenantSlug, "", {
+        theme: businessProfileTheme,
+        applyToAllLocations: false
+      });
+      setBusinessProfileTheme(mergeTheme(data.theme));
+      return true;
+    } catch (saveError) {
+      setError(getErrorMessage(saveError));
+      return false;
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function uploadLocationImage(file: File | null) {
+    if (!file || !locationForm.slug || !token) {
+      return;
+    }
+
+    setError("");
+    setBusyAction("location-image-upload");
+
+    try {
+      const data = await vendorDashboardOperations.uploadLocationMedia(token, selectedTenantSlug, locationForm.slug, file);
+      if (!data.asset?.publicUrl) {
+        throw new Error("Location image upload completed without a usable image URL.");
+      }
+      setLocationForm((current) => ({ ...current, imageUrl: data.asset.publicUrl }));
+      showSuccessNotification("Branch image uploaded", "The location image is ready to save with this branch.");
+    } catch (uploadError) {
+      setError(getErrorMessage(uploadError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function uploadServiceImage(file: File | null) {
+    if (!file || !selectedLocationSlug || !token) {
+      return;
+    }
+
+    setError("");
+    setBusyAction("service-image-upload");
+
+    try {
+      const data = await vendorDashboardOperations.uploadServiceMedia(token, selectedTenantSlug, selectedLocationSlug, file);
+      if (!data.asset?.publicUrl) {
+        throw new Error("Service image upload completed without a usable image URL.");
+      }
+      setServiceForm((current) => ({ ...current, imageUrl: data.asset.publicUrl }));
+      showSuccessNotification("Service image uploaded", "The service image is ready to save with this service.");
     } catch (uploadError) {
       setError(getErrorMessage(uploadError));
     } finally {
@@ -2576,10 +4459,42 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     }
   }
 
-  function renderPlanCards() {
-    if (!billing?.plans.length) {
-      return <Text c="dimmed">Plans are still loading.</Text>;
+  function openPlanDialog(paidOnly = false) {
+    setPaidPlanDialogOnly(paidOnly);
+    setPlanDialogOpen(true);
+  }
+
+  function closePlanDialog() {
+    setPlanDialogOpen(false);
+    setPaidPlanDialogOnly(false);
+  }
+
+  function renderPlanCards({ paidOnly = false } = {}) {
+    if (billingOverviewQuery.isPending) {
+      return <Text c="dimmed">Plans are loading.</Text>;
     }
+
+    if (billingOverviewQuery.error) {
+      return (
+        <Stack gap="sm">
+          <Text c="red">Subscription plans could not be loaded.</Text>
+          <Button
+            className="neura-secondary-button"
+            onClick={() => void billingOverviewQuery.refetch()}
+            variant="default"
+            w="fit-content"
+          >
+            Retry
+          </Button>
+        </Stack>
+      );
+    }
+
+    if (!billing?.plans.length) {
+      return <Text c="dimmed">No subscription plans are available.</Text>;
+    }
+
+    const visiblePlans = billing.plans.filter((plan) => !paidOnly || plan.slug !== "free");
 
     return (
       <Stack gap="md">
@@ -2591,14 +4506,18 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           value={billingInterval}
           onChange={(value) => setBillingInterval(value as "monthly" | "annual")}
         />
-      <SimpleGrid cols={{ base: 1, md: 3 }} spacing="md">
-        {billing.plans.map((plan) => (
+      <SimpleGrid
+        className="subscription-plan-grid"
+        cols={{ base: 1, sm: Math.min(visiblePlans.length, 2), md: Math.min(visiblePlans.length, 4) }}
+        spacing="md"
+      >
+        {visiblePlans.map((plan) => (
           <Card className="neura-plan-card" key={plan.slug} padding="lg">
             <Stack gap="md" h="100%">
               <div>
                 <Text className="neura-label">{plan.name}</Text>
                 <Title order={3}>
-                  {billingInterval === "annual" ? plan.price.annualDisplay : plan.price.monthlyDisplay}
+                  {getPlanPriceDisplay(plan, billingInterval)}
                 </Title>
                 <Text c="dimmed" size="sm">{plan.bestFor}</Text>
               </div>
@@ -2607,12 +4526,18 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   <Text key={item} size="sm">• {item}</Text>
                 ))}
               </Stack>
-              {plan.checkoutEnabled ? (
+              {plan.slug === "free" ? (
+                <Button disabled mt="auto" variant="default">
+                  Free queue plan
+                </Button>
+              ) : plan.checkoutEnabled ? (
                 <Button
                   className={plan.slug === "pro" ? "neura-primary-button" : "neura-secondary-button"}
                   disabled={busyAction === `checkout:${plan.slug}`}
                   mt="auto"
-                  onClick={() => handleStartCheckout(plan.slug)}
+                  onClick={() => {
+                    if (plan.slug !== "free") handleStartCheckout(plan.slug);
+                  }}
                 >
                   {busyAction === `checkout:${plan.slug}` ? "Opening..." : "Choose plan"}
                 </Button>
@@ -2633,12 +4558,20 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     return (
       <Modal
         centered
+        className="subscription-plan-modal"
         opened={planDialogOpen}
-        onClose={() => setPlanDialogOpen(false)}
-        size="xl"
-        title="Choose a subscription plan"
+        onClose={closePlanDialog}
+        size="90rem"
+        title={
+          <Stack className="getprio-modal-title" gap={2}>
+            <Text className="getprio-modal-eyebrow">BILLING</Text>
+            <Text className="getprio-modal-heading">
+              {paidPlanDialogOnly ? "Upgrade to a paid plan" : "Choose a subscription plan"}
+            </Text>
+          </Stack>
+        }
       >
-        {renderPlanCards()}
+        {renderPlanCards({ paidOnly: paidPlanDialogOnly })}
       </Modal>
     );
   }
@@ -2646,245 +4579,432 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   function renderLocationDialog() {
     return (
       <Modal
+        className="vendor-location-modal"
         centered
         opened={locationDialogOpen}
         onClose={() => setLocationDialogOpen(false)}
         size="xl"
-        title={editingLocationSlug ? "Edit location" : "Add location"}
+        title={
+          <Stack gap={2}>
+            <Text className="service-dialog__modal-eyebrow">{editingLocationSlug ? "EDIT" : "ADD"} LOCATION</Text>
+            <Text className="service-dialog__modal-title">
+              {editingLocationSlug ? "Edit location" : "Add location"}
+            </Text>
+            <Text c="dimmed" size="sm">
+              Configure the branch profile, payment details, and hours that appear on the public queue pages.
+            </Text>
+          </Stack>
+        }
+        overlayProps={{ blur: 6, backgroundOpacity: 0.35 }}
       >
-        <Stack gap="md">
-          <SimpleGrid cols={{ base: 1, md: 2 }}>
-            <TextInput
-              name="locationName"
-              label="Location name"
-              required
-              value={locationForm.name}
-              onChange={(event) =>
-                setLocationForm((current) => ({ ...current, name: event.target.value }))
-              }
-            />
-            <TextInput
-              name="locationSlug"
-              label="Slug"
-              required
-              value={locationForm.slug}
-              onChange={(event) =>
-                setLocationForm((current) => ({ ...current, slug: event.target.value }))
-              }
-            />
-            <TextInput
-              name="addressLine1"
-              label="Address line 1"
-              value={locationForm.addressLine1}
-              onChange={(event) =>
-                setLocationForm((current) => ({ ...current, addressLine1: event.target.value }))
-              }
-            />
-            <TextInput
-              name="addressLine2"
-              label="Address line 2"
-              value={locationForm.addressLine2}
-              onChange={(event) =>
-                setLocationForm((current) => ({ ...current, addressLine2: event.target.value }))
-              }
-            />
-            <TextInput
-              name="city"
-              label="City"
-              value={locationForm.city}
-              onChange={(event) =>
-                setLocationForm((current) => ({ ...current, city: event.target.value }))
-              }
-            />
-            <TextInput
-              name="province"
-              label="Province"
-              value={locationForm.province}
-              onChange={(event) =>
-                setLocationForm((current) => ({ ...current, province: event.target.value }))
-              }
-            />
-            <TextInput
-              name="locationContactEmail"
-              label="Contact email"
-              value={locationForm.contactEmail}
-              onChange={(event) =>
-                setLocationForm((current) => ({ ...current, contactEmail: event.target.value }))
-              }
-            />
-            <TextInput
-              name="locationContactPhone"
-              label="Contact phone"
-              value={locationForm.contactPhone}
-              onChange={(event) =>
-                setLocationForm((current) => ({ ...current, contactPhone: event.target.value }))
-              }
-            />
-            <TextInput
-              name="timezone"
-              label="Timezone"
-              value={locationForm.timezone}
-              onChange={(event) =>
-                setLocationForm((current) => ({ ...current, timezone: event.target.value }))
-              }
-            />
-          </SimpleGrid>
-          <Divider label="Manual payment QR" labelPosition="left" />
-          <SimpleGrid cols={{ base: 1, md: 2 }}>
-            <TextInput
-              name="paymentMethodLabel"
-              label="Payment method"
-              placeholder="GCash, Maya, BPI InstaPay"
-              value={locationForm.paymentMethodLabel}
-              onChange={(event) =>
-                setLocationForm((current) => ({ ...current, paymentMethodLabel: event.target.value }))
-              }
-            />
-            <TextInput
-              name="paymentAccountDisplayName"
-              label="Account display name"
-              placeholder="Business or account name"
-              value={locationForm.paymentAccountDisplayName}
-              onChange={(event) =>
-                setLocationForm((current) => ({ ...current, paymentAccountDisplayName: event.target.value }))
-              }
-            />
-            <TextInput
-              name="paymentAccountIdentifierDisplay"
-              label="Masked account identifier"
-              placeholder="0917 *** 1234 or account suffix"
-              value={locationForm.paymentAccountIdentifierDisplay}
-              onChange={(event) =>
-                setLocationForm((current) => ({
-                  ...current,
-                  paymentAccountIdentifierDisplay: event.target.value
-                }))
-              }
-            />
-            <Stack gap="xs">
+        <Stack className="vendor-location-modal__shell" gap={0}>
+          <ScrollArea className="vendor-location-modal__main" offsetScrollbars type="auto">
+            <Stack gap="md" pb="sm">
+          <ModalSection
+            title="Location profile"
+            description="These details identify the branch and shape how customers find it on the public queue pages."
+          >
+            <SimpleGrid cols={{ base: 1, md: 2 }}>
               <FileInput
-                accept="image/jpeg,image/png,image/webp"
+                accept="image/png,image/jpeg,image/webp"
                 clearable
-                disabled={busyAction === "payment-qr-upload"}
-                label="QR image"
-                leftSection={<IconQrcode size={16} />}
-                onChange={(file) => {
-                  setPaymentQrUploadFile(file);
-                  void uploadLocationPaymentQr(file);
-                }}
-                placeholder={locationForm.paymentQrImageUrl ? "Replace QR image" : "Upload QR image"}
-                value={paymentQrUploadFile}
+                label="Branch image"
+                placeholder={locationForm.imageUrl ? "Replace branch image" : "Upload branch image"}
+                disabled={busyAction === "location-image-upload"}
+                onChange={(file) => uploadLocationImage(file)}
               />
-              {locationForm.paymentQrImageUrl ? (
-                <Image
-                  alt="Payment QR preview"
-                  fit="contain"
-                  h={120}
-                  radius="sm"
-                  src={locationForm.paymentQrImageUrl}
-                  w={120}
+                                  <TextInput
+                label="Branch image URL"
+                value={locationForm.imageUrl || ""}
+                onChange={(event) => setLocationForm((current) => ({ ...current, imageUrl: event.target.value }))}
+              />
+              {locationForm.imageUrl ? <Image alt="" h={120} radius="md" src={locationForm.imageUrl} /> : null}
+              <TextInput
+                name="locationName"
+                label="Location name"
+                required
+                description="Shown to customers and staff as the branch display name."
+                value={locationForm.name}
+                onChange={(event) => {
+                  const nextName = event.target.value;
+                  setLocationForm((current) => ({
+                    ...current,
+                    name: nextName,
+                    slug: locationSlugManuallyEdited ? current.slug : buildLocationSlug(nextName)
+                  }));
+                }}
+              />
+              <TextInput
+                name="locationSlug"
+                label={
+                  <Group gap={6} wrap="nowrap">
+                    <Text span size="sm" fw={500}>
+                      Slug
+                    </Text>
+                    <Text aria-hidden="true" c="red" component="span" size="sm">
+                      *
+                    </Text>
+                    <ModalHelpIcon label="This becomes part of the public URL for the location. Keep it short, lowercase, and URL-safe." />
+                  </Group>
+                }
+                required
+                withAsterisk={false}
+                readOnly={Boolean(editingLocationSlug)}
+                description={
+                  editingLocationSlug
+                    ? "Slug cannot be changed after the location is created."
+                    : checkingLocationSlug
+                      ? "Checking slug availability..."
+                      : locationSlugMessage
+                }
+                error={
+                  !editingLocationSlug && !locationSlugAvailable && locationForm.slug
+                    ? locationSlugMessage || "That location slug is already taken for this vendor."
+                    : undefined
+                }
+                value={locationForm.slug}
+                onChange={(event) => {
+                  setLocationSlugManuallyEdited(true);
+                  setLocationForm((current) => ({ ...current, slug: buildLocationSlug(event.target.value) }));
+                }}
+              />
+              <TextInput
+                name="addressLine1"
+                label="Address line 1"
+                description="Street address or landmark for the branch."
+                value={locationForm.addressLine1}
+                onChange={(event) =>
+                  setLocationForm((current) => ({ ...current, addressLine1: event.target.value }))
+                }
+              />
+              <TextInput
+                name="addressLine2"
+                label="Address line 2"
+                description="Optional unit, floor, or building detail."
+                value={locationForm.addressLine2}
+                onChange={(event) =>
+                  setLocationForm((current) => ({ ...current, addressLine2: event.target.value }))
+                }
+              />
+              <TextInput
+                name="city"
+                label="City"
+                value={locationForm.city}
+                onChange={(event) =>
+                  setLocationForm((current) => ({ ...current, city: event.target.value }))
+                }
+              />
+              <TextInput
+                name="province"
+                label="Province"
+                value={locationForm.province}
+                onChange={(event) =>
+                  setLocationForm((current) => ({ ...current, province: event.target.value }))
+                }
+              />
+              <TextInput
+                name="locationContactEmail"
+                label="Contact email"
+                description="Used for location-specific inquiries and notifications."
+                value={locationForm.contactEmail}
+                onChange={(event) =>
+                  setLocationForm((current) => ({ ...current, contactEmail: event.target.value }))
+                }
+              />
+              <PhilippineMobileInput
+                name="locationContactPhone"
+                label="Contact phone"
+                description="Displayed to customers when contact details are needed."
+                value={locationForm.contactPhone}
+                onChange={(nextValue) =>
+                  setLocationForm((current) => ({ ...current, contactPhone: nextValue }))
+                }
+              />
+              <Select
+                name="timezone"
+                label="Timezone"
+                description="Used for public hours and queue timing."
+                data={timeZoneOptions}
+                allowDeselect={false}
+                searchable
+                value={locationForm.timezone}
+                onChange={(value) =>
+                  value && setLocationForm((current) => ({ ...current, timezone: value }))
+                }
+              />
+            </SimpleGrid>
+          </ModalSection>
+
+          <ModalSection
+            title="Manual payment"
+            description="Optional payment details shown when this branch accepts manual payments."
+          >
+            <SimpleGrid cols={{ base: 1, md: 2 }}>
+              <Select
+                name="paymentMethodLabel"
+                label={
+                  <Group gap={6} wrap="nowrap">
+                    <Text span size="sm" fw={500}>
+                      Payment method
+                    </Text>
+                    <ModalHelpIcon label="Choose the payment destination customers will use for this branch." />
+                  </Group>
+                }
+                data={["GCash", "Maya", "Bank Transfer"]}
+                placeholder="Choose a payment method"
+                value={locationForm.paymentMethodLabel}
+                onChange={(value) => setLocationForm((current) => ({ ...current, paymentMethodLabel: value || "" }))}
+              />
+              {locationForm.paymentMethodLabel === "Bank Transfer" ? (
+                <TextInput
+                  name="paymentBankName"
+                  label="Bank name"
+                  placeholder="e.g. BPI, BDO, UnionBank"
+                  value={locationForm.paymentBankName}
+                  onChange={(event) => setLocationForm((current) => ({ ...current, paymentBankName: event.target.value }))}
                 />
               ) : null}
-            </Stack>
-          </SimpleGrid>
-          <Switch
-            name="paymentQrActive"
-            checked={locationForm.paymentQrActive}
-            label="Enable manual payment QR for this location"
-            onChange={(event) =>
-              setLocationForm((current) => ({ ...current, paymentQrActive: event.currentTarget.checked }))
-            }
-          />
-          <Group>
+              <TextInput
+                name="paymentAccountDisplayName"
+                label={locationForm.paymentMethodLabel === "Bank Transfer" ? "Account owner" : "Account display name"}
+                description={locationForm.paymentMethodLabel === "Bank Transfer" ? "Name of the bank account owner." : "Business or account holder name shown beside the QR code."}
+                placeholder={locationForm.paymentMethodLabel === "Bank Transfer" ? "Account owner name" : "Business or account name"}
+                value={locationForm.paymentAccountDisplayName}
+                onChange={(event) =>
+                  setLocationForm((current) => ({ ...current, paymentAccountDisplayName: event.target.value }))
+                }
+              />
+              <TextInput
+                name="paymentAccountIdentifierDisplay"
+                label={locationForm.paymentMethodLabel === "Bank Transfer" ? "Account number" : <Group gap={6} wrap="nowrap"><Text span size="sm" fw={500}>Masked account identifier</Text><ModalHelpIcon label="Use a partially hidden account number or suffix so customers can verify they are paying the right account without exposing the full value." /></Group>}
+                placeholder={locationForm.paymentMethodLabel === "Bank Transfer" ? "Bank account number" : "0917 *** 1234 or account suffix"}
+                value={locationForm.paymentAccountIdentifierDisplay}
+                onChange={(event) =>
+                  setLocationForm((current) => ({
+                    ...current,
+                    paymentAccountIdentifierDisplay: event.target.value
+                  }))
+                }
+              />
+              {locationForm.paymentMethodLabel === "Bank Transfer" ? (
+                <Stack align="center" gap="xs" justify="center" p="sm">
+                  <ThemeIcon color="blue" radius="xl" size={84} variant="light"><IconBuildingBank size={44} /></ThemeIcon>
+                  <Text c="dimmed" size="sm" ta="center">Customers will see your bank details instead of a QR code.</Text>
+                </Stack>
+              ) : (
+                <Stack gap="xs">
+                  <FileInput
+                    accept="image/jpeg,image/png,image/webp"
+                    clearable
+                    disabled={busyAction === "payment-qr-upload"}
+                    label="QR image"
+                    leftSection={<IconQrcode size={16} />}
+                    description="Upload the QR code image customers should scan."
+                    onChange={(file) => {
+                      setPaymentQrUploadFile(file);
+                      void uploadLocationPaymentQr(file);
+                    }}
+                    placeholder={locationForm.paymentQrImageUrl ? "Replace QR image" : "Upload QR image"}
+                    value={paymentQrUploadFile}
+                  />
+                  {locationForm.paymentQrImageUrl ? <Image alt="Payment QR preview" fit="contain" h={120} radius="sm" src={locationForm.paymentQrImageUrl} w={120} /> : null}
+                </Stack>
+              )}
+            </SimpleGrid>
             <Switch
-              name="isActiveLocation"
-              checked={locationForm.isActive}
-              label="Enable location"
+              name="paymentQrActive"
+              checked={locationForm.paymentQrActive}
+              label="Enable manual payment for this location"
+              description="Only turn this on if customers should see these payment details for this branch."
               onChange={(event) =>
-                setLocationForm((current) => ({ ...current, isActive: event.currentTarget.checked }))
+                setLocationForm((current) => ({ ...current, paymentQrActive: event.currentTarget.checked }))
               }
             />
-            <Checkbox
-              name="isPrimaryLocation"
-              checked={locationForm.isPrimary}
-              label="Primary location"
-              onChange={(event) =>
-                setLocationForm((current) => ({ ...current, isPrimary: event.target.checked }))
-              }
-            />
-          </Group>
-          <Table.ScrollContainer minWidth={700}>
-            <Table>
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>Day</Table.Th>
-                  <Table.Th>Closed</Table.Th>
-                  <Table.Th>Opens</Table.Th>
-                  <Table.Th>Closes</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {locationForm.hours.map((hour) => (
-                  <Table.Tr key={hour.weekday}>
-                    <Table.Td>{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][hour.weekday]}</Table.Td>
-                    <Table.Td>
-                      <Checkbox
-                        name={`hours.${hour.weekday}.isClosed`}
-                        checked={hour.isClosed}
-                        onChange={(event) =>
-                          setLocationForm((current) => ({
-                            ...current,
-                            hours: current.hours.map((item) =>
-                              item.weekday === hour.weekday
-                                ? { ...item, isClosed: event.target.checked }
-                                : item
-                            )
-                          }))
-                        }
-                      />
-                    </Table.Td>
-                    <Table.Td>
-                      <TextInput
-                        name={`hours.${hour.weekday}.opensAt`}
-                        disabled={hour.isClosed}
-                        type="time"
-                        value={hour.opensAt}
-                        onChange={(event) =>
-                          setLocationForm((current) => ({
-                            ...current,
-                            hours: current.hours.map((item) =>
-                              item.weekday === hour.weekday
-                                ? { ...item, opensAt: event.target.value }
-                                : item
-                            )
-                          }))
-                        }
-                      />
-                    </Table.Td>
-                    <Table.Td>
-                      <TextInput
-                        name={`hours.${hour.weekday}.closesAt`}
-                        disabled={hour.isClosed}
-                        type="time"
-                        value={hour.closesAt}
-                        onChange={(event) =>
-                          setLocationForm((current) => ({
-                            ...current,
-                            hours: current.hours.map((item) =>
-                              item.weekday === hour.weekday
-                                ? { ...item, closesAt: event.target.value }
-                                : item
-                            )
-                          }))
-                        }
-                      />
-                    </Table.Td>
-                  </Table.Tr>
-                ))}
-              </Table.Tbody>
-            </Table>
-          </Table.ScrollContainer>
-          <Group justify="flex-end">
+          </ModalSection>
+
+          <ModalSection
+            title="Visibility and access"
+            description="These switches control whether the branch is active and whether it is treated as the main location."
+          >
+            <Group align="flex-start" wrap="wrap">
+              <Switch
+                name="isActiveLocation"
+                checked={locationForm.isActive}
+                label="Enable location"
+                description="Inactive locations stay saved but are hidden from normal use."
+                onChange={(event) =>
+                  setLocationForm((current) => ({ ...current, isActive: event.currentTarget.checked }))
+                }
+              />
+              <Checkbox
+                name="isPrimaryLocation"
+                checked={locationForm.isPrimary}
+                label={
+                  <Group gap={6} wrap="nowrap">
+                    <Text span size="sm" fw={500}>
+                      Primary location
+                    </Text>
+                    <ModalHelpIcon label="The primary location is used as the default branch in public and dashboard flows when no specific location is selected." />
+                  </Group>
+                }
+                onChange={(event) =>
+                  setLocationForm((current) => ({ ...current, isPrimary: event.target.checked }))
+                }
+              />
+            </Group>
+          </ModalSection>
+
+          <ModalSection
+            title="Store hours"
+            description="Set the default operating hours customers should see. Closed days hide the time inputs on mobile."
+          >
+            {isMobileHoursLayout ? (
+              <Stack gap="sm">
+                {locationForm.hours.map((hour) => {
+                  const dayLabel = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][hour.weekday];
+
+                  return (
+                    <Card key={hour.weekday} withBorder radius="lg" p="sm">
+                      <Stack gap="sm">
+                        <Group justify="space-between" align="flex-start">
+                          <Text fw={700}>{dayLabel}</Text>
+                          <Checkbox
+                            name={`hours.${hour.weekday}.isClosed`}
+                            checked={hour.isClosed}
+                            label="Closed"
+                            description="Hide opening and closing times for this day."
+                            onChange={(event) =>
+                              setLocationForm((current) => ({
+                                ...current,
+                                hours: current.hours.map((item) =>
+                                  item.weekday === hour.weekday
+                                    ? { ...item, isClosed: event.target.checked }
+                                    : item
+                                )
+                              }))
+                            }
+                          />
+                        </Group>
+                        {!hour.isClosed ? (
+                          <SimpleGrid cols={2} spacing="sm">
+                            <TextInput
+                              name={`hours.${hour.weekday}.opensAt`}
+                              label="Opens"
+                              type="time"
+                              value={hour.opensAt}
+                              onChange={(event) =>
+                                setLocationForm((current) => ({
+                                  ...current,
+                                  hours: current.hours.map((item) =>
+                                    item.weekday === hour.weekday
+                                      ? { ...item, opensAt: event.target.value }
+                                      : item
+                                  )
+                                }))
+                              }
+                            />
+                            <TextInput
+                              name={`hours.${hour.weekday}.closesAt`}
+                              label="Closes"
+                              type="time"
+                              value={hour.closesAt}
+                              onChange={(event) =>
+                                setLocationForm((current) => ({
+                                  ...current,
+                                  hours: current.hours.map((item) =>
+                                    item.weekday === hour.weekday
+                                      ? { ...item, closesAt: event.target.value }
+                                      : item
+                                  )
+                                }))
+                              }
+                            />
+                          </SimpleGrid>
+                        ) : null}
+                      </Stack>
+                    </Card>
+                  );
+                })}
+              </Stack>
+            ) : (
+              <ScrollArea offsetScrollbars type="auto">
+                <Box miw={700} pb="xs">
+                  <Table>
+                    <Table.Thead>
+                      <Table.Tr>
+                        <Table.Th>Day</Table.Th>
+                        <Table.Th>Closed</Table.Th>
+                        <Table.Th>Opens</Table.Th>
+                        <Table.Th>Closes</Table.Th>
+                      </Table.Tr>
+                    </Table.Thead>
+                    <Table.Tbody>
+                      {locationForm.hours.map((hour) => (
+                        <Table.Tr key={hour.weekday}>
+                          <Table.Td>{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][hour.weekday]}</Table.Td>
+                          <Table.Td>
+                            <Checkbox
+                              name={`hours.${hour.weekday}.isClosed`}
+                              checked={hour.isClosed}
+                              onChange={(event) =>
+                                setLocationForm((current) => ({
+                                  ...current,
+                                  hours: current.hours.map((item) =>
+                                    item.weekday === hour.weekday
+                                      ? { ...item, isClosed: event.target.checked }
+                                      : item
+                                  )
+                                }))
+                              }
+                            />
+                          </Table.Td>
+                          <Table.Td>
+                            <TextInput
+                              name={`hours.${hour.weekday}.opensAt`}
+                              disabled={hour.isClosed}
+                              type="time"
+                              value={hour.opensAt}
+                              onChange={(event) =>
+                                setLocationForm((current) => ({
+                                  ...current,
+                                  hours: current.hours.map((item) =>
+                                    item.weekday === hour.weekday
+                                      ? { ...item, opensAt: event.target.value }
+                                      : item
+                                  )
+                                }))
+                              }
+                            />
+                          </Table.Td>
+                          <Table.Td>
+                            <TextInput
+                              name={`hours.${hour.weekday}.closesAt`}
+                              disabled={hour.isClosed}
+                              type="time"
+                              value={hour.closesAt}
+                              onChange={(event) =>
+                                setLocationForm((current) => ({
+                                  ...current,
+                                  hours: current.hours.map((item) =>
+                                    item.weekday === hour.weekday
+                                      ? { ...item, closesAt: event.target.value }
+                                      : item
+                                  )
+                                }))
+                              }
+                            />
+                        </Table.Td>
+                      </Table.Tr>
+                    ))}
+                  </Table.Tbody>
+                </Table>
+              </Box>
+            </ScrollArea>
+            )}
+          </ModalSection>
+            </Stack>
+          </ScrollArea>
+          <Group justify="flex-end" className="service-dialog__footer vendor-location-modal__footer">
             <Button variant="default" onClick={() => setLocationDialogOpen(false)}>
               Cancel
             </Button>
@@ -2907,7 +5027,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         multiline
         label={
           <Stack gap={8} style={{ maxWidth: 300 }}>
-            <Text fw={700}>{currentPlan?.price.monthlyDisplay || activeSubscription.planName}</Text>
+            <Text fw={700}>
+              {currentPlan ? getPlanPriceDisplay(currentPlan) : activeSubscription.planName}
+            </Text>
             <Text size="sm">
               {activeSubscription.status} via {activeSubscription.provider}
               {activeSubscription.currentPeriodEnd
@@ -3015,8 +5137,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     return (
       <Stack gap="md">
         {renderStats()}
-        <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
-          <Card className="neura-card" padding="lg">
+        <Grid gutter="md">
+          <Grid.Col span={{ base: 12, lg: 8 }}>
+          <Card className="neura-card" h="100%" padding="lg">
             <Stack gap="md">
               <Group justify="space-between" align="flex-start">
                 <SegmentedControl
@@ -3029,11 +5152,61 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   onChange={(value) => setQueueView(value as QueueView)}
                 />
                 <Stack gap={6} align="flex-end">
-                  <Badge color={queueDayClosed ? "red" : queueDayPaused ? "yellow" : "teal"} variant="light">
-                    {queueDayClosed ? "Queue day closed" : queueDayPaused ? "Queue intake paused" : "Queue day open"}
+                  <Badge
+                    color={
+                      queueDayReconciling
+                        ? "orange"
+                        : queueDayClosed
+                          ? "red"
+                          : queueDayPaused
+                            ? "yellow"
+                            : queueDayExtended
+                              ? "blue"
+                              : "teal"
+                    }
+                    variant="light"
+                  >
+                    {queueDayReconciling
+                      ? "Queue closing"
+                      : queueDayUnopened
+                        ? "Queue not opened"
+                        : queueDayActuallyClosed
+                          ? "Queue day closed"
+                          : queueDayPaused
+                            ? "Queue intake paused"
+                            : queueDayExtended
+                              ? "Queue day extended"
+                              : "Queue day open"}
                   </Badge>
                   <Group gap="xs" justify="flex-end">
-                    {queueDayClosed ? null : queueDayPaused ? (
+                    {queueDayUnopened && canOperateQueueDay ? (
+                      <Button
+                        className="neura-primary-button"
+                        loading={busyAction === "queue-open"}
+                        onClick={() => void handleOpenQueueDay()}
+                      >
+                        Open queue
+                      </Button>
+                    ) : queueDayActuallyClosed && canReopenQueueDay ? (
+                      <Button
+                        className="neura-primary-button"
+                        disabled={busyAction === "queue-reopen"}
+                        onClick={async () => {
+                          const success = await runAction("queue-reopen", () =>
+                            vendorDashboardQueue.reopenQueueDay(token, selectedTenantSlug, locationQuery)
+                          );
+                          if (success) {
+                            showSuccessNotification(
+                              "Queue reopened",
+                              "The Queue Day is accepting joins again. Earlier ticket outcomes were not reversed."
+                            );
+                            setQueueView("current");
+                          }
+                        }}
+                      >
+                        {busyAction === "queue-reopen" ? "Reopening..." : "Reopen queue"}
+                      </Button>
+                    ) : !queueDayClosed && queueDayPaused ? (
                       <Button
                         color="yellow"
                         variant="light"
@@ -3049,7 +5222,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       >
                         {busyAction === "queue-resume" ? "Resuming..." : "Resume intake"}
                       </Button>
-                    ) : (
+                    ) : !queueDayClosed ? (
                       <Button
                         color="yellow"
                         variant="light"
@@ -3065,46 +5238,46 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       >
                         {busyAction === "queue-pause" ? "Pausing..." : "Pause intake"}
                       </Button>
-                    )}
-                  {canManageQueueDay ? (
-                    queueDayClosed ? (
-                      <Button
-                        className="neura-primary-button"
-                        disabled={busyAction === "queue-reopen"}
-                        onClick={async () => {
-                          const success = await runAction("queue-reopen", () =>
-                            vendorDashboardQueue.reopenQueueDay(token, selectedTenantSlug, locationQuery)
-                          );
-                          if (success) {
-                            showSuccessNotification("Queue reopened", "Customers can join and staff can resume service.");
-                            setQueueView("current");
-                          }
-                        }}
-                      >
-                        {busyAction === "queue-reopen" ? "Reopening..." : "Reopen queue"}
-                      </Button>
-                    ) : (
+                    ) : null}
+                    {!queueDayClosed && canOperateQueueDay ? (
                       <Button
                         color="red"
                         variant="light"
                         disabled={busyAction === "queue-close"}
-                        onClick={async () => {
-                          const success = await runAction("queue-close", () =>
-                            vendorDashboardQueue.closeQueueDay(token, selectedTenantSlug, locationQuery)
-                          );
-                          if (success) {
-                            showSuccessNotification("Queue closed", "Waiting tickets were carried over and active tickets were marked unserved.");
-                            setQueueView("overflow");
-                          }
+                        onClick={() => {
+                          setConfirmAction({
+                            title: `Close ${selectedLocation?.name || "this queue"} now?`,
+                            description:
+                              "Unresolved waiting tickets will carry over once or expire, called tickets become unserved, and skipped recovery ends. Reopening will not reverse these outcomes.",
+                            confirmLabel: "Close queue and reconcile",
+                            confirmColor: "red",
+                            onConfirm: async () => {
+                              await handleCloseQueueDay();
+                            }
+                          });
                         }}
                       >
                         {busyAction === "queue-close" ? "Closing..." : "Close queue"}
                       </Button>
-                    )
-                  ) : null}
+                    ) : null}
                   </Group>
                 </Stack>
               </Group>
+              {queueDayUnopened ? (
+                <Alert color="blue" icon={<IconInfoCircle size={18} />} variant="light">
+                  Store hours make this Queue Day eligible, but they do not open it automatically.
+                  An authorized operator must open the queue before customers can join.
+                </Alert>
+              ) : null}
+              {queueDayActuallyClosed && snapshot?.queueDay?.outcomeCounts ? (
+                <Alert color="gray" icon={<IconHistory size={18} />} title="Close reconciliation completed">
+                  {snapshot.queueDay.outcomeCounts.pendingCarryOver} saved for carry-over ·{" "}
+                  {snapshot.queueDay.outcomeCounts.expired} expired ·{" "}
+                  {snapshot.queueDay.outcomeCounts.unserved} unserved ·{" "}
+                  {snapshot.queueDay.outcomeCounts.skipped} skipped recovery ended. Reopening does not
+                  reverse these outcomes.
+                </Alert>
+              ) : null}
               {queueView === "current" ? (
                 <>
                   <Group justify="space-between" align="flex-end">
@@ -3127,32 +5300,53 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   <Group>
                     <Button
                       className="neura-primary-button"
-                      disabled={busyAction === "call-next" || !selectedCounterSlug || queueDayClosed}
+                      disabled={
+                        busyAction === "call-next" ||
+                        !selectedCounterSlug ||
+                        queueDayClosed ||
+                        Boolean(activeTicket)
+                      }
                       onClick={async () => {
                         const success = await runAction("call-next", () =>
                           vendorDashboardQueue.callNextTicket(token, selectedTenantSlug, locationQuery, selectedCounterSlug)
                         );
                         if (success) {
-                          showSuccessNotification("Customer called", "The next ticket is now being served.");
+                          showSuccessNotification("Customer called", "The next customer has been called to the counter.");
                         }
                       }}
                     >
                       {busyAction === "call-next" ? "Calling..." : "Call next"}
                     </Button>
-                    <Button
-                      className="neura-secondary-button"
-                      disabled={busyAction === "serve-current" || !activeTicket}
-                      onClick={async () => {
-                        const success = await runAction("serve-current", () =>
-                          vendorDashboardQueue.serveCurrentTicket(token, selectedTenantSlug, locationQuery)
-                        );
-                        if (success) {
-                          showSuccessNotification("Ticket served", "The current ticket was marked as served.");
-                        }
-                      }}
-                    >
-                      Serve current
-                    </Button>
+                    {activeTicket && (activeTicket.customerConfirmedAt || activeTicket.joinChannel === "vendor") ? (
+                      <Button
+                        className="neura-secondary-button"
+                        disabled={busyAction === "serve-current"}
+                        leftSection={<IconCheck size={16} />}
+                        loading={busyAction === "serve-current"}
+                        onClick={async () => {
+                          const success = await runAction("serve-current", () =>
+                            vendorDashboardQueue.serveCurrentTicket(token, selectedTenantSlug, locationQuery)
+                          );
+                          if (success) {
+                            showSuccessNotification("Customer served", "The ticket was marked as served.");
+                          }
+                        }}
+                      >
+                        Serve customer
+                      </Button>
+                    ) : (
+                      <Button
+                        className="neura-secondary-button"
+                        disabled={!activeTicket}
+                        leftSection={<IconQrcode size={16} />}
+                        onClick={() => {
+                          setTicketScannerError("");
+                          setTicketScannerOpen(true);
+                        }}
+                      >
+                        Confirm ticket
+                      </Button>
+                    )}
                     <Button
                       variant="default"
                       disabled={busyAction === "skip-current" || !activeTicket}
@@ -3177,6 +5371,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         {activeTicket && isCheckedInBookingTicket(activeTicket) ? (
                           <Badge color="blue" variant="light">Booking</Badge>
                         ) : null}
+                        {activeTicket?.customerConfirmedAt ? (
+                          <Badge color="teal" variant="light">Customer confirmed</Badge>
+                        ) : null}
                       </Group>
                       <Text c="dimmed" size="sm">
                         {activeTicket?.customerName || "No active ticket"}
@@ -3189,13 +5386,31 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     </Paper>
                     <Paper withBorder radius="md" p="md">
                       <Text className="neura-label">Queue day</Text>
-                      <Title order={3}>{queueDayClosed ? "Closed" : queueDayPaused ? "Paused" : "Open"}</Title>
+                      <Title order={3}>
+                        {queueDayReconciling
+                          ? "Closing"
+                          : queueDayUnopened
+                            ? "Not opened"
+                            : queueDayActuallyClosed
+                              ? "Closed"
+                              : queueDayPaused
+                                ? "Paused"
+                                : queueDayExtended
+                                  ? "Extended"
+                                  : "Open"}
+                      </Title>
                       <Text c="dimmed" size="sm">
-                        {queueDayClosed && snapshot?.queueDay?.closedAt
+                        {queueDayReconciling
+                          ? "Ticket outcomes are being reconciled"
+                          : queueDayUnopened
+                            ? "Waiting for an authorized operator to open the Queue Day"
+                            : queueDayClosed && snapshot?.queueDay?.closedAt
                           ? `Closed ${formatDateTime(snapshot.queueDay.closedAt)}`
                           : queueDayPaused && snapshot?.queueDay?.pausedAt
                             ? `Paused ${formatDateTime(snapshot.queueDay.pausedAt)}`
-                            : "Customers can continue joining this queue"}
+                            : snapshot?.queueDay?.currentClosesAt
+                              ? `Scheduled close ${formatDateTime(snapshot.queueDay.currentClosesAt)}`
+                              : "Customers can continue joining this queue"}
                       </Text>
                     </Paper>
                     {intakeState?.autoPauseEnabled && intakeState.autoPauseThreshold ? (
@@ -3219,6 +5434,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     <Table verticalSpacing="sm">
                       <Table.Thead>
                         <Table.Tr>
+                          <Table.Th>ID</Table.Th>
                           <Table.Th>Up next</Table.Th>
                           <Table.Th>Channel</Table.Th>
                           <Table.Th>Source</Table.Th>
@@ -3229,9 +5445,15 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         {currentQueueTickets.length ? (
                           currentQueueTickets.map((ticket) => (
                             <Table.Tr key={ticket.id}>
+                              <Table.Td fw={700}>{ticket.id}</Table.Td>
                               <Table.Td>
                                 <Text fw={700}>{ticket.ticketNumber}</Text>
-                                <Text c="dimmed" size="sm">{ticket.customerName}</Text>
+                                <Text c="dimmed" size="sm">
+                                  {getQueueCustomerFullNameLabel(
+                                    ticket.customerName,
+                                    ticket.customerDisplayName
+                                  )}
+                                </Text>
                                 {ticket.linkedBookingReference ? (
                                   <Text c="dimmed" size="xs">Booking {ticket.linkedBookingReference}</Text>
                                 ) : null}
@@ -3252,7 +5474,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           ))
                         ) : (
                           <Table.Tr>
-                            <Table.Td colSpan={4}>
+                            <Table.Td colSpan={5}>
                               <DashboardEmptyState
                                 title="No one is waiting right now."
                                 text="Fresh same-day joins will appear here once the carry-over backlog is cleared."
@@ -3269,7 +5491,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   <Group justify="space-between" align="flex-start">
                     <div>
                       <Text className="neura-label">Overflow queue</Text>
-                      <Title order={3}>Carried-over tickets</Title>
+                      <Title order={3}>Carry-over tickets</Title>
                     </div>
                     <Badge variant="light">
                       {overflowTickets.length} ticket{overflowTickets.length === 1 ? "" : "s"}
@@ -3279,10 +5501,11 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     <Table verticalSpacing="sm">
                       <Table.Thead>
                         <Table.Tr>
+                          <Table.Th>ID</Table.Th>
                           <Table.Th>Ticket</Table.Th>
                           <Table.Th>Channel</Table.Th>
-                          <Table.Th>Priority</Table.Th>
-                          <Table.Th>Carried over</Table.Th>
+                          <Table.Th>Status</Table.Th>
+                          <Table.Th>Activated at</Table.Th>
                           <Table.Th>Joined</Table.Th>
                         </Table.Tr>
                       </Table.Thead>
@@ -3290,14 +5513,20 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         {overflowTickets.length ? (
                           overflowTickets.map((ticket) => (
                             <Table.Tr key={ticket.id}>
+                              <Table.Td fw={700}>{ticket.id}</Table.Td>
                               <Table.Td>
                                 <Text fw={700}>{ticket.ticketNumber}</Text>
                                 <Text c="dimmed" size="sm">{ticket.customerName}</Text>
                               </Table.Td>
                               <Table.Td><Badge variant="light">{ticket.joinChannel}</Badge></Table.Td>
                               <Table.Td>
-                                <Badge color="orange" variant="light">
-                                  carry_over
+                                <Badge
+                                  color={ticket.status === "pending_carry_over" ? "blue" : "orange"}
+                                  variant="light"
+                                >
+                                  {ticket.status === "pending_carry_over"
+                                    ? getTicketStateSummary(ticket.status).label
+                                    : "Carried over"}
                                 </Badge>
                               </Table.Td>
                               <Table.Td>{ticket.carriedOverAt ? formatDateTime(ticket.carriedOverAt) : "--"}</Table.Td>
@@ -3306,7 +5535,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           ))
                         ) : (
                           <Table.Tr>
-                            <Table.Td colSpan={5}>
+                            <Table.Td colSpan={6}>
                               <DashboardEmptyState
                                 title="No overflow tickets."
                                 text="Waiting tickets carried over from a previous queue day will appear here."
@@ -3342,6 +5571,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     <Table verticalSpacing="sm">
                       <Table.Thead>
                         <Table.Tr>
+                          <Table.Th>ID</Table.Th>
                           <Table.Th>Ticket</Table.Th>
                           <Table.Th>Joined</Table.Th>
                           <Table.Th>Recovery</Table.Th>
@@ -3355,6 +5585,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
                             return (
                               <Table.Tr key={ticket.id}>
+                                <Table.Td fw={700}>{ticket.id}</Table.Td>
                                 <Table.Td>
                                   <Text fw={700}>{ticket.ticketNumber}</Text>
                                   <Text c="dimmed" size="sm">{ticket.customerName}</Text>
@@ -3413,7 +5644,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           })
                         ) : (
                           <Table.Tr>
-                            <Table.Td colSpan={4}>
+                            <Table.Td colSpan={5}>
                               <DashboardEmptyState
                                 title="No skipped tickets to recover."
                                 text="Skipped tickets will appear here while they are still relevant for operator recovery."
@@ -3428,319 +5659,622 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               )}
             </Stack>
           </Card>
+          </Grid.Col>
 
-          <Card className="neura-card" padding="lg">
+          <Grid.Col span={{ base: 12, lg: 4 }}>
+          <Card className="neura-card" h="100%" padding="lg">
             <Stack gap="md">
               <Group justify="space-between">
                 <div>
                   <Text className="neura-label">QR and public links</Text>
                   <Title order={3}>Customer self-service entry</Title>
                 </div>
-                <Button component="a" href={queueLinks.monitorUrl} target="_blank" variant="default">
-                  Open board
-                </Button>
+                <Group gap="sm">
+                  <Button component="a" href={queueLinks.monitorUrl} target="_blank" variant="default">
+                    Open board
+                  </Button>
+                  <Button
+                    className="neura-primary-button"
+                    disabled={queueDayClosed || queueDayPaused}
+                    leftSection={<IconUserPlus size={16} />}
+                    onClick={() => setWalkInDialogOpen(true)}
+                  >
+                    Add walk-in
+                  </Button>
+                </Group>
               </Group>
               <Group align="flex-start" gap="lg">
                 <Paper className="neura-qr-card" p="md">
-                  <QRCode size={160} value={queueLinks.qrUrl} />
+                  {queueLinks.qrUrl ? (
+                    <div ref={queueQrRef}>
+                      <StyledQRCode size={160} value={queueLinks.qrUrl} />
+                    </div>
+                  ) : (
+                    <QueueQrUnavailable />
+                  )}
                   <Group gap={6} justify="center" mt="sm">
                     <IconQrcode size={16} />
                     <Text className="neura-label">Join QR</Text>
                   </Group>
+                  <Button disabled={!queueLinks.qrUrl} fullWidth leftSection={<IconDownload size={16} />} loading={savingQueueQr} mt="md" onClick={() => void saveQueueQr()} variant="default">
+                    Save QR
+                  </Button>
                 </Paper>
                 <Stack flex={1} gap="sm">
-                  <TextInput label="Join URL" readOnly value={queueLinks.joinUrl} />
-                  <TextInput label="QR target" readOnly value={queueLinks.qrUrl} />
-                  <TextInput label="Monitor URL" readOnly value={queueLinks.monitorUrl} />
+                  <TextInput
+                    label="Join URL"
+                    onClick={() => void copyLocationUrl("Join URL", queueLinks.joinUrl)}
+                    onFocus={(event) => event.currentTarget.select()}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        void copyLocationUrl("Join URL", queueLinks.joinUrl);
+                      }
+                    }}
+                    readOnly
+                    rightSection={<IconCopy aria-hidden="true" size={16} />}
+                    rightSectionPointerEvents="none"
+                    styles={{ input: { cursor: "copy" } }}
+                    title="Click to copy Join URL"
+                    value={queueLinks.joinUrl}
+                  />
+                  <TextInput
+                    label="QR target"
+                    onClick={() => void copyLocationUrl("QR target", queueLinks.qrUrl)}
+                    onFocus={(event) => event.currentTarget.select()}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        void copyLocationUrl("QR target", queueLinks.qrUrl);
+                      }
+                    }}
+                    readOnly
+                    rightSection={<IconCopy aria-hidden="true" size={16} />}
+                    rightSectionPointerEvents="none"
+                    styles={{ input: { cursor: "copy" } }}
+                    title="Click to copy QR target"
+                    value={queueLinks.qrUrl}
+                  />
+                  <TextInput
+                    label="Monitor URL"
+                    onClick={() => void copyLocationUrl("Monitor URL", queueLinks.monitorUrl)}
+                    onFocus={(event) => event.currentTarget.select()}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        void copyLocationUrl("Monitor URL", queueLinks.monitorUrl);
+                      }
+                    }}
+                    readOnly
+                    rightSection={<IconCopy aria-hidden="true" size={16} />}
+                    rightSectionPointerEvents="none"
+                    styles={{ input: { cursor: "copy" } }}
+                    title="Click to copy Monitor URL"
+                    value={queueLinks.monitorUrl}
+                  />
                 </Stack>
               </Group>
             </Stack>
           </Card>
-        </SimpleGrid>
+          </Grid.Col>
+        </Grid>
 
-        <Card className="neura-card" padding="lg">
-          <form onSubmit={handleCreateWalkIn}>
-            <Stack gap="md">
-              <Group justify="space-between">
-                <div>
-                  <Text className="neura-label">Issue walk-in ticket</Text>
-                  <Title order={3}>Add customer at counter</Title>
-                </div>
-                <Button
-                  className="neura-primary-button"
-                  disabled={busyAction === "walk-in" || queueDayClosed || queueDayPaused}
-                  type="submit"
-                >
-                  {queueDayClosed
-                    ? "Queue closed"
-                    : queueDayPaused
-                      ? "Intake paused"
-                      : busyAction === "walk-in"
-                        ? "Issuing..."
-                        : "Issue ticket"}
-                </Button>
-              </Group>
-              <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
-                <TextInput
-                  name="walkInCustomerName"
-                  label="Customer name"
-                  required
-                  disabled={queueDayClosed || queueDayPaused}
-                  value={walkInForm.customerName}
-                  onChange={(event) =>
-                    setWalkInForm((current) => ({ ...current, customerName: event.target.value }))
-                  }
-                />
-                <TextInput
-                  name="walkInCustomerEmail"
-                  label="Email"
-                  type="email"
-                  disabled={queueDayClosed || queueDayPaused}
-                  value={walkInForm.customerEmail}
-                  onChange={(event) =>
-                    setWalkInForm((current) => ({ ...current, customerEmail: event.target.value }))
-                  }
-                />
-                <TextInput
-                  name="walkInCustomerPhone"
-                  label="Phone"
-                  disabled={queueDayClosed || queueDayPaused}
-                  value={walkInForm.customerPhone}
-                  onChange={(event) =>
-                    setWalkInForm((current) => ({ ...current, customerPhone: event.target.value }))
-                  }
-                />
-                <Textarea
-                  name="walkInNotes"
-                  label="Notes"
-                  minRows={2}
-                  disabled={queueDayClosed || queueDayPaused}
-                  value={walkInForm.notes}
-                  onChange={(event) =>
-                    setWalkInForm((current) => ({ ...current, notes: event.target.value }))
-                  }
-                />
-              </SimpleGrid>
-              <Group>
-                <Checkbox
-                  name="walkInNotifyByEmail"
-                  disabled={queueDayClosed}
-                  checked={walkInForm.notifyByEmail}
-                  label="Send email alerts"
-                  onChange={(event) =>
-                    setWalkInForm((current) => ({ ...current, notifyByEmail: event.target.checked }))
-                  }
-                />
-              </Group>
-            </Stack>
-          </form>
-        </Card>
       </Stack>
+    );
+  }
+
+  function renderWalkInDialog() {
+    const intakeUnavailable = queueDayClosed || queueDayPaused;
+
+    return (
+      <Modal
+        centered
+        className="customer-modal walk-in-modal"
+        closeOnClickOutside={busyAction !== "walk-in"}
+        closeOnEscape={busyAction !== "walk-in"}
+        onClose={() => {
+          if (busyAction !== "walk-in") {
+            setWalkInDialogOpen(false);
+          }
+        }}
+        opened={walkInDialogOpen}
+        radius="xl"
+        size="lg"
+        title={
+          <div>
+            <Text className="neura-label">WALK-IN CUSTOMER</Text>
+            <Text fw={800} size="xl">Add customer at counter</Text>
+          </div>
+        }
+      >
+        <form onSubmit={handleCreateWalkIn}>
+          <Stack gap="md">
+            <Text c="dimmed" size="sm">
+              Create a same-day queue ticket for a customer who is already at this location.
+            </Text>
+            {intakeUnavailable ? (
+              <Alert color="orange" icon={<IconInfoCircle size={18} />}>
+                {queueDayClosed ? "Open the queue before adding a walk-in customer." : "Resume intake before adding a walk-in customer."}
+              </Alert>
+            ) : null}
+            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+              <TextInput
+                autoFocus
+                disabled={intakeUnavailable}
+                label="Customer name"
+                data-autofocus
+                name="walkInCustomerName"
+                onChange={(event) =>
+                  setWalkInForm((current) => ({ ...current, customerName: event.target.value }))
+                }
+                required
+                value={walkInForm.customerName}
+              />
+              <TextInput
+                disabled={intakeUnavailable}
+                label="Email"
+                name="walkInCustomerEmail"
+                onChange={(event) =>
+                  setWalkInForm((current) => ({ ...current, customerEmail: event.target.value }))
+                }
+                type="email"
+                value={walkInForm.customerEmail}
+              />
+              <PhilippineMobileInput
+                disabled={intakeUnavailable}
+                label="Phone"
+                name="walkInCustomerPhone"
+                onChange={(nextValue) =>
+                  setWalkInForm((current) => ({ ...current, customerPhone: nextValue }))
+                }
+                value={walkInForm.customerPhone}
+              />
+              <Textarea
+                disabled={intakeUnavailable}
+                label="Notes"
+                minRows={2}
+                name="walkInNotes"
+                onChange={(event) =>
+                  setWalkInForm((current) => ({ ...current, notes: event.target.value }))
+                }
+                value={walkInForm.notes}
+              />
+            </SimpleGrid>
+            <Checkbox
+              checked={walkInForm.notifyByEmail}
+              disabled={intakeUnavailable}
+              label="Send email alerts"
+              name="walkInNotifyByEmail"
+              onChange={(event) =>
+                setWalkInForm((current) => ({ ...current, notifyByEmail: event.target.checked }))
+              }
+            />
+            <Group className="customer-modal-actions" justify="flex-end">
+              <Button
+                className="neura-primary-button"
+                disabled={intakeUnavailable}
+                loading={busyAction === "walk-in"}
+                type="submit"
+              >
+                Issue ticket
+              </Button>
+            </Group>
+          </Stack>
+        </form>
+      </Modal>
     );
   }
 
   function renderThemePreview() {
     const previewLocation = themeLocation || selectedLocation;
-    const cardStyle = {
-      backgroundColor: hexToRgba(themeForm.cardBackgroundColor, themeForm.cardAlpha),
-      border: `${themeForm.cardBorderSize}px solid ${themeForm.cardBorderColor}`,
-      borderRadius: themeForm.cardBorderRadius
-    };
+    const selectedTenant = user?.tenants.find((tenant) => tenant.slug === selectedTenantSlug);
+    const previewVendorName = settings.publicProfileDisplayName || snapshot?.tenant.name || selectedTenant?.name || "Public vendor";
+    const previewLocationLabel = previewLocation
+      ? [previewLocation.name, previewLocation.city, previewLocation.province].filter(Boolean).join(", ") ||
+        previewLocation.country ||
+        "Main location"
+      : "Main location";
+    const previewHoursLabel = formatPreviewHourRange(previewLocation, getDay(new Date()));
+    const themeStyle = {
+      "--vendor-theme-page-bg": themeForm.pageBackgroundColor,
+      "--vendor-theme-card-bg": themeForm.cardBackgroundColor,
+      "--vendor-theme-card-alpha": String(themeForm.cardAlpha),
+      "--vendor-theme-card-border": themeForm.cardBorderColor,
+      "--vendor-theme-header": themeForm.headerColor,
+      "--vendor-theme-subheader": themeForm.subheaderColor,
+      "--vendor-theme-body": themeForm.bodyColor,
+      "--vendor-theme-button-bg": themeForm.buttonBackgroundColor,
+      "--vendor-theme-button-text": themeForm.buttonTextColor,
+      "--vendor-theme-button-border": themeForm.buttonBorderColor,
+      "--vendor-theme-button-border-width": themeForm.presetId === "sports" ? "0px" : "1px",
+      "--vendor-theme-logo-bg": themeForm.cardBackgroundColor,
+      "--vendor-theme-logo-fit": themeForm.logoFit,
+      ...(themeForm.logoFit === "cover" ? { "--vendor-theme-logo-frame-padding": "0px" } : {}),
+      ...(themeForm.pageBackgroundImageUrl
+        ? {
+            "--vendor-theme-page-image": `url(${themeForm.pageBackgroundImageUrl})`,
+            "--vendor-theme-page-image-position": "center",
+            "--vendor-theme-page-image-repeat": "no-repeat",
+            "--vendor-theme-page-image-size": themeForm.pageBackgroundImageFit
+          }
+        : {})
+    } as CSSProperties;
+    const themedMediaStyle: CSSProperties | undefined = themeForm.backgroundImageUrl
+      ? {
+          backgroundImage: `linear-gradient(rgba(255,255,255,0.08), rgba(255,255,255,0.08)), url(${themeForm.backgroundImageUrl})`,
+          backgroundPosition: "center",
+          backgroundRepeat: "no-repeat",
+          backgroundSize: themeForm.backgroundImageFit
+        }
+      : undefined;
+    const heroQrTarget = previewLocation?.qrJoinUrl || "";
 
     return (
-      <Paper
-        p="xl"
-        style={{
-          minHeight: 620,
-          color: themeForm.bodyColor,
-          backgroundColor: themeForm.pageBackgroundColor,
-          backgroundImage: themeForm.backgroundImageUrl
-            ? `linear-gradient(rgba(255,255,255,0.42), rgba(255,255,255,0.42)), url(${themeForm.backgroundImageUrl})`
-            : undefined,
-          backgroundSize: "cover",
-          backgroundPosition: "center"
-        }}
-      >
-        <Stack gap="md">
-            {themeForm?.logoUrl ? (
-              <Box style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-                <Box
-                  alt="Company logo preview"
-                  component="img"
-                  src={themeForm.logoUrl}
-                  style={{ width: 'min(240px, 20dvw)', objectFit: "contain", aspectRatio: 1.5 }}
-                />
-              </Box>
-            ) : null}
-          <Paper p="xl" style={cardStyle}>
-            <Group justify="space-between" align="flex-start">
+      <Stack className="vendor-profile-page" gap="xl" style={themeStyle}>
+        <Paper className="vendor-hero-shell" p={{ base: "lg", md: "xl" }}>
+          <SimpleGrid cols={{ base: 1, lg: 2 }} spacing={{ base: "xl", lg: 48 }}>
+            <Stack gap="lg" justify="center">
               <div>
-                <Text size="xs" tt="uppercase" fw={800} c={themeForm.subheaderColor} lts={1.6}>
-                  Live public board
-                </Text>
-                <Title order={1} c={themeForm.headerColor}>
-                  {themeForm.heroTitle || previewLocation?.name || snapshot?.tenant.name || "Public board"}
-                </Title>
-                <Title c={themeForm.headerColor} order={2} style={{ fontSize: "clamp(2rem, 4vw, 3rem)" }}>
-                {themeForm.heroSubtitle ||
-                    "Customers can monitor their turn remotely and join the line online."}
-                </Title>
+                <Group gap="sm" wrap="wrap">
+                  <Badge className="vendor-theme-badge vendor-theme-badge-primary" size="lg" variant="light">
+                    Generic Service Business
+                  </Badge>
+                </Group>
+                <Stack gap="sm" mt="md">
+                  <Title className="vendor-hero-title" order={1}>
+                    {previewVendorName}
+                  </Title>
+                  {settings.publicProfileDescription ? <RichCampaignDescription className="vendor-hero-description" content={settings.publicProfileDescription} /> : null}
+                </Stack>
               </div>
-            </Group>
-            <Group mt="xl">
-              <Button
-                style={{
-                  background: themeForm.buttonBackgroundColor,
-                  borderColor: themeForm.buttonBorderColor,
-                  color: themeForm.buttonTextColor
-                }}
-              >
-                Join this queue
-              </Button>
-              <Badge variant="light">Waiting: {snapshot?.stats.waitingCount ?? 0}</Badge>
-              <Badge color={previewLocation?.openStatus.isOpen ? "teal" : "red"}>
-                {previewLocation?.openStatus.isOpen ? "Open" : "Closed"}
-              </Badge>
-            </Group>
-          </Paper>
-          <SimpleGrid cols={{ base: 1, md: 2 }}>
-            <Paper p="lg" style={cardStyle}>
-              <Text c={themeForm.subheaderColor}>Now serving</Text>
-              <Title order={2} c={themeForm.headerColor}>
-                {snapshot?.current?.ticketNumber || "--"}
-              </Title>
-              <Text c={themeForm.bodyColor}>No active ticket</Text>
-            </Paper>
-            <Paper p="lg" style={cardStyle}>
-              <Text c={themeForm.subheaderColor}>Served today</Text>
-              <Title order={2} c={themeForm.headerColor}>
-                {snapshot?.stats.servedToday ?? 0}
-              </Title>
-              <Text c={themeForm.bodyColor}>Updated live for this location</Text>
+
+
+              <Stack gap="xs">
+                <Group c="dimmed" gap={8} wrap="nowrap">
+                  <IconMapPin size={18} />
+                  <Text>{previewLocationLabel}</Text>
+                </Group>
+                <Group c="dimmed" gap={8} wrap="nowrap">
+                  <IconClock size={18} />
+                  <Text>{previewHoursLabel}</Text>
+                </Group>
+              </Stack>
+
+              <Group gap="md">
+                <Button
+                  className="vendor-theme-button"
+                  leftSection={<IconTicket size={18} />}
+                  size="lg"
+                >
+                  Join queue
+                </Button>
+                <Button className="vendor-theme-button vendor-theme-button-outline" size="lg" variant="outline">
+                  Start booking
+                </Button>
+                <Button className="vendor-theme-button vendor-theme-button-ghost" size="lg" variant="subtle">
+                  Contact vendor
+                </Button>
+              </Group>
+
+              <Group gap="lg" className="vendor-trust-row">
+                <Group gap={8} wrap="nowrap">
+                  <ThemeIcon className="vendor-theme-icon" radius="xl" size={32} variant="light">
+                    <IconSparkles size={16} />
+                  </ThemeIcon>
+                  <Text fw={700} size="sm">
+                    Verified public profile
+                  </Text>
+                </Group>
+                <Group gap={8} wrap="nowrap">
+                  <ThemeIcon className="vendor-theme-icon" radius="xl" size={32} variant="light">
+                    <IconClock size={16} />
+                  </ThemeIcon>
+                  <Text fw={700} size="sm">
+                    Same-day queue
+                  </Text>
+                </Group>
+                <Group gap={8} wrap="nowrap">
+                  <ThemeIcon className="vendor-theme-icon" radius="xl" size={32} variant="light">
+                    <IconCalendar size={16} />
+                  </ThemeIcon>
+                  <Text fw={700} size="sm">
+                    Book ahead
+                  </Text>
+                </Group>
+              </Group>
+            </Stack>
+
+            <Paper className="vendor-hero-visual" p="xl" style={themedMediaStyle}>
+              <div className="vendor-hero-media-shell">
+                <div className="vendor-hero-media-slide vendor-hero-media-slide-logo is-active">
+                  {themeForm.logoUrl ? (
+                    <div className="vendor-profile-logo-frame">
+                      <img alt={`${previewVendorName} logo`} src={themeForm.logoUrl} />
+                    </div>
+                  ) : (
+                    <div className="vendor-empty-art" aria-label="Vendor image placeholder" role="img">
+                      <IconPhoto size={42} stroke={1.5} />
+                      <Text c="dimmed" fw={700} mt="sm" size="sm">
+                        Vendor image placeholder
+                      </Text>
+                    </div>
+                  )}
+                </div>
+
+                <div className="vendor-hero-media-slide vendor-hero-media-slide-qr">
+                  <div className="vendor-hero-qr-panel">
+                    <div className="vendor-hero-qr-code">
+                      {heroQrTarget ? (
+                        <StyledQRCode aria-label="Join queue QR code preview" value={heroQrTarget} />
+                      ) : (
+                        <QueueQrUnavailable />
+                      )}
+                    </div>
+                    <div className="vendor-hero-qr-copy">
+                      <Text className="vendor-hero-qr-kicker">Scan to join</Text>
+                      <Text className="vendor-hero-qr-title" fw={900}>
+                        Queue QR
+                      </Text>
+                      <Text c="dimmed" size="sm">
+                        Scan this code to join the public queue for the selected branch.
+                      </Text>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <Paper className="vendor-hero-status-card" p="lg">
+                <Text fw={800}>Public queue status</Text>
+                <Text c="dimmed" size="sm">
+                  {previewLocation ? `${previewLocation.name} • ${previewHoursLabel}` : "Choose a branch to continue."}
+                </Text>
+                <SimpleGrid cols={2} mt="md" spacing="sm">
+                  <div className="prio-dashboard-tile">
+                    <Text c="dimmed" size="xs">
+                      Queue entry
+                    </Text>
+                    <Text className="prio-dashboard-number">Open</Text>
+                  </div>
+                  <div className="prio-dashboard-tile">
+                    <Text c="dimmed" size="xs">
+                      Booking
+                    </Text>
+                    <Text fw={800}>Available</Text>
+                  </div>
+                </SimpleGrid>
+              </Paper>
             </Paper>
           </SimpleGrid>
-        </Stack>
-      </Paper>
+        </Paper>
+      </Stack>
     );
   }
 
   function renderThemeDialog() {
+    const activePreset = publicBoardThemePresets[themeForm.presetId] || defaultPublicBoardTheme;
+    const presetBackgroundImageUrl = activePreset.pageBackgroundImageUrl;
+    const presetBackgroundEnabled = Boolean(
+      presetBackgroundImageUrl && themeForm.pageBackgroundImageUrl === presetBackgroundImageUrl
+    );
+
     return (
       <Modal
-        fullScreen
+        centered
+        className="theme-editor-modal"
         opened={themeDialogOpen}
         onClose={() => setThemeDialogOpen(false)}
-        title={`Setup public board theme${themeLocation ? `: ${themeLocation.name}` : ""}`}
+        size="xl"
+        title={
+          <Stack className="getprio-modal-title" gap={2}>
+            <Text className="getprio-modal-eyebrow">PUBLIC BOARD</Text>
+            <Text className="getprio-modal-heading">
+              {`Setup theme${themeLocation ? `: ${themeLocation.name}` : ""}`}
+            </Text>
+          </Stack>
+        }
       >
-        <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="xl">
-          <ScrollArea h="calc(100vh - 120px)" offsetScrollbars>
-            <Stack gap="md" pr="md">
-              <Select
-                label="Theme preset"
-                data={[
-                  { value: "classic", label: "Classic Light" },
-                  { value: "neura", label: "Neura Clean" },
-                  { value: "clinic", label: "Clinic Calm" }
-                ]}
-                value={themeForm.presetId}
-                onChange={(value) => value && applyThemePreset(value)}
-              />
-              <SimpleGrid cols={{ base: 1, md: 2 }}>
-                <TextInput
-                  name="heroTitle"
-                  label="Hero title"
-                  value={themeForm.heroTitle}
-                  placeholder={themeLocation?.name || "Public board title"}
-                  onChange={(event) => setThemeField("heroTitle", event.target.value)}
+        <div className="theme-editor-modal__shell">
+          <div className="theme-editor-layout theme-editor-modal__main">
+          <div className="theme-editor-modal__editor">
+            <Stack gap="md">
+              <ModalSection
+                title="Preset"
+                description="Choose the role-based visual system used as the starting point for this public vendor page."
+              >
+                <Select
+                  label="Theme preset"
+                  description="Changing this updates colors, button styling, and any built-in preset background."
+                  data={[
+                    { value: "generic", label: "Generic" },
+                    { value: "sports", label: "Sports and Recreation" },
+                    { value: "wellness", label: "Health and Wellness" },
+                    { value: "retail", label: "Retail and E-commerce" },
+                    { value: "food", label: "Food and Beverage" }
+                  ]}
+                  value={themeForm.presetId}
+                  onChange={(value) => value && applyThemePreset(value)}
                 />
-                <TextInput
-                  name="heroSubtitle"
-                  label="Hero subtitle"
-                  value={themeForm.heroSubtitle}
-                  placeholder="Customers can monitor their turn remotely."
-                  onChange={(event) => setThemeField("heroSubtitle", event.target.value)}
+              </ModalSection>
+
+              <ModalSection
+                title="Page background"
+                description="Controls the full-page artwork behind the public vendor profile."
+              >
+                <Checkbox
+                  checked={presetBackgroundEnabled}
+                  disabled={!presetBackgroundImageUrl}
+                  label="Use preset background image"
+                  description={
+                    presetBackgroundImageUrl
+                      ? "Uses the built-in page artwork for this preset. Untick to hide the preset artwork."
+                      : "This preset does not include a built-in background image."
+                  }
+                  onChange={(event) => {
+                    const checked = event.currentTarget.checked;
+                    setThemeForm((current) => ({
+                      ...current,
+                      pageBackgroundImageUrl: checked ? presetBackgroundImageUrl : "",
+                      pageBackgroundImageFit: checked ? activePreset.pageBackgroundImageFit : current.pageBackgroundImageFit
+                    }));
+                  }}
                 />
-              </SimpleGrid>
-              <SimpleGrid cols={{ base: 1, md: 2 }}>
-                <FileInput
-                  name="backgroundImageFile"
-                  accept="image/png,image/jpeg,image/webp"
-                  clearable
-                  label="Background image"
-                  disabled={busyAction === "theme-upload:background"}
-                  onChange={(file) => uploadThemeAsset("background", file)}
+                <Select
+                  name="pageBackgroundImageFit"
+                  label="Page background fit"
+                  description="Cover fills the page. Contain shows the full preset artwork."
+                  data={[
+                    { value: "cover", label: "Cover" },
+                    { value: "contain", label: "Contain" }
+                  ]}
+                  disabled={!themeForm.pageBackgroundImageUrl}
+                  value={themeForm.pageBackgroundImageFit}
+                  onChange={(value) => setThemeField("pageBackgroundImageFit", value === "contain" ? "contain" : "cover")}
                 />
-                <FileInput
-                  name="logoFile"
-                  accept="image/png,image/jpeg,image/webp"
-                  clearable
-                  label="Company logo"
-                  disabled={busyAction === "theme-upload:logo"}
-                  onChange={(file) => uploadThemeAsset("logo", file)}
-                />
-              </SimpleGrid>
-              <SimpleGrid cols={{ base: 1, md: 2 }}>
-                <TextInput
-                  name="backgroundImageUrl"
-                  label="Background image URL"
-                  value={themeForm.backgroundImageUrl}
-                  onChange={(event) => setThemeField("backgroundImageUrl", event.target.value)}
-                />
-                <TextInput
-                  name="logoUrl"
-                  label="Logo URL"
-                  value={themeForm.logoUrl}
-                  onChange={(event) => setThemeField("logoUrl", event.target.value)}
-                />
-              </SimpleGrid>
-              <Divider label="Board colors" labelPosition="left" />
-              <SimpleGrid cols={{ base: 1, md: 3 }}>
-                <ColorInput name="pageBackgroundColor" label="Page background" value={themeForm.pageBackgroundColor} onChange={(value) => setThemeField("pageBackgroundColor", value)} />
-                <ColorInput name="headerColor" label="Header text" value={themeForm.headerColor} onChange={(value) => setThemeField("headerColor", value)} />
-                <ColorInput name="subheaderColor" label="Subheader text" value={themeForm.subheaderColor} onChange={(value) => setThemeField("subheaderColor", value)} />
-                <ColorInput name="bodyColor" label="Body text" value={themeForm.bodyColor} onChange={(value) => setThemeField("bodyColor", value)} />
-                <ColorInput name="buttonBackgroundColor" label="Button background" value={themeForm.buttonBackgroundColor} onChange={(value) => setThemeField("buttonBackgroundColor", value)} />
-                <ColorInput name="buttonTextColor" label="Button text" value={themeForm.buttonTextColor} onChange={(value) => setThemeField("buttonTextColor", value)} />
-              </SimpleGrid>
-              <Divider label="Section cards" labelPosition="left" />
-              <SimpleGrid cols={{ base: 1, md: 2 }}>
-                <ColorInput name="cardBackgroundColor" label="Card background" value={themeForm.cardBackgroundColor} onChange={(value) => setThemeField("cardBackgroundColor", value)} />
-                <ColorInput name="cardBorderColor" label="Card border" value={themeForm.cardBorderColor} onChange={(value) => setThemeField("cardBorderColor", value)} />
-                <NumberInput name="cardBorderSize" label="Border size" min={0} max={12} value={themeForm.cardBorderSize} onChange={(value) => setThemeField("cardBorderSize", Number(value) || 0)} />
-                <NumberInput name="cardBorderRadius" label="Border radius" min={0} max={48} value={themeForm.cardBorderRadius} onChange={(value) => setThemeField("cardBorderRadius", Number(value) || 0)} />
-              </SimpleGrid>
-              <div>
-                <Text size="sm" fw={600}>Card alpha</Text>
-                <Slider
-                  min={0.15}
-                  max={1}
-                  step={0.05}
-                  value={themeForm.cardAlpha}
-                  onChange={(value) => setThemeField("cardAlpha", value)}
-                />
-              </div>
+                <SimpleGrid cols={1}>
+                  <FileInput
+                    name="pageBackgroundImageFile"
+                    accept="image/png,image/jpeg,image/webp"
+                    clearable
+                    label="Page background"
+                    description="Upload a custom full-page background when preset background is disabled."
+                    disabled={presetBackgroundEnabled || busyAction === "theme-upload:background"}
+                    onChange={(file) => uploadThemeAsset("background", file, "pageBackgroundImageUrl")}
+                  />
+                  <TextInput
+                    name="pageBackgroundImageUrl"
+                    label="Page background URL"
+                    description="Paste a hosted full-page background URL."
+                    disabled={presetBackgroundEnabled}
+                    value={themeForm.pageBackgroundImageUrl}
+                    onChange={(event) => setThemeField("pageBackgroundImageUrl", event.target.value)}
+                  />
+                </SimpleGrid>
+              </ModalSection>
+
+              <ModalSection
+                title="Profile media"
+                description="Set the profile logo and hero background shown inside the public vendor hero."
+              >
+                <SimpleGrid cols={1}>
+                  <FileInput
+                    name="backgroundImageFile"
+                    accept="image/png,image/jpeg,image/webp"
+                    clearable
+                    label="Profile background"
+                    description="Upload a custom image for the hero visual area."
+                    disabled={busyAction === "theme-upload:background"}
+                    onChange={(file) => uploadThemeAsset("background", file)}
+                  />
+                  <Select
+                    name="backgroundImageFit"
+                    label="Profile background fit"
+                    description="Cover fills the hero. Contain shows the full image."
+                    data={[
+                      { value: "cover", label: "Cover" },
+                      { value: "contain", label: "Contain" }
+                    ]}
+                    value={themeForm.backgroundImageFit}
+                    onChange={(value) => setThemeField("backgroundImageFit", value === "contain" ? "contain" : "cover")}
+                  />
+                </SimpleGrid>
+                <SimpleGrid cols={1}>
+                  <TextInput
+                    name="backgroundImageUrl"
+                    label="Profile background URL"
+                    description="Paste a hosted image URL for the hero visual area."
+                    value={themeForm.backgroundImageUrl}
+                    onChange={(event) => setThemeField("backgroundImageUrl", event.target.value)}
+                  />
+                  <FileInput
+                    name="logoFile"
+                    accept="image/png,image/jpeg,image/webp"
+                    clearable
+                    label="Company logo"
+                    description="Displayed inside the circular logo frame."
+                    disabled={busyAction === "theme-upload:logo"}
+                    onChange={(file) => uploadThemeAsset("logo", file)}
+                  />
+                </SimpleGrid>
+                <SimpleGrid cols={1}>
+                  <TextInput
+                    name="logoUrl"
+                    label="Logo URL"
+                    description="Paste a hosted logo URL when not uploading a file."
+                    value={themeForm.logoUrl}
+                    onChange={(event) => setThemeField("logoUrl", event.target.value)}
+                  />
+                  <Select
+                    name="logoFit"
+                    label="Profile logo fit"
+                    description="Contain shows the full logo. Cover fills the circular frame."
+                    data={[
+                      { value: "contain", label: "Contain" },
+                      { value: "cover", label: "Cover" }
+                    ]}
+                    value={themeForm.logoFit}
+                    onChange={(value) => setThemeField("logoFit", value === "cover" ? "cover" : "contain")}
+                  />
+                </SimpleGrid>
+              </ModalSection>
+
+              <ModalSection
+                title="Colors"
+                description="Tune text, page, and action colors used across the public vendor page and preview states."
+              >
+                <SimpleGrid cols={1}>
+                  <ColorInput name="pageBackgroundColor" label="Page background" value={themeForm.pageBackgroundColor} onChange={(value) => setThemeField("pageBackgroundColor", value)} />
+                  <ColorInput name="headerColor" label="Heading text" value={themeForm.headerColor} onChange={(value) => setThemeField("headerColor", value)} />
+                  <ColorInput name="subheaderColor" label="Accent text" value={themeForm.subheaderColor} onChange={(value) => setThemeField("subheaderColor", value)} />
+                  <ColorInput name="bodyColor" label="Body text" value={themeForm.bodyColor} onChange={(value) => setThemeField("bodyColor", value)} />
+                  <ColorInput name="buttonBackgroundColor" label="Button background" value={themeForm.buttonBackgroundColor} onChange={(value) => setThemeField("buttonBackgroundColor", value)} />
+                  <ColorInput name="buttonTextColor" label="Button text" value={themeForm.buttonTextColor} onChange={(value) => setThemeField("buttonTextColor", value)} />
+                </SimpleGrid>
+              </ModalSection>
+
+              <ModalSection
+                title="Cards and borders"
+                description="Controls the surfaces used by the hero, service cards, branch cards, and status panels."
+              >
+                <SimpleGrid cols={1}>
+                  <ColorInput name="cardBackgroundColor" label="Card background" value={themeForm.cardBackgroundColor} onChange={(value) => setThemeField("cardBackgroundColor", value)} />
+                  <ColorInput name="cardBorderColor" label="Card border" value={themeForm.cardBorderColor} onChange={(value) => setThemeField("cardBorderColor", value)} />
+                  <NumberInput name="cardBorderSize" label="Border size" min={0} max={12} value={themeForm.cardBorderSize} onChange={(value) => setThemeField("cardBorderSize", Number(value) || 0)} />
+                  <NumberInput name="cardBorderRadius" label="Border radius" min={0} max={48} value={themeForm.cardBorderRadius} onChange={(value) => setThemeField("cardBorderRadius", Number(value) || 0)} />
+                </SimpleGrid>
+                <div>
+                  <Text size="sm" fw={600}>Card opacity</Text>
+                  <Slider
+                    min={0.15}
+                    max={1}
+                    step={0.05}
+                    value={themeForm.cardAlpha}
+                    onChange={(value) => setThemeField("cardAlpha", value)}
+                  />
+                </div>
+              </ModalSection>
               <Checkbox
                 name="applyThemeToAllLocations"
                 checked={applyThemeToAllLocations}
                 label="Apply to all current and future locations"
                 onChange={(event) => setApplyThemeToAllLocations(event.target.checked)}
               />
-              <Group justify="flex-end">
-                <Button variant="default" onClick={() => setThemeDialogOpen(false)}>
-                  Close
-                </Button>
-                <Button
-                  className="neura-primary-button"
-                  disabled={busyAction === "theme-save"}
-                  onClick={handleSaveTheme}
-                >
-                  {busyAction === "theme-save" ? "Saving..." : "Save theme"}
-                </Button>
-              </Group>
             </Stack>
-          </ScrollArea>
+          </div>
           {renderThemePreview()}
-        </SimpleGrid>
+          </div>
+          <Group justify="flex-end" className="service-dialog__footer theme-editor-modal__footer">
+            <Button variant="default" onClick={() => setThemeDialogOpen(false)}>
+              Close
+            </Button>
+            <Button
+              className="neura-primary-button"
+              disabled={busyAction === "theme-save"}
+              onClick={handleSaveTheme}
+            >
+              {busyAction === "theme-save" ? "Saving..." : "Save theme"}
+            </Button>
+          </Group>
+        </div>
       </Modal>
     );
   }
@@ -3749,9 +6283,15 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     setPaymentQrUploadFile(null);
     if (locationItem) {
       setEditingLocationSlug(locationItem.slug);
+      setEditingLocationId(locationItem.id);
+      setLocationSlugManuallyEdited(Boolean(locationItem.slug));
+      setLocationSlugMessage("");
+      setLocationSlugAvailable(false);
+      setCheckingLocationSlug(false);
       setLocationForm({
         name: locationItem.name,
         slug: locationItem.slug,
+        imageUrl: locationItem.imageUrl || "",
         addressLine1: locationItem.addressLine1,
         addressLine2: locationItem.addressLine2,
         city: locationItem.city,
@@ -3762,6 +6302,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         contactPhone: locationItem.contactPhone,
         timezone: locationItem.timezone,
         paymentMethodLabel: locationItem.paymentMethodLabel,
+        paymentBankName: locationItem.paymentBankName,
         paymentAccountDisplayName: locationItem.paymentAccountDisplayName,
         paymentAccountIdentifierDisplay: locationItem.paymentAccountIdentifierDisplay,
         paymentQrImageUrl: locationItem.paymentQrImageUrl,
@@ -3772,20 +6313,99 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       });
     } else {
       setEditingLocationSlug("");
-      setLocationForm(emptyLocationForm);
+      setEditingLocationId("");
+      setLocationSlugManuallyEdited(false);
+      setLocationSlugMessage("");
+      setLocationSlugAvailable(false);
+      setCheckingLocationSlug(false);
+      setLocationForm({ ...emptyLocationForm, timezone: platformDefaultTimezone });
     }
 
     setLocationDialogOpen(true);
   }
+
+  useEffect(() => {
+    if (!locationDialogOpen || editingLocationSlug || locationSlugManuallyEdited) {
+      return;
+    }
+
+    const nextSlug = buildLocationSlug(locationForm.name);
+    setLocationForm((current) => ({ ...current, slug: nextSlug }));
+  }, [editingLocationSlug, locationDialogOpen, locationForm.name, locationSlugManuallyEdited]);
+
+  useEffect(() => {
+    if (!locationDialogOpen) {
+      return undefined;
+    }
+
+    if (editingLocationSlug) {
+      setLocationSlugAvailable(true);
+      setLocationSlugMessage("");
+      setCheckingLocationSlug(false);
+      return undefined;
+    }
+
+    const nextSlug = buildLocationSlug(locationForm.slug || "");
+    setLocationSlugAvailable(false);
+
+    if (!nextSlug) {
+      setLocationSlugMessage("");
+      setCheckingLocationSlug(false);
+      return undefined;
+    }
+
+    setCheckingLocationSlug(true);
+    const controller = new AbortController();
+    let isCurrent = true;
+    const timeout = window.setTimeout(() => {
+      vendorDashboardOperations
+        .checkLocationSlugAvailability(
+          token,
+          selectedTenantSlug,
+          nextSlug,
+          editingLocationId || undefined
+        )
+        .then((response) => {
+          if (!isCurrent) {
+            return;
+          }
+          setLocationSlugAvailable(response.available && response.valid);
+          setLocationSlugMessage(response.message);
+        })
+        .catch((availabilityError) => {
+          if (!isCurrent || (availabilityError instanceof DOMException && availabilityError.name === "AbortError")) {
+            return;
+          }
+          setLocationSlugAvailable(false);
+          setLocationSlugMessage(getErrorMessage(availabilityError));
+        })
+        .finally(() => {
+          if (isCurrent) {
+            setCheckingLocationSlug(false);
+          }
+        });
+    }, 300);
+
+    return () => {
+      isCurrent = false;
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [editingLocationId, editingLocationSlug, locationDialogOpen, locationForm.slug, selectedTenantSlug, token]);
 
   async function saveLocation() {
     setBusyAction("location");
     setError("");
 
     try {
+      if (!editingLocationSlug && !locationSlugAvailable) {
+        setError(locationSlugMessage || "Choose an available location slug before saving.");
+        return;
+      }
       const payload = {
         name: locationForm.name,
-        slug: locationForm.slug,
+        ...(!editingLocationSlug ? { slug: locationForm.slug } : {}),
+        imageUrl: locationForm.imageUrl,
         addressLine1: locationForm.addressLine1,
         addressLine2: locationForm.addressLine2,
         city: locationForm.city,
@@ -3796,6 +6416,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         contactPhone: locationForm.contactPhone,
         timezone: locationForm.timezone,
         paymentMethodLabel: locationForm.paymentMethodLabel,
+        paymentBankName: locationForm.paymentBankName,
         paymentAccountDisplayName: locationForm.paymentAccountDisplayName,
         paymentAccountIdentifierDisplay: locationForm.paymentAccountIdentifierDisplay,
         paymentQrImageUrl: locationForm.paymentQrImageUrl,
@@ -3866,8 +6487,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 </div>
                 <Group gap="xs">
                   {locationItem.isPrimary ? <Badge>Primary</Badge> : null}
-                  <Badge color={locationItem.openStatus.isOpen ? "teal" : "red"}>
-                    {locationItem.openStatus.isOpen ? "Open" : "Closed"}
+                  <Badge color={locationItem.isActive && locationItem.openStatus.isOpen ? "teal" : "red"}>
+                    {locationItem.isActive && locationItem.openStatus.isOpen ? "Open" : "Closed"}
                   </Badge>
                   {locationItem.paymentQrActive ? (
                     <Badge color="yellow" variant="light">Payment QR</Badge>
@@ -3885,10 +6506,64 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 label={locationItem.isActive ? "Location enabled" : "Location disabled"}
                 onChange={(event) => handleToggleLocationActive(locationItem, event.currentTarget.checked)}
               />
-              <Text size="sm" c="dimmed">{locationItem.openStatus.summary}</Text>
-              <TextInput label="Join URL" readOnly value={locationItem.joinUrl} />
-              <TextInput label="Monitor URL" readOnly value={locationItem.monitorUrl} />
+              <Text size="sm" c="dimmed">
+                Today{locationItem.openStatus.today
+                  ? `, ${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][locationItem.openStatus.today.weekday]}`
+                  : ""} · {formatStoreHourRange(locationItem.openStatus.today)}
+              </Text>
+              <TextInput
+                label="Join URL"
+                onClick={() => void copyLocationUrl("Join URL", locationItem.joinUrl)}
+                onFocus={(event) => event.currentTarget.select()}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    void copyLocationUrl("Join URL", locationItem.joinUrl);
+                  }
+                }}
+                readOnly
+                rightSection={<IconCopy aria-hidden="true" size={16} />}
+                rightSectionPointerEvents="none"
+                styles={{ input: { cursor: "copy" } }}
+                title="Click to copy Join URL"
+                value={locationItem.joinUrl}
+              />
+              <TextInput
+                label="Mobile queue QR target"
+                onClick={() => void copyLocationUrl("QR target", locationItem.qrJoinUrl || locationItem.joinUrl)}
+                onFocus={(event) => event.currentTarget.select()}
+                readOnly
+                rightSection={<IconCopy aria-hidden="true" size={16} />}
+                rightSectionPointerEvents="none"
+                styles={{ input: { cursor: "copy" } }}
+                title="Click to copy mobile queue QR target"
+                value={locationItem.qrJoinUrl || locationItem.joinUrl}
+              />
+              <TextInput
+                label="Monitor URL"
+                onClick={() => void copyLocationUrl("Monitor URL", locationItem.monitorUrl)}
+                onFocus={(event) => event.currentTarget.select()}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    void copyLocationUrl("Monitor URL", locationItem.monitorUrl);
+                  }
+                }}
+                readOnly
+                rightSection={<IconCopy aria-hidden="true" size={16} />}
+                rightSectionPointerEvents="none"
+                styles={{ input: { cursor: "copy" } }}
+                title="Click to copy Monitor URL"
+                value={locationItem.monitorUrl}
+              />
               <Group>
+                <Button
+                  disabled={busyAction === `location-qr:${locationItem.slug}`}
+                  onClick={() => void handleRegenerateLocationQueueQr(locationItem)}
+                  variant="light"
+                >
+                  {busyAction === `location-qr:${locationItem.slug}` ? "Regenerating..." : "Regenerate queue QR"}
+                </Button>
                 <Button variant="default" onClick={() => setSelectedLocationSlug(locationItem.slug)}>
                   Select
                 </Button>
@@ -3987,10 +6662,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           </Stack>
         }
         overlayProps={{ blur: 6, backgroundOpacity: 0.35 }}
-        scrollAreaComponent={ScrollArea.Autosize}
       >
-        <form onSubmit={handleSaveService}>
-          <Stack gap="lg">
+        <form className="task-modal-form" onSubmit={handleSaveService}>
+          <Stack className="task-modal-form__main" gap="lg">
             <Group justify="space-between" align="flex-start" className="service-dialog__header">
               <div>
                 <Text c="dimmed" size="sm">
@@ -4009,20 +6683,46 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     <Text className="service-dialog__label">Basics</Text>
                     <Text fw={700}>Identity and timing</Text>
                   </div>
+                  <FileInput
+                    accept="image/png,image/jpeg,image/webp"
+                    clearable
+                    label="Service image"
+                    placeholder={serviceForm.imageUrl ? "Replace service image" : "Upload service image"}
+                    disabled={busyAction === "service-image-upload"}
+                    onChange={(file) => uploadServiceImage(file)}
+                  />
+                  <TextInput
+                    label="Service image URL"
+                    value={serviceForm.imageUrl || ""}
+                    onChange={(event) => setServiceForm((current) => ({ ...current, imageUrl: event.target.value }))}
+                  />
+                  {serviceForm.imageUrl ? <Image alt="" h={120} radius="md" src={serviceForm.imageUrl} /> : null}
                   <TextInput
                     label="Service name"
                     required
                     value={serviceForm.name}
-                    onChange={(event) =>
-                      setServiceForm((current) => ({ ...current, name: event.target.value }))
-                    }
+                    onChange={(event) => {
+                      const nextName = event.target.value;
+                      setServiceForm((current) => ({
+                        ...current,
+                        name: nextName,
+                        slug: serviceSlugManuallyEdited ? current.slug : buildServiceSlug(nextName)
+                      }));
+                    }}
                   />
                   <TextInput
                     label="Slug"
-                    value={serviceForm.slug || ""}
-                    onChange={(event) =>
-                      setServiceForm((current) => ({ ...current, slug: event.target.value }))
+                    description={checkingServiceSlug ? "Checking slug availability..." : serviceSlugMessage}
+                    error={
+                      !serviceSlugAvailable && serviceForm.slug
+                        ? serviceSlugMessage || "That service slug is already taken for this vendor."
+                        : undefined
                     }
+                    value={serviceForm.slug || ""}
+                    onChange={(event) => {
+                      setServiceSlugManuallyEdited(true);
+                      setServiceForm((current) => ({ ...current, slug: buildServiceSlug(event.target.value) }));
+                    }}
                   />
                   <NumberInput
                     label="Duration"
@@ -4114,6 +6814,230 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       }
                     />
                   ) : null}
+                  <Select
+                    allowDeselect={false}
+                    data={[
+                      {
+                        value: "service",
+                        label: "Same service only"
+                      },
+                      {
+                        value: "location",
+                        label: "All services at this branch"
+                      }
+                    ]}
+                    label="Booking capacity"
+                    description="Controls whether overlapping bookings from other services can consume this service's slot capacity."
+                    value={serviceForm.bookingCapacityScope || "service"}
+                    onChange={(value) =>
+                      setServiceForm((current) => ({
+                        ...current,
+                        bookingCapacityScope: value === "location" ? "location" : "service"
+                      }))
+                    }
+                  />
+                  <Divider />
+                  <div>
+                    <Text fw={700}>Branch inventory</Text>
+                    <Text c="dimmed" size="sm">
+                      Set the number of courts or slots this service has at each location.
+                    </Text>
+                  </div>
+                  <Stack gap="sm">
+                    {locations.length ? locations.map((location) => {
+                      const nextEntry = serviceForm.locationServices?.find((entry) => entry.locationSlug === location.slug);
+                      const groupFunded = normalizeGroupFundedSettings(nextEntry?.groupFunded);
+                      const branchEnabled = nextEntry?.isActive !== false;
+                      const updateLocationEntry = (updater: (entry: ServiceLocationFormEntry) => ServiceLocationFormEntry) => {
+                        setServiceForm((current) => ({
+                          ...current,
+                          locationServices: (
+                            current.locationServices || locations.map((item) => buildDefaultServiceLocationEntry(item.slug))
+                          ).map((entry) =>
+                            entry.locationSlug === location.slug
+                              ? updater({
+                                  ...buildDefaultServiceLocationEntry(location.slug),
+                                  ...entry,
+                                  groupFunded: normalizeGroupFundedSettings(entry.groupFunded)
+                                })
+                              : entry
+                          )
+                        }));
+                      };
+                      return (
+                        <Card key={location.slug} withBorder radius="md" p="sm" className="service-dialog__panel">
+                          <Stack gap="xs">
+                            <Group justify="space-between" align="center">
+                              <Text fw={600}>{location.name}</Text>
+                              <Badge variant="light">{location.slug}</Badge>
+                            </Group>
+                            <NumberInput
+                              label="Capacity"
+                              min={1}
+                              max={100}
+                              value={nextEntry?.capacity || 1}
+                              onChange={(value) =>
+                                updateLocationEntry((entry) => ({
+                                  ...entry,
+                                  capacity: Number(value) || 1
+                                }))
+                              }
+                            />
+                            <Switch
+                              checked={branchEnabled}
+                              label="Available at this branch"
+                              onChange={(event) =>
+                                updateLocationEntry((entry) => ({
+                                  ...entry,
+                                  isActive: event.currentTarget.checked
+                                }))
+                              }
+                            />
+                            <Divider my="xs" />
+                            <Stack gap="sm">
+                              <Group justify="space-between" align="flex-start" gap="md">
+                                <div>
+                                  <Group gap="xs" align="center">
+                                    <Text fw={700}>Group-funded booking</Text>
+                                    <Badge color={groupFunded.enabled ? "orange" : "gray"} variant="light">
+                                      {groupFunded.enabled ? "Enabled" : "Off"}
+                                    </Badge>
+                                  </Group>
+                                  <Text c="dimmed" size="sm">
+                                    Let customers create private-link campaigns for this branch service.
+                                  </Text>
+                                </div>
+                                <Switch
+                                  aria-label={`Enable group-funded booking for ${location.name}`}
+                                  checked={groupFunded.enabled}
+                                  disabled={!branchEnabled}
+                                  onChange={(event) =>
+                                    updateLocationEntry((entry) => ({
+                                      ...entry,
+                                      groupFunded: {
+                                        ...normalizeGroupFundedSettings(entry.groupFunded),
+                                        enabled: event.currentTarget.checked
+                                      }
+                                    }))
+                                  }
+                                />
+                              </Group>
+                              {groupFunded.enabled ? (
+                                <Stack gap="sm">
+                                  <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
+                                    <NumberInput
+                                      allowDecimal={false}
+                                      allowNegative={false}
+                                      clampBehavior="strict"
+                                      label="Min contributors"
+                                      min={2}
+                                      max={100}
+                                      value={groupFunded.minRequiredContributors || 2}
+                                      onChange={(value) =>
+                                        updateLocationEntry((entry) => ({
+                                          ...entry,
+                                          groupFunded: updateGroupFundedContributorBounds(
+                                            entry.groupFunded,
+                                            {
+                                            minRequiredContributors: Number(value) || 2
+                                            }
+                                          )
+                                        }))
+                                      }
+                                    />
+                                    <NumberInput
+                                      allowDecimal={false}
+                                      allowNegative={false}
+                                      clampBehavior="strict"
+                                      label="Max contributors"
+                                      min={2}
+                                      max={100}
+                                      value={groupFunded.maxRequiredContributors || 12}
+                                      onChange={(value) =>
+                                        updateLocationEntry((entry) => ({
+                                          ...entry,
+                                          groupFunded: updateGroupFundedContributorBounds(
+                                            entry.groupFunded,
+                                            {
+                                            maxRequiredContributors: Number(value) || 12
+                                            }
+                                          )
+                                        }))
+                                      }
+                                    />
+                                  </SimpleGrid>
+                                  <Paper p="sm" radius="md" withBorder>
+                                    <details>
+                                      <summary>
+                                        <Text component="span" fw={700}>Advanced funding window</Text>
+                                      </summary>
+                                      <Text c="dimmed" size="sm" mt="xs">
+                                        Limit how soon or how far ahead customers can set a funding deadline.
+                                      </Text>
+                                      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm" mt="sm">
+                                        <NumberInput
+                                          allowDecimal={false}
+                                          allowNegative={false}
+                                          clampBehavior="strict"
+                                          label="Min deadline hours"
+                                          min={1}
+                                          max={720}
+                                          value={groupFunded.minDeadlineHours || 24}
+                                          onChange={(value) =>
+                                            updateLocationEntry((entry) => ({
+                                              ...entry,
+                                              groupFunded: {
+                                                ...normalizeGroupFundedSettings(entry.groupFunded),
+                                                minDeadlineHours: Number(value) || 24
+                                              }
+                                            }))
+                                          }
+                                        />
+                                        <NumberInput
+                                          allowDecimal={false}
+                                          allowNegative={false}
+                                          clampBehavior="strict"
+                                          label="Max deadline days"
+                                          min={1}
+                                          max={90}
+                                          value={groupFunded.maxDeadlineDays || 14}
+                                          onChange={(value) =>
+                                            updateLocationEntry((entry) => ({
+                                              ...entry,
+                                              groupFunded: {
+                                                ...normalizeGroupFundedSettings(entry.groupFunded),
+                                                maxDeadlineDays: Number(value) || 14
+                                              }
+                                            }))
+                                          }
+                                        />
+                                      </SimpleGrid>
+                                    </details>
+                                  </Paper>
+                                  <Switch
+                                    checked={groupFunded.allowPublicCampaigns}
+                                    label="Allow public campaigns on vendor profile"
+                                    description="Private-link campaigns remain available when group-funded booking is enabled."
+                                    onChange={(event) =>
+                                      updateLocationEntry((entry) => ({
+                                        ...entry,
+                                        groupFunded: {
+                                          ...normalizeGroupFundedSettings(entry.groupFunded),
+                                          allowPublicCampaigns: event.currentTarget.checked
+                                        }
+                                      }))
+                                    }
+                                  />
+                                </Stack>
+                              ) : null}
+                            </Stack>
+                          </Stack>
+                        </Card>
+                      );
+                    }) : (
+                      <Alert color="yellow">Add locations before assigning branch inventory.</Alert>
+                    )}
+                  </Stack>
                 </Stack>
               </Card>
             </SimpleGrid>
@@ -4143,7 +7067,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               </Stack>
             </Card>
 
-            <Group justify="space-between" align="center" className="service-dialog__footer">
+          </Stack>
+          <Group justify="space-between" align="center" className="service-dialog__footer">
               <Text c="dimmed" size="sm">
                 {editingServiceSlug
                   ? "Update this service and keep the catalog ready for booking flows."
@@ -4157,8 +7082,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   {busyAction === "service-save" ? "Saving..." : "Save service"}
                 </Button>
               </Group>
-            </Group>
-          </Stack>
+          </Group>
         </form>
       </Modal>
     );
@@ -4182,10 +7106,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           </Stack>
         }
         overlayProps={{ blur: 6, backgroundOpacity: 0.35 }}
-        scrollAreaComponent={ScrollArea.Autosize}
       >
-        <form onSubmit={handleSaveAvailabilityBlock}>
-          <Stack gap="lg">
+        <form className="task-modal-form" onSubmit={handleSaveAvailabilityBlock}>
+          <Stack className="task-modal-form__main" gap="lg">
             <Group justify="space-between" align="flex-start" className="service-dialog__header">
               <div>
                 <Text c="dimmed" size="sm">
@@ -4209,9 +7132,19 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     label="Day"
                     required
                     value={String(availabilityBlockForm.weekday)}
-                    onChange={(value) =>
-                      setAvailabilityBlockForm((current) => ({ ...current, weekday: Number(value || 1) }))
-                    }
+                    onChange={(value) => {
+                      const weekday = Number(value || 1);
+                      setAvailabilityBlockForm((current) => {
+                        if (editingAvailabilityBlockId) {
+                          return { ...current, weekday };
+                        }
+                        return {
+                          ...current,
+                          weekday,
+                          ...getWeeklyAvailabilityDefaults(selectedLocation?.hours || [], weekday)
+                        };
+                      });
+                    }}
                   />
                   <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
                     <TextInput
@@ -4233,6 +7166,16 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       }
                     />
                   </SimpleGrid>
+                  <Checkbox
+                    label="Ends next day"
+                    checked={availabilityBlockForm.endsNextDay === true}
+                    onChange={(event) =>
+                      setAvailabilityBlockForm((current) => ({ ...current, endsNextDay: event.currentTarget.checked }))
+                    }
+                  />
+                  <Text c="dimmed" size="xs">
+                    {formatPreviewHourRange(availabilityBlockLocation, availabilityBlockForm.weekday)}. Weekly availability must stay within these business hours.
+                  </Text>
                   <NumberInput
                     label="Capacity"
                     min={1}
@@ -4251,6 +7194,28 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     <Text className="service-dialog__label">Scope</Text>
                     <Text fw={700}>Service and state</Text>
                   </div>
+                  <Select
+                    allowDeselect={false}
+                    data={locationOptions}
+                    description="This weekly rule applies only to the selected branch."
+                    label="Branch"
+                    required
+                    searchable
+                    value={availabilityBlockForm.locationSlug || selectedLocationSlug}
+                    onChange={(value) => {
+                      if (!value) {
+                        return;
+                      }
+                      const nextLocation = locations.find((locationItem) => locationItem.slug === value);
+                      setAvailabilityBlockForm((current) => ({
+                        ...current,
+                        locationSlug: value,
+                        ...(!editingAvailabilityBlockId
+                          ? getWeeklyAvailabilityDefaults(nextLocation?.hours || [], current.weekday)
+                          : {})
+                      }));
+                    }}
+                  />
                   <Select
                     data={serviceOptions}
                     label="Service"
@@ -4291,7 +7256,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               </Stack>
             </Card>
 
-            <Group justify="space-between" align="center" className="service-dialog__footer">
+          </Stack>
+          <Group justify="space-between" align="center" className="service-dialog__footer">
               <Text c="dimmed" size="sm">
                 {editingAvailabilityBlockId
                   ? "Update the weekly rule and keep the schedule aligned with the current location."
@@ -4305,8 +7271,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   {busyAction === "availability-block-save" ? "Saving..." : "Save availability"}
                 </Button>
               </Group>
-            </Group>
-          </Stack>
+          </Group>
         </form>
       </Modal>
     );
@@ -4330,10 +7295,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           </Stack>
         }
         overlayProps={{ blur: 6, backgroundOpacity: 0.35 }}
-        scrollAreaComponent={ScrollArea.Autosize}
       >
-        <form onSubmit={handleSaveAvailabilityException}>
-          <Stack gap="lg">
+        <form className="task-modal-form" onSubmit={handleSaveAvailabilityException}>
+          <Stack className="task-modal-form__main" gap="lg">
             <Group justify="space-between" align="flex-start" className="service-dialog__header">
               <div>
                 <Text c="dimmed" size="sm">
@@ -4485,7 +7449,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               </Stack>
             </Card>
 
-            <Group justify="space-between" align="center" className="service-dialog__footer">
+          </Stack>
+          <Group justify="space-between" align="center" className="service-dialog__footer">
               <Text c="dimmed" size="sm">
                 {editingAvailabilityExceptionId
                   ? "Update the exception and keep the date-specific availability aligned."
@@ -4499,8 +7464,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   {busyAction === "availability-exception-save" ? "Saving..." : "Save exception"}
                 </Button>
               </Group>
-            </Group>
-          </Stack>
+          </Group>
         </form>
       </Modal>
     );
@@ -4557,6 +7521,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     <Table className="neura-services-table" verticalSpacing="sm">
                       <Table.Thead>
                         <Table.Tr>
+                          <Table.Th>ID</Table.Th>
                           <Table.Th>Service</Table.Th>
                           <Table.Th>Duration</Table.Th>
                           <Table.Th>Price</Table.Th>
@@ -4568,7 +7533,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       <Table.Tbody>
                         {services.map((service) => (
                           <Table.Tr key={service.id}>
-                            <Table.Td className="neura-services-table__sticky neura-services-table__sticky-first">
+                            <Table.Td fw={700} className="neura-services-table__sticky neura-services-table__sticky-first">
+                              {service.id}
+                            </Table.Td>
+                            <Table.Td>
                               <Stack gap={2}>
                                 <Text fw={700} c={service.isActive ? undefined : "dimmed"}>
                                   {service.name}
@@ -4588,6 +7556,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                               {service.manualPaymentRequired ? (
                                 <Badge color="yellow" variant="light">Manual payment</Badge>
                               ) : null}
+                              <Text c={service.isActive ? "dimmed" : "gray"} size="sm">
+                                {service.bookingCapacityScope === "location" ? "Branch-wide capacity" : "Service-only capacity"}
+                              </Text>
                             </Table.Td>
                             <Table.Td>
                               <Text c={service.isActive ? undefined : "dimmed"}>
@@ -4658,20 +7629,37 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
             <Tabs.Panel pt="lg" value="weekly">
               <Stack gap="md">
-                <Group justify="space-between">
+                <Group className="weekly-availability-header" justify="space-between">
                   <div>
                     <Text className="neura-label">{selectedLocation?.name || "Selected location"}</Text>
                     <Title order={3}>Weekly availability</Title>
                   </div>
-                  <Button className="neura-secondary-button" onClick={() => openAvailabilityBlockDialog()}>
-                    Add weekly rule
-                  </Button>
+                  <Group align="flex-end" className="weekly-availability-actions" gap="sm">
+                    <Select
+                      allowDeselect={false}
+                      aria-label="Filter weekly availability by branch"
+                      data={locationOptions}
+                      label="Branch"
+                      searchable
+                      value={selectedLocationSlug}
+                      onChange={(value) => value && setSelectedLocationSlug(value)}
+                    />
+                    <Button className="neura-secondary-button" onClick={() => openAvailabilityBlockDialog()}>
+                      Add weekly rule
+                    </Button>
+                  </Group>
                 </Group>
+                {availabilitySummary?.hasSharedLocationCapacity && availabilitySummary?.hasServiceSpecificCapacity ? (
+                  <Alert color="yellow" variant="light">
+                    This location mixes shared branch capacity and service-specific court capacity. A shared rule can make one court&apos;s booking block other courts.
+                  </Alert>
+                ) : null}
                 {availabilityBlocks.length ? (
                   <Table.ScrollContainer minWidth={900}>
                     <Table className="neura-availability-table" verticalSpacing="sm">
                       <Table.Thead>
                         <Table.Tr>
+                          <Table.Th>ID</Table.Th>
                           <Table.Th>Day</Table.Th>
                           <Table.Th>Time</Table.Th>
                           <Table.Th>Service</Table.Th>
@@ -4683,13 +7671,16 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       <Table.Tbody>
                         {availabilityBlocks.map((block) => (
                           <Table.Tr key={block.id}>
-                            <Table.Td className="neura-availability-table__sticky neura-availability-table__sticky-first">
+                            <Table.Td fw={700} className="neura-availability-table__sticky neura-availability-table__sticky-first">
+                              {block.id}
+                            </Table.Td>
+                            <Table.Td>
                               <Text c={block.isActive ? undefined : "dimmed"}>
                                 {weekdayOptions.find((day) => day.value === String(block.weekday))?.label}
                               </Text>
                             </Table.Td>
                             <Table.Td>
-                              <Text c={block.isActive ? undefined : "dimmed"}>{block.startsAt} - {block.endsAt}</Text>
+                              <Text c={block.isActive ? undefined : "dimmed"}>{block.startsAt} - {block.endsAt}{block.endsNextDay ? " next day" : ""}</Text>
                             </Table.Td>
                             <Table.Td>
                               <Text c={block.isActive ? undefined : "dimmed"}>{getServiceLabel(block.serviceId)}</Text>
@@ -4770,6 +7761,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     <Table className="neura-availability-table" verticalSpacing="sm">
                       <Table.Thead>
                         <Table.Tr>
+                          <Table.Th>ID</Table.Th>
                           <Table.Th>Date</Table.Th>
                           <Table.Th>Time</Table.Th>
                           <Table.Th>Service</Table.Th>
@@ -4781,7 +7773,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       <Table.Tbody>
                         {availabilityExceptions.map((exception) => (
                           <Table.Tr key={exception.id}>
-                            <Table.Td className="neura-availability-table__sticky neura-availability-table__sticky-first">
+                            <Table.Td fw={700} className="neura-availability-table__sticky neura-availability-table__sticky-first">
+                              {exception.id}
+                            </Table.Td>
+                            <Table.Td>
                               <Text c={exception.isAvailable ? undefined : "dimmed"}>{formatDate(exception.exceptionDate)}</Text>
                             </Table.Td>
                             <Table.Td>
@@ -4940,13 +7935,14 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               <>
                 <Table.ScrollContainer minWidth={1240}>
                   <Table className="neura-bookings-table" verticalSpacing="sm">
-                    <Table.Thead>
-                      <Table.Tr>
-                        <Table.Th>Reference</Table.Th>
-                        <Table.Th>Customer</Table.Th>
-                        <Table.Th>Service</Table.Th>
-                        <Table.Th>Schedule</Table.Th>
-                        <Table.Th>Status</Table.Th>
+                      <Table.Thead>
+                        <Table.Tr>
+                          <Table.Th>ID</Table.Th>
+                          <Table.Th>Reference</Table.Th>
+                          <Table.Th>Customer</Table.Th>
+                          <Table.Th>Service</Table.Th>
+                          <Table.Th>Schedule</Table.Th>
+                          <Table.Th>Status</Table.Th>
                         <Table.Th>Payment</Table.Th>
                         <Table.Th>Actions</Table.Th>
                       </Table.Tr>
@@ -4955,83 +7951,29 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       {filteredBookings.map((booking) => {
                       const paymentReviewPending = booking.paymentStatus === "pending";
                       const paymentVerified = booking.paymentStatus === "paid";
+                      const manualPaymentRequired = Boolean(booking.serviceManualPaymentRequired);
                       const checkInState = getBookingCheckInState(booking);
                       const hasExpired = Boolean(booking.expiredAt);
-                      if (booking.status === "completed") {
-                        return (
-                          <Table.Tr key={booking.id}>
-                            <Table.Td>
-                              <Stack gap={2}>
-                                <Button
-                                  className="neura-inline-link-button"
-                                  onClick={() => {
-                                    setPaymentRejectionReason("");
-                                    setBookingDetailModalId(booking.id);
-                                    setBookingDetailOpen(true);
-                                  }}
-                                  p={0}
-                                  size="xs"
-                                  variant="subtle"
-                                >
-                                  {booking.reference}
-                                </Button>
-                                <Text c="dimmed" size="sm">Requested {formatDateTime(booking.createdAt)}</Text>
-                              </Stack>
-                            </Table.Td>
-                            <Table.Td>
-                              <Stack gap={2}>
-                                <Text fw={700}>{booking.customerName}</Text>
-                                <Text c="dimmed" size="sm">{booking.customerEmail || booking.customerPhone || "No contact details"}</Text>
-                              </Stack>
-                            </Table.Td>
-                            <Table.Td>
-                              <Stack gap={2}>
-                                <Text>{booking.serviceName}</Text>
-                                <Text c="dimmed" size="sm">Quantity {booking.bookingQuantity}</Text>
-                                <Text c="dimmed" size="sm">{booking.servicePriceDisplay || "-"}</Text>
-                              </Stack>
-                            </Table.Td>
-                            <Table.Td>
-                              <Stack gap={2}>
-                                <Text>{formatBookingScheduleDateTime(booking.scheduledStartAt)}</Text>
-                                <Text c="dimmed" size="sm">Ends {formatBookingScheduleDateTime(booking.scheduledEndAt)}</Text>
-                              </Stack>
-                            </Table.Td>
-                            <Table.Td>
-                              <Stack gap={4}>
-                                <Group gap={6}>
-                                  <Badge color={getBookingBadgeColor(booking.status)} variant="light">
-                                    {hasExpired ? "expired" : booking.status}
-                                  </Badge>
-                                  {booking.checkedInAt || booking.linkedTicket ? (
-                                    <Badge color="blue" variant="light">Checked in</Badge>
-                                  ) : null}
-                                  {booking.noShowAt ? (
-                                    <Badge color="red" variant="light">No-show</Badge>
-                                  ) : null}
-                                  {hasExpired ? (
-                                    <Badge color="orange" variant="light">Pending timeout</Badge>
-                                  ) : null}
-                                </Group>
-                                {booking.linkedTicket ? (
-                                  <Text c="dimmed" size="xs">
-                                    Ticket {booking.linkedTicket.ticketNumber}
-                                  </Text>
-                                ) : null}
-                                {hasExpired && booking.expirationReason ? (
-                                  <Text c="dimmed" size="xs">{booking.expirationReason}</Text>
-                                ) : null}
-                              </Stack>
-                            </Table.Td>
-                            <Table.Td>
-                              <Badge color={booking.paymentStatus === "paid" ? "teal" : "gray"} variant="light">
-                                {booking.paymentStatus}
-                              </Badge>
-                            </Table.Td>
-                            <Table.Td />
-                          </Table.Tr>
-                        );
-                      }
+                      const isGroupFundedBooking = booking.bookingPaymentSource === "group_funded" || Boolean(booking.groupFundedBookingId);
+                      const bookingBundleItems = isGroupFundedBooking && booking.groupFundedCampaign?.bundleItems?.length
+                        ? booking.groupFundedCampaign.bundleItems
+                        : booking.bundleItems || [];
+                      const displayedServiceItems = bookingBundleItems.length
+                        ? bookingBundleItems
+                        : [{
+                            serviceName: booking.serviceName,
+                            bookingQuantity: booking.bookingQuantity,
+                            priceAmountCents: booking.servicePriceAmountCents,
+                            currency: booking.serviceCurrency,
+                            scheduledStartAt: booking.scheduledStartAt,
+                            scheduledEndAt: booking.scheduledEndAt
+                          }];
+                      const primaryServiceItem = displayedServiceItems[0];
+                      const additionalServiceCount = Math.max(displayedServiceItems.length - 1, 0);
+                      const executionModeLabel = booking.executionMode === "sequential" ? "Back-to-back" : "Together";
+                      const displayedTotalCents = isGroupFundedBooking && booking.groupFundedCampaign
+                        ? Number(booking.groupFundedCampaign.targetAmountCents || 0) + Number(booking.groupFundedCampaign.roundingAdjustmentCents || 0)
+                        : displayedServiceItems.reduce((total, item) => total + Number(item.priceAmountCents || 0), 0);
                       const actionButtons = (() => {
                         if (canAdminBookings && paymentReviewPending && booking.paymentProof) {
                           return (
@@ -5076,6 +8018,44 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         }
 
                         if (canAdminBookings && booking.status === "pending" && paymentVerified) {
+                          return (
+                            <Group gap="xs" justify="flex-end" wrap="nowrap">
+                              <IconActionButton
+                                label="Confirm booking"
+                                color="teal"
+                                onClick={() => handleUpdateBookingStatus(booking, "confirmed")}
+                              >
+                                <IconCheck size={16} />
+                              </IconActionButton>
+                              <IconActionButton
+                                label="Reschedule booking"
+                                color="orange"
+                                onClick={() => openRescheduleDialog(booking)}
+                              >
+                                <IconCalendar size={16} />
+                              </IconActionButton>
+                              <IconActionButton
+                                label="Cancel booking"
+                                color="red"
+                                onClick={() =>
+                                  openConfirmAction({
+                                    title: "Cancel booking?",
+                                    description: "Are you sure you want to cancel this booking?",
+                                    confirmLabel: "Cancel booking",
+                                    confirmColor: "red",
+                                    onConfirm: async () => {
+                                      await handleUpdateBookingStatus(booking, "canceled");
+                                    }
+                                  })
+                                }
+                              >
+                                <IconX size={16} />
+                              </IconActionButton>
+                            </Group>
+                          );
+                        }
+
+                        if (canAdminBookings && booking.status === "pending" && !manualPaymentRequired) {
                           return (
                             <Group gap="xs" justify="flex-end" wrap="nowrap">
                               <IconActionButton
@@ -5215,9 +8195,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         return null;
                       })();
 
-                      return (
+                        return (
                         <Table.Tr key={booking.id}>
-                          <Table.Td className="neura-bookings-table__sticky neura-bookings-table__sticky-first">
+                          <Table.Td fw={700} className="neura-bookings-table__sticky neura-bookings-table__sticky-first">
+                            {booking.id}
+                          </Table.Td>
+                          <Table.Td>
                             <Stack gap={2}>
                               <Button
                                 className="neura-inline-link-button"
@@ -5233,6 +8216,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                 {booking.reference}
                               </Button>
                               <Text c="dimmed" size="sm">Requested {formatDateTime(booking.createdAt)}</Text>
+                              <GroupFundedBookingIndicator booking={booking} />
                             </Stack>
                           </Table.Td>
                           <Table.Td>
@@ -5243,20 +8227,32 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           </Table.Td>
                           <Table.Td>
                             <Stack gap={2}>
-                              <Text>{booking.serviceName}</Text>
-                              <Text c="dimmed" size="sm">Quantity {booking.bookingQuantity}</Text>
-                              <Text c="dimmed" size="sm">{booking.servicePriceDisplay || "-"}</Text>
+                              <Group gap="xs" wrap="nowrap">
+                                <Text fw={700} lineClamp={1}>{primaryServiceItem.serviceName}</Text>
+                                {isGroupFundedBooking ? <Badge color="blue" size="xs" variant="light">Campaign</Badge> : null}
+                              </Group>
+                              <Text c="dimmed" size="sm">
+                                Quantity {primaryServiceItem.bookingQuantity}
+                                {additionalServiceCount ? ` · +${additionalServiceCount} service${additionalServiceCount === 1 ? "" : "s"}` : ""}
+                              </Text>
+                              <Text c="dimmed" size="sm">
+                                {displayedServiceItems.length > 1 ? `${executionModeLabel} bundle · ` : ""}
+                                {formatMoney(displayedTotalCents, primaryServiceItem.currency || booking.serviceCurrency)}
+                              </Text>
                             </Stack>
                           </Table.Td>
                           <Table.Td>
                             <Stack gap={2}>
                               <Text>{formatBookingScheduleDateTime(booking.scheduledStartAt)}</Text>
                               <Text c="dimmed" size="sm">Ends {formatBookingScheduleDateTime(booking.scheduledEndAt)}</Text>
+                              {displayedServiceItems.length > 1 ? (
+                                <Text c="dimmed" size="xs">{executionModeLabel} services</Text>
+                              ) : null}
                             </Stack>
                           </Table.Td>
                           <Table.Td>
                             <Stack gap={4}>
-                              <Group gap={6}>
+                              <Group className="booking-list-status-chips" gap={6}>
                                 <Badge color={getBookingBadgeColor(booking.status)} variant="light">
                                   {hasExpired ? "expired" : booking.status}
                                 </Badge>
@@ -5268,6 +8264,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                 ) : null}
                                 {hasExpired ? (
                                   <Badge color="orange" variant="light">Pending timeout</Badge>
+                                ) : null}
+                                {!manualPaymentRequired && !isGroupFundedBooking ? (
+                                  <Badge color="gray" variant="light">No manual payment</Badge>
                                 ) : null}
                               </Group>
                               {booking.linkedTicket ? (
@@ -5281,9 +8280,18 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                             </Stack>
                           </Table.Td>
                           <Table.Td>
-                            <Badge color={booking.paymentStatus === "paid" ? "teal" : "gray"} variant="light">
-                              {booking.paymentStatus}
-                            </Badge>
+                            <Stack gap={4}>
+                              <Badge color={booking.paymentStatus === "paid" ? "teal" : "gray"} variant="light" w="fit-content">
+                                {isGroupFundedBooking ? "Campaign funded" : booking.paymentStatus}
+                              </Badge>
+                              <Text c="dimmed" size="xs">
+                                {isGroupFundedBooking
+                                  ? "No individual proof"
+                                  : manualPaymentRequired
+                                    ? booking.paymentProof ? "Proof submitted" : "Proof required"
+                                    : "No manual payment"}
+                              </Text>
+                            </Stack>
                           </Table.Td>
                           <Table.Td>
                             <Group gap="xs" wrap="wrap">{actionButtons}</Group>
@@ -5322,14 +8330,836 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     );
   }
 
+  function renderGroupFundedPage() {
+    const campaigns = groupFundedCampaignsQuery.data?.campaigns || [];
+    const reviewReadyCount = campaigns.filter((campaign) => campaign.campaignStatus === "vendor_review").length;
+    const proofReviewCount = campaigns.filter((campaign) =>
+      ["funding", "funded", "vendor_review"].includes(campaign.campaignStatus)
+    ).length;
+    const selectedDetail = groupFundedDetailQuery.data || null;
+    const selectedDetailBundleItems = selectedDetail
+      ? (
+          selectedDetail.campaign.bundleItems?.length
+            ? selectedDetail.campaign.bundleItems.map((item) => {
+                const rawItem = item as RawGroupFundedBundleItem;
+                return {
+                  id: rawItem.id || rawItem._id || null,
+                  serviceId: rawItem.serviceId,
+                  serviceName: rawItem.serviceName || rawItem.serviceNameSnapshot || selectedDetail.campaign.serviceName,
+                  serviceSlug: rawItem.serviceSlug || rawItem.serviceSlugSnapshot || "",
+                  bookingQuantity: rawItem.bookingQuantity,
+                  priceAmountCents: rawItem.priceAmountCents,
+                  currency: rawItem.currency,
+                  executionMode: rawItem.executionMode,
+                  scheduledStartAt: rawItem.scheduledStartAt,
+                  scheduledEndAt: rawItem.scheduledEndAt,
+                  sortOrder: rawItem.sortOrder
+                };
+              })
+            : [{
+                id: null,
+                serviceId: selectedDetail.campaign.serviceId,
+                serviceName: selectedDetail.campaign.serviceName,
+                serviceSlug: selectedDetail.campaign.serviceSlug,
+                bookingQuantity: selectedDetail.campaign.bookingQuantity,
+                priceAmountCents: getCampaignFundingTargetAmountCents(selectedDetail.campaign),
+                currency: selectedDetail.campaign.currency,
+                executionMode: "parallel" as const,
+                scheduledStartAt: selectedDetail.campaign.scheduledStartAt,
+                scheduledEndAt: selectedDetail.campaign.scheduledEndAt,
+                sortOrder: 0
+              }]
+        )
+      : [];
+    const selectedDetailHasServiceBundle = selectedDetailBundleItems.length > 1;
+    const selectedDetailFundingTargetAmountCents = selectedDetail
+      ? getCampaignFundingTargetAmountCents(selectedDetail.campaign)
+      : 0;
+    const submittedContributions = selectedDetail?.contributions.filter(
+      (contribution) => contribution.contributionStatus === "submitted"
+    ) || [];
+    const verifiedContributions = selectedDetail?.contributions.filter(
+      (contribution) => contribution.contributionStatus === "verified"
+    ) || [];
+    const activeCapacityHold = selectedDetail?.capacityHolds.find((hold) => hold.holdStatus === "active") || null;
+    const selectedDetailFundingReached = Boolean(
+      selectedDetail &&
+      (
+        selectedDetail.campaign.fundedAmountCents >= selectedDetailFundingTargetAmountCents ||
+        selectedDetail.campaign.paidParticipantCount >= selectedDetail.campaign.requiredContributors ||
+        selectedDetail.campaign.campaignStatus !== "funding"
+      )
+    );
+
+    return (
+      <Stack gap="lg">
+        <SimpleGrid cols={{ base: 1, md: 3 }}>
+          <MetricCard
+            detail="Campaigns matching the current branch and filter."
+            label="Campaigns"
+            value={campaigns.length}
+          />
+          <MetricCard
+            detail="Campaigns with submitted or active funding work."
+            label="Funding work"
+            value={proofReviewCount}
+          />
+          <MetricCard
+            detail="Fully funded campaigns waiting for a vendor decision."
+            label="Vendor review"
+            value={reviewReadyCount}
+          />
+        </SimpleGrid>
+
+        <Card className="neura-card" padding="lg">
+          <Stack gap="md">
+            <Group align="flex-end" justify="space-between">
+              <div>
+                <Text className="neura-label">Vendor operations</Text>
+                <Title order={3}>Group-funded campaigns</Title>
+                <Text c="dimmed" size="sm">
+                  Review contribution proofs, funding progress, capacity holds, and approval decisions.
+                </Text>
+              </div>
+              <Group gap="sm">
+                <Select
+                  data={[
+                    { label: "All statuses", value: "all" },
+                    { label: "Funding", value: "funding" },
+                    { label: "Vendor review", value: "vendor_review" },
+                    { label: "Slot recovery", value: "slot_recovery" },
+                    { label: "Replacement proposed", value: "replacement_proposed" },
+                    { label: "Confirmed", value: "confirmed" },
+                    { label: "Vendor rejected", value: "vendor_rejected" },
+                    { label: "Funding failed", value: "funding_failed" }
+                  ]}
+                  label="Status"
+                  value={groupFundedStatusFilter}
+                  onChange={(value) => setGroupFundedStatusFilter((value || "all") as GroupFundedStatusFilter)}
+                />
+                <Button className="neura-secondary-button" mt={24} onClick={reloadGroupFundedCampaigns}>
+                  Refresh
+                </Button>
+              </Group>
+            </Group>
+
+            {groupFundedCampaignsQuery.isFetching ? (
+              <Text c="dimmed" size="sm">Loading group-funded campaigns...</Text>
+            ) : null}
+
+            {campaigns.length ? (
+              <Table.ScrollContainer minWidth={1160}>
+                <Table className="neura-bookings-table" verticalSpacing="sm">
+                  <Table.Thead>
+                    <Table.Tr>
+                      <Table.Th className="neura-bookings-table__sticky neura-bookings-table__sticky-first" style={{ width: 84 }}>
+                        ID
+                      </Table.Th>
+                      <Table.Th>Campaign</Table.Th>
+                      <Table.Th>Service</Table.Th>
+                      <Table.Th>Schedule</Table.Th>
+                      <Table.Th>Funding</Table.Th>
+                      <Table.Th>Status</Table.Th>
+                      <Table.Th>Actions</Table.Th>
+                    </Table.Tr>
+                  </Table.Thead>
+                  <Table.Tbody>
+                    {campaigns.map((campaign) => {
+                      const fundingTargetAmountCents = getCampaignFundingTargetAmountCents(campaign);
+                      return (
+                        <Table.Tr key={campaign.id}>
+                          <Table.Td
+                            className="neura-bookings-table__sticky neura-bookings-table__sticky-first"
+                            fw={700}
+                            style={{ width: 84 }}
+                          >
+                            #{campaign.id}
+                          </Table.Td>
+                          <Table.Td>
+                            <Stack gap={2}>
+                              <Button
+                                className="neura-inline-link-button"
+                                onClick={() => {
+                                  resetGroupFundedCampaignDecision();
+                                  closeGroupFundedContributionRejectModal();
+                                  setGroupFundedRefundNotes({});
+                                  setGroupFundedDetailId(campaign.id);
+                                }}
+                                p={0}
+                                size="xs"
+                                variant="subtle"
+                              >
+                                {campaign.campaignTitle || campaign.serviceName}
+                              </Button>
+                              <Text c="dimmed" size="sm">
+                                Organizer {campaign.organizerDisplayName || "Customer"}
+                              </Text>
+                              <Badge color={campaign.visibility === "public" ? "blue" : "gray"} variant="light" w="fit-content">
+                                {campaign.visibility.replace(/_/g, " ")}
+                              </Badge>
+                            </Stack>
+                          </Table.Td>
+                          <Table.Td>
+                            <Stack gap={2}>
+                              <Text fw={700}>{campaign.serviceName}</Text>
+                              <Text c="dimmed" size="sm">{campaign.locationName}</Text>
+                              <Text c="dimmed" size="sm">Quantity {campaign.bookingQuantity}</Text>
+                            </Stack>
+                          </Table.Td>
+                          <Table.Td>
+                            <Stack gap={2}>
+                              <Text>{formatBookingScheduleDateTime(campaign.scheduledStartAt)}</Text>
+                              <Text c="dimmed" size="sm">
+                                Ends {formatBookingScheduleDateTime(campaign.scheduledEndAt)}
+                              </Text>
+                              <Text c="dimmed" size="sm">
+                                Deadline {formatBookingScheduleDateTime(campaign.fundingDeadlineAt)}
+                              </Text>
+                            </Stack>
+                          </Table.Td>
+                          <Table.Td>
+                            <Stack gap={4}>
+                              <CampaignFundingProgress
+                                fundedAmountCents={campaign.fundedAmountCents}
+                                targetAmountCents={fundingTargetAmountCents}
+                              />
+                              <Text c="dimmed" size="sm">
+                                {campaign.paidParticipantCount}/{campaign.requiredContributors} verified · {formatMoney(campaign.requiredContributionAmountCents, campaign.currency)} each
+                              </Text>
+                            </Stack>
+                          </Table.Td>
+                          <Table.Td>
+                            <Stack gap={4}>
+                              <Badge color={getGroupFundedStatusColor(campaign.campaignStatus)} variant="light" w="fit-content">
+                                {campaign.campaignStatus.replace(/_/g, " ")}
+                              </Badge>
+                              {isGroupFundedCampaignFullyRefunded(campaign) ? (
+                                <Badge color="teal" variant="light" w="fit-content">
+                                  Fully refunded
+                                </Badge>
+                              ) : null}
+                            </Stack>
+                          </Table.Td>
+                          <Table.Td>
+                            <Button
+                              className="neura-secondary-button"
+                              size="xs"
+                              onClick={() => {
+                                resetGroupFundedCampaignDecision();
+                                closeGroupFundedContributionRejectModal();
+                                setGroupFundedRefundNotes({});
+                                setGroupFundedDetailId(campaign.id);
+                              }}
+                            >
+                              Review
+                            </Button>
+                          </Table.Td>
+                        </Table.Tr>
+                      );
+                    })}
+                  </Table.Tbody>
+                </Table>
+              </Table.ScrollContainer>
+            ) : (
+              <DashboardEmptyState
+                title="No group-funded campaigns"
+                text="Campaigns for this branch will appear here when customers start or contribute to group-funded bookings."
+              />
+            )}
+          </Stack>
+        </Card>
+
+        <Modal
+          centered
+          className="group-funded-detail-modal"
+          opened={Boolean(groupFundedDetailId)}
+          onClose={() => {
+            setGroupFundedDetailId(null);
+            resetGroupFundedCampaignDecision();
+            closeGroupFundedContributionRejectModal();
+            setGroupFundedRefundNotes({});
+          }}
+          size={1120}
+          title={
+            <Stack gap={2}>
+              <Text className="booking-detail__eyebrow">Group-funded campaign</Text>
+              <Text className="booking-detail__title">
+                {selectedDetail
+                  ? selectedDetailHasServiceBundle
+                    ? `${selectedDetailBundleItems.length} bundled services`
+                    : selectedDetail.campaign.serviceName
+                  : "Loading campaign"}
+              </Text>
+            </Stack>
+          }
+        >
+          {groupFundedDetailQuery.isFetching ? (
+            <Text c="dimmed">Loading campaign details...</Text>
+          ) : selectedDetail ? (
+            <Stack className="group-funded-detail-content" gap="lg">
+              <SimpleGrid cols={{ base: 1, md: 3 }} spacing="sm">
+                <Paper withBorder radius="md" p="md">
+                  <Text c="dimmed" size="xs">Status</Text>
+                  <Badge color={getGroupFundedStatusColor(selectedDetail.campaign.campaignStatus)} variant="light">
+                    {selectedDetail.campaign.campaignStatus.replace(/_/g, " ")}
+                  </Badge>
+                </Paper>
+                <Paper withBorder radius="md" p="md">
+                  <Text c="dimmed" size="xs">Funding</Text>
+                  <Text fw={800}>
+                    {formatMoney(selectedDetail.campaign.fundedAmountCents, selectedDetail.campaign.currency)}
+                  </Text>
+                  <Text c="dimmed" size="sm">
+                    Target {formatMoney(selectedDetailFundingTargetAmountCents, selectedDetail.campaign.currency)}
+                  </Text>
+                </Paper>
+                <Paper withBorder radius="md" p="md">
+                  <Text c="dimmed" size="xs">Capacity hold</Text>
+                  <Text fw={800}>{activeCapacityHold ? activeCapacityHold.holdStatus : "None"}</Text>
+                  {activeCapacityHold ? (
+                    <Text c="dimmed" size="sm">Expires {formatDateTime(activeCapacityHold.expiresAt)}</Text>
+                  ) : null}
+                </Paper>
+              </SimpleGrid>
+
+              <Paper withBorder radius="md" p="md">
+                <Stack gap="md">
+                  <Group align="flex-start" justify="space-between">
+                    <div>
+                      <Text className="finazze-section-label">Campaign details</Text>
+                      <Title order={3}>{selectedDetail.campaign.campaignTitle || selectedDetail.campaign.serviceName}</Title>
+                      <Text c="dimmed" size="sm">
+                        Organized by {selectedDetail.campaign.organizerDisplayName || "Customer"}
+                      </Text>
+                    </div>
+                    <Badge color={selectedDetail.campaign.visibility === "public" ? "blue" : "gray"} variant="light">
+                      {selectedDetail.campaign.visibility === "public" ? "Public" : "Private link"}
+                    </Badge>
+                  </Group>
+
+                  {selectedDetail.campaign.description ? (
+                    <Spoiler hideLabel="Show less" maxHeight={72} showLabel="Show more">
+                      <RichCampaignDescription
+                        className="rich-campaign-description"
+                        content={selectedDetail.campaign.description}
+                      />
+                    </Spoiler>
+                  ) : (
+                    <Text c="dimmed" size="sm">No campaign description provided.</Text>
+                  )}
+
+                  <Paper withBorder radius="md" p="sm">
+                    <Stack gap="sm">
+                      <Group justify="space-between" align="flex-start">
+                        <Stack gap={2}>
+                          <Text c="dimmed" size="xs">
+                            {selectedDetailHasServiceBundle ? "Bundled services" : "Selected service"}
+                          </Text>
+                          <Text fw={800}>
+                            {selectedDetailHasServiceBundle
+                              ? `${selectedDetailBundleItems.length} services in this campaign`
+                              : selectedDetailBundleItems[0]?.serviceName || selectedDetail.campaign.serviceName}
+                          </Text>
+                        </Stack>
+                        <Badge color="teal" variant="light">
+                          {selectedDetailHasServiceBundle ? "Service bundle" : "Single service"}
+                        </Badge>
+                      </Group>
+                      <SimpleGrid cols={{ base: 1, sm: selectedDetailHasServiceBundle ? 2 : 1 }} spacing="sm">
+                        {selectedDetailBundleItems.map((item) => (
+                          <Paper key={item.id || item.serviceSlug} withBorder radius="md" p="sm">
+                            <Stack gap={4}>
+                              <Group justify="space-between" gap="sm" wrap="nowrap">
+                                <Text fw={800}>{item.serviceName}</Text>
+                                <Badge variant="light">x{item.bookingQuantity}</Badge>
+                              </Group>
+                              <Text c="dimmed" size="sm">
+                                {formatBookingScheduleTimeRange(item.scheduledStartAt, item.scheduledEndAt)}
+                              </Text>
+                              <Text c="dimmed" size="sm">
+                                {formatMoney(item.priceAmountCents, item.currency)}
+                              </Text>
+                            </Stack>
+                          </Paper>
+                        ))}
+                      </SimpleGrid>
+                    </Stack>
+                  </Paper>
+
+                  <SimpleGrid cols={{ base: 1, sm: 2, md: 4 }} spacing="sm">
+                    <Stack gap={2}>
+                      <Text c="dimmed" size="xs">Booking</Text>
+                      <Text fw={700}>{formatBookingScheduleDateTime(selectedDetail.campaign.scheduledStartAt)}</Text>
+                      <Text c="dimmed" size="sm">
+                        Ends {formatBookingScheduleDateTime(selectedDetail.campaign.scheduledEndAt)}
+                      </Text>
+                    </Stack>
+                    <Stack gap={2}>
+                      <Text c="dimmed" size="xs">Service</Text>
+                      <Text fw={700}>
+                        {selectedDetailHasServiceBundle
+                          ? `${selectedDetailBundleItems.length} bundled services`
+                          : selectedDetail.campaign.serviceName}
+                      </Text>
+                      <Text c="dimmed" size="sm">
+                        {selectedDetail.campaign.locationName} · {selectedDetailHasServiceBundle ? "Service bundle" : `Quantity ${selectedDetail.campaign.bookingQuantity}`}
+                      </Text>
+                    </Stack>
+                    <Stack gap={2}>
+                      <Text c="dimmed" size="xs">Deadline</Text>
+                      <Text fw={700}>{formatBookingScheduleDateTime(selectedDetail.campaign.fundingDeadlineAt)}</Text>
+                      <Text c="dimmed" size="sm">
+                        Created {formatDateTime(selectedDetail.campaign.createdAt)}
+                      </Text>
+                    </Stack>
+                    <Stack gap={2}>
+                      <Text c="dimmed" size="xs">Contributors</Text>
+                      <Text fw={700}>
+                        {selectedDetail.campaign.paidParticipantCount}/{selectedDetail.campaign.requiredContributors} verified
+                      </Text>
+                      <Text c="dimmed" size="sm">
+                        {formatMoney(selectedDetail.campaign.requiredContributionAmountCents, selectedDetail.campaign.currency)} each
+                      </Text>
+                    </Stack>
+                  </SimpleGrid>
+                </Stack>
+              </Paper>
+
+              <Paper className="group-funded-detail-table-card" withBorder radius="md" p="md">
+                <Stack gap="sm">
+                  <Group justify="space-between">
+                    <div>
+                      <Text fw={800}>Contribution proofs</Text>
+                      <Text c="dimmed" size="sm">
+                        {submittedContributions.length} submitted · {verifiedContributions.length} verified
+                      </Text>
+                    </div>
+                  </Group>
+                  {selectedDetail.contributions.length ? (
+                    <Table.ScrollContainer className="group-funded-detail-table-scroll" minWidth={920}>
+                      <Table className="neura-bookings-table neura-bookings-table--compact" verticalSpacing="sm">
+                        <Table.Thead>
+                          <Table.Tr>
+                            <Table.Th className="neura-bookings-table__sticky neura-bookings-table__sticky-first group-funded-contributions-table__row-number">#</Table.Th>
+                            <Table.Th className="group-funded-contributions-table__contributor">Contributor</Table.Th>
+                            <Table.Th>Amount</Table.Th>
+                            <Table.Th>Reference</Table.Th>
+                            <Table.Th className="group-funded-contributions-table__status">Status</Table.Th>
+                            <Table.Th>Actions</Table.Th>
+                          </Table.Tr>
+                        </Table.Thead>
+                        <Table.Tbody>
+                          {selectedDetail.contributions.map((contribution, index) => (
+                            <Table.Tr key={contribution.id}>
+                              <Table.Td className="neura-bookings-table__sticky neura-bookings-table__sticky-first group-funded-contributions-table__row-number">
+                                {index + 1}
+                              </Table.Td>
+                              <Table.Td className="group-funded-contributions-table__contributor">
+                                <Stack gap={2}>
+                                  <Text fw={700}>{contribution.participantDisplayName || `User ${contribution.userId}`}</Text>
+                                  <Text c="dimmed" size="xs">
+                                    User {contribution.userId}
+                                  </Text>
+                                </Stack>
+                              </Table.Td>
+                              <Table.Td>{formatMoney(contribution.amountCents, contribution.currency)}</Table.Td>
+                              <Table.Td>
+                                <Stack gap={2}>
+                                  <Text>{contribution.paymentReference || "-"}</Text>
+                                  {contribution.paymentProof ? (
+                                    <Group gap="xs">
+                                      <Text c="dimmed" size="xs">
+                                        Proof: {contribution.paymentProof.fileName}
+                                      </Text>
+                                      <Button
+                                        color="dark"
+                                        loading={busyAction === `group-funded-proof:${contribution.id}`}
+                                        onClick={() => handleViewGroupFundedContributionProof(contribution)}
+                                        size="compact-xs"
+                                        variant="subtle"
+                                      >
+                                        View proof
+                                      </Button>
+                                    </Group>
+                                  ) : null}
+                                </Stack>
+                              </Table.Td>
+                              <Table.Td className="group-funded-contributions-table__status">
+                                <Badge className="group-funded-contributions-table__status-badge" color={contribution.contributionStatus === "verified" ? "teal" : contribution.contributionStatus === "rejected" ? "red" : "yellow"} variant="light">
+                                  {contribution.contributionStatus.replace(/_/g, " ")}
+                                </Badge>
+                              </Table.Td>
+                              <Table.Td>
+                                {contribution.contributionStatus === "submitted" && canAdminBookings ? (
+                                  <Stack gap="xs">
+                                    <Group gap="xs">
+                                      <Button
+                                        color="teal"
+                                        disabled={
+                                          busyAction === `group-funded-contribution-verify:${contribution.id}` ||
+                                          selectedDetailFundingReached
+                                        }
+                                        onClick={() => handleVerifyGroupFundedContribution(contribution)}
+                                        size="xs"
+                                        variant="light"
+                                      >
+                                        Verify
+                                      </Button>
+                                      <Button
+                                        color="red"
+                                        disabled={busyAction === `group-funded-contribution-reject:${contribution.id}`}
+                                        onClick={() => openGroupFundedContributionRejectModal(contribution)}
+                                        size="xs"
+                                        variant="light"
+                                      >
+                                        Reject
+                                      </Button>
+                                    </Group>
+                                    {selectedDetailFundingReached ? (
+                                      <Text c="dimmed" size="xs">
+                                        Campaign is already fully funded. Reject remaining submitted proofs.
+                                      </Text>
+                                    ) : null}
+                                  </Stack>
+                                ) : (
+                                  <Text c="dimmed" size="xs">No action</Text>
+                                )}
+                              </Table.Td>
+                            </Table.Tr>
+                          ))}
+                        </Table.Tbody>
+                      </Table>
+                    </Table.ScrollContainer>
+                  ) : (
+                    <Alert color="yellow" variant="light">No contribution proofs have been submitted yet.</Alert>
+                  )}
+                </Stack>
+              </Paper>
+
+              {selectedDetail.refunds.length ? (
+                <Paper withBorder radius="md" p="md">
+                  <Stack gap="sm">
+                    <Group justify="space-between">
+                      <Text fw={800}>Refund obligations</Text>
+                      {isGroupFundedCampaignFullyRefunded(selectedDetail.campaign) ? (
+                        <Badge color="teal" variant="light">All contributor refunds completed</Badge>
+                      ) : null}
+                    </Group>
+                    {selectedDetail.refunds.map((refund) => (
+                      <Paper key={refund.id} withBorder radius="md" p="sm">
+                        <Stack gap="sm">
+                          <Group align="flex-start" justify="space-between">
+                            <div>
+                              <Text fw={700}>{formatMoney(refund.amountCents, refund.currency)}</Text>
+                              <Text c="dimmed" size="sm">
+                                Reason {refund.refundReason.replace(/_/g, " ")} · User {refund.userId}
+                              </Text>
+                              {refund.completedAt ? (
+                                <Text c="dimmed" size="sm">
+                                  Completed {formatDateTime(refund.completedAt)}
+                                </Text>
+                              ) : null}
+                            </div>
+                            <Badge color={getGroupFundedRefundStatusColor(refund.refundStatus)} variant="light">
+                              {refund.refundStatus.replace(/_/g, " ")}
+                            </Badge>
+                          </Group>
+                          <Textarea
+                            disabled={refund.refundStatus === "completed"}
+                            label="Refund notes"
+                            minRows={2}
+                            onChange={(event) =>
+                              setGroupFundedRefundNotes((current) => ({
+                                ...current,
+                                [refund.id]: event.currentTarget.value
+                              }))
+                            }
+                            placeholder="Add reference number, channel, or internal handling notes"
+                            value={groupFundedRefundNotes[refund.id] ?? refund.notes ?? ""}
+                          />
+                          {canAdminBookings ? (
+                            <Group justify="flex-end">
+                              <Button
+                                disabled={refund.refundStatus === "completed"}
+                                loading={busyAction === `group-funded-refund:${refund.id}:in_progress`}
+                                onClick={() => handleUpdateGroupFundedRefund(refund, "in_progress")}
+                                size="xs"
+                                variant="light"
+                              >
+                                Mark in progress
+                              </Button>
+                              <Button
+                                color="orange"
+                                disabled={refund.refundStatus === "completed"}
+                                loading={busyAction === `group-funded-refund:${refund.id}:policy_review_required`}
+                                onClick={() => handleUpdateGroupFundedRefund(refund, "policy_review_required")}
+                                size="xs"
+                                variant="light"
+                              >
+                                Policy review
+                              </Button>
+                              <Button
+                                color="teal"
+                                disabled={refund.refundStatus === "completed"}
+                                loading={busyAction === `group-funded-refund:${refund.id}:completed`}
+                                onClick={() => handleUpdateGroupFundedRefund(refund, "completed")}
+                                size="xs"
+                              >
+                                Mark refunded
+                              </Button>
+                            </Group>
+                          ) : null}
+                        </Stack>
+                      </Paper>
+                    ))}
+                  </Stack>
+                </Paper>
+              ) : null}
+
+              {selectedDetail.campaign.campaignStatus === "vendor_review" && canAdminBookings ? (
+                <Paper withBorder radius="md" p="md">
+                  <Stack gap="sm">
+                    <Text fw={800}>Vendor decision</Text>
+                    <Text c="dimmed" size="sm">
+                      Approval creates one linked paid booking for the organizer. Rejection makes verified contributions refund-eligible.
+                    </Text>
+                    <Select
+                      clearable
+                      data={groupFundedCampaignRejectionReasons.map((reason) => ({
+                        label: reason.label,
+                        value: reason.value
+                      }))}
+                      label="Common rejection reason"
+                      onChange={(value) => {
+                        setGroupFundedRejectReasonPreset(value);
+                        const selectedReason = groupFundedCampaignRejectionReasons.find((reason) => reason.value === value);
+                        setGroupFundedRejectReason(selectedReason?.reason || "");
+                      }}
+                      placeholder="Select a common reason"
+                      value={groupFundedRejectReasonPreset}
+                    />
+                    <Textarea
+                      label="Rejection reason"
+                      disabled={!groupFundedUseCustomRejectReason}
+                      minRows={2}
+                      placeholder="Select a common reason or enable custom rejection reason"
+                      value={groupFundedRejectReason}
+                      onChange={(event) => setGroupFundedRejectReason(event.currentTarget.value)}
+                    />
+                    <Checkbox
+                      checked={groupFundedUseCustomRejectReason}
+                      label="Use custom rejection reason"
+                      onChange={(event) => setGroupFundedUseCustomRejectReason(event.currentTarget.checked)}
+                    />
+                    <Group justify="flex-end">
+                      <Button
+                        color="red"
+                        disabled={busyAction === `group-funded-reject:${selectedDetail.campaign.id}`}
+                        onClick={() => handleRejectGroupFundedCampaign(selectedDetail.campaign)}
+                        variant="light"
+                      >
+                        Reject campaign
+                      </Button>
+                      <Button
+                        color="teal"
+                        disabled={busyAction === `group-funded-approve:${selectedDetail.campaign.id}`}
+                        onClick={() => handleApproveGroupFundedCampaign(selectedDetail.campaign)}
+                      >
+                        Approve booking
+                      </Button>
+                    </Group>
+                  </Stack>
+                </Paper>
+              ) : null}
+            </Stack>
+          ) : (
+            <Alert color="red">Campaign details could not be loaded.</Alert>
+          )}
+        </Modal>
+
+        <Modal
+          centered
+          onClose={closeGroupFundedContributionRejectModal}
+          opened={Boolean(groupFundedContributionToReject)}
+          size="md"
+          title="Reject contribution proof"
+        >
+          <Stack gap="md">
+            <Text c="dimmed" size="sm">
+              Tell the contributor why their payment proof cannot be accepted. They will see this reason in their campaign details.
+            </Text>
+            <Paper withBorder radius="md" p="sm">
+              <Text fw={700}>
+                {groupFundedContributionToReject?.participantDisplayName || `User ${groupFundedContributionToReject?.userId || ""}`}
+              </Text>
+              <Text c="dimmed" size="sm">
+                {groupFundedContributionToReject
+                  ? `${formatMoney(groupFundedContributionToReject.amountCents, groupFundedContributionToReject.currency)} · ${groupFundedContributionToReject.paymentReference || "No payment reference"}`
+                  : ""}
+              </Text>
+            </Paper>
+            <Select
+              clearable
+              data={groupFundedContributionRejectionReasons.map((reason) => ({ label: reason.label, value: reason.value }))}
+              label="Common rejection reason"
+              onChange={(value) => {
+                setGroupFundedContributionRejectReasonPreset(value);
+                const selectedReason = groupFundedContributionRejectionReasons.find((reason) => reason.value === value);
+                setGroupFundedContributionRejectReason(selectedReason?.reason || "");
+                setGroupFundedContributionUseCustomRejectReason(false);
+              }}
+              placeholder="Select a common reason"
+              value={groupFundedContributionRejectReasonPreset}
+            />
+            <Checkbox
+              checked={groupFundedContributionUseCustomRejectReason}
+              label="Use custom rejection reason"
+              onChange={(event) => {
+                const useCustom = event.currentTarget.checked;
+                setGroupFundedContributionUseCustomRejectReason(useCustom);
+                setGroupFundedContributionRejectReasonPreset(null);
+                setGroupFundedContributionRejectReason("");
+              }}
+            />
+            <Textarea
+              disabled={!groupFundedContributionUseCustomRejectReason}
+              label="Custom rejection reason"
+              minRows={3}
+              onChange={(event) => setGroupFundedContributionRejectReason(event.currentTarget.value)}
+              placeholder="Enable custom reason to write a contributor-visible explanation"
+              value={groupFundedContributionRejectReason}
+            />
+            <Checkbox
+              checked={groupFundedContributionRefundRequired}
+              description="Use when payment was received but cannot be accepted."
+              label="Refund required"
+              onChange={(event) => setGroupFundedContributionRefundRequired(event.currentTarget.checked)}
+            />
+            <Group justify="flex-end">
+              <Button onClick={closeGroupFundedContributionRejectModal} variant="default">Cancel</Button>
+              <Button
+                color="red"
+                disabled={!groupFundedContributionRejectReason.trim()}
+                loading={busyAction === `group-funded-contribution-reject:${groupFundedContributionToReject?.id}`}
+                onClick={() => void handleRejectGroupFundedContribution()}
+              >
+                Reject contribution
+              </Button>
+            </Group>
+          </Stack>
+        </Modal>
+
+        <Modal
+          centered
+          onClose={() => setGroupFundedProofModalOpen(false)}
+          opened={groupFundedProofModalOpen}
+          size="lg"
+          title={
+            <Stack className="getprio-modal-title" gap={2}>
+              <Text className="getprio-modal-eyebrow">CONTRIBUTION EVIDENCE</Text>
+              <Text className="getprio-modal-heading">Contribution payment proof</Text>
+            </Stack>
+          }
+        >
+          {groupFundedProofContribution?.paymentProof ? (
+            <Stack gap="md">
+              <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+                <Paper withBorder radius="md" p="md">
+                  <Text className="finazze-section-label">Contributor</Text>
+                  <Text fw={800}>
+                    {groupFundedProofContribution.participantDisplayName || `User ${groupFundedProofContribution.userId}`}
+                  </Text>
+                  <Text c="dimmed" size="sm">User {groupFundedProofContribution.userId}</Text>
+                </Paper>
+                <Paper withBorder radius="md" p="md">
+                  <Text className="finazze-section-label">Proof</Text>
+                  <Text fw={800}>{groupFundedProofContribution.paymentProof.fileName}</Text>
+                  <Text c="dimmed" size="sm">
+                    {formatBytes(groupFundedProofContribution.paymentProof.sizeBytes)}
+                  </Text>
+                  <Text c="dimmed" size="sm">
+                    Reference: {groupFundedProofContribution.paymentReference || "No reference"}
+                  </Text>
+                </Paper>
+              </SimpleGrid>
+
+              {groupFundedProofError ? (
+                <Alert color="red" variant="light">
+                  {groupFundedProofError}
+                </Alert>
+              ) : null}
+
+              {groupFundedProofAccessUrl && groupFundedProofContribution.paymentProof.contentType.startsWith("image/") ? (
+                <Image
+                  alt="Contribution payment proof"
+                  fit="contain"
+                  mah={520}
+                  radius="md"
+                  src={groupFundedProofAccessUrl}
+                />
+              ) : groupFundedProofAccessUrl ? (
+                <Box
+                  component="iframe"
+                  src={groupFundedProofAccessUrl}
+                  title="Contribution payment proof"
+                  w="100%"
+                  h={520}
+                  style={{ border: "1px solid #e2e8f0", borderRadius: 12 }}
+                />
+              ) : !groupFundedProofError ? (
+                <Alert color="gray" variant="light">Loading private proof preview...</Alert>
+              ) : null}
+
+              {groupFundedProofAccessUrl ? (
+                <Button
+                  component="a"
+                  href={groupFundedProofAccessUrl}
+                  leftSection={<IconExternalLink size={16} />}
+                  rel="noopener noreferrer"
+                  target="_blank"
+                  variant="light"
+                  w="fit-content"
+                >
+                  Open proof in new tab
+                </Button>
+              ) : null}
+            </Stack>
+          ) : (
+            <Alert color="gray" variant="light">No contribution proof selected.</Alert>
+          )}
+        </Modal>
+      </Stack>
+    );
+  }
+
   function renderRescheduleDialog() {
+    const rescheduleSlotOptions = rescheduleSlots.map((slot) => ({
+      value: String(slot.startAt),
+      label: `${formatBookingScheduleTimeRange(slot.startAt, slot.endAt)} (${slot.remainingCapacity} left)`,
+      disabled: !slot.isAvailable
+    }));
+    const closeRescheduleDialog = () => {
+      setRescheduleDialogOpen(false);
+      setReschedulingBooking(null);
+      setRescheduleDate("");
+      setRescheduleStartAt("");
+      setRescheduleSlots([]);
+      setRescheduleSlotsError("");
+    };
+
     return (
       <Modal
         centered
         opened={rescheduleDialogOpen}
-        onClose={() => setRescheduleDialogOpen(false)}
-        title={reschedulingBooking ? `Reschedule ${reschedulingBooking.reference}` : "Reschedule booking"}
-        scrollAreaComponent={ScrollArea.Autosize}
+        onClose={closeRescheduleDialog}
+        title={
+          <Stack className="getprio-modal-title" gap={2}>
+            <Text className="getprio-modal-eyebrow">BOOKING SCHEDULE</Text>
+            <Text className="getprio-modal-heading">
+              {reschedulingBooking ? `Reschedule ${reschedulingBooking.reference}` : "Reschedule booking"}
+            </Text>
+          </Stack>
+        }
       >
         <form onSubmit={handleRescheduleBooking}>
           <Stack gap="md">
@@ -5339,19 +9169,54 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               </Alert>
             ) : null}
             <TextInput
-              label="New schedule"
-              required
-              type="datetime-local"
-              value={rescheduleStartAt}
-              onChange={(event) => setRescheduleStartAt(event.target.value)}
+              label="Service"
+              value={reschedulingBooking ? `${reschedulingBooking.serviceName} - ${formatBookingScheduleTimeRange(reschedulingBooking.scheduledStartAt, reschedulingBooking.scheduledEndAt)}` : ""}
+              readOnly
             />
+            <TextInput
+              label="Branch"
+              value={reschedulingBooking?.locationName || ""}
+              readOnly
+            />
+            <DatePickerInput
+              clearable={false}
+              label="Date"
+              leftSection={<IconCalendar size={16} />}
+              placeholder="Select date"
+              required
+              value={rescheduleDate || null}
+              onChange={(value) => {
+                setRescheduleDate(value || "");
+                setRescheduleStartAt("");
+              }}
+            />
+            <Select
+              allowDeselect={false}
+              data={rescheduleSlotOptions}
+              disabled={rescheduleSlotsLoading || !rescheduleDate}
+              label="Available slot"
+              required
+              placeholder={rescheduleSlotsLoading ? "Loading slots..." : "Select a time"}
+              value={rescheduleStartAt}
+              onChange={(value) => setRescheduleStartAt(value || "")}
+            />
+            {rescheduleSlotsError ? (
+              <Alert color="red">{rescheduleSlotsError}</Alert>
+            ) : null}
+            {!rescheduleSlotsLoading && rescheduleDate && !rescheduleSlotOptions.length && !rescheduleSlotsError ? (
+              <Alert color="yellow">No available slots for this date.</Alert>
+            ) : null}
             <Group justify="flex-end">
-              <Button variant="default" onClick={() => setRescheduleDialogOpen(false)}>
+              <Button variant="default" onClick={closeRescheduleDialog}>
                 Cancel
               </Button>
               <Button
                 className="neura-primary-button"
-                disabled={Boolean(reschedulingBooking && busyAction === `booking-reschedule:${reschedulingBooking.id}`)}
+                disabled={Boolean(
+                  !rescheduleStartAt ||
+                    rescheduleSlotsLoading ||
+                    (reschedulingBooking && busyAction === `booking-reschedule:${reschedulingBooking.id}`)
+                )}
                 type="submit"
               >
                 {reschedulingBooking && busyAction === `booking-reschedule:${reschedulingBooking.id}`
@@ -5371,8 +9236,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         centered
         opened={rescheduleBlockModalOpen}
         onClose={() => setRescheduleBlockModalOpen(false)}
+        className="reschedule-blocked-modal"
         title="Reschedule blocked"
-        scrollAreaComponent={ScrollArea.Autosize}
       >
         <Stack gap="md">
           <Alert color="orange" variant="light">
@@ -5419,6 +9284,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             <Table verticalSpacing="sm">
               <Table.Thead>
                 <Table.Tr>
+                  <Table.Th>ID</Table.Th>
                   <Table.Th>Name</Table.Th>
                   <Table.Th>Contact</Table.Th>
                   <Table.Th>Role</Table.Th>
@@ -5438,6 +9304,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
                   return (
                     <Table.Tr key={member.id}>
+                      <Table.Td fw={700}>{member.id}</Table.Td>
                       <Table.Td fw={700}>{member.name}</Table.Td>
                       <Table.Td>{member.email || member.phone || "--"}</Table.Td>
                       <Table.Td>
@@ -5536,6 +9403,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             <Table verticalSpacing="sm">
               <Table.Thead>
                 <Table.Tr>
+                  <Table.Th>ID</Table.Th>
                   <Table.Th>Customer</Table.Th>
                   <Table.Th>Contact</Table.Th>
                   <Table.Th>Visits</Table.Th>
@@ -5547,6 +9415,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 {paginatedClients.length ? (
                   paginatedClients.map((client) => (
                     <Table.Tr key={client.id}>
+                      <Table.Td fw={700}>{client.id}</Table.Td>
                       <Table.Td fw={700}>{client.customerName}</Table.Td>
                       <Table.Td>{[client.customerEmail, client.customerPhone].filter(Boolean).join(" | ") || "—"}</Table.Td>
                       <Table.Td>{client.visitCount}</Table.Td>
@@ -5556,7 +9425,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   ))
                 ) : (
                   <Table.Tr>
-                    <Table.Td colSpan={5}>
+                    <Table.Td colSpan={6}>
                       <DashboardEmptyState
                         title={clientsSearch ? "No matching clients." : "No client history yet."}
                         text={
@@ -5665,6 +9534,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             <Table verticalSpacing="sm">
               <Table.Thead>
                 <Table.Tr>
+                  <Table.Th>ID</Table.Th>
                   <Table.Th>Ticket</Table.Th>
                   <Table.Th>Customer</Table.Th>
                   <Table.Th>Status</Table.Th>
@@ -5675,6 +9545,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 {paginatedHistoryTickets.length ? (
                   paginatedHistoryTickets.map((ticket) => (
                     <Table.Tr key={ticket.id}>
+                      <Table.Td fw={700}>{ticket.id}</Table.Td>
                       <Table.Td fw={700}>{ticket.ticketNumber}</Table.Td>
                       <Table.Td>{ticket.customerName}</Table.Td>
                       <Table.Td><Badge variant="light">{ticket.status}</Badge></Table.Td>
@@ -5683,7 +9554,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   ))
                 ) : (
                   <Table.Tr>
-                    <Table.Td colSpan={4}>
+                    <Table.Td colSpan={5}>
                       <DashboardEmptyState
                         title={historySearch ? "No matching history records." : "No completed queue activity yet."}
                         text={
@@ -5723,7 +9594,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               </div>
               <SimpleGrid cols={2}>
                 <MetricCard label="Tickets" value={`${ticketUsage}/${ticketLimit || "--"}`} detail="Current period" />
-                <MetricCard label="Emails" value={`${emailUsage}/${emailLimit ?? "--"}`} detail="Transactional" />
+                <MetricCard label="Email journeys" value={`${emailJourneyUsage}/${emailJourneyLimit ?? "--"}`} detail={emailJourneyDetail} />
               </SimpleGrid>
             </Stack>
           </Card>
@@ -5733,74 +9604,630 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     );
   }
 
+  function renderSecurityPage() {
+    const mfaRequired = Boolean(user?.mfaRequired || isOwner || isAdmin);
+
+    return (
+      <Stack gap="md">
+        {!requiresMfaEnrollment ? <Card className="neura-card vendor-security-card" padding="lg">
+          <Stack gap="md">
+            <div>
+              <Text className="neura-label">Account access</Text>
+              <Title order={3}>Change password</Title>
+              <Text c="dimmed" mt="xs">
+                Changing your password closes this session and all other active sessions.
+              </Text>
+            </div>
+            <form onSubmit={handlePasswordChange}>
+              <Stack gap="md">
+                <PasswordInput
+                  autoComplete="current-password"
+                  label="Current password"
+                  name="currentPassword"
+                  required
+                  value={passwordForm.currentPassword}
+                  onChange={(event) => setPasswordForm((current) => ({ ...current, currentPassword: event.target.value }))}
+                />
+                <PasswordInput
+                  autoComplete="new-password"
+                  label="New password"
+                  name="newPassword"
+                  required
+                  value={passwordForm.newPassword}
+                  onChange={(event) => setPasswordForm((current) => ({ ...current, newPassword: event.target.value }))}
+                />
+                <Button
+                  className="neura-primary-button"
+                  loading={passwordBusy}
+                  type="submit"
+                  w={{ base: "100%", sm: "fit-content" }}
+                >
+                  Change password
+                </Button>
+              </Stack>
+            </form>
+          </Stack>
+        </Card> : null}
+
+        <Card className="neura-card vendor-security-card" padding="lg">
+          <Stack gap="md">
+            <div>
+              <Text className="neura-label">2FA/MFA</Text>
+              <Title order={3}>Multi-factor authentication</Title>
+              <Text c="dimmed" mt="xs">
+                This protection belongs to your account and applies across every vendor workspace you can access.
+              </Text>
+            </div>
+            <Group gap="sm">
+              <Badge color={mfaEnabled ? "teal" : "gray"} variant="light">
+                {mfaEnabled ? "Enabled" : "Not enabled"}
+              </Badge>
+              <Badge color={mfaRequired ? "orange" : "gray"} variant="light">
+                {mfaRequired ? "Required for your role" : "Optional"}
+              </Badge>
+            </Group>
+
+            {mfaRequired && !mfaEnabled ? (
+              <Alert color="orange" title="Authenticator setup required" variant="light">
+                Vendor owners and admins must enable MFA to protect privileged business actions.
+              </Alert>
+            ) : null}
+
+            {mfaRecoveryCodes.length ? (
+              <Alert color="teal" title="Save your recovery codes" variant="light">
+                <Stack gap="sm">
+                  <Text size="sm">These recovery codes are shown only once.</Text>
+                  <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={6}>
+                    {mfaRecoveryCodes.map((code) => (
+                      <Text ff="monospace" key={code}>{code}</Text>
+                    ))}
+                  </SimpleGrid>
+                  <Button
+                    color="teal"
+                    onClick={() => setMfaRecoveryCodes([])}
+                    variant="light"
+                    w="fit-content"
+                  >
+                    I saved these recovery codes
+                  </Button>
+                </Stack>
+              </Alert>
+            ) : null}
+
+            {!mfaEnabled && !mfaSecret && !mfaRecoveryCodes.length ? (
+              <Button
+                className="neura-primary-button"
+                loading={mfaBusy}
+                onClick={() => void startMfaEnrollment()}
+                w={{ base: "100%", sm: "fit-content" }}
+              >
+                Set up authenticator
+              </Button>
+            ) : null}
+
+            {mfaSecret ? (
+              <Stack gap="md">
+                <Stack align="center" gap="sm">
+                  <Text fw={700} ta="center">Scan with your authenticator app</Text>
+                  <Text c="dimmed" maw={460} size="sm" ta="center">
+                    Add an account in your authenticator app, then scan this QR code.
+                  </Text>
+                  <div aria-label="GetPrio authenticator setup QR code" className="mfa-setup-qr" role="img">
+                    <StyledQRCode aria-label="Authenticator setup QR code" size={192} value={mfaEnrollmentUri} />
+                  </div>
+                </Stack>
+                <Alert color="blue" title="Cannot scan the QR code?" variant="light">
+                  Enter this secret manually in your authenticator app.
+                  <Text ff="monospace" mt="xs" style={{ overflowWrap: "anywhere" }}>{mfaSecret}</Text>
+                </Alert>
+                <TextInput
+                  autoFocus
+                  autoComplete="one-time-code"
+                  inputMode="numeric"
+                  label="6-digit authenticator code"
+                  maxLength={6}
+                  value={mfaCode}
+                  onChange={(event) => setMfaCode(event.target.value.replace(/\D/g, ""))}
+                />
+                <Group justify="flex-end">
+                  {mfaEnabled && mfaSecret ? (
+                    <Button disabled={mfaBusy} onClick={() => void cancelMfaEnrollment()} variant="default">
+                      Cancel
+                    </Button>
+                  ) : null}
+                  <Button
+                    className="neura-primary-button"
+                    disabled={mfaCode.length !== 6}
+                    loading={mfaBusy}
+                    onClick={() => void confirmMfaEnrollment()}
+                  >
+                    Verify and enable
+                  </Button>
+                </Group>
+              </Stack>
+            ) : null}
+
+            {mfaEnabled && !mfaSecret && !mfaRecoveryCodes.length ? (
+              <Stack gap="md">
+                <Alert color="teal" variant="light">
+                  Your authenticator is active. Protected sign-ins and sensitive actions can require a security code.
+                </Alert>
+                {!replacingMfa && !removingMfa ? (
+                  <Group align="stretch">
+                    <Button onClick={() => setReplacingMfa(true)} variant="default">
+                      Replace authenticator
+                    </Button>
+                    {!mfaRequired ? (
+                      <Button color="red" onClick={() => setRemovingMfa(true)} variant="light">Remove MFA</Button>
+                    ) : null}
+                  </Group>
+                ) : null}
+
+                {replacingMfa ? (
+                  <Card className="vendor-security-action" padding="md" withBorder>
+                    <Stack gap="md">
+                      <div>
+                        <Title order={3}>Replace authenticator</Title>
+                        <Text c="dimmed" size="sm">
+                          Confirm your password and current authenticator code before scanning a replacement QR code.
+                        </Text>
+                      </div>
+                      <PasswordInput
+                        autoComplete="current-password"
+                        label="Current password"
+                        required
+                        value={replacementPassword}
+                        onChange={(event) => setReplacementPassword(event.target.value)}
+                      />
+                      <TextInput
+                        autoComplete="one-time-code"
+                        inputMode="numeric"
+                        label="Current authenticator code"
+                        maxLength={6}
+                        required
+                        value={replacementCode}
+                        onChange={(event) => setReplacementCode(event.target.value.replace(/\D/g, ""))}
+                      />
+                      <Group justify="flex-end">
+                        <Button disabled={mfaBusy} onClick={() => setReplacingMfa(false)} variant="default">Cancel</Button>
+                        <Button
+                          className="neura-primary-button"
+                          disabled={!replacementPassword || replacementCode.length !== 6}
+                          loading={mfaBusy}
+                          onClick={() => void startMfaReplacement()}
+                        >
+                          Verify and replace
+                        </Button>
+                      </Group>
+                    </Stack>
+                  </Card>
+                ) : null}
+
+                {removingMfa && !mfaRequired ? (
+                  <Card className="vendor-security-action" padding="md" withBorder>
+                    <Stack gap="md">
+                      <Alert color="red" title="Your account will be less secure" variant="light">
+                        Removing MFA revokes your authenticator and every recovery code. Other sessions will be closed.
+                      </Alert>
+                      <PasswordInput
+                        autoComplete="current-password"
+                        label="Current password"
+                        required
+                        value={removalPassword}
+                        onChange={(event) => setRemovalPassword(event.target.value)}
+                      />
+                      <TextInput
+                        autoComplete="one-time-code"
+                        description="Use this or an unused recovery code below."
+                        inputMode="numeric"
+                        label="Current authenticator code"
+                        maxLength={6}
+                        value={removalCode}
+                        onChange={(event) => setRemovalCode(event.target.value.replace(/\D/g, ""))}
+                      />
+                      <TextInput
+                        autoComplete="one-time-code"
+                        description="Use this only if your authenticator is unavailable."
+                        label="Recovery code"
+                        value={removalRecoveryCode}
+                        onChange={(event) => setRemovalRecoveryCode(event.target.value)}
+                      />
+                      <Checkbox
+                        checked={removalAcknowledged}
+                        label="I understand that removing MFA reduces my account security."
+                        onChange={(event) => setRemovalAcknowledged(event.target.checked)}
+                      />
+                      <Group justify="flex-end">
+                        <Button disabled={mfaBusy} onClick={() => setRemovingMfa(false)} variant="default">Keep MFA</Button>
+                        <Button
+                          color="red"
+                          disabled={
+                            !removalAcknowledged ||
+                            !removalPassword ||
+                            (removalCode.length !== 6 && !removalRecoveryCode.trim())
+                          }
+                          loading={mfaBusy}
+                          onClick={() => void removeMfa()}
+                        >
+                          Remove MFA
+                        </Button>
+                      </Group>
+                    </Stack>
+                  </Card>
+                ) : null}
+              </Stack>
+            ) : null}
+          </Stack>
+        </Card>
+      </Stack>
+    );
+  }
+
+  function renderAccountPage() {
+    const canAccessBillingTabs = isOwner || isAdmin;
+    const subscription = billing?.subscription || null;
+    const isFreeSubscription = subscription?.planSlug === "free";
+    const plan = subscription
+      ? billing?.plans.find((item) => item.slug === subscription.planSlug) || null
+      : null;
+
+    return (
+      <Stack gap="md">
+        <Card className="neura-card" padding="lg">
+          <Tabs
+            className="vendor-account-tabs"
+            keepMounted={false}
+            value={accountTab}
+            onChange={(value) => {
+              const nextTab = (value || "profile") as AccountTab;
+              if (!canAccessBillingTabs && (nextTab === "subscription" || nextTab === "billing")) {
+                setAccountTab("profile");
+                return;
+              }
+              setAccountTab(nextTab);
+            }}
+          >
+            <Tabs.List>
+              {canAccessBillingTabs && !requiresMfaEnrollment ? (
+                <>
+                  <Tabs.Tab value="subscription">Subscription</Tabs.Tab>
+                  <Tabs.Tab value="billing">Billing</Tabs.Tab>
+                </>
+              ) : null}
+              {!requiresMfaEnrollment ? <Tabs.Tab value="profile">Profile</Tabs.Tab> : null}
+              <Tabs.Tab value="security">Security</Tabs.Tab>
+            </Tabs.List>
+
+            {canAccessBillingTabs ? (
+              <Tabs.Panel pt="lg" value="subscription">
+                <Stack gap="md">
+                  <Group justify="space-between" align="flex-start">
+                    <div>
+                      <Text className="neura-label">Subscription</Text>
+                      <Title order={3}>{renderActivePlanName()}</Title>
+                      <Text c="dimmed" size="sm">
+                        {subscription
+                          ? `${subscription.status} plan access for ${snapshot?.tenant.name || selectedTenantSlug}.`
+                          : "Choose a plan to unlock tenant entitlements."}
+                      </Text>
+                    </div>
+                    {isFreeSubscription ? (
+                      <Button
+                        className="neura-primary-button"
+                        onClick={() => openPlanDialog(true)}
+                        w={{ base: "100%", sm: "fit-content" }}
+                      >
+                        Upgrade to paid plan
+                      </Button>
+                    ) : subscription?.currentPeriodEnd ? (
+                      <Badge variant="light">Renews {formatDate(subscription.currentPeriodEnd)}</Badge>
+                    ) : null}
+                  </Group>
+                  <SimpleGrid cols={{ base: 1, sm: 2 }}>
+                    <MetricCard label="Tickets" value={`${ticketUsage}/${ticketLimit || "--"}`} detail="Current period" />
+                    <MetricCard label="Email journeys" value={`${emailJourneyUsage}/${emailJourneyLimit ?? "--"}`} detail={emailJourneyDetail} />
+                  </SimpleGrid>
+                  {!activeSubscription ? <div>{renderPlanCards()}</div> : !isFreeSubscription ? (
+                    <Button onClick={() => openPlanDialog()} variant="light" w={{ base: "100%", sm: "fit-content" }}>
+                      Review available plans
+                    </Button>
+                  ) : null}
+                </Stack>
+              </Tabs.Panel>
+            ) : null}
+
+            {canAccessBillingTabs ? (
+              <Tabs.Panel pt="lg" value="billing">
+                <Stack gap="md">
+                  <div>
+                    <Text className="neura-label">Billing</Text>
+                    <Title order={3}>Billing details</Title>
+                    <Text c="dimmed" size="sm">
+                      Review the server-owned billing record and operational capacity for this workspace.
+                    </Text>
+                  </div>
+                  {isFreeSubscription ? (
+                    <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }}>
+                      <MetricCard
+                        label="Current plan"
+                        value={subscription.planName}
+                        detail={plan ? getPlanPriceDisplay(plan) : "No recurring charge"}
+                      />
+                    </SimpleGrid>
+                  ) : subscription ? (
+                    <>
+                      <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }}>
+                        <MetricCard
+                          label="Current plan"
+                          value={subscription.planName}
+                          detail={plan ? getPlanPriceDisplay(plan) : "Plan pricing"}
+                        />
+                        <MetricCard label="Billing interval" value={subscription.billingInterval} detail="Subscription cadence" />
+                        <MetricCard label="Provider" value={subscription.provider} detail="Payment processor" />
+                        <MetricCard
+                          label="Current period"
+                          value={subscription.currentPeriodEnd ? formatDate(subscription.currentPeriodEnd) : "Open-ended"}
+                          detail={subscription.currentPeriodEnd ? "Period end" : "No scheduled renewal"}
+                        />
+                      </SimpleGrid>
+                      <VendorCapacityPanel tenantSlug={selectedTenantSlug} token={token || ""} />
+                    </>
+                  ) : (
+                    <Alert color="blue" variant="light">
+                      This workspace has no billing record yet. Choose a plan from the Subscription tab to begin.
+                    </Alert>
+                  )}
+                </Stack>
+              </Tabs.Panel>
+            ) : null}
+
+            <Tabs.Panel pt="lg" value="profile">
+              <form onSubmit={handleAccountProfileSave}>
+                <Stack gap="md">
+                  <div>
+                    <Text className="neura-label">Vendor account</Text>
+                    <Title order={3}>Account details</Title>
+                    <Text c="dimmed" size="sm">
+                      These details belong to your user account and follow you across vendor workspaces.
+                    </Text>
+                  </div>
+                  <SimpleGrid cols={{ base: 1, md: 2 }}>
+                    <TextInput
+                      label="Full name"
+                      required
+                      value={accountProfileForm.name}
+                      onChange={(event) => setAccountProfileForm((current) => ({ ...current, name: event.target.value }))}
+                    />
+                    <TextInput
+                      label="Display name"
+                      description="Shown to teammates and customers where your account is identified."
+                      value={accountProfileForm.displayName}
+                      onChange={(event) => setAccountProfileForm((current) => ({ ...current, displayName: event.target.value }))}
+                    />
+                    <TextInput disabled label="Username" value={user?.username || "Not set"} />
+                    <TextInput disabled label="Email" value={user?.email || "Not set"} />
+                    <TextInput disabled label="Phone" value={user?.phone || "Not set"} />
+                    <TextInput disabled label="Workspace role" value={selectedTenantRole || "No active role"} />
+                  </SimpleGrid>
+                  <Button
+                    className="neura-primary-button"
+                    loading={accountProfileBusy}
+                    type="submit"
+                    w={{ base: "100%", sm: "fit-content" }}
+                  >
+                    Save account details
+                  </Button>
+                </Stack>
+              </form>
+              <EmailChangePanel
+                currentEmail={user?.email || ""}
+                onCompleted={async () => { await refreshUser(); }}
+                token={token || ""}
+              />
+              <PhoneChangePanel
+                currentPhone={user?.phone}
+                onCompleted={async () => { await refreshUser(); }}
+                token={token || ""}
+              />
+            </Tabs.Panel>
+
+            <Tabs.Panel pt="lg" value="security">
+              {renderSecurityPage()}
+            </Tabs.Panel>
+          </Tabs>
+        </Card>
+      </Stack>
+    );
+  }
+
+  function renderBusinessProfilePreview() {
+    const selectedTenant = user?.tenants.find((tenant) => tenant.slug === selectedTenantSlug);
+    const previewName = settings.name || selectedTenant?.name || "Your business";
+    const previewLocation = selectedLocation
+      ? [selectedLocation.name, selectedLocation.city, selectedLocation.province].filter(Boolean).join(", ")
+      : "Main location";
+    const previewStyle = {
+      "--vendor-theme-card-bg": businessProfileTheme.cardBackgroundColor,
+      "--vendor-theme-logo-fit": businessProfileTheme.logoFit,
+      "--vendor-theme-logo-frame-padding": businessProfileTheme.logoFit === "cover" ? "0px" : undefined,
+      ...(businessProfileTheme.backgroundImageUrl
+        ? {
+            backgroundImage: `linear-gradient(rgba(255,255,255,0.2), rgba(255,255,255,0.2)), url(${businessProfileTheme.backgroundImageUrl})`
+          }
+        : {})
+    } as CSSProperties;
+
+    return (
+      <Stack gap="xs">
+        <Text fw={700}>Profile preview</Text>
+        <Text c="dimmed" size="sm">This is how the default profile media will appear on public profile cards.</Text>
+        <Paper className="vendor-card vendor-profile-settings-preview" component="div" p={{ base: "md", sm: "lg" }}>
+          <Stack gap="md">
+            <div
+              className={businessProfileTheme.backgroundImageUrl || businessProfileTheme.logoUrl
+                ? "vendor-card-image vendor-card-image-themed"
+                : "vendor-card-image"}
+              style={previewStyle}
+            >
+              {businessProfileTheme.logoUrl ? (
+                <div className="vendor-card-logo-frame">
+                  <img alt={`${previewName} logo`} src={businessProfileTheme.logoUrl} />
+                </div>
+              ) : <IconTicket aria-hidden="true" size={42} />}
+            </div>
+            {settings.publicProfileCategory ? <Badge color="orange" variant="light">{settings.publicProfileCategory}</Badge> : null}
+            <Title order={3}>{previewName}</Title>
+            <Group c="dimmed" gap={6} wrap="nowrap">
+              <IconMapPin size={16} />
+              <Text size="sm">{previewLocation || "Philippines"}</Text>
+            </Group>
+            {settings.publicProfileDescription ? (
+              <RichCampaignDescription className="vendor-profile-preview-description" content={settings.publicProfileDescription} />
+            ) : null}
+          </Stack>
+        </Paper>
+      </Stack>
+    );
+  }
+
   function renderSettingsPage() {
     return (
       <Stack gap="md">
         <Card className="neura-card" padding="lg">
-          <Tabs defaultValue="subscription">
+          <Tabs
+            keepMounted={false}
+            value={settingsTab}
+            onChange={(value) => setSettingsTab((value as SettingsTab | null) || "contact")}
+          >
             <Tabs.List>
-              <Tabs.Tab value="subscription">Subscription</Tabs.Tab>
-              <Tabs.Tab value="contact">Contact details</Tabs.Tab>
+              <Tabs.Tab value="contact">Business profile</Tabs.Tab>
               <Tabs.Tab value="queue">Queue settings</Tabs.Tab>
               <Tabs.Tab value="notifications">Notifications</Tabs.Tab>
             </Tabs.List>
 
-            <Tabs.Panel pt="lg" value="subscription">
-              <Stack gap="md">
-                <Group justify="space-between" align="flex-start">
-                  <div>
-                    <Text className="neura-label">Subscription</Text>
-                    <Title order={3}>{renderActivePlanName()}</Title>
-                    <Text c="dimmed" size="sm">
-                      {billing?.subscription
-                        ? `${billing.subscription.status} via ${billing.subscription.provider}`
-                        : "Choose a plan to unlock tenant entitlements."}
-                    </Text>
-                  </div>
-                  {billing?.subscription?.currentPeriodEnd ? (
-                    <Badge variant="light">Renews {formatDate(billing.subscription.currentPeriodEnd)}</Badge>
-                  ) : null}
-                </Group>
-                <SimpleGrid cols={{ base: 1, sm: 2 }}>
-                  <MetricCard label="Tickets" value={`${ticketUsage}/${ticketLimit || "--"}`} detail="Current period" />
-                  <MetricCard label="Emails" value={`${emailUsage}/${emailLimit ?? "--"}`} detail="Transactional" />
-                </SimpleGrid>
-                {!activeSubscription ? <div>{renderPlanCards()}</div> : null}
-              </Stack>
-            </Tabs.Panel>
-
             <Tabs.Panel pt="lg" value="contact">
-              <form onSubmit={handleSaveSettings}>
+              <form onSubmit={handleSaveBusinessProfile}>
                 <Stack gap="md">
                   <div>
                     <Text className="neura-label">Tenant settings</Text>
-                    <Title order={3}>Contact details</Title>
+                    <Title order={3}>Business profile</Title>
                     <Text c="dimmed" size="sm">
-                      Contact details are used across the queue experience and tenant notifications.
+                      Keep the details customers see for your business and its owner up to date.
                     </Text>
                   </div>
                   <TextInput
-                    name="contactEmail"
-                    label="Contact email"
-                    description={!canManageContactSettings ? "Only tenant owners can update contact details." : undefined}
+                    label="Business name"
                     disabled={!canManageContactSettings}
-                    type="email"
-                    value={settings.contactEmail}
+                    value={settings.name}
                     onChange={(event) =>
-                      setSettings((current) => ({ ...current, contactEmail: event.target.value }))
+                      setSettings((current) => ({ ...current, name: event.target.value }))
                     }
+                  />
+                  <BusinessCategorySelect
+                    disabled={!canManageContactSettings}
+                    value={settings.businessCategoryId || null}
+                    currentLabel={settings.publicProfileCategory}
+                    onChange={(id, name) => setSettings((current) => ({ ...current, businessCategoryId: id, publicProfileCategory: name }))}
                   />
                   <TextInput
-                    name="contactPhone"
-                    label="Contact phone"
+                    label="Business display name"
+                    description="Shown publicly when set; otherwise the Business name is used."
                     disabled={!canManageContactSettings}
-                    value={settings.contactPhone}
+                    value={settings.publicProfileDisplayName || ""}
                     onChange={(event) =>
-                      setSettings((current) => ({ ...current, contactPhone: event.target.value }))
+                      setSettings((current) => ({ ...current, publicProfileDisplayName: event.target.value }))
                     }
                   />
+                  <Stack gap={4}>
+                    <Text fw={500} size="sm">Business description</Text>
+                    <Text c="dimmed" size="xs">Shown on public vendor pages and related customer screens.</Text>
+                    <CampaignDescriptionEditor
+                      disabled={!canManageContactSettings}
+                      maxCharacters={1000}
+                      onChange={(value) =>
+                        setSettings((current) => ({ ...current, publicProfileDescription: value }))
+                      }
+                      value={settings.publicProfileDescription || ""}
+                    />
+                  </Stack>
+                  <Divider />
+                  <div>
+                    <Text fw={700}>Default profile media</Text>
+                  <Text c="dimmed" size="sm">
+                      Set the default logo and profile background. Location theme setup can override these values.
+                    </Text>
+                  </div>
+                  <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xl">
+                    <Stack gap="md">
+                      <SimpleGrid cols={1}>
+                        <FileInput
+                          name="defaultBackgroundImageFile"
+                          accept="image/png,image/jpeg,image/webp"
+                          clearable
+                          label="Profile background"
+                          description="Upload a custom image for the profile visual area."
+                          disabled={!canManageContactSettings || busyAction === "business-profile-upload:background"}
+                          onChange={(file) => void uploadBusinessProfileAsset("background", file)}
+                        />
+                        <Select
+                          name="defaultBackgroundImageFit"
+                          label="Profile background fit"
+                          description="Cover fills the profile visual area. Contain shows the full image."
+                          data={[
+                            { value: "cover", label: "Cover" },
+                            { value: "contain", label: "Contain" }
+                          ]}
+                          disabled={!canManageContactSettings}
+                          value={businessProfileTheme.backgroundImageFit}
+                          onChange={(value) => setBusinessProfileThemeField("backgroundImageFit", value === "contain" ? "contain" : "cover")}
+                        />
+                      </SimpleGrid>
+                      <SimpleGrid cols={1}>
+                        <TextInput
+                          name="defaultBackgroundImageUrl"
+                          label="Profile background URL"
+                          description="Paste a hosted image URL for the profile visual area."
+                          disabled={!canManageContactSettings}
+                          value={businessProfileTheme.backgroundImageUrl}
+                          onChange={(event) => setBusinessProfileThemeField("backgroundImageUrl", event.target.value)}
+                        />
+                        <FileInput
+                          name="defaultLogoFile"
+                          accept="image/png,image/jpeg,image/webp"
+                          clearable
+                          label="Company logo"
+                          description="Displayed inside the circular logo frame."
+                          disabled={!canManageContactSettings || busyAction === "business-profile-upload:logo"}
+                          onChange={(file) => void uploadBusinessProfileAsset("logo", file)}
+                        />
+                      </SimpleGrid>
+                      <SimpleGrid cols={1}>
+                        <TextInput
+                          name="defaultLogoUrl"
+                          label="Logo URL"
+                          description="Paste a hosted logo URL when not uploading a file."
+                          disabled={!canManageContactSettings}
+                          value={businessProfileTheme.logoUrl}
+                          onChange={(event) => setBusinessProfileThemeField("logoUrl", event.target.value)}
+                        />
+                        <Select
+                          name="defaultLogoFit"
+                          label="Profile logo fit"
+                          description="Contain shows the full logo. Cover fills the circular frame."
+                          data={[
+                            { value: "contain", label: "Contain" },
+                            { value: "cover", label: "Cover" }
+                          ]}
+                          disabled={!canManageContactSettings}
+                          value={businessProfileTheme.logoFit}
+                          onChange={(value) => setBusinessProfileThemeField("logoFit", value === "cover" ? "cover" : "contain")}
+                        />
+                      </SimpleGrid>
+                    </Stack>
+                    {renderBusinessProfilePreview()}
+                  </SimpleGrid>
                   <Button className="neura-secondary-button" disabled={busyAction === "settings"} type="submit">
-                    {busyAction === "settings" ? "Saving..." : "Save contact details"}
+                    {busyAction === "settings" || busyAction === "business-profile-theme-save" ? "Saving..." : "Save business profile"}
                   </Button>
                 </Stack>
               </form>
@@ -5918,11 +10345,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           }
                         }}
                       />
-                    ) : (
-                      <Text c="dimmed" size="sm">
-                        Only applies to queues paused automatically by threshold.
-                      </Text>
-                    )}
+                    ) : null}
                     <Text c="dimmed" size="sm">
                       {settings.autoPauseEnabled && settings.autoResumeEnabled
                         ? `With a threshold of ${Number(settings.autoPauseThreshold) || 0}, intake will reopen at ${
@@ -5963,18 +10386,20 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     disabled={
                       !browserNotificationsSupported ||
                       !browserNotificationsSecure ||
-                      browserPermission === "granted" ||
+                      browserPushSubscribed ||
                       requestingBrowserPermission
                     }
                     onClick={handleRequestBrowserPermission}
                     type="button"
                     variant="light"
                   >
-                    {browserPermission === "granted"
-                      ? "Browser notifications enabled"
+                    {browserPushSubscribed
+                      ? "Browser notifications synced"
                       : requestingBrowserPermission
-                        ? "Requesting permission..."
-                        : "Allow browser notifications"}
+                        ? "Syncing browser notifications..."
+                        : browserPermission === "granted"
+                          ? "Sync browser notifications"
+                          : "Allow browser notifications"}
                   </Button>
                   <Text c="dimmed" size="sm">
                     {browserNotificationsSupported
@@ -5989,6 +10414,14 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   </Text>
                 </Group>
                 <Divider label="Operational alerts" labelPosition="center" />
+                <Checkbox
+                  checked={vendorNotificationSettings.queueJoin}
+                  label="New queue joins"
+                  disabled={savingNotificationSettings}
+                  onChange={(event) =>
+                    handleVendorNotificationToggle("queueJoin", event.currentTarget.checked)
+                  }
+                />
                 <Checkbox
                   checked={vendorNotificationSettings.bookingIntake}
                   label="New booking intake"
@@ -6015,6 +10448,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 />
               </Stack>
             </Tabs.Panel>
+
           </Tabs>
         </Card>
 
@@ -6028,8 +10462,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         centered
         opened={counterDialogOpen}
         onClose={() => setCounterDialogOpen(false)}
-        title={editingCounterSlug ? "Edit counter" : "Add counter"}
-        scrollAreaComponent={ScrollArea.Autosize}
+        title={
+          <Stack className="getprio-modal-title" gap={2}>
+            <Text className="getprio-modal-eyebrow">QUEUE OPERATIONS</Text>
+            <Text className="getprio-modal-heading">{editingCounterSlug ? "Edit counter" : "Add counter"}</Text>
+          </Stack>
+        }
       >
         <form onSubmit={handleSaveCounter}>
           <Stack gap="md">
@@ -6038,18 +10476,30 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               label="Counter name"
               required
               value={counterForm.name}
-              onChange={(event) =>
-                setCounterForm((current) => ({ ...current, name: event.target.value }))
-              }
+              onChange={(event) => {
+                const nextName = event.target.value;
+                setCounterForm((current) => ({
+                  ...current,
+                  name: nextName,
+                  slug: counterSlugManuallyEdited ? current.slug : buildCounterSlug(nextName)
+                }));
+              }}
             />
             <TextInput
               name="counterSlug"
               label="Counter slug"
               required
-              value={counterForm.slug}
-              onChange={(event) =>
-                setCounterForm((current) => ({ ...current, slug: event.target.value }))
+              description={checkingCounterSlug ? "Checking slug availability..." : counterSlugMessage}
+              error={
+                !counterSlugAvailable && counterForm.slug
+                  ? counterSlugMessage || "That counter slug is already taken for this location."
+                  : undefined
               }
+              value={counterForm.slug}
+              onChange={(event) => {
+                setCounterSlugManuallyEdited(true);
+                setCounterForm((current) => ({ ...current, slug: buildCounterSlug(event.target.value) }));
+              }}
             />
             <Switch
               name="counterIsActive"
@@ -6088,8 +10538,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         centered
         opened={staffDialogOpen}
         onClose={() => setStaffDialogOpen(false)}
-        title="Add staff"
-        scrollAreaComponent={ScrollArea.Autosize}
+        title={
+          <Stack className="getprio-modal-title" gap={2}>
+            <Text className="getprio-modal-eyebrow">ACCESS MANAGEMENT</Text>
+            <Text className="getprio-modal-heading">Add staff</Text>
+          </Stack>
+        }
       >
         <form onSubmit={handleAddStaff}>
           <Stack gap="md">
@@ -6171,23 +10625,23 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         </ScrollArea>
 
         <Paper className="neura-sidebar-card" p="md">
-          <Group align="flex-start" justify="space-between" gap="sm">
-            <div>
+          <Group align="flex-start" justify="space-between" gap="sm" wrap="nowrap">
+            <div className="neura-sidebar-account-copy">
               <Text size="xs" c="dimmed">Current tenant</Text>
               <Text fw={700}>{snapshot?.tenant.name || user?.tenants[0]?.name || "Tenant"}</Text>
               <Text size="sm" c="dimmed">{selectedLocation?.name || "Primary location"}</Text>
-              <Badge color={activeSubscription ? "teal" : "orange"} mt="sm">
-                {activeSubscription ? activeSubscription.planName : "No active plan"}
+              <Badge color={activeSubscription || tenantPlan?.planName ? "teal" : "orange"} mt="sm">
+                {activeSubscription?.planName || tenantPlan?.planName || "No active plan"}
               </Badge>
               <Divider my="sm" />
               <Stack gap={2}>
                 <Text size="xs" c="dimmed">Logged in user:</Text>
                 <Text fw={600} size="sm">{user?.name || "Unknown user"}</Text>
-                <Text c="dimmed" size="xs">
+                <Badge color="gray" size="sm" variant="light">
                   {selectedTenantRole
                     ? selectedTenantRole.charAt(0).toUpperCase() + selectedTenantRole.slice(1)
                     : "No tenant role"}
-                </Text>
+                </Badge>
               </Stack>
             </div>
             <Tooltip label="Log out" withArrow>
@@ -6238,7 +10692,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         id: booking.id,
         kind: "booking" as const,
         title: "New booking"
-      }))
+      })),
     ];
     const detailBooking = bookingDetailBooking;
     const detailPaymentReviewable = Boolean(
@@ -6247,7 +10701,21 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       detailBooking.paymentStatus === "pending" &&
       (detailBooking.status === "pending" || detailBooking.status === "rescheduled")
     );
+    const detailPaymentVerified = Boolean(detailBooking?.paymentStatus === "paid" || detailBooking?.paymentVerifiedAt);
+    const detailManualPaymentRequired = Boolean(detailBooking?.serviceManualPaymentRequired);
+    const detailPaymentGateActive = Boolean(detailBooking && detailManualPaymentRequired && !detailPaymentVerified);
     const detailBookingExpired = Boolean(detailBooking?.expiredAt);
+    const detailCampaignBundleItems = detailBooking?.groupFundedCampaign?.bundleItems || [];
+    const detailBookingBundleItems = detailBooking?.bundleItems || [];
+    const detailServiceItems = detailCampaignBundleItems.length
+      ? detailCampaignBundleItems
+      : detailBookingBundleItems;
+    const detailFundingAdjustmentCents = Math.max(0, Number(detailBooking?.groupFundedCampaign?.roundingAdjustmentCents || 0));
+    const detailCampaignTotalCents = Number(detailBooking?.groupFundedCampaign?.targetAmountCents || 0) + detailFundingAdjustmentCents;
+    const detailServiceTotalCents = detailCampaignBundleItems.length
+      ? detailCampaignTotalCents
+      : detailServiceItems.reduce((total, item) => total + Number(item.priceAmountCents || 0), 0);
+    const isGroupFundedDetailBooking = Boolean(detailBooking?.groupFundedBookingId || detailBooking?.bookingPaymentSource === "group_funded");
     const closeBookingDetailModal = () => {
       setBookingDetailModalId(null);
       setBookingDetailOpen(false);
@@ -6255,12 +10723,15 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       setBookingDetailBooking(null);
       setBookingDetailError("");
       setPaymentRejectionReason("");
+      setOrganizerRatingStars(0);
+      setOrganizerRatingSubmitted(false);
     };
 
     return (
       <Portal>
         {overlayAlerts.length ? (
           <Box
+            className="dashboard-notification-stack"
             style={{
               bottom: 24,
               left: "50%",
@@ -6283,7 +10754,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       clearQueueAlert(alert.id);
                       return;
                     }
-
                     clearBookingAlert(alert.id);
                   }}
                   radius="md"
@@ -6293,7 +10763,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   }}
                   withBorder
                 >
-                  <Group justify="space-between" align="center" gap="md">
+                  <Group className="dashboard-notification" justify="space-between" align="center" gap="md">
                     <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
                       <Text fw={800}>{alert.title}</Text>
                       <Text style={{ overflowWrap: "anywhere" }}>{alert.body}</Text>
@@ -6307,7 +10777,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           navigate("/dashboard/queue");
                           return;
                         }
-
                         setBookingDetailModalId(alert.id);
                         setBookingDetailOpen(true);
                         clearBookingAlert(alert.id);
@@ -6327,10 +10796,17 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           centered
           opened={bookingDetailOpen}
           onClose={closeBookingDetailModal}
-          title={detailBooking ? `Booking ${detailBooking.reference}` : "Booking details"}
-          size="lg"
+          title={
+            <Stack gap={2}>
+              <Text className="booking-detail__eyebrow">Booking details</Text>
+              <Text className="booking-detail__title">
+                {detailBooking ? detailBooking.reference : "Loading booking"}
+              </Text>
+            </Stack>
+          }
+          size="xl"
+          classNames={{ content: "booking-detail__modal", header: "booking-detail__modal-header", body: "booking-detail__modal-body" }}
           closeButtonProps={{ "aria-label": "Close booking details" }}
-          scrollAreaComponent={ScrollArea.Autosize}
         >
           {bookingDetailLoading ? (
             <Text c="dimmed">Loading booking details...</Text>
@@ -6339,21 +10815,37 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               {bookingDetailError}
             </Alert>
           ) : detailBooking ? (
-            <Stack gap="md">
-              <Group justify="space-between" align="flex-start">
-                <Stack gap={4}>
-                  <Text fw={800}>{detailBooking.customerName}</Text>
-                  <Text c="dimmed">{detailBooking.customerEmail || detailBooking.customerPhone || "No contact details"}</Text>
+            <Stack gap="lg" className="booking-detail">
+              <Group justify="space-between" align="flex-start" className="booking-detail__hero">
+                <Stack gap={6}>
+                  <Text className="booking-detail__customer">{detailBooking.customerName}</Text>
+                  {detailBooking.organizerTrustRating?.count ? <Group gap={5}><IconStar color="#ffd000" fill="#ffd000" size={18}/><Text fw={900}>{detailBooking.organizerTrustRating.average.toFixed(1)} ({detailBooking.organizerTrustRating.count}) organizer trust</Text></Group> : null}
+                  <Text className="booking-detail__contact">{detailBooking.customerEmail || detailBooking.customerPhone || "No contact details"}</Text>
                 </Stack>
-                <Stack gap={4} align="flex-end">
+                <Group gap="xs" justify="flex-end">
                   <Badge color={getBookingBadgeColor(detailBooking.status)} variant="light">
                     {detailBookingExpired ? "expired" : detailBooking.status}
                   </Badge>
+                  {detailManualPaymentRequired ? (
+                    <Badge color={detailPaymentVerified ? "teal" : "orange"} variant="light">
+                      {detailPaymentVerified ? "Payment verified" : "Payment review needed"}
+                    </Badge>
+                  ) : (
+                    <Badge color="gray" variant="light">
+                      No manual payment required
+                    </Badge>
+                  )}
                   {detailBookingExpired ? (
                     <Badge color="orange" variant="light">Pending timeout</Badge>
                   ) : null}
-                </Stack>
+                </Group>
               </Group>
+
+              {detailPaymentGateActive ? (
+                <Alert color="orange" icon={<IconInfoCircle size={18} />} variant="light">
+                  Confirm, cancel, and reschedule actions unlock after manual payment has been verified.
+                </Alert>
+              ) : null}
 
               {detailBookingExpired ? (
                 <Alert color="orange" variant="light">
@@ -6362,21 +10854,79 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               ) : null}
 
               <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-                <Paper withBorder radius="md" p="md">
-                  <Text className="neura-label">Service</Text>
-                  <Text fw={700}>{detailBooking.serviceName}</Text>
-                  <Text c="dimmed" size="sm">Quantity {detailBooking.bookingQuantity}</Text>
-                  <Text c="dimmed" size="sm">{detailBooking.servicePriceDisplay || "-"}</Text>
-                </Paper>
-                <Paper withBorder radius="md" p="md">
-                  <Text className="neura-label">Schedule</Text>
-                  <Text fw={700}>{formatBookingScheduleDateTime(detailBooking.scheduledStartAt)}</Text>
+                {detailServiceItems.length > 1 ? (
+                  <Paper withBorder radius="md" p="md" className="booking-detail__panel" style={{ gridColumn: "1 / -1" }}>
+                    <Group justify="space-between" mb="xs">
+                      <Group gap="xs">
+                        <IconBriefcase size={16} />
+                        <Text className="neura-label">{detailCampaignBundleItems.length ? "Campaign services" : "Bundled services"}</Text>
+                      </Group>
+                      <Badge color={detailCampaignBundleItems.length ? "blue" : "violet"} variant="light">{detailServiceItems.length} services</Badge>
+                    </Group>
+                    <Stack gap="xs">
+                      {detailServiceItems.map((item) => (
+                        <Group justify="space-between" key={item.id} wrap="nowrap">
+                          <Stack gap={0} style={{ minWidth: 0 }}>
+                            <Text fw={700}>{item.serviceName}</Text>
+                            <Text c="dimmed" size="sm">
+                              Quantity {item.bookingQuantity} · {formatBookingScheduleTimeRange(item.scheduledStartAt, item.scheduledEndAt)}
+                            </Text>
+                          </Stack>
+                          <Text fw={700}>{formatMoney(item.priceAmountCents, item.currency)}</Text>
+                        </Group>
+                      ))}
+                    </Stack>
+                    <Divider my="sm" />
+                    <Group justify="space-between">
+                      <Text fw={700}>{detailCampaignBundleItems.length ? "Campaign total" : "Bundle total"}</Text>
+                      <Text fw={800}>{formatMoney(detailServiceTotalCents, detailBooking.groupFundedCampaign?.currency || detailBooking.serviceCurrency)}</Text>
+                    </Group>
+                  </Paper>
+                ) : (
+                  <Paper withBorder radius="md" p="md" className="booking-detail__panel">
+                    <Group gap="xs" mb="xs">
+                      <IconBriefcase size={16} />
+                      <Text className="neura-label">Service</Text>
+                    </Group>
+                    <Text className="booking-detail__panel-title">{detailBooking.serviceName}</Text>
+                    <Text c="dimmed" size="sm">Quantity {detailBooking.bookingQuantity}</Text>
+                    <Text c="dimmed" size="sm">{detailBooking.servicePriceDisplay || "-"}</Text>
+                  </Paper>
+                )}
+                <Paper withBorder radius="md" p="md" className="booking-detail__panel">
+                  <Group gap="xs" mb="xs">
+                    <IconCalendar size={16} />
+                    <Text className="neura-label">Schedule</Text>
+                  </Group>
+                  <Text className="booking-detail__panel-title">{formatBookingScheduleDateTime(detailBooking.scheduledStartAt)}</Text>
                   <Text c="dimmed" size="sm">Ends {formatBookingScheduleDateTime(detailBooking.scheduledEndAt)}</Text>
                 </Paper>
-                <Paper withBorder radius="md" p="md">
-                  <Text className="neura-label">Payment</Text>
-                  <Text fw={700}>{detailBooking.paymentStatus}</Text>
-                  <Text c="dimmed" size="sm">{detailBooking.paymentReference || "No reference"}</Text>
+                <Paper withBorder radius="md" p="md" className="booking-detail__panel booking-detail__payment-panel">
+                  <Group gap="xs" mb="xs">
+                    <IconClipboardList size={16} />
+                    <Text className="neura-label">Payment</Text>
+                  </Group>
+                  <Text className="booking-detail__panel-title">{detailBooking.paymentStatus}</Text>
+                  <Text c="dimmed" size="sm">
+                    {isGroupFundedDetailBooking
+                      ? "Verified through the group-funded campaign"
+                      : detailBooking.paymentReference || "No reference"}
+                  </Text>
+                  {detailBooking.groupFundedCampaign?.publicToken ? (
+                    <Button
+                      component="a"
+                      href={`/group-funded/${detailBooking.groupFundedCampaign.publicToken}`}
+                      leftSection={<IconExternalLink size={14} />}
+                      mt="xs"
+                      rel="noreferrer"
+                      size="xs"
+                      target="_blank"
+                      variant="light"
+                      w="fit-content"
+                    >
+                      View campaign
+                    </Button>
+                  ) : null}
                   {detailBooking.paymentVerifiedAt ? (
                     <Badge color="teal" mt="xs" variant="light" w="fit-content">
                       Verified {formatDateTime(detailBooking.paymentVerifiedAt)}
@@ -6393,7 +10943,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     </Stack>
                   ) : null}
                   {detailBooking.paymentProof ? (
-                    <Stack gap={4} mt="xs">
+                    <Stack gap={6} mt="xs">
                       <Text c="dimmed" size="sm">
                         {detailBooking.paymentProof.fileName} · {formatBytes(detailBooking.paymentProof.sizeBytes)}
                       </Text>
@@ -6408,20 +10958,24 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         View proof
                       </Button>
                     </Stack>
+                  ) : isGroupFundedDetailBooking ? (
+                    <Text c="dimmed" size="sm">No individual payment proof is required.</Text>
                   ) : (
                     <Text c="dimmed" size="sm">No proof submitted</Text>
                   )}
                   {detailPaymentReviewable ? (
-                    <Stack gap="xs" mt="sm">
-                      <Button
-                        className="neura-primary-button"
-                        loading={busyAction === `booking-payment-verify:${detailBooking.id}`}
-                        onClick={() => handleVerifyBookingPayment(detailBooking)}
-                        size="xs"
-                        w="fit-content"
-                      >
-                        Verify payment
-                      </Button>
+                    <Stack gap="sm" mt="md" className="booking-detail__payment-review">
+                      <Group gap="xs">
+                        <Button
+                          className="neura-primary-button"
+                          loading={busyAction === `booking-payment-verify:${detailBooking.id}`}
+                          onClick={() => handleVerifyBookingPayment(detailBooking)}
+                          size="sm"
+                          w="fit-content"
+                        >
+                          Verify payment
+                        </Button>
+                      </Group>
                       <Textarea
                         label="Rejection reason"
                         minRows={2}
@@ -6433,7 +10987,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         color="red"
                         disabled={!paymentRejectionReason.trim()}
                         loading={busyAction === `booking-payment-reject:${detailBooking.id}`}
-                        onClick={() => handleRejectBookingPayment(detailBooking)}
+                        onClick={async () => {
+                          const rejected = await handleRejectBookingPayment(detailBooking);
+                          if (rejected) {
+                            closeBookingDetailModal();
+                          }
+                        }}
                         size="xs"
                         variant="subtle"
                         w="fit-content"
@@ -6443,9 +11002,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     </Stack>
                   ) : null}
                 </Paper>
-                <Paper withBorder radius="md" p="md">
-                  <Text className="neura-label">Alerts</Text>
-                  <Text fw={700}>Email and browser notifications</Text>
+                <Paper withBorder radius="md" p="md" className="booking-detail__panel">
+                  <Group gap="xs" mb="xs">
+                    <IconBellRinging size={16} />
+                    <Text className="neura-label">Alerts</Text>
+                  </Group>
+                  <Text className="booking-detail__panel-title">Email and browser notifications</Text>
                   <Text c="dimmed" size="sm">
                     {detailBooking.contactVerificationChannel
                       ? `Verified by ${detailBooking.contactVerificationChannel}`
@@ -6454,14 +11016,28 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 </Paper>
               </SimpleGrid>
 
-              {detailBooking.notes ? (
-                <Paper withBorder radius="md" p="md">
+              {detailBooking.notes && detailBooking.notes !== "Group-funded booking approved by vendor." ? (
+                <Paper withBorder radius="md" p="md" className="booking-detail__panel">
                   <Text className="neura-label">Customer notes</Text>
                   <Text>{detailBooking.notes}</Text>
                 </Paper>
               ) : null}
 
-              <Group justify="space-between">
+              {detailBooking.organizerCampaign && detailBooking.status === "completed" && !organizerRatingSubmitted ? (
+                <Paper withBorder radius="md" p="md" className="booking-detail__panel">
+                  <Stack gap="sm">
+                    <Group justify="space-between">
+                      <div><Text className="neura-label">PRIVATE TRUST</Text><Title order={3}>Rate this organizer</Title></div>
+                      {organizerRatingStars ? <Group gap={5}><IconStar color="#ffd000" fill="#ffd000" size={20}/><Text fw={900}>{organizerRatingStars}.0</Text></Group> : null}
+                    </Group>
+                    <Text c="dimmed" size="sm">Visible only as a role-scoped aggregate. Your identity and notes are not shown.</Text>
+                    <FiveStarRatingInput label="Private organizer rating" onChange={setOrganizerRatingStars} value={organizerRatingStars}/>
+                    <Button disabled={!organizerRatingStars} loading={busyAction === `organizer-rating:${detailBooking.id}`} onClick={() => handleRateOrganizer(detailBooking)} w="fit-content">Submit rating</Button>
+                  </Stack>
+                </Paper>
+              ) : null}
+
+              <Group justify="space-between" className="booking-detail__footer">
                 <Button variant="default" onClick={closeBookingDetailModal}>
                   Close
                 </Button>
@@ -6482,19 +11058,24 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       <Button
                         className="neura-primary-button"
                         disabled={
-                          detailBooking.paymentStatus === "pending" ||
+                          detailPaymentGateActive ||
                           busyAction === `booking-status:${detailBooking.id}:confirmed`
                         }
-                        onClick={() => handleUpdateBookingStatus(detailBooking, "confirmed")}
+                        onClick={async () => {
+                          const updated = await handleUpdateBookingStatus(detailBooking, "confirmed");
+                          if (updated) {
+                            closeBookingDetailModal();
+                          }
+                        }}
                       >
                         Confirm
                       </Button>
-                      <Button size="xs" variant="outline" onClick={() => openRescheduleDialog(detailBooking)}>
+                      <Button disabled={detailPaymentGateActive} variant="outline" onClick={() => openRescheduleDialog(detailBooking)}>
                         Reschedule
                       </Button>
                       <Button
                         color="red"
-                        disabled={busyAction === `booking-status:${detailBooking.id}:canceled`}
+                        disabled={detailPaymentGateActive || busyAction === `booking-status:${detailBooking.id}:canceled`}
                         variant="subtle"
                         onClick={() =>
                           openConfirmAction({
@@ -6503,7 +11084,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                             confirmLabel: "Cancel booking",
                             confirmColor: "red",
                             onConfirm: async () => {
-                              await handleUpdateBookingStatus(detailBooking, "canceled");
+                              const updated = await handleUpdateBookingStatus(detailBooking, "canceled");
+                              if (updated) {
+                                closeBookingDetailModal();
+                              }
                             }
                           })
                         }
@@ -6518,6 +11102,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           ) : null}
         </Modal>
         <ConfirmActionModal
+          className="confirm-action-modal"
           opened={Boolean(confirmAction)}
           title={confirmAction?.title || ""}
           description={confirmAction?.description || ""}
@@ -6534,13 +11119,36 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             closeConfirmAction();
           }}
         />
+        <PromptActionModal
+          confirmLabel="Submit rating"
+          description="Low ratings require a short reason to support fair trust and moderation decisions."
+          error={error}
+          eyebrow="PRIVATE TRUST"
+          label="Reason for this low rating"
+          loading={Boolean(organizerRatingBooking && busyAction === `organizer-rating:${organizerRatingBooking.id}`)}
+          maxLength={500}
+          onChange={setOrganizerRatingReason}
+          onClose={() => {
+            setOrganizerRatingBooking(null);
+            setOrganizerRatingReason("");
+          }}
+          onConfirm={() => {
+            if (organizerRatingBooking) {
+              void handleRateOrganizer(organizerRatingBooking, organizerRatingReason.trim());
+            }
+          }}
+          opened={Boolean(organizerRatingBooking)}
+          placeholder="For example: communication, payment, or conduct"
+          title="Add rating context"
+          value={organizerRatingReason}
+        />
       </Portal>
     );
   }
 
   function renderCurrentSection() {
-    if (!activeSubscription && currentSection !== "settings") {
-      return <ActivationPanel onViewPlans={() => setPlanDialogOpen(true)} />;
+    if (!hasActiveSubscription && currentSection !== "settings" && currentSection !== "account") {
+      return <ActivationPanel onViewPlans={() => openPlanDialog()} />;
     }
 
     if (currentSection === "queue") {
@@ -6559,6 +11167,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       return renderBookingsPage();
     }
 
+    if (currentSection === "group-funded") {
+      return renderGroupFundedPage();
+    }
+
     if (currentSection === "clients") {
       return renderClientsPage();
     }
@@ -6575,6 +11187,14 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       return renderReportsPage();
     }
 
+    if (currentSection === "ratings") {
+      return <VendorRatingsPanel key={selectedTenantSlug} token={token!} tenantSlug={selectedTenantSlug} />;
+    }
+
+    if (currentSection === "account") {
+      return renderAccountPage();
+    }
+
     return renderSettingsPage();
   }
 
@@ -6586,11 +11206,28 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     return <Navigate to="/dashboard/queue" replace />;
   }
 
+  if (requiresMfaEnrollment && currentSection !== "account") {
+    return <Navigate to="/dashboard/account" replace />;
+  }
+
+  if (currentSection === "ratings" && !canAccessVendorSection("ratings", effectiveEntitlements, tenantPlan)) {
+    return effectiveEntitlementsQuery.isPending
+      ? <Card className="neura-card">Loading plan access...</Card>
+      : <Navigate to={defaultDashboardPath} replace />;
+  }
+
+  if (
+    !effectiveEntitlementsQuery.isPending &&
+    !canAccessVendorSection(currentSection, effectiveEntitlements, tenantPlan)
+  ) {
+    return <Navigate to={defaultDashboardPath} replace />;
+  }
+
   if (
     (selectedTenantRole === "staff" && !staffAllowedSections.has(currentSection)) ||
     (selectedTenantRole === "admin" && !adminAllowedSections.has(currentSection))
   ) {
-    return <Navigate to="/dashboard/queue" replace />;
+    return <Navigate to={defaultDashboardPath} replace />;
   }
 
   if (!user) {
@@ -6622,41 +11259,59 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         {renderDashboardSidebar()}
       </aside>
 
-      <ActionIcon
-        aria-label="Toggle dashboard navigation"
-        className="neura-floating-sidebar-toggle"
-        onClick={() => setSidebarOpen((current) => !current)}
-        variant="filled"
-        size="xl"
-      >
-        <IconMenu2 aria-hidden size={18} stroke={2.2} />
-      </ActionIcon>
+      <header className="neura-mobile-header">
+        <Group gap="sm" className="neura-mobile-brand">
+          <Burger
+            aria-label="Open dashboard navigation"
+            opened={sidebarOpen}
+            onClick={() => setSidebarOpen((current) => !current)}
+            size="sm"
+          />
+          <img className="neura-mobile-logo" src="/logo.svg" alt="" aria-hidden="true" />
+          <div>
+            <Text fw={800}>GetPrio</Text>
+            <Text size="xs" c="dimmed">Vendor Dashboard</Text>
+          </div>
+        </Group>
+      </header>
 
       <main className="neura-main">
         <header className="neura-header">
           <Group align="flex-start" gap="md">
             <div>
-              <Text className="neura-label">Analytics dashboard</Text>
+              <Text className="neura-label">{requiresMfaEnrollment ? "Account security" : "Analytics dashboard"}</Text>
               <Title order={1}>
-                {currentSection === "queue"
+                {requiresMfaEnrollment
+                  ? "Secure your account"
+                  : currentSection === "queue"
                   ? "Live queue"
                   : navItems.find((item) => item.section === currentSection)?.label}
               </Title>
-              <Text c="dimmed">{dashboardSectionDescriptions[currentSection]}</Text>
+              <Text c="dimmed">
+                {requiresMfaEnrollment
+                  ? "Set up an authenticator to continue to your vendor workspace. Your sign-in session remains active during setup."
+                  : dashboardSectionDescriptions[currentSection]}
+              </Text>
             </div>
           </Group>
-          <Select
+          {!requiresMfaEnrollment ? <Select
             className="neura-tenant-select"
-            data={locations.map((locationItem) => ({
-              label: locationItem.name,
-              value: locationItem.slug
-            }))}
+            data={locationOptions}
             label="Location"
             value={selectedLocationSlug}
             onChange={(value) => value && setSelectedLocationSlug(value)}
-          />
+          /> : <Badge color="orange" variant="light">MFA setup required</Badge>}
         </header>
 
+        {!requiresMfaEnrollment ? <VendorQueueLifecycleTray
+          busyAction={busyAction}
+          canOperate={canOperateQueueDay}
+          locationName={selectedLocation?.name || "This queue"}
+          onCloseNow={handleCloseQueueDay}
+          onExtend={handleExtendQueueDay}
+          onRefresh={reloadDashboardSnapshot}
+          snapshot={snapshot}
+        /> : null}
         {error ? <Text c="red" fw={700}>{error}</Text> : null}
         {renderCurrentSection()}
       </main>
@@ -6671,6 +11326,20 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       {renderThemeDialog()}
       {renderDashboardAlertOverlay()}
       {renderRescheduleBlockedModal()}
+      {renderWalkInDialog()}
+      <TicketScannerModal
+        error={ticketScannerError}
+        loading={busyAction === "confirm-current"}
+        onClose={() => {
+          if (busyAction !== "confirm-current") {
+            setTicketScannerOpen(false);
+            setTicketScannerError("");
+          }
+        }}
+        onConfirm={handleConfirmCalledTicket}
+        opened={ticketScannerOpen}
+        ticketNumber={snapshot?.current?.ticketNumber}
+      />
       <Drawer
         classNames={{ body: "neura-drawer-body", content: "neura-drawer-content", header: "neura-drawer-header" }}
         hiddenFrom="lg"
@@ -6681,7 +11350,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         size={300}
         title="Dashboard"
       >
-        {renderDashboardSidebar({ compact: true })}
+        <ScrollArea h="100%" scrollbars="y">
+          {renderDashboardSidebar({ compact: true })}
+        </ScrollArea>
       </Drawer>
     </div>
   );

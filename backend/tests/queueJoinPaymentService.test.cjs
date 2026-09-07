@@ -59,10 +59,11 @@ function requireWithMocks(targetPath, mocks) {
   }
 }
 
-test("queue join checkout marks the payment failed when checkout creation fails", async () => {
+test("enabled queue fee starts checkout without notification opt-ins and marks checkout failures", async () => {
   const createPaymentCalls = [];
   const updateProviderDataCalls = [];
   const markFailedCalls = [];
+  let checkoutRequest;
 
   const queueJoinPaymentService = requireWithMocks("../src/services/queueJoinPaymentService.js", {
     "../config/env": {
@@ -119,6 +120,14 @@ test("queue join checkout marks the payment failed when checkout creation fails"
         return null;
       }
     },
+    "../repositories/storeLocations": {
+      findLocationByTenantAndSlug: async () => ({
+        _id: "location-1",
+        slug: "main",
+        queueLifecycleMode: "legacy"
+      }),
+      findPrimaryLocationByTenantId: async () => null
+    },
     "../services/queueFeeService": {
       assertTenantCanAcceptCustomerJoins: async () => {},
       getQueueFeeForTenant: async () => ({
@@ -140,12 +149,15 @@ test("queue join checkout marks the payment failed when checkout creation fails"
   });
 
   const originalFetch = global.fetch;
-  global.fetch = async () => ({
-    ok: false,
-    json: async () => ({
-      errors: [{ detail: "checkout failed" }]
-    })
-  });
+  global.fetch = async (_url, options) => {
+    checkoutRequest = JSON.parse(options.body);
+    return {
+      ok: false,
+      json: async () => ({
+        errors: [{ detail: "checkout failed" }]
+      })
+    };
+  };
 
   try {
     await assert.rejects(
@@ -162,9 +174,10 @@ test("queue join checkout marks the payment failed when checkout creation fails"
             customerEmail: "customer@example.com",
             customerPhone: "09170000000",
             notifyByEmail: false,
-            notifyBySms: true,
+            notifyBySms: false,
             joinChannel: "online",
             locationSlug: "main",
+            mobileReturnUrl: "https://getprio.online/payment/return",
             notes: ""
           }
         }),
@@ -174,6 +187,10 @@ test("queue join checkout marks the payment failed when checkout creation fails"
     assert.equal(createPaymentCalls.length, 1);
     assert.equal(updateProviderDataCalls.length, 0);
     assert.equal(markFailedCalls.length, 1);
+    assert.equal(
+      checkoutRequest.data.attributes.success_url,
+      "https://getprio.online/payment/return?payment=payment-1&payment_status=success&tenantSlug=demo&locationSlug=main"
+    );
     assert.match(markFailedCalls[0].data.metadata.failureReason, /checkout failed/i);
     assert.equal(markFailedCalls[0].data.metadata.failureStatusCode, 502);
   } finally {
@@ -223,6 +240,14 @@ test("queue join checkout preserves provider identifiers when local linking fail
         markFailedCalls.push({ paymentId, data });
         return null;
       }
+    },
+    "../repositories/storeLocations": {
+      findLocationByTenantAndSlug: async () => ({
+        _id: "location-1",
+        slug: "main",
+        queueLifecycleMode: "legacy"
+      }),
+      findPrimaryLocationByTenantId: async () => null
     },
     "../services/queueFeeService": {
       assertTenantCanAcceptCustomerJoins: async () => {},
@@ -466,3 +491,65 @@ test("queue join payment ignores duplicate paid-webhook events and missing payme
   assert.equal(missing.handled, false);
   assert.equal(recordBillingEventCalls.length >= 1, true);
 });
+
+test("paid ticket sends joined push once after commit, even when payment is replayed", async () => {
+  let committed = false;
+  let issued = false;
+  const pushes = [];
+  const payment = { _id: '1', tenantId: '2', status: 'paid', amountCents: 100, currency: 'PHP', payload: { locationSlug: 'main' } };
+  const service = requireWithMocks('../src/services/queueJoinPaymentService.js', {
+    '../config/db': { withTransaction: async (fn) => { const result = await fn({}); committed = true; return result; } },
+    '../repositories/queueJoinPayments': {
+      findPaymentByProviderId: async () => payment,
+      findPaymentByIdForUpdate: async () => issued ? { ...payment, ticketId: '3', ticketLookupCode: 'A001' } : payment,
+      markPaidWithTicket: async () => { issued = true; return { ...payment, ticketId: '3', ticketLookupCode: 'A001' }; }
+    },
+    '../repositories/tenants': { findTenantById: async () => ({ _id: '2', slug: 'clinic', name: 'Clinic' }) },
+    '../repositories/storeLocations': { findLocationByTenantAndSlug: async () => ({ _id: '4' }) },
+    '../repositories/billing': { recordBillingEvent: async () => ({ id: 'event' }) },
+    './queueFeeService': { assertTenantCanAcceptCustomerJoins: async () => {} },
+    './queueService': {
+      createTicketForTenantInTransaction: async () => ({ _id: '3', userId: 'customer', ticketNumber: 'A001', lookupCode: 'A001' }),
+      maybeNotifyUpcomingTickets: async () => {}, publishSnapshot: async () => ({})
+    },
+    './pushNotificationService': { notifyCustomerQueueUpdate: async (input) => { assert.equal(committed, true); pushes.push(input); } }
+  });
+  await service.handlePayMongoPaidCheckout({ id: 'checkout', attributes: {} }, {});
+  await service.handlePayMongoPaidCheckout({ id: 'checkout', attributes: {} }, {});
+  assert.equal(pushes.length, 1);
+  assert.equal(pushes[0].action, 'joined');
+  assert.equal(pushes[0].ticket.userId, 'customer');
+});
+
+for (const pending of [false, true]) {
+test(`free ticket completes after commit when joined push ${pending ? "stays pending" : "fails"}`, { timeout: 1000 }, async () => {
+  let committed = false;
+  const pushes = [];
+  const location = { _id: '4' };
+  const service = requireWithMocks('../src/services/queueService.js', {
+    '../config/db': { withTransaction: async (fn) => { const result = await fn({}); committed = true; return result; } },
+    '../repositories/queueDayClosures': { findActiveClosure: async () => null },
+    '../repositories/queueDayPauses': { findActivePause: async () => null },
+    '../repositories/queueEvents': { createQueueEvent: async () => {} },
+    './queueSnapshotHelpers': { resolveLocation: async () => location, buildQueueSnapshot: async () => ({}) },
+    './queueEvents': { publish: () => {} },
+    './queueTicketPersistenceHelpers': {
+      reserveNextSequence: async () => 1,
+      createTicketRecord: async (_client, input) => ({ ...input, _id: '3', lookupCode: 'A001' })
+    },
+    './allowanceService': { consumeAllowance: async () => ({}) },
+    './queueAutomationHelpers': { maybeNotifyUpcomingTickets: async () => {}, maybeAutoPauseQueueDay: async () => {} },
+    './notificationService': { notifyJourneyLifecycle: async () => {} },
+    './pushNotificationService': { notifyCustomerQueueUpdate: async (input) => {
+      assert.equal(committed, true); pushes.push(input);
+      if (pending) return new Promise(() => {});
+      throw new Error('Push unavailable');
+    } }
+  });
+  const result = await service.createTicket({ tenant: { _id: '2', slug: 'clinic', queuePrefix: 'A', notificationSettings: { queueJoin: false } }, userId: 'customer' });
+  assert.equal(result.ticket._id, '3');
+  assert.equal(pushes.length, 1);
+  assert.equal(pushes[0].action, 'joined');
+});
+
+}

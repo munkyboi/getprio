@@ -1,19 +1,27 @@
+const businessCategories = require("../repositories/businessCategories");
 const express = require("express");
+const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
 const tenantRepository = require("../repositories/tenants");
 const storeLocationRepository = require("../repositories/storeLocations");
 const publicBoardThemeRepository = require("../repositories/publicBoardThemes");
 const vendorServiceRepository = require("../repositories/vendorServices");
+const locationServiceRepository = require("../repositories/locationServices");
 const ticketRepository = require("../repositories/tickets");
 const asyncHandler = require("../middleware/asyncHandler");
 const { maybeAuthenticate } = require("../middleware/auth");
+const { moderatePublicText } = require("../middleware/moderatePublicText");
 const queueEvents = require("../services/queueEvents");
 const turnstileService = require("../services/turnstileService");
 const queueJoinOtpService = require("../services/queueJoinOtpService");
 const queueJoinPaymentService = require("../services/queueJoinPaymentService");
+const queueJoinPaymentRepository = require("../repositories/queueJoinPayments");
 const queueFeeService = require("../services/queueFeeService");
 const bookingService = require("../services/bookingService");
 const bookingOtpService = require("../services/bookingOtpService");
 const bookingSmsAlertPaymentService = require("../services/bookingSmsAlertPaymentService");
+const organizerCampaignService = require("../services/organizerCampaignService");
+const organizerCampaignEvents = require("../services/organizerCampaignEvents");
+const ratingRepository = require("../repositories/ratings");
 const storeHoursService = require("../services/storeHoursService");
 const notificationService = require("../services/notificationService");
 const platformRepository = require("../repositories/platform");
@@ -22,15 +30,81 @@ const {
   getQueueSnapshot,
   cancelTicket
 } = require("../services/queueService");
+const { normalizePhilippineMobileNumber } = require("../utils/phone");
+const entitlementAdmissionService = require("../services/entitlementAdmissionService");
 
 const router = express.Router();
+router.get("/business-categories", asyncHandler(async (_req, res) => res.json({ items: await businessCategories.list() })));
+const enterpriseInquiryLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => ipKeyGenerator(req.ip),
+  message: { message: "Too many Enterprise inquiries. Please try again later." }
+});
+const queueTicketReadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `${req.user?._id || "anonymous"}:${ipKeyGenerator(req.ip)}`,
+  message: { message: "Too many queue status requests. Please try again later." }
+});
+router.use(moderatePublicText);
+router.get(
+  "/campaigns/:publicToken/stream",
+  asyncHandler(async (req, res) => {
+    const campaign = await organizerCampaignService.getCampaignPreview(req.params.publicToken);
 
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders();
+    res.write(`event: ready\ndata: ${JSON.stringify({ connected: true })}\n\n`);
+
+    const unsubscribe = organizerCampaignEvents.subscribe(campaign.id, () => {
+      res.write(`event: campaign-change\ndata: ${JSON.stringify({
+        changedAt: new Date().toISOString()
+      })}\n\n`);
+    });
+    const heartbeat = setInterval(() => {
+      res.write(`event: heartbeat\ndata: ${Date.now()}\n\n`);
+    }, 25000);
+
+    req.on("close", () => {
+      clearInterval(heartbeat);
+      unsubscribe();
+      res.end();
+    });
+  })
+);
+router.get(
+  "/campaigns/:publicToken",
+  asyncHandler(async (req, res) => res.json({ campaign: await organizerCampaignService.getCampaignPreview(req.params.publicToken) }))
+);
+router.get(
+  "/vendors/:tenantSlug/ratings",
+  asyncHandler(async (req, res) => {
+    const tenant = await tenantRepository.findTenantBySlug(req.params.tenantSlug, { activeOnly: true });
+    if (!tenant) { const error = new Error("Vendor not found."); error.statusCode = 404; throw error; }
+    if (!tenant.publicProfileEnabled || tenant.vendorApprovalStatus !== 'approved') return res.status(404).json({ message: "Vendor not found." });
+    const { parsePaginationParams, formatPaginationMetadata } = require("../utils/pagination");
+    const { page, pageSize, offset } = parsePaginationParams(req.query);
+    const [rating, reviews, total] = await Promise.all([ratingRepository.getVendorAggregate(tenant._id), ratingRepository.listPublicVendorReviews(tenant._id, pageSize, offset), ratingRepository.countPublicVendorReviews(tenant._id)]);
+    res.json({ rating, reviews, pagination: formatPaginationMetadata(total, page, pageSize) });
+  })
+);
+router.all(/^\/group-funded-campaigns(?:\/|$)/, (_req, res) => {
+  res.status(410).json({ message: "This legacy campaign API has been retired. Use the organizer campaign share link." });
+});
 function formatPublicVendorService(service) {
   return {
     name: service.name,
     slug: service.slug,
     description: service.description,
     durationMinutes: service.durationMinutes,
+    imageUrl: service.imageUrl || "",
     allowBookingQuantity: service.allowBookingQuantity,
     bookingQuantityLabel: service.bookingQuantityLabel,
     manualPaymentRequired: service.manualPaymentRequired,
@@ -42,22 +116,76 @@ function formatPublicVendorService(service) {
 
 async function attachPublicVendorDetails(vendor) {
   const tenant = await tenantRepository.findTenantBySlug(vendor.slug, { activeOnly: true });
+  const capabilities = tenant
+    ? await entitlementAdmissionService.resolvePublicCapabilities(tenant._id)
+    : { queue: false, booking: false, campaigns: false, branding: false };
   const primaryLocation = vendor.location.slug && tenant
     ? await storeLocationRepository.findLocationByTenantAndSlug(tenant._id, vendor.location.slug)
     : null;
-  const publicBoardTheme = tenant
+  const publicBoardTheme = tenant && capabilities.branding
     ? await publicBoardThemeRepository.getResolvedTheme(tenant._id, primaryLocation?._id)
     : null;
-  const services = tenant
+  const businessProfileTheme = tenant
+    ? await publicBoardThemeRepository.getResolvedTheme(tenant._id, undefined, { mediaOnly: true })
+    : null;
+  const services = tenant && capabilities.booking
     ? (await vendorServiceRepository.listServicesByTenantId(tenant._id))
         .filter((service) => service.isActive)
         .map(formatPublicVendorService)
     : [];
+  const locationServices = tenant && capabilities.booking
+    ? (await locationServiceRepository.listLocationServicesByTenantId(tenant._id))
+        .filter((item) => item.isActive)
+        .map((item) => ({
+          id: item._id,
+          tenantId: item.tenantId,
+          locationId: item.locationId,
+          serviceId: item.serviceId,
+          capacity: item.capacity,
+          isActive: item.isActive,
+          sortOrder: item.sortOrder,
+          priceAmountCents: item.priceAmountCents,
+          priceDisplay: item.priceDisplay,
+          imageUrl: item.imageUrl || "",
+          createdAt: item.createdAt,
+          updatedAt: item.updatedAt
+        }))
+        .filter((item) =>
+          services.some((service) => String(service._id) === String(item.serviceId) && service.isActive)
+        )
+    : [];
+  const locations = tenant
+    ? await Promise.all(vendor.locations.map(async (location) => {
+        const fullLocation = await storeLocationRepository.findLocationByTenantAndSlug(tenant._id, location.slug);
+        const openStatus = fullLocation
+          ? await storeHoursService.getOpenStatus(fullLocation, { hours: location.hours })
+          : null;
+
+        return {
+          ...location,
+          contactEmail: fullLocation?.contactEmail || "",
+          contactPhone: fullLocation?.contactPhone || "",
+          openStatus: openStatus
+            ? { isOpen: openStatus.isOpen, summary: openStatus.summary }
+            : undefined
+        };
+      }))
+    : vendor.locations;
+
+  const {
+    contactEmail: _legacyTenantContactEmail,
+    contactPhone: _legacyTenantContactPhone,
+    ...publicVendor
+  } = vendor;
 
   return {
-    ...vendor,
+    ...publicVendor,
+    capabilities,
+    locations,
     services,
-    publicBoardTheme
+    locationServices,
+    publicBoardTheme,
+    businessProfileTheme
   };
 }
 
@@ -68,8 +196,13 @@ router.get(
       search: req.query.search,
       limit: req.query.limit
     });
+    const discoverableVendors = (
+      await Promise.all(vendors.map(async (vendor) =>
+        (await entitlementAdmissionService.canDiscover(vendor._id)) ? vendor : null
+      ))
+    ).filter(Boolean);
     const vendorsWithDetails = await Promise.all(
-      vendors.map((vendor) => attachPublicVendorDetails(vendor))
+      discoverableVendors.map((vendor) => attachPublicVendorDetails(vendor))
     );
 
     res.json({ vendors: vendorsWithDetails });
@@ -92,6 +225,60 @@ router.get(
     res.json({
       vendor: await attachPublicVendorDetails(vendor)
     });
+  })
+);
+
+router.get(
+  "/vendors/:tenantSlug/locations/:locationSlug/services",
+  asyncHandler(async (req, res) => {
+    const tenant = await getPublicBookableTenant(req.params.tenantSlug);
+    await entitlementAdmissionService.admit({ tenantId: tenant._id, featureKey: "booking" });
+    const location = await storeLocationRepository.findLocationByTenantAndSlug(
+      tenant._id,
+      String(req.params.locationSlug).toLowerCase()
+    );
+
+    if (!location || !location.isActive) {
+      const error = new Error("Location not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const locationServices = await locationServiceRepository.listLocationServicesByLocationId(tenant._id, location._id);
+    const services = await vendorServiceRepository.listServicesByTenantId(tenant._id);
+
+    res.json({
+      services: locationServices
+        .filter((item) => item.isActive)
+        .map((item) => {
+          const service = services.find((entry) => String(entry._id) === String(item.serviceId));
+          return service && service.isActive
+            ? {
+                ...formatPublicVendorService(service),
+                capacity: item.capacity,
+                locationServiceId: item._id,
+                priceAmountCents: item.priceAmountCents ?? service.priceAmountCents,
+                priceDisplay: item.priceDisplay || service.priceDisplay
+              }
+            : null;
+        })
+        .filter(Boolean)
+    });
+  })
+);
+
+router.post(
+  "/vendors/:tenantSlug/locations/:locationSlug/composed-slots",
+  asyncHandler(async (req, res) => {
+    const result = await bookingService.evaluateComposedBookingSlots({
+      tenantSlug: req.params.tenantSlug,
+      locationSlug: req.params.locationSlug,
+      date: req.body?.date,
+      executionMode: req.body?.executionMode,
+      items: req.body?.items,
+      includeGroupFundedHolds: Boolean(req.body?.includeGroupFundedHolds)
+    });
+    res.json(result);
   })
 );
 
@@ -270,17 +457,84 @@ async function verifyQrTurnstileIfNeeded(req, joinChannel) {
   }
 }
 
+function assertQueueTicketDetailsAccess(req, ticket) {
+  if (!ticket?.userId) {
+    return;
+  }
+
+  if (!req.user) {
+    const error = new Error("Authentication required.");
+    error.statusCode = 401;
+    throw error;
+  }
+
+  if (!customerTicketAccess.userOwnsTicket(req.user, ticket)) {
+    const error = new Error("You do not have permission to view this queue ticket.");
+    error.statusCode = 403;
+    throw error;
+  }
+}
+
+function redactQueueTicketIdentity(ticket) {
+  if (!ticket) {
+    return ticket;
+  }
+
+  const {
+    customerName: _customerName,
+    customerDisplayName: _customerDisplayName,
+    lookupCode: _lookupCode,
+    ...publicTicket
+  } = ticket;
+
+  return publicTicket;
+}
+
+function formatPublicQueueSnapshot(snapshot) {
+  return {
+    ...snapshot,
+    current: redactQueueTicketIdentity(snapshot.current),
+    nextUp: (snapshot.nextUp || []).map(redactQueueTicketIdentity),
+    overflow: (snapshot.overflow || []).map(redactQueueTicketIdentity),
+    recovery: (snapshot.recovery || []).map(redactQueueTicketIdentity),
+    history: (snapshot.history || []).map(redactQueueTicketIdentity),
+    focusTicket: null
+  };
+}
+
 router.get(
   ["/tenant/:tenantSlug/queue", "/tenant/:tenantSlug/location/:locationSlug/queue"],
+  queueTicketReadLimiter,
+  maybeAuthenticate,
   asyncHandler(async (req, res) => {
     const tenant = await getTenantOrThrow(req.params.tenantSlug);
     const location = await getLocationOrPrimary(tenant, req.params.locationSlug);
+    const lookupCode = String(req.query.lookupCode || "").trim().toUpperCase();
+    if (lookupCode) {
+      const ticket = await ticketRepository.findTicketByTenantAndLookupCode(
+        tenant._id,
+        lookupCode
+      );
+      if (!ticket) {
+        const error = new Error("Queue ticket not found.");
+        error.statusCode = 404;
+        throw error;
+      }
+      assertQueueTicketDetailsAccess(req, ticket);
+    }
+
     const snapshot = await getQueueSnapshot(tenant, {
       location,
-      lookupCode: req.query.lookupCode
+      lookupCode
     });
 
-    res.json(snapshot);
+    if (lookupCode && !snapshot.focusTicket) {
+      const error = new Error("Queue ticket not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    res.json(lookupCode ? snapshot : formatPublicQueueSnapshot(snapshot));
   })
 );
 
@@ -303,11 +557,16 @@ function buildJoinPayload(req, tenant, location) {
     joinChannel
   } = req.body;
   const normalizedJoinChannel = joinChannel || (req.user ? "online" : "qr");
+  if (!["online", "qr"].includes(normalizedJoinChannel)) {
+    const error = new Error("Choose an online or QR join channel.");
+    error.statusCode = 400;
+    throw error;
+  }
   const payload = {
     userId: req.user?._id,
     customerName: customerName || req.user?.name,
     customerEmail: customerEmail || req.user?.email,
-    customerPhone: customerPhone || req.user?.phone,
+    customerPhone: normalizePhilippineMobileNumber(customerPhone || req.user?.phone),
     notifyByEmail: Boolean(notifyByEmail),
     notifyBySms: Boolean(notifyBySms),
     joinChannel: normalizedJoinChannel,
@@ -338,12 +597,34 @@ function buildJoinPayload(req, tenant, location) {
 
 router.post(
   "/enterprise-inquiries",
+  enterpriseInquiryLimiter,
   asyncHandler(async (req, res) => {
+    if (normalizeText(req.body.honeypot, 200)) {
+      res.status(201).json({ sent: true });
+      return;
+    }
+
+    const verification = await turnstileService.verifyTurnstileToken({
+      token: req.body.turnstileToken,
+      remoteIp: getRequestIp(req)
+    });
+    if (!verification.success) {
+      const error = new Error("Verification failed. Please retry the security check.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    if (typeof req.body.message === "string" && req.body.message.length > 1000) {
+      const error = new Error("Message must be 1,000 characters or fewer.");
+      error.statusCode = 400;
+      throw error;
+    }
+
     const businessName = normalizeText(req.body.businessName, 140);
     const contactName = normalizeText(req.body.contactName, 140);
     const email = normalizeEmail(req.body.email);
-    const phone = normalizeText(req.body.phone, 80);
-    const message = normalizeText(req.body.message, 1200);
+    const phone = normalizePhilippineMobileNumber(req.body.phone);
+    const message = normalizeText(req.body.message, 1000);
 
     if (!businessName || !contactName || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       const error = new Error("Business name, contact name, and a valid email are required.");
@@ -383,6 +664,8 @@ router.post(
 
 router.get(
   "/ticket/:lookupCode",
+  queueTicketReadLimiter,
+  maybeAuthenticate,
   asyncHandler(async (req, res) => {
     const ticket = await ticketRepository.findTicketByLookupCode(
       String(req.params.lookupCode).toUpperCase()
@@ -393,6 +676,8 @@ router.get(
       error.statusCode = 404;
       throw error;
     }
+
+    assertQueueTicketDetailsAccess(req, ticket);
 
     const tenant = await tenantRepository.findTenantById(ticket.tenantId);
     const location = ticket.locationId
@@ -413,6 +698,8 @@ router.post(
     const tenant = await getTenantOrThrow(req.params.tenantSlug);
     const location = await getLocationOrPrimary(tenant, req.params.locationSlug);
     const payload = buildJoinPayload(req, tenant, location);
+
+    await entitlementAdmissionService.admit({ tenantId: tenant._id, featureKey: "queue" });
 
     await queueFeeService.assertTenantCanAcceptCustomerJoins(tenant._id);
     await storeHoursService.assertLocationOpenForCustomerJoin(location);
@@ -435,6 +722,8 @@ router.post(
     const location = await getLocationOrPrimary(tenant, req.params.locationSlug);
     const payload = buildJoinPayload(req, tenant, location);
 
+    await entitlementAdmissionService.admit({ tenantId: tenant._id, featureKey: "queue" });
+
     await queueFeeService.assertTenantCanAcceptCustomerJoins(tenant._id);
     await storeHoursService.assertLocationOpenForCustomerJoin(location);
     await verifyQrTurnstileIfNeeded(req, payload.joinChannel);
@@ -453,6 +742,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const tenant = await getTenantOrThrow(req.params.tenantSlug);
     const location = await getLocationOrPrimary(tenant, req.params.locationSlug);
+    await entitlementAdmissionService.admit({ tenantId: tenant._id, featureKey: "queue" });
     await queueFeeService.assertTenantCanAcceptCustomerJoins(tenant._id);
     await storeHoursService.assertLocationOpenForCustomerJoin(location);
     const payload = await queueJoinOtpService.verifyJoinOtp({
@@ -488,6 +778,34 @@ router.post(
     });
 
     res.json(result);
+  })
+);
+
+router.get(
+  "/payment-returns/:paymentId",
+  asyncHandler(async (req, res) => {
+    const paymentId = Number(req.params.paymentId);
+    if (!Number.isInteger(paymentId) || paymentId <= 0) {
+      const error = new Error("Payment return not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const payment = await queueJoinPaymentRepository.findPaymentById(paymentId);
+    const tenant = payment
+      ? await tenantRepository.findTenantById(payment.tenantId)
+      : null;
+    if (!payment || !tenant || !tenant.isActive) {
+      const error = new Error("Payment return not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    res.setHeader("Cache-Control", "no-store");
+    res.json({
+      tenantSlug: tenant.slug,
+      locationSlug: payment.payload?.locationSlug || null
+    });
   })
 );
 
@@ -562,8 +880,8 @@ router.delete(
       ? await storeLocationRepository.findLocationById(existingTicket.locationId)
       : requestedLocation;
 
-    if (existingTicket.status !== "waiting") {
-      const error = new Error("Only waiting tickets can be cancelled.");
+    if (!["waiting", "pending_carry_over"].includes(existingTicket.status)) {
+      const error = new Error("Only waiting or carried-over tickets can be cancelled.");
       error.statusCode = 409;
       throw error;
     }
@@ -593,10 +911,26 @@ router.delete(
 
 router.get(
   ["/tenant/:tenantSlug/stream", "/tenant/:tenantSlug/location/:locationSlug/stream"],
+  queueTicketReadLimiter,
+  maybeAuthenticate,
   asyncHandler(async (req, res) => {
     const tenant = await getTenantOrThrow(req.params.tenantSlug);
     const location = await getLocationOrPrimary(tenant, req.params.locationSlug);
-    const lookupCode = req.query.lookupCode ? String(req.query.lookupCode) : "";
+    const lookupCode = req.query.lookupCode
+      ? String(req.query.lookupCode).trim().toUpperCase()
+      : "";
+    if (lookupCode) {
+      const ticket = await ticketRepository.findTicketByTenantAndLookupCode(
+        tenant._id,
+        lookupCode
+      );
+      if (!ticket) {
+        const error = new Error("Queue ticket not found.");
+        error.statusCode = 404;
+        throw error;
+      }
+      assertQueueTicketDetailsAccess(req, ticket);
+    }
 
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
@@ -606,19 +940,25 @@ router.get(
     const writeSnapshot = async (snapshot) => {
       const payload = lookupCode
         ? await getQueueSnapshot(tenant, { lookupCode, location })
-        : snapshot || (await getQueueSnapshot(tenant, { location }));
+        : formatPublicQueueSnapshot(
+            snapshot || (await getQueueSnapshot(tenant, { location }))
+          );
       res.write(`data: ${JSON.stringify(payload)}\n\n`);
     };
 
     await writeSnapshot();
 
-    const unsubscribe = queueEvents.subscribe(tenant.slug, async (snapshot) => {
-      try {
-        await writeSnapshot(snapshot);
-      } catch (error) {
-        console.error(error);
-      }
-    });
+    const unsubscribe = queueEvents.subscribe(
+      tenant.slug,
+      async (snapshot) => {
+        try {
+          await writeSnapshot(snapshot);
+        } catch (error) {
+          console.error(error);
+        }
+      },
+      { locationId: location._id }
+    );
 
     const heartbeat = setInterval(() => {
       res.write(`event: heartbeat\ndata: ${Date.now()}\n\n`);

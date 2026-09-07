@@ -8,6 +8,9 @@ export default defineConfig(({ mode }) => {
   return {
     envDir: "..",
     plugins: [react()],
+    optimizeDeps: {
+      include: ["qr-code-styling"]
+    },
     server: {
       host: "0.0.0.0",
       port,

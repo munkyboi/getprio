@@ -7,9 +7,11 @@ const SERVICE_COLUMNS = `
   slug,
   description,
   duration_minutes,
+  image_url,
   allow_booking_quantity,
   booking_quantity_label,
   manual_payment_required,
+  booking_capacity_scope,
   price_amount_cents,
   currency,
   price_display,
@@ -24,12 +26,28 @@ function buildQueryClient(client) {
 }
 
 function normalizeServiceSlug(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 80);
+  const source = String(value || "").trim().toLowerCase();
+  let normalizedSlug = "";
+  let previousWasDash = false;
+
+  for (const char of source) {
+    const isAlphaNumeric = (char >= "a" && char <= "z") || (char >= "0" && char <= "9");
+    if (isAlphaNumeric) {
+      normalizedSlug += char;
+      previousWasDash = false;
+    } else if (!previousWasDash && normalizedSlug.length > 0) {
+      normalizedSlug += "-";
+      previousWasDash = true;
+    }
+  }
+
+  if (normalizedSlug.endsWith("-")) {
+    normalizedSlug = normalizedSlug.slice(0, -1);
+  }
+
+  normalizedSlug = normalizedSlug.slice(0, 80);
+
+  return normalizedSlug;
 }
 
 function mapVendorService(row) {
@@ -44,9 +62,11 @@ function mapVendorService(row) {
     slug: row.slug,
     description: row.description || "",
     durationMinutes: Number(row.duration_minutes),
+    imageUrl: row.image_url || "",
     allowBookingQuantity: Boolean(row.allow_booking_quantity),
     bookingQuantityLabel: row.booking_quantity_label || "Units",
     manualPaymentRequired: Boolean(row.manual_payment_required),
+    bookingCapacityScope: row.booking_capacity_scope || "service",
     priceAmountCents: Number(row.price_amount_cents),
     currency: row.currency || "PHP",
     priceDisplay: row.price_display || "",
@@ -85,6 +105,35 @@ async function findServiceByTenantAndSlug(tenantId, slug, options = {}) {
   return mapVendorService(result.rows[0]);
 }
 
+async function isServiceSlugAvailable(tenantId, slug, excludeServiceId = null, options = {}) {
+  const normalizedSlug = normalizeServiceSlug(slug);
+  if (!normalizedSlug) {
+    return { available: false, valid: false, message: "Enter a service slug." };
+  }
+
+  const queryClient = buildQueryClient(options.client);
+  const values = [Number(tenantId), normalizedSlug];
+  let query = `
+    SELECT id
+    FROM vendor_services
+    WHERE tenant_id = $1 AND slug = $2
+  `;
+
+  if (excludeServiceId) {
+    values.push(Number(excludeServiceId));
+    query += ` AND id <> $${values.length}`;
+  }
+
+  query += " LIMIT 1";
+
+  const result = await queryClient.query(query, values);
+  return {
+    available: result.rows.length === 0,
+    valid: Boolean(normalizedSlug),
+    message: result.rows.length === 0 ? "Slug is available." : "That service slug is already taken."
+  };
+}
+
 async function createService(data, options = {}) {
   const result = await buildQueryClient(options.client).query(
     `
@@ -94,16 +143,18 @@ async function createService(data, options = {}) {
         slug,
         description,
         duration_minutes,
+        image_url,
         allow_booking_quantity,
         booking_quantity_label,
         manual_payment_required,
+        booking_capacity_scope,
         price_amount_cents,
         currency,
         price_display,
         is_active,
         sort_order
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
       RETURNING ${SERVICE_COLUMNS}
     `,
     [
@@ -112,9 +163,11 @@ async function createService(data, options = {}) {
       normalizeServiceSlug(data.slug || data.name),
       data.description || null,
       Number(data.durationMinutes),
+      data.imageUrl || null,
       Boolean(data.allowBookingQuantity),
       data.bookingQuantityLabel || "Units",
       Boolean(data.manualPaymentRequired),
+      data.bookingCapacityScope || "service",
       Number(data.priceAmountCents || 0),
       data.currency || "PHP",
       data.priceDisplay || "",
@@ -135,9 +188,11 @@ async function updateService(serviceId, changes, options = {}) {
     slug: "slug",
     description: "description",
     durationMinutes: "duration_minutes",
+    imageUrl: "image_url",
     allowBookingQuantity: "allow_booking_quantity",
     bookingQuantityLabel: "booking_quantity_label",
     manualPaymentRequired: "manual_payment_required",
+    bookingCapacityScope: "booking_capacity_scope",
     priceAmountCents: "price_amount_cents",
     currency: "currency",
     priceDisplay: "price_display",
@@ -191,6 +246,7 @@ module.exports = {
   normalizeServiceSlug,
   listServicesByTenantId,
   findServiceByTenantAndSlug,
+  isServiceSlugAvailable,
   createService,
   updateService,
   deactivateService

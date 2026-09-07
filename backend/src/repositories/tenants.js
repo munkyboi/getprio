@@ -15,8 +15,10 @@ const TENANT_COLUMNS = `
   contact_email,
   contact_phone,
   public_profile_enabled,
+  public_profile_display_name,
   public_profile_description,
   public_profile_category,
+  business_category_id,
   public_profile_image_url,
   vendor_approval_status,
   notification_settings,
@@ -44,8 +46,10 @@ function mapTenant(row) {
     contactEmail: row.contact_email,
     contactPhone: row.contact_phone,
     publicProfileEnabled: row.public_profile_enabled,
+    publicProfileDisplayName: row.public_profile_display_name || "",
     publicProfileDescription: row.public_profile_description || "",
     publicProfileCategory: row.public_profile_category || "",
+    businessCategoryId: row.business_category_id ? String(row.business_category_id) : null,
     publicProfileImageUrl: row.public_profile_image_url || "",
     vendorApprovalStatus: row.vendor_approval_status || "approved",
     notificationSettings: row.notification_settings || {},
@@ -61,13 +65,16 @@ function mapPublicVendorProfile(row) {
   }
 
   const locations = Array.isArray(row.locations)
-    ? row.locations.map((location) => ({
+      ? row.locations.map((location) => ({
         name: location.name || "",
         slug: location.slug || "",
         city: location.city || "",
         province: location.province || "",
         country: location.country || "Philippines",
+        addressLine1: location.addressLine1 || "",
+        addressLine2: location.addressLine2 || "",
         isPrimary: Boolean(location.isPrimary),
+        imageUrl: location.imageUrl || "",
         hours: Array.isArray(location.hours)
           ? location.hours.map((hour) => ({
               weekday: Number(hour.weekday),
@@ -87,12 +94,20 @@ function mapPublicVendorProfile(row) {
     isPrimary: false
   };
 
+  const publicContact = Object.prototype.hasOwnProperty.call(row, "contact_email")
+    ? {
+        contactEmail: row.contact_email || "",
+        contactPhone: row.contact_phone || ""
+      }
+    : {};
+
   return {
-    name: row.name,
+    name: row.public_profile_display_name || row.name,
     slug: row.slug,
     category: row.public_profile_category || "",
     description: row.public_profile_description || "",
     imageUrl: row.public_profile_image_url || "",
+    ...publicContact,
     locations,
     location: {
       name: primaryLocation.name,
@@ -165,9 +180,10 @@ async function createTenant(data, options = {}) {
         public_profile_category,
         public_profile_image_url,
         vendor_approval_status,
-        is_active
+        is_active,
+        business_category_id
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
       RETURNING ${TENANT_COLUMNS}
     `,
     [
@@ -187,7 +203,8 @@ async function createTenant(data, options = {}) {
       data.publicProfileCategory || null,
       data.publicProfileImageUrl || null,
       data.vendorApprovalStatus || "approved",
-      data.isActive ?? true
+      data.isActive ?? true,
+      data.businessCategoryId || null
     ]
   );
 
@@ -227,8 +244,10 @@ async function updateTenant(tenantId, changes, options = {}) {
     contactEmail: "contact_email",
     contactPhone: "contact_phone",
     publicProfileEnabled: "public_profile_enabled",
+    publicProfileDisplayName: "public_profile_display_name",
     publicProfileDescription: "public_profile_description",
     publicProfileCategory: "public_profile_category",
+    businessCategoryId: "business_category_id",
     publicProfileImageUrl: "public_profile_image_url",
     vendorApprovalStatus: "vendor_approval_status",
     notificationSettings: "notification_settings",
@@ -274,6 +293,7 @@ async function listPublicVendorProfiles(options = {}) {
       AND (
         LOWER(tenants.name) LIKE $${values.length}
         OR LOWER(COALESCE(tenants.public_profile_category, '')) LIKE $${values.length}
+        OR EXISTS (SELECT 1 FROM business_category_aliases aliases WHERE aliases.category_id=tenants.business_category_id AND aliases.label_key LIKE $${values.length})
         OR LOWER(COALESCE(tenants.public_profile_description, '')) LIKE $${values.length}
         OR EXISTS (
           SELECT 1
@@ -297,6 +317,7 @@ async function listPublicVendorProfiles(options = {}) {
     `
       SELECT
         tenants.name,
+        tenants.public_profile_display_name,
         tenants.slug,
         tenants.public_profile_description,
         tenants.public_profile_category,
@@ -311,7 +332,10 @@ async function listPublicVendorProfiles(options = {}) {
             'city', COALESCE(ordered_locations.city, ''),
             'province', COALESCE(ordered_locations.province, ''),
             'country', COALESCE(ordered_locations.country, 'Philippines'),
+            'addressLine1', COALESCE(ordered_locations.address_line1, ''),
+            'addressLine2', COALESCE(ordered_locations.address_line2, ''),
             'isPrimary', ordered_locations.is_primary,
+            'imageUrl', COALESCE(ordered_locations.image_url, ''),
             'hours', COALESCE(ordered_locations.hours, '[]'::JSONB)
           )
           ORDER BY ordered_locations.is_primary DESC, ordered_locations.name ASC
@@ -323,7 +347,10 @@ async function listPublicVendorProfiles(options = {}) {
             store_locations.city,
             store_locations.province,
             store_locations.country,
+            store_locations.address_line1,
+            store_locations.address_line2,
             store_locations.is_primary,
+            store_locations.image_url,
             (
               SELECT JSONB_AGG(
                 JSONB_BUILD_OBJECT(
@@ -362,10 +389,13 @@ async function findPublicVendorProfileBySlug(slug, options = {}) {
     `
       SELECT
         tenants.name,
+        tenants.public_profile_display_name,
         tenants.slug,
         tenants.public_profile_description,
         tenants.public_profile_category,
         tenants.public_profile_image_url,
+        tenants.contact_email,
+        tenants.contact_phone,
         COALESCE(active_locations.locations, '[]'::JSONB) AS locations
       FROM tenants
       LEFT JOIN LATERAL (
@@ -376,7 +406,10 @@ async function findPublicVendorProfileBySlug(slug, options = {}) {
             'city', COALESCE(ordered_locations.city, ''),
             'province', COALESCE(ordered_locations.province, ''),
             'country', COALESCE(ordered_locations.country, 'Philippines'),
+            'addressLine1', COALESCE(ordered_locations.address_line1, ''),
+            'addressLine2', COALESCE(ordered_locations.address_line2, ''),
             'isPrimary', ordered_locations.is_primary,
+            'imageUrl', COALESCE(ordered_locations.image_url, ''),
             'hours', COALESCE(ordered_locations.hours, '[]'::JSONB)
           )
           ORDER BY ordered_locations.is_primary DESC, ordered_locations.name ASC
@@ -388,7 +421,10 @@ async function findPublicVendorProfileBySlug(slug, options = {}) {
             store_locations.city,
             store_locations.province,
             store_locations.country,
+            store_locations.address_line1,
+            store_locations.address_line2,
             store_locations.is_primary,
+            store_locations.image_url,
             (
               SELECT JSONB_AGG(
                 JSONB_BUILD_OBJECT(

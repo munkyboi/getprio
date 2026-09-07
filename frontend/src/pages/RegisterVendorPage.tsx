@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { Alert, Button, Paper, PasswordInput, SimpleGrid, Stack, Text, TextInput, Title } from "@mantine/core";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -9,10 +9,13 @@ import type {
   TenantSlugAvailabilityResponse,
   UsernameAvailabilityResponse
 } from "@shared";
+import PhilippineMobileInput from "../components/PhilippineMobileInput";
+import SignupFieldLabel from "../components/SignupFieldLabel";
 import SocialAuthButtons from "../components/SocialAuthButtons";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { getErrorMessage } from "../utils/errors";
+import { BusinessCategorySelect } from "../components/BusinessCategorySelect";
 import {
   buildTenantSlugFromName,
   buildUsernameFromName,
@@ -30,10 +33,14 @@ const PROVIDER_LABELS: Record<OAuthProviderId, string> = {
 const vendorSchema = z.object({
   tenantName: z.string().trim().min(2, "Enter your business name."),
   tenantSlug: z.string().trim().min(1, "Enter a tenant slug."),
+  category: z.string().trim().min(1, "Choose a business category."),
   name: z.string().trim().min(2, "Enter the owner name."),
   username: z.string().trim().min(3, "Enter a username."),
   email: z.string().trim().email("Enter a valid email address."),
-  phone: z.string().trim().optional().or(z.literal("")),
+  phone: z.string().trim().optional().or(z.literal("")).refine(
+    (value) => !value || /^09\d{9}$/.test(value.replace(/\D/g, "")),
+    "Use a Philippine mobile number like (0917) 123-4567."
+  ),
   password: z.string().optional()
 });
 
@@ -47,15 +54,18 @@ export default function RegisterVendorPage() {
   const [usernameMessage, setUsernameMessage] = useState("");
   const [usernameAvailable, setUsernameAvailable] = useState(false);
   const [checkingUsername, setCheckingUsername] = useState(false);
+  const [usernameManuallyEdited, setUsernameManuallyEdited] = useState(false);
   const [tenantSlugMessage, setTenantSlugMessage] = useState("");
   const [tenantSlugAvailable, setTenantSlugAvailable] = useState(false);
   const [checkingTenantSlug, setCheckingTenantSlug] = useState(false);
+  const [tenantSlugManuallyEdited, setTenantSlugManuallyEdited] = useState(false);
 
   const form = useForm<VendorFormValues>({
     resolver: zodResolver(vendorSchema),
     defaultValues: {
       tenantName: "",
       tenantSlug: "",
+      category: "",
       name: "",
       username: "",
       email: "",
@@ -64,10 +74,12 @@ export default function RegisterVendorPage() {
     }
   });
 
-  const tenantName = form.watch("tenantName");
-  const tenantSlug = form.watch("tenantSlug");
-  const ownerName = form.watch("name");
-  const username = form.watch("username");
+  const tenantName = useWatch({ control: form.control, name: "tenantName" }) || "";
+  const tenantSlug = useWatch({ control: form.control, name: "tenantSlug" }) || "";
+  const ownerName = useWatch({ control: form.control, name: "name" }) || "";
+  const username = useWatch({ control: form.control, name: "username" }) || "";
+  const category = useWatch({ control: form.control, name: "category" }) || "";
+  const phone = useWatch({ control: form.control, name: "phone" }) || "";
 
   useEffect(() => {
     if (!user) {
@@ -75,26 +87,34 @@ export default function RegisterVendorPage() {
     }
 
     form.setValue("name", form.getValues("name") || user.name || "", { shouldValidate: true });
-    form.setValue("username", form.getValues("username") || user.username || buildUsernameFromName(user.name || ""), {
-      shouldValidate: true
-    });
+    if (!form.getValues("username")) {
+      form.setValue("username", user.username || buildUsernameFromName(user.name || ""), {
+        shouldDirty: false,
+        shouldValidate: true
+      });
+    }
+    if (user.username) {
+      setUsernameManuallyEdited(true);
+    }
     form.setValue("email", form.getValues("email") || user.email || "", { shouldValidate: true });
     form.setValue("phone", form.getValues("phone") || user.phone || "", { shouldValidate: true });
   }, [form, user]);
 
   useEffect(() => {
-    if (form.formState.dirtyFields.tenantSlug) {
+    if (tenantSlugManuallyEdited) {
       return;
     }
-    form.setValue("tenantSlug", buildTenantSlugFromName(tenantName), { shouldValidate: true, shouldDirty: false });
-  }, [tenantName, form]);
+    const nextTenantSlug = buildTenantSlugFromName(tenantName);
+    form.setValue("tenantSlug", nextTenantSlug, { shouldValidate: Boolean(nextTenantSlug), shouldDirty: false });
+  }, [form, tenantName, tenantSlugManuallyEdited]);
 
   useEffect(() => {
-    if (form.formState.dirtyFields.username) {
+    if (usernameManuallyEdited) {
       return;
     }
-    form.setValue("username", buildUsernameFromName(ownerName), { shouldValidate: true, shouldDirty: false });
-  }, [ownerName, form]);
+    const nextUsername = buildUsernameFromName(ownerName);
+    form.setValue("username", nextUsername, { shouldValidate: Boolean(nextUsername), shouldDirty: false });
+  }, [form, ownerName, usernameManuallyEdited]);
 
   useEffect(() => {
     const nextTenantSlug = tenantSlug.trim();
@@ -231,6 +251,8 @@ export default function RegisterVendorPage() {
       const payload = {
         tenantName: values.tenantName,
         tenantSlug: values.tenantSlug,
+        category: "",
+        categoryId: values.category,
         name: values.name,
         username: values.username,
         email: values.email,
@@ -243,7 +265,7 @@ export default function RegisterVendorPage() {
         await registerVendor({ ...payload, password: values.password || "" });
       }
 
-      navigate("/dashboard", { replace: true });
+      navigate("/dashboard/account", { replace: true });
     } catch (submitError) {
       setError(getErrorMessage(submitError));
     }
@@ -251,43 +273,39 @@ export default function RegisterVendorPage() {
 
   return (
     <Paper className="finazze-auth-card finazze-auth-card-wide onboarding-shell" p={{ base: "xl", md: 44 }}>
-      <SimpleGrid cols={{ base: 1, md: 2 }} spacing={{ base: "xl", md: 36 }}>
+      <div className="onboarding-layout">
         <Stack gap="lg">
           <div>
             <Text className="finazze-section-label">
-              {isAuthenticatedFlow ? "Vendor workspace" : "Vendor onboarding"}
+              {isAuthenticatedFlow ? "Your vendor workspace" : "Build your booking business"}
             </Text>
             <Title order={1}>
               {isAuthenticatedFlow
                 ? hasTenantMemberships
-                  ? "Create another tenant-ready queue workspace."
-                  : "Finish your tenant workspace."
-                : "Create a tenant-ready queue workspace."}
+                  ? "Add another business workspace."
+                  : "Finish setting up your workspace."
+                : "Set up your vendor workspace."}
             </Title>
             <Text c="dimmed" mt="sm">
               {isAuthenticatedFlow
                 ? oauthProviderLabel
-                  ? `Signed in with ${oauthProviderLabel}. Finish the workspace details below.`
-                  : "You're signed in. Finish the workspace details below to create your vendor tenant."
-                : "Set up your business profile, queue slug, and owner account in one pass."}
+                  ? `Signed in with ${oauthProviderLabel}. Add the final business details to get started.`
+                  : "You're signed in. Add the final business details to get started."
+                : "Create your business profile, choose a shareable link, and start accepting bookings."}
             </Text>
           </div>
-          {!isAuthenticatedFlow ? <SocialAuthButtons intent="register_vendor" /> : null}
+          {!isAuthenticatedFlow ? <SocialAuthButtons iconOnly intent="register_vendor" /> : null}
           <form onSubmit={handleSubmit}>
             <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
               <TextInput
                 label="Business name"
                 required
                 error={form.formState.errors.tenantName?.message}
-                {...form.register("tenantName", {
-                  onChange: (event) => {
-                    if (form.formState.dirtyFields.tenantSlug) {
-                      return;
-                    }
-                    form.setValue("tenantSlug", buildTenantSlugFromName(event.target.value), { shouldValidate: true });
-                  }
-                })}
+                {...form.register("tenantName")}
               />
+              <BusinessCategorySelect required value={category || null}
+                error={form.formState.errors.category?.message}
+                onChange={(id) => form.setValue("category", id, { shouldValidate: true })} />
               <TextInput
                 description={checkingTenantSlug ? "Checking tenant slug..." : tenantSlugMessage}
                 error={form.formState.errors.tenantSlug?.message || (tenantSlug && tenantSlugMessage && !tenantSlugAvailable ? tenantSlugMessage : undefined)}
@@ -296,6 +314,7 @@ export default function RegisterVendorPage() {
                 required
                 {...form.register("tenantSlug", {
                   onChange: (event) => {
+                    setTenantSlugManuallyEdited(true);
                     form.setValue("tenantSlug", normalizeTenantSlugInput(event.target.value), { shouldValidate: true });
                   }
                 })}
@@ -304,14 +323,7 @@ export default function RegisterVendorPage() {
                 label="Owner name"
                 required
                 error={form.formState.errors.name?.message}
-                {...form.register("name", {
-                  onChange: (event) => {
-                    if (form.formState.dirtyFields.username) {
-                      return;
-                    }
-                    form.setValue("username", buildUsernameFromName(event.target.value), { shouldValidate: true });
-                  }
-                })}
+                {...form.register("name")}
               />
               <TextInput
                 description={checkingUsername ? "Checking username..." : usernameMessage}
@@ -321,6 +333,7 @@ export default function RegisterVendorPage() {
                 required
                 {...form.register("username", {
                   onChange: (event) => {
+                    setUsernameManuallyEdited(true);
                     form.setValue("username", normalizeUsernameInput(event.target.value), { shouldValidate: true });
                   }
                 })}
@@ -332,10 +345,12 @@ export default function RegisterVendorPage() {
                 error={form.formState.errors.email?.message}
                 {...form.register("email")}
               />
-              <TextInput
-                label="Phone"
+              <PhilippineMobileInput
+                label={<SignupFieldLabel label="Phone" tooltip="Add a Philippine mobile number for account and booking updates." />}
+                description=""
                 error={form.formState.errors.phone?.message}
-                {...form.register("phone")}
+                value={phone}
+                onChange={(nextValue) => form.setValue("phone", nextValue, { shouldValidate: true })}
               />
               {!isAuthenticatedFlow ? (
                 <PasswordInput
@@ -350,8 +365,11 @@ export default function RegisterVendorPage() {
               {error ? <Alert color="red">{error}</Alert> : null}
               <Button
                 color="dark"
-                loading={form.formState.isSubmitting || checkingUsername || checkingTenantSlug || !usernameAvailable || !tenantSlugAvailable}
+                className="auth-primary-action"
+                fullWidth
+                loading={form.formState.isSubmitting || checkingUsername || checkingTenantSlug}
                 type="submit"
+                size="lg"
               >
                 {isAuthenticatedFlow
                   ? hasTenantMemberships
@@ -369,13 +387,14 @@ export default function RegisterVendorPage() {
             src="/illustrations/generated/vendor-onboarding.png"
           />
           <div>
-            <Text className="finazze-section-label">What opens up next</Text>
+            <Text className="finazze-section-label">Ready when you are</Text>
+            <Title order={2}>Everything in one place.</Title>
             <Text c="dimmed">
-              Publish a QR join point, configure service locations, and start serving from one live workspace.
+              Manage your profile, services, availability, team, and bookings from one secure workspace.
             </Text>
           </div>
         </Stack>
-      </SimpleGrid>
+      </div>
     </Paper>
   );
 }

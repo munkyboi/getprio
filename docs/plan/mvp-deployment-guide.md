@@ -116,6 +116,12 @@ Minimum database checklist:
 - You can restore a dump into a staging copy
 - The repo migration, status, and verification scripts succeed before restart
 
+For the Queue Day lifecycle, follow the staged `legacy` → `shadow` → `enforced`
+procedure, disposable-database rehearsal, forward-only rollback rules, and
+operator recovery steps in
+[Queue Day Lifecycle Rollout and Recovery Runbook](../operations/queue-day-lifecycle-runbook.md).
+Do not enforce a location with unresolved backfill anomalies.
+
 ## 5. Configure Environment Variables
 
 The repo already has `.env.example` files. Production should use a real secret-managed `.env` or host-level secret injection.
@@ -134,6 +140,7 @@ Core variables to set:
 - `SERVER_URL`
 - `CLIENT_URL`
 - `APP_BASE_URL`
+- `MOBILE_QR_BASE_URL` (approved HTTPS origin encoded into vendor queue QR codes)
 - `PLATFORM_DASHBOARD_URL`
 - `VITE_API_URL`
 
@@ -148,8 +155,11 @@ If you use booking, payment, upload, or notification features, also configure:
 - `TWILIO_ACCOUNT_SID`
 - `TWILIO_AUTH_TOKEN`
 - `TWILIO_FROM_NUMBER`
-- `PAYMONGO_SECRET_KEY`
-- `PAYMONGO_WEBHOOK_SECRET`
+- `PAYMONGO_MODE` (`sandbox` or `live`)
+- `PAYMONGO_SANDBOX_SECRET_KEY`
+- `PAYMONGO_SANDBOX_WEBHOOK_SECRET`
+- `PAYMONGO_LIVE_SECRET_KEY`
+- `PAYMONGO_LIVE_WEBHOOK_SECRET`
 - `B2_*` upload settings for Backblaze storage
 - `B2_BUCKET_PUBLIC_BOARD`
 - `B2_BUCKET_PAYMENT_PROOF`
@@ -318,6 +328,11 @@ Recommended rollback steps:
 2. Repoint Nginx or the process manager to the last known good version.
 3. Restore the database only if the new release made incompatible schema changes.
 4. Recheck login, booking, and dashboard access.
+
+Queue lifecycle exception: once an enforced location has written Queue Days or
+customer-visible carry-over, expiration, or unserved outcomes, keep the additive
+schema and roll forward with a compatible build. Do not restore a database
+merely to erase valid queue outcomes.
 
 ## 13. Suggested Launch Order
 

@@ -11,6 +11,7 @@ const FEE_COLUMNS = `
 `;
 
 const DEFAULT_FEES = [
+  { planSlug: "free", enabled: false, amountCents: 0, currency: "PHP" },
   { planSlug: "economical", enabled: true, amountCents: 5000, currency: "PHP" },
   { planSlug: "pro", enabled: true, amountCents: 2500, currency: "PHP" },
   { planSlug: "enterprise", enabled: false, amountCents: 0, currency: "PHP" }
@@ -58,10 +59,11 @@ async function listQueueFees(options = {}) {
       SELECT ${FEE_COLUMNS}
       FROM queue_fee_settings
       ORDER BY CASE plan_slug
-        WHEN 'economical' THEN 1
-        WHEN 'pro' THEN 2
-        WHEN 'enterprise' THEN 3
-        ELSE 4
+        WHEN 'free' THEN 1
+        WHEN 'economical' THEN 2
+        WHEN 'pro' THEN 3
+        WHEN 'enterprise' THEN 4
+        ELSE 5
       END
     `
   );

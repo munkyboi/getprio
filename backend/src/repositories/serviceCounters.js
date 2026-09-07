@@ -70,6 +70,55 @@ async function findCounterByLocationAndSlug(locationId, slug, options = {}) {
   return mapCounter(result.rows[0]);
 }
 
+async function isCounterSlugAvailable(locationId, slug, excludeCounterId = null, options = {}) {
+  const source = String(slug || "").trim().toLowerCase();
+  let normalizedSlug = "";
+  let previousWasDash = false;
+
+  for (const char of source) {
+    const isAlphaNumeric = (char >= "a" && char <= "z") || (char >= "0" && char <= "9");
+    if (isAlphaNumeric) {
+      normalizedSlug += char;
+      previousWasDash = false;
+    } else if (!previousWasDash && normalizedSlug.length > 0) {
+      normalizedSlug += "-";
+      previousWasDash = true;
+    }
+  }
+
+  if (normalizedSlug.endsWith("-")) {
+    normalizedSlug = normalizedSlug.slice(0, -1);
+  }
+
+  normalizedSlug = normalizedSlug.slice(0, 80);
+
+  if (!normalizedSlug) {
+    return { available: false, valid: false, message: "Enter a counter slug." };
+  }
+
+  const queryClient = buildQueryClient(options.client);
+  const values = [Number(locationId), normalizedSlug];
+  let query = `
+    SELECT id
+    FROM service_counters
+    WHERE location_id = $1 AND slug = $2
+  `;
+
+  if (excludeCounterId) {
+    values.push(Number(excludeCounterId));
+    query += ` AND id <> $${values.length}`;
+  }
+
+  query += " LIMIT 1";
+
+  const result = await queryClient.query(query, values);
+  return {
+    available: result.rows.length === 0,
+    valid: Boolean(normalizedSlug),
+    message: result.rows.length === 0 ? "Slug is available." : "That counter slug is already taken."
+  };
+}
+
 async function updateCounter(counterId, changes, options = {}) {
   const queryClient = buildQueryClient(options.client);
   const result = await queryClient.query(
@@ -121,12 +170,25 @@ async function replaceAssignments(counterId, userIds, options = {}) {
   }
 }
 
+async function removeAssignmentsForUserAndTenant(userId, tenantId, options = {}) {
+  await buildQueryClient(options.client).query(
+    `DELETE FROM service_counter_assignments assignments
+     USING service_counters counters
+     WHERE assignments.counter_id = counters.id
+       AND assignments.user_id = $1
+       AND counters.tenant_id = $2`,
+    [Number(userId), Number(tenantId)]
+  );
+}
+
 module.exports = {
   listCountersByLocationId,
   findCounterByLocationAndSlug,
+  isCounterSlugAvailable,
   createCounter,
   updateCounter,
   deleteCounter,
   replaceAssignments,
+  removeAssignmentsForUserAndTenant,
   listAssignedCounterIdsByUserIds
 };

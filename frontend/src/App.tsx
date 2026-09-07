@@ -1,7 +1,7 @@
-import { useEffect, useState, type ReactNode } from "react";
-import { Anchor, Box, Burger, Button, Container, Drawer, Group, Stack } from "@mantine/core";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Anchor, Avatar, Box, Burger, Button, Container, Divider, Drawer, Group, Menu, Stack } from "@mantine/core";
 import { Link, Navigate, NavLink, Route, Routes, useLocation, useParams } from "react-router-dom";
-import { IconLogout } from "@tabler/icons-react";
+import { IconChevronDown, IconLogout } from "@tabler/icons-react";
 import BrandMark from "./components/BrandMark";
 import { useAuth } from "./context/AuthContext";
 import LandingPage from "./pages/LandingPage";
@@ -12,16 +12,25 @@ import ContactPage from "./pages/ContactPage";
 import RegisterVendorPage from "./pages/RegisterVendorPage";
 import RegisterCustomerPage from "./pages/RegisterCustomerPage";
 import CustomerAccountPage from "./pages/CustomerAccountPage";
+import CustomerDashboardPage from "./pages/CustomerDashboardPage";
 import CustomerBookingDetailPage from "./pages/CustomerBookingDetailPage";
 import VendorDashboardPage from "./pages/VendorDashboardPage";
+import QueueAutoClosePrototype from "./pages/prototypes/QueueAutoClosePrototype";
 import VendorDiscoveryPage from "./pages/VendorDiscoveryPage";
 import VendorProfilePage from "./pages/VendorProfilePage";
 import BookingRequestPage from "./pages/BookingRequestPage";
+import CampaignControlCenterPage from "./pages/CampaignControlCenterPage";
+import CampaignDiscoveryPage from "./pages/CampaignDiscoveryPage";
+import CampaignPreviewPage from "./pages/CampaignPreviewPage";
+import CampaignCreatePage from "./pages/CampaignCreatePage";
 import PublicQueuePage from "./pages/PublicQueuePage";
 import JoinQueuePage from "./pages/JoinQueuePage";
 import JoinedQueuePage from "./pages/JoinedQueuePage";
+import PaymentReturnPage from "./pages/PaymentReturnPage";
 import TermsPage from "./pages/TermsPage";
+import NotFoundPage from "./pages/NotFoundPage";
 import SiteFooter from "./components/SiteFooter";
+import CustomerAccountLayout from "./components/CustomerAccountLayout";
 import {
   JOINED_QUEUE_ROUTE_PATH,
   buildMonitorPath,
@@ -29,11 +38,22 @@ import {
   MONITOR_ROUTE_PATH
 } from "./queuePaths";
 
+function getUserInitials(name: string) {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() || "")
+    .join("");
+}
+
 function AppShell({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
   const location = useLocation();
   const isDashboardRoute = location.pathname.startsWith("/dashboard");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const primaryTenant = user?.tenants?.find((tenant) => tenant.isActive !== false) || user?.tenants?.[0] || null;
+  const isVendor = Boolean(primaryTenant);
 
   useEffect(() => {
     setMobileMenuOpen(false);
@@ -44,50 +64,64 @@ function AppShell({ children }: { children: ReactNode }) {
     logout();
   };
 
-  const navLinks = (
+  const publicLinks = (
     <>
-      <Button component={Link} to="/#product" variant="subtle" color="dark">
-        Product
-      </Button>
-      <Button component={NavLink} to="/vendors" variant="subtle" color="dark">
-        Vendors
-      </Button>
-      {!user ? (
-        <>
-          <Button component={Link} to="/#solutions" variant="subtle" color="dark">
-            Solutions
-          </Button>
-          <Button component={Link} to="/#pricing" variant="subtle" color="dark">
-            Pricing
-          </Button>
-        </>
-      ) : null}
-      {user?.tenants?.length ? (
-        <Button component={NavLink} to="/dashboard" variant="light" color="dark">
-          Dashboard
-        </Button>
-      ) : null}
-      {user?.roles?.includes("customer") ? (
-        <Button component={NavLink} to="/account/profile" variant="subtle" color="dark">
-          Account
-        </Button>
-      ) : null}
-      {user ? (
-        <Button leftSection={<IconLogout size={16} />} onClick={handleLogout} variant="subtle" color="dark">
-          Sign out
-        </Button>
-      ) : (
-        <>
-          <Button component={NavLink} to="/login" variant="subtle" color="dark">
-            Log in
-          </Button>
-          <Button component={NavLink} to="/register/vendor" color="orange">
-            Start free
-          </Button>
-        </>
-      )}
+      <Button component={Link} to="/#product" variant="subtle" color="dark">Product</Button>
+      {!user ? <Button component={Link} to="/#solutions" variant="subtle" color="dark">Solutions</Button> : null}
+      {!user ? <Button component={Link} to="/#pricing" variant="subtle" color="dark">Pricing</Button> : null}
+      <Button component={NavLink} to="/vendors" variant="subtle" color="dark">Vendors</Button>
+      {!user ? <Button component={NavLink} to="/login" variant="subtle" color="dark">Login</Button> : null}
+      {!user ? <Button component={NavLink} to="/register/vendor" color="orange">Start Free</Button> : null}
     </>
   );
+
+  const customerMenu = (
+    <Menu shadow="md" width={220} position="bottom-end" withinPortal>
+      <Menu.Target>
+        <Button className="header-avatar-button" variant="subtle" color="dark" rightSection={<IconChevronDown size={14} />}>
+          <Avatar color="orange" radius="xl" size={28} src={user?.avatarUrl || undefined}>
+            {getUserInitials(user?.name || "User")}
+          </Avatar>
+        </Button>
+      </Menu.Target>
+      <Menu.Dropdown>
+        <Menu.Label>{user?.name || "Account"}</Menu.Label>
+        <Menu.Item component={Link} to="/account/dashboard">Dashboard</Menu.Item>
+        <Menu.Item component={Link} to="/account/tickets">Queue Tickets</Menu.Item>
+        <Menu.Item component={Link} to="/account/bookings">Bookings</Menu.Item>
+        <Menu.Item component={Link} to="/account/campaigns">Campaigns</Menu.Item>
+        <Menu.Item component={Link} to="/account/settings">Settings</Menu.Item>
+        <Menu.Item component={Link} to="/account/security">Security</Menu.Item>
+        <Menu.Divider />
+        <Menu.Item color="red" leftSection={<IconLogout size={14} />} onClick={handleLogout}>
+          Sign out
+        </Menu.Item>
+      </Menu.Dropdown>
+    </Menu>
+  );
+
+  const vendorMenu = primaryTenant ? (
+    <Menu shadow="md" width={240} position="bottom-end" withinPortal>
+      <Menu.Target>
+        <Button className="header-avatar-button" variant="subtle" color="dark" rightSection={<IconChevronDown size={14} />}>
+          <Avatar color="orange" radius="xl" size={28} src={user?.avatarUrl || undefined}>
+            {getUserInitials(user?.name || primaryTenant.name)}
+          </Avatar>
+        </Button>
+      </Menu.Target>
+      <Menu.Dropdown>
+        <Menu.Label>{primaryTenant.name}</Menu.Label>
+        <Menu.Item component={Link} to="/dashboard">Dashboard</Menu.Item>
+        <Menu.Item component={Link} to={`/vendors/${primaryTenant.slug}`}>View vendor page</Menu.Item>
+        <Menu.Item component={Link} to={buildMonitorPath(primaryTenant.slug)}>View queue board</Menu.Item>
+        <Menu.Item component={Link} to="/dashboard/account">Account</Menu.Item>
+        <Menu.Divider />
+        <Menu.Item color="red" leftSection={<IconLogout size={14} />} onClick={handleLogout}>
+          Sign out
+        </Menu.Item>
+      </Menu.Dropdown>
+    </Menu>
+  ) : null;
 
   return (
     <Box className={isDashboardRoute ? "app-shell dashboard-app-shell" : "app-shell finazze-app-shell"}>
@@ -99,7 +133,8 @@ function AppShell({ children }: { children: ReactNode }) {
             </Anchor>
 
             <Group className="desktop-nav-links" component="nav" gap="xs">
-              {navLinks}
+              {publicLinks}
+              {user ? isVendor ? vendorMenu : customerMenu : null}
             </Group>
 
             <Burger
@@ -130,7 +165,33 @@ function AppShell({ children }: { children: ReactNode }) {
           title={<BrandMark />}
         >
           <Stack className="mobile-nav-links" gap="xs">
-            {navLinks}
+            {publicLinks}
+            {user ? (
+              <>
+                <Divider label="Account" labelPosition="center" my="sm" />
+                {isVendor ? (
+                  <>
+                    <Button component={Link} to="/dashboard" variant="subtle" color="dark">Dashboard</Button>
+                    <Button component={Link} to={`/vendors/${primaryTenant?.slug || ""}`} variant="subtle" color="dark">View vendor page</Button>
+                    <Button component={Link} to={buildMonitorPath(primaryTenant?.slug || "")} variant="subtle" color="dark">View queue board</Button>
+                    <Button component={Link} to="/dashboard/account" variant="subtle" color="dark">Account</Button>
+                  </>
+                ) : (
+                  <>
+                    <Button component={Link} to="/account/dashboard" variant="subtle" color="dark">Dashboard</Button>
+                    <Button component={Link} to="/account/tickets" variant="subtle" color="dark">Queue Tickets</Button>
+                    <Button component={Link} to="/account/bookings" variant="subtle" color="dark">Bookings</Button>
+                    <Button component={Link} to="/account/campaigns" variant="subtle" color="dark">Campaigns</Button>
+                    <Button component={Link} to="/account/settings" variant="subtle" color="dark">Settings</Button>
+                    <Button component={Link} to="/account/security" variant="subtle" color="dark">Security</Button>
+                    <Divider my="xs" />
+                  </>
+                )}
+                <Button color="red" leftSection={<IconLogout size={16} />} onClick={handleLogout} variant="light">
+                  Sign out
+                </Button>
+              </>
+            ) : null}
           </Stack>
         </Drawer>
       ) : null}
@@ -145,6 +206,16 @@ function AppShell({ children }: { children: ReactNode }) {
       {!isDashboardRoute ? <SiteFooter /> : null}
     </Box>
   );
+}
+
+function LegacyCampaignRedirect() {
+  const { publicToken = "" } = useParams();
+  return <Navigate replace to={`/campaign/${encodeURIComponent(publicToken)}`} />;
+}
+
+function LegacyVendorCampaignRedirect() {
+  const { tenantSlug = "" } = useParams();
+  return <Navigate replace to={`/vendors/${encodeURIComponent(tenantSlug)}`} />;
 }
 
 function BarePage({ children }: { children: ReactNode }) {
@@ -182,36 +253,112 @@ function DashboardRedirect() {
   );
 }
 
+function VendorDashboardRoute() {
+  const location = useLocation();
+  const prototypeEnabled =
+    import.meta.env.DEV &&
+    location.pathname === "/dashboard/queue" &&
+    new URLSearchParams(location.search).get("queueClosePrototype") === "1";
+
+  return prototypeEnabled ? <QueueAutoClosePrototype /> : <VendorDashboardPage />;
+}
+
+function getVendorBookingTabRoute(pathname: string) {
+  const match = pathname.match(/^\/vendors\/([^/]+)(?:\/(group-funded))?$/);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    tenantSlug: match[1],
+    tab: match[2] === "group-funded" ? "group-funded" : "standard"
+  };
+}
+
+function ScrollToTop() {
+  const location = useLocation();
+  const previousRouteRef = useRef({
+    pathname: location.pathname,
+    search: location.search
+  });
+
+  useEffect(() => {
+    const currentRoute = `${location.pathname}${location.search}`;
+    const previousRoute = `${previousRouteRef.current.pathname}${previousRouteRef.current.search}`;
+    if (previousRoute === currentRoute) {
+      return;
+    }
+
+    const previousVendorTab = getVendorBookingTabRoute(previousRouteRef.current.pathname);
+    const currentVendorTab = getVendorBookingTabRoute(location.pathname);
+    const isVendorBookingTabSwitch =
+      Boolean(previousVendorTab && currentVendorTab) &&
+      previousVendorTab?.tenantSlug === currentVendorTab?.tenantSlug &&
+      previousVendorTab?.tab !== currentVendorTab?.tab;
+
+    previousRouteRef.current = {
+      pathname: location.pathname,
+      search: location.search
+    };
+
+    if (isVendorBookingTabSwitch) {
+      return;
+    }
+
+    if (location.hash) {
+      return;
+    }
+
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }, [location.hash, location.pathname, location.search]);
+
+  return null;
+}
+
 export default function App() {
   return (
-    <Routes>
-      <Route path={MONITOR_ROUTE_PATH} element={<BarePage><PublicQueuePage /></BarePage>} />
-      <Route path={JOINED_QUEUE_ROUTE_PATH} element={<AppShell><JoinedQueuePage /></AppShell>} />
-      <Route path={LEGACY_MONITOR_ROUTE_PATH} element={<LegacyMonitorRedirect />} />
-      <Route path="/" element={<AppShell><LandingPage /></AppShell>} />
-      <Route path="/login" element={<AppShell><LoginPage /></AppShell>} />
-      <Route path="/oauth/callback" element={<AppShell><OAuthCallbackPage /></AppShell>} />
-      <Route path="/privacy-policy" element={<AppShell><PrivacyPolicyPage /></AppShell>} />
-      <Route path="/contact" element={<AppShell><ContactPage /></AppShell>} />
-      <Route path="/terms" element={<AppShell><TermsPage /></AppShell>} />
-      <Route path="/register/vendor" element={<AppShell><RegisterVendorPage /></AppShell>} />
-      <Route path="/register/customer" element={<AppShell><RegisterCustomerPage /></AppShell>} />
-      <Route path="/account" element={<Navigate to="/account/profile" replace />} />
-      <Route path="/account/profile" element={<AppShell><CustomerAccountPage /></AppShell>} />
-      <Route path="/account/tickets" element={<AppShell><CustomerAccountPage /></AppShell>} />
-      <Route path="/account/bookings" element={<AppShell><CustomerAccountPage /></AppShell>} />
-      <Route path="/account/settings" element={<AppShell><CustomerAccountPage /></AppShell>} />
-      <Route path="/account/notifications" element={<AppShell><CustomerAccountPage /></AppShell>} />
-      <Route path="/account/security" element={<AppShell><CustomerAccountPage /></AppShell>} />
-      <Route path="/account/bookings/:bookingId" element={<AppShell><CustomerBookingDetailPage /></AppShell>} />
-      <Route path="/vendors" element={<AppShell><VendorDiscoveryPage /></AppShell>} />
-      <Route path="/vendors/:tenantSlug/book" element={<AppShell><BookingRequestPage /></AppShell>} />
-      <Route path="/vendors/:tenantSlug/book/:serviceSlug" element={<AppShell><BookingRequestPage /></AppShell>} />
-      <Route path="/vendors/:tenantSlug" element={<AppShell><VendorProfilePage /></AppShell>} />
-      <Route path="/dashboard" element={<DashboardRedirect />} />
-      <Route path="/dashboard/:section" element={<AppShell><VendorDashboardPage /></AppShell>} />
-      <Route path="/join/:tenantSlug/:locationSlug?" element={<AppShell><JoinQueuePage /></AppShell>} />
-      <Route path="*" element={<AppShell><LandingPage /></AppShell>} />
-    </Routes>
+    <>
+      <ScrollToTop />
+      <Routes>
+        <Route path={MONITOR_ROUTE_PATH} element={<BarePage><PublicQueuePage /></BarePage>} />
+        <Route path={JOINED_QUEUE_ROUTE_PATH} element={<AppShell><JoinedQueuePage /></AppShell>} />
+        <Route path={LEGACY_MONITOR_ROUTE_PATH} element={<LegacyMonitorRedirect />} />
+        <Route path="/" element={<AppShell><LandingPage /></AppShell>} />
+        <Route path="/login" element={<AppShell><LoginPage /></AppShell>} />
+        <Route path="/oauth/callback" element={<AppShell><OAuthCallbackPage /></AppShell>} />
+        <Route path="/payment/return" element={<AppShell><PaymentReturnPage /></AppShell>} />
+        <Route path="/privacy-policy" element={<AppShell><PrivacyPolicyPage /></AppShell>} />
+        <Route path="/contact" element={<AppShell><ContactPage /></AppShell>} />
+        <Route path="/terms" element={<AppShell><TermsPage /></AppShell>} />
+        <Route path="/register/vendor" element={<AppShell><RegisterVendorPage /></AppShell>} />
+        <Route path="/register/customer" element={<AppShell><RegisterCustomerPage /></AppShell>} />
+        <Route path="/account" element={<Navigate to="/account/dashboard" replace />} />
+        <Route path="/account/dashboard" element={<AppShell><CustomerDashboardPage /></AppShell>} />
+        <Route path="/account/dashboard-prototype" element={<Navigate to="/account/dashboard" replace />} />
+        <Route path="/account/profile" element={<Navigate to="/account/settings" replace />} />
+        <Route path="/account/tickets" element={<AppShell><CustomerAccountPage /></AppShell>} />
+        <Route path="/account/bookings" element={<AppShell><CustomerAccountPage /></AppShell>} />
+        <Route path="/account/group-funded" element={<Navigate to="/account/campaigns" replace />} />
+        <Route path="/account/campaigns" element={<AppShell><CustomerAccountLayout activeSection="campaigns"><CampaignControlCenterPage /></CustomerAccountLayout></AppShell>} />
+        <Route path="/account/campaigns/discover" element={<AppShell><CustomerAccountLayout activeSection="campaigns"><CampaignDiscoveryPage /></CustomerAccountLayout></AppShell>} />
+        <Route path="/account/campaigns/:campaignId/manage" element={<AppShell><CustomerAccountLayout activeSection="campaigns"><CampaignControlCenterPage /></CustomerAccountLayout></AppShell>} />
+        <Route path="/account/settings" element={<AppShell><CustomerAccountPage /></AppShell>} />
+        <Route path="/account/notifications" element={<AppShell><CustomerAccountPage /></AppShell>} />
+        <Route path="/account/security" element={<AppShell><CustomerAccountPage /></AppShell>} />
+        <Route path="/account/bookings/:bookingId" element={<AppShell><CustomerBookingDetailPage /></AppShell>} />
+        <Route path="/account/bookings/:bookingId/campaign/new" element={<AppShell><CustomerAccountLayout activeSection="campaigns"><CampaignCreatePage /></CustomerAccountLayout></AppShell>} />
+        <Route path="/group-funded/:publicToken" element={<LegacyCampaignRedirect />} />
+        <Route path="/campaign/:publicToken" element={<AppShell><CampaignPreviewPage /></AppShell>} />
+        <Route path="/vendors" element={<AppShell><VendorDiscoveryPage /></AppShell>} />
+        <Route path="/vendors/:tenantSlug/book" element={<AppShell><BookingRequestPage /></AppShell>} />
+        <Route path="/vendors/:tenantSlug/book/:serviceSlug" element={<AppShell><BookingRequestPage /></AppShell>} />
+        <Route path="/vendors/:tenantSlug/group-funded" element={<LegacyVendorCampaignRedirect />} />
+        <Route path="/vendors/:tenantSlug" element={<AppShell><VendorProfilePage /></AppShell>} />
+        <Route path="/dashboard" element={<DashboardRedirect />} />
+        <Route path="/dashboard/:section" element={<AppShell><VendorDashboardRoute /></AppShell>} />
+        <Route path="/join/:tenantSlug/:locationSlug?" element={<AppShell><JoinQueuePage /></AppShell>} />
+        <Route path="*" element={<AppShell><NotFoundPage /></AppShell>} />
+      </Routes>
+    </>
   );
 }

@@ -120,7 +120,12 @@ async function stopServer(server) {
   });
 }
 
-function buildPublicRouter(ticket, cancelTicketMock) {
+function buildPublicRouter(ticket, cancelTicketMock, publicCapabilities = {
+  queue: true,
+  booking: true,
+  campaigns: true,
+  branding: true
+}, enterpriseInquiryMocks = {}) {
   const vendorProfiles = [
     {
       name: "Demo Tenant",
@@ -135,6 +140,8 @@ function buildPublicRouter(ticket, cancelTicketMock) {
           city: "Cebu City",
           province: "Cebu",
           country: "Philippines",
+          contactEmail: "hello@demo.test",
+          contactPhone: "+639171234567",
           isPrimary: true,
           hours: [
             { weekday: 0, opensAt: "08:00", closesAt: "17:00", isClosed: false },
@@ -147,6 +154,8 @@ function buildPublicRouter(ticket, cancelTicketMock) {
           city: "Mandaue",
           province: "Cebu",
           country: "Philippines",
+          contactEmail: "west@demo.test",
+          contactPhone: "+639179876543",
           isPrimary: false,
           hours: [
             { weekday: 0, opensAt: "10:00", closesAt: "19:00", isClosed: false }
@@ -167,17 +176,21 @@ function buildPublicRouter(ticket, cancelTicketMock) {
     "../middleware/auth": buildPublicAuthMock(),
     "../middleware/asyncHandler": buildAsyncHandlerMock(),
     "../repositories/tenants": {
-      listPublicVendorProfiles: async ({ search } = {}) =>
-        search && !JSON.stringify(vendorProfiles).toLowerCase().includes(String(search).toLowerCase())
+      listPublicVendorProfiles: async ({ search } = {}) => {
+        const discoveryProfiles = vendorProfiles;
+        return search && !JSON.stringify(discoveryProfiles).toLowerCase().includes(String(search).toLowerCase())
           ? []
-          : vendorProfiles,
+          : discoveryProfiles;
+      },
       findPublicVendorProfileBySlug: async (slug) =>
         slug === "demo" ? vendorProfiles[0] : null,
       findTenantBySlug: async () => ({
         _id: "tenant-1",
         slug: "demo",
         name: "Demo Tenant",
-        isActive: true
+        isActive: true,
+        publicProfileEnabled: true,
+        vendorApprovalStatus: "approved"
       }),
       findTenantById: async () => ({ _id: "tenant-1", slug: "demo", name: "Demo Tenant" })
     },
@@ -198,6 +211,8 @@ function buildPublicRouter(ticket, cancelTicketMock) {
               tenantId: "tenant-1",
               slug: "west",
               name: "West",
+              contactEmail: "west@demo.test",
+              contactPhone: "+639179876543",
               timezone: "Asia/Manila",
               isPrimary: false,
               isActive: true
@@ -207,6 +222,8 @@ function buildPublicRouter(ticket, cancelTicketMock) {
               tenantId: "tenant-1",
               slug: "ayala",
               name: "Ayala",
+              contactEmail: "hello@demo.test",
+              contactPhone: "+639171234567",
               timezone: "Asia/Manila",
               isPrimary: true,
               isActive: true
@@ -233,8 +250,8 @@ function buildPublicRouter(ticket, cancelTicketMock) {
             }
     },
     "../repositories/publicBoardThemes": {
-      getResolvedTheme: async () => ({
-        scope: "location",
+      getResolvedTheme: async (_tenantId, _locationId, options = {}) => ({
+        scope: options.mediaOnly ? "tenant" : "location",
         theme: {
           presetId: "classic",
           heroTitle: "Demo board",
@@ -296,6 +313,68 @@ function buildPublicRouter(ticket, cancelTicketMock) {
         }
       ]
     },
+    "../repositories/locationServices": {
+      listLocationServicesByTenantId: async () => [
+        {
+          _id: "location-service-1",
+          tenantId: "tenant-1",
+          locationId: "location-1",
+          serviceId: "service-1",
+          capacity: 3,
+          isActive: true,
+          sortOrder: 1,
+          priceAmountCents: 50000,
+          priceDisplay: "PHP 500",
+          imageUrl: "",
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          _id: "location-service-2",
+          tenantId: "tenant-1",
+          locationId: "location-1",
+          serviceId: "service-2",
+          capacity: 1,
+          isActive: true,
+          sortOrder: 2,
+          priceAmountCents: 75000,
+          priceDisplay: "PHP 750",
+          imageUrl: "",
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }
+      ],
+      listLocationServicesByLocationId: async () => [
+        {
+          _id: "location-service-1",
+          tenantId: "tenant-1",
+          locationId: "location-1",
+          serviceId: "service-1",
+          capacity: 3,
+          isActive: true,
+          sortOrder: 1,
+          priceAmountCents: 50000,
+          priceDisplay: "PHP 500",
+          imageUrl: "",
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          _id: "location-service-2",
+          tenantId: "tenant-1",
+          locationId: "location-1",
+          serviceId: "service-2",
+          capacity: 1,
+          isActive: true,
+          sortOrder: 2,
+          priceAmountCents: 75000,
+          priceDisplay: "PHP 750",
+          imageUrl: "",
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }
+      ]
+    },
     "../repositories/tickets": {
       findTicketByLookupCode: async () => ticket,
       findTicketByTenantAndLookupCode: async () => ticket
@@ -304,7 +383,7 @@ function buildPublicRouter(ticket, cancelTicketMock) {
       subscribe: () => () => {}
     },
     "../services/turnstileService": {
-      verifyTurnstileToken: async () => ({ success: true })
+      verifyTurnstileToken: enterpriseInquiryMocks.verifyTurnstileToken || (async () => ({ success: true }))
     },
     "../services/queueJoinOtpService": {
       requestJoinOtp: async () => ({ otpId: "otp-1" }),
@@ -324,30 +403,133 @@ function buildPublicRouter(ticket, cancelTicketMock) {
       assertLocationOpenForCustomerJoin: async () => {},
       getOpenStatus: async () => ({ isOpen: true, timezone: "Asia/Manila", summary: "Open", today: null, nextOpenAt: null })
     },
+    "../services/entitlementAdmissionService": {
+      admit: async () => ({ allowed: true, enforced: true }),
+      canDiscover: async () => true,
+      resolvePublicCapabilities: async () => publicCapabilities
+    },
     "../services/notificationService": {
-      sendEmail: async () => {},
+      sendEmail: enterpriseInquiryMocks.sendEmail || (async () => {}),
       sendSms: async () => {}
     },
     "../repositories/platform": {
       getPlatformSettings: async () => ({ enterpriseInquiryEmail: "ops@getprio.test" })
     },
     "../services/queueService": {
-      getQueueSnapshot: async () => ({
+      getQueueSnapshot: async (_tenant, options = {}) => ({
         tenant: { name: "Demo Tenant", slug: "demo", isActive: true, queueFee: { enabled: false, amountCents: 0, currency: "PHP", displayAmount: "PHP 0.00", planSlug: "economical" } },
         location: { name: "Ayala", slug: "ayala", timezone: "Asia/Manila", openStatus: { isOpen: true }, hours: [] },
         publicBoardTheme: { scope: "location", theme: {} },
         queueDay: { isClosed: false, queueDateKey: "20260606", closedAt: null, reopenedAt: null, closureReason: null },
         stats: { waitingCount: 1, estimatedWaitMinutes: 5, servedToday: 0 },
         current: null,
-        nextUp: [],
+        nextUp: ticket
+          ? [{
+              id: ticket._id,
+              ticketNumber: ticket.ticketNumber,
+              customerName: ticket.customerName,
+              status: ticket.status,
+              position: 1
+            }]
+          : [],
         history: [],
         usage: { periodStart: new Date(), periodEnd: null, emailsSentThisPeriod: 0 },
-        focusTicket: null
+        focusTicket: options.lookupCode && ticket
+          ? {
+              id: ticket._id,
+              lookupCode: ticket.lookupCode,
+              ticketNumber: ticket.ticketNumber,
+              customerName: ticket.customerName,
+              status: ticket.status
+            }
+          : null
       }),
       cancelTicket: cancelTicketMock
     }
   });
 }
+
+test("enterprise inquiries require verification and enforce anti-abuse controls", async () => {
+  const deliveries = [];
+  const verifications = [];
+  const router = buildPublicRouter(
+    null,
+    async () => ({}),
+    undefined,
+    {
+      verifyTurnstileToken: async (input) => {
+        verifications.push(input);
+        return { success: input.token === "valid-token" };
+      },
+      sendEmail: async (payload) => deliveries.push(payload)
+    }
+  );
+  const { server, baseUrl } = await startServer(router, "/api/public");
+  const validInquiry = {
+    businessName: "Demo Business",
+    contactName: "Maria Santos",
+    email: "maria@example.com",
+    phone: "09171234567",
+    message: "We need queue support for three branches.",
+    honeypot: "",
+    turnstileToken: "valid-token"
+  };
+
+  try {
+    const validResponse = await fetch(`${baseUrl}/enterprise-inquiries`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(validInquiry)
+    });
+    assert.equal(validResponse.status, 201);
+    assert.equal(deliveries.length, 1);
+    assert.equal(verifications.length, 1);
+    assert.equal(verifications[0].token, "valid-token");
+
+    const failedVerificationResponse = await fetch(`${baseUrl}/enterprise-inquiries`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...validInquiry, turnstileToken: "invalid-token" })
+    });
+    assert.equal(failedVerificationResponse.status, 400);
+    assert.match((await failedVerificationResponse.json()).message, /verification failed/i);
+    assert.equal(deliveries.length, 1);
+
+    const oversizedResponse = await fetch(`${baseUrl}/enterprise-inquiries`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...validInquiry, message: "x".repeat(1001) })
+    });
+    assert.equal(oversizedResponse.status, 400);
+    assert.match((await oversizedResponse.json()).message, /1,000 characters or fewer/i);
+    assert.equal(deliveries.length, 1);
+
+    const honeypotResponse = await fetch(`${baseUrl}/enterprise-inquiries`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...validInquiry, honeypot: "https://spam.example" })
+    });
+    assert.equal(honeypotResponse.status, 201);
+    assert.equal(deliveries.length, 1);
+    assert.equal(verifications.length, 3);
+
+    const finalAllowedResponse = await fetch(`${baseUrl}/enterprise-inquiries`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...validInquiry, honeypot: "spam" })
+    });
+    assert.equal(finalAllowedResponse.status, 201);
+
+    const rateLimitedResponse = await fetch(`${baseUrl}/enterprise-inquiries`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(validInquiry)
+    });
+    assert.equal(rateLimitedResponse.status, 429);
+  } finally {
+    await stopServer(server);
+  }
+});
 
 test("public vendor discovery returns approved public profile cards", async () => {
   const router = buildPublicRouter(null, async () => ({}));
@@ -360,10 +542,13 @@ test("public vendor discovery returns approved public profile cards", async () =
     const body = await response.json();
     assert.equal(body.vendors.length, 1);
     assert.deepEqual(Object.keys(body.vendors[0]).sort(), [
+      "businessProfileTheme",
+      "capabilities",
       "category",
       "description",
       "imageUrl",
       "location",
+      "locationServices",
       "locations",
       "name",
       "publicBoardTheme",
@@ -375,11 +560,14 @@ test("public vendor discovery returns approved public profile cards", async () =
     assert.equal(body.vendors[0].locations.length, 2);
     assert.equal(body.vendors[0].locations[1].slug, "west");
     assert.equal(body.vendors[0].locations[0].hours[0].opensAt, "08:00");
+    assert.equal(typeof body.vendors[0].locations[0].openStatus.isOpen, "boolean");
+    assert.equal(typeof body.vendors[0].locations[0].openStatus.summary, "string");
     assert.equal(body.vendors[0].services.length, 1);
     assert.equal(body.vendors[0].services[0].slug, "general-consultation");
     assert.equal(body.vendors[0].services[0].manualPaymentRequired, true);
     assert.equal(body.vendors[0].services[0].tenantId, undefined);
     assert.equal(body.vendors[0].publicBoardTheme.theme.logoUrl, "https://cdn.example.test/logo.png");
+    assert.equal(body.vendors[0].businessProfileTheme.theme.logoUrl, "https://cdn.example.test/logo.png");
     assert.equal(body.vendors[0].contactEmail, undefined);
   } finally {
     await stopServer(server);
@@ -417,6 +605,141 @@ test("public vendor profile returns 404 for unavailable vendors", async () => {
   }
 });
 
+test("public queue snapshot returns 404 for an unknown ticket lookup code", async () => {
+  const router = buildPublicRouter(null, async () => ({}));
+  const { server, baseUrl } = await startServer(router, "/api/public");
+
+  try {
+    const response = await fetch(`${baseUrl}/tenant/demo/location/ayala/queue?lookupCode=NOT-A-REAL-TICKET`);
+
+    assert.equal(response.status, 404);
+    const body = await response.json();
+    assert.match(body.message, /queue ticket not found/i);
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("customer cannot load another account owner's queue ticket details", async () => {
+  const router = buildPublicRouter(
+    {
+      _id: "ticket-2",
+      tenantId: "tenant-1",
+      locationId: "location-1",
+      userId: "other-user",
+      lookupCode: "OTHER123",
+      ticketNumber: "DMO-002",
+      customerName: "Other Customer",
+      status: "waiting"
+    },
+    async () => ({})
+  );
+  const { server, baseUrl } = await startServer(router, "/api/public");
+
+  try {
+    const response = await fetch(
+      `${baseUrl}/tenant/demo/location/ayala/queue?lookupCode=OTHER123`,
+      { headers: { "x-test-auth-mode": "customer" } }
+    );
+
+    assert.equal(response.status, 403);
+    assert.doesNotMatch(await response.text(), /Other Customer/);
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("linked queue ticket details require their authenticated account owner", async () => {
+  const linkedTicket = {
+    _id: "ticket-1",
+    tenantId: "tenant-1",
+    locationId: "location-1",
+    userId: "user-1",
+    lookupCode: "OWNER123",
+    ticketNumber: "DMO-001",
+    customerName: "Customer One",
+    status: "waiting"
+  };
+  const router = buildPublicRouter(linkedTicket, async () => ({}));
+  const { server, baseUrl } = await startServer(router, "/api/public");
+
+  try {
+    const anonymousResponse = await fetch(
+      `${baseUrl}/tenant/demo/location/ayala/queue?lookupCode=OWNER123`
+    );
+    assert.equal(anonymousResponse.status, 401);
+
+    const ownerResponse = await fetch(
+      `${baseUrl}/tenant/demo/location/ayala/queue?lookupCode=OWNER123`,
+      { headers: { "x-test-auth-mode": "customer" } }
+    );
+    assert.equal(ownerResponse.status, 200);
+    assert.equal((await ownerResponse.json()).focusTicket.ticketNumber, "DMO-001");
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("legacy and streaming ticket detail endpoints reject another account owner", async () => {
+  const linkedTicket = {
+    _id: "ticket-2",
+    tenantId: "tenant-1",
+    locationId: "location-1",
+    userId: "other-user",
+    lookupCode: "OTHER123",
+    ticketNumber: "DMO-002",
+    customerName: "Other Customer",
+    status: "waiting"
+  };
+  const router = buildPublicRouter(linkedTicket, async () => ({}));
+  const { server, baseUrl } = await startServer(router, "/api/public");
+
+  try {
+    const legacyResponse = await fetch(
+      `${baseUrl}/ticket/OTHER123`,
+      { headers: { "x-test-auth-mode": "customer" } }
+    );
+    assert.equal(legacyResponse.status, 403);
+    assert.doesNotMatch(await legacyResponse.text(), /Other Customer/);
+
+    const streamResponse = await fetch(
+      `${baseUrl}/tenant/demo/location/ayala/stream?lookupCode=OTHER123`,
+      { headers: { "x-test-auth-mode": "customer" } }
+    );
+    assert.equal(streamResponse.status, 403);
+    assert.doesNotMatch(await streamResponse.text(), /Other Customer/);
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("public queue board snapshots do not expose raw customer identities", async () => {
+  const router = buildPublicRouter(
+    {
+      _id: "ticket-2",
+      tenantId: "tenant-1",
+      locationId: "location-1",
+      userId: "other-user",
+      lookupCode: "OTHER123",
+      ticketNumber: "DMO-002",
+      customerName: "Other Customer",
+      status: "waiting"
+    },
+    async () => ({})
+  );
+  const { server, baseUrl } = await startServer(router, "/api/public");
+
+  try {
+    const response = await fetch(`${baseUrl}/tenant/demo/location/ayala/queue`);
+    const body = await response.text();
+
+    assert.equal(response.status, 200);
+    assert.doesNotMatch(body, /Other Customer/);
+  } finally {
+    await stopServer(server);
+  }
+});
+
 test("public vendor profile includes the resolved public board theme", async () => {
   const router = buildPublicRouter(null, async () => ({}));
   const { server, baseUrl } = await startServer(router, "/api/public");
@@ -432,6 +755,58 @@ test("public vendor profile includes the resolved public board theme", async () 
     assert.equal(body.vendor.services[0].slug, "general-consultation");
     assert.equal(body.vendor.services[0].manualPaymentRequired, true);
     assert.equal(body.vendor.locations[0].hours[0].closesAt, "17:00");
+    assert.equal(body.vendor.contactEmail, undefined);
+    assert.equal(body.vendor.contactPhone, undefined);
+    assert.equal(body.vendor.locations[0].contactEmail, "hello@demo.test");
+    assert.equal(body.vendor.locations[0].contactPhone, "+639171234567");
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("public vendor profile suppresses surfaces excluded by the effective plan", async () => {
+  const router = buildPublicRouter(null, async () => ({}), {
+    queue: true,
+    booking: false,
+    campaigns: false,
+    branding: false
+  });
+  const { server, baseUrl } = await startServer(router, "/api/public");
+
+  try {
+    const response = await fetch(`${baseUrl}/vendors/demo`);
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(body.vendor.capabilities, {
+      queue: true,
+      booking: false,
+      campaigns: false,
+      branding: false
+    });
+    assert.deepEqual(body.vendor.services, []);
+    assert.deepEqual(body.vendor.locationServices, []);
+    assert.equal(body.vendor.publicBoardTheme, null);
+    assert.equal(body.vendor.businessProfileTheme.scope, "tenant");
+    assert.equal(body.vendor.businessProfileTheme.theme.logoUrl, "https://cdn.example.test/logo.png");
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("public vendor services endpoint hides disabled services", async () => {
+  const router = buildPublicRouter(null, async () => ({}));
+  const { server, baseUrl } = await startServer(router, "/api/public");
+
+  try {
+    const response = await fetch(`${baseUrl}/vendors/demo/locations/ayala/services`);
+
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.services.length, 1);
+    assert.equal(body.services[0].slug, "general-consultation");
+    assert.equal(body.services[0].capacity, 3);
+    assert.equal(body.services[0].locationServiceId, "location-service-1");
   } finally {
     await stopServer(server);
   }
@@ -544,6 +919,44 @@ test("public cancellation allows authenticated customer owner without contact pa
   }
 });
 
+test("public cancellation allows a pending carry-over ticket", async () => {
+  let cancelled = false;
+  const router = buildPublicRouter(
+    {
+      _id: "ticket-carry-over",
+      tenantId: "tenant-1",
+      userId: null,
+      lookupCode: "CARRY010",
+      customerEmail: "owner@example.com",
+      customerPhone: "09998887777",
+      status: "pending_carry_over"
+    },
+    async () => {
+      cancelled = true;
+      return {
+        ticket: { lookupCode: "CARRY010", status: "cancelled" },
+        snapshot: { queueDay: { isClosed: true } }
+      };
+    }
+  );
+  const { server, baseUrl } = await startServer(router, "/api/public");
+
+  try {
+    const response = await fetch(`${baseUrl}/tenant/demo/tickets/CARRY010`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ customerEmail: "owner@example.com" })
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(cancelled, true);
+    const body = await response.json();
+    assert.equal(body.ticket.status, "cancelled");
+  } finally {
+    await stopServer(server);
+  }
+});
+
 test("public cancellation returns 409 for non-waiting tickets", async () => {
   const router = buildPublicRouter(
     {
@@ -570,7 +983,7 @@ test("public cancellation returns 409 for non-waiting tickets", async () => {
 
     assert.equal(response.status, 409);
     const body = await response.json();
-    assert.match(body.message, /only waiting tickets can be cancelled/i);
+    assert.match(body.message, /only waiting or carried-over tickets can be cancelled/i);
   } finally {
     await stopServer(server);
   }
@@ -635,6 +1048,7 @@ test("public queue snapshots redact tenant and location contact details", async 
     [storeLocationRepository, "findPrimaryLocationByTenantId"],
     [ticketRepository, "findCurrentCalledTicket"],
     [ticketRepository, "listWaitingTickets"],
+    [ticketRepository, "listPendingCarryOverTickets"],
     [ticketRepository, "listSkippedTickets"],
     [ticketRepository, "listHistoryTickets"],
     [ticketRepository, "countServedToday"],
@@ -654,6 +1068,7 @@ test("public queue snapshots redact tenant and location contact details", async 
     storeLocationRepository.findPrimaryLocationByTenantId = async () => null;
     ticketRepository.findCurrentCalledTicket = async () => null;
     ticketRepository.listWaitingTickets = async () => [];
+    ticketRepository.listPendingCarryOverTickets = async () => [];
     ticketRepository.listSkippedTickets = async () => [];
     ticketRepository.listHistoryTickets = async () => [];
     ticketRepository.countServedToday = async () => 0;
@@ -745,6 +1160,7 @@ test("public queue snapshots use the ticket location for lookup-code requests", 
     [storeLocationRepository, "findLocationById"],
     [ticketRepository, "findCurrentCalledTicket"],
     [ticketRepository, "listWaitingTickets"],
+    [ticketRepository, "listPendingCarryOverTickets"],
     [ticketRepository, "listSkippedTickets"],
     [ticketRepository, "listHistoryTickets"],
     [ticketRepository, "countServedToday"],
@@ -798,6 +1214,7 @@ test("public queue snapshots use the ticket location for lookup-code requests", 
             }
           ]
         : [];
+    ticketRepository.listPendingCarryOverTickets = async () => [];
     ticketRepository.listSkippedTickets = async () => [];
     ticketRepository.listHistoryTickets = async () => [];
     ticketRepository.countServedToday = async () => 0;
@@ -862,4 +1279,21 @@ test("public queue snapshots use the ticket location for lookup-code requests", 
       moduleExports[key] = originalValue;
     }
   }
+});
+
+test("public direct and OTP joins cannot claim the vendor walk-in channel", async () => {
+  const { server, baseUrl } = await startServer(buildPublicRouter(null, async () => ({})), "/api/public");
+  try {
+    for (const route of ["join", "join-otp"]) {
+      for (const joinChannel of ["vendor", "online", "qr"]) {
+        const response = await fetch(`${baseUrl}/tenant/demo/${route}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ customerName: "Walk-in test", joinChannel, turnstileToken: "valid-token" })
+        });
+        assert.equal(response.status, joinChannel === "vendor" ? 400 : 201);
+        if (joinChannel === "vendor") assert.match((await response.json()).message, /online or QR/);
+      }
+    }
+  } finally { await stopServer(server); }
 });

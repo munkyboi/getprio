@@ -1,4 +1,5 @@
 const { getLocationForTenant } = require("./vendorRouteHelpers");
+const { assertPublicTextFieldsAllowed } = require("../services/contentModeration");
 
 function normalizeServiceSlug(value) {
   return String(value || "")
@@ -9,6 +10,27 @@ function normalizeServiceSlug(value) {
 }
 
 function formatVendorBooking(booking) {
+  const groupFundedCampaign = booking.groupFundedCampaign
+    ? {
+        ...booking.groupFundedCampaign,
+        bundleItems: Array.isArray(booking.groupFundedBundleItems)
+          ? booking.groupFundedBundleItems.map((item) => ({
+              id: item._id,
+              serviceId: item.serviceId,
+              serviceName: item.serviceNameSnapshot,
+              serviceSlug: item.serviceSlugSnapshot,
+              bookingQuantity: item.bookingQuantity,
+              priceAmountCents: item.priceAmountCents,
+              currency: item.currency,
+              executionMode: item.executionMode,
+              scheduledStartAt: item.scheduledStartAt,
+              scheduledEndAt: item.scheduledEndAt,
+              sortOrder: item.sortOrder
+            }))
+          : []
+      }
+    : null;
+
   return {
     id: booking._id,
     reference: booking.reference,
@@ -25,6 +47,8 @@ function formatVendorBooking(booking) {
     servicePriceAmountCents: booking.servicePriceAmountCents,
     serviceCurrency: booking.serviceCurrency,
     servicePriceDisplay: booking.servicePriceDisplay,
+    bundleItems: booking.bundleItems || [],
+    executionMode: booking.executionMode || "parallel",
     bookingQuantity: booking.bookingQuantity,
     customerUserId: booking.customerUserId,
     customerName: booking.customerName,
@@ -36,6 +60,9 @@ function formatVendorBooking(booking) {
     notes: booking.notes,
     paymentReference: booking.paymentReference,
     paymentStatus: booking.paymentStatus,
+    groupFundedBookingId: booking.groupFundedBookingId,
+    bookingPaymentSource: booking.bookingPaymentSource,
+    groupFundedCampaign,
     paymentProof: booking.paymentProofObjectKey
       ? {
           fileName: booking.paymentProofFileName,
@@ -83,6 +110,7 @@ function formatAvailabilityBlock(block) {
     weekday: block.weekday,
     startsAt: block.startsAt,
     endsAt: block.endsAt,
+    endsNextDay: Boolean(block.endsNextDay),
     capacity: block.capacity,
     isActive: block.isActive,
     notes: block.notes,
@@ -108,13 +136,57 @@ function formatAvailabilityException(exception) {
   };
 }
 
-function assertTimeRange(startsAt, endsAt, { allowEmpty = false } = {}) {
+function buildAvailabilitySummary(availability) {
+  const sharedBlocks = availability.blocks.filter((block) => block.isActive && !block.serviceId).length;
+  const serviceSpecificBlocks = availability.blocks.filter((block) => block.isActive && block.serviceId).length;
+  const sharedExceptions = availability.exceptions.filter((exception) => !exception.isAvailable && !exception.serviceId).length;
+  const serviceSpecificExceptions = availability.exceptions.filter((exception) => !exception.isAvailable && exception.serviceId).length;
+
+  return {
+    sharedBlocks,
+    serviceSpecificBlocks,
+    sharedExceptions,
+    serviceSpecificExceptions,
+    hasSharedLocationCapacity: sharedBlocks > 0 || sharedExceptions > 0,
+    hasServiceSpecificCapacity: serviceSpecificBlocks > 0 || serviceSpecificExceptions > 0
+  };
+}
+
+function minutesFromTime(value) {
+  const [hours, minutes] = String(value).split(":").map(Number);
+  return hours * 60 + minutes;
+}
+
+function assertTimeRange(startsAt, endsAt, { allowEmpty = false, endsNextDay = false } = {}) {
   if (allowEmpty && !startsAt && !endsAt) {
     return;
   }
   const isValidTime = (value) => /^([01]\d|2[0-3]):[0-5]\d$/.test(String(value || ""));
-  if (!isValidTime(startsAt) || !isValidTime(endsAt) || String(startsAt) >= String(endsAt)) {
+  const startsAfterEnds = String(startsAt) > String(endsAt);
+  if (!isValidTime(startsAt) || !isValidTime(endsAt) || (endsNextDay ? !startsAfterEnds : String(startsAt) >= String(endsAt))) {
     const error = new Error("A valid start and end time are required.");
+    error.statusCode = 400;
+    throw error;
+  }
+}
+
+function assertWithinLocationBusinessHours(hours, weekday, startsAt, endsAt, endsNextDay) {
+  const businessHours = hours.find((hour) => Number(hour.weekday) === weekday);
+  if (!businessHours || businessHours.isClosed || !businessHours.opensAt || !businessHours.closesAt) {
+    const error = new Error("Set business hours for this day before adding weekly availability.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const opensAt = minutesFromTime(businessHours.opensAt);
+  const closesAt = minutesFromTime(businessHours.closesAt);
+  const businessEndsNextDay = closesAt <= opensAt;
+  const businessEnd = closesAt + (businessEndsNextDay ? 24 * 60 : 0);
+  const availabilityStart = minutesFromTime(startsAt);
+  const availabilityEnd = minutesFromTime(endsAt) + (endsNextDay ? 24 * 60 : 0);
+
+  if (availabilityStart < opensAt || availabilityEnd > businessEnd) {
+    const error = new Error("Weekly availability must stay within this location's business hours.");
     error.statusCode = 400;
     throw error;
   }
@@ -134,14 +206,16 @@ async function getOptionalServiceForTenant(tenant, serviceSlug, vendorServiceRep
   return service;
 }
 
-async function normalizeAvailabilityBlockPayload(tenant, body, existingBlock, vendorServiceRepository, getTenantLocation = getLocationForTenant) {
+async function normalizeAvailabilityBlockPayload(tenant, body, existingBlock, vendorServiceRepository, getTenantLocation = getLocationForTenant, storeLocationRepository) {
   const location = body.locationSlug ? await getTenantLocation(tenant, body.locationSlug) : null;
-  const service = Object.prototype.hasOwnProperty.call(body, "serviceSlug")
+  const hasServiceSlug = Object.prototype.hasOwnProperty.call(body, "serviceSlug");
+  const service = hasServiceSlug
     ? await getOptionalServiceForTenant(tenant, body.serviceSlug, vendorServiceRepository)
     : null;
   const startsAt = Object.prototype.hasOwnProperty.call(body, "startsAt") ? String(body.startsAt || "") : existingBlock?.startsAt;
   const endsAt = Object.prototype.hasOwnProperty.call(body, "endsAt") ? String(body.endsAt || "") : existingBlock?.endsAt;
-  assertTimeRange(startsAt, endsAt);
+  const endsNextDay = Object.prototype.hasOwnProperty.call(body, "endsNextDay") ? body.endsNextDay === true : Boolean(existingBlock?.endsNextDay);
+  assertTimeRange(startsAt, endsAt, { endsNextDay });
   const weekday = Object.prototype.hasOwnProperty.call(body, "weekday") ? Number(body.weekday) : existingBlock?.weekday;
   if (!Number.isInteger(weekday) || weekday < 0 || weekday > 6) {
     const error = new Error("weekday must be between 0 and 6.");
@@ -154,21 +228,29 @@ async function normalizeAvailabilityBlockPayload(tenant, body, existingBlock, ve
     error.statusCode = 400;
     throw error;
   }
+  if (storeLocationRepository) {
+    const hours = await storeLocationRepository.listHoursByLocationId(location?._id || existingBlock.locationId);
+    assertWithinLocationBusinessHours(hours, weekday, startsAt, endsAt, endsNextDay);
+  }
+  const notes = typeof body.notes === "string" ? body.notes.trim() : existingBlock?.notes || "";
+  assertPublicTextFieldsAllowed({ "Availability notes": notes });
   return {
     locationId: location?._id || existingBlock.locationId,
-    serviceId: service?._id || existingBlock?.serviceId || null,
+    serviceId: hasServiceSlug ? service?._id || null : existingBlock?.serviceId || null,
     weekday,
     startsAt,
     endsAt,
+    endsNextDay,
     capacity,
     isActive: Object.prototype.hasOwnProperty.call(body, "isActive") ? Boolean(body.isActive) : existingBlock?.isActive ?? true,
-    notes: typeof body.notes === "string" ? body.notes.trim() : existingBlock?.notes || ""
+    notes
   };
 }
 
 async function normalizeAvailabilityExceptionPayload(tenant, body, existingException, vendorServiceRepository, getTenantLocation = getLocationForTenant) {
   const location = body.locationSlug ? await getTenantLocation(tenant, body.locationSlug) : null;
-  const service = Object.prototype.hasOwnProperty.call(body, "serviceSlug")
+  const hasServiceSlug = Object.prototype.hasOwnProperty.call(body, "serviceSlug");
+  const service = hasServiceSlug
     ? await getOptionalServiceForTenant(tenant, body.serviceSlug, vendorServiceRepository)
     : null;
   const exceptionDate = Object.prototype.hasOwnProperty.call(body, "exceptionDate")
@@ -190,15 +272,17 @@ async function normalizeAvailabilityExceptionPayload(tenant, body, existingExcep
     error.statusCode = 400;
     throw error;
   }
+  const reason = typeof body.reason === "string" ? body.reason.trim() : existingException?.reason || "";
+  assertPublicTextFieldsAllowed({ "Availability reason": reason });
   return {
     locationId: location?._id || existingException.locationId,
-    serviceId: service?._id || existingException?.serviceId || null,
+    serviceId: hasServiceSlug ? service?._id || null : existingException?.serviceId || null,
     exceptionDate,
     startsAt,
     endsAt,
     isAvailable: Object.prototype.hasOwnProperty.call(body, "isAvailable") ? Boolean(body.isAvailable) : existingException?.isAvailable ?? false,
     capacity,
-    reason: typeof body.reason === "string" ? body.reason.trim() : existingException?.reason || ""
+    reason
   };
 }
 
@@ -239,10 +323,13 @@ async function handleBookingMutation({ req, res, getAuthorizedTenant, assertTena
   res.json({ [responseKey]: formatVendorBooking(booking) });
 }
 
-async function handleCheckInBooking({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, bookingService }) {
+async function handleCheckInBooking({ req, res, getAuthorizedTenant, assertTenantPermission, assertQueueLocationAccess, getLocationForTenant, bookingService }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.queue.operate");
   const location = await getLocationForTenant(tenant, req.body.locationSlug || req.query.location);
+  if (assertQueueLocationAccess) {
+    await assertQueueLocationAccess(req.user, tenant, location);
+  }
   const result = await bookingService.checkInVendorBooking({
     tenant, location, bookingId: req.params.bookingId, user: req.user, overrideWindow: Boolean(req.body.overrideWindow), overrideReason: req.body.overrideReason
   });
@@ -263,10 +350,14 @@ async function handleListAvailability({ req, res, getAuthorizedTenant, assertTen
   assertTenantPermission(req.user, tenant._id, "tenant.availability.manage");
   const location = await getLocationForTenant(tenant, req.query.location);
   const availability = await vendorAvailabilityRepository.listAvailabilityByLocation(tenant._id, location._id);
-  res.json({ blocks: availability.blocks.map(formatAvailabilityBlock), exceptions: availability.exceptions.map(formatAvailabilityException) });
+  res.json({
+    blocks: availability.blocks.map(formatAvailabilityBlock),
+    exceptions: availability.exceptions.map(formatAvailabilityException),
+    summary: buildAvailabilitySummary(availability)
+  });
 }
 
-async function handleCreateAvailabilityBlock({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, vendorAvailabilityRepository, vendorServiceRepository }) {
+async function handleCreateAvailabilityBlock({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, storeLocationRepository, vendorAvailabilityRepository, vendorServiceRepository }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.availability.manage");
   const location = await getLocationForTenant(tenant, req.body.locationSlug || req.query.location);
@@ -275,13 +366,14 @@ async function handleCreateAvailabilityBlock({ req, res, getAuthorizedTenant, as
     { ...(req.body || {}), locationSlug: location.slug },
     null,
     vendorServiceRepository,
-    getLocationForTenant
+    getLocationForTenant,
+    storeLocationRepository
   );
   const block = await vendorAvailabilityRepository.createBlock({ tenantId: tenant._id, ...payload });
   res.status(201).json({ block: formatAvailabilityBlock(block) });
 }
 
-async function handleUpdateAvailabilityBlock({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, vendorAvailabilityRepository, vendorServiceRepository }) {
+async function handleUpdateAvailabilityBlock({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, storeLocationRepository, vendorAvailabilityRepository, vendorServiceRepository }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.availability.manage");
   const block = await vendorAvailabilityRepository.findBlockByTenantAndId(tenant._id, req.params.blockId);
@@ -291,7 +383,8 @@ async function handleUpdateAvailabilityBlock({ req, res, getAuthorizedTenant, as
     req.body || {},
     block,
     vendorServiceRepository,
-    getLocationForTenant
+    getLocationForTenant,
+    storeLocationRepository
   );
   const updatedBlock = await vendorAvailabilityRepository.updateBlock(block._id, payload);
   res.json({ block: formatAvailabilityBlock(updatedBlock) });
@@ -302,8 +395,8 @@ async function handleDeleteAvailabilityBlock({ req, res, getAuthorizedTenant, as
   assertTenantPermission(req.user, tenant._id, "tenant.availability.manage");
   const block = await vendorAvailabilityRepository.findBlockByTenantAndId(tenant._id, req.params.blockId);
   if (!block) { const error = new Error("Availability block not found."); error.statusCode = 404; throw error; }
-  const updatedBlock = await vendorAvailabilityRepository.updateBlock(block._id, { isActive: false });
-  res.json({ block: formatAvailabilityBlock(updatedBlock) });
+  await vendorAvailabilityRepository.deleteBlock(block._id);
+  res.json({ block: formatAvailabilityBlock(block) });
 }
 
 async function handleCreateAvailabilityException({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, vendorAvailabilityRepository, vendorServiceRepository }) {
@@ -361,6 +454,7 @@ module.exports = {
   formatVendorBooking,
   formatAvailabilityBlock,
   formatAvailabilityException,
+  buildAvailabilitySummary,
   normalizeAvailabilityBlockPayload,
   normalizeAvailabilityExceptionPayload
 };

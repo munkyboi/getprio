@@ -5,11 +5,15 @@ import { createTheme, MantineProvider } from "@mantine/core";
 import { Notifications } from "@mantine/notifications";
 import { BrowserRouter } from "react-router-dom";
 import App from "./App";
+import AppErrorBoundary from "./components/AppErrorBoundary";
+import ModalWheelBridge from "./components/ModalWheelBridge";
 import { AuthProvider } from "./context/AuthContext";
 import { queryClient } from "./lib/queryClient";
 import "@mantine/core/styles.css";
+import "@mantine/tiptap/styles.css";
 import "@mantine/notifications/styles.css";
 import "@mantine/dates/styles.css";
+import "@mantine/carousel/styles.css";
 import "./styles.css";
 
 const theme = createTheme({
@@ -43,7 +47,7 @@ const theme = createTheme({
     ]
   },
   headings: {
-    fontFamily: 'Inter, Aptos, "Segoe UI", sans-serif',
+    fontFamily: 'Georgia, "Times New Roman", serif',
     fontWeight: "800",
     sizes: {
       h1: { fontSize: "clamp(2.9rem, 6vw, 5.75rem)", lineHeight: "0.96" },
@@ -89,11 +93,14 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <MantineProvider theme={theme}>
       <Notifications position="top-right" />
+      <ModalWheelBridge />
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
-          <AuthProvider>
-            <App />
-          </AuthProvider>
+          <AppErrorBoundary>
+            <AuthProvider>
+              <App />
+            </AuthProvider>
+          </AppErrorBoundary>
         </BrowserRouter>
       </QueryClientProvider>
     </MantineProvider>

@@ -25,10 +25,12 @@ function buildAuthMock() {
   return {
     authenticate(req, _res, next) {
       req.user = buildUser(req);
+      req.auth = { sessionId: "session-1", session: { _id: "session-1", mfaVerifiedAt: new Date() } };
       next();
     },
     maybeAuthenticate(req, _res, next) {
       req.user = buildUser(req);
+      req.auth = { sessionId: "session-1", session: { _id: "session-1", mfaVerifiedAt: new Date() } };
       next();
     },
     userHasTenantAccess(user, tenantId) {
@@ -166,12 +168,14 @@ test("permissions map keeps current owner, staff, and platform-admin boundaries"
 
   assert.equal(permissions.userHasPermission(staffUser, "tenant.queue.operate", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(staffUser, "tenant.staff.read", { tenantId: "tenant-1" }), true);
-  assert.equal(permissions.userHasPermission(staffUser, "tenant.billing.read", { tenantId: "tenant-1" }), true);
+  assert.equal(permissions.userHasPermission(staffUser, "tenant.billing.read", { tenantId: "tenant-1" }), false);
+  assert.equal(permissions.userHasPermission(staffUser, "tenant.capacity.read_operational", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(staffUser, "tenant.reports.read", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(staffUser, "tenant.settings.manage", { tenantId: "tenant-1" }), false);
   assert.equal(permissions.userHasPermission(staffUser, "tenant.service.manage", { tenantId: "tenant-1" }), false);
   assert.equal(permissions.userHasPermission(staffUser, "tenant.availability.manage", { tenantId: "tenant-1" }), false);
   assert.equal(permissions.userHasPermission(staffUser, "tenant.booking.manage", { tenantId: "tenant-1" }), false);
+  assert.equal(permissions.userHasPermission(staffUser, "tenant.booking.manage", { tenantId: "tenant-2" }), false);
   assert.equal(permissions.userHasPermission(adminUser, "tenant.settings.manage", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(adminUser, "tenant.settings.manage_contact", { tenantId: "tenant-1" }), false);
   assert.equal(permissions.userHasPermission(adminUser, "tenant.staff.manage", { tenantId: "tenant-1" }), true);
@@ -179,14 +183,17 @@ test("permissions map keeps current owner, staff, and platform-admin boundaries"
   assert.equal(permissions.userHasPermission(adminUser, "tenant.service.manage", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(adminUser, "tenant.availability.manage", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(adminUser, "tenant.booking.manage", { tenantId: "tenant-1" }), true);
+  assert.equal(permissions.userHasPermission(adminUser, "tenant.booking.manage", { tenantId: "tenant-2" }), false);
   assert.equal(permissions.userHasPermission(ownerUser, "tenant.settings.manage", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(ownerUser, "tenant.settings.manage_contact", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(ownerUser, "tenant.billing.manage", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(ownerUser, "tenant.service.manage", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(ownerUser, "tenant.availability.manage", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(ownerUser, "tenant.booking.manage", { tenantId: "tenant-1" }), true);
+  assert.equal(permissions.userHasPermission(ownerUser, "tenant.booking.manage", { tenantId: "tenant-2" }), false);
   assert.equal(permissions.userHasPermission(platformAdmin, "platform.users.read"), true);
   assert.equal(permissions.userHasPermission(platformAdmin, "platform.plans.manage"), true);
+  assert.equal(permissions.userHasPermission(platformAdmin, "tenant.booking.manage", { tenantId: "tenant-1" }), false);
 });
 
 test("vendor location payment QR settings are private vendor-managed configuration", async () => {
@@ -239,6 +246,9 @@ test("vendor location payment QR settings are private vendor-managed configurati
       createDefaultHours: async () => [],
       listHoursByLocationId: async () => [],
       replaceHours: async () => []
+    },
+    "../repositories/platform": {
+      getPlatformSettings: async () => ({ defaultTimezone: "Asia/Manila" })
     },
     "../repositories/tickets": {
       listHistoryTickets: async () => [],
@@ -413,7 +423,9 @@ test("vendor availability is manageable by vendor admins but denied to staff", a
         slug === "main"
           ? { _id: "location-1", tenantId: "tenant-1", name: "Main Branch", slug: "main" }
           : null,
-      listHoursByLocationId: async () => []
+      listHoursByLocationId: async () => [
+        { weekday: 2, opensAt: "09:00", closesAt: "17:00", isClosed: false }
+      ]
     },
     "../repositories/tickets": {
       listHistoryTickets: async () => [],
@@ -501,6 +513,9 @@ test("vendor availability is manageable by vendor admins but denied to staff", a
     "../services/billingService": {
       getBillingOverview: async () => ({ subscription: { entitlements: { locations: 1 } }, plans: [] }),
       getTenantEntitlements: async () => ({ staffSeats: 5, counters: 2, brandedQueuePages: true })
+    },
+    "../services/entitlementAdmissionService": {
+      admit: async () => ({ admitted: true })
     },
     "../services/publicBoardThemeUploadService": {
       createUpload: async () => ({})
@@ -622,6 +637,9 @@ test("vendor service catalog is manageable by vendor admins but denied to staff"
       }),
       listHoursByLocationId: async () => []
     },
+    "../repositories/locationServices": {
+      listLocationServicesByTenantId: async () => []
+    },
     "../repositories/tickets": {
       listHistoryTickets: async () => [],
       listClientTickets: async () => []
@@ -666,6 +684,9 @@ test("vendor service catalog is manageable by vendor admins but denied to staff"
     "../services/billingService": {
       getBillingOverview: async () => ({ subscription: { entitlements: { locations: 1 } }, plans: [] }),
       getTenantEntitlements: async () => ({ staffSeats: 5, counters: 2, brandedQueuePages: true })
+    },
+    "../services/entitlementAdmissionService": {
+      admit: async () => ({ admitted: true })
     },
     "../services/publicBoardThemeUploadService": {
       createUpload: async () => ({})
@@ -867,9 +888,21 @@ test("tenant owner can access billing management routes", async () => {
   const billingRouter = requireWithMocks("../src/routes/billingRoutes.js", {
     "../middleware/auth": buildAuthMock(),
     "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../middleware/idempotency": { requireIdempotency: () => (_req, _res, next) => next() },
     "../repositories/tenants": {
       findTenantBySlug: async () => ({ _id: "tenant-1", slug: "demo", name: "Demo Tenant" })
     },
+    "../services/privilegedTransactionService": {
+      issueConfirmation: async () => ({ token: "confirmation-1" }),
+      consumeConfirmation: async () => ({ consumed: true })
+    },
+    "../services/privilegedPreviewService": {
+      resolvePreview: async ({ payload }) => ({ payload, revision: "server-preview-1" })
+    },
+    "../config/db": {
+      withTransaction: async (callback) => callback({ query: async () => ({ rows: [] }) })
+    },
+    "../services/securityAuditService": { record: async () => {} },
     "../services/billingService": {
       getBillingOverview: async () => ({ plans: [], addOns: [], subscription: null }),
       createPayMongoCheckout: async () => ({
@@ -885,13 +918,34 @@ test("tenant owner can access billing management routes", async () => {
   const { server, baseUrl } = await startServer(billingRouter, "/api/billing");
 
   try {
-    const ownerResponse = await fetch(`${baseUrl}/tenant/demo/checkout`, {
+    const previewResponse = await fetch(`${baseUrl}/tenant/demo/commercial-actions/preview`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "x-test-tenant-role": "owner"
       },
-      body: JSON.stringify({ planSlug: "pro", billingInterval: "monthly" })
+      body: JSON.stringify({
+        action: "subscription.checkout",
+        reason: "Upgrade the tenant subscription",
+        payload: { planSlug: "pro", billingInterval: "monthly" }
+      })
+    });
+    assert.equal(previewResponse.status, 200);
+    const preview = await previewResponse.json();
+
+    const ownerResponse = await fetch(`${baseUrl}/tenant/demo/checkout`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-test-tenant-role": "owner",
+        "x-transaction-confirmation": preview.confirmation.token
+      },
+      body: JSON.stringify({
+        planSlug: "pro",
+        billingInterval: "monthly",
+        reason: "Upgrade the tenant subscription",
+        previewRevision: preview.preview.revision
+      })
     });
     assert.equal(ownerResponse.status, 201);
 

@@ -10,6 +10,10 @@ INSERT INTO platform_settings (key, value)
 VALUES ('enterprise_inquiry_email', 'carlo.abella@gmail.com')
 ON CONFLICT (key) DO NOTHING;
 
+INSERT INTO platform_settings (key, value)
+VALUES ('default_timezone', 'Asia/Manila')
+ON CONFLICT (key) DO NOTHING;
+
 CREATE OR REPLACE TRIGGER set_platform_settings_updated_at
 BEFORE UPDATE ON platform_settings
 FOR EACH ROW

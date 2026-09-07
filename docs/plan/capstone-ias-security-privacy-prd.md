@@ -1,5 +1,17 @@
 # GetPrio IAS Security and Privacy PRD
 
+## Queue lifecycle operational security
+
+Queue availability is enforced server-side by tenant permission and assigned
+location. Vendor Staff and Vendor Admin/Owner may perform routine queue
+operations within their scope; Platform Admin recovery is a separate,
+allowlisted, reasoned, MFA-confirmed path. Public queue responses must not expose
+customer contact data, notification destinations, provider errors, or repair
+notes. Lifecycle events and notification outbox rows are restricted
+accountability records and must not contain credentials, payment evidence, or
+unnecessary personal data. Deployment, rollback, and incident procedures are in
+[Queue Day Lifecycle Rollout and Recovery Runbook](../operations/queue-day-lifecycle-runbook.md).
+
 ## Problem Statement
 
 GetPrio must support Information Assurance and Security deliverables that are specific to the actual capstone product. Security requirements, privacy analysis, authentication design, RBAC, and vulnerability assessment should not be generic documents; they must map to the same roles, screens, forms, endpoints, and data handled by the marketplace and booking experience.
@@ -72,6 +84,7 @@ Expected data inventory:
 | Customer PI | Full name, email, mobile number, address if required, profile image | Used for account, booking, notification, and support workflows. |
 | Credentials | Password hash, MFA state, reset tokens | Sensitive security data; never store plaintext passwords. |
 | Transactional data | Bookings, service selections, timestamps, invoices, payment references, review content | Required for service delivery, disputes, and records. |
+| Group-funded booking data | Campaign visibility, description, participant records, contribution proof metadata, refund records, public campaign metadata | Public payloads must be minimized; contribution proof and refund evidence stay role-scoped and non-public. |
 | Vendor data | Business name, contact details, service catalog, verification documents | Public/private split must be explicit. |
 | Staff data | Name, email, role, schedule, assigned bookings | Vendor-owned operational data with access limits. |
 | System/security data | Audit logs, login attempts, IP/device metadata, session records | Needed for accountability, fraud prevention, and security monitoring. |
@@ -107,6 +120,7 @@ If no deployed staging app is authorized, produce a predicted vulnerability asse
 | Vendor profile | Stored XSS through descriptions and reviews. |
 | Booking request | IDOR, parameter tampering, injection. |
 | Payment / checkout | Payment reference tampering, broken access control. |
+| Group-funded campaign creation and contribution proof | Stored XSS, excessive public data exposure, payment proof tampering, broken access control, refund repudiation. |
 | Review submission | Stored XSS, spam, abusive content. |
 | Profile update | Unauthorized update, weak validation. |
 | Vendor onboarding | Sensitive document exposure, unsafe upload handling. |
@@ -122,6 +136,10 @@ If no deployed staging app is authorized, produce a predicted vulnerability asse
 - Add privacy-oriented tests or checks for overexposed customer fields in public, staff, and vendor views.
 - Add validation and sanitization tests for profile, service, review, booking, dispute, and admin note inputs.
 - For capstone vulnerability assessment, document predicted evidence placeholders when live authorized testing is unavailable.
+
+## Must-Have: Server-Side Public Text Moderation
+
+Before public-text features are considered complete, GetPrio must replace the small local blocked-term list with a maintained profanity-moderation library and a GetPrio-owned English, Filipino, and Bisaya additions list. Enforce the policy on the server for all public or user-visible text inputs, including account and vendor names, vendor profile and service content, campaigns, reviews, contact messages, reports, disputes, and admin notes where appropriate. Keep focused rejection tests for every protected write path and review the custom dictionary for false positives before release.
 
 ## Out of Scope
 

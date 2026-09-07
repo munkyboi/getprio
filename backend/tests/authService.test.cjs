@@ -94,6 +94,14 @@ test("auth service normalizes request metadata and records failed login lockout 
 
   try {
     assert.equal(authService.normalizeEmail("  Customer@Example.Com "), "customer@example.com");
+    assert.deepEqual(authService.normalizeLoginIdentifier("  Customer_One "), {
+      identifierType: "username",
+      identifierValue: "customer_one"
+    });
+    assert.deepEqual(authService.normalizeLoginIdentifier("  Customer@Example.Com "), {
+      identifierType: "email",
+      identifierValue: "customer@example.com"
+    });
     assert.equal(
       authService.getRequestIp({
         headers: {

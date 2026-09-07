@@ -1,5 +1,9 @@
+const businessCategories = require("../repositories/businessCategories");
 const PDFDocument = require("pdfkit");
+const sanitizeHtml = require("sanitize-html");
 const { normalizeCounterSlug, normalizeTenantNotificationSettings } = require("./vendorRouteHelpers");
+const { assertPublicTextFieldsAllowed } = require("../services/contentModeration");
+const { normalizePhilippineMobileNumber } = require("../utils/phone");
 
 const HISTORY_RANGE_DAYS = {
   today: 0,
@@ -13,20 +17,69 @@ function toCsvValue(value) {
   return `"${String(value ?? "").replace(/"/g, '""')}"`;
 }
 
-async function handleUpdateSettings({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, tenantRepository, getQueueSnapshot }) {
+function normalizeBusinessDescription(value) {
+  const richText = sanitizeHtml(String(value || "").trim(), {
+    allowedAttributes: {},
+    allowedTags: ["p", "br", "strong", "em", "s", "ul", "ol", "li", "blockquote"],
+    disallowedTagsMode: "discard"
+  }).trim();
+  const plainText = sanitizeHtml(richText, { allowedAttributes: {}, allowedTags: [] })
+    .replace(/\s+/g, " ")
+    .trim();
+  if (plainText.length > 1000) {
+    const error = new Error("Business description must be 1000 characters or fewer.");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (richText.length > 20000) {
+    const error = new Error("Business description formatting is too complex. Simplify it and try again.");
+    error.statusCode = 400;
+    throw error;
+  }
+  assertPublicTextFieldsAllowed({ "Business description": plainText });
+  return richText;
+}
+
+async function handleUpdateSettings({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, tenantRepository, userRepository, getQueueSnapshot, categoryRepository = businessCategories }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.settings.manage");
   await getLocationForTenant(tenant, req.query.location);
-  const { queuePrefix, averageServiceMinutes, notificationThreshold, autoPauseEnabled, autoPauseThreshold, autoResumeEnabled, autoResumeVacancyPercent, contactEmail, contactPhone } = req.body;
-  const wantsToChangeContactDetails = typeof contactEmail === "string" || typeof contactPhone === "string";
-  if (wantsToChangeContactDetails) {
+  const { name, publicProfileDisplayName, publicProfileDescription, publicProfileCategory, ownerName, ownerDisplayName, queuePrefix, averageServiceMinutes, notificationThreshold, autoPauseEnabled, autoPauseThreshold, autoResumeEnabled, autoResumeVacancyPercent, contactEmail, contactPhone } = req.body;
+  const normalizedPublicProfileDescription = typeof publicProfileDescription === "string"
+    ? normalizeBusinessDescription(publicProfileDescription)
+    : tenant.publicProfileDescription;
+  const wantsToChangeBusinessProfile = [
+    name,
+    publicProfileDisplayName,
+    publicProfileDescription,
+    publicProfileCategory,
+    req.body.businessCategoryId,
+    ownerName,
+    ownerDisplayName,
+    contactEmail,
+    contactPhone
+  ].some((value) => typeof value === "string");
+  if (wantsToChangeBusinessProfile || req.body.businessCategoryId !== undefined) {
     assertTenantPermission(req.user, tenant._id, "tenant.settings.manage_contact");
   }
+  assertPublicTextFieldsAllowed({
+    "Business name": name,
+    "Business category": publicProfileCategory,
+    "Business display name": publicProfileDisplayName,
+    "Owner name": ownerName,
+    "Owner display name": ownerDisplayName
+  });
   const normalizedAutoPauseEnabled = Boolean(autoPauseEnabled);
   const normalizedAutoPauseThreshold = normalizedAutoPauseEnabled ? Math.max(1, Number(autoPauseThreshold || 1)) : null;
   const normalizedAutoResumeEnabled = normalizedAutoPauseEnabled && Boolean(autoResumeEnabled);
   const normalizedAutoResumeVacancyPercent = normalizedAutoResumeEnabled ? Math.max(5, Math.min(50, Number(autoResumeVacancyPercent || 20))) : null;
+  const selectedCategory = await categoryRepository.resolve({ id: req.body.businessCategoryId, label: publicProfileCategory, currentId: tenant.businessCategoryId, currentLabel: tenant.publicProfileCategory });
   const updatedTenant = await tenantRepository.updateTenant(tenant._id, {
+    name: typeof name === "string" && name.trim() ? name.trim().slice(0, 120) : tenant.name,
+    publicProfileDisplayName: typeof publicProfileDisplayName === "string" ? publicProfileDisplayName.trim().slice(0, 120) : tenant.publicProfileDisplayName,
+    publicProfileDescription: normalizedPublicProfileDescription,
+    publicProfileCategory: selectedCategory?.name ?? tenant.publicProfileCategory,
+    businessCategoryId: selectedCategory?.id ?? tenant.businessCategoryId,
     queuePrefix: queuePrefix ? String(queuePrefix).slice(0, 4).toUpperCase() : tenant.queuePrefix,
     averageServiceMinutes: averageServiceMinutes ? Number(averageServiceMinutes) : tenant.averageServiceMinutes,
     notificationThreshold: notificationThreshold ? Number(notificationThreshold) : tenant.notificationThreshold,
@@ -35,9 +88,13 @@ async function handleUpdateSettings({ req, res, getAuthorizedTenant, assertTenan
     autoResumeEnabled: normalizedAutoResumeEnabled,
     autoResumeVacancyPercent: normalizedAutoResumeVacancyPercent,
     contactEmail: typeof contactEmail === "string" ? contactEmail : tenant.contactEmail,
-    contactPhone: typeof contactPhone === "string" ? contactPhone : tenant.contactPhone
+    contactPhone: typeof contactPhone === "string" ? normalizePhilippineMobileNumber(contactPhone) : tenant.contactPhone
   });
-  res.json({ tenant: { id: String(updatedTenant._id), name: updatedTenant.name, slug: updatedTenant.slug, queuePrefix: updatedTenant.queuePrefix, averageServiceMinutes: updatedTenant.averageServiceMinutes, notificationThreshold: updatedTenant.notificationThreshold, autoPauseEnabled: updatedTenant.autoPauseEnabled, autoPauseThreshold: updatedTenant.autoPauseThreshold, autoResumeEnabled: updatedTenant.autoResumeEnabled, autoResumeVacancyPercent: updatedTenant.autoResumeVacancyPercent, contactEmail: updatedTenant.contactEmail, contactPhone: updatedTenant.contactPhone }, snapshot: await getQueueSnapshot(updatedTenant, { location: await getLocationForTenant(updatedTenant, req.query.location) }) });
+  const owner = await userRepository.updateUser(req.user._id, {
+    name: typeof ownerName === "string" && ownerName.trim() ? ownerName.trim().slice(0, 120) : req.user.name,
+    displayName: typeof ownerDisplayName === "string" ? ownerDisplayName.trim().slice(0, 60) || null : req.user.displayName || null
+  });
+  res.json({ tenant: { id: String(updatedTenant._id), name: updatedTenant.name, slug: updatedTenant.slug, publicProfileDisplayName: updatedTenant.publicProfileDisplayName, publicProfileDescription: updatedTenant.publicProfileDescription, publicProfileCategory: updatedTenant.publicProfileCategory, businessCategoryId: updatedTenant.businessCategoryId, queuePrefix: updatedTenant.queuePrefix, averageServiceMinutes: updatedTenant.averageServiceMinutes, notificationThreshold: updatedTenant.notificationThreshold, autoPauseEnabled: updatedTenant.autoPauseEnabled, autoPauseThreshold: updatedTenant.autoPauseThreshold, autoResumeEnabled: updatedTenant.autoResumeEnabled, autoResumeVacancyPercent: updatedTenant.autoResumeVacancyPercent, contactEmail: updatedTenant.contactEmail, contactPhone: updatedTenant.contactPhone }, owner: { id: String(owner._id), name: owner.name, displayName: owner.displayName || "" }, snapshot: await getQueueSnapshot(updatedTenant, { location: await getLocationForTenant(updatedTenant, req.query.location) }) });
 }
 
 async function handleGetNotificationSettings({ req, res, getAuthorizedTenant, assertTenantPermission }) {
@@ -98,7 +155,7 @@ async function handleListCounters({ req, res, getAuthorizedTenant, assertTenantP
   res.json({ counterLimit: entitlements.counters || 0, counters: counters.map((counter) => ({ id: counter._id, tenantId: counter.tenantId, locationId: counter.locationId, name: counter.name, slug: counter.slug, isActive: counter.isActive, assignedUserIds: counter.assignedUserIds })) });
 }
 
-async function handleUpdateCounter({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, billingService, serviceCounterRepository, getCounterForLocation }) {
+async function handleUpdateCounter({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, billingService, serviceCounterRepository, getCounterForLocation, tenantMembershipLocationRepository }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.counter.manage");
   const location = await getLocationForTenant(tenant, req.query.location);
@@ -111,8 +168,16 @@ async function handleUpdateCounter({ req, res, getAuthorizedTenant, assertTenant
     throw error;
   }
   const slug = normalizeCounterSlug(req.body.slug || req.body.name);
+  assertPublicTextFieldsAllowed({ "Counter name": req.body.name, "Counter slug": slug });
   const updatedCounter = await serviceCounterRepository.updateCounter(counter._id, { name: req.body.name, slug, isActive: req.body.isActive !== false });
-  await serviceCounterRepository.replaceAssignments(updatedCounter._id, req.body.assignedUserIds || []);
+  const assignedUserIds = req.body.assignedUserIds || [];
+  await serviceCounterRepository.replaceAssignments(updatedCounter._id, assignedUserIds);
+  await tenantMembershipLocationRepository.ensureUserLocationAssignments({
+    userIds: assignedUserIds,
+    tenantId: tenant._id,
+    locationId: location._id,
+    assignedByUserId: req.user?._id
+  });
   res.json({ counter: updatedCounter });
 }
 
@@ -125,13 +190,33 @@ async function handleDeleteCounter({ req, res, getAuthorizedTenant, assertTenant
   res.status(204).send();
 }
 
-async function handleListStaff({ req, res, getAuthorizedTenant, assertTenantPermission, billingService, userRepository, serviceCounterRepository }) {
+async function handleCheckCounterSlugAvailability({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, serviceCounterRepository }) {
+  const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+  assertTenantPermission(req.user, tenant._id, "tenant.counter.manage");
+  const location = await getLocationForTenant(tenant, req.query.location);
+  const counterSlug = req.query.counterSlug || req.query.slug || "";
+  const excludeCounterId = req.query.excludeCounterId || req.query.counterId || null;
+  const result = await serviceCounterRepository.isCounterSlugAvailable(
+    location._id,
+    counterSlug,
+    excludeCounterId
+  );
+  res.json({ counterSlug: String(counterSlug || ""), ...result });
+}
+
+async function handleListStaff({ req, res, getAuthorizedTenant, assertTenantPermission, billingService, userRepository, serviceCounterRepository, tenantMembershipLocationRepository }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.staff.read");
   const entitlements = await billingService.getTenantEntitlements(tenant._id);
   const staff = await userRepository.listUsersByTenantId(tenant._id);
   const assignedCountersByUserId = await serviceCounterRepository.listAssignedCounterIdsByUserIds(staff.map((user) => user._id));
-  res.json({ staffSeatLimit: entitlements.staffSeats || 0, staff: staff.map((user) => { const membership = user.tenantMemberships.find((item) => String(item.tenantId) === String(tenant._id)); return { id: user._id, name: user.name, email: user.email, phone: user.phone, role: membership?.role || "staff", isActive: membership?.isActive !== false, assignedCounterIds: assignedCountersByUserId.get(String(user._id)) || [] }; }) });
+  const assignedLocationsByUserId = tenantMembershipLocationRepository
+    ? await tenantMembershipLocationRepository.listAssignedLocationIdsByUserIds(
+        tenant._id,
+        staff.map((user) => user._id)
+      )
+    : new Map();
+  res.json({ staffSeatLimit: entitlements.staffSeats || 0, staff: staff.map((user) => { const membership = user.tenantMemberships.find((item) => String(item.tenantId) === String(tenant._id)); return { id: user._id, name: user.name, email: user.email, phone: user.phone, role: membership?.role || "staff", isActive: membership?.isActive !== false, assignedCounterIds: assignedCountersByUserId.get(String(user._id)) || [], assignedLocationIds: assignedLocationsByUserId.get(String(user._id)) || [] }; }) });
 }
 
 async function handleInviteStaff({ req, res, getAuthorizedTenant, assertTenantPermission, billingService, userRepository }) {
@@ -155,4 +240,4 @@ async function handleInviteStaff({ req, res, getAuthorizedTenant, assertTenantPe
   res.status(201).json({ userId: user._id });
 }
 
-module.exports = { handleUpdateSettings, handleGetNotificationSettings, handleUpdateNotificationSettings, handleListHistory, handleListClients, handleListCounters, handleUpdateCounter, handleDeleteCounter, handleListStaff, handleInviteStaff, toCsvValue, HISTORY_RANGE_DAYS, PDFDocument };
+module.exports = { handleUpdateSettings, handleGetNotificationSettings, handleUpdateNotificationSettings, handleListHistory, handleListClients, handleListCounters, handleUpdateCounter, handleDeleteCounter, handleCheckCounterSlugAvailability, handleListStaff, handleInviteStaff, toCsvValue, HISTORY_RANGE_DAYS, PDFDocument };

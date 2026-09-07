@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import morgan from "morgan";
+import { ipKeyGenerator, rateLimit } from "express-rate-limit";
 import env from "./config/env";
 import authRoutes from "./routes/authRoutes";
 import accountRoutes from "./routes/accountRoutes";
@@ -8,8 +9,14 @@ import billingRoutes from "./routes/billingRoutes";
 import paymongoWebhookRoutes from "./routes/paymongoWebhookRoutes";
 import platformRoutes from "./routes/platformRoutes";
 import publicRoutes from "./routes/publicRoutes";
+import pushRoutes from "./routes/pushRoutes";
+import mobilePushRoutes from "./routes/mobilePushRoutes";
+import mobileQueueJoinRoutes from "./routes/mobileQueueJoinRoutes";
+import mobileOAuthRoutes from "./routes/mobileOAuthRoutes";
 import vendorRoutes from "./routes/vendorRoutes";
 import errorHandler from "./middleware/errorHandler";
+import requestContextModule from "./middleware/requestContext";
+import csrfProtectionModule from "./middleware/csrfProtection";
 
 function normalizeOrigin(origin?: string): string {
   return String(origin || "").replace(/\/$/, "");
@@ -42,6 +49,19 @@ function buildAllowedOrigins(): Set<string> {
 
 const allowedOrigins = buildAllowedOrigins();
 const app = express();
+const { createRequestContextMiddleware } = requestContextModule;
+const { createCsrfProtection } = csrfProtectionModule;
+const apiRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 1_000,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => ipKeyGenerator(req.ip || req.socket.remoteAddress || "unknown"),
+  message: { message: "Too many requests. Please try again later." }
+});
+
+app.use(createRequestContextMiddleware({ rolloutCohort: env.rolloutCohort }));
+app.use("/api", apiRateLimiter);
 
 app.use(
   cors({
@@ -59,7 +79,25 @@ app.use(
 app.use("/api/billing/webhooks", paymongoWebhookRoutes);
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
-app.use(morgan("dev"));
+app.use(createCsrfProtection({
+  allowedOrigins,
+  csrfSecret: env.csrfSecret,
+  authCookieSecure: env.authCookieSecure
+}));
+app.use(
+  morgan((tokens, req, res) =>
+    JSON.stringify({
+      type: "http_request",
+      correlationId: (req as typeof req & { context?: { correlationId?: string } }).context
+        ?.correlationId,
+      rolloutCohort: env.rolloutCohort,
+      method: tokens.method(req, res),
+      path: tokens.url(req, res),
+      status: Number(tokens.status(req, res) || 0),
+      responseTimeMs: Number(tokens["response-time"](req, res) || 0)
+    })
+  )
+);
 
 app.get("/api/health", (_req, res) => {
   res.json({
@@ -72,6 +110,10 @@ app.use("/api/account", accountRoutes);
 app.use("/api/billing", billingRoutes);
 app.use("/api/platform", platformRoutes);
 app.use("/api/public", publicRoutes);
+app.use("/api/push", pushRoutes);
+app.use("/api/mobile/push", mobilePushRoutes);
+app.use("/api/mobile", mobileQueueJoinRoutes);
+app.use("/api/mobile/auth", mobileOAuthRoutes);
 app.use("/api/vendor", vendorRoutes);
 
 app.use(errorHandler);

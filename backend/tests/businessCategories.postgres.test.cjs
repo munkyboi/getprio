@@ -1,0 +1,55 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const { execFileSync } = require("node:child_process");
+const { Client } = require("pg");
+const categories = require("../src/repositories/businessCategories");
+const container = process.env.BUSINESS_CATEGORY_TEST_CONTAINER;
+
+test("managed categories preserve legacy assignments, aliases, IDs, audit history and active selection rules", { skip: !container }, async () => {
+  const entries = JSON.parse(execFileSync("docker", ["inspect", container, "--format", "{{json .Config.Env}}"], { encoding: "utf8" }));
+  const env = Object.fromEntries(entries.map((value) => [value.slice(0, value.indexOf("=")), value.slice(value.indexOf("=") + 1)]));
+  const port = Number(execFileSync("docker", ["port", container, "5432"], { encoding: "utf8" }).split("\n")[0].split(":").at(-1));
+  const client = new Client({ host: "127.0.0.1", port, user: env.POSTGRES_USER, password: env.POSTGRES_PASSWORD, database: env.POSTGRES_DB });
+  await client.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`CREATE SCHEMA category_test_${process.pid}; SET LOCAL search_path TO category_test_${process.pid};`);
+    await client.query("CREATE TABLE tenants(id BIGSERIAL PRIMARY KEY, public_profile_category TEXT); INSERT INTO tenants(public_profile_category) VALUES ('Health and Wellness'),('Doctor'),('Retail and E-commerce'),(NULL)");
+    const init = fs.readFileSync(path.resolve(__dirname, "../../database/init.sql"), "utf8");
+    const auditSchema = init.match(/CREATE TABLE security_audit_events \([\s\S]*?\n\);/)[0].replace(/ REFERENCES \w+\(\w+\) ON DELETE SET NULL/g, "");
+    await client.query(auditSchema);
+    const migration = fs.readFileSync(path.resolve(__dirname, "../../database/migrations/20260905_add_business_categories.sql"), "utf8");
+    await client.query(migration);
+    await client.query(migration);
+    const active = await categories.list(false, client);
+    assert.deepEqual(active.map((item) => item.name), ['Sports and Recreation','Health and Wellness','Retail and E-Commerce','Food and Beverage','Generic Service Business']);
+    const all = await categories.list(true, client);
+    const legacy = all.find((item) => item.name === "Doctor");
+    assert.equal(legacy.isActive, false);
+    assert.equal(legacy.vendorCount, 1);
+    assert.equal((await categories.resolve({ id: legacy.id, currentId: legacy.id }, client)).id, legacy.id);
+    await assert.rejects(categories.resolve({ id: legacy.id }, client), /active business category/);
+    await assert.rejects(categories.resolve({ label: "Unmanaged" }, client), /active business category/);
+    const wellness = active.find((item) => item.name === "Health and Wellness");
+    const renamed = await categories.save(wellness.id, { name: "Wellness Services", isActive: true, sortOrder: 5, revision: wellness.revision }, {}, (run) => run(client));
+    assert.equal(renamed.id, wellness.id);
+    await client.query(migration);
+    assert.equal((await categories.list(false, client)).length, 5);
+    assert.equal((await categories.list(false, client))[0].id, wellness.id);
+    assert.equal((await categories.resolve({ label: "Health and Wellness" }, client)).name, "Wellness Services");
+    assert.equal((await client.query("SELECT public_profile_category FROM tenants WHERE id=1")).rows[0].public_profile_category, "Wellness Services");
+    await assert.rejects(categories.save(null, { name: "Health and Wellness", isActive: true, sortOrder: 1 }, {}, (run) => run(client)), { statusCode: 409 });
+    await assert.rejects(categories.save(renamed.id, { ...renamed, revision: 1 }, {}, (run) => run(client)), { statusCode: 409 });
+    await categories.save(renamed.id, { ...renamed, isActive: false }, {}, (run) => run(client));
+    await assert.rejects(categories.resolve({ label: "Health and Wellness" }, client), /active business category/);
+    assert.equal((await categories.resolve({ label: "Health and Wellness", currentId: wellness.id }, client)).id, wellness.id);
+    await client.query("SAVEPOINT inactive_assignment");
+    await assert.rejects(client.query("INSERT INTO tenants(business_category_id) VALUES ($1)", [wellness.id]), { code: "23514" });
+    await client.query("ROLLBACK TO SAVEPOINT inactive_assignment");
+    const added = await categories.save(null, { name: "Dental Clinics", isActive: true, sortOrder: 15 }, {}, (run) => run(client));
+    assert.equal((await categories.resolve({ id: added.id }, client)).name, "Dental Clinics");
+    assert.equal((await client.query("SELECT COUNT(*)::int AS count FROM security_audit_events")).rows[0].count, 3);
+  } finally { await client.query("ROLLBACK"); await client.end(); }
+});

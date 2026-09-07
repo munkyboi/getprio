@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type FormEvent
+} from "react";
 import {
   Alert,
   Badge,
@@ -15,7 +23,7 @@ import {
   Title
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
-import { IconCheck, IconInfoCircle } from "@tabler/icons-react";
+import { IconArrowLeft, IconCheck, IconInfoCircle, IconMapPin } from "@tabler/icons-react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type {
   JoinQueueRequest,
@@ -28,10 +36,13 @@ import type {
 } from "@shared";
 import { API_BASE_URL, apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import { buildJoinedQueuePathWithTicket, buildMonitorPath } from "../queuePaths";
+import PhilippineMobileInput from "../components/PhilippineMobileInput";
+import { buildJoinedQueuePathWithTicket } from "../queuePaths";
 import { formatDisplayTime, toTimestamp } from "../utils/dates";
 import { saveJoinedQueueAccess } from "../utils/joinedQueueAccess";
 import { getErrorMessage } from "../utils/errors";
+import { getQueueStateSummary, isQueueAcceptingJoins } from "../utils/queueStatus";
+import { resolveVendorProfileMedia } from "../utils/vendorTheme";
 
 type JoinQueueFormState = Omit<JoinQueueRequest, "joinChannel" | "turnstileToken">;
 
@@ -110,7 +121,6 @@ export default function JoinQueuePage() {
   const lastAutoSubmittedOtpRef = useRef<string>("");
   const [now, setNow] = useState(() => Date.now());
   const tenantSlugValue = tenantSlug || "";
-  const monitorPath = tenantSlug ? buildMonitorPath(tenantSlug, locationSlug) : "/";
   const publicApiBase = locationSlug
     ? `/public/tenant/${tenantSlugValue}/location/${locationSlug}`
     : `/public/tenant/${tenantSlugValue}`;
@@ -128,26 +138,48 @@ export default function JoinQueuePage() {
           resendSecondsRemaining % 60
         ).padStart(2, "0")}`
       : "Send new code";
-  const canSkipOtp = !form.notifyByEmail;
+  const requiresQueuePayment = Boolean(
+    tenantInfo?.queueFee.enabled && Number(tenantInfo.queueFee.amountCents || 0) > 0
+  );
+  const canSkipOtp = !form.notifyByEmail && !requiresQueuePayment;
   const queueIntakePaused = Boolean(queueSnapshot?.queueDay?.isPaused);
-  const queueDayClosed = Boolean(queueSnapshot?.queueDay?.isClosed);
-  const queueStateBadge = queueDayClosed
-    ? { color: "red", label: "Closed" }
-    : queueIntakePaused
-      ? { color: "yellow", label: "Paused" }
-      : { color: "teal", label: "Open" };
+  const queueStateBadge = getQueueStateSummary(queueSnapshot);
+  const queueJoinUnavailable = !isQueueAcceptingJoins(queueSnapshot);
   const queuePauseMessage =
     queueSnapshot?.queueDay?.pauseReason ||
     "This queue is temporarily paused while the team works through the current line.";
-  const queueClosedMessage =
-    queueSnapshot?.queueDay?.closureReason ||
-    "This queue is closed for the day. Please check back during the next service window.";
-  const requiresEmail = form.notifyByEmail;
+  const queueClosedMessage = queueStateBadge.message;
+  const requiresEmail = form.notifyByEmail || (requiresQueuePayment && !form.customerPhone.trim());
   const pageTitle = tenantInfo?.name || tenantSlugValue;
   const signedInCustomer = Boolean(user?.roles?.includes("customer"));
-  const customerAccountName = signedInCustomer && user ? user.name || "Customer account" : "";
-  const customerAccountEmail = signedInCustomer && user ? user.email || "" : "";
-  const requiresPhone = false;
+  const requiresPhone = requiresQueuePayment && !form.customerEmail.trim();
+  const theme = resolveVendorProfileMedia(
+    queueSnapshot?.publicBoardTheme?.theme,
+    queueSnapshot?.businessProfileTheme?.theme
+  );
+  const themeStyle: CSSProperties | undefined = theme
+    ? {
+        "--vendor-theme-page-bg": theme.pageBackgroundColor,
+        "--vendor-theme-card-bg": theme.cardBackgroundColor,
+        "--vendor-theme-card-alpha": String(theme.cardAlpha),
+        "--vendor-theme-card-border": theme.cardBorderColor,
+        "--vendor-theme-header": theme.headerColor,
+        "--vendor-theme-subheader": theme.subheaderColor,
+        "--vendor-theme-body": theme.bodyColor,
+        "--vendor-theme-button-bg": theme.buttonBackgroundColor,
+        "--vendor-theme-button-text": theme.buttonTextColor,
+        "--vendor-theme-button-border": theme.buttonBorderColor,
+        "--vendor-theme-button-border-width": theme.presetId === "sports" ? "0px" : "1px",
+        ...(theme.pageBackgroundImageUrl
+          ? {
+              "--vendor-theme-page-image": `url(${theme.pageBackgroundImageUrl})`,
+              "--vendor-theme-page-image-position": "center",
+              "--vendor-theme-page-image-repeat": "no-repeat",
+              "--vendor-theme-page-image-size": theme.pageBackgroundImageFit
+            }
+          : {})
+      } as CSSProperties
+    : undefined;
   const joinedQueueNavigationState = useMemo(
     () => ({
       registrationPrefill: {
@@ -158,10 +190,6 @@ export default function JoinQueuePage() {
     }),
     [form.customerEmail, form.customerName, form.customerPhone]
   );
-  const customerDetailsDescription = signedInCustomer
-    ? "Prefilled from your customer account. Changes here only affect this join."
-    : undefined;
-
   useEffect(() => {
     if (user) {
       setForm((current) => ({
@@ -212,8 +240,7 @@ export default function JoinQueuePage() {
       setError("");
     };
     eventSource.onerror = () => {
-      setError("Live queue updates disconnected. Refresh to reconnect.");
-      eventSource.close();
+      setError("Live queue updates interrupted. Reconnecting…");
     };
 
     return () => {
@@ -395,19 +422,6 @@ export default function JoinQueuePage() {
     }
   }
 
-  function restoreCustomerDetails() {
-    if (!signedInCustomer || !user) {
-      return;
-    }
-
-    setForm((current) => ({
-      ...current,
-      customerName: user.name || "",
-      customerEmail: user.email || "",
-      customerPhone: user.phone || ""
-    }));
-  }
-
   function buildJoinRequest(): JoinQueueRequest {
     return {
       ...form,
@@ -421,7 +435,7 @@ export default function JoinQueuePage() {
     setError("");
 
     try {
-      if (queueDayClosed) {
+      if (queueJoinUnavailable) {
         setError(queueClosedMessage);
         setSubmitting(false);
         return;
@@ -465,7 +479,7 @@ export default function JoinQueuePage() {
     setError("");
 
     try {
-      if (queueDayClosed) {
+      if (queueJoinUnavailable) {
         setError(queueClosedMessage);
         setSubmitting(false);
         return;
@@ -638,228 +652,223 @@ export default function JoinQueuePage() {
   }, [handleVerifyOtp, otp, otpCode, submitting]);
 
   return (
-    <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xl" className="finazze-join-layout">
-      <Paper className="finazze-auth-card finazze-join-card" p={{ base: "xl", md: 44 }}>
-        <Stack gap="md">
-          <Text className="finazze-section-label">Join queue</Text>
-          <Title order={1}>{pageTitle}</Title>
-          {locationName ? <Text fw={700}>{locationName}</Text> : null}
-          <Group gap="xs">
-            <Badge color={queueStateBadge.color} radius="xl" size="lg" variant="light">
-              {queueStateBadge.label}
-            </Badge>
-            <Text c="dimmed" size="sm">
-              {queueDayClosed
-                ? "Queue closed for the day"
-                : queueIntakePaused
-                  ? "New joins temporarily paused"
-                  : "Now accepting joins"}
-            </Text>
-          </Group>
-          <Text c="dimmed">
-            Join online, then monitor your ticket live from the public board.
-          </Text>
-          {user?.roles?.includes("customer") ? (
-            <Alert className="join-account-summary" color="teal" variant="light">
+    <Stack className="vendor-profile-page join-queue-page" gap="lg" style={themeStyle}>
+      <div className="join-queue-frame">
+        <Button
+          className="join-queue-back"
+          color="dark"
+          component={Link}
+          leftSection={<IconArrowLeft size={18} />}
+          to={`/vendors/${tenantSlugValue}`}
+          variant="subtle"
+        >
+          Back to vendor
+        </Button>
+
+        <Paper className="vendor-hero-shell join-queue-card" p={{ base: "lg", sm: "xl", md: 48 }}>
+          <Stack gap="xl">
+            <header className="join-queue-header">
+              <Stack gap="sm">
+                <Text className="vendor-hero-kicker">Join queue</Text>
+                <Title className="vendor-hero-title join-queue-title" order={1}>
+                  {pageTitle}
+                </Title>
+                <Text className="vendor-hero-description">
+                  Enter your details to get a priority number for this branch.
+                </Text>
+              </Stack>
+
+              <Paper className="booking-detail-services-card join-queue-status-card" p="md">
+                <Stack gap="sm">
+                  <Group className="join-queue-status-top" gap="sm" justify="space-between" wrap="nowrap">
+                    {locationName ? (
+                      <Group gap="xs" wrap="nowrap">
+                        <IconMapPin aria-hidden="true" size={18} />
+                        <Text fw={800}>{locationName}</Text>
+                      </Group>
+                    ) : null}
+                    <Badge
+                      className="join-queue-status-badge"
+                      color={queueStateBadge.color}
+                      radius="xl"
+                      size="lg"
+                      variant="light"
+                    >
+                      {queueStateBadge.label}
+                    </Badge>
+                  </Group>
+                  <Text className="join-queue-status-message" size="sm">
+                    {queueStateBadge.message}
+                  </Text>
+                </Stack>
+              </Paper>
+            </header>
+
+            <div className="join-queue-form-section">
               <Stack gap="md">
                 <div>
-                  <Text className="finazze-section-label">Profile details</Text>
-                  <Title order={3}>Signed in as {customerAccountName}</Title>
-                  <Text c="dimmed" mt={4} size="sm">
-                    We will reuse your saved contact details when possible. You can review your account history anytime from the account page.
+                  <Title className="join-queue-form-title" order={2}>
+                    {otp ? "Verify your queue join" : "Your details"}
+                  </Title>
+                  <Text className="join-queue-form-intro" c="dimmed" mt={4} size="sm">
+                    {otp
+                      ? "Enter the code below to continue to checkout and finish joining the queue."
+                      : signedInCustomer
+                        ? "Your saved contact details are prefilled. Changes here only apply to this queue visit."
+                        : "We use these details to identify your ticket and send queue updates."}
                   </Text>
                 </div>
-                <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-                  <Stack gap={2} className="join-account-summary-item">
-                    <Text fw={700}>Display name</Text>
-                    <Text c="dimmed">{user.name || "Customer account"}</Text>
-                  </Stack>
-                  <Stack gap={2} className="join-account-summary-item">
-                    <Text fw={700}>Email</Text>
-                    <Text c="dimmed">{customerAccountEmail || "No email on file"}</Text>
-                  </Stack>
-                  <Stack gap={2} className="join-account-summary-item">
-                    <Text fw={700}>Phone</Text>
-                    <Text c="dimmed">{user.phone || "No phone on file"}</Text>
-                  </Stack>
-                </SimpleGrid>
-                <Group gap="sm" wrap="wrap">
-                  <Button color="dark" size="xs" variant="light" onClick={restoreCustomerDetails} type="button">
-                    Use account details
-                  </Button>
-                  <Button component={Link} size="xs" to="/account/profile" variant="light">
-                    View account
-                  </Button>
-                </Group>
-              </Stack>
-            </Alert>
-          ) : null}
-          {!form.notifyByEmail ? (
-            <Text c="dimmed" size="sm">
-              Email verification is skipped when almost-next email alerts are off.
-            </Text>
-          ) : null}
-          {queueIntakePaused ? (
-            <Alert color="yellow" icon={<IconInfoCircle size={18} />} radius="md" variant="light">
-              We are temporarily pausing new joins for this queue while the team catches up with the current line.
-              {queueSnapshot?.queueDay?.pauseReason ? ` ${queueSnapshot.queueDay.pauseReason}.` : ""}
-              {" "}Please check back shortly.
-            </Alert>
-          ) : null}
-          {queueDayClosed ? (
-            <Alert color="red" icon={<IconInfoCircle size={18} />} radius="md" variant="light">
-              This queue is closed for the day.
-              {queueSnapshot?.queueDay?.closureReason ? ` ${queueSnapshot.queueDay.closureReason}.` : ""}
-              {" "}You can check the live board for updates on when service resumes.
-            </Alert>
-          ) : null}
-          {otp ? (
-            <form onSubmit={handleVerifyOtp}>
-              <Stack gap="md">
-                <Paper className="finazze-soft-panel" p="md">
-                  <Text className="finazze-section-label">Verification code</Text>
-                  <Text>
-                    We sent a 6-digit code to your {otp.deliveryChannel}{" "}
-                    {maskDeliveryTarget(otp.deliveryChannel, otp.deliveryTarget)}.
-                  </Text>
-                  <Text c="dimmed" size="sm">
-                    It expires at {formatDisplayTime(otp.expiresAt)}.
-                  </Text>
-                </Paper>
-                <PinInput
-                  aria-label="OTP"
-                  inputMode="numeric"
-                  length={6}
-                  name="otpCode"
-                  oneTimeCode
-                  size="lg"
-                  type="number"
-                  value={otpCode}
-                  onChange={(value) => setOtpCode(value.replace(/\D/g, ""))}
-                />
-                {error ? <Alert color="red">{error}</Alert> : null}
-                <Button
-                  color="dark"
-                  disabled={submitting || queueIntakePaused || queueDayClosed || otpCode.length !== 6}
-                  type="submit"
-                >
-                  {submitting
-                    ? "Verifying..."
-                    : "Verify and join queue"}
-                </Button>
-                <SimpleGrid cols={{ base: 1, sm: 2 }}>
-                  <Button
-                    color="dark"
-                    disabled={submitting || resendSecondsRemaining > 0}
-                    onClick={resendOtp}
-                    type="button"
-                    variant="outline"
-                  >
-                    {resendLabel}
-                  </Button>
-                  <Button
-                    color="dark"
-                    disabled={submitting}
-                    onClick={() => navigate("/")}
-                    type="button"
-                    variant="subtle"
-                  >
-                    Cancel
-                  </Button>
-                </SimpleGrid>
-              </Stack>
-            </form>
-          ) : (
-            <form onSubmit={handleSubmit}>
-              <Stack gap="md">
-                <TextInput
-                  name="customerName"
-                  required
-                  label="Name"
-                  description={customerDetailsDescription}
-                  value={form.customerName}
-                  onChange={(event) => setForm((current) => ({ ...current, customerName: event.target.value }))}
-                />
-                <TextInput
-                  name="customerEmail"
-                  label="Email"
-                  description={customerDetailsDescription}
-                  required={requiresEmail}
-                  type="email"
-                  value={form.customerEmail}
-                  onChange={(event) => setForm((current) => ({ ...current, customerEmail: event.target.value }))}
-                />
-                <TextInput
-                  name="customerPhone"
-                  label="Phone"
-                  description={customerDetailsDescription}
-                  required={requiresPhone}
-                  value={form.customerPhone}
-                  onChange={(event) => setForm((current) => ({ ...current, customerPhone: event.target.value }))}
-                />
-                <Textarea
-                  name="notes"
-                  label="Notes"
-                  minRows={3}
-                  value={form.notes}
-                  onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
-                />
-                <Checkbox
-                  name="notifyByEmail"
-                  checked={form.notifyByEmail}
-                  label="Email me when I am almost next in line"
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, notifyByEmail: event.target.checked }))
-                  }
-                />
-                {shouldUseTurnstile ? (
+            {!form.notifyByEmail && !requiresQueuePayment ? (
+              <Text c="dimmed" size="sm">
+                Email verification is skipped when almost-next email alerts are off.
+              </Text>
+            ) : null}
+            {requiresQueuePayment && tenantInfo ? (
+              <Alert color="blue" icon={<IconInfoCircle size={18} />} radius="md" variant="light">
+                A queue fee of {tenantInfo.queueFee.displayAmount} is required to join. We will verify your
+                contact details before opening secure checkout. Your ticket is issued only after payment is
+                confirmed.
+              </Alert>
+            ) : null}
+            {queueIntakePaused ? (
+              <Alert color="yellow" icon={<IconInfoCircle size={18} />} radius="md" variant="light">
+                We are temporarily pausing new joins for this queue while the team catches up with the current line.
+                {queueSnapshot?.queueDay?.pauseReason ? ` ${queueSnapshot.queueDay.pauseReason}.` : ""}
+                {" "}Please check back shortly.
+              </Alert>
+            ) : null}
+            {queueJoinUnavailable && !queueIntakePaused ? (
+              <Alert color="red" icon={<IconInfoCircle size={18} />} radius="md" variant="light">
+                {queueStateBadge.message}
+              </Alert>
+            ) : null}
+            {otp ? (
+              <form onSubmit={handleVerifyOtp}>
+                <Stack gap="md">
                   <Paper className="finazze-soft-panel" p="md">
-                    <div ref={turnstileContainerRef} />
+                    <Text className="finazze-section-label">Verification code</Text>
+                    <Text>
+                      We sent a 6-digit code to your {otp.deliveryChannel}{" "}
+                      {maskDeliveryTarget(otp.deliveryChannel, otp.deliveryTarget)}.
+                    </Text>
+                    <Text c="dimmed" size="sm">
+                      It expires at {formatDisplayTime(otp.expiresAt)}.
+                    </Text>
                   </Paper>
-                ) : null}
-                {error ? <Alert color="red">{error}</Alert> : null}
-                <Button
-                  color="dark"
-                  disabled={submitting || queueIntakePaused || queueDayClosed || (shouldUseTurnstile && !turnstileReady)}
-                  type="submit"
-                >
-                  {submitting
-                    ? canSkipOtp
-                      ? "Joining..."
-                      : "Sending code..."
-                    : canSkipOtp
-                      ? "Get priority number"
-                      : "Send verification code"}
-                </Button>
+                  <PinInput
+                    aria-label="OTP"
+                    inputMode="numeric"
+                    length={6}
+                    name="otpCode"
+                    oneTimeCode
+                    size="lg"
+                    type="number"
+                    value={otpCode}
+                    onChange={(value) => setOtpCode(value.replace(/\D/g, ""))}
+                  />
+                  {error ? <Alert color="red">{error}</Alert> : null}
+                  <Button
+                    className="vendor-theme-button join-queue-primary-action"
+                    color="dark"
+                    disabled={submitting || queueJoinUnavailable || otpCode.length !== 6}
+                    type="submit"
+                  >
+                    {submitting ? "Verifying..." : "Verify and join queue"}
+                  </Button>
+                  <SimpleGrid cols={{ base: 1, sm: 2 }}>
+                    <Button
+                      color="dark"
+                      disabled={submitting || resendSecondsRemaining > 0}
+                      onClick={resendOtp}
+                      type="button"
+                      variant="outline"
+                    >
+                      {resendLabel}
+                    </Button>
+                    <Button
+                      color="dark"
+                      disabled={submitting}
+                      onClick={() => navigate("/")}
+                      type="button"
+                      variant="subtle"
+                    >
+                      Cancel
+                    </Button>
+                  </SimpleGrid>
+                </Stack>
+              </form>
+            ) : (
+              <form onSubmit={handleSubmit}>
+                <Stack gap="md">
+                  <TextInput
+                    name="customerName"
+                    required
+                    label="Name"
+                    autoComplete="name"
+                    value={form.customerName}
+                    onChange={(event) => setForm((current) => ({ ...current, customerName: event.target.value }))}
+                  />
+                  <TextInput
+                    name="customerEmail"
+                    label="Email"
+                    autoComplete="email"
+                    required={requiresEmail}
+                    type="email"
+                    value={form.customerEmail}
+                    onChange={(event) => setForm((current) => ({ ...current, customerEmail: event.target.value }))}
+                  />
+                  <PhilippineMobileInput
+                    name="customerPhone"
+                    label="Phone"
+                    autoComplete="tel"
+                    required={requiresPhone}
+                    value={form.customerPhone}
+                    onChange={(nextValue) => setForm((current) => ({ ...current, customerPhone: nextValue }))}
+                  />
+                  <Textarea
+                    name="notes"
+                    label="Notes"
+                    minRows={3}
+                    value={form.notes}
+                    onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
+                  />
+                  <Checkbox
+                    name="notifyByEmail"
+                    checked={form.notifyByEmail}
+                    label="Email me when I am almost next in line"
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, notifyByEmail: event.target.checked }))
+                    }
+                  />
+                  {shouldUseTurnstile ? (
+                    <Paper className="finazze-soft-panel" p="md">
+                      <div ref={turnstileContainerRef} />
+                    </Paper>
+                  ) : null}
+                  {error ? <Alert color="red">{error}</Alert> : null}
+                  <Button
+                    className="vendor-theme-button customer-primary-action join-queue-primary-action"
+                    color="dark"
+                    disabled={submitting || queueJoinUnavailable || (shouldUseTurnstile && !turnstileReady)}
+                    size="lg"
+                    type="submit"
+                  >
+                    {submitting
+                      ? canSkipOtp
+                        ? "Joining..."
+                        : "Sending code..."
+                      : canSkipOtp
+                        ? "Get priority number"
+                        : "Send verification code"}
+                  </Button>
+                </Stack>
+              </form>
+            )}
               </Stack>
-            </form>
-          )}
-        </Stack>
-      </Paper>
-
-      <Paper className="finazze-auth-card finazze-join-side" p={{ base: "xl", md: 44 }}>
-        <Stack gap="lg">
-          <img
-            alt=""
-            className="join-side-art"
-            src="/illustrations/generated/customer-onboarding.png"
-          />
-          <Text className="finazze-section-label">What happens next</Text>
-          {[
-            ["1. Ticket issued instantly", "Your ticket number is generated immediately for this tenant."],
-            ["2. Monitor online", "After joining, you are redirected to a live board with your ticket highlighted."],
-            ["3. Near-turn notification", "Email alerts are sent when your turn is getting close, and browser notifications can be enabled in account settings."]
-          ].map(([title, text]) => (
-            <div key={title}>
-              <Title order={3}>{title}</Title>
-              <Text c="dimmed">{text}</Text>
             </div>
-          ))}
-          <Button color="dark" component={Link} to={monitorPath} variant="subtle">
-            Open public board instead
-          </Button>
-        </Stack>
-      </Paper>
-    </SimpleGrid>
+          </Stack>
+        </Paper>
+      </div>
+    </Stack>
   );
 }

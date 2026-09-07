@@ -2,7 +2,7 @@ import { Alert, Container, List, Stack, Text } from "@mantine/core";
 import LegalArticleLayout from "../components/LegalArticleLayout";
 import LegalSection from "../components/LegalSection";
 
-const lastUpdated = "June 30, 2026";
+const lastUpdated = "July 19, 2026";
 
 export default function TermsPage() {
   return (
@@ -17,6 +17,7 @@ export default function TermsPage() {
           { id: "role-based-access", label: "Role-based access" },
           { id: "bookings-and-service-use", label: "Bookings and service use" },
           { id: "payment-and-proof", label: "Payment and proof handling" },
+          { id: "organizer-campaigns", label: "Organizer-collected campaigns" },
           { id: "cancellations-and-refunds", label: "Cancellations and refunds" },
           { id: "user-conduct", label: "User content and conduct" },
           { id: "vendor-and-staff", label: "Vendor and staff obligations" },
@@ -86,6 +87,18 @@ export default function TermsPage() {
               retained for verification, dispute handling, and audit purposes. GetPrio does not
               guarantee the outcome of external payment transactions.
             </Text>
+          </LegalSection>
+
+          <LegalSection id="organizer-campaigns" title="Organizer-collected campaigns">
+            <Text lh={1.8}>A campaign may be created only from the organizer&apos;s paid, vendor-confirmed booking. Contributors pay the organizer directly using instructions supplied by that organizer. GetPrio only records campaign activity: it does not receive, hold, route, settle, guarantee, or automatically refund contribution money, and it does not charge a transfer-based contribution fee.</Text>
+            <List spacing="xs">
+              <List.Item>The organizer sets the fixed contribution fee, contributor count, deadline, and payment instructions and is solely responsible for reviewing proof.</List.Item>
+              <List.Item>A campaign deadline or funding shortfall does not cancel or change the organizer&apos;s underlying booking.</List.Item>
+              <List.Item>If an accepted contribution must be returned, the organizer records reimbursement evidence and the contributor confirms receipt. A campaign remains refund-pending until every required contributor confirms.</List.Item>
+              <List.Item>Users may report campaigns, reimbursement disputes, and qualifying ratings. GetPrio may freeze a campaign or hide disputed content while it is reviewed.</List.Item>
+              <List.Item>Campaigns must not offer profit, interest, ownership, lending, investment returns, or other securities-like benefits.</List.Item>
+            </List>
+            <Alert color="yellow" variant="light">Contributors should independently verify the organizer and payment instructions. GetPrio is not an escrow service or payment processor for campaign contributions.</Alert>
           </LegalSection>
 
           <LegalSection id="cancellations-and-refunds" title="7. Cancellations and refunds">

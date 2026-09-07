@@ -1,6 +1,8 @@
 import type {
   AddVendorStaffRequest,
   CheckoutSyncResponse,
+  CustomerProfileUpdateRequest,
+  CustomerProfileUpdateResponse,
   SavePublicBoardThemeRequest,
   StoreLocationWithHours,
   StoreHourSummary,
@@ -9,13 +11,55 @@ import type {
   UpdateTenantNotificationSettingsResponse,
   UpdateVendorStaffRequest
 } from "@shared";
-import { API_BASE_URL, apiRequest } from "./client";
+import { apiRequest, apiUpload } from "./client";
 
 type VendorDashboardHistoryResponse = {
   historyDays?: number;
   historyLabel?: string;
   tickets: import("@shared").QueueHistoryTicket[];
 };
+
+export function startMfaEnrollment(token: string, currentCode?: string) {
+  return apiRequest<{ secret: string; otpAuthUri: string }, { currentCode?: string }>(
+    "/auth/mfa/enrollment/start",
+    { method: "POST", token, body: currentCode ? { currentCode } : {} }
+  );
+}
+
+export function confirmMfaEnrollment(token: string, code: string) {
+  return apiRequest<{ success: boolean; recoveryCodes: string[]; message: string }, { code: string }>(
+    "/auth/mfa/enrollment/confirm",
+    { method: "POST", token, body: { code } }
+  );
+}
+
+export function cancelMfaEnrollment(token: string) {
+  return apiRequest<{ success: boolean; canceled: boolean; message: string }>(
+    "/auth/mfa/enrollment/cancel",
+    { method: "POST", token }
+  );
+}
+
+export function verifyMfaStepUp(token: string, password: string, code: string) {
+  return apiRequest<{ success: boolean }, { password: string; code: string }>(
+    "/auth/mfa/step-up",
+    { method: "POST", token, body: { password, code } }
+  );
+}
+
+export function disableMfa(token: string, password: string, code: string, recoveryCode: string) {
+  return apiRequest<{ success: boolean; message: string }, { password: string; code: string; recoveryCode: string }>(
+    "/auth/mfa/disable",
+    { method: "POST", token, body: { password, code, recoveryCode } }
+  );
+}
+
+export function updateAccountProfile(token: string, body: CustomerProfileUpdateRequest) {
+  return apiRequest<CustomerProfileUpdateResponse, CustomerProfileUpdateRequest>(
+    "/account/profile",
+    { method: "PATCH", token, body }
+  );
+}
 
 export function getHistory(token: string, tenantSlug: string, locationSlug: string) {
   return apiRequest<VendorDashboardHistoryResponse>(
@@ -79,10 +123,50 @@ export function updateLocation(token: string, tenantSlug: string, locationSlug: 
   );
 }
 
+export function regenerateLocationQueueQr(token: string, tenantSlug: string, locationSlug: string) {
+  return apiRequest<{ location: StoreLocationWithHours }>(
+    `/vendor/tenant/${tenantSlug}/locations/${locationSlug}/queue-join-id/regenerate`,
+    { method: "POST", token }
+  );
+}
+
+export function checkLocationSlugAvailability(
+  token: string,
+  tenantSlug: string,
+  locationSlug: string,
+  excludeLocationId?: string
+) {
+  const params = new URLSearchParams({ location: locationSlug });
+  if (excludeLocationId) {
+    params.set("excludeLocationId", excludeLocationId);
+  }
+  return apiRequest<{ locationSlug: string; available: boolean; valid: boolean; message: string }>(
+    `/vendor/tenant/${tenantSlug}/locations/slug-availability?${params.toString()}`,
+    { token }
+  );
+}
+
 export function saveLocation(token: string, tenantSlug: string, locationSlug: string | null, body: Record<string, unknown>) {
   const path = locationSlug ? `/vendor/tenant/${tenantSlug}/locations/${locationSlug}` : `/vendor/tenant/${tenantSlug}/locations`;
   const method = locationSlug ? "PATCH" : "POST";
   return apiRequest<{ location: StoreLocationWithHours }, typeof body>(path, { method, token, body });
+}
+
+export function checkCounterSlugAvailability(
+  token: string,
+  tenantSlug: string,
+  locationSlug: string,
+  counterSlug: string,
+  excludeCounterId?: string
+) {
+  const params = new URLSearchParams({ location: locationSlug, counterSlug });
+  if (excludeCounterId) {
+    params.set("excludeCounterId", excludeCounterId);
+  }
+  return apiRequest<{ counterSlug: string; available: boolean; valid: boolean; message: string }>(
+    `/vendor/tenant/${tenantSlug}/counters/slug-availability?${params.toString()}`,
+    { token }
+  );
 }
 
 export function saveLocationHours(token: string, tenantSlug: string, locationSlug: string, hours: StoreHourSummary[]) {
@@ -93,43 +177,50 @@ export function saveLocationHours(token: string, tenantSlug: string, locationSlu
 }
 
 export function getTheme(token: string, tenantSlug: string, locationSlug: string) {
+  const locationQuery = locationSlug ? `?location=${encodeURIComponent(locationSlug)}` : "";
   return apiRequest<import("@shared").PublicBoardThemeResponse>(
-    `/vendor/tenant/${tenantSlug}/public-board-theme?location=${encodeURIComponent(locationSlug)}`,
+    `/vendor/tenant/${tenantSlug}/public-board-theme${locationQuery}`,
     { token }
   );
 }
 
 export function saveTheme(token: string, tenantSlug: string, locationSlug: string, body: SavePublicBoardThemeRequest) {
+  const locationQuery = locationSlug ? `?location=${encodeURIComponent(locationSlug)}` : "";
   return apiRequest<import("@shared").PublicBoardThemeResponse, SavePublicBoardThemeRequest>(
-    `/vendor/tenant/${tenantSlug}/public-board-theme?location=${encodeURIComponent(locationSlug)}`,
+    `/vendor/tenant/${tenantSlug}/public-board-theme${locationQuery}`,
     { method: "PATCH", token, body }
   );
 }
 
 export function uploadThemeAsset(token: string, tenantSlug: string, locationSlug: string, assetType: "background" | "logo", file: File) {
-  return fetch(
-    `${API_BASE_URL}/vendor/tenant/${tenantSlug}/public-board-theme/uploads/direct?location=${encodeURIComponent(locationSlug)}&assetType=${encodeURIComponent(assetType)}&fileName=${encodeURIComponent(file.name)}`,
-    {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": file.type },
-      body: file
-    }
-  ).then(async (response) => {
-    if (!response.ok) throw new Error("Upload failed.");
-    return (await response.json()) as import("@shared").PublicBoardThemeUploadResponse;
-  });
+  const locationQuery = locationSlug ? `location=${encodeURIComponent(locationSlug)}&` : "";
+  return apiUpload<import("@shared").PublicBoardThemeUploadResponse>(
+    `/vendor/tenant/${tenantSlug}/public-board-theme/uploads/direct?${locationQuery}assetType=${encodeURIComponent(assetType)}&fileName=${encodeURIComponent(file.name)}`,
+    { token, body: file, contentType: file.type }
+  );
 }
 
 export function uploadLocationPaymentQr(token: string, tenantSlug: string, locationSlug: string, file: File) {
-  return fetch(
-    `${API_BASE_URL}/vendor/tenant/${tenantSlug}/location-payment-qrs/uploads/direct?locationSlug=${encodeURIComponent(locationSlug)}&fileName=${encodeURIComponent(file.name)}`,
+  return apiUpload<import("@shared").LocationPaymentQrUploadResponse>(
+    `/vendor/tenant/${tenantSlug}/location-payment-qrs/uploads/direct?locationSlug=${encodeURIComponent(locationSlug)}&fileName=${encodeURIComponent(file.name)}`,
+    { token, body: file, contentType: file.type }
+  );
+}
+
+export async function uploadLocationMedia(token: string, tenantSlug: string, locationSlug: string, file: File) {
+  return apiUpload<import("@shared").PublicBoardThemeUploadResponse>(
+    `/vendor/tenant/${tenantSlug}/location-media/uploads/direct?locationSlug=${encodeURIComponent(locationSlug)}&fileName=${encodeURIComponent(file.name)}`,
     {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": file.type },
-      body: file
+      token, body: file, contentType: file.type
     }
-  ).then(async (response) => {
-    if (!response.ok) throw new Error("Payment QR upload failed.");
-    return (await response.json()) as import("@shared").LocationPaymentQrUploadResponse;
-  });
+  );
+}
+
+export async function uploadServiceMedia(token: string, tenantSlug: string, locationSlug: string, file: File) {
+  return apiUpload<import("@shared").PublicBoardThemeUploadResponse>(
+    `/vendor/tenant/${tenantSlug}/service-media/uploads/direct?locationSlug=${encodeURIComponent(locationSlug)}&fileName=${encodeURIComponent(file.name)}`,
+    {
+      token, body: file, contentType: file.type
+    }
+  );
 }

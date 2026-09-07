@@ -4,12 +4,12 @@ const env = require("../config/env");
 const billingRepository = require("../repositories/billing");
 const {
   findPlanBySlug,
-  getPlanEntitlements,
   listAddOns,
   listPlans
 } = require("./subscriptionPlans");
 const queueJoinPaymentService = require("./queueJoinPaymentService");
 const bookingSmsAlertPaymentService = require("./bookingSmsAlertPaymentService");
+const usageCreditService = require("./usageCreditService");
 
 const PAYMONGO_PROVIDER = "paymongo";
 
@@ -128,11 +128,38 @@ async function getTenantEntitlements(tenantId) {
     ? await billingRepository.getActiveSubscriptionByTenantId(tenantId)
     : null;
 
-  if (subscription?.status === "active" && subscription.entitlements) {
-    return subscription.entitlements;
+  if (subscription?.status === "active") {
+    const plan = await findPlanBySlug(subscription.planSlug);
+    return {
+      ...(plan?.entitlements || {}),
+      ...(subscription.entitlements || {})
+    };
   }
 
-  return getPlanEntitlements("economical");
+  return {};
+}
+
+async function getTenantPlanSummary(tenantId) {
+  const subscription = tenantId
+    ? await billingRepository.getActiveSubscriptionByTenantId(tenantId)
+    : null;
+  const plan = subscription?.planSlug ? await findPlanBySlug(subscription.planSlug) : null;
+
+  return {
+    planName: subscription?.status === "active" ? (plan?.name || subscription.planSlug || null) : null,
+    planSlug: subscription?.status === "active" ? subscription.planSlug : null,
+    subscriptionStatus: subscription?.status || null
+  };
+}
+
+async function assertPaidReviewAccess(tenantId) {
+  const plan = await getTenantPlanSummary(tenantId);
+  if (plan.subscriptionStatus !== "active" || !plan.planSlug || plan.planSlug === "free") {
+    const error = new Error("Review controls require an active paid plan.");
+    error.statusCode = 403;
+    error.code = "PAID_PLAN_REQUIRED";
+    throw error;
+  }
 }
 
 async function createPayMongoCheckout({
@@ -142,11 +169,17 @@ async function createPayMongoCheckout({
   billingInterval = "monthly",
   requestOrigin
 }) {
+  const currentSubscription = await billingRepository.getActiveSubscriptionByTenantId(tenant._id);
+  if (["past_due", "unpaid", "suspended"].includes(currentSubscription?.status)) throw Object.assign(new Error("Please resolve the current subscription balance before starting a new plan checkout."), { statusCode: 409, code: "SUBSCRIPTION_RESTRICTED" });
   const plan = await findPlanBySlug(planSlug);
   if (!plan) {
     const error = new Error("Unknown subscription plan.");
     error.statusCode = 400;
     throw error;
+  }
+  if (currentSubscription?.status === "active") {
+    const currentPlan = await findPlanBySlug(currentSubscription.planSlug);
+    if (currentPlan && Number(plan.sortOrder) <= Number(currentPlan.sortOrder)) throw Object.assign(new Error("Use a scheduled plan transition for a downgrade or paid-plan exit."), { statusCode: 409, code: "SUBSCRIPTION_TRANSITION_REQUIRED" });
   }
 
   if (!plan.checkoutEnabled) {
@@ -183,7 +216,9 @@ async function createPayMongoCheckout({
       tenantSlug: tenant.slug,
       planSlug: plan.slug,
       userId: String(user._id),
-      billingInterval
+      billingInterval,
+      expectedSubscriptionId: currentSubscription?._id || null,
+      expectedPlanSlug: currentSubscription?.planSlug || null
     }
   });
 
@@ -316,6 +351,9 @@ function safeCompare(left, right) {
 }
 
 function verifyPayMongoWebhook({ rawBody, signatureHeader, livemode }) {
+  if (env.paymongoMode && Boolean(livemode) !== (env.paymongoMode === "live")) {
+    return false;
+  }
   if (!env.paymongoWebhookSecret) {
     return true;
   }
@@ -405,7 +443,9 @@ async function activateCheckoutSession(checkout, providerCheckoutSessionId, paym
         paidAt: normalizeProviderTimestamp(paymentAttributes.paid_at),
         amount: paymentAttributes.amount || checkout.amountCents,
         currency: paymentAttributes.currency || checkout.currency
-      }
+      },
+      expectedSubscriptionId: checkout.metadata?.expectedSubscriptionId || null,
+      expectedPlanSlug: checkout.metadata?.expectedPlanSlug || null
     },
     options
   );
@@ -517,6 +557,16 @@ async function handlePayMongoWebhook(rawBody, signatureHeader) {
   const payment = getFirstPayment(resource);
   const paymentAttributes = payment?.attributes || {};
   const providerPaymentId = payment?.id || null;
+  const usageCreditPayment = await usageCreditService.handlePaidCheckout(resource);
+  if (usageCreditPayment.handled) {
+    await billingRepository.recordBillingEvent({
+      provider: PAYMONGO_PROVIDER,
+      providerEventId: eventId,
+      eventType,
+      payload: event
+    });
+    return { eventType, usageCreditPayment };
+  }
   const queueJoinPayment = await queueJoinPaymentService.handlePayMongoPaidCheckout(
     resource,
     event
@@ -607,8 +657,10 @@ async function handlePayMongoWebhook(rawBody, signatureHeader) {
 }
 
 module.exports = {
+  assertPaidReviewAccess,
   getBillingOverview,
   getTenantEntitlements,
+  getTenantPlanSummary,
   createPayMongoCheckout,
   syncPayMongoCheckout,
   handlePayMongoWebhook

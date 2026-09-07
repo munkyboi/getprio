@@ -43,8 +43,8 @@ function getAppOrigin() {
   return String(env.appBaseUrl || "").replace(/\/$/, "");
 }
 
-function buildServerCallbackUrl(provider) {
-  return `${getServerOrigin()}/api/auth/oauth/${provider}/callback`;
+function buildServerCallbackUrl(provider, callbackPath = "/api/auth/oauth") {
+  return `${getServerOrigin()}${callbackPath}/${provider}/callback`;
 }
 
 function buildClientCallbackUrl({ token, refreshToken, next, error }) {
@@ -91,15 +91,16 @@ function readOAuthState(value) {
   }
 }
 
-function buildAuthorizationUrl(provider, state) {
+function buildAuthorizationUrl(provider, state, options = {}) {
   ensureConfiguredProvider(provider);
+  const redirectUri = options.redirectUri || buildServerCallbackUrl(provider);
 
   switch (provider) {
     case "google": {
       const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
       url.search = new URLSearchParams({
         client_id: env.googleClientId,
-        redirect_uri: buildServerCallbackUrl("google"),
+        redirect_uri: redirectUri,
         response_type: "code",
         scope: "openid email profile",
         prompt: "select_account",
@@ -112,7 +113,7 @@ function buildAuthorizationUrl(provider, state) {
       const url = new URL("https://www.facebook.com/dialog/oauth");
       url.search = new URLSearchParams({
         client_id: env.facebookAppId,
-        redirect_uri: buildServerCallbackUrl("facebook"),
+        redirect_uri: redirectUri,
         response_type: "code",
         scope: "email,public_profile",
         state

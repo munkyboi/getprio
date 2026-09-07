@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
-import { Alert, Box, Button, Group, ScrollArea, Select, SimpleGrid, Stack, Text, Textarea, TextInput } from "@mantine/core";
+import { Alert, Box, Button, FileInput, Group, ScrollArea, Select, SimpleGrid, Stack, Text, Textarea, TextInput } from "@mantine/core";
 import { useMediaQuery } from "@mantine/hooks";
-import { IconMessageDots, IconShieldCheck } from "@tabler/icons-react";
+import { IconMessageDots, IconPaperclip, IconShieldCheck } from "@tabler/icons-react";
+import { useAuth } from "../context/AuthContext";
 
 export type ContactFormScope = "platform" | "vendor";
 
@@ -40,12 +41,15 @@ type ContactFormValues = z.infer<typeof contactSchema>;
 
 export default function ContactForm({ scope, recipientName, intro }: ContactFormProps) {
   const [submitted, setSubmitted] = useState(false);
+  const [attachment, setAttachment] = useState<File | null>(null);
+  const { user } = useAuth();
   const isMobile = useMediaQuery("(max-width: 48em)");
   const {
     control,
     register,
     handleSubmit,
-    formState: { errors, isSubmitting }
+    setValue,
+    formState: { dirtyFields, errors, isSubmitting }
   } = useForm<ContactFormValues>({
     resolver: zodResolver(contactSchema),
     defaultValues: {
@@ -57,6 +61,19 @@ export default function ContactForm({ scope, recipientName, intro }: ContactForm
       honeypot: ""
     }
   });
+
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+
+    if (!dirtyFields.name) {
+      setValue("name", user.displayName || user.name, { shouldDirty: false });
+    }
+    if (!dirtyFields.email && user.email) {
+      setValue("email", user.email, { shouldDirty: false });
+    }
+  }, [dirtyFields.email, dirtyFields.name, setValue, user]);
 
   const onSubmit = handleSubmit(async () => {
     setSubmitted(true);
@@ -74,7 +91,6 @@ export default function ContactForm({ scope, recipientName, intro }: ContactForm
       <Box component="form" className="contact-form-body" onSubmit={onSubmit}>
         <ScrollArea
           className="contact-form-main"
-          offsetScrollbars
           scrollbarSize={8}
           styles={{
             root: { flex: 1, minHeight: 0 },
@@ -82,11 +98,7 @@ export default function ContactForm({ scope, recipientName, intro }: ContactForm
           }}
           type="hover"
         >
-          <Stack gap="lg" pr="sm">
-            <Alert color="teal" icon={<IconShieldCheck size={18} />} variant="light">
-              Protected with Turnstile-style anti-abuse checks, rate limiting, and hidden honeypot fields.
-            </Alert>
-
+          <Stack gap="lg">
             <SimpleGrid cols={isMobile ? 1 : 2}>
               <TextInput
                 label="Your name"
@@ -128,6 +140,16 @@ export default function ContactForm({ scope, recipientName, intro }: ContactForm
               error={errors.message?.message}
               {...register("message")}
             />
+            <FileInput
+              accept="image/jpeg,image/png,image/webp"
+              clearable
+              description="Optional: attach a JPEG, PNG, or WebP image to help explain your message."
+              label="Attachment"
+              leftSection={<IconPaperclip size={16} />}
+              onChange={setAttachment}
+              placeholder="Choose an image"
+              value={attachment}
+            />
             <TextInput className="contact-form-honeypot" tabIndex={-1} aria-hidden="true" {...register("honeypot")} />
 
             {submitted ? (
@@ -135,6 +157,9 @@ export default function ContactForm({ scope, recipientName, intro }: ContactForm
                 This is a capstone draft form. Wire it to your support intake backend before using it in production.
               </Alert>
             ) : null}
+            <Alert color="teal" icon={<IconShieldCheck size={18} />} variant="light">
+              Protected with Turnstile-style anti-abuse checks, rate limiting, and hidden honeypot fields.
+            </Alert>
           </Stack>
         </ScrollArea>
 
@@ -144,7 +169,14 @@ export default function ContactForm({ scope, recipientName, intro }: ContactForm
               ? "Platform support will assign a reference number after submission."
               : `Your message goes to ${recipientName} and is not sent to GetPrio support automatically.`}
           </Text>
-          <Button leftSection={<IconMessageDots size={16} />} loading={isSubmitting} type="submit" color="dark">
+          <Button
+            className="contact-form-submit-action"
+            color="dark"
+            leftSection={<IconMessageDots size={18} />}
+            loading={isSubmitting}
+            size="lg"
+            type="submit"
+          >
             Send message
           </Button>
         </Group>

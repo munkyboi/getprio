@@ -1,14 +1,25 @@
+const { assertPublicTextFieldsAllowed } = require("../services/contentModeration");
+const entitlementAdmissionService = require("../services/entitlementAdmissionService");
+const defaultStoreHoursService = require("../services/storeHoursService");
+
 async function handleCreateTicket({
   req,
   res,
   getAuthorizedTenant,
   assertTenantPermission,
+  assertQueueLocationAccess,
   getLocationForTenant,
-  createTicket
+  createTicket,
+  storeHoursService = defaultStoreHoursService
 }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.queue.operate");
+  await entitlementAdmissionService.admit({ tenantId: tenant._id, featureKey: "queue" });
   const location = await getLocationForTenant(tenant, req.body.locationSlug || req.query.location);
+  if (assertQueueLocationAccess) {
+    await assertQueueLocationAccess(req.user, tenant, location);
+  }
+  await storeHoursService.assertLocationOpenForCustomerJoin(location);
   const { customerName, customerEmail, customerPhone, notifyByEmail, notifyBySms, notes } = req.body;
 
   if (!customerName) {
@@ -16,6 +27,7 @@ async function handleCreateTicket({
     error.statusCode = 400;
     throw error;
   }
+  assertPublicTextFieldsAllowed({ "Customer name": customerName, Notes: notes });
 
   const result = await createTicket({
     tenant,

@@ -10,15 +10,37 @@ const {
 test("vendor management handler updates settings through injected repositories", async () => {
   const response = { body: null, json(payload) { this.body = payload; } };
   await handleUpdateSettings({
-    req: { user: {}, params: { tenantSlug: "tenant" }, query: { location: "main" }, body: { queuePrefix: "ab" } },
+    req: { user: { _id: 4, name: "Owner", displayName: "" }, params: { tenantSlug: "tenant" }, query: { location: "main" }, body: { name: "Updated Tenant", publicProfileDisplayName: "Public Tenant", publicProfileDescription: "<p>A <strong>public</strong> description.</p><script>alert(1)</script>", publicProfileCategory: "Sports", ownerName: "Updated Owner", ownerDisplayName: "Owner Display", queuePrefix: "ab" } },
     res: response,
+    categoryRepository: { resolve: async () => ({ id: "1", name: "Sports" }) },
     getAuthorizedTenant: async () => ({ _id: 1, queuePrefix: "OLD" }),
     assertTenantPermission: () => {},
     getLocationForTenant: async () => ({ _id: 2 }),
     tenantRepository: { updateTenant: async (_id, data) => ({ _id: 1, name: "Tenant", slug: "tenant", ...data }) },
+    userRepository: { updateUser: async (_id, data) => ({ _id: 4, ...data }) },
     getQueueSnapshot: async () => ({ ok: true })
   });
   assert.equal(response.body.tenant.queuePrefix, "AB");
+  assert.equal(response.body.tenant.publicProfileCategory, "Sports");
+  assert.equal(response.body.tenant.publicProfileDisplayName, "Public Tenant");
+  assert.equal(response.body.tenant.publicProfileDescription, "<p>A <strong>public</strong> description.</p>");
+  assert.equal(response.body.owner.displayName, "Owner Display");
+});
+
+test("vendor business description rejects more than 1000 visible characters", async () => {
+  await assert.rejects(
+    () => handleUpdateSettings({
+      req: { user: { _id: 4, name: "Owner", displayName: "" }, params: { tenantSlug: "tenant" }, query: { location: "main" }, body: { publicProfileDescription: `<p>${"x".repeat(1001)}</p>` } },
+      res: { json() {} },
+      getAuthorizedTenant: async () => ({ _id: 1, publicProfileDescription: "" }),
+      assertTenantPermission: () => {},
+      getLocationForTenant: async () => ({ _id: 2 }),
+      tenantRepository: { updateTenant: async () => ({ _id: 1 }) },
+      userRepository: { updateUser: async () => ({ _id: 4 }) },
+      getQueueSnapshot: async () => ({ ok: true })
+    }),
+    /1000 characters or fewer/
+  );
 });
 
 test("vendor management handler lists history and invites staff", async () => {

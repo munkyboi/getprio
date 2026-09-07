@@ -1,4 +1,4 @@
-import type { QueueSnapshot, TicketStatus } from "@shared";
+import type { QueueDayStatus, QueueSnapshot, TicketStatus } from "@shared";
 
 export type QueueStatusSummary = {
   color: "gray" | "red" | "yellow" | "orange" | "teal" | "blue";
@@ -10,13 +10,128 @@ function makeSummary(color: QueueStatusSummary["color"], label: string, message:
   return { color, label, message };
 }
 
+export function resolveQueueDayState(
+  queueDay: Pick<QueueDayStatus, "state" | "isClosed"> | null | undefined
+): QueueDayStatus["state"] | undefined {
+  if (!queueDay) {
+    return undefined;
+  }
+
+  return queueDay.state || (queueDay.isClosed ? "closed" : "open");
+}
+
+export function selectFreshestQueueSnapshot(
+  current: QueueSnapshot | null,
+  incoming: QueueSnapshot
+): QueueSnapshot {
+  if (!current) {
+    return incoming;
+  }
+  const currentServerTime = current.queueDay.serverNow instanceof Date
+    ? current.queueDay.serverNow.getTime()
+    : Date.parse(current.queueDay.serverNow || "");
+  const incomingServerTime = incoming.queueDay.serverNow instanceof Date
+    ? incoming.queueDay.serverNow.getTime()
+    : Date.parse(incoming.queueDay.serverNow || "");
+  if (
+    Number.isFinite(currentServerTime)
+    && Number.isFinite(incomingServerTime)
+    && incomingServerTime < currentServerTime
+  ) {
+    return current;
+  }
+  return incoming;
+}
+
+export type QueueDaySyncState = {
+  id: string | null;
+  state: NonNullable<QueueDayStatus["state"]> | null;
+  deadlineVersion: number | null;
+  reconciliationError: string | null;
+};
+
+export type LocalQueueDayUpdate = Pick<QueueDaySyncState, "id" | "state" | "deadlineVersion"> & {
+  kind: "deadline" | "state";
+};
+
+export function getQueueDaySyncNotice(
+  previous: QueueDaySyncState | null,
+  current: QueueDaySyncState,
+  localQueueDayUpdate: LocalQueueDayUpdate | null,
+  queueActionBusy = false
+): "local_update" | "defer" | "deadline_updated" | "closed" | "reconciliation_error" | null {
+  if (!previous || previous.id !== current.id) {
+    return null;
+  }
+  const matchesLocalUpdate = localQueueDayUpdate?.id === current.id
+    && localQueueDayUpdate.state === current.state
+    && localQueueDayUpdate.deadlineVersion === current.deadlineVersion;
+  if (
+    current.deadlineVersion != null
+    && previous.deadlineVersion != null
+    && current.deadlineVersion > previous.deadlineVersion
+  ) {
+    if (matchesLocalUpdate && localQueueDayUpdate.kind === "deadline") {
+      return "local_update";
+    }
+    return queueActionBusy ? "defer" : "deadline_updated";
+  }
+  if (previous.state === "open" && current.state === "closed") {
+    if (matchesLocalUpdate && localQueueDayUpdate.kind === "state") {
+      return "local_update";
+    }
+    return queueActionBusy ? "defer" : "closed";
+  }
+  if (!previous.reconciliationError && current.reconciliationError) {
+    return queueActionBusy ? "defer" : "reconciliation_error";
+  }
+  return null;
+}
+
+export function isQueueAcceptingJoins(
+  snapshot: Pick<QueueSnapshot, "queueDay" | "queueIntake"> | null | undefined
+): boolean {
+  if (!snapshot || resolveQueueDayState(snapshot.queueDay) !== "open") {
+    return false;
+  }
+
+  if (snapshot.queueDay.availabilityReason === "reconciling") {
+    return false;
+  }
+
+  if (snapshot.queueDay.intakeMode) {
+    return snapshot.queueDay.intakeMode === "accepting";
+  }
+
+  return (
+    !snapshot.queueDay.isPaused &&
+    snapshot.queueIntake.state !== "paused" &&
+    snapshot.queueIntake.state !== "closed"
+  );
+}
+
 export function getQueueStateSummary(snapshot: QueueSnapshot | null): QueueStatusSummary {
   if (!snapshot) {
     return makeSummary("gray", "Loading", "Loading live queue status.");
   }
 
-  if (snapshot.queueDay.isClosed || !snapshot.location?.openStatus.isOpen) {
-    return makeSummary("red", "Closed", "This queue is closed for now.");
+  if (!snapshot.location?.openStatus.isOpen || snapshot.queueDay.availabilityReason === "outside_store_hours") {
+    const nextOpen = snapshot.location?.openStatus.nextOpenAt
+      ? ` Next opening: ${new Date(snapshot.location.openStatus.nextOpenAt).toLocaleString()}.`
+      : "";
+    return makeSummary("red", "Store closed", `The store is outside its effective hours.${nextOpen}`);
+  }
+
+  if (snapshot.queueDay.availabilityReason === "reconciling") {
+    return makeSummary("orange", "Queue closing", "The queue is closing. Check again shortly.");
+  }
+
+  if (snapshot.queueDay.state === "unopened" || snapshot.queueDay.availabilityReason === "not_opened") {
+    return makeSummary("gray", "Not open yet", "The store is open, but staff have not opened today’s queue.");
+  }
+
+  if (snapshot.queueDay.state === "closed" || snapshot.queueDay.isClosed) {
+    return makeSummary("red", "Queue closed", "Today’s queue has closed. Staff may not reopen it.");
   }
 
   if (snapshot.queueDay.isPaused) {
@@ -25,6 +140,24 @@ export function getQueueStateSummary(snapshot: QueueSnapshot | null): QueueStatu
 
   if (snapshot.queueIntake.state === "near_limit") {
     return makeSummary("orange", "Near limit", "This queue is close to capacity.");
+  }
+
+  if (snapshot.queueDay.autoClosePhase === "warning") {
+    const closingTime = snapshot.queueDay.currentClosesAt
+      ? new Date(snapshot.queueDay.currentClosesAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+      : "soon";
+    return makeSummary(
+      "orange",
+      "Closing soon",
+      `The queue closes at ${closingTime}. Joining does not guarantee service before closing.`
+    );
+  }
+
+  if (snapshot.queueDay.autoClosePhase === "extended") {
+    const closingTime = snapshot.queueDay.currentClosesAt
+      ? new Date(snapshot.queueDay.currentClosesAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+      : "the updated time";
+    return makeSummary("blue", "Extended", `The queue remains open until ${closingTime}.`);
   }
 
   return makeSummary("teal", "Open", "This queue is accepting joins.");
@@ -42,11 +175,42 @@ export function getTicketStateSummary(status?: TicketStatus | null): QueueStatus
       return makeSummary("yellow", "Skipped", "This ticket was skipped by staff.");
     case "cancelled":
       return makeSummary("red", "Cancelled", "This ticket was cancelled.");
+    case "pending_carry_over":
+      return makeSummary(
+        "blue",
+        "Saved for carry-over",
+        "Your ticket is retained, but it has no live position until the next eligible Queue Day is opened by staff."
+      );
     case "unserved":
-      return makeSummary("orange", "Unserved", "This ticket was marked unserved.");
+      return makeSummary(
+        "orange",
+        "Unserved",
+        "The queue closed after your ticket was called. This outcome is final; contact the vendor about the appropriate next step."
+      );
+    case "expired":
+      return makeSummary(
+        "red",
+        "Expired",
+        "Your one carry-over opportunity ended without service. This outcome is final and is not a cancellation."
+      );
     default:
       return makeSummary("gray", "Unknown", "Ticket status is unavailable.");
   }
+}
+
+export function getCustomerTicketStateSummary(
+  status?: TicketStatus | null,
+  customerConfirmedAt?: string | Date | null
+): QueueStatusSummary {
+  if (status === "called" && customerConfirmedAt) {
+    return makeSummary(
+      "teal",
+      "Confirmed",
+      "Your ticket was confirmed. Please wait for staff to begin service."
+    );
+  }
+
+  return getTicketStateSummary(status);
 }
 
 export function getLocationStatusSummary(snapshot: QueueSnapshot | null): QueueStatusSummary {

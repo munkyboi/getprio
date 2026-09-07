@@ -13,14 +13,23 @@
     "dev:frontend": "npm --workspace frontend run dev",
     "dev:platform": "npm --workspace platform-dashboard run dev",
     "db:migrate": "bash scripts/db-apply.sh migrate",
+    "db:migrate:free-tier": "bash scripts/db-apply.sh migrate-free-tier",
     "db:bootstrap": "bash scripts/db-apply.sh bootstrap",
     "db:status": "bash scripts/db-status.sh",
     "db:verify": "bash scripts/db-verify-schema.sh",
+    "entitlements:census": "node scripts/entitlement-rollout.mjs census",
+    "entitlements:dry-run": "node scripts/entitlement-rollout.mjs dry-run",
+    "entitlements:apply": "node scripts/entitlement-rollout.mjs apply",
+    "entitlements:verify": "node scripts/entitlement-rollout.mjs verify",
+    "entitlements:resume": "node scripts/entitlement-rollout.mjs resume",
+    "db:backfill:queue-lifecycle": "node -r dotenv/config scripts/queue-lifecycle-backfill.mjs",
     "oauth:smoke": "node scripts/oauth-smoke.mjs",
+    "push:test": "node scripts/push-test.mjs",
     "build": "npm --workspace frontend run build && npm --workspace platform-dashboard run build",
     "build:backend": "npm --workspace backend run build",
     "start": "npm --workspace backend run start",
     "smoke": "node scripts/smoke-test.mjs",
+    "smoke:queue-lifecycle": "node -r dotenv/config scripts/queue-lifecycle-smoke.mjs",
     "lint": "eslint backend/src frontend/src platform-dashboard/src shared",
     "lint:fix": "eslint backend/src frontend/src platform-dashboard/src shared --fix",
     "typecheck": "npm run typecheck:frontend && npm run typecheck:platform && npm run typecheck:backend",
@@ -29,6 +38,7 @@
     "typecheck:backend": "npm --workspace backend run typecheck",
     "test:frontend": "npm --workspace frontend run test",
     "test:frontend:coverage": "npm --workspace frontend run test:coverage",
+    "test:platform": "npm --workspace platform-dashboard run test",
     "test:backend": "npm --workspace backend run test",
     "test:backend:coverage": "npm --workspace backend run test:coverage",
     "prepare": "husky"
@@ -45,6 +55,10 @@
     ]
   },
   "devDependencies": {
+    "@tiptap/core": "3.31.0",
+    "@tiptap/extension-link": "3.31.0",
+    "@tiptap/pm": "3.31.0",
+    "@tiptap/react": "3.31.0",
     "@eslint/js": "^9.7.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/cors": "^2.8.19",
@@ -57,7 +71,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "c8": "^10.1.3",
-    "concurrently": "^9.2.3",
+    "concurrently": "^9.2.4",
     "eslint": "^9.7.0",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.0.1",
@@ -68,5 +82,8 @@
     "tsx": "^4.22.4",
     "typescript": "^6.0.2",
     "typescript-eslint": "^8.58.0"
+  },
+  "dependencies": {
+    "psql": "^0.0.1"
   }
 }

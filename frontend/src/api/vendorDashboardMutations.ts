@@ -1,4 +1,4 @@
-import { API_BASE_URL, apiRequest } from "./client";
+import { apiRequest, apiUpload } from "./client";
 import type {
   BookingPaymentProofAccessResponse,
   CheckoutSessionResponse,
@@ -46,12 +46,10 @@ export function updateNotificationSettings(token: string, tenantSlug: string, se
   );
 }
 
-export function startCheckout(token: string, tenantSlug: string, body: CreateCheckoutRequest) {
-  return apiRequest<CheckoutSessionResponse, CreateCheckoutRequest>(`/billing/tenant/${tenantSlug}/checkout`, {
-    method: "POST",
-    token,
-    body
-  });
+export async function startCheckout(token: string, tenantSlug: string, body: CreateCheckoutRequest) {
+  const reason="Vendor started a verified paid-plan checkout"; const payload={planSlug:body.planSlug,billingInterval:body.billingInterval};
+  const preview=await apiRequest<{confirmation:{token:string};preview:{revision:string}}>(`/billing/tenant/${tenantSlug}/commercial-actions/preview`,{method:"POST",token,body:{action:"subscription.checkout",reason,payload}});
+  return apiRequest<CheckoutSessionResponse>(`/billing/tenant/${tenantSlug}/checkout`, {method:"POST",token,headers:{"X-Transaction-Confirmation":preview.confirmation.token},body:{...payload,reason,previewRevision:preview.preview.revision}});
 }
 
 export function saveTheme(token: string, tenantSlug: string, locationSlug: string, body: SavePublicBoardThemeRequest) {
@@ -68,43 +66,18 @@ export function uploadThemeAsset(
   assetType: "background" | "logo",
   file: File
 ) {
-  return fetch(
-    `${API_BASE_URL}/vendor/tenant/${tenantSlug}/public-board-theme/uploads/direct?location=${encodeURIComponent(locationSlug)}&assetType=${encodeURIComponent(assetType)}&fileName=${encodeURIComponent(file.name)}`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": file.type
-      },
-      body: file
-    }
-  ).then(async (response) => {
-    if (!response.ok) {
-      throw new Error("Upload failed.");
-    }
-
-    return (await response.json()) as PublicBoardThemeUploadResponse;
-  });
+  const locationQuery = locationSlug ? `location=${encodeURIComponent(locationSlug)}&` : "";
+  return apiUpload<PublicBoardThemeUploadResponse>(
+    `/vendor/tenant/${tenantSlug}/public-board-theme/uploads/direct?${locationQuery}assetType=${encodeURIComponent(assetType)}&fileName=${encodeURIComponent(file.name)}`,
+    { token, body: file, contentType: file.type }
+  );
 }
 
 export function uploadLocationPaymentQr(token: string, tenantSlug: string, locationSlug: string, file: File) {
-  return fetch(
-    `${API_BASE_URL}/vendor/tenant/${tenantSlug}/location-payment-qrs/uploads/direct?locationSlug=${encodeURIComponent(locationSlug)}&fileName=${encodeURIComponent(file.name)}`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": file.type
-      },
-      body: file
-    }
-  ).then(async (response) => {
-    if (!response.ok) {
-      throw new Error("Payment QR upload failed.");
-    }
-
-    return (await response.json()) as LocationPaymentQrUploadResponse;
-  });
+  return apiUpload<LocationPaymentQrUploadResponse>(
+    `/vendor/tenant/${tenantSlug}/location-payment-qrs/uploads/direct?locationSlug=${encodeURIComponent(locationSlug)}&fileName=${encodeURIComponent(file.name)}`,
+    { token, body: file, contentType: file.type }
+  );
 }
 
 export function createWalkInTicket(token: string, tenantSlug: string, locationQuery: string, body: CreateWalkInTicketRequest) {

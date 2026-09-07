@@ -2,7 +2,7 @@ import { Anchor, Container, List, Stack, Text } from "@mantine/core";
 import LegalArticleLayout from "../components/LegalArticleLayout";
 import LegalSection from "../components/LegalSection";
 
-const lastUpdated = "September 6, 2026";
+const lastUpdated = "September 7, 2026";
 
 export default function PrivacyPolicyPage() {
   return (
@@ -53,7 +53,7 @@ export default function PrivacyPolicyPage() {
               <List.Item>Payment proof uploads and verification records when manual payment is required.</List.Item>
               <List.Item>Organizer campaign details, contributor membership, payment instructions, contribution and reimbursement evidence, review decisions, reports, and audit events.</List.Item>
               <List.Item>Public vendor reviews and private role-scoped user trust ratings, including rating appeals and moderation decisions.</List.Item>
-              <List.Item>Notification preferences and push registration data linked to your account, including an app installation identifier, notification token, platform, app version, app locale, and delivery success or failure records. Browser notifications use a push subscription endpoint and encryption keys.</List.Item>
+              <List.Item>Notification preferences, including your permitted campaign contact channel, and push registration data linked to your account, including an app installation identifier, notification token, platform, app version, app locale, and delivery success or failure records. Browser notifications use a push subscription endpoint and encryption keys.</List.Item>
               <List.Item>Vendor and staff records such as business names, locations, roles, schedules, and assigned bookings.</List.Item>
               <List.Item>Security and diagnostic data such as login attempts, audit logs, timestamps, IP address, and device metadata.</List.Item>
             </List>
@@ -65,6 +65,7 @@ export default function PrivacyPolicyPage() {
               <List.Item>To process bookings, display vendor profiles and saved favorites, manage queue tickets, and calculate and update estimated waiting times.</List.Item>
               <List.Item>To verify manual payment proof and confirm or reject bookings where needed.</List.Item>
               <List.Item>To send confirmations, reminders, status updates, and service notifications.</List.Item>
+              <List.Item>To operate organizer-collected campaigns, record contributor proof decisions and reimbursements, calculate privacy-safe rating aggregates, and resolve reports or appeals.</List.Item>
               <List.Item>To monitor abuse, troubleshoot issues, and maintain audit trails.</List.Item>
               <List.Item>To improve product performance, usability, and service reliability.</List.Item>
             </List>
@@ -114,6 +115,7 @@ export default function PrivacyPolicyPage() {
               and support system security. Some audit logs and transactional records may be retained
               longer for compliance and fraud prevention.
             </Text>
+            <Text lh={1.8}>Campaign evidence, rating disputes, and audit records follow a documented purpose-based retention schedule and are deleted or de-identified when no longer needed for an active booking, complaint, legal obligation, security investigation, or data-subject request. Production launch requires that schedule and storage deletion process to be approved in the Privacy Impact Assessment.</Text>
             <Text lh={1.8}>Retention varies by record type and purpose; there is no single deletion period for all records. Contact us to request deletion or information about retention of your records. Turning off notification permission or uninstalling the app does not itself delete your account, transaction history, or server-side notification registration records.</Text>
           </LegalSection>
 
@@ -124,6 +126,7 @@ export default function PrivacyPolicyPage() {
               tampering, and leakage. No online system is completely secure, so we also review access
               patterns and limit privileged data exposure where possible.
             </Text>
+            <Text lh={1.8}>Notification messages, including future silent push notifications, contain only the minimum event context and never include payment instructions, proof images, payment references, private notes, or bank details.</Text>
             <Text lh={1.8}>Queue notifications may include a service or vendor name, ticket identifier, and status information. Depending on your device settings, notifications may be visible on your lock screen. You can hide previews or disable notifications in your device settings.</Text>
           </LegalSection>
 
@@ -140,6 +143,16 @@ export default function PrivacyPolicyPage() {
               <Anchor href="/contact">contact page</Anchor> and identify the account concerned.
               We may need to verify your identity before acting on a request. Please do not send
               your password or authentication codes. Removing the app does not close your account.
+            </Text>
+            <Text lh={1.8}>
+              Where Delete account is available in Profile &gt; Security, you can confirm deletion
+              directly in the app. When we accept your verified request, account access stops and
+              waiting queue tickets, including pending carry-over tickets, are cancelled. Tickets
+              already called for service remain with the vendor. We provide a request reference and
+              a deadline within 30 days, then notify you when deletion is complete. Only records
+              with a documented retention basis may remain, with the applicable reason and period
+              explained in the completion notice. Deletion does not automatically refund payments
+              or cancel bookings with a vendor.
             </Text>
             <Text lh={1.8}>
               Camera access supports QR scanning; photo access lets you

@@ -4,10 +4,15 @@ const API_BASE_URL = process.env.SMOKE_API_URL || process.env.VITE_API_URL || "h
 const APP_BASE_URL = process.env.SMOKE_APP_URL || process.env.APP_BASE_URL || "http://localhost:5173";
 const PLATFORM_BASE_URL = process.env.SMOKE_PLATFORM_URL || process.env.PLATFORM_BASE_URL || "http://localhost:7100";
 
-const SMOKE_EMAIL = process.env.SMOKE_EMAIL || "carlo.abella+store4@gmail.com";
-const SMOKE_PASSWORD = process.env.SMOKE_PASSWORD || "asdfasdf";
-const PLATFORM_SMOKE_EMAIL = process.env.PLATFORM_SMOKE_EMAIL || "getprio-smoke@getprio.local";
-const PLATFORM_SMOKE_PASSWORD = process.env.PLATFORM_SMOKE_PASSWORD || "Smoke1234!";
+const SMOKE_EMAIL = String(process.env.SMOKE_EMAIL || "").trim();
+const SMOKE_PASSWORD = String(process.env.SMOKE_PASSWORD || "").trim();
+const PLATFORM_SMOKE_EMAIL = String(process.env.PLATFORM_SMOKE_EMAIL || "getprio-smoke@getprio.local").trim();
+const PLATFORM_SMOKE_PASSWORD = String(process.env.PLATFORM_SMOKE_PASSWORD || "Smoke1234!").trim();
+const VENDOR_STAFF_SMOKE_EMAIL = String(process.env.VENDOR_STAFF_SMOKE_EMAIL || "").trim();
+const VENDOR_STAFF_SMOKE_PASSWORD = String(process.env.VENDOR_STAFF_SMOKE_PASSWORD || "").trim();
+const CAMPAIGN_SMOKE_ENABLED = ["1", "true", "yes"].includes(
+  String(process.env.SMOKE_ORGANIZER_CAMPAIGN || process.env.SMOKE_GROUP_FUNDED || "").toLowerCase()
+);
 
 function getCliStage() {
   const index = process.argv.indexOf("--stage");
@@ -40,6 +45,8 @@ const customerPages = [
   { path: "/account/profile", label: "customer profile" },
   { path: "/account/tickets", label: "customer tickets" },
   { path: "/account/bookings", label: "customer bookings" },
+  { path: "/account/campaigns", label: "customer campaigns" },
+  { path: "/account/campaigns/discover", label: "campaign discovery" },
   { path: "/account/settings", label: "customer settings" },
   { path: "/account/notifications", label: "customer notifications" },
   { path: "/account/security", label: "customer security" }
@@ -53,7 +60,9 @@ const platformPages = [
   { path: "/tenants", label: "platform tenants" },
   { path: "/subscriptions", label: "platform subscriptions" },
   { path: "/users", label: "platform users" },
-  { path: "/billing-events", label: "platform billing events" }
+  { path: "/billing-events", label: "platform billing events" },
+  { path: "/campaign-reports", label: "platform campaign reports" },
+  { path: "/rating-disputes", label: "platform rating disputes" }
 ];
 
 function log(message) {
@@ -140,12 +149,43 @@ async function smokePublicStage() {
   }
   log("oauth provider metadata ok");
 
+  const vapid = await requestJson(`${API_BASE_URL}/push/vapid-public-key`);
+  assertOk(vapid.response, "web push vapid metadata");
+  if (!vapid.body || typeof vapid.body.configured !== "boolean" || typeof vapid.body.publicKey !== "string") {
+    fail("web push vapid metadata missing configured/publicKey fields");
+  }
+  log("web push vapid metadata ok");
+
   for (const page of publicPages) {
     const { response, text } = await requestText(`${APP_BASE_URL}${page.path}`);
     assertOk(response, `${page.label} page`);
     assertContains(text, "<div id=\"root\">", `${page.label} page`);
+    if (page.path === "/") {
+      assertContains(text, "href=\"/manifest.webmanifest\"", "landing metadata");
+      assertContains(text, "href=\"/apple-touch-icon.png\"", "landing metadata");
+      assertContains(text, "property=\"og:image\"", "landing metadata");
+      assertContains(text, "name=\"twitter:card\"", "landing metadata");
+    }
     log(`${page.label} page ok`);
   }
+
+  const serviceWorker = await requestText(`${APP_BASE_URL}/service-worker.js`);
+  assertOk(serviceWorker.response, "web push service worker");
+  assertContains(serviceWorker.text, "self.addEventListener(\"push\"", "web push service worker");
+  assertContains(serviceWorker.text, "notificationclick", "web push service worker");
+  log("web push service worker ok");
+
+  const manifest = await requestJson(`${APP_BASE_URL}/manifest.webmanifest`);
+  assertOk(manifest.response, "web app manifest");
+  if (manifest.body?.name !== "GetPrio" || !Array.isArray(manifest.body?.icons)) {
+    fail("web app manifest missing name or icons");
+  }
+  for (const iconSrc of ["/app-icon-192.png", "/app-icon-512.png"]) {
+    if (!manifest.body.icons.some((icon) => icon?.src === iconSrc && icon?.type === "image/png")) {
+      fail(`web app manifest missing icon: ${iconSrc}`);
+    }
+  }
+  log("web app manifest ok");
 
   const platform = await requestText(PLATFORM_BASE_URL);
   assertOk(platform.response, "platform dashboard shell");
@@ -155,7 +195,7 @@ async function smokePublicStage() {
 
 async function smokeCustomerStage() {
   if (!SMOKE_EMAIL || !SMOKE_PASSWORD) {
-    log("customer smoke skipped (set SMOKE_EMAIL and SMOKE_PASSWORD to enable)");
+    log("customer smoke skipped (set SMOKE_EMAIL and SMOKE_PASSWORD to a seeded fixture)");
     return;
   }
 
@@ -180,6 +220,12 @@ async function smokeCustomerStage() {
   assertOk(notificationSettingsBefore.response, "notification settings read");
   if (!notificationSettingsBefore.body?.notificationSettings) {
     fail("notification settings read missing payload");
+  }
+  if (
+    typeof notificationSettingsBefore.body.notificationSettings.bookingAlerts !== "boolean" ||
+    typeof notificationSettingsBefore.body.notificationSettings.queueAlerts !== "boolean"
+  ) {
+    fail("notification settings read missing Web Push status booleans");
   }
   log("notification settings read ok");
 
@@ -211,10 +257,13 @@ async function smokeCustomerStage() {
   assertOk(notificationSettingsRestore.response, "notification settings restore");
   log("notification settings restore ok");
 
-  const bookings = await requestJson(`${API_BASE_URL}/account/bookings?limit=1`, { headers });
+  const bookings = await requestJson(`${API_BASE_URL}/account/bookings?page=1&pageSize=1`, { headers });
   assertOk(bookings.response, "account bookings");
   if (!Array.isArray(bookings.body?.bookings)) {
     fail("account bookings missing bookings array");
+  }
+  if (!bookings.body?.pagination || typeof bookings.body.pagination.page !== "number") {
+    fail("account bookings missing pagination metadata");
   }
   log("account bookings ok");
 
@@ -228,14 +277,14 @@ async function smokeCustomerStage() {
 
 async function smokeBookingStage() {
   if (!SMOKE_EMAIL || !SMOKE_PASSWORD) {
-    log("booking smoke skipped (set SMOKE_EMAIL and SMOKE_PASSWORD to enable)");
+    log("booking smoke skipped (set SMOKE_EMAIL and SMOKE_PASSWORD to a seeded fixture)");
     return;
   }
 
   const auth = await login(SMOKE_EMAIL, SMOKE_PASSWORD);
   const headers = { Authorization: `Bearer ${auth.token}` };
 
-  const vendorSlug = auth.user.tenants?.[0]?.slug || "musashi-pastries";
+  const vendorSlug = process.env.SMOKE_BOOKING_VENDOR_SLUG || auth.user.tenants?.[0]?.slug || "musashi-pastries";
   const tenantProfile = await requestJson(`${API_BASE_URL}/public/vendors/${vendorSlug}`);
   assertOk(tenantProfile.response, "public vendor profile for booking smoke");
   const vendor = tenantProfile.body?.vendor;
@@ -290,7 +339,7 @@ async function smokeBookingStage() {
 
 async function smokeVendorStage() {
   if (!SMOKE_EMAIL || !SMOKE_PASSWORD) {
-    log("vendor smoke skipped (set SMOKE_EMAIL and SMOKE_PASSWORD to enable)");
+    log("vendor smoke skipped (set SMOKE_EMAIL and SMOKE_PASSWORD to a seeded fixture)");
     return;
   }
 
@@ -327,10 +376,30 @@ async function smokeVendorStage() {
   }
   log("vendor staff ok");
 
+  const vendorNotificationSettings = await requestJson(
+    `${API_BASE_URL}/vendor/tenant/${tenant.slug}/notification-settings`,
+    { headers }
+  );
+  assertOk(vendorNotificationSettings.response, "vendor notification settings");
+  if (
+    typeof vendorNotificationSettings.body?.notificationSettings?.queueJoin !== "boolean" ||
+    typeof vendorNotificationSettings.body?.notificationSettings?.bookingIntake !== "boolean" ||
+    typeof vendorNotificationSettings.body?.notificationSettings?.paymentProofReview !== "boolean"
+  ) {
+    fail("vendor notification settings missing Web Push status booleans");
+  }
+  log("vendor notification settings ok");
+
   const services = await requestJson(`${API_BASE_URL}/vendor/tenant/${tenant.slug}/services`, { headers });
   assertOk(services.response, "vendor services");
   if (!Array.isArray(services.body?.services)) {
     fail("vendor services missing services array");
+  }
+  if (
+    services.body.services.length > 0 &&
+    !services.body.services.every((service) => ["service", "location"].includes(service.bookingCapacityScope))
+  ) {
+    fail("vendor services missing valid bookingCapacityScope values");
   }
   log("vendor services ok");
 
@@ -343,6 +412,168 @@ async function smokeVendorStage() {
     fail("vendor availability missing blocks or exceptions arrays");
   }
   log("vendor availability ok");
+
+  const bookings = await requestJson(
+    `${API_BASE_URL}/vendor/tenant/${tenant.slug}/bookings?page=1&pageSize=1&location=${encodeURIComponent(locationSlug)}`,
+    { headers }
+  );
+  assertOk(bookings.response, "vendor bookings");
+  if (!Array.isArray(bookings.body?.bookings)) {
+    fail("vendor bookings missing bookings array");
+  }
+  log("vendor bookings ok");
+
+  const firstBookingId = bookings.body.bookings[0]?.id;
+  if (firstBookingId) {
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const rescheduleSlots = await requestJson(
+      `${API_BASE_URL}/vendor/tenant/${tenant.slug}/bookings/${firstBookingId}/reschedule-slots?date=${tomorrow}`,
+      { headers }
+    );
+    if (rescheduleSlots.response.status === 409) {
+      log("vendor booking reschedule slots skipped (fixture booking is not reschedulable)");
+      return;
+    }
+    assertOk(rescheduleSlots.response, "vendor booking reschedule slots");
+    if (!Array.isArray(rescheduleSlots.body?.slots)) {
+      fail("vendor booking reschedule slots missing slots array");
+    }
+    log("vendor booking reschedule slots ok");
+  } else {
+    log("vendor booking reschedule slots skipped (no vendor booking fixture)");
+  }
+}
+
+function assertQueueDayContract(queueDay, context) {
+  if (!queueDay || !["unopened", "open", "closed"].includes(queueDay.state)) {
+    fail(`${context} missing authoritative Queue Day state`);
+  }
+  if (typeof queueDay.availabilityReason !== "string" || typeof queueDay.serverNow !== "string") {
+    fail(`${context} missing availability reason or server clock`);
+  }
+  if (queueDay.state === "open" && !["accepting", "paused"].includes(queueDay.intakeMode)) {
+    fail(`${context} returned an invalid open Queue Day intake mode`);
+  }
+}
+
+async function smokeQueueLifecycleReadStage() {
+  const auth = await login(SMOKE_EMAIL, SMOKE_PASSWORD);
+  const tenant = Array.isArray(auth.user.tenants) ? auth.user.tenants[0] : null;
+  if (!tenant?.slug) {
+    fail("queue lifecycle smoke requires a vendor tenant membership");
+  }
+  const headers = { Authorization: `Bearer ${auth.token}` };
+  const locations = await requestJson(
+    `${API_BASE_URL}/vendor/tenant/${tenant.slug}/locations`,
+    { headers }
+  );
+  assertOk(locations.response, "queue lifecycle vendor locations");
+  const locationSlug = locations.body?.locations?.[0]?.slug;
+  if (!locationSlug) {
+    fail("queue lifecycle smoke requires a vendor location");
+  }
+  const dashboard = await requestJson(
+    `${API_BASE_URL}/vendor/tenant/${tenant.slug}/dashboard?location=${encodeURIComponent(locationSlug)}`,
+    { headers }
+  );
+  assertOk(dashboard.response, "Vendor Admin queue lifecycle snapshot");
+  assertQueueDayContract(dashboard.body?.queueDay, "Vendor Admin queue lifecycle snapshot");
+  log("Vendor Admin queue lifecycle snapshot ok");
+
+  const publicQueue = await requestJson(
+    `${API_BASE_URL}/public/tenant/${tenant.slug}/location/${locationSlug}/queue`
+  );
+  assertOk(publicQueue.response, "public queue lifecycle snapshot");
+  assertQueueDayContract(publicQueue.body?.queueDay, "public queue lifecycle snapshot");
+  log("public queue lifecycle snapshot ok");
+
+  const customerOverview = await requestJson(`${API_BASE_URL}/account/overview`, { headers });
+  assertOk(customerOverview.response, "customer queue history");
+  if (!Array.isArray(customerOverview.body?.tickets)) {
+    fail("customer queue history missing tickets");
+  }
+  log("customer queue history ok");
+
+  if (VENDOR_STAFF_SMOKE_EMAIL && VENDOR_STAFF_SMOKE_PASSWORD) {
+    const staffAuth = await login(VENDOR_STAFF_SMOKE_EMAIL, VENDOR_STAFF_SMOKE_PASSWORD);
+    const staffTenant = Array.isArray(staffAuth.user.tenants)
+      ? staffAuth.user.tenants.find((item) => item.slug === tenant.slug)
+      : null;
+    if (!staffTenant) {
+      fail("Vendor Staff smoke account is not assigned to the queue lifecycle tenant");
+    }
+    const staffDashboard = await requestJson(
+      `${API_BASE_URL}/vendor/tenant/${tenant.slug}/dashboard?location=${encodeURIComponent(locationSlug)}`,
+      { headers: { Authorization: `Bearer ${staffAuth.token}` } }
+    );
+    assertOk(staffDashboard.response, "Vendor Staff queue lifecycle snapshot");
+    assertQueueDayContract(staffDashboard.body?.queueDay, "Vendor Staff queue lifecycle snapshot");
+    log("Vendor Staff queue lifecycle snapshot ok");
+  } else {
+    log("Vendor Staff queue lifecycle smoke skipped (set VENDOR_STAFF_SMOKE_EMAIL and VENDOR_STAFF_SMOKE_PASSWORD)");
+  }
+
+  const platformAuth = await login(PLATFORM_SMOKE_EMAIL, PLATFORM_SMOKE_PASSWORD);
+  const diagnostics = await requestJson(
+    `${API_BASE_URL}/platform/queue-lifecycle/diagnostics?limit=10`,
+    { headers: { Authorization: `Bearer ${platformAuth.token}` } }
+  );
+  assertOk(diagnostics.response, "Platform Admin queue lifecycle diagnostics");
+  if (!Array.isArray(diagnostics.body?.queueDays)) {
+    fail("Platform Admin queue lifecycle diagnostics missing queueDays");
+  }
+  log("Platform Admin queue lifecycle diagnostics ok");
+}
+
+async function smokeOrganizerCampaignStage() {
+  if (!CAMPAIGN_SMOKE_ENABLED) {
+    log("organizer campaign smoke skipped (set SMOKE_ORGANIZER_CAMPAIGN=1 to enable)");
+    return;
+  }
+  if (!SMOKE_EMAIL || !SMOKE_PASSWORD) {
+    log("organizer campaign smoke skipped (set SMOKE_EMAIL and SMOKE_PASSWORD to a seeded fixture)");
+    return;
+  }
+
+  const auth = await login(SMOKE_EMAIL, SMOKE_PASSWORD);
+  const headers = { Authorization: `Bearer ${auth.token}` };
+  const bookingId = process.env.SMOKE_ORGANIZER_CAMPAIGN_BOOKING_ID;
+  if (!bookingId) {
+    log("organizer campaign smoke skipped (set SMOKE_ORGANIZER_CAMPAIGN_BOOKING_ID to an owned paid/confirmed opt-in booking)");
+    return;
+  }
+  const deadlineAt = process.env.SMOKE_ORGANIZER_CAMPAIGN_DEADLINE_AT || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  const createCampaign = await requestJson(`${API_BASE_URL}/account/campaigns`, {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      bookingId, title: `Organizer campaign smoke ${Date.now()}`,
+      description: "Private organizer-collected campaign smoke fixture",
+      deadlineAt, contributionFeeCents: 10000, requiredContributors: 2,
+      paymentInstructions: "Smoke-only direct organizer payment instructions"
+    })
+  });
+  assertOk(createCampaign.response, "organizer campaign creation");
+  const campaign = createCampaign.body?.campaign;
+  if (!campaign?.id || !campaign?.publicToken) fail("organizer campaign creation missing id or generic share token");
+  log("organizer campaign creation ok");
+
+  const publish = await requestJson(`${API_BASE_URL}/account/campaigns/${campaign.id}/publish`, { method: "PATCH", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ visibility: "private_link" }) });
+  assertOk(publish.response, "organizer campaign private publication");
+  log("organizer campaign private publication ok");
+  const preview = await requestJson(`${API_BASE_URL}/public/campaigns/${campaign.publicToken}`);
+  assertOk(preview.response, "organizer campaign privacy-minimized preview");
+  if ("paymentInstructions" in (preview.body?.campaign || {})) fail("public campaign preview leaked payment instructions");
+  log("organizer campaign privacy-minimized preview ok");
+
+  const legacyAccount = await requestJson(`${API_BASE_URL}/account/group-funded-campaigns`, { headers });
+  if (legacyAccount.response.status !== 410) fail("legacy customer campaign API was not retired");
+  const tenant = Array.isArray(auth.user.tenants) ? auth.user.tenants[0] : null;
+  if (tenant?.slug) {
+    const legacyVendor = await requestJson(`${API_BASE_URL}/vendor/tenant/${tenant.slug}/group-funded-campaigns`, { headers });
+    if (legacyVendor.response.status !== 404) fail("legacy vendor campaign API was not retired");
+  }
+  log("legacy campaign APIs retired ok");
 }
 
 async function smokePlatformStage() {
@@ -402,6 +633,12 @@ async function main() {
   }
   if (SMOKE_STAGE === "all" || SMOKE_STAGE === "vendor") {
     await smokeVendorStage();
+  }
+  if (SMOKE_STAGE === "all" || SMOKE_STAGE === "queue") {
+    await smokeQueueLifecycleReadStage();
+  }
+  if (SMOKE_STAGE === "all" || SMOKE_STAGE === "campaign" || SMOKE_STAGE === "group-funded") {
+    await smokeOrganizerCampaignStage();
   }
   if (SMOKE_STAGE === "all" || SMOKE_STAGE === "platform") {
     await smokePlatformStage();

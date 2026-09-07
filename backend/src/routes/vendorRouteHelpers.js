@@ -1,6 +1,15 @@
 const storeLocationRepository = require("../repositories/storeLocations");
 const vendorServiceRepository = require("../repositories/vendorServices");
 const storeHoursService = require("../services/storeHoursService");
+const { assertPublicTextFieldsAllowed } = require("../services/contentModeration");
+const { isValidTimeZone } = require("../utils/timezones");
+const {
+  appBaseUrl: configuredAppBaseUrl,
+  mobileQrBaseUrl: configuredMobileQrBaseUrl
+} = require("../config/env");
+const { buildJoinUrl, buildMonitorUrl, buildQueueQrUrl } = require("../publicLinks.ts");
+
+const BOOKING_CAPACITY_SCOPES = new Set(["service", "location"]);
 
 async function getAuthorizedTenant(user, tenantSlug, tenantRepository, userHasTenantAccess) {
   const tenant = await tenantRepository.findTenantBySlug(String(tenantSlug).toLowerCase());
@@ -53,21 +62,47 @@ async function getLocationForTenant(tenant, locationSlug) {
 
 function normalizeTenantNotificationSettings(settings = {}) {
   return {
+    queueJoin: settings.queueJoin !== false,
     bookingIntake: settings.bookingIntake !== false,
     paymentProofReview: settings.paymentProofReview !== false,
     bookingStatusChanges: settings.bookingStatusChanges !== false
   };
 }
 
+function normalizeBaseUrl(value) {
+  return String(value || "").trim().replace(/\/+$/, "");
+}
+
+function buildLocationLinks(location, tenant, options = {}) {
+  const appBaseUrl = normalizeBaseUrl(options.appBaseUrl || configuredAppBaseUrl);
+  const mobileQrBaseUrl = normalizeBaseUrl(
+    options.mobileQrBaseUrl || configuredMobileQrBaseUrl || appBaseUrl
+  );
+
+  return {
+    joinUrl: buildJoinUrl(appBaseUrl, tenant.slug, location.slug),
+    qrJoinUrl: buildQueueQrUrl(
+      mobileQrBaseUrl,
+      tenant.slug,
+      location.slug,
+      location.queueJoinId
+    ),
+    monitorUrl: buildMonitorUrl(appBaseUrl, tenant.slug, location.slug)
+  };
+}
+
 async function formatLocation(location, tenant) {
   const hours = await storeLocationRepository.listHoursByLocationId(location._id);
   const openStatus = await storeHoursService.getOpenStatus(location, { hours });
+  const locationLinks = buildLocationLinks(location, tenant);
 
   return {
     id: String(location._id),
+    queueJoinId: location.queueJoinId,
     tenantId: String(location.tenantId),
     name: location.name,
     slug: location.slug,
+    imageUrl: location.imageUrl || "",
     addressLine1: location.addressLine1,
     addressLine2: location.addressLine2,
     city: location.city,
@@ -78,14 +113,15 @@ async function formatLocation(location, tenant) {
     contactPhone: location.contactPhone,
     timezone: location.timezone,
     paymentMethodLabel: location.paymentMethodLabel,
+    paymentBankName: location.paymentBankName,
     paymentAccountDisplayName: location.paymentAccountDisplayName,
     paymentAccountIdentifierDisplay: location.paymentAccountIdentifierDisplay,
     paymentQrImageUrl: location.paymentQrImageUrl,
     paymentQrActive: location.paymentQrActive,
+    queueLifecycleMode: location.queueLifecycleMode || "legacy",
     isPrimary: location.isPrimary,
     isActive: location.isActive,
-    joinUrl: `${process.env.APP_BASE_URL || "http://localhost:5173"}/join/${tenant.slug}/${location.slug}`,
-    monitorUrl: `${process.env.APP_BASE_URL || "http://localhost:5173"}/monitor/${tenant.slug}/${location.slug}`,
+    ...locationLinks,
     openStatus,
     hours: hours.map((hour) => ({
       weekday: hour.weekday,
@@ -101,6 +137,7 @@ function normalizeLocationPayload(body, existingLocation = null) {
   const textFields = [
     "name",
     "slug",
+    "imageUrl",
     "addressLine1",
     "addressLine2",
     "city",
@@ -111,6 +148,7 @@ function normalizeLocationPayload(body, existingLocation = null) {
     "contactPhone",
     "timezone",
     "paymentMethodLabel",
+    "paymentBankName",
     "paymentAccountDisplayName",
     "paymentAccountIdentifierDisplay",
     "paymentQrImageUrl"
@@ -121,6 +159,25 @@ function normalizeLocationPayload(body, existingLocation = null) {
       next[field] = next[field].trim();
     }
   }
+
+  if (Object.prototype.hasOwnProperty.call(next, "timezone") && !isValidTimeZone(next.timezone)) {
+    const error = new Error("A valid location timezone is required.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  assertPublicTextFieldsAllowed({
+    "Location name": next.name,
+    "Location slug": next.slug,
+    "Location address line 1": next.addressLine1,
+    "Location address line 2": next.addressLine2,
+    "Location city": next.city,
+    "Location province": next.province,
+    "Location country": next.country,
+    "Payment method": next.paymentMethodLabel,
+    "Bank name": next.paymentBankName,
+    "Account owner": next.paymentAccountDisplayName
+  });
 
   if (Object.prototype.hasOwnProperty.call(next, "paymentQrActive")) {
     next.paymentQrActive = next.paymentQrActive === true;
@@ -135,12 +192,19 @@ function normalizeLocationPayload(body, existingLocation = null) {
   const paymentAccountDisplayName = Object.prototype.hasOwnProperty.call(next, "paymentAccountDisplayName")
     ? next.paymentAccountDisplayName
     : existingLocation?.paymentAccountDisplayName || "";
+  const paymentBankName = Object.prototype.hasOwnProperty.call(next, "paymentBankName")
+    ? next.paymentBankName
+    : existingLocation?.paymentBankName || "";
   const paymentQrImageUrl = Object.prototype.hasOwnProperty.call(next, "paymentQrImageUrl")
     ? next.paymentQrImageUrl
     : existingLocation?.paymentQrImageUrl || "";
 
-  if (paymentQrActive && (!paymentMethodLabel || !paymentAccountDisplayName || !paymentQrImageUrl)) {
-    const error = new Error("Active payment QR requires a method label, account display name, and QR image.");
+  const isBankTransfer = paymentMethodLabel === "Bank Transfer";
+  const paymentAccountIdentifierDisplay = Object.prototype.hasOwnProperty.call(next, "paymentAccountIdentifierDisplay")
+    ? next.paymentAccountIdentifierDisplay
+    : existingLocation?.paymentAccountIdentifierDisplay || "";
+  if (paymentQrActive && (!paymentMethodLabel || !paymentAccountDisplayName || (!isBankTransfer && !paymentQrImageUrl) || (isBankTransfer && (!paymentBankName || !paymentAccountIdentifierDisplay)))) {
+    const error = new Error("Active payment details require a method, account owner, and either a QR image or complete bank details for bank transfers.");
     error.statusCode = 400;
     throw error;
   }
@@ -215,17 +279,37 @@ function normalizeServicePayload(body, existingService = null) {
   const manualPaymentRequired = Object.prototype.hasOwnProperty.call(body, "manualPaymentRequired")
     ? body.manualPaymentRequired === true
     : existingService?.manualPaymentRequired ?? false;
+  const bookingCapacityScope = Object.prototype.hasOwnProperty.call(body, "bookingCapacityScope")
+    ? String(body.bookingCapacityScope || "").trim()
+    : existingService?.bookingCapacityScope || "service";
+  if (!BOOKING_CAPACITY_SCOPES.has(bookingCapacityScope)) {
+    const error = new Error("bookingCapacityScope must be service or location.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const description = typeof body.description === "string"
+    ? body.description.trim()
+    : existingService?.description || "";
+  assertPublicTextFieldsAllowed({
+    "Service name": name,
+    "Service slug": slug,
+    "Service description": description,
+    "Booking quantity label": bookingQuantityLabel
+  });
 
   return {
     name,
     slug,
-    description: typeof body.description === "string"
-      ? body.description.trim()
-      : existingService?.description || "",
+    imageUrl: typeof body.imageUrl === "string"
+      ? body.imageUrl.trim()
+      : existingService?.imageUrl || "",
+    description,
     durationMinutes,
     allowBookingQuantity,
     bookingQuantityLabel,
     manualPaymentRequired,
+    bookingCapacityScope,
     priceAmountCents,
     currency,
     priceDisplay,
@@ -238,6 +322,109 @@ function normalizeServicePayload(body, existingService = null) {
   };
 }
 
+function normalizeOptionalInteger(value, fieldName) {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+
+  const next = Number(value);
+  if (!Number.isInteger(next)) {
+    const error = new Error(`${fieldName} must be an integer.`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return next;
+}
+
+function normalizeGroupFundedLocationServicePayload(entry = {}) {
+  const settings = entry.groupFunded && typeof entry.groupFunded === "object"
+    ? entry.groupFunded
+    : {};
+  const enabled = Object.prototype.hasOwnProperty.call(settings, "enabled")
+    ? settings.enabled === true
+    : entry.groupFundedEnabled === true;
+  const allowPublicCampaigns = Object.prototype.hasOwnProperty.call(settings, "allowPublicCampaigns")
+    ? settings.allowPublicCampaigns === true
+    : entry.groupFundedAllowPublicCampaigns === true;
+
+  const groupFunded = {
+    enabled,
+    minRequiredContributors: normalizeOptionalInteger(
+      settings.minRequiredContributors ?? entry.groupFundedMinRequiredContributors,
+      "groupFunded.minRequiredContributors"
+    ),
+    maxRequiredContributors: normalizeOptionalInteger(
+      settings.maxRequiredContributors ?? entry.groupFundedMaxRequiredContributors,
+      "groupFunded.maxRequiredContributors"
+    ),
+    defaultRequiredContributors: normalizeOptionalInteger(
+      settings.defaultRequiredContributors ?? entry.groupFundedDefaultRequiredContributors,
+      "groupFunded.defaultRequiredContributors"
+    ),
+    minContributionAmountCents: null,
+    maxContributionAmountCents: null,
+    minDeadlineHours: normalizeOptionalInteger(
+      settings.minDeadlineHours ?? entry.groupFundedMinDeadlineHours,
+      "groupFunded.minDeadlineHours"
+    ),
+    maxDeadlineDays: normalizeOptionalInteger(
+      settings.maxDeadlineDays ?? entry.groupFundedMaxDeadlineDays,
+      "groupFunded.maxDeadlineDays"
+    ),
+    allowPublicCampaigns
+  };
+
+  if (!groupFunded.enabled) {
+    return {
+      enabled: false,
+      minRequiredContributors: groupFunded.minRequiredContributors,
+      maxRequiredContributors: groupFunded.maxRequiredContributors,
+      defaultRequiredContributors: groupFunded.defaultRequiredContributors,
+      minContributionAmountCents: groupFunded.minContributionAmountCents,
+      maxContributionAmountCents: groupFunded.maxContributionAmountCents,
+      minDeadlineHours: groupFunded.minDeadlineHours,
+      maxDeadlineDays: groupFunded.maxDeadlineDays,
+      allowPublicCampaigns
+    };
+  }
+
+  const requiredIntegerFields = [
+    ["minRequiredContributors", 2, 100],
+    ["maxRequiredContributors", 2, 100],
+    ["minDeadlineHours", 1, 720],
+    ["maxDeadlineDays", 1, 90]
+  ];
+
+  for (const [field, min, max] of requiredIntegerFields) {
+    const value = groupFunded[field];
+    if (!Number.isInteger(value) || value < min || value > max) {
+      const error = new Error(`groupFunded.${field} must be between ${min} and ${max} when group-funded booking is enabled.`);
+      error.statusCode = 400;
+      throw error;
+    }
+  }
+
+  if (groupFunded.minRequiredContributors > groupFunded.maxRequiredContributors) {
+    const error = new Error("groupFunded contributor bounds must satisfy min <= max.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  groupFunded.defaultRequiredContributors = Math.min(
+    groupFunded.maxRequiredContributors,
+    Math.max(groupFunded.minRequiredContributors, 4)
+  );
+
+  if (groupFunded.minDeadlineHours > groupFunded.maxDeadlineDays * 24) {
+    const error = new Error("groupFunded deadline bounds must satisfy min hours <= max days.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return groupFunded;
+}
+
 function formatVendorService(service) {
   return {
     id: String(service._id),
@@ -246,9 +433,11 @@ function formatVendorService(service) {
     slug: service.slug,
     description: service.description,
     durationMinutes: service.durationMinutes,
+    imageUrl: service.imageUrl || "",
     allowBookingQuantity: service.allowBookingQuantity,
     bookingQuantityLabel: service.bookingQuantityLabel,
     manualPaymentRequired: service.manualPaymentRequired,
+    bookingCapacityScope: service.bookingCapacityScope || "service",
     priceAmountCents: service.priceAmountCents,
     currency: service.currency,
     priceDisplay: service.priceDisplay,
@@ -259,14 +448,51 @@ function formatVendorService(service) {
   };
 }
 
+async function normalizeLocationServicesPayload(body, existingService, tenant) {
+  if (!Array.isArray(body.locationServices)) {
+    return [];
+  }
+
+  const locations = await Promise.all(
+    body.locationServices.map(async (entry) => {
+      const locationSlug = normalizeRequestText(entry?.locationSlug);
+      if (!locationSlug) {
+        return null;
+      }
+      const location = await storeLocationRepository.findLocationByTenantAndSlug(tenant._id, locationSlug);
+      if (!location) {
+        const error = new Error(`Location not found for slug ${locationSlug}.`);
+        error.statusCode = 404;
+        throw error;
+      }
+      return {
+        tenantId: tenant._id,
+        locationId: location._id,
+        serviceId: existingService?._id || null,
+        capacity: Number(entry.capacity || 1),
+        isActive: entry.isActive !== false,
+        sortOrder: Number(entry.sortOrder || 0),
+        priceAmountCents: entry.priceAmountCents === undefined ? null : entry.priceAmountCents,
+        priceDisplay: entry.priceDisplay === undefined ? null : entry.priceDisplay,
+        groupFunded: normalizeGroupFundedLocationServicePayload(entry)
+      };
+    })
+  );
+
+  return locations.filter(Boolean);
+}
+
 module.exports = {
+  buildLocationLinks,
   buildPriceDisplay,
   formatLocation,
   formatVendorService,
   getAuthorizedTenant,
   getLocationForTenant,
   normalizeCounterSlug,
+  normalizeGroupFundedLocationServicePayload,
   normalizeLocationPayload,
+  normalizeLocationServicesPayload,
   normalizeServicePayload,
   normalizeRequestText,
   normalizeTenantNotificationSettings

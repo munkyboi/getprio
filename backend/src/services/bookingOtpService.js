@@ -3,6 +3,8 @@ const env = require("../config/env");
 const db = require("../config/db");
 const bookingOtpRepository = require("../repositories/bookingOtps");
 const notificationService = require("./notificationService");
+const { assertPublicTextFieldsAllowed } = require("./contentModeration");
+const { normalizePhilippineMobileNumber } = require("../utils/phone");
 
 const OTP_TTL_MINUTES = 15;
 const OTP_RESEND_COOLDOWN_MINUTES = 3;
@@ -34,18 +36,42 @@ function sanitizeBookingPayload(payload) {
     throw error;
   }
 
-  return {
+  const sanitized = {
     tenantSlug: String(payload.tenantSlug || "").trim().toLowerCase(),
     locationSlug: String(payload.locationSlug || "").trim().toLowerCase(),
     serviceSlug: String(payload.serviceSlug || "").trim().toLowerCase(),
     scheduledStartAt: String(payload.scheduledStartAt || "").trim(),
     bookingQuantity,
+    executionMode: ["parallel", "sequential"].includes(String(payload.executionMode || "parallel").trim().toLowerCase())
+      ? String(payload.executionMode || "parallel").trim().toLowerCase()
+      : null,
     customerName: String(payload.customerName || "").trim(),
     customerEmail: String(payload.customerEmail || "").trim().toLowerCase(),
-    customerPhone: String(payload.customerPhone || "").trim(),
+    customerPhone: normalizePhilippineMobileNumber(payload.customerPhone),
     notifyBySms: Boolean(payload.notifyBySms),
     notes: String(payload.notes || "").trim()
   };
+  if (!sanitized.executionMode) {
+    const error = new Error("executionMode must be either parallel or sequential.");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (Array.isArray(payload.bundleItems)) {
+    const seen = new Set();
+    sanitized.bundleItems = payload.bundleItems.map((item) => {
+      const serviceSlug = String(item?.serviceSlug || "").trim().toLowerCase();
+      const itemQuantity = Number(item?.bookingQuantity || bookingQuantity);
+      if (!serviceSlug || seen.has(serviceSlug) || !Number.isInteger(itemQuantity) || itemQuantity < 1 || itemQuantity > 24) {
+        const error = new Error("Booking bundle items are invalid.");
+        error.statusCode = 400;
+        throw error;
+      }
+      seen.add(serviceSlug);
+      return { serviceSlug, bookingQuantity: itemQuantity };
+    });
+  }
+  assertPublicTextFieldsAllowed({ "Customer name": sanitized.customerName, "Booking notes": sanitized.notes });
+  return sanitized;
 }
 
 function getDeliveryTarget(payload, requestedChannel) {

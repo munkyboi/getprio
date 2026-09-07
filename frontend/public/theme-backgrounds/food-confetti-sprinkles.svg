@@ -1,0 +1,68 @@
+<svg width="1600" height="900" viewBox="0 0 1600 900" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="foodGlow" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFC86F" stop-opacity="0.26"/>
+      <stop offset="1" stop-color="#8DDDBD" stop-opacity="0.1"/>
+    </linearGradient>
+    <g id="sprinklePink">
+      <rect x="-26" y="-6" width="52" height="12" rx="6" fill="#D13366" fill-opacity="0.36"/>
+    </g>
+    <g id="sprinkleMint">
+      <rect x="-24" y="-5" width="48" height="10" rx="5" fill="#8DDDBD" fill-opacity="0.42"/>
+    </g>
+    <g id="sprinkleTeal">
+      <rect x="-20" y="-5" width="40" height="10" rx="5" fill="#3EA789" fill-opacity="0.32"/>
+    </g>
+  </defs>
+
+  <circle cx="280" cy="180" r="248" fill="url(#foodGlow)"/>
+  <circle cx="1324" cy="724" r="286" fill="url(#foodGlow)" opacity="0.82"/>
+  <circle cx="1026" cy="156" r="118" fill="#FFF4DA" fill-opacity="0.24"/>
+
+  <path d="M-30 606C136 480 332 430 540 454C712 472 902 558 1090 546C1260 536 1434 446 1642 324" stroke="#FFC86F" stroke-opacity="0.24" stroke-width="38" stroke-linecap="round"/>
+  <path d="M-10 702C208 614 430 604 640 674C864 748 1080 758 1312 676C1426 636 1528 584 1640 510" stroke="#8DDDBD" stroke-opacity="0.28" stroke-width="26" stroke-linecap="round"/>
+
+  <g transform="translate(246 220) rotate(-18)">
+    <use href="#sprinklePink"/>
+  </g>
+  <g transform="translate(392 122) rotate(24)">
+    <use href="#sprinkleMint"/>
+  </g>
+  <g transform="translate(584 242) rotate(-42)">
+    <use href="#sprinkleTeal"/>
+  </g>
+  <g transform="translate(744 174) rotate(12)">
+    <use href="#sprinklePink"/>
+  </g>
+  <g transform="translate(962 246) rotate(-28)">
+    <use href="#sprinkleMint"/>
+  </g>
+  <g transform="translate(1168 136) rotate(34)">
+    <use href="#sprinkleTeal"/>
+  </g>
+  <g transform="translate(1368 252) rotate(-20)">
+    <use href="#sprinklePink"/>
+  </g>
+  <g transform="translate(242 640) rotate(16)">
+    <use href="#sprinkleTeal"/>
+  </g>
+  <g transform="translate(452 758) rotate(-32)">
+    <use href="#sprinklePink"/>
+  </g>
+  <g transform="translate(710 680) rotate(28)">
+    <use href="#sprinkleMint"/>
+  </g>
+  <g transform="translate(934 788) rotate(-16)">
+    <use href="#sprinkleTeal"/>
+  </g>
+  <g transform="translate(1188 710) rotate(18)">
+    <use href="#sprinklePink"/>
+  </g>
+  <g transform="translate(1410 606) rotate(-26)">
+    <use href="#sprinkleMint"/>
+  </g>
+
+  <circle cx="512" cy="332" r="34" fill="#FFF4DA" fill-opacity="0.16"/>
+  <circle cx="1224" cy="308" r="44" fill="#D13366" fill-opacity="0.1"/>
+  <circle cx="1084" cy="640" r="52" fill="#3EA789" fill-opacity="0.1"/>
+</svg>

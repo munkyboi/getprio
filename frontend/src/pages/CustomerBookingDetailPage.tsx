@@ -1,27 +1,37 @@
-import { useCallback, useEffect, useState } from "react";
-import { Alert, Badge, Button, Card, FileInput, Group, Image, SimpleGrid, Stack, Text, Textarea, TextInput, Title } from "@mantine/core";
+import { type FormEvent, useCallback, useEffect, useState } from "react";
+import { Accordion, Alert, Badge, Button, Card, Container, FileInput, Group, Image, Modal, Paper, ScrollArea, SimpleGrid, Spoiler, Stack, Text, Textarea, TextInput, ThemeIcon, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
-import { IconArrowLeft, IconExternalLink, IconTicket, IconUpload } from "@tabler/icons-react";
+import { IconAlertCircle, IconArrowLeft, IconBuildingBank, IconBuildingStore, IconCalendar, IconCircleCheck, IconExternalLink, IconEye, IconReceipt, IconStar, IconTicket, IconUpload, IconUsersGroup, IconX } from "@tabler/icons-react";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import type {
   BookingPaymentProofAccessResponse,
-  BookingPaymentProofUploadResponse,
   BookingStatus,
   CancelCustomerBookingResponse,
   CustomerBookingDetailResponse,
   CustomerBookingResponse,
+  PublicBoardThemeSettings,
+  PublicVendorProfile,
+  PublicVendorProfileResponse,
   SubmitBookingPaymentProofRequest
 } from "@shared";
-import { API_BASE_URL, apiRequest } from "../api/client";
-import { ConfirmActionModal } from "../components/ConfirmActionModal";
+import { API_BASE_URL, ApiError, apiRequest } from "../api/client";
+import { customerAccountApi } from "../api/customerAccount";
+import ResourceErrorState from "../components/ResourceErrorState";
+import FiveStarRatingInput from "../components/FiveStarRatingInput";
+import CampaignCreateForm from "../components/CampaignCreateForm";
+import RichCampaignDescription from "../components/RichCampaignDescription";
 import { useAuth } from "../context/AuthContext";
 import { buildJoinedQueuePathWithTicket } from "../queuePaths";
 import {
   formatBookingScheduleDate,
   formatBookingScheduleTimeRange,
-  formatDateTime
+  formatDateTime,
+  formatDisplayTime,
+  toTimestamp
 } from "../utils/dates";
 import { getErrorMessage } from "../utils/errors";
+import { showCustomerError } from "../utils/customerNotifications";
+import { buildVendorThemeMediaStyle, buildVendorThemeStyle, resolveVendorProfileMedia } from "../utils/vendorTheme";
 
 function getBookingBadgeColor(status: BookingStatus): "gray" | "red" | "yellow" | "orange" | "teal" | "blue" {
   switch (status) {
@@ -47,8 +57,14 @@ function canCancel(status: BookingStatus, checkedInAt: string | Date | null, lin
   return ["pending", "confirmed", "rescheduled"].includes(status) && !checkedInAt && !linkedTicket;
 }
 
-function canSubmitPaymentProof(status: BookingStatus, checkedInAt: string | Date | null, linkedTicket: unknown, hasProof: boolean) {
-  return ["pending", "confirmed", "rescheduled"].includes(status) && !checkedInAt && !linkedTicket && !hasProof;
+function canSubmitPaymentProof(
+  status: BookingStatus,
+  checkedInAt: string | Date | null,
+  linkedTicket: unknown,
+  hasProof: boolean,
+  serviceManualPaymentRequired: boolean
+) {
+  return serviceManualPaymentRequired && ["pending", "confirmed", "rescheduled"].includes(status) && !checkedInAt && !linkedTicket && !hasProof;
 }
 
 function formatBytes(sizeBytes: number | null) {
@@ -71,20 +87,103 @@ function formatPaymentAmount(amountCents: number, currency: string) {
   }).format(amountCents / 100);
 }
 
+function getContributionBadgeColor(status: string): "gray" | "red" | "yellow" | "orange" | "teal" | "blue" {
+  switch (status) {
+    case "verified":
+      return "teal";
+    case "submitted":
+    case "pending_proof":
+      return "yellow";
+    case "rejected":
+      return "red";
+    case "refund_pending":
+      return "orange";
+    case "refunded":
+      return "blue";
+    case "policy_review_required":
+      return "orange";
+    default:
+      return "gray";
+  }
+}
+
+function formatCampaignStatusLabel(status: string) {
+  return status.replace(/_/g, " ");
+}
+
+function formatDurationLabel(startValue: string | Date, endValue: string | Date) {
+  const start = toTimestamp(startValue);
+  const end = toTimestamp(endValue);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+    return "Schedule set";
+  }
+
+  const totalMinutes = Math.round((end - start) / 60000);
+  if (totalMinutes < 60) {
+    return `${totalMinutes} min`;
+  }
+
+  const hours = totalMinutes / 60;
+  return `${Number.isInteger(hours) ? hours : hours.toFixed(1)} hr${hours === 1 ? "" : "s"}`;
+}
+
+function formatPhilippineMobileNumber(value: string | null | undefined) {
+  const digits = (value || "").replace(/\D/g, "");
+  const local = digits.startsWith("63")
+    ? `0${digits.slice(2)}`
+    : digits.length === 10 && digits.startsWith("9")
+      ? `0${digits}`
+      : digits;
+
+  if (/^09\d{9}$/.test(local)) {
+    return `(${local.slice(0, 4)}) ${local.slice(4, 7)}-${local.slice(7)}`;
+  }
+
+  return value || "Mobile number unavailable";
+}
+
+function formatCheckInCountdown(milliseconds: number) {
+  const seconds = Math.max(0, Math.ceil(milliseconds / 1000));
+  if (seconds >= 86400) {
+    const days = Math.ceil(seconds / 86400);
+    return `${days} day${days === 1 ? "" : "s"}`;
+  }
+  if (seconds >= 3600) {
+    const hours = Math.ceil(seconds / 3600);
+    return `${hours}h`;
+  }
+  if (seconds >= 60) {
+    const minutes = Math.ceil(seconds / 60);
+    return `${minutes}m`;
+  }
+  return `${seconds}s`;
+}
+
 export default function CustomerBookingDetailPage() {
-  const navigate = useNavigate();
   const { bookingId = "" } = useParams<{ bookingId: string }>();
+  const navigate = useNavigate();
   const { token, user, loading: authLoading } = useAuth();
   const [booking, setBooking] = useState<CustomerBookingDetailResponse["booking"] | null>(null);
   const [reason, setReason] = useState("");
   const [paymentReference, setPaymentReference] = useState("");
   const [paymentProofFile, setPaymentProofFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(true);
+  const [responseStatus, setResponseStatus] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [proofBusy, setProofBusy] = useState(false);
   const [proofViewBusy, setProofViewBusy] = useState(false);
+  const [proofModalOpen, setProofModalOpen] = useState(false);
+  const [proofAccessUrl, setProofAccessUrl] = useState("");
   const [error, setError] = useState("");
-  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
+  const [cancelModalOpen, setCancelModalOpen] = useState(false);
+  const [vendorTheme, setVendorTheme] = useState<PublicBoardThemeSettings | null>(null);
+  const [vendorProfile, setVendorProfile] = useState<PublicVendorProfile | null>(null);
+  const [serviceImagePreview, setServiceImagePreview] = useState<{ name: string; imageUrl: string } | null>(null);
+  const [currentTime, setCurrentTime] = useState(() => Date.now());
+  const [ratingStars, setRatingStars] = useState(0);
+  const [ratingComment, setRatingComment] = useState("");
+  const [ratingSubmitted, setRatingSubmitted] = useState(false);
+  const [campaignCreateModalOpen, setCampaignCreateModalOpen] = useState(false);
 
   const loadBooking = useCallback(async (options: { showLoading?: boolean } = {}) => {
     if (!token || !bookingId) {
@@ -99,7 +198,9 @@ export default function CustomerBookingDetailPage() {
       const data = await apiRequest<CustomerBookingDetailResponse>(`/account/bookings/${bookingId}`, { token });
       setBooking(data.booking);
       setError("");
+      setResponseStatus(null);
     } catch (loadError) {
+      setResponseStatus(loadError instanceof ApiError ? loadError.status : null);
       setError(getErrorMessage(loadError));
     } finally {
       if (options.showLoading) {
@@ -107,6 +208,17 @@ export default function CustomerBookingDetailPage() {
       }
     }
   }, [bookingId, token]);
+
+  async function submitVendorRating() {
+    if (!token || !booking || !ratingStars) return;
+    setBusy(true);
+    try {
+      await apiRequest(`/account/bookings/${booking.id}/rating`, { method: "POST", token, body: { stars: ratingStars, comment: ratingComment } });
+      setRatingSubmitted(true);
+      notifications.show({ color: "teal", title: "Rating submitted", message: "Thank you for rating this vendor." });
+    } catch (ratingError) { showCustomerError(getErrorMessage(ratingError), "Could not submit rating"); }
+    finally { setBusy(false); }
+  }
 
   useEffect(() => {
     let active = true;
@@ -159,6 +271,35 @@ export default function CustomerBookingDetailPage() {
     };
   }, [booking?.locationSlug, booking?.tenantSlug, loadBooking, token]);
 
+  useEffect(() => {
+    if (!booking?.tenantSlug) {
+      setVendorTheme(null);
+      setVendorProfile(null);
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    apiRequest<PublicVendorProfileResponse>(`/public/vendors/${booking.tenantSlug}`, { signal: controller.signal })
+      .then((data) => {
+        setVendorTheme(resolveVendorProfileMedia(data.vendor.publicBoardTheme?.theme, data.vendor.businessProfileTheme?.theme));
+        setVendorProfile(data.vendor);
+      })
+      .catch((themeError) => {
+        if (!controller.signal.aborted) {
+          setVendorTheme(null);
+          setVendorProfile(null);
+          console.error(themeError);
+        }
+      });
+
+    return () => controller.abort();
+  }, [booking?.tenantSlug]);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => setCurrentTime(Date.now()), 1000);
+    return () => window.clearInterval(intervalId);
+  }, []);
+
   if (authLoading || loading) {
     return <Card className="finazze-auth-card">Loading booking...</Card>;
   }
@@ -167,7 +308,8 @@ export default function CustomerBookingDetailPage() {
     return <Navigate to="/login" replace />;
   }
 
-  async function handleCancel() {
+  async function handleCancel(event?: FormEvent<HTMLFormElement>) {
+    event?.preventDefault();
     if (!token || !booking) {
       return;
     }
@@ -184,13 +326,15 @@ export default function CustomerBookingDetailPage() {
         }
       );
       setBooking(data.booking);
+      setReason("");
+      setCancelModalOpen(false);
       notifications.show({
         color: "teal",
         title: "Booking cancelled",
         message: `${data.booking.reference} was cancelled.`
       });
     } catch (cancelError) {
-      setError(getErrorMessage(cancelError));
+      showCustomerError(getErrorMessage(cancelError), "Could not cancel booking");
     } finally {
       setBusy(false);
     }
@@ -203,34 +347,19 @@ export default function CustomerBookingDetailPage() {
 
     const trimmedReference = paymentReference.trim();
     if (!trimmedReference) {
-      setError("Payment reference is required.");
+      showCustomerError("Payment reference is required.", "Payment reference needed");
       return;
     }
 
     if (!paymentProofFile) {
-      setError("Payment proof image is required.");
+      showCustomerError("Payment proof image is required.", "Payment proof needed");
       return;
     }
 
     setProofBusy(true);
     setError("");
     try {
-      const uploadResponse = await fetch(
-        `${API_BASE_URL}/account/bookings/${booking.id}/payment-proof/uploads/direct?fileName=${encodeURIComponent(paymentProofFile.name)}`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": paymentProofFile.type
-          },
-          body: paymentProofFile
-        }
-      );
-
-      if (!uploadResponse.ok) {
-        throw new Error("Payment proof upload failed. Please try again.");
-      }
-      const uploadData = await uploadResponse.json() as BookingPaymentProofUploadResponse;
+      const uploadData = await customerAccountApi.uploadBookingPaymentProof(token, booking.id, paymentProofFile);
 
       const payload: SubmitBookingPaymentProofRequest = {
         paymentReference: trimmedReference,
@@ -256,7 +385,7 @@ export default function CustomerBookingDetailPage() {
         message: `${data.booking.reference} is waiting for vendor verification.`
       });
     } catch (proofError) {
-      setError(getErrorMessage(proofError));
+      showCustomerError(getErrorMessage(proofError), "Could not submit payment proof");
     } finally {
       setProofBusy(false);
     }
@@ -274,9 +403,10 @@ export default function CustomerBookingDetailPage() {
         `/account/bookings/${booking.id}/payment-proof`,
         { token }
       );
-      window.open(data.access.url, "_blank", "noopener,noreferrer");
+      setProofAccessUrl(data.access.url);
+      setProofModalOpen(true);
     } catch (viewError) {
-      setError(getErrorMessage(viewError));
+      showCustomerError(getErrorMessage(viewError), "Could not open payment proof");
     } finally {
       setProofViewBusy(false);
     }
@@ -284,21 +414,28 @@ export default function CustomerBookingDetailPage() {
 
   if (!booking) {
     return (
-      <Stack className="customer-account-page" gap="lg">
-        <Button leftSection={<IconArrowLeft size={16} />} onClick={() => navigate("/account/bookings")} variant="subtle" w="fit-content">
-          Back to bookings
-        </Button>
-        <Alert color="red">{error || "Booking not found."}</Alert>
-      </Stack>
+      <ResourceErrorState
+        backLabel="Back to booking list"
+        backTo="/account/bookings"
+        error={error}
+        onRetry={() => void loadBooking({ showLoading: true })}
+        resourceName="booking"
+        status={responseStatus}
+      />
     );
   }
 
+  const groupFundedCampaign = booking.groupFundedCampaign;
+  const isGroupFundedBooking = booking.bookingPaymentSource === "group_funded" || Boolean(booking.groupFundedBookingId || groupFundedCampaign);
+  const campaignTitle = groupFundedCampaign?.campaignTitle || "Group-funded campaign";
+  const campaignPath = groupFundedCampaign?.publicToken ? `/group-funded/${groupFundedCampaign.publicToken}` : "";
   const cancellationAllowed = canCancel(booking.status, booking.checkedInAt, booking.linkedTicket);
   const proofSubmissionAllowed = canSubmitPaymentProof(
     booking.status,
     booking.checkedInAt,
     booking.linkedTicket,
-    Boolean(booking.paymentProof)
+    Boolean(booking.paymentProof),
+    booking.serviceManualPaymentRequired && !isGroupFundedBooking
   );
   const paymentProofStatus =
     booking.paymentVerifiedAt
@@ -308,81 +445,437 @@ export default function CustomerBookingDetailPage() {
         : { color: "yellow" as const, label: "Awaiting vendor verification" };
   const hasExpired = Boolean(booking.expiredAt);
   const manualPaymentDestination = booking.manualPaymentDestination;
+  const linkedQueuePath = booking.linkedTicket
+    ? buildJoinedQueuePathWithTicket(
+      booking.tenantSlug,
+      booking.linkedTicket.lookupCode,
+      booking.locationSlug
+    )
+    : "";
+  const fundingAdjustmentCents = Math.max(0, Number(groupFundedCampaign?.roundingAdjustmentCents || 0));
+  const fundingTargetAmountCents = Number(groupFundedCampaign?.targetAmountCents || 0) + fundingAdjustmentCents;
+  const campaignProgress = fundingTargetAmountCents
+    ? Math.min(100, Math.round(((groupFundedCampaign?.fundedAmountCents || 0) / fundingTargetAmountCents) * 100))
+    : 0;
+  const campaignContributions = (groupFundedCampaign?.contributions || []).filter(
+    (contribution) => contribution.contributionStatus === "verified"
+  );
+  const bookingBundleItems = groupFundedCampaign?.bundleItems?.length
+    ? groupFundedCampaign.bundleItems
+    : booking.bundleItems?.length
+      ? booking.bundleItems
+      : [];
+  const bookingServiceItems = bookingBundleItems.length
+    ? bookingBundleItems
+    : [{
+        serviceName: booking.serviceName,
+        bookingQuantity: booking.bookingQuantity,
+        scheduledStartAt: booking.scheduledStartAt,
+        scheduledEndAt: booking.scheduledEndAt,
+        serviceSlug: booking.serviceSlug,
+        priceAmountCents: Number(booking.servicePriceAmountCents || 0) * Number(booking.bookingQuantity || 1),
+        currency: booking.serviceCurrency
+      }];
+  const bookingServiceItemsWithImages = bookingServiceItems.map((item) => ({
+    ...item,
+    imageUrl: vendorProfile?.services.find((service) => service.slug === item.serviceSlug)?.imageUrl || ""
+  }));
+  const bookingServiceModeLabel = "Bundled services";
+  const bookingStartTimestamp = Math.min(...bookingServiceItems.map((item) => toTimestamp(item.scheduledStartAt)).filter(Number.isFinite));
+  const bookingEndTimestamp = Math.max(...bookingServiceItems.map((item) => toTimestamp(item.scheduledEndAt)).filter(Number.isFinite));
+  const bookingStart = Number.isFinite(bookingStartTimestamp) ? new Date(bookingStartTimestamp) : booking.scheduledStartAt;
+  const bookingEnd = Number.isFinite(bookingEndTimestamp) ? new Date(bookingEndTimestamp) : booking.scheduledEndAt;
+  const checkInWindowStartsAt = Number.isFinite(bookingStartTimestamp) ? bookingStartTimestamp - (15 * 60 * 1000) : Number.NaN;
+  const checkInWindowEndsAt = Number.isFinite(bookingStartTimestamp) ? bookingStartTimestamp + (15 * 60 * 1000) : Number.NaN;
+  const isBeforeCheckInWindow = Number.isFinite(checkInWindowStartsAt) && currentTime < checkInWindowStartsAt;
+  const isInsideCheckInWindow = Number.isFinite(checkInWindowStartsAt) && currentTime >= checkInWindowStartsAt && currentTime <= checkInWindowEndsAt;
+  const checkInAvailable = Boolean(booking.linkedTicket) && isInsideCheckInWindow;
+  const checkInActionLabel = isBeforeCheckInWindow
+    ? `Check-in available in ${formatCheckInCountdown(checkInWindowStartsAt - currentTime)}`
+    : isInsideCheckInWindow
+      ? "Check-in"
+      : "Check-in unavailable";
+  const totalBookingHoursLabel = formatDurationLabel(bookingStart, bookingEnd);
+  const bookingTotalFeeCents = groupFundedCampaign
+    ? fundingTargetAmountCents
+    : bookingServiceItems.reduce((total, item) => total + Number(item.priceAmountCents || 0), 0);
+  const bookingTotalFeeDisplay = formatPaymentAmount(
+    bookingTotalFeeCents,
+    groupFundedCampaign?.currency || booking.serviceCurrency
+  );
+  const bookingTicketLabel = booking.reference;
+  const bookingTicketStatus = hasExpired ? "expired" : booking.status;
+  const primaryCheckInAction = checkInAvailable ? (
+    <Button className="vendor-theme-button booking-detail-primary-action" component={Link} leftSection={<IconTicket size={18} />} size="lg" to={linkedQueuePath}>
+      {checkInActionLabel}
+    </Button>
+  ) : (
+    <Button className="booking-detail-primary-action" disabled leftSection={<IconTicket size={18} />} size="lg" variant="filled">
+      {checkInActionLabel}
+    </Button>
+  );
+  const themeStyle = buildVendorThemeStyle(vendorTheme);
+  const themedMediaStyle = buildVendorThemeMediaStyle(vendorTheme);
 
   return (
-    <Stack className="customer-account-page" gap="lg">
-      <Button component={Link} leftSection={<IconArrowLeft size={16} />} to="/account/bookings" variant="subtle" w="fit-content">
-        Back to bookings
-      </Button>
+    <Stack className="vendor-profile-page" gap="xl" style={themeStyle}>
+      <Container size="xl" w="100%">
+        <Button className="ticket-page-back-button" component={Link} leftSection={<IconArrowLeft size={18} />} mb="md" to="/account/bookings" variant="subtle" w="fit-content">
+          Back to booking list
+        </Button>
 
-      <Card className="finazze-auth-card customer-account-card" p="xl">
-        <Stack gap="md">
-          <Group justify="space-between" align="flex-start">
-            <div>
-              <Text className="finazze-section-label">Booking detail</Text>
-              <Title order={1}>{booking.reference}</Title>
-            </div>
-            <Badge color={getBookingBadgeColor(booking.status)} size="lg" variant="light">
-              {hasExpired ? "expired" : booking.status}
-            </Badge>
-          </Group>
-
-          {error ? <Alert color="red">{error}</Alert> : null}
           {hasExpired ? (
             <Alert color="orange" variant="light">
               {booking.expirationReason || "This pending booking expired before vendor confirmation or payment evidence submission."}
             </Alert>
           ) : null}
 
-          <Group gap="xl" align="flex-start">
-            <Stack gap={2}>
-              <Text fw={700}>Vendor</Text>
-              <Text c="dimmed">{booking.tenantName}</Text>
-            </Stack>
-            <Stack gap={2}>
-              <Text fw={700}>Branch</Text>
-              <Text c="dimmed">{booking.locationName}</Text>
-            </Stack>
-            <Stack gap={2}>
-              <Text fw={700}>Service</Text>
-              <Text c="dimmed">{booking.serviceName}</Text>
-              <Text c="dimmed" size="sm">Quantity {booking.bookingQuantity}</Text>
-            </Stack>
-            <Stack gap={2}>
-              <Text fw={700}>Schedule</Text>
-              <Text c="dimmed">{formatBookingScheduleDate(booking.scheduledStartAt)}</Text>
-              <Text c="dimmed" size="sm">
-                {formatBookingScheduleTimeRange(booking.scheduledStartAt, booking.scheduledEndAt)}
-              </Text>
-            </Stack>
-          </Group>
+        {booking.organizerCampaignOptIn && booking.status === "confirmed" && booking.paymentStatus === "paid" ? (
+          <Paper aria-labelledby="booking-campaign-notice-title" className="booking-campaign-notice" mb="md" p={{ base: "md", sm: "lg" }} role="status">
+            <div className="booking-campaign-notice__layout">
+              <ThemeIcon className="booking-campaign-notice__icon" radius="xl" size={44}>
+                <IconUsersGroup aria-hidden="true" size={22}/>
+              </ThemeIcon>
+              <Stack gap={4}>
+                <Text className="booking-campaign-notice__eyebrow" size="xs">BOOKING CONFIRMED</Text>
+                <Title className="booking-campaign-notice__title" id="booking-campaign-notice-title" order={2}>{booking.organizerCampaign ? "Your campaign is ready to manage" : "Ready to start your group-funded campaign"}</Title>
+                <Text className="booking-campaign-notice__message" size="sm">{booking.organizerCampaign ? "Review contributions, campaign progress, and organizer actions from your Campaign Control Center." : "Your booking is paid and vendor-confirmed. Create a campaign when you are ready to collect contributions independently."}</Text>
+              </Stack>
+              {booking.organizerCampaign ? <Button className="booking-campaign-notice__action" component={Link} size="md" to={`/account/campaigns/${booking.organizerCampaign.id}/manage`}>Manage campaign</Button> : <Button className="booking-campaign-notice__action" onClick={() => setCampaignCreateModalOpen(true)} size="md">Create campaign</Button>}
+            </div>
+          </Paper>
+        ) : null}
 
-          <Group gap="xl" align="flex-start">
-            <Stack gap={2}>
-              <Text fw={700}>Email alerts</Text>
-              <Badge color={booking.notifyByEmail ? "teal" : "gray"} variant="light">
-                {booking.notifyByEmail ? "Enabled" : "Off"}
-              </Badge>
-            </Stack>
-            <Stack gap={2}>
-              <Text fw={700}>Browser notifications</Text>
-              <Badge color={booking.notifyByEmail ? "teal" : "gray"} variant="light">
-                {booking.notifyByEmail ? "Email fallback on" : "Email fallback off"}
-              </Badge>
-            </Stack>
-            <Stack gap={2}>
-              <Text fw={700}>Payment</Text>
-              <Badge color={booking.paymentStatus === "paid" ? "teal" : "gray"} variant="light">
-                {booking.paymentStatus}
-              </Badge>
-            </Stack>
-          </Group>
+        {["completed", "reviewed"].includes(booking.status) && !ratingSubmitted ? (
+          <Card mb="md" p="lg">
+            <Stack gap="sm"><Group justify="space-between"><Title order={3}>Rate this vendor</Title>{ratingStars ? <Group gap={6}><IconStar color="#ffd000" fill="#ffd000" size={22}/><Text fw={900}>{ratingStars}.0</Text></Group> : null}</Group><FiveStarRatingInput value={ratingStars} onChange={setRatingStars}/><Textarea label="Optional public comment" maxLength={500} value={ratingComment} onChange={(event) => setRatingComment(event.currentTarget.value)}/><Button disabled={!ratingStars} loading={busy} onClick={submitVendorRating} w="fit-content">Submit rating</Button></Stack>
+          </Card>
+        ) : null}
 
-          {booking.status === "confirmed" || booking.status === "rescheduled" ? (
-            <Alert color="blue" variant="light">
-              Arrive near your scheduled time. A queue ticket appears here only after vendor check-in.
-            </Alert>
+        <Paper className="vendor-hero-shell ticket-page-hero booking-detail-page-hero" p={{ base: "lg", md: "xl" }}>
+          <SimpleGrid cols={{ base: 1, lg: 2 }} spacing={{ base: "xl", lg: 48 }}>
+            <Stack className="booking-detail-info-panel" gap="lg" justify="flex-start">
+              <div>
+                <Title className="vendor-hero-title ticket-page-title" order={1}>
+                  {booking.reference}
+                </Title>
+                <Group gap="sm" wrap="wrap">
+                  <Badge className="vendor-theme-badge vendor-theme-badge-primary" size="lg" variant="light">
+                    BOOKING DETAIL
+                  </Badge>
+                  {isGroupFundedBooking ? (
+                    <Badge className="vendor-theme-badge vendor-theme-badge-secondary" size="lg" variant="light">
+                      GROUP-FUNDED
+                    </Badge>
+                  ) : null}
+                  <Badge color={getBookingBadgeColor(hasExpired ? "canceled" : booking.status)} size="lg" variant="light">
+                    {(hasExpired ? "expired" : booking.status).toUpperCase()}
+                  </Badge>
+                </Group>
+              </div>
+
+              <Paper className="booking-detail-services-card" p="md">
+                <Stack gap="sm">
+                  <Text className="finazze-section-label">{bookingServiceModeLabel}</Text>
+                  {bookingServiceItemsWithImages.map((item, index) => (
+                    <Paper className="group-funded-bundle-item" key={`${item.serviceName}-${index}`} p="sm">
+                      <Group align="center" gap="sm" wrap="nowrap">
+                        {item.imageUrl ? (
+                          <button
+                            aria-label={`Preview ${item.serviceName} image`}
+                            className="group-funded-bundle-thumbnail"
+                            onClick={() => setServiceImagePreview({ name: item.serviceName, imageUrl: item.imageUrl })}
+                            type="button"
+                          >
+                            <img alt="" src={item.imageUrl} />
+                            <span aria-hidden="true"><IconEye size={16} /></span>
+                          </button>
+                        ) : null}
+                        <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
+                          <Group justify="space-between" gap="sm" wrap="nowrap">
+                            <Text fw={800}>{item.serviceName}</Text>
+                            <Badge variant="light">x{item.bookingQuantity}</Badge>
+                          </Group>
+                          <Text c="dimmed" size="sm">
+                            {formatBookingScheduleTimeRange(item.scheduledStartAt, item.scheduledEndAt)} · {formatPaymentAmount(item.priceAmountCents, item.currency)}
+                          </Text>
+                        </Stack>
+                      </Group>
+                    </Paper>
+                  ))}
+                </Stack>
+              </Paper>
+
+              {booking.status === "confirmed" || booking.status === "rescheduled" ? (
+                <Alert className="booking-detail-checkin-notice" color="blue" icon={<IconAlertCircle size={18} />} variant="light">
+                  Arrive near your scheduled time. A queue ticket appears here only after vendor check-in.
+                </Alert>
+              ) : null}
+
+              <Stack className="booking-detail-meta" gap="sm">
+                <Group gap={8} wrap="wrap">
+                  <IconBuildingStore className="booking-detail-meta-icon" size={18} />
+                  <Text component={Link} fw={700} to={`/vendors/${booking.tenantSlug}?location=${encodeURIComponent(booking.locationSlug)}`} td="underline">
+                    {booking.tenantName}
+                  </Text>
+                  <Text c="dimmed">•</Text>
+                  <Text>{booking.locationName}</Text>
+                </Group>
+                <Group gap={8} wrap="wrap">
+                  <IconCalendar className="booking-detail-meta-icon" size={18} />
+                  <Text>{formatBookingScheduleDate(bookingStart)} · {formatDisplayTime(bookingStart).toLowerCase()} - {formatDisplayTime(bookingEnd).toLowerCase()} · {totalBookingHoursLabel}</Text>
+                </Group>
+                <Group gap={8} wrap="nowrap">
+                  <IconReceipt className="booking-detail-meta-icon" size={18} />
+                  <Text>Total fee <Text component="span" fw={800}>{bookingTotalFeeDisplay}</Text></Text>
+                </Group>
+              </Stack>
+
+            </Stack>
+
+            <Paper className="booking-detail-visual-card" style={themedMediaStyle}>
+              {vendorTheme?.logoUrl ? (
+                <div className="booking-detail-logo-frame">
+                  <img alt={`${booking.tenantName} logo`} src={vendorTheme.logoUrl} />
+                </div>
+              ) : (
+                <div className="booking-detail-logo-frame booking-detail-logo-placeholder">
+                  <IconReceipt size={56} stroke={1.5} />
+                </div>
+              )}
+
+              <div className="booking-detail-visual-content">
+                <Stack align="center" gap={6}>
+                  <Title className="booking-detail-ticket-number" order={2}>{bookingTicketLabel}</Title>
+                  <Group gap="xs" justify="center" wrap="wrap">
+                    <Badge color={getBookingBadgeColor(hasExpired ? "canceled" : booking.status)} size="lg" variant="light">
+                      {bookingTicketStatus.toUpperCase()}
+                    </Badge>
+                    {campaignPath ? (
+                      <Badge
+                        className="booking-detail-campaign-chip"
+                        color="gray"
+                        size="lg"
+                        title={`CAMPAIGN: ${campaignTitle}`}
+                        variant="light"
+                      >
+                        CAMPAIGN: {campaignTitle}
+                      </Badge>
+                    ) : null}
+                  </Group>
+                </Stack>
+                <SimpleGrid cols={{ base: 1, sm: 3 }} mt="lg" spacing="sm">
+                  <div className="booking-detail-visual-tile">
+                    <Text size="xs">Bundled services</Text>
+                    <Text><strong>{totalBookingHoursLabel}</strong> · {bookingServiceItems.length} service{bookingServiceItems.length === 1 ? "" : "s"}</Text>
+                    <Text size="sm">Total fee <strong>{bookingTotalFeeDisplay}</strong></Text>
+                  </div>
+                  <div className="booking-detail-visual-tile">
+                    <Text size="xs">Booking schedule</Text>
+                    <Text fw={800}>{formatBookingScheduleDate(bookingStart)}</Text>
+                    <Text size="sm">{formatDisplayTime(bookingStart)} - {formatDisplayTime(bookingEnd)}</Text>
+                  </div>
+                  <div className="booking-detail-visual-tile">
+                    <Text size="xs">Customer</Text>
+                    <Text fw={800}>{user.displayName || user.name}</Text>
+                    <Text size="sm">{formatPhilippineMobileNumber(user.phone)}</Text>
+                  </div>
+                </SimpleGrid>
+                <Stack className="booking-detail-visual-action" gap="sm">
+                  {primaryCheckInAction}
+                  {campaignPath ? (
+                    <Button
+                      className="vendor-theme-button booking-detail-campaign-action"
+                      component={Link}
+                      leftSection={<IconExternalLink size={18} />}
+                      size="lg"
+                      to={campaignPath}
+                      variant="filled"
+                    >
+                      View campaign
+                    </Button>
+                  ) : null}
+                  <Button
+                    className="booking-detail-cancel-action"
+                    color="red"
+                    disabled={!cancellationAllowed}
+                    leftSection={<IconX size={16} />}
+                    onClick={() => setCancelModalOpen(true)}
+                    size="lg"
+                    variant="subtle"
+                  >
+                    Cancel booking
+                  </Button>
+                </Stack>
+              </div>
+            </Paper>
+          </SimpleGrid>
+        </Paper>
+
+        <Card className="finazze-auth-card customer-account-card booking-detail-section-card" mt="xl" p="xl">
+          <Stack gap="md">
+
+          {groupFundedCampaign ? (
+            <Paper className="customer-booking-campaign-card" withBorder radius="lg" p="lg">
+              <Stack gap="md">
+                <Group justify="space-between" align="flex-start">
+                  <Stack gap={4}>
+                    <Text className="finazze-section-label">Group-funded campaign</Text>
+                    <Title order={3}>{groupFundedCampaign.campaignTitle || booking.serviceName}</Title>
+                    <Text c="dimmed" size="sm">
+                      Organized by {groupFundedCampaign.organizerDisplayName || "the campaign organizer"}
+                    </Text>
+                  </Stack>
+                  <Button
+                    component={Link}
+                    rightSection={<IconExternalLink size={16} />}
+                    to={`/group-funded/${groupFundedCampaign.publicToken}`}
+                    variant="light"
+                  >
+                    View campaign
+                  </Button>
+                </Group>
+
+                {groupFundedCampaign.description ? (
+                  <Spoiler hideLabel="Show less" maxHeight={72} showLabel="Show more">
+                    <RichCampaignDescription
+                      className="rich-campaign-description"
+                      content={groupFundedCampaign.description}
+                    />
+                  </Spoiler>
+                ) : null}
+
+                <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
+                  <Paper className="customer-booking-campaign-stat" radius="md" p="md">
+                    <Text c="dimmed" size="sm">Campaign status</Text>
+                    <Badge color="blue" mt={6} variant="light">
+                      {formatCampaignStatusLabel(groupFundedCampaign.campaignStatus)}
+                    </Badge>
+                    <Text c="dimmed" mt="xs" size="sm">
+                      Confirmed {groupFundedCampaign.confirmedAt ? formatDateTime(groupFundedCampaign.confirmedAt) : "by vendor"}
+                    </Text>
+                  </Paper>
+                  <Paper className="customer-booking-campaign-stat" radius="md" p="md">
+                    <Text c="dimmed" size="sm">Funding</Text>
+                    <Text fw={800}>
+                      {formatPaymentAmount(groupFundedCampaign.fundedAmountCents, groupFundedCampaign.currency)} /{" "}
+                      {formatPaymentAmount(fundingTargetAmountCents, groupFundedCampaign.currency)}
+                    </Text>
+                    <Text c="dimmed" size="sm">{campaignProgress}% funded</Text>
+                  </Paper>
+                  <Paper className="customer-booking-campaign-stat" radius="md" p="md">
+                    <Text c="dimmed" size="sm">Contributors</Text>
+                    <Text fw={800}>
+                      {groupFundedCampaign.paidParticipantCount} of {groupFundedCampaign.requiredContributors}
+                    </Text>
+                    <Text c="dimmed" size="sm">
+                      {formatPaymentAmount(groupFundedCampaign.requiredContributionAmountCents, groupFundedCampaign.currency)} each
+                    </Text>
+                  </Paper>
+                </SimpleGrid>
+                {campaignContributions.length ? (
+                  <Accordion className="customer-booking-contributors" variant="contained">
+                    <Accordion.Item value="contributors">
+                      <Accordion.Control>
+                        <Group justify="space-between" pr="sm">
+                          <Text fw={800}>Contributors</Text>
+                          <Badge color="teal" variant="light">
+                            {campaignContributions.length} verified
+                          </Badge>
+                        </Group>
+                      </Accordion.Control>
+                      <Accordion.Panel>
+                        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
+                          {campaignContributions.map((contribution) => (
+                            <Paper className="customer-booking-campaign-stat" key={contribution.id} radius="md" p="md">
+                              <Stack gap={4}>
+                                <Group justify="space-between" gap="sm" wrap="nowrap">
+                                  <Text fw={800}>{contribution.contributorDisplayName || "Contributor"}</Text>
+                                  <Badge color={getContributionBadgeColor(contribution.contributionStatus)} variant="light">
+                                    {contribution.contributionStatus.replace(/_/g, " ")}
+                                  </Badge>
+                                </Group>
+                                <Text c="dimmed" size="sm">
+                                  {formatPaymentAmount(contribution.amountCents, contribution.currency)}
+                                </Text>
+                                <Text c="dimmed" size="xs">
+                                  {contribution.verifiedAt
+                                    ? `Verified ${formatDateTime(contribution.verifiedAt)}`
+                                    : contribution.submittedAt
+                                      ? `Submitted ${formatDateTime(contribution.submittedAt)}`
+                                      : "Contribution recorded"}
+                                </Text>
+                              </Stack>
+                            </Paper>
+                          ))}
+                        </SimpleGrid>
+                      </Accordion.Panel>
+                    </Accordion.Item>
+                  </Accordion>
+                ) : null}
+              </Stack>
+            </Paper>
           ) : null}
+
+          {!isGroupFundedBooking ? <div className="customer-booking-payment-section">
+            <Stack gap="md">
+              <div>
+                <Text className="finazze-section-label">YOUR PAYMENT</Text>
+                <Title order={2}>Payment proof</Title>
+              </div>
+              {booking.paymentProof ? (
+                <Stack className="customer-booking-payment-summary" gap="sm">
+                  <>
+                    <Group align="flex-start" gap="sm" wrap="nowrap">
+                      <ThemeIcon color={paymentProofStatus.color} radius="xl" size={48} variant="filled">
+                        <IconCircleCheck size={24} />
+                      </ThemeIcon>
+                      <Stack gap={2} style={{ flex: 1 }}>
+                        <Text fw={800}>{paymentProofStatus.label}</Text>
+                        <Text c="dimmed" size="sm">Your payment proof is private and available only to you and authorized vendor users.</Text>
+                      </Stack>
+                    </Group>
+                    <Badge color={paymentProofStatus.color} variant="light" w="fit-content">
+                      {paymentProofStatus.label}
+                    </Badge>
+                    <Stack gap={2}>
+                      <Text c="dimmed" size="xs">Payment reference</Text>
+                      <Text fw={700}>{booking.paymentReference || "Not provided"}</Text>
+                    </Stack>
+                    <Stack gap={2}>
+                      <Text c="dimmed" size="xs">Uploaded proof</Text>
+                      <Text fw={700}>{booking.paymentProof.fileName}</Text>
+                    </Stack>
+                    <Button
+                      leftSection={<IconEye size={16} />}
+                      loading={proofViewBusy}
+                      onClick={handleViewPaymentProof}
+                      size="lg"
+                      className="customer-booking-payment-view-button"
+                      variant="light"
+                      w="100%"
+                    >
+                      View payment proof
+                    </Button>
+                  </>
+                </Stack>
+              ) : (
+                <Stack gap="sm">
+                  <Alert color="blue" variant="light">Submit your vendor payment receipt once the transfer is complete.</Alert>
+                  <Button
+                    disabled={!proofSubmissionAllowed}
+                    leftSection={<IconUpload size={16} />}
+                    onClick={() => document.getElementById("payment-proof-section")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                    size="lg"
+                    variant="light"
+                    w="100%"
+                  >
+                    Submit payment proof
+                  </Button>
+                </Stack>
+              )}
+            </Stack>
+          </div> : null}
 
           {booking.linkedTicket ? (
             <Card withBorder radius="md" p="md">
@@ -394,11 +887,7 @@ export default function CustomerBookingDetailPage() {
                 <Button
                   component={Link}
                   leftSection={<IconTicket size={16} />}
-                  to={buildJoinedQueuePathWithTicket(
-                    booking.tenantSlug,
-                    booking.linkedTicket.lookupCode,
-                    booking.locationSlug
-                  )}
+                  to={linkedQueuePath}
                   variant="light"
                 >
                   Open live queue status
@@ -409,55 +898,28 @@ export default function CustomerBookingDetailPage() {
         </Stack>
       </Card>
 
-      <Card className="finazze-auth-card customer-account-card" p="xl">
+      {!isGroupFundedBooking && !booking.paymentProof && proofSubmissionAllowed ? (
+        <Card className="finazze-auth-card customer-account-card" id="payment-proof-section" p="xl">
         <Stack gap="md">
           <div>
-            <Text className="finazze-section-label">Payment proof</Text>
-            <Title order={2}>Manual payment evidence</Title>
+            <Text className="finazze-section-label">YOUR PAYMENT</Text>
+            <Title order={2}>Submit manual payment evidence</Title>
           </div>
 
-          {booking.paymentProof ? (
-            <Group justify="space-between" align="center">
-              <Stack gap={2}>
-                <Text fw={700}>{booking.paymentProof.fileName}</Text>
-                <Text c="dimmed" size="sm">
-                  {formatBytes(booking.paymentProof.sizeBytes)} uploaded{" "}
-                  {booking.paymentProof.uploadedAt ? formatDateTime(booking.paymentProof.uploadedAt) : ""}
-                </Text>
-                <Badge color={paymentProofStatus.color} variant="light" w="fit-content">
-                  {paymentProofStatus.label}
-                </Badge>
-                {booking.paymentRejectedAt && booking.paymentRejectionReason ? (
-                  <Alert color="red" variant="light" mt="xs">
-                    {booking.paymentRejectionReason}
-                  </Alert>
-                ) : null}
-              </Stack>
-              <Button
-                leftSection={<IconExternalLink size={16} />}
-                loading={proofViewBusy}
-                onClick={handleViewPaymentProof}
-                variant="light"
-              >
-                View proof
-              </Button>
-            </Group>
-          ) : proofSubmissionAllowed ? (
-            <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xl" verticalSpacing="lg">
+          <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xl" verticalSpacing="lg">
               <Card withBorder radius="md" p="md">
                 {manualPaymentDestination ? (
                   <Stack gap="md">
-                    <Image
-                      alt={`${manualPaymentDestination.methodLabel} payment QR`}
-                      fit="contain"
-                      mah={320}
-                      radius="sm"
-                      src={manualPaymentDestination.qrImageUrl}
-                      w="100%"
-                    />
+                    {manualPaymentDestination.methodLabel === "Bank Transfer" ? (
+                      <Stack align="center" gap="sm" justify="center" mih={220}>
+                        <ThemeIcon color="blue" radius="xl" size={84} variant="light"><IconBuildingBank size={44} /></ThemeIcon>
+                        <Text fw={700}>Bank transfer</Text>
+                      </Stack>
+                    ) : <Image alt={`${manualPaymentDestination.methodLabel} payment QR`} fit="contain" mah={320} radius="sm" src={manualPaymentDestination.qrImageUrl} w="100%" />}
                     <Stack gap={4}>
-                      <Badge color="yellow" variant="light" w="fit-content">Vendor payment QR</Badge>
+                      <Badge color="yellow" variant="light" w="fit-content">{manualPaymentDestination.methodLabel === "Bank Transfer" ? "Vendor bank details" : "Vendor payment QR"}</Badge>
                       <Text fw={700}>Pay vendor through {manualPaymentDestination.methodLabel}</Text>
+                      {manualPaymentDestination.bankName ? <Text c="dimmed" size="sm">{manualPaymentDestination.bankName}</Text> : null}
                       <Text c="dimmed" size="sm">{manualPaymentDestination.accountDisplayName}</Text>
                       {manualPaymentDestination.accountIdentifierDisplay ? (
                         <Text c="dimmed" size="sm">{manualPaymentDestination.accountIdentifierDisplay}</Text>
@@ -497,55 +959,165 @@ export default function CustomerBookingDetailPage() {
                   value={paymentProofFile}
                 />
                 <Button
+                  className="customer-primary-action"
                   disabled={!paymentReference.trim() || !paymentProofFile}
                   loading={proofBusy}
                   onClick={handleSubmitPaymentProof}
-                  w="fit-content"
+                  size="lg"
                 >
                   Submit payment proof
                 </Button>
               </Stack>
             </SimpleGrid>
-          ) : (
-            <Alert color="gray" variant="light">
-              Payment proof is not available for this booking state.
-            </Alert>
-          )}
         </Stack>
-      </Card>
-
-      {cancellationAllowed ? (
-        <Card className="finazze-auth-card customer-account-card" p="xl">
-          <Stack gap="md">
-            <div>
-              <Text className="finazze-section-label">Cancel booking</Text>
-              <Title order={2}>Cancel before check-in</Title>
-            </div>
-            <Textarea
-              label="Cancellation reason"
-              minRows={3}
-              onChange={(event) => setReason(event.currentTarget.value)}
-              value={reason}
-            />
-            <Button color="red" disabled={busy} onClick={() => setCancelConfirmOpen(true)} w="fit-content">
-              {busy ? "Cancelling..." : "Cancel booking"}
-            </Button>
-          </Stack>
         </Card>
       ) : null}
-      <ConfirmActionModal
-        opened={cancelConfirmOpen}
-        title="Cancel booking?"
-        description="This will cancel the booking immediately. The customer will need to make a new booking if they still want the service."
-        confirmLabel="Yes, cancel booking"
-        confirmColor="red"
-        loading={busy}
-        onClose={() => setCancelConfirmOpen(false)}
-        onConfirm={async () => {
-          setCancelConfirmOpen(false);
-          await handleCancel();
-        }}
-      />
+
+      <Modal
+        centered
+        className="customer-modal campaign-create-modal"
+        onClose={() => setCampaignCreateModalOpen(false)}
+        opened={campaignCreateModalOpen}
+        size="lg"
+        title={
+          <Stack className="getprio-modal-title" gap={2}>
+            <Text className="getprio-modal-eyebrow">GROUP FUNDING</Text>
+            <Text className="getprio-modal-heading">Create campaign</Text>
+          </Stack>
+        }
+        transitionProps={{ transition: "slide-up", duration: 240, timingFunction: "ease-out" }}
+      >
+        <CampaignCreateForm
+          booking={booking}
+          modal
+          onCancel={() => setCampaignCreateModalOpen(false)}
+          onCreated={(campaign) => {
+            setCampaignCreateModalOpen(false);
+            navigate(`/account/campaigns/${campaign.id}/manage`);
+          }}
+          token={token}
+        />
+      </Modal>
+
+      <Modal
+        centered
+        className="customer-modal"
+        transitionProps={{ transition: "slide-up", duration: 240, timingFunction: "ease-out" }}
+        onClose={() => setServiceImagePreview(null)}
+        opened={Boolean(serviceImagePreview)}
+        radius="lg"
+        size="xl"
+        title={serviceImagePreview?.name || "Service image"}
+      >
+        {serviceImagePreview ? <div className="service-image-preview-shell"><img alt={serviceImagePreview.name} src={serviceImagePreview.imageUrl} /></div> : null}
+      </Modal>
+
+      <Modal
+        centered
+        className="customer-modal payment-proof-modal"
+        transitionProps={{ transition: "slide-up", duration: 240, timingFunction: "ease-out" }}
+        onClose={() => setProofModalOpen(false)}
+        opened={proofModalOpen}
+        size="lg"
+        title={
+          <Stack className="getprio-modal-title" gap={2}>
+            <Text className="getprio-modal-eyebrow">PAYMENT EVIDENCE</Text>
+            <Text className="getprio-modal-heading">Payment proof</Text>
+          </Stack>
+        }
+      >
+        {booking.paymentProof ? (
+          <div className="payment-proof-modal-shell">
+          <ScrollArea
+            className="payment-proof-modal-main"
+            scrollbars="y"
+            scrollbarSize={8}
+            styles={{ root: { flex: 1, minHeight: 0 }, viewport: { height: "100%" } }}
+            type="hover"
+          >
+          <Stack gap="md">
+            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+              <Paper withBorder radius="md" p="md">
+                <Text className="finazze-section-label">File</Text>
+                <Text fw={700}>{booking.paymentProof.fileName}</Text>
+                <Text c="dimmed" size="sm">{formatBytes(booking.paymentProof.sizeBytes)}</Text>
+                <Text c="dimmed" size="sm">
+                  {booking.paymentProof.uploadedAt ? formatDateTime(booking.paymentProof.uploadedAt) : "Upload time unavailable"}
+                </Text>
+              </Paper>
+              <Paper withBorder radius="md" p="md">
+                <Text className="finazze-section-label">Status</Text>
+                <Badge color={paymentProofStatus.color} variant="light" w="fit-content">
+                  {paymentProofStatus.label}
+                </Badge>
+                <Text c="dimmed" mt="xs" size="sm">
+                  Reference: {booking.paymentReference || "No reference"}
+                </Text>
+              </Paper>
+            </SimpleGrid>
+            {booking.paymentRejectedAt && booking.paymentRejectionReason ? (
+              <Alert color="red" variant="light">
+                {booking.paymentRejectionReason}
+              </Alert>
+            ) : null}
+            {proofAccessUrl ? (
+              <Image alt="Uploaded payment proof" fit="contain" mah={520} radius="md" src={proofAccessUrl} />
+            ) : (
+              <Alert color="gray" variant="light">Open the proof again to refresh the private image link.</Alert>
+            )}
+          </Stack>
+          </ScrollArea>
+          {proofAccessUrl ? (
+            <Group className="customer-modal-actions payment-proof-modal-actions" justify="flex-end">
+              <Button
+                component="a"
+                href={proofAccessUrl}
+                leftSection={<IconExternalLink size={16} />}
+                rel="noopener noreferrer"
+                size="lg"
+                target="_blank"
+                variant="light"
+              >
+                Open image in new tab
+              </Button>
+            </Group>
+          ) : null}
+          </div>
+        ) : (
+          <Alert color="gray" variant="light">No payment proof has been uploaded for this booking.</Alert>
+        )}
+      </Modal>
+
+      <Modal
+        centered
+        className="customer-modal"
+        transitionProps={{ transition: "slide-up", duration: 240, timingFunction: "ease-out" }}
+        onClose={() => setCancelModalOpen(false)}
+        opened={cancelModalOpen}
+        size="md"
+        title="Cancel booking"
+      >
+        <form onSubmit={handleCancel}>
+          <Stack gap="md">
+            <Alert color="red" variant="light">
+              This will cancel the booking immediately. You will need to make a new booking if you still want the service.
+            </Alert>
+            <Textarea
+              label="Cancellation reason"
+              minRows={4}
+              onChange={(event) => setReason(event.currentTarget.value)}
+              placeholder="Tell the vendor why you are cancelling"
+              value={reason}
+            />
+            <Group className="customer-modal-actions" justify="flex-end">
+              <Button color="red" loading={busy} size="lg" type="submit">
+                Cancel booking
+              </Button>
+            </Group>
+          </Stack>
+        </form>
+      </Modal>
+      </Container>
     </Stack>
   );
 }

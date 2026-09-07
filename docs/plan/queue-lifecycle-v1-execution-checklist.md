@@ -8,6 +8,11 @@ prd-1-auth-session-rbac-v1-stability
 
 The goal is to harden the existing queue behavior without forcing a full queue-domain rewrite.
 
+Completion update, 2026-07-31: the explicit Queue Day aggregate supersedes the
+legacy closure-only model described in early slices of this checklist. Use
+[Queue Day Lifecycle Rollout and Recovery Runbook](../operations/queue-day-lifecycle-runbook.md)
+for current deployment, smoke, rollback, and repair procedures.
+
 ---
 
 ## 1. Current Codebase Baseline

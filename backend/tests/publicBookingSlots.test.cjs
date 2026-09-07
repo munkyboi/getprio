@@ -162,3 +162,42 @@ test("public booking slots endpoint returns customer-safe computed slots", async
     await stopServer(server);
   }
 });
+
+test("public composed slots endpoint forwards the full composed-plan request", async () => {
+  const capturedRequests = [];
+  const router = requireWithMocks("../src/routes/publicRoutes.js", {
+    "../middleware/auth": { maybeAuthenticate: (_req, _res, next) => next() },
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../repositories/tenants": {}, "../repositories/storeLocations": {}, "../repositories/publicBoardThemes": {},
+    "../repositories/vendorServices": {}, "../repositories/tickets": {}, "../repositories/platform": {},
+    "../services/queueEvents": {}, "../services/turnstileService": {}, "../services/queueJoinOtpService": {},
+    "../services/queueJoinPaymentService": {}, "../services/queueFeeService": {}, "../services/storeHoursService": {},
+    "../services/notificationService": {}, "../services/customerTicketAccess": {}, "../services/queueService": {},
+    "../services/bookingService": {
+      evaluateComposedBookingSlots: async (request) => {
+        capturedRequests.push(request);
+        return { slots: [], unavailableReasons: ["capacity_full"] };
+      }
+    }
+  });
+  const { server, baseUrl } = await startServer(router, "/api/public");
+  try {
+    const response = await fetch(`${baseUrl}/vendors/demo/locations/main/composed-slots`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        date: "2026-07-06", executionMode: "sequential", includeGroupFundedHolds: true,
+        items: [{ serviceSlug: "haircut", bookingQuantity: 1 }, { serviceSlug: "shave", bookingQuantity: 1 }]
+      })
+    });
+    assert.equal(response.status, 200);
+    assert.deepEqual(capturedRequests, [{
+      tenantSlug: "demo", locationSlug: "main", date: "2026-07-06", executionMode: "sequential",
+      includeGroupFundedHolds: true,
+      items: [{ serviceSlug: "haircut", bookingQuantity: 1 }, { serviceSlug: "shave", bookingQuantity: 1 }]
+    }]);
+    assert.deepEqual(await response.json(), { slots: [], unavailableReasons: ["capacity_full"] });
+  } finally {
+    await stopServer(server);
+  }
+});
