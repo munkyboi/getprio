@@ -58,9 +58,11 @@ async function loadAuthenticatedUser(req, strict) {
     }
 
     const session = await authSessionRepository.findSessionById(sessionId);
+    const deletionRetry = req.method === 'POST' && String(req.originalUrl || '').split('?')[0] === '/api/account/delete'
+      && session?.status === 'revoked' && session?.revokeReason === 'account_deletion';
     if (
       !session ||
-      session.status !== "active" ||
+      (session.status !== "active" && !deletionRetry) ||
       new Date(session.expiresAt).getTime() <= Date.now() ||
       (session.absoluteExpiresAt && new Date(session.absoluteExpiresAt).getTime() <= Date.now()) ||
       (session.inactivityExpiresAt && new Date(session.inactivityExpiresAt).getTime() <= Date.now())
@@ -72,7 +74,7 @@ async function loadAuthenticatedUser(req, strict) {
 
     const user = await userRepository.findUserById(payload.sub);
 
-    if (!user) {
+    if (!user || (user.deletionRequestedAt && !deletionRetry)) {
       const error = new Error("User session is no longer valid.");
       error.statusCode = 401;
       throw error;
@@ -99,7 +101,7 @@ async function loadAuthenticatedUser(req, strict) {
       transport: getAccessCookie(parseCookies(req.headers.cookie), env.authCookieSecure) ? "cookie" : "bearer",
       session
     };
-    if (typeof authSessionRepository.touchSession === "function") {
+    if (!deletionRetry && typeof authSessionRepository.touchSession === "function") {
       await authSessionRepository.touchSession(session._id, {
         inactivityMinutes: env.sessionInactivityMinutes
       });

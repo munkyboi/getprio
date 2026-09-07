@@ -42,6 +42,30 @@ const avatarUploadLimiter = rateLimit({
 });
 
 router.use(authenticate);
+const deletionLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, limit: 5, standardHeaders: true, legacyHeaders: false,
+  keyGenerator: (req) => `${req.user._id}:${ipKeyGenerator(req.ip)}`,
+  message: { code: "DELETION_RATE_LIMIT", message: "Too many attempts. Try again later." }
+});
+function requireDeletionEnabled(req, _res, next) {
+  if (process.env.ACCOUNT_DELETION_ENABLED !== "true" && !req.user.deletionRequestedAt) {
+    return next(Object.assign(new Error("Account deletion is not available yet. Please try again later."), {
+      statusCode: 503, code: "ACCOUNT_DELETION_UNAVAILABLE"
+    }));
+  }
+  next();
+}
+router.get("/deletion-options", requireDeletionEnabled, asyncHandler(async (req, res) => {
+  res.json({ passwordRequired: Boolean(req.user.passwordHash) });
+}));
+router.post("/delete", requireDeletionEnabled, deletionLimiter, asyncHandler(async (req, res) => {
+  const result = await require("../services/accountDeletionService").requestDeletion({
+    userId: req.user._id, password: req.body?.password, session: req.auth.session
+  });
+  require("../services/browserSessionService").clearBrowserSession(res, { secure: require("../config/env").authCookieSecure });
+  res.status(202).json(result);
+}));
+
 router.use(moderatePublicText);
 const favorites = require("../repositories/favorites");
 router.get("/favorites", asyncHandler(async (req, res) => res.json({ vendors: await favorites.list(req.user._id) })));

@@ -41,6 +41,7 @@ function buildAccessToken(user, session) {
 }
 
 async function createAuthSession({ user, authMethod, ipAddress, userAgent, deviceLabel, mfaVerifiedAt, primaryAuthenticatedAt, client }) {
+  if (user.deletionRequestedAt) throw Object.assign(new Error("Account deletion is in progress."), { statusCode: 403, code: "ACCOUNT_DELETION_PENDING" });
   const refreshToken = createOpaqueToken();
   const refreshTokenHash = hashOpaqueToken(refreshToken);
   const expiresAt = new Date(Date.now() + getRefreshTtlDays(user) * 24 * 60 * 60 * 1000);
@@ -73,6 +74,7 @@ async function createAuthSession({ user, authMethod, ipAddress, userAgent, devic
 }
 
 async function rotateRefreshSession({ session, user, client }) {
+  if (user.deletionRequestedAt) throw Object.assign(new Error("Account deletion is in progress."), { statusCode: 403, code: "ACCOUNT_DELETION_PENDING" });
   const refreshToken = createOpaqueToken();
   const refreshTokenHash = hashOpaqueToken(refreshToken);
   const requestedExpiresAt = new Date(

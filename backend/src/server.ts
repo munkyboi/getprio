@@ -1,3 +1,4 @@
+import accountDeletionWorker from "./services/accountDeletionWorker";
 import app from "./app";
 import { connectDb } from "./config/db";
 import env from "./config/env";
@@ -44,6 +45,10 @@ async function start(): Promise<void> {
   const server = app.listen(env.port, () => {
     console.log(`Prio server listening on port ${env.port}`);
   });
+  const deletionTimer = setInterval(() => {
+    accountDeletionWorker.runOnce().catch(() => console.error("[account-deletion-worker] processing failed"));
+  }, 60_000);
+  deletionTimer.unref();
   const queueLifecycleWorker = queueLifecycleWorkerModule.createQueueLifecycleWorker();
   queueLifecycleWorker.start();
   const campaignLifecycleTimer = setInterval(() => {
@@ -55,6 +60,7 @@ async function start(): Promise<void> {
   }, 60_000);
   allowanceWarningTimer.unref();
   server.on("close", () => {
+    clearInterval(deletionTimer);
     clearInterval(campaignLifecycleTimer);
     clearInterval(allowanceWarningTimer);
     queueLifecycleWorker.stop();
