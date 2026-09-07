@@ -1,8 +1,8 @@
-import { Container, List, Stack, Text } from "@mantine/core";
+import { Anchor, Container, List, Stack, Text } from "@mantine/core";
 import LegalArticleLayout from "../components/LegalArticleLayout";
 import LegalSection from "../components/LegalSection";
 
-const lastUpdated = "June 30, 2026";
+const lastUpdated = "September 6, 2026";
 
 export default function PrivacyPolicyPage() {
   return (
@@ -26,9 +26,9 @@ export default function PrivacyPolicyPage() {
       >
         <Text c="dimmed" lh={1.8}>
           This Privacy Policy explains how GetPrio collects, uses, stores, shares, and protects
-          personal information when you use our website, booking flows, vendor pages, and related
-          services. It is written for the capstone prototype and should be reviewed before any
-          production use.
+          personal information when you use the GetPrio website, GetPrio Mobile app, queue and
+          booking flows, vendor pages, and related services. The information processed depends
+          on your role and the features you use.
         </Text>
 
         <Stack gap="lg">
@@ -48,9 +48,12 @@ export default function PrivacyPolicyPage() {
             </Text>
             <List spacing="xs">
               <List.Item>Account details such as name, email address, phone number, and password hash.</List.Item>
-              <List.Item>Profile details, preferences, and booking contact information.</List.Item>
-              <List.Item>Booking data such as vendor, service selected, time, notes, status, and payment reference.</List.Item>
+              <List.Item>Profile details, profile photos you upload, preferences, favorite vendors, and booking contact information.</List.Item>
+              <List.Item>Queue and booking data such as vendor, service selected, ticket identifiers, position, join and service times, estimated waits, notes, status, and payment reference.</List.Item>
               <List.Item>Payment proof uploads and verification records when manual payment is required.</List.Item>
+              <List.Item>Organizer campaign details, contributor membership, payment instructions, contribution and reimbursement evidence, review decisions, reports, and audit events.</List.Item>
+              <List.Item>Public vendor reviews and private role-scoped user trust ratings, including rating appeals and moderation decisions.</List.Item>
+              <List.Item>Notification preferences and push registration data linked to your account, including an app installation identifier, notification token, platform, app version, app locale, and delivery success or failure records. Browser notifications use a push subscription endpoint and encryption keys.</List.Item>
               <List.Item>Vendor and staff records such as business names, locations, roles, schedules, and assigned bookings.</List.Item>
               <List.Item>Security and diagnostic data such as login attempts, audit logs, timestamps, IP address, and device metadata.</List.Item>
             </List>
@@ -59,7 +62,7 @@ export default function PrivacyPolicyPage() {
           <LegalSection id="how-we-use-information" title="3. How we use information">
             <List spacing="xs">
               <List.Item>To create and manage accounts, authenticate users, and enforce role-based access.</List.Item>
-              <List.Item>To process bookings, display vendor profiles, and support queue operations.</List.Item>
+              <List.Item>To process bookings, display vendor profiles and saved favorites, manage queue tickets, and calculate and update estimated waiting times.</List.Item>
               <List.Item>To verify manual payment proof and confirm or reject bookings where needed.</List.Item>
               <List.Item>To send confirmations, reminders, status updates, and service notifications.</List.Item>
               <List.Item>To monitor abuse, troubleshoot issues, and maintain audit trails.</List.Item>
@@ -69,10 +72,11 @@ export default function PrivacyPolicyPage() {
 
           <LegalSection id="legal-bases" title="4. Legal bases">
             <Text lh={1.8}>
-              For a Philippines-oriented capstone framing, processing may rely on consent,
-              contract performance, legitimate interests, legal obligations, and protection of
-              vital interests where applicable. Sensitive booking or identity data is handled only
-              when needed for the service and access control.
+              We process personal information to provide the services you request, meet applicable
+              legal obligations, and pursue legitimate interests such as securing the service and
+              preventing abuse, subject to your rights. Where consent is required, we ask for it
+              and provide ways to withdraw it. The applicable basis depends on the information,
+              purpose, and law, including the Philippine Data Privacy Act of 2012.
             </Text>
           </LegalSection>
 
@@ -82,10 +86,25 @@ export default function PrivacyPolicyPage() {
             </Text>
             <List spacing="xs">
               <List.Item>Vendors and authorized vendor staff for bookings, service delivery, and queue management.</List.Item>
-              <List.Item>Service providers that host the app, store files, or send email and SMS notifications.</List.Item>
+              <List.Item>Service providers that host the service, store files, process payments, or deliver email and push notifications.</List.Item>
               <List.Item>Platform administrators who manage moderation, disputes, security, and compliance.</List.Item>
               <List.Item>Authorities when disclosure is required by law or necessary to protect rights and safety.</List.Item>
             </List>
+            <Text lh={1.8} mt="sm">
+              GetPrio Mobile uses Google Firebase Cloud Messaging and, on Apple devices, Apple
+              Push Notification service to deliver notifications. These providers process app
+              installation identifiers, notification tokens, message payloads, and technical
+              information needed to operate their services. See the{" "}
+              <Anchor href="https://firebase.google.com/support/privacy">Firebase privacy information</Anchor>.
+              Service providers may process information outside your country.
+            </Text>
+            <Text lh={1.8} mt="sm">
+              Vendor profiles and reviews submitted for public display can be seen by other users.
+              When checkout opens a payment provider’s website, information you enter there is
+              handled under that provider’s privacy policy. GetPrio receives the transaction
+              information needed to associate payments with your queue or booking.
+            </Text>
+            <Text lh={1.8} mt="sm">Campaign payment instructions and evidence are limited to the organizer and the relevant contributor. Vendors and public viewers do not receive campaign payment references, proof files, contributor identities, reimbursement records, or private trust-rating notes. Platform Admin access is case-scoped to a report, dispute, or audit need.</Text>
           </LegalSection>
 
           <LegalSection id="retention" title="6. Retention">
@@ -95,6 +114,7 @@ export default function PrivacyPolicyPage() {
               and support system security. Some audit logs and transactional records may be retained
               longer for compliance and fraud prevention.
             </Text>
+            <Text lh={1.8}>Retention varies by record type and purpose; there is no single deletion period for all records. Contact us to request deletion or information about retention of your records. Turning off notification permission or uninstalling the app does not itself delete your account, transaction history, or server-side notification registration records.</Text>
           </LegalSection>
 
           <LegalSection id="security" title="7. Security">
@@ -104,6 +124,7 @@ export default function PrivacyPolicyPage() {
               tampering, and leakage. No online system is completely secure, so we also review access
               patterns and limit privileged data exposure where possible.
             </Text>
+            <Text lh={1.8}>Queue notifications may include a service or vendor name, ticket identifier, and status information. Depending on your device settings, notifications may be visible on your lock screen. You can hide previews or disable notifications in your device settings.</Text>
           </LegalSection>
 
           <LegalSection id="choices-and-rights" title="8. Your choices and rights">
@@ -113,13 +134,30 @@ export default function PrivacyPolicyPage() {
               immediately if they are needed for bookings, legal compliance, or legitimate business
               records.
             </Text>
+            <Text lh={1.8}>
+              You can update available profile and notification settings in your account. For
+              access, correction, or deletion requests, use our{" "}
+              <Anchor href="/contact">contact page</Anchor> and identify the account concerned.
+              We may need to verify your identity before acting on a request. Please do not send
+              your password or authentication codes. Removing the app does not close your account.
+            </Text>
+            <Text lh={1.8}>
+              Camera access supports QR scanning; photo access lets you
+              choose an image to upload. QR scanning reads codes on your device; the scanned queue
+              identifier is used to retrieve queue details. A selected profile image is uploaded
+              when you submit it. Biometric sign-in uses your device’s authentication service;
+              GetPrio does not receive your fingerprint or face template. You can manage camera,
+              photo, and notification permissions in device settings, and biometric sign-in in the
+              app’s security settings.
+            </Text>
           </LegalSection>
 
           <LegalSection id="cookies" title="9. Cookies and similar technologies">
             <Text lh={1.8}>
-              GetPrio may use cookies or similar technologies to keep you signed in, remember session
-              state, and improve the experience. We do not use these technologies to collect more
-              information than is needed to operate the site.
+              The website uses cookies and browser storage for sign-in, preferences, and queue access
+              details. On a shared device, sign out and clear browser data when appropriate. The
+              mobile app uses local storage for preferences and secure device storage for
+              authentication credentials. Clearing storage may sign you out or reset preferences.
             </Text>
           </LegalSection>
 
@@ -134,13 +172,14 @@ export default function PrivacyPolicyPage() {
           <LegalSection id="contact" title="11. Contact us">
             <Text lh={1.8}>
               If you have questions about this policy or your personal data, contact the GetPrio team
-              through the public contact page or via the support channels in the app.
+              through our <Anchor href="/contact">contact page</Anchor>. State that your request
+              concerns privacy and describe what you need so we can route it appropriately.
             </Text>
           </LegalSection>
 
           <Text c="dimmed" lh={1.75} size="sm">
-            This page is a generic draft aligned with the GetPrio capstone architecture and is not
-            legal advice.
+            We may update this policy as our services or privacy practices change. The date above
+            identifies the latest revision. We will provide additional notice where required.
           </Text>
         </Stack>
       </LegalArticleLayout>
