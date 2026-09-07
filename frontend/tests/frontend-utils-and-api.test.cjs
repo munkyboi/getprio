@@ -1893,6 +1893,9 @@ test("vendor profile hero uses the booking-ticket information hierarchy", () => 
   assert.match(source, /<Text className="finazze-section-label">Branches<\/Text>/);
   assert.match(source, /vendor\.locations\.map\(\(branch\) => \{/);
   assert.match(source, /className="vendor-profile-hero-branch"/);
+  assert.match(source, /location\.hours\.filter\(\(entry\) => entry\.weekday === weekday && !entry\.isClosed\)/);
+  assert.match(source, /\.join\(" · "\)/);
+  assert.match(source, />\s*Operating hours\s*<\/Text>/);
   assert.match(source, /to=\{selectedBookingLocationSlug \? `\/join\/\$\{vendor\.slug\}\/\$\{selectedBookingLocationSlug\}` : `\/join\/\$\{vendor\.slug\}`\}/);
   assert.doesNotMatch(source, /to=\{activeHeroBranch\?\.slug \? `\/join\//);
   assert.match(source, /queryKey: \["public-vendor-queue-status", profileSlug, selectedBookingLocationSlug\]/);

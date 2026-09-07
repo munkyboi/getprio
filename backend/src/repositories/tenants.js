@@ -359,7 +359,7 @@ async function listPublicVendorProfiles(options = {}) {
                   'closesAt', COALESCE(TO_CHAR(store_hours.closes_at, 'HH24:MI'), ''),
                   'isClosed', store_hours.is_closed
                 )
-                ORDER BY store_hours.weekday ASC
+                ORDER BY store_hours.weekday ASC, store_hours.opens_at ASC NULLS LAST, store_hours.closes_at ASC NULLS LAST, store_hours.id ASC
               )
               FROM store_hours
               WHERE store_hours.location_id = store_locations.id
@@ -433,7 +433,7 @@ async function findPublicVendorProfileBySlug(slug, options = {}) {
                   'closesAt', COALESCE(TO_CHAR(store_hours.closes_at, 'HH24:MI'), ''),
                   'isClosed', store_hours.is_closed
                 )
-                ORDER BY store_hours.weekday ASC
+                ORDER BY store_hours.weekday ASC, store_hours.opens_at ASC NULLS LAST, store_hours.closes_at ASC NULLS LAST, store_hours.id ASC
               )
               FROM store_hours
               WHERE store_hours.location_id = store_locations.id

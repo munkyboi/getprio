@@ -212,5 +212,6 @@ test("public vendor detail selects and returns the configured display name", asy
   );
 
   assert.match(querySql, /tenants\.public_profile_display_name/);
+  assert.match(querySql, /store_hours\.weekday ASC, store_hours\.opens_at ASC NULLS LAST/);
   assert.equal(vendor.name, "Customer-Facing Vendor Name");
 });
