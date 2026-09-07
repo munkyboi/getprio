@@ -229,6 +229,7 @@ export interface StoreOpenStatus {
   timezone: string;
   summary: string;
   today: StoreHourSummary | null;
+  todayHours?: StoreHourSummary[];
   nextOpenAt: string | Date | null;
 }
 

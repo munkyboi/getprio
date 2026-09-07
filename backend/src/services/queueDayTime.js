@@ -145,10 +145,12 @@ function resolveEffectiveStoreInterval({ now = new Date(), timezone, hours }) {
   };
 
   for (const localDate of [shiftLocalDate(today, -1), today]) {
-    const dayHours = (hours || []).find((entry) => Number(entry.weekday) === localDate.weekday);
-    const interval = buildInterval(localDate, dayHours, timeZone);
-    if (interval && now >= interval.opensAt && now < interval.closesAt) {
-      return interval;
+    const dayHours = (hours || []).filter((entry) => Number(entry.weekday) === localDate.weekday);
+    for (const dayHour of dayHours) {
+      const interval = buildInterval(localDate, dayHour, timeZone);
+      if (interval && now >= interval.opensAt && now < interval.closesAt) {
+        return interval;
+      }
     }
   }
   return null;

@@ -53,11 +53,6 @@ function hexToRgba(hex: string, alpha: number): string {
 
 const weekdayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 
-function toMinutes(value: string): number {
-  const [hours = "0", minutes = "0"] = value.split(":");
-  return Number(hours) * 60 + Number(minutes);
-}
-
 function getTodayIndex(timezone?: string): number {
   const weekday = new Intl.DateTimeFormat("en-US", {
     timeZone: timezone || "Asia/Manila",
@@ -101,36 +96,27 @@ function formatJoinedDate(value?: string | Date | null, timezone?: string): stri
   return `${valueFor("day")} ${valueFor("month")} ${valueFor("year")} at ${valueFor("hour")}:${valueFor("minute")} ${valueFor("dayPeriod").toUpperCase()}`;
 }
 
-function formatHoursLabel(hour: StoreHourSummary): string {
-  if (hour.isClosed) {
+function formatHoursLabel(hours: StoreHourSummary[]): string {
+  const openHours = hours.filter((hour) => !hour.isClosed);
+  if (!openHours.length) {
     return "Closed";
   }
 
-  if (!hour.opensAt || !hour.closesAt) {
-    return "--  •  --";
-  }
-
-  if (hour.opensAt === "00:00" && hour.closesAt === "00:00") {
-    return "Open 24h";
-  }
-
-  const overnightLabel = toMinutes(hour.closesAt) < toMinutes(hour.opensAt) ? " next day" : "";
-
-  return `${formatDisplayTime(hour.opensAt)} - ${formatDisplayTime(hour.closesAt)}${overnightLabel}`;
+  return openHours
+    .map((hour) => {
+      if (!hour.opensAt || !hour.closesAt) return "--  •  --";
+      if (hour.opensAt === "00:00" && hour.closesAt === "00:00") return "Open 24h";
+      return `${formatDisplayTime(hour.opensAt)}  •  ${formatDisplayTime(hour.closesAt)}`;
+    })
+    .join(", ");
 }
 
-function normalizeHours(hours: StoreHourSummary[] = []): StoreHourSummary[] {
+function normalizeHours(hours: StoreHourSummary[] = []): StoreHourSummary[][] {
   return Array.from({ length: 7 }, (_, weekday) => {
-    const hour = hours.find((item) => item.weekday === weekday);
-
-    return (
-      hour || {
-        weekday,
-        opensAt: "",
-        closesAt: "",
-        isClosed: false
-      }
-    );
+    const matching = hours.filter((item) => item.weekday === weekday);
+    return matching.length
+      ? matching
+      : [{ weekday, opensAt: "", closesAt: "", isClosed: true }];
   });
 }
 
@@ -742,9 +728,9 @@ export default function JoinedQueuePage() {
                   </Text>
                 </Group>
                 <div className="vendor-hours-list">
-                  {locationHours.map((hour) => {
-                    const isToday = hour.weekday === todayIndex;
-                    const hoursLabel = formatHoursLabel(hour);
+                  {locationHours.map((hours, weekday) => {
+                    const isToday = weekday === todayIndex;
+                    const hoursLabel = formatHoursLabel(hours);
                     const isClosed = hoursLabel === "Closed";
 
                     return (
@@ -755,9 +741,9 @@ export default function JoinedQueuePage() {
                           isClosed ? "vendor-hours-row-muted" : "",
                           isToday ? "vendor-hours-row-today" : ""
                         ].filter(Boolean).join(" ")}
-                        key={hour.weekday}
+                        key={weekday}
                       >
-                        <span className="vendor-hours-day">{weekdayLabels[hour.weekday]}</span>
+                        <span className="vendor-hours-day">{weekdayLabels[weekday]}</span>
                         <span className="vendor-hours-time">{hoursLabel}</span>
                       </div>
                     );

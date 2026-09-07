@@ -4577,6 +4577,23 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   function renderLocationDialog() {
+    const addInterval = (weekday: number) =>
+      setLocationForm((current) => ({
+        ...current,
+        hours: [...current.hours, { weekday, opensAt: "09:00", closesAt: "17:00", isClosed: false }]
+      }));
+    const removeInterval = (weekday: number, index: number) =>
+      setLocationForm((current) => {
+        const dayCount = current.hours.filter((item) => item.weekday === weekday).length;
+        return {
+          ...current,
+          hours: dayCount > 1
+            ? current.hours.filter((_, itemIndex) => itemIndex !== index)
+            : current.hours.map((item, itemIndex) =>
+                itemIndex === index ? { ...item, opensAt: "", closesAt: "", isClosed: true } : item
+              )
+        };
+      });
     return (
       <Modal
         className="vendor-location-modal"
@@ -4855,29 +4872,29 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           </ModalSection>
 
           <ModalSection
-            title="Store hours"
-            description="Set the default operating hours customers should see. Closed days hide the time inputs on mobile."
+            title="Operating hours"
+            description="Set the default operating hours customers should see. Add multiple intervals when a location closes and reopens on the same day."
           >
             {isMobileHoursLayout ? (
               <Stack gap="sm">
-                {locationForm.hours.map((hour) => {
+                {locationForm.hours.map((hour, index) => {
                   const dayLabel = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][hour.weekday];
 
                   return (
-                    <Card key={hour.weekday} withBorder radius="lg" p="sm">
+                    <Card key={`${hour.weekday}-${index}`} withBorder radius="lg" p="sm">
                       <Stack gap="sm">
                         <Group justify="space-between" align="flex-start">
                           <Text fw={700}>{dayLabel}</Text>
                           <Checkbox
-                            name={`hours.${hour.weekday}.isClosed`}
+                            name={`hours.${index}.isClosed`}
                             checked={hour.isClosed}
                             label="Closed"
                             description="Hide opening and closing times for this day."
                             onChange={(event) =>
                               setLocationForm((current) => ({
                                 ...current,
-                                hours: current.hours.map((item) =>
-                                  item.weekday === hour.weekday
+                                hours: current.hours.map((item, itemIndex) =>
+                                  itemIndex === index
                                     ? { ...item, isClosed: event.target.checked }
                                     : item
                                 )
@@ -4888,15 +4905,15 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         {!hour.isClosed ? (
                           <SimpleGrid cols={2} spacing="sm">
                             <TextInput
-                              name={`hours.${hour.weekday}.opensAt`}
+                              name={`hours.${index}.opensAt`}
                               label="Opens"
                               type="time"
                               value={hour.opensAt}
                               onChange={(event) =>
                                 setLocationForm((current) => ({
                                   ...current,
-                                  hours: current.hours.map((item) =>
-                                    item.weekday === hour.weekday
+                                  hours: current.hours.map((item, itemIndex) =>
+                                    itemIndex === index
                                       ? { ...item, opensAt: event.target.value }
                                       : item
                                   )
@@ -4904,15 +4921,15 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                               }
                             />
                             <TextInput
-                              name={`hours.${hour.weekday}.closesAt`}
+                              name={`hours.${index}.closesAt`}
                               label="Closes"
                               type="time"
                               value={hour.closesAt}
                               onChange={(event) =>
                                 setLocationForm((current) => ({
                                   ...current,
-                                  hours: current.hours.map((item) =>
-                                    item.weekday === hour.weekday
+                                  hours: current.hours.map((item, itemIndex) =>
+                                    itemIndex === index
                                       ? { ...item, closesAt: event.target.value }
                                       : item
                                   )
@@ -4921,6 +4938,19 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                             />
                           </SimpleGrid>
                         ) : null}
+                        <Group gap="xs">
+                          <Button size="compact-sm" variant="subtle" onClick={() => addInterval(hour.weekday)}>
+                            Add interval
+                          </Button>
+                          <Button
+                            color="red"
+                            size="compact-sm"
+                            variant="subtle"
+                            onClick={() => removeInterval(hour.weekday, index)}
+                          >
+                            Remove interval
+                          </Button>
+                        </Group>
                       </Stack>
                     </Card>
                   );
@@ -4936,21 +4966,22 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         <Table.Th>Closed</Table.Th>
                         <Table.Th>Opens</Table.Th>
                         <Table.Th>Closes</Table.Th>
+                        <Table.Th>Actions</Table.Th>
                       </Table.Tr>
                     </Table.Thead>
                     <Table.Tbody>
-                      {locationForm.hours.map((hour) => (
-                        <Table.Tr key={hour.weekday}>
+                      {locationForm.hours.map((hour, index) => (
+                        <Table.Tr key={`${hour.weekday}-${index}`}>
                           <Table.Td>{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][hour.weekday]}</Table.Td>
                           <Table.Td>
                             <Checkbox
-                              name={`hours.${hour.weekday}.isClosed`}
+                              name={`hours.${index}.isClosed`}
                               checked={hour.isClosed}
                               onChange={(event) =>
                                 setLocationForm((current) => ({
                                   ...current,
-                                  hours: current.hours.map((item) =>
-                                    item.weekday === hour.weekday
+                                  hours: current.hours.map((item, itemIndex) =>
+                                    itemIndex === index
                                       ? { ...item, isClosed: event.target.checked }
                                       : item
                                   )
@@ -4960,15 +4991,15 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           </Table.Td>
                           <Table.Td>
                             <TextInput
-                              name={`hours.${hour.weekday}.opensAt`}
+                              name={`hours.${index}.opensAt`}
                               disabled={hour.isClosed}
                               type="time"
                               value={hour.opensAt}
                               onChange={(event) =>
                                 setLocationForm((current) => ({
                                   ...current,
-                                  hours: current.hours.map((item) =>
-                                    item.weekday === hour.weekday
+                                  hours: current.hours.map((item, itemIndex) =>
+                                    itemIndex === index
                                       ? { ...item, opensAt: event.target.value }
                                       : item
                                   )
@@ -4978,21 +5009,36 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           </Table.Td>
                           <Table.Td>
                             <TextInput
-                              name={`hours.${hour.weekday}.closesAt`}
+                              name={`hours.${index}.closesAt`}
                               disabled={hour.isClosed}
                               type="time"
                               value={hour.closesAt}
                               onChange={(event) =>
                                 setLocationForm((current) => ({
                                   ...current,
-                                  hours: current.hours.map((item) =>
-                                    item.weekday === hour.weekday
+                                  hours: current.hours.map((item, itemIndex) =>
+                                    itemIndex === index
                                       ? { ...item, closesAt: event.target.value }
                                       : item
                                   )
                                 }))
                               }
                             />
+                        </Table.Td>
+                        <Table.Td>
+                          <Group gap="xs" wrap="nowrap">
+                            <Button size="compact-sm" variant="subtle" onClick={() => addInterval(hour.weekday)}>
+                              Add
+                            </Button>
+                            <Button
+                              color="red"
+                              size="compact-sm"
+                              variant="subtle"
+                              onClick={() => removeInterval(hour.weekday, index)}
+                            >
+                              Remove
+                            </Button>
+                          </Group>
                         </Table.Td>
                       </Table.Tr>
                     ))}

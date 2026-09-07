@@ -402,7 +402,7 @@ _Avoid_: Global booking quantity, item count
 
 **Booking Availability**:
 The vendor-managed bookable service schedule for a branch, optionally narrowed by service and capacity. If booking availability is not configured, branch store hours define the default bookable window.
-_Avoid_: Store hours, calendar
+_Avoid_: Operating hours, calendar
 
 **Booking Capacity Scope**:
 The resource boundary whose remaining capacity a booking item consumes. A service-scoped rule isolates capacity to that service. A location-scoped rule represents one shared branch pool and has one authoritative capacity across every service using that rule. Each overlapping booking item consumes one unit of its applicable scope; booking units extend that item's reserved duration rather than consuming extra capacity units.
