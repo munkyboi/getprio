@@ -380,7 +380,7 @@ async function listHoursByLocationId(locationId, options = {}) {
       SELECT ${HOUR_COLUMNS}
       FROM store_hours
       WHERE location_id = $1
-      ORDER BY weekday ASC
+      ORDER BY weekday ASC, opens_at ASC NULLS LAST, closes_at ASC NULLS LAST, id ASC
     `,
     [Number(locationId)]
   );
@@ -390,9 +390,41 @@ async function listHoursByLocationId(locationId, options = {}) {
 
 async function replaceHours(locationId, hours, options = {}) {
   const queryClient = buildQueryClient(options.client);
+  const normalizedHours = Array.isArray(hours) ? hours : [];
+  const intervalsByDay = new Map();
+  for (const hour of normalizedHours) {
+    const weekday = Number(hour.weekday);
+    if (!Number.isInteger(weekday) || weekday < 0 || weekday > 6) {
+      const error = new Error("Operating hours must use a weekday from 0 to 6.");
+      error.statusCode = 400;
+      throw error;
+    }
+    if (hour.isClosed) continue;
+    const open = String(hour.opensAt || "");
+    const close = String(hour.closesAt || "");
+    const openMinutes = toMinutes(open);
+    const closeMinutes = toMinutes(close);
+    if (openMinutes == null || closeMinutes == null) {
+      const error = new Error("Open operating intervals require valid start and end times.");
+      error.statusCode = 400;
+      throw error;
+    }
+    const ranges = openMinutes === closeMinutes
+      ? [[0, 1440]]
+      : openMinutes < closeMinutes
+        ? [[openMinutes, closeMinutes]]
+        : [[openMinutes, 1440], [0, closeMinutes]];
+    const existingRanges = intervalsByDay.get(weekday) || [];
+    if (ranges.some(([start, end]) => existingRanges.some(([otherStart, otherEnd]) => start < otherEnd && otherStart < end))) {
+      const error = new Error("Operating intervals cannot overlap on the same day.");
+      error.statusCode = 400;
+      throw error;
+    }
+    intervalsByDay.set(weekday, [...existingRanges, ...ranges]);
+  }
   await queryClient.query(`DELETE FROM store_hours WHERE location_id = $1`, [Number(locationId)]);
 
-  for (const hour of hours) {
+  for (const hour of normalizedHours) {
     await queryClient.query(
       `
         INSERT INTO store_hours (location_id, weekday, opens_at, closes_at, is_closed)
@@ -409,6 +441,15 @@ async function replaceHours(locationId, hours, options = {}) {
   }
 
   return listHoursByLocationId(locationId, { client: queryClient });
+}
+
+function toMinutes(value) {
+  const match = /^(\d{2}):(\d{2})$/.exec(value);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours > 23 || minutes > 59) return null;
+  return hours * 60 + minutes;
 }
 
 async function createDefaultHours(locationId, options = {}) {

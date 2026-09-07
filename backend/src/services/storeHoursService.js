@@ -54,14 +54,15 @@ async function getOpenStatus(location, options = {}) {
   const now = options.now || new Date();
   const timezone = location.timezone || "Asia/Manila";
   const { weekday } = getLocationParts(now, timezone);
-  const todaysHours = hours.find((hour) => hour.weekday === weekday);
+  const todaysHours = hours.filter((hour) => hour.weekday === weekday);
   const isOpen = Boolean(resolveEffectiveStoreInterval({ now, timezone, hours }));
 
   return {
     isOpen,
     timezone,
     summary: buildHoursSummary(hours),
-    today: formatHour(todaysHours),
+    today: formatHour(todaysHours[0]),
+    todayHours: todaysHours.map(formatHour),
     nextOpenAt: null
   };
 }
@@ -72,7 +73,7 @@ async function assertLocationOpenForCustomerJoin(location) {
     return openStatus;
   }
 
-  const error = new Error("This location is currently closed. Please join during store hours.");
+  const error = new Error("This location is currently closed. Please join during operating hours.");
   error.statusCode = 403;
   error.openStatus = openStatus;
   throw error;

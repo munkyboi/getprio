@@ -425,22 +425,18 @@ function ruleOverlapsBooking(rule, startMinutes, endMinutes) {
 
 function storeHoursAllowBooking({ hours, scheduledStartAt, startMinutes, endMinutes }) {
   const weekday = getWeekdayInManila(scheduledStartAt);
-  const hour = hours.find((entry) => entry.weekday === weekday);
-
-  return Boolean(
-    hour &&
+  return hours
+    .filter((entry) => entry.weekday === weekday)
+    .some((hour) =>
       !hour.isClosed &&
       hour.opensAt &&
       hour.closesAt &&
       bookingFitsTimeRange(
-        {
-          startsAt: hour.opensAt,
-          endsAt: hour.closesAt
-        },
+        { startsAt: hour.opensAt, endsAt: hour.closesAt },
         startMinutes,
         endMinutes
       )
-  );
+    );
 }
 
 async function assertAvailabilityAllowsBooking({ availability, location, service, scheduledStartAt, scheduledEndAt }) {
@@ -562,8 +558,8 @@ function buildAvailabilityWindows({ availability, hours, service, location, date
       }
     }
   } else {
-    const hour = hours.find((entry) => entry.weekday === weekday);
-    if (hour && !hour.isClosed && hour.opensAt && hour.closesAt) {
+    for (const hour of hours.filter((entry) => entry.weekday === weekday)) {
+      if (hour.isClosed || !hour.opensAt || !hour.closesAt) continue;
       windows.push({
         startsAt: hour.opensAt,
         endsAt: hour.closesAt,
