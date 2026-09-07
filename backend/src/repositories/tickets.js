@@ -422,6 +422,17 @@ async function listTicketsByUserId(userId, options = {}) {
   }));
 }
 
+async function getCustomerTicketStats(userId, options = {}) {
+  const result = await buildQueryClient(options.client).query(
+    `SELECT COUNT(*)::int AS joined,
+            COUNT(*) FILTER (WHERE status = 'served')::int AS served
+     FROM tickets
+     WHERE user_id = $1`,
+    [Number(userId)]
+  );
+  return { joined: result.rows[0].joined, served: result.rows[0].served };
+}
+
 async function listTicketsForCustomerAccount(user, options = {}) {
   const queryClient = buildQueryClient(options.client);
   const values = [Number(user._id)];
@@ -956,6 +967,7 @@ module.exports = {
   listClientTickets,
   listTicketsByUserId,
   listTicketsForCustomerAccount,
+  getCustomerTicketStats,
   countServedToday,
   findCurrentCalledTicket,
   confirmCurrentCalledTicket,

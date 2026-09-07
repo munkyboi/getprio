@@ -325,9 +325,10 @@ function normalizeCustomerNotificationSettings(settings = {}) {
 router.get(
   "/overview",
   asyncHandler(async (req, res) => {
-    const [tickets, trustRating] = await Promise.all([
+    const [tickets, trustRating, ticketStats] = await Promise.all([
       ticketRepository.listTicketsForCustomerAccount(req.user, { limit: 50 }),
-      ratingRepository.getUserTrustAggregate(req.user._id)
+      ratingRepository.getUserTrustAggregate(req.user._id),
+      ticketRepository.getCustomerTicketStats(req.user._id)
     ]);
 
     res.json({
@@ -335,6 +336,7 @@ router.get(
       ...formatAccountUser(req.user)
     },
     trustRating,
+    ticketStats,
     notificationSettings: normalizeCustomerNotificationSettings(req.user.notificationSettings),
     tickets: tickets.map(formatCustomerTicket)
   });

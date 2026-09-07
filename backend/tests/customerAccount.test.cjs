@@ -212,6 +212,7 @@ test("customer account overview and history expose owned tickets only", async ()
     "../middleware/auth": buildAuthMock(),
     "../middleware/asyncHandler": buildAsyncHandlerMock(),
     "../repositories/tickets": {
+      getCustomerTicketStats: async () => ({ joined: 75, served: 1 }),
       listTicketsForCustomerAccount: async () => tickets
     },
     "../repositories/ratings": {
@@ -232,6 +233,7 @@ test("customer account overview and history expose owned tickets only", async ()
     const overview = await overviewResponse.json();
     assert.equal(overview.user.email, "customer@example.com");
     assert.deepEqual(overview.trustRating, { average: 4.4, count: 5 });
+    assert.deepEqual(overview.ticketStats, { joined: 75, served: 1 });
     assert.equal(overview.tickets.length, 1);
     assert.equal(overview.tickets[0].ticketNumber, "DMO-001");
 

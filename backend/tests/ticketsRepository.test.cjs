@@ -407,3 +407,16 @@ test("tickets repository restores skipped tickets into the requested priority ba
   assert.deepEqual(calls[0].params, [1, 2, 7, "recovery"]);
   assert.deepEqual(calls[1].params, [1, 2, 7, "normal"]);
 });
+
+test("customer stats count all owned tickets independently of pagination", async () => {
+  const client = { query: async (query, params) => {
+    assert.match(query, /COUNT\(\*\)::int AS joined/);
+    assert.match(query, /FILTER \(WHERE status = 'served'\)/);
+    assert.match(query, /WHERE user_id = \$1/);
+    assert.doesNotMatch(query, /LIMIT|OFFSET|customer_email|customer_phone/);
+    assert.deepEqual(params, [11]);
+    return { rows: [{ joined: 75, served: 1 }] };
+  } };
+  const repository = requireWithMocks("../src/repositories/tickets.js", { "../config/db": { pool: client } });
+  assert.deepEqual(await repository.getCustomerTicketStats(11), { joined: 75, served: 1 });
+});
