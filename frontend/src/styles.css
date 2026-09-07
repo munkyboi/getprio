@@ -7178,12 +7178,14 @@ h2 {
   flex: 0 0 auto;
 }
 
+.vendor-operating-hours-table tbody tr:not(.vendor-operating-hours-table__group-end),
 .vendor-operating-hours-table tbody tr:not(.vendor-operating-hours-table__group-end) td {
-  border-bottom-color: transparent;
+  border-bottom: 0 !important;
 }
 
+.vendor-operating-hours-table tbody tr.vendor-operating-hours-table__group-end,
 .vendor-operating-hours-table tbody tr.vendor-operating-hours-table__group-end td {
-  border-bottom-color: var(--mantine-color-gray-3);
+  border-bottom: 1px solid var(--mantine-color-gray-3) !important;
 }
 
 .queue-lifecycle-tray {
