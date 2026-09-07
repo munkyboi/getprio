@@ -2,6 +2,7 @@ const db = require("../config/db");
 
 const USER_COLUMNS = `
   users.id,
+  users.deletion_requested_at,
   users.name,
   users.display_name,
   users.avatar_url,
@@ -49,6 +50,7 @@ function mapUser(row, relationships = {}) {
 
   return {
     _id: String(row.id),
+    deletionRequestedAt: row.deletion_requested_at,
     name: row.name,
     displayName: row.display_name || "",
     avatarUrl: row.avatar_url || "",
