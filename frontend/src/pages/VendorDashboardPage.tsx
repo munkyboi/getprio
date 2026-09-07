@@ -311,6 +311,12 @@ function formatPreviewHourRange(location: StoreLocationWithHours | null, weekday
   return formatStoreHourRange(hour);
 }
 
+function getOrderedLocationHours(hours: StoreHourSummary[]) {
+  return hours
+    .map((hour, index) => ({ hour, index }))
+    .sort((a, b) => a.hour.weekday - b.hour.weekday || a.index - b.index);
+}
+
 function buildCounterSlug(value: string) {
   return buildServiceSlug(value);
 }
@@ -4578,10 +4584,23 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   function renderLocationDialog() {
     const addInterval = (weekday: number) =>
-      setLocationForm((current) => ({
-        ...current,
-        hours: [...current.hours, { weekday, opensAt: "09:00", closesAt: "17:00", isClosed: false }]
-      }));
+      setLocationForm((current) => {
+        const nextInterval = { weekday, opensAt: "09:00", closesAt: "17:00", isClosed: false };
+        const lastIntervalIndex = current.hours.reduce(
+          (lastIndex, item, itemIndex) => (item.weekday === weekday ? itemIndex : lastIndex),
+          -1
+        );
+        const insertAt = lastIntervalIndex >= 0 ? lastIntervalIndex + 1 : current.hours.length;
+
+        return {
+          ...current,
+          hours: [
+            ...current.hours.slice(0, insertAt),
+            nextInterval,
+            ...current.hours.slice(insertAt)
+          ]
+        };
+      });
     const removeInterval = (weekday: number, index: number) =>
       setLocationForm((current) => {
         const dayCount = current.hours.filter((item) => item.weekday === weekday).length;
@@ -4877,7 +4896,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           >
             {isMobileHoursLayout ? (
               <Stack gap="sm">
-                {locationForm.hours.map((hour, index) => {
+                {getOrderedLocationHours(locationForm.hours).map(({ hour, index }) => {
                   const dayLabel = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][hour.weekday];
 
                   return (
@@ -4970,7 +4989,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       </Table.Tr>
                     </Table.Thead>
                     <Table.Tbody>
-                      {locationForm.hours.map((hour, index) => (
+                      {getOrderedLocationHours(locationForm.hours).map(({ hour, index }) => (
                         <Table.Tr key={`${hour.weekday}-${index}`}>
                           <Table.Td>{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][hour.weekday]}</Table.Td>
                           <Table.Td>

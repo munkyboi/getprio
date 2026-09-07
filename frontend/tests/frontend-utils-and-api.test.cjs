@@ -2514,6 +2514,22 @@ test("vendor location cards show only today's timezone-resolved schedule", () =>
   assert.doesNotMatch(source, />\{locationItem\.openStatus\.summary\}<\/Text>/);
 });
 
+test("vendor operating-hour intervals stay grouped by weekday", () => {
+  const source = fs.readFileSync(
+    path.join(path.resolve(__dirname, ".."), "src", "pages", "VendorDashboardPage.tsx"),
+    "utf8"
+  );
+
+  assert.match(source, /function getOrderedLocationHours\(hours: StoreHourSummary\[\]\)/);
+  assert.match(source, /a\.hour\.weekday - b\.hour\.weekday \|\| a\.index - b\.index/);
+  assert.match(source, /const insertAt = lastIntervalIndex >= 0 \? lastIntervalIndex \+ 1 : current\.hours\.length/);
+  assert.match(source, /getOrderedLocationHours\(locationForm\.hours\)\.map\(\(\{ hour, index \}\)/g);
+  assert.equal(
+    (source.match(/getOrderedLocationHours\(locationForm\.hours\)\.map\(\(\{ hour, index \}\)/g) || []).length,
+    2
+  );
+});
+
 test("vendor location card URLs copy to the clipboard with confirmation", () => {
   const source = fs.readFileSync(
     path.join(path.resolve(__dirname, ".."), "src", "pages", "VendorDashboardPage.tsx"),
