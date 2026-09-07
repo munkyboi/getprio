@@ -2515,6 +2515,7 @@ test("vendor location cards show only today's timezone-resolved schedule", () =>
 });
 
 test("vendor operating-hour intervals stay grouped by weekday", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
   const source = fs.readFileSync(
     path.join(path.resolve(__dirname, ".."), "src", "pages", "VendorDashboardPage.tsx"),
     "utf8"
@@ -2522,10 +2523,14 @@ test("vendor operating-hour intervals stay grouped by weekday", () => {
 
   assert.match(source, /function getOrderedLocationHours\(hours: StoreHourSummary\[\]\)/);
   assert.match(source, /a\.hour\.weekday - b\.hour\.weekday \|\| a\.index - b\.index/);
+  assert.match(source, /isFirstForDay: orderedIndex === 0/);
+  assert.match(source, /isLastForDay:/);
   assert.match(source, /const insertAt = lastIntervalIndex >= 0 \? lastIntervalIndex \+ 1 : current\.hours\.length/);
-  assert.match(source, /getOrderedLocationHours\(locationForm\.hours\)\.map\(\(\{ hour, index \}\)/g);
+  assert.match(source, /getOrderedLocationHours\(locationForm\.hours\)\.map\(\(\{ hour, index/g);
+  assert.match(source, /vendor-operating-hours-table__group-end/);
+  assert.match(fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8"), /vendor-operating-hours-table tbody tr:not/);
   assert.equal(
-    (source.match(/getOrderedLocationHours\(locationForm\.hours\)\.map\(\(\{ hour, index \}\)/g) || []).length,
+    (source.match(/getOrderedLocationHours\(locationForm\.hours\)\.map\(\(\{ hour, index/g) || []).length,
     2
   );
 });
