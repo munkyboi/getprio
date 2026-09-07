@@ -31,6 +31,37 @@ test('account deletion against disposable PostgreSQL', { skip: !url }, async (t)
     const slug = 'delete-test-' + require('node:crypto').randomUUID();
     const tenant = (await db.pool.query("INSERT INTO tenants(name,slug) VALUES('Deletion fixture',$1) RETURNING id",[slug])).rows[0];
     scope = (await db.pool.query("INSERT INTO store_locations(tenant_id,name,slug) VALUES($1,'Deletion fixture','main') RETURNING id,tenant_id",[tenant.id])).rows[0];
+    await t.test('HTTP endpoints require authentication, gate admission, and ignore another user ID', async () => {
+      const express = require('express');
+      const app = express();
+      app.use(express.json());
+      app.use('/api/account', require('../src/routes/accountRoutes'));
+      app.use((error, _req, res, _next) => res.status(error.statusCode || 500).json({code:error.code}));
+      const server = app.listen(0, '127.0.0.1');
+      await new Promise(resolve => server.once('listening', resolve));
+      const base = 'http://127.0.0.1:' + server.address().port;
+      const originalFlag = process.env.ACCOUNT_DELETION_ENABLED;
+      try {
+        const user = await fixture(), other = await fixture();
+        const session = await sessions.createAuthSession({user,authMethod:'password'});
+        const headers = {authorization:'Bearer '+session.accessToken,'content-type':'application/json'};
+        assert.equal((await fetch(base+'/api/account/deletion-options')).status,401);
+        delete process.env.ACCOUNT_DELETION_ENABLED;
+        assert.equal((await fetch(base+'/api/account/deletion-options',{headers})).status,503);
+        process.env.ACCOUNT_DELETION_ENABLED='true';
+        assert.deepEqual(await (await fetch(base+'/api/account/deletion-options',{headers})).json(),{passwordRequired:true});
+        const response = await fetch(base+'/api/account/delete',{method:'POST',headers,
+          body:JSON.stringify({password:'correct-password',userId:other._id})});
+        assert.equal(response.status,202);
+        assert.equal((await response.json()).status,'accepted');
+        assert.equal((await users.findUserById(other._id)).deletionRequestedAt,null);
+        assert.ok((await users.findUserById(user._id)).deletionRequestedAt);
+      } finally {
+        if (originalFlag === undefined) delete process.env.ACCOUNT_DELETION_ENABLED;
+        else process.env.ACCOUNT_DELETION_ENABLED=originalFlag;
+        await new Promise(resolve => server.close(resolve));
+      }
+    });
     await t.test('wrong password leaves account and sessions unchanged', async () => {
       const user = await fixture();
       await assert.rejects(service.requestDeletion({userId:user._id,password:'wrong'}), {code:'INVALID_PASSWORD'});
