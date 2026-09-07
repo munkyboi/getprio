@@ -101,23 +101,24 @@ function getBranchAddress(location: PublicVendorProfile["locations"][number]) {
 }
 
 function formatHourRange(location: PublicVendorProfile["locations"][number], weekday: number) {
-  const hour = location.hours.find((entry) => entry.weekday === weekday);
+  const hours = location.hours.filter((entry) => entry.weekday === weekday && !entry.isClosed);
 
-  if (!hour || hour.isClosed) {
+  if (!hours.length) {
     return "Closed";
   }
 
-  if (hour.opensAt === hour.closesAt) {
-    return "Open 24 hours";
-  }
+  return hours.map((hour) => {
+    if (hour.opensAt === hour.closesAt) {
+      return "Open 24 hours";
+    }
 
-  if (!hour.opensAt || !hour.closesAt) {
-    return "Hours unavailable";
-  }
+    if (!hour.opensAt || !hour.closesAt) {
+      return "Hours unavailable";
+    }
 
-  const overnightLabel = toMinutes(hour.closesAt) < toMinutes(hour.opensAt) ? " next day" : "";
-
-  return `${formatTimeLabel(hour.opensAt)} - ${formatTimeLabel(hour.closesAt)}${overnightLabel}`;
+    const overnightLabel = toMinutes(hour.closesAt) < toMinutes(hour.opensAt) ? " next day" : "";
+    return `${formatTimeLabel(hour.opensAt)} - ${formatTimeLabel(hour.closesAt)}${overnightLabel}`;
+  }).join(" · ");
 }
 
 function getBusinessCategoryLabel(category: string) {
@@ -379,7 +380,7 @@ function LocationCardContent({
           <Group gap={6} mb={6}>
             <IconClock size={15} />
             <Text fw={800} size="xs">
-              Store hours
+              Operating hours
             </Text>
           </Group>
           <div className="vendor-hours-list">

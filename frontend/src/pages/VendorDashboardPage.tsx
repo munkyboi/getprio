@@ -311,6 +311,19 @@ function formatPreviewHourRange(location: StoreLocationWithHours | null, weekday
   return formatStoreHourRange(hour);
 }
 
+function getOrderedLocationHours(hours: StoreHourSummary[]) {
+  const orderedHours = hours
+    .map((hour, index) => ({ hour, index }))
+    .sort((a, b) => a.hour.weekday - b.hour.weekday || a.index - b.index);
+
+  return orderedHours.map((entry, orderedIndex) => ({
+    ...entry,
+    isFirstForDay: orderedIndex === 0 || orderedHours[orderedIndex - 1].hour.weekday !== entry.hour.weekday,
+    isLastForDay:
+      orderedIndex === orderedHours.length - 1 || orderedHours[orderedIndex + 1].hour.weekday !== entry.hour.weekday
+  }));
+}
+
 function buildCounterSlug(value: string) {
   return buildServiceSlug(value);
 }
@@ -4578,10 +4591,23 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   function renderLocationDialog() {
     const addInterval = (weekday: number) =>
-      setLocationForm((current) => ({
-        ...current,
-        hours: [...current.hours, { weekday, opensAt: "09:00", closesAt: "17:00", isClosed: false }]
-      }));
+      setLocationForm((current) => {
+        const nextInterval = { weekday, opensAt: "09:00", closesAt: "17:00", isClosed: false };
+        const lastIntervalIndex = current.hours.reduce(
+          (lastIndex, item, itemIndex) => (item.weekday === weekday ? itemIndex : lastIndex),
+          -1
+        );
+        const insertAt = lastIntervalIndex >= 0 ? lastIntervalIndex + 1 : current.hours.length;
+
+        return {
+          ...current,
+          hours: [
+            ...current.hours.slice(0, insertAt),
+            nextInterval,
+            ...current.hours.slice(insertAt)
+          ]
+        };
+      });
     const removeInterval = (weekday: number, index: number) =>
       setLocationForm((current) => {
         const dayCount = current.hours.filter((item) => item.weekday === weekday).length;
@@ -4877,7 +4903,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           >
             {isMobileHoursLayout ? (
               <Stack gap="sm">
-                {locationForm.hours.map((hour, index) => {
+                {getOrderedLocationHours(locationForm.hours).map(({ hour, index }) => {
                   const dayLabel = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][hour.weekday];
 
                   return (
@@ -4959,7 +4985,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             ) : (
               <ScrollArea offsetScrollbars type="auto">
                 <Box miw={700} pb="xs">
-                  <Table>
+                  <Table className="vendor-operating-hours-table">
                     <Table.Thead>
                       <Table.Tr>
                         <Table.Th>Day</Table.Th>
@@ -4970,9 +4996,14 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       </Table.Tr>
                     </Table.Thead>
                     <Table.Tbody>
-                      {locationForm.hours.map((hour, index) => (
-                        <Table.Tr key={`${hour.weekday}-${index}`}>
-                          <Table.Td>{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][hour.weekday]}</Table.Td>
+                      {getOrderedLocationHours(locationForm.hours).map(({ hour, index, isFirstForDay, isLastForDay }) => (
+                        <Table.Tr
+                          key={`${hour.weekday}-${index}`}
+                          className={isLastForDay ? "vendor-operating-hours-table__group-end" : undefined}
+                        >
+                          <Table.Td>
+                            {isFirstForDay ? ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][hour.weekday] : null}
+                          </Table.Td>
                           <Table.Td>
                             <Checkbox
                               name={`hours.${index}.isClosed`}

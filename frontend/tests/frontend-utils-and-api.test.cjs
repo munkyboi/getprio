@@ -1893,6 +1893,9 @@ test("vendor profile hero uses the booking-ticket information hierarchy", () => 
   assert.match(source, /<Text className="finazze-section-label">Branches<\/Text>/);
   assert.match(source, /vendor\.locations\.map\(\(branch\) => \{/);
   assert.match(source, /className="vendor-profile-hero-branch"/);
+  assert.match(source, /location\.hours\.filter\(\(entry\) => entry\.weekday === weekday && !entry\.isClosed\)/);
+  assert.match(source, /\.join\(" · "\)/);
+  assert.match(source, />\s*Operating hours\s*<\/Text>/);
   assert.match(source, /to=\{selectedBookingLocationSlug \? `\/join\/\$\{vendor\.slug\}\/\$\{selectedBookingLocationSlug\}` : `\/join\/\$\{vendor\.slug\}`\}/);
   assert.doesNotMatch(source, /to=\{activeHeroBranch\?\.slug \? `\/join\//);
   assert.match(source, /queryKey: \["public-vendor-queue-status", profileSlug, selectedBookingLocationSlug\]/);
@@ -2512,6 +2515,27 @@ test("vendor location cards show only today's timezone-resolved schedule", () =>
   assert.match(source, /formatStoreHourRange\(locationItem\.openStatus\.today\)/);
   assert.match(source, /locationItem\.isActive && locationItem\.openStatus\.isOpen \? "Open" : "Closed"/);
   assert.doesNotMatch(source, />\{locationItem\.openStatus\.summary\}<\/Text>/);
+});
+
+test("vendor operating-hour intervals stay grouped by weekday", () => {
+  const frontendRoot = path.resolve(__dirname, "..");
+  const source = fs.readFileSync(
+    path.join(path.resolve(__dirname, ".."), "src", "pages", "VendorDashboardPage.tsx"),
+    "utf8"
+  );
+
+  assert.match(source, /function getOrderedLocationHours\(hours: StoreHourSummary\[\]\)/);
+  assert.match(source, /a\.hour\.weekday - b\.hour\.weekday \|\| a\.index - b\.index/);
+  assert.match(source, /isFirstForDay: orderedIndex === 0/);
+  assert.match(source, /isLastForDay:/);
+  assert.match(source, /const insertAt = lastIntervalIndex >= 0 \? lastIntervalIndex \+ 1 : current\.hours\.length/);
+  assert.match(source, /getOrderedLocationHours\(locationForm\.hours\)\.map\(\(\{ hour, index/g);
+  assert.match(source, /vendor-operating-hours-table__group-end/);
+  assert.match(fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8"), /vendor-operating-hours-table tbody tr:not/);
+  assert.equal(
+    (source.match(/getOrderedLocationHours\(locationForm\.hours\)\.map\(\(\{ hour, index/g) || []).length,
+    2
+  );
 });
 
 test("vendor location card URLs copy to the clipboard with confirmation", () => {
