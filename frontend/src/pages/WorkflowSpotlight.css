@@ -261,3 +261,7 @@ color:#ccae96}
  }
 
 }
+
+
+.wf-status { display: inline-flex; align-items: center; gap: 5px; }
+.wf-intro svg, .wf-scroll svg { vertical-align: middle; margin-left: 3px; }

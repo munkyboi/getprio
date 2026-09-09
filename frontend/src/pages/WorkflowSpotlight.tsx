@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState } from 'react';
+import { IconArrowDown, IconArrowUpRight, IconCheck } from '@tabler/icons-react';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import './WorkflowSpotlight.css';
@@ -6,10 +7,10 @@ import './WorkflowSpotlight.css';
 gsap.registerPlugin(ScrollTrigger);
 
 const scenes = [
-  { title: 'Scan to join', headline: 'Your place starts here.', copy: 'One quick scan. Join the queue from your phone and let your day keep moving.', tag: 'A little scan. A lot less waiting.', status: '✓  You’re in the queue' },
-  { title: 'See your place', headline: 'Make the wait your own.', copy: 'Find a seat. Take a breath. Keep an eye on your place without keeping an eye on the counter.', tag: 'Less standing around. More you-time.', status: '03  Your place in line' },
-  { title: 'Get alerted', headline: 'A heads-up, right on time.', copy: 'Your phone lets you know when your turn is close. Head back feeling ready.', tag: 'Stay in the moment. Stay in the loop.', status: '↗  You’re up next' },
-  { title: 'Get served', headline: 'Your turn. All yours.', copy: 'Walk up when you’re called. A calmer arrival for you, a smoother day for the team.', tag: 'From first scan to a friendly hello.', status: '✓  Ready at the counter' },
+  { title: 'Scan to join', headline: 'Your place starts here.', copy: 'One quick scan. Join the queue from your phone and let your day keep moving.', tag: 'A little scan. A lot less waiting.', icon: IconCheck, status: 'You’re in the queue' },
+  { title: 'See your place', headline: 'Make the wait your own.', copy: 'Find a seat. Take a breath. Keep an eye on your place without keeping an eye on the counter.', tag: 'Less standing around. More you-time.', icon: null, status: '03  Your place in line' },
+  { title: 'Get alerted', headline: 'A heads-up, right on time.', copy: 'Your phone lets you know when your turn is close. Head back feeling ready.', tag: 'Stay in the moment. Stay in the loop.', icon: IconArrowUpRight, status: 'You’re up next' },
+  { title: 'Get served', headline: 'Your turn. All yours.', copy: 'Walk up when you’re called. A calmer arrival for you, a smoother day for the team.', tag: 'From first scan to a friendly hello.', icon: IconCheck, status: 'Ready at the counter' },
 ];
 
 function Art({ index }: { index: number }) {
@@ -60,12 +61,12 @@ export default function WorkflowSpotlight() {
     <div className="wf-scroll-shell">
     <section ref={root} className="wf-spotlight" id="workflow" aria-label="How GetPrio works">
       <div className="wf-wrap">
-        <header className="wf-header"><div><p className="wf-eyebrow">03 / THE GETPRIO WAY</p><h2>A little less waiting.<br /><em>A little more living.</em></h2></div><p className="wf-intro">From scan to served<br />in four simple moments.<span>Scroll to follow the journey ↓</span></p></header>
+        <header className="wf-header"><div><p className="wf-eyebrow">03 / THE GETPRIO WAY</p><h2><span className="wf-heading-line">A little less waiting.</span><br /><em className="wf-heading-line">A little more living.</em></h2></div><p className="wf-intro">From scan to served<br />in four simple moments.<span>Scroll to follow the journey <IconArrowDown size={12} aria-hidden="true" /></span></p></header>
         <div className="wf-scenes">{scenes.map((scene, i) => <article className={`wf-scene ${active === i ? 'is-active' : ''}`} key={scene.title}>
-          <div className="wf-image"><Art index={i} /><span className="wf-status">{scene.status}</span></div>
+          <div className="wf-image"><Art index={i} /><span className="wf-status">{scene.icon && <scene.icon size={13} stroke={1.5} aria-hidden="true" />}{scene.status}</span></div>
           <div className="wf-copy"><div className="wf-step"><span>0{i + 1}</span>{scene.title}</div><h3>{scene.headline}</h3><p>{scene.copy}</p><small>{scene.tag}</small></div>
         </article>)}</div>
-        <footer className="wf-footer"><div className="wf-progress"><div className="wf-progress-fill" /></div><span className="wf-counter">0{active + 1} <i>/ 04</i></span><p>Good service starts before your turn.</p><span className="wf-scroll">KEEP SCROLLING ↓</span></footer>
+        <footer className="wf-footer"><div className="wf-progress"><div className="wf-progress-fill" /></div><span className="wf-counter">0{active + 1} <i>/ 04</i></span><p>Good service starts before your turn.</p><span className="wf-scroll">KEEP SCROLLING <IconArrowDown size={12} aria-hidden="true" /></span></footer>
       </div>
     </section>
     </div>

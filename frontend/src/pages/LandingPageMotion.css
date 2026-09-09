@@ -102,3 +102,8 @@
 
 .lp-page { --lp-heading-font: "Aleo", Georgia, serif; }
 .lp-page .lp-pricing h2, .lp-page .lp-pricing h3 { font-family: var(--lp-heading-font); }
+
+.lp-hero-footer a, .lp-stage-foot span, .lp-closing-scene-footer span { display: inline-flex; align-items: center; gap: 5px; }
+.lp-asterisk, .lp-text-link svg, .lp-hero-footer svg, .lp-closing-scene-footer svg { flex-shrink: 0; }
+
+.lp-closing h2 [data-closing-reveal] { display: inline-block; }

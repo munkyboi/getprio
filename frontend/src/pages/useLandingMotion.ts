@@ -15,6 +15,25 @@ export function useLandingMotion(root: RefObject<HTMLDivElement | null>, pricing
       gsap.utils.toArray<HTMLElement>('[data-reveal]', page).forEach(element => {
         gsap.from(element, { y: 35, opacity: 0, duration: .8, ease: 'power2.out', scrollTrigger: { trigger: element, start: 'top 92%', once: true } });
       });
+      // Batch items entering together so desktop columns stagger while stacked
+      // mobile items wait until they actually enter the viewport.
+      gsap.set(select('.lp-feature'), { y: 42, opacity: 0 });
+      ScrollTrigger.batch(select('.lp-feature'), {
+        start: 'top 90%', once: true,
+        onEnter: items => gsap.to(items, { y: 0, opacity: 1, duration: .75, stagger: .14, ease: 'power3.out' }),
+      });
+      gsap.from(select('.wf-heading-line'), {
+        opacity: 0, duration: .9, stagger: .25, ease: 'power2.out',
+        scrollTrigger: { trigger: select('.wf-header'), start: 'top 85%', once: true },
+      });
+      gsap.from(select('[data-closing-reveal]'), {
+        y: 30, opacity: 0, duration: .8, stagger: .12, ease: 'power3.out',
+        scrollTrigger: { trigger: select('.lp-closing-copy'), start: 'top 85%', once: true },
+      });
+      gsap.from(select('.lp-closing-art'), {
+        scale: .9, opacity: 0, duration: 1.2, ease: 'power3.out', transformOrigin: '50% 60%',
+        scrollTrigger: { trigger: select('.lp-closing-art'), start: 'top 90%', once: true },
+      });
       gsap.fromTo(select('.lp-manifesto-word'), { opacity: .7 }, { opacity: 1, stagger: .18, ease: 'none', scrollTrigger: { trigger: select('.lp-manifesto'), start: 'top 75%', end: 'bottom 65%', scrub: .5 } });
       gsap.fromTo(select('.lp-closing-logo'), { y: 65, opacity: 0 }, { y: 0, opacity: .22, ease: 'none', scrollTrigger: { trigger: select('.lp-closing-scene'), start: 'top 90%', end: 'center 60%', scrub: .7 } });
       gsap.fromTo(select('.lp-section-rule'), { scaleX: 0 }, { scaleX: 1, ease: 'none', scrollTrigger: { trigger: select('#solutions'), start: 'top 85%', end: 'top 30%', scrub: .6 } });

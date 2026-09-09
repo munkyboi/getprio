@@ -17,6 +17,10 @@ import {
   Title
 } from "@mantine/core";
 import {
+  IconArrowDown,
+  IconArrowRight,
+  IconArrowUpRight,
+  IconAsterisk,
   IconBellRinging,
   IconBrandAndroid,
   IconBrandApple,
@@ -257,8 +261,8 @@ export default function LandingPage() {
             </h1>
             <p className="lp-hero-copy">Life happens beyond the line. Join a queue, follow your place, and get a heads-up when it’s your turn.</p>
             <div className="lp-hero-actions">
-              <Button className="customer-primary-action" component={Link} to="/vendors" color="dark" size="lg" radius="xl">Find your next stop <span aria-hidden="true">↗</span></Button>
-              <a className="lp-text-link" href="#workflow">See how it works <span aria-hidden="true">↓</span></a>
+              <Button className="customer-primary-action" component={Link} to="/vendors" color="dark" size="lg" radius="xl">Find your next stop <IconArrowUpRight size={22} stroke={1.5} aria-hidden="true" /></Button>
+              <a className="lp-text-link" href="#workflow">See how it works <IconArrowDown size={14} aria-hidden="true" /></a>
             </div>
             <div className="lp-app-links">
               <Button component="a" disabled={!iOSAppStoreUrl} href={iOSAppStoreUrl || undefined} target="_blank" rel="noreferrer" variant="subtle" color="dark" leftSection={<IconBrandApple size={20} />}>{iOSAppStoreUrl ? 'Get the iOS app' : 'iOS download coming soon'}</Button>
@@ -272,14 +276,14 @@ export default function LandingPage() {
             <div className="lp-float-note lp-note-bottom"><IconBellRinging size={22} /><span>Go live your day.<br /><strong>We’ll keep your place in view.</strong></span></div>
           </div>
         </div>
-        <div className="lp-hero-footer lp-container"><span>FOR EVERYDAY PLACES. AND EVERYONE IN THEM.</span><a href="#solutions">EXPLORE GETPRIO <span aria-hidden="true">↓</span></a></div>
+        <div className="lp-hero-footer lp-container"><span>FOR EVERYDAY PLACES. AND EVERYONE IN THEM.</span><a href="#solutions">EXPLORE GETPRIO <IconArrowDown size={14} aria-hidden="true" /></a></div>
       </section>
 
       <section className="lp-manifesto" aria-labelledby="lp-manifesto-title">
         <div className="lp-container">
           <p className="lp-eyebrow" data-reveal>01 / A BETTER KIND OF WAIT</p>
           <h2 id="lp-manifesto-title">{'A coffee. A conversation. A moment to yourself.'.split(' ').map((word, i) => <span className="lp-manifesto-word" key={i}>{word} </span>)}<em>{'There’s more to your day than waiting.'.split(' ').map((word, i) => <span className="lp-manifesto-word" key={i}>{word} </span>)}</em></h2>
-          <div className="lp-manifesto-bottom"><span className="lp-asterisk" aria-hidden="true">✳</span><p data-reveal>We give people a clearer wait.<br />And service teams a calmer way to work.</p></div>
+          <div className="lp-manifesto-bottom"><IconAsterisk className="lp-asterisk" size={65} stroke={1} aria-hidden="true" /><p data-reveal>We give people a clearer wait.<br />And service teams a calmer way to work.</p></div>
         </div>
       </section>
 
@@ -294,7 +298,7 @@ export default function LandingPage() {
           </div>
           <div className="lp-feature-list">{services.map((service, index) => {
             const Icon = service.icon;
-            return <article className="lp-feature" key={service.title} data-reveal><span className="lp-feature-number">0{index + 1}</span><Icon size={26} stroke={1.5} /><h3>{service.title}</h3><p>{service.text}</p></article>;
+            return <article className="lp-feature" key={service.title}><span className="lp-feature-number">0{index + 1}</span><Icon size={26} stroke={1.5} /><h3>{service.title}</h3><p>{service.text}</p></article>;
           })}</div>
         </div>
       </section>
@@ -375,21 +379,21 @@ export default function LandingPage() {
 
       <section id="get-started" className="lp-closing" aria-labelledby="closing-title">
         <div className="lp-container lp-closing-grid">
-          <div className="lp-closing-copy" data-reveal>
-            <p className="lp-eyebrow">A BETTER DAY STARTS HERE</p>
-            <h2 id="closing-title">Good service.<br /><em>More breathing room.</em></h2>
-            <p>Give your customers their time back.<br />Give your team a clearer way to serve.</p>
+          <div className="lp-closing-copy">
+            <p className="lp-eyebrow" data-closing-reveal>A BETTER DAY STARTS HERE</p>
+            <h2 id="closing-title"><span data-closing-reveal>Good service.</span><br /><em data-closing-reveal>More breathing room.</em></h2>
+            <p data-closing-reveal>Give your customers their time back.<br />Give your team a clearer way to serve.</p>
             <div className="lp-closing-actions">
-              <Button component={Link} to="/register/vendor" color="orange" size="xl" radius="xl">Create your workspace ↗</Button>
-              <a href="/vendors" className="lp-text-link">Explore vendors →</a>
+              <Button data-closing-reveal component={Link} to="/register/vendor" color="orange" size="xl" radius="xl" rightSection={<IconArrowUpRight size={22} stroke={1.5} aria-hidden="true" />}>Create your workspace</Button>
+              <a data-closing-reveal href="/vendors" className="lp-text-link">Explore vendors <IconArrowRight size={16} aria-hidden="true" /></a>
             </div>
-            <div className="lp-closing-footnote">From the first scan to the final smile.</div>
+            <div className="lp-closing-footnote" data-closing-reveal>From the first scan to the final smile.</div>
           </div>
           <div className="lp-closing-scene">
             <img className="lp-closing-logo" src="/logo.svg" alt="" aria-hidden="true" />
             <div className="lp-closing-scene-label"><span className="lp-dot" />LESS WAITING. MORE POSSIBILITY.</div>
             <img className="lp-closing-art" src="/illustrations/generated/cta-queue-scene-transparent.png" alt="Customers enjoying a calm service queue" loading="lazy" />
-            <div className="lp-closing-scene-footer"><span>YOUR PLACE IS KEPT.</span><span>YOUR DAY IS YOURS. ↗</span></div>
+            <div className="lp-closing-scene-footer"><span>YOUR PLACE IS KEPT.</span><span>YOUR DAY IS YOURS. <IconArrowUpRight size={12} aria-hidden="true" /></span></div>
           </div>
         </div>
       </section>
