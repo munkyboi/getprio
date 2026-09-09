@@ -1209,6 +1209,7 @@ router.post(
           `This reset token expires at ${new Date(reset.expiresAt).toISOString()}.`,
           `If you did not request this, you can ignore this email.`
         ].join("\n\n"),
+        emailTemplate: { illustration: "account-verification", actionLabel: "Reset password", actionUrl: reset.resetUrl },
         purpose: "general",
         metadata: {
           category: "password_reset"

@@ -107,6 +107,12 @@ async function deliverOtp({ tenant, channel, target, code }) {
       subject: `${tenant.name}: booking verification code`,
       text: message,
       tenantId: tenant._id,
+      emailTemplate: {
+        message: `Enter this code to verify your booking request with ${tenant.name}.`,
+        illustration: "account-verification",
+        code,
+        expiryText: `This code expires in ${OTP_TTL_MINUTES} minutes.`
+      },
       purpose: "booking_otp"
     });
     return;

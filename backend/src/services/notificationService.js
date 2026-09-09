@@ -1,4 +1,5 @@
 const nodemailer = require("nodemailer");
+const { createBrandedEmail } = require("./emailTemplates");
 const env = require("../config/env");
 const billingRepository = require("../repositories/billing");
 const notificationDeliveryRepository = require("../repositories/notificationDeliveries");
@@ -127,7 +128,7 @@ async function recordEmailDelivery({ to, subject, tenantId, ticketId, purpose, p
   }
 }
 
-async function sendEmail({ to, subject, text, html, tenantId, ticketId, purpose = "general", metadata, outboxId }) {
+async function sendEmail({ to, subject, text, html, emailTemplate, tenantId, ticketId, purpose = "general", metadata, outboxId }) {
   if (!to) {
     return false;
   }
@@ -136,6 +137,8 @@ async function sendEmail({ to, subject, text, html, tenantId, ticketId, purpose 
 
   try {
     await assertTransactionalEmailAllowance({ tenantId, purpose });
+    // Existing plain-text and delivery contracts are retained for every provider.
+    html = html || createBrandedEmail({ subject, message: text, ...emailTemplate }).html;
 
     if (provider === "resend") {
       const response = await fetch(env.resendApiUrl, {

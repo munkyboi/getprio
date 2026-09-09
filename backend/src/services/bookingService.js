@@ -8,6 +8,7 @@ const vendorAvailabilityRepository = require("../repositories/vendorAvailability
 const bookingOtpService = require("./bookingOtpService");
 const bookingSmsAlertPaymentService = require("./bookingSmsAlertPaymentService");
 const notificationService = require("./notificationService");
+const { bookingEmailTemplate } = require("./bookingEmailTemplates");
 const paymentProofStorageService = require("./paymentProofStorageService");
 const pushNotificationService = require("./pushNotificationService");
 const organizerCampaignService = require("./organizerCampaignService");
@@ -298,6 +299,7 @@ async function sendBookingSubmittedNotification({ tenant, booking }) {
       subject: `${tenant.name}: booking request submitted`,
       text: message,
       tenantId: tenant._id,
+      emailTemplate: bookingEmailTemplate({ ...booking, tenantName: tenant.name }),
       purpose: "booking_submitted",
       metadata: { bookingId: booking._id, reference: booking.reference }
     });
@@ -1444,6 +1446,7 @@ async function rejectVendorBookingPayment({ tenant, bookingId, user, reason }) {
       subject: `${updated.tenantName}: booking payment rejected`,
       text: message,
       tenantId: updated.tenantId,
+      emailTemplate: bookingEmailTemplate(updated),
       purpose: "booking_payment_rejected",
       metadata: { bookingId: updated._id, reference: updated.reference }
     });
@@ -1498,6 +1501,7 @@ async function cancelCustomerBooking({ user, bookingId, reason }) {
       subject: `${updated.tenantName}: booking cancelled`,
       text: message,
       tenantId: updated.tenantId,
+      emailTemplate: bookingEmailTemplate(updated),
       purpose: "booking_cancelled",
       metadata: { bookingId: updated._id, reference: updated.reference }
     });
@@ -1719,6 +1723,7 @@ async function markVendorBookingNoShow({ tenant, location, bookingId, user }) {
       subject: `${updated.tenantName}: booking no-show`,
       text: message,
       tenantId: updated.tenantId,
+      emailTemplate: bookingEmailTemplate(updated),
       purpose: "booking_no_show",
       metadata: { bookingId: updated._id, reference: updated.reference }
     });

@@ -29,7 +29,7 @@ test("queue ticket emails use branded HTML and include private ticket details", 
   assert.match(email.text, /\/ticket\/dr-santos\?ticket=ABC%20123/);
   assert.match(email.text, /Keep this ticket code and status link private/);
   assert.match(email.html, /GetPrio/);
-  assert.match(email.html, /background:#f5ecdf/);
+  assert.match(email.html, /background:#FFFAF4/);
   assert.match(email.html, /View queue ticket/);
   assert.match(email.html, /Dr\. Santos &amp; Partners/);
   assert.doesNotMatch(email.html, /Dr\. Santos & Partners/);
@@ -86,4 +86,38 @@ test("queue ticket URL requires both tenant slug and lookup code", () => {
   assert.match(buildQueueTicketUrl(tenant, ticket), /\/ticket\/dr-santos\?ticket=ABC%20123$/);
   assert.equal(buildQueueTicketUrl({}, ticket), "");
   assert.equal(buildQueueTicketUrl(tenant, {}), "");
+});
+
+test("queue OTP preserves its original plain-text delivery contract", () => {
+  const email = queueOtpEmail({ tenant, code: "482911", expiresMinutes: 15 });
+  assert.equal(email.text, `Enter this one-time code to continue joining the queue. Do not share it with anyone.
+
+Ticket details
+Business: Dr. Santos & Partners
+Verification code: 482911
+Expires in: 15 minutes
+
+If you did not request this code, you can safely ignore this email.
+
+GetPrio | Clear queues. Calmer customers.`);
+  assert.match(email.html, /VERIFICATION CODE/);
+  assert.match(email.html, /This code expires in 15 minutes/);
+});
+
+test("queue lifecycle preserves the original plain-text ordering and sign-off", () => {
+  const baseUrl = String(require("../src/config/env").appBaseUrl).replace(/\/$/, "");
+  const email = queueLifecycleEmail({ tenant, ticket, kind: "joined" });
+  assert.equal(email.text, `Your queue request is confirmed. Use the button below for live position and status updates.
+
+Ticket details
+Business: Dr. Santos & Partners
+Ticket number: DRS-042
+Ticket code: ABC 123
+Current status: waiting
+
+View queue ticket: ${baseUrl}/ticket/dr-santos?ticket=ABC%20123
+
+Keep this ticket code and status link private. Anyone with the link may be able to view this queue ticket.
+
+GetPrio | Clear queues. Calmer customers.`);
 });
