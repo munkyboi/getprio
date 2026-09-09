@@ -2,7 +2,7 @@ import { Anchor, Button, Container, Text, Title } from "@mantine/core";
 import { IconArrowUpRight, IconMail, IconBuildingStore, IconArrowRight } from "@tabler/icons-react";
 import { Link } from "react-router-dom";
 
-const supportEmail = String(import.meta.env.VITE_GETPRIO_SUPPORT_EMAIL || "").trim();
+const supportEmail = String(import.meta.env.VITE_GETPRIO_SUPPORT_EMAIL || "").trim() || "support@getprio.online";
 
 export default function ContactPage() {
   return (
@@ -25,13 +25,11 @@ export default function ContactPage() {
               Contact GetPrio for account access, technical issues, payments, or a concern that needs our team’s attention.
             </Text>
             <div className="support-contact-action">
-              {supportEmail ? <>
                 <Button component="a" href={`mailto:${supportEmail}`} size="lg" radius="xl" color="dark" rightSection={<IconArrowUpRight size={19} aria-hidden="true" />}>
                   Email support
                 </Button>
                 <Anchor href={`mailto:${supportEmail}`}>{supportEmail}</Anchor>
                 <Text size="sm" className="support-muted">Opens your email app. You can attach screenshots there.</Text>
-              </> : <Text className="support-muted">Support contact details are being updated.</Text>}
             </div>
             <div className="support-message-guide">
               <Title order={3}>Help us understand what happened</Title>

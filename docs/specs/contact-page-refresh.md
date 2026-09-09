@@ -10,7 +10,7 @@ Acceptance criteria:
 - Concise account/payment/technical help, readable typography, GetPrio orange/cream/charcoal colors, scoped CSS, ordinary document scrolling, no footer overlap at mobile/tablet/desktop widths.
 - Preserve existing vendor modal and shared navigation/footer behavior.
 
-The public support email comes from VITE_GETPRIO_SUPPORT_EMAIL. The support owner must supply the actual destination before release. Local visual review may use support@example.com as a fictional fixture, never a production destination. No new support backend or ticket reference service is implied.
+The public support email defaults to the owner-confirmed support@getprio.online. VITE_GETPRIO_SUPPORT_EMAIL can override it; missing or blank configuration retains the default so the support action stays available. No new support backend or ticket reference service is implied.
 
 Typography: the user selected Aleo after comparing serif options. Contact headings use self-hosted Aleo 600, with its OFL license bundled under shared/fonts/aleo. Body text and buttons retain the existing sans-serif styling.
 
