@@ -198,3 +198,33 @@ test("cookie-authenticated mutation rejects foreign origin and missing CSRF", as
   assert.equal(error.statusCode, 403);
   assert.equal(error.code, "CSRF_VALIDATION_FAILED");
 });
+
+test("public vendor registration is not blocked by an unrelated stale cookie session", async () => {
+  const protect = createCsrfProtection({ allowedOrigins: ["https://getprio.online"], csrfSecret: "test-secret" });
+  for (const cookie of [`${REFRESH_COOKIE}=expired-session`, `${ACCESS_COOKIE}=old-session; ${CSRF_COOKIE}=old-csrf`]) {
+    const error = await new Promise(resolve => protect({
+      method: "POST", originalUrl: "/api/auth/register/vendor", headers: {
+        cookie, origin: "https://getprio.online", "sec-fetch-site": "same-site", "content-type": "application/json",
+        "x-csrf-token": "token-from-an-older-tab"
+      }
+    }, buildResponse(), resolve));
+    assert.equal(error, undefined);
+  }
+});
+
+test("vendor registration recovery retains origin, request-format and authenticated-route protections", async () => {
+  const protect = createCsrfProtection({ allowedOrigins: ["https://getprio.online"], csrfSecret: "test-secret" });
+  const headers = { cookie: `${REFRESH_COOKIE}=expired-session`, origin: "https://getprio.online", "sec-fetch-site": "same-site", "content-type": "application/json" };
+  for (const request of [
+    { headers: { ...headers, origin: "https://evil.example" } },
+    { headers: { ...headers, origin: "" } },
+    { headers: { ...headers, "sec-fetch-site": "cross-site" } },
+    { headers: { ...headers, "content-type": "text/plain" } },
+    { headers, originalUrl: "/api/auth/register/vendor/complete" },
+    { headers, originalUrl: "/api/account/profile" },
+    { headers, method: "PATCH" }
+  ]) {
+    const error = await new Promise(resolve => protect({ method: "POST", originalUrl: "/api/auth/register/vendor", ...request }, buildResponse(), resolve));
+    assert.equal(error?.code, "CSRF_VALIDATION_FAILED");
+  }
+});

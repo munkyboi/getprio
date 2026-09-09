@@ -38,8 +38,11 @@ function isAuthRecoveryRequest(req) {
   const path = String(req.originalUrl || req.url || "")
     .split("?")[0]
     .replace(/^\/api(?=\/)/, "");
+  // These routes establish a new identity from their own credentials/input;
+  // unrelated cookies must not require an old session's CSRF token. Keep
+  // /register/vendor/complete protected: it uses the signed-in user's identity.
   return String(req.method || "GET").toUpperCase() === "POST" &&
-    ["/auth/login", "/auth/mfa/verify"].includes(path);
+    ["/auth/login", "/auth/mfa/verify", "/auth/register/vendor"].includes(path);
 }
 
 function createCsrfProtection({ allowedOrigins, csrfSecret, authCookieSecure = true }) {
