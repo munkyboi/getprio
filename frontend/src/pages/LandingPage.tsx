@@ -42,6 +42,7 @@ import { getPlanPriceDisplay } from "../utils/subscriptionPlans";
 
 import WorkflowSpotlight from "./WorkflowSpotlight";
 import LandingRibbons from "./LandingRibbons";
+import HeroPhones from "./HeroPhones";
 import ConnectedScreensParallax from "./ConnectedScreensParallax";
 import { useLandingMotion } from "./useLandingMotion";
 import "./LandingPageMotion.css";
@@ -271,7 +272,7 @@ export default function LandingPage() {
           </div>
           <div className="lp-hero-visual" id="get-the-app">
             <div className="lp-orbit-caption" aria-hidden="true">MAKE ROOM FOR YOUR DAY</div>
-            <img className="lp-phone" src="/mobile-app/getprio-ios-join-queue.png" alt="GetPrio app showing a vendor and available queue" width="1284" height="2778" fetchPriority="high" />
+            <HeroPhones />
             <div className="lp-float-note lp-note-top"><IconQrcode size={22} /><span>A quick scan.<br /><strong>And you’re in.</strong></span></div>
             <div className="lp-float-note lp-note-bottom"><IconBellRinging size={22} /><span>Go live your day.<br /><strong>We’ll keep your place in view.</strong></span></div>
           </div>
