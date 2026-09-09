@@ -9,6 +9,7 @@ test("minimal emails omit optional sections and preserve live text without image
   const email = createBrandedEmail({ subject: "Account update", message: "First paragraph.\n\nSecond paragraph." });
   assert.match(email.html, /First paragraph\.<\/p><p[^>]*>Second paragraph/);
   assert.match(email.html, /alt="GetPrio"/);
+  assert.match(email.html, /getprio-logo\.png\?rev=20260909/);
   assert.doesNotMatch(email.html, /VERIFICATION CODE|YOUR QUEUE NUMBER|Email preferences|Unsubscribe|<td[^>]*><\/td>/);
   assert.match(email.text, /First paragraph/);
   assert.match(email.html, /max-width:600px/);
