@@ -32,7 +32,7 @@ function requireWithMocks(targetPath, mocks) {
   const originals = new Map();
 
   try {
-    for (const [requestPath, mockExports] of Object.entries(mocks)) {
+    for (const [requestPath, mockExports] of Object.entries({ "../services/welcomeEmailService": { sendWelcomeEmail: async () => true }, ...mocks })) {
       const resolvedDependency = resolveMockPath(requestPath, path.dirname(resolvedTarget));
       originals.set(resolvedDependency, require.cache[resolvedDependency]);
       require.cache[resolvedDependency] = {
@@ -157,6 +157,9 @@ test("oauth callback route completes login and redirects with tokens", async () 
     refreshToken: "refresh-token",
     session: { _id: "session-1" }
   };
+  const welcomeCalls = [];
+  let existing = false;
+  let intent = "login";
   let receivedProfile = null;
   let receivedCallbackArgs = null;
   const oauthUser = {
@@ -172,13 +175,14 @@ test("oauth callback route completes login and redirects with tokens", async () 
     tenantMemberships: []
   };
   const authRoutes = requireWithMocks("../src/routes/authRoutes.js", {
+    "../services/welcomeEmailService": { sendWelcomeEmail: async (payload) => { welcomeCalls.push(payload); } },
     "../config/db": { withTransaction: async (callback) => callback({}) },
     "../repositories/tenants": {
       findTenantsByIds: async () => []
     },
     "../repositories/authSessions": {},
     "../repositories/users": {
-      findUserByOauthAccount: async () => null,
+      findUserByOauthAccount: async () => existing ? oauthUser : null,
       findUserByEmail: async () => null,
       findUserByUsername: async () => null,
       createUser: async () => oauthUser,
@@ -220,7 +224,7 @@ test("oauth callback route completes login and redirects with tokens", async () 
       },
       ensureSupportedProvider: () => {},
       getProviderLabel: (provider) => provider,
-      readOAuthState: () => ({ provider: "google", intent: "login" })
+      readOAuthState: () => ({ provider: "google", intent })
     },
     "../services/notificationService": {},
     "../services/passwordResetService": {},
@@ -251,4 +255,12 @@ test("oauth callback route completes login and redirects with tokens", async () 
   });
   assert.deepEqual(receivedCallbackArgs, { next: "/" });
   assert.equal(res.redirectUrl, "https://app.example/oauth/callback");
+  assert.deepEqual(welcomeCalls, [{ user: oauthUser }]);
+  existing = true;
+  await handler(req, createMockRes());
+  assert.equal(welcomeCalls.length, 1, "ordinary login does not send another welcome");
+  existing = false;
+  intent = "register_vendor";
+  await handler(req, createMockRes());
+  assert.equal(welcomeCalls.length, 1, "vendor OAuth waits for workspace completion");
 });

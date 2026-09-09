@@ -22,6 +22,7 @@ const {
   readOAuthState
 } = require("../services/oauthService");
 const notificationService = require("../services/notificationService");
+const welcomeEmailService = require("../services/welcomeEmailService");
 const passwordResetService = require("../services/passwordResetService");
 const securityEventService = require("../services/securityEventService");
 const sessionService = require("../services/sessionService");
@@ -331,7 +332,7 @@ async function findOrCreateOauthUser(profile) {
   }
 
   if (!user) {
-    return userRepository.createUser({
+    const createdUser = await userRepository.createUser({
       name: profile.name || buildFallbackName(profile.provider, normalizedEmail),
       username: await buildAvailableUsername(profile.name || buildFallbackName(profile.provider, normalizedEmail)),
       email: normalizedEmail || undefined,
@@ -340,6 +341,7 @@ async function findOrCreateOauthUser(profile) {
       oauthAccounts: [buildOauthAccount(profile)],
       roles: ["customer"]
     });
+    return { user: createdUser, created: true };
   }
 
   const conflictingProviderAccount = (user.oauthAccounts || []).find(
@@ -374,7 +376,7 @@ async function findOrCreateOauthUser(profile) {
     roles: [...new Set([...(user.roles || []), "customer"])]
   });
 
-  return user;
+  return { user, created: false };
 }
 
 function getPostOauthPath(intent, provider, user) {
@@ -528,6 +530,7 @@ router.post(
       await buildUserPayload(result.user),
       result.sessionResult
     ));
+    await welcomeEmailService.sendWelcomeEmail({ user: result.user });
   })
 );
 
@@ -583,7 +586,7 @@ router.all("/oauth/:provider/callback", async (req, res) => {
       requestBody: req.body
     });
 
-    const user = await findOrCreateOauthUser(profile);
+    const { user, created } = await findOrCreateOauthUser(profile);
     const next = getPostOauthPath(oauthState.intent, provider, user);
     const sessionResult = await sessionService.createAuthSession({
       user,
@@ -611,6 +614,9 @@ router.all("/oauth/:provider/callback", async (req, res) => {
         next
       })
     );
+    if (created && oauthState.intent !== "register_vendor") {
+      await welcomeEmailService.sendWelcomeEmail({ user });
+    }
   } catch (error) {
     redirectOauthError(res, error.message || "Social sign-in failed.");
   }
@@ -713,7 +719,7 @@ router.post(
         { client }
       );
 
-      return { user };
+      return { user, tenant };
     });
 
     const sessionResult = await sessionService.createAuthSession({
@@ -734,6 +740,7 @@ router.post(
     res.status(201).json({
       ...buildAuthResponse(req, res, await buildUserPayload(result.user), sessionResult)
     });
+    await welcomeEmailService.sendWelcomeEmail({ user: result.user, tenant: result.tenant });
   })
 );
 
@@ -789,7 +796,7 @@ router.post(
       Username: resolvedUsername.username
     });
 
-    const user = await db.withTransaction(async (client) => {
+    const { user, tenant } = await db.withTransaction(async (client) => {
       const [existingTenant, conflictingUser, conflictingUsername] = await Promise.all([
         tenantRepository.findTenantBySlug(normalizedSlug, { client }),
         userRepository.findUserByEmail(normalizedEmail, {
@@ -841,7 +848,7 @@ router.post(
 
       await userRepository.addTenantMembership(req.user._id, tenant._id, "owner", { client });
 
-      return userRepository.updateUser(
+      const updatedUser = await userRepository.updateUser(
         req.user._id,
         {
           name: resolvedName,
@@ -852,6 +859,7 @@ router.post(
         },
         { client }
       );
+      return { user: updatedUser, tenant };
     });
 
     const sessionResult = await sessionService.createAuthSession({
@@ -864,6 +872,7 @@ router.post(
     res.status(201).json({
       ...buildAuthResponse(req, res, await buildUserPayload(user), sessionResult)
     });
+    await welcomeEmailService.sendWelcomeEmail({ user, tenant });
   })
 );
 
@@ -919,6 +928,7 @@ router.post(
     res.status(201).json({
       ...buildAuthResponse(req, res, await buildUserPayload(user), sessionResult)
     });
+    await welcomeEmailService.sendWelcomeEmail({ user });
   })
 );
 
