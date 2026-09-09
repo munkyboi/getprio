@@ -1,5 +1,19 @@
 const env = require("../config/env");
-const { BRAND, createBrandedEmail } = require("./emailTemplates");
+const { BRAND, createBrandedEmail: renderBrandedEmail } = require("./emailTemplates");
+
+// Queue journey text is an existing delivery contract. Change its HTML only.
+function createBrandedEmail({ details = [], plainTextDetails = details, actionUrl = "", actionLabel = "View queue ticket", footer = "", ...options }) {
+  const email = renderBrandedEmail({ ...options, details, actionUrl, actionLabel, footer });
+  const detailLines = plainTextDetails.filter((detail) => detail.value).map((detail) => `${detail.label}: ${detail.value}`);
+  email.text = [
+    options.message,
+    detailLines.length ? `\nTicket details\n${detailLines.join("\n")}` : "",
+    actionUrl ? `\n${actionLabel}: ${actionUrl}` : "",
+    footer ? `\n${footer}` : "",
+    "\nGetPrio | Clear queues. Calmer customers."
+  ].filter(Boolean).join("\n");
+  return email;
+}
 
 function buildQueueTicketUrl(tenant, ticket) {
   if (!tenant?.slug || !ticket?.lookupCode) {
@@ -26,6 +40,7 @@ function createTicketEmail({ tenant, ticket, subject, preheader, eyebrow, title,
     eyebrow,
     title,
     message,
+    plainTextDetails: ticketDetails(tenant, ticket),
     details: ticketDetails(tenant, ticket).filter((detail) => !["Ticket number", "Current status"].includes(detail.label)),
     illustration: "queue-update",
     queue: { number: ticket.ticketNumber, status: String(ticket.status || "").replaceAll("_", " ") },
@@ -46,6 +61,11 @@ function queueOtpEmail({ tenant, code, expiresMinutes }) {
     code,
     expiryText: `This code expires in ${expiresMinutes} minutes.`,
     details: [{ label: "Business", value: tenant.name }],
+    plainTextDetails: [
+      { label: "Business", value: tenant.name },
+      { label: "Verification code", value: code },
+      { label: "Expires in", value: `${expiresMinutes} minutes` }
+    ],
     footer: "If you did not request this code, you can safely ignore this email."
   });
 }
