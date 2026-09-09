@@ -66,6 +66,7 @@ import { ModalWheelBridge } from "./components/ModalWheelBridge";
 import { PlanMatrixPage } from "./pages/PlanMatrixPage";
 import "@mantine/core/styles.css";
 import "@mantine/notifications/styles.css";
+import "../../shared/typography.css";
 import "./styles.css";
 
 const STORAGE_KEY = "prio-platform-auth";
@@ -76,6 +77,7 @@ type PortalAppearance = "dark" | "light";
 const theme = createTheme({
   primaryColor: "orange",
   fontFamily: 'Inter, Aptos, "Segoe UI", sans-serif',
+  headings: { fontFamily: "var(--prio-heading-font)", fontWeight: "600" },
   defaultRadius: "lg"
 });
 type GenericRecord = Record<string, unknown>;

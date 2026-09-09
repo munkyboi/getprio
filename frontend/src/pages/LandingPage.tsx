@@ -18,6 +18,8 @@ import {
 } from "@mantine/core";
 import {
   IconBellRinging,
+  IconBrandAndroid,
+  IconBrandApple,
   IconChartBar,
   IconCheck,
   IconClockHour4,
@@ -25,7 +27,6 @@ import {
   IconMessageCircle,
   IconPhone,
   IconQrcode,
-  IconUsersGroup
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { Link, useLocation } from "react-router-dom";
@@ -34,6 +35,12 @@ import PhilippineMobileInput from "../components/PhilippineMobileInput";
 import { apiRequest } from "../api/client";
 import { getErrorMessage } from "../utils/errors";
 import { getPlanPriceDisplay } from "../utils/subscriptionPlans";
+
+import WorkflowSpotlight from "./WorkflowSpotlight";
+import LandingRibbons from "./LandingRibbons";
+import ConnectedScreensParallax from "./ConnectedScreensParallax";
+import { useLandingMotion } from "./useLandingMotion";
+import "./LandingPageMotion.css";
 
 const services = [
   {
@@ -58,13 +65,6 @@ const services = [
   }
 ] as const;
 
-const steps = [
-  "Scan to join",
-  "See your place",
-  "Get alerted",
-  "Get served"
-] as const;
-
 const planArt: Record<SubscriptionPlan["slug"], string> = {
   free: "/illustrations/generated/pricing-economical-transparent.png",
   economical: "/illustrations/generated/pricing-economical-transparent.png",
@@ -76,6 +76,7 @@ const monthlyPriceFormatter = new Intl.NumberFormat("en-PH", {
   maximumFractionDigits: 2
 });
 const enterpriseMessageMaxLength = 1000;
+const iOSAppStoreUrl = import.meta.env.VITE_GETPRIO_IOS_APP_STORE_URL?.trim();
 
 export default function LandingPage() {
   const location = useLocation();
@@ -93,6 +94,8 @@ export default function LandingPage() {
   const [enterpriseSubmitting, setEnterpriseSubmitting] = useState(false);
   const [pricingPlans, setPricingPlans] = useState<SubscriptionPlan[]>([]);
   const [pricingError, setPricingError] = useState("");
+  const landingRoot = useRef<HTMLDivElement>(null);
+  useLandingMotion(landingRoot, pricingPlans.length);
   const enterpriseTurnstileContainerRef = useRef<HTMLDivElement | null>(null);
   const enterpriseTurnstileWidgetIdRef = useRef<string | null>(null);
   const enterpriseSubmissionPendingRef = useRef(false);
@@ -112,7 +115,7 @@ export default function LandingPage() {
     }
 
     const section = document.querySelector(location.hash);
-    section?.scrollIntoView({ behavior: "smooth", block: "start" });
+    section?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "start" });
   }, [location.hash]);
 
   useEffect(() => {
@@ -241,140 +244,70 @@ export default function LandingPage() {
   }
 
   return (
-    <Stack gap={0}>
-      <Box className="prio-hero" id="product">
-        <Container size="xl">
-          <SimpleGrid className="prio-hero-grid" cols={{ base: 1, md: 2 }} spacing={{ base: 36, md: 24 }} verticalSpacing="xl">
-            <Stack justify="center" gap="xl">
-              <Stack gap="md">
-                <Title className="prio-display" order={1}>
-                  Queues that move before customers get restless.
-                </Title>
-                <Text className="prio-lead">
-                  GetPrio keeps every wait predictable with QR entry, live public boards,
-                  near-turn alerts, and vendor tools built for busy service teams.
-                </Text>
-              </Stack>
-              <Group className="customer-action-row" gap="md">
-                <Button component={Link} to="/register/vendor" color="orange" size="lg">
-                  Start free
-                </Button>
-                <Button component={Link} to="/vendors" size="lg" variant="outline" color="dark">
-                  Browse vendors
-                </Button>
-              </Group>
-              <SimpleGrid className="prio-mini-proof" cols={{ base: 1, sm: 3 }}>
-                {services.slice(0, 3).map((service) => {
-                  const Icon = service.icon;
-                  return (
-                    <Group gap="sm" key={service.title} wrap="nowrap">
-                      <ThemeIcon color="orange" radius="xl" size={40} variant="light">
-                        <Icon size={20} />
-                      </ThemeIcon>
-                      <Text fw={700} size="sm">{service.title}</Text>
-                    </Group>
-                  );
-                })}
-              </SimpleGrid>
-            </Stack>
-
-            <Box className="prio-hero-art-wrap">
-              <img
-                alt="Illustration of customers joining and waiting in a GetPrio queue"
-                className="prio-hero-art"
-                src="/illustrations/generated/hero-queue-scene-transparent.png"
-              />
-              <Paper className="prio-dashboard-preview" p="lg">
-                <Text fw={800}>Good morning, Emma 👋</Text>
-                <Text c="dimmed" size="sm">Here&apos;s what&apos;s happening today.</Text>
-                <SimpleGrid cols={2} mt="md" spacing="sm">
-                  <div className="prio-dashboard-tile">
-                    <Text c="dimmed" size="xs">Now serving</Text>
-                    <Text className="prio-dashboard-number">A012</Text>
-                  </div>
-                  <div className="prio-dashboard-tile">
-                    <Text c="dimmed" size="xs">Average wait</Text>
-                    <Text fw={800}>18 min</Text>
-                  </div>
-                </SimpleGrid>
-              </Paper>
-            </Box>
-          </SimpleGrid>
-        </Container>
-      </Box>
-
-      <Box className="prio-section" id="solutions">
-        <Container size="xl">
-          <SimpleGrid cols={{ base: 1, md: 2 }} spacing={{ base: 32, md: 64 }}>
-            <Stack gap="xl">
-                <div>
-                  <Text className="prio-label">Features</Text>
-                  <Title className="prio-section-title" order={2}>
-                  One live system across every screen.
-                  </Title>
-                </div>
-              <Stack gap={0}>
-                {services.map((service) => {
-                  const Icon = service.icon;
-                  return (
-                    <Group className="prio-feature-row" key={service.title} wrap="nowrap">
-                      <ThemeIcon color="orange" radius="xl" size={46} variant="light">
-                        <Icon size={22} />
-                      </ThemeIcon>
-                      <div>
-                        <Text fw={800}>{service.title}</Text>
-                        <Text c="dimmed">{service.text}</Text>
-                      </div>
-                    </Group>
-                  );
-                })}
-              </Stack>
-            </Stack>
-
-              <img
-              alt="Illustration of GetPrio across a customer phone, public queue board, and vendor dashboard"
-                className="prio-feature-art"
-              src="/illustrations/generated/features-ecosystem-transparent.png"
-              />
-          </SimpleGrid>
-        </Container>
-      </Box>
-
-      <Box className="prio-dark-band">
-        <Container size="xl">
-          <Stack gap="xl">
-            <div>
-              <Text className="prio-label prio-label-light">Workflow</Text>
-              <Title c="white" className="prio-section-title" order={2}>
-                From scan to served in four live steps.
-              </Title>
+    <Stack gap={0} ref={landingRoot} className="lp-page">
+      <LandingRibbons />
+      <section className="lp-hero" id="product">
+        <div className="lp-container lp-hero-grid">
+          <div className="lp-hero-content">
+            <p className="lp-eyebrow"><span className="lp-dot" /> LESS WAITING. MORE LIVING.</p>
+            <h1 className="lp-title">
+              <span className="lp-hero-line"><span>Your day.</span></span>
+              <span className="lp-hero-line"><span>Your pace.</span></span>
+              <span className="lp-hero-line"><span><em>Your priority.</em></span></span>
+            </h1>
+            <p className="lp-hero-copy">Life happens beyond the line. Join a queue, follow your place, and get a heads-up when it’s your turn.</p>
+            <div className="lp-hero-actions">
+              <Button className="customer-primary-action" component={Link} to="/vendors" color="dark" size="lg" radius="xl">Find your next stop <span aria-hidden="true">↗</span></Button>
+              <a className="lp-text-link" href="#workflow">See how it works <span aria-hidden="true">↓</span></a>
             </div>
-            <img
-              alt="Four-step queue journey from scan to service"
-              className="prio-workflow-art"
-              src="/illustrations/generated/workflow-strip.png"
-            />
-            <SimpleGrid cols={{ base: 1, sm: 2, md: 4 }}>
-              {steps.map((step, index) => (
-                <Group className="prio-step" gap="md" key={step} wrap="nowrap">
-                  <ThemeIcon color="orange" radius="xl" size={34} variant="filled">
-                    {index + 1}
-                  </ThemeIcon>
-                  <Text c="white" fw={800}>{step}</Text>
-                </Group>
-              ))}
-            </SimpleGrid>
-          </Stack>
-        </Container>
-      </Box>
+            <div className="lp-app-links">
+              <Button component="a" disabled={!iOSAppStoreUrl} href={iOSAppStoreUrl || undefined} target="_blank" rel="noreferrer" variant="subtle" color="dark" leftSection={<IconBrandApple size={20} />}>{iOSAppStoreUrl ? 'Get the iOS app' : 'iOS download coming soon'}</Button>
+              <span><IconBrandAndroid size={17} aria-hidden="true" /> Android — coming soon</span>
+            </div>
+          </div>
+          <div className="lp-hero-visual" id="get-the-app">
+            <div className="lp-orbit-caption" aria-hidden="true">MAKE ROOM FOR YOUR DAY</div>
+            <img className="lp-phone" src="/mobile-app/getprio-ios-join-queue.png" alt="GetPrio app showing a vendor and available queue" width="1284" height="2778" fetchPriority="high" />
+            <div className="lp-float-note lp-note-top"><IconQrcode size={22} /><span>A quick scan.<br /><strong>And you’re in.</strong></span></div>
+            <div className="lp-float-note lp-note-bottom"><IconBellRinging size={22} /><span>Go live your day.<br /><strong>We’ll keep your place in view.</strong></span></div>
+          </div>
+        </div>
+        <div className="lp-hero-footer lp-container"><span>FOR EVERYDAY PLACES. AND EVERYONE IN THEM.</span><a href="#solutions">EXPLORE GETPRIO <span aria-hidden="true">↓</span></a></div>
+      </section>
 
-      <Box className="prio-section" id="pricing">
+      <section className="lp-manifesto" aria-labelledby="lp-manifesto-title">
+        <div className="lp-container">
+          <p className="lp-eyebrow" data-reveal>01 / A BETTER KIND OF WAIT</p>
+          <h2 id="lp-manifesto-title">{'A coffee. A conversation. A moment to yourself.'.split(' ').map((word, i) => <span className="lp-manifesto-word" key={i}>{word} </span>)}<em>{'There’s more to your day than waiting.'.split(' ').map((word, i) => <span className="lp-manifesto-word" key={i}>{word} </span>)}</em></h2>
+          <div className="lp-manifesto-bottom"><span className="lp-asterisk" aria-hidden="true">✳</span><p data-reveal>We give people a clearer wait.<br />And service teams a calmer way to work.</p></div>
+        </div>
+      </section>
+
+      <section className="lp-features" id="solutions">
+        <div className="lp-container">
+          <div className="lp-section-rule" />
+          <header className="lp-section-head" data-reveal><p className="lp-eyebrow">02 / CONNECTED BY DESIGN</p><h2>One rhythm.<br /><em>Every screen.</em></h2><p>From the phone in your hand to the team behind the counter. Everyone sees what’s next.</p></header>
+          <div className="lp-feature-stage">
+            <span className="lp-stage-label">THE WHOLE QUEUE, IN SYNC</span>
+            <ConnectedScreensParallax />
+            <div className="lp-stage-foot"><span>THE PUBLIC BOARD</span><span>YOUR PHONE</span><span>YOUR TEAM</span></div>
+          </div>
+          <div className="lp-feature-list">{services.map((service, index) => {
+            const Icon = service.icon;
+            return <article className="lp-feature" key={service.title} data-reveal><span className="lp-feature-number">0{index + 1}</span><Icon size={26} stroke={1.5} /><h3>{service.title}</h3><p>{service.text}</p></article>;
+          })}</div>
+        </div>
+      </section>
+
+      <WorkflowSpotlight />
+
+      <Box className="prio-section lp-pricing" id="pricing">
         <Container size="xl">
           <Stack gap="xl">
-            <div className="prio-centered-copy">
-              <Text className="prio-label">Pricing</Text>
+            <div className="prio-centered-copy" data-reveal>
+              <Text className="prio-label">04 / ROOM TO GROW</Text>
               <Title className="prio-section-title" order={2}>
-                Choose the rhythm that fits your operation.
+                A calmer day. At every scale.
               </Title>
             </div>
             {pricingError ? <Alert color="red">{pricingError}</Alert> : null}
@@ -440,39 +373,26 @@ export default function LandingPage() {
         </Container>
       </Box>
 
-      <Box className="prio-cta-section">
-        <Container size="xl">
-          <Paper className="prio-cta" p={{ base: "xl", md: 48 }}>
-            <SimpleGrid cols={{ base: 1, md: 2 }} spacing={{ base: 28, md: 40 }}>
-              <Stack justify="center" gap="md">
-                <ThemeIcon color="orange" radius="xl" size={58} variant="light">
-                  <IconUsersGroup size={30} />
-                </ThemeIcon>
-                <Title className="prio-section-title" order={2}>
-                  Ready to run a calmer queue?
-                </Title>
-                <Text c="dimmed">
-                  Start with a vendor workspace, publish your first public board, and let the line
-                  breathe a little easier.
-                </Text>
-                <Group className="customer-action-row">
-                  <Button component={Link} to="/register/vendor" color="orange" size="lg">
-                    Get started
-                  </Button>
-                  <Button component={Link} to="/vendors" size="lg" variant="outline" color="dark">
-                    Browse vendors
-                  </Button>
-                </Group>
-              </Stack>
-              <img
-                alt="Illustration of a calm service queue"
-                className="prio-cta-art"
-                src="/illustrations/generated/cta-queue-scene-transparent.png"
-              />
-            </SimpleGrid>
-          </Paper>
-        </Container>
-      </Box>
+      <section id="get-started" className="lp-closing" aria-labelledby="closing-title">
+        <div className="lp-container lp-closing-grid">
+          <div className="lp-closing-copy" data-reveal>
+            <p className="lp-eyebrow">A BETTER DAY STARTS HERE</p>
+            <h2 id="closing-title">Good service.<br /><em>More breathing room.</em></h2>
+            <p>Give your customers their time back.<br />Give your team a clearer way to serve.</p>
+            <div className="lp-closing-actions">
+              <Button component={Link} to="/register/vendor" color="orange" size="xl" radius="xl">Create your workspace ↗</Button>
+              <a href="/vendors" className="lp-text-link">Explore vendors →</a>
+            </div>
+            <div className="lp-closing-footnote">From the first scan to the final smile.</div>
+          </div>
+          <div className="lp-closing-scene">
+            <img className="lp-closing-logo" src="/logo.svg" alt="" aria-hidden="true" />
+            <div className="lp-closing-scene-label"><span className="lp-dot" />LESS WAITING. MORE POSSIBILITY.</div>
+            <img className="lp-closing-art" src="/illustrations/generated/cta-queue-scene-transparent.png" alt="Customers enjoying a calm service queue" loading="lazy" />
+            <div className="lp-closing-scene-footer"><span>YOUR PLACE IS KEPT.</span><span>YOUR DAY IS YOURS. ↗</span></div>
+          </div>
+        </div>
+      </section>
 
       <Modal
         centered

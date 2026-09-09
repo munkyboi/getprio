@@ -1,0 +1,263 @@
+.wf-spotlight{
+background:#1c1b18;
+color:#fff9f0;
+padding:100px 24px 70px;
+position:relative;
+overflow:hidden;
+font-family:inherit}
+.wf-wrap{
+max-width:1288px;
+margin:auto}
+.wf-eyebrow{
+font-size:11px;
+letter-spacing:.2em;
+color:#ff9b52;
+font-weight:700;
+margin:0 0 20px}
+.wf-header h2{
+font-family:var(--lp-heading-font, "Aleo"),Georgia,serif;
+font-size:38px;
+line-height:1.07;
+font-weight:500;
+letter-spacing:-1.7px;
+margin:0}
+.wf-header em{
+color:#f8af71;
+font-weight:400}
+.wf-intro{
+color:#c0b8ac;
+font-size:15px;
+line-height:1.6;
+margin:24px 0 30px}
+.wf-intro span{
+display:block;
+font-size:10px;
+letter-spacing:.1em;
+color:#f6aa6b;
+margin-top:14px}
+.wf-scenes{
+display:grid;
+gap:40px}
+.wf-image{
+background:#fffaf4;
+border-radius:18px;
+position:relative;
+overflow:hidden}
+.wf-art{
+position:relative;
+width:100%;
+aspect-ratio:.95;
+overflow:hidden}
+.wf-art img{
+position:absolute;
+max-width:none;
+width:400%;
+height:auto;
+top:50%;
+transform:translateY(-50%)}
+.wf-status{
+position:absolute;
+bottom:16px;
+left:50%;
+transform:translateX(-50%);
+white-space:nowrap;
+background:#fffdf9;
+border:1px solid #e6d6c3;
+box-shadow:0 5px 20px #3c260b10;
+border-radius:30px;
+padding:8px 13px;
+color:#79502b;
+font-size:11px}
+.wf-copy{
+padding:22px 4px 0}
+.wf-step{
+display:flex;
+gap:10px;
+align-items:center;
+color:#f7a363;
+font-size:12px;
+font-weight:600}
+.wf-step>span{
+border:1px solid #946341;
+border-radius:50%;
+width:30px;
+height:30px;
+display:grid;
+place-items:center;
+font-size:11px}
+.wf-copy h3{
+font-family:var(--lp-heading-font, "Aleo"),Georgia,serif;
+font-size:27px;
+font-weight:400;
+line-height:1.1;
+margin:19px 0 12px;
+letter-spacing:-.6px}
+.wf-copy p{
+color:#bab4aa;
+font-size:14px;
+line-height:1.7;
+margin:0;
+max-width:390px}
+.wf-copy small{
+display:none}
+.wf-footer{
+margin-top:38px;
+display:flex;
+gap:15px;
+align-items:center;
+position:relative;
+padding-top:25px;
+font-size:12px}
+.wf-footer i{
+font-style:normal;
+color:#706a61}
+.wf-footer p{
+color:#a49c90;
+font-size:11px;
+flex:1;
+margin:0}
+.wf-progress{
+position:absolute;
+top:0;
+left:0;
+right:0;
+height:1px;
+background:#504639}
+.wf-progress-fill{
+height:2px;
+background:#ff943e;
+transform-origin:left}
+.wf-scroll{
+display:none;
+font-size:9px;
+letter-spacing:.16em;
+color:#ccae96}
+
+/* A block wrapper reserves pin spacing inside the landing page's flex stack. */
+.wf-scroll-shell {
+ display: block;
+ min-width: 0;
+ position: relative;
+ isolation: isolate;
+ }
+
+.wf-counter {
+ display: none;
+ }
+
+.wf-scene {
+ min-width: 0;
+ }
+
+@media (min-width: 768px) {
+
+  .wf-spotlight {
+ padding: 100px 5.4vw 70px;
+ }
+
+  .wf-wrap {
+ width: 100%;
+ }
+
+  .wf-header {
+ display: flex;
+ align-items: flex-end;
+ justify-content: space-between;
+ gap: 32px;
+ margin-bottom: 25px;
+ }
+
+  .wf-eyebrow {
+ margin-bottom: 12px;
+ }
+
+  .wf-header h2 {
+ font-size: clamp(42px, 4.3vw, 64px);
+ }
+
+  .wf-intro {
+ margin: 0 0 4px;
+ flex-shrink: 0;
+ }
+
+  .wf-scenes {
+ gap: 60px;
+ }
+
+  .wf-scene {
+ display: grid;
+ grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+ gap: 7%;
+ align-items: center;
+ }
+
+  .wf-art {
+ height: 310px;
+ aspect-ratio: auto;
+ max-width: 350px;
+ margin: auto;
+ }
+
+  .wf-copy h3 {
+ font-size: 52px;
+ max-width: 440px;
+ }
+
+  .wf-copy p {
+ font-size: 17px;
+ }
+
+  .wf-copy small {
+ display: block;
+ color: #eab787;
+ margin-top: 28px;
+ font-size: 12px;
+ }
+
+  .wf-footer {
+ margin-top: 26px;
+ padding-top: 18px;
+ }
+
+  .wf-spotlight.is-pinned {
+ min-height: 100svh;
+ display: flex;
+ align-items: center;
+ }
+
+  .is-pinned .wf-scenes {
+ position: relative;
+ height: 310px;
+ }
+
+  .is-pinned .wf-scene {
+ position: absolute;
+ inset: 0;
+ }
+
+  .is-pinned .wf-scroll, .is-pinned .wf-counter {
+ display: block;
+ }
+
+}
+
+@media (min-width: 768px) and (max-height: 800px) {
+
+  .wf-header h2 {
+ font-size: 42px;
+ }
+
+  .is-pinned .wf-scenes {
+ height: 280px;
+ }
+
+  .wf-art {
+ height: 280px;
+ max-width: 300px;
+ }
+
+  .wf-copy h3 {
+ font-size: 42px;
+ }
+
+}
