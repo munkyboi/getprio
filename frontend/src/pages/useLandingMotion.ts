@@ -40,7 +40,6 @@ export function useLandingMotion(root: RefObject<HTMLDivElement | null>, pricing
     }, root);
     media.add('(min-width: 768px) and (prefers-reduced-motion: no-preference)', () => {
       const select = gsap.utils.selector(page);
-      gsap.to(select('.lp-phone'), { y: -65, rotate: 5, ease: 'none', scrollTrigger: { trigger: select('.lp-hero'), start: 'top top', end: 'bottom top', scrub: .8 } });
       gsap.from(select('.lp-closing-art'), { y: 25, ease: 'none', scrollTrigger: { trigger: select('.lp-closing'), start: 'top bottom', end: 'center center', scrub: .8 } });
     }, root);
     let mounted = true;
