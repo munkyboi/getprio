@@ -12,6 +12,7 @@ const paymentProofStorageService = require("./paymentProofStorageService");
 const campaignReportAttachmentService = require("./campaignReportAttachmentService");
 const pushNotificationService = require("./pushNotificationService");
 const notificationService = require("./notificationService");
+const { createBrandedEmail } = require("./emailTemplates");
 const queueEvents = require("./queueEvents");
 const bookingService = require("./bookingService");
 const allowanceService = require("./allowanceService");
@@ -1160,17 +1161,19 @@ async function reportPublicCampaignAbuse({ publicToken, body = {}, actor = null,
       `Reason: ${reason || "Not provided"}`,
       attachment ? `Screenshot: ${attachment.publicUrl}` : "No screenshot was attached."
     ].join("\n");
-    const escapeHtml = (value) => String(value || "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#39;");
     await notificationService.sendEmail({
       to: tenant.contactEmail,
       subject: `Campaign report: ${campaignTitle}`,
       text: reportText,
-      html: `<p>A customer reported a group-funded campaign.</p><p><strong>Campaign:</strong> ${escapeHtml(campaignTitle)}<br><strong>Reason:</strong> ${escapeHtml(reason || "Not provided")}</p>${attachment ? `<p><strong>Screenshot:</strong></p><img src="${escapeHtml(attachment.publicUrl)}" alt="${escapeHtml(attachment.fileName)}" style="display:block;max-width:100%;height:auto;border:1px solid #d9dee7;border-radius:8px" /><p><a href="${escapeHtml(attachment.publicUrl)}">Open screenshot</a></p>` : "<p>No screenshot was attached.</p>"}`,
+      html: createBrandedEmail({
+        subject: `Campaign report: ${campaignTitle}`,
+        message: "A customer reported a group-funded campaign.",
+        details: [{ label: "Campaign", value: campaignTitle }, { label: "Reason", value: reason || "Not provided" }],
+        attachment: attachment ? { url: attachment.publicUrl, alt: attachment.fileName } : undefined,
+        actionLabel: "Open screenshot",
+        actionUrl: attachment?.publicUrl,
+        footer: attachment ? "" : "No screenshot was attached."
+      }).html,
       tenantId: campaign.tenantId,
       purpose: "general",
       metadata: {

@@ -1,22 +1,5 @@
 const env = require("../config/env");
-
-const BRAND = Object.freeze({
-  accent: "#f45d01",
-  background: "#f5ecdf",
-  ink: "#251e19",
-  muted: "#756b63",
-  paper: "#fffdf9",
-  border: "#eadfd2"
-});
-
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
+const { BRAND, createBrandedEmail } = require("./emailTemplates");
 
 function buildQueueTicketUrl(tenant, ticket) {
   if (!tenant?.slug || !ticket?.lookupCode) {
@@ -25,92 +8,6 @@ function buildQueueTicketUrl(tenant, ticket) {
 
   const baseUrl = String(env.appBaseUrl || "").replace(/\/$/, "");
   return `${baseUrl}/ticket/${encodeURIComponent(tenant.slug)}?ticket=${encodeURIComponent(ticket.lookupCode)}`;
-}
-
-function buildPlainText({ message, details, actionUrl, actionLabel, footer }) {
-  const detailLines = details
-    .filter((detail) => detail.value)
-    .map((detail) => `${detail.label}: ${detail.value}`);
-  return [
-    message,
-    detailLines.length ? `\nTicket details\n${detailLines.join("\n")}` : "",
-    actionUrl ? `\n${actionLabel}: ${actionUrl}` : "",
-    footer ? `\n${footer}` : "",
-    "\nGetPrio | Clear queues. Calmer customers."
-  ].filter(Boolean).join("\n");
-}
-
-function renderEmailHtml({ preheader, eyebrow, title, message, details, actionUrl, actionLabel, footer }) {
-  const detailRows = details
-    .filter((detail) => detail.value)
-    .map((detail) => `
-      <tr>
-        <td style="padding:7px 0;color:${BRAND.muted};font-family:Arial,sans-serif;font-size:13px;vertical-align:top;width:42%;">${escapeHtml(detail.label)}</td>
-        <td style="padding:7px 0;color:${BRAND.ink};font-family:Arial,sans-serif;font-size:14px;font-weight:700;text-align:right;vertical-align:top;word-break:break-word;">${escapeHtml(detail.value)}</td>
-      </tr>`)
-    .join("");
-
-  return `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>${escapeHtml(title)}</title>
-  </head>
-  <body style="margin:0;padding:0;background:${BRAND.background};">
-    <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">${escapeHtml(preheader)}</div>
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${BRAND.background};border-collapse:collapse;">
-      <tr>
-        <td align="center" style="padding:32px 12px;">
-          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:620px;background:${BRAND.paper};border:1px solid ${BRAND.border};border-radius:24px;border-collapse:separate;overflow:hidden;">
-            <tr>
-              <td style="padding:24px 32px;border-bottom:1px solid ${BRAND.border};">
-                <span style="color:${BRAND.ink};font-family:Georgia,serif;font-size:25px;font-weight:700;letter-spacing:-1px;">gp</span>
-                <span style="margin-left:8px;color:${BRAND.ink};font-family:Arial,sans-serif;font-size:16px;font-weight:800;">GetPrio</span>
-              </td>
-            </tr>
-            <tr>
-              <td style="padding:38px 32px 18px;">
-                <div style="color:${BRAND.accent};font-family:Arial,sans-serif;font-size:12px;font-weight:800;letter-spacing:2px;text-transform:uppercase;">${escapeHtml(eyebrow)}</div>
-                <h1 style="margin:10px 0 14px;color:${BRAND.ink};font-family:Georgia,serif;font-size:38px;line-height:1.05;letter-spacing:-1px;">${escapeHtml(title)}</h1>
-                <p style="margin:0;color:${BRAND.muted};font-family:Arial,sans-serif;font-size:16px;line-height:1.65;">${escapeHtml(message)}</p>
-              </td>
-            </tr>
-            ${detailRows ? `
-            <tr>
-              <td style="padding:10px 32px 18px;">
-                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#fff8ef;border:1px solid ${BRAND.border};border-radius:16px;padding:14px 18px;">
-                  ${detailRows}
-                </table>
-              </td>
-            </tr>` : ""}
-            ${actionUrl ? `
-            <tr>
-              <td style="padding:8px 32px 30px;">
-                <a href="${escapeHtml(actionUrl)}" style="display:inline-block;background:${BRAND.accent};border-radius:999px;color:#ffffff;font-family:Arial,sans-serif;font-size:15px;font-weight:800;padding:14px 24px;text-decoration:none;">${escapeHtml(actionLabel)}</a>
-                <p style="margin:16px 0 0;color:${BRAND.muted};font-family:Arial,sans-serif;font-size:12px;line-height:1.5;word-break:break-all;">Or open:<br>${escapeHtml(actionUrl)}</p>
-              </td>
-            </tr>` : ""}
-            <tr>
-              <td style="padding:20px 32px 28px;background:#2b211b;color:#e8ddd3;font-family:Arial,sans-serif;font-size:12px;line-height:1.6;">
-                ${escapeHtml(footer || "This transactional message was sent for an active GetPrio queue journey.")}
-                <br><strong style="color:#ffffff;">GetPrio</strong> | Clear queues. Calmer customers.
-              </td>
-            </tr>
-          </table>
-        </td>
-      </tr>
-    </table>
-  </body>
-</html>`;
-}
-
-function createBrandedEmail({ subject, preheader, eyebrow, title, message, details = [], actionUrl = "", actionLabel = "View queue ticket", footer = "" }) {
-  return {
-    subject,
-    text: buildPlainText({ message, details, actionUrl, actionLabel, footer }),
-    html: renderEmailHtml({ preheader, eyebrow, title, message, details, actionUrl, actionLabel, footer })
-  };
 }
 
 function ticketDetails(tenant, ticket) {
@@ -129,7 +26,9 @@ function createTicketEmail({ tenant, ticket, subject, preheader, eyebrow, title,
     eyebrow,
     title,
     message,
-    details: ticketDetails(tenant, ticket),
+    details: ticketDetails(tenant, ticket).filter((detail) => !["Ticket number", "Current status"].includes(detail.label)),
+    illustration: "queue-update",
+    queue: { number: ticket.ticketNumber, status: String(ticket.status || "").replaceAll("_", " ") },
     actionUrl: buildQueueTicketUrl(tenant, ticket),
     actionLabel: actionLabel || "View queue ticket",
     footer: footer || "Keep this ticket code and status link private. Anyone with the link may be able to view this queue ticket."
@@ -139,15 +38,14 @@ function createTicketEmail({ tenant, ticket, subject, preheader, eyebrow, title,
 function queueOtpEmail({ tenant, code, expiresMinutes }) {
   return createBrandedEmail({
     subject: `${tenant.name}: verification code`,
-    preheader: `Your GetPrio verification code is ${code}.`,
+    preheader: "Verify your GetPrio queue request.",
     eyebrow: "Secure queue entry",
     title: "Verify your queue request.",
     message: "Enter this one-time code to continue joining the queue. Do not share it with anyone.",
-    details: [
-      { label: "Business", value: tenant.name },
-      { label: "Verification code", value: code },
-      { label: "Expires in", value: `${expiresMinutes} minutes` }
-    ],
+    illustration: "account-verification",
+    code,
+    expiryText: `This code expires in ${expiresMinutes} minutes.`,
+    details: [{ label: "Business", value: tenant.name }],
     footer: "If you did not request this code, you can safely ignore this email."
   });
 }

@@ -62,6 +62,12 @@ async function sendOtp({ to, code, kind }) {
     text: kind === "current"
       ? `Use this code to confirm your request to change your GetPrio email address: ${code}\n\nThis code expires in 10 minutes. If you did not request this, secure your account immediately.`
       : `Use this code to confirm this email address for your GetPrio account: ${code}\n\nThis code expires in 10 minutes. If you did not request this, you can ignore this email.`,
+    emailTemplate: {
+      message: kind === "current" ? "Enter this code to confirm your request to change your GetPrio email address. If you did not request this, secure your account immediately." : "Enter this code to confirm this email address for your GetPrio account. If you did not request this, you can ignore this email.",
+      illustration: "account-verification",
+      code,
+      expiryText: "This code expires in 10 minutes."
+    },
     purpose: "account_email_change_otp",
     metadata: { kind }
   });

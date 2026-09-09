@@ -29,7 +29,7 @@ test("queue ticket emails use branded HTML and include private ticket details", 
   assert.match(email.text, /\/ticket\/dr-santos\?ticket=ABC%20123/);
   assert.match(email.text, /Keep this ticket code and status link private/);
   assert.match(email.html, /GetPrio/);
-  assert.match(email.html, /background:#f5ecdf/);
+  assert.match(email.html, /background:#FFFAF4/);
   assert.match(email.html, /View queue ticket/);
   assert.match(email.html, /Dr\. Santos &amp; Partners/);
   assert.doesNotMatch(email.html, /Dr\. Santos & Partners/);

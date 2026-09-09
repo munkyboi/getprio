@@ -39,6 +39,12 @@ async function sendOtp(email, code) {
     to: email,
     subject: "Verify your GetPrio email address",
     text: `Use this code to verify your GetPrio customer account: ${code}\n\nThis code expires in 10 minutes. If you did not create this account, you can ignore this email.`,
+    emailTemplate: {
+      message: "Enter this code in GetPrio to verify your email and finish setting up your account. If you did not create this account, you can ignore this email.",
+      illustration: "account-verification",
+      code,
+      expiryText: "This code expires in 10 minutes."
+    },
     purpose: "customer_registration_otp"
   });
 }

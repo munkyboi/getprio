@@ -34,6 +34,12 @@ async function sendOtp(to, code) {
     to,
     subject: "Confirm your GetPrio phone number change",
     text: `Use this code to confirm your new GetPrio phone number: ${code}\n\nThis code expires in 10 minutes. If you did not request this, secure your account immediately.`,
+    emailTemplate: {
+      message: "Enter this code to confirm your new GetPrio phone number. If you did not request this, secure your account immediately.",
+      illustration: "account-verification",
+      code,
+      expiryText: "This code expires in 10 minutes."
+    },
     purpose: "account_phone_change_otp"
   });
 }
