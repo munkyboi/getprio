@@ -39,7 +39,7 @@ All production email calls found in `backend/src` use notificationService. No Fl
 
 ## Existing trigger gaps, deliberately unchanged
 
-Vendor booking confirmation/cancellation, payment approval, rescheduling and check-in reminders currently use push notifications rather than an email send. This design change does not add send events or change opt-in behavior. Welcome/announcement and booking-confirmation/reminder designs are available through the renderer and fixtures; no new marketing campaign or reminder scheduler was introduced.
+Vendor booking confirmation/cancellation, payment approval, rescheduling and check-in reminders currently use push notifications rather than an email send. This design change does not add send events or change opt-in behavior. Announcement and booking-confirmation/reminder designs are available through the renderer and fixtures; no new marketing campaign or reminder scheduler was introduced.
 
 ## Assets and deployment
 
@@ -49,7 +49,7 @@ Transactional examples omit preferences/unsubscribe links. The shared renderer s
 
 ## Local preview and verification
 
-Run `APP_BASE_URL=http://127.0.0.1:4179 node scripts/preview-emails.cjs`, then `python3 -m http.server 4179 --bind 127.0.0.1 --directory .scratch/email-preview`. Open the local index. These fictional fixtures do not invoke the sender or any email provider. Confirmation/welcome/reminder previews are design fixtures, not enabled notification events.
+Run `APP_BASE_URL=http://127.0.0.1:4179 node scripts/preview-emails.cjs`, then `python3 -m http.server 4179 --bind 127.0.0.1 --directory .scratch/email-preview`. Open the local index. These fictional fixtures do not invoke the sender or any email provider. Confirmation/reminder previews are design fixtures, not enabled notification events. Welcome sends are documented in `signup-welcome-emails.md`.
 
 Verified in Chrome at 320px, 390px, 768px and 1280px, including long booking values, loaded logo/artwork and no horizontal overflow. Email provider payload tests cover Resend, SendGrid and SMTP without transmitting messages. Template tests cover escaping, unsafe links, omitted sections, inline links, zero values, OTP text/expiry, queue information, asset dimensions and booking timezone/ownership behavior.
 

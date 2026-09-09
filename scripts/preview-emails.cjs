@@ -28,5 +28,5 @@ for (const [name, email] of Object.entries(fixtures)) {
   fs.writeFileSync(path.join(output, `${name}.html`), email.html);
   fs.writeFileSync(path.join(output, `${name}.txt`), email.text);
 }
-fs.writeFileSync(path.join(output, "index.html"), `<!doctype html><html lang="en"><title>GetPrio email previews</title><body style="font:16px Arial;background:#FFFAF4;padding:24px"><h1>GetPrio email previews</h1><p>Fictional local fixtures. Booking confirmation, reminder and welcome are design examples, not new send triggers.</p><ul>${Object.keys(fixtures).map(name => `<li style="padding:8px"><a href="${name}.html">${name}</a></li>`).join("")}</ul></body></html>`);
+fs.writeFileSync(path.join(output, "index.html"), `<!doctype html><html lang="en"><title>GetPrio email previews</title><body style="font:16px Arial;background:#FFFAF4;padding:24px"><h1>GetPrio email previews</h1><p>Fictional local fixtures. Booking confirmation and reminder are design examples. Signup welcome emails are enabled separately.</p><ul>${Object.keys(fixtures).map(name => `<li style="padding:8px"><a href="${name}.html">${name}</a></li>`).join("")}</ul></body></html>`);
 console.log(`Email previews written to ${output}`);

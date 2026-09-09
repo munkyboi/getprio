@@ -69,7 +69,7 @@ function resolveMockPath(requestPath, baseDir) {
 function requireWithMocks(targetPath, mocks) {
   const resolvedTarget = require.resolve(targetPath);
   const originals = new Map();
-  const effectiveMocks = { ...mocks };
+  const effectiveMocks = { "../services/welcomeEmailService": { sendWelcomeEmail: async () => true }, ...mocks };
   if (
     targetPath.endsWith("/authRoutes.js")
     && !effectiveMocks["../services/securityRateLimitService"]
@@ -865,7 +865,9 @@ test("oauth start rejects invalid intents and oauth callback rejects provider mi
 test("register customer returns a tracked session and normalized username", async () => {
   let createdUser = null;
   let sessionPayload = null;
+  const welcomeCalls = [];
   const router = requireWithMocks("../src/routes/authRoutes.js", {
+    "../services/welcomeEmailService": { sendWelcomeEmail: async (payload) => { welcomeCalls.push(payload); } },
     "../config/db": {
       withTransaction: async (callback) => callback({})
     },
@@ -944,6 +946,9 @@ test("register customer returns a tracked session and normalized username", asyn
     assert.equal(createdUser.email, "customer@example.com");
     assert.equal(createdUser.username, "customer_one");
     assert.equal(sessionPayload.authMethod, "password");
+    assert.equal(welcomeCalls.length, 1);
+    assert.equal(welcomeCalls[0].user._id, "user-1");
+    assert.equal(welcomeCalls[0].tenant, undefined);
   } finally {
     await stopServer(server);
   }
@@ -952,7 +957,9 @@ test("register customer returns a tracked session and normalized username", asyn
 test("customer OTP registration verifies email before returning a bearer session", async () => {
   let startPayload = null;
   let verifyPayload = null;
+  const welcomeCalls = [];
   const router = requireWithMocks("../src/routes/authRoutes.js", {
+    "../services/welcomeEmailService": { sendWelcomeEmail: async (payload) => { welcomeCalls.push(payload); } },
     "../config/db": {},
     "../repositories/tenants": {
       findTenantsByIds: async () => []
@@ -1036,6 +1043,8 @@ test("customer OTP registration verifies email before returning a bearer session
     assert.equal(startPayload.email, "jane@example.com");
     assert.equal(startPayload.username, "jane_doe");
 
+    assert.equal(welcomeCalls.length, 0);
+
     const verifyResponse = await fetch(`${baseUrl}/register/customer/otp/verify`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Auth-Compatibility": "bearer-v1" },
@@ -1051,6 +1060,9 @@ test("customer OTP registration verifies email before returning a bearer session
       ipAddress: "127.0.0.1",
       userAgent: "test-agent"
     });
+    assert.equal(welcomeCalls.length, 1);
+    assert.equal(welcomeCalls[0].user._id, "user-1");
+    assert.equal(welcomeCalls[0].tenant, undefined);
   } finally {
     await stopServer(server);
   }
@@ -1061,8 +1073,10 @@ test("register vendor returns a tracked session and tenant membership", async ()
   let createdUser = null;
   let sessionPayload = null;
   let assignedFreeTenantId = null;
+  const welcomeCalls = [];
   const router = requireWithMocks("../src/routes/authRoutes.js", {
     "../repositories/businessCategories": { resolve: async () => ({ id: "1", name: "Sports and Recreation" }) },
+    "../services/welcomeEmailService": { sendWelcomeEmail: async (payload) => { welcomeCalls.push(payload); } },
     "../config/db": {
       withTransaction: async (callback) => callback({})
     },
@@ -1161,6 +1175,123 @@ test("register vendor returns a tracked session and tenant membership", async ()
     assert.equal(createdUser.email, "vendor@example.com");
     assert.equal(sessionPayload.authMethod, "password");
     assert.equal(assignedFreeTenantId, "tenant-1");
+    assert.equal(welcomeCalls.length, 1);
+    assert.equal(welcomeCalls[0].user._id, "user-1");
+    assert.equal(welcomeCalls[0].tenant._id, "tenant-1");
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("vendor onboarding completion sends a workspace welcome", async () => {
+  let createdTenant = null;
+  let sessionPayload = null;
+  let assignedFreeTenantId = null;
+  const welcomeCalls = [];
+  const router = requireWithMocks("../src/routes/authRoutes.js", {
+    "../repositories/businessCategories": { resolve: async () => ({ id: "1", name: "Sports and Recreation" }) },
+    "../services/welcomeEmailService": { sendWelcomeEmail: async (payload) => { welcomeCalls.push(payload); } },
+    "../config/db": {
+      withTransaction: async (callback) => callback({})
+    },
+    "../repositories/tenants": {
+      findTenantsByIds: async () => [],
+      findTenantBySlug: async () => null,
+      createTenant: async (data) => {
+        createdTenant = data;
+        return { _id: "tenant-1", ...data };
+      }
+    },
+    "../repositories/authSessions": {},
+    "../repositories/users": {
+      findUserByEmail: async () => null,
+      findUserByUsername: async () => null,
+      createUser: async (data) => {
+        return {
+          _id: "user-1",
+          ...data,
+          oauthAccounts: [],
+          tenantMemberships: [{ tenantId: "tenant-1", role: "owner", isActive: true }]
+        };
+      },
+      updateUser: async (id, data) => ({ _id: id, ...data, oauthAccounts: [], tenantMemberships: [] }),
+      addTenantMembership: async () => {}
+    },
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../middleware/auth": buildAuthMock(),
+    "../services/authService": {
+      normalizeEmail: (value) => String(value || "").trim().toLowerCase(),
+      getRequestIp: () => "127.0.0.1",
+      getUserAgent: () => "test-agent",
+      recordLoginAttempt: async () => {},
+      isUserLocked: () => false,
+      verifyPasswordLogin: async () => true,
+      handleFailedPasswordLogin: async () => ({}),
+      handleSuccessfulPasswordLogin: async () => ({})
+    },
+    "../services/oauthService": {
+      buildAuthorizationUrl: () => "",
+      buildClientCallbackUrl: ({ error }) =>
+        `https://app.example/oauth/callback#error=${encodeURIComponent(error)}`,
+      buildProviderAvailability: () => ({ google: false, facebook: false }),
+      createOAuthState: () => "",
+      exchangeCodeForProfile: async () => ({}),
+      ensureSupportedProvider: () => {},
+      getProviderLabel: (provider) => provider,
+      readOAuthState: () => ({ provider: "google", intent: "login" })
+    },
+    "../services/notificationService": {},
+    "../services/passwordResetService": {},
+    "../services/securityEventService": { logSecurityEvent: async () => {} },
+    "../services/subscriptionLifecycleService": {
+      assignFreeToApprovedTenant: async (tenantId, _input, options) => {
+        assert.ok(options.client);
+        assignedFreeTenantId = tenantId;
+        return { assigned: true };
+      }
+    },
+    "../services/sessionService": {
+      createAuthSession: async (payload) => {
+        sessionPayload = payload;
+        return {
+          accessToken: "access-token",
+          refreshToken: "refresh-token",
+          session: { _id: "session-1" }
+        };
+      }
+    }
+  });
+
+  const { server, baseUrl } = await startServer(router, "/api/auth");
+  try {
+    const response = await fetch(`${baseUrl}/register/vendor/complete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Auth-Compatibility": "bearer-v1" },
+      body: JSON.stringify({
+        tenantName: "Demo Tenant",
+        tenantSlug: "Demo Tenant",
+        category: "sports",
+        name: "Vendor One",
+        username: "Vendor_One",
+        email: "Vendor@Example.com",
+        password: "secret"
+      })
+    });
+
+    assert.equal(response.status, 201);
+    const body = await response.json();
+    assert.equal(body.token, "access-token");
+    assert.equal(body.refreshToken, "refresh-token");
+    assert.equal(body.user.username, "vendor_one");
+    assert.equal(createdTenant.slug, "demo-tenant");
+    assert.equal(createdTenant.businessCategoryId, "1");
+    assert.equal(createdTenant.publicProfileCategory, "Sports and Recreation");
+    assert.equal(welcomeCalls[0].user.email, "vendor@example.com");
+    assert.equal(sessionPayload.authMethod, "password");
+    assert.equal(assignedFreeTenantId, "tenant-1");
+    assert.equal(welcomeCalls.length, 1);
+    assert.equal(welcomeCalls[0].user._id, "user-1");
+    assert.equal(welcomeCalls[0].tenant._id, "tenant-1");
   } finally {
     await stopServer(server);
   }
