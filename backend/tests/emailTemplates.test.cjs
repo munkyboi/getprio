@@ -19,7 +19,7 @@ test("dynamic email text is escaped and unsafe action or attachment URLs are omi
     message: '<img src=x onerror=alert(1)>', details: [{ label: '<b>Venue</b>', value: 'A & B' }],
     actionLabel: 'Bad action', actionUrl: 'javascript:alert(1)', secondaryLabel: 'Unsafe', secondaryUrl: 'data:text/html,x',
     attachment: { url: 'javascript:alert(1)', alt: 'x' }, code: '<123456>' });
-  assert.doesNotMatch(email.html, /<script|<img src=x|href="javascript:|href="data:|src="javascript:/);
+  assert.doesNotMatch(email.html, /<script|<img src=x|href="javascript:|href="data:|src="javascript:/i);
   assert.match(email.html, /Hi &lt;Alex&gt;/);
   assert.match(email.html, /A &amp; B/);
   assert.match(email.html, /&lt;123456&gt;/);
@@ -29,11 +29,11 @@ test("dynamic email text is escaped and unsafe action or attachment URLs are omi
 test("inline links keep readable text in both formats without accepting raw HTML", () => {
   const email = createBrandedEmail({ subject: "Help", message: [
     ["You can ", { text: "contact support", url: "https://getprio.online/contact" }, " for help."],
-    [{ text: "<script>unsafe</script>", url: "javascript:alert(1)" }]
+    [{ text: "<SCRIPT>unsafe</SCRIPT>", url: "javascript:alert(1)" }]
   ] });
   assert.match(email.html, /href="https:\/\/getprio.online\/contact"/);
   assert.match(email.text, /You can contact support \(https:\/\/getprio.online\/contact\) for help/);
-  assert.doesNotMatch(email.html, /<script>|javascript:/);
+  assert.doesNotMatch(email.html, /<script\b|javascript:/i);
 });
 
 test("zero values, code expiry and queue status remain available in both alternatives", () => {
