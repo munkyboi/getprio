@@ -14,6 +14,7 @@ import "@mantine/tiptap/styles.css";
 import "@mantine/notifications/styles.css";
 import "@mantine/dates/styles.css";
 import "@mantine/carousel/styles.css";
+import "../../shared/typography.css";
 import "./styles.css";
 
 const theme = createTheme({
@@ -47,8 +48,8 @@ const theme = createTheme({
     ]
   },
   headings: {
-    fontFamily: 'Georgia, "Times New Roman", serif',
-    fontWeight: "800",
+    fontFamily: "var(--prio-heading-font)",
+    fontWeight: "600",
     sizes: {
       h1: { fontSize: "clamp(2.9rem, 6vw, 5.75rem)", lineHeight: "0.96" },
       h2: { fontSize: "clamp(2rem, 4vw, 3.4rem)", lineHeight: "1.02" },

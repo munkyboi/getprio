@@ -1,0 +1,31 @@
+.lp-page { position: relative; isolation: isolate; }
+.lp-ribbons { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+.lp-ribbons-back { z-index: 2; }
+.lp-ribbons canvas { display: block; position: absolute; inset: 0; }
+.lp-hero { overflow: visible; }
+.lp-hero-content, .lp-float-note, .lp-hero-footer, .lp-closing-copy { position: relative; z-index: 5; }
+.lp-float-note { position: absolute; }
+.lp-hero-visual { z-index: 3; }
+.lp-phone { z-index: 3; }
+.lp-closing-scene { isolation: isolate; z-index: 3; }
+.lp-closing-art, .lp-closing-scene-label, .lp-closing-scene-footer { z-index: 3; }
+/* Ribbons pass behind readable content while remaining visible in open margins. */
+.lp-manifesto .lp-container, .lp-pricing .prio-centered-copy, .lp-section-head, .lp-feature, .prio-pricing-card { position: relative; z-index: 5; }
+@media (prefers-reduced-motion: reduce), (max-width: 767px) {
+  .lp-ribbons { display: none; }
+}
+
+.lp-closing-logo { position: absolute; width: 78%; height: 82%; object-fit: contain; left: 11%; top: 6%; opacity: .22; z-index: 0; pointer-events: none; }
+/* Cover the ribbons throughout the pinned spotlight section. */
+.lp-page .wf-scroll-shell { background: #1c1b18; isolation: isolate; z-index: 3; }
+.lp-page .wf-spotlight { background: transparent; z-index: 3; }
+.lp-orbit-caption, .lp-closing-scene-label, .lp-closing-scene-footer { position: relative; z-index: 3; }
+.lp-orbit-caption { position: absolute; }
+
+/* Keep the panel paint below the ribbon and all artwork above it. */
+.lp-page .lp-feature-stage { z-index: auto; }
+.lp-feature-stage .connected-parallax,
+.lp-feature-stage .lp-stage-label,
+.lp-feature-stage .lp-stage-foot { position: relative; z-index: 5; }
+/* The footer is a sibling of the isolated landing page. */
+body:has(.lp-page) .site-footer { position: relative; z-index: 1; }

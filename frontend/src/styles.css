@@ -104,7 +104,7 @@ body {
 
 .app-error-boundary-card h1 {
   margin: 0;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--prio-heading-font);
   font-size: clamp(2.2rem, 7vw, 3.75rem);
   line-height: 0.98;
 }
@@ -208,7 +208,7 @@ body {
 .prio-section-title,
 .vendor-hero-title,
 .vendor-section-title {
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--prio-heading-font);
   letter-spacing: -0.04em;
 }
 
@@ -223,12 +223,15 @@ body {
 }
 
 .prio-hero-grid {
-  grid-template-columns: minmax(430px, 0.82fr) minmax(620px, 1.18fr);
+  grid-template-columns: minmax(0, 0.82fr) minmax(0, 1.18fr);
 }
 
 .prio-display {
   max-width: 680px;
+  font-family: Inter, Aptos, "Trebuchet MS", "Segoe UI", sans-serif;
   font-size: clamp(2.8rem, 5vw, 4.7rem);
+  font-weight: 850;
+  letter-spacing: -0.052em;
   line-height: 0.96;
 }
 
@@ -247,7 +250,7 @@ body {
   position: relative;
   display: flex;
   align-items: center;
-  min-height: 560px;
+  min-height: 720px;
   margin-right: -3vw;
 }
 
@@ -255,36 +258,48 @@ body {
   width: min(112%, 980px);
   display: block;
   border-radius: 0;
-  transform: translateY(70px);
+  transform: translateY(92px);
   pointer-events: none;
   -webkit-user-drag: none;
   user-select: none;
 }
 
-.prio-dashboard-preview {
+.prio-mobile-app-preview {
   position: absolute;
-  top: 1.5rem;
-  right: 2rem;
-  width: min(360px, 48%);
+  top: 0;
+  left: 19%;
+  width: min(50%, 326px);
+  aspect-ratio: 1284 / 2778;
   border: 1px solid rgba(36, 30, 25, 0.1);
-  border-radius: 22px;
-  background: rgba(255, 255, 255, 0.86);
-  box-shadow: 0 18px 45px rgba(36, 30, 25, 0.09);
+  border-radius: 24px;
+  box-shadow: 0 22px 52px rgba(36, 30, 25, 0.16);
+  object-fit: cover;
+  object-position: top center;
 }
 
-.prio-dashboard-tile {
-  min-height: 86px;
-  padding: 0.85rem;
-  border: 1px solid rgba(36, 30, 25, 0.08);
-  border-radius: 16px;
-  background: rgba(255, 250, 245, 0.92);
+.app-download-actions > .mantine-Button-root {
+  min-height: 3.5rem;
 }
 
-.prio-dashboard-number {
-  color: #e85b0c;
-  font-size: clamp(1.8rem, 2.8vw, 2.35rem);
-  font-weight: 500;
-  line-height: 1;
+.app-download-actions > .mantine-Button-root:first-child {
+  min-width: 15.5rem;
+}
+
+.app-download-actions > .mantine-Button-root:first-child:is(:disabled, [data-disabled]) {
+  color: #fff !important;
+  background: #241e19 !important;
+  opacity: 1;
+}
+
+.app-download-actions > .mantine-Button-root:nth-child(2):disabled {
+  color: #5f5247;
+  border-color: rgba(36, 30, 25, 0.36);
+  background: rgba(255, 253, 249, 0.66);
+  opacity: 1;
+}
+
+.app-download-qr {
+  max-width: 19rem;
 }
 
 .prio-section,
@@ -448,6 +463,55 @@ body {
   width: 100%;
   display: block;
   border-radius: 28px;
+}
+
+@media (max-width: 62em) {
+  .prio-hero-art-wrap {
+    min-height: 620px;
+    margin-right: 0;
+  }
+
+  .prio-mobile-app-preview {
+    left: 14%;
+  }
+}
+
+@media (max-width: 48em) {
+  .prio-hero {
+    padding-top: 2.25rem;
+  }
+
+  .prio-hero-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .app-download-actions,
+  .app-download-actions > .mantine-Button-root {
+    width: 100%;
+  }
+
+  .app-download-actions > .mantine-Button-root:first-child {
+    min-width: 0;
+  }
+
+  .prio-hero-art-wrap {
+    min-height: min(185vw, 48rem);
+    margin-top: 0.5rem;
+  }
+
+  .prio-hero-art {
+    width: 126%;
+    max-width: none;
+    transform: translate(-13%, 4.5rem);
+  }
+
+  .prio-mobile-app-preview {
+    top: 0;
+    left: 50%;
+    width: min(68vw, 18.5rem);
+    transform: translateX(-50%);
+    border-radius: 20px;
+  }
 }
 
 .vendor-discovery-page,
@@ -7875,4 +7939,57 @@ button:hover > .rating-star { transform: scale(1.08); }
   border-bottom-color: var(--mantine-color-text);
   color: var(--mantine-color-text);
   font-weight: 700;
+}
+
+.support-page h1, .support-page h2, .support-page h3 {
+  font-family: var(--prio-heading-font);
+  font-weight: 600;
+}
+
+/* Contact is a document page, not a height-bounded task modal. */
+.support-page {
+  background: #fffaf4;
+  color: #282729;
+  padding: 3rem 0 4rem;
+}
+.support-page-container { padding-inline: 1.25rem; }
+.support-page-header { max-width: 660px; margin-bottom: 2rem; }
+.support-eyebrow { color: #a54500; font-size: .72rem; font-weight: 800; letter-spacing: .14em; }
+.support-page-header h1 {
+  font-size: clamp(2.5rem, 5vw, 3.75rem);
+  font-weight: 600;
+  line-height: 1.04;
+  letter-spacing: -.055em;
+  margin: 1rem 0 1.25rem;
+}
+.support-page-intro { color: #65584e; font-size: 1.05rem; line-height: 1.75; max-width: 550px; }
+.support-page-grid { display: grid; gap: 1.25rem; align-items: start; }
+.support-primary-card { background: #fff; border: 1px solid #eadccf; border-radius: 24px; padding: 1.5rem; min-width: 0; }
+.support-card-icon { display: grid; place-items: center; width: 56px; height: 56px; background: #fff0df; border-radius: 18px; margin-bottom: 1.75rem; }
+.support-primary-card h2, .support-vendor-card h2 { font-size: 1.75rem; letter-spacing: -.035em; line-height: 1.2; margin: .65rem 0 1rem; }
+.support-card-copy, .support-vendor-card p { color: #65584e; line-height: 1.75; }
+.support-contact-action { display: flex; flex-direction: column; align-items: stretch; gap: .85rem; margin: 1.75rem 0 2rem; }
+.support-contact-action .mantine-Button-root { background: #282729; min-height: 52px; }
+.support-contact-action a:not(.mantine-Button-root) { color: #3f3027; overflow-wrap: anywhere; text-decoration: underline; text-underline-offset: 4px; }
+.support-muted { color: #65584e; line-height: 1.65; }
+.support-message-guide { border-top: 1px solid #eadccf; padding-top: 1.5rem; }
+.support-message-guide h3, .support-expectations h3 { font-size: 1rem; font-weight: 600; }
+.support-message-guide ul { padding-left: 1.2rem; margin: 1rem 0; color: #65584e; line-height: 1.75; }
+.support-message-guide li + li { margin-top: .45rem; }
+.support-side-column { display: grid; gap: 2rem; min-width: 0; }
+.support-vendor-card { background: #ffedda; border: 1px solid #eadccf; border-radius: 24px; padding: 1.5rem; }
+.support-vendor-card .mantine-Button-root { width: 100%; margin: 1.5rem 0 .85rem; min-height: 48px; }
+.support-expectations { padding: 0 .25rem; }
+.support-expectations h3 { margin-bottom: .75rem; }
+.support-expectations details { border-bottom: 1px solid #eadccf; }
+.support-expectations summary { cursor: pointer; padding: 1rem 0; font-size: .95rem; font-weight: 600; line-height: 1.6; }
+.support-expectations details p { padding: 0 0 1rem; color: #65584e; font-size: .9rem; line-height: 1.75; }
+.support-page :focus-visible { outline: 2px solid #a54500; outline-offset: 4px; }
+@media (min-width: 48em) {
+  .support-page { padding: 3.5rem 0 5rem; }
+  .support-page-header { margin-bottom: 2.75rem; }
+  .support-page-grid { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 2rem; }
+  .support-primary-card { padding: 2.5rem; }
+  .support-vendor-card { padding: 2rem; }
+  .support-contact-action { align-items: flex-start; }
 }
