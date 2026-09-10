@@ -22,6 +22,10 @@ function appUrl(path = "") {
   return safeUrl(`${String(env.appBaseUrl || "https://getprio.online").replace(/\/$/, "")}${path}`);
 }
 
+function emailAssetUrl(path) {
+  return safeUrl(`${String(env.emailAssetBaseUrl || env.appBaseUrl || "https://getprio.online").replace(/\/$/, "")}${path}`);
+}
+
 function link(label, url) {
   const href = safeUrl(url);
   return href ? `<a href="${escapeHtml(href)}" style="color:${BRAND.text};text-decoration:underline;overflow-wrap:anywhere;word-break:break-word;">${escapeHtml(label)}</a>` : escapeHtml(label);
@@ -60,7 +64,7 @@ function illustrationImage(illustration, hero) {
   if (!ILLUSTRATIONS.has(illustration)) return "";
   const variant = hero ? "hero" : "compact";
   const width = hero ? 504 : 132;
-  return `<img src="${escapeHtml(appUrl(`/email/v1/getprio-${illustration}-${variant}.png`))}" alt="" width="${width}" style="display:block;border:0;width:${hero ? "100%" : "132px"};max-width:100%;height:auto;border-radius:${hero ? 20 : 0}px;">`;
+  return `<img src="${escapeHtml(emailAssetUrl(`/email/v1/getprio-${illustration}-${variant}.png`))}" alt="" width="${width}" style="display:block;border:0;width:${hero ? "100%" : "132px"};max-width:100%;height:auto;border-radius:${hero ? 20 : 0}px;">`;
 }
 
 function codePanel(code, expiryText) {
@@ -135,7 +139,7 @@ ${preheader ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;m
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="${BRAND.background}"><tr><td align="center" style="padding:24px 12px;">
 <!--[if mso]><table role="presentation" width="600" cellpadding="0" cellspacing="0"><tr><td><![endif]-->
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="${BRAND.paper}" style="max-width:600px;border-radius:20px;border-collapse:separate;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:25px;color:${BRAND.text};">
-<tr><td align="center" style="padding:32px 24px 40px;"><img src="${escapeHtml(appUrl("/email/v1/getprio-logo.png?rev=20260909"))}" width="80" height="60" alt="GetPrio" style="display:block;border:0;width:80px;height:60px;"></td></tr>
+<tr><td align="center" style="padding:32px 24px 40px;"><img src="${escapeHtml(emailAssetUrl("/email/v1/getprio-logo.png?rev=20260909"))}" width="80" height="60" alt="GetPrio" style="display:block;border:0;width:80px;height:60px;"></td></tr>
 ${body}</table><!--[if mso]></td></tr></table><![endif]--></td></tr></table></body></html>` };
 }
 

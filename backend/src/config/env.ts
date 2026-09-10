@@ -22,6 +22,7 @@ export const jwtSecret = process.env.JWT_SECRET || "change-me";
 export const serverUrl = process.env.SERVER_URL || `http://localhost:${port}`;
 export const clientUrl = process.env.CLIENT_URL || `http://localhost:${frontendPort}`;
 export const appBaseUrl = process.env.APP_BASE_URL || `http://localhost:${frontendPort}`;
+export const emailAssetBaseUrl = process.env.EMAIL_ASSET_BASE_URL || appBaseUrl;
 export const mobileQrBaseUrl = resolveMobileQrBaseUrl(process.env, appBaseUrl, frontendPort);
 export const mobilePaymentReturnUrl = process.env.MOBILE_PAYMENT_RETURN_URL || "";
 export const platformDashboardUrl =
@@ -153,6 +154,7 @@ const env = {
   serverUrl,
   clientUrl,
   appBaseUrl,
+  emailAssetBaseUrl,
   mobileQrBaseUrl,
   mobilePaymentReturnUrl,
   platformDashboardUrl,

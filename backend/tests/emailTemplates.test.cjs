@@ -5,6 +5,23 @@ const path = require("node:path");
 const { createBrandedEmail } = require("../src/services/emailTemplates");
 const { bookingEmailTemplate } = require("../src/services/bookingEmailTemplates");
 
+test("email artwork can use a public origin while booking actions stay in the local app", () => {
+  const { execFileSync } = require("node:child_process");
+  const script = `const { createBrandedEmail, appUrl } = require('./src/services/emailTemplates');
+    console.log(JSON.stringify(createBrandedEmail({ subject: 'Booking verification', message: 'Verify your booking.',
+      illustration: 'account-verification', code: '123456', actionUrl: appUrl('/account/bookings/1'), actionLabel: 'View booking' })));`;
+  for (const assetOrigin of ["https://getprio.online", ""]) {
+    const email = JSON.parse(execFileSync(process.execPath, ["-e", script], {
+      cwd: path.resolve(__dirname, ".."), encoding: "utf8",
+      env: { ...process.env, APP_BASE_URL: "http://localhost:5173", EMAIL_ASSET_BASE_URL: assetOrigin }
+    }));
+    const expectedOrigin = assetOrigin || "http://localhost:5173";
+    assert.ok(email.html.includes(`src="${expectedOrigin}/email/v1/getprio-logo.png`));
+    assert.ok(email.html.includes(`src="${expectedOrigin}/email/v1/getprio-account-verification-compact.png`));
+    assert.ok(email.html.includes('href="http://localhost:5173/account/bookings/1"'));
+  }
+});
+
 test("minimal emails omit optional sections and preserve live text without images", () => {
   const email = createBrandedEmail({ subject: "Account update", message: "First paragraph.\n\nSecond paragraph." });
   assert.match(email.html, /First paragraph\.<\/p><p[^>]*>Second paragraph/);
