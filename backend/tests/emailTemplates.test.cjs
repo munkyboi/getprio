@@ -90,3 +90,22 @@ test("booking details use the venue timezone and account actions require an owne
   assert.equal(bookingEmailTemplate({}).details.find(d => d.label === 'Date and time').value, '');
   assert.match(bookingEmailTemplate({ ...booking, locationTimezone: 'invalid' }).details.find(d => d.label === 'Date and time').value, /2026-09-18T06:30:00.000Z/);
 });
+
+test("booking emails list every bundled service with quantity and retain single-service fallback", () => {
+  const booking = { reference: 'BKG-BA7134DB', serviceName: 'Haircut', bundleItems: [
+    { serviceName: 'Haircut', bookingQuantity: 1 },
+    { serviceName: 'Cut & Shave', bookingQuantity: 2 }
+  ] };
+  const details = bookingEmailTemplate(booking).details;
+  assert.deepEqual(details.filter(row => row.label.startsWith('Service')), [
+    { label: 'Service 1', value: 'Haircut · Quantity: 1' },
+    { label: 'Service 2', value: 'Cut & Shave · Quantity: 2' }
+  ]);
+  const email = createBrandedEmail({ subject: 'Booking submitted', ...bookingEmailTemplate(booking) });
+  assert.match(email.html, /Cut &amp; Shave/);
+  assert.match(email.text, /Cut & Shave/);
+  for (const bundleItems of [undefined, []]) {
+    assert.deepEqual(bookingEmailTemplate({ serviceName: 'Haircut', bundleItems }).details[1],
+      { label: 'Service', value: 'Haircut' });
+  }
+});
