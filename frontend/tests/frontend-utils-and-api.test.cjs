@@ -2748,7 +2748,8 @@ test("landing pricing uses the server-owned four-plan tier list", () => {
   assert.match(source, /apiRequest<BillingOverviewResponse>\("\/billing\/plans"\)/);
   assert.match(source, /free: "\/illustrations\/generated\/pricing-economical-transparent\.png"/);
   assert.match(source, /cols=\{\{ base: 1, sm: 2, xl: 4 \}\}/);
-  assert.match(source, /plan\.included\.map/);
+  assert.match(source, /<PricingHighlights/);
+  assert.doesNotMatch(source, /plan\.included\.map/);
   assert.match(source, /className="prio-price-currency"/);
   assert.match(source, /className="prio-price-amount"/);
   assert.match(source, /className="prio-price-period">\/mo/);
@@ -2758,6 +2759,29 @@ test("landing pricing uses the server-owned four-plan tier list", () => {
   assert.match(source, /plan\.slug === "free" \? "Start free"/);
   assert.doesNotMatch(source, /const pricingPlans = \[/);
   assert.doesNotMatch(source, /"500 tickets\/mo"/);
+});
+
+test("pricing highlights follow current entitlements instead of stale marketing copy", () => {
+  const { getPlanHighlights } = require("../src/utils/subscriptionPlans.ts");
+  const plan = {
+    included: ["1 vendor seat", "500 tickets/mo", "100 transactional emails/mo"],
+    entitlements: {
+      locations: 1, counters: 1, staffSeats: 2, monthlyTickets: 1000,
+      monthlyQueueEmailJourneys: 1000, monthlyTransactionalEmails: 100,
+      monthlyServiceBookings: 100, serviceBookingAccess: true,
+      historyDays: 30, qrJoinPage: true, publicQueueBoard: true
+    }
+  };
+  const highlights = getPlanHighlights(plan);
+  for (const text of ["2 staff seats", "1,000 Queue Tickets/mo", "1,000 Queue Email Journeys/mo", "100 service bookings/mo"]) {
+    assert.ok(highlights.includes(text), text);
+  }
+  for (const stale of plan.included) assert.ok(!highlights.includes(stale));
+  assert.ok(highlights.indexOf("QR join page") < highlights.indexOf("GetPrio-branded public queue page"));
+  const changed = getPlanHighlights({ ...plan, allowances: { queueTickets: 8000, queueEmailJourneys: 0, serviceBookings: 250 } });
+  assert.ok(changed.includes("8,000 Queue Tickets/mo"));
+  assert.ok(changed.includes("0 Queue Email Journeys/mo"));
+  assert.ok(changed.includes("250 service bookings/mo"));
 });
 
 test("enterprise inquiries use protected intake and a bounded autosizing message", () => {

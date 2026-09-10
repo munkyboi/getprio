@@ -39,12 +39,14 @@ import PhilippineMobileInput from "../components/PhilippineMobileInput";
 import { apiRequest } from "../api/client";
 import { getErrorMessage } from "../utils/errors";
 import { getPlanPriceDisplay } from "../utils/subscriptionPlans";
+import PricingHighlights from "./PricingHighlights";
 
 import WorkflowSpotlight from "./WorkflowSpotlight";
 import LandingRibbons from "./LandingRibbons";
 import HeroPhones from "./HeroPhones";
 import ConnectedScreensParallax from "./ConnectedScreensParallax";
 import { useLandingMotion } from "./useLandingMotion";
+import { usePricingMagnet } from "./usePricingMagnet";
 import "./LandingPageMotion.css";
 
 const services = [
@@ -98,9 +100,11 @@ export default function LandingPage() {
   const [enterpriseError, setEnterpriseError] = useState("");
   const [enterpriseSubmitting, setEnterpriseSubmitting] = useState(false);
   const [pricingPlans, setPricingPlans] = useState<SubscriptionPlan[]>([]);
+  const [pricingExpanded, setPricingExpanded] = useState(false);
   const [pricingError, setPricingError] = useState("");
   const landingRoot = useRef<HTMLDivElement>(null);
   useLandingMotion(landingRoot, pricingPlans.length);
+  usePricingMagnet(landingRoot, pricingPlans.length);
   const enterpriseTurnstileContainerRef = useRef<HTMLDivElement | null>(null);
   const enterpriseTurnstileWidgetIdRef = useRef<string | null>(null);
   const enterpriseSubmissionPendingRef = useRef(false);
@@ -345,16 +349,11 @@ export default function LandingPage() {
                       </div>
                       <Text c="dimmed">{plan.bestFor}</Text>
                     </div>
-                    <Stack gap="xs">
-                      {plan.included.map((feature) => (
-                        <Group gap="sm" key={feature} wrap="nowrap">
-                          <ThemeIcon color={plan.slug === "pro" ? "orange" : "dark"} radius="xl" size={22} variant="light">
-                            <IconCheck size={14} />
-                          </ThemeIcon>
-                          <Text size="sm">{feature}</Text>
-                        </Group>
-                      ))}
-                    </Stack>
+                    <PricingHighlights
+                      plan={plan}
+                      expanded={pricingExpanded}
+                      onToggle={() => setPricingExpanded(value => !value)}
+                    />
                     {plan.name === "Enterprise" ? (
                       <Button color="dark" mt="auto" onClick={() => setEnterpriseDialogOpen(true)} variant="outline">
                         Request setup
