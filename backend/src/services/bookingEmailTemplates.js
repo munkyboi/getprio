@@ -1,4 +1,4 @@
-const { appUrl } = require("./emailTemplates");
+const { appUrl, createBrandedEmail } = require("./emailTemplates");
 
 function scheduledTime(booking) {
   if (!booking.scheduledStartAt) return "";
@@ -19,7 +19,8 @@ function bookingEmailTemplate(booking) {
       label: items.length > 1 ? `Service ${index + 1}` : "Service",
       value: `${item.serviceName}${item.bookingQuantity ? ` · Quantity: ${item.bookingQuantity}` : ""}`
     }))
-    : [{ label: "Service", value: booking.serviceName }];
+    : [{ label: "Service", value: booking.serviceName },
+      { label: "Quantity", value: booking.bookingQuantity }];
   return {
     greeting: booking.customerName ? `Hi ${booking.customerName},` : "",
     illustration: booking.status === "confirmed" ? "booking-confirmation" : undefined,
@@ -28,7 +29,9 @@ function bookingEmailTemplate(booking) {
       ...services,
       { label: "Venue", value: [booking.tenantName, booking.locationName].filter(Boolean).join(" · ") },
       { label: "Date and time", value: scheduledTime(booking) },
-      { label: "Status", value: String(booking.status || "").replaceAll("_", " ") }
+      { label: "Ends at", value: scheduledTime({ ...booking, scheduledStartAt: booking.scheduledEndAt }) },
+      { label: "Status", value: String(booking.status || "").replaceAll("_", " ") },
+      { label: "Payment status", value: String(booking.paymentStatus || "").replaceAll("_", " ") }
     ],
     // Guest booking emails must not promise access to an account-owned route.
     actionUrl: booking.customerUserId && booking._id ? appUrl(`/account/bookings/${encodeURIComponent(booking._id)}`) : "",
@@ -36,4 +39,8 @@ function bookingEmailTemplate(booking) {
   };
 }
 
-module.exports = { bookingEmailTemplate };
+function bookingEmail(booking, { subject, message }) {
+  return createBrandedEmail({ subject, message, ...bookingEmailTemplate(booking) });
+}
+
+module.exports = { bookingEmailTemplate, bookingEmail };

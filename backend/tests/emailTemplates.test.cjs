@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const { createBrandedEmail } = require("../src/services/emailTemplates");
-const { bookingEmailTemplate } = require("../src/services/bookingEmailTemplates");
+const { bookingEmailTemplate, bookingEmail } = require("../src/services/bookingEmailTemplates");
 
 test("email artwork can use a public origin while booking actions stay in the local app", () => {
   const { execFileSync } = require("node:child_process");
@@ -108,4 +108,22 @@ test("booking emails list every bundled service with quantity and retain single-
     assert.deepEqual(bookingEmailTemplate({ serviceName: 'Haircut', bundleItems }).details[1],
       { label: 'Service', value: 'Haircut' });
   }
+});
+
+test("booking formats retain legacy quantity, overnight schedule and payment state without exposing internal fields", () => {
+  for (const status of ['pending', 'confirmed', 'canceled']) {
+    const email = bookingEmail({ serviceName: 'Haircut', bookingQuantity: 3, status,
+      paymentStatus: 'pending', locationTimezone: 'Asia/Manila',
+      scheduledStartAt: '2026-09-18T15:30:00Z', scheduledEndAt: '2026-09-18T17:00:00Z',
+      notes: 'PRIVATE-NOTES', paymentProofObjectKey: 'PRIVATE-PROOF' },
+    { subject: 'Booking update', message: 'Your booking changed.' });
+    for (const body of [email.html, email.text]) {
+      for (const value of ['Haircut', 'September 18', 'September 19', 'Asia/Manila', 'Ends at', 'Payment status', 'pending']) assert.ok(body.includes(value), value);
+      assert.doesNotMatch(body, /PRIVATE-NOTES|PRIVATE-PROOF|\/account\/bookings\//);
+    }
+    assert.match(email.text, /Quantity: 3/);
+    assert.equal(email.html.includes('getprio-booking-confirmation-compact'), status === 'confirmed');
+  }
+  const sparse = bookingEmail({}, { subject: 'Booking update', message: 'Updated.' });
+  assert.doesNotMatch(sparse.text, /undefined|Invalid Date|Ends at|Payment status/);
 });

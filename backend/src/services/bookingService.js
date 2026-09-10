@@ -8,7 +8,7 @@ const vendorAvailabilityRepository = require("../repositories/vendorAvailability
 const bookingOtpService = require("./bookingOtpService");
 const bookingSmsAlertPaymentService = require("./bookingSmsAlertPaymentService");
 const notificationService = require("./notificationService");
-const { bookingEmailTemplate } = require("./bookingEmailTemplates");
+const { bookingEmail } = require("./bookingEmailTemplates");
 const paymentProofStorageService = require("./paymentProofStorageService");
 const pushNotificationService = require("./pushNotificationService");
 const organizerCampaignService = require("./organizerCampaignService");
@@ -296,10 +296,8 @@ async function sendBookingSubmittedNotification({ tenant, booking }) {
   if (booking.customerEmail) {
     await notificationService.sendEmail({
       to: booking.customerEmail,
-      subject: `${tenant.name}: booking request submitted`,
-      text: message,
+      ...bookingEmail({ ...booking, tenantName: tenant.name }, { subject: `${tenant.name}: booking request submitted`, message }),
       tenantId: tenant._id,
-      emailTemplate: bookingEmailTemplate({ ...booking, tenantName: tenant.name }),
       purpose: "booking_submitted",
       metadata: { bookingId: booking._id, reference: booking.reference }
     });
@@ -1443,10 +1441,8 @@ async function rejectVendorBookingPayment({ tenant, bookingId, user, reason }) {
   if (updated.customerEmail) {
     await notificationService.sendEmail({
       to: updated.customerEmail,
-      subject: `${updated.tenantName}: booking payment rejected`,
-      text: message,
+      ...bookingEmail(updated, { subject: `${updated.tenantName}: booking payment rejected`, message }),
       tenantId: updated.tenantId,
-      emailTemplate: bookingEmailTemplate(updated),
       purpose: "booking_payment_rejected",
       metadata: { bookingId: updated._id, reference: updated.reference }
     });
@@ -1498,10 +1494,8 @@ async function cancelCustomerBooking({ user, bookingId, reason }) {
   if (updated.customerEmail) {
     await notificationService.sendEmail({
       to: updated.customerEmail,
-      subject: `${updated.tenantName}: booking cancelled`,
-      text: message,
+      ...bookingEmail(updated, { subject: `${updated.tenantName}: booking cancelled`, message }),
       tenantId: updated.tenantId,
-      emailTemplate: bookingEmailTemplate(updated),
       purpose: "booking_cancelled",
       metadata: { bookingId: updated._id, reference: updated.reference }
     });
@@ -1720,10 +1714,8 @@ async function markVendorBookingNoShow({ tenant, location, bookingId, user }) {
   if (updated.customerEmail) {
     await notificationService.sendEmail({
       to: updated.customerEmail,
-      subject: `${updated.tenantName}: booking no-show`,
-      text: message,
+      ...bookingEmail(updated, { subject: `${updated.tenantName}: booking no-show`, message }),
       tenantId: updated.tenantId,
-      emailTemplate: bookingEmailTemplate(updated),
       purpose: "booking_no_show",
       metadata: { bookingId: updated._id, reference: updated.reference }
     });
