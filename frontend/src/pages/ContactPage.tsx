@@ -52,6 +52,7 @@ export default function ContactPage() {
             </section>
             <section className="support-expectations" aria-labelledby="support-before-title">
               <Title order={3} id="support-before-title">Before you reach out</Title>
+              <Anchor component={Link} to="/help">Browse the Help Center →</Anchor>
               <details>
                 <summary>I can’t sign in</summary>
                 <Text>Use the password reset option on the sign-in page. If you still need help, email our team with the address associated with your account.</Text>
