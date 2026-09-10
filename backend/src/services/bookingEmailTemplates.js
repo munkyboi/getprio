@@ -14,12 +14,18 @@ function scheduledTime(booking) {
 }
 
 function bookingEmailTemplate(booking) {
+  const services = Array.isArray(booking.bundleItems) && booking.bundleItems.length
+    ? booking.bundleItems.map((item, index, items) => ({
+      label: items.length > 1 ? `Service ${index + 1}` : "Service",
+      value: `${item.serviceName}${item.bookingQuantity ? ` · Quantity: ${item.bookingQuantity}` : ""}`
+    }))
+    : [{ label: "Service", value: booking.serviceName }];
   return {
     greeting: booking.customerName ? `Hi ${booking.customerName},` : "",
     illustration: booking.status === "confirmed" ? "booking-confirmation" : undefined,
     details: [
       { label: "Booking reference", value: booking.reference },
-      { label: "Service", value: booking.serviceName },
+      ...services,
       { label: "Venue", value: [booking.tenantName, booking.locationName].filter(Boolean).join(" · ") },
       { label: "Date and time", value: scheduledTime(booking) },
       { label: "Status", value: String(booking.status || "").replaceAll("_", " ") }
