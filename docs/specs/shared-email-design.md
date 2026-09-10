@@ -49,6 +49,8 @@ Transactional examples omit preferences/unsubscribe links. The shared renderer s
 
 ## Local preview and verification
 
+For real inbox tests from a local backend, set `EMAIL_ASSET_BASE_URL=https://getprio.online` in the local `.env`. This makes the logo and versioned illustrations publicly reachable while booking actions continue to use `APP_BASE_URL`. Without the override, assets retain the existing `APP_BASE_URL` behavior. For previews of unpublished local artwork, set both URL variables to the preview server origin.
+
 Run `APP_BASE_URL=http://127.0.0.1:4179 node scripts/preview-emails.cjs`, then `python3 -m http.server 4179 --bind 127.0.0.1 --directory .scratch/email-preview`. Open the local index. These fictional fixtures do not invoke the sender or any email provider. Confirmation/reminder previews are design fixtures, not enabled notification events. Welcome sends are documented in `signup-welcome-emails.md`.
 
 Verified in Chrome at 320px, 390px, 768px and 1280px, including long booking values, loaded logo/artwork and no horizontal overflow. Email provider payload tests cover Resend, SendGrid and SMTP without transmitting messages. Template tests cover escaping, unsafe links, omitted sections, inline links, zero values, OTP text/expiry, queue information, asset dimensions and booking timezone/ownership behavior.
