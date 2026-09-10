@@ -36,7 +36,7 @@ export default function LandingRibbons() {
           return;
         }
         const scene = new THREE.Scene();
-        const camera = new THREE.OrthographicCamera(0, innerWidth, 0, innerHeight, -1000, 1000);
+        const camera = new THREE.OrthographicCamera(0, rearHost.clientWidth, 0, innerHeight, -1000, 1000);
         camera.position.z = 500;
         const ambient = new THREE.HemisphereLight('#ffffff', '#ddd8d0', 2.2);
         ambient.layers.enableAll();
@@ -46,7 +46,7 @@ export default function LandingRibbons() {
         light.layers.enableAll();
         scene.add(light);
         const rim = new THREE.DirectionalLight('#ffffff', 2);
-        rim.position.set(innerWidth, 300, -200);
+        rim.position.set(rearHost.clientWidth, 300, -200);
         rim.layers.enableAll();
         scene.add(rim);
         const segments = 900;
@@ -81,6 +81,7 @@ export default function LandingRibbons() {
         let frame = 0;
         let lastTime = 0;
         let closingTop = 0;
+        let closingBottom = 0;
         const tangent = new THREE.Vector3();
         const flatNormal = new THREE.Vector3();
         const normal = new THREE.Vector3();
@@ -88,7 +89,8 @@ export default function LandingRibbons() {
         // Geometry is authored in document space and rebuilt only on layout changes.
         // The moving reveal follows the scroll; the route itself never swims around.
         const buildRoute = () => {
-          const width = innerWidth, height = innerHeight;
+          const { width, left } = rearHost.getBoundingClientRect();
+          const height = innerHeight;
           const bounds = (selector: string) => {
             const el = page.querySelector(selector);
             const rect = el?.getBoundingClientRect();
@@ -97,15 +99,23 @@ export default function LandingRibbons() {
           const hero = bounds('.lp-hero');
           const closing = bounds('.lp-closing');
           closingTop = closing.top;
+          closingBottom = closing.top + closing.height;
           const phone = page.querySelector('.lp-hero-visual')?.getBoundingClientRect();
-          const phoneX = phone ? phone.left + phone.width / 2 : width * .73;
+          const phoneX = phone ? phone.left + phone.width / 2 - left : width * .73;
           const phoneY = hero.top + hero.height * .4;
           const startY = hero.top - height;
           const endY = closing.top + closing.height + height;
           // One continuous curve with continuous curvature. No section detours,
           // straight joins, or tight corners: content is layered above the sweep.
-          const amplitude = width * .34;
-          const centerX = phoneX - amplitude;
+          // Fit the whole sweep, not only its centerline, inside the canvas.
+          // Reserve the largest separation, ribbon/camber width, and shadow halo.
+          // Adjust the cosine's amplitude instead of clamping individual points,
+          // which would flatten the turns against the boundary.
+          const ribbonExtent = (39 + Math.min(36, width * .027) * 1.18) * 1.9;
+          const gutter = ribbonExtent + 144;
+          const rightmost = Math.max(gutter, Math.min(width - gutter, phoneX));
+          const amplitude = Math.min(width * .34, (rightmost - gutter) / 2);
+          const centerX = rightmost - amplitude;
           ribbons.forEach(({ geometry, points }, ribbonIndex) => {
             points.forEach((point, i) => {
               const y = startY + (endY - startY) * i / segments;
@@ -140,7 +150,11 @@ export default function LandingRibbons() {
         };
         const draw = () => {
           const height = innerHeight;
-          const arrival = smooth((height * .95 - (closingTop - state.scroll)) / (height * .6));
+          // Complete the reveal as soon as the bottom of the closing section is
+          // visible. Continue below that edge, clipped behind the real footer.
+          const closingHeight = closingBottom - closingTop;
+          const arrival = smooth((state.scroll + height - closingTop) / Math.max(1, closingHeight));
+          rearHost.style.clipPath = `inset(0 0 ${Math.max(0, height - (closingBottom - window.scrollY))}px 0)`;
           // Camera tracks native scroll exactly so the ribbon stays aligned to content.
           camera.position.y = window.scrollY;
           ribbons.forEach(({ geometry, points }, index) => {
@@ -150,12 +164,12 @@ export default function LandingRibbons() {
             // Exponential approach has no slow-start dead zone or abrupt speed change.
             const entrance = 1 - Math.exp(-Math.max(0, state.scroll) / (height * .14));
             const lead = -height * .06 + entrance * height * (index ? .78 : .71);
-            const endY = state.scroll + lead;
+            const endY = Math.max(state.scroll + lead, state.scroll + lead + (closingBottom + 80 - state.scroll - lead) * arrival);
             const end = points.findIndex(p => p.y > endY);
             geometry.setDrawRange(0, (end < 0 ? segments : Math.max(0, end - 1)) * crossSegments * 6);
             const canvas = renderers[index].domElement;
             const near = .5 + .5 * Math.sin((state.scroll + height * .5) / (height * 1.05) - .8);
-            const focusBlur = .15 + (1 - near) * 2.5 + arrival * 13;
+            const focusBlur = (.15 + (1 - near) * 2.5) * (1 - arrival);
             const shadowOffset = 7 + near * 22 + arrival * 12;
             const shadowBlur = 9 + near * 23 + arrival * 12;
             canvas.style.filter = `drop-shadow(4px ${shadowOffset.toFixed(1)}px ${shadowBlur.toFixed(1)}px rgba(22, 18, 14, .42)) blur(${focusBlur.toFixed(2)}px)`;
@@ -171,16 +185,20 @@ export default function LandingRibbons() {
           state.scroll += (targetScroll - state.scroll) * (1 - Math.exp(-dt / .09));
           if (Math.abs(targetScroll - state.scroll) < .08) state.scroll = targetScroll;
           draw();
-          if (state.scroll !== targetScroll) frame = requestAnimationFrame(tick);
+          if (!document.hidden && state.scroll !== targetScroll) frame = requestAnimationFrame(tick);
           else lastTime = 0;
         };
         const resize = () => {
           buildRoute();
-          camera.right = innerWidth; camera.bottom = innerHeight; camera.updateProjectionMatrix();
-          renderers.forEach(r => r.setSize(innerWidth, innerHeight));
+          const width = rearHost.clientWidth;
+          camera.right = width; camera.bottom = innerHeight; camera.updateProjectionMatrix();
+          rim.position.x = width;
+          renderers.forEach(r => r.setSize(width, innerHeight));
           draw();
         };
         const updateScroll = () => { targetScroll = window.scrollY; if (!frame) frame = requestAnimationFrame(tick); };
+        const visibility = () => { lastTime = 0; if (!document.hidden) updateScroll(); };
+        document.addEventListener('visibilitychange', visibility);
         window.addEventListener('scroll', updateScroll, { passive: true });
         window.addEventListener('resize', resize);
         ScrollTrigger.addEventListener('refresh', resize);
@@ -188,10 +206,13 @@ export default function LandingRibbons() {
         observer.observe(page);
         page.classList.add('has-ribbons');
         resize();
+        updateScroll();
         cleanup = () => {
           window.removeEventListener('scroll', updateScroll); window.removeEventListener('resize', resize);
           ScrollTrigger.removeEventListener('refresh', resize); observer.disconnect(); cancelAnimationFrame(frame);
           ribbons.forEach(r => { r.geometry.dispose(); r.material.dispose(); });
+          document.removeEventListener('visibilitychange', visibility);
+          rearHost.style.removeProperty('clip-path');
           renderers.forEach(r => { r.dispose(); r.domElement.remove(); });
           page.classList.remove('has-ribbons');
         };

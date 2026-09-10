@@ -1,5 +1,5 @@
 .lp-page { position: relative; isolation: isolate; }
-.lp-ribbons { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+.lp-ribbons { position: fixed; inset: 0; width: 100%; max-width: 1920px; margin-inline: auto; pointer-events: none; overflow: hidden; }
 .lp-ribbons-back { z-index: 2; }
 .lp-ribbons canvas { display: block; position: absolute; inset: 0; }
 .lp-hero { overflow: visible; }

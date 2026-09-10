@@ -150,8 +150,8 @@ export default function HeroPhones() {
           camera.updateProjectionMatrix(); renderer.setSize(width, height); wake();
         };
         resizeObserver = new ResizeObserver(resize); resizeObserver.observe(host); resize();
-        trigger = ScrollTrigger.create({ trigger: hero, start: 'top top', end: 'bottom top', onUpdate: self => { state.rotation = self.progress * Math.PI * 2; wake(); } });
-        state.rotation = trigger.progress * Math.PI * 2;
+        trigger = ScrollTrigger.create({ trigger: hero, start: 0, end: () => Math.max(1, hero.getBoundingClientRect().height * .65), onUpdate: self => { state.rotation = self.progress * Math.PI; wake(); } });
+        state.rotation = trigger.progress * Math.PI;
         observer = new IntersectionObserver(entries => { inView = entries[0].isIntersecting; if (inView) wake(); }, { rootMargin: '100px' }); observer.observe(host);
         document.addEventListener('visibilitychange', wake); reduced.addEventListener('change', motionChange); wake();
       } catch { release(); }

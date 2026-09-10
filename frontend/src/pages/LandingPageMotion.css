@@ -77,8 +77,8 @@
 @media (min-width: 600px) { .lp-feature-list { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (min-width: 768px) {
   .lp-container { width: min(1288px, calc(100% - 96px)); }
-  .lp-hero { padding-top: 70px; }
-  .lp-hero-grid { grid-template-columns: 1fr 1fr; align-items: center; gap: 25px; min-height: 620px; }
+  .lp-hero { padding-top: 70px; min-height: 100svh; display: flex; flex-direction: column; }
+  .lp-hero-grid { grid-template-columns: 1fr 1fr; align-items: center; gap: 25px; min-height: 620px; flex: 1; }
   .lp-title { font-size: clamp(64px, 7.2vw, 108px); }
   .lp-hero-visual { height: 590px; }
   .lp-phone { width: 228px; margin-left: -114px; top: 30px; border-radius: 32px; }
