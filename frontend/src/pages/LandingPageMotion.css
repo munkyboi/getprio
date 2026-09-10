@@ -55,8 +55,17 @@
 .lp-feature p { color: #796e60; line-height: 1.7; font-size: 13px; max-width: 270px; }
 .lp-page .lp-pricing { background: #f4efe4; padding: 75px 0; }
 .lp-page .lp-pricing .prio-section-title { font-weight: 400; font-size: clamp(40px, 5vw, 64px); }
-.lp-page .prio-pricing-card { background: #fffcf5; box-shadow: none; border-radius: 18px; }
+.lp-page .prio-pricing-card { background: #fffcf5; box-shadow: none; border-radius: 18px; transform-origin: 50% 50%; }
 .lp-page .prio-pricing-card-featured { background: #ffe6bd; border-color: #d48c44; }
+.lp-pricing-toggle { display: flex; align-items: center; justify-content: center; gap: 12px; width: 100%; min-height: 44px; padding: 8px 0; border: 0; background: transparent; color: inherit; font: inherit; font-size: 14px; cursor: pointer; }
+.lp-pricing-toggle::before, .lp-pricing-toggle::after { content: ""; flex: 1; height: 1px; background: currentColor; opacity: .25; }
+.lp-pricing-toggle:focus-visible { outline: 2px solid #d46a08; outline-offset: 4px; border-radius: 4px; }
+
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  .lp-page .prio-pricing-card {
+    transition: translate 320ms cubic-bezier(.2, .75, .25, 1), scale 320ms cubic-bezier(.2, .75, .25, 1);
+  }
+}
 .lp-page .prio-plan-art { height: 110px; }
 .lp-closing { color: #fff3df; background: #24251e; overflow: clip; padding: 64px 0; }
 .lp-closing .lp-eyebrow { color: #efa668; }
