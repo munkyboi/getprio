@@ -9,6 +9,7 @@ import LoginPage from "./pages/LoginPage";
 import OAuthCallbackPage from "./pages/OAuthCallbackPage";
 import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
 import ContactPage from "./pages/ContactPage";
+import HelpPage from "./pages/HelpPage";
 import RegisterVendorPage from "./pages/RegisterVendorPage";
 import RegisterCustomerPage from "./pages/RegisterCustomerPage";
 import CustomerAccountPage from "./pages/CustomerAccountPage";
@@ -279,13 +280,25 @@ function ScrollToTop() {
   const location = useLocation();
   const previousRouteRef = useRef({
     pathname: location.pathname,
-    search: location.search
+    search: location.search,
+    hash: location.hash
   });
+
+  useEffect(() => {
+    if (!location.hash) return;
+    // React renders public page sections after the browser's initial fragment jump.
+    const frame = window.requestAnimationFrame(() => {
+      let id = location.hash.slice(1);
+      try { id = decodeURIComponent(id); } catch { /* Keep a malformed fragment literal. */ }
+      document.getElementById(id)?.scrollIntoView({ block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [location.hash, location.pathname, location.search]);
 
   useEffect(() => {
     const currentRoute = `${location.pathname}${location.search}`;
     const previousRoute = `${previousRouteRef.current.pathname}${previousRouteRef.current.search}`;
-    if (previousRoute === currentRoute) {
+    if (previousRoute === currentRoute && previousRouteRef.current.hash === location.hash) {
       return;
     }
 
@@ -298,7 +311,8 @@ function ScrollToTop() {
 
     previousRouteRef.current = {
       pathname: location.pathname,
-      search: location.search
+      search: location.search,
+      hash: location.hash
     };
 
     if (isVendorBookingTabSwitch) {
@@ -328,6 +342,7 @@ export default function App() {
         <Route path="/oauth/callback" element={<AppShell><OAuthCallbackPage /></AppShell>} />
         <Route path="/payment/return" element={<AppShell><PaymentReturnPage /></AppShell>} />
         <Route path="/privacy-policy" element={<AppShell><PrivacyPolicyPage /></AppShell>} />
+        <Route path="/help" element={<AppShell><HelpPage /></AppShell>} />
         <Route path="/contact" element={<AppShell><ContactPage /></AppShell>} />
         <Route path="/terms" element={<AppShell><TermsPage /></AppShell>} />
         <Route path="/register/vendor" element={<AppShell><RegisterVendorPage /></AppShell>} />
