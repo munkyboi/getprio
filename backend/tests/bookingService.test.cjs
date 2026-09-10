@@ -97,6 +97,7 @@ const service = {
 };
 
 function buildBookingService({
+  sendEmail = async () => {},
   serviceOverride = {},
   servicesBySlug = {},
   locationOverride = {},
@@ -216,7 +217,7 @@ function buildBookingService({
       assertPaidBookingSmsPayment
     },
     "./notificationService": {
-      sendEmail: async () => {},
+      sendEmail,
       sendSms: async () => {}
     },
     "./pushNotificationService": pushNotificationService,
@@ -1161,11 +1162,13 @@ test("customer booking creation stores quantity and reserves the multiplied serv
 
 test("customer booking creation persists a sequential composed timeline from the shared plan", async () => {
   let capturedBooking = null;
+  const emails = [];
   const shave = {
     _id: "service-2", tenantId: "tenant-1", name: "Shave", slug: "shave",
     durationMinutes: 30, allowBookingQuantity: false, isActive: true
   };
   const bookingService = buildBookingService({
+    sendEmail: async (email) => emails.push(email),
     servicesBySlug: { shave },
     availability: {
       blocks: [{ _id: "all", serviceId: null, weekday: 1, startsAt: "09:00", endsAt: "12:00", capacity: 2, isActive: true }],
@@ -1197,6 +1200,12 @@ test("customer booking creation persists a sequential composed timeline from the
   });
 
   assert.equal(capturedBooking.executionMode, "sequential");
+  assert.equal(emails.length, 1);
+  for (const body of [emails[0].html, emails[0].text]) {
+    assert.match(body, /Consultation/);
+    assert.match(body, /Shave/);
+    assert.match(body, /Quantity: 1/);
+  }
   assert.equal(capturedBooking.serviceId, "service-1");
   assert.equal(capturedBooking.scheduledEndAt, "2026-07-06T02:30:00.000Z");
   assert.deepEqual(capturedBooking.bundleItems.map((item) => [item.serviceSlug, item.scheduledStartAt, item.scheduledEndAt]), [
@@ -1974,4 +1983,37 @@ test("booking payment proof helpers reject group-funded bookings", async () => {
       }),
     (error) => error.statusCode === 409 && /group-funded/i.test(error.message)
   );
+});
+
+test("booking outcome sends retain bundle details and event context in HTML and plain text", async () => {
+  for (const event of ['payment_rejected', 'cancelled', 'no_show']) {
+    const emails = [];
+    const booking = buildVendorBooking({
+      customerUserId: 'customer-1', status: event === 'payment_rejected' ? 'pending' : 'confirmed',
+      paymentStatus: 'pending', paymentProofObjectKey: 'proof.jpg',
+      scheduledStartAt: new Date(Date.now() - 30 * 60_000).toISOString(),
+      scheduledEndAt: new Date(Date.now() + 30 * 60_000).toISOString(),
+      bundleItems: [{ serviceName: 'Haircut', bookingQuantity: 1 }, { serviceName: 'Cut & Shave', bookingQuantity: 2 }]
+    });
+    const service = buildBookingService({
+      findBookingById: async () => booking,
+      updateBooking: async (_id, data) => ({ ...booking, ...data }),
+      sendEmail: async (email) => emails.push(email)
+    });
+    if (event === 'payment_rejected') await service.rejectVendorBookingPayment({ tenant, bookingId: booking._id, user: { _id: 'vendor-1' }, reason: 'Receipt does not match.' });
+    if (event === 'cancelled') await service.cancelCustomerBooking({ user: { _id: 'customer-1' }, bookingId: booking._id });
+    if (event === 'no_show') await service.markVendorBookingNoShow({ tenant, location, bookingId: booking._id, user: { _id: 'vendor-1' } });
+    assert.equal(emails.length, 1, event);
+    assert.equal(emails[0].purpose, `booking_${event}`);
+    assert.equal(emails[0].to, booking.customerEmail);
+    assert.match(emails[0].html, /Cut &amp; Shave/);
+    assert.match(emails[0].text, /Cut & Shave/);
+    for (const body of [emails[0].html, emails[0].text]) {
+      for (const expected of ['Haircut', 'Quantity: 2', booking.reference, 'Ends at', 'Payment status']) assert.ok(body.includes(expected), `${event}: ${expected}`);
+      if (event === 'payment_rejected') assert.ok(body.includes('Receipt does not match.'));
+      if (event === 'no_show') assert.ok(body.includes('no-show'));
+      assert.ok(!body.includes('getprio-booking-confirmation-compact'));
+      assert.ok(!body.includes('proof.jpg'));
+    }
+  }
 });

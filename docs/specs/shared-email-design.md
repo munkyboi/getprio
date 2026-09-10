@@ -2,7 +2,7 @@
 
 ## Scope and acceptance criteria
 
-Apply the approved 9 September 2026 email mockups to all existing backend email sends, including requests initiated by Flutter. Preserve recipients, subjects, original plain-text messages, delivery provider selection, preferences, allowances, OTP generation/expiry/verification and notification triggers.
+Apply the approved 9 September 2026 email mockups to all existing backend email sends, including requests initiated by Flutter. Preserve recipients, subjects, delivery provider selection, preferences, allowances, OTP generation/expiry/verification and notification triggers. Preserve original event copy; booking emails additionally include the same booking details in HTML and plain text.
 
 Use the official proportion-preserving logo, #FD8501 / #EA6A1F accents, #282729 charcoal actions, #FFFAF4 outer canvas, white 600px container, #3F3027 text and #EADCCF borders. Use readable 16px sans-serif body text, centered branding, left-aligned headings, rounded panels and full-width pill actions. Optional modules disappear completely. Mobile uses 24px padding with stacked details; wider screens use 48px padding and aligned detail columns. Essential information stays live text.
 
@@ -48,6 +48,25 @@ Vendor booking confirmation/cancellation, payment approval, rescheduling and che
 Transactional examples omit preferences/unsubscribe links. The shared renderer supports explicit `preferencesUrl` and `unsubscribeUrl` for applicable future campaigns; it does not invent destinations or subscription rules.
 
 ## Local preview and verification
+
+### Content completeness release checklist
+
+Test the outgoing service payload, not only a renderer fixture. `bookingService.test.cjs` captures submitted, payment-rejected, customer-cancelled and no-show sends; assertions cover both HTML and plain text, all bundle items, quantities, event reasons, recipients and purposes. `emailTemplates.test.cjs` covers optional fields, escaping, zero values, guest/account actions and venue timezone. Keep these tests in the normal CI backend suite.
+
+For changes to a domain model or an email sender, review this mapping before release:
+
+| Email family | Required customer context | Edge cases to exercise |
+| --- | --- | --- |
+| Booking lifecycle | Reference, every service and quantity, venue, start/end and timezone, booking/payment status, event-specific message, account action only for an owner | Single/legacy booking; two or more services; differing quantities; sequential/parallel and overnight dates; missing optional values; guest; rejection/no-show; long names |
+| Verification codes | Correct task/account context, live code, actual expiry, applicable security guidance | Initial send/resend; leading zero; current/new email; email/SMS selection |
+| Queue lifecycle | Ticket number/code, business, current event/status, private status URL and next step | Every lifecycle outcome; carry-over versus expiry; encoded codes; missing link inputs |
+| Welcome and password reset | Correct audience/task, destination, reset expiry and security instructions | Customer/vendor; absent name; expired/reset flow; safe URLs |
+| Security and deletion | What changed, session/account consequences, user action or retention deadline from the event | Old/new recipients; deletion acknowledgement/completion; missing contact email |
+| Campaign and operational messages | Event copy and campaign/business context; report reason and attachment when supplied; allowance threshold/reset; inquiry contact/message | Attachment/no attachment; unsafe links; no invented recipients or values |
+
+Do not equate visual-template coverage with event coverage: confirmation, vendor cancellation, payment approval, reschedule and reminder email triggers remain absent as documented above. Do not copy internal notes, proof object keys, staff IDs or unrelated customer data into emails to make them appear complete. Price breakdowns and per-item appointment windows are not currently an email contract; if added, use saved booking snapshots and explicit currency/timezone rules rather than current catalog values. New fields should be assessed for relevance and privacy, then added to the mapping and sender-level tests when required.
+
+Before deployment, preview a realistic multi-service booking at narrow and wide widths. After deployment, verify the actual sending environment, public assets and one received message's HTML/plain-text parts. A successful deploy or renderer test alone is not proof of inbox delivery or rendering. Already delivered emails cannot be changed.
 
 For real inbox tests from a local backend, set `EMAIL_ASSET_BASE_URL=https://getprio.online` in the local `.env`. This makes the logo and versioned illustrations publicly reachable while booking actions continue to use `APP_BASE_URL`. Without the override, assets retain the existing `APP_BASE_URL` behavior. For previews of unpublished local artwork, set both URL variables to the preview server origin.
 

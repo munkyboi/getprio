@@ -13,12 +13,17 @@ const ticket = { ticketNumber: "A024", lookupCode: "SAMPLE-ONLY", status: "waiti
 const booking = { _id: "sample-booking", customerUserId: "sample-user", customerName: "Alex", reference: "GP-20481",
   tenantName: "Northside Studio", locationName: "Makati", serviceName: "Haircut & style", status: "confirmed",
   scheduledStartAt: "2026-09-18T06:30:00Z", locationTimezone: "Asia/Manila" };
+const bundledBooking = { ...booking, status: "pending", paymentStatus: "pending",
+  scheduledEndAt: "2026-09-18T08:00:00Z",
+  bundleItems: [{ serviceName: "Haircut & style", bookingQuantity: 1 },
+    { serviceName: "Cut and shave with beard conditioning and styling", bookingQuantity: 2 }] };
 const fixtures = {
   welcome: createBrandedEmail({ subject: "Welcome to GetPrio.", subtitle: "A little less waiting. A little more living.", greeting: "Hi Alex,", message: "Discover services, book your next visit and keep track of your place in line.", illustration: "welcome", hero: true, actionLabel: "Explore GetPrio", actionUrl: "https://getprio.online/vendors" }),
   verification: createBrandedEmail({ subject: "Verify your email.", greeting: "Hi Alex,", message: "Enter this code in GetPrio to verify your email and finish setting up your account.", illustration: "account-verification", code: "482916", expiryText: "This code expires in 10 minutes.", footer: "If you did not create this account, you can ignore this email." }),
   "queue-verification": queueOtpEmail({ tenant, code: "012345", expiresMinutes: 15 }),
   booking: createBrandedEmail({ subject: "You’re booked in.", message: "Your booking is confirmed. Here are the details for your upcoming visit.", ...bookingEmailTemplate(booking) }),
   "booking-submitted": createBrandedEmail({ subject: "Booking request submitted", message: "Your booking is pending vendor confirmation.", ...bookingEmailTemplate({ ...booking, status: "pending" }) }),
+  "booking-bundle": createBrandedEmail({ subject: "Booking request submitted", message: "Your booking is pending vendor confirmation.", ...bookingEmailTemplate(bundledBooking) }),
   queue: queueLifecycleEmail({ tenant, ticket, kind: "near_turn", position: 4 }),
   security: createBrandedEmail({ subject: "Your GetPrio security method changed", message: "Your authenticator and recovery codes were updated. Other signed-in sessions were closed for your protection. If you did not make this change, reset your password and contact GetPrio support." }),
   reminder: createBrandedEmail({ subject: "Your visit is coming up.", message: "Review your booking before you set off.", ...bookingEmailTemplate(booking), illustration: "reminder" }),
