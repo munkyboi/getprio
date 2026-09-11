@@ -416,7 +416,6 @@ router.get("/oauth/providers", (req, res) => {
 
 router.get(
   "/username-availability",
-  maybeAuthenticate,
   asyncHandler(async (req, res) => {
     const validation = validateUsername(req.query.username);
 
@@ -430,9 +429,8 @@ router.get(
       return;
     }
 
-    const existingUser = await userRepository.findUserByUsername(validation.username, {
-      excludeId: req.user?._id
-    });
+    // Registration checks are public and must not depend on an existing browser session.
+    const existingUser = await userRepository.findUserByUsername(validation.username);
 
     res.json({
       username: validation.username,
