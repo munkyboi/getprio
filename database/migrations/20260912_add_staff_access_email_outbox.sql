@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS staff_access_email_outbox (
   recipient_email TEXT NOT NULL,
   audience TEXT NOT NULL CHECK (audience IN ('member', 'owner')),
   payload JSONB NOT NULL,
-  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'sent', 'skipped', 'failed')),
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'sent', 'skipped', 'failed')), -- NOSONAR: SQL cannot define a reusable string constant.
   attempts INTEGER NOT NULL DEFAULT 0,
   available_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

@@ -29,15 +29,21 @@ function templateContent(kind) {
 
 function buildTemplateEmail(payload, audience) {
   const { before, after, tenantName, memberName, occurredAt } = payload;
-  const kind = !before ? 'added' : !after ? 'removed' : 'changed';
-  const stateText = state => state ? `${({ owner: 'Owner', admin: 'Admin', staff: 'Staff' })[state.role] || 'Member'} · ${state.active ? 'Active' : 'Disabled'}` : 'No access';
+  let kind = 'changed';
+  if (!before) kind = 'added';
+  if (!after) kind = 'removed';
+  const stateText = state => {
+    if (!state) return 'No access';
+    const status = state.active ? 'Active' : 'Disabled';
+    return `${({ owner: 'Owner', admin: 'Admin', staff: 'Staff' })[state.role] || 'Member'} · ${status}`;
+  };
   const subjectPerson = audience === 'owner' ? `${memberName}'s` : 'Your';
   const variables = {
     ACCESS_SUBJECT_HTML: escapeHtml(subjectPerson), ACCESS_SUBJECT_TEXT: subjectPerson,
     BUSINESS_HTML: escapeHtml(tenantName), BUSINESS_TEXT: tenantName,
     CHANGED_AT: occurredAt,
     PREVIOUS_ACCESS: stateText(before), UPDATED_ACCESS: stateText(after),
-    LOCATION_SUMMARY: !after ? 'Removed with workspace access.' : before && JSON.stringify(before.locations) === JSON.stringify(after.locations) ? 'No change.' : 'Review current assignments in the dashboard.',
+    LOCATION_SUMMARY: getLocationSummary(before, after),
     ACTION_LABEL: after?.active || audience === 'owner' ? 'Open dashboard' : 'Open GetPrio',
     ACTION_URL: appUrl(after?.active || audience === 'owner' ? '/dashboard' : '/login')
   };
@@ -45,6 +51,12 @@ function buildTemplateEmail(payload, audience) {
     if (typeof value !== 'string' || !value || value.length > 2000) throw new Error(`Invalid staff template variable: ${key}`);
   }
   return { subject: `Vendor access ${kind} — ${tenantName}`, resendTemplate: { id: aliases[kind], variables } };
+}
+
+function getLocationSummary(before, after) {
+  if (!after) return 'Removed with workspace access.';
+  if (before && JSON.stringify(before.locations) === JSON.stringify(after.locations)) return 'No change.';
+  return 'Review current assignments in the dashboard.';
 }
 
 // Local previews use the same template contract as the managed Resend versions.

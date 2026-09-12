@@ -8,7 +8,7 @@ function accessState(user, tenantId, locationIds = []) {
   const membership = user?.tenantMemberships?.find(m => String(m.tenantId) === String(tenantId));
   if (!membership) return null;
   return { role: membership.role, active: membership.isActive !== false,
-    locations: [...new Set(locationIds.map(String))].sort() };
+    locations: [...new Set(locationIds.map(String))].sort((left, right) => left.localeCompare(right)) };
 }
 
 function createStaffAccessEmailService({ database = db, userRepository = users, locationRepository = locations, uuid = randomUUID } = {}) {
