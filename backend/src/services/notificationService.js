@@ -128,7 +128,55 @@ async function recordEmailDelivery({ to, subject, tenantId, ticketId, purpose, p
   }
 }
 
-async function sendEmail({ to, subject, text, html, emailTemplate, tenantId, ticketId, purpose = "general", metadata, outboxId }) {
+async function requireSuccessfulResponse(response, providerName) {
+  if (response.ok) return;
+  const errorText = await response.text();
+  throw new Error(`${providerName} email delivery failed: ${errorText}`);
+}
+
+async function deliverWithResend({ to, subject, text, html, idempotencyKey, resendTemplate }) {
+  const response = await fetch(env.resendApiUrl, {
+    method: "POST",
+    ...(idempotencyKey ? { signal: AbortSignal.timeout(20_000) } : {}),
+    headers: {
+      Authorization: `Bearer ${env.resendApiKey}`,
+      "Content-Type": "application/json",
+      ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {})
+    },
+    body: JSON.stringify({
+      from: formatSender(env.resendFromName, env.resendFromEmail),
+      to,
+      subject,
+      ...(resendTemplate ? { template: resendTemplate } : { text, ...(html ? { html } : {}) })
+    })
+  });
+  await requireSuccessfulResponse(response, "Resend");
+}
+
+async function deliverWithSendgrid({ to, subject, text, html }) {
+  const response = await fetch(env.sendgridApiUrl, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${env.sendgridApiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      personalizations: [{ to: [{ email: to }] }],
+      from: { email: env.sendgridFromEmail, name: env.sendgridFromName },
+      subject,
+      content: [{ type: "text/plain", value: text }, ...(html ? [{ type: "text/html", value: html }] : [])]
+    })
+  });
+  await requireSuccessfulResponse(response, "SendGrid");
+}
+
+async function deliverEmail({ provider, to, subject, text, html, idempotencyKey, resendTemplate }) {
+  if (provider === "resend") return deliverWithResend({ to, subject, text, html, idempotencyKey, resendTemplate });
+  if (provider === "sendgrid") return deliverWithSendgrid({ to, subject, text, html });
+  if (provider === "smtp") {
+    return getTransport().sendMail({ from: env.smtpUser, to, subject, text, ...(html ? { html } : {}) });
+  }
+  console.log("[email-fallback]", { to, subject, text, html });
+}
+
+async function sendEmail({ to, subject, text, html, emailTemplate, tenantId, ticketId, purpose = "general", metadata, outboxId, idempotencyKey, resendTemplate }) {
   if (!to) {
     return false;
   }
@@ -137,70 +185,11 @@ async function sendEmail({ to, subject, text, html, emailTemplate, tenantId, tic
 
   try {
     await assertTransactionalEmailAllowance({ tenantId, purpose });
-    // Existing plain-text and delivery contracts are retained for every provider.
-    html = html || createBrandedEmail({ subject, message: text, ...emailTemplate }).html;
+    // Managed templates must not silently fall back to an empty email on another provider.
+    if (resendTemplate && provider !== "resend") throw new Error("Managed email templates require Resend");
+    if (!resendTemplate) html = html || createBrandedEmail({ subject, message: text, ...emailTemplate }).html;
 
-    if (provider === "resend") {
-      const response = await fetch(env.resendApiUrl, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${env.resendApiKey}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          from: formatSender(env.resendFromName, env.resendFromEmail),
-          to,
-          subject,
-          text,
-          ...(html ? { html } : {})
-        })
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Resend email delivery failed: ${errorText}`);
-      }
-    } else if (provider === "sendgrid") {
-      const response = await fetch(env.sendgridApiUrl, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${env.sendgridApiKey}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          personalizations: [
-            {
-              to: [{ email: to }]
-            }
-          ],
-          from: {
-            email: env.sendgridFromEmail,
-            name: env.sendgridFromName
-          },
-          subject,
-          content: [
-            { type: "text/plain", value: text },
-            ...(html ? [{ type: "text/html", value: html }] : [])
-          ]
-        })
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`SendGrid email delivery failed: ${errorText}`);
-      }
-    } else if (provider === "smtp") {
-      const transporter = getTransport();
-      await transporter.sendMail({
-        from: env.smtpUser,
-        to,
-        subject,
-        text,
-        ...(html ? { html } : {})
-      });
-    } else {
-      console.log("[email-fallback]", { to, subject, text, html });
-    }
+    await deliverEmail({ provider, to, subject, text, html, idempotencyKey, resendTemplate });
 
     await recordEmailDelivery({
       to,

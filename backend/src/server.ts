@@ -1,3 +1,4 @@
+import staffAccessEmailWorker from "./services/staffAccessEmailWorker";
 import accountDeletionWorker from "./services/accountDeletionWorker";
 import app from "./app";
 import { connectDb } from "./config/db";
@@ -59,7 +60,12 @@ async function start(): Promise<void> {
     allowanceWarningService.dispatchPendingWarnings().catch((error: Error) => console.error("Allowance warning dispatch failed", error));
   }, 60_000);
   allowanceWarningTimer.unref();
+  const staffAccessEmailTimer = setInterval(() => {
+    staffAccessEmailWorker.runOnce().catch(() => console.error("[staff-access-email] dispatch failed"));
+  }, 60_000);
+  staffAccessEmailTimer.unref();
   server.on("close", () => {
+    clearInterval(staffAccessEmailTimer);
     clearInterval(deletionTimer);
     clearInterval(campaignLifecycleTimer);
     clearInterval(allowanceWarningTimer);

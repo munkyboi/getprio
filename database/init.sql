@@ -97,6 +97,7 @@ DROP TABLE IF EXISTS public_board_themes CASCADE;
 DROP TABLE IF EXISTS public_board_assets CASCADE;
 DROP TABLE IF EXISTS push_subscriptions CASCADE;
 DROP TABLE IF EXISTS notification_deliveries CASCADE;
+DROP TABLE IF EXISTS staff_access_email_outbox CASCADE;
 DROP TABLE IF EXISTS queue_join_otps CASCADE;
 DROP TABLE IF EXISTS tickets CASCADE;
 DROP TABLE IF EXISTS counters CASCADE;
