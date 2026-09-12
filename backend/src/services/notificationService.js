@@ -128,7 +128,7 @@ async function recordEmailDelivery({ to, subject, tenantId, ticketId, purpose, p
   }
 }
 
-async function sendEmail({ to, subject, text, html, emailTemplate, tenantId, ticketId, purpose = "general", metadata, outboxId }) {
+async function sendEmail({ to, subject, text, html, emailTemplate, tenantId, ticketId, purpose = "general", metadata, outboxId, idempotencyKey, resendTemplate }) {
   if (!to) {
     return false;
   }
@@ -137,22 +137,24 @@ async function sendEmail({ to, subject, text, html, emailTemplate, tenantId, tic
 
   try {
     await assertTransactionalEmailAllowance({ tenantId, purpose });
-    // Existing plain-text and delivery contracts are retained for every provider.
-    html = html || createBrandedEmail({ subject, message: text, ...emailTemplate }).html;
+    // Managed templates must not silently fall back to an empty email on another provider.
+    if (resendTemplate && provider !== "resend") throw new Error("Managed email templates require Resend");
+    if (!resendTemplate) html = html || createBrandedEmail({ subject, message: text, ...emailTemplate }).html;
 
     if (provider === "resend") {
       const response = await fetch(env.resendApiUrl, {
         method: "POST",
+        ...(idempotencyKey ? { signal: AbortSignal.timeout(20_000) } : {}),
         headers: {
           Authorization: `Bearer ${env.resendApiKey}`,
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
+          ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {})
         },
         body: JSON.stringify({
           from: formatSender(env.resendFromName, env.resendFromEmail),
           to,
           subject,
-          text,
-          ...(html ? { html } : {})
+          ...(resendTemplate ? { template: resendTemplate } : { text, ...(html ? { html } : {}) })
         })
       });
 
