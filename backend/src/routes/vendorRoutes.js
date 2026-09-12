@@ -1297,9 +1297,9 @@ function staffUpdateError(message, statusCode) {
 
 function requestedStaffChanges(body) {
   return {
-    role: Object.prototype.hasOwnProperty.call(body, "role"),
-    status: Object.prototype.hasOwnProperty.call(body, "isActive"),
-    locations: Object.prototype.hasOwnProperty.call(body, "assignedLocationIds")
+    role: Object.hasOwn(body, "role"),
+    status: Object.hasOwn(body, "isActive"),
+    locations: Object.hasOwn(body, "assignedLocationIds")
   };
 }
 
