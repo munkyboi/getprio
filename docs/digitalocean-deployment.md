@@ -125,6 +125,9 @@ If you use managed DigitalOcean Postgres instead of local Postgres:
 
 - Set `DATABASE_URL` to the managed connection string
 - Set `DATABASE_SSL=true`
+- For a Standard Edition cluster, download its CA certificate and set `DATABASE_SSL_CA_FILE` to the absolute path
+- For an Advanced Edition cluster, leave both CA variables empty to use the system trust store
+- The application ignores TLS query options in `DATABASE_URL` while application TLS is enabled, so they cannot override this verification policy
 - Skip installing local PostgreSQL packages and the local `psql` bootstrap above
 
 ## 5. Configure Environment
@@ -141,6 +144,8 @@ POSTGRES_USER=getprio
 POSTGRES_PASSWORD=CHANGE_THIS_PASSWORD
 DATABASE_URL=postgresql://getprio:CHANGE_THIS_PASSWORD@localhost:5432/getprio
 DATABASE_SSL=false
+DATABASE_SSL_CA=
+DATABASE_SSL_CA_FILE=
 
 JWT_SECRET=CHANGE_THIS_TO_A_LONG_RANDOM_SECRET
 

@@ -16,6 +16,8 @@ const nodeEnv = process.env.NODE_ENV || "development";
 const databaseUrl =
   process.env.DATABASE_URL || "postgresql://prio:prio@127.0.0.1:5432/prio_queue";
 const databaseSsl = process.env.DATABASE_SSL === "true";
+const databaseSslCa = process.env.DATABASE_SSL_CA || "";
+const databaseSslCaFile = process.env.DATABASE_SSL_CA_FILE || "";
 const jwtSecret = process.env.JWT_SECRET || "change-me";
 const serverUrl = process.env.SERVER_URL || `http://localhost:${port}`;
 const clientUrl = process.env.CLIENT_URL || `http://localhost:${frontendPort}`;
@@ -129,6 +131,8 @@ const env = {
   port,
   databaseUrl,
   databaseSsl,
+  databaseSslCa,
+  databaseSslCaFile,
   jwtSecret,
   serverUrl,
   clientUrl,
