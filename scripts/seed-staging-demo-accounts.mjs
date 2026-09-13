@@ -1,7 +1,9 @@
 import bcrypt from "bcryptjs";
 import pg from "pg";
+import databaseSsl from "../backend/src/config/databaseSsl.js";
 
 const { Pool } = pg;
+const { createDatabasePoolConfig } = databaseSsl;
 
 const databaseUrl = String(process.env.GETPRIO_DATABASE_URL || process.env.DATABASE_URL || "").trim();
 const allowSeed = process.env.ALLOW_GETPRIO_STAGING_SEED === "1";
@@ -77,10 +79,12 @@ const customerNames = [
   "Ysa Dominguez"
 ];
 
-const pool = new Pool({
+const pool = new Pool(createDatabasePoolConfig({
   connectionString: databaseUrl,
-  ssl: process.env.DATABASE_SSL === "true" ? { rejectUnauthorized: false } : undefined
-});
+  enabled: process.env.DATABASE_SSL === "true",
+  ca: process.env.DATABASE_SSL_CA,
+  caFile: process.env.DATABASE_SSL_CA_FILE
+}));
 
 const client = await pool.connect();
 

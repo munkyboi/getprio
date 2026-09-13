@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 import crypto from "node:crypto";
 import pg from "pg";
+import databaseSsl from "../backend/src/config/databaseSsl.js";
+
+const { createDatabasePoolConfig } = databaseSsl;
 
 const mode = process.argv[2] || "census";
 const allowed = new Set(["census", "dry-run", "apply", "verify", "resume"]);
@@ -9,7 +12,12 @@ const databaseUrl = process.env.GETPRIO_DATABASE_URL || process.env.DATABASE_URL
 if (!databaseUrl) throw new Error("Set GETPRIO_DATABASE_URL to an explicit GetPrio database.");
 if (["apply", "resume"].includes(mode) && process.env.FREE_PLAN_BACKFILL_ENABLED !== "true") throw new Error("Set FREE_PLAN_BACKFILL_ENABLED=true after reviewing the dry-run.");
 
-const pool = new pg.Pool({ connectionString: databaseUrl, ssl: process.env.DATABASE_SSL === "true" ? { rejectUnauthorized: false } : false });
+const pool = new pg.Pool(createDatabasePoolConfig({
+  connectionString: databaseUrl,
+  enabled: process.env.DATABASE_SSL === "true",
+  ca: process.env.DATABASE_SSL_CA,
+  caFile: process.env.DATABASE_SSL_CA_FILE
+}));
 const classifications = await pool.query(`
   SELECT t.id, t.slug, t.vendor_approval_status, t.is_active,
     COUNT(s.id)::INTEGER AS subscription_history,
