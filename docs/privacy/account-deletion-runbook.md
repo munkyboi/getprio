@@ -49,3 +49,24 @@ The integration test refuses nonlocal databases or a database name other than ge
 `node --test backend/tests/accountDeletion.integration.test.cjs`
 
 It verifies wrong-password rejection, rollback, duplicate request identity, session revocation/retry scope, passwordless verification, missing-task failure and final relational erasure. It does not verify external supplier or email delivery.
+
+## Scoped avatar-origin cleanup
+
+For an accepted, incomplete deletion request, use:
+
+```sh
+node scripts/account-deletion.mjs avatars REQUEST_UUID
+node scripts/account-deletion.mjs avatars REQUEST_UUID --apply
+```
+
+The first command previews counts only. `--apply` permanently deletes each listed avatar version and delete marker, then lists again to verify the origin prefix is empty. The account and exact `user-avatars/users/USER_ID/` prefix come from the deletion request, never a supplied URL or arbitrary prefix. It includes older replaced avatars. Listings are paginated before mutation; invalid metadata, excessive/repeated pagination, provider errors/locks or remaining versions fail the operation. Retry safely after resolving failures; already completed provider deletions cannot be rolled back by a database transaction. Do not run against a real request merely to test tooling.
+
+The command holds the same user-row lock used by deletion acceptance and avatar upload. Updated upload code must be deployed to every API instance, with older in-flight uploads drained, before relying on this protection. Missing/deletion-disabled accounts cannot upload; uploads already holding the lock finish before deletion acceptance. A failed upload/database commit can leave an orphaned avatar, which the user-prefix cleanup also includes.
+
+**This command does not attest `object_storage_versions_and_caches`.** Other uploads, legally retained proof records and cache checks remain separate operator work. Record only a restricted case/job reference after those checks succeed; never paste object keys, private URLs or credentials into evidence. Failed origin cleanup must leave the task pending.
+
+New avatar uploads use `Cache-Control: no-store`. This does not retroactively clear earlier one-year immutable responses, device image caches, saved files or CDN overrides. Inventory delivery URLs and controlled cache layers; purge affected managed CDN entries and verify the effective response policy using synthetic files. Document any inaccessible legacy copies and their original expiry; escalate rather than asserting complete cache erasure. A missing origin object alone is insufficient evidence. STASH copies follow their separately verified backup expiry and deletion-replay procedure.
+
+Provider semantics: [Backblaze version listing](https://www.backblaze.com/apidocs/s3-list-object-versions), [version-specific deletion](https://www.backblaze.com/apidocs/s3-delete-object), and [HTTP cache controls](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cache-Control). Local synthetic tests establish code behavior only; actual provider permissions, lock behavior, delivery/cache overrides and end-to-end deletion require separate deployment verification.
+
+Run `AVATAR_CLEANUP_TEST_DATABASE_URL=postgresql://.../getprio_avatar_cleanup_test node --test backend/tests/avatarDeletionConcurrency.test.cjs` against a disposable localhost PostgreSQL database to verify the upload holds a real row lock during its synthetic storage write, origin cleanup succeeds after deletion acceptance, and a later upload cannot recreate the avatar. This test creates and removes its own schema; the URL is restricted to that database name and localhost. It does not connect to Backblaze.
