@@ -18,8 +18,8 @@ else
   exit 1
 fi
 
-if ! grep -Eq 'server_name[[:space:]]+getprio\.online([[:space:];]|$)' "$nginx_site_file"; then
-  echo "Expected getprio.online Nginx server block was not found." >&2
+if ! grep -Eq 'server_name[[:space:]]+(app\.)?getprio\.online([[:space:];]|$)' "$nginx_site_file"; then
+  echo "Expected app.getprio.online or getprio.online Nginx server block was not found." >&2
   exit 1
 fi
 
@@ -28,9 +28,9 @@ if ! grep -Eq 'server_name[[:space:]]+api\.getprio\.online([[:space:];]|$)' "$ng
   exit 1
 fi
 
-"${sudo_cmd[@]}" sed -i \
-  -e 's/server_name getprio\.online;/server_name getprio.online developers.getprio.online;/g' \
-  -e 's/server_name api\.getprio\.online;/server_name api.getprio.online sandbox-api.getprio.online;/g' \
+"${sudo_cmd[@]}" sed -i -E \
+  -e '/server_name[[:space:]]+(app\.)?getprio\.online([^;]*);/ { /developers\.getprio\.online/! s/;/ developers.getprio.online;/; }' \
+  -e '/server_name[[:space:]]+api\.getprio\.online([^;]*);/ { /sandbox-api\.getprio\.online/! s/;/ sandbox-api.getprio.online;/; }' \
   "$nginx_site_file"
 
 "${sudo_cmd[@]}" nginx -t
