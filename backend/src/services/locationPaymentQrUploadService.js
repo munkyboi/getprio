@@ -127,6 +127,7 @@ function getObjectKeyFromPublicUrl(publicUrl) {
 }
 
 async function uploadBinary({ tenant, location, body, fileBuffer }) {
+  const uploadBuffer = Buffer.isBuffer(fileBuffer) ? Buffer.from(fileBuffer) : null;
   assertB2Configured();
 
   const fileName = normalizeFileName(body.fileName);
@@ -138,7 +139,7 @@ async function uploadBinary({ tenant, location, body, fileBuffer }) {
     throw error;
   }
 
-  await assertImageUploadSize(Buffer.isBuffer(fileBuffer) ? fileBuffer.length : 0);
+  await assertImageUploadSize(uploadBuffer?.length || 0);
 
   const objectKey = buildObjectKey({ tenant, location, fileName, contentType });
   const publicUrl = buildPublicUrl(objectKey);
@@ -147,7 +148,7 @@ async function uploadBinary({ tenant, location, body, fileBuffer }) {
     Bucket: env.b2BucketPublicBoard,
     Key: objectKey,
     ContentType: contentType,
-    Body: fileBuffer
+    Body: uploadBuffer
   }));
 
   return {
@@ -155,7 +156,7 @@ async function uploadBinary({ tenant, location, body, fileBuffer }) {
       objectKey,
       publicUrl,
       contentType,
-      sizeBytes: fileBuffer.length
+      sizeBytes: uploadBuffer.length
     }
   };
 }

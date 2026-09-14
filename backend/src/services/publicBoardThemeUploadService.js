@@ -161,12 +161,13 @@ async function createUpload({ tenant, location, user, body }) {
 }
 
 async function uploadBinary({ tenant, location, user, body, fileBuffer }) {
+  const uploadBuffer = Buffer.isBuffer(fileBuffer) ? Buffer.from(fileBuffer) : null;
   assertB2Configured();
 
   const assetType = body.assetType === "logo" ? "logo" : "background";
   const fileName = normalizeFileName(body.fileName);
   const contentType = String(body.contentType || "").toLowerCase();
-  const sizeBytes = Buffer.isBuffer(fileBuffer) ? fileBuffer.length : 0;
+  const sizeBytes = uploadBuffer?.length || 0;
 
   if (!ALLOWED_CONTENT_TYPES.has(contentType)) {
     const error = new Error("Only JPEG, PNG, and WebP images are supported.");
@@ -174,7 +175,7 @@ async function uploadBinary({ tenant, location, user, body, fileBuffer }) {
     throw error;
   }
 
-  await assertImageUploadSize(Buffer.isBuffer(fileBuffer) ? fileBuffer.length : 0);
+  await assertImageUploadSize(uploadBuffer?.length || 0);
 
   const objectKey = buildObjectKey({
     tenantId: tenant._id,
@@ -189,7 +190,7 @@ async function uploadBinary({ tenant, location, user, body, fileBuffer }) {
     Bucket: env.b2BucketPublicBoard,
     Key: objectKey,
     ContentType: contentType,
-    Body: fileBuffer
+    Body: uploadBuffer
   }));
 
   const asset = await publicBoardThemeRepository.createAsset({
