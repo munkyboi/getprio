@@ -30,6 +30,7 @@ import JoinedQueuePage from "./pages/JoinedQueuePage";
 import PaymentReturnPage from "./pages/PaymentReturnPage";
 import TermsPage from "./pages/TermsPage";
 import NotFoundPage from "./pages/NotFoundPage";
+import DeveloperPortalPage from "./pages/DeveloperPortalPage";
 import SiteFooter from "./components/SiteFooter";
 import CustomerAccountLayout from "./components/CustomerAccountLayout";
 import {
@@ -330,6 +331,12 @@ function ScrollToTop() {
 }
 
 export default function App() {
+  const developerHost = typeof window !== "undefined" && ["developers.getprio.online"].includes(window.location.hostname);
+
+  if (developerHost) {
+    return <DeveloperPortalPage />;
+  }
+
   return (
     <>
       <ScrollToTop />
