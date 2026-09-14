@@ -14,7 +14,7 @@ It matches the current codebase:
 
 ## Recommended Shape
 
-- `getprio.online` serves `frontend/dist`
+- `app.getprio.online` serves `frontend/dist`
 - `developers.getprio.online` serves the developer portal from `frontend/dist`
 - `platform.getprio.online` serves `platform-dashboard/dist`
 - `api.getprio.online` proxies to the backend on `127.0.0.1:5000`
@@ -31,7 +31,7 @@ For a tiny MVP, start with a 1 GB Droplet and add swap. If the app feels tight, 
 2. Pick the closest region to your users, such as Singapore if available.
 3. Use SSH keys instead of password login.
 4. Point DNS A records to the Droplet IP:
-   - `getprio.online`
+   - `app.getprio.online`
    - `developers.getprio.online`
    - `platform.getprio.online`
    - `api.getprio.online`
@@ -284,7 +284,7 @@ Create `/etc/nginx/sites-available/getprio`:
 ```nginx
 server {
   listen 80;
-  server_name getprio.online developers.getprio.online;
+  server_name app.getprio.online developers.getprio.online;
 
   root /var/www/getprio/frontend/dist;
   index index.html;
