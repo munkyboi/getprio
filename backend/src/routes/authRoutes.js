@@ -38,6 +38,7 @@ const {
   clearBrowserSession,
   getRefreshCookie,
   issueBrowserSession,
+  restoreBrowserCsrf,
   parseCookies
 } = require("../services/browserSessionService");
 
@@ -1295,8 +1296,12 @@ router.get(
   "/me",
   authenticate,
   asyncHandler(async (req, res) => {
+    const user = await buildUserPayload(req.user);
+    const csrfToken = restoreBrowserCsrf(req, res, { secure: env.authCookieSecure, csrfSecret: env.csrfSecret });
+    res.set("Cache-Control", "no-store");
     res.json({
-      user: await buildUserPayload(req.user),
+      user,
+      csrfToken,
       sessionExpiresAt: req.auth.session?.inactivityExpiresAt || req.auth.session?.expiresAt || null
     });
   })

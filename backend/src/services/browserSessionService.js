@@ -103,6 +103,25 @@ function issueBrowserSession(res, sessionResult, options = {}) {
   return { csrfToken };
 }
 
+function restoreBrowserCsrf(req, res, options = {}) {
+  if (req.auth?.transport !== "cookie" || !req.auth.session) return undefined;
+  const secret = String(options.csrfSecret || "");
+  if (!secret) throw new Error("CSRF signing secret is required.");
+  const sessionId = String(req.auth.session._id);
+  const existing = parseCookies(req.headers?.cookie)[CSRF_COOKIE];
+  // Reuse the current signed token so loading another tab does not invalidate it.
+  if (existing && verifyCsrfToken(existing, secret) && existing.split(".")[0] === base64Url(sessionId)) {
+    return existing;
+  }
+  const token = signCsrfToken(sessionId, secret);
+  const maxAge = Math.max(0, Math.floor((new Date(req.auth.session.expiresAt).getTime() - Date.now()) / 1000));
+  appendCookie(res, serializeCookie(CSRF_COOKIE, token, {
+    secure: options.secure !== false,
+    maxAge
+  }));
+  return token;
+}
+
 function clearBrowserSession(res, options = {}) {
   const secure = options.secure !== false;
   const cookieNames = getSessionCookieNames(secure);
@@ -140,6 +159,7 @@ module.exports = {
   getRefreshCookie,
   getSessionCookieNames,
   issueBrowserSession,
+  restoreBrowserCsrf,
   parseCookies,
   serializeCookie,
   signCsrfToken,
