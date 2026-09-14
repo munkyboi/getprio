@@ -15,8 +15,10 @@ It matches the current codebase:
 ## Recommended Shape
 
 - `getprio.online` serves `frontend/dist`
+- `developers.getprio.online` serves the developer portal from `frontend/dist`
 - `platform.getprio.online` serves `platform-dashboard/dist`
 - `api.getprio.online` proxies to the backend on `127.0.0.1:5000`
+- `sandbox-api.getprio.online` proxies to the same backend with sandbox host labeling
 - PostgreSQL runs locally on the Droplet, or on managed DigitalOcean Postgres if you prefer not to host the database on the app box
 - PM2 keeps the backend process alive
 - Nginx serves static assets and handles TLS
@@ -30,8 +32,10 @@ For a tiny MVP, start with a 1 GB Droplet and add swap. If the app feels tight, 
 3. Use SSH keys instead of password login.
 4. Point DNS A records to the Droplet IP:
    - `getprio.online`
+   - `developers.getprio.online`
    - `platform.getprio.online`
    - `api.getprio.online`
+   - `sandbox-api.getprio.online`
 
 ## 2. Initial Server Setup
 
@@ -280,7 +284,7 @@ Create `/etc/nginx/sites-available/getprio`:
 ```nginx
 server {
   listen 80;
-  server_name getprio.online;
+  server_name getprio.online developers.getprio.online;
 
   root /var/www/getprio/frontend/dist;
   index index.html;
@@ -309,7 +313,7 @@ server {
 
 server {
   listen 80;
-  server_name api.getprio.online;
+  server_name api.getprio.online sandbox-api.getprio.online;
 
   location / {
     proxy_pass http://127.0.0.1:5000;
@@ -341,7 +345,7 @@ Install Certbot:
 
 ```bash
 apt install -y certbot python3-certbot-nginx
-certbot --nginx -d getprio.online -d platform.getprio.online -d api.getprio.online
+certbot --nginx -d getprio.online -d developers.getprio.online -d platform.getprio.online -d api.getprio.online -d sandbox-api.getprio.online
 ```
 
 ## 10. Payment Webhook URLs
