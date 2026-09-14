@@ -14,6 +14,7 @@ import mobilePushRoutes from "./routes/mobilePushRoutes";
 import mobileQueueJoinRoutes from "./routes/mobileQueueJoinRoutes";
 import mobileOAuthRoutes from "./routes/mobileOAuthRoutes";
 import vendorRoutes from "./routes/vendorRoutes";
+import developerApiRoutes from "./routes/developerApiRoutes";
 import errorHandler from "./middleware/errorHandler";
 import requestContextModule from "./middleware/requestContext";
 import csrfProtectionModule from "./middleware/csrfProtection";
@@ -115,6 +116,7 @@ app.use("/api/mobile/push", mobilePushRoutes);
 app.use("/api/mobile", mobileQueueJoinRoutes);
 app.use("/api/mobile/auth", mobileOAuthRoutes);
 app.use("/api/vendor", vendorRoutes);
+app.use("/v1", developerApiRoutes);
 
 app.use(errorHandler);
 

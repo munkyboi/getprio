@@ -1,0 +1,49 @@
+.developer-portal { min-height: 100vh; background: #0d1421; color: #f8fafc; font-family: Inter, system-ui, sans-serif; }
+.developer-portal-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; max-width: 72rem; margin: 0 auto; padding: 1.25rem 1.25rem; }
+.developer-portal-brand { display: inline-flex; align-items: center; gap: .55rem; color: inherit; font-weight: 700; text-decoration: none; letter-spacing: .02em; }
+.developer-portal-brand img { width: 2rem; height: 2rem; object-fit: contain; }
+.developer-portal-brand span { color: #9fb8ff; }
+.developer-portal-header nav { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; justify-content: flex-end; }
+.developer-portal-header nav a { min-height: 2.75rem; display: inline-flex; align-items: center; color: #b8c4d9; font-size: .85rem; text-decoration: none; }
+.developer-portal-header nav a:hover, .developer-portal-header nav a:focus-visible { color: #fff; }
+.developer-portal-login { border: 1px solid #3861fb; border-radius: .5rem; color: #fff !important; padding: .65rem .8rem; }
+.developer-portal-hero, .developer-portal-section, .developer-portal-login-panel { max-width: 72rem; margin: 0 auto; padding: 4rem 1.25rem; }
+.developer-portal-hero { display: grid; grid-template-columns: 1fr; align-items: center; gap: 2rem; min-height: 34rem; }
+.developer-portal-eyebrow { color: #83a1ff; font-size: .72rem; font-weight: 800; letter-spacing: .14em; margin: 0 0 .8rem; }
+.developer-portal h1 { max-width: 11ch; font-size: clamp(2.6rem, 8vw, 5.5rem); line-height: .98; letter-spacing: -.05em; margin: 0; }
+.developer-portal h2 { font-size: clamp(1.8rem, 4vw, 3rem); letter-spacing: -.035em; margin: 0 0 1.5rem; }
+.developer-portal h3 { margin: .7rem 0 .45rem; font-size: 1.05rem; }
+.developer-portal p { color: #aebbd0; line-height: 1.65; }
+.developer-portal-lede { max-width: 38rem; font-size: 1.1rem; margin: 1.5rem 0; }
+.developer-portal-preview-note { max-width: 38rem; border-left: 3px solid #7de2c1; padding-left: 1rem; }
+.developer-portal-actions { display: flex; gap: .8rem; flex-wrap: wrap; }
+.developer-portal-actions a { width: 100%; min-height: 2.75rem; display: inline-flex; align-items: center; justify-content: center; border-radius: .55rem; padding: .7rem 1rem; font-weight: 700; text-decoration: none; }
+.developer-portal-primary { background: #3861fb; color: #fff; }
+.developer-portal-secondary { border: 1px solid #45536b; color: #f8fafc; }
+.developer-portal-ticket { border: 1px solid #2a3a56; background: #121e31; border-radius: 1rem; padding: 1.4rem; box-shadow: 0 1.5rem 3rem #0004; }
+.developer-portal-ticket p { color: #83a1ff; font-size: .7rem; letter-spacing: .08em; }
+.developer-portal-ticket strong { display: block; font-size: 4rem; letter-spacing: -.06em; }
+.developer-portal-ticket span { display: block; color: #7de2c1; font-weight: 700; }
+.developer-portal-ticket small { display: block; color: #aebbd0; margin-top: 2rem; }
+.developer-portal-section { border-top: 1px solid #1e2b40; }
+.developer-portal-grid, .developer-portal-endpoints { display: grid; grid-template-columns: 1fr; gap: 1rem; }
+.developer-portal-grid article, .developer-portal-endpoints article { border: 1px solid #273852; background: #111c2e; border-radius: .8rem; padding: 1.25rem; }
+.developer-portal-grid strong { color: #83a1ff; font-size: 1.5rem; }
+.developer-portal-endpoints article > span { color: #83a1ff; font-weight: 800; }
+.developer-portal-endpoints code { display: block; color: #fff; overflow-wrap: anywhere; margin: .8rem 0; }
+.developer-portal-note { border-left: 3px solid #3861fb; padding-left: 1rem; }
+.developer-portal-login-panel { display: flex; justify-content: space-between; gap: 2rem; border-top: 1px solid #1e2b40; }
+.developer-portal-login-panel > * { max-width: 34rem; }
+.developer-portal-footer { max-width: 72rem; margin: 0 auto; padding: 2rem 1.25rem 3rem; color: #7889a5; font-size: .8rem; }
+@media (min-width: 48.0625em) {
+  .developer-portal-hero { grid-template-columns: minmax(0, 1.35fr) minmax(16rem, .65fr); gap: 3rem; }
+  .developer-portal-actions a { width: auto; }
+  .developer-portal-grid, .developer-portal-endpoints { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (max-width: 48rem) {
+  .developer-portal-header { align-items: flex-start; flex-direction: column; }
+  .developer-portal-header nav { justify-content: flex-start; gap: .7rem; }
+  .developer-portal-hero { padding-top: 3rem; }
+  .developer-portal-login-panel { flex-direction: column; gap: 0; }
+}
