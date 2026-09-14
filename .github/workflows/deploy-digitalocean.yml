@@ -177,6 +177,8 @@ jobs:
 
           git pull --ff-only origin main
 
+          bash scripts/configure-developer-hosts.sh
+
           bash scripts/verify-fcm-config.sh
 
           npm ci --include=dev
