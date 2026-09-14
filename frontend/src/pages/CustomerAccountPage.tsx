@@ -221,6 +221,12 @@ export default function CustomerAccountPage() {
     displayName: ""
   });
   const [savingProfile, setSavingProfile] = useState(false);
+  const [maxImageUploadKb, setMaxImageUploadKb] = useState<number | null>(null);
+  useEffect(() => {
+    apiRequest<{ maxImageUploadKb: number }>("/public/upload-policy")
+      .then((policy) => setMaxImageUploadKb(policy.maxImageUploadKb))
+      .catch(() => { /* The upload still checks the current server policy before sending. */ });
+  }, []);
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [passwordForm, setPasswordForm] = useState<PasswordChangeRequest>({
@@ -636,9 +642,9 @@ export default function CustomerAccountPage() {
       showCustomerError("Choose a JPEG, PNG, or WebP image.", "Unsupported profile photo");
       return;
     }
-    if (file && file.size > 5 * 1024 * 1024) {
+    if (file && maxImageUploadKb !== null && file.size > maxImageUploadKb * 1024) {
       setAvatarFile(null);
-      showCustomerError("Choose an image no larger than 5 MB.", "Profile photo is too large");
+      showCustomerError(`Choose an image no larger than ${maxImageUploadKb} KB.`, "Profile photo is too large");
       return;
     }
     setAvatarFile(file);
@@ -1256,7 +1262,7 @@ export default function CustomerAccountPage() {
                 Upload photo
               </Button>
             </Group>
-            <Text c="dimmed" size="xs">JPEG, PNG, or WebP. Maximum 5 MB.</Text>
+            <Text c="dimmed" size="xs">JPEG, PNG, or WebP.{maxImageUploadKb !== null ? ` Maximum ${maxImageUploadKb} KB.` : " The current size limit is checked before upload."}</Text>
           </Stack>
         </Group>
         <Divider />

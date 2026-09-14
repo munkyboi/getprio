@@ -136,6 +136,12 @@ export async function apiUpload<TResponse>(
   }
 ): Promise<TResponse> {
   const { body, contentType, token, signal, skipAuthRefresh = false, headers = {} } = options;
+  if (contentType.startsWith("image/") && body instanceof Blob) {
+    const policy = await apiRequest<{ maxImageUploadKb: number; maxImageUploadBytes: number }>("/public/upload-policy", { signal });
+    if (body.size < 1 || body.size > policy.maxImageUploadBytes) {
+      throw new ApiError(`Image must be between 1 byte and ${policy.maxImageUploadKb} KB. Choose a smaller image or compress it before uploading.`, 400);
+    }
+  }
   const makeRequest = async (authToken?: string) =>
     fetch(`${API_BASE_URL}${path}`, {
       method: "POST",

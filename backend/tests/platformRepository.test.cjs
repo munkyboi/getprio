@@ -160,3 +160,24 @@ test("platform repository maps analytics, lists entities, and upserts settings",
 
   assert.equal(calls.length > 0, true);
 });
+
+test("image size setting defaults safely and persists a changed limit with its editor", async () => {
+  const values = new Map();
+  const writes = [];
+  const client = { query: async (sql, params) => {
+    if (sql.includes("INSERT INTO platform_settings")) {
+      values.set(params[0], params[1]); writes.push(params);
+      return { rows: [] };
+    }
+    return { rows: values.has(params[0]) ? [{ value: values.get(params[0]) }] : [] };
+  } };
+  const repository = requireWithMocks("../src/repositories/platform.js", { "../config/db": { pool: client } });
+  assert.equal(await repository.getImageUploadLimitKb(), 200);
+  for (const invalid of ["0", "-1", "8193", "1.5", "invalid"]) {
+    values.set("max_image_upload_kb", invalid);
+    assert.equal(await repository.getImageUploadLimitKb(), 200);
+  }
+  const settings = await repository.updatePlatformSettings({ enterpriseInquiryEmail: "ops@example.com", defaultTimezone: "Asia/Manila", maxImageUploadKb: 512, userId: "42" });
+  assert.equal(settings.maxImageUploadKb, 512);
+  assert.ok(writes.some(([key, value, user]) => key === "max_image_upload_kb" && value === "512" && user === 42));
+});

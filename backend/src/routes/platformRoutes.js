@@ -1,4 +1,5 @@
 const businessCategories = require("../repositories/businessCategories");
+const { isValidImageUploadLimit } = require("../utils/imageUploadLimit");
 const express = require("express");
 const asyncHandler = require("../middleware/asyncHandler");
 const { authenticate, requirePlatformPermission } = require("../middleware/auth");
@@ -541,6 +542,12 @@ router.patch(
   "/settings",
   requirePlatformPermission("platform.settings.manage"),
   asyncHandler(async (req, res) => {
+    const maxImageUploadKb = req.body.maxImageUploadKb;
+    if (maxImageUploadKb !== undefined && !isValidImageUploadLimit(maxImageUploadKb)) {
+      const error = new Error("Maximum image size must be a whole number from 1 to 8192 KB.");
+      error.statusCode = 400;
+      throw error;
+    }
     const enterpriseInquiryEmail = normalizeEmail(req.body.enterpriseInquiryEmail);
     const defaultTimezone = normalizeTimeZone(req.body.defaultTimezone, "");
     const mobileApprovedHosts = Object.prototype.hasOwnProperty.call(req.body, "mobileApprovedHosts")
@@ -562,6 +569,7 @@ router.patch(
         enterpriseInquiryEmail,
         defaultTimezone,
         mobileApprovedHosts,
+        maxImageUploadKb,
         userId: req.user?._id
       })
     });

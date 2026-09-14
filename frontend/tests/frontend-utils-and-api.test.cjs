@@ -777,6 +777,7 @@ test("vendor media uploads send image bytes only to the authenticated API", asyn
   const file = new Blob(["image"], { type: "image/png" });
 
   await withFetch(async (url, options) => {
+    if (String(url).endsWith("/public/upload-policy")) return mockResponse(200, { maxImageUploadKb: 200, maxImageUploadBytes: 204800 });
     calls.push([String(url), options]);
     return mockResponse(201, { asset: { id: "asset-1" } });
   }, async () => {
@@ -798,6 +799,7 @@ test("customer image and proof uploads use cookie authentication with binary bod
   });
 
   await withFetch(async (url, options) => {
+    if (String(url).endsWith("/public/upload-policy")) return mockResponse(200, { maxImageUploadKb: 200, maxImageUploadBytes: 204800 });
     calls.push([String(url), options]);
     return mockResponse(201, {
       user: { id: "customer-1" },
@@ -2814,4 +2816,22 @@ test("vendor usage cards report queue email journeys instead of legacy deliverie
   assert.match(bootstrap, /getCapacityExperience/);
   assert.match(bootstrap, /\/billing\/capabilities/);
   assert.match(bootstrap, /\/billing\/tenant\/\$\{tenantSlug\}\/capacity/);
+});
+
+
+test("image preflight rejects oversized files before POST and rechecks a changed policy", async () => {
+  let limit = 200;
+  let uploads = 0;
+  await withFetch(async (url) => {
+    if (String(url).endsWith("/public/upload-policy")) return mockResponse(200, { maxImageUploadKb: limit, maxImageUploadBytes: limit * 1024 });
+    uploads += 1;
+    return mockResponse(201, { uploaded: true });
+  }, async () => {
+    const body = new Blob([new Uint8Array(204801)], { type: "image/png" });
+    await assert.rejects(apiUpload("/vendor/upload", { body, contentType: "image/png" }), /200 KB/);
+    assert.equal(uploads, 0);
+    limit = 300;
+    await apiUpload("/vendor/upload", { body, contentType: "image/png" });
+    assert.equal(uploads, 1);
+  });
 });

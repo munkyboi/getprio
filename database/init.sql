@@ -1218,6 +1218,7 @@ CREATE TABLE platform_settings (
 
 INSERT INTO platform_settings (key, value)
 VALUES ('enterprise_inquiry_email', 'carlo.abella@gmail.com');
+INSERT INTO platform_settings (key, value) VALUES ('max_image_upload_kb', '200') ON CONFLICT (key) DO NOTHING;
 
 CREATE TABLE public_board_assets (
   id BIGSERIAL PRIMARY KEY,

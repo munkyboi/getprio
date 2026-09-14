@@ -1,3 +1,4 @@
+const { assertImageUploadSize } = require("./imageUploadPolicy");
 const crypto = require("crypto");
 const { GetObjectCommand, PutObjectCommand, S3Client } = require("@aws-sdk/client-s3");
 const env = require("../config/env");
@@ -137,11 +138,7 @@ async function uploadBinary({ tenant, location, body, fileBuffer }) {
     throw error;
   }
 
-  if (!Buffer.isBuffer(fileBuffer) || !fileBuffer.length || fileBuffer.length > MAX_UPLOAD_BYTES) {
-    const error = new Error("QR image must be between 1 byte and 8 MB.");
-    error.statusCode = 400;
-    throw error;
-  }
+  await assertImageUploadSize(Buffer.isBuffer(fileBuffer) ? fileBuffer.length : 0);
 
   const objectKey = buildObjectKey({ tenant, location, fileName, contentType });
   const publicUrl = buildPublicUrl(objectKey);

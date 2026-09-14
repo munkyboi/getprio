@@ -1,9 +1,9 @@
+const { assertImageUploadSize } = require("./imageUploadPolicy");
 const crypto = require("crypto");
 const { PutObjectCommand, S3Client } = require("@aws-sdk/client-s3");
 const env = require("../config/env");
 
 const ALLOWED_CONTENT_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
-const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 
 let s3Client;
 
@@ -95,16 +95,12 @@ async function uploadBinary({ tenant, campaign, body, fileBuffer }) {
     throw error;
   }
   if (!Buffer.isBuffer(fileBuffer)) {
-    const error = new Error("Screenshot must be between 1 byte and 8 MB.");
+    const error = new Error("Screenshot payload must be binary.");
     error.statusCode = 400;
     throw error;
   }
   const fileSizeBytes = fileBuffer.byteLength;
-  if (!fileSizeBytes || fileSizeBytes > MAX_UPLOAD_BYTES) {
-    const error = new Error("Screenshot must be between 1 byte and 8 MB.");
-    error.statusCode = 400;
-    throw error;
-  }
+  await assertImageUploadSize(fileSizeBytes);
 
   const fileName = normalizeFileName(optionalString(body?.fileName, "File name"));
   const objectKey = buildObjectKey({ tenant, campaign, fileName, contentType });

@@ -1763,6 +1763,7 @@ export interface PlatformSettingsResponse {
     enterpriseInquiryEmail: string;
     defaultTimezone: string;
     mobileApprovedHosts: string[];
+    maxImageUploadKb: number;
   };
 }
 
@@ -1770,6 +1771,7 @@ export interface UpdatePlatformSettingsRequest {
   enterpriseInquiryEmail: string;
   defaultTimezone: string;
   mobileApprovedHosts: string[];
+  maxImageUploadKb?: number;
 }
 
 export interface UpdatePlatformQueueFeesRequest {

@@ -6,6 +6,7 @@ function loadService({ env = {}, updateUser = async () => null, send = async () 
   const target = require.resolve("../src/services/userAvatarUploadService.js");
   const originals = new Map();
   const mocks = {
+    "../repositories/platform": { getImageUploadLimitKb: async () => 200 },
     "../config/env": {
       b2Region: "us-east-005",
       b2S3Endpoint: "https://s3.example.test",
@@ -98,9 +99,9 @@ test("avatar upload rejects unsupported files and oversized images", async () =>
       user: { _id: "42" },
       fileName: "portrait.png",
       contentType: "image/png",
-      fileBuffer: Buffer.alloc(service.MAX_UPLOAD_BYTES + 1)
+      fileBuffer: Buffer.alloc(200 * 1024 + 1)
     }),
-    { statusCode: 400, message: "Avatar image must be between 1 byte and 5 MB." }
+    { statusCode: 400, message: "Image must be between 1 byte and 200 KB. Choose a smaller image or compress it before uploading." }
   );
 
   await assert.rejects(
