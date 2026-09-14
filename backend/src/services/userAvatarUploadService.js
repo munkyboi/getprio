@@ -1,5 +1,6 @@
 const { assertImageUploadSize } = require("./imageUploadPolicy");
 const crypto = require("node:crypto");
+const db = require("../config/db");
 const { PutObjectCommand, S3Client } = require("@aws-sdk/client-s3");
 const env = require("../config/env");
 const userRepository = require("../repositories/users");
@@ -111,8 +112,8 @@ async function uploadAvatar({ user, fileName, contentType, fileBuffer }) {
 
   const extension = getExtension(fileName, normalizedContentType);
   const randomId = crypto.randomBytes(10).toString("hex");
-  const userId = String(user?._id || "").replace(/[^\w-]/g, "");
-  if (!userId) {
+  const userId = String(user?._id || "");
+  if (!/^[1-9][0-9]*$/.test(userId)) {
     const error = new Error("Authenticated user is required.");
     error.statusCode = 401;
     throw error;
@@ -120,19 +121,28 @@ async function uploadAvatar({ user, fileName, contentType, fileBuffer }) {
   const objectKey = `user-avatars/users/${userId}/${Date.now()}-${randomId}.${extension}`;
   const avatarUrl = buildPublicUrl(objectKey);
 
-  await getS3Client().send(new PutObjectCommand({
-    Bucket: env.b2BucketPublicBoard,
-    Key: objectKey,
-    ContentType: normalizedContentType,
-    CacheControl: "public, max-age=31536000, immutable",
-    Body: avatarBuffer
-  }));
+  return db.withTransaction(async (client) => {
+    // Share the deletion request lock so an already-authorized upload cannot resurrect an avatar.
+    const { rows: [current] } = await client.query(
+      "SELECT deletion_requested_at FROM users WHERE id=$1 FOR UPDATE", [userId]
+    );
+    if (!current || current.deletion_requested_at) {
+      throw Object.assign(new Error("This account cannot upload a profile photo."), { statusCode: 403 });
+    }
+    await getS3Client().send(new PutObjectCommand({
+      Bucket: env.b2BucketPublicBoard,
+      Key: objectKey,
+      ContentType: normalizedContentType,
+      CacheControl: "no-store",
+      Body: avatarBuffer
+    }));
 
-  const updatedUser = await userRepository.updateUser(user._id, { avatarUrl });
-  return {
-    avatarUrl,
-    user: updatedUser
-  };
+    const updatedUser = await userRepository.updateUser(user._id, { avatarUrl }, { client });
+    return {
+      avatarUrl,
+      user: updatedUser
+    };
+  });
 }
 
 module.exports = {
