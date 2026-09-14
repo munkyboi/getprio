@@ -633,7 +633,7 @@ router.post(
 router.post(
   "/profile/avatar",
   avatarUploadLimiter,
-  express.raw({ type: ["image/jpeg", "image/png", "image/webp"], limit: "5mb" }),
+  express.raw({ type: ["image/jpeg", "image/png", "image/webp"], limit: "8mb" }),
   asyncHandler(async (req, res) => {
     if (!Buffer.isBuffer(req.body) || !req.body.length) {
       const error = new Error("Avatar image payload is required.");

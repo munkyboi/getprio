@@ -1,3 +1,4 @@
+const { assertImageUploadSize } = require("./imageUploadPolicy");
 const crypto = require("crypto");
 const { GetObjectCommand, PutObjectCommand, S3Client } = require("@aws-sdk/client-s3");
 const env = require("../config/env");
@@ -126,6 +127,7 @@ function getObjectKeyFromPublicUrl(publicUrl) {
 }
 
 async function uploadBinary({ tenant, location, body, fileBuffer }) {
+  const uploadBuffer = Buffer.isBuffer(fileBuffer) ? Buffer.from(fileBuffer) : null;
   assertB2Configured();
 
   const fileName = normalizeFileName(body.fileName);
@@ -137,11 +139,7 @@ async function uploadBinary({ tenant, location, body, fileBuffer }) {
     throw error;
   }
 
-  if (!Buffer.isBuffer(fileBuffer) || !fileBuffer.length || fileBuffer.length > MAX_UPLOAD_BYTES) {
-    const error = new Error("QR image must be between 1 byte and 8 MB.");
-    error.statusCode = 400;
-    throw error;
-  }
+  await assertImageUploadSize(uploadBuffer?.length || 0);
 
   const objectKey = buildObjectKey({ tenant, location, fileName, contentType });
   const publicUrl = buildPublicUrl(objectKey);
@@ -150,7 +148,7 @@ async function uploadBinary({ tenant, location, body, fileBuffer }) {
     Bucket: env.b2BucketPublicBoard,
     Key: objectKey,
     ContentType: contentType,
-    Body: fileBuffer
+    Body: uploadBuffer
   }));
 
   return {
@@ -158,7 +156,7 @@ async function uploadBinary({ tenant, location, body, fileBuffer }) {
       objectKey,
       publicUrl,
       contentType,
-      sizeBytes: fileBuffer.length
+      sizeBytes: uploadBuffer.length
     }
   };
 }

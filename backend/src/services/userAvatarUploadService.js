@@ -1,10 +1,10 @@
+const { assertImageUploadSize } = require("./imageUploadPolicy");
 const crypto = require("node:crypto");
 const { PutObjectCommand, S3Client } = require("@aws-sdk/client-s3");
 const env = require("../config/env");
 const userRepository = require("../repositories/users");
 
 const ALLOWED_CONTENT_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
-const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 
 let s3Client;
 
@@ -102,11 +102,7 @@ async function uploadAvatar({ user, fileName, contentType, fileBuffer }) {
   }
 
   const avatarBuffer = Buffer.from(fileBuffer);
-  if (!avatarBuffer.length || avatarBuffer.length > MAX_UPLOAD_BYTES) {
-    const error = new Error("Avatar image must be between 1 byte and 5 MB.");
-    error.statusCode = 400;
-    throw error;
-  }
+  await assertImageUploadSize(avatarBuffer.length);
   if (!matchesImageSignature(normalizedContentType, avatarBuffer)) {
     const error = new Error("Avatar image content does not match the selected format.");
     error.statusCode = 400;
@@ -141,7 +137,6 @@ async function uploadAvatar({ user, fileName, contentType, fileBuffer }) {
 
 module.exports = {
   ALLOWED_CONTENT_TYPES,
-  MAX_UPLOAD_BYTES,
   matchesImageSignature,
   uploadAvatar
 };

@@ -1,3 +1,4 @@
+const { assertImageUploadSize } = require("./imageUploadPolicy");
 const crypto = require("crypto");
 const { GetObjectCommand, PutObjectCommand, S3Client } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
@@ -161,15 +162,17 @@ async function createUpload({ booking, body }) {
   const contentType = String(body.contentType || "").toLowerCase();
   const sizeBytes = Number(body.sizeBytes || 0);
   assertUploadMetadata({ contentType, sizeBytes });
+  await assertImageUploadSize(sizeBytes);
 
   const objectKey = buildObjectKey({ booking, fileName, contentType });
   const command = new PutObjectCommand({
     Bucket: env.b2BucketPaymentProof,
     Key: objectKey,
-    ContentType: contentType
+    ContentType: contentType,
+    ContentLength: sizeBytes
   });
   const uploadUrl = await getSignedUrl(getS3Client(), command, {
-    expiresIn: UPLOAD_EXPIRES_SECONDS
+    expiresIn: UPLOAD_EXPIRES_SECONDS, signableHeaders: new Set(["content-length"])
   });
 
   return {
@@ -204,6 +207,7 @@ async function uploadBinary({ booking, body, fileBuffer }) {
   const uploadBuffer = Buffer.from(fileBuffer);
   const sizeBytes = uploadBuffer.byteLength;
   assertUploadMetadata({ contentType, sizeBytes });
+  await assertImageUploadSize(sizeBytes);
 
   const objectKey = buildObjectKey({ booking, fileName, contentType });
   await getS3Client().send(new PutObjectCommand({
@@ -237,6 +241,7 @@ async function uploadGroupFundedBinary({ campaign, user, body, fileBuffer }) {
   const uploadBuffer = Buffer.from(fileBuffer);
   const sizeBytes = uploadBuffer.byteLength;
   assertGroupFundedUploadMetadata({ contentType, sizeBytes });
+  if (contentType.startsWith("image/")) await assertImageUploadSize(sizeBytes);
 
   const objectKey = buildGroupFundedObjectKey({ campaign, user, fileName, contentType });
   await getS3Client().send(new PutObjectCommand({
