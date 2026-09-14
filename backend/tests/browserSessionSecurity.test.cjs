@@ -228,3 +228,37 @@ test("vendor registration recovery retains origin, request-format and authentica
     assert.equal(error?.code, "CSRF_VALIDATION_FAILED");
   }
 });
+
+test("account bootstrap restores the current CSRF token without rotating another tab's cookie", () => {
+  const { restoreBrowserCsrf, signCsrfToken } = require("../src/services/browserSessionService");
+  const csrfToken = signCsrfToken("42", "test-secret");
+  const req = { headers: { cookie: `prio_csrf=${encodeURIComponent(csrfToken)}` }, auth: { transport: "cookie", session: { _id: "42", expiresAt: new Date(Date.now() + 3600000) } } };
+  const res = buildResponse();
+  assert.equal(restoreBrowserCsrf(req, res, { csrfSecret: "test-secret" }), csrfToken);
+  assert.equal(restoreBrowserCsrf(req, res, { csrfSecret: "test-secret" }), csrfToken);
+  assert.equal(res.headers.length, 0);
+});
+
+test("account bootstrap repairs missing, tampered, and previous-session CSRF cookies", () => {
+  const { restoreBrowserCsrf, signCsrfToken, verifyCsrfToken, parseCookies } = require("../src/services/browserSessionService");
+  for (const oldToken of ["", "tampered", signCsrfToken("previous-session", "test-secret"), signCsrfToken("42", "old-secret")]) {
+    const req = { headers: { cookie: `prio_csrf=${encodeURIComponent(oldToken)}` }, auth: { transport: "cookie", session: { _id: "42", expiresAt: new Date(Date.now() + 3600000) } } };
+    const res = buildResponse();
+    const token = restoreBrowserCsrf(req, res, { csrfSecret: "test-secret" });
+    assert.equal(verifyCsrfToken(token, "test-secret"), true);
+    assert.equal(Buffer.from(token.split(".")[0], "base64url").toString(), "42");
+    assert.equal(res.headers.length, 1);
+    assert.match(res.headers[0][1], /^prio_csrf=.*; Path=\/; SameSite=Lax; Secure; Max-Age=\d+$/);
+    assert.equal(parseCookies(res.headers[0][1]).prio_csrf, token);
+    assert.doesNotMatch(res.headers[0][1], /Domain=/);
+  }
+});
+
+test("CSRF restoration does not issue browser cookies for bearer or unauthenticated requests", () => {
+  const { restoreBrowserCsrf } = require("../src/services/browserSessionService");
+  const res = buildResponse();
+  for (const auth of [undefined, { transport: "bearer", session: { _id: "42" } }]) {
+    assert.equal(restoreBrowserCsrf({ auth }, res, { csrfSecret: "test-secret" }), undefined);
+  }
+  assert.equal(res.headers.length, 0);
+});
