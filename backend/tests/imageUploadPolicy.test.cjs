@@ -19,6 +19,7 @@ function loadUploads(state) {
     b2BucketPublicBoard: "images", b2BucketPaymentProof: "proofs",
     b2KeyId: "test", b2ApplicationKey: "test", b2PublicBaseUrl: "https://cdn.example.test"
   });
+  mock("../config/db", { withTransaction: async (fn) => fn({ query: async () => ({ rows: [{}] }) }) });
   mock("../repositories/users", { updateUser: async () => ({ _id: "1" }) });
   mock("../repositories/publicBoardThemes", { createAsset: async (asset) => ({ _id: "1", ...asset }) });
   mock("@aws-sdk/client-s3", {
