@@ -403,6 +403,8 @@ function SettingsPage({ token, user }: { token: string; user: UserSummary & { mf
             />
             <NumberInput
               label="Maximum image upload size (KB)"
+              hideControls
+              styles={{ input: { minHeight: 44 } }}
               description="Applies to all new image uploads. Default: 200 KB. 1 KB = 1,024 bytes. Existing images and PDF limits are unchanged."
               value={imageLimit}
               onChange={setImageLimit}
@@ -414,7 +416,7 @@ function SettingsPage({ token, user }: { token: string; user: UserSummary & { mf
               error={validImageLimit ? undefined : "Enter a whole number from 1 to 8192 KB."}
             />
             {settingsError && <Text c="red" role="alert">{settingsError}</Text>}
-            <Group justify="flex-end"><Button disabled={!settings || !validImageLimit} loading={savingSettings} onClick={save}>Save settings</Button></Group>
+            <Group justify="flex-end"><Button mih={44} disabled={!settings || !validImageLimit} loading={savingSettings} onClick={save}>Save settings</Button></Group>
           </Stack>
         </Paper>
       </Tabs.Panel>

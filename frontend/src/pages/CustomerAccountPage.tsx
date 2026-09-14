@@ -642,11 +642,6 @@ export default function CustomerAccountPage() {
       showCustomerError("Choose a JPEG, PNG, or WebP image.", "Unsupported profile photo");
       return;
     }
-    if (file && maxImageUploadKb !== null && file.size > maxImageUploadKb * 1024) {
-      setAvatarFile(null);
-      showCustomerError(`Choose an image no larger than ${maxImageUploadKb} KB.`, "Profile photo is too large");
-      return;
-    }
     setAvatarFile(file);
   }
 

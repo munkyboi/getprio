@@ -2162,7 +2162,7 @@ test("customer settings upload and preview a campaign profile photo", () => {
   const app = fs.readFileSync(path.join(frontendRoot, "src", "App.tsx"), "utf8");
 
   assert.match(account, /accept="image\/jpeg,image\/png,image\/webp"/);
-  assert.match(account, /file\.size > 5 \* 1024 \* 1024/);
+  assert.match(account, /Maximum \$\{maxImageUploadKb\} KB/);
   assert.match(account, /customerAccountApi\.uploadAvatar\(token, avatarFile\)/);
   assert.match(account, /src=\{avatarPreviewUrl \|\| accountUser\?\.avatarUrl \|\| undefined\}/);
   assert.match(api, /\/account\/profile\/avatar\?fileName=/);
