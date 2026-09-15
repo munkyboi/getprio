@@ -354,9 +354,11 @@ test("developer API issues a ticket with a queues:write key", async () => {
     assert.equal(input.actorRole, "developer_api");
     assert.equal(input.source, "developer_api");
     assert.deepEqual(input.developerWebhook, { projectId: "project-1", environment: "sandbox" });
+    assert.deepEqual(input.developerMobileLink, { projectId: "project-1", environment: "sandbox" });
     return {
       ticket: { _id: 42, ticketNumber: "A-042", lookupCode: "AB12CD34", externalReference: "visit-42", status: "waiting", dateKey: "20260915", createdAt: "2026-09-15T06:00:00.000Z" },
-      snapshot: { tenant: {}, location: {}, queueDay: {}, queueIntake: {}, stats: {}, current: null, nextUp: [], overflow: [] }
+      snapshot: { tenant: {}, location: {}, queueDay: {}, queueIntake: {}, stats: {}, current: null, nextUp: [], overflow: [] },
+      mobileLink: { url: "https://sandbox.getprio.online/t/secret-token", expiresAt: "2026-09-15T06:15:00.000Z" }
     };
   };
 
@@ -374,6 +376,10 @@ test("developer API issues a ticket with a queues:write key", async () => {
       queue_date_key: "20260915",
       created_at: "2026-09-15T06:00:00.000Z",
       external_reference: "visit-42"
+    });
+    assert.deepEqual(result.body.data.mobile_link, {
+      url: "https://sandbox.getprio.online/t/secret-token",
+      expires_at: "2026-09-15T06:15:00.000Z"
     });
   } finally {
     await new Promise((resolve) => server.close(resolve));

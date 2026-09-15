@@ -118,6 +118,14 @@ function formatIssuedTicket(ticket, location) {
   };
 }
 
+function formatMobileLink(link) {
+  if (!link) return undefined;
+  return {
+    url: link.url,
+    expires_at: new Date(link.expiresAt).toISOString()
+  };
+}
+
 function formatTicketResource(ticket) {
   return {
     id: String(ticket._id),
@@ -440,11 +448,16 @@ router.post(
         actorRole: "developer_api",
         source: "developer_api",
         servicePriorityBand: "normal",
-        developerWebhook: developerWebhookContext(req)
+        developerWebhook: developerWebhookContext(req),
+        developerMobileLink: {
+          projectId: req.apiKey.projectId,
+          environment: req.apiKey.environment
+        }
       });
 
       const responseBody = envelopeBody(req, {
-        ticket: formatIssuedTicket(result.ticket, location)
+        ticket: formatIssuedTicket(result.ticket, location),
+        ...(result.mobileLink ? { mobile_link: formatMobileLink(result.mobileLink) } : {})
       });
       await idempotencyRepository.complete(idempotency.record.id, 201, responseBody);
       res.status(201).setHeader("Cache-Control", "no-store").setHeader("X-API-Version", "v1").json(responseBody);

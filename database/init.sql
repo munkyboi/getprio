@@ -66,6 +66,7 @@ DROP TABLE IF EXISTS developer_webhook_registrations CASCADE;
 DROP TABLE IF EXISTS developer_api_keys CASCADE;
 DROP TABLE IF EXISTS developer_project_memberships CASCADE;
 DROP TABLE IF EXISTS developer_projects CASCADE;
+DROP TABLE IF EXISTS ticket_mobile_links CASCADE;
 DROP TABLE IF EXISTS auth_sessions CASCADE;
 DROP TABLE IF EXISTS rating_disputes CASCADE;
 DROP TABLE IF EXISTS vendor_review_revisions CASCADE;
@@ -1293,6 +1294,29 @@ CREATE TABLE tickets (
 CREATE UNIQUE INDEX tickets_developer_external_reference_idx
   ON tickets (developer_project_id, developer_environment, external_reference)
   WHERE external_reference IS NOT NULL;
+
+CREATE TABLE ticket_mobile_links (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  ticket_id BIGINT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  developer_project_id UUID NOT NULL REFERENCES developer_projects(id) ON DELETE CASCADE,
+  environment TEXT NOT NULL CHECK (environment IN ('sandbox', 'production')),
+  token_hash TEXT NOT NULL UNIQUE,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at TIMESTAMPTZ,
+  revoked_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX ticket_mobile_links_active_ticket_idx
+  ON ticket_mobile_links (ticket_id)
+  WHERE used_at IS NULL AND revoked_at IS NULL;
+
+CREATE INDEX ticket_mobile_links_scope_idx
+  ON ticket_mobile_links (developer_project_id, environment, created_at DESC);
+
+CREATE INDEX ticket_mobile_links_expiry_idx
+  ON ticket_mobile_links (expires_at)
+  WHERE used_at IS NULL AND revoked_at IS NULL;
 
 CREATE TABLE queue_events (
   id BIGSERIAL PRIMARY KEY,
