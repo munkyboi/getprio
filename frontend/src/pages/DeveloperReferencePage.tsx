@@ -10,6 +10,8 @@ const endpoints = [
   { method: "GET", path: "/queues/:tenantSlug/locations/:locationSlug/stream", description: "Stream one location's queue snapshots as Server-Sent Events." },
   { method: "POST", path: "/queues/:tenantSlug/tickets", description: "Issue a ticket at the tenant's primary location with a queues:write API key." },
   { method: "POST", path: "/queues/:tenantSlug/locations/:locationSlug/tickets", description: "Issue a ticket at one location with a queues:write API key." },
+  { method: "POST", path: "/queues/:tenantSlug/call-next", description: "Call the next waiting ticket at the tenant's primary location." },
+  { method: "POST", path: "/queues/:tenantSlug/locations/:locationSlug/call-next", description: "Call the next waiting ticket at one location." },
   { method: "GET", path: "/queues/:tenantSlug/tickets/:ticketId", description: "Read one ticket's status without exposing customer contact details." },
   { method: "GET", path: "/queues/:tenantSlug/locations/:locationSlug/tickets/:ticketId", description: "Read one location ticket's status without exposing customer contact details." }
 ];
