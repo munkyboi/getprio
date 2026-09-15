@@ -30,7 +30,7 @@ export default function DeveloperPortalPage() {
           <p className="developer-portal-lede">
             Plan an integration that issues tickets from your software, keeps queue order in GetPrio, and lets customers track updates in the app.
           </p>
-          <p className="developer-portal-preview-note">Developer API preview · read-only queue snapshots are now live in sandbox and production with environment-matched API keys.</p>
+          <p className="developer-portal-preview-note">Developer API preview · queue ticket issuance, snapshots and live streams are now available in sandbox and production with environment-matched API keys.</p>
           <div className="developer-portal-actions">
             <a className="developer-portal-primary" href="#quickstart">Explore the sandbox plan</a>
             <a className="developer-portal-secondary" href="#endpoints">Read the API overview</a>
@@ -49,8 +49,8 @@ export default function DeveloperPortalPage() {
         <h2 id="quickstart-title">Start with a safe sandbox.</h2>
         <div className="developer-portal-grid">
           <article><strong>01</strong><h3>Create a project</h3><p>Verify your developer account and open the included sandbox project when portal access is enabled.</p></article>
-          <article><strong>02</strong><h3>Read a queue snapshot</h3><p>Keep your sandbox key on your backend and read public-safe queue status over HTTPS.</p></article>
-          <article><strong>03</strong><h3>Connect the customer</h3><p>Return the private mobile-ticket link or use an accepted in-app invitation as the mobile flow becomes available.</p></article>
+          <article><strong>02</strong><h3>Issue a ticket</h3><p>Use a queues:write key from your backend, then keep the returned ticket code private.</p></article>
+          <article><strong>03</strong><h3>Track the queue</h3><p>Read public-safe snapshots or subscribe to the Server-Sent Events stream with a queues:read key.</p></article>
         </div>
       </section>
 
@@ -76,7 +76,7 @@ export default function DeveloperPortalPage() {
             </article>
           ))}
         </div>
-        <p className="developer-portal-note">Queue snapshots, metadata and health checks are live. Keep API keys in your server-side integration; browser-based API execution remains disabled.</p>
+        <p className="developer-portal-note">Ticket issuance, queue snapshots, streams, metadata and health checks are live. Keep API keys in your server-side integration; browser-based API execution remains disabled.</p>
       </section>
 
       <section className="developer-portal-section" id="documentation" aria-labelledby="documentation-title">
