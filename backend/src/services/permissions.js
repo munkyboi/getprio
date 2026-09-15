@@ -25,7 +25,8 @@ const PLATFORM_PERMISSIONS = {
     "platform.credit_reconcile",
     "platform.subscription_lifecycle.manage",
     "platform.security_audit.read",
-    "platform.security_audit.export"
+    "platform.security_audit.export",
+    "platform.developer_api.manage"
   ])
 };
 

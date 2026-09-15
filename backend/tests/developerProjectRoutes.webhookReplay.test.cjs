@@ -9,6 +9,7 @@ const users = require("../src/repositories/users");
 const developerAccounts = require("../src/repositories/developerAccounts");
 const developerProjects = require("../src/repositories/developerProjects");
 const developerWebhooks = require("../src/repositories/developerWebhooks");
+const developerWebhookSuspensions = require("../src/repositories/developerWebhookSuspensions");
 const deliveries = require("../src/repositories/developerWebhookDeliveries");
 const dispatcherModule = require("../src/services/developerWebhookDispatcher");
 const securityEvents = require("../src/services/securityEventService");
@@ -20,6 +21,7 @@ const originals = {
   findUserById: users.findUserById,
   findMembershipByUserId: developerAccounts.findMembershipByUserId,
   findProjectForUser: developerProjects.findProjectForUser,
+  findActiveSuspension: developerWebhookSuspensions.findActive,
   listRegistrations: developerWebhooks.listRegistrations,
   findDelivery: deliveries.findDelivery,
   listDeliveries: deliveries.listDeliveries,
@@ -55,6 +57,7 @@ test.before(async () => {
   users.findUserById = async () => ({ _id: 7, name: "Developer", email: "developer@example.test" });
   developerAccounts.findMembershipByUserId = async () => ({ developerAccountId: "account-1", role: "owner", accountStatus: "active" });
   developerProjects.findProjectForUser = async () => project;
+  developerWebhookSuspensions.findActive = async () => null;
   developerWebhooks.listRegistrations = async () => [registration];
   deliveries.findDelivery = async () => currentDelivery;
   deliveries.listDeliveries = async () => [];
@@ -78,6 +81,7 @@ test.after(async () => {
   users.findUserById = originals.findUserById;
   developerAccounts.findMembershipByUserId = originals.findMembershipByUserId;
   developerProjects.findProjectForUser = originals.findProjectForUser;
+  developerWebhookSuspensions.findActive = originals.findActiveSuspension;
   developerWebhooks.listRegistrations = originals.listRegistrations;
   Object.assign(deliveries, { findDelivery: originals.findDelivery, listDeliveries: originals.listDeliveries, recordManualAttempt: originals.recordManualAttempt });
   dispatcherModule.createDeveloperWebhookDispatcher = originals.createDeveloperWebhookDispatcher;
@@ -104,4 +108,13 @@ test("manual replay rejects disabled and expired deliveries", async () => {
   response = await request(server, token, "POST", `/api/developer/projects/${project.id}/webhooks/${registration.id}/deliveries/${currentDelivery.id}/replay`);
   assert.equal(response.status, 410);
   assert.equal(response.body.code, "WEBHOOK_REPLAY_EXPIRED");
+});
+
+test("manual replay is blocked while production webhook delivery is suspended", async () => {
+  currentDelivery = { id: "delivery-3", registrationId: registration.id, projectId: project.id, environment: "production", status: "failed", registrationStatus: "active", expiresAt: new Date(Date.now() + 60_000).toISOString(), manualAttemptCount: 0 };
+  developerWebhookSuspensions.findActive = async () => ({ id: "suspension-1", projectId: project.id, environment: "production", status: "active" });
+  const response = await request(server, token, "POST", `/api/developer/projects/${project.id}/webhooks/${registration.id}/deliveries/${currentDelivery.id}/replay`);
+  assert.equal(response.status, 423);
+  assert.equal(response.body.code, "WEBHOOK_DELIVERY_SUSPENDED");
+  developerWebhookSuspensions.findActive = async () => null;
 });
