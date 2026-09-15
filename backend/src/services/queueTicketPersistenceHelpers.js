@@ -51,9 +51,6 @@ async function createTicketRecord(client, data, reserveSequence, deps = {}) {
         attempt,
         code: error.code,
         constraint: error.constraint,
-        detail: error.detail,
-        table: error.table,
-        column: error.column,
         message: error.message
       });
       await client.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
@@ -65,7 +62,7 @@ async function createTicketRecord(client, data, reserveSequence, deps = {}) {
           nextTicketData.dateKey
         );
       }
-      if (error.code !== "23505") {
+      if (error.code !== "23505" || error.constraint !== "tickets_tenant_location_date_sequence_key") {
         throw error;
       }
     } finally {

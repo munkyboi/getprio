@@ -1257,6 +1257,9 @@ CREATE TABLE tickets (
   sequence INTEGER NOT NULL,
   date_key TEXT NOT NULL,
   lookup_code TEXT NOT NULL UNIQUE,
+  developer_project_id UUID REFERENCES developer_projects(id) ON DELETE SET NULL,
+  developer_environment TEXT CHECK (developer_environment IN ('sandbox', 'production')),
+  external_reference TEXT,
   customer_name TEXT NOT NULL,
   customer_email TEXT,
   customer_phone TEXT,
@@ -1286,6 +1289,10 @@ CREATE TABLE tickets (
   ),
   UNIQUE (tenant_id, location_id, date_key, sequence)
 );
+
+CREATE UNIQUE INDEX tickets_developer_external_reference_idx
+  ON tickets (developer_project_id, developer_environment, external_reference)
+  WHERE external_reference IS NOT NULL;
 
 CREATE TABLE queue_events (
   id BIGSERIAL PRIMARY KEY,
