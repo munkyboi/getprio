@@ -35,7 +35,7 @@ const queueReadPath = ({ operationId, summary, successDescription, location = fa
   get: {
     operationId,
     summary,
-    security: [{ ApiKeyAuth: [] }],
+    security: [{ BearerAuth: [] }],
     parameters: queueParameters(location),
     responses: apiKeyResponses(successDescription, location ? "Tenant or location not found." : undefined)
   }
@@ -45,7 +45,7 @@ const queueStreamPath = ({ operationId, summary, location = false }) => ({
   get: {
     operationId,
     summary,
-    security: [{ ApiKeyAuth: [] }],
+    security: [{ BearerAuth: [] }],
     parameters: queueParameters(location),
     responses: {
       "200": { description: "Server-Sent Events stream of queue snapshots." },
@@ -60,7 +60,7 @@ const queueWritePath = ({ operationId, summary, location = false }) => ({
   post: {
     operationId,
     summary,
-    security: [{ ApiKeyAuth: [] }],
+    security: [{ BearerAuth: [] }],
     parameters: [...queueParameters(location), idempotencyParameter],
     requestBody: {
       required: true,
@@ -83,7 +83,7 @@ const queueActionPath = ({ operationId, summary, location = false }) => ({
   post: {
     operationId,
     summary,
-    security: [{ ApiKeyAuth: [] }],
+    security: [{ BearerAuth: [] }],
     parameters: [...queueParameters(location), idempotencyParameter],
     responses: {
       "200": envelopeResponse("Queue action result"),
@@ -100,7 +100,7 @@ const queueResolutionPath = ({ operationId, summary, status, location = false })
   post: {
     operationId,
     summary,
-    security: [{ ApiKeyAuth: [] }],
+    security: [{ BearerAuth: [] }],
     parameters: [...queueParameters(location), idempotencyParameter],
     responses: {
       "200": envelopeResponse(`Current ticket ${status} result`),
@@ -116,7 +116,7 @@ const queueTicketActionPath = ({ operationId, summary, action, location = false 
   post: {
     operationId,
     summary,
-    security: [{ ApiKeyAuth: [] }],
+    security: [{ BearerAuth: [] }],
     parameters: [
       ...queueParameters(location),
       pathParameter("ticketId", "The opaque queue ticket identifier."),
@@ -136,7 +136,7 @@ const queueTicketReadPath = ({ operationId, summary, location = false }) => ({
   get: {
     operationId,
     summary,
-    security: [{ ApiKeyAuth: [] }],
+    security: [{ BearerAuth: [] }],
     parameters: [
       ...queueParameters(location),
       pathParameter("ticketId", "The opaque queue ticket identifier.")
@@ -154,7 +154,7 @@ const queueTicketEventsPath = ({ operationId, summary, location = false }) => ({
   get: {
     operationId,
     summary,
-    security: [{ ApiKeyAuth: [] }],
+    security: [{ BearerAuth: [] }],
     parameters: [
       ...queueParameters(location),
       pathParameter("ticketId", "The opaque queue ticket identifier."),
@@ -188,7 +188,7 @@ const openApiDocument = {
   info: {
     title: "GetPrio Queue API",
     version: "v1",
-    description: "Versioned GetPrio queue API. Metadata and health are public; queue snapshots require a sandbox or production API key with the queues:read scope."
+    description: "Versioned GetPrio queue API. Metadata and health are public; queue snapshots require a sandbox or production Bearer API key with the queues:read scope."
   },
   servers: [
     { url: "https://api.getprio.online/v1", description: "Production" },
@@ -317,10 +317,10 @@ const openApiDocument = {
   },
   components: {
     securitySchemes: {
-      ApiKeyAuth: {
-        type: "apiKey",
-        in: "header",
-        name: "X-API-Key",
+      BearerAuth: {
+        type: "http",
+        scheme: "bearer",
+        bearerFormat: "GetPrio API key",
         description: "Use a key issued for the matching API host environment."
       }
     },

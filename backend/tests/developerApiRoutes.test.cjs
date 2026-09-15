@@ -190,6 +190,12 @@ test("developer API publishes its OpenAPI document", async () => {
       "https://api.getprio.online/v1",
       "https://sandbox-api.getprio.online/v1"
     ]);
+    assert.deepEqual(body.components.securitySchemes.BearerAuth, {
+      type: "http",
+      scheme: "bearer",
+      bearerFormat: "GetPrio API key",
+      description: "Use a key issued for the matching API host environment."
+    });
     assert.ok(body.paths["/"].get);
     assert.ok(body.paths["/health"].get);
     assert.ok(body.paths["/queues/{tenantSlug}"].get.security);
