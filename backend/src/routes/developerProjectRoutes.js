@@ -334,6 +334,32 @@ router.delete("/projects/:projectId/webhooks/:webhookId", asyncHandler(async (re
   res.json({ webhook: webhookResponse(disabled) });
 }));
 
+router.post("/projects/:projectId/webhooks/:webhookId/rotate-secret", asyncHandler(async (req, res) => {
+  const project = await developerProjects.findProjectForUser(req.params.projectId, req.user._id);
+  if (!project) throw notFound();
+  const secret = developerWebhookService.createSigningSecret();
+  const rotated = await developerWebhooks.rotateRegistration(
+    project.id,
+    req.params.webhookId,
+    developerWebhookService.encryptSecret(secret)
+  );
+  if (!rotated) throw notFound("Webhook registration not found or is disabled.");
+  await securityEventService.logSecurityEvent({
+    userId: req.user._id,
+    sessionId: req.auth.sessionId,
+    eventType: "developer_webhook_secret_rotated",
+    actorRole: req.developerMembership.role,
+    ipAddress: authService.getRequestIp(req),
+    userAgent: authService.getUserAgent(req),
+    metadata: { projectId: project.id, registrationId: rotated.id }
+  });
+  res.json({
+    webhook: webhookResponse(rotated),
+    secret,
+    warning: "Copy this signing secret now. It will not be shown again. The previous secret remains valid for 24 hours."
+  });
+}));
+
 router.get("/projects/:projectId/webhooks/:webhookId/deliveries", asyncHandler(async (req, res) => {
   const project = await developerProjects.findProjectForUser(req.params.projectId, req.user._id);
   if (!project) throw notFound();

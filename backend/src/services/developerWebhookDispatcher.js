@@ -63,6 +63,10 @@ function createDeveloperWebhookDispatcher(options = {}) {
     }
     const destination = await webhookService.validateDestination(delivery.url, { lookup, returnAddress: true });
     const secret = webhookService.decryptSecret(delivery.signingSecretCiphertext);
+    const previousSecret = delivery.previousSigningSecretCiphertext &&
+      (!delivery.previousSigningSecretExpiresAt || new Date(delivery.previousSigningSecretExpiresAt).getTime() > now())
+      ? webhookService.decryptSecret(delivery.previousSigningSecretCiphertext)
+      : undefined;
     const timestamp = Math.floor(now() / 1000);
     const headers = {
       "content-type": "application/json",
@@ -71,6 +75,8 @@ function createDeveloperWebhookDispatcher(options = {}) {
       "GetPrio-Signature": webhookService.buildSignatureHeader({
         payload: payloadBody,
         secret,
+        previousSecret,
+        previousSecretExpiresAt: delivery.previousSigningSecretExpiresAt,
         timestamp,
         period: 1
       })

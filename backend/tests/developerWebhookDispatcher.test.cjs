@@ -99,6 +99,31 @@ test("webhook dispatcher signs the stored raw body and rejects redirects", async
   }), true);
 });
 
+test("webhook signatures include the previous secret during the rotation overlap", () => {
+  const payload = "{\"type\":\"ticket.called\"}";
+  const header = webhookService.buildSignatureHeader({
+    payload,
+    secret: "whsec_new",
+    previousSecret: "whsec_old",
+    previousSecretExpiresAt: new Date(1_700_000_100_000),
+    timestamp: 1_700_000_000
+  });
+  assert.equal((header.match(/v1=/g) || []).length, 2);
+  assert.equal(webhookService.verifySignature({ payload, header, secret: "whsec_old", now: 1_700_000_000 }), true);
+  assert.equal(webhookService.verifySignature({ payload, header, secret: "whsec_new", now: 1_700_000_000 }), true);
+});
+
+test("expired previous webhook secrets are not included in signatures", () => {
+  const header = webhookService.buildSignatureHeader({
+    payload: "{}",
+    secret: "whsec_new",
+    previousSecret: "whsec_old",
+    previousSecretExpiresAt: new Date(1_699_999_999_000),
+    timestamp: 1_700_000_000
+  });
+  assert.equal((header.match(/v1=/g) || []).length, 1);
+});
+
 test("webhook dispatcher schedules a bounded retry and respects Retry-After", async () => {
   const original = {
     claimBatch: deliveries.claimBatch,

@@ -22,6 +22,7 @@ const original = {
   listRegistrations: developerWebhooks.listRegistrations,
   createRegistration: developerWebhooks.createRegistration,
   disableRegistration: developerWebhooks.disableRegistration,
+  rotateRegistration: developerWebhooks.rotateRegistration,
   validateDestination: webhookService.validateDestination,
   createSigningSecret: webhookService.createSigningSecret,
   encryptSecret: webhookService.encryptSecret,
@@ -108,6 +109,10 @@ test.before(async () => {
     status: "disabled",
     disabledAt: "2026-09-15T01:00:00.000Z"
   });
+  developerWebhooks.rotateRegistration = async (_projectId, _webhookId, _ciphertext) => ({
+    ...(await developerWebhooks.listRegistrations())[0],
+    previousSigningSecretExpiresAt: "2026-09-16T01:00:00.000Z"
+  });
   webhookService.validateDestination = async (url) => String(url);
   webhookService.createSigningSecret = () => "whsec_test_secret";
   webhookService.encryptSecret = (secret) => `ciphertext:${secret}`;
@@ -133,7 +138,8 @@ test.after(async () => {
   Object.assign(developerWebhooks, {
     listRegistrations: original.listRegistrations,
     createRegistration: original.createRegistration,
-    disableRegistration: original.disableRegistration
+    disableRegistration: original.disableRegistration,
+    rotateRegistration: original.rotateRegistration
   });
   Object.assign(webhookService, {
     validateDestination: original.validateDestination,
@@ -173,4 +179,12 @@ test("developer webhook routes reject production registration pending approval",
   });
   assert.equal(response.status, 403);
   assert.equal(response.body.code, "PRODUCTION_APPROVAL_REQUIRED");
+});
+
+test("developer webhook secret rotation returns the replacement secret once", async () => {
+  const response = await request("POST", "/api/developer/projects/project-1/webhooks/webhook-1/rotate-secret", token);
+  assert.equal(response.status, 200);
+  assert.equal(response.body.secret, "whsec_test_secret");
+  assert.equal(response.body.webhook.id, "webhook-1");
+  assert.match(response.body.warning, /previous secret remains valid for 24 hours/);
 });

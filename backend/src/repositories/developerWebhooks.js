@@ -14,6 +14,8 @@ function mapRegistration(row) {
     url: row.url,
     payloadVersion: Number(row.payload_version),
     events: row.event_types || [],
+    previousSigningSecretCiphertext: row.previous_signing_secret_ciphertext,
+    previousSigningSecretExpiresAt: row.previous_signing_secret_expires_at,
     status: row.status,
     disabledAt: row.disabled_at,
     createdByUserId: String(row.created_by_user_id),
@@ -30,6 +32,8 @@ const REGISTRATION_COLUMNS = `
   url,
   payload_version,
   event_types,
+  previous_signing_secret_ciphertext,
+  previous_signing_secret_expires_at,
   status,
   disabled_at,
   created_by_user_id,
@@ -81,9 +85,24 @@ async function disableRegistration(projectId, registrationId, options = {}) {
   return mapRegistration(result.rows[0]);
 }
 
+async function rotateRegistration(projectId, registrationId, signingSecretCiphertext, options = {}) {
+  const result = await queryClient(options.client).query(
+    `UPDATE developer_webhook_registrations
+     SET previous_signing_secret_ciphertext = signing_secret_ciphertext,
+         previous_signing_secret_expires_at = NOW() + INTERVAL '24 hours',
+         signing_secret_ciphertext = $3,
+         updated_at = NOW()
+     WHERE id = $1 AND developer_project_id = $2 AND status = 'active'
+     RETURNING ${REGISTRATION_COLUMNS}`,
+    [registrationId, projectId, signingSecretCiphertext]
+  );
+  return mapRegistration(result.rows[0]);
+}
+
 module.exports = {
   createRegistration,
   disableRegistration,
   listRegistrations,
-  mapRegistration
+  mapRegistration,
+  rotateRegistration
 };
