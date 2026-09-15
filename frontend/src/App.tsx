@@ -340,7 +340,11 @@ export default function App() {
     if (typeof window !== "undefined" && window.location.pathname === "/prototype") {
       return <DeveloperPortalPrototype />;
     }
-    if (typeof window !== "undefined" && window.location.pathname === "/reference") {
+    if (
+      typeof window !== "undefined" &&
+      (window.location.pathname === "/reference" ||
+        ["/docs/reference", "/reference/", "/docs/reference/"].includes(window.location.pathname))
+    ) {
       return <DeveloperReferencePage />;
     }
     return <DeveloperPortalPage />;

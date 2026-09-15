@@ -8,8 +8,8 @@
 .developer-reference h2 { margin-top: 3rem; font: 700 1.5rem/1.2 Inter, system-ui, sans-serif; }
 .developer-reference-note, .developer-reference-content > p { max-width: 42rem; color: #aebbd0; font: 1rem/1.65 Inter, system-ui, sans-serif; }
 .developer-reference-content a { color: #b8c4ff; text-underline-offset: .2em; }
-.developer-reference-endpoints { display: grid; grid-template-columns: 1fr; gap: 1rem; margin-top: 2rem; }
-.developer-reference-endpoints article { border: 1px solid #273852; background: #111c2e; border-radius: .8rem; padding: 1.25rem; }
+.developer-reference-endpoints { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; margin-top: 2rem; }
+.developer-reference-endpoints article { min-width: 0; overflow-wrap: anywhere; border: 1px solid #273852; background: #111c2e; border-radius: .8rem; padding: 1.25rem; }
 .developer-reference-endpoints span { color: #7de2c1; font: 800 .8rem/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .developer-reference-endpoints code { display: block; margin: .6rem 0; color: #fff; font: 700 1.1rem/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .developer-reference-endpoints p { margin: 0; color: #aebbd0; font: .95rem/1.5 Inter, system-ui, sans-serif; }
