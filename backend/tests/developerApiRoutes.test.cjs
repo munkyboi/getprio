@@ -115,6 +115,7 @@ test("developer API publishes a read-only OpenAPI document", async () => {
     assert.ok(body.paths["/"].get);
     assert.ok(body.paths["/health"].get);
     assert.ok(body.paths["/queues/{tenantSlug}"].get.security);
+    assert.ok(body.paths["/queues/{tenantSlug}/locations"].get.security);
     assert.ok(body.paths["/queues/{tenantSlug}/locations/{locationSlug}"].get.security);
   } finally {
     await new Promise((resolve) => server.close(resolve));
@@ -126,6 +127,7 @@ test("developer API returns a public-safe queue snapshot for a scoped API key", 
     findApiKeyByHash: developerProjects.findApiKeyByHash,
     touchApiKey: developerProjects.touchApiKey,
     findTenantBySlug: tenantRepository.findTenantBySlug,
+    listLocationsByTenantId: storeLocationRepository.listLocationsByTenantId,
     findPrimaryLocationByTenantId: storeLocationRepository.findPrimaryLocationByTenantId,
     getQueueSnapshot: queueService.getQueueSnapshot
   };
@@ -140,6 +142,10 @@ test("developer API returns a public-safe queue snapshot for a scoped API key", 
   });
   developerProjects.touchApiKey = async () => {};
   tenantRepository.findTenantBySlug = async () => ({ _id: "tenant-1", slug: "harbor", isActive: true });
+  storeLocationRepository.listLocationsByTenantId = async () => ([
+    { _id: "location-1", name: "Main", slug: "main", city: "Manila", isPrimary: true, isActive: true },
+    { _id: "location-2", name: "Closed", slug: "closed", isPrimary: false, isActive: false }
+  ]);
   storeLocationRepository.findPrimaryLocationByTenantId = async () => ({ _id: "location-1", slug: "main", isActive: true });
   queueService.getQueueSnapshot = async () => ({
     tenant: { id: "tenant-1", slug: "harbor", name: "Harbor Services" },
@@ -164,11 +170,21 @@ test("developer API returns a public-safe queue snapshot for a scoped API key", 
     assert.equal(body.data.current.customerName, undefined);
     assert.equal(body.data.current.lookupCode, undefined);
     assert.equal(body.data.next_up[0].customerDisplayName, undefined);
+
+    const locations = await requestJson(
+      `${baseUrl}/queues/harbor/locations`,
+      "sandbox-api.getprio.online",
+      { "x-api-key": "gpk_sbx_test" }
+    );
+    assert.equal(locations.status, 200);
+    assert.deepEqual(locations.body.data.locations.map((location) => location.slug), ["main"]);
+    assert.equal(locations.body.data.locations[0].contactEmail, undefined);
   } finally {
     await new Promise((resolve) => server.close(resolve));
     Object.assign(developerProjects, { findApiKeyByHash: originals.findApiKeyByHash, touchApiKey: originals.touchApiKey });
     Object.assign(tenantRepository, { findTenantBySlug: originals.findTenantBySlug });
     Object.assign(storeLocationRepository, { findPrimaryLocationByTenantId: originals.findPrimaryLocationByTenantId });
+    Object.assign(storeLocationRepository, { listLocationsByTenantId: originals.listLocationsByTenantId });
     Object.assign(queueService, { getQueueSnapshot: originals.getQueueSnapshot });
   }
 });
