@@ -26,6 +26,7 @@ test("permissions helpers resolve tenant roles, ignore inactive memberships, and
     "platform.credit_grants.manage",
     "platform.credit_reconcile",
     "platform.credit_revocations.manage",
+    "platform.developer_api.manage",
     "platform.entitlement_overrides.manage",
     "platform.plan_policy.manage",
     "platform.plan_policy.read",

@@ -147,6 +147,13 @@ async function claimBatch(workerId, limit = 25, options = {}) {
        FROM developer_webhook_deliveries d
        INNER JOIN developer_webhook_registrations r ON r.id = d.registration_id
        WHERE r.status = 'active'
+         AND NOT EXISTS (
+           SELECT 1
+           FROM developer_project_webhook_suspensions s
+           WHERE s.developer_project_id = r.developer_project_id
+             AND s.environment = r.environment
+             AND s.status = 'active'
+         )
          AND (d.status IN ('pending', 'retry') OR (d.status = 'processing' AND d.leased_until < NOW()))
          AND d.available_at <= NOW()
          AND (d.retry_until IS NULL OR d.retry_until > NOW())

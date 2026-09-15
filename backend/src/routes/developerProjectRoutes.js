@@ -6,6 +6,7 @@ const authService = require("../services/authService");
 const developerProjects = require("../repositories/developerProjects");
 const developerWebhooks = require("../repositories/developerWebhooks");
 const developerWebhookDeliveries = require("../repositories/developerWebhookDeliveries");
+const developerWebhookSuspensions = require("../repositories/developerWebhookSuspensions");
 const developerApiKeyService = require("../services/developerApiKeyService");
 const developerWebhookService = require("../services/developerWebhookService");
 const developerWebhookDispatcher = require("../services/developerWebhookDispatcher");
@@ -104,6 +105,19 @@ function deliveryResponse(delivery) {
     manualResponseStatus: delivery.manualResponseStatus,
     createdAt: delivery.createdAt,
     updatedAt: delivery.updatedAt
+  };
+}
+
+function suspensionResponse(suspension) {
+  if (!suspension) return null;
+  return {
+    id: suspension.id,
+    projectId: suspension.projectId,
+    environment: suspension.environment,
+    status: suspension.status,
+    reason: suspension.reason,
+    suspendedAt: suspension.suspendedAt,
+    reinstatedAt: suspension.reinstatedAt
   };
 }
 
@@ -378,6 +392,14 @@ router.get("/projects/:projectId/webhooks/:webhookId/deliveries", asyncHandler(a
   res.json({ webhook: webhookResponse(registration), deliveries: deliveries.map(deliveryResponse) });
 }));
 
+router.get("/projects/:projectId/webhook-suspension", asyncHandler(async (req, res) => {
+  const project = await developerProjects.findProjectForUser(req.params.projectId, req.user._id);
+  if (!project) throw notFound();
+  const suspension = await developerWebhookSuspensions.findActive(project.id, "production");
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ project: projectResponse(project), suspension: suspensionResponse(suspension) });
+}));
+
 router.post("/projects/:projectId/webhooks/:webhookId/deliveries/:deliveryId/replay", asyncHandler(async (req, res) => {
   const project = await developerProjects.findProjectForUser(req.params.projectId, req.user._id);
   if (!project) throw notFound();
@@ -387,6 +409,15 @@ router.post("/projects/:projectId/webhooks/:webhookId/deliveries/:deliveryId/rep
     const error = new Error("Webhook registration must be enabled before replaying a delivery.");
     error.statusCode = 409;
     error.code = "WEBHOOK_REGISTRATION_DISABLED";
+    throw error;
+  }
+  const suspension = delivery.environment === "production"
+    ? await developerWebhookSuspensions.findActive(project.id, delivery.environment)
+    : null;
+  if (suspension) {
+    const error = new Error("Production webhook delivery is temporarily suspended.");
+    error.statusCode = 423;
+    error.code = "WEBHOOK_DELIVERY_SUSPENDED";
     throw error;
   }
   if (delivery.expiresAt && new Date(delivery.expiresAt).getTime() <= Date.now()) {

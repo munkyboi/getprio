@@ -120,6 +120,17 @@ async function findProjectForUser(projectId, userId, options = {}) {
   return mapProject(result.rows[0]);
 }
 
+async function findProjectById(projectId, options = {}) {
+  const result = await buildQueryClient(options.client).query(
+    `SELECT id AS project_id, developer_account_id, name, status, created_at, updated_at
+     FROM developer_projects
+     WHERE id = $1
+     LIMIT 1`,
+    [projectId]
+  );
+  return mapProject(result.rows[0]);
+}
+
 async function listApiKeys(projectId, options = {}) {
   const result = await buildQueryClient(options.client).query(
     `SELECT id AS key_id, developer_project_id, name, environment, key_prefix,
@@ -233,6 +244,7 @@ module.exports = {
   archiveProject,
   findApiKeyByHash,
   findApiKeyById,
+  findProjectById,
   findProjectForUser,
   listApiKeys,
   listProjectsForUser,

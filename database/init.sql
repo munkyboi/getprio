@@ -59,6 +59,7 @@ DROP TABLE IF EXISTS customer_registration_otps CASCADE;
 DROP TABLE IF EXISTS account_phone_change_challenges CASCADE;
 DROP TABLE IF EXISTS developer_account_memberships CASCADE;
 DROP TABLE IF EXISTS developer_accounts CASCADE;
+DROP TABLE IF EXISTS developer_project_webhook_suspensions CASCADE;
 DROP TABLE IF EXISTS developer_webhook_deliveries CASCADE;
 DROP TABLE IF EXISTS developer_webhook_registrations CASCADE;
 DROP TABLE IF EXISTS developer_api_keys CASCADE;
@@ -404,6 +405,32 @@ CREATE TABLE developer_webhook_deliveries (
 CREATE INDEX developer_webhook_deliveries_dispatch_idx
   ON developer_webhook_deliveries (available_at, id)
   WHERE status IN ('pending', 'retry');
+
+CREATE TABLE developer_project_webhook_suspensions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  developer_project_id UUID NOT NULL REFERENCES developer_projects(id) ON DELETE CASCADE,
+  environment TEXT NOT NULL DEFAULT 'production' CHECK (environment = 'production'),
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'reinstated')),
+  reason TEXT NOT NULL CHECK (char_length(reason) BETWEEN 1 AND 500),
+  suspended_by_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  suspended_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  reinstated_by_user_id BIGINT REFERENCES users(id) ON DELETE RESTRICT,
+  reinstatement_reason TEXT,
+  reinstated_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CHECK (
+    (status = 'active' AND reinstated_at IS NULL AND reinstated_by_user_id IS NULL)
+    OR (status = 'reinstated' AND reinstated_at IS NOT NULL AND reinstated_by_user_id IS NOT NULL)
+  )
+);
+
+CREATE UNIQUE INDEX developer_project_webhook_suspensions_active_idx
+  ON developer_project_webhook_suspensions (developer_project_id, environment)
+  WHERE status = 'active';
+
+CREATE INDEX developer_project_webhook_suspensions_history_idx
+  ON developer_project_webhook_suspensions (developer_project_id, environment, suspended_at DESC);
 
 
 CREATE TABLE auth_mfa_factors (

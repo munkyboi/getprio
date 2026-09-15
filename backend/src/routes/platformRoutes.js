@@ -34,10 +34,65 @@ const allowanceLedgerRepository = require("../repositories/allowanceLedger");
 const releaseControls = require("../config/releaseControls");
 const { assertReleaseControl, requireReleaseControl } = require("../middleware/releaseControl");
 const db = require("../config/db");
+const developerProjects = require("../repositories/developerProjects");
+const developerWebhookSuspensions = require("../repositories/developerWebhookSuspensions");
 
 const router = express.Router();
 
 router.use(authenticate);
+
+function cleanDeveloperSecurityReason(value, label = "Reason") {
+  const reason = String(value || "").trim();
+  if (reason.length < 1 || reason.length > 500) {
+    const error = new Error(`${label} must be between 1 and 500 characters.`);
+    error.statusCode = 400;
+    error.code = "INVALID_REASON";
+    throw error;
+  }
+  return reason;
+}
+
+function developerSuspensionResponse(suspension) {
+  if (!suspension) return null;
+  return {
+    id: suspension.id,
+    projectId: suspension.projectId,
+    environment: suspension.environment,
+    status: suspension.status,
+    reason: suspension.reason,
+    suspendedByUserId: suspension.suspendedByUserId,
+    suspendedAt: suspension.suspendedAt,
+    reinstatedByUserId: suspension.reinstatedByUserId,
+    reinstatementReason: suspension.reinstatementReason,
+    reinstatedAt: suspension.reinstatedAt
+  };
+}
+
+router.get("/developer-projects/:projectId/webhook-suspension", requirePlatformPermission("platform.developer_api.manage"), asyncHandler(async (req, res) => {
+  const project = await developerProjects.findProjectById(req.params.projectId);
+  if (!project) return res.status(404).json({ message: "Developer project not found." });
+  const suspension = await developerWebhookSuspensions.findActive(project.id, "production");
+  return res.json({ project: { id: project.id, name: project.name, status: project.status }, suspension: developerSuspensionResponse(suspension) });
+}));
+
+router.post("/developer-projects/:projectId/webhook-suspension", requirePlatformPermission("platform.developer_api.manage"), requireIdempotency("platform.developer_webhook_suspension.suspend"), asyncHandler(async (req, res) => {
+  const project = await developerProjects.findProjectById(req.params.projectId);
+  if (!project || project.status !== "active") return res.status(404).json({ message: "Active developer project not found." });
+  const reason = cleanDeveloperSecurityReason(req.body?.reason);
+  const suspension = await developerWebhookSuspensions.suspend({ projectId: project.id, userId: req.user._id, reason });
+  await securityAuditService.record({ actorId: req.user._id, actorRole: "platform_admin", sessionId: req.auth.sessionId, action: "developer.webhooks.suspend", resourceType: "developer_project", resourceId: project.id, reason, outcome: "success", afterState: { suspension: developerSuspensionResponse(suspension) } });
+  return res.status(201).json({ project: { id: project.id, name: project.name, status: project.status }, suspension: developerSuspensionResponse(suspension) });
+}));
+
+router.post("/developer-projects/:projectId/webhook-suspension/reinstate", requirePlatformPermission("platform.developer_api.manage"), requireIdempotency("platform.developer_webhook_suspension.reinstate"), asyncHandler(async (req, res) => {
+  const project = await developerProjects.findProjectById(req.params.projectId);
+  if (!project) return res.status(404).json({ message: "Developer project not found." });
+  const reason = cleanDeveloperSecurityReason(req.body?.reason, "Reinstatement reason");
+  const suspension = await developerWebhookSuspensions.reinstate({ projectId: project.id, userId: req.user._id, reason });
+  if (!suspension) return res.status(409).json({ message: "Developer project webhook delivery is not suspended." });
+  await securityAuditService.record({ actorId: req.user._id, actorRole: "platform_admin", sessionId: req.auth.sessionId, action: "developer.webhooks.reinstate", resourceType: "developer_project", resourceId: project.id, reason, outcome: "success", afterState: { suspension: developerSuspensionResponse(suspension) } });
+  return res.json({ project: { id: project.id, name: project.name, status: project.status }, suspension: developerSuspensionResponse(suspension) });
+}));
 
 router.get("/business-categories", requirePlatformPermission("platform.settings.manage"), asyncHandler(async (_req, res) => {
   res.json({ items: await businessCategories.list(true) });
