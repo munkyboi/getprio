@@ -326,6 +326,8 @@ test("developer API issues a ticket with a queues:write key", async () => {
   queueService.createTicket = async (input) => {
     assert.equal(input.joinChannel, "vendor");
     assert.equal(input.actorRole, "developer_api");
+    assert.equal(input.source, "developer_api");
+    assert.deepEqual(input.developerWebhook, { projectId: "project-1", environment: "sandbox" });
     return {
       ticket: { _id: 42, ticketNumber: "A-042", lookupCode: "AB12CD34", status: "waiting", dateKey: "20260915", createdAt: "2026-09-15T06:00:00.000Z" },
       snapshot: { tenant: {}, location: {}, queueDay: {}, queueIntake: {}, stats: {}, current: null, nextUp: [], overflow: [] }

@@ -8,6 +8,7 @@ const queueDayRepository = require("../repositories/queueDays");
 const ticketRepository = require("../repositories/tickets");
 const bookingRepository = require("../repositories/bookings");
 const queueEvents = require("./queueEvents");
+const developerWebhookService = require("./developerWebhookService");
 const queueLifecycle = require("./queueLifecycle");
 const queueDayLifecycleService = require("./queueDayLifecycleService");
 const notificationService = require("./notificationService");
@@ -31,7 +32,7 @@ const {
 } = require("./queueAutomationHelpers");
 
 async function appendQueueEvent(client, ticket, eventType, options = {}) {
-  return queueEventRepository.createQueueEvent(
+  const event = await queueEventRepository.createQueueEvent(
     {
       ticketId: ticket?._id || null,
       tenantId: ticket.tenantId,
@@ -47,6 +48,12 @@ async function appendQueueEvent(client, ticket, eventType, options = {}) {
     },
     { client }
   );
+  await developerWebhookService.enqueueQueueEvent({
+    event,
+    ticket,
+    developerWebhook: options.developerWebhook
+  }, { client });
+  return event;
 }
 
 async function appendScopedQueueEvent(client, data) {
@@ -304,9 +311,11 @@ async function createTicket({
   notes,
   actorUserId,
   actorRole,
+  source,
   servicePriorityBand,
   otpChainId,
-  allowanceReservationKey
+  allowanceReservationKey,
+  developerWebhook
 }) {
   const resolvedLocation = await resolveLocation(tenant, { location });
   await assertQueueIntakeOpen(tenant, resolvedLocation);
@@ -330,7 +339,7 @@ async function createTicket({
     const actor = buildQueueEventActor({
       actorUserId,
       actorRole,
-      source: joinChannel === "vendor" ? "vendor" : "public"
+      source: source || (joinChannel === "vendor" ? "vendor" : "public")
     });
     await appendQueueEvent(client, createdTicket, "ticket_created", {
       toStatus: createdTicket.status,
@@ -339,7 +348,8 @@ async function createTicket({
       source: actor.source,
       metadata: {
         joinChannel: createdTicket.joinChannel
-      }
+      },
+      developerWebhook
     });
 
     return createdTicket;
@@ -552,7 +562,8 @@ async function callNextTicket(tenant, options = {}) {
       source: actor.source,
       metadata: {
         serviceCounterId: options.serviceCounter?._id || null
-      }
+      },
+      developerWebhook: options.developerWebhook
     });
 
     return nextTicket;
@@ -647,7 +658,8 @@ async function updateCurrentTicketStatus(tenant, status, options = {}) {
       actorUserId: actor.actorUserId,
       actorRole: actor.actorRole,
       source: actor.source,
-      metadata: {}
+      metadata: {},
+      developerWebhook: options.developerWebhook
     });
 
     return updatedTicket;
@@ -792,7 +804,8 @@ async function cancelTicket(tenant, lookupCode, options = {}) {
         reason: existingTicket.status === "pending_carry_over"
           ? "carry_over_declined"
           : "customer_cancelled"
-      }
+      },
+      developerWebhook: options.developerWebhook
     });
 
     return cancelledTicket;
@@ -1329,7 +1342,8 @@ async function restoreSkippedTicket(tenant, ticketId, options = {}) {
         reason: servicePriorityBand === "recovery" ? "missed_ticket_recovery" : "missed_ticket_rejoin_expired",
         servicePriorityBand,
         queueDateKey: dateKey
-      }
+      },
+      developerWebhook: options.developerWebhook
     });
 
     return restoredTicket;

@@ -4,6 +4,67 @@ const deliveries = require("../src/repositories/developerWebhookDeliveries");
 const webhookService = require("../src/services/developerWebhookService");
 const dispatcherModule = require("../src/services/developerWebhookDispatcher");
 
+test("queue webhook payloads use the event envelope and omit private ticket data", () => {
+  const payload = webhookService.buildQueueEventPayload({
+    projectId: "project-1",
+    environment: "sandbox",
+    event: {
+      _id: "event-7",
+      eventType: "ticket_cancelled",
+      fromStatus: "waiting",
+      toStatus: "cancelled",
+      source: "developer_api",
+      metadata: { lookupCode: "PRIVATE", reason: "customer_cancelled" },
+      createdAt: "2026-09-15T06:00:00.000Z"
+    },
+    ticket: {
+      _id: 42,
+      ticketNumber: "A-042",
+      lookupCode: "PRIVATE",
+      status: "cancelled",
+      locationId: "location-1",
+      dateKey: "20260915",
+      joinChannel: "vendor",
+      servicePriorityBand: "normal"
+    }
+  });
+
+  assert.deepEqual(payload, {
+    id: "queue_event:event-7",
+    type: "ticket.cancelled",
+    payload_version: 1,
+    project_id: "project-1",
+    environment: "sandbox",
+    occurred_at: "2026-09-15T06:00:00.000Z",
+    resource: { type: "ticket", id: "42", version: "event-7" },
+    data: {
+      ticket: {
+        id: "42",
+        ticket_number: "A-042",
+        status: "cancelled",
+        location_id: "location-1",
+        queue_date_key: "20260915",
+        join_channel: "vendor",
+        service_priority_band: "normal",
+        status_reason: null,
+        called_at: null,
+        served_at: null,
+        skipped_at: null,
+        cancelled_at: null,
+        unserved_at: null,
+        terminal_at: null
+      },
+      transition: {
+        from_status: "waiting",
+        to_status: "cancelled",
+        source: "developer_api",
+        metadata: { reason: "customer_cancelled" }
+      }
+    }
+  });
+  assert.equal(payload.data.ticket.lookup_code, undefined);
+});
+
 const publicLookup = async () => [{ address: "93.184.216.34", family: 4 }];
 
 test("webhook dispatcher signs the stored raw body and rejects redirects", async () => {
@@ -97,6 +158,44 @@ test("webhook event fan-out stores the exact rendered body and a bounded expiry"
       () => webhookService.enqueueEvent({ projectId: "project-1", environment: "sandbox", eventId: "evt_2", eventType: "ticket.unknown" }, { client: {} }),
       { code: "INVALID_WEBHOOK" }
     );
+  } finally {
+    deliveries.enqueueForRegistrations = original;
+  }
+});
+
+test("queue event fan-out uses the business transaction client", async () => {
+  const original = deliveries.enqueueForRegistrations;
+  let call;
+  deliveries.enqueueForRegistrations = async (data, options) => {
+    call = { data, options };
+    return [];
+  };
+  const client = {};
+  try {
+    await webhookService.enqueueQueueEvent({
+      developerWebhook: { projectId: "project-1", environment: "sandbox" },
+      event: {
+        _id: "event-9",
+        eventType: "ticket_called",
+        fromStatus: "waiting",
+        toStatus: "called",
+        source: "developer_api",
+        metadata: { serviceCounterId: "counter-1" },
+        createdAt: "2026-09-15T06:00:00.000Z"
+      },
+      ticket: {
+        _id: 42,
+        ticketNumber: "A-042",
+        status: "called",
+        locationId: "location-1",
+        dateKey: "20260915",
+        joinChannel: "vendor",
+        servicePriorityBand: "normal"
+      }
+    }, { client });
+    assert.equal(call.options.client, client);
+    assert.equal(call.data.eventId, "queue_event:event-9");
+    assert.equal(call.data.eventType, "ticket.called");
   } finally {
     deliveries.enqueueForRegistrations = original;
   }

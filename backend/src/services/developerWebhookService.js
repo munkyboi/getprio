@@ -21,6 +21,25 @@ const WEBHOOK_EVENTS = Object.freeze([
   "ticket.expired"
 ]);
 
+const QUEUE_EVENT_TYPES = Object.freeze({
+  ticket_created: "ticket.issued",
+  ticket_called: "ticket.called",
+  ticket_served: "ticket.served",
+  ticket_skipped: "ticket.skipped",
+  ticket_requeued: "ticket.restored",
+  ticket_cancelled: "ticket.cancelled",
+  ticket_unserved: "ticket.unserved",
+  ticket_expired: "ticket.expired"
+});
+const SAFE_QUEUE_EVENT_METADATA = new Set([
+  "joinChannel",
+  "serviceCounterId",
+  "reason",
+  "reasonCode",
+  "servicePriorityBand",
+  "queueDateKey"
+]);
+
 function invalid(message, code = "INVALID_WEBHOOK") {
   const error = new Error(message);
   error.statusCode = 400;
@@ -152,6 +171,70 @@ function rawPayload(payload) {
   return typeof payload === "string" ? payload : JSON.stringify(payload);
 }
 
+function buildQueueEventPayload({ event, ticket, projectId, environment }) {
+  const type = QUEUE_EVENT_TYPES[event?.eventType];
+  if (!type || !event?._id || !ticket?._id) return null;
+  const metadata = Object.fromEntries(
+    Object.entries(event.metadata || {}).filter(([key]) => SAFE_QUEUE_EVENT_METADATA.has(key))
+  );
+  return {
+    id: `queue_event:${event._id}`,
+    type,
+    payload_version: 1,
+    project_id: String(projectId),
+    environment,
+    occurred_at: event.createdAt,
+    resource: {
+      type: "ticket",
+      id: String(ticket._id),
+      version: String(event._id)
+    },
+    data: {
+      ticket: {
+        id: String(ticket._id),
+        ticket_number: ticket.ticketNumber,
+        status: ticket.status,
+        location_id: String(ticket.locationId),
+        queue_date_key: ticket.dateKey,
+        join_channel: ticket.joinChannel,
+        service_priority_band: ticket.servicePriorityBand,
+        status_reason: ticket.statusReason || null,
+        called_at: ticket.calledAt || null,
+        served_at: ticket.servedAt || null,
+        skipped_at: ticket.skippedAt || null,
+        cancelled_at: ticket.cancelledAt || null,
+        unserved_at: ticket.unservedAt || null,
+        terminal_at: ticket.terminalAt || null
+      },
+      transition: {
+        from_status: event.fromStatus || null,
+        to_status: event.toStatus || null,
+        source: event.source || "system",
+        metadata
+      }
+    }
+  };
+}
+
+async function enqueueQueueEvent({ event, ticket, developerWebhook }, options = {}) {
+  if (!developerWebhook?.projectId || !developerWebhook?.environment) return null;
+  const payload = buildQueueEventPayload({
+    event,
+    ticket,
+    projectId: developerWebhook.projectId,
+    environment: developerWebhook.environment
+  });
+  if (!payload) return null;
+  return enqueueEvent({
+    projectId: developerWebhook.projectId,
+    environment: developerWebhook.environment,
+    eventId: payload.id,
+    eventType: payload.type,
+    payloadVersion: payload.payload_version,
+    payload
+  }, options);
+}
+
 function retryDelayMs(attemptCount, retryAfter, now = Date.now(), random = Math.random) {
   const base = Math.min(60 * 60 * 1000, 30 * 1000 * (2 ** Math.max(0, Number(attemptCount || 1) - 1)));
   let delay = base;
@@ -221,6 +304,8 @@ function verifySignature({ payload, header, secret, toleranceSeconds = 300, now 
 
 module.exports = {
   WEBHOOK_EVENTS,
+  QUEUE_EVENT_TYPES,
+  buildQueueEventPayload,
   buildSignatureHeader,
   createSigningSecret,
   decryptSecret,
@@ -228,6 +313,7 @@ module.exports = {
   normalizeEvents,
   normalizeName,
   normalizePayloadVersion,
+  enqueueQueueEvent,
   enqueueEvent,
   rawPayload,
   retryDelayMs,
