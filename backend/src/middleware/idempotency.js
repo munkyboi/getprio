@@ -4,7 +4,7 @@ const repository = require("../repositories/idempotency");
 function buildOperationIdentity(req, scope) {
   const tenantId = req.authorizedTenant?._id || req.params?.tenantId || req.body?.tenantId || "platform";
   const target = req.params?.purchaseId || req.params?.providerDisputeId || req.params?.lotId ||
-    req.params?.overrideId || req.params?.operationId || req.params?.subscriptionId ||
+    req.params?.overrideId || req.params?.operationId || req.params?.subscriptionId || req.params?.projectId ||
     req.params?.planSlug || req.params?.tenantSlug || req.params?.tenantId || req.body?.planSlug || "global";
   return { operation: scope, tenantId: String(tenantId), target: String(target) };
 }

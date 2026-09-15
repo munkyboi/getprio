@@ -36,6 +36,7 @@ const { assertReleaseControl, requireReleaseControl } = require("../middleware/r
 const db = require("../config/db");
 const developerProjects = require("../repositories/developerProjects");
 const developerWebhookSuspensions = require("../repositories/developerWebhookSuspensions");
+const developerApiRateLimits = require("../repositories/developerApiRateLimits");
 
 const router = express.Router();
 
@@ -92,6 +93,36 @@ router.post("/developer-projects/:projectId/webhook-suspension/reinstate", requi
   if (!suspension) return res.status(409).json({ message: "Developer project webhook delivery is not suspended." });
   await securityAuditService.record({ actorId: req.user._id, actorRole: "platform_admin", sessionId: req.auth.sessionId, action: "developer.webhooks.reinstate", resourceType: "developer_project", resourceId: project.id, reason, outcome: "success", afterState: { suspension: developerSuspensionResponse(suspension) } });
   return res.json({ project: { id: project.id, name: project.name, status: project.status }, suspension: developerSuspensionResponse(suspension) });
+}));
+
+function readDeveloperRateLimit(value, label) {
+  const limit = Number(value);
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100000) {
+    const error = new Error(`${label} must be an integer between 1 and 100000.`);
+    error.statusCode = 400;
+    error.code = "INVALID_RATE_LIMIT";
+    throw error;
+  }
+  return limit;
+}
+
+router.get("/developer-projects/:projectId/rate-limit", requirePlatformPermission("platform.developer_api.manage"), asyncHandler(async (req, res) => {
+  const project = await developerProjects.findProjectById(req.params.projectId);
+  if (!project) return res.status(404).json({ message: "Developer project not found." });
+  const environment = developerApiRateLimits.normalizeEnvironment(req.query.environment);
+  const limits = await developerApiRateLimits.get(project.id, environment);
+  return res.json({ project: { id: project.id, name: project.name, status: project.status }, limits });
+}));
+
+router.put("/developer-projects/:projectId/rate-limit", requirePlatformPermission("platform.developer_api.manage"), requireIdempotency("platform.developer_api.rate_limit.update"), asyncHandler(async (req, res) => {
+  const project = await developerProjects.findProjectById(req.params.projectId);
+  if (!project) return res.status(404).json({ message: "Developer project not found." });
+  const environment = developerApiRateLimits.normalizeEnvironment(req.body?.environment);
+  const readLimitPerMinute = readDeveloperRateLimit(req.body?.readLimitPerMinute ?? req.body?.read_limit_per_minute, "readLimitPerMinute");
+  const writeLimitPerMinute = readDeveloperRateLimit(req.body?.writeLimitPerMinute ?? req.body?.write_limit_per_minute, "writeLimitPerMinute");
+  const limits = await developerApiRateLimits.save({ projectId: project.id, environment, readLimitPerMinute, writeLimitPerMinute, userId: req.user._id });
+  await securityAuditService.record({ actorId: req.user._id, actorRole: "platform_admin", sessionId: req.auth.sessionId, action: "developer.api_rate_limit.update", resourceType: "developer_project", resourceId: project.id, reason: req.body?.reason, outcome: "success", afterState: { limits } });
+  return res.json({ project: { id: project.id, name: project.name, status: project.status }, limits });
 }));
 
 router.get("/business-categories", requirePlatformPermission("platform.settings.manage"), asyncHandler(async (_req, res) => {

@@ -60,6 +60,7 @@ DROP TABLE IF EXISTS account_phone_change_challenges CASCADE;
 DROP TABLE IF EXISTS developer_account_memberships CASCADE;
 DROP TABLE IF EXISTS developer_accounts CASCADE;
 DROP TABLE IF EXISTS developer_project_webhook_suspensions CASCADE;
+DROP TABLE IF EXISTS developer_project_rate_limits CASCADE;
 DROP TABLE IF EXISTS developer_webhook_deliveries CASCADE;
 DROP TABLE IF EXISTS developer_webhook_registrations CASCADE;
 DROP TABLE IF EXISTS developer_api_keys CASCADE;
@@ -310,6 +311,17 @@ CREATE UNIQUE INDEX developer_projects_one_active_per_account_idx
 
 CREATE INDEX developer_projects_account_status_idx
   ON developer_projects (developer_account_id, status, created_at DESC);
+
+CREATE TABLE developer_project_rate_limits (
+  developer_project_id UUID NOT NULL REFERENCES developer_projects(id) ON DELETE CASCADE,
+  environment TEXT NOT NULL CHECK (environment IN ('sandbox', 'production')),
+  read_limit_per_minute INTEGER NOT NULL CHECK (read_limit_per_minute > 0),
+  write_limit_per_minute INTEGER NOT NULL CHECK (write_limit_per_minute > 0),
+  updated_by_user_id BIGINT REFERENCES users(id) ON DELETE RESTRICT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (developer_project_id, environment)
+);
 
 CREATE TABLE developer_project_memberships (
   id BIGSERIAL PRIMARY KEY,

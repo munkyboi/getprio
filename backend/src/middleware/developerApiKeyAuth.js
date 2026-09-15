@@ -1,4 +1,5 @@
 const developerApiKeyRepository = require("../repositories/developerProjects");
+const developerApiRateLimits = require("../repositories/developerApiRateLimits");
 const { hashApiKey } = require("../services/developerApiKeyService");
 
 const ENVIRONMENT_HOSTS = Object.freeze({
@@ -22,7 +23,7 @@ function getApiKey(req) {
   return value || null;
 }
 
-async function authenticateDeveloperApiKey(req, _res, next) {
+async function authenticateDeveloperApiKey(req, res, next) {
   try {
     const value = getApiKey(req);
     if (!value) {
@@ -54,6 +55,21 @@ async function authenticateDeveloperApiKey(req, _res, next) {
       environment: key.environment,
       scopes: key.scopes
     };
+    const kind = ["GET", "HEAD", "OPTIONS"].includes(String(req.method || "").toUpperCase()) ? "read" : "write";
+    try {
+      const rate = await developerApiRateLimits.consume({ projectId: key.projectId, environment, kind });
+      res.setHeader("RateLimit-Limit", String(rate.limit));
+      res.setHeader("RateLimit-Remaining", String(Math.max(0, rate.remaining)));
+      res.setHeader("RateLimit-Reset", String(Math.ceil(Date.now() / 1000) + rate.windowSeconds));
+    } catch (error) {
+      if (error.rateLimit) {
+        res.setHeader("RateLimit-Limit", String(error.rateLimit.limit));
+        res.setHeader("RateLimit-Remaining", "0");
+        res.setHeader("RateLimit-Reset", String(Math.ceil(Date.now() / 1000) + (error.retryAfterSeconds || error.rateLimit.windowSeconds)));
+      }
+      if (error.retryAfterSeconds) res.setHeader("Retry-After", String(error.retryAfterSeconds));
+      throw error;
+    }
     await developerApiKeyRepository.touchApiKey(key.id);
     next();
   } catch (error) {
