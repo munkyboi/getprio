@@ -378,11 +378,16 @@ CREATE TABLE developer_webhook_deliveries (
   payload_version INTEGER NOT NULL CHECK (payload_version > 0),
   payload_body TEXT NOT NULL,
   payload JSONB NOT NULL,
-  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'retry', 'sent', 'failed')),
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'retry', 'sent', 'failed')),
   attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
   available_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   expires_at TIMESTAMPTZ,
+  lease_owner TEXT,
+  leased_until TIMESTAMPTZ,
+  last_attempt_at TIMESTAMPTZ,
+  retry_until TIMESTAMPTZ,
   last_error TEXT,
+  response_status INTEGER,
   sent_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -392,6 +397,7 @@ CREATE TABLE developer_webhook_deliveries (
 CREATE INDEX developer_webhook_deliveries_dispatch_idx
   ON developer_webhook_deliveries (available_at, id)
   WHERE status IN ('pending', 'retry');
+
 
 CREATE TABLE auth_mfa_factors (
   id BIGSERIAL PRIMARY KEY,

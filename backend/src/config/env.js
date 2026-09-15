@@ -1,6 +1,7 @@
 const path = require("path");
 const dotenv = require("dotenv");
 const { resolveMobileQrBaseUrl } = require("./mobileQrBaseUrl");
+const { resolveDeveloperWebhookConfig } = require("./developerWebhookConfig");
 
 const rootEnvPath = path.resolve(__dirname, "../../../.env");
 dotenv.config({ path: rootEnvPath });
@@ -127,12 +128,7 @@ const sessionInactivityMinutes = Number(process.env.SESSION_INACTIVITY_MINUTES |
 const mfaEncryptionSecret = process.env.MFA_ENCRYPTION_SECRET || jwtSecret;
 const mfaRecoveryPepper = process.env.MFA_RECOVERY_PEPPER || jwtSecret;
 const developerApiKeyPepper = process.env.DEVELOPER_API_KEY_PEPPER || jwtSecret;
-const configuredDeveloperWebhookEncryptionKey = process.env.DEVELOPER_WEBHOOK_ENCRYPTION_KEY || "";
-if (nodeEnv === "production" && configuredDeveloperWebhookEncryptionKey.length < 32) {
-  throw new Error("DEVELOPER_WEBHOOK_ENCRYPTION_KEY must be set to a strong dedicated key in production.");
-}
-const developerWebhookEncryptionKey = configuredDeveloperWebhookEncryptionKey ||
-  "getprio-local-developer-webhook-encryption-key";
+const developerWebhookConfig = resolveDeveloperWebhookConfig(process.env, nodeEnv);
 
 const env = {
   nodeEnv,
@@ -211,7 +207,7 @@ const env = {
   mfaEncryptionSecret,
   mfaRecoveryPepper,
   developerApiKeyPepper,
-  developerWebhookEncryptionKey
+  ...developerWebhookConfig
 };
 
 module.exports = env;

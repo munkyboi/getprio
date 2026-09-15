@@ -2,6 +2,7 @@ const crypto = require("node:crypto");
 const dns = require("node:dns").promises;
 const net = require("node:net");
 const env = require("../config/env");
+const deliveryRepository = require("../repositories/developerWebhookDeliveries");
 
 const WEBHOOK_EVENTS = Object.freeze([
   "queue.session.opened",
@@ -91,7 +92,7 @@ function isPrivateAddress(address) {
   return false;
 }
 
-async function validateDestination(value, options = {}) {
+async function resolveDestination(value, options = {}) {
   let url;
   try {
     url = new URL(String(value || "").trim());
@@ -116,7 +117,12 @@ async function validateDestination(value, options = {}) {
   if (!addresses.length || addresses.some(isPrivateAddress)) {
     throw invalid("Webhook URL must resolve only to public addresses.");
   }
-  return url.toString();
+  return { url: url.toString(), address: addresses[0] };
+}
+
+async function validateDestination(value, options = {}) {
+  const resolved = await resolveDestination(value, options);
+  return options.returnAddress ? resolved : resolved.url;
 }
 
 function encryptionKey() {
@@ -146,6 +152,56 @@ function rawPayload(payload) {
   return typeof payload === "string" ? payload : JSON.stringify(payload);
 }
 
+function retryDelayMs(attemptCount, retryAfter, now = Date.now(), random = Math.random) {
+  const base = Math.min(60 * 60 * 1000, 30 * 1000 * (2 ** Math.max(0, Number(attemptCount || 1) - 1)));
+  let delay = base;
+  if (retryAfter !== null && retryAfter !== undefined) {
+    const seconds = Number(String(retryAfter).trim());
+    const retryAt = Number.isFinite(seconds)
+      ? now + Math.max(0, seconds) * 1000
+      : Date.parse(String(retryAfter));
+    if (Number.isFinite(retryAt)) delay = Math.max(delay, retryAt - now);
+  }
+  if (retryAfter === null || retryAfter === undefined) {
+    delay = Math.min(60 * 60 * 1000, delay + Math.floor(base * 0.2 * Math.max(0, Math.min(1, random()))));
+  }
+  return Math.max(0, delay);
+}
+
+async function enqueueEvent({ projectId, environment, eventId, eventType, payloadVersion = 1, payload = {}, renderPayload }, options = {}) {
+  if (!WEBHOOK_EVENTS.includes(eventType)) throw invalid("eventType is not supported.");
+  if (!String(eventId || "").trim()) throw invalid("eventId is required.");
+  if (!["sandbox", "production"].includes(environment)) throw invalid("environment must be sandbox or production.");
+  if (!options.client) {
+    const error = new Error("Webhook event fan-out must share the business transaction client.");
+    error.statusCode = 500;
+    error.code = "WEBHOOK_TRANSACTION_REQUIRED";
+    throw error;
+  }
+  const normalizedPayloadVersion = normalizePayloadVersion(payloadVersion);
+  const body = rawPayload(payload);
+  if (Buffer.byteLength(body, "utf8") > env.developerWebhookMaxBodyBytes) {
+    throw invalid("Webhook payload exceeds the configured body limit.");
+  }
+  const retentionDays = environment === "production"
+    ? env.developerWebhookProductionRetentionDays
+    : env.developerWebhookSandboxRetentionDays;
+  const now = Date.now();
+  return deliveryRepository.enqueueForRegistrations({
+    projectId,
+    environment,
+    eventId,
+    eventType,
+    payloadVersion: normalizedPayloadVersion,
+    payloadBody: body,
+    payload,
+    renderPayload,
+    maxBodyBytes: env.developerWebhookMaxBodyBytes,
+    expiresAt: new Date(now + retentionDays * 24 * 60 * 60 * 1000),
+    retryUntil: new Date(now + 24 * 60 * 60 * 1000)
+  }, options);
+}
+
 function buildSignatureHeader({ payload, secret, timestamp = Math.floor(Date.now() / 1000), period = 1 }) {
   const body = rawPayload(payload);
   const signedPayload = `${timestamp}.${period}.${body}`;
@@ -172,6 +228,10 @@ module.exports = {
   normalizeEvents,
   normalizeName,
   normalizePayloadVersion,
+  enqueueEvent,
+  rawPayload,
+  retryDelayMs,
+  resolveDestination,
   validateDestination,
   verifySignature
 };

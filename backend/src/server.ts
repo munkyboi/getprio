@@ -6,6 +6,7 @@ import env from "./config/env";
 import organizerCampaignService from "./services/organizerCampaignService";
 import queueLifecycleWorkerModule from "./services/queueLifecycleWorker";
 import allowanceWarningService from "./services/allowanceWarningService";
+import developerWebhookDispatcherModule from "./services/developerWebhookDispatcher";
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => {
@@ -64,13 +65,40 @@ async function start(): Promise<void> {
     staffAccessEmailWorker.runOnce().catch(() => console.error("[staff-access-email] dispatch failed"));
   }, 60_000);
   staffAccessEmailTimer.unref();
+  const developerWebhookDispatcher = env.developerWebhookDispatchEnabled
+    ? developerWebhookDispatcherModule.createDeveloperWebhookDispatcher()
+    : null;
+  developerWebhookDispatcher?.start();
+  let workerStopPromise: Promise<void> | undefined;
+  const stopWorkers = (): Promise<void> => {
+    if (workerStopPromise) return workerStopPromise;
+    workerStopPromise = (async () => {
+      clearInterval(staffAccessEmailTimer);
+      clearInterval(deletionTimer);
+      clearInterval(campaignLifecycleTimer);
+      clearInterval(allowanceWarningTimer);
+      queueLifecycleWorker.stop();
+      await developerWebhookDispatcher?.stop();
+    })();
+    return workerStopPromise;
+  };
   server.on("close", () => {
-    clearInterval(staffAccessEmailTimer);
-    clearInterval(deletionTimer);
-    clearInterval(campaignLifecycleTimer);
-    clearInterval(allowanceWarningTimer);
-    queueLifecycleWorker.stop();
+    stopWorkers().catch((error: Error) => {
+      console.error("[worker-shutdown] failed", error);
+    });
   });
+  const shutdown = (signal: string) => {
+    server.close(() => {
+      stopWorkers().catch((error: Error) => {
+        console.error(`[worker-shutdown:${signal}] failed`, error);
+      });
+    });
+    stopWorkers().catch((error: Error) => {
+      console.error(`[worker-shutdown:${signal}] failed`, error);
+    });
+  };
+  process.once("SIGTERM", () => shutdown("SIGTERM"));
+  process.once("SIGINT", () => shutdown("SIGINT"));
 }
 
 start().catch((error: unknown) => {
