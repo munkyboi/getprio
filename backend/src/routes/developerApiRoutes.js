@@ -67,6 +67,23 @@ function formatQueueResource(snapshot) {
   };
 }
 
+function formatLocationResource(location) {
+  return {
+    id: String(location._id),
+    name: location.name,
+    slug: location.slug,
+    addressLine1: location.addressLine1,
+    addressLine2: location.addressLine2,
+    city: location.city,
+    province: location.province,
+    postalCode: location.postalCode,
+    country: location.country,
+    timezone: location.timezone,
+    isPrimary: Boolean(location.isPrimary),
+    isActive: Boolean(location.isActive)
+  };
+}
+
 router.get("/", (req, res) => {
   const environment = getEnvironment(req);
   const baseUrl = environment === "sandbox"
@@ -97,6 +114,28 @@ router.get("/openapi.json", (_req, res) => {
   res.setHeader("Cache-Control", "public, max-age=300");
   res.type("application/json").json(openApiDocument);
 });
+
+router.get(
+  "/queues/:tenantSlug/locations",
+  authenticateDeveloperApiKey,
+  requireApiScope("queues:read"),
+  asyncHandler(async (req, res) => {
+    const tenant = await tenantRepository.findTenantBySlug(
+      String(req.params.tenantSlug).toLowerCase(),
+      { activeOnly: true }
+    );
+    if (!tenant) throw notFound("Queue not found.");
+    const locations = await storeLocationRepository.listLocationsByTenantId(tenant._id);
+    sendEnvelope(req, res, {
+      tenant: {
+        id: String(tenant._id),
+        name: tenant.publicProfileDisplayName || tenant.name,
+        slug: tenant.slug
+      },
+      locations: locations.filter((location) => location.isActive).map(formatLocationResource)
+    });
+  })
+);
 
 router.get(
   ["/queues/:tenantSlug", "/queues/:tenantSlug/locations/:locationSlug"],

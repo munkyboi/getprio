@@ -59,6 +59,30 @@ const openApiDocument = {
         }
       }
     },
+    "/queues/{tenantSlug}/locations": {
+      get: {
+        operationId: "listQueueLocations",
+        summary: "List active queue locations",
+        security: [{ ApiKeyAuth: [] }],
+        parameters: [
+          {
+            name: "tenantSlug",
+            in: "path",
+            required: true,
+            schema: { type: "string" }
+          }
+        ],
+        responses: {
+          "200": {
+            description: "Active queue locations",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/Envelope" } } }
+          },
+          "401": { description: "Missing or invalid API key." },
+          "403": { description: "API key is missing the queues:read scope." },
+          "404": { description: "Tenant not found." }
+        }
+      }
+    },
     "/queues/{tenantSlug}/locations/{locationSlug}": {
       get: {
         operationId: "getLocationQueueSnapshot",
