@@ -20,6 +20,7 @@ function mapDelivery(row) {
     payloadVersion: Number(row.payload_version),
     payloadBody: row.payload_body,
     payload: row.payload,
+    payloadPurgedAt: row.payload_purged_at,
     status: row.status,
     attemptCount: Number(row.attempt_count),
     availableAt: row.available_at,
@@ -54,6 +55,7 @@ const DELIVERY_COLUMNS = `
   d.payload_version,
   d.payload_body,
   d.payload,
+  d.payload_purged_at,
   d.status,
   d.attempt_count,
   d.available_at,
@@ -216,6 +218,25 @@ async function recordManualAttempt(id, result, options = {}) {
   return queryResult.rowCount > 0;
 }
 
+async function purgeExpiredPayloads(options = {}) {
+  const result = await queryClient(options.client).query(
+    `UPDATE developer_webhook_deliveries
+     SET payload_body = '',
+         payload = '{}'::JSONB,
+         payload_purged_at = NOW(),
+         status = CASE WHEN status IN ('pending', 'retry') THEN 'failed' ELSE status END,
+         last_error = COALESCE(last_error, 'Webhook replay retention expired'),
+         updated_at = NOW()
+     WHERE expires_at IS NOT NULL
+       AND expires_at <= NOW()
+       AND payload_purged_at IS NULL
+       AND status <> 'processing'
+     RETURNING id`,
+    []
+  );
+  return result.rowCount;
+}
+
 async function markSent(id, workerId, responseStatus, options = {}) {
   await queryClient(options.client).query(
     `UPDATE developer_webhook_deliveries
@@ -255,5 +276,6 @@ module.exports = {
   markFailed,
   markRetry,
   markSent,
-  recordManualAttempt
+  recordManualAttempt,
+  purgeExpiredPayloads
 };

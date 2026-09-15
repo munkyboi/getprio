@@ -380,6 +380,7 @@ CREATE TABLE developer_webhook_deliveries (
   payload_version INTEGER NOT NULL CHECK (payload_version > 0),
   payload_body TEXT NOT NULL,
   payload JSONB NOT NULL,
+  payload_purged_at TIMESTAMPTZ,
   status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'retry', 'sent', 'failed')),
   attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
   available_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

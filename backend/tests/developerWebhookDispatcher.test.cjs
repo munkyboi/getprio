@@ -161,6 +161,27 @@ test("webhook dispatcher schedules a bounded retry and respects Retry-After", as
   }
 });
 
+test("webhook dispatcher runs retention cleanup after a delivery batch", async () => {
+  const original = {
+    claimBatch: deliveries.claimBatch,
+    markSent: deliveries.markSent,
+    purgeExpiredPayloads: deliveries.purgeExpiredPayloads
+  };
+  let cleaned = 0;
+  deliveries.claimBatch = async () => [];
+  deliveries.markSent = async () => {};
+  deliveries.purgeExpiredPayloads = async () => { cleaned += 1; return 2; };
+  try {
+    const dispatcher = dispatcherModule.createDeveloperWebhookDispatcher({
+      cleanupExpired: () => deliveries.purgeExpiredPayloads()
+    });
+    assert.equal(await dispatcher.runBatch(), 0);
+    assert.equal(cleaned, 1);
+  } finally {
+    Object.assign(deliveries, original);
+  }
+});
+
 test("webhook event fan-out stores the exact rendered body and a bounded expiry", async () => {
   const original = deliveries.enqueueForRegistrations;
   let call;

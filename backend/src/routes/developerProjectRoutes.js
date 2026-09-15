@@ -90,6 +90,7 @@ function deliveryResponse(delivery) {
     eventId: delivery.eventId,
     eventType: delivery.eventType,
     payloadVersion: delivery.payloadVersion,
+    payloadPurgedAt: delivery.payloadPurgedAt,
     status: delivery.status,
     attemptCount: delivery.attemptCount,
     expiresAt: delivery.expiresAt,

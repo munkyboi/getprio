@@ -50,6 +50,7 @@ function createDeveloperWebhookDispatcher(options = {}) {
   const workerId = options.workerId || `developer-webhook-${process.pid}-${crypto.randomUUID()}`;
   const fetchImpl = options.fetch || sendPinnedHttpsRequest;
   const lookup = options.lookup || dns.lookup;
+  const cleanupExpired = options.cleanupExpired;
   const now = options.now || (() => Date.now());
   const random = options.random || Math.random;
   let activeBatch = null;
@@ -124,6 +125,7 @@ function createDeveloperWebhookDispatcher(options = {}) {
           }
         }
       }
+      if (typeof cleanupExpired === "function") await cleanupExpired();
       return claimed.length;
     })();
     try {
