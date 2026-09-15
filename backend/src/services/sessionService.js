@@ -29,18 +29,22 @@ function getRefreshTtlDays(user) {
 }
 
 function buildAccessToken(user, session) {
+  const claims = {
+    sub: String(user._id),
+    session_id: String(session._id),
+    roles: user.roles || []
+  };
+  if (session.surface && session.surface !== "app") {
+    claims.surface = session.surface;
+  }
   return jwt.sign(
-    {
-      sub: String(user._id),
-      session_id: String(session._id),
-      roles: user.roles || []
-    },
+    claims,
     env.jwtSecret,
     { expiresIn: `${env.accessTokenTtlMinutes}m` }
   );
 }
 
-async function createAuthSession({ user, authMethod, ipAddress, userAgent, deviceLabel, mfaVerifiedAt, primaryAuthenticatedAt, client }) {
+async function createAuthSession({ user, authMethod, ipAddress, userAgent, deviceLabel, mfaVerifiedAt, primaryAuthenticatedAt, surface = "app", client }) {
   if (user.deletionRequestedAt) throw Object.assign(new Error("Account deletion is in progress."), { statusCode: 403, code: "ACCOUNT_DELETION_PENDING" });
   const refreshToken = createOpaqueToken();
   const refreshTokenHash = hashOpaqueToken(refreshToken);
@@ -52,6 +56,7 @@ async function createAuthSession({ user, authMethod, ipAddress, userAgent, devic
   const session = await authSessionRepository.createSession(
     {
       userId: user._id,
+      surface,
       refreshTokenHash,
       authMethod,
       ipAddress,

@@ -57,6 +57,8 @@ DROP TABLE IF EXISTS password_reset_tokens CASCADE;
 DROP TABLE IF EXISTS account_email_change_challenges CASCADE;
 DROP TABLE IF EXISTS customer_registration_otps CASCADE;
 DROP TABLE IF EXISTS account_phone_change_challenges CASCADE;
+DROP TABLE IF EXISTS developer_account_memberships CASCADE;
+DROP TABLE IF EXISTS developer_accounts CASCADE;
 DROP TABLE IF EXISTS auth_sessions CASCADE;
 DROP TABLE IF EXISTS rating_disputes CASCADE;
 DROP TABLE IF EXISTS vendor_review_revisions CASCADE;
@@ -228,6 +230,7 @@ CREATE TABLE oauth_accounts (
 CREATE TABLE auth_sessions (
   id BIGSERIAL PRIMARY KEY,
   user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  surface TEXT NOT NULL DEFAULT 'app' CHECK (surface IN ('app', 'developer')),
   refresh_token_hash TEXT NOT NULL UNIQUE,
   previous_refresh_token_hash TEXT,
   status TEXT NOT NULL CHECK (status IN ('active', 'revoked', 'expired')),
@@ -249,10 +252,37 @@ CREATE TABLE auth_sessions (
 );
 
 CREATE INDEX auth_sessions_user_status_idx ON auth_sessions (user_id, status);
+CREATE INDEX auth_sessions_user_surface_status_idx ON auth_sessions (user_id, surface, status);
 CREATE INDEX auth_sessions_expires_at_idx ON auth_sessions (expires_at);
 CREATE INDEX auth_sessions_previous_refresh_hash_idx
   ON auth_sessions (previous_refresh_token_hash)
   WHERE previous_refresh_token_hash IS NOT NULL;
+
+CREATE TABLE developer_accounts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  owner_user_id BIGINT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'suspended')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE developer_account_memberships (
+  id BIGSERIAL PRIMARY KEY,
+  developer_account_id UUID NOT NULL REFERENCES developer_accounts(id) ON DELETE CASCADE,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role TEXT NOT NULL CHECK (role IN ('owner', 'member')),
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'revoked')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (developer_account_id, user_id)
+);
+
+CREATE UNIQUE INDEX developer_account_one_owner_idx
+  ON developer_account_memberships (developer_account_id)
+  WHERE role = 'owner' AND status = 'active';
+
+CREATE INDEX developer_account_memberships_user_idx
+  ON developer_account_memberships (user_id, status);
 
 CREATE TABLE auth_mfa_factors (
   id BIGSERIAL PRIMARY KEY,

@@ -4,6 +4,9 @@ const assert = require("node:assert/strict");
 const {
   ACCESS_COOKIE,
   CSRF_COOKIE,
+  DEVELOPER_ACCESS_COOKIE,
+  DEVELOPER_CSRF_COOKIE,
+  DEVELOPER_REFRESH_COOKIE,
   REFRESH_COOKIE,
   clearBrowserSession,
   getAccessCookie,
@@ -67,6 +70,26 @@ test("insecure local sessions use browser-valid non-Host cookie names", () => {
   assert.equal(getAccessCookie({ prio_access: "local-access-secret" }, false), "local-access-secret");
   assert.equal(getRefreshCookie({ prio_refresh: "local-refresh-secret" }, false), "local-refresh-secret");
   assert.equal(getAccessCookie({ prio_access: "untrusted-production-cookie" }, true), null);
+});
+
+test("developer sessions use separate access, refresh, and CSRF cookies", () => {
+  const response = buildResponse();
+  const result = issueBrowserSession(response, {
+    accessToken: "developer-access",
+    refreshToken: "developer-refresh",
+    session: { _id: "43", expiresAt: "2026-09-01T00:00:00.000Z" }
+  }, {
+    secure: true,
+    csrfSecret: "test-csrf-secret",
+    surface: "developer"
+  });
+
+  const cookies = response.headers.filter(([name]) => name === "Set-Cookie").map(([, value]) => value);
+  assert.equal(cookies.some((value) => value.startsWith(`${DEVELOPER_ACCESS_COOKIE}=developer-access`)), true);
+  assert.equal(cookies.some((value) => value.startsWith(`${DEVELOPER_REFRESH_COOKIE}=developer-refresh`)), true);
+  assert.equal(cookies.some((value) => value.startsWith(`${DEVELOPER_CSRF_COOKIE}=${encodeURIComponent(result.csrfToken)}`)), true);
+  assert.equal(getAccessCookie({ [DEVELOPER_ACCESS_COOKIE]: "developer-access" }, true, "developer"), "developer-access");
+  assert.equal(getAccessCookie({ [ACCESS_COOKIE]: "app-access" }, true, "developer"), null);
 });
 
 test("browser session clearing expires all session cookies", () => {

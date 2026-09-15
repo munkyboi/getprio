@@ -62,6 +62,7 @@ async function loadAuthenticatedUser(req, strict) {
       && session?.status === 'revoked' && session?.revokeReason === 'account_deletion';
     if (
       !session ||
+      (session.surface && session.surface !== "app") ||
       (session.status !== "active" && !deletionRetry) ||
       new Date(session.expiresAt).getTime() <= Date.now() ||
       (session.absoluteExpiresAt && new Date(session.absoluteExpiresAt).getTime() <= Date.now()) ||

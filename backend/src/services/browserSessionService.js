@@ -2,22 +2,28 @@ const crypto = require("node:crypto");
 
 const ACCESS_COOKIE = "__Host-prio_access";
 const REFRESH_COOKIE = "__Host-prio_refresh";
+const DEVELOPER_ACCESS_COOKIE = "__Host-prio_developer_access";
+const DEVELOPER_REFRESH_COOKIE = "__Host-prio_developer_refresh";
 const LOCAL_ACCESS_COOKIE = "prio_access";
 const LOCAL_REFRESH_COOKIE = "prio_refresh";
+const LOCAL_DEVELOPER_ACCESS_COOKIE = "prio_developer_access";
+const LOCAL_DEVELOPER_REFRESH_COOKIE = "prio_developer_refresh";
 const CSRF_COOKIE = "prio_csrf";
+const DEVELOPER_CSRF_COOKIE = "prio_developer_csrf";
 
-function getSessionCookieNames(secure) {
+function getSessionCookieNames(secure, surface = "app") {
+  const developer = surface === "developer";
   return secure
-    ? { access: ACCESS_COOKIE, refresh: REFRESH_COOKIE }
-    : { access: LOCAL_ACCESS_COOKIE, refresh: LOCAL_REFRESH_COOKIE };
+    ? { access: developer ? DEVELOPER_ACCESS_COOKIE : ACCESS_COOKIE, refresh: developer ? DEVELOPER_REFRESH_COOKIE : REFRESH_COOKIE }
+    : { access: developer ? LOCAL_DEVELOPER_ACCESS_COOKIE : LOCAL_ACCESS_COOKIE, refresh: developer ? LOCAL_DEVELOPER_REFRESH_COOKIE : LOCAL_REFRESH_COOKIE };
 }
 
-function getAccessCookie(cookies, secure = true) {
-  return cookies?.[getSessionCookieNames(secure).access] || null;
+function getAccessCookie(cookies, secure = true, surface = "app") {
+  return cookies?.[getSessionCookieNames(secure, surface).access] || null;
 }
 
-function getRefreshCookie(cookies, secure = true) {
-  return cookies?.[getSessionCookieNames(secure).refresh] || null;
+function getRefreshCookie(cookies, secure = true, surface = "app") {
+  return cookies?.[getSessionCookieNames(secure, surface).refresh] || null;
 }
 
 function base64Url(value) {
@@ -73,7 +79,7 @@ function appendCookie(res, value) {
 
 function issueBrowserSession(res, sessionResult, options = {}) {
   const secure = options.secure !== false;
-  const cookieNames = getSessionCookieNames(secure);
+  const cookieNames = getSessionCookieNames(secure, options.surface);
   const csrfSecret = String(options.csrfSecret || "");
   if (!csrfSecret) {
     throw new Error("CSRF signing secret is required.");
@@ -84,6 +90,7 @@ function issueBrowserSession(res, sessionResult, options = {}) {
   const refreshMaxAge = Math.max(0, Math.floor((sessionExpiresAt - Date.now()) / 1000));
   const accessMaxAge = Math.min(refreshMaxAge, Math.max(60, Number(options.accessMaxAgeSeconds || 900)));
   const csrfToken = signCsrfToken(sessionId, csrfSecret);
+  const csrfCookie = options.surface === "developer" ? DEVELOPER_CSRF_COOKIE : CSRF_COOKIE;
 
   appendCookie(res, serializeCookie(cookieNames.access, sessionResult.accessToken, {
     httpOnly: true,
@@ -95,7 +102,7 @@ function issueBrowserSession(res, sessionResult, options = {}) {
     secure,
     maxAge: refreshMaxAge
   }));
-  appendCookie(res, serializeCookie(CSRF_COOKIE, csrfToken, {
+  appendCookie(res, serializeCookie(csrfCookie, csrfToken, {
     secure,
     maxAge: refreshMaxAge
   }));
@@ -108,14 +115,15 @@ function restoreBrowserCsrf(req, res, options = {}) {
   const secret = String(options.csrfSecret || "");
   if (!secret) throw new Error("CSRF signing secret is required.");
   const sessionId = String(req.auth.session._id);
-  const existing = parseCookies(req.headers?.cookie)[CSRF_COOKIE];
+  const csrfCookie = options.surface === "developer" ? DEVELOPER_CSRF_COOKIE : CSRF_COOKIE;
+  const existing = parseCookies(req.headers?.cookie)[csrfCookie];
   // Reuse the current signed token so loading another tab does not invalidate it.
   if (existing && verifyCsrfToken(existing, secret) && existing.split(".")[0] === base64Url(sessionId)) {
     return existing;
   }
   const token = signCsrfToken(sessionId, secret);
   const maxAge = Math.max(0, Math.floor((new Date(req.auth.session.expiresAt).getTime() - Date.now()) / 1000));
-  appendCookie(res, serializeCookie(CSRF_COOKIE, token, {
+  appendCookie(res, serializeCookie(csrfCookie, token, {
     secure: options.secure !== false,
     maxAge
   }));
@@ -124,10 +132,11 @@ function restoreBrowserCsrf(req, res, options = {}) {
 
 function clearBrowserSession(res, options = {}) {
   const secure = options.secure !== false;
-  const cookieNames = getSessionCookieNames(secure);
+  const cookieNames = getSessionCookieNames(secure, options.surface);
+  const csrfCookie = options.surface === "developer" ? DEVELOPER_CSRF_COOKIE : CSRF_COOKIE;
   appendCookie(res, serializeCookie(cookieNames.access, "", { httpOnly: true, secure, maxAge: 0 }));
   appendCookie(res, serializeCookie(cookieNames.refresh, "", { httpOnly: true, secure, maxAge: 0 }));
-  appendCookie(res, serializeCookie(CSRF_COOKIE, "", { secure, maxAge: 0 }));
+  appendCookie(res, serializeCookie(csrfCookie, "", { secure, maxAge: 0 }));
 }
 
 function parseCookies(header) {
@@ -150,8 +159,13 @@ function parseCookies(header) {
 
 module.exports = {
   ACCESS_COOKIE,
+  DEVELOPER_ACCESS_COOKIE,
+  DEVELOPER_REFRESH_COOKIE,
   CSRF_COOKIE,
+  DEVELOPER_CSRF_COOKIE,
   LOCAL_ACCESS_COOKIE,
+  LOCAL_DEVELOPER_ACCESS_COOKIE,
+  LOCAL_DEVELOPER_REFRESH_COOKIE,
   LOCAL_REFRESH_COOKIE,
   REFRESH_COOKIE,
   clearBrowserSession,
