@@ -53,6 +53,13 @@ function envelopeBody(req, data) {
   return { data, request_id: getRequestId(req) };
 }
 
+function developerWebhookContext(req) {
+  return {
+    projectId: req.apiKey.projectId,
+    environment: req.apiKey.environment
+  };
+}
+
 function notFound(message) {
   const error = new Error(message);
   error.statusCode = 404;
@@ -363,7 +370,9 @@ router.post(
         joinChannel: "vendor",
         notes,
         actorRole: "developer_api",
-        servicePriorityBand: "normal"
+        source: "developer_api",
+        servicePriorityBand: "normal",
+        developerWebhook: developerWebhookContext(req)
       });
 
       const responseBody = envelopeBody(req, {
@@ -398,7 +407,8 @@ router.post(
         location,
         actorUserId: req.apiKey.createdByUserId,
         actorRole: "developer_api",
-        source: "developer_api"
+        source: "developer_api",
+        developerWebhook: developerWebhookContext(req)
       });
       return {
         ticket: result?.ticket ? formatTicketResource(result.ticket) : null
@@ -429,7 +439,8 @@ function registerCurrentTicketResolution(paths, status) {
             location,
             actorUserId: req.apiKey.createdByUserId,
             actorRole: "developer_api",
-            source: "developer_api"
+            source: "developer_api",
+            developerWebhook: developerWebhookContext(req)
           });
           return {
             ticket: result?.ticket ? formatTicketResource(result.ticket) : null
@@ -490,7 +501,8 @@ registerTicketMutation(
       location,
       actorUserId: req.apiKey.createdByUserId,
       actorRole: "developer_api",
-      source: "developer_api"
+      source: "developer_api",
+      developerWebhook: developerWebhookContext(req)
     });
   }
 );
@@ -509,7 +521,8 @@ registerTicketMutation(
       location,
       actorUserId: req.apiKey.createdByUserId,
       actorRole: "developer_api",
-      source: "developer_api"
+      source: "developer_api",
+      developerWebhook: developerWebhookContext(req)
     });
   }
 );
