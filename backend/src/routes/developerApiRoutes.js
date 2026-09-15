@@ -4,6 +4,7 @@ const asyncHandler = require("../middleware/asyncHandler");
 const tenantRepository = require("../repositories/tenants");
 const storeLocationRepository = require("../repositories/storeLocations");
 const queueService = require("../services/queueService");
+const queueEvents = require("../services/queueEvents");
 const {
   authenticateDeveloperApiKey,
   requireApiScope
@@ -84,6 +85,27 @@ function formatLocationResource(location) {
   };
 }
 
+async function getQueueContext(req) {
+  const tenant = await tenantRepository.findTenantBySlug(
+    String(req.params.tenantSlug).toLowerCase(),
+    { activeOnly: true }
+  );
+  if (!tenant) throw notFound("Queue not found.");
+
+  let location;
+  if (req.params.locationSlug) {
+    location = await storeLocationRepository.findLocationByTenantAndSlug(
+      tenant._id,
+      String(req.params.locationSlug).toLowerCase()
+    );
+    if (!location || !location.isActive) throw notFound("Queue location not found.");
+  } else {
+    location = await storeLocationRepository.findPrimaryLocationByTenantId(tenant._id);
+  }
+
+  return { tenant, location };
+}
+
 router.get("/", (req, res) => {
   const environment = getEnvironment(req);
   const baseUrl = environment === "sandbox"
@@ -120,11 +142,7 @@ router.get(
   authenticateDeveloperApiKey,
   requireApiScope("queues:read"),
   asyncHandler(async (req, res) => {
-    const tenant = await tenantRepository.findTenantBySlug(
-      String(req.params.tenantSlug).toLowerCase(),
-      { activeOnly: true }
-    );
-    if (!tenant) throw notFound("Queue not found.");
+    const { tenant } = await getQueueContext(req);
     const locations = await storeLocationRepository.listLocationsByTenantId(tenant._id);
     sendEnvelope(req, res, {
       tenant: {
@@ -142,25 +160,57 @@ router.get(
   authenticateDeveloperApiKey,
   requireApiScope("queues:read"),
   asyncHandler(async (req, res) => {
-    const tenant = await tenantRepository.findTenantBySlug(
-      String(req.params.tenantSlug).toLowerCase(),
-      { activeOnly: true }
-    );
-    if (!tenant) throw notFound("Queue not found.");
-
-    let location;
-    if (req.params.locationSlug) {
-      location = await storeLocationRepository.findLocationByTenantAndSlug(
-        tenant._id,
-        String(req.params.locationSlug).toLowerCase()
-      );
-      if (!location || !location.isActive) throw notFound("Queue location not found.");
-    } else {
-      location = await storeLocationRepository.findPrimaryLocationByTenantId(tenant._id);
-    }
-
+    const { tenant, location } = await getQueueContext(req);
     const snapshot = await queueService.getQueueSnapshot(tenant, { location });
     sendEnvelope(req, res, formatQueueResource(snapshot));
+  })
+);
+
+router.get(
+  ["/queues/:tenantSlug/stream", "/queues/:tenantSlug/locations/:locationSlug/stream"],
+  authenticateDeveloperApiKey,
+  requireApiScope("queues:read"),
+  asyncHandler(async (req, res) => {
+    const { tenant, location } = await getQueueContext(req);
+    const initialSnapshot = await queueService.getQueueSnapshot(tenant, { location });
+    let closed = false;
+
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders();
+
+    const writeSnapshot = (snapshot) => {
+      if (!closed) {
+        res.write(`event: snapshot\ndata: ${JSON.stringify(formatQueueResource(snapshot))}\n\n`);
+      }
+    };
+    writeSnapshot(initialSnapshot);
+
+    const unsubscribe = queueEvents.subscribe(
+      tenant.slug,
+      (snapshot) => {
+        if (location && snapshot?.location?.id && String(snapshot.location.id) !== String(location._id)) {
+          return;
+        }
+        try {
+          writeSnapshot(snapshot);
+        } catch (error) {
+          console.error(error);
+        }
+      },
+      { locationId: location?._id }
+    );
+    const heartbeat = setInterval(() => {
+      if (!closed) res.write(`event: heartbeat\ndata: ${Date.now()}\n\n`);
+    }, 25000);
+
+    req.on("close", () => {
+      closed = true;
+      clearInterval(heartbeat);
+      unsubscribe();
+      res.end();
+    });
   })
 );
 
