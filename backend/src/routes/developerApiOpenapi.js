@@ -1,3 +1,53 @@
+const envelopeResponse = (description) => ({
+  description,
+  content: { "application/json": { schema: { $ref: "#/components/schemas/Envelope" } } }
+});
+
+const apiKeyResponses = (successDescription, notFoundDescription = "Tenant not found.") => ({
+  "200": envelopeResponse(successDescription),
+  "401": { description: "Missing or invalid API key." },
+  "403": { description: "API key is missing the queues:read scope." },
+  "404": { description: notFoundDescription }
+});
+
+const pathParameter = (name, description) => ({
+  name,
+  in: "path",
+  required: true,
+  schema: { type: "string" },
+  ...(description ? { description } : {})
+});
+
+const queueParameters = (location = false) => [
+  pathParameter("tenantSlug", "The active GetPrio tenant slug."),
+  ...(location ? [pathParameter("locationSlug")] : [])
+];
+
+const queueReadPath = ({ operationId, summary, successDescription, location = false }) => ({
+  get: {
+    operationId,
+    summary,
+    security: [{ ApiKeyAuth: [] }],
+    parameters: queueParameters(location),
+    responses: apiKeyResponses(successDescription, location ? "Tenant or location not found." : undefined)
+  }
+});
+
+const queueStreamPath = ({ operationId, summary, location = false }) => ({
+  get: {
+    operationId,
+    summary,
+    security: [{ ApiKeyAuth: [] }],
+    parameters: queueParameters(location),
+    responses: {
+      "200": { description: "Server-Sent Events stream of queue snapshots." },
+      "401": { description: "Missing or invalid API key." },
+      "403": { description: "API key is missing the queues:read scope." },
+      "404": { description: location ? "Tenant or location not found." : "Tenant not found." }
+    }
+  }
+});
+
 const openApiDocument = {
   openapi: "3.1.0",
   info: {
@@ -14,105 +64,41 @@ const openApiDocument = {
       get: {
         operationId: "getApiMetadata",
         summary: "Get API metadata",
-        responses: {
-          "200": {
-            description: "API metadata",
-            content: { "application/json": { schema: { $ref: "#/components/schemas/Envelope" } } }
-          }
-        }
+        responses: { "200": envelopeResponse("API metadata") }
       }
     },
     "/health": {
       get: {
         operationId: "getApiHealth",
         summary: "Check API health",
-        responses: {
-          "200": {
-            description: "API health status",
-            content: { "application/json": { schema: { $ref: "#/components/schemas/Envelope" } } }
-          }
-        }
+        responses: { "200": envelopeResponse("API health status") }
       }
     },
-    "/queues/{tenantSlug}": {
-      get: {
-        operationId: "getQueueSnapshot",
-        summary: "Read a public queue snapshot",
-        security: [{ ApiKeyAuth: [] }],
-        parameters: [
-          {
-            name: "tenantSlug",
-            in: "path",
-            required: true,
-            schema: { type: "string" },
-            description: "The active GetPrio tenant slug."
-          }
-        ],
-        responses: {
-          "200": {
-            description: "Queue snapshot",
-            content: { "application/json": { schema: { $ref: "#/components/schemas/Envelope" } } }
-          },
-          "401": { description: "Missing or invalid API key." },
-          "403": { description: "API key is missing the queues:read scope." },
-          "404": { description: "Tenant not found." }
-        }
-      }
-    },
-    "/queues/{tenantSlug}/locations": {
-      get: {
-        operationId: "listQueueLocations",
-        summary: "List active queue locations",
-        security: [{ ApiKeyAuth: [] }],
-        parameters: [
-          {
-            name: "tenantSlug",
-            in: "path",
-            required: true,
-            schema: { type: "string" }
-          }
-        ],
-        responses: {
-          "200": {
-            description: "Active queue locations",
-            content: { "application/json": { schema: { $ref: "#/components/schemas/Envelope" } } }
-          },
-          "401": { description: "Missing or invalid API key." },
-          "403": { description: "API key is missing the queues:read scope." },
-          "404": { description: "Tenant not found." }
-        }
-      }
-    },
-    "/queues/{tenantSlug}/locations/{locationSlug}": {
-      get: {
-        operationId: "getLocationQueueSnapshot",
-        summary: "Read a location queue snapshot",
-        security: [{ ApiKeyAuth: [] }],
-        parameters: [
-          {
-            name: "tenantSlug",
-            in: "path",
-            required: true,
-            schema: { type: "string" }
-          },
-          {
-            name: "locationSlug",
-            in: "path",
-            required: true,
-            schema: { type: "string" }
-          }
-        ],
-        responses: {
-          "200": {
-            description: "Location queue snapshot",
-            content: { "application/json": { schema: { $ref: "#/components/schemas/Envelope" } } }
-          },
-          "401": { description: "Missing or invalid API key." },
-          "403": { description: "API key is missing the queues:read scope." },
-          "404": { description: "Tenant or location not found." }
-        }
-      }
-    }
+    "/queues/{tenantSlug}": queueReadPath({
+      operationId: "getQueueSnapshot",
+      summary: "Read a public queue snapshot",
+      successDescription: "Queue snapshot"
+    }),
+    "/queues/{tenantSlug}/locations": queueReadPath({
+      operationId: "listQueueLocations",
+      summary: "List active queue locations",
+      successDescription: "Active queue locations"
+    }),
+    "/queues/{tenantSlug}/locations/{locationSlug}": queueReadPath({
+      operationId: "getLocationQueueSnapshot",
+      summary: "Read a location queue snapshot",
+      successDescription: "Location queue snapshot",
+      location: true
+    }),
+    "/queues/{tenantSlug}/stream": queueStreamPath({
+      operationId: "streamQueueSnapshots",
+      summary: "Stream queue snapshot updates"
+    }),
+    "/queues/{tenantSlug}/locations/{locationSlug}/stream": queueStreamPath({
+      operationId: "streamLocationQueueSnapshots",
+      summary: "Stream location queue snapshot updates",
+      location: true
+    })
   },
   components: {
     securitySchemes: {

@@ -117,6 +117,7 @@ test("developer API publishes a read-only OpenAPI document", async () => {
     assert.ok(body.paths["/queues/{tenantSlug}"].get.security);
     assert.ok(body.paths["/queues/{tenantSlug}/locations"].get.security);
     assert.ok(body.paths["/queues/{tenantSlug}/locations/{locationSlug}"].get.security);
+    assert.ok(body.paths["/queues/{tenantSlug}/stream"].get.security);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
@@ -194,6 +195,20 @@ test("developer API rejects queue access without a key", async () => {
   try {
     const { status, body } = await requestJson(
       `${baseUrl}/queues/harbor`,
+      "sandbox-api.getprio.online"
+    );
+    assert.equal(status, 401);
+    assert.equal(body.error, "API_KEY_REQUIRED");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("developer API rejects queue streams without a key", async () => {
+  const { server, baseUrl } = await startServer();
+  try {
+    const { status, body } = await requestJson(
+      `${baseUrl}/queues/harbor/stream`,
       "sandbox-api.getprio.online"
     );
     assert.equal(status, 401);

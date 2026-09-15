@@ -5,7 +5,9 @@ const endpoints = [
   { method: "GET", path: "/health", description: "Check API availability and environment." },
   { method: "GET", path: "/queues/:tenantSlug", description: "Read a public-safe queue snapshot with a queues:read API key." },
   { method: "GET", path: "/queues/:tenantSlug/locations", description: "List active locations available for queue reads." },
-  { method: "GET", path: "/queues/:tenantSlug/locations/:locationSlug", description: "Read a public-safe queue snapshot for one location." }
+  { method: "GET", path: "/queues/:tenantSlug/locations/:locationSlug", description: "Read a public-safe queue snapshot for one location." },
+  { method: "GET", path: "/queues/:tenantSlug/stream", description: "Stream redacted queue snapshots as Server-Sent Events." },
+  { method: "GET", path: "/queues/:tenantSlug/locations/:locationSlug/stream", description: "Stream one location's queue snapshots as Server-Sent Events." }
 ];
 
 export default function DeveloperReferencePage() {
