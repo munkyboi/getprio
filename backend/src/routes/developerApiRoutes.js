@@ -5,6 +5,11 @@ const tenantRepository = require("../repositories/tenants");
 const storeLocationRepository = require("../repositories/storeLocations");
 const queueService = require("../services/queueService");
 const queueEvents = require("../services/queueEvents");
+const entitlementAdmissionService = require("../services/entitlementAdmissionService");
+const storeHoursService = require("../services/storeHoursService");
+const { assertPublicTextFieldsAllowed } = require("../services/contentModeration");
+const idempotencyService = require("../services/idempotencyService");
+const idempotencyRepository = require("../repositories/idempotency");
 const {
   authenticateDeveloperApiKey,
   requireApiScope
@@ -40,6 +45,10 @@ function sendEnvelope(req, res, data) {
   res.setHeader("Cache-Control", "no-store");
   res.setHeader("X-API-Version", "v1");
   res.json({ data, request_id: getRequestId(req) });
+}
+
+function envelopeBody(req, data) {
+  return { data, request_id: getRequestId(req) };
 }
 
 function notFound(message) {
@@ -83,6 +92,45 @@ function formatLocationResource(location) {
     isPrimary: Boolean(location.isPrimary),
     isActive: Boolean(location.isActive)
   };
+}
+
+function formatIssuedTicket(ticket, location) {
+  return {
+    id: String(ticket._id),
+    ticket_number: ticket.ticketNumber,
+    lookup_code: ticket.lookupCode,
+    status: ticket.status,
+    location_id: String(location._id),
+    queue_date_key: ticket.dateKey,
+    created_at: ticket.createdAt
+  };
+}
+
+function readBodyValue(body, camelName, snakeName) {
+  return body?.[camelName] ?? body?.[snakeName];
+}
+
+function cleanOptionalText(value, label, maxLength) {
+  if (value === undefined || value === null || value === "") return undefined;
+  const text = String(value).trim();
+  if (!text || text.length > maxLength) {
+    const error = new Error(`${label} must be at most ${maxLength} characters.`);
+    error.statusCode = 400;
+    error.code = "INVALID_REQUEST";
+    throw error;
+  }
+  return text;
+}
+
+function readBoolean(value, label) {
+  if (value === undefined || value === null || value === "") return false;
+  if (typeof value === "boolean") return value;
+  if (value === "true" || value === "1") return true;
+  if (value === "false" || value === "0") return false;
+  const error = new Error(`${label} must be a boolean.`);
+  error.statusCode = 400;
+  error.code = "INVALID_REQUEST";
+  throw error;
 }
 
 async function getQueueContext(req) {
@@ -136,6 +184,86 @@ router.get("/openapi.json", (_req, res) => {
   res.setHeader("Cache-Control", "public, max-age=300");
   res.type("application/json").json(openApiDocument);
 });
+
+router.post(
+  ["/queues/:tenantSlug/tickets", "/queues/:tenantSlug/locations/:locationSlug/tickets"],
+  authenticateDeveloperApiKey,
+  requireApiScope("queues:write"),
+  asyncHandler(async (req, res) => {
+    const { tenant, location } = await getQueueContext(req);
+    if (!location) throw notFound("Queue location not found.");
+
+    const customerName = String(readBodyValue(req.body, "customerName", "customer_name") || "").trim();
+    if (!customerName || customerName.length > 120) {
+      const error = new Error("customerName is required and must be at most 120 characters.");
+      error.statusCode = 400;
+      error.code = "INVALID_REQUEST";
+      throw error;
+    }
+    const customerEmail = cleanOptionalText(
+      readBodyValue(req.body, "customerEmail", "customer_email"),
+      "customerEmail",
+      320
+    );
+    const customerPhone = cleanOptionalText(
+      readBodyValue(req.body, "customerPhone", "customer_phone"),
+      "customerPhone",
+      40
+    );
+    const notes = cleanOptionalText(req.body?.notes, "notes", 1000);
+    const notifyByEmail = readBoolean(
+      readBodyValue(req.body, "notifyByEmail", "notify_by_email"),
+      "notifyByEmail"
+    );
+    const notifyBySms = readBoolean(
+      readBodyValue(req.body, "notifyBySms", "notify_by_sms"),
+      "notifyBySms"
+    );
+    assertPublicTextFieldsAllowed({ "Customer name": customerName, Notes: notes });
+
+    const idempotency = await idempotencyService.claim({
+      actorId: req.apiKey.createdByUserId,
+      scope: `developer_api.ticket.issue:${req.apiKey.id}`,
+      key: req.get("Idempotency-Key"),
+      payload: {
+        tenantSlug: req.params.tenantSlug,
+        locationSlug: req.params.locationSlug || null,
+        body: req.body || {}
+      }
+    });
+    if (idempotency.state === "replay") {
+      res.status(idempotency.statusCode).setHeader("Cache-Control", "no-store").setHeader("X-API-Version", "v1").json(idempotency.body);
+      return;
+    }
+
+    try {
+      await entitlementAdmissionService.admit({ tenantId: tenant._id, featureKey: "queue" });
+      await storeHoursService.assertLocationOpenForCustomerJoin(location);
+      const result = await queueService.createTicket({
+        tenant,
+        location,
+        customerName,
+        customerEmail,
+        customerPhone,
+        notifyByEmail,
+        notifyBySms,
+        joinChannel: "vendor",
+        notes,
+        actorRole: "developer_api",
+        servicePriorityBand: "normal"
+      });
+
+      const responseBody = envelopeBody(req, {
+        ticket: formatIssuedTicket(result.ticket, location)
+      });
+      await idempotencyRepository.complete(idempotency.record.id, 201, responseBody);
+      res.status(201).setHeader("Cache-Control", "no-store").setHeader("X-API-Version", "v1").json(responseBody);
+    } catch (error) {
+      await idempotencyRepository.fail(idempotency.record.id).catch(() => {});
+      throw error;
+    }
+  })
+);
 
 router.get(
   "/queues/:tenantSlug/locations",

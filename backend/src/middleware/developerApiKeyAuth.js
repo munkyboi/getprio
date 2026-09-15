@@ -50,6 +50,7 @@ async function authenticateDeveloperApiKey(req, _res, next) {
     req.apiKey = {
       id: key.id,
       projectId: key.projectId,
+      createdByUserId: key.createdByUserId,
       environment: key.environment,
       scopes: key.scopes
     };

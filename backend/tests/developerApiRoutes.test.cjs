@@ -7,9 +7,14 @@ const developerProjects = require("../src/repositories/developerProjects");
 const tenantRepository = require("../src/repositories/tenants");
 const storeLocationRepository = require("../src/repositories/storeLocations");
 const queueService = require("../src/services/queueService");
+const entitlementAdmissionService = require("../src/services/entitlementAdmissionService");
+const storeHoursService = require("../src/services/storeHoursService");
+const idempotencyService = require("../src/services/idempotencyService");
+const idempotencyRepository = require("../src/repositories/idempotency");
 
 async function startServer() {
   const app = express();
+  app.use(express.json());
   app.use((req, _res, next) => {
     req.context = { correlationId: "test-correlation-123" };
     next();
@@ -25,6 +30,32 @@ async function startServer() {
     server,
     baseUrl: `http://127.0.0.1:${server.address().port}/v1`
   };
+}
+
+function requestJsonMethod(method, url, host, headers = {}, payload) {
+  return new Promise((resolve, reject) => {
+    const body = payload === undefined ? "" : JSON.stringify(payload);
+    const request = http.request(url, {
+      method,
+      headers: {
+        host,
+        ...(payload === undefined ? {} : { "content-type": "application/json", "content-length": Buffer.byteLength(body) }),
+        ...headers
+      }
+    }, (response) => {
+      let responseBody = "";
+      response.setEncoding("utf8");
+      response.on("data", (chunk) => { responseBody += chunk; });
+      response.on("end", () => resolve({
+        status: response.statusCode,
+        headers: { get: (name) => response.headers[String(name).toLowerCase()] },
+        body: JSON.parse(responseBody)
+      }));
+    });
+    request.on("error", reject);
+    if (body) request.write(body);
+    request.end();
+  });
 }
 
 function requestJson(url, host, headers = {}) {
@@ -99,7 +130,7 @@ test("developer API metadata does not claim an environment for an unknown host",
   }
 });
 
-test("developer API publishes a read-only OpenAPI document", async () => {
+test("developer API publishes its OpenAPI document", async () => {
   const { server, baseUrl } = await startServer();
   try {
     const { status, headers, body } = await requestJson(`${baseUrl}/openapi.json`, "api.getprio.online");
@@ -118,6 +149,8 @@ test("developer API publishes a read-only OpenAPI document", async () => {
     assert.ok(body.paths["/queues/{tenantSlug}/locations"].get.security);
     assert.ok(body.paths["/queues/{tenantSlug}/locations/{locationSlug}"].get.security);
     assert.ok(body.paths["/queues/{tenantSlug}/stream"].get.security);
+    assert.ok(body.paths["/queues/{tenantSlug}/tickets"].post.security);
+    assert.ok(body.paths["/queues/{tenantSlug}/tickets"].post.requestBody);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
@@ -215,5 +248,72 @@ test("developer API rejects queue streams without a key", async () => {
     assert.equal(body.error, "API_KEY_REQUIRED");
   } finally {
     await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("developer API issues a ticket with a queues:write key", async () => {
+  const originals = {
+    findApiKeyByHash: developerProjects.findApiKeyByHash,
+    touchApiKey: developerProjects.touchApiKey,
+    findTenantBySlug: tenantRepository.findTenantBySlug,
+    findPrimaryLocationByTenantId: storeLocationRepository.findPrimaryLocationByTenantId,
+    createTicket: queueService.createTicket,
+    admit: entitlementAdmissionService.admit,
+    assertLocationOpenForCustomerJoin: storeHoursService.assertLocationOpenForCustomerJoin,
+    claim: idempotencyService.claim,
+    complete: idempotencyRepository.complete,
+    fail: idempotencyRepository.fail
+  };
+  developerProjects.findApiKeyByHash = async () => ({
+    id: "key-write",
+    projectId: "project-1",
+    environment: "sandbox",
+    scopes: ["queues:write"],
+    createdByUserId: "user-1",
+    status: "active",
+    projectStatus: "active",
+    accountStatus: "active"
+  });
+  developerProjects.touchApiKey = async () => {};
+  tenantRepository.findTenantBySlug = async () => ({ _id: "tenant-1", slug: "harbor", name: "Harbor Services" });
+  storeLocationRepository.findPrimaryLocationByTenantId = async () => ({ _id: "location-1", slug: "main", isActive: true });
+  entitlementAdmissionService.admit = async () => {};
+  storeHoursService.assertLocationOpenForCustomerJoin = async () => {};
+  idempotencyService.claim = async () => ({ state: "claimed", record: { id: 1 } });
+  idempotencyRepository.complete = async () => {};
+  idempotencyRepository.fail = async () => {};
+  queueService.createTicket = async (input) => {
+    assert.equal(input.joinChannel, "vendor");
+    assert.equal(input.actorRole, "developer_api");
+    return {
+      ticket: { _id: 42, ticketNumber: "A-042", lookupCode: "AB12CD34", status: "waiting", dateKey: "20260915", createdAt: "2026-09-15T06:00:00.000Z" },
+      snapshot: { tenant: {}, location: {}, queueDay: {}, queueIntake: {}, stats: {}, current: null, nextUp: [], overflow: [] }
+    };
+  };
+
+  const { server, baseUrl } = await startServer();
+  try {
+    const result = await requestJsonMethod("POST", `${baseUrl}/queues/harbor/tickets`, "sandbox-api.getprio.online", { "x-api-key": "gpk_sbx_write", "Idempotency-Key": "ticket-issue-ada-1" }, { customerName: "Ada Lovelace" });
+    assert.equal(result.status, 201);
+    assert.equal(result.body.request_id, "test-correlation-123");
+    assert.deepEqual(result.body.data.ticket, {
+      id: "42",
+      ticket_number: "A-042",
+      lookup_code: "AB12CD34",
+      status: "waiting",
+      location_id: "location-1",
+      queue_date_key: "20260915",
+      created_at: "2026-09-15T06:00:00.000Z"
+    });
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    Object.assign(developerProjects, { findApiKeyByHash: originals.findApiKeyByHash, touchApiKey: originals.touchApiKey });
+    Object.assign(tenantRepository, { findTenantBySlug: originals.findTenantBySlug });
+    Object.assign(storeLocationRepository, { findPrimaryLocationByTenantId: originals.findPrimaryLocationByTenantId });
+    Object.assign(queueService, { createTicket: originals.createTicket });
+    Object.assign(entitlementAdmissionService, { admit: originals.admit });
+    Object.assign(storeHoursService, { assertLocationOpenForCustomerJoin: originals.assertLocationOpenForCustomerJoin });
+    Object.assign(idempotencyService, { claim: originals.claim });
+    Object.assign(idempotencyRepository, { complete: originals.complete, fail: originals.fail });
   }
 });
