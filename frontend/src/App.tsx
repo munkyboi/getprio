@@ -32,6 +32,7 @@ import TermsPage from "./pages/TermsPage";
 import NotFoundPage from "./pages/NotFoundPage";
 import DeveloperPortalPage from "./pages/DeveloperPortalPage";
 import DeveloperReferencePage from "./pages/DeveloperReferencePage";
+import DeveloperPortalPrototype from "./pages/prototypes/DeveloperPortalPrototype";
 import SiteFooter from "./components/SiteFooter";
 import CustomerAccountLayout from "./components/CustomerAccountLayout";
 import {
@@ -332,9 +333,13 @@ function ScrollToTop() {
 }
 
 export default function App() {
-  const developerHost = typeof window !== "undefined" && ["developers.getprio.online"].includes(window.location.hostname);
+  const isDeveloperHostname = typeof window !== "undefined" && ["developers.getprio.online"].includes(window.location.hostname);
+  const isLocalPrototypePreview = import.meta.env.DEV && typeof window !== "undefined" && window.location.pathname === "/prototype";
 
-  if (developerHost) {
+  if (isDeveloperHostname || isLocalPrototypePreview) {
+    if (typeof window !== "undefined" && window.location.pathname === "/prototype") {
+      return <DeveloperPortalPrototype />;
+    }
     if (typeof window !== "undefined" && window.location.pathname === "/reference") {
       return <DeveloperReferencePage />;
     }

@@ -18,6 +18,7 @@ export default function DeveloperPortalPage() {
           <a href="#documentation">Docs</a>
           <a href="#endpoints">Endpoints</a>
           <a href="#pricing">Pricing</a>
+          <a href="/prototype">Workspace preview</a>
           <a className="developer-portal-login" href="#login">Developer login</a>
         </nav>
       </header>
@@ -99,7 +100,7 @@ export default function DeveloperPortalPage() {
         <p>The public API surface is available first. Portal authentication, project tools and production approval will be enabled behind the separate developer session.</p>
       </section>
 
-      <footer className="developer-portal-footer">GetPrio Developers · Fictional preview data until portal services are enabled.</footer>
+      <footer className="developer-portal-footer">GetPrio Developers · Fictional preview data until portal services are enabled. <a href="/prototype">Open the interactive workspace preview</a>.</footer>
     </main>
   );
 }
