@@ -112,7 +112,8 @@ function formatIssuedTicket(ticket, location) {
     status: ticket.status,
     location_id: String(location._id),
     queue_date_key: ticket.dateKey,
-    created_at: ticket.createdAt
+    created_at: ticket.createdAt,
+    ...(ticket.externalReference ? { external_reference: ticket.externalReference } : {})
   };
 }
 
@@ -133,7 +134,8 @@ function formatTicketResource(ticket) {
     unserved_at: ticket.unservedAt,
     terminal_at: ticket.terminalAt,
     created_at: ticket.createdAt,
-    updated_at: ticket.updatedAt
+    updated_at: ticket.updatedAt,
+    ...(ticket.externalReference ? { external_reference: ticket.externalReference } : {})
   };
 }
 
@@ -188,6 +190,45 @@ function cleanOptionalText(value, label, maxLength) {
     throw error;
   }
   return text;
+}
+
+function cleanDisplayLabel(value) {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string") {
+    const error = new Error("displayLabel must be text.");
+    error.statusCode = 400;
+    error.code = "INVALID_REQUEST";
+    throw error;
+  }
+  const label = value.trim();
+  if (!label || [...label].length > 80) {
+    const error = new Error("displayLabel must be at most 80 characters.");
+    error.statusCode = 400;
+    error.code = "INVALID_REQUEST";
+    throw error;
+  }
+  const hasControlCharacter = label && [...label].some((character) => {
+    const codePoint = character.codePointAt(0);
+    return codePoint <= 0x1f || codePoint === 0x7f;
+  });
+  if (hasControlCharacter) {
+    const error = new Error("displayLabel must be plain single-line text.");
+    error.statusCode = 400;
+    error.code = "INVALID_REQUEST";
+    throw error;
+  }
+  return label;
+}
+
+function cleanExternalReference(value) {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string" || !/^[A-Za-z0-9_.:-]{1,128}$/.test(value)) {
+    const error = new Error("externalReference must be 1-128 characters using letters, digits, underscore, hyphen, dot, or colon.");
+    error.statusCode = 400;
+    error.code = "INVALID_REQUEST";
+    throw error;
+  }
+  return value;
 }
 
 function readBoolean(value, label) {
@@ -315,13 +356,26 @@ router.post(
     const { tenant, location } = await getQueueContext(req);
     if (!location) throw notFound("Queue location not found.");
 
-    const customerName = String(readBodyValue(req.body, "customerName", "customer_name") || "").trim();
-    if (!customerName || customerName.length > 120) {
+    const rawDisplayLabel = readBodyValue(req.body, "displayLabel", "display_label");
+    const rawCustomerName = readBodyValue(req.body, "customerName", "customer_name");
+    const customerName = rawDisplayLabel !== undefined
+      ? cleanDisplayLabel(rawDisplayLabel)
+      : String(rawCustomerName || "").trim();
+    if (rawDisplayLabel === undefined && rawCustomerName !== undefined && (!customerName || customerName.length > 120)) {
       const error = new Error("customerName is required and must be at most 120 characters.");
       error.statusCode = 400;
       error.code = "INVALID_REQUEST";
       throw error;
     }
+    if (rawDisplayLabel !== undefined && !customerName) {
+      const error = new Error("displayLabel must contain text when supplied.");
+      error.statusCode = 400;
+      error.code = "INVALID_REQUEST";
+      throw error;
+    }
+    const externalReference = cleanExternalReference(
+      readBodyValue(req.body, "externalReference", "external_reference")
+    );
     const customerEmail = cleanOptionalText(
       readBodyValue(req.body, "customerEmail", "customer_email"),
       "customerEmail",
@@ -368,6 +422,9 @@ router.post(
         customerName,
         customerEmail,
         customerPhone,
+        developerProjectId: req.apiKey.projectId,
+        developerEnvironment: req.apiKey.environment,
+        externalReference,
         notifyByEmail,
         notifyBySms,
         joinChannel: "vendor",
@@ -385,6 +442,11 @@ router.post(
       res.status(201).setHeader("Cache-Control", "no-store").setHeader("X-API-Version", "v1").json(responseBody);
     } catch (error) {
       await idempotencyRepository.fail(idempotency.record.id).catch(() => {});
+      if (error.code === "23505" && error.constraint === "tickets_developer_external_reference_idx") {
+        error.statusCode = 409;
+        error.code = "EXTERNAL_REFERENCE_EXISTS";
+        error.message = "externalReference is already in use for this project and environment.";
+      }
       throw error;
     }
   })

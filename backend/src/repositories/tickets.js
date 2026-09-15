@@ -12,6 +12,9 @@ const TICKET_COLUMNS = `
   date_key,
   queue_date_key,
   lookup_code,
+  developer_project_id,
+  developer_environment,
+  external_reference,
   customer_name,
   customer_email,
   customer_phone,
@@ -63,6 +66,9 @@ function mapTicket(row) {
     dateKey: row.date_key,
     queueDateKey: row.queue_date_key,
     lookupCode: row.lookup_code,
+    developerProjectId: row.developer_project_id ? String(row.developer_project_id) : null,
+    developerEnvironment: row.developer_environment || null,
+    externalReference: row.external_reference || null,
     customerName: row.customer_name,
     customerDisplayName: row.customer_display_name || "",
     customerEmail: row.customer_email,
@@ -145,6 +151,9 @@ async function createTicket(data, options = {}) {
         date_key,
         queue_date_key,
         lookup_code,
+        developer_project_id,
+        developer_environment,
+        external_reference,
         customer_name,
         customer_email,
         customer_phone,
@@ -160,7 +169,7 @@ async function createTicket(data, options = {}) {
         original_queue_day_id,
         current_queue_day_id
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
       RETURNING ${TICKET_COLUMNS}
     `,
     [
@@ -172,6 +181,9 @@ async function createTicket(data, options = {}) {
       data.dateKey,
       data.dateKey,
       data.lookupCode,
+      data.developerProjectId || null,
+      data.developerEnvironment || null,
+      data.externalReference || null,
       data.customerName,
       data.customerEmail || null,
       data.customerPhone || null,

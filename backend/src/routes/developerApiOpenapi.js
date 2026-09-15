@@ -74,7 +74,7 @@ const queueWritePath = ({ operationId, summary, location = false }) => ({
       "401": { description: "Missing or invalid API key." },
       "403": { description: "API key is missing the queues:write scope." },
       "404": { description: location ? "Tenant or location not found." : "Tenant not found." },
-      "409": { description: "The idempotency key is already in use or queue intake is unavailable." }
+      "409": { description: "The idempotency key is already in use, the external reference is already retained, or queue intake is unavailable." }
     }
   }
 });
@@ -335,9 +335,10 @@ const openApiDocument = {
       },
       IssueTicketRequest: {
         type: "object",
-        required: ["customerName"],
         properties: {
-          customerName: { type: "string", minLength: 1, maxLength: 120 },
+          displayLabel: { type: "string", minLength: 1, maxLength: 80, description: "Optional customer-facing label. The generated ticket number is used when omitted." },
+          externalReference: { type: "string", pattern: "^[A-Za-z0-9_.:-]{1,128}$", description: "Optional opaque visit or work-order reference, unique within the project and environment while retained." },
+          customerName: { type: "string", minLength: 1, maxLength: 120, deprecated: true, description: "Legacy alias for displayLabel." },
           customerEmail: { type: "string", maxLength: 320 },
           customerPhone: { type: "string", maxLength: 40 },
           notifyByEmail: { type: "boolean", default: false },

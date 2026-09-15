@@ -338,19 +338,23 @@ test("developer API issues a ticket with a queues:write key", async () => {
   idempotencyRepository.complete = async () => {};
   idempotencyRepository.fail = async () => {};
   queueService.createTicket = async (input) => {
+    assert.equal(input.customerName, "Ada Lovelace");
+    assert.equal(input.externalReference, "visit-42");
+    assert.equal(input.developerProjectId, "project-1");
+    assert.equal(input.developerEnvironment, "sandbox");
     assert.equal(input.joinChannel, "vendor");
     assert.equal(input.actorRole, "developer_api");
     assert.equal(input.source, "developer_api");
     assert.deepEqual(input.developerWebhook, { projectId: "project-1", environment: "sandbox" });
     return {
-      ticket: { _id: 42, ticketNumber: "A-042", lookupCode: "AB12CD34", status: "waiting", dateKey: "20260915", createdAt: "2026-09-15T06:00:00.000Z" },
+      ticket: { _id: 42, ticketNumber: "A-042", lookupCode: "AB12CD34", externalReference: "visit-42", status: "waiting", dateKey: "20260915", createdAt: "2026-09-15T06:00:00.000Z" },
       snapshot: { tenant: {}, location: {}, queueDay: {}, queueIntake: {}, stats: {}, current: null, nextUp: [], overflow: [] }
     };
   };
 
   const { server, baseUrl } = await startServer();
   try {
-    const result = await requestJsonMethod("POST", `${baseUrl}/queues/harbor/tickets`, "sandbox-api.getprio.online", { "x-api-key": "gpk_sbx_write", "Idempotency-Key": "ticket-issue-ada-1" }, { customerName: "Ada Lovelace" });
+    const result = await requestJsonMethod("POST", `${baseUrl}/queues/harbor/tickets`, "sandbox-api.getprio.online", { "x-api-key": "gpk_sbx_write", "Idempotency-Key": "ticket-issue-ada-1" }, { displayLabel: "Ada Lovelace", externalReference: "visit-42" });
     assert.equal(result.status, 201);
     assert.equal(result.body.request_id, "test-correlation-123");
     assert.deepEqual(result.body.data.ticket, {
@@ -360,7 +364,8 @@ test("developer API issues a ticket with a queues:write key", async () => {
       status: "waiting",
       location_id: "location-1",
       queue_date_key: "20260915",
-      created_at: "2026-09-15T06:00:00.000Z"
+      created_at: "2026-09-15T06:00:00.000Z",
+      external_reference: "visit-42"
     });
   } finally {
     await new Promise((resolve) => server.close(resolve));
@@ -372,6 +377,97 @@ test("developer API issues a ticket with a queues:write key", async () => {
     Object.assign(storeHoursService, { assertLocationOpenForCustomerJoin: originals.assertLocationOpenForCustomerJoin });
     Object.assign(idempotencyService, { claim: originals.claim });
     Object.assign(idempotencyRepository, { complete: originals.complete, fail: originals.fail });
+  }
+});
+
+test("developer API validates optional ticket fields before admission", async () => {
+  const originals = {
+    findApiKeyByHash: developerProjects.findApiKeyByHash,
+    touchApiKey: developerProjects.touchApiKey,
+    findTenantBySlug: tenantRepository.findTenantBySlug,
+    findPrimaryLocationByTenantId: storeLocationRepository.findPrimaryLocationByTenantId,
+    createTicket: queueService.createTicket
+  };
+  developerProjects.findApiKeyByHash = async () => buildDeveloperApiKey({ id: "key-write", scopes: ["queues:write"] });
+  developerProjects.touchApiKey = async () => {};
+  tenantRepository.findTenantBySlug = async () => ({ _id: "tenant-1", slug: "harbor" });
+  storeLocationRepository.findPrimaryLocationByTenantId = async () => ({ _id: "location-1", slug: "main", isActive: true });
+  queueService.createTicket = async () => { throw new Error("must not admit invalid ticket data"); };
+
+  const { server, baseUrl } = await startServer();
+  try {
+    for (const payload of [
+      { displayLabel: "valid\ninvalid" },
+      { externalReference: "contains spaces" },
+      { externalReference: "x".repeat(129) }
+    ]) {
+      const result = await requestJsonMethod(
+        "POST",
+        `${baseUrl}/queues/harbor/tickets`,
+        "sandbox-api.getprio.online",
+        { "x-api-key": "gpk_sbx_write", "Idempotency-Key": "ticket-invalid-1" },
+        payload
+      );
+      assert.equal(result.status, 400);
+      assert.equal(result.body.error, "INVALID_REQUEST");
+    }
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    Object.assign(developerProjects, { findApiKeyByHash: originals.findApiKeyByHash, touchApiKey: originals.touchApiKey });
+    Object.assign(tenantRepository, { findTenantBySlug: originals.findTenantBySlug });
+    Object.assign(storeLocationRepository, { findPrimaryLocationByTenantId: originals.findPrimaryLocationByTenantId });
+    Object.assign(queueService, { createTicket: originals.createTicket });
+  }
+});
+
+test("developer API maps retained external-reference conflicts to 409", async () => {
+  const originals = {
+    findApiKeyByHash: developerProjects.findApiKeyByHash,
+    touchApiKey: developerProjects.touchApiKey,
+    findTenantBySlug: tenantRepository.findTenantBySlug,
+    findPrimaryLocationByTenantId: storeLocationRepository.findPrimaryLocationByTenantId,
+    createTicket: queueService.createTicket,
+    admit: entitlementAdmissionService.admit,
+    assertLocationOpenForCustomerJoin: storeHoursService.assertLocationOpenForCustomerJoin,
+    claim: idempotencyService.claim,
+    fail: idempotencyRepository.fail
+  };
+  developerProjects.findApiKeyByHash = async () => buildDeveloperApiKey({ id: "key-write", scopes: ["queues:write"] });
+  developerProjects.touchApiKey = async () => {};
+  tenantRepository.findTenantBySlug = async () => ({ _id: "tenant-1", slug: "harbor" });
+  storeLocationRepository.findPrimaryLocationByTenantId = async () => ({ _id: "location-1", slug: "main", isActive: true });
+  entitlementAdmissionService.admit = async () => {};
+  storeHoursService.assertLocationOpenForCustomerJoin = async () => {};
+  idempotencyService.claim = async () => ({ state: "claimed", record: { id: 3 } });
+  idempotencyRepository.fail = async (id) => assert.equal(id, 3);
+  queueService.createTicket = async () => {
+    const error = new Error("duplicate");
+    error.code = "23505";
+    error.constraint = "tickets_developer_external_reference_idx";
+    throw error;
+  };
+
+  const { server, baseUrl } = await startServer();
+  try {
+    const result = await requestJsonMethod(
+      "POST",
+      `${baseUrl}/queues/harbor/tickets`,
+      "sandbox-api.getprio.online",
+      { "x-api-key": "gpk_sbx_write", "Idempotency-Key": "ticket-duplicate-1" },
+      { externalReference: "visit-42" }
+    );
+    assert.equal(result.status, 409);
+    assert.equal(result.body.error, "EXTERNAL_REFERENCE_EXISTS");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    Object.assign(developerProjects, { findApiKeyByHash: originals.findApiKeyByHash, touchApiKey: originals.touchApiKey });
+    Object.assign(tenantRepository, { findTenantBySlug: originals.findTenantBySlug });
+    Object.assign(storeLocationRepository, { findPrimaryLocationByTenantId: originals.findPrimaryLocationByTenantId });
+    Object.assign(queueService, { createTicket: originals.createTicket });
+    Object.assign(entitlementAdmissionService, { admit: originals.admit });
+    Object.assign(storeHoursService, { assertLocationOpenForCustomerJoin: originals.assertLocationOpenForCustomerJoin });
+    Object.assign(idempotencyService, { claim: originals.claim });
+    Object.assign(idempotencyRepository, { fail: originals.fail });
   }
 });
 
