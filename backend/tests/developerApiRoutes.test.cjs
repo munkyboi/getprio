@@ -6,6 +6,7 @@ const router = require("../src/routes/developerApiRoutes");
 const developerProjects = require("../src/repositories/developerProjects");
 const tenantRepository = require("../src/repositories/tenants");
 const storeLocationRepository = require("../src/repositories/storeLocations");
+const ticketRepository = require("../src/repositories/tickets");
 const queueService = require("../src/services/queueService");
 const entitlementAdmissionService = require("../src/services/entitlementAdmissionService");
 const storeHoursService = require("../src/services/storeHoursService");
@@ -151,6 +152,7 @@ test("developer API publishes its OpenAPI document", async () => {
     assert.ok(body.paths["/queues/{tenantSlug}/stream"].get.security);
     assert.ok(body.paths["/queues/{tenantSlug}/tickets"].post.security);
     assert.ok(body.paths["/queues/{tenantSlug}/tickets"].post.requestBody);
+    assert.ok(body.paths["/queues/{tenantSlug}/tickets/{ticketId}"].get.security);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
@@ -315,5 +317,81 @@ test("developer API issues a ticket with a queues:write key", async () => {
     Object.assign(storeHoursService, { assertLocationOpenForCustomerJoin: originals.assertLocationOpenForCustomerJoin });
     Object.assign(idempotencyService, { claim: originals.claim });
     Object.assign(idempotencyRepository, { complete: originals.complete, fail: originals.fail });
+  }
+});
+
+test("developer API returns a scoped ticket status without customer details", async () => {
+  const originals = {
+    findApiKeyByHash: developerProjects.findApiKeyByHash,
+    touchApiKey: developerProjects.touchApiKey,
+    findTenantBySlug: tenantRepository.findTenantBySlug,
+    findPrimaryLocationByTenantId: storeLocationRepository.findPrimaryLocationByTenantId,
+    findTicketById: ticketRepository.findTicketById
+  };
+  developerProjects.findApiKeyByHash = async () => ({
+    id: "key-read",
+    projectId: "project-1",
+    environment: "sandbox",
+    scopes: ["queues:read"],
+    status: "active",
+    projectStatus: "active",
+    accountStatus: "active"
+  });
+  developerProjects.touchApiKey = async () => {};
+  tenantRepository.findTenantBySlug = async () => ({ _id: "tenant-1", slug: "harbor", name: "Harbor Services" });
+  storeLocationRepository.findPrimaryLocationByTenantId = async () => ({ _id: "location-1", slug: "main", isActive: true });
+  ticketRepository.findTicketById = async () => ({
+    _id: "42",
+    tenantId: "tenant-1",
+    locationId: "location-1",
+    ticketNumber: "A-042",
+    lookupCode: "PRIVATE",
+    customerName: "Secret Name",
+    customerEmail: "secret@example.com",
+    status: "waiting",
+    joinChannel: "vendor",
+    servicePriorityBand: "normal",
+    statusReason: null,
+    calledAt: null,
+    servedAt: null,
+    skippedAt: null,
+    cancelledAt: null,
+    unservedAt: null,
+    terminalAt: null,
+    dateKey: "20260915",
+    createdAt: "2026-09-15T06:00:00.000Z",
+    updatedAt: "2026-09-15T06:00:00.000Z"
+  });
+
+  const { server, baseUrl } = await startServer();
+  try {
+    const result = await requestJson(`${baseUrl}/queues/harbor/tickets/42`, "sandbox-api.getprio.online", { "x-api-key": "gpk_sbx_read" });
+    assert.equal(result.status, 200);
+    assert.deepEqual(result.body.data.ticket, {
+      id: "42",
+      ticket_number: "A-042",
+      status: "waiting",
+      location_id: "location-1",
+      queue_date_key: "20260915",
+      join_channel: "vendor",
+      service_priority_band: "normal",
+      status_reason: null,
+      called_at: null,
+      served_at: null,
+      skipped_at: null,
+      cancelled_at: null,
+      unserved_at: null,
+      terminal_at: null,
+      created_at: "2026-09-15T06:00:00.000Z",
+      updated_at: "2026-09-15T06:00:00.000Z"
+    });
+    assert.equal(result.body.data.ticket.lookup_code, undefined);
+    assert.equal(result.body.data.ticket.customerEmail, undefined);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    Object.assign(developerProjects, { findApiKeyByHash: originals.findApiKeyByHash, touchApiKey: originals.touchApiKey });
+    Object.assign(tenantRepository, { findTenantBySlug: originals.findTenantBySlug });
+    Object.assign(storeLocationRepository, { findPrimaryLocationByTenantId: originals.findPrimaryLocationByTenantId });
+    Object.assign(ticketRepository, { findTicketById: originals.findTicketById });
   }
 });

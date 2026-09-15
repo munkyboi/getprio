@@ -3,6 +3,7 @@ const openApiDocument = require("./developerApiOpenapi");
 const asyncHandler = require("../middleware/asyncHandler");
 const tenantRepository = require("../repositories/tenants");
 const storeLocationRepository = require("../repositories/storeLocations");
+const ticketRepository = require("../repositories/tickets");
 const queueService = require("../services/queueService");
 const queueEvents = require("../services/queueEvents");
 const entitlementAdmissionService = require("../services/entitlementAdmissionService");
@@ -103,6 +104,27 @@ function formatIssuedTicket(ticket, location) {
     location_id: String(location._id),
     queue_date_key: ticket.dateKey,
     created_at: ticket.createdAt
+  };
+}
+
+function formatTicketResource(ticket) {
+  return {
+    id: String(ticket._id),
+    ticket_number: ticket.ticketNumber,
+    status: ticket.status,
+    location_id: ticket.locationId,
+    queue_date_key: ticket.dateKey,
+    join_channel: ticket.joinChannel,
+    service_priority_band: ticket.servicePriorityBand,
+    status_reason: ticket.statusReason,
+    called_at: ticket.calledAt,
+    served_at: ticket.servedAt,
+    skipped_at: ticket.skippedAt,
+    cancelled_at: ticket.cancelledAt,
+    unserved_at: ticket.unservedAt,
+    terminal_at: ticket.terminalAt,
+    created_at: ticket.createdAt,
+    updated_at: ticket.updatedAt
   };
 }
 
@@ -262,6 +284,25 @@ router.post(
       await idempotencyRepository.fail(idempotency.record.id).catch(() => {});
       throw error;
     }
+  })
+);
+
+router.get(
+  ["/queues/:tenantSlug/tickets/:ticketId", "/queues/:tenantSlug/locations/:locationSlug/tickets/:ticketId"],
+  authenticateDeveloperApiKey,
+  requireApiScope("queues:read"),
+  asyncHandler(async (req, res) => {
+    const { tenant, location } = await getQueueContext(req);
+    if (!/^\d+$/.test(String(req.params.ticketId))) throw notFound("Ticket not found.");
+    const ticket = await ticketRepository.findTicketById(req.params.ticketId);
+    if (
+      !ticket ||
+      String(ticket.tenantId) !== String(tenant._id) ||
+      (location && String(ticket.locationId) !== String(location._id))
+    ) {
+      throw notFound("Ticket not found.");
+    }
+    sendEnvelope(req, res, { ticket: formatTicketResource(ticket) });
   })
 );
 
