@@ -1,5 +1,6 @@
 const {
   CSRF_COOKIE,
+  DEVELOPER_CSRF_COOKIE,
   getAccessCookie,
   getRefreshCookie,
   parseCookies,
@@ -42,7 +43,7 @@ function isAuthRecoveryRequest(req) {
   // unrelated cookies must not require an old session's CSRF token. Keep
   // /register/vendor/complete protected: it uses the signed-in user's identity.
   return String(req.method || "GET").toUpperCase() === "POST" &&
-    ["/auth/login", "/auth/mfa/verify", "/auth/register/vendor"].includes(path);
+    ["/auth/login", "/auth/mfa/verify", "/auth/register/vendor", "/developer/login", "/developer/enroll"].includes(path);
 }
 
 function createCsrfProtection({ allowedOrigins, csrfSecret, authCookieSecure = true }) {
@@ -55,8 +56,10 @@ function createCsrfProtection({ allowedOrigins, csrfSecret, authCookieSecure = t
     }
 
     const cookies = parseCookies(req.headers?.cookie);
+    const appCookieSession = Boolean(getAccessCookie(cookies, authCookieSecure));
+    const developerCookieSession = Boolean(getAccessCookie(cookies, authCookieSecure, "developer"));
     const usesCookieSession = Boolean(
-      getAccessCookie(cookies, authCookieSecure) || getRefreshCookie(cookies, authCookieSecure)
+      appCookieSession || getRefreshCookie(cookies, authCookieSecure) || developerCookieSession || getRefreshCookie(cookies, authCookieSecure, "developer")
     );
     if (!usesCookieSession) {
       next();
@@ -67,7 +70,10 @@ function createCsrfProtection({ allowedOrigins, csrfSecret, authCookieSecure = t
     const fetchSite = String(req.headers?.["sec-fetch-site"] || "").toLowerCase();
     const contentType = String(req.headers?.["content-type"] || "").toLowerCase();
     const headerToken = String(req.headers?.["x-csrf-token"] || "");
-    const cookieToken = String(cookies[CSRF_COOKIE] || "");
+    const csrfCookieName = developerCookieSession || getRefreshCookie(cookies, authCookieSecure, "developer")
+      ? DEVELOPER_CSRF_COOKIE
+      : CSRF_COOKIE;
+    const cookieToken = String(cookies[csrfCookieName] || "");
 
     if (!origin || !origins.has(origin)) {
       next(csrfError());

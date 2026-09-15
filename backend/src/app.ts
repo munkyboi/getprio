@@ -15,6 +15,7 @@ import mobileQueueJoinRoutes from "./routes/mobileQueueJoinRoutes";
 import mobileOAuthRoutes from "./routes/mobileOAuthRoutes";
 import vendorRoutes from "./routes/vendorRoutes";
 import developerApiRoutes from "./routes/developerApiRoutes";
+import developerAuthRoutes from "./routes/developerAuthRoutes";
 import errorHandler from "./middleware/errorHandler";
 import requestContextModule from "./middleware/requestContext";
 import csrfProtectionModule from "./middleware/csrfProtection";
@@ -25,7 +26,7 @@ function normalizeOrigin(origin?: string): string {
 
 function buildAllowedOrigins(): Set<string> {
   const origins = new Set<string>();
-  const configuredOrigins = [env.clientUrl, env.appBaseUrl, env.platformDashboardUrl]
+  const configuredOrigins = [env.clientUrl, env.appBaseUrl, env.platformDashboardUrl, env.developerPortalUrl]
     .filter(Boolean)
     .map((origin) => normalizeOrigin(origin));
 
@@ -107,6 +108,7 @@ app.get("/api/health", (_req, res) => {
 });
 
 app.use("/api/auth", authRoutes);
+app.use("/api/developer", developerAuthRoutes);
 app.use("/api/account", accountRoutes);
 app.use("/api/billing", billingRoutes);
 app.use("/api/platform", platformRoutes);

@@ -1048,7 +1048,7 @@ router.post(
     }
 
     const session = await sessionService.resolveSessionByRefreshToken(refreshToken);
-    if (!session || session.status !== "active" || new Date(session.expiresAt).getTime() <= Date.now()) {
+    if (!session || (session.surface && session.surface !== "app") || session.status !== "active" || new Date(session.expiresAt).getTime() <= Date.now()) {
       const error = new Error("Refresh session is no longer valid.");
       error.statusCode = 401;
       throw error;
