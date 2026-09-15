@@ -559,6 +559,7 @@ test("developer API calls the next waiting ticket with idempotency", async () =>
   storeLocationRepository.findPrimaryLocationByTenantId = async () => ({ _id: "location-1", slug: "main", isActive: true });
   idempotencyService.claim = async (input) => {
     assert.equal(input.key, "call-next-ada-1");
+    assert.equal(input.retentionMs, 7 * 24 * 60 * 60_000);
     return { state: "claimed", record: { id: 2 } };
   };
   idempotencyRepository.complete = async (recordId, statusCode, body) => {
