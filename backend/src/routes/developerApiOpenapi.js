@@ -112,6 +112,26 @@ const queueResolutionPath = ({ operationId, summary, status, location = false })
   }
 });
 
+const queueTicketActionPath = ({ operationId, summary, action, location = false }) => ({
+  post: {
+    operationId,
+    summary,
+    security: [{ ApiKeyAuth: [] }],
+    parameters: [
+      ...queueParameters(location),
+      pathParameter("ticketId", "The opaque queue ticket identifier."),
+      idempotencyParameter
+    ],
+    responses: {
+      "200": envelopeResponse(`Queue ticket ${action} result`),
+      "401": { description: "Missing or invalid API key." },
+      "403": { description: "API key is missing the queues:write scope." },
+      "404": { description: "Ticket, tenant, or location not found." },
+      "409": { description: `Ticket cannot be ${action}d from its current status.` }
+    }
+  }
+});
+
 const queueTicketReadPath = ({ operationId, summary, location = false }) => ({
   get: {
     operationId,
@@ -210,6 +230,28 @@ const openApiDocument = {
       operationId: "skipCurrentLocationQueueTicket",
       summary: "Skip the current called ticket at a location",
       status: "skipped",
+      location: true
+    }),
+    "/queues/{tenantSlug}/tickets/{ticketId}/cancel": queueTicketActionPath({
+      operationId: "cancelQueueTicket",
+      summary: "Cancel a waiting queue ticket",
+      action: "cancel"
+    }),
+    "/queues/{tenantSlug}/locations/{locationSlug}/tickets/{ticketId}/cancel": queueTicketActionPath({
+      operationId: "cancelLocationQueueTicket",
+      summary: "Cancel a waiting queue ticket at a location",
+      action: "cancel",
+      location: true
+    }),
+    "/queues/{tenantSlug}/tickets/{ticketId}/restore": queueTicketActionPath({
+      operationId: "restoreQueueTicket",
+      summary: "Restore a skipped queue ticket",
+      action: "restore"
+    }),
+    "/queues/{tenantSlug}/locations/{locationSlug}/tickets/{ticketId}/restore": queueTicketActionPath({
+      operationId: "restoreLocationQueueTicket",
+      summary: "Restore a skipped queue ticket at a location",
+      action: "restore",
       location: true
     }),
     "/queues/{tenantSlug}/tickets/{ticketId}": queueTicketReadPath({

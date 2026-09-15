@@ -203,6 +203,19 @@ async function getQueueContext(req) {
   return { tenant, location };
 }
 
+async function getScopedTicket(req, tenant, location) {
+  if (!/^\d+$/.test(String(req.params.ticketId))) throw notFound("Ticket not found.");
+  const ticket = await ticketRepository.findTicketById(req.params.ticketId);
+  if (
+    !ticket ||
+    String(ticket.tenantId) !== String(tenant._id) ||
+    (location && String(ticket.locationId) !== String(location._id))
+  ) {
+    throw notFound("Ticket not found.");
+  }
+  return ticket;
+}
+
 router.get("/", (req, res) => {
   const environment = getEnvironment(req);
   const baseUrl = environment === "sandbox"
@@ -385,21 +398,78 @@ registerCurrentTicketResolution(
   "skipped"
 );
 
+function registerTicketMutation(paths, action, run) {
+  router.post(
+    paths,
+    authenticateDeveloperApiKey,
+    requireApiScope("queues:write"),
+    asyncHandler(async (req, res) => {
+      const { tenant, location } = await getQueueContext(req);
+      if (!location) throw notFound("Queue location not found.");
+      const ticket = await getScopedTicket(req, tenant, location);
+
+      await runIdempotentMutation(req, res, {
+        scope: `developer_api.ticket.${action}`,
+        payload: {
+          tenantSlug: req.params.tenantSlug,
+          locationSlug: req.params.locationSlug || null,
+          ticketId: req.params.ticketId,
+          body: req.body || {}
+        },
+        run: async () => {
+          const result = await run({ tenant, location, ticket, req });
+          return { ticket: result?.ticket ? formatTicketResource(result.ticket) : null };
+        }
+      });
+    })
+  );
+}
+
+registerTicketMutation(
+  ["/queues/:tenantSlug/tickets/:ticketId/cancel", "/queues/:tenantSlug/locations/:locationSlug/tickets/:ticketId/cancel"],
+  "cancel",
+  async ({ tenant, location, ticket, req }) => {
+    if (!["waiting", "pending_carry_over"].includes(ticket.status)) {
+      const error = new Error("Only waiting tickets can be cancelled by this endpoint.");
+      error.statusCode = 409;
+      error.code = "INVALID_TICKET_STATE";
+      throw error;
+    }
+    return queueService.cancelTicket(tenant, ticket.lookupCode, {
+      location,
+      actorUserId: req.apiKey.createdByUserId,
+      actorRole: "developer_api",
+      source: "developer_api"
+    });
+  }
+);
+
+registerTicketMutation(
+  ["/queues/:tenantSlug/tickets/:ticketId/restore", "/queues/:tenantSlug/locations/:locationSlug/tickets/:ticketId/restore"],
+  "restore",
+  async ({ tenant, location, ticket, req }) => {
+    if (ticket.status !== "skipped") {
+      const error = new Error("Only skipped tickets can be restored.");
+      error.statusCode = 409;
+      error.code = "INVALID_TICKET_STATE";
+      throw error;
+    }
+    return queueService.restoreSkippedTicket(tenant, ticket._id, {
+      location,
+      actorUserId: req.apiKey.createdByUserId,
+      actorRole: "developer_api",
+      source: "developer_api"
+    });
+  }
+);
+
 router.get(
   ["/queues/:tenantSlug/tickets/:ticketId", "/queues/:tenantSlug/locations/:locationSlug/tickets/:ticketId"],
   authenticateDeveloperApiKey,
   requireApiScope("queues:read"),
   asyncHandler(async (req, res) => {
     const { tenant, location } = await getQueueContext(req);
-    if (!/^\d+$/.test(String(req.params.ticketId))) throw notFound("Ticket not found.");
-    const ticket = await ticketRepository.findTicketById(req.params.ticketId);
-    if (
-      !ticket ||
-      String(ticket.tenantId) !== String(tenant._id) ||
-      (location && String(ticket.locationId) !== String(location._id))
-    ) {
-      throw notFound("Ticket not found.");
-    }
+    const ticket = await getScopedTicket(req, tenant, location);
     sendEnvelope(req, res, { ticket: formatTicketResource(ticket) });
   })
 );
