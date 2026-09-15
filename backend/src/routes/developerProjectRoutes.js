@@ -5,8 +5,10 @@ const { authenticateDeveloper } = require("../middleware/developerAuth");
 const authService = require("../services/authService");
 const developerProjects = require("../repositories/developerProjects");
 const developerWebhooks = require("../repositories/developerWebhooks");
+const developerWebhookDeliveries = require("../repositories/developerWebhookDeliveries");
 const developerApiKeyService = require("../services/developerApiKeyService");
 const developerWebhookService = require("../services/developerWebhookService");
+const developerWebhookDispatcher = require("../services/developerWebhookDispatcher");
 const securityEventService = require("../services/securityEventService");
 
 const router = express.Router();
@@ -76,6 +78,31 @@ function webhookResponse(registration) {
     disabledAt: registration.disabledAt,
     createdAt: registration.createdAt,
     updatedAt: registration.updatedAt
+  };
+}
+
+function deliveryResponse(delivery) {
+  return {
+    id: delivery.id,
+    webhookId: delivery.registrationId,
+    projectId: delivery.projectId,
+    environment: delivery.environment,
+    eventId: delivery.eventId,
+    eventType: delivery.eventType,
+    payloadVersion: delivery.payloadVersion,
+    status: delivery.status,
+    attemptCount: delivery.attemptCount,
+    expiresAt: delivery.expiresAt,
+    retryUntil: delivery.retryUntil,
+    lastError: delivery.lastError,
+    responseStatus: delivery.responseStatus,
+    sentAt: delivery.sentAt,
+    manualAttemptCount: delivery.manualAttemptCount,
+    lastManualAttemptAt: delivery.lastManualAttemptAt,
+    manualLastError: delivery.manualLastError,
+    manualResponseStatus: delivery.manualResponseStatus,
+    createdAt: delivery.createdAt,
+    updatedAt: delivery.updatedAt
   };
 }
 
@@ -305,6 +332,73 @@ router.delete("/projects/:projectId/webhooks/:webhookId", asyncHandler(async (re
     metadata: { projectId: project.id, registrationId: disabled.id }
   });
   res.json({ webhook: webhookResponse(disabled) });
+}));
+
+router.get("/projects/:projectId/webhooks/:webhookId/deliveries", asyncHandler(async (req, res) => {
+  const project = await developerProjects.findProjectForUser(req.params.projectId, req.user._id);
+  if (!project) throw notFound();
+  const registrations = await developerWebhooks.listRegistrations(project.id);
+  const registration = registrations.find((item) => item.id === req.params.webhookId);
+  if (!registration) throw notFound("Webhook registration not found.");
+  const deliveries = await developerWebhookDeliveries.listDeliveries(project.id, registration.id, req.query?.limit);
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ webhook: webhookResponse(registration), deliveries: deliveries.map(deliveryResponse) });
+}));
+
+router.post("/projects/:projectId/webhooks/:webhookId/deliveries/:deliveryId/replay", asyncHandler(async (req, res) => {
+  const project = await developerProjects.findProjectForUser(req.params.projectId, req.user._id);
+  if (!project) throw notFound();
+  const delivery = await developerWebhookDeliveries.findDelivery(project.id, req.params.webhookId, req.params.deliveryId);
+  if (!delivery) throw notFound("Webhook delivery not found.");
+  if (delivery.registrationStatus !== "active") {
+    const error = new Error("Webhook registration must be enabled before replaying a delivery.");
+    error.statusCode = 409;
+    error.code = "WEBHOOK_REGISTRATION_DISABLED";
+    throw error;
+  }
+  if (delivery.expiresAt && new Date(delivery.expiresAt).getTime() <= Date.now()) {
+    const error = new Error("Webhook delivery replay retention has expired.");
+    error.statusCode = 410;
+    error.code = "WEBHOOK_REPLAY_EXPIRED";
+    throw error;
+  }
+  if (delivery.status === "processing") {
+    const error = new Error("Webhook delivery is currently being sent automatically.");
+    error.statusCode = 409;
+    error.code = "WEBHOOK_DELIVERY_BUSY";
+    throw error;
+  }
+
+  const dispatcher = developerWebhookDispatcher.createDeveloperWebhookDispatcher();
+  let replay;
+  try {
+    try {
+      const result = await dispatcher.deliver(delivery);
+      replay = { status: "sent", responseStatus: result.status };
+    } catch (error) {
+      replay = {
+        status: "failed",
+        responseStatus: error.responseStatus == null ? null : Number(error.responseStatus),
+        error: String(error.message || "Webhook delivery failed").slice(0, 500)
+      };
+    }
+  } finally {
+    await dispatcher.stop();
+  }
+  await developerWebhookDeliveries.recordManualAttempt(delivery.id, {
+    error: replay.error,
+    responseStatus: replay.responseStatus
+  });
+  await securityEventService.logSecurityEvent({
+    userId: req.user._id,
+    sessionId: req.auth.sessionId,
+    eventType: "developer_webhook_replayed",
+    actorRole: req.developerMembership.role,
+    ipAddress: authService.getRequestIp(req),
+    userAgent: authService.getUserAgent(req),
+    metadata: { projectId: project.id, registrationId: delivery.registrationId, deliveryId: delivery.id, result: replay.status }
+  });
+  res.json({ replay, delivery: deliveryResponse({ ...delivery, manualAttemptCount: delivery.manualAttemptCount + 1, lastManualAttemptAt: new Date().toISOString(), manualLastError: replay.error || null, manualResponseStatus: replay.responseStatus }) });
 }));
 
 module.exports = router;
