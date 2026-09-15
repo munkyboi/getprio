@@ -79,6 +79,24 @@ const queueWritePath = ({ operationId, summary, location = false }) => ({
   }
 });
 
+const queueTicketReadPath = ({ operationId, summary, location = false }) => ({
+  get: {
+    operationId,
+    summary,
+    security: [{ ApiKeyAuth: [] }],
+    parameters: [
+      ...queueParameters(location),
+      pathParameter("ticketId", "The opaque queue ticket identifier.")
+    ],
+    responses: {
+      "200": envelopeResponse("Queue ticket status"),
+      "401": { description: "Missing or invalid API key." },
+      "403": { description: "API key is missing the queues:read scope." },
+      "404": { description: "Ticket, tenant, or location not found." }
+    }
+  }
+});
+
 const openApiDocument = {
   openapi: "3.1.0",
   info: {
@@ -128,6 +146,15 @@ const openApiDocument = {
     "/queues/{tenantSlug}/locations/{locationSlug}/tickets": queueWritePath({
       operationId: "issueLocationQueueTicket",
       summary: "Issue a queue ticket at a location",
+      location: true
+    }),
+    "/queues/{tenantSlug}/tickets/{ticketId}": queueTicketReadPath({
+      operationId: "getQueueTicket",
+      summary: "Read a queue ticket status"
+    }),
+    "/queues/{tenantSlug}/locations/{locationSlug}/tickets/{ticketId}": queueTicketReadPath({
+      operationId: "getLocationQueueTicket",
+      summary: "Read a location queue ticket status",
       location: true
     }),
     "/queues/{tenantSlug}/stream": queueStreamPath({
