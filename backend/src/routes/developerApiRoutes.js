@@ -155,6 +155,33 @@ function readBoolean(value, label) {
   throw error;
 }
 
+async function runIdempotentMutation(req, res, { scope, payload, run }) {
+  const idempotency = await idempotencyService.claim({
+    actorId: req.apiKey.createdByUserId,
+    scope: `${scope}:${req.apiKey.id}`,
+    key: req.get("Idempotency-Key"),
+    payload
+  });
+  if (idempotency.state === "replay") {
+    res.status(idempotency.statusCode)
+      .setHeader("Cache-Control", "no-store")
+      .setHeader("X-API-Version", "v1")
+      .json(idempotency.body);
+    return;
+  }
+
+  try {
+    const responseBody = envelopeBody(req, await run());
+    await idempotencyRepository.complete(idempotency.record.id, 200, responseBody);
+    res.setHeader("Cache-Control", "no-store")
+      .setHeader("X-API-Version", "v1")
+      .json(responseBody);
+  } catch (error) {
+    await idempotencyRepository.fail(idempotency.record.id).catch(() => {});
+    throw error;
+  }
+}
+
 async function getQueueContext(req) {
   const tenant = await tenantRepository.findTenantBySlug(
     String(req.params.tenantSlug).toLowerCase(),
@@ -295,41 +322,67 @@ router.post(
     const { tenant, location } = await getQueueContext(req);
     if (!location) throw notFound("Queue location not found.");
 
-    const idempotency = await idempotencyService.claim({
-      actorId: req.apiKey.createdByUserId,
-      scope: `developer_api.queue.call_next:${req.apiKey.id}`,
-      key: req.get("Idempotency-Key"),
+    await runIdempotentMutation(req, res, {
+      scope: "developer_api.queue.call_next",
       payload: {
         tenantSlug: req.params.tenantSlug,
         locationSlug: req.params.locationSlug || null,
         body: req.body || {}
-      }
-    });
-    if (idempotency.state === "replay") {
-      res.status(idempotency.statusCode)
-        .setHeader("Cache-Control", "no-store")
-        .setHeader("X-API-Version", "v1")
-        .json(idempotency.body);
-      return;
-    }
-
-    try {
+      },
+      run: async () => {
       const result = await queueService.callNextTicket(tenant, {
         location,
         actorUserId: req.apiKey.createdByUserId,
         actorRole: "developer_api",
         source: "developer_api"
       });
-      const responseBody = envelopeBody(req, {
+      return {
         ticket: result?.ticket ? formatTicketResource(result.ticket) : null
-      });
-      await idempotencyRepository.complete(idempotency.record.id, 200, responseBody);
-      res.setHeader("Cache-Control", "no-store").setHeader("X-API-Version", "v1").json(responseBody);
-    } catch (error) {
-      await idempotencyRepository.fail(idempotency.record.id).catch(() => {});
-      throw error;
-    }
+      };
+      }
+    });
   })
+);
+
+function registerCurrentTicketResolution(paths, status) {
+  router.post(
+    paths,
+    authenticateDeveloperApiKey,
+    requireApiScope("queues:write"),
+    asyncHandler(async (req, res) => {
+      const { tenant, location } = await getQueueContext(req);
+      if (!location) throw notFound("Queue location not found.");
+
+      await runIdempotentMutation(req, res, {
+        scope: `developer_api.queue.${status}`,
+        payload: {
+          tenantSlug: req.params.tenantSlug,
+          locationSlug: req.params.locationSlug || null,
+          body: req.body || {}
+        },
+        run: async () => {
+          const result = await queueService.updateCurrentTicketStatus(tenant, status, {
+            location,
+            actorUserId: req.apiKey.createdByUserId,
+            actorRole: "developer_api",
+            source: "developer_api"
+          });
+          return {
+            ticket: result?.ticket ? formatTicketResource(result.ticket) : null
+          };
+        }
+      });
+    })
+  );
+}
+
+registerCurrentTicketResolution(
+  ["/queues/:tenantSlug/current/serve", "/queues/:tenantSlug/locations/:locationSlug/current/serve"],
+  "served"
+);
+registerCurrentTicketResolution(
+  ["/queues/:tenantSlug/current/skip", "/queues/:tenantSlug/locations/:locationSlug/current/skip"],
+  "skipped"
 );
 
 router.get(

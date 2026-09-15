@@ -96,6 +96,22 @@ const queueActionPath = ({ operationId, summary, location = false }) => ({
   }
 });
 
+const queueResolutionPath = ({ operationId, summary, status, location = false }) => ({
+  post: {
+    operationId,
+    summary,
+    security: [{ ApiKeyAuth: [] }],
+    parameters: [...queueParameters(location), idempotencyParameter],
+    responses: {
+      "200": envelopeResponse(`Current ticket ${status} result`),
+      "401": { description: "Missing or invalid API key." },
+      "403": { description: "API key is missing the queues:write scope." },
+      "404": { description: location ? "Tenant or location not found." : "Tenant not found." },
+      "409": { description: "The current ticket cannot transition to this status." }
+    }
+  }
+});
+
 const queueTicketReadPath = ({ operationId, summary, location = false }) => ({
   get: {
     operationId,
@@ -172,6 +188,28 @@ const openApiDocument = {
     "/queues/{tenantSlug}/locations/{locationSlug}/call-next": queueActionPath({
       operationId: "callNextLocationQueueTicket",
       summary: "Call the next waiting ticket at a location",
+      location: true
+    }),
+    "/queues/{tenantSlug}/current/serve": queueResolutionPath({
+      operationId: "serveCurrentQueueTicket",
+      summary: "Serve the current called ticket",
+      status: "served"
+    }),
+    "/queues/{tenantSlug}/locations/{locationSlug}/current/serve": queueResolutionPath({
+      operationId: "serveCurrentLocationQueueTicket",
+      summary: "Serve the current called ticket at a location",
+      status: "served",
+      location: true
+    }),
+    "/queues/{tenantSlug}/current/skip": queueResolutionPath({
+      operationId: "skipCurrentQueueTicket",
+      summary: "Skip the current called ticket",
+      status: "skipped"
+    }),
+    "/queues/{tenantSlug}/locations/{locationSlug}/current/skip": queueResolutionPath({
+      operationId: "skipCurrentLocationQueueTicket",
+      summary: "Skip the current called ticket at a location",
+      status: "skipped",
       location: true
     }),
     "/queues/{tenantSlug}/tickets/{ticketId}": queueTicketReadPath({
