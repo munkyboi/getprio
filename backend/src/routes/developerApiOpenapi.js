@@ -132,6 +132,26 @@ const queueTicketActionPath = ({ operationId, summary, action, location = false 
   }
 });
 
+const queueMobileLinkPath = ({ operationId, summary, location = false }) => ({
+  post: {
+    operationId,
+    summary,
+    security: [{ BearerAuth: [] }],
+    parameters: [
+      ...queueParameters(location),
+      pathParameter("ticketId", "The opaque queue ticket identifier."),
+      idempotencyParameter
+    ],
+    responses: {
+      "200": envelopeResponse("Replacement private mobile ticket link"),
+      "401": { description: "Missing or invalid API key." },
+      "403": { description: "API key is missing the queues:write scope." },
+      "404": { description: "Ticket, tenant, or location not found." },
+      "409": { description: "The ticket is already linked or has no unused mobile link to replace." }
+    }
+  }
+});
+
 const queueTicketReadPath = ({ operationId, summary, location = false }) => ({
   get: {
     operationId,
@@ -285,6 +305,15 @@ const openApiDocument = {
       operationId: "restoreLocationQueueTicket",
       summary: "Restore a skipped queue ticket at a location",
       action: "restore",
+      location: true
+    }),
+    "/queues/{tenantSlug}/tickets/{ticketId}/mobile-link": queueMobileLinkPath({
+      operationId: "replaceQueueTicketMobileLink",
+      summary: "Replace an unused private mobile ticket link"
+    }),
+    "/queues/{tenantSlug}/locations/{locationSlug}/tickets/{ticketId}/mobile-link": queueMobileLinkPath({
+      operationId: "replaceLocationQueueTicketMobileLink",
+      summary: "Replace an unused private mobile ticket link at a location",
       location: true
     }),
     "/queues/{tenantSlug}/tickets/{ticketId}": queueTicketReadPath({

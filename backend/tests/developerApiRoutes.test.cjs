@@ -9,6 +9,7 @@ const storeLocationRepository = require("../src/repositories/storeLocations");
 const ticketRepository = require("../src/repositories/tickets");
 const queueEventRepository = require("../src/repositories/queueEvents");
 const queueService = require("../src/services/queueService");
+const mobileTicketLinkService = require("../src/services/mobileTicketLinkService");
 const entitlementAdmissionService = require("../src/services/entitlementAdmissionService");
 const storeHoursService = require("../src/services/storeHoursService");
 const idempotencyService = require("../src/services/idempotencyService");
@@ -222,6 +223,8 @@ test("developer API publishes its OpenAPI document", async () => {
     assert.ok(body.paths["/queues/{tenantSlug}/locations/{locationSlug}/current/skip"].post.security);
     assert.ok(body.paths["/queues/{tenantSlug}/tickets/{ticketId}/cancel"].post.security);
     assert.ok(body.paths["/queues/{tenantSlug}/tickets/{ticketId}/restore"].post.security);
+    assert.ok(body.paths["/queues/{tenantSlug}/tickets/{ticketId}/mobile-link"].post.security);
+    assert.ok(body.paths["/queues/{tenantSlug}/locations/{locationSlug}/tickets/{ticketId}/mobile-link"].post.security);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
@@ -903,5 +906,56 @@ test("developer API cancels and restores tickets by scoped ID", async () => {
     idempotencyService.claim = originalClaim;
     idempotencyRepository.complete = originalComplete;
     idempotencyRepository.fail = originalFail;
+  }
+});
+
+test("developer API replaces an unused private mobile link with idempotency", async () => {
+  const originals = {
+    findApiKeyByHash: developerProjects.findApiKeyByHash,
+    touchApiKey: developerProjects.touchApiKey,
+    findTenantBySlug: tenantRepository.findTenantBySlug,
+    findPrimaryLocationByTenantId: storeLocationRepository.findPrimaryLocationByTenantId,
+    findTicketById: ticketRepository.findTicketById,
+    replacePrivateLink: mobileTicketLinkService.replacePrivateLink,
+    claim: idempotencyService.claim,
+    complete: idempotencyRepository.complete,
+    fail: idempotencyRepository.fail
+  };
+  developerProjects.findApiKeyByHash = async () => buildDeveloperApiKey({ id: "key-write", scopes: ["queues:write"] });
+  developerProjects.touchApiKey = async () => {};
+  tenantRepository.findTenantBySlug = async () => ({ _id: "tenant-1", slug: "harbor" });
+  storeLocationRepository.findPrimaryLocationByTenantId = async () => ({ _id: "location-1", slug: "main", isActive: true });
+  ticketRepository.findTicketById = async () => buildTicketFixture({ developerProjectId: "project-1", developerEnvironment: "sandbox" });
+  idempotencyService.claim = async () => ({ state: "claimed", record: { id: 7 } });
+  idempotencyRepository.complete = async (_id, statusCode) => assert.equal(statusCode, 200);
+  idempotencyRepository.fail = async () => {};
+  mobileTicketLinkService.replacePrivateLink = async (input) => {
+    assert.deepEqual(input, { ticketId: 42, developerProjectId: "project-1", environment: "sandbox" });
+    return { url: "https://sandbox.getprio.online/t/replacement", expiresAt: "2026-09-15T06:15:00.000Z" };
+  };
+
+  const { server, baseUrl } = await startServer();
+  try {
+    const result = await requestJsonMethod(
+      "POST",
+      `${baseUrl}/queues/harbor/tickets/42/mobile-link`,
+      "sandbox-api.getprio.online",
+      { "x-api-key": "gpk_sbx_write", "Idempotency-Key": "replace-mobile-link-1" },
+      {}
+    );
+    assert.equal(result.status, 200);
+    assert.deepEqual(result.body.data.mobile_link, {
+      url: "https://sandbox.getprio.online/t/replacement",
+      expires_at: "2026-09-15T06:15:00.000Z"
+    });
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    Object.assign(developerProjects, { findApiKeyByHash: originals.findApiKeyByHash, touchApiKey: originals.touchApiKey });
+    Object.assign(tenantRepository, { findTenantBySlug: originals.findTenantBySlug });
+    Object.assign(storeLocationRepository, { findPrimaryLocationByTenantId: originals.findPrimaryLocationByTenantId });
+    Object.assign(ticketRepository, { findTicketById: originals.findTicketById });
+    mobileTicketLinkService.replacePrivateLink = originals.replacePrivateLink;
+    idempotencyService.claim = originals.claim;
+    Object.assign(idempotencyRepository, { complete: originals.complete, fail: originals.fail });
   }
 });

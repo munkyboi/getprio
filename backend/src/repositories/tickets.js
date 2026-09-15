@@ -224,6 +224,16 @@ async function findTicketById(ticketId, options = {}) {
   return mapTicket(result.rows[0]);
 }
 
+async function findTicketByIdForUpdate(ticketId, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const result = await queryClient.query(
+    `SELECT ${TICKET_COLUMNS} FROM tickets WHERE id = $1 LIMIT 1 FOR UPDATE`,
+    [Number(ticketId)]
+  );
+
+  return mapTicket(result.rows[0]);
+}
+
 async function findTicketByTenantAndLookupCode(tenantId, lookupCode, options = {}) {
   const queryClient = buildQueryClient(options.client);
   const result = await queryClient.query(
@@ -970,6 +980,7 @@ module.exports = {
   mapTicket,
   createTicket,
   findTicketById,
+  findTicketByIdForUpdate,
   findTicketByLookupCode,
   findTicketByTenantAndLookupCode,
   listWaitingTickets,

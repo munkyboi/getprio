@@ -27,4 +27,32 @@ async function createLink(data, options = {}) {
   return mapLink(result.rows[0]);
 }
 
-module.exports = { createLink };
+async function findActiveLinkForTicket(data, options = {}) {
+  const queryClient = options.client || db.pool;
+  const result = await queryClient.query(
+    `SELECT id, ticket_id, developer_project_id, environment, token_hash, expires_at, used_at, revoked_at, created_at
+       FROM ticket_mobile_links
+      WHERE ticket_id = $1
+        AND developer_project_id = $2
+        AND environment = $3
+        AND used_at IS NULL
+        AND revoked_at IS NULL
+      ORDER BY created_at DESC
+      LIMIT 1
+      FOR UPDATE`,
+    [Number(data.ticketId), data.developerProjectId, data.environment]
+  );
+  return mapLink(result.rows[0]);
+}
+
+async function revokeLink(linkId, options = {}) {
+  const queryClient = options.client || db.pool;
+  await queryClient.query(
+    `UPDATE ticket_mobile_links
+        SET revoked_at = NOW()
+      WHERE id = $1 AND used_at IS NULL AND revoked_at IS NULL`,
+    [linkId]
+  );
+}
+
+module.exports = { createLink, findActiveLinkForTicket, revokeLink };

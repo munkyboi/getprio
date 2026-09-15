@@ -9,6 +9,7 @@ const queueService = require("../services/queueService");
 const queueEvents = require("../services/queueEvents");
 const entitlementAdmissionService = require("../services/entitlementAdmissionService");
 const storeHoursService = require("../services/storeHoursService");
+const mobileTicketLinkService = require("../services/mobileTicketLinkService");
 const { validateEmail } = require("../services/authService");
 const { assertPublicTextFieldsAllowed } = require("../services/contentModeration");
 const idempotencyService = require("../services/idempotencyService");
@@ -612,6 +613,41 @@ registerTicketMutation(
     });
   }
 );
+
+function registerMobileLinkReplacement(paths) {
+  router.post(
+    paths,
+    authenticateDeveloperApiKey,
+    requireApiScope("queues:write"),
+    asyncHandler(async (req, res) => {
+      const { tenant, location } = await getQueueContext(req);
+      if (!location) throw notFound("Queue location not found.");
+      const ticket = await getScopedTicket(req, tenant, location);
+
+      await runIdempotentMutation(req, res, {
+        scope: "developer_api.ticket.mobile_link.replace",
+        payload: {
+          tenantSlug: req.params.tenantSlug,
+          locationSlug: req.params.locationSlug || null,
+          ticketId: req.params.ticketId,
+          body: req.body || {}
+        },
+        run: async () => ({
+          mobile_link: formatMobileLink(await mobileTicketLinkService.replacePrivateLink({
+            ticketId: ticket._id,
+            developerProjectId: req.apiKey.projectId,
+            environment: req.apiKey.environment
+          }))
+        })
+      });
+    })
+  );
+}
+
+registerMobileLinkReplacement([
+  "/queues/:tenantSlug/tickets/:ticketId/mobile-link",
+  "/queues/:tenantSlug/locations/:locationSlug/tickets/:ticketId/mobile-link"
+]);
 
 router.get(
   ["/queues/:tenantSlug/tickets/:ticketId", "/queues/:tenantSlug/locations/:locationSlug/tickets/:ticketId"],
