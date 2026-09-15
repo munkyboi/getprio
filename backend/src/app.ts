@@ -16,6 +16,7 @@ import mobileOAuthRoutes from "./routes/mobileOAuthRoutes";
 import vendorRoutes from "./routes/vendorRoutes";
 import developerApiRoutes from "./routes/developerApiRoutes";
 import developerAuthRoutes from "./routes/developerAuthRoutes";
+import developerProjectRoutes from "./routes/developerProjectRoutes";
 import errorHandler from "./middleware/errorHandler";
 import requestContextModule from "./middleware/requestContext";
 import csrfProtectionModule from "./middleware/csrfProtection";
@@ -109,6 +110,7 @@ app.get("/api/health", (_req, res) => {
 
 app.use("/api/auth", authRoutes);
 app.use("/api/developer", developerAuthRoutes);
+app.use("/api/developer", developerProjectRoutes);
 app.use("/api/account", accountRoutes);
 app.use("/api/billing", billingRoutes);
 app.use("/api/platform", platformRoutes);

@@ -59,6 +59,9 @@ DROP TABLE IF EXISTS customer_registration_otps CASCADE;
 DROP TABLE IF EXISTS account_phone_change_challenges CASCADE;
 DROP TABLE IF EXISTS developer_account_memberships CASCADE;
 DROP TABLE IF EXISTS developer_accounts CASCADE;
+DROP TABLE IF EXISTS developer_api_keys CASCADE;
+DROP TABLE IF EXISTS developer_project_memberships CASCADE;
+DROP TABLE IF EXISTS developer_projects CASCADE;
 DROP TABLE IF EXISTS auth_sessions CASCADE;
 DROP TABLE IF EXISTS rating_disputes CASCADE;
 DROP TABLE IF EXISTS vendor_review_revisions CASCADE;
@@ -283,6 +286,64 @@ CREATE UNIQUE INDEX developer_account_one_owner_idx
 
 CREATE INDEX developer_account_memberships_user_idx
   ON developer_account_memberships (user_id, status);
+
+CREATE TABLE developer_projects (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  developer_account_id UUID NOT NULL REFERENCES developer_accounts(id) ON DELETE CASCADE,
+  name TEXT NOT NULL CHECK (char_length(name) BETWEEN 1 AND 80),
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived')),
+  created_by_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX developer_projects_account_name_idx
+  ON developer_projects (developer_account_id, lower(name))
+  WHERE status = 'active';
+
+CREATE UNIQUE INDEX developer_projects_one_active_per_account_idx
+  ON developer_projects (developer_account_id)
+  WHERE status = 'active';
+
+CREATE INDEX developer_projects_account_status_idx
+  ON developer_projects (developer_account_id, status, created_at DESC);
+
+CREATE TABLE developer_project_memberships (
+  id BIGSERIAL PRIMARY KEY,
+  developer_project_id UUID NOT NULL REFERENCES developer_projects(id) ON DELETE CASCADE,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'revoked')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (developer_project_id, user_id)
+);
+
+CREATE INDEX developer_project_memberships_user_idx
+  ON developer_project_memberships (user_id, status);
+
+CREATE TABLE developer_api_keys (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  developer_project_id UUID NOT NULL REFERENCES developer_projects(id) ON DELETE CASCADE,
+  name TEXT NOT NULL CHECK (char_length(name) BETWEEN 1 AND 80),
+  environment TEXT NOT NULL CHECK (environment IN ('sandbox', 'production')),
+  key_prefix TEXT NOT NULL,
+  secret_hash TEXT NOT NULL UNIQUE,
+  scopes TEXT[] NOT NULL DEFAULT ARRAY['queues:read']::TEXT[],
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'revoked')),
+  created_by_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  last_used_at TIMESTAMPTZ,
+  revoked_at TIMESTAMPTZ,
+  revoke_reason TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CHECK (scopes <@ ARRAY['queues:read', 'queues:write', 'webhooks:read', 'webhooks:write']::TEXT[])
+);
+
+CREATE INDEX developer_api_keys_project_status_idx
+  ON developer_api_keys (developer_project_id, status, created_at DESC);
+
+CREATE INDEX developer_api_keys_prefix_idx
+  ON developer_api_keys (key_prefix);
 
 CREATE TABLE auth_mfa_factors (
   id BIGSERIAL PRIMARY KEY,

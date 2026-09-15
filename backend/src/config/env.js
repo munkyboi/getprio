@@ -126,6 +126,7 @@ const authBearerCompatibilityEnabled = process.env.AUTH_BEARER_COMPATIBILITY_ENA
 const sessionInactivityMinutes = Number(process.env.SESSION_INACTIVITY_MINUTES || 10080);
 const mfaEncryptionSecret = process.env.MFA_ENCRYPTION_SECRET || jwtSecret;
 const mfaRecoveryPepper = process.env.MFA_RECOVERY_PEPPER || jwtSecret;
+const developerApiKeyPepper = process.env.DEVELOPER_API_KEY_PEPPER || jwtSecret;
 
 const env = {
   nodeEnv,
@@ -202,7 +203,8 @@ const env = {
   authBearerCompatibilityEnabled,
   sessionInactivityMinutes,
   mfaEncryptionSecret,
-  mfaRecoveryPepper
+  mfaRecoveryPepper,
+  developerApiKeyPepper
 };
 
 module.exports = env;
