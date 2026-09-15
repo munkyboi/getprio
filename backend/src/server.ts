@@ -7,6 +7,7 @@ import organizerCampaignService from "./services/organizerCampaignService";
 import queueLifecycleWorkerModule from "./services/queueLifecycleWorker";
 import allowanceWarningService from "./services/allowanceWarningService";
 import developerWebhookDispatcherModule from "./services/developerWebhookDispatcher";
+import developerWebhookDeliveries from "./repositories/developerWebhookDeliveries";
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => {
@@ -66,7 +67,9 @@ async function start(): Promise<void> {
   }, 60_000);
   staffAccessEmailTimer.unref();
   const developerWebhookDispatcher = env.developerWebhookDispatchEnabled
-    ? developerWebhookDispatcherModule.createDeveloperWebhookDispatcher()
+    ? developerWebhookDispatcherModule.createDeveloperWebhookDispatcher({
+      cleanupExpired: () => developerWebhookDeliveries.purgeExpiredPayloads()
+    })
     : null;
   developerWebhookDispatcher?.start();
   let workerStopPromise: Promise<void> | undefined;
