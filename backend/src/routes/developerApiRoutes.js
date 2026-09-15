@@ -9,6 +9,7 @@ const queueService = require("../services/queueService");
 const queueEvents = require("../services/queueEvents");
 const entitlementAdmissionService = require("../services/entitlementAdmissionService");
 const storeHoursService = require("../services/storeHoursService");
+const { validateEmail } = require("../services/authService");
 const { assertPublicTextFieldsAllowed } = require("../services/contentModeration");
 const idempotencyService = require("../services/idempotencyService");
 const idempotencyRepository = require("../repositories/idempotency");
@@ -376,11 +377,18 @@ router.post(
     const externalReference = cleanExternalReference(
       readBodyValue(req.body, "externalReference", "external_reference")
     );
-    const customerEmail = cleanOptionalText(
-      readBodyValue(req.body, "customerEmail", "customer_email"),
-      "customerEmail",
-      320
-    );
+    const rawInvitationEmail = readBodyValue(req.body, "invitationEmail", "invitation_email");
+    const rawCustomerEmail = readBodyValue(req.body, "customerEmail", "customer_email");
+    if (rawInvitationEmail !== undefined && rawCustomerEmail !== undefined) {
+      const error = new Error("Supply only one invitation email address.");
+      error.statusCode = 400;
+      error.code = "INVALID_REQUEST";
+      throw error;
+    }
+    const rawEmail = rawInvitationEmail !== undefined ? rawInvitationEmail : rawCustomerEmail;
+    const customerEmail = rawEmail === undefined || rawEmail === null || rawEmail === ""
+      ? undefined
+      : validateEmail(rawEmail);
     const customerPhone = cleanOptionalText(
       readBodyValue(req.body, "customerPhone", "customer_phone"),
       "customerPhone",

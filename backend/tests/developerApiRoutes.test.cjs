@@ -204,6 +204,13 @@ test("developer API publishes its OpenAPI document", async () => {
     assert.ok(body.paths["/queues/{tenantSlug}/stream"].get.security);
     assert.ok(body.paths["/queues/{tenantSlug}/tickets"].post.security);
     assert.ok(body.paths["/queues/{tenantSlug}/tickets"].post.requestBody);
+    assert.deepEqual(body.components.schemas.IssueTicketRequest.properties.invitationEmail, {
+      type: "string",
+      format: "email",
+      maxLength: 254,
+      description: "Optional recipient email for an in-app ticket invitation. Matching and delivery outcomes are not disclosed."
+    });
+    assert.equal(body.components.schemas.IssueTicketRequest.properties.customerEmail.deprecated, true);
     assert.ok(body.paths["/queues/{tenantSlug}/tickets/{ticketId}"].get.security);
     assert.ok(body.paths["/queues/{tenantSlug}/tickets/{ticketId}/events"].get.security);
     assert.ok(body.paths["/queues/{tenantSlug}/locations/{locationSlug}/tickets/{ticketId}/events"].get.security);
@@ -339,6 +346,7 @@ test("developer API issues a ticket with a queues:write key", async () => {
   idempotencyRepository.fail = async () => {};
   queueService.createTicket = async (input) => {
     assert.equal(input.customerName, "Ada Lovelace");
+    assert.equal(input.customerEmail, "ada@example.com");
     assert.equal(input.externalReference, "visit-42");
     assert.equal(input.developerProjectId, "project-1");
     assert.equal(input.developerEnvironment, "sandbox");
@@ -354,7 +362,7 @@ test("developer API issues a ticket with a queues:write key", async () => {
 
   const { server, baseUrl } = await startServer();
   try {
-    const result = await requestJsonMethod("POST", `${baseUrl}/queues/harbor/tickets`, "sandbox-api.getprio.online", { "x-api-key": "gpk_sbx_write", "Idempotency-Key": "ticket-issue-ada-1" }, { displayLabel: "Ada Lovelace", externalReference: "visit-42" });
+    const result = await requestJsonMethod("POST", `${baseUrl}/queues/harbor/tickets`, "sandbox-api.getprio.online", { "x-api-key": "gpk_sbx_write", "Idempotency-Key": "ticket-issue-ada-1" }, { displayLabel: "Ada Lovelace", invitationEmail: "Ada@Example.com", externalReference: "visit-42" });
     assert.equal(result.status, 201);
     assert.equal(result.body.request_id, "test-correlation-123");
     assert.deepEqual(result.body.data.ticket, {
@@ -399,7 +407,10 @@ test("developer API validates optional ticket fields before admission", async ()
     for (const payload of [
       { displayLabel: "valid\ninvalid" },
       { externalReference: "contains spaces" },
-      { externalReference: "x".repeat(129) }
+      { externalReference: "x".repeat(129) },
+      { invitationEmail: "invalid-email" },
+      { invitationEmail: { address: "one@example.com" } },
+      { invitationEmail: "one@example.com", customerEmail: "two@example.com" }
     ]) {
       const result = await requestJsonMethod(
         "POST",
