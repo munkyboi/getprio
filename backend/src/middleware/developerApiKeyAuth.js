@@ -18,9 +18,34 @@ function getApiEnvironment(req) {
   return "unknown";
 }
 
+function authenticationError(message, code, statusCode = 401) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  error.code = code;
+  return error;
+}
+
 function getApiKey(req) {
-  const value = String(req.headers["x-api-key"] || "").trim();
-  return value || null;
+  const legacyValue = String(req.headers["x-api-key"] || "").trim();
+  const authorization = String(req.headers.authorization || "").trim();
+
+  if (legacyValue && authorization) {
+    throw authenticationError(
+      "Use one API authentication transport per request.",
+      "API_AUTH_AMBIGUOUS",
+      400
+    );
+  }
+
+  if (authorization) {
+    const match = /^Bearer\s+(\S+)$/i.exec(authorization);
+    if (!match) {
+      throw authenticationError("Bearer API authentication is malformed.", "API_KEY_INVALID");
+    }
+    return match[1];
+  }
+
+  return legacyValue || null;
 }
 
 async function authenticateDeveloperApiKey(req, res, next) {
