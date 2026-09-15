@@ -13,6 +13,7 @@ import pushRoutes from "./routes/pushRoutes";
 import mobilePushRoutes from "./routes/mobilePushRoutes";
 import mobileQueueJoinRoutes from "./routes/mobileQueueJoinRoutes";
 import mobileOAuthRoutes from "./routes/mobileOAuthRoutes";
+import mobileTicketLinkRoutes from "./routes/mobileTicketLinkRoutes";
 import vendorRoutes from "./routes/vendorRoutes";
 import developerApiRoutes from "./routes/developerApiRoutes";
 import developerAuthRoutes from "./routes/developerAuthRoutes";
@@ -119,6 +120,7 @@ app.use("/api/push", pushRoutes);
 app.use("/api/mobile/push", mobilePushRoutes);
 app.use("/api/mobile", mobileQueueJoinRoutes);
 app.use("/api/mobile/auth", mobileOAuthRoutes);
+app.use("/api/v1/mobile", mobileTicketLinkRoutes);
 app.use("/api/vendor", vendorRoutes);
 app.use("/v1", developerApiRoutes);
 
