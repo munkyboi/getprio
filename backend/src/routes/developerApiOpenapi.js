@@ -69,7 +69,7 @@ const queueWritePath = ({ operationId, summary, location = false }) => ({
       }
     },
     responses: {
-      "201": envelopeResponse("Issued queue ticket"),
+      "201": envelopeResponse("Issued queue ticket and private mobile link"),
       "400": { description: "Invalid ticket details." },
       "401": { description: "Missing or invalid API key." },
       "403": { description: "API key is missing the queues:write scope." },

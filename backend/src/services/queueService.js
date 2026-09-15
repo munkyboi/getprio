@@ -13,6 +13,7 @@ const queueLifecycle = require("./queueLifecycle");
 const queueDayLifecycleService = require("./queueDayLifecycleService");
 const notificationService = require("./notificationService");
 const pushNotificationService = require("./pushNotificationService");
+const mobileTicketLinkService = require("./mobileTicketLinkService");
 const allowanceService = require("./allowanceService");
 const {
   buildQueueEventActor,
@@ -318,11 +319,12 @@ async function createTicket({
   servicePriorityBand,
   otpChainId,
   allowanceReservationKey,
-  developerWebhook
+  developerWebhook,
+  developerMobileLink
 }) {
   const resolvedLocation = await resolveLocation(tenant, { location });
   await assertQueueIntakeOpen(tenant, resolvedLocation);
-  const ticket = await db.withTransaction(async (client) => {
+  const transactionResult = await db.withTransaction(async (client) => {
     const createdTicket = await createTicketForTenantInTransaction(client, {
       tenant,
       location: resolvedLocation,
@@ -341,6 +343,14 @@ async function createTicket({
       otpChainId,
       allowanceReservationKey
     });
+    const mobileLink = developerMobileLink
+      ? await mobileTicketLinkService.issuePrivateLink({
+        ticketId: createdTicket._id,
+        developerProjectId: developerMobileLink.projectId,
+        environment: developerMobileLink.environment,
+        client
+      })
+      : null;
 
     const actor = buildQueueEventActor({
       actorUserId,
@@ -358,8 +368,9 @@ async function createTicket({
       developerWebhook
     });
 
-    return createdTicket;
+    return { ticket: createdTicket, mobileLink };
   });
+  const { ticket, mobileLink } = transactionResult;
 
   pushNotificationService.notifyCustomerQueueUpdate({ tenant, ticket, action: "joined" }).catch((error) => {
     console.warn("[push-customer-queue-joined-skipped]", error.message);
@@ -378,7 +389,7 @@ async function createTicket({
   }
   await notificationService.notifyJourneyLifecycle({ ticket, tenant, slot: "joined", action: "joined" });
 
-  return { ticket, snapshot };
+  return { ticket, snapshot, ...(mobileLink ? { mobileLink } : {}) };
 }
 
 async function createTicketForTenantInTransaction(client, {
