@@ -28,6 +28,7 @@
 .developer-portal-section { border-top: 1px solid #1e2b40; }
 .developer-portal-grid, .developer-portal-endpoints { display: grid; grid-template-columns: 1fr; gap: 1rem; }
 .developer-portal-grid article, .developer-portal-endpoints article { border: 1px solid #273852; background: #111c2e; border-radius: .8rem; padding: 1.25rem; }
+.developer-portal-doc-link { display: inline-flex; align-items: center; min-height: 2.75rem; margin-top: .4rem; color: #fff; font-weight: 700; text-underline-offset: .2em; }
 .developer-portal-grid strong { color: #83a1ff; font-size: 1.5rem; }
 .developer-portal-endpoints article > span { color: #83a1ff; font-weight: 800; }
 .developer-portal-endpoints code { display: block; color: #fff; overflow-wrap: anywhere; margin: .8rem 0; }

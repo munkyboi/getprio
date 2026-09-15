@@ -1,4 +1,5 @@
 const express = require("express");
+const openApiDocument = require("./developerApiOpenapi");
 
 const router = express.Router();
 
@@ -56,6 +57,11 @@ router.get("/health", (req, res) => {
     version: "v1",
     environment: getEnvironment(req)
   });
+});
+
+router.get("/openapi.json", (_req, res) => {
+  res.setHeader("Cache-Control", "public, max-age=300");
+  res.type("application/json").json(openApiDocument);
 });
 
 module.exports = router;
