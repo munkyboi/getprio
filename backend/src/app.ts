@@ -118,13 +118,28 @@ app.use("/api/billing", billingRoutes);
 app.use("/api/platform", platformRoutes);
 app.use("/api/public", publicRoutes);
 app.use("/api/push", pushRoutes);
+app.use("/api/mobile/auth", mobileOAuthRoutes);
 app.use("/api/mobile/push", mobilePushRoutes);
 app.use("/api/mobile", mobileQueueJoinRoutes);
-app.use("/api/mobile/auth", mobileOAuthRoutes);
-app.use("/api/v1/mobile", mobileTicketLinkRoutes);
-app.use("/api/v1/mobile", mobileTicketRoutes);
 app.use("/api/vendor", vendorRoutes);
 app.use("/v1", developerApiRoutes);
+
+// Keep the legacy namespace available while first-party clients migrate to v1.
+// Reuse the same routers and middleware so authorization and response contracts remain identical.
+app.use("/api/v1/auth", authRoutes);
+app.use("/api/v1/developer", developerAuthRoutes);
+app.use("/api/v1/developer", developerProjectRoutes);
+app.use("/api/v1/account", accountRoutes);
+app.use("/api/v1/billing", billingRoutes);
+app.use("/api/v1/platform", platformRoutes);
+app.use("/api/v1/public", publicRoutes);
+app.use("/api/v1/mobile/auth", mobileOAuthRoutes);
+app.use("/api/v1/push", pushRoutes);
+app.use("/api/v1/mobile/push", mobilePushRoutes);
+app.use("/api/v1/mobile", mobileTicketLinkRoutes);
+app.use("/api/v1/mobile", mobileTicketRoutes);
+app.use("/api/v1/mobile", mobileQueueJoinRoutes);
+app.use("/api/v1/vendor", vendorRoutes);
 
 app.use(errorHandler);
 
