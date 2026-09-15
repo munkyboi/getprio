@@ -31,6 +31,7 @@ import PaymentReturnPage from "./pages/PaymentReturnPage";
 import TermsPage from "./pages/TermsPage";
 import NotFoundPage from "./pages/NotFoundPage";
 import DeveloperPortalPage from "./pages/DeveloperPortalPage";
+import DeveloperReferencePage from "./pages/DeveloperReferencePage";
 import SiteFooter from "./components/SiteFooter";
 import CustomerAccountLayout from "./components/CustomerAccountLayout";
 import {
@@ -334,6 +335,9 @@ export default function App() {
   const developerHost = typeof window !== "undefined" && ["developers.getprio.online"].includes(window.location.hostname);
 
   if (developerHost) {
+    if (typeof window !== "undefined" && window.location.pathname === "/reference") {
+      return <DeveloperReferencePage />;
+    }
     return <DeveloperPortalPage />;
   }
 
