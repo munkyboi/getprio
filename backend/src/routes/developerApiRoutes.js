@@ -4,6 +4,7 @@ const asyncHandler = require("../middleware/asyncHandler");
 const tenantRepository = require("../repositories/tenants");
 const storeLocationRepository = require("../repositories/storeLocations");
 const ticketRepository = require("../repositories/tickets");
+const queueEventRepository = require("../repositories/queueEvents");
 const queueService = require("../services/queueService");
 const queueEvents = require("../services/queueEvents");
 const entitlementAdmissionService = require("../services/entitlementAdmissionService");
@@ -128,6 +129,43 @@ function formatTicketResource(ticket) {
   };
 }
 
+function formatTicketEvent(event) {
+  const eventType = {
+    ticket_created: "ticket.issued",
+    ticket_called: "ticket.called",
+    ticket_served: "ticket.served",
+    ticket_skipped: "ticket.skipped",
+    ticket_requeued: "ticket.restored",
+    ticket_cancelled: "ticket.cancelled",
+    ticket_unserved: "ticket.unserved",
+    ticket_expired: "ticket.expired"
+  }[event.eventType] || event.eventType;
+  return {
+    id: event._id,
+    ticket_id: event.ticketId,
+    location_id: event.locationId,
+    queue_date_key: event.queueDateKey,
+    type: eventType,
+    resource_version: event._id,
+    from_status: event.fromStatus,
+    to_status: event.toStatus,
+    source: event.source,
+    occurred_at: event.createdAt
+  };
+}
+
+function readEventCursor(value) {
+  if (value === undefined) return null;
+  const normalized = String(value).trim();
+  if (!/^\d+$/.test(normalized) || !Number.isSafeInteger(Number(normalized))) {
+    const error = new Error("cursor must be an opaque event cursor returned by the API.");
+    error.statusCode = 400;
+    error.code = "INVALID_REQUEST";
+    throw error;
+  }
+  return normalized;
+}
+
 function readBodyValue(body, camelName, snakeName) {
   return body?.[camelName] ?? body?.[snakeName];
 }
@@ -153,6 +191,19 @@ function readBoolean(value, label) {
   error.statusCode = 400;
   error.code = "INVALID_REQUEST";
   throw error;
+}
+
+function readEventLimit(value) {
+  if (value === undefined) return 50;
+  const normalized = String(value).trim();
+  const limit = Number(normalized);
+  if (!/^\d+$/.test(normalized) || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+    const error = new Error("limit must be an integer between 1 and 100.");
+    error.statusCode = 400;
+    error.code = "INVALID_REQUEST";
+    throw error;
+  }
+  return limit;
 }
 
 async function runIdempotentMutation(req, res, { scope, payload, run }) {
@@ -469,8 +520,31 @@ router.get(
   requireApiScope("queues:read"),
   asyncHandler(async (req, res) => {
     const { tenant, location } = await getQueueContext(req);
+    if (!location) throw notFound("Queue location not found.");
     const ticket = await getScopedTicket(req, tenant, location);
     sendEnvelope(req, res, { ticket: formatTicketResource(ticket) });
+  })
+);
+
+router.get(
+  ["/queues/:tenantSlug/tickets/:ticketId/events", "/queues/:tenantSlug/locations/:locationSlug/tickets/:ticketId/events"],
+  authenticateDeveloperApiKey,
+  requireApiScope("queues:read"),
+  asyncHandler(async (req, res) => {
+    const { tenant, location } = await getQueueContext(req);
+    if (!location) throw notFound("Queue location not found.");
+    const ticket = await getScopedTicket(req, tenant, location);
+    const result = await queueEventRepository.listTicketEvents({
+      tenantId: tenant._id,
+      locationId: location._id,
+      ticketId: ticket._id,
+      limit: readEventLimit(req.query.limit),
+      afterId: readEventCursor(req.query.cursor)
+    });
+    sendEnvelope(req, res, {
+      events: result.events.map(formatTicketEvent),
+      next_cursor: result.nextCursor
+    });
   })
 );
 
