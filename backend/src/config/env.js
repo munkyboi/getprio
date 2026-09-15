@@ -128,6 +128,8 @@ const sessionInactivityMinutes = Number(process.env.SESSION_INACTIVITY_MINUTES |
 const mfaEncryptionSecret = process.env.MFA_ENCRYPTION_SECRET || jwtSecret;
 const mfaRecoveryPepper = process.env.MFA_RECOVERY_PEPPER || jwtSecret;
 const developerApiKeyPepper = process.env.DEVELOPER_API_KEY_PEPPER || jwtSecret;
+const developerApiReadRateLimitPerMinute = Number(process.env.DEVELOPER_API_READ_RATE_LIMIT_PER_MINUTE || 600);
+const developerApiWriteRateLimitPerMinute = Number(process.env.DEVELOPER_API_WRITE_RATE_LIMIT_PER_MINUTE || 120);
 const developerWebhookConfig = resolveDeveloperWebhookConfig(process.env, nodeEnv);
 
 const env = {
@@ -207,6 +209,8 @@ const env = {
   mfaEncryptionSecret,
   mfaRecoveryPepper,
   developerApiKeyPepper,
+  developerApiReadRateLimitPerMinute,
+  developerApiWriteRateLimitPerMinute,
   ...developerWebhookConfig
 };
 

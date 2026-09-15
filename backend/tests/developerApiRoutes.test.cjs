@@ -13,6 +13,14 @@ const entitlementAdmissionService = require("../src/services/entitlementAdmissio
 const storeHoursService = require("../src/services/storeHoursService");
 const idempotencyService = require("../src/services/idempotencyService");
 const idempotencyRepository = require("../src/repositories/idempotency");
+const developerApiRateLimits = require("../src/repositories/developerApiRateLimits");
+
+const originalDeveloperApiRateLimitConsume = developerApiRateLimits.consume;
+developerApiRateLimits.consume = async () => ({ limit: 600, remaining: 599, windowSeconds: 60 });
+
+test.after(() => {
+  developerApiRateLimits.consume = originalDeveloperApiRateLimitConsume;
+});
 
 async function startServer() {
   const app = express();
