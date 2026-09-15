@@ -88,6 +88,30 @@ function buildDeveloperApiKey({ id, scopes }) {
   };
 }
 
+function buildTicketFixture(overrides = {}) {
+  return {
+    _id: 42,
+    tenantId: "tenant-1",
+    locationId: "location-1",
+    ticketNumber: "A-042",
+    lookupCode: "PRIVATE",
+    status: "waiting",
+    joinChannel: "vendor",
+    servicePriorityBand: "normal",
+    statusReason: null,
+    calledAt: null,
+    servedAt: null,
+    skippedAt: null,
+    cancelledAt: null,
+    unservedAt: null,
+    terminalAt: null,
+    dateKey: "20260915",
+    createdAt: "2026-09-15T06:00:00.000Z",
+    updatedAt: "2026-09-15T06:00:00.000Z",
+    ...overrides
+  };
+}
+
 test("developer API metadata identifies the production environment", async () => {
   const { server, baseUrl } = await startServer();
   try {
@@ -172,6 +196,8 @@ test("developer API publishes its OpenAPI document", async () => {
     assert.ok(body.paths["/queues/{tenantSlug}/locations/{locationSlug}/current/serve"].post.security);
     assert.ok(body.paths["/queues/{tenantSlug}/current/skip"].post.security);
     assert.ok(body.paths["/queues/{tenantSlug}/locations/{locationSlug}/current/skip"].post.security);
+    assert.ok(body.paths["/queues/{tenantSlug}/tickets/{ticketId}/cancel"].post.security);
+    assert.ok(body.paths["/queues/{tenantSlug}/tickets/{ticketId}/restore"].post.security);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
@@ -571,6 +597,77 @@ test("developer API resolves the current ticket through serve and skip actions",
     tenantRepository.findTenantBySlug = originalFindTenantBySlug;
     storeLocationRepository.findPrimaryLocationByTenantId = originalFindPrimaryLocationByTenantId;
     queueService.updateCurrentTicketStatus = originalUpdateCurrentTicketStatus;
+    idempotencyService.claim = originalClaim;
+    idempotencyRepository.complete = originalComplete;
+    idempotencyRepository.fail = originalFail;
+  }
+});
+
+test("developer API cancels and restores tickets by scoped ID", async () => {
+  const originalFindApiKeyByHash = developerProjects.findApiKeyByHash;
+  const originalTouchApiKey = developerProjects.touchApiKey;
+  const originalFindTenantBySlug = tenantRepository.findTenantBySlug;
+  const originalFindPrimaryLocationByTenantId = storeLocationRepository.findPrimaryLocationByTenantId;
+  const originalFindTicketById = ticketRepository.findTicketById;
+  const originalCancelTicket = queueService.cancelTicket;
+  const originalRestoreSkippedTicket = queueService.restoreSkippedTicket;
+  const originalClaim = idempotencyService.claim;
+  const originalComplete = idempotencyRepository.complete;
+  const originalFail = idempotencyRepository.fail;
+  let ticketStatus = "waiting";
+  developerProjects.findApiKeyByHash = async () => buildDeveloperApiKey({ id: "key-write", scopes: ["queues:write"] });
+  developerProjects.touchApiKey = async () => {};
+  tenantRepository.findTenantBySlug = async () => ({ _id: "tenant-1", slug: "harbor", name: "Harbor Services" });
+  storeLocationRepository.findPrimaryLocationByTenantId = async () => ({ _id: "location-1", slug: "main", isActive: true });
+  ticketRepository.findTicketById = async () => buildTicketFixture({ status: ticketStatus });
+  idempotencyService.claim = async ({ key }) => ({ state: "claimed", record: { id: key } });
+  idempotencyRepository.complete = async (_recordId, statusCode) => assert.equal(statusCode, 200);
+  idempotencyRepository.fail = async () => {};
+  queueService.cancelTicket = async (_tenant, lookupCode, options) => {
+    assert.equal(lookupCode, "PRIVATE");
+    assert.equal(options.actorRole, "developer_api");
+    ticketStatus = "cancelled";
+    return { ticket: buildTicketFixture({ status: ticketStatus, cancelledAt: "2026-09-15T06:06:00.000Z", terminalAt: "2026-09-15T06:06:00.000Z" }) };
+  };
+  queueService.restoreSkippedTicket = async (_tenant, ticketId, options) => {
+    assert.equal(ticketId, 42);
+    assert.equal(options.actorRole, "developer_api");
+    ticketStatus = "waiting";
+    return { ticket: buildTicketFixture({ status: ticketStatus }) };
+  };
+
+  const { server, baseUrl } = await startServer();
+  try {
+    const cancel = await requestJsonMethod(
+      "POST",
+      `${baseUrl}/queues/harbor/tickets/42/cancel`,
+      "sandbox-api.getprio.online",
+      { "x-api-key": "gpk_sbx_write", "Idempotency-Key": "cancel-ticket-1" },
+      {}
+    );
+    assert.equal(cancel.status, 200);
+    assert.equal(cancel.body.data.ticket.status, "cancelled");
+
+    ticketStatus = "skipped";
+    const restore = await requestJsonMethod(
+      "POST",
+      `${baseUrl}/queues/harbor/tickets/42/restore`,
+      "sandbox-api.getprio.online",
+      { "x-api-key": "gpk_sbx_write", "Idempotency-Key": "restore-ticket-1" },
+      {}
+    );
+    assert.equal(restore.status, 200);
+    assert.equal(restore.body.data.ticket.status, "waiting");
+    assert.equal(restore.body.data.ticket.lookup_code, undefined);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    developerProjects.findApiKeyByHash = originalFindApiKeyByHash;
+    developerProjects.touchApiKey = originalTouchApiKey;
+    tenantRepository.findTenantBySlug = originalFindTenantBySlug;
+    storeLocationRepository.findPrimaryLocationByTenantId = originalFindPrimaryLocationByTenantId;
+    ticketRepository.findTicketById = originalFindTicketById;
+    queueService.cancelTicket = originalCancelTicket;
+    queueService.restoreSkippedTicket = originalRestoreSkippedTicket;
     idempotencyService.claim = originalClaim;
     idempotencyRepository.complete = originalComplete;
     idempotencyRepository.fail = originalFail;

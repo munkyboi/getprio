@@ -16,6 +16,10 @@ const endpoints = [
   { method: "POST", path: "/queues/:tenantSlug/current/skip", description: "Skip the current called ticket at the tenant's primary location." },
   { method: "POST", path: "/queues/:tenantSlug/locations/:locationSlug/current/serve", description: "Serve the current called ticket at one location." },
   { method: "POST", path: "/queues/:tenantSlug/locations/:locationSlug/current/skip", description: "Skip the current called ticket at one location." },
+  { method: "POST", path: "/queues/:tenantSlug/tickets/:ticketId/cancel", description: "Cancel a waiting ticket by ID." },
+  { method: "POST", path: "/queues/:tenantSlug/tickets/:ticketId/restore", description: "Restore a skipped ticket by ID." },
+  { method: "POST", path: "/queues/:tenantSlug/locations/:locationSlug/tickets/:ticketId/cancel", description: "Cancel a waiting ticket at one location." },
+  { method: "POST", path: "/queues/:tenantSlug/locations/:locationSlug/tickets/:ticketId/restore", description: "Restore a skipped ticket at one location." },
   { method: "GET", path: "/queues/:tenantSlug/tickets/:ticketId", description: "Read one ticket's status without exposing customer contact details." },
   { method: "GET", path: "/queues/:tenantSlug/locations/:locationSlug/tickets/:ticketId", description: "Read one location ticket's status without exposing customer contact details." }
 ];
