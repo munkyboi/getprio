@@ -79,6 +79,23 @@ const queueWritePath = ({ operationId, summary, location = false }) => ({
   }
 });
 
+const queueActionPath = ({ operationId, summary, location = false }) => ({
+  post: {
+    operationId,
+    summary,
+    security: [{ ApiKeyAuth: [] }],
+    parameters: [...queueParameters(location), idempotencyParameter],
+    responses: {
+      "200": envelopeResponse("Queue action result"),
+      "400": { description: "The queue cannot advance until the current ticket is resolved." },
+      "401": { description: "Missing or invalid API key." },
+      "403": { description: "API key is missing the queues:write scope." },
+      "404": { description: location ? "Tenant or location not found." : "Tenant not found." },
+      "409": { description: "Queue intake is unavailable or the idempotency key is already in use." }
+    }
+  }
+});
+
 const queueTicketReadPath = ({ operationId, summary, location = false }) => ({
   get: {
     operationId,
@@ -146,6 +163,15 @@ const openApiDocument = {
     "/queues/{tenantSlug}/locations/{locationSlug}/tickets": queueWritePath({
       operationId: "issueLocationQueueTicket",
       summary: "Issue a queue ticket at a location",
+      location: true
+    }),
+    "/queues/{tenantSlug}/call-next": queueActionPath({
+      operationId: "callNextQueueTicket",
+      summary: "Call the next waiting ticket"
+    }),
+    "/queues/{tenantSlug}/locations/{locationSlug}/call-next": queueActionPath({
+      operationId: "callNextLocationQueueTicket",
+      summary: "Call the next waiting ticket at a location",
       location: true
     }),
     "/queues/{tenantSlug}/tickets/{ticketId}": queueTicketReadPath({

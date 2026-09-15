@@ -287,6 +287,51 @@ router.post(
   })
 );
 
+router.post(
+  ["/queues/:tenantSlug/call-next", "/queues/:tenantSlug/locations/:locationSlug/call-next"],
+  authenticateDeveloperApiKey,
+  requireApiScope("queues:write"),
+  asyncHandler(async (req, res) => {
+    const { tenant, location } = await getQueueContext(req);
+    if (!location) throw notFound("Queue location not found.");
+
+    const idempotency = await idempotencyService.claim({
+      actorId: req.apiKey.createdByUserId,
+      scope: `developer_api.queue.call_next:${req.apiKey.id}`,
+      key: req.get("Idempotency-Key"),
+      payload: {
+        tenantSlug: req.params.tenantSlug,
+        locationSlug: req.params.locationSlug || null,
+        body: req.body || {}
+      }
+    });
+    if (idempotency.state === "replay") {
+      res.status(idempotency.statusCode)
+        .setHeader("Cache-Control", "no-store")
+        .setHeader("X-API-Version", "v1")
+        .json(idempotency.body);
+      return;
+    }
+
+    try {
+      const result = await queueService.callNextTicket(tenant, {
+        location,
+        actorUserId: req.apiKey.createdByUserId,
+        actorRole: "developer_api",
+        source: "developer_api"
+      });
+      const responseBody = envelopeBody(req, {
+        ticket: result?.ticket ? formatTicketResource(result.ticket) : null
+      });
+      await idempotencyRepository.complete(idempotency.record.id, 200, responseBody);
+      res.setHeader("Cache-Control", "no-store").setHeader("X-API-Version", "v1").json(responseBody);
+    } catch (error) {
+      await idempotencyRepository.fail(idempotency.record.id).catch(() => {});
+      throw error;
+    }
+  })
+);
+
 router.get(
   ["/queues/:tenantSlug/tickets/:ticketId", "/queues/:tenantSlug/locations/:locationSlug/tickets/:ticketId"],
   authenticateDeveloperApiKey,

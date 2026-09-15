@@ -75,6 +75,19 @@ function requestJson(url, host, headers = {}) {
   });
 }
 
+function buildDeveloperApiKey({ id, scopes }) {
+  return {
+    id,
+    projectId: "project-1",
+    environment: "sandbox",
+    scopes,
+    createdByUserId: "user-1",
+    status: "active",
+    projectStatus: "active",
+    accountStatus: "active"
+  };
+}
+
 test("developer API metadata identifies the production environment", async () => {
   const { server, baseUrl } = await startServer();
   try {
@@ -153,6 +166,8 @@ test("developer API publishes its OpenAPI document", async () => {
     assert.ok(body.paths["/queues/{tenantSlug}/tickets"].post.security);
     assert.ok(body.paths["/queues/{tenantSlug}/tickets"].post.requestBody);
     assert.ok(body.paths["/queues/{tenantSlug}/tickets/{ticketId}"].get.security);
+    assert.ok(body.paths["/queues/{tenantSlug}/call-next"].post.security);
+    assert.ok(body.paths["/queues/{tenantSlug}/locations/{locationSlug}/call-next"].post.security);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
@@ -266,16 +281,7 @@ test("developer API issues a ticket with a queues:write key", async () => {
     complete: idempotencyRepository.complete,
     fail: idempotencyRepository.fail
   };
-  developerProjects.findApiKeyByHash = async () => ({
-    id: "key-write",
-    projectId: "project-1",
-    environment: "sandbox",
-    scopes: ["queues:write"],
-    createdByUserId: "user-1",
-    status: "active",
-    projectStatus: "active",
-    accountStatus: "active"
-  });
+  developerProjects.findApiKeyByHash = async () => buildDeveloperApiKey({ id: "key-write", scopes: ["queues:write"] });
   developerProjects.touchApiKey = async () => {};
   tenantRepository.findTenantBySlug = async () => ({ _id: "tenant-1", slug: "harbor", name: "Harbor Services" });
   storeLocationRepository.findPrimaryLocationByTenantId = async () => ({ _id: "location-1", slug: "main", isActive: true });
@@ -393,5 +399,101 @@ test("developer API returns a scoped ticket status without customer details", as
     Object.assign(tenantRepository, { findTenantBySlug: originals.findTenantBySlug });
     Object.assign(storeLocationRepository, { findPrimaryLocationByTenantId: originals.findPrimaryLocationByTenantId });
     Object.assign(ticketRepository, { findTicketById: originals.findTicketById });
+  }
+});
+
+test("developer API calls the next waiting ticket with idempotency", async () => {
+  const originalFindApiKeyByHash = developerProjects.findApiKeyByHash;
+  const originalTouchApiKey = developerProjects.touchApiKey;
+  const originalFindTenantBySlug = tenantRepository.findTenantBySlug;
+  const originalFindPrimaryLocationByTenantId = storeLocationRepository.findPrimaryLocationByTenantId;
+  const originalCallNextTicket = queueService.callNextTicket;
+  const originalClaim = idempotencyService.claim;
+  const originalComplete = idempotencyRepository.complete;
+  const originalFail = idempotencyRepository.fail;
+  developerProjects.findApiKeyByHash = async () => buildDeveloperApiKey({ id: "key-write", scopes: ["queues:write"] });
+  developerProjects.touchApiKey = async () => {};
+  tenantRepository.findTenantBySlug = async () => ({ _id: "tenant-1", slug: "harbor", name: "Harbor Services" });
+  storeLocationRepository.findPrimaryLocationByTenantId = async () => ({ _id: "location-1", slug: "main", isActive: true });
+  idempotencyService.claim = async (input) => {
+    assert.equal(input.key, "call-next-ada-1");
+    return { state: "claimed", record: { id: 2 } };
+  };
+  idempotencyRepository.complete = async (recordId, statusCode, body) => {
+    assert.equal(recordId, 2);
+    assert.equal(statusCode, 200);
+    assert.equal(body.data.ticket.id, "42");
+  };
+  idempotencyRepository.fail = async () => {};
+  queueService.callNextTicket = async (tenant, options) => {
+    assert.equal(tenant._id, "tenant-1");
+    assert.equal(options.location._id, "location-1");
+    assert.equal(options.actorRole, "developer_api");
+    assert.equal(options.source, "developer_api");
+    return {
+      ticket: {
+        _id: 42,
+        tenantId: "tenant-1",
+        locationId: "location-1",
+        ticketNumber: "A-042",
+        lookupCode: "PRIVATE",
+        customerName: "Secret Name",
+        status: "called",
+        joinChannel: "vendor",
+        servicePriorityBand: "normal",
+        statusReason: null,
+        calledAt: "2026-09-15T06:05:00.000Z",
+        servedAt: null,
+        skippedAt: null,
+        cancelledAt: null,
+        unservedAt: null,
+        terminalAt: null,
+        dateKey: "20260915",
+        createdAt: "2026-09-15T06:00:00.000Z",
+        updatedAt: "2026-09-15T06:05:00.000Z"
+      }
+    };
+  };
+
+  const { server, baseUrl } = await startServer();
+  try {
+    const result = await requestJsonMethod(
+      "POST",
+      `${baseUrl}/queues/harbor/call-next`,
+      "sandbox-api.getprio.online",
+      { "x-api-key": "gpk_sbx_write", "Idempotency-Key": "call-next-ada-1" },
+      {}
+    );
+    assert.equal(result.status, 200);
+    assert.deepEqual(result.body.data.ticket, {
+      id: "42",
+      ticket_number: "A-042",
+      status: "called",
+      location_id: "location-1",
+      queue_date_key: "20260915",
+      join_channel: "vendor",
+      service_priority_band: "normal",
+      status_reason: null,
+      called_at: "2026-09-15T06:05:00.000Z",
+      served_at: null,
+      skipped_at: null,
+      cancelled_at: null,
+      unserved_at: null,
+      terminal_at: null,
+      created_at: "2026-09-15T06:00:00.000Z",
+      updated_at: "2026-09-15T06:05:00.000Z"
+    });
+    assert.equal(result.body.data.ticket.lookup_code, undefined);
+    assert.equal(result.body.data.ticket.customerName, undefined);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    developerProjects.findApiKeyByHash = originalFindApiKeyByHash;
+    developerProjects.touchApiKey = originalTouchApiKey;
+    tenantRepository.findTenantBySlug = originalFindTenantBySlug;
+    storeLocationRepository.findPrimaryLocationByTenantId = originalFindPrimaryLocationByTenantId;
+    queueService.callNextTicket = originalCallNextTicket;
+    idempotencyService.claim = originalClaim;
+    idempotencyRepository.complete = originalComplete;
+    idempotencyRepository.fail = originalFail;
   }
 });
