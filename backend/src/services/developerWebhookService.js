@@ -285,21 +285,36 @@ async function enqueueEvent({ projectId, environment, eventId, eventType, payloa
   }, options);
 }
 
-function buildSignatureHeader({ payload, secret, timestamp = Math.floor(Date.now() / 1000), period = 1 }) {
+function buildSignatureHeader({ payload, secret, previousSecret, previousSecretExpiresAt, timestamp = Math.floor(Date.now() / 1000), period = 1 }) {
   const body = rawPayload(payload);
   const signedPayload = `${timestamp}.${period}.${body}`;
-  const digest = crypto.createHmac("sha256", String(secret)).update(signedPayload).digest("hex");
-  return `t=${timestamp},p=${period},v1=${digest}`;
+  const secrets = [secret];
+  if (previousSecret && (!previousSecretExpiresAt || new Date(previousSecretExpiresAt).getTime() > timestamp * 1000)) {
+    secrets.push(previousSecret);
+  }
+  const signatures = secrets.map((value) => crypto.createHmac("sha256", String(value)).update(signedPayload).digest("hex"));
+  return `t=${timestamp},p=${period},${signatures.map((signature) => `v1=${signature}`).join(",")}`;
 }
 
-function verifySignature({ payload, header, secret, toleranceSeconds = 300, now = Math.floor(Date.now() / 1000) }) {
-  const values = Object.fromEntries(String(header || "").split(",").map((part) => part.split("=", 2)).filter(([key, value]) => key && value));
+function verifySignature({ payload, header, secret, previousSecret, previousSecretExpiresAt, toleranceSeconds = 300, now = Math.floor(Date.now() / 1000) }) {
+  const values = {};
+  for (const [key, value] of String(header || "").split(",").map((part) => part.split("=", 2)).filter(([partKey, partValue]) => partKey && partValue)) {
+    values[key] = values[key] ? [...(Array.isArray(values[key]) ? values[key] : [values[key]]), value] : value;
+  }
   const timestamp = Number(values.t);
   if (!Number.isSafeInteger(timestamp) || Math.abs(now - timestamp) > toleranceSeconds || !values.p || !values.v1) return false;
-  const expected = buildSignatureHeader({ payload, secret, timestamp, period: values.p }).split(",v1=")[1];
-  const received = Buffer.from(values.v1, "hex");
-  const expectedBuffer = Buffer.from(expected, "hex");
-  return received.length === expectedBuffer.length && crypto.timingSafeEqual(received, expectedBuffer);
+  const expectedValues = buildSignatureHeader({ payload, secret, previousSecret, previousSecretExpiresAt, timestamp, period: values.p })
+    .split(",")
+    .filter((value) => value.startsWith("v1="))
+    .map((value) => value.slice(3));
+  const receivedValues = Array.isArray(values.v1) ? values.v1 : [values.v1];
+  return receivedValues.some((value) => {
+    const received = Buffer.from(value, "hex");
+    return expectedValues.some((expected) => {
+      const expectedBuffer = Buffer.from(expected, "hex");
+      return received.length === expectedBuffer.length && crypto.timingSafeEqual(received, expectedBuffer);
+    });
+  });
 }
 
 module.exports = {

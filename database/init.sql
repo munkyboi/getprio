@@ -356,6 +356,8 @@ CREATE TABLE developer_webhook_registrations (
   payload_version INTEGER NOT NULL DEFAULT 1 CHECK (payload_version > 0),
   event_types TEXT[] NOT NULL CHECK (cardinality(event_types) > 0),
   signing_secret_ciphertext TEXT NOT NULL,
+  previous_signing_secret_ciphertext TEXT,
+  previous_signing_secret_expires_at TIMESTAMPTZ,
   status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'disabled')),
   disabled_at TIMESTAMPTZ,
   created_by_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
