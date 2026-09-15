@@ -13,7 +13,7 @@ const webhookService = require("../src/services/developerWebhookService");
 const securityEvents = require("../src/services/securityEventService");
 const router = require("../src/routes/developerProjectRoutes");
 
-const original = {
+  const original = {
   findSessionById: authSessions.findSessionById,
   touchSession: authSessions.touchSession,
   findUserById: users.findUserById,
@@ -65,6 +65,7 @@ function request(method, path, token, payload) {
 
 let server;
 let token;
+let rotationOptions;
 
 test.before(async () => {
   authSessions.findSessionById = async () => ({
@@ -109,10 +110,13 @@ test.before(async () => {
     status: "disabled",
     disabledAt: "2026-09-15T01:00:00.000Z"
   });
-  developerWebhooks.rotateRegistration = async (_projectId, _webhookId, _ciphertext) => ({
-    ...(await developerWebhooks.listRegistrations())[0],
-    previousSigningSecretExpiresAt: "2026-09-16T01:00:00.000Z"
-  });
+  developerWebhooks.rotateRegistration = async (_projectId, _webhookId, _ciphertext, options) => {
+    rotationOptions = options;
+    return {
+      ...(await developerWebhooks.listRegistrations())[0],
+      previousSigningSecretExpiresAt: "2026-09-16T01:00:00.000Z"
+    };
+  };
   webhookService.validateDestination = async (url) => String(url);
   webhookService.createSigningSecret = () => "whsec_test_secret";
   webhookService.encryptSecret = (secret) => `ciphertext:${secret}`;
@@ -182,9 +186,19 @@ test("developer webhook routes reject production registration pending approval",
 });
 
 test("developer webhook secret rotation returns the replacement secret once", async () => {
+  rotationOptions = undefined;
   const response = await request("POST", "/api/developer/projects/project-1/webhooks/webhook-1/rotate-secret", token);
   assert.equal(response.status, 200);
   assert.equal(response.body.secret, "whsec_test_secret");
   assert.equal(response.body.webhook.id, "webhook-1");
   assert.match(response.body.warning, /previous secret remains valid for 24 hours/);
+  assert.deepEqual(rotationOptions, {});
+});
+
+test("compromise rotation revokes the previous secret immediately", async () => {
+  rotationOptions = undefined;
+  const response = await request("POST", "/api/developer/projects/project-1/webhooks/webhook-1/rotate-secret/compromised", token);
+  assert.equal(response.status, 200);
+  assert.match(response.body.warning, /revoked immediately/);
+  assert.deepEqual(rotationOptions, { immediate: true });
 });

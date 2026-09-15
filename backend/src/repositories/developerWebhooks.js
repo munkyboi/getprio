@@ -86,10 +86,12 @@ async function disableRegistration(projectId, registrationId, options = {}) {
 }
 
 async function rotateRegistration(projectId, registrationId, signingSecretCiphertext, options = {}) {
+  const previousCiphertext = options.immediate ? "NULL" : "signing_secret_ciphertext";
+  const previousExpiry = options.immediate ? "NULL" : "NOW() + INTERVAL '24 hours'";
   const result = await queryClient(options.client).query(
     `UPDATE developer_webhook_registrations
-     SET previous_signing_secret_ciphertext = signing_secret_ciphertext,
-         previous_signing_secret_expires_at = NOW() + INTERVAL '24 hours',
+     SET previous_signing_secret_ciphertext = ${previousCiphertext},
+         previous_signing_secret_expires_at = ${previousExpiry},
          signing_secret_ciphertext = $3,
          updated_at = NOW()
      WHERE id = $1 AND developer_project_id = $2 AND status = 'active'
