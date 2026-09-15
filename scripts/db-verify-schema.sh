@@ -181,7 +181,9 @@ BEGIN
     ('entitlement_rollout_runs'),
     ('entitlement_rollout_anomalies'),
     ('mobile_push_registrations'),
-    ('mobile_oauth_codes')
+    ('mobile_oauth_codes'),
+    ('developer_webhook_registrations'),
+    ('developer_webhook_deliveries')
   ) required(table_name)
   WHERE to_regclass('public.' || table_name) IS NULL;
 
