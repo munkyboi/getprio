@@ -7,6 +7,7 @@ const developerProjects = require("../src/repositories/developerProjects");
 const tenantRepository = require("../src/repositories/tenants");
 const storeLocationRepository = require("../src/repositories/storeLocations");
 const ticketRepository = require("../src/repositories/tickets");
+const queueEventRepository = require("../src/repositories/queueEvents");
 const queueService = require("../src/services/queueService");
 const entitlementAdmissionService = require("../src/services/entitlementAdmissionService");
 const storeHoursService = require("../src/services/storeHoursService");
@@ -190,6 +191,8 @@ test("developer API publishes its OpenAPI document", async () => {
     assert.ok(body.paths["/queues/{tenantSlug}/tickets"].post.security);
     assert.ok(body.paths["/queues/{tenantSlug}/tickets"].post.requestBody);
     assert.ok(body.paths["/queues/{tenantSlug}/tickets/{ticketId}"].get.security);
+    assert.ok(body.paths["/queues/{tenantSlug}/tickets/{ticketId}/events"].get.security);
+    assert.ok(body.paths["/queues/{tenantSlug}/locations/{locationSlug}/tickets/{ticketId}/events"].get.security);
     assert.ok(body.paths["/queues/{tenantSlug}/call-next"].post.security);
     assert.ok(body.paths["/queues/{tenantSlug}/locations/{locationSlug}/call-next"].post.security);
     assert.ok(body.paths["/queues/{tenantSlug}/current/serve"].post.security);
@@ -429,6 +432,105 @@ test("developer API returns a scoped ticket status without customer details", as
     Object.assign(tenantRepository, { findTenantBySlug: originals.findTenantBySlug });
     Object.assign(storeLocationRepository, { findPrimaryLocationByTenantId: originals.findPrimaryLocationByTenantId });
     Object.assign(ticketRepository, { findTicketById: originals.findTicketById });
+  }
+});
+
+test("developer API lists safe lifecycle events for a scoped ticket", async () => {
+  const originals = {
+    findApiKeyByHash: developerProjects.findApiKeyByHash,
+    touchApiKey: developerProjects.touchApiKey,
+    findTenantBySlug: tenantRepository.findTenantBySlug,
+    findPrimaryLocationByTenantId: storeLocationRepository.findPrimaryLocationByTenantId,
+    findTicketById: ticketRepository.findTicketById,
+    listTicketEvents: queueEventRepository.listTicketEvents
+  };
+  developerProjects.findApiKeyByHash = async () => buildDeveloperApiKey({ id: "key-read", scopes: ["queues:read"] });
+  developerProjects.touchApiKey = async () => {};
+  tenantRepository.findTenantBySlug = async () => ({ _id: "tenant-1", slug: "harbor", name: "Harbor Services" });
+  storeLocationRepository.findPrimaryLocationByTenantId = async () => ({ _id: "location-1", slug: "main", isActive: true });
+  ticketRepository.findTicketById = async () => buildTicketFixture();
+  queueEventRepository.listTicketEvents = async (input) => {
+    assert.deepEqual(input, { tenantId: "tenant-1", locationId: "location-1", ticketId: 42, limit: 2, afterId: null });
+    return { nextCursor: "101", events: [{
+      _id: "101",
+      ticketId: "42",
+      locationId: "location-1",
+      queueDateKey: "20260915",
+      eventType: "ticket_created",
+      fromStatus: null,
+      toStatus: "waiting",
+      source: "developer_api",
+      metadata: { lookupCode: "PRIVATE" },
+      createdAt: "2026-09-15T06:00:00.000Z"
+    }] };
+  };
+
+  const { server, baseUrl } = await startServer();
+  try {
+    const result = await requestJson(
+      `${baseUrl}/queues/harbor/tickets/42/events?limit=2`,
+      "sandbox-api.getprio.online",
+      { "x-api-key": "gpk_sbx_read" }
+    );
+    assert.equal(result.status, 200);
+    assert.deepEqual(result.body.data.events, [{
+      id: "101",
+      ticket_id: "42",
+      location_id: "location-1",
+      queue_date_key: "20260915",
+      type: "ticket.issued",
+      resource_version: "101",
+      from_status: null,
+      to_status: "waiting",
+      source: "developer_api",
+      occurred_at: "2026-09-15T06:00:00.000Z"
+    }]);
+    assert.equal(result.body.data.next_cursor, "101");
+    assert.equal(result.body.data.events[0].lookupCode, undefined);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    Object.assign(developerProjects, { findApiKeyByHash: originals.findApiKeyByHash, touchApiKey: originals.touchApiKey });
+    Object.assign(tenantRepository, { findTenantBySlug: originals.findTenantBySlug });
+    Object.assign(storeLocationRepository, { findPrimaryLocationByTenantId: originals.findPrimaryLocationByTenantId });
+    Object.assign(ticketRepository, { findTicketById: originals.findTicketById });
+    queueEventRepository.listTicketEvents = originals.listTicketEvents;
+  }
+});
+
+test("developer API rejects invalid ticket event limits", async () => {
+  const originals = {
+    findApiKeyByHash: developerProjects.findApiKeyByHash,
+    touchApiKey: developerProjects.touchApiKey,
+    findTenantBySlug: tenantRepository.findTenantBySlug,
+    findPrimaryLocationByTenantId: storeLocationRepository.findPrimaryLocationByTenantId,
+    findTicketById: ticketRepository.findTicketById,
+    listTicketEvents: queueEventRepository.listTicketEvents
+  };
+  developerProjects.findApiKeyByHash = async () => buildDeveloperApiKey({ id: "key-read", scopes: ["queues:read"] });
+  developerProjects.touchApiKey = async () => {};
+  tenantRepository.findTenantBySlug = async () => ({ _id: "tenant-1", slug: "harbor", name: "Harbor Services" });
+  storeLocationRepository.findPrimaryLocationByTenantId = async () => ({ _id: "location-1", slug: "main", isActive: true });
+  ticketRepository.findTicketById = async () => buildTicketFixture();
+  queueEventRepository.listTicketEvents = async () => { throw new Error("must not query with an invalid event cursor or limit"); };
+
+  const { server, baseUrl } = await startServer();
+  try {
+    for (const query of ["limit=0", "limit=101", "limit=1.5", "limit=abc", "limit=-1", "cursor=not-a-cursor"]) {
+      const result = await requestJson(
+        `${baseUrl}/queues/harbor/tickets/42/events?${query}`,
+        "sandbox-api.getprio.online",
+        { "x-api-key": "gpk_sbx_read" }
+      );
+      assert.equal(result.status, 400);
+      assert.equal(result.body.error, "INVALID_REQUEST");
+    }
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    Object.assign(developerProjects, { findApiKeyByHash: originals.findApiKeyByHash, touchApiKey: originals.touchApiKey });
+    Object.assign(tenantRepository, { findTenantBySlug: originals.findTenantBySlug });
+    Object.assign(storeLocationRepository, { findPrimaryLocationByTenantId: originals.findPrimaryLocationByTenantId });
+    Object.assign(ticketRepository, { findTicketById: originals.findTicketById });
+    queueEventRepository.listTicketEvents = originals.listTicketEvents;
   }
 });
 

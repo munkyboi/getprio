@@ -150,6 +150,39 @@ const queueTicketReadPath = ({ operationId, summary, location = false }) => ({
   }
 });
 
+const queueTicketEventsPath = ({ operationId, summary, location = false }) => ({
+  get: {
+    operationId,
+    summary,
+    security: [{ ApiKeyAuth: [] }],
+    parameters: [
+      ...queueParameters(location),
+      pathParameter("ticketId", "The opaque queue ticket identifier."),
+      {
+        name: "limit",
+        in: "query",
+        required: false,
+        schema: { type: "integer", minimum: 1, maximum: 100, default: 50 },
+        description: "Maximum number of lifecycle events to return."
+      },
+      {
+        name: "cursor",
+        in: "query",
+        required: false,
+        schema: { type: "string" },
+        description: "Cursor from a previous response to continue through the event history."
+      }
+    ],
+    responses: {
+      "200": envelopeResponse("Queue ticket lifecycle events"),
+      "400": { description: "The event limit is invalid." },
+      "401": { description: "Missing or invalid API key." },
+      "403": { description: "API key is missing the queues:read scope." },
+      "404": { description: "Ticket, tenant, or location not found." }
+    }
+  }
+});
+
 const openApiDocument = {
   openapi: "3.1.0",
   info: {
@@ -261,6 +294,15 @@ const openApiDocument = {
     "/queues/{tenantSlug}/locations/{locationSlug}/tickets/{ticketId}": queueTicketReadPath({
       operationId: "getLocationQueueTicket",
       summary: "Read a location queue ticket status",
+      location: true
+    }),
+    "/queues/{tenantSlug}/tickets/{ticketId}/events": queueTicketEventsPath({
+      operationId: "listQueueTicketEvents",
+      summary: "List a queue ticket's lifecycle events"
+    }),
+    "/queues/{tenantSlug}/locations/{locationSlug}/tickets/{ticketId}/events": queueTicketEventsPath({
+      operationId: "listLocationQueueTicketEvents",
+      summary: "List a location queue ticket's lifecycle events",
       location: true
     }),
     "/queues/{tenantSlug}/stream": queueStreamPath({

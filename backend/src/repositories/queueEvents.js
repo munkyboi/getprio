@@ -152,9 +152,32 @@ async function findLatestLifecycleEvent(queueDayId, eventType, options = {}) {
   return mapQueueEvent(result.rows[0]);
 }
 
+async function listTicketEvents({ tenantId, locationId, ticketId, limit = 50, afterId = null }, options = {}) {
+  const boundedLimit = Math.max(1, Math.min(Number(limit) || 50, 100));
+  const result = await buildQueryClient(options.client).query(
+    `SELECT ${QUEUE_EVENT_COLUMNS}
+     FROM queue_events
+     WHERE ticket_id = $1
+       AND tenant_id = $2
+       AND location_id = $3
+       AND ($4::BIGINT IS NULL OR id > $4::BIGINT)
+     ORDER BY created_at ASC, id ASC
+     LIMIT $5`,
+    [Number(ticketId), Number(tenantId), Number(locationId), afterId ? Number(afterId) : null, boundedLimit + 1]
+  );
+  const events = result.rows.map(mapQueueEvent);
+  const hasMore = events.length > boundedLimit;
+  if (hasMore) events.length = boundedLimit;
+  return {
+    events,
+    nextCursor: hasMore ? events[events.length - 1]._id : null
+  };
+}
+
 module.exports = {
   createQueueEvent,
   createLifecycleEvent,
   findLatestLifecycleEvent,
+  listTicketEvents,
   mapQueueEvent
 };
