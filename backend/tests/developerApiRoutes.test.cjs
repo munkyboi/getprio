@@ -168,6 +168,10 @@ test("developer API publishes its OpenAPI document", async () => {
     assert.ok(body.paths["/queues/{tenantSlug}/tickets/{ticketId}"].get.security);
     assert.ok(body.paths["/queues/{tenantSlug}/call-next"].post.security);
     assert.ok(body.paths["/queues/{tenantSlug}/locations/{locationSlug}/call-next"].post.security);
+    assert.ok(body.paths["/queues/{tenantSlug}/current/serve"].post.security);
+    assert.ok(body.paths["/queues/{tenantSlug}/locations/{locationSlug}/current/serve"].post.security);
+    assert.ok(body.paths["/queues/{tenantSlug}/current/skip"].post.security);
+    assert.ok(body.paths["/queues/{tenantSlug}/locations/{locationSlug}/current/skip"].post.security);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
@@ -492,6 +496,81 @@ test("developer API calls the next waiting ticket with idempotency", async () =>
     tenantRepository.findTenantBySlug = originalFindTenantBySlug;
     storeLocationRepository.findPrimaryLocationByTenantId = originalFindPrimaryLocationByTenantId;
     queueService.callNextTicket = originalCallNextTicket;
+    idempotencyService.claim = originalClaim;
+    idempotencyRepository.complete = originalComplete;
+    idempotencyRepository.fail = originalFail;
+  }
+});
+
+test("developer API resolves the current ticket through serve and skip actions", async () => {
+  const originalFindApiKeyByHash = developerProjects.findApiKeyByHash;
+  const originalTouchApiKey = developerProjects.touchApiKey;
+  const originalFindTenantBySlug = tenantRepository.findTenantBySlug;
+  const originalFindPrimaryLocationByTenantId = storeLocationRepository.findPrimaryLocationByTenantId;
+  const originalUpdateCurrentTicketStatus = queueService.updateCurrentTicketStatus;
+  const originalClaim = idempotencyService.claim;
+  const originalComplete = idempotencyRepository.complete;
+  const originalFail = idempotencyRepository.fail;
+  const completedStatuses = [];
+  developerProjects.findApiKeyByHash = async () => buildDeveloperApiKey({ id: "key-write", scopes: ["queues:write"] });
+  developerProjects.touchApiKey = async () => {};
+  tenantRepository.findTenantBySlug = async () => ({ _id: "tenant-1", slug: "harbor", name: "Harbor Services" });
+  storeLocationRepository.findPrimaryLocationByTenantId = async () => ({ _id: "location-1", slug: "main", isActive: true });
+  idempotencyService.claim = async ({ key }) => ({ state: "claimed", record: { id: key } });
+  idempotencyRepository.complete = async (_recordId, statusCode, body) => {
+    assert.equal(statusCode, 200);
+    completedStatuses.push(body.data.ticket.status);
+  };
+  idempotencyRepository.fail = async () => {};
+  queueService.updateCurrentTicketStatus = async (tenant, status, options) => {
+    assert.equal(tenant._id, "tenant-1");
+    assert.equal(options.location._id, "location-1");
+    assert.equal(options.actorRole, "developer_api");
+    return {
+      ticket: {
+        _id: 42,
+        tenantId: "tenant-1",
+        locationId: "location-1",
+        ticketNumber: "A-042",
+        status,
+        joinChannel: "vendor",
+        servicePriorityBand: "normal",
+        statusReason: null,
+        calledAt: "2026-09-15T06:05:00.000Z",
+        servedAt: status === "served" ? "2026-09-15T06:06:00.000Z" : null,
+        skippedAt: status === "skipped" ? "2026-09-15T06:06:00.000Z" : null,
+        cancelledAt: null,
+        unservedAt: null,
+        terminalAt: status === "served" ? "2026-09-15T06:06:00.000Z" : null,
+        dateKey: "20260915",
+        createdAt: "2026-09-15T06:00:00.000Z",
+        updatedAt: "2026-09-15T06:06:00.000Z"
+      }
+    };
+  };
+
+  const { server, baseUrl } = await startServer();
+  try {
+    for (const status of ["serve", "skip"]) {
+      const result = await requestJsonMethod(
+        "POST",
+        `${baseUrl}/queues/harbor/current/${status}`,
+        "sandbox-api.getprio.online",
+        { "x-api-key": "gpk_sbx_write", "Idempotency-Key": `resolve-${status}-1` },
+        {}
+      );
+      assert.equal(result.status, 200);
+      assert.equal(result.body.data.ticket.status, status === "serve" ? "served" : "skipped");
+      assert.equal(result.body.data.ticket.ticket_number, "A-042");
+    }
+    assert.deepEqual(completedStatuses, ["served", "skipped"]);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    developerProjects.findApiKeyByHash = originalFindApiKeyByHash;
+    developerProjects.touchApiKey = originalTouchApiKey;
+    tenantRepository.findTenantBySlug = originalFindTenantBySlug;
+    storeLocationRepository.findPrimaryLocationByTenantId = originalFindPrimaryLocationByTenantId;
+    queueService.updateCurrentTicketStatus = originalUpdateCurrentTicketStatus;
     idempotencyService.claim = originalClaim;
     idempotencyRepository.complete = originalComplete;
     idempotencyRepository.fail = originalFail;
