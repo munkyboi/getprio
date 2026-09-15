@@ -18,6 +18,7 @@ const {
 } = require("../middleware/developerApiKeyAuth");
 
 const router = express.Router();
+const DEVELOPER_API_IDEMPOTENCY_RETENTION_MS = 7 * 24 * 60 * 60_000;
 
 const PRODUCTION_HOSTS = new Set(["api.getprio.online"]);
 const SANDBOX_HOSTS = new Set(["sandbox-api.getprio.online"]);
@@ -218,7 +219,8 @@ async function runIdempotentMutation(req, res, { scope, payload, run }) {
     actorId: req.apiKey.createdByUserId,
     scope: `${scope}:${req.apiKey.id}`,
     key: req.get("Idempotency-Key"),
-    payload
+    payload,
+    retentionMs: DEVELOPER_API_IDEMPOTENCY_RETENTION_MS
   });
   if (idempotency.state === "replay") {
     res.status(idempotency.statusCode)
@@ -349,7 +351,8 @@ router.post(
         tenantSlug: req.params.tenantSlug,
         locationSlug: req.params.locationSlug || null,
         body: req.body || {}
-      }
+      },
+      retentionMs: DEVELOPER_API_IDEMPOTENCY_RETENTION_MS
     });
     if (idempotency.state === "replay") {
       res.status(idempotency.statusCode).setHeader("Cache-Control", "no-store").setHeader("X-API-Version", "v1").json(idempotency.body);

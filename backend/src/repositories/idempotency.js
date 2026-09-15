@@ -6,7 +6,11 @@ async function claim(data, options = {}) {
     `INSERT INTO idempotency_records (
        actor_user_id, scope, idempotency_key, request_hash, status, expires_at
      ) VALUES ($1, $2, $3, $4, 'pending', $5)
-     ON CONFLICT (actor_user_id, scope, idempotency_key) DO NOTHING
+     ON CONFLICT (actor_user_id, scope, idempotency_key) DO UPDATE
+     SET request_hash = EXCLUDED.request_hash,
+         status = 'pending', response_status = NULL, response_body = NULL,
+         expires_at = EXCLUDED.expires_at, updated_at = NOW()
+     WHERE idempotency_records.expires_at <= NOW()
      RETURNING *`,
     [Number(data.actorId), data.scope, data.key, data.requestHash, data.expiresAt]
   );

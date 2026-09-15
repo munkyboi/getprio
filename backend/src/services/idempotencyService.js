@@ -1,6 +1,8 @@
 const crypto = require("node:crypto");
 const repository = require("../repositories/idempotency");
 
+const DEFAULT_RETENTION_MS = 24 * 60 * 60_000;
+
 function requestHash(value) {
   return crypto.createHash("sha256").update(JSON.stringify(value ?? null)).digest("hex");
 }
@@ -14,12 +16,15 @@ async function claim(input, options = {}) {
     throw error;
   }
   const hash = requestHash(input.payload);
+  const retentionMs = Number.isFinite(Number(input.retentionMs)) && Number(input.retentionMs) > 0
+    ? Number(input.retentionMs)
+    : DEFAULT_RETENTION_MS;
   const result = await repository.claim({
     actorId: input.actorId,
     scope: input.scope,
     key,
     requestHash: hash,
-    expiresAt: new Date(Date.now() + 24 * 60 * 60_000)
+    expiresAt: new Date(Date.now() + retentionMs)
   }, options);
   if (result.state === "claimed") return { state: "claimed", record: result.record };
   if (!result.record || result.record.request_hash !== hash) {
@@ -41,4 +46,4 @@ async function claim(input, options = {}) {
   throw error;
 }
 
-module.exports = { claim, requestHash };
+module.exports = { DEFAULT_RETENTION_MS, claim, requestHash };
