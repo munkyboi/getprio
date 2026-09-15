@@ -23,6 +23,11 @@ function mapDelivery(row) {
     availableAt: row.available_at,
     expiresAt: row.expires_at,
     retryUntil: row.retry_until,
+    registrationStatus: row.registration_status,
+    manualAttemptCount: Number(row.manual_attempt_count || 0),
+    lastManualAttemptAt: row.last_manual_attempt_at,
+    manualLastError: row.manual_last_error,
+    manualResponseStatus: row.manual_response_status == null ? null : Number(row.manual_response_status),
     leaseOwner: row.lease_owner,
     leasedUntil: row.leased_until,
     lastError: row.last_error,
@@ -50,6 +55,11 @@ const DELIVERY_COLUMNS = `
   d.available_at,
   d.expires_at,
   d.retry_until,
+  r.status AS registration_status,
+  d.manual_attempt_count,
+  d.last_manual_attempt_at,
+  d.manual_last_error,
+  d.manual_response_status,
   d.lease_owner,
   d.leased_until,
   d.last_error,
@@ -155,6 +165,53 @@ async function claimBatch(workerId, limit = 25, options = {}) {
   return result.rows.map(mapDelivery);
 }
 
+async function findDelivery(projectId, registrationId, deliveryId, options = {}) {
+  const result = await queryClient(options.client).query(
+    `SELECT ${DELIVERY_COLUMNS}
+     FROM developer_webhook_deliveries d
+     INNER JOIN developer_webhook_registrations r ON r.id = d.registration_id
+     WHERE r.developer_project_id = $1
+       AND r.id = $2
+       AND d.id = $3
+     LIMIT 1`,
+    [projectId, registrationId, deliveryId]
+  );
+  return mapDelivery(result.rows[0]);
+}
+
+async function listDeliveries(projectId, registrationId, limit = 100, options = {}) {
+  const result = await queryClient(options.client).query(
+    `SELECT ${DELIVERY_COLUMNS}
+     FROM developer_webhook_deliveries d
+     INNER JOIN developer_webhook_registrations r ON r.id = d.registration_id
+     WHERE r.developer_project_id = $1
+       AND r.id = $2
+     ORDER BY d.created_at DESC, d.id DESC
+     LIMIT $3`,
+    [projectId, registrationId, Math.max(1, Math.min(Number(limit) || 100, 100))]
+  );
+  return result.rows.map(mapDelivery);
+}
+
+async function recordManualAttempt(id, result, options = {}) {
+  const queryResult = await queryClient(options.client).query(
+    `UPDATE developer_webhook_deliveries
+     SET manual_attempt_count = manual_attempt_count + 1,
+         last_manual_attempt_at = NOW(),
+         manual_last_error = $2,
+         manual_response_status = $3,
+         updated_at = NOW()
+     WHERE id = $1
+     RETURNING id`,
+    [
+      id,
+      result?.error ? String(result.error).slice(0, 500) : null,
+      result?.responseStatus == null ? null : Number(result.responseStatus)
+    ]
+  );
+  return queryResult.rowCount > 0;
+}
+
 async function markSent(id, workerId, responseStatus, options = {}) {
   await queryClient(options.client).query(
     `UPDATE developer_webhook_deliveries
@@ -188,8 +245,11 @@ async function markFailed(id, workerId, errorMessage, responseStatus, options = 
 module.exports = {
   claimBatch,
   enqueueForRegistrations,
+  findDelivery,
+  listDeliveries,
   mapDelivery,
   markFailed,
   markRetry,
-  markSent
+  markSent,
+  recordManualAttempt
 };
