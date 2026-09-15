@@ -3,7 +3,7 @@ const openApiDocument = {
   info: {
     title: "GetPrio Queue API",
     version: "v1",
-    description: "Public metadata and health endpoints for the GetPrio developer API preview. Queue operations will be added in a later release."
+    description: "Versioned GetPrio queue API. Metadata and health are public; queue snapshots require a sandbox or production API key with the queues:read scope."
   },
   servers: [
     { url: "https://api.getprio.online/v1", description: "Production" },
@@ -33,9 +33,72 @@ const openApiDocument = {
           }
         }
       }
+    },
+    "/queues/{tenantSlug}": {
+      get: {
+        operationId: "getQueueSnapshot",
+        summary: "Read a public queue snapshot",
+        security: [{ ApiKeyAuth: [] }],
+        parameters: [
+          {
+            name: "tenantSlug",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+            description: "The active GetPrio tenant slug."
+          }
+        ],
+        responses: {
+          "200": {
+            description: "Queue snapshot",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/Envelope" } } }
+          },
+          "401": { description: "Missing or invalid API key." },
+          "403": { description: "API key is missing the queues:read scope." },
+          "404": { description: "Tenant not found." }
+        }
+      }
+    },
+    "/queues/{tenantSlug}/locations/{locationSlug}": {
+      get: {
+        operationId: "getLocationQueueSnapshot",
+        summary: "Read a location queue snapshot",
+        security: [{ ApiKeyAuth: [] }],
+        parameters: [
+          {
+            name: "tenantSlug",
+            in: "path",
+            required: true,
+            schema: { type: "string" }
+          },
+          {
+            name: "locationSlug",
+            in: "path",
+            required: true,
+            schema: { type: "string" }
+          }
+        ],
+        responses: {
+          "200": {
+            description: "Location queue snapshot",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/Envelope" } } }
+          },
+          "401": { description: "Missing or invalid API key." },
+          "403": { description: "API key is missing the queues:read scope." },
+          "404": { description: "Tenant or location not found." }
+        }
+      }
     }
   },
   components: {
+    securitySchemes: {
+      ApiKeyAuth: {
+        type: "apiKey",
+        in: "header",
+        name: "X-API-Key",
+        description: "Use a key issued for the matching API host environment."
+      }
+    },
     schemas: {
       Envelope: {
         type: "object",

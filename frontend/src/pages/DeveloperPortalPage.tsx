@@ -30,7 +30,7 @@ export default function DeveloperPortalPage() {
           <p className="developer-portal-lede">
             Plan an integration that issues tickets from your software, keeps queue order in GetPrio, and lets customers track updates in the app.
           </p>
-          <p className="developer-portal-preview-note">Developer API preview · queue operations and project tools are coming next. Metadata and health checks are the first live endpoints.</p>
+          <p className="developer-portal-preview-note">Developer API preview · read-only queue snapshots are now live in sandbox and production with environment-matched API keys.</p>
           <div className="developer-portal-actions">
             <a className="developer-portal-primary" href="#quickstart">Explore the sandbox plan</a>
             <a className="developer-portal-secondary" href="#endpoints">Read the API overview</a>
@@ -49,7 +49,7 @@ export default function DeveloperPortalPage() {
         <h2 id="quickstart-title">Start with a safe sandbox.</h2>
         <div className="developer-portal-grid">
           <article><strong>01</strong><h3>Create a project</h3><p>Verify your developer account and open the included sandbox project when portal access is enabled.</p></article>
-          <article><strong>02</strong><h3>Issue a test ticket</h3><p>Keep your sandbox key on your backend and call the queue API over HTTPS once queue operations are enabled.</p></article>
+          <article><strong>02</strong><h3>Read a queue snapshot</h3><p>Keep your sandbox key on your backend and read public-safe queue status over HTTPS.</p></article>
           <article><strong>03</strong><h3>Connect the customer</h3><p>Return the private mobile-ticket link or use an accepted in-app invitation as the mobile flow becomes available.</p></article>
         </div>
       </section>
@@ -66,7 +66,7 @@ export default function DeveloperPortalPage() {
 
       <section className="developer-portal-section" id="endpoints" aria-labelledby="endpoints-title">
         <p className="developer-portal-eyebrow">API OVERVIEW</p>
-        <h2 id="endpoints-title">One contract, two planned environments.</h2>
+        <h2 id="endpoints-title">One contract, two environments.</h2>
         <div className="developer-portal-endpoints">
           {endpointRows.map(([label, url, description]) => (
             <article key={label}>
@@ -76,7 +76,7 @@ export default function DeveloperPortalPage() {
             </article>
           ))}
         </div>
-        <p className="developer-portal-note">Only metadata and health checks are live in this preview. Browser-based API execution is disabled; keep future API keys in your server-side integration.</p>
+        <p className="developer-portal-note">Queue snapshots, metadata and health checks are live. Keep API keys in your server-side integration; browser-based API execution remains disabled.</p>
       </section>
 
       <section className="developer-portal-section" id="documentation" aria-labelledby="documentation-title">

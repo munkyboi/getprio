@@ -1,5 +1,13 @@
 const express = require("express");
 const openApiDocument = require("./developerApiOpenapi");
+const asyncHandler = require("../middleware/asyncHandler");
+const tenantRepository = require("../repositories/tenants");
+const storeLocationRepository = require("../repositories/storeLocations");
+const queueService = require("../services/queueService");
+const {
+  authenticateDeveloperApiKey,
+  requireApiScope
+} = require("../middleware/developerApiKeyAuth");
 
 const router = express.Router();
 
@@ -33,6 +41,32 @@ function sendEnvelope(req, res, data) {
   res.json({ data, request_id: getRequestId(req) });
 }
 
+function notFound(message) {
+  const error = new Error(message);
+  error.statusCode = 404;
+  error.code = "API_RESOURCE_NOT_FOUND";
+  return error;
+}
+
+function redactTicket(ticket) {
+  if (!ticket) return null;
+  const { customerName: _customerName, customerDisplayName: _customerDisplayName, lookupCode: _lookupCode, ...safeTicket } = ticket;
+  return safeTicket;
+}
+
+function formatQueueResource(snapshot) {
+  return {
+    tenant: snapshot.tenant,
+    location: snapshot.location,
+    queue_day: snapshot.queueDay,
+    queue_intake: snapshot.queueIntake,
+    stats: snapshot.stats,
+    current: redactTicket(snapshot.current),
+    next_up: (snapshot.nextUp || []).map(redactTicket),
+    overflow: (snapshot.overflow || []).map(redactTicket)
+  };
+}
+
 router.get("/", (req, res) => {
   const environment = getEnvironment(req);
   const baseUrl = environment === "sandbox"
@@ -63,5 +97,32 @@ router.get("/openapi.json", (_req, res) => {
   res.setHeader("Cache-Control", "public, max-age=300");
   res.type("application/json").json(openApiDocument);
 });
+
+router.get(
+  ["/queues/:tenantSlug", "/queues/:tenantSlug/locations/:locationSlug"],
+  authenticateDeveloperApiKey,
+  requireApiScope("queues:read"),
+  asyncHandler(async (req, res) => {
+    const tenant = await tenantRepository.findTenantBySlug(
+      String(req.params.tenantSlug).toLowerCase(),
+      { activeOnly: true }
+    );
+    if (!tenant) throw notFound("Queue not found.");
+
+    let location;
+    if (req.params.locationSlug) {
+      location = await storeLocationRepository.findLocationByTenantAndSlug(
+        tenant._id,
+        String(req.params.locationSlug).toLowerCase()
+      );
+      if (!location || !location.isActive) throw notFound("Queue location not found.");
+    } else {
+      location = await storeLocationRepository.findPrimaryLocationByTenantId(tenant._id);
+    }
+
+    const snapshot = await queueService.getQueueSnapshot(tenant, { location });
+    sendEnvelope(req, res, formatQueueResource(snapshot));
+  })
+);
 
 module.exports = router;

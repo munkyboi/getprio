@@ -3,6 +3,10 @@ const assert = require("node:assert/strict");
 const http = require("node:http");
 const express = require("express");
 const router = require("../src/routes/developerApiRoutes");
+const developerProjects = require("../src/repositories/developerProjects");
+const tenantRepository = require("../src/repositories/tenants");
+const storeLocationRepository = require("../src/repositories/storeLocations");
+const queueService = require("../src/services/queueService");
 
 async function startServer() {
   const app = express();
@@ -11,6 +15,9 @@ async function startServer() {
     next();
   });
   app.use("/v1", router);
+  app.use((error, _req, res, _next) => {
+    res.status(error.statusCode || 500).json({ error: error.code || "INTERNAL_ERROR", message: error.message });
+  });
   const server = await new Promise((resolve) => {
     const nextServer = app.listen(0, "127.0.0.1", () => resolve(nextServer));
   });
@@ -20,9 +27,9 @@ async function startServer() {
   };
 }
 
-function requestJson(url, host) {
+function requestJson(url, host, headers = {}) {
   return new Promise((resolve, reject) => {
-    const request = http.get(url, { headers: { host } }, (response) => {
+    const request = http.get(url, { headers: { host, ...headers } }, (response) => {
       let body = "";
       response.setEncoding("utf8");
       response.on("data", (chunk) => { body += chunk; });
@@ -107,6 +114,74 @@ test("developer API publishes a read-only OpenAPI document", async () => {
     ]);
     assert.ok(body.paths["/"].get);
     assert.ok(body.paths["/health"].get);
+    assert.ok(body.paths["/queues/{tenantSlug}"].get.security);
+    assert.ok(body.paths["/queues/{tenantSlug}/locations/{locationSlug}"].get.security);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("developer API returns a public-safe queue snapshot for a scoped API key", async () => {
+  const originals = {
+    findApiKeyByHash: developerProjects.findApiKeyByHash,
+    touchApiKey: developerProjects.touchApiKey,
+    findTenantBySlug: tenantRepository.findTenantBySlug,
+    findPrimaryLocationByTenantId: storeLocationRepository.findPrimaryLocationByTenantId,
+    getQueueSnapshot: queueService.getQueueSnapshot
+  };
+  developerProjects.findApiKeyByHash = async () => ({
+    id: "key-1",
+    projectId: "project-1",
+    environment: "sandbox",
+    scopes: ["queues:read"],
+    status: "active",
+    projectStatus: "active",
+    accountStatus: "active"
+  });
+  developerProjects.touchApiKey = async () => {};
+  tenantRepository.findTenantBySlug = async () => ({ _id: "tenant-1", slug: "harbor", isActive: true });
+  storeLocationRepository.findPrimaryLocationByTenantId = async () => ({ _id: "location-1", slug: "main", isActive: true });
+  queueService.getQueueSnapshot = async () => ({
+    tenant: { id: "tenant-1", slug: "harbor", name: "Harbor Services" },
+    location: { id: "location-1", slug: "main" },
+    queueDay: { isClosed: false },
+    queueIntake: { state: "open" },
+    stats: { waitingCount: 1 },
+    current: { id: "ticket-1", ticketNumber: "A-001", customerName: "Secret Name", lookupCode: "HIDDEN" },
+    nextUp: [{ id: "ticket-2", ticketNumber: "A-002", customerDisplayName: "Private Name" }],
+    overflow: []
+  });
+
+  const { server, baseUrl } = await startServer();
+  try {
+    const { status, body } = await requestJson(
+      `${baseUrl}/queues/harbor`,
+      "sandbox-api.getprio.online",
+      { "x-api-key": "gpk_sbx_test" }
+    );
+    assert.equal(status, 200);
+    assert.deepEqual(body.data.stats, { waitingCount: 1 });
+    assert.equal(body.data.current.customerName, undefined);
+    assert.equal(body.data.current.lookupCode, undefined);
+    assert.equal(body.data.next_up[0].customerDisplayName, undefined);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    Object.assign(developerProjects, { findApiKeyByHash: originals.findApiKeyByHash, touchApiKey: originals.touchApiKey });
+    Object.assign(tenantRepository, { findTenantBySlug: originals.findTenantBySlug });
+    Object.assign(storeLocationRepository, { findPrimaryLocationByTenantId: originals.findPrimaryLocationByTenantId });
+    Object.assign(queueService, { getQueueSnapshot: originals.getQueueSnapshot });
+  }
+});
+
+test("developer API rejects queue access without a key", async () => {
+  const { server, baseUrl } = await startServer();
+  try {
+    const { status, body } = await requestJson(
+      `${baseUrl}/queues/harbor`,
+      "sandbox-api.getprio.online"
+    );
+    assert.equal(status, 401);
+    assert.equal(body.error, "API_KEY_REQUIRED");
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }

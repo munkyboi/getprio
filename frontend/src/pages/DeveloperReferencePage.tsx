@@ -2,7 +2,9 @@ import "./DeveloperReferencePage.css";
 
 const endpoints = [
   { method: "GET", path: "/", description: "Identify the API version and environment." },
-  { method: "GET", path: "/health", description: "Check API availability and environment." }
+  { method: "GET", path: "/health", description: "Check API availability and environment." },
+  { method: "GET", path: "/queues/:tenantSlug", description: "Read a public-safe queue snapshot with a queues:read API key." },
+  { method: "GET", path: "/queues/:tenantSlug/locations/:locationSlug", description: "Read a public-safe queue snapshot for one location." }
 ];
 
 export default function DeveloperReferencePage() {
@@ -16,7 +18,7 @@ export default function DeveloperReferencePage() {
         <p className="developer-reference-eyebrow">GETPRIO QUEUE API · V1</p>
         <h1 id="developer-reference-title">API reference</h1>
         <p className="developer-reference-note">
-          This read-only reference documents the public preview contract. Browser execution is disabled while queue operations and developer authentication are being prepared.
+          Metadata and health checks are public. Browser execution is disabled for queue requests; use a server-side API key issued for the matching environment with the queues:read scope.
         </p>
         <p><a href="https://api.getprio.online/v1/openapi.json">Download the OpenAPI 3.1 document</a></p>
         <div className="developer-reference-endpoints">
@@ -29,7 +31,7 @@ export default function DeveloperReferencePage() {
           ))}
         </div>
         <h2>Example</h2>
-        <pre><code>curl https://api.getprio.online/v1/health</code></pre>
+        <pre><code>{"curl https://sandbox-api.getprio.online/v1/queues/example-tenant \\\n  -H 'X-API-Key: gpk_sbx_...'"}</code></pre>
       </section>
     </main>
   );
