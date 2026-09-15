@@ -83,7 +83,7 @@ export default function DeveloperPortalPage() {
         <h2 id="documentation-title">Learn the contract before you connect.</h2>
         <div className="developer-portal-grid">
           <article><strong>Guides</strong><p>Copyable backend examples for Node.js, PHP, Python, C# and cURL are being prepared.</p></article>
-          <article><strong>API reference</strong><p>A self-hosted Scalar reference will document the versioned queue contract with browser execution disabled.</p></article>
+          <article><strong>API reference</strong><p>A self-hosted Scalar reference will document the versioned queue contract with browser execution disabled.</p><a className="developer-portal-doc-link" href="https://api.getprio.online/v1/openapi.json">View the live OpenAPI JSON</a></article>
           <article><strong>FAQ + changelog</strong><p>Answers, release notes and migration notices will be published alongside the first queue operations.</p></article>
         </div>
       </section>

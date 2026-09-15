@@ -91,3 +91,23 @@ test("developer API metadata does not claim an environment for an unknown host",
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("developer API publishes a read-only OpenAPI document", async () => {
+  const { server, baseUrl } = await startServer();
+  try {
+    const { status, headers, body } = await requestJson(`${baseUrl}/openapi.json`, "api.getprio.online");
+
+    assert.equal(status, 200);
+    assert.match(headers.get("content-type"), /application\/json/);
+    assert.equal(headers.get("cache-control"), "public, max-age=300");
+    assert.equal(body.openapi, "3.1.0");
+    assert.deepEqual(body.servers.map((server) => server.url), [
+      "https://api.getprio.online/v1",
+      "https://sandbox-api.getprio.online/v1"
+    ]);
+    assert.ok(body.paths["/"].get);
+    assert.ok(body.paths["/health"].get);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
