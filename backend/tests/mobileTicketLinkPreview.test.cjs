@@ -3,62 +3,47 @@ const assert = require("node:assert/strict");
 const express = require("express");
 const http = require("node:http");
 
-function requireWithMocks(targetPath, mocks) {
-  const resolvedTarget = require.resolve(targetPath);
-  const originals = new Map();
-  try {
-    for (const [requestPath, mockExports] of Object.entries(mocks)) {
-      const resolvedDependency = require.resolve(requestPath, { paths: [require("node:path").dirname(resolvedTarget)] });
-      originals.set(resolvedDependency, require.cache[resolvedDependency]);
-      require.cache[resolvedDependency] = {
-        id: resolvedDependency,
-        filename: resolvedDependency,
-        loaded: true,
-        exports: mockExports
-      };
-    }
-    delete require.cache[resolvedTarget];
-    return require(resolvedTarget);
-  } finally {
-    delete require.cache[resolvedTarget];
-    for (const [resolvedDependency, original] of originals.entries()) {
-      if (original) require.cache[resolvedDependency] = original;
-      else delete require.cache[resolvedDependency];
-    }
-  }
-}
+const auth = require("../src/middleware/auth");
+const service = require("../src/services/mobileTicketLinkService");
+const tenantRepository = require("../src/repositories/tenants");
+const locationRepository = require("../src/repositories/storeLocations");
+const originalAuthenticate = auth.authenticate;
+const originalPreview = service.previewPrivateLink;
+const originalFindTenant = tenantRepository.findTenantById;
+const originalFindLocation = locationRepository.findLocationById;
+let serviceResult;
+let serviceError;
 
-async function startPreviewServer(serviceResult, overrides = {}) {
+auth.authenticate = (req, _res, next) => {
+  req.user = { _id: "customer-1", roles: ["customer"] };
+  next();
+};
+service.previewPrivateLink = async (input) => {
+  if (serviceError) throw serviceError;
+  serviceResult.calls.push(input);
+  return serviceResult.value;
+};
+tenantRepository.findTenantById = async (id) => {
+  assert.equal(id, "tenant-1");
+  return serviceResult.tenant || { _id: "tenant-1", name: "Acme Clinic" };
+};
+locationRepository.findLocationById = async (id) => {
+  assert.equal(id, "location-1");
+  return serviceResult.location || { _id: "location-1", name: "Main Branch" };
+};
+const router = require("../mobile/ticketLinkRoutes.js");
+
+test.after(() => {
+  auth.authenticate = originalAuthenticate;
+  service.previewPrivateLink = originalPreview;
+  tenantRepository.findTenantById = originalFindTenant;
+  locationRepository.findLocationById = originalFindLocation;
+});
+
+async function startPreviewServer(result, overrides = {}) {
   const serviceCalls = [];
-  const router = requireWithMocks("../mobile/ticketLinkRoutes.js", {
-    "../src/middleware/auth": {
-      authenticate(req, _res, next) {
-        req.user = { _id: "customer-1", roles: ["customer"] };
-        next();
-      }
-    },
-    "../src/middleware/asyncHandler": (handler) => (req, res, next) =>
-      Promise.resolve(handler(req, res, next)).catch(next),
-    "../src/services/mobileTicketLinkService": {
-      async previewPrivateLink(input) {
-        serviceCalls.push(input);
-        if (overrides.serviceError) throw overrides.serviceError;
-        return serviceResult;
-      }
-    },
-    "../src/repositories/tenants": {
-      async findTenantById(id) {
-        assert.equal(id, "tenant-1");
-        return overrides.tenant || { _id: "tenant-1", name: "Acme Clinic" };
-      }
-    },
-    "../src/repositories/storeLocations": {
-      async findLocationById(id) {
-        assert.equal(id, "location-1");
-        return overrides.location || { _id: "location-1", name: "Main Branch" };
-      }
-    }
-  });
+  serviceResult = { value: result, calls: serviceCalls, ...overrides };
+  serviceError = overrides.serviceError || null;
   const app = express();
   app.use(express.json());
   app.use("/api/v1/mobile", router);
