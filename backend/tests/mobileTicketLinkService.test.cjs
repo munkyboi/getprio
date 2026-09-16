@@ -109,6 +109,114 @@ test("preview collapses wrong-environment and already-linked proofs", async () =
   }
 });
 
+test("accepting a private link locks ticket first, claims ownership, and consumes the proof", async () => {
+  const originals = {
+    withTransaction: db.withTransaction,
+    findUsableLinkByTokenHash: ticketMobileLinks.findUsableLinkByTokenHash,
+    findTicketByIdForUpdate: ticketRepository.findTicketByIdForUpdate,
+    claimTicketForUser: ticketRepository.claimTicketForUser,
+    consumeLink: ticketMobileLinks.consumeLink
+  };
+  const calls = [];
+  db.withTransaction = async (callback) => callback({ id: "transaction-client" });
+  ticketMobileLinks.findUsableLinkByTokenHash = async (_hash, options) => {
+    calls.push(options.forUpdate ? "link-lock" : "link-read");
+    return {
+      id: "link-1",
+      ticketId: "42",
+      developerProjectId: "project-1",
+      environment: "sandbox",
+      expiresAt: "2026-09-15T06:15:00.000Z"
+    };
+  };
+  ticketRepository.findTicketByIdForUpdate = async (_id, options) => {
+    calls.push(options.client.id === "transaction-client" ? "ticket-lock" : "wrong-client");
+    return {
+      _id: "42",
+      tenantId: "7",
+      locationId: "8",
+      ticketNumber: "S-042",
+      userId: null,
+      developerProjectId: "project-1",
+      developerEnvironment: "sandbox",
+      status: "waiting",
+      statusReason: null
+    };
+  };
+  ticketRepository.claimTicketForUser = async (_ticketId, userId, options) => {
+    calls.push(`claim:${userId}:${options.client.id}`);
+    return { _id: "42", ticketNumber: "S-042", status: "waiting", userId: "17" };
+  };
+  ticketMobileLinks.consumeLink = async (_linkId, options) => {
+    calls.push(`consume:${options.client.id}`);
+    return { id: "link-1", usedAt: "2026-09-15T06:01:00.000Z" };
+  };
+  try {
+    const result = await service.acceptPrivateLink({
+      token: "A".repeat(43),
+      environment: "sandbox",
+      userId: "17"
+    });
+    assert.equal(result.ticket.ticketNumber, "S-042");
+    assert.equal(result.link.usedAt, "2026-09-15T06:01:00.000Z");
+    assert.deepEqual(calls, ["link-read", "ticket-lock", "link-lock", "claim:17:transaction-client", "consume:transaction-client"]);
+  } finally {
+    Object.assign(db, { withTransaction: originals.withTransaction });
+    Object.assign(ticketMobileLinks, {
+      findUsableLinkByTokenHash: originals.findUsableLinkByTokenHash,
+      consumeLink: originals.consumeLink
+    });
+    Object.assign(ticketRepository, {
+      findTicketByIdForUpdate: originals.findTicketByIdForUpdate,
+      claimTicketForUser: originals.claimTicketForUser
+    });
+  }
+});
+
+test("accepting an ineligible or deletion-restricted ticket leaves the proof unconsumed", async () => {
+  const originals = {
+    withTransaction: db.withTransaction,
+    findUsableLinkByTokenHash: ticketMobileLinks.findUsableLinkByTokenHash,
+    findTicketByIdForUpdate: ticketRepository.findTicketByIdForUpdate,
+    claimTicketForUser: ticketRepository.claimTicketForUser,
+    consumeLink: ticketMobileLinks.consumeLink
+  };
+  let claimCalls = 0;
+  let consumeCalls = 0;
+  db.withTransaction = async (callback) => callback({});
+  ticketMobileLinks.findUsableLinkByTokenHash = async (_hash, options) => options.forUpdate
+    ? { id: "link-1", ticketId: "42", developerProjectId: "project-1", environment: "production" }
+    : { ticketId: "42", developerProjectId: "project-1", environment: "production" };
+  ticketRepository.findTicketByIdForUpdate = async () => ({
+    _id: "42",
+    userId: null,
+    developerProjectId: "project-1",
+    developerEnvironment: "production",
+    status: "called",
+    statusReason: "account_deletion"
+  });
+  ticketRepository.claimTicketForUser = async () => { claimCalls += 1; return null; };
+  ticketMobileLinks.consumeLink = async () => { consumeCalls += 1; return null; };
+  try {
+    await assert.rejects(
+      service.acceptPrivateLink({ token: "B".repeat(43), environment: "production", userId: "17" }),
+      (error) => error.code === "TICKET_LINK_UNAVAILABLE" && error.statusCode === 404
+    );
+    assert.equal(claimCalls, 0);
+    assert.equal(consumeCalls, 0);
+  } finally {
+    Object.assign(db, { withTransaction: originals.withTransaction });
+    Object.assign(ticketMobileLinks, {
+      findUsableLinkByTokenHash: originals.findUsableLinkByTokenHash,
+      consumeLink: originals.consumeLink
+    });
+    Object.assign(ticketRepository, {
+      findTicketByIdForUpdate: originals.findTicketByIdForUpdate,
+      claimTicketForUser: originals.claimTicketForUser
+    });
+  }
+});
+
 test("replacing a mobile link revokes the old link inside one transaction", async () => {
   const originals = {
     withTransaction: db.withTransaction,

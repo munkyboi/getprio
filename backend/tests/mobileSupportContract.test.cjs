@@ -539,3 +539,92 @@ test("mobile ticket-link preview maps unavailable proofs to a generic response",
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("mobile ticket-link acceptance requires idempotency and returns only the linked context", async () => {
+  const serviceCalls = [];
+  const router = requireWithMocks("../mobile/ticketLinkRoutes.js", {
+    "../src/middleware/auth": {
+      authenticate(req, _res, next) {
+        req.user = { _id: "17", roles: ["customer"] };
+        next();
+      }
+    },
+    "../src/middleware/asyncHandler": (handler) => (req, res, next) =>
+      Promise.resolve(handler(req, res, next)).catch(next),
+    "../src/middleware/idempotency": {
+      requireIdempotency(scope) {
+        return (req, _res, next) => {
+          assert.equal(scope, "mobile.ticket_links.accept");
+          assert.equal(req.get("Idempotency-Key"), "accept-1");
+          next();
+        };
+      }
+    },
+    "../src/services/mobileTicketLinkService": {
+      async acceptPrivateLink(input) {
+        serviceCalls.push(input);
+        return {
+          link: { expiresAt: "2026-09-16T01:00:00.000Z" },
+          ticket: { ticketNumber: "S-042", tenantId: "tenant-1", locationId: "location-1", status: "called" }
+        };
+      }
+    },
+    "../src/repositories/tenants": {
+      async findTenantById(id) {
+        assert.equal(id, "tenant-1");
+        return { name: "Sandbox Clinic" };
+      }
+    },
+    "../src/repositories/storeLocations": {
+      async findLocationById(id) {
+        assert.equal(id, "location-1");
+        return { name: "Test Branch" };
+      }
+    }
+  });
+  const app = express();
+  app.use(express.json());
+  app.use("/api/v1/mobile", router);
+  app.use((error, _req, res, _next) => res.status(error.statusCode || 500).json({ code: error.code, message: error.message }));
+  const server = await new Promise((resolve) => {
+    const nextServer = app.listen(0, () => resolve(nextServer));
+  });
+  try {
+    const response = await new Promise((resolve, reject) => {
+      const payload = JSON.stringify({ token: "token-value" });
+      const request = http.request({
+        host: "127.0.0.1",
+        port: server.address().port,
+        path: "/api/v1/mobile/ticket-links/accept",
+        method: "POST",
+        headers: {
+          host: "sandbox.getprio.online",
+          "content-type": "application/json",
+          "content-length": Buffer.byteLength(payload),
+          "idempotency-key": "accept-1"
+        }
+      }, (result) => {
+        let text = "";
+        result.setEncoding("utf8");
+        result.on("data", (chunk) => { text += chunk; });
+        result.on("end", () => resolve({ status: result.statusCode, headers: result.headers, body: JSON.parse(text) }));
+      });
+      request.on("error", reject);
+      request.end(payload);
+    });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers["cache-control"], "no-store");
+    assert.deepEqual(response.body, {
+      linked: true,
+      ticket_number: "S-042",
+      queue_name: "Sandbox Clinic",
+      location_name: "Test Branch",
+      status: "called",
+      expires_at: "2026-09-16T01:00:00.000Z"
+    });
+    assert.deepEqual(serviceCalls, [{ token: "token-value", environment: "sandbox", userId: "17" }]);
+    assert.equal(JSON.stringify(response.body).includes("token-value"), false);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
