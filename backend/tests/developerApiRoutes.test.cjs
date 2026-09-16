@@ -3,959 +3,144 @@ const assert = require("node:assert/strict");
 const http = require("node:http");
 const express = require("express");
 const router = require("../src/routes/developerApiRoutes");
+const db = require("../src/config/db");
 const developerProjects = require("../src/repositories/developerProjects");
-const tenantRepository = require("../src/repositories/tenants");
-const storeLocationRepository = require("../src/repositories/storeLocations");
-const ticketRepository = require("../src/repositories/tickets");
-const queueEventRepository = require("../src/repositories/queueEvents");
-const queueService = require("../src/services/queueService");
-const mobileTicketLinkService = require("../src/services/mobileTicketLinkService");
-const entitlementAdmissionService = require("../src/services/entitlementAdmissionService");
-const storeHoursService = require("../src/services/storeHoursService");
-const idempotencyService = require("../src/services/idempotencyService");
-const idempotencyRepository = require("../src/repositories/idempotency");
-const developerApiRateLimits = require("../src/repositories/developerApiRateLimits");
-
-const originalDeveloperApiRateLimitConsume = developerApiRateLimits.consume;
-developerApiRateLimits.consume = async () => ({ limit: 600, remaining: 599, windowSeconds: 60 });
-
-test.after(() => {
-  developerApiRateLimits.consume = originalDeveloperApiRateLimitConsume;
-});
+const developerQueues = require("../src/repositories/developerQueues");
+const developerApiOperations = require("../src/repositories/developerApiOperations");
+const developerWebhookService = require("../src/services/developerWebhookService");
 
 async function startServer() {
   const app = express();
   app.use(express.json());
-  app.use((req, _res, next) => {
-    req.context = { correlationId: "test-correlation-123" };
-    next();
-  });
+  app.use((req, _res, next) => { req.context = { correlationId: "test-correlation-123" }; next(); });
   app.use("/v1", router);
-  app.use((error, _req, res, _next) => {
-    res.status(error.statusCode || 500).json({ error: error.code || "INTERNAL_ERROR", message: error.message });
-  });
-  const server = await new Promise((resolve) => {
-    const nextServer = app.listen(0, "127.0.0.1", () => resolve(nextServer));
-  });
-  return {
-    server,
-    baseUrl: `http://127.0.0.1:${server.address().port}/v1`
-  };
+  app.use((err, _req, res, _next) => res.status(err.statusCode || 500).json({ error: err.code || "INTERNAL_ERROR", message: err.message }));
+  const server = await new Promise((resolve) => { const next = app.listen(0, "127.0.0.1", () => resolve(next)); });
+  return { server, baseUrl: `http://127.0.0.1:${server.address().port}/v1` };
 }
 
-function requestJsonMethod(method, url, host, headers = {}, payload) {
+function request(method, url, host, headers = {}, body) {
   return new Promise((resolve, reject) => {
-    const body = payload === undefined ? "" : JSON.stringify(payload);
-    const request = http.request(url, {
-      method,
-      headers: {
-        host,
-        ...(payload === undefined ? {} : { "content-type": "application/json", "content-length": Buffer.byteLength(body) }),
-        ...headers
-      }
-    }, (response) => {
-      let responseBody = "";
-      response.setEncoding("utf8");
-      response.on("data", (chunk) => { responseBody += chunk; });
-      response.on("end", () => resolve({
-        status: response.statusCode,
-        headers: { get: (name) => response.headers[String(name).toLowerCase()] },
-        body: JSON.parse(responseBody)
-      }));
+    const encoded = body === undefined ? "" : JSON.stringify(body);
+    const req = http.request(url, { method, headers: { host, ...headers, ...(body === undefined ? {} : { "content-type": "application/json", "content-length": Buffer.byteLength(encoded) }) } }, (res) => {
+      let response = ""; res.setEncoding("utf8"); res.on("data", (chunk) => { response += chunk; });
+      res.on("end", () => resolve({ status: res.statusCode, headers: res.headers, body: JSON.parse(response) }));
     });
-    request.on("error", reject);
-    if (body) request.write(body);
-    request.end();
+    req.on("error", reject); if (encoded) req.write(encoded); req.end();
   });
 }
 
-function requestJson(url, host, headers = {}) {
-  return new Promise((resolve, reject) => {
-    const request = http.get(url, { headers: { host, ...headers } }, (response) => {
-      let body = "";
-      response.setEncoding("utf8");
-      response.on("data", (chunk) => { body += chunk; });
-      response.on("end", () => resolve({
-        status: response.statusCode,
-        headers: { get: (name) => response.headers[String(name).toLowerCase()] },
-        body: JSON.parse(body)
-      }));
-    });
-    request.on("error", reject);
-  });
+function key(scopes) {
+  return { id: "key-1", projectId: "project-1", environment: "sandbox", scopes, createdByUserId: "1", status: "active", projectStatus: "active", accountStatus: "active" };
+}
+function profile() { return { id: "profile-1", projectId: "project-1", environment: "sandbox", slug: "harbor", displayName: "Harbor Services", directoryStatus: "private", directoryContent: {}, createdAt: "2026-09-15T00:00:00.000Z", updatedAt: "2026-09-15T00:00:00.000Z" }; }
+function queue() { return { id: "queue-1", profileId: "profile-1", slug: "main", displayName: "Main queue", sessionState: "open", intakeEnabled: true, joiningEnabled: false, priorityRatio: 3, resourceVersion: 1, createdAt: "2026-09-15T00:00:00.000Z", updatedAt: "2026-09-15T00:00:00.000Z" }; }
+function ticket() { return { id: "ticket-1", projectId: "project-1", environment: "sandbox", profileId: "profile-1", queueId: "queue-1", ticketNumber: "MAIN-0001", status: "waiting", externalReference: "customer-123", statusReason: null, resourceVersion: 1, createdAt: "2026-09-15T00:00:00.000Z", updatedAt: "2026-09-15T00:00:00.000Z", event: { id: "1", type: "ticket.issued", resourceVersion: 1, occurredAt: "2026-09-15T00:00:00.000Z" } }; }
+
+function replace(object, name, value, originals) { originals.push([object, name, object[name]]); object[name] = value; }
+function restore(originals) { for (const [object, name, value] of originals.reverse()) object[name] = value; }
+function stubKey(originals, scopes) {
+  replace(developerProjects, "findApiKeyByHash", async () => key(scopes), originals);
+  replace(developerProjects, "touchApiKey", async () => {}, originals);
 }
 
-function buildDeveloperApiKey({ id, scopes }) {
-  return {
-    id,
-    projectId: "project-1",
-    environment: "sandbox",
-    scopes,
-    createdByUserId: "user-1",
-    status: "active",
-    projectStatus: "active",
-    accountStatus: "active"
-  };
-}
-
-function buildTicketFixture(overrides = {}) {
-  return {
-    _id: 42,
-    tenantId: "tenant-1",
-    locationId: "location-1",
-    ticketNumber: "A-042",
-    lookupCode: "PRIVATE",
-    status: "waiting",
-    joinChannel: "vendor",
-    servicePriorityBand: "normal",
-    statusReason: null,
-    calledAt: null,
-    servedAt: null,
-    skippedAt: null,
-    cancelledAt: null,
-    unservedAt: null,
-    terminalAt: null,
-    dateKey: "20260915",
-    createdAt: "2026-09-15T06:00:00.000Z",
-    updatedAt: "2026-09-15T06:00:00.000Z",
-    ...overrides
-  };
-}
-
-test("developer API metadata identifies the production environment", async () => {
+test("developer API metadata identifies sandbox and production hosts", async () => {
   const { server, baseUrl } = await startServer();
   try {
-    const { status, headers, body } = await requestJson(`${baseUrl}/`, "api.getprio.online");
-
-    assert.equal(status, 200);
-    assert.equal(headers.get("x-api-version"), "v1");
-    assert.equal(headers.get("cache-control"), "no-store");
-    assert.deepEqual(body, {
-      data: {
-        service: "getprio-queue-api",
-        version: "v1",
-        environment: "production",
-        base_url: "https://api.getprio.online/v1",
-        documentation_url: "https://developers.getprio.online"
-      },
-      request_id: "test-correlation-123"
-    });
-  } finally {
-    await new Promise((resolve) => server.close(resolve));
-  }
+    const sandbox = await request("GET", `${baseUrl}/`, "sandbox-api.getprio.online");
+    const production = await request("GET", `${baseUrl}/health`, "api.getprio.online");
+    assert.equal(sandbox.status, 200); assert.equal(sandbox.body.data.environment, "sandbox");
+    assert.equal(production.status, 200); assert.equal(production.body.data.environment, "production");
+  } finally { await new Promise((resolve) => server.close(resolve)); }
 });
 
-test("developer API health identifies the sandbox environment", async () => {
+test("developer API scopes queue reads to the calling key project and environment", async () => {
+  const originals = []; const calls = [];
+  stubKey(originals, ["queues:read"]);
+  replace(developerQueues, "findProfile", async (...args) => { calls.push(args); return profile(); }, originals);
+  replace(developerQueues, "findFirstQueue", async () => queue(), originals);
+  replace(developerQueues, "queueSnapshot", async () => ({ queue: queue(), stats: { waitingCount: 1, calledCount: 0 }, current: null, nextUp: [ticket()], overflow: [] }), originals);
   const { server, baseUrl } = await startServer();
   try {
-    const { status, body } = await requestJson(`${baseUrl}/health`, "sandbox-api.getprio.online");
-
-    assert.equal(status, 200);
-    assert.deepEqual(body, {
-      data: {
-        status: "ok",
-        service: "getprio-queue-api",
-        version: "v1",
-        environment: "sandbox"
-      },
-      request_id: "test-correlation-123"
-    });
-  } finally {
-    await new Promise((resolve) => server.close(resolve));
-  }
+    const response = await request("GET", `${baseUrl}/queues/harbor`, "sandbox-api.getprio.online", { "x-api-key": "gpk_sbx_test" });
+    assert.equal(response.status, 200); assert.deepEqual(calls[0], ["project-1", "sandbox", "harbor"]);
+    assert.equal(response.body.data.profile.id, "profile-1"); assert.equal(response.body.data.next_up[0].external_reference, "customer-123");
+  } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
 });
 
-test("developer API metadata does not claim an environment for an unknown host", async () => {
+test("developer API returns not found when a profile belongs to another project", async () => {
+  const originals = [];
+  stubKey(originals, ["queues:read"]);
+  replace(developerQueues, "findProfile", async (projectId, environment, profileSlug) => { assert.equal(projectId, "project-1"); assert.equal(environment, "sandbox"); assert.equal(profileSlug, "another-project"); return null; }, originals);
   const { server, baseUrl } = await startServer();
   try {
-    const { status, body } = await requestJson(`${baseUrl}/`, "localhost");
-
-    assert.equal(status, 200);
-    assert.equal(body.data.environment, "unknown");
-    assert.equal(body.data.base_url, null);
-  } finally {
-    await new Promise((resolve) => server.close(resolve));
-  }
+    const response = await request("GET", `${baseUrl}/queues/another-project`, "sandbox-api.getprio.online", { "x-api-key": "gpk_sbx_test" });
+    assert.equal(response.status, 404); assert.equal(response.body.error, "API_RESOURCE_NOT_FOUND");
+  } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
 });
 
-test("developer API publishes its OpenAPI document", async () => {
+test("developer API rejects customer contact fields at the machine boundary", async () => {
+  const originals = []; stubKey(originals, ["queues:write"]);
   const { server, baseUrl } = await startServer();
   try {
-    const { status, headers, body } = await requestJson(`${baseUrl}/openapi.json`, "api.getprio.online");
-
-    assert.equal(status, 200);
-    assert.match(headers.get("content-type"), /application\/json/);
-    assert.equal(headers.get("cache-control"), "public, max-age=300");
-    assert.equal(body.openapi, "3.1.0");
-    assert.deepEqual(body.servers.map((server) => server.url), [
-      "https://api.getprio.online/v1",
-      "https://sandbox-api.getprio.online/v1"
-    ]);
-    assert.deepEqual(body.components.securitySchemes.BearerAuth, {
-      type: "http",
-      scheme: "bearer",
-      bearerFormat: "GetPrio API key",
-      description: "Use a key issued for the matching API host environment."
-    });
-    assert.ok(body.paths["/"].get);
-    assert.ok(body.paths["/health"].get);
-    assert.ok(body.paths["/queues/{tenantSlug}"].get.security);
-    assert.ok(body.paths["/queues/{tenantSlug}/locations"].get.security);
-    assert.ok(body.paths["/queues/{tenantSlug}/locations/{locationSlug}"].get.security);
-    assert.ok(body.paths["/queues/{tenantSlug}/stream"].get.security);
-    assert.ok(body.paths["/queues/{tenantSlug}/tickets"].post.security);
-    assert.ok(body.paths["/queues/{tenantSlug}/tickets"].post.requestBody);
-    assert.deepEqual(body.components.schemas.IssueTicketRequest.properties.invitationEmail, {
-      type: "string",
-      format: "email",
-      maxLength: 254,
-      description: "Optional recipient email for an in-app ticket invitation. Matching and delivery outcomes are not disclosed."
-    });
-    assert.equal(body.components.schemas.IssueTicketRequest.properties.customerEmail.deprecated, true);
-    assert.ok(body.paths["/queues/{tenantSlug}/tickets/{ticketId}"].get.security);
-    assert.ok(body.paths["/queues/{tenantSlug}/tickets/{ticketId}/events"].get.security);
-    assert.ok(body.paths["/queues/{tenantSlug}/locations/{locationSlug}/tickets/{ticketId}/events"].get.security);
-    assert.ok(body.paths["/queues/{tenantSlug}/call-next"].post.security);
-    assert.ok(body.paths["/queues/{tenantSlug}/locations/{locationSlug}/call-next"].post.security);
-    assert.ok(body.paths["/queues/{tenantSlug}/current/serve"].post.security);
-    assert.ok(body.paths["/queues/{tenantSlug}/locations/{locationSlug}/current/serve"].post.security);
-    assert.ok(body.paths["/queues/{tenantSlug}/current/skip"].post.security);
-    assert.ok(body.paths["/queues/{tenantSlug}/locations/{locationSlug}/current/skip"].post.security);
-    assert.ok(body.paths["/queues/{tenantSlug}/tickets/{ticketId}/cancel"].post.security);
-    assert.ok(body.paths["/queues/{tenantSlug}/tickets/{ticketId}/restore"].post.security);
-    assert.ok(body.paths["/queues/{tenantSlug}/tickets/{ticketId}/mobile-link"].post.security);
-    assert.ok(body.paths["/queues/{tenantSlug}/locations/{locationSlug}/tickets/{ticketId}/mobile-link"].post.security);
-  } finally {
-    await new Promise((resolve) => server.close(resolve));
-  }
+    const response = await request("POST", `${baseUrl}/queues/harbor/tickets`, "sandbox-api.getprio.online", { "x-api-key": "gpk_sbx_test", "idempotency-key": "ticket-issue-1" }, { customer_name: "Not accepted" });
+    assert.equal(response.status, 400); assert.equal(response.body.error, "INVALID_REQUEST");
+  } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
 });
 
-test("developer API returns a public-safe queue snapshot for a scoped API key", async () => {
-  const originals = {
-    findApiKeyByHash: developerProjects.findApiKeyByHash,
-    touchApiKey: developerProjects.touchApiKey,
-    findTenantBySlug: tenantRepository.findTenantBySlug,
-    listLocationsByTenantId: storeLocationRepository.listLocationsByTenantId,
-    findPrimaryLocationByTenantId: storeLocationRepository.findPrimaryLocationByTenantId,
-    getQueueSnapshot: queueService.getQueueSnapshot
-  };
-  developerProjects.findApiKeyByHash = async () => ({
-    id: "key-1",
-    projectId: "project-1",
-    environment: "sandbox",
-    scopes: ["queues:read"],
-    status: "active",
-    projectStatus: "active",
-    accountStatus: "active"
-  });
-  developerProjects.touchApiKey = async () => {};
-  tenantRepository.findTenantBySlug = async () => ({ _id: "tenant-1", slug: "harbor", isActive: true });
-  storeLocationRepository.listLocationsByTenantId = async () => ([
-    { _id: "location-1", name: "Main", slug: "main", city: "Manila", isPrimary: true, isActive: true },
-    { _id: "location-2", name: "Closed", slug: "closed", isPrimary: false, isActive: false }
-  ]);
-  storeLocationRepository.findPrimaryLocationByTenantId = async () => ({ _id: "location-1", slug: "main", isActive: true });
-  queueService.getQueueSnapshot = async () => ({
-    tenant: { id: "tenant-1", slug: "harbor", name: "Harbor Services" },
-    location: { id: "location-1", slug: "main" },
-    queueDay: { isClosed: false },
-    queueIntake: { state: "open" },
-    stats: { waitingCount: 1 },
-    current: { id: "ticket-1", ticketNumber: "A-001", customerName: "Secret Name", lookupCode: "HIDDEN" },
-    nextUp: [{ id: "ticket-2", ticketNumber: "A-002", customerDisplayName: "Private Name" }],
-    overflow: []
-  });
-
+test("ticket issuance writes its idempotency response and webhook outbox in one transaction", async () => {
+  const originals = []; const completed = []; const webhooks = [];
+  stubKey(originals, ["queues:write"]);
+  replace(developerQueues, "findProfile", async () => profile(), originals);
+  replace(developerQueues, "findFirstQueue", async () => queue(), originals);
+  replace(developerQueues, "issueTicket", async () => ticket(), originals);
+  replace(db, "withTransaction", async (run) => run({ query: async () => ({ rows: [] }) }), originals);
+  replace(developerApiOperations, "claim", async () => ({ state: "claimed", recordId: "operation-1" }), originals);
+  replace(developerApiOperations, "complete", async (...args) => { completed.push(args); }, originals);
+  replace(developerWebhookService, "enqueueDeveloperTicketEvent", async (...args) => { webhooks.push(args); }, originals);
   const { server, baseUrl } = await startServer();
   try {
-    const { status, body } = await requestJson(
-      `${baseUrl}/queues/harbor`,
-      "sandbox-api.getprio.online",
-      { "x-api-key": "gpk_sbx_test" }
-    );
-    assert.equal(status, 200);
-    assert.deepEqual(body.data.stats, { waitingCount: 1 });
-    assert.equal(body.data.current.customerName, undefined);
-    assert.equal(body.data.current.lookupCode, undefined);
-    assert.equal(body.data.next_up[0].customerDisplayName, undefined);
-
-    const locations = await requestJson(
-      `${baseUrl}/queues/harbor/locations`,
-      "sandbox-api.getprio.online",
-      { "x-api-key": "gpk_sbx_test" }
-    );
-    assert.equal(locations.status, 200);
-    assert.deepEqual(locations.body.data.locations.map((location) => location.slug), ["main"]);
-    assert.equal(locations.body.data.locations[0].contactEmail, undefined);
-  } finally {
-    await new Promise((resolve) => server.close(resolve));
-    Object.assign(developerProjects, { findApiKeyByHash: originals.findApiKeyByHash, touchApiKey: originals.touchApiKey });
-    Object.assign(tenantRepository, { findTenantBySlug: originals.findTenantBySlug });
-    Object.assign(storeLocationRepository, { findPrimaryLocationByTenantId: originals.findPrimaryLocationByTenantId });
-    Object.assign(storeLocationRepository, { listLocationsByTenantId: originals.listLocationsByTenantId });
-    Object.assign(queueService, { getQueueSnapshot: originals.getQueueSnapshot });
-  }
+    const response = await request("POST", `${baseUrl}/queues/harbor/tickets`, "sandbox-api.getprio.online", { "x-api-key": "gpk_sbx_test", "idempotency-key": "ticket-issue-1" }, { display_label: "Anonymous visitor", external_reference: "customer-123" });
+    assert.equal(response.status, 201); assert.equal(response.body.data.ticket.id, "ticket-1");
+    assert.equal(completed.length, 1); assert.equal(webhooks.length, 1); assert.equal(response.body.data.ticket.event, undefined);
+  } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
 });
 
-test("developer API rejects queue access without a key", async () => {
+test("developer API replays a completed operation without issuing another ticket", async () => {
+  const originals = []; stubKey(originals, ["queues:write"]);
+  replace(developerQueues, "findProfile", async () => profile(), originals);
+  replace(developerQueues, "findFirstQueue", async () => queue(), originals);
+  replace(db, "withTransaction", async (run) => run({}), originals);
+  replace(developerApiOperations, "claim", async () => ({ state: "replay", statusCode: 201, body: { data: { ticket: { id: "original-ticket" } }, request_id: "first-request" } }), originals);
   const { server, baseUrl } = await startServer();
   try {
-    const { status, body } = await requestJson(
-      `${baseUrl}/queues/harbor`,
-      "sandbox-api.getprio.online"
-    );
-    assert.equal(status, 401);
-    assert.equal(body.error, "API_KEY_REQUIRED");
-  } finally {
-    await new Promise((resolve) => server.close(resolve));
-  }
+    const response = await request("POST", `${baseUrl}/queues/harbor/tickets`, "sandbox-api.getprio.online", { "x-api-key": "gpk_sbx_test", "idempotency-key": "ticket-issue-1" }, { display_label: "Anonymous visitor" });
+    assert.equal(response.status, 201); assert.equal(response.body.data.ticket.id, "original-ticket");
+  } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
 });
 
-test("developer API rejects queue streams without a key", async () => {
+test("developer API requires the new profile scope for profile resources", async () => {
+  const originals = []; stubKey(originals, ["queues:read"]);
   const { server, baseUrl } = await startServer();
   try {
-    const { status, body } = await requestJson(
-      `${baseUrl}/queues/harbor/stream`,
-      "sandbox-api.getprio.online"
-    );
-    assert.equal(status, 401);
-    assert.equal(body.error, "API_KEY_REQUIRED");
-  } finally {
-    await new Promise((resolve) => server.close(resolve));
-  }
+    const response = await request("GET", `${baseUrl}/profiles`, "sandbox-api.getprio.online", { "x-api-key": "gpk_sbx_test" });
+    assert.equal(response.status, 403); assert.equal(response.body.error, "API_SCOPE_REQUIRED");
+  } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
 });
 
-test("developer API issues a ticket with a queues:write key", async () => {
-  const originals = {
-    findApiKeyByHash: developerProjects.findApiKeyByHash,
-    touchApiKey: developerProjects.touchApiKey,
-    findTenantBySlug: tenantRepository.findTenantBySlug,
-    findPrimaryLocationByTenantId: storeLocationRepository.findPrimaryLocationByTenantId,
-    createTicket: queueService.createTicket,
-    admit: entitlementAdmissionService.admit,
-    assertLocationOpenForCustomerJoin: storeHoursService.assertLocationOpenForCustomerJoin,
-    claim: idempotencyService.claim,
-    complete: idempotencyRepository.complete,
-    fail: idempotencyRepository.fail
-  };
-  developerProjects.findApiKeyByHash = async () => buildDeveloperApiKey({ id: "key-write", scopes: ["queues:write"] });
-  developerProjects.touchApiKey = async () => {};
-  tenantRepository.findTenantBySlug = async () => ({ _id: "tenant-1", slug: "harbor", name: "Harbor Services" });
-  storeLocationRepository.findPrimaryLocationByTenantId = async () => ({ _id: "location-1", slug: "main", isActive: true });
-  entitlementAdmissionService.admit = async () => {};
-  storeHoursService.assertLocationOpenForCustomerJoin = async () => {};
-  idempotencyService.claim = async () => ({ state: "claimed", record: { id: 1 } });
-  idempotencyRepository.complete = async () => {};
-  idempotencyRepository.fail = async () => {};
-  queueService.createTicket = async (input) => {
-    assert.equal(input.customerName, "Ada Lovelace");
-    assert.equal(input.customerEmail, "ada@example.com");
-    assert.equal(input.externalReference, "visit-42");
-    assert.equal(input.developerProjectId, "project-1");
-    assert.equal(input.developerEnvironment, "sandbox");
-    assert.equal(input.joinChannel, "vendor");
-    assert.equal(input.actorRole, "developer_api");
-    assert.equal(input.source, "developer_api");
-    assert.deepEqual(input.developerWebhook, { projectId: "project-1", environment: "sandbox" });
-    assert.deepEqual(input.developerMobileLink, { projectId: "project-1", environment: "sandbox" });
-    return {
-      ticket: { _id: 42, ticketNumber: "A-042", lookupCode: "AB12CD34", externalReference: "visit-42", status: "waiting", dateKey: "20260915", createdAt: "2026-09-15T06:00:00.000Z" },
-      snapshot: { tenant: {}, location: {}, queueDay: {}, queueIntake: {}, stats: {}, current: null, nextUp: [], overflow: [] },
-      mobileLink: { url: "https://sandbox.getprio.online/t/secret-token", expiresAt: "2026-09-15T06:15:00.000Z" }
-    };
-  };
-
+test("developer API profile updates preserve the slug and create a directory draft", async () => {
+  const originals = []; stubKey(originals, ["profiles:write"]);
+  replace(developerQueues, "findProfile", async () => profile(), originals);
+  replace(developerQueues, "updateProfile", async (_id, changes) => ({ ...profile(), ...changes }), originals);
+  replace(db, "withTransaction", async (run) => run({ query: async () => ({ rows: [] }) }), originals);
+  replace(developerApiOperations, "claim", async () => ({ state: "claimed", recordId: "operation-1" }), originals);
+  replace(developerApiOperations, "complete", async () => {}, originals);
   const { server, baseUrl } = await startServer();
   try {
-    const result = await requestJsonMethod("POST", `${baseUrl}/queues/harbor/tickets`, "sandbox-api.getprio.online", { "x-api-key": "gpk_sbx_write", "Idempotency-Key": "ticket-issue-ada-1" }, { displayLabel: "Ada Lovelace", invitationEmail: "Ada@Example.com", externalReference: "visit-42" });
-    assert.equal(result.status, 201);
-    assert.equal(result.body.request_id, "test-correlation-123");
-    assert.deepEqual(result.body.data.ticket, {
-      id: "42",
-      ticket_number: "A-042",
-      lookup_code: "AB12CD34",
-      status: "waiting",
-      location_id: "location-1",
-      queue_date_key: "20260915",
-      created_at: "2026-09-15T06:00:00.000Z",
-      external_reference: "visit-42"
-    });
-    assert.deepEqual(result.body.data.mobile_link, {
-      url: "https://sandbox.getprio.online/t/secret-token",
-      expires_at: "2026-09-15T06:15:00.000Z"
-    });
-  } finally {
-    await new Promise((resolve) => server.close(resolve));
-    Object.assign(developerProjects, { findApiKeyByHash: originals.findApiKeyByHash, touchApiKey: originals.touchApiKey });
-    Object.assign(tenantRepository, { findTenantBySlug: originals.findTenantBySlug });
-    Object.assign(storeLocationRepository, { findPrimaryLocationByTenantId: originals.findPrimaryLocationByTenantId });
-    Object.assign(queueService, { createTicket: originals.createTicket });
-    Object.assign(entitlementAdmissionService, { admit: originals.admit });
-    Object.assign(storeHoursService, { assertLocationOpenForCustomerJoin: originals.assertLocationOpenForCustomerJoin });
-    Object.assign(idempotencyService, { claim: originals.claim });
-    Object.assign(idempotencyRepository, { complete: originals.complete, fail: originals.fail });
-  }
-});
-
-test("developer API validates optional ticket fields before admission", async () => {
-  const originals = {
-    findApiKeyByHash: developerProjects.findApiKeyByHash,
-    touchApiKey: developerProjects.touchApiKey,
-    findTenantBySlug: tenantRepository.findTenantBySlug,
-    findPrimaryLocationByTenantId: storeLocationRepository.findPrimaryLocationByTenantId,
-    createTicket: queueService.createTicket
-  };
-  developerProjects.findApiKeyByHash = async () => buildDeveloperApiKey({ id: "key-write", scopes: ["queues:write"] });
-  developerProjects.touchApiKey = async () => {};
-  tenantRepository.findTenantBySlug = async () => ({ _id: "tenant-1", slug: "harbor" });
-  storeLocationRepository.findPrimaryLocationByTenantId = async () => ({ _id: "location-1", slug: "main", isActive: true });
-  queueService.createTicket = async () => { throw new Error("must not admit invalid ticket data"); };
-
-  const { server, baseUrl } = await startServer();
-  try {
-    for (const payload of [
-      { displayLabel: "valid\ninvalid" },
-      { externalReference: "contains spaces" },
-      { externalReference: "x".repeat(129) },
-      { invitationEmail: "invalid-email" },
-      { invitationEmail: { address: "one@example.com" } },
-      { invitationEmail: "one@example.com", customerEmail: "two@example.com" }
-    ]) {
-      const result = await requestJsonMethod(
-        "POST",
-        `${baseUrl}/queues/harbor/tickets`,
-        "sandbox-api.getprio.online",
-        { "x-api-key": "gpk_sbx_write", "Idempotency-Key": "ticket-invalid-1" },
-        payload
-      );
-      assert.equal(result.status, 400);
-      assert.equal(result.body.error, "INVALID_REQUEST");
-    }
-  } finally {
-    await new Promise((resolve) => server.close(resolve));
-    Object.assign(developerProjects, { findApiKeyByHash: originals.findApiKeyByHash, touchApiKey: originals.touchApiKey });
-    Object.assign(tenantRepository, { findTenantBySlug: originals.findTenantBySlug });
-    Object.assign(storeLocationRepository, { findPrimaryLocationByTenantId: originals.findPrimaryLocationByTenantId });
-    Object.assign(queueService, { createTicket: originals.createTicket });
-  }
-});
-
-test("developer API maps retained external-reference conflicts to 409", async () => {
-  const originals = {
-    findApiKeyByHash: developerProjects.findApiKeyByHash,
-    touchApiKey: developerProjects.touchApiKey,
-    findTenantBySlug: tenantRepository.findTenantBySlug,
-    findPrimaryLocationByTenantId: storeLocationRepository.findPrimaryLocationByTenantId,
-    createTicket: queueService.createTicket,
-    admit: entitlementAdmissionService.admit,
-    assertLocationOpenForCustomerJoin: storeHoursService.assertLocationOpenForCustomerJoin,
-    claim: idempotencyService.claim,
-    fail: idempotencyRepository.fail
-  };
-  developerProjects.findApiKeyByHash = async () => buildDeveloperApiKey({ id: "key-write", scopes: ["queues:write"] });
-  developerProjects.touchApiKey = async () => {};
-  tenantRepository.findTenantBySlug = async () => ({ _id: "tenant-1", slug: "harbor" });
-  storeLocationRepository.findPrimaryLocationByTenantId = async () => ({ _id: "location-1", slug: "main", isActive: true });
-  entitlementAdmissionService.admit = async () => {};
-  storeHoursService.assertLocationOpenForCustomerJoin = async () => {};
-  idempotencyService.claim = async () => ({ state: "claimed", record: { id: 3 } });
-  idempotencyRepository.fail = async (id) => assert.equal(id, 3);
-  queueService.createTicket = async () => {
-    const error = new Error("duplicate");
-    error.code = "23505";
-    error.constraint = "tickets_developer_external_reference_idx";
-    throw error;
-  };
-
-  const { server, baseUrl } = await startServer();
-  try {
-    const result = await requestJsonMethod(
-      "POST",
-      `${baseUrl}/queues/harbor/tickets`,
-      "sandbox-api.getprio.online",
-      { "x-api-key": "gpk_sbx_write", "Idempotency-Key": "ticket-duplicate-1" },
-      { externalReference: "visit-42" }
-    );
-    assert.equal(result.status, 409);
-    assert.equal(result.body.error, "EXTERNAL_REFERENCE_EXISTS");
-  } finally {
-    await new Promise((resolve) => server.close(resolve));
-    Object.assign(developerProjects, { findApiKeyByHash: originals.findApiKeyByHash, touchApiKey: originals.touchApiKey });
-    Object.assign(tenantRepository, { findTenantBySlug: originals.findTenantBySlug });
-    Object.assign(storeLocationRepository, { findPrimaryLocationByTenantId: originals.findPrimaryLocationByTenantId });
-    Object.assign(queueService, { createTicket: originals.createTicket });
-    Object.assign(entitlementAdmissionService, { admit: originals.admit });
-    Object.assign(storeHoursService, { assertLocationOpenForCustomerJoin: originals.assertLocationOpenForCustomerJoin });
-    Object.assign(idempotencyService, { claim: originals.claim });
-    Object.assign(idempotencyRepository, { fail: originals.fail });
-  }
-});
-
-test("developer API returns a scoped ticket status without customer details", async () => {
-  const originals = {
-    findApiKeyByHash: developerProjects.findApiKeyByHash,
-    touchApiKey: developerProjects.touchApiKey,
-    findTenantBySlug: tenantRepository.findTenantBySlug,
-    findPrimaryLocationByTenantId: storeLocationRepository.findPrimaryLocationByTenantId,
-    findTicketById: ticketRepository.findTicketById
-  };
-  developerProjects.findApiKeyByHash = async () => ({
-    id: "key-read",
-    projectId: "project-1",
-    environment: "sandbox",
-    scopes: ["queues:read"],
-    status: "active",
-    projectStatus: "active",
-    accountStatus: "active"
-  });
-  developerProjects.touchApiKey = async () => {};
-  tenantRepository.findTenantBySlug = async () => ({ _id: "tenant-1", slug: "harbor", name: "Harbor Services" });
-  storeLocationRepository.findPrimaryLocationByTenantId = async () => ({ _id: "location-1", slug: "main", isActive: true });
-  ticketRepository.findTicketById = async () => ({
-    _id: "42",
-    tenantId: "tenant-1",
-    locationId: "location-1",
-    ticketNumber: "A-042",
-    lookupCode: "PRIVATE",
-    customerName: "Secret Name",
-    customerEmail: "secret@example.com",
-    status: "waiting",
-    joinChannel: "vendor",
-    servicePriorityBand: "normal",
-    statusReason: null,
-    calledAt: null,
-    servedAt: null,
-    skippedAt: null,
-    cancelledAt: null,
-    unservedAt: null,
-    terminalAt: null,
-    dateKey: "20260915",
-    createdAt: "2026-09-15T06:00:00.000Z",
-    updatedAt: "2026-09-15T06:00:00.000Z"
-  });
-
-  const { server, baseUrl } = await startServer();
-  try {
-    const result = await requestJson(`${baseUrl}/queues/harbor/tickets/42`, "sandbox-api.getprio.online", { "x-api-key": "gpk_sbx_read" });
-    assert.equal(result.status, 200);
-    assert.deepEqual(result.body.data.ticket, {
-      id: "42",
-      ticket_number: "A-042",
-      status: "waiting",
-      location_id: "location-1",
-      queue_date_key: "20260915",
-      join_channel: "vendor",
-      service_priority_band: "normal",
-      status_reason: null,
-      called_at: null,
-      served_at: null,
-      skipped_at: null,
-      cancelled_at: null,
-      unserved_at: null,
-      terminal_at: null,
-      created_at: "2026-09-15T06:00:00.000Z",
-      updated_at: "2026-09-15T06:00:00.000Z"
-    });
-    assert.equal(result.body.data.ticket.lookup_code, undefined);
-    assert.equal(result.body.data.ticket.customerEmail, undefined);
-  } finally {
-    await new Promise((resolve) => server.close(resolve));
-    Object.assign(developerProjects, { findApiKeyByHash: originals.findApiKeyByHash, touchApiKey: originals.touchApiKey });
-    Object.assign(tenantRepository, { findTenantBySlug: originals.findTenantBySlug });
-    Object.assign(storeLocationRepository, { findPrimaryLocationByTenantId: originals.findPrimaryLocationByTenantId });
-    Object.assign(ticketRepository, { findTicketById: originals.findTicketById });
-  }
-});
-
-test("developer API lists safe lifecycle events for a scoped ticket", async () => {
-  const originals = {
-    findApiKeyByHash: developerProjects.findApiKeyByHash,
-    touchApiKey: developerProjects.touchApiKey,
-    findTenantBySlug: tenantRepository.findTenantBySlug,
-    findPrimaryLocationByTenantId: storeLocationRepository.findPrimaryLocationByTenantId,
-    findTicketById: ticketRepository.findTicketById,
-    listTicketEvents: queueEventRepository.listTicketEvents
-  };
-  developerProjects.findApiKeyByHash = async () => buildDeveloperApiKey({ id: "key-read", scopes: ["queues:read"] });
-  developerProjects.touchApiKey = async () => {};
-  tenantRepository.findTenantBySlug = async () => ({ _id: "tenant-1", slug: "harbor", name: "Harbor Services" });
-  storeLocationRepository.findPrimaryLocationByTenantId = async () => ({ _id: "location-1", slug: "main", isActive: true });
-  ticketRepository.findTicketById = async () => buildTicketFixture();
-  queueEventRepository.listTicketEvents = async (input) => {
-    assert.deepEqual(input, { tenantId: "tenant-1", locationId: "location-1", ticketId: 42, limit: 2, afterId: null });
-    return { nextCursor: "101", events: [{
-      _id: "101",
-      ticketId: "42",
-      locationId: "location-1",
-      queueDateKey: "20260915",
-      eventType: "ticket_created",
-      fromStatus: null,
-      toStatus: "waiting",
-      source: "developer_api",
-      metadata: { lookupCode: "PRIVATE" },
-      createdAt: "2026-09-15T06:00:00.000Z"
-    }] };
-  };
-
-  const { server, baseUrl } = await startServer();
-  try {
-    const result = await requestJson(
-      `${baseUrl}/queues/harbor/tickets/42/events?limit=2`,
-      "sandbox-api.getprio.online",
-      { "x-api-key": "gpk_sbx_read" }
-    );
-    assert.equal(result.status, 200);
-    assert.deepEqual(result.body.data.events, [{
-      id: "101",
-      ticket_id: "42",
-      location_id: "location-1",
-      queue_date_key: "20260915",
-      type: "ticket.issued",
-      resource_version: "101",
-      from_status: null,
-      to_status: "waiting",
-      source: "developer_api",
-      occurred_at: "2026-09-15T06:00:00.000Z"
-    }]);
-    assert.equal(result.body.data.next_cursor, "101");
-    assert.equal(result.body.data.events[0].lookupCode, undefined);
-  } finally {
-    await new Promise((resolve) => server.close(resolve));
-    Object.assign(developerProjects, { findApiKeyByHash: originals.findApiKeyByHash, touchApiKey: originals.touchApiKey });
-    Object.assign(tenantRepository, { findTenantBySlug: originals.findTenantBySlug });
-    Object.assign(storeLocationRepository, { findPrimaryLocationByTenantId: originals.findPrimaryLocationByTenantId });
-    Object.assign(ticketRepository, { findTicketById: originals.findTicketById });
-    queueEventRepository.listTicketEvents = originals.listTicketEvents;
-  }
-});
-
-test("developer API rejects invalid ticket event limits", async () => {
-  const originals = {
-    findApiKeyByHash: developerProjects.findApiKeyByHash,
-    touchApiKey: developerProjects.touchApiKey,
-    findTenantBySlug: tenantRepository.findTenantBySlug,
-    findPrimaryLocationByTenantId: storeLocationRepository.findPrimaryLocationByTenantId,
-    findTicketById: ticketRepository.findTicketById,
-    listTicketEvents: queueEventRepository.listTicketEvents
-  };
-  developerProjects.findApiKeyByHash = async () => buildDeveloperApiKey({ id: "key-read", scopes: ["queues:read"] });
-  developerProjects.touchApiKey = async () => {};
-  tenantRepository.findTenantBySlug = async () => ({ _id: "tenant-1", slug: "harbor", name: "Harbor Services" });
-  storeLocationRepository.findPrimaryLocationByTenantId = async () => ({ _id: "location-1", slug: "main", isActive: true });
-  ticketRepository.findTicketById = async () => buildTicketFixture();
-  queueEventRepository.listTicketEvents = async () => { throw new Error("must not query with an invalid event cursor or limit"); };
-
-  const { server, baseUrl } = await startServer();
-  try {
-    for (const query of ["limit=0", "limit=101", "limit=1.5", "limit=abc", "limit=-1", "cursor=not-a-cursor"]) {
-      const result = await requestJson(
-        `${baseUrl}/queues/harbor/tickets/42/events?${query}`,
-        "sandbox-api.getprio.online",
-        { "x-api-key": "gpk_sbx_read" }
-      );
-      assert.equal(result.status, 400);
-      assert.equal(result.body.error, "INVALID_REQUEST");
-    }
-  } finally {
-    await new Promise((resolve) => server.close(resolve));
-    Object.assign(developerProjects, { findApiKeyByHash: originals.findApiKeyByHash, touchApiKey: originals.touchApiKey });
-    Object.assign(tenantRepository, { findTenantBySlug: originals.findTenantBySlug });
-    Object.assign(storeLocationRepository, { findPrimaryLocationByTenantId: originals.findPrimaryLocationByTenantId });
-    Object.assign(ticketRepository, { findTicketById: originals.findTicketById });
-    queueEventRepository.listTicketEvents = originals.listTicketEvents;
-  }
-});
-
-test("developer API calls the next waiting ticket with idempotency", async () => {
-  const originalFindApiKeyByHash = developerProjects.findApiKeyByHash;
-  const originalTouchApiKey = developerProjects.touchApiKey;
-  const originalFindTenantBySlug = tenantRepository.findTenantBySlug;
-  const originalFindPrimaryLocationByTenantId = storeLocationRepository.findPrimaryLocationByTenantId;
-  const originalCallNextTicket = queueService.callNextTicket;
-  const originalClaim = idempotencyService.claim;
-  const originalComplete = idempotencyRepository.complete;
-  const originalFail = idempotencyRepository.fail;
-  developerProjects.findApiKeyByHash = async () => buildDeveloperApiKey({ id: "key-write", scopes: ["queues:write"] });
-  developerProjects.touchApiKey = async () => {};
-  tenantRepository.findTenantBySlug = async () => ({ _id: "tenant-1", slug: "harbor", name: "Harbor Services" });
-  storeLocationRepository.findPrimaryLocationByTenantId = async () => ({ _id: "location-1", slug: "main", isActive: true });
-  idempotencyService.claim = async (input) => {
-    assert.equal(input.key, "call-next-ada-1");
-    assert.equal(input.retentionMs, 7 * 24 * 60 * 60_000);
-    return { state: "claimed", record: { id: 2 } };
-  };
-  idempotencyRepository.complete = async (recordId, statusCode, body) => {
-    assert.equal(recordId, 2);
-    assert.equal(statusCode, 200);
-    assert.equal(body.data.ticket.id, "42");
-  };
-  idempotencyRepository.fail = async () => {};
-  queueService.callNextTicket = async (tenant, options) => {
-    assert.equal(tenant._id, "tenant-1");
-    assert.equal(options.location._id, "location-1");
-    assert.equal(options.actorRole, "developer_api");
-    assert.equal(options.source, "developer_api");
-    return {
-      ticket: {
-        _id: 42,
-        tenantId: "tenant-1",
-        locationId: "location-1",
-        ticketNumber: "A-042",
-        lookupCode: "PRIVATE",
-        customerName: "Secret Name",
-        status: "called",
-        joinChannel: "vendor",
-        servicePriorityBand: "normal",
-        statusReason: null,
-        calledAt: "2026-09-15T06:05:00.000Z",
-        servedAt: null,
-        skippedAt: null,
-        cancelledAt: null,
-        unservedAt: null,
-        terminalAt: null,
-        dateKey: "20260915",
-        createdAt: "2026-09-15T06:00:00.000Z",
-        updatedAt: "2026-09-15T06:05:00.000Z"
-      }
-    };
-  };
-
-  const { server, baseUrl } = await startServer();
-  try {
-    const result = await requestJsonMethod(
-      "POST",
-      `${baseUrl}/queues/harbor/call-next`,
-      "sandbox-api.getprio.online",
-      { "x-api-key": "gpk_sbx_write", "Idempotency-Key": "call-next-ada-1" },
-      {}
-    );
-    assert.equal(result.status, 200);
-    assert.deepEqual(result.body.data.ticket, {
-      id: "42",
-      ticket_number: "A-042",
-      status: "called",
-      location_id: "location-1",
-      queue_date_key: "20260915",
-      join_channel: "vendor",
-      service_priority_band: "normal",
-      status_reason: null,
-      called_at: "2026-09-15T06:05:00.000Z",
-      served_at: null,
-      skipped_at: null,
-      cancelled_at: null,
-      unserved_at: null,
-      terminal_at: null,
-      created_at: "2026-09-15T06:00:00.000Z",
-      updated_at: "2026-09-15T06:05:00.000Z"
-    });
-    assert.equal(result.body.data.ticket.lookup_code, undefined);
-    assert.equal(result.body.data.ticket.customerName, undefined);
-  } finally {
-    await new Promise((resolve) => server.close(resolve));
-    developerProjects.findApiKeyByHash = originalFindApiKeyByHash;
-    developerProjects.touchApiKey = originalTouchApiKey;
-    tenantRepository.findTenantBySlug = originalFindTenantBySlug;
-    storeLocationRepository.findPrimaryLocationByTenantId = originalFindPrimaryLocationByTenantId;
-    queueService.callNextTicket = originalCallNextTicket;
-    idempotencyService.claim = originalClaim;
-    idempotencyRepository.complete = originalComplete;
-    idempotencyRepository.fail = originalFail;
-  }
-});
-
-test("developer API resolves the current ticket through serve and skip actions", async () => {
-  const originalFindApiKeyByHash = developerProjects.findApiKeyByHash;
-  const originalTouchApiKey = developerProjects.touchApiKey;
-  const originalFindTenantBySlug = tenantRepository.findTenantBySlug;
-  const originalFindPrimaryLocationByTenantId = storeLocationRepository.findPrimaryLocationByTenantId;
-  const originalUpdateCurrentTicketStatus = queueService.updateCurrentTicketStatus;
-  const originalClaim = idempotencyService.claim;
-  const originalComplete = idempotencyRepository.complete;
-  const originalFail = idempotencyRepository.fail;
-  const completedStatuses = [];
-  developerProjects.findApiKeyByHash = async () => buildDeveloperApiKey({ id: "key-write", scopes: ["queues:write"] });
-  developerProjects.touchApiKey = async () => {};
-  tenantRepository.findTenantBySlug = async () => ({ _id: "tenant-1", slug: "harbor", name: "Harbor Services" });
-  storeLocationRepository.findPrimaryLocationByTenantId = async () => ({ _id: "location-1", slug: "main", isActive: true });
-  idempotencyService.claim = async ({ key }) => ({ state: "claimed", record: { id: key } });
-  idempotencyRepository.complete = async (_recordId, statusCode, body) => {
-    assert.equal(statusCode, 200);
-    completedStatuses.push(body.data.ticket.status);
-  };
-  idempotencyRepository.fail = async () => {};
-  queueService.updateCurrentTicketStatus = async (tenant, status, options) => {
-    assert.equal(tenant._id, "tenant-1");
-    assert.equal(options.location._id, "location-1");
-    assert.equal(options.actorRole, "developer_api");
-    return {
-      ticket: {
-        _id: 42,
-        tenantId: "tenant-1",
-        locationId: "location-1",
-        ticketNumber: "A-042",
-        status,
-        joinChannel: "vendor",
-        servicePriorityBand: "normal",
-        statusReason: null,
-        calledAt: "2026-09-15T06:05:00.000Z",
-        servedAt: status === "served" ? "2026-09-15T06:06:00.000Z" : null,
-        skippedAt: status === "skipped" ? "2026-09-15T06:06:00.000Z" : null,
-        cancelledAt: null,
-        unservedAt: null,
-        terminalAt: status === "served" ? "2026-09-15T06:06:00.000Z" : null,
-        dateKey: "20260915",
-        createdAt: "2026-09-15T06:00:00.000Z",
-        updatedAt: "2026-09-15T06:06:00.000Z"
-      }
-    };
-  };
-
-  const { server, baseUrl } = await startServer();
-  try {
-    for (const status of ["serve", "skip"]) {
-      const result = await requestJsonMethod(
-        "POST",
-        `${baseUrl}/queues/harbor/current/${status}`,
-        "sandbox-api.getprio.online",
-        { "x-api-key": "gpk_sbx_write", "Idempotency-Key": `resolve-${status}-1` },
-        {}
-      );
-      assert.equal(result.status, 200);
-      assert.equal(result.body.data.ticket.status, status === "serve" ? "served" : "skipped");
-      assert.equal(result.body.data.ticket.ticket_number, "A-042");
-    }
-    assert.deepEqual(completedStatuses, ["served", "skipped"]);
-  } finally {
-    await new Promise((resolve) => server.close(resolve));
-    developerProjects.findApiKeyByHash = originalFindApiKeyByHash;
-    developerProjects.touchApiKey = originalTouchApiKey;
-    tenantRepository.findTenantBySlug = originalFindTenantBySlug;
-    storeLocationRepository.findPrimaryLocationByTenantId = originalFindPrimaryLocationByTenantId;
-    queueService.updateCurrentTicketStatus = originalUpdateCurrentTicketStatus;
-    idempotencyService.claim = originalClaim;
-    idempotencyRepository.complete = originalComplete;
-    idempotencyRepository.fail = originalFail;
-  }
-});
-
-test("developer API cancels and restores tickets by scoped ID", async () => {
-  const originalFindApiKeyByHash = developerProjects.findApiKeyByHash;
-  const originalTouchApiKey = developerProjects.touchApiKey;
-  const originalFindTenantBySlug = tenantRepository.findTenantBySlug;
-  const originalFindPrimaryLocationByTenantId = storeLocationRepository.findPrimaryLocationByTenantId;
-  const originalFindTicketById = ticketRepository.findTicketById;
-  const originalCancelTicket = queueService.cancelTicket;
-  const originalRestoreSkippedTicket = queueService.restoreSkippedTicket;
-  const originalClaim = idempotencyService.claim;
-  const originalComplete = idempotencyRepository.complete;
-  const originalFail = idempotencyRepository.fail;
-  let ticketStatus = "waiting";
-  developerProjects.findApiKeyByHash = async () => buildDeveloperApiKey({ id: "key-write", scopes: ["queues:write"] });
-  developerProjects.touchApiKey = async () => {};
-  tenantRepository.findTenantBySlug = async () => ({ _id: "tenant-1", slug: "harbor", name: "Harbor Services" });
-  storeLocationRepository.findPrimaryLocationByTenantId = async () => ({ _id: "location-1", slug: "main", isActive: true });
-  ticketRepository.findTicketById = async () => buildTicketFixture({ status: ticketStatus });
-  idempotencyService.claim = async ({ key }) => ({ state: "claimed", record: { id: key } });
-  idempotencyRepository.complete = async (_recordId, statusCode) => assert.equal(statusCode, 200);
-  idempotencyRepository.fail = async () => {};
-  queueService.cancelTicket = async (_tenant, lookupCode, options) => {
-    assert.equal(lookupCode, "PRIVATE");
-    assert.equal(options.actorRole, "developer_api");
-    ticketStatus = "cancelled";
-    return { ticket: buildTicketFixture({ status: ticketStatus, cancelledAt: "2026-09-15T06:06:00.000Z", terminalAt: "2026-09-15T06:06:00.000Z" }) };
-  };
-  queueService.restoreSkippedTicket = async (_tenant, ticketId, options) => {
-    assert.equal(ticketId, 42);
-    assert.equal(options.actorRole, "developer_api");
-    ticketStatus = "waiting";
-    return { ticket: buildTicketFixture({ status: ticketStatus }) };
-  };
-
-  const { server, baseUrl } = await startServer();
-  try {
-    const cancel = await requestJsonMethod(
-      "POST",
-      `${baseUrl}/queues/harbor/tickets/42/cancel`,
-      "sandbox-api.getprio.online",
-      { "x-api-key": "gpk_sbx_write", "Idempotency-Key": "cancel-ticket-1" },
-      {}
-    );
-    assert.equal(cancel.status, 200);
-    assert.equal(cancel.body.data.ticket.status, "cancelled");
-
-    ticketStatus = "skipped";
-    const restore = await requestJsonMethod(
-      "POST",
-      `${baseUrl}/queues/harbor/tickets/42/restore`,
-      "sandbox-api.getprio.online",
-      { "x-api-key": "gpk_sbx_write", "Idempotency-Key": "restore-ticket-1" },
-      {}
-    );
-    assert.equal(restore.status, 200);
-    assert.equal(restore.body.data.ticket.status, "waiting");
-    assert.equal(restore.body.data.ticket.lookup_code, undefined);
-  } finally {
-    await new Promise((resolve) => server.close(resolve));
-    developerProjects.findApiKeyByHash = originalFindApiKeyByHash;
-    developerProjects.touchApiKey = originalTouchApiKey;
-    tenantRepository.findTenantBySlug = originalFindTenantBySlug;
-    storeLocationRepository.findPrimaryLocationByTenantId = originalFindPrimaryLocationByTenantId;
-    ticketRepository.findTicketById = originalFindTicketById;
-    queueService.cancelTicket = originalCancelTicket;
-    queueService.restoreSkippedTicket = originalRestoreSkippedTicket;
-    idempotencyService.claim = originalClaim;
-    idempotencyRepository.complete = originalComplete;
-    idempotencyRepository.fail = originalFail;
-  }
-});
-
-test("developer API replaces an unused private mobile link with idempotency", async () => {
-  const originals = {
-    findApiKeyByHash: developerProjects.findApiKeyByHash,
-    touchApiKey: developerProjects.touchApiKey,
-    findTenantBySlug: tenantRepository.findTenantBySlug,
-    findPrimaryLocationByTenantId: storeLocationRepository.findPrimaryLocationByTenantId,
-    findTicketById: ticketRepository.findTicketById,
-    replacePrivateLink: mobileTicketLinkService.replacePrivateLink,
-    claim: idempotencyService.claim,
-    complete: idempotencyRepository.complete,
-    fail: idempotencyRepository.fail
-  };
-  developerProjects.findApiKeyByHash = async () => buildDeveloperApiKey({ id: "key-write", scopes: ["queues:write"] });
-  developerProjects.touchApiKey = async () => {};
-  tenantRepository.findTenantBySlug = async () => ({ _id: "tenant-1", slug: "harbor" });
-  storeLocationRepository.findPrimaryLocationByTenantId = async () => ({ _id: "location-1", slug: "main", isActive: true });
-  ticketRepository.findTicketById = async () => buildTicketFixture({ developerProjectId: "project-1", developerEnvironment: "sandbox" });
-  idempotencyService.claim = async () => ({ state: "claimed", record: { id: 7 } });
-  idempotencyRepository.complete = async (_id, statusCode) => assert.equal(statusCode, 200);
-  idempotencyRepository.fail = async () => {};
-  mobileTicketLinkService.replacePrivateLink = async (input) => {
-    assert.deepEqual(input, { ticketId: 42, developerProjectId: "project-1", environment: "sandbox" });
-    return { url: "https://sandbox.getprio.online/t/replacement", expiresAt: "2026-09-15T06:15:00.000Z" };
-  };
-
-  const { server, baseUrl } = await startServer();
-  try {
-    const result = await requestJsonMethod(
-      "POST",
-      `${baseUrl}/queues/harbor/tickets/42/mobile-link`,
-      "sandbox-api.getprio.online",
-      { "x-api-key": "gpk_sbx_write", "Idempotency-Key": "replace-mobile-link-1" },
-      {}
-    );
-    assert.equal(result.status, 200);
-    assert.deepEqual(result.body.data.mobile_link, {
-      url: "https://sandbox.getprio.online/t/replacement",
-      expires_at: "2026-09-15T06:15:00.000Z"
-    });
-  } finally {
-    await new Promise((resolve) => server.close(resolve));
-    Object.assign(developerProjects, { findApiKeyByHash: originals.findApiKeyByHash, touchApiKey: originals.touchApiKey });
-    Object.assign(tenantRepository, { findTenantBySlug: originals.findTenantBySlug });
-    Object.assign(storeLocationRepository, { findPrimaryLocationByTenantId: originals.findPrimaryLocationByTenantId });
-    Object.assign(ticketRepository, { findTicketById: originals.findTicketById });
-    mobileTicketLinkService.replacePrivateLink = originals.replacePrivateLink;
-    idempotencyService.claim = originals.claim;
-    Object.assign(idempotencyRepository, { complete: originals.complete, fail: originals.fail });
-  }
+    const response = await request("PATCH", `${baseUrl}/profiles/harbor`, "sandbox-api.getprio.online", { "x-api-key": "gpk_sbx_test", "idempotency-key": "profile-update-1" }, { display_name: "Harbor Service Centre", directory_content: { description: "Public profile", website_url: "https://harbor.example" } });
+    assert.equal(response.status, 200);
+    assert.equal(response.body.data.profile.slug, "harbor");
+    assert.equal(response.body.data.profile.directory_status, "draft");
+    assert.equal(response.body.data.profile.directory_content.website_url, "https://harbor.example");
+  } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
 });

@@ -1,0 +1,172 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const http = require("node:http");
+const express = require("express");
+
+const developerAuth = require("../src/middleware/developerAuth");
+const originalAuthenticateDeveloper = developerAuth.authenticateDeveloper;
+developerAuth.authenticateDeveloper = (req, _res, next) => {
+  req.user = { _id: "41" };
+  req.auth = { sessionId: "developer-session-1" };
+  req.developerMembership = { developerAccountId: "account-1", role: "owner" };
+  next();
+};
+delete require.cache[require.resolve("../src/routes/developerProjectRoutes")];
+const router = require("../src/routes/developerProjectRoutes");
+developerAuth.authenticateDeveloper = originalAuthenticateDeveloper;
+
+const developerProjects = require("../src/repositories/developerProjects");
+const developerQueues = require("../src/repositories/developerQueues");
+const securityEventService = require("../src/services/securityEventService");
+
+function startServer() {
+  const app = express();
+  app.use(express.json());
+  app.use("/api/developer", router);
+  app.use((error, _req, res, _next) => res.status(error.statusCode || 500).json({ code: error.code, message: error.message }));
+  return new Promise((resolve) => {
+    const server = app.listen(0, "127.0.0.1", () => resolve({ server, baseUrl: `http://127.0.0.1:${server.address().port}/api/developer` }));
+  });
+}
+
+function request(method, url, body) {
+  return new Promise((resolve, reject) => {
+    const encoded = body === undefined ? "" : JSON.stringify(body);
+    const req = http.request(url, { method, headers: body === undefined ? {} : { "content-type": "application/json", "content-length": Buffer.byteLength(encoded) } }, (res) => {
+      let value = ""; res.setEncoding("utf8"); res.on("data", (chunk) => { value += chunk; });
+      res.on("end", () => resolve({ status: res.statusCode, body: value ? JSON.parse(value) : {} }));
+    });
+    req.on("error", reject); if (encoded) req.write(encoded); req.end();
+  });
+}
+
+function replace(object, name, value, originals) { originals.push([object, name, object[name]]); object[name] = value; }
+function restore(originals) { for (const [object, name, value] of originals.reverse()) object[name] = value; }
+const project = { id: "project-1", name: "Harbor", status: "active", createdAt: "2026-09-16T00:00:00.000Z", updatedAt: "2026-09-16T00:00:00.000Z" };
+const profile = { id: "profile-1", projectId: "project-1", environment: "sandbox", slug: "harbor", displayName: "Harbor", directoryStatus: "private", directoryContent: {}, createdAt: "2026-09-16T00:00:00.000Z", updatedAt: "2026-09-16T00:00:00.000Z" };
+
+test("developer workspace resource routes scope profiles and queues to the signed-in project", async () => {
+  const originals = []; const calls = [];
+  replace(developerProjects, "findProjectForUser", async (...args) => { calls.push(["project", ...args]); return args[0] === "project-1" ? project : null; }, originals);
+  replace(developerQueues, "listProfiles", async (...args) => { calls.push(["profiles", ...args]); return [profile]; }, originals);
+  replace(developerQueues, "findProfile", async (...args) => { calls.push(["findProfile", ...args]); return args[2] === "harbor" ? profile : null; }, originals);
+  replace(developerQueues, "listQueues", async (...args) => { calls.push(["queues", ...args]); return []; }, originals);
+  replace(developerQueues, "createProfile", async (input) => ({ ...profile, slug: input.slug, displayName: input.displayName }), originals);
+  replace(developerQueues, "createQueue", async (input) => ({ id: "queue-1", profileId: input.profileId, slug: input.slug, displayName: input.displayName, sessionState: input.sessionState, intakeEnabled: input.intakeEnabled, joiningEnabled: false, priorityRatio: 3, resourceVersion: 1, createdAt: "2026-09-16T00:00:00.000Z", updatedAt: "2026-09-16T00:00:00.000Z" }), originals);
+  replace(securityEventService, "logSecurityEvent", async () => {}, originals);
+  const { server, baseUrl } = await startServer();
+  try {
+    const listed = await request("GET", `${baseUrl}/projects/project-1/profiles?environment=sandbox`);
+    assert.equal(listed.status, 200); assert.deepEqual(calls[1], ["profiles", "project-1", "sandbox"]);
+    const created = await request("POST", `${baseUrl}/projects/project-1/profiles`, { environment: "sandbox", slug: "north-desk", displayName: "North desk" });
+    assert.equal(created.status, 201); assert.equal(created.body.profile.slug, "north-desk");
+    const queue = await request("POST", `${baseUrl}/projects/project-1/profiles/harbor/queues`, { environment: "sandbox", slug: "main", displayName: "Main queue", sessionState: "open", intakeEnabled: true });
+    assert.equal(queue.status, 201); assert.equal(queue.body.queue.profileId, "profile-1"); assert.equal(queue.body.queue.intakeEnabled, true);
+    const denied = await request("GET", `${baseUrl}/projects/another-project/profiles?environment=sandbox`);
+    assert.equal(denied.status, 404); assert.equal(denied.body.code, "DEVELOPER_RESOURCE_NOT_FOUND");
+  } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
+});
+
+test("developer workspace blocks production profile resources before database access", async () => {
+  const originals = [];
+  replace(developerProjects, "findProjectForUser", async () => project, originals);
+  replace(developerQueues, "listProfiles", async () => { throw new Error("must not query production resources"); }, originals);
+  const { server, baseUrl } = await startServer();
+  try {
+    const response = await request("GET", `${baseUrl}/projects/project-1/profiles?environment=production`);
+    assert.equal(response.status, 403); assert.equal(response.body.code, "PRODUCTION_APPROVAL_REQUIRED");
+  } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
+});
+
+test("developer workspace updates queue configuration without allowing slug changes", async () => {
+  const originals = []; const queue = { id: "queue-1", profileId: "profile-1", slug: "main", displayName: "Main queue", sessionState: "closed", intakeEnabled: false, joiningEnabled: false, priorityRatio: 3, resourceVersion: 1, createdAt: "2026-09-16T00:00:00.000Z", updatedAt: "2026-09-16T00:00:00.000Z" };
+  replace(developerProjects, "findProjectForUser", async () => project, originals);
+  replace(developerQueues, "findProfile", async () => profile, originals);
+  replace(developerQueues, "findQueue", async (_profileId, slug) => slug === "main" ? queue : null, originals);
+  replace(developerQueues, "updateQueue", async (_queueId, changes) => ({ ...queue, ...changes, resourceVersion: queue.resourceVersion + 1 }), originals);
+  replace(securityEventService, "logSecurityEvent", async () => {}, originals);
+  const { server, baseUrl } = await startServer();
+  try {
+    const updated = await request("PATCH", `${baseUrl}/projects/project-1/profiles/harbor/queues/main`, { environment: "sandbox", displayName: "Front desk", sessionState: "open", intakeEnabled: true, resourceVersion: 1 });
+    assert.equal(updated.status, 200);
+    assert.equal(updated.body.queue.displayName, "Front desk");
+    assert.equal(updated.body.queue.sessionState, "open");
+    assert.equal(updated.body.queue.intakeEnabled, true);
+    assert.equal(updated.body.queue.slug, "main");
+    const rejected = await request("PATCH", `${baseUrl}/projects/project-1/profiles/harbor/queues/main`, { slug: "renamed" });
+    assert.equal(rejected.status, 400);
+    assert.equal(rejected.body.code, "INVALID_REQUEST");
+  } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
+});
+
+test("developer workspace edits profile metadata and keeps directory changes in draft", async () => {
+  const originals = [];
+  replace(developerProjects, "findProjectForUser", async () => project, originals);
+  replace(developerQueues, "findProfile", async () => profile, originals);
+  replace(developerQueues, "updateProfile", async (_id, changes) => ({ ...profile, ...changes, directoryStatus: changes.directoryStatus || profile.directoryStatus }), originals);
+  replace(securityEventService, "logSecurityEvent", async () => {}, originals);
+  const { server, baseUrl } = await startServer();
+  try {
+    const updated = await request("PATCH", `${baseUrl}/projects/project-1/profiles/harbor`, {
+      environment: "sandbox",
+      displayName: "Harbor Service Centre",
+      directoryContent: { description: "A public description", websiteUrl: "https://harbor.example" }
+    });
+    assert.equal(updated.status, 200);
+    assert.equal(updated.body.profile.displayName, "Harbor Service Centre");
+    assert.equal(updated.body.profile.slug, "harbor");
+    assert.equal(updated.body.profile.directoryStatus, "draft");
+    assert.deepEqual(updated.body.profile.directoryContent, { description: "A public description", websiteUrl: "https://harbor.example" });
+    const rejected = await request("PATCH", `${baseUrl}/projects/project-1/profiles/harbor`, { slug: "new-slug" });
+    assert.equal(rejected.status, 400);
+    assert.equal(rejected.body.code, "INVALID_REQUEST");
+  } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
+});
+
+test("sandbox allowance reads only a project accessible to the signed-in developer", async () => {
+  const originals = [];
+  const calls = [];
+  replace(developerProjects, "findProjectForUser", async (id, userId) => {
+    calls.push(["project", id, userId]);
+    return id === "project-1" ? project : null;
+  }, originals);
+  replace(developerProjects, "getSandboxAllowance", async (id) => {
+    calls.push(["allowance", id]);
+    return { limit: 100, issuedTickets: 7, remaining: 93 };
+  }, originals);
+  const { server, baseUrl } = await startServer();
+  try {
+    const allowed = await request("GET", `${baseUrl}/projects/project-1/sandbox/allowance`);
+    assert.equal(allowed.status, 200);
+    assert.deepEqual(allowed.body.allowance.limit, 100);
+    assert.equal(allowed.body.allowance.remaining, 93);
+    assert.match(allowed.body.allowance.resetAt, /^\d{4}-\d\d-\d\dT00:00:00.000Z$/);
+    const denied = await request("GET", `${baseUrl}/projects/another-project/sandbox/allowance`);
+    assert.equal(denied.status, 404);
+    assert.deepEqual(calls, [["project", "project-1", "41"], ["allowance", "project-1"], ["project", "another-project", "41"]]);
+  } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
+});
+
+test("developer workspace usage returns project-scoped Sandbox activity", async () => {
+  const originals = [];
+  replace(developerProjects, "findProjectForUser", async () => project, originals);
+  replace(developerProjects, "getSandboxAllowance", async () => ({ limit: 100, issuedTickets: 2, remaining: 98 }), originals);
+  replace(developerQueues, "getUsage", async (projectId, environment) => ({
+    summary: { issuedTickets: 2, activeTickets: 1, completedTickets: 1 },
+    daily: [{ date: "2026-09-17", issuedTickets: 2 }],
+    recentTickets: [{ id: "ticket-1", projectId, environment, ticketNumber: "MAIN-0001", createdAt: "2026-09-17T01:00:00.000Z" }]
+  }), originals);
+  const { server, baseUrl } = await startServer();
+  try {
+    const response = await request("GET", `${baseUrl}/projects/project-1/usage`);
+    assert.equal(response.status, 200);
+    assert.equal(response.body.environment, "sandbox");
+    assert.deepEqual(response.body.summary, { issuedTickets: 2, activeTickets: 1, completedTickets: 1 });
+    assert.deepEqual(response.body.daily, [{ date: "2026-09-17", issuedTickets: 2 }]);
+    assert.equal(response.body.recentTickets[0].id, "ticket-1");
+    assert.equal(response.body.allowance.remaining, 98);
+    const denied = await request("GET", `${baseUrl}/projects/project-1/usage?environment=production`);
+    assert.equal(denied.status, 403);
+    assert.equal(denied.body.code, "PRODUCTION_APPROVAL_REQUIRED");
+  } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
+});

@@ -3,7 +3,7 @@ const envelopeResponse = (description) => ({
   content: { "application/json": { schema: { $ref: "#/components/schemas/Envelope" } } }
 });
 
-const apiKeyResponses = (successDescription, notFoundDescription = "Tenant not found.") => ({
+const apiKeyResponses = (successDescription, notFoundDescription = "Developer profile not found.") => ({
   "200": envelopeResponse(successDescription),
   "401": { description: "Missing or invalid API key." },
   "403": { description: "API key is missing the queues:read scope." },
@@ -27,15 +27,15 @@ const idempotencyParameter = {
 };
 
 const queueParameters = (location = false) => [
-  pathParameter("tenantSlug", "The active GetPrio tenant slug."),
-  ...(location ? [pathParameter("locationSlug")] : [])
+  pathParameter("tenantSlug", "The developer project profile slug. This legacy path parameter name is retained for v1 compatibility."),
+  ...(location ? [pathParameter("locationSlug", "The profile-owned queue slug. This legacy path parameter name is retained for v1 compatibility.")] : [])
 ];
 
 const queueReadPath = ({ operationId, summary, successDescription, location = false }) => ({
   get: {
     operationId,
     summary,
-    security: [{ BearerAuth: [] }],
+    security: [{ ApiKeyAuth: [] }],
     parameters: queueParameters(location),
     responses: apiKeyResponses(successDescription, location ? "Tenant or location not found." : undefined)
   }
@@ -45,7 +45,7 @@ const queueStreamPath = ({ operationId, summary, location = false }) => ({
   get: {
     operationId,
     summary,
-    security: [{ BearerAuth: [] }],
+    security: [{ ApiKeyAuth: [] }],
     parameters: queueParameters(location),
     responses: {
       "200": { description: "Server-Sent Events stream of queue snapshots." },
@@ -60,7 +60,7 @@ const queueWritePath = ({ operationId, summary, location = false }) => ({
   post: {
     operationId,
     summary,
-    security: [{ BearerAuth: [] }],
+    security: [{ ApiKeyAuth: [] }],
     parameters: [...queueParameters(location), idempotencyParameter],
     requestBody: {
       required: true,
@@ -69,12 +69,12 @@ const queueWritePath = ({ operationId, summary, location = false }) => ({
       }
     },
     responses: {
-      "201": envelopeResponse("Issued queue ticket and private mobile link"),
+      "201": envelopeResponse("Issued queue ticket"),
       "400": { description: "Invalid ticket details." },
       "401": { description: "Missing or invalid API key." },
       "403": { description: "API key is missing the queues:write scope." },
       "404": { description: location ? "Tenant or location not found." : "Tenant not found." },
-      "409": { description: "The idempotency key is already in use, the external reference is already retained, or queue intake is unavailable." }
+      "409": { description: "The idempotency key is already in use or queue intake is unavailable." }
     }
   }
 });
@@ -83,7 +83,7 @@ const queueActionPath = ({ operationId, summary, location = false }) => ({
   post: {
     operationId,
     summary,
-    security: [{ BearerAuth: [] }],
+    security: [{ ApiKeyAuth: [] }],
     parameters: [...queueParameters(location), idempotencyParameter],
     responses: {
       "200": envelopeResponse("Queue action result"),
@@ -100,7 +100,7 @@ const queueResolutionPath = ({ operationId, summary, status, location = false })
   post: {
     operationId,
     summary,
-    security: [{ BearerAuth: [] }],
+    security: [{ ApiKeyAuth: [] }],
     parameters: [...queueParameters(location), idempotencyParameter],
     responses: {
       "200": envelopeResponse(`Current ticket ${status} result`),
@@ -116,7 +116,7 @@ const queueTicketActionPath = ({ operationId, summary, action, location = false 
   post: {
     operationId,
     summary,
-    security: [{ BearerAuth: [] }],
+    security: [{ ApiKeyAuth: [] }],
     parameters: [
       ...queueParameters(location),
       pathParameter("ticketId", "The opaque queue ticket identifier."),
@@ -132,31 +132,11 @@ const queueTicketActionPath = ({ operationId, summary, action, location = false 
   }
 });
 
-const queueMobileLinkPath = ({ operationId, summary, location = false }) => ({
-  post: {
-    operationId,
-    summary,
-    security: [{ BearerAuth: [] }],
-    parameters: [
-      ...queueParameters(location),
-      pathParameter("ticketId", "The opaque queue ticket identifier."),
-      idempotencyParameter
-    ],
-    responses: {
-      "200": envelopeResponse("Replacement private mobile ticket link"),
-      "401": { description: "Missing or invalid API key." },
-      "403": { description: "API key is missing the queues:write scope." },
-      "404": { description: "Ticket, tenant, or location not found." },
-      "409": { description: "The ticket is already linked or has no unused mobile link to replace." }
-    }
-  }
-});
-
 const queueTicketReadPath = ({ operationId, summary, location = false }) => ({
   get: {
     operationId,
     summary,
-    security: [{ BearerAuth: [] }],
+    security: [{ ApiKeyAuth: [] }],
     parameters: [
       ...queueParameters(location),
       pathParameter("ticketId", "The opaque queue ticket identifier.")
@@ -174,7 +154,7 @@ const queueTicketEventsPath = ({ operationId, summary, location = false }) => ({
   get: {
     operationId,
     summary,
-    security: [{ BearerAuth: [] }],
+    security: [{ ApiKeyAuth: [] }],
     parameters: [
       ...queueParameters(location),
       pathParameter("ticketId", "The opaque queue ticket identifier."),
@@ -208,7 +188,7 @@ const openApiDocument = {
   info: {
     title: "GetPrio Queue API",
     version: "v1",
-    description: "Versioned GetPrio queue API. Metadata and health are public; queue snapshots require a sandbox or production Bearer API key with the queues:read scope."
+    description: "Versioned GetPrio queue API. Metadata and health are public; queue snapshots require a sandbox or production API key with the queues:read scope."
   },
   servers: [
     { url: "https://api.getprio.online/v1", description: "Production" },
@@ -227,6 +207,31 @@ const openApiDocument = {
         operationId: "getApiHealth",
         summary: "Check API health",
         responses: { "200": envelopeResponse("API health status") }
+      }
+    },
+    "/profiles": {
+      get: {
+        operationId: "listProfiles",
+        summary: "List developer profiles",
+        security: [{ ApiKeyAuth: [] }],
+        responses: { "200": envelopeResponse("Developer profiles"), "401": { description: "Missing or invalid API key." }, "403": { description: "API key is missing the profiles:read scope." } }
+      },
+      post: {
+        operationId: "createProfile",
+        summary: "Create a private developer profile",
+        security: [{ ApiKeyAuth: [] }],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["slug", "display_name"], properties: { slug: { type: "string", pattern: "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$" }, display_name: { type: "string", maxLength: 120 } }, additionalProperties: false } } } },
+        responses: { "201": envelopeResponse("Created developer profile"), "400": { description: "Invalid profile details." }, "401": { description: "Missing or invalid API key." }, "403": { description: "API key is missing the profiles:write scope." }, "409": { description: "Profile slug already exists." } }
+      }
+    },
+    "/profiles/{profileSlug}": {
+      patch: {
+        operationId: "updateProfile",
+        summary: "Update profile metadata or save a directory draft",
+        security: [{ ApiKeyAuth: [] }],
+        parameters: [pathParameter("profileSlug", "The immutable developer profile slug."), idempotencyParameter],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { display_name: { type: "string", maxLength: 120 }, directory_content: { type: "object", properties: { description: { type: "string", maxLength: 1000 }, website_url: { type: "string", format: "uri" } }, additionalProperties: false } }, additionalProperties: false } } } },
+        responses: { "200": envelopeResponse("Updated developer profile"), "400": { description: "Invalid profile details." }, "401": { description: "Missing or invalid API key." }, "403": { description: "API key is missing the profiles:write scope." }, "404": { description: "Developer profile not found." } }
       }
     },
     "/queues/{tenantSlug}": queueReadPath({
@@ -307,15 +312,6 @@ const openApiDocument = {
       action: "restore",
       location: true
     }),
-    "/queues/{tenantSlug}/tickets/{ticketId}/mobile-link": queueMobileLinkPath({
-      operationId: "replaceQueueTicketMobileLink",
-      summary: "Replace an unused private mobile ticket link"
-    }),
-    "/queues/{tenantSlug}/locations/{locationSlug}/tickets/{ticketId}/mobile-link": queueMobileLinkPath({
-      operationId: "replaceLocationQueueTicketMobileLink",
-      summary: "Replace an unused private mobile ticket link at a location",
-      location: true
-    }),
     "/queues/{tenantSlug}/tickets/{ticketId}": queueTicketReadPath({
       operationId: "getQueueTicket",
       summary: "Read a queue ticket status"
@@ -346,10 +342,10 @@ const openApiDocument = {
   },
   components: {
     securitySchemes: {
-      BearerAuth: {
-        type: "http",
-        scheme: "bearer",
-        bearerFormat: "GetPrio API key",
+      ApiKeyAuth: {
+        type: "apiKey",
+        in: "header",
+        name: "X-API-Key",
         description: "Use a key issued for the matching API host environment."
       }
     },
@@ -365,15 +361,9 @@ const openApiDocument = {
       IssueTicketRequest: {
         type: "object",
         properties: {
-          displayLabel: { type: "string", minLength: 1, maxLength: 80, description: "Optional customer-facing label. The generated ticket number is used when omitted." },
-          externalReference: { type: "string", pattern: "^[A-Za-z0-9_.:-]{1,128}$", description: "Optional opaque visit or work-order reference, unique within the project and environment while retained." },
-          customerName: { type: "string", minLength: 1, maxLength: 120, deprecated: true, description: "Legacy alias for displayLabel." },
-          invitationEmail: { type: "string", format: "email", maxLength: 254, description: "Optional recipient email for an in-app ticket invitation. Matching and delivery outcomes are not disclosed." },
-          customerEmail: { type: "string", format: "email", maxLength: 254, deprecated: true, description: "Legacy alias for invitationEmail." },
-          customerPhone: { type: "string", maxLength: 40 },
-          notifyByEmail: { type: "boolean", default: false },
-          notifyBySms: { type: "boolean", default: false },
-          notes: { type: "string", maxLength: 1000 }
+          display_label: { type: "string", maxLength: 120, description: "Optional display-only label. Do not send a customer name." },
+          external_reference: { type: "string", maxLength: 160, description: "Optional opaque reference, unique within the project and environment." },
+          recipient_email: { type: "string", maxLength: 320, description: "Optional contact email when the integration has a lawful delivery purpose." }
         },
         additionalProperties: false
       }

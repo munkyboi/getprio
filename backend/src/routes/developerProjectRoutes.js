@@ -4,6 +4,7 @@ const asyncHandler = require("../middleware/asyncHandler");
 const { authenticateDeveloper } = require("../middleware/developerAuth");
 const authService = require("../services/authService");
 const developerProjects = require("../repositories/developerProjects");
+const developerQueues = require("../repositories/developerQueues");
 const developerWebhooks = require("../repositories/developerWebhooks");
 const developerWebhookDeliveries = require("../repositories/developerWebhookDeliveries");
 const developerWebhookSuspensions = require("../repositories/developerWebhookSuspensions");
@@ -13,7 +14,14 @@ const developerWebhookDispatcher = require("../services/developerWebhookDispatch
 const securityEventService = require("../services/securityEventService");
 
 const router = express.Router();
-const VALID_SCOPES = new Set(["queues:read", "queues:write", "webhooks:read", "webhooks:write"]);
+const VALID_SCOPES = new Set([
+  "profiles:read",
+  "profiles:write",
+  "queues:read",
+  "queues:write",
+  "webhooks:read",
+  "webhooks:write"
+]);
 
 router.use(authenticateDeveloper);
 
@@ -37,6 +45,85 @@ function normalizeScopes(value) {
     throw error;
   }
   return [...new Set(scopes)];
+}
+
+function workspaceEnvironment(value) {
+  const environment = developerApiKeyService.normalizeEnvironment(value || "sandbox");
+  if (environment === "production") {
+    const error = new Error("Production resources require Developer Portal approval and MFA.");
+    error.statusCode = 403;
+    error.code = "PRODUCTION_APPROVAL_REQUIRED";
+    throw error;
+  }
+  return environment;
+}
+
+function cleanSlug(value, label) {
+  const slug = String(value || "").trim().toLowerCase();
+  if (!/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/.test(slug)) {
+    const error = new Error(`${label} must be a lowercase URL-safe slug.`);
+    error.statusCode = 400;
+    error.code = "INVALID_SLUG";
+    throw error;
+  }
+  return slug;
+}
+
+function cleanDisplayName(value, label) {
+  const name = String(value || "").trim();
+  if (!name || name.length > 120) {
+    const error = new Error(`${label} must be between 1 and 120 characters.`);
+    error.statusCode = 400;
+    error.code = "INVALID_NAME";
+    throw error;
+  }
+  return name;
+}
+
+function cleanDirectoryContent(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    const error = new Error("directoryContent must be an object.");
+    error.statusCode = 400;
+    error.code = "INVALID_DIRECTORY_CONTENT";
+    throw error;
+  }
+  onlyFields(value, new Set(["description", "websiteUrl"]));
+  const description = value.description === undefined ? "" : String(value.description).trim();
+  if (description.length > 1000) {
+    const error = new Error("Directory description must be at most 1000 characters.");
+    error.statusCode = 400;
+    error.code = "INVALID_DIRECTORY_CONTENT";
+    throw error;
+  }
+  const websiteUrl = value.websiteUrl === undefined || value.websiteUrl === null ? "" : String(value.websiteUrl).trim();
+  if (websiteUrl && !/^https?:\/\/[^\s]+$/i.test(websiteUrl)) {
+    const error = new Error("Website URL must use http or https.");
+    error.statusCode = 400;
+    error.code = "INVALID_DIRECTORY_CONTENT";
+    throw error;
+  }
+  return { description, websiteUrl };
+}
+
+function onlyFields(body, fields) {
+  const unexpected = Object.keys(body || {}).filter((key) => !fields.has(key));
+  if (unexpected.length) {
+    const error = new Error(`Unsupported fields: ${unexpected.join(", ")}.`);
+    error.statusCode = 400;
+    error.code = "INVALID_REQUEST";
+    throw error;
+  }
+}
+
+function cleanResourceVersion(value) {
+  const version = Number(value);
+  if (!Number.isSafeInteger(version) || version < 1) {
+    const error = new Error("resourceVersion must be a positive integer.");
+    error.statusCode = 400;
+    error.code = "INVALID_RESOURCE_VERSION";
+    throw error;
+  }
+  return version;
 }
 
 function projectResponse(project) {
@@ -63,6 +150,72 @@ function keyResponse(key) {
     revokedAt: key.revokedAt,
     createdAt: key.createdAt,
     updatedAt: key.updatedAt
+  };
+}
+
+function profileResponse(profile) {
+  return {
+    id: profile.id,
+    projectId: profile.projectId,
+    environment: profile.environment,
+    slug: profile.slug,
+    displayName: profile.displayName,
+    directoryStatus: profile.directoryStatus,
+    directoryContent: profile.directoryContent || {},
+    createdAt: profile.createdAt,
+    updatedAt: profile.updatedAt
+  };
+}
+
+function queueResponse(queue) {
+  return {
+    id: queue.id,
+    profileId: queue.profileId,
+    slug: queue.slug,
+    displayName: queue.displayName,
+    sessionState: queue.sessionState,
+    intakeEnabled: queue.intakeEnabled,
+    joiningEnabled: queue.joiningEnabled,
+    priorityRatio: queue.priorityRatio,
+    resourceVersion: queue.resourceVersion,
+    createdAt: queue.createdAt,
+    updatedAt: queue.updatedAt
+  };
+}
+
+function ticketResponse(ticket) {
+  if (!ticket) return null;
+  return {
+    id: ticket.id,
+    projectId: ticket.projectId,
+    environment: ticket.environment,
+    profileId: ticket.profileId,
+    queueId: ticket.queueId,
+    ticketNumber: ticket.ticketNumber,
+    sequence: ticket.sequence,
+    displayLabel: ticket.displayLabel,
+    externalReference: ticket.externalReference,
+    status: ticket.status,
+    statusReason: ticket.statusReason,
+    calledAt: ticket.calledAt,
+    servedAt: ticket.servedAt,
+    skippedAt: ticket.skippedAt,
+    cancelledAt: ticket.cancelledAt,
+    unservedAt: ticket.unservedAt,
+    terminalAt: ticket.terminalAt,
+    resourceVersion: ticket.resourceVersion,
+    createdAt: ticket.createdAt,
+    updatedAt: ticket.updatedAt
+  };
+}
+
+function queueSnapshotResponse(snapshot) {
+  return {
+    queue: queueResponse(snapshot.queue),
+    stats: snapshot.stats,
+    current: ticketResponse(snapshot.current),
+    nextUp: snapshot.nextUp.map(ticketResponse),
+    overflow: snapshot.overflow.map(ticketResponse)
   };
 }
 
@@ -163,6 +316,35 @@ router.get("/projects", asyncHandler(async (req, res) => {
   res.json({ projects: projects.map(projectResponse) });
 }));
 
+router.get("/projects/:projectId/sandbox/allowance", asyncHandler(async (req, res) => {
+  const project = await developerProjects.findProjectForUser(req.params.projectId, req.user._id);
+  if (!project) throw notFound();
+  const allowance = await developerProjects.getSandboxAllowance(project.id);
+  const now = new Date();
+  const resetAt = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ project: projectResponse(project), allowance: { ...allowance, resetAt: resetAt.toISOString() } });
+}));
+
+router.get("/projects/:projectId/usage", asyncHandler(async (req, res) => {
+  const project = await developerProjects.findProjectForUser(req.params.projectId, req.user._id);
+  if (!project) throw notFound();
+  const environment = workspaceEnvironment(req.query?.environment || "sandbox");
+  const [usage, allowance] = await Promise.all([
+    developerQueues.getUsage(project.id, environment),
+    developerProjects.getSandboxAllowance(project.id)
+  ]);
+  const now = new Date();
+  const resetAt = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+  res.setHeader("Cache-Control", "no-store");
+  res.json({
+    project: projectResponse(project),
+    environment,
+    allowance: { ...allowance, resetAt: resetAt.toISOString() },
+    ...usage
+  });
+}));
+
 router.post("/projects", asyncHandler(async (req, res) => {
   if (req.developerMembership.role !== "owner") {
     const error = new Error("Only the Developer Portal owner can create projects.");
@@ -221,6 +403,185 @@ router.delete("/projects/:projectId", asyncHandler(async (req, res) => {
     metadata: { projectId: project.id }
   });
   res.json({ project: projectResponse(project) });
+}));
+
+router.get("/projects/:projectId/profiles", asyncHandler(async (req, res) => {
+  const project = await developerProjects.findProjectForUser(req.params.projectId, req.user._id);
+  if (!project) throw notFound();
+  const environment = workspaceEnvironment(req.query?.environment || "sandbox");
+  const profiles = await developerQueues.listProfiles(project.id, environment);
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ project: projectResponse(project), environment, profiles: profiles.map(profileResponse) });
+}));
+
+router.post("/projects/:projectId/profiles", asyncHandler(async (req, res) => {
+  const project = await developerProjects.findProjectForUser(req.params.projectId, req.user._id);
+  if (!project) throw notFound();
+  const environment = workspaceEnvironment(req.body?.environment || "sandbox");
+  const slug = cleanSlug(req.body?.slug, "Profile slug");
+  const displayName = cleanDisplayName(req.body?.displayName ?? req.body?.display_name, "Profile name");
+  try {
+    const profile = await developerQueues.createProfile({
+      projectId: project.id,
+      environment,
+      slug,
+      displayName,
+      userId: req.user._id
+    });
+    await securityEventService.logSecurityEvent({
+      userId: req.user._id,
+      sessionId: req.auth.sessionId,
+      eventType: "developer_profile_created",
+      actorRole: req.developerMembership.role,
+      ipAddress: authService.getRequestIp(req),
+      userAgent: authService.getUserAgent(req),
+      metadata: { projectId: project.id, profileId: profile.id, environment }
+    });
+    res.status(201).json({ profile: profileResponse(profile) });
+  } catch (error) {
+    if (error.code === "23505") {
+      error.statusCode = 409;
+      error.code = "PROFILE_SLUG_EXISTS";
+    }
+    throw error;
+  }
+}));
+
+router.patch("/projects/:projectId/profiles/:profileSlug", asyncHandler(async (req, res) => {
+  const project = await developerProjects.findProjectForUser(req.params.projectId, req.user._id);
+  if (!project) throw notFound();
+  const environment = workspaceEnvironment(req.body?.environment || "sandbox");
+  onlyFields(req.body, new Set(["environment", "displayName", "display_name", "directoryContent", "directory_content"]));
+  const profile = await developerQueues.findProfile(project.id, environment, cleanSlug(req.params.profileSlug, "Profile slug"));
+  if (!profile) throw notFound("Profile not found.");
+  const changes = {};
+  if (req.body?.displayName !== undefined || req.body?.display_name !== undefined) {
+    changes.displayName = cleanDisplayName(req.body?.displayName ?? req.body?.display_name, "Profile name");
+  }
+  const directoryValue = req.body?.directoryContent ?? req.body?.directory_content;
+  if (directoryValue !== undefined) {
+    changes.directoryContent = cleanDirectoryContent(directoryValue);
+    changes.directoryStatus = "draft";
+  }
+  if (!Object.keys(changes).length) {
+    const error = new Error("Provide a profile name or directory content to update.");
+    error.statusCode = 400;
+    error.code = "NO_PROFILE_CHANGES";
+    throw error;
+  }
+  const updated = await developerQueues.updateProfile(profile.id, changes);
+  if (!updated) throw notFound("Profile not found.");
+  await securityEventService.logSecurityEvent({
+    userId: req.user._id,
+    sessionId: req.auth.sessionId,
+    eventType: "developer_profile_updated",
+    actorRole: req.developerMembership.role,
+    ipAddress: authService.getRequestIp(req),
+    userAgent: authService.getUserAgent(req),
+    metadata: { projectId: project.id, profileId: profile.id, environment, directoryDraft: Boolean(changes.directoryContent !== undefined) }
+  });
+  res.json({ profile: profileResponse(updated) });
+}));
+
+router.get("/projects/:projectId/profiles/:profileSlug/queues", asyncHandler(async (req, res) => {
+  const project = await developerProjects.findProjectForUser(req.params.projectId, req.user._id);
+  if (!project) throw notFound();
+  const environment = workspaceEnvironment(req.query?.environment || "sandbox");
+  const profile = await developerQueues.findProfile(project.id, environment, cleanSlug(req.params.profileSlug, "Profile slug"));
+  if (!profile) throw notFound("Profile not found.");
+  const queues = await developerQueues.listQueues(profile.id);
+  const snapshots = await Promise.all(queues.map((queue) => developerQueues.queueSnapshot(queue.id)));
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ profile: profileResponse(profile), queues: queues.map(queueResponse), snapshots: snapshots.filter(Boolean).map(queueSnapshotResponse) });
+}));
+
+router.post("/projects/:projectId/profiles/:profileSlug/queues", asyncHandler(async (req, res) => {
+  const project = await developerProjects.findProjectForUser(req.params.projectId, req.user._id);
+  if (!project) throw notFound();
+  const environment = workspaceEnvironment(req.body?.environment || "sandbox");
+  const profile = await developerQueues.findProfile(project.id, environment, cleanSlug(req.params.profileSlug, "Profile slug"));
+  if (!profile) throw notFound("Profile not found.");
+  const slug = cleanSlug(req.body?.slug, "Queue slug");
+  const displayName = cleanDisplayName(req.body?.displayName ?? req.body?.display_name, "Queue name");
+  const sessionState = req.body?.sessionState ?? req.body?.session_state ?? "closed";
+  if (!["open", "paused", "closing", "closed"].includes(sessionState)) {
+    const error = new Error("sessionState is invalid.");
+    error.statusCode = 400;
+    error.code = "INVALID_QUEUE_STATE";
+    throw error;
+  }
+  try {
+    const queue = await developerQueues.createQueue({
+      profileId: profile.id,
+      slug,
+      displayName,
+      sessionState,
+      intakeEnabled: Boolean(req.body?.intakeEnabled ?? req.body?.intake_enabled ?? false)
+    });
+    await securityEventService.logSecurityEvent({
+      userId: req.user._id,
+      sessionId: req.auth.sessionId,
+      eventType: "developer_queue_created",
+      actorRole: req.developerMembership.role,
+      ipAddress: authService.getRequestIp(req),
+      userAgent: authService.getUserAgent(req),
+      metadata: { projectId: project.id, profileId: profile.id, queueId: queue.id, environment }
+    });
+    res.status(201).json({ queue: queueResponse(queue) });
+  } catch (error) {
+    if (error.code === "23505") {
+      error.statusCode = 409;
+      error.code = "QUEUE_SLUG_EXISTS";
+    }
+    throw error;
+  }
+}));
+
+router.patch("/projects/:projectId/profiles/:profileSlug/queues/:queueSlug", asyncHandler(async (req, res) => {
+  const project = await developerProjects.findProjectForUser(req.params.projectId, req.user._id);
+  if (!project) throw notFound();
+  const environment = workspaceEnvironment(req.body?.environment || "sandbox");
+  onlyFields(req.body, new Set(["environment", "displayName", "display_name", "sessionState", "session_state", "intakeEnabled", "intake_enabled", "resourceVersion", "resource_version"]));
+  const profile = await developerQueues.findProfile(project.id, environment, cleanSlug(req.params.profileSlug, "Profile slug"));
+  if (!profile) throw notFound("Profile not found.");
+  const queue = await developerQueues.findQueue(profile.id, cleanSlug(req.params.queueSlug, "Queue slug"));
+  if (!queue) throw notFound("Queue not found.");
+  const update = {};
+  if (req.body?.displayName !== undefined || req.body?.display_name !== undefined) update.displayName = cleanDisplayName(req.body.displayName ?? req.body.display_name, "Queue name");
+  if (req.body?.sessionState !== undefined || req.body?.session_state !== undefined) {
+    update.sessionState = req.body.sessionState ?? req.body.session_state;
+    if (!["open", "paused", "closing", "closed"].includes(update.sessionState)) {
+      const error = new Error("sessionState is invalid.");
+      error.statusCode = 400;
+      error.code = "INVALID_QUEUE_STATE";
+      throw error;
+    }
+  }
+  if (req.body?.intakeEnabled !== undefined || req.body?.intake_enabled !== undefined) update.intakeEnabled = Boolean(req.body.intakeEnabled ?? req.body.intake_enabled);
+  if (!Object.keys(update).length) {
+    const error = new Error("Provide a queue name, state, or ticket intake setting to update.");
+    error.statusCode = 400;
+    error.code = "NO_QUEUE_CHANGES";
+    throw error;
+  }
+  if (req.body?.resourceVersion !== undefined || req.body?.resource_version !== undefined) update.resourceVersion = cleanResourceVersion(req.body.resourceVersion ?? req.body.resource_version);
+  const updated = await developerQueues.updateQueue(queue.id, update);
+  if (!updated) {
+    const error = new Error("Queue changed before this update was applied. Refresh and try again.");
+    error.statusCode = 409;
+    error.code = "QUEUE_UPDATE_CONFLICT";
+    throw error;
+  }
+  await securityEventService.logSecurityEvent({
+    userId: req.user._id,
+    sessionId: req.auth.sessionId,
+    eventType: "developer_queue_updated",
+    actorRole: req.developerMembership.role,
+    ipAddress: authService.getRequestIp(req),
+    userAgent: authService.getUserAgent(req),
+    metadata: { projectId: project.id, profileId: profile.id, queueId: queue.id, environment, changes: Object.keys(update).filter((key) => key !== "resourceVersion") }
+  });
+  res.json({ queue: queueResponse(updated) });
 }));
 
 router.get("/projects/:projectId/keys", asyncHandler(async (req, res) => {
