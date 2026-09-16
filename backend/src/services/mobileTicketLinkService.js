@@ -23,6 +23,42 @@ function buildMobileTicketUrl(environment, token) {
   return `${origin}/t/${encodeURIComponent(token)}`;
 }
 
+function unavailableError() {
+  const error = new Error("This ticket link can’t be used. Please request a new link.");
+  error.statusCode = 404;
+  error.code = "TICKET_LINK_UNAVAILABLE";
+  return error;
+}
+
+function normalizeToken(token) {
+  const value = String(token || "").trim();
+  return /^[A-Za-z0-9_-]{43}$/.test(value) ? value : null;
+}
+
+async function previewPrivateLink({ token, environment }) {
+  const normalizedToken = normalizeToken(token);
+  if (!normalizedToken || !MOBILE_LINK_ORIGINS[environment]) {
+    throw unavailableError();
+  }
+
+  const link = await ticketMobileLinks.findUsableLinkByTokenHash(hashToken(normalizedToken));
+  if (!link || link.environment !== environment) {
+    throw unavailableError();
+  }
+
+  const ticket = await ticketRepository.findTicketById(link.ticketId);
+  if (
+    !ticket ||
+    String(ticket.developerProjectId) !== String(link.developerProjectId) ||
+    ticket.developerEnvironment !== environment ||
+    ticket.userId
+  ) {
+    throw unavailableError();
+  }
+
+  return { link, ticket };
+}
+
 async function issuePrivateLink({ ticketId, developerProjectId, environment, client, now = new Date() }) {
   if (!ticketId || !developerProjectId || !MOBILE_LINK_ORIGINS[environment]) {
     throw new Error("Ticket mobile link scope is incomplete.");
@@ -78,6 +114,9 @@ module.exports = {
   LINK_TTL_MS,
   buildMobileTicketUrl,
   hashToken,
+  normalizeToken,
+  previewPrivateLink,
   issuePrivateLink,
-  replacePrivateLink
+  replacePrivateLink,
+  unavailableError
 };

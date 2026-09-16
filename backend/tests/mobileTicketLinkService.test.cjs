@@ -40,6 +40,75 @@ test("mobile ticket links reject an incomplete scope", async () => {
   );
 });
 
+test("preview resolves an unexpired proof without consuming it", async () => {
+  const originals = {
+    findUsableLinkByTokenHash: ticketMobileLinks.findUsableLinkByTokenHash,
+    findTicketById: ticketRepository.findTicketById
+  };
+  let lookedUpHash;
+  ticketMobileLinks.findUsableLinkByTokenHash = async (tokenHash) => {
+    lookedUpHash = tokenHash;
+    return {
+      ticketId: "42",
+      developerProjectId: "project-1",
+      environment: "production",
+      expiresAt: "2026-09-15T06:15:00.000Z",
+      usedAt: null,
+      revokedAt: null
+    };
+  };
+  ticketRepository.findTicketById = async () => ({
+    _id: "42",
+    developerProjectId: "project-1",
+    developerEnvironment: "production",
+    userId: null,
+    ticketNumber: "A-042"
+  });
+  try {
+    const result = await service.previewPrivateLink({
+      token: "A".repeat(43),
+      environment: "production"
+    });
+    assert.equal(result.ticket.ticketNumber, "A-042");
+    assert.equal(lookedUpHash, service.hashToken("A".repeat(43)));
+    assert.equal(result.link.usedAt, null);
+  } finally {
+    Object.assign(ticketMobileLinks, { findUsableLinkByTokenHash: originals.findUsableLinkByTokenHash });
+    Object.assign(ticketRepository, { findTicketById: originals.findTicketById });
+  }
+});
+
+test("preview collapses wrong-environment and already-linked proofs", async () => {
+  const originals = {
+    findUsableLinkByTokenHash: ticketMobileLinks.findUsableLinkByTokenHash,
+    findTicketById: ticketRepository.findTicketById
+  };
+  ticketMobileLinks.findUsableLinkByTokenHash = async () => ({
+    ticketId: "42",
+    developerProjectId: "project-1",
+    environment: "sandbox"
+  });
+  ticketRepository.findTicketById = async () => ({
+    _id: "42",
+    developerProjectId: "project-1",
+    developerEnvironment: "sandbox",
+    userId: "customer-9"
+  });
+  try {
+    await assert.rejects(
+      service.previewPrivateLink({ token: "B".repeat(43), environment: "production" }),
+      (error) => error.code === "TICKET_LINK_UNAVAILABLE" && error.statusCode === 404
+    );
+    await assert.rejects(
+      service.previewPrivateLink({ token: "B".repeat(43), environment: "sandbox" }),
+      (error) => error.code === "TICKET_LINK_UNAVAILABLE" && error.statusCode === 404
+    );
+  } finally {
+    Object.assign(ticketMobileLinks, { findUsableLinkByTokenHash: originals.findUsableLinkByTokenHash });
+    Object.assign(ticketRepository, { findTicketById: originals.findTicketById });
+  }
+});
+
 test("replacing a mobile link revokes the old link inside one transaction", async () => {
   const originals = {
     withTransaction: db.withTransaction,

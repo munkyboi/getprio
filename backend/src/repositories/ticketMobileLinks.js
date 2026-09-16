@@ -45,6 +45,21 @@ async function findActiveLinkForTicket(data, options = {}) {
   return mapLink(result.rows[0]);
 }
 
+async function findUsableLinkByTokenHash(tokenHash, options = {}) {
+  const queryClient = options.client || db.pool;
+  const result = await queryClient.query(
+    `SELECT id, ticket_id, developer_project_id, environment, token_hash, expires_at, used_at, revoked_at, created_at
+       FROM ticket_mobile_links
+      WHERE token_hash = $1
+        AND used_at IS NULL
+        AND revoked_at IS NULL
+        AND expires_at > NOW()
+      LIMIT 1`,
+    [tokenHash]
+  );
+  return mapLink(result.rows[0]);
+}
+
 async function revokeLink(linkId, options = {}) {
   const queryClient = options.client || db.pool;
   await queryClient.query(
@@ -55,4 +70,4 @@ async function revokeLink(linkId, options = {}) {
   );
 }
 
-module.exports = { createLink, findActiveLinkForTicket, revokeLink };
+module.exports = { createLink, findActiveLinkForTicket, findUsableLinkByTokenHash, revokeLink };
