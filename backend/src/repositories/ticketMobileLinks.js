@@ -47,6 +47,7 @@ async function findActiveLinkForTicket(data, options = {}) {
 
 async function findUsableLinkByTokenHash(tokenHash, options = {}) {
   const queryClient = options.client || db.pool;
+  const lock = options.forUpdate ? " FOR UPDATE" : "";
   const result = await queryClient.query(
     `SELECT id, ticket_id, developer_project_id, environment, token_hash, expires_at, used_at, revoked_at, created_at
        FROM ticket_mobile_links
@@ -54,8 +55,20 @@ async function findUsableLinkByTokenHash(tokenHash, options = {}) {
         AND used_at IS NULL
         AND revoked_at IS NULL
         AND expires_at > NOW()
-      LIMIT 1`,
+      LIMIT 1${lock}`,
     [tokenHash]
+  );
+  return mapLink(result.rows[0]);
+}
+
+async function consumeLink(linkId, options = {}) {
+  const queryClient = options.client || db.pool;
+  const result = await queryClient.query(
+    `UPDATE ticket_mobile_links
+        SET used_at = NOW()
+      WHERE id = $1 AND used_at IS NULL AND revoked_at IS NULL AND expires_at > NOW()
+      RETURNING id, ticket_id, developer_project_id, environment, token_hash, expires_at, used_at, revoked_at, created_at`,
+    [linkId]
   );
   return mapLink(result.rows[0]);
 }
@@ -70,4 +83,4 @@ async function revokeLink(linkId, options = {}) {
   );
 }
 
-module.exports = { createLink, findActiveLinkForTicket, findUsableLinkByTokenHash, revokeLink };
+module.exports = { createLink, findActiveLinkForTicket, findUsableLinkByTokenHash, consumeLink, revokeLink };

@@ -59,6 +59,48 @@ async function previewPrivateLink({ token, environment }) {
   return { link, ticket };
 }
 
+async function acceptPrivateLink({ token, environment, userId }) {
+  const normalizedToken = normalizeToken(token);
+  if (!normalizedToken || !MOBILE_LINK_ORIGINS[environment] || !userId) {
+    throw unavailableError();
+  }
+
+  const tokenHash = hashToken(normalizedToken);
+  return db.withTransaction(async (client) => {
+    const candidate = await ticketMobileLinks.findUsableLinkByTokenHash(tokenHash, { client });
+    if (!candidate || candidate.environment !== environment) {
+      throw unavailableError();
+    }
+
+    // Lock in ticket-first order, matching developer link replacement, so acceptance and replacement cannot deadlock.
+    const ticket = await ticketRepository.findTicketByIdForUpdate(candidate.ticketId, { client });
+    const link = await ticketMobileLinks.findUsableLinkByTokenHash(tokenHash, { client, forUpdate: true });
+    if (
+      !link ||
+      link.environment !== environment ||
+      String(link.ticketId) !== String(candidate.ticketId) ||
+      !ticket ||
+      String(ticket.developerProjectId) !== String(link.developerProjectId) ||
+      ticket.developerEnvironment !== environment ||
+      ticket.userId ||
+      !["waiting", "called"].includes(ticket.status) ||
+      ticket.statusReason === "account_deletion"
+    ) {
+      throw unavailableError();
+    }
+
+    const claimedTicket = await ticketRepository.claimTicketForUser(ticket._id, userId, { client });
+    if (!claimedTicket) {
+      throw unavailableError();
+    }
+    const consumedLink = await ticketMobileLinks.consumeLink(link.id, { client });
+    if (!consumedLink) {
+      throw unavailableError();
+    }
+    return { link: consumedLink, ticket: claimedTicket };
+  });
+}
+
 async function issuePrivateLink({ ticketId, developerProjectId, environment, client, now = new Date() }) {
   if (!ticketId || !developerProjectId || !MOBILE_LINK_ORIGINS[environment]) {
     throw new Error("Ticket mobile link scope is incomplete.");
@@ -116,6 +158,7 @@ module.exports = {
   hashToken,
   normalizeToken,
   previewPrivateLink,
+  acceptPrivateLink,
   issuePrivateLink,
   replacePrivateLink,
   unavailableError

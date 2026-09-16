@@ -2,6 +2,7 @@ const express = require("express");
 const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
 const { authenticate } = require("../src/middleware/auth");
 const asyncHandler = require("../src/middleware/asyncHandler");
+const { requireIdempotency } = require("../src/middleware/idempotency");
 const tenantRepository = require("../src/repositories/tenants");
 const locationRepository = require("../src/repositories/storeLocations");
 const mobileTicketLinkService = require("../src/services/mobileTicketLinkService");
@@ -38,10 +39,37 @@ function unavailableError() {
 router.use(mobileTicketLinkLimiter);
 router.use(authenticate);
 
+function setNoStore(_req, res, next) {
+  res.setHeader("Cache-Control", "no-store");
+  next();
+}
+
+async function formatSafeTicketContext(result) {
+  let tenant;
+  let location;
+  try {
+    tenant = await tenantRepository.findTenantById(result.ticket.tenantId);
+    location = result.ticket.locationId
+      ? await locationRepository.findLocationById(result.ticket.locationId)
+      : null;
+  } catch {
+    throw unavailableError();
+  }
+  if (!tenant || !location) throw unavailableError();
+
+  return {
+    ticket_number: result.ticket.ticketNumber,
+    queue_name: tenant.name,
+    location_name: location.name,
+    status: result.ticket.status,
+    expires_at: new Date(result.link.expiresAt).toISOString()
+  };
+}
+
 router.post(
   "/ticket-links/preview",
+  setNoStore,
   asyncHandler(async (req, res) => {
-    res.setHeader("Cache-Control", "no-store");
     const environment = getEnvironment(req);
     let result;
     try {
@@ -54,25 +82,21 @@ router.post(
       throw unavailableError();
     }
 
-    let tenant;
-    let location;
-    try {
-      tenant = await tenantRepository.findTenantById(result.ticket.tenantId);
-      location = result.ticket.locationId
-        ? await locationRepository.findLocationById(result.ticket.locationId)
-        : null;
-    } catch {
-      throw unavailableError();
-    }
-    if (!tenant || !location) throw unavailableError();
+    res.json(await formatSafeTicketContext(result));
+  })
+);
 
-    res.json({
-      ticket_number: result.ticket.ticketNumber,
-      queue_name: tenant.name,
-      location_name: location.name,
-      status: result.ticket.status,
-      expires_at: new Date(result.link.expiresAt).toISOString()
+router.post(
+  "/ticket-links/accept",
+  setNoStore,
+  requireIdempotency("mobile.ticket_links.accept"),
+  asyncHandler(async (req, res) => {
+    const result = await mobileTicketLinkService.acceptPrivateLink({
+      token: req.body?.token,
+      environment: getEnvironment(req),
+      userId: req.user._id
     });
+    res.json({ linked: true, ...(await formatSafeTicketContext(result)) });
   })
 );
 
