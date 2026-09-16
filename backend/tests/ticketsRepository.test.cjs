@@ -129,6 +129,27 @@ test("tickets repository includes the linked customer's display name in queue re
   assert.match(calls[0].query, /users\.display_name/);
 });
 
+test("mobile ticket reads scope sandbox data and use a stable cursor", async () => {
+  const { calls, client } = createQueryClient([]);
+  const repository = requireWithMocks("../src/repositories/tickets.js", {
+    "../config/db": { pool: client }
+  });
+  await repository.listMobileTicketsForUser(11, {
+    client,
+    environment: "sandbox",
+    view: "history",
+    cursor: { createdAt: "2026-09-16T00:00:00.000Z", id: "7" },
+    limit: 10
+  });
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].query, /developer_project_id IS NOT NULL/);
+  assert.match(calls[0].query, /developer_environment = 'sandbox'/);
+  assert.doesNotMatch(calls[0].query, /customer_email|customer_phone/);
+  assert.match(calls[0].query, /status NOT IN \('waiting', 'called', 'skipped', 'pending_carry_over'\)/);
+  assert.match(calls[0].query, /\(tickets\.created_at, tickets\.id\) < \(\$2, \$3\)/);
+  assert.deepEqual(calls[0].params, [11, "2026-09-16T00:00:00.000Z", 7, 11]);
+});
+
 test("tickets repository includes the linked customer's display name in ticket lookups", async () => {
   const { calls, client } = createQueryClient([
     {
