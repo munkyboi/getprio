@@ -566,13 +566,44 @@ router.patch("/projects/:projectId/profiles/:profileSlug/queues/:queueSlug", asy
     throw error;
   }
   if (req.body?.resourceVersion !== undefined || req.body?.resource_version !== undefined) update.resourceVersion = cleanResourceVersion(req.body.resourceVersion ?? req.body.resource_version);
-  const updated = await developerQueues.updateQueue(queue.id, update);
-  if (!updated) {
-    const error = new Error("Queue changed before this update was applied. Refresh and try again.");
-    error.statusCode = 409;
-    error.code = "QUEUE_UPDATE_CONFLICT";
-    throw error;
-  }
+  const updated = await db.withTransaction(async (client) => {
+    const nextQueue = await developerQueues.updateQueue(queue.id, update, { client });
+    if (!nextQueue) {
+      const error = new Error("Queue changed before this update was applied. Refresh and try again.");
+      error.statusCode = 409;
+      error.code = "QUEUE_UPDATE_CONFLICT";
+      throw error;
+    }
+
+    const queueEvents = [];
+    if (update.sessionState !== undefined && update.sessionState !== queue.sessionState) {
+      const type = update.sessionState === "open" ? "queue.session.opened"
+        : update.sessionState === "closing" ? "queue.session.closing"
+          : update.sessionState === "closed" ? "queue.session.closed" : "queue.session.extended";
+      queueEvents.push({ type, fromStatus: queue.sessionState, toStatus: update.sessionState });
+    }
+    if (Object.prototype.hasOwnProperty.call(update, "intakeEnabled") && update.intakeEnabled !== queue.intakeEnabled) {
+      queueEvents.push({
+        type: update.intakeEnabled ? "queue.intake.resumed" : "queue.intake.paused",
+        fromStatus: String(queue.intakeEnabled),
+        toStatus: String(update.intakeEnabled)
+      });
+    }
+    const webhookQueue = { ...nextQueue, projectId: project.id, environment };
+    for (const event of queueEvents) {
+      await developerWebhookService.enqueueDeveloperQueueEvent({
+        event: {
+          ...event,
+          id: `${nextQueue.id}:${nextQueue.resourceVersion}:${event.type}`,
+          resourceVersion: nextQueue.resourceVersion,
+          occurredAt: nextQueue.updatedAt,
+          source: "developer_portal"
+        },
+        queue: webhookQueue
+      }, { client });
+    }
+    return nextQueue;
+  });
   await securityEventService.logSecurityEvent({
     userId: req.user._id,
     sessionId: req.auth.sessionId,
