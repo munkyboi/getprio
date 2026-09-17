@@ -591,16 +591,20 @@ router.patch("/projects/:projectId/profiles/:profileSlug/queues/:queueSlug", asy
     }
     const webhookQueue = { ...nextQueue, projectId: project.id, environment };
     for (const event of queueEvents) {
+      const webhookEvent = {
+        ...event,
+        id: `${nextQueue.id}:${nextQueue.resourceVersion}:${event.type}`,
+        resourceVersion: nextQueue.resourceVersion,
+        occurredAt: nextQueue.updatedAt,
+        source: "developer_portal"
+      };
       await developerWebhookService.enqueueDeveloperQueueEvent({
-        event: {
-          ...event,
-          id: `${nextQueue.id}:${nextQueue.resourceVersion}:${event.type}`,
-          resourceVersion: nextQueue.resourceVersion,
-          occurredAt: nextQueue.updatedAt,
-          source: "developer_portal"
-        },
+        event: webhookEvent,
         queue: webhookQueue
-      }, { client });
+      }, {
+        client,
+        renderPayload: (version) => developerWebhookService.renderDeveloperQueueEventPayload({ event: webhookEvent, queue: webhookQueue }, version)
+      });
     }
     return nextQueue;
   });

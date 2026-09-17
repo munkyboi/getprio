@@ -299,6 +299,13 @@ function buildDeveloperQueueEventPayload({ event, queue }) {
   };
 }
 
+function renderDeveloperQueueEventPayload({ event, queue }, version) {
+  const payload = buildDeveloperQueueEventPayload({ event, queue });
+  if (!payload) return null;
+  const versionedPayload = { ...payload, payload_version: version };
+  return { payload: versionedPayload, payloadBody: rawPayload(versionedPayload) };
+}
+
 async function enqueueDeveloperQueueEvent({ event, queue }, options = {}) {
   const payload = buildDeveloperQueueEventPayload({ event, queue });
   if (!payload) return null;
@@ -313,7 +320,7 @@ async function enqueueDeveloperQueueEvent({ event, queue }, options = {}) {
     // registration versions. Keep the registration's explicit version in the
     // stored body so a v2 registration cannot make a queue update fail while
     // preserving the same event data until a schema-specific renderer exists.
-    renderPayload: renderPayloadAtVersion(payload)
+    renderPayload: options.renderPayload || renderPayloadAtVersion(payload)
   }, options);
 }
 
@@ -439,6 +446,7 @@ module.exports = {
   queueSessionEventType,
   buildDeveloperTicketEventPayload,
   buildDeveloperQueueEventPayload,
+  renderDeveloperQueueEventPayload,
   buildQueueEventPayload,
   buildSignatureHeader,
   createSigningSecret,

@@ -93,7 +93,8 @@ test("developer workspace updates queue configuration without allowing slug chan
   }, originals);
   replace(developerWebhookService, "enqueueDeveloperQueueEvent", async ({ event, queue: eventQueue }, options) => {
     assert.ok(options?.client);
-    webhookEvents.push({ event, queue: eventQueue });
+    assert.equal(typeof options.renderPayload, "function");
+    webhookEvents.push({ event, queue: eventQueue, options });
   }, originals);
   replace(securityEventService, "logSecurityEvent", async () => {}, originals);
   const { server, baseUrl } = await startServer();
@@ -111,6 +112,9 @@ test("developer workspace updates queue configuration without allowing slug chan
     assert.equal(webhookEvents[0].event.source, "developer_portal");
     assert.equal(webhookEvents[0].queue.projectId, "project-1");
     assert.equal(webhookEvents[0].queue.environment, "sandbox");
+    const rendered = webhookEvents[0].options.renderPayload(2);
+    assert.equal(rendered.payload.payload_version, 2);
+    assert.equal(rendered.payload.type, "queue.session.opened");
     const rejected = await request("PATCH", `${baseUrl}/projects/project-1/profiles/harbor/queues/main`, { slug: "renamed" });
     assert.equal(rejected.status, 400);
     assert.equal(rejected.body.code, "INVALID_REQUEST");
