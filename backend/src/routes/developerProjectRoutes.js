@@ -567,7 +567,9 @@ router.patch("/projects/:projectId/profiles/:profileSlug/queues/:queueSlug", asy
   }
   if (req.body?.resourceVersion !== undefined || req.body?.resource_version !== undefined) update.resourceVersion = cleanResourceVersion(req.body.resourceVersion ?? req.body.resource_version);
   const updated = await db.withTransaction(async (client) => {
-    const nextQueue = await developerQueues.updateQueue(queue.id, update, { client });
+    const currentQueue = await developerQueues.findQueue(profile.id, queue.slug, { client, forUpdate: true });
+    if (!currentQueue) throw notFound("Queue not found.");
+    const nextQueue = await developerQueues.updateQueue(currentQueue.id, update, { client });
     if (!nextQueue) {
       const error = new Error("Queue changed before this update was applied. Refresh and try again.");
       error.statusCode = 409;
@@ -576,16 +578,14 @@ router.patch("/projects/:projectId/profiles/:profileSlug/queues/:queueSlug", asy
     }
 
     const queueEvents = [];
-    if (update.sessionState !== undefined && update.sessionState !== queue.sessionState) {
-      const type = update.sessionState === "open" ? "queue.session.opened"
-        : update.sessionState === "closing" ? "queue.session.closing"
-          : update.sessionState === "closed" ? "queue.session.closed" : "queue.session.extended";
-      queueEvents.push({ type, fromStatus: queue.sessionState, toStatus: update.sessionState });
+    if (update.sessionState !== undefined && update.sessionState !== currentQueue.sessionState) {
+      const type = developerWebhookService.queueSessionEventType(update.sessionState);
+      if (type) queueEvents.push({ type, fromStatus: currentQueue.sessionState, toStatus: update.sessionState });
     }
-    if (Object.prototype.hasOwnProperty.call(update, "intakeEnabled") && update.intakeEnabled !== queue.intakeEnabled) {
+    if (Object.prototype.hasOwnProperty.call(update, "intakeEnabled") && update.intakeEnabled !== currentQueue.intakeEnabled) {
       queueEvents.push({
         type: update.intakeEnabled ? "queue.intake.resumed" : "queue.intake.paused",
-        fromStatus: String(queue.intakeEnabled),
+        fromStatus: String(currentQueue.intakeEnabled),
         toStatus: String(update.intakeEnabled)
       });
     }

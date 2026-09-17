@@ -117,6 +117,42 @@ test("developer workspace updates queue configuration without allowing slug chan
   } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
 });
 
+test("developer workspace derives queue events from the locked current row and does not label pauses as extensions", async () => {
+  const originals = [];
+  const staleQueue = { id: "queue-1", profileId: "profile-1", slug: "main", displayName: "Main queue", sessionState: "closed", intakeEnabled: false, joiningEnabled: false, priorityRatio: 3, resourceVersion: 1, createdAt: "2026-09-16T00:00:00.000Z", updatedAt: "2026-09-16T00:00:00.000Z" };
+  const currentQueue = { ...staleQueue, sessionState: "open", resourceVersion: 2 };
+  const webhookEvents = [];
+  let findQueueCalls = 0;
+  replace(developerProjects, "findProjectForUser", async () => project, originals);
+  replace(developerQueues, "findProfile", async () => profile, originals);
+  replace(developerQueues, "findQueue", async (_profileId, slug, options) => {
+    assert.equal(slug, "main");
+    findQueueCalls += 1;
+    if (findQueueCalls === 1) return staleQueue;
+    assert.equal(options?.forUpdate, true);
+    assert.ok(options?.client);
+    return currentQueue;
+  }, originals);
+  replace(db, "withTransaction", async (callback) => callback({ query: async () => ({ rows: [] }) }), originals);
+  replace(developerQueues, "updateQueue", async (queueId, changes, options) => {
+    assert.equal(queueId, "queue-1");
+    assert.ok(options?.client);
+    return { ...currentQueue, ...changes, resourceVersion: currentQueue.resourceVersion + 1, updatedAt: "2026-09-16T00:02:00.000Z" };
+  }, originals);
+  replace(developerWebhookService, "enqueueDeveloperQueueEvent", async ({ event }, options) => {
+    assert.ok(options?.client);
+    webhookEvents.push(event);
+  }, originals);
+  replace(securityEventService, "logSecurityEvent", async () => {}, originals);
+  const { server, baseUrl } = await startServer();
+  try {
+    const updated = await request("PATCH", `${baseUrl}/projects/project-1/profiles/harbor/queues/main`, { environment: "sandbox", sessionState: "paused", resourceVersion: 1 });
+    assert.equal(updated.status, 200);
+    assert.equal(findQueueCalls, 2);
+    assert.deepEqual(webhookEvents, []);
+  } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
+});
+
 test("developer workspace edits profile metadata and keeps directory changes in draft", async () => {
   const originals = [];
   replace(developerProjects, "findProjectForUser", async () => project, originals);

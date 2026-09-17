@@ -8,6 +8,13 @@ test("developer webhook validation keeps registrations on supported event types"
   assert.throws(() => webhookService.normalizeEvents(["ticket.unknown"]), { code: "INVALID_WEBHOOK" });
 });
 
+test("queue session event mapping leaves paused sessions to the intake event", () => {
+  assert.equal(webhookService.queueSessionEventType("open"), "queue.session.opened");
+  assert.equal(webhookService.queueSessionEventType("closing"), "queue.session.closing");
+  assert.equal(webhookService.queueSessionEventType("closed"), "queue.session.closed");
+  assert.equal(webhookService.queueSessionEventType("paused"), null);
+});
+
 test("developer webhook destinations require HTTPS and public DNS answers", async () => {
   const lookup = async () => [{ address: "93.184.216.34", family: 4 }];
   assert.equal(
