@@ -92,7 +92,9 @@ RESEND_API_URL=https://api.resend.com/emails
 
 `RESEND_FROM_EMAIL` must use a verified Resend domain or sender.
 
-OAuth login is supported for Google and Facebook when provider credentials are present:
+OAuth login is supported for Google and Facebook when their provider credentials are
+present. Sign in with Apple is supported by the native iOS client when its backend
+credentials are present:
 
 ```env
 OAUTH_CALLBACK_PATH=/oauth/callback
@@ -100,12 +102,20 @@ GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 FACEBOOK_APP_ID=
 FACEBOOK_APP_SECRET=
+APPLE_CLIENT_ID=
+APPLE_TEAM_ID=
+APPLE_KEY_ID=
+APPLE_PRIVATE_KEY=
 ```
 
 The backend exposes these redirect URIs:
 
 - `https://<your-server>/api/auth/oauth/google/callback`
 - `https://<your-server>/api/auth/oauth/facebook/callback`
+
+Native Apple sign-in does not use a browser callback. The iOS client posts the Apple
+identity token and authorization code to `/api/mobile/auth/oauth/apple` for server
+verification and session creation.
 
 Set the provider console redirect URI to the backend callback above, then point `APP_BASE_URL`
 and `SERVER_URL` at the frontend and API origins that will be used in production. The OAuth

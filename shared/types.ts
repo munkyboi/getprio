@@ -1,4 +1,4 @@
-export type OAuthProviderId = "google" | "facebook";
+export type OAuthProviderId = "google" | "facebook" | "apple";
 export type AuthIntent = "login" | "register_customer" | "register_vendor";
 export type UserRole = "customer" | "vendor" | "platform_admin";
 export type TenantRole = "owner" | "admin" | "staff";
@@ -173,6 +173,7 @@ export interface UserSummary {
 export interface OAuthProviderAvailability {
   google: boolean;
   facebook: boolean;
+  apple: boolean;
 }
 
 export interface PasswordResetRequest {

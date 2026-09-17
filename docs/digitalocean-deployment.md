@@ -165,6 +165,10 @@ GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 FACEBOOK_APP_ID=
 FACEBOOK_APP_SECRET=
+APPLE_CLIENT_ID=
+APPLE_TEAM_ID=
+APPLE_KEY_ID=
+APPLE_PRIVATE_KEY=
 
 VITE_TURNSTILE_SITE_KEY=
 TURNSTILE_SECRET_KEY=
@@ -224,7 +228,7 @@ OAuth deployment checklist:
    - `https://api.getprio.online/api/auth/oauth/google/callback`
    - `https://api.getprio.online/api/auth/oauth/facebook/callback`
 3. Set `SERVER_URL` to the API origin and `APP_BASE_URL` to the frontend origin.
-4. Populate `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `FACEBOOK_APP_ID`, and `FACEBOOK_APP_SECRET`.
+4. Populate the configured provider credentials, including `APPLE_CLIENT_ID`, `APPLE_TEAM_ID`, `APPLE_KEY_ID`, and `APPLE_PRIVATE_KEY` when Sign in with Apple is enabled. Store the `.p8` value as a secret with its newlines preserved.
 5. Verify `GET /api/auth/oauth/providers` returns the providers you intend to expose.
 6. Test `GET /api/auth/oauth/:provider/start` and the callback flow with a real provider account.
 

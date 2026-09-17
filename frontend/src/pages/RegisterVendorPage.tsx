@@ -27,7 +27,8 @@ import {
 
 const PROVIDER_LABELS: Record<OAuthProviderId, string> = {
   google: "Google",
-  facebook: "Facebook"
+  facebook: "Facebook",
+  apple: "Apple"
 };
 
 const vendorSchema = z.object({

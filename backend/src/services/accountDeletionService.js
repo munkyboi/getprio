@@ -64,8 +64,8 @@ function createAccountDeletionService({ transaction = db.withTransaction, verify
         }
       } else {
         const age = Date.now() - new Date(session?.primaryAuthenticatedAt).getTime();
-        if (!['google', 'facebook'].includes(session?.authMethod) || !Number.isFinite(age) || age < 0 || age > 5 * 60 * 1000) {
-          throw failure(403, 'PROVIDER_REAUTH_REQUIRED', 'Sign out and sign in with your original Google or Facebook account, then return here within five minutes to confirm deletion.');
+        if (!['google', 'facebook', 'apple'].includes(session?.authMethod) || !Number.isFinite(age) || age < 0 || age > 5 * 60 * 1000) {
+          throw failure(403, 'PROVIDER_REAUTH_REQUIRED', 'Sign out and sign in with your original Google, Facebook, or Apple account, then return here within five minutes to confirm deletion.');
         }
       }
       const id = crypto.randomUUID();

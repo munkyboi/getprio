@@ -11,7 +11,7 @@ const PROVIDER_OPTIONS: Array<{ id: OAuthProviderId; label: string; Icon: typeof
 
 export default function SocialAuthButtons({ iconOnly = false, intent }: SocialAuthButtonsProps) {
   const { oauthLoading, oauthProviders, startOAuth } = useAuth();
-  const hasConfiguredProvider = Object.values(oauthProviders).some(Boolean);
+  const hasConfiguredProvider = PROVIDER_OPTIONS.some(({ id }) => Boolean(oauthProviders[id]));
 
   return (
     <Stack gap="md">

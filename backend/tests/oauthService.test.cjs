@@ -1,6 +1,8 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
+const crypto = require("node:crypto");
+const jwt = require("jsonwebtoken");
 
 function resolveMockPath(requestPath, baseDir) {
   if (!requestPath.startsWith(".")) {
@@ -68,13 +70,18 @@ test("oauth service exposes configured provider availability and callback URLs",
       appBaseUrl: "https://app.example.com",
       oauthCallbackPath: "/oauth/callback",
       oauthStateTtlMinutes: 10,
-      jwtSecret: "test-secret"
+      jwtSecret: "test-secret",
+      appleClientId: "com.getprio.getprioMobile",
+      appleTeamId: "apple-team",
+      appleKeyId: "apple-key",
+      applePrivateKey: "-----BEGIN PRIVATE KEY-----\nnot-a-real-key\n-----END PRIVATE KEY-----"
     }
   });
 
   assert.deepEqual(oauthService.buildProviderAvailability(), {
     google: true,
-    facebook: false
+    facebook: false,
+    apple: true
   });
 
   const callbackUrl = oauthService.buildClientCallbackUrl({
@@ -171,4 +178,67 @@ test("oauth service rejects unsupported or expired OAuth state", () => {
   assert.throws(() => oauthService.readOAuthState("not-a-valid-jwt"), {
     message: "OAuth session expired. Please try again."
   });
+});
+
+test("oauth service verifies Apple identity and exchanges the authorization code", async () => {
+  const signingKey = crypto.generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+  const applePrivateKey = signingKey.privateKey.export({ type: "pkcs8", format: "pem" });
+  const rsaKey = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const keyId = "apple-key";
+  const nonce = "nonce-value";
+  const identityToken = jwt.sign(
+    {
+      iss: "https://appleid.apple.com",
+      aud: "com.getprio.getprioMobile",
+      sub: "apple-user-1",
+      nonce,
+      email: "relay@privaterelay.appleid.com",
+      email_verified: "true"
+    },
+    rsaKey.privateKey,
+    { algorithm: "RS256", keyid: keyId }
+  );
+  const oauthService = requireWithMocks("../src/services/oauthService.js", {
+    "../config/env": {
+      googleClientId: "",
+      googleClientSecret: "",
+      facebookAppId: "",
+      facebookAppSecret: "",
+      appleClientId: "com.getprio.getprioMobile",
+      appleTeamId: "apple-team",
+      appleKeyId: keyId,
+      applePrivateKey,
+      serverUrl: "https://api.example.com",
+      appBaseUrl: "https://app.example.com",
+      oauthCallbackPath: "/oauth/callback",
+      oauthStateTtlMinutes: 10,
+      jwtSecret: "test-secret"
+    }
+  });
+  const originalFetch = global.fetch;
+  global.fetch = async (url) => {
+    if (url === "https://appleid.apple.com/auth/keys") {
+      return { ok: true, text: async () => JSON.stringify({ keys: [{ ...rsaKey.publicKey.export({ format: "jwk" }), kid: keyId, alg: "RS256", use: "sig" }] }) };
+    }
+    assert.equal(url, "https://appleid.apple.com/auth/token");
+    return { ok: true, text: async () => JSON.stringify({ id_token: identityToken }) };
+  };
+  try {
+    const profile = await oauthService.exchangeAppleCredential({
+      identityToken,
+      authorizationCode: "authorization-code",
+      nonce,
+      givenName: "Apple",
+      familyName: "Customer"
+    });
+    assert.deepEqual(profile, {
+      provider: "apple",
+      providerUserId: "apple-user-1",
+      email: "relay@privaterelay.appleid.com",
+      emailVerified: true,
+      name: "Apple Customer"
+    });
+  } finally {
+    global.fetch = originalFetch;
+  }
 });
