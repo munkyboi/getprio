@@ -155,6 +155,61 @@ test("mobile paid joins configure the PayMongo return target for the app", () =>
   assert.match(queue, /\/payment\/return/);
 });
 
+test("authenticated mobile tickets expose only owned, environment-scoped queue resources", async () => {
+  const tickets = [
+    {
+      _id: "101", tenantId: "tenant-1", locationId: "location-1", userId: "customer-7",
+      ticketNumber: "PRI-101", status: "waiting", statusReason: null, dateKey: "20260916",
+      developerProjectId: null, developerEnvironment: null, externalReference: null,
+      createdAt: "2026-09-16T00:00:00.000Z", updatedAt: "2026-09-16T00:01:00.000Z"
+    },
+    {
+      _id: "102", tenantId: "tenant-2", locationId: "location-2", userId: "customer-7",
+      ticketNumber: "SBX-102", status: "called", statusReason: null, dateKey: "20260916",
+      developerProjectId: "project-2", developerEnvironment: "sandbox", externalReference: "ext-102",
+      serviceCounterId: "counter-2", createdAt: "2026-09-15T00:00:00.000Z", updatedAt: "2026-09-15T00:01:00.000Z"
+    }
+  ];
+  const router = requireWithMocks("../mobile/ticketRoutes.js", {
+    "../src/middleware/auth": {
+      authenticate(req, _res, next) { req.user = { _id: "customer-7" }; next(); }
+    },
+    "../src/middleware/asyncHandler": (handler) => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next),
+    "../src/repositories/tickets": {
+      async listMobileTicketsForUser(_userId, options) {
+        return { tickets: options.environment === "sandbox" ? [tickets[1]] : tickets, nextCursor: null };
+      },
+      async findMobileTicketForUser(id) { return tickets.find((ticket) => ticket._id === String(id)) || null; },
+      async listWaitingTickets() { return [tickets[0]]; }
+    },
+    "../src/repositories/tenants": { async findTenantById(id) { return { _id: id, name: `Queue ${id}`, publicProfileDisplayName: `Public ${id}` }; } },
+    "../src/repositories/storeLocations": { async findLocationById(id) { return { _id: id, name: `Location ${id}`, slug: `location-${id}` }; } },
+    "../src/repositories/serviceCounters": { async findCounterById(id) { return { _id: id, locationId: "location-2", name: "Counter 2" }; } }
+  });
+  const app = express();
+  app.set("trust proxy", true);
+  app.use(express.json());
+  app.use("/api/v1/mobile", router);
+  app.use((error, _req, res, _next) => res.status(error.statusCode || 500).json({ message: error.message }));
+  const server = await new Promise((resolve) => { const nextServer = app.listen(0, () => resolve(nextServer)); });
+  try {
+    const production = await fetch(`http://127.0.0.1:${server.address().port}/api/v1/mobile/tickets?view=active`);
+    assert.equal(production.status, 200);
+    const productionBody = await production.json();
+    assert.equal(productionBody.tickets.length, 2);
+    assert.equal(productionBody.tickets[0].source, "first_party");
+    assert.equal(productionBody.tickets[0].queue_position.people_ahead, 0);
+    assert.equal(productionBody.tickets[1].called_counter.name, "Counter 2");
+    assert.equal(production.headers.get("cache-control"), "no-store");
+
+    const sandbox = await fetch(`http://127.0.0.1:${server.address().port}/api/v1/mobile/tickets`, { headers: { "x-forwarded-host": "sandbox.getprio.online" } });
+    assert.equal(sandbox.status, 200);
+    assert.equal((await sandbox.json()).tickets[0].source, "developer_api");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test("mobile queue resolve reports open availability and an inactive-plan reason", async () => {
   const queueJoinId = "123e4567-e89b-42d3-a456-426614174000";
   let hasActivePlan = true;

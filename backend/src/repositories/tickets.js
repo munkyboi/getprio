@@ -224,6 +224,74 @@ async function findTicketById(ticketId, options = {}) {
   return mapTicket(result.rows[0]);
 }
 
+async function findMobileTicketForUser(ticketId, userId, options = {}) {
+  const result = await buildQueryClient(options.client).query(
+    `SELECT tickets.*, tenants.name AS tenant_name, tenants.slug AS tenant_slug,
+            store_locations.name AS location_name, store_locations.slug AS location_slug
+       FROM tickets
+       INNER JOIN tenants ON tenants.id = tickets.tenant_id
+       INNER JOIN store_locations ON store_locations.id = tickets.location_id
+      WHERE tickets.id = $1 AND tickets.user_id = $2
+      LIMIT 1`,
+    [Number(ticketId), Number(userId)]
+  );
+  const row = result.rows[0];
+  return row ? {
+    ...mapTicket(row),
+    tenantName: row.tenant_name,
+    tenantSlug: row.tenant_slug,
+    locationName: row.location_name,
+    locationSlug: row.location_slug
+  } : null;
+}
+
+async function listMobileTicketsForUser(userId, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const values = [Number(userId)];
+  const conditions = ["tickets.user_id = $1"];
+  if (options.environment === "sandbox") {
+    conditions.push("tickets.developer_project_id IS NOT NULL", "tickets.developer_environment = 'sandbox'");
+  } else if (options.environment === "production") {
+    conditions.push("tickets.developer_environment IS DISTINCT FROM 'sandbox'");
+  }
+  if (options.view === "active") {
+    conditions.push("tickets.status IN ('waiting', 'called', 'skipped', 'pending_carry_over')");
+  } else {
+    conditions.push("tickets.status NOT IN ('waiting', 'called', 'skipped', 'pending_carry_over')");
+  }
+  if (options.cursor) {
+    values.push(options.cursor.createdAt, Number(options.cursor.id));
+    conditions.push(`(tickets.created_at, tickets.id) < ($${values.length - 1}, $${values.length})`);
+  }
+  const limit = Math.min(Math.max(Number(options.limit) || 20, 1), 50);
+  values.push(limit + 1);
+  const result = await queryClient.query(
+    `SELECT tickets.*, tenants.name AS tenant_name, tenants.slug AS tenant_slug,
+            store_locations.name AS location_name, store_locations.slug AS location_slug
+       FROM tickets
+       INNER JOIN tenants ON tenants.id = tickets.tenant_id
+       INNER JOIN store_locations ON store_locations.id = tickets.location_id
+      WHERE ${conditions.join(" AND ")}
+      ORDER BY tickets.created_at DESC, tickets.id DESC
+      LIMIT $${values.length}`,
+    values
+  );
+  const rows = result.rows;
+  const hasMore = rows.length > limit;
+  const page = rows.slice(0, limit).map((row) => ({
+    ...mapTicket(row),
+    tenantName: row.tenant_name,
+    tenantSlug: row.tenant_slug,
+    locationName: row.location_name,
+    locationSlug: row.location_slug
+  }));
+  const last = page[page.length - 1];
+  return {
+    tickets: page,
+    nextCursor: hasMore && last ? { createdAt: last.createdAt, id: last._id } : null
+  };
+}
+
 async function findTicketByIdForUpdate(ticketId, options = {}) {
   const queryClient = buildQueryClient(options.client);
   const result = await queryClient.query(
@@ -980,6 +1048,8 @@ module.exports = {
   mapTicket,
   createTicket,
   findTicketById,
+  findMobileTicketForUser,
+  listMobileTicketsForUser,
   findTicketByIdForUpdate,
   findTicketByLookupCode,
   findTicketByTenantAndLookupCode,
