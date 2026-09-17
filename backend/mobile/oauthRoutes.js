@@ -4,6 +4,7 @@ const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
 const {
   buildAuthorizationUrl,
   createOAuthState,
+  exchangeAppleCredential,
   ensureSupportedProvider,
   exchangeCodeForProfile,
   getProviderLabel,
@@ -33,6 +34,16 @@ const MOBILE_REDIRECT_URI = process.env.MOBILE_OAUTH_REDIRECT_URI || "getprio://
 function requiredQuery(value, label) {
   const text = String(value || "").trim();
   if (!text || text.length > 256) {
+    const error = new Error(`${label} is required.`);
+    error.statusCode = 400;
+    throw error;
+  }
+  return text;
+}
+
+function requiredCredential(value, label) {
+  const text = String(value || "").trim();
+  if (!text || text.length > 16384) {
     const error = new Error(`${label} is required.`);
     error.statusCode = 400;
     throw error;
@@ -221,6 +232,39 @@ router.all(
       })();
       redirectToMobile(res, { state, error: error.message || "Social sign-in failed." });
     }
+  })
+);
+
+router.post(
+  "/oauth/apple",
+  asyncHandler(async (req, res) => {
+    const profile = await exchangeAppleCredential({
+      identityToken: requiredCredential(req.body?.identityToken, "identityToken"),
+      authorizationCode: requiredCredential(req.body?.authorizationCode, "authorizationCode"),
+      nonce: requiredCredential(req.body?.nonce, "nonce"),
+      givenName: String(req.body?.givenName || "").trim().slice(0, 120),
+      familyName: String(req.body?.familyName || "").trim().slice(0, 120)
+    });
+    const user = await findOrCreateUser(profile);
+    const sessionResult = await sessionService.createAuthSession({
+      user,
+      authMethod: "apple",
+      ipAddress: authService.getRequestIp(req),
+      userAgent: authService.getUserAgent(req)
+    });
+    await authService.recordLoginAttempt({
+      email: user.email || profile.email || "",
+      success: true,
+      user,
+      sessionId: sessionResult.session._id,
+      req
+    });
+    res.json({
+      token: sessionResult.accessToken,
+      refreshToken: sessionResult.refreshToken,
+      sessionExpiresAt: sessionResult.session.inactivityExpiresAt || sessionResult.session.expiresAt,
+      user: await buildUserPayload(user)
+    });
   })
 );
 

@@ -53,6 +53,10 @@ const googleClientId = process.env.GOOGLE_CLIENT_ID || "";
 const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET || "";
 const facebookAppId = process.env.FACEBOOK_APP_ID || "";
 const facebookAppSecret = process.env.FACEBOOK_APP_SECRET || "";
+const appleClientId = process.env.APPLE_CLIENT_ID || "";
+const appleTeamId = process.env.APPLE_TEAM_ID || "";
+const appleKeyId = process.env.APPLE_KEY_ID || "";
+const applePrivateKey = (process.env.APPLE_PRIVATE_KEY || "").replace(/\\n/g, "\n");
 const smtpHost = process.env.SMTP_HOST || "";
 const smtpPort = Number(process.env.SMTP_PORT || 587);
 const smtpSecure = process.env.SMTP_SECURE === "true";
@@ -166,6 +170,10 @@ const env = {
   googleClientSecret,
   facebookAppId,
   facebookAppSecret,
+  appleClientId,
+  appleTeamId,
+  appleKeyId,
+  applePrivateKey,
   smtpHost,
   smtpPort,
   smtpSecure,
