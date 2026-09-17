@@ -183,7 +183,7 @@ jobs:
 
           git pull --ff-only origin main
 
-          bash scripts/configure-developer-hosts.sh
+          DEVELOPER_PORTAL_ROOT="${DO_APP_DIR}/developer-portal/dist" bash scripts/configure-developer-hosts.sh
 
           bash scripts/verify-fcm-config.sh
 

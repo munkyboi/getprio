@@ -15,7 +15,7 @@ It matches the current codebase:
 ## Recommended Shape
 
 - `app.getprio.online` serves `frontend/dist`
-- `developers.getprio.online` serves the developer portal from `frontend/dist`
+- `developers.getprio.online` serves the standalone developer portal from `developer-portal/dist`
 - `platform.getprio.online` serves `platform-dashboard/dist`
 - `api.getprio.online` proxies to the backend on `127.0.0.1:5000`
 - `sandbox-api.getprio.online` proxies to the same backend with sandbox host labeling
@@ -288,7 +288,7 @@ Create `/etc/nginx/sites-available/getprio`:
 ```nginx
 server {
   listen 80;
-  server_name app.getprio.online developers.getprio.online;
+  server_name app.getprio.online;
 
   root /var/www/getprio/frontend/dist;
   index index.html;
@@ -297,6 +297,18 @@ server {
     default_type application/json;
     try_files $uri =404;
   }
+
+  location / {
+    try_files $uri $uri/ /index.html;
+  }
+}
+
+server {
+  listen 80;
+  server_name developers.getprio.online;
+
+  root /var/www/getprio/developer-portal/dist;
+  index index.html;
 
   location / {
     try_files $uri $uri/ /index.html;
