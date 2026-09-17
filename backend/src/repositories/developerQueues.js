@@ -254,12 +254,14 @@ async function queueSnapshot(queueId, options = {}) {
   const mappedTickets = tickets.rows.map(mapTicket);
   const current = mappedTickets.find((ticket) => ticket.status === "called") || null;
   const waiting = mappedTickets.filter((ticket) => ticket.status === "waiting");
+  const skipped = mappedTickets.filter((ticket) => ticket.status === "skipped");
   return {
     queue,
     stats: { waitingCount: waiting.length, calledCount: current ? 1 : 0 },
     current,
     nextUp: waiting.slice(0, 5),
-    overflow: waiting.slice(5)
+    overflow: waiting.slice(5),
+    skipped
   };
 }
 
@@ -487,6 +489,7 @@ async function transitionTicket(input, options = {}) {
     `UPDATE developer_api_tickets
      SET status = $2, status_reason = $3, resource_version = resource_version + 1,
        ${timeColumn ? `${timeColumn} = NOW(),` : ""}
+       ${input.toStatus === "waiting" ? "called_at = NULL," : ""}
        terminal_at = CASE WHEN $4 THEN NOW() ELSE terminal_at END,
        updated_at = NOW()
      WHERE id = $1

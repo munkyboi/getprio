@@ -196,7 +196,7 @@ router.patch("/profiles/:profileSlug/queues/:queueSlug", authenticateDeveloperAp
           : changes.sessionState === "closed" ? "queue.session.closed" : "queue.session.extended";
       events.push({ type, fromStatus: queue.sessionState, toStatus: changes.sessionState });
     }
-    if (changes.intakeEnabled !== undefined && changes.intakeEnabled !== queue.intakeEnabled) {
+    if (Object.prototype.hasOwnProperty.call(changes, "intakeEnabled") && changes.intakeEnabled !== queue.intakeEnabled) {
       events.push({ type: changes.intakeEnabled ? "queue.intake.resumed" : "queue.intake.paused", fromStatus: String(queue.intakeEnabled), toStatus: String(changes.intakeEnabled) });
     }
     return { queue: queueView(updated), queueEvents: events.map((event) => ({ event: { ...event, id: `${updated.id}:${updated.resourceVersion}:${event.type}`, resourceVersion: updated.resourceVersion, occurredAt: updated.updatedAt, source: "developer_api" }, queue: { ...updated, projectId: req.apiKey.projectId, environment: req.apiKey.environment } })) };
@@ -246,24 +246,34 @@ router.get(queuePaths("/tickets/:ticketId/events"), authenticateDeveloperApiKey,
 router.get("/queues/:tenantSlug/locations", authenticateDeveloperApiKey, requireApiScope("queues:read"), asyncHandler(async (req, res) => { const profile = await scopedProfile(req); send(req, res, { profile: profileView(profile), queues: (await developerQueues.listQueues(profile.id)).map(queueView) }); }));
 router.get(queuePaths(""), authenticateDeveloperApiKey, requireApiScope("queues:read"), asyncHandler(async (req, res) => {
   const { profile, queue } = await context(req); const snapshot = await developerQueues.queueSnapshot(queue.id);
-  send(req, res, { profile: profileView(profile), queue: queueView(snapshot.queue), queue_intake: { state: snapshot.queue.sessionState === "open" && snapshot.queue.intakeEnabled ? "open" : "closed" }, stats: snapshot.stats, current: ticketView(snapshot.current), next_up: snapshot.nextUp.map(ticketView), overflow: snapshot.overflow.map(ticketView) });
+  send(req, res, { profile: profileView(profile), queue: queueView(snapshot.queue), queue_intake: { state: snapshot.queue.sessionState === "open" && snapshot.queue.intakeEnabled ? "open" : "closed" }, stats: snapshot.stats, current: ticketView(snapshot.current), next_up: snapshot.nextUp.map(ticketView), overflow: snapshot.overflow.map(ticketView), skipped: (snapshot.skipped || []).map(ticketView) });
 }));
 let activeStreamCount = 0;
 const MAX_STREAMS = 100;
 router.get(queuePaths("/stream"), authenticateDeveloperApiKey, requireApiScope("queues:read"), asyncHandler(async (req, res) => {
+  const { profile, queue } = await context(req);
   if (activeStreamCount >= MAX_STREAMS) throw error(429, "STREAM_LIMIT_REACHED", "Too many active queue streams. Please retry later.");
   activeStreamCount += 1;
-  const { profile, queue } = await context(req); let closed = false; let prior = null;
+  let closed = false; let prior = null; let released = false; let heartbeat; let refresh;
+  const release = () => {
+    if (released) return;
+    released = true;
+    activeStreamCount -= 1;
+    if (heartbeat) clearInterval(heartbeat);
+    if (refresh) clearInterval(refresh);
+    res.end();
+  };
+  req.on("close", () => { closed = true; release(); });
   res.setHeader("Content-Type", "text/event-stream"); res.setHeader("Cache-Control", "no-cache, no-transform"); res.setHeader("Connection", "keep-alive"); res.flushHeaders();
-  const publish = async () => { const snapshot = await developerQueues.queueSnapshot(queue.id); const value = JSON.stringify({ profile: profileView(profile), queue: queueView(snapshot.queue), stats: snapshot.stats, current: ticketView(snapshot.current), next_up: snapshot.nextUp.map(ticketView), overflow: snapshot.overflow.map(ticketView) }); if (!closed && value !== prior) { prior = value; res.write(`event: snapshot\ndata: ${value}\n\n`); } };
-  try { await publish(); } catch (streamError) { activeStreamCount -= 1; throw streamError; }
-  const heartbeat = setInterval(() => { if (!closed) res.write(`event: heartbeat\ndata: ${Date.now()}\n\n`); }, 25000);
+  const publish = async () => { const snapshot = await developerQueues.queueSnapshot(queue.id); const value = JSON.stringify({ profile: profileView(profile), queue: queueView(snapshot.queue), stats: snapshot.stats, current: ticketView(snapshot.current), next_up: snapshot.nextUp.map(ticketView), overflow: snapshot.overflow.map(ticketView), skipped: (snapshot.skipped || []).map(ticketView) }); if (!closed && value !== prior) { prior = value; res.write(`event: snapshot\ndata: ${value}\n\n`); } };
+  try { await publish(); } catch (streamError) { release(); throw streamError; }
+  if (closed) return;
+  heartbeat = setInterval(() => { if (!closed) res.write(`event: heartbeat\ndata: ${Date.now()}\n\n`); }, 25000);
   let refreshInFlight = false;
-  const refresh = setInterval(() => {
+  refresh = setInterval(() => {
     if (closed || refreshInFlight) return;
     refreshInFlight = true;
     publish().catch(() => {}).finally(() => { refreshInFlight = false; });
   }, 2000);
-  req.on("close", () => { closed = true; activeStreamCount -= 1; clearInterval(heartbeat); clearInterval(refresh); res.end(); });
 }));
 module.exports = router;

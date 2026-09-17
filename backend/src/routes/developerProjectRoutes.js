@@ -215,7 +215,8 @@ function queueSnapshotResponse(snapshot) {
     stats: snapshot.stats,
     current: ticketResponse(snapshot.current),
     nextUp: snapshot.nextUp.map(ticketResponse),
-    overflow: snapshot.overflow.map(ticketResponse)
+    overflow: snapshot.overflow.map(ticketResponse),
+    skipped: (snapshot.skipped || []).map(ticketResponse)
   };
 }
 

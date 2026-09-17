@@ -28,6 +28,15 @@ const developerRegistrationOtpLimiter = rateLimit({
   keyGenerator: (req) => ipKeyGenerator(req.ip || req.socket?.remoteAddress || "unknown"),
   message: { message: "Too many registration verification requests. Please try again later." }
 });
+const developerLoginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => ipKeyGenerator(req.ip || req.socket?.remoteAddress || "unknown"),
+  message: { message: "Too many login attempts. Please try again later." }
+});
+
 router.use("/register/otp", developerRegistrationOtpLimiter);
 
 function requestContext(req) {
@@ -248,6 +257,7 @@ router.post(
 
 router.post(
   "/login",
+  developerLoginLimiter,
   asyncHandler(async (req, res) => {
     const email = authService.normalizeEmail(req.body?.email);
     const password = String(req.body?.password || "");

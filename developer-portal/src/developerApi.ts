@@ -15,7 +15,7 @@ export type ApiKey = { id: string; projectId: string; name: string; environment:
 export type Profile = { id: string; projectId: string; environment: "sandbox" | "production"; slug: string; displayName: string; directoryStatus: string; directoryContent: { description?: string; websiteUrl?: string }; createdAt: string; updatedAt: string };
 export type Queue = { id: string; profileId: string; slug: string; displayName: string; sessionState: string; intakeEnabled: boolean; joiningEnabled: boolean; priorityRatio: number; resourceVersion: number; createdAt: string; updatedAt: string };
 export type DeveloperTicket = { id: string; projectId: string; environment: "sandbox" | "production"; profileId: string; queueId: string; ticketNumber: string; sequence: number; displayLabel: string | null; externalReference: string | null; status: string; statusReason: string | null; calledAt: string | null; servedAt: string | null; skippedAt: string | null; cancelledAt: string | null; unservedAt: string | null; terminalAt: string | null; resourceVersion: number; createdAt: string; updatedAt: string };
-export type QueueSnapshot = { queue: Queue; stats: { waitingCount: number; calledCount: number }; current: DeveloperTicket | null; nextUp: DeveloperTicket[]; overflow: DeveloperTicket[] };
+export type QueueSnapshot = { queue: Queue; stats: { waitingCount: number; calledCount: number }; current: DeveloperTicket | null; nextUp: DeveloperTicket[]; overflow: DeveloperTicket[]; skipped: DeveloperTicket[] };
 export type Webhook = { id: string; projectId: string; environment: "sandbox" | "production"; name: string; url: string; payloadVersion: string; events: string[]; status: string; disabledAt: string | null; createdAt: string; updatedAt: string };
 export type Delivery = { id: string; webhookId: string; projectId: string; environment: string; eventId: string; eventType: string; payloadVersion: string; status: string; attemptCount: number; expiresAt: string | null; retryUntil: string | null; lastError: string | null; responseStatus: number | null; sentAt: string | null; manualAttemptCount: number; lastManualAttemptAt: string | null; manualLastError: string | null; manualResponseStatus: number | null; createdAt: string; updatedAt: string };
 export type SandboxAllowance = { limit: number; issuedTickets: number; remaining: number; resetAt: string };
@@ -43,6 +43,7 @@ export class DeveloperApiError extends Error {
 
 const apiBase = (import.meta.env.VITE_DEVELOPER_API_ORIGIN || "").replace(/\/$/, "");
 let csrfTokenCache: string | undefined;
+let refreshInFlight: Promise<string | undefined> | undefined;
 
 async function request<T>(path: string, options: RequestOptions = {}, allowRefresh = true): Promise<T> {
   const method = options.method || "GET";
@@ -62,9 +63,16 @@ async function request<T>(path: string, options: RequestOptions = {}, allowRefre
     const requestError = new DeveloperApiError(response.status, payload.message || "The request could not be completed.", payload.code || payload.error);
     if (response.status === 401 && allowRefresh && path !== "/refresh") {
       try {
-        const refreshed = await request<{ csrfToken?: string }>("/refresh", { method: "POST" }, false);
-        if (refreshed.csrfToken) csrfTokenCache = refreshed.csrfToken;
-        return request<T>(path, { ...options, csrfToken: refreshed.csrfToken || csrfToken }, false);
+        if (!refreshInFlight) {
+          refreshInFlight = request<{ csrfToken?: string }>("/refresh", { method: "POST" }, false)
+            .then((refreshed) => {
+              if (refreshed.csrfToken) csrfTokenCache = refreshed.csrfToken;
+              return refreshed.csrfToken;
+            })
+            .finally(() => { refreshInFlight = undefined; });
+        }
+        const refreshedCsrf = await refreshInFlight;
+        return request<T>(path, { ...options, csrfToken: refreshedCsrf || csrfToken }, false);
       } catch {
         // Preserve the original error so callers can decide whether to sign out.
       }
