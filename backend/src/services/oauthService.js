@@ -126,6 +126,11 @@ function buildAuthorizationUrl(provider, state, options = {}) {
       }).toString();
       return url.toString();
     }
+    case "apple": {
+      const error = new Error("Apple sign-in is available through the native mobile app.");
+      error.statusCode = 400;
+      throw error;
+    }
     default:
       ensureSupportedProvider(provider);
       return "";

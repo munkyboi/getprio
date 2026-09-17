@@ -11,6 +11,7 @@ const {
   readOAuthState
 } = require("../src/services/oauthService");
 const authService = require("../src/services/authService");
+const mfaFlowService = require("../src/services/mfaFlowService");
 const sessionService = require("../src/services/sessionService");
 const securityEventService = require("../src/services/securityEventService");
 const tenantRepository = require("../src/repositories/tenants");
@@ -158,6 +159,42 @@ async function buildUserPayload(user) {
   };
 }
 
+async function completeMobileAuthentication({ user, profile, req }) {
+  if (user.mfaEnabled) {
+    const challenge = await mfaFlowService.issueLoginChallenge({
+      user,
+      ipAddress: authService.getRequestIp(req),
+      userAgent: authService.getUserAgent(req)
+    });
+    return {
+      mfaRequired: true,
+      challengeToken: challenge.token,
+      expiresAt: challenge.expiresAt,
+      methods: ["totp", "recovery"]
+    };
+  }
+
+  const sessionResult = await sessionService.createAuthSession({
+    user,
+    authMethod: profile.provider,
+    ipAddress: authService.getRequestIp(req),
+    userAgent: authService.getUserAgent(req)
+  });
+  await authService.recordLoginAttempt({
+    email: user.email || profile.email || "",
+    success: true,
+    user,
+    sessionId: sessionResult.session._id,
+    req
+  });
+  return {
+    token: sessionResult.accessToken,
+    refreshToken: sessionResult.refreshToken,
+    sessionExpiresAt: sessionResult.session.inactivityExpiresAt || sessionResult.session.expiresAt,
+    user: await buildUserPayload(user)
+  };
+}
+
 router.get(
   "/oauth/:provider/start",
   asyncHandler(async (req, res) => {
@@ -198,31 +235,14 @@ router.all(
       const code = req.method === "POST" ? req.body?.code : req.query.code;
       const profile = await exchangeCodeForProfile({ provider, code, requestBody: req.body });
       const user = await findOrCreateUser(profile);
-      const sessionResult = await sessionService.createAuthSession({
-        user,
-        authMethod: provider,
-        ipAddress: authService.getRequestIp(req),
-        userAgent: authService.getUserAgent(req)
-      });
-      await authService.recordLoginAttempt({
-        email: user.email || profile.email || "",
-        success: true,
-        user,
-        sessionId: sessionResult.session._id,
-        req
-      });
+      const responseBody = await completeMobileAuthentication({ user, profile, req });
       const oneTimeCode = crypto.randomBytes(32).toString("base64url");
       await codeRepository.deleteExpired();
       await codeRepository.create({
         codeHash: crypto.createHash("sha256").update(oneTimeCode).digest("hex"),
         state: oauthState.mobileState,
         codeChallenge: oauthState.codeChallenge,
-        responseBody: {
-          token: sessionResult.accessToken,
-          refreshToken: sessionResult.refreshToken,
-          sessionExpiresAt: sessionResult.session.inactivityExpiresAt || sessionResult.session.expiresAt,
-          user: await buildUserPayload(user)
-        },
+        responseBody,
         expiresAt: new Date(Date.now() + 2 * 60 * 1000)
       });
       redirectToMobile(res, { code: oneTimeCode, state: oauthState.mobileState });
@@ -246,25 +266,7 @@ router.post(
       familyName: String(req.body?.familyName || "").trim().slice(0, 120)
     });
     const user = await findOrCreateUser(profile);
-    const sessionResult = await sessionService.createAuthSession({
-      user,
-      authMethod: "apple",
-      ipAddress: authService.getRequestIp(req),
-      userAgent: authService.getUserAgent(req)
-    });
-    await authService.recordLoginAttempt({
-      email: user.email || profile.email || "",
-      success: true,
-      user,
-      sessionId: sessionResult.session._id,
-      req
-    });
-    res.json({
-      token: sessionResult.accessToken,
-      refreshToken: sessionResult.refreshToken,
-      sessionExpiresAt: sessionResult.session.inactivityExpiresAt || sessionResult.session.expiresAt,
-      user: await buildUserPayload(user)
-    });
+    res.json(await completeMobileAuthentication({ user, profile, req }));
   })
 );
 

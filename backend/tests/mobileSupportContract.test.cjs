@@ -149,6 +149,7 @@ test("mobile route wiring keeps OAuth and queue contracts under the mobile names
   assert.match(oauth, /codeRepository\.consume/);
   assert.match(oauth, /router\.post\(\s*"\/oauth\/apple"/);
   assert.match(oauth, /exchangeAppleCredential/);
+  assert.match(oauth, /mfaFlowService\.issueLoginChallenge/);
   assert.match(oauth, /router\.use\(mobileOAuthLimiter\)/);
   assert.match(oauth, /req\.baseUrl/);
   assert.match(push, /router\.use\(mobilePushLimiter\)/);

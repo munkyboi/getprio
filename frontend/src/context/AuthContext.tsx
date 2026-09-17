@@ -24,7 +24,8 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 const COOKIE_SESSION = "cookie-session";
 const EMPTY_OAUTH_PROVIDERS: OAuthProviderAvailability = {
   google: false,
-  facebook: false
+  facebook: false,
+  apple: false
 };
 
 export function AuthProvider({ children }: { children: ReactNode }) {
