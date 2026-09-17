@@ -4,6 +4,7 @@ const http = require("node:http");
 const express = require("express");
 
 const developerAuth = require("../src/middleware/developerAuth");
+const db = require("../src/config/db");
 const originalAuthenticateDeveloper = developerAuth.authenticateDeveloper;
 developerAuth.authenticateDeveloper = (req, _res, next) => {
   req.user = { _id: "41" };
@@ -18,6 +19,7 @@ developerAuth.authenticateDeveloper = originalAuthenticateDeveloper;
 const developerProjects = require("../src/repositories/developerProjects");
 const developerQueues = require("../src/repositories/developerQueues");
 const securityEventService = require("../src/services/securityEventService");
+const developerWebhookService = require("../src/services/developerWebhookService");
 
 function startServer() {
   const app = express();
@@ -80,10 +82,20 @@ test("developer workspace blocks production profile resources before database ac
 
 test("developer workspace updates queue configuration without allowing slug changes", async () => {
   const originals = []; const queue = { id: "queue-1", profileId: "profile-1", slug: "main", displayName: "Main queue", sessionState: "closed", intakeEnabled: false, joiningEnabled: false, priorityRatio: 3, resourceVersion: 1, createdAt: "2026-09-16T00:00:00.000Z", updatedAt: "2026-09-16T00:00:00.000Z" };
+  const webhookEvents = [];
   replace(developerProjects, "findProjectForUser", async () => project, originals);
   replace(developerQueues, "findProfile", async () => profile, originals);
   replace(developerQueues, "findQueue", async (_profileId, slug) => slug === "main" ? queue : null, originals);
-  replace(developerQueues, "updateQueue", async (_queueId, changes) => ({ ...queue, ...changes, resourceVersion: queue.resourceVersion + 1 }), originals);
+  replace(db, "withTransaction", async (callback) => callback({ query: async () => ({ rows: [] }) }), originals);
+  replace(developerQueues, "updateQueue", async (_queueId, changes, options) => {
+    assert.ok(options?.client);
+    return { ...queue, ...changes, resourceVersion: queue.resourceVersion + 1, updatedAt: "2026-09-16T00:01:00.000Z" };
+  }, originals);
+  replace(developerWebhookService, "enqueueDeveloperQueueEvent", async ({ event, queue: eventQueue }, options) => {
+    assert.ok(options?.client);
+    assert.equal(typeof options.renderPayload, "function");
+    webhookEvents.push({ event, queue: eventQueue, options });
+  }, originals);
   replace(securityEventService, "logSecurityEvent", async () => {}, originals);
   const { server, baseUrl } = await startServer();
   try {
@@ -93,9 +105,55 @@ test("developer workspace updates queue configuration without allowing slug chan
     assert.equal(updated.body.queue.sessionState, "open");
     assert.equal(updated.body.queue.intakeEnabled, true);
     assert.equal(updated.body.queue.slug, "main");
+    assert.deepEqual(webhookEvents.map(({ event }) => ({ type: event.type, fromStatus: event.fromStatus, toStatus: event.toStatus })), [
+      { type: "queue.session.opened", fromStatus: "closed", toStatus: "open" },
+      { type: "queue.intake.resumed", fromStatus: "false", toStatus: "true" }
+    ]);
+    assert.equal(webhookEvents[0].event.source, "developer_portal");
+    assert.equal(webhookEvents[0].queue.projectId, "project-1");
+    assert.equal(webhookEvents[0].queue.environment, "sandbox");
+    const rendered = webhookEvents[0].options.renderPayload(2);
+    assert.equal(rendered.payload.payload_version, 2);
+    assert.equal(rendered.payload.type, "queue.session.opened");
     const rejected = await request("PATCH", `${baseUrl}/projects/project-1/profiles/harbor/queues/main`, { slug: "renamed" });
     assert.equal(rejected.status, 400);
     assert.equal(rejected.body.code, "INVALID_REQUEST");
+  } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
+});
+
+test("developer workspace derives queue events from the locked current row and does not label pauses as extensions", async () => {
+  const originals = [];
+  const staleQueue = { id: "queue-1", profileId: "profile-1", slug: "main", displayName: "Main queue", sessionState: "closed", intakeEnabled: false, joiningEnabled: false, priorityRatio: 3, resourceVersion: 1, createdAt: "2026-09-16T00:00:00.000Z", updatedAt: "2026-09-16T00:00:00.000Z" };
+  const currentQueue = { ...staleQueue, sessionState: "open", resourceVersion: 2 };
+  const webhookEvents = [];
+  let findQueueCalls = 0;
+  replace(developerProjects, "findProjectForUser", async () => project, originals);
+  replace(developerQueues, "findProfile", async () => profile, originals);
+  replace(developerQueues, "findQueue", async (_profileId, slug, options) => {
+    assert.equal(slug, "main");
+    findQueueCalls += 1;
+    if (findQueueCalls === 1) return staleQueue;
+    assert.equal(options?.forUpdate, true);
+    assert.ok(options?.client);
+    return currentQueue;
+  }, originals);
+  replace(db, "withTransaction", async (callback) => callback({ query: async () => ({ rows: [] }) }), originals);
+  replace(developerQueues, "updateQueue", async (queueId, changes, options) => {
+    assert.equal(queueId, "queue-1");
+    assert.ok(options?.client);
+    return { ...currentQueue, ...changes, resourceVersion: currentQueue.resourceVersion + 1, updatedAt: "2026-09-16T00:02:00.000Z" };
+  }, originals);
+  replace(developerWebhookService, "enqueueDeveloperQueueEvent", async ({ event }, options) => {
+    assert.ok(options?.client);
+    webhookEvents.push(event);
+  }, originals);
+  replace(securityEventService, "logSecurityEvent", async () => {}, originals);
+  const { server, baseUrl } = await startServer();
+  try {
+    const updated = await request("PATCH", `${baseUrl}/projects/project-1/profiles/harbor/queues/main`, { environment: "sandbox", sessionState: "paused", resourceVersion: 1 });
+    assert.equal(updated.status, 200);
+    assert.equal(findQueueCalls, 2);
+    assert.deepEqual(webhookEvents, []);
   } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
 });
 

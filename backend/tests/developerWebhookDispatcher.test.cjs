@@ -242,6 +242,49 @@ test("queue event fan-out uses the business transaction client", async () => {
     assert.equal(call.options.client, client);
     assert.equal(call.data.eventId, "queue_event:event-9");
     assert.equal(call.data.eventType, "ticket.called");
+    const rendered = await call.data.renderPayload(2);
+    assert.equal(rendered.payload.payload_version, 2);
+    assert.equal(rendered.payloadBody, JSON.stringify(rendered.payload));
+  } finally {
+    deliveries.enqueueForRegistrations = original;
+  }
+});
+
+test("developer queue event fan-out renders registrations at their pinned version", async () => {
+  const original = deliveries.enqueueForRegistrations;
+  let call;
+  deliveries.enqueueForRegistrations = async (data, options) => {
+    call = { data, options };
+    return [];
+  };
+  const client = {};
+  try {
+    await webhookService.enqueueDeveloperQueueEvent({
+      event: {
+        id: "queue-1:3:queue.session.opened",
+        type: "queue.session.opened",
+        resourceVersion: 3,
+        occurredAt: "2026-09-15T06:00:00.000Z",
+        source: "developer_portal"
+      },
+      queue: {
+        id: "queue-1",
+        projectId: "project-1",
+        environment: "sandbox",
+        slug: "main",
+        displayName: "Main queue",
+        sessionState: "open",
+        intakeEnabled: true,
+        joiningEnabled: false,
+        priorityRatio: 3,
+        resourceVersion: 3
+      }
+    }, { client });
+    assert.equal(call.options.client, client);
+    const rendered = await call.data.renderPayload(2);
+    assert.equal(rendered.payload.payload_version, 2);
+    assert.equal(rendered.payload.type, "queue.session.opened");
+    assert.equal(rendered.payloadBody, JSON.stringify(rendered.payload));
   } finally {
     deliveries.enqueueForRegistrations = original;
   }

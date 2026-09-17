@@ -40,6 +40,15 @@ const SAFE_QUEUE_EVENT_METADATA = new Set([
   "queueDateKey"
 ]);
 
+function queueSessionEventType(nextState) {
+  if (nextState === "open") return "queue.session.opened";
+  if (nextState === "closing") return "queue.session.closing";
+  if (nextState === "closed") return "queue.session.closed";
+  // Pausing intake is represented by queue.intake.paused. There is no
+  // queue.session.paused event in the public contract.
+  return null;
+}
+
 function invalid(message, code = "INVALID_WEBHOOK") {
   const error = new Error(message);
   error.statusCode = 400;
@@ -171,6 +180,13 @@ function rawPayload(payload) {
   return typeof payload === "string" ? payload : JSON.stringify(payload);
 }
 
+function renderPayloadAtVersion(payload) {
+  return async (version) => {
+    const versionedPayload = { ...payload, payload_version: version };
+    return { payload: versionedPayload, payloadBody: rawPayload(versionedPayload) };
+  };
+}
+
 function buildQueueEventPayload({ event, ticket, projectId, environment }) {
   const type = QUEUE_EVENT_TYPES[event?.eventType];
   if (!type || !event?._id || !ticket?._id) return null;
@@ -283,6 +299,13 @@ function buildDeveloperQueueEventPayload({ event, queue }) {
   };
 }
 
+function renderDeveloperQueueEventPayload({ event, queue }, version) {
+  const payload = buildDeveloperQueueEventPayload({ event, queue });
+  if (!payload) return null;
+  const versionedPayload = { ...payload, payload_version: version };
+  return { payload: versionedPayload, payloadBody: rawPayload(versionedPayload) };
+}
+
 async function enqueueDeveloperQueueEvent({ event, queue }, options = {}) {
   const payload = buildDeveloperQueueEventPayload({ event, queue });
   if (!payload) return null;
@@ -292,7 +315,12 @@ async function enqueueDeveloperQueueEvent({ event, queue }, options = {}) {
     eventId: payload.id,
     eventType: payload.type,
     payloadVersion: payload.payload_version,
-    payload
+    payload,
+    // The envelope is currently structurally stable across the supported
+    // registration versions. Keep the registration's explicit version in the
+    // stored body so a v2 registration cannot make a queue update fail while
+    // preserving the same event data until a schema-specific renderer exists.
+    renderPayload: options.renderPayload || renderPayloadAtVersion(payload)
   }, options);
 }
 
@@ -311,7 +339,8 @@ async function enqueueQueueEvent({ event, ticket, developerWebhook }, options = 
     eventId: payload.id,
     eventType: payload.type,
     payloadVersion: payload.payload_version,
-    payload
+    payload,
+    renderPayload: renderPayloadAtVersion(payload)
   }, options);
 }
 
@@ -324,7 +353,8 @@ async function enqueueDeveloperTicketEvent({ event, ticket }, options = {}) {
     eventId: payload.id,
     eventType: payload.type,
     payloadVersion: payload.payload_version,
-    payload
+    payload,
+    renderPayload: renderPayloadAtVersion(payload)
   }, options);
 }
 
@@ -413,8 +443,10 @@ function verifySignature({ payload, header, secret, previousSecret, previousSecr
 module.exports = {
   WEBHOOK_EVENTS,
   QUEUE_EVENT_TYPES,
+  queueSessionEventType,
   buildDeveloperTicketEventPayload,
   buildDeveloperQueueEventPayload,
+  renderDeveloperQueueEventPayload,
   buildQueueEventPayload,
   buildSignatureHeader,
   createSigningSecret,
