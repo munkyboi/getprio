@@ -73,6 +73,17 @@ async function countActiveProjects(developerAccountId, options = {}) {
   return Number(result.rows[0]?.count || 0);
 }
 
+async function getSandboxAllowance(projectId, options = {}) {
+  const result = await buildQueryClient(options.client).query(
+    `SELECT issued_tickets
+     FROM developer_sandbox_daily_allowances
+     WHERE developer_project_id = $1 AND allowance_date = (NOW() AT TIME ZONE 'UTC')::date`,
+    [projectId]
+  );
+  const issuedTickets = Number(result.rows[0]?.issued_tickets || 0);
+  return { limit: 100, issuedTickets, remaining: Math.max(0, 100 - issuedTickets) };
+}
+
 async function createProject({ developerAccountId, userId, name }, options = {}) {
   const queryClient = buildQueryClient(options.client);
   const result = await queryClient.query(
@@ -246,6 +257,7 @@ module.exports = {
   findApiKeyById,
   findProjectById,
   findProjectForUser,
+  getSandboxAllowance,
   listApiKeys,
   listProjectsForUser,
   mapKey,

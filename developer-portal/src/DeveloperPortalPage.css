@@ -1,0 +1,832 @@
+@import url("/fonts/aleo/aleo.css");
+
+.developer-portal {
+  --dp-bg: #0d1421;
+  --dp-surface: #141e30;
+  --dp-ink: #f8fafc;
+  --dp-muted: #a1a7bb;
+  --dp-accent: #8aa9ff;
+  --dp-action: #3861fb;
+  --dp-action-soft: #213562;
+  --dp-border: #293246;
+  --dp-code-bg: #080d17;
+  --dp-code-toolbar: #111a2b;
+  min-height: 100vh;
+  background: var(--dp-bg);
+  color: var(--dp-ink);
+  color-scheme: dark;
+  font-family: Inter, system-ui, sans-serif;
+}
+.developer-portal-light {
+  --dp-bg: #ffffff;
+  --dp-surface: #fff;
+  --dp-ink: #12213b;
+  --dp-muted: #52637a;
+  --dp-accent: #2459c8;
+  --dp-action: #3861fb;
+  --dp-action-soft: #eaf1ff;
+  --dp-border: #d5dfec;
+  --dp-code-bg: #111827;
+  --dp-code-toolbar: #1c293d;
+  color-scheme: light;
+}
+.developer-portal * {
+  box-sizing: border-box;
+}
+.developer-portal a {
+  color: var(--dp-accent);
+  text-underline-offset: 0.22em;
+}
+.developer-portal :focus-visible {
+  outline: 3px solid var(--dp-accent);
+  outline-offset: 4px;
+}
+.developer-portal :is(h1, h2, h3) {
+  color: var(--dp-ink);
+  font-family: "Aleo", Georgia, serif;
+}
+.developer-portal h1 {
+  font-size: clamp(2rem, 5vw, 2.625rem);
+  line-height: 1.08;
+  letter-spacing: -0.045em;
+  margin: 0 0 1.5rem;
+}
+.developer-portal h1 em {
+  color: var(--dp-accent);
+  font-style: normal;
+}
+.developer-portal h2 {
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  line-height: 1.18;
+  margin: 0 0 1.5rem;
+  letter-spacing: -0.025em;
+}
+.developer-portal h3 {
+  font-size: clamp(1.125rem, 2vw, 1.25rem);
+  line-height: 1.3;
+  margin: 0.75rem 0;
+}
+.developer-portal p,
+.developer-portal li {
+  color: var(--dp-muted);
+  line-height: 1.75;
+}
+.developer-portal p {
+  margin: 0 0 1.25rem;
+}
+.developer-portal li {
+  margin-bottom: 0.75rem;
+}
+.developer-portal :is(article, section, aside, nav) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.developer-portal-header,
+.developer-portal-hero,
+.developer-portal-section,
+.developer-portal-footer {
+  width: calc(100% - 2.5rem);
+  max-width: 100rem;
+  margin: 0 auto;
+}
+.developer-portal-header {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.25rem 0;
+  border-bottom: 1px solid var(--dp-border);
+}
+.developer-portal-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  text-decoration: none;
+  min-height: 44px;
+  align-self: flex-start;
+}
+.developer-portal-brand img {
+  width: auto;
+  height: 40px;
+}
+.developer-portal-brand span {
+  border-left: 1px solid var(--dp-border);
+  padding-left: 0.75rem;
+  font-size: 0.875rem;
+  color: var(--dp-ink);
+}
+.developer-portal-header nav,
+.developer-portal-footer nav {
+  display: flex;
+  gap: 0.5rem 1rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.developer-portal-header nav a,
+.developer-portal-footer nav a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  min-width: 44px;
+  text-decoration: none;
+  font-size: 0.875rem;
+}
+.developer-portal a[aria-current="page"] {
+  text-decoration: underline;
+}
+.developer-portal-header button {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--dp-border);
+  background: var(--dp-surface);
+  color: var(--dp-accent);
+  border-radius: 50%;
+  cursor: pointer;
+}
+.developer-portal-hero {
+  display: grid;
+  align-items: center;
+  gap: 2rem;
+  padding: 3rem 0;
+}
+.developer-portal p.developer-portal-eyebrow {
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--dp-accent);
+  margin-bottom: 1rem;
+}
+.developer-portal-lede {
+  font-size: 1.1rem;
+  max-width: 40rem;
+}
+.developer-portal p.developer-portal-meta {
+  font-size: 0.8rem;
+}
+.developer-portal-preview-note {
+  border-left: 3px solid var(--dp-accent);
+  padding-left: 1rem;
+  font-size: 0.875rem;
+  max-width: 40rem;
+}
+.developer-portal-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  margin: 1.5rem 0;
+}
+.developer-portal-actions a,
+.developer-portal a.developer-portal-primary,
+.developer-portal a.developer-portal-secondary,
+.developer-portal button.developer-portal-primary,
+.developer-portal button.developer-portal-secondary {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 44px;
+  padding: 0.8rem 1.25rem;
+  font-weight: 600;
+  font-family: Inter, system-ui, sans-serif;
+  line-height: 1.2;
+  border-radius: 2rem;
+  text-decoration: none;
+  text-align: center;
+}
+.developer-portal a.developer-portal-primary {
+  background: #3861fb;
+  color: #fff;
+}
+.developer-portal button.developer-portal-primary {
+  border: 1px solid #4d71ff;
+  background: #3861fb;
+  color: #fff;
+  cursor: pointer;
+  font-weight: 700;
+}
+.developer-portal :is(a, button).developer-portal-primary:hover:not(:disabled) {
+  background: #2c50d9;
+}
+.developer-portal a.developer-portal-secondary {
+  border: 1px solid var(--dp-border);
+  background: var(--dp-surface);
+}
+.developer-portal button.developer-portal-secondary {
+  border: 1px solid var(--dp-border);
+  background: var(--dp-surface);
+  color: var(--dp-accent);
+  cursor: pointer;
+}
+.developer-portal :is(button.developer-portal-primary, button.developer-portal-secondary):disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+.developer-portal-ticket {
+  padding: 1.25rem;
+  border-radius: 1.5rem;
+  background: radial-gradient(
+    ellipse at 50% 15%,
+    #2847a0,
+    #162445 65%,
+    #101a2b
+  );
+  color: #f8fafc;
+  text-align: center;
+}
+.developer-portal-ticket p {
+  color: #bdc9dd;
+  font-size: 0.85rem;
+}
+.developer-portal-ticket p.developer-portal-flow {
+  font: 0.7rem/1.9 monospace;
+  color: #dce5ff;
+  background: #111b2c;
+  padding: 1rem;
+  border-radius: 0.8rem;
+}
+.developer-portal-phone {
+  max-width: 19rem;
+  margin: 1.5rem auto;
+  padding: 2rem 1rem;
+  background: #141e30;
+  border: 6px solid #33466b;
+  border-radius: 2.25rem;
+  box-shadow: 0 25px 40px #0004;
+}
+.developer-portal-phone strong {
+  display: block;
+  font:
+    4rem/1.3 "Aleo",
+    Georgia,
+    serif;
+  margin: 1.5rem 0;
+}
+.developer-portal-phone span {
+  display: inline-block;
+  background: #123f38;
+  color: #7de2c1;
+  border-radius: 2rem;
+  padding: 0.25rem 1rem;
+  margin-bottom: 1rem;
+}
+.developer-portal-phone hr {
+  border: 0;
+  border-top: 1px solid #334466;
+  margin: 1.5rem 0;
+}
+.developer-portal-phone b {
+  display: block;
+  line-height: 1.6;
+  margin-bottom: 1rem;
+}
+.developer-portal-phone small {
+  font-size: 0.7rem;
+  color: #bdc9dd;
+}
+.developer-portal-section {
+  padding: 3rem 0;
+  border-top: 1px solid var(--dp-border);
+  scroll-margin-top: 1rem;
+}
+.developer-portal-grid,
+.developer-portal-prices {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  margin: 1.5rem 0;
+}
+.developer-portal-grid article,
+.developer-portal-prices article {
+  padding: 1.5rem;
+  background: var(--dp-surface);
+  border: 1px solid var(--dp-border);
+  border-radius: 1rem;
+}
+.developer-portal-grid strong {
+  color: var(--dp-accent);
+}
+.developer-portal-card-heading {
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  margin-bottom: .35rem;
+  color: var(--dp-accent);
+}
+.developer-portal-card-heading h3 {
+  margin: 0;
+}
+.developer-portal-grid article p:last-child {
+  margin-bottom: 0;
+}
+.developer-portal-prices ul {
+  padding-left: 1.25rem;
+}
+.developer-portal p.developer-portal-price {
+  font-size: clamp(2rem, 5vw, 2.625rem);
+  font-weight: 700;
+  color: var(--dp-ink);
+}
+.developer-portal-price span {
+  font-size: 0.9rem;
+  font-weight: 400;
+}
+.developer-portal-prices a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}
+.developer-portal-fees {
+  display: grid;
+  gap: 1px;
+  border: 1px solid var(--dp-border);
+  background: var(--dp-border);
+  border-radius: 0.8rem;
+  overflow: hidden;
+}
+.developer-portal-fees div {
+  background: var(--dp-surface);
+  padding: 1rem;
+}
+.developer-portal-fees dt {
+  font-size: 0.875rem;
+  color: var(--dp-muted);
+}
+.developer-portal-fees dd {
+  margin: 0.5rem 0 0;
+  font-weight: 600;
+}
+.developer-portal-callout {
+  padding: 1.5rem;
+  background: var(--dp-surface);
+  border: 1px solid var(--dp-border);
+  border-radius: 1.25rem;
+}
+.developer-portal-faq {
+  margin: 2rem 0;
+}
+.developer-portal-faq details {
+  border-bottom: 1px solid var(--dp-border);
+}
+.developer-portal-faq summary {
+  padding: 1.25rem 0.25rem;
+  min-height: 44px;
+  cursor: pointer;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.developer-portal-faq details p {
+  max-width: 60rem;
+  padding: 0 0.25rem;
+}
+.developer-portal-content {
+  max-width: 60rem;
+  width: calc(100% - 2.5rem);
+  margin: 0 auto;
+  padding: 3rem 0 5rem;
+  min-height: 65vh;
+}
+.developer-portal-content h1 {
+  font-size: clamp(2rem, 5vw, 2.625rem);
+}
+.developer-portal-content h2 {
+  font-size: clamp(1.375rem, 2.5vw, 1.75rem);
+  margin-top: 2rem;
+}
+.developer-portal-content code {
+  overflow-wrap: anywhere;
+}
+
+/* Mantine ships light defaults. Keep the account surfaces on the same
+   palette as the developer portal and the prototype in both themes. */
+.developer-portal .mantine-Paper-root {
+  background-color: var(--dp-surface) !important;
+  border-color: var(--dp-border) !important;
+  color: var(--dp-ink) !important;
+}
+.developer-portal .mantine-InputWrapper-label,
+.developer-portal .mantine-Input-label {
+  color: var(--dp-ink) !important;
+}
+.developer-portal .mantine-Input-input {
+  background-color: var(--dp-bg) !important;
+  border-color: var(--dp-border) !important;
+  color: var(--dp-ink) !important;
+}
+.developer-portal .mantine-Input-input::placeholder {
+  color: var(--dp-muted) !important;
+}
+.developer-portal .mantine-Input-section {
+  color: var(--dp-muted) !important;
+}
+.developer-portal .mantine-Tabs-list {
+  border-color: var(--dp-border) !important;
+}
+.developer-portal .mantine-Tabs-list::before {
+  border-color: var(--dp-border) !important;
+}
+.developer-portal .mantine-Tabs-tab {
+  color: var(--dp-muted) !important;
+}
+.developer-portal .mantine-Tabs-tab:hover {
+  border-color: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  color: var(--dp-ink) !important;
+}
+.developer-portal .mantine-Tabs-tab[data-active] {
+  border-color: transparent !important;
+  border-bottom-color: var(--dp-accent) !important;
+  background: transparent !important;
+  color: var(--dp-ink) !important;
+}
+.developer-portal .developer-shell-menu-dropdown,
+.developer-portal .developer-shell-menu-dropdown.mantine-Menu-dropdown {
+  background-color: var(--dp-surface) !important;
+  border-color: var(--dp-border) !important;
+  color: var(--dp-ink) !important;
+}
+.developer-portal .developer-shell-menu-dropdown .mantine-Menu-label {
+  color: var(--dp-muted) !important;
+}
+.developer-portal .developer-shell-menu-dropdown .mantine-Menu-item {
+  color: var(--dp-ink) !important;
+}
+.developer-portal .developer-shell-menu-dropdown .mantine-Menu-item:hover,
+.developer-portal .developer-shell-menu-dropdown .mantine-Menu-item[data-hovered] {
+  background-color: var(--dp-action-soft) !important;
+  color: var(--dp-ink) !important;
+}
+.developer-portal .developer-shell-menu-dropdown .mantine-Menu-itemSection {
+  color: currentColor !important;
+}
+.developer-portal .developer-shell-menu-dropdown .mantine-Menu-divider {
+  border-color: var(--dp-border) !important;
+}
+.developer-account-profile { max-width: 72rem; }
+.developer-account-profile-embedded { width: auto; max-width: none; min-height: 0; margin: 0; padding: 0; }
+.developer-account-profile .developer-portal-lede { max-width: 44rem; }
+.developer-account-tabs { margin-top: 2rem; }
+.developer-account-tabs .mantine-Tabs-list { gap: .35rem; border-bottom: 1px solid var(--dp-border); }
+.developer-account-tabs .mantine-Tabs-tab { min-height: 44px !important; padding: .7rem 1rem !important; border: 1px solid transparent !important; border-bottom: 3px solid transparent !important; border-radius: 0 !important; background: transparent !important; box-shadow: none !important; color: var(--dp-muted) !important; font: 700 .86rem/1 Inter, system-ui, sans-serif; }
+.developer-account-tabs .mantine-Tabs-tab:hover { border-color: transparent !important; border-bottom-color: transparent !important; background: transparent !important; box-shadow: none !important; color: var(--dp-ink) !important; }
+.developer-account-tabs .mantine-Tabs-tab[data-active] { border-color: transparent !important; border-bottom-color: var(--dp-accent) !important; color: var(--dp-ink) !important; background: transparent !important; }
+.developer-account-tabs .mantine-Tabs-panel { padding-top: clamp(1.5rem, 3vw, 2rem) !important; }
+.developer-account-profile-card { display: grid !important; gap: 1.25rem; padding: clamp(1.25rem, 3vw, 2rem) !important; background: var(--dp-surface); border-color: var(--dp-border); border-radius: 1.25rem; }
+.developer-account-profile-card .developer-portal-eyebrow { margin-bottom: 0; }
+.developer-account-profile-card h2 { margin: 0; }
+.developer-account-profile-fields { display: grid; gap: 1rem; }
+.developer-account-profile-fields .mantine-Input-label { margin-bottom: .5rem; color: var(--dp-ink); font-weight: 650; }
+.developer-account-profile-card .mantine-Input-input { min-height: 48px; background: var(--dp-bg); color: var(--dp-ink); border-color: var(--dp-border); }
+.developer-account-profile-card .mantine-Input-input:disabled { opacity: .7; color: var(--dp-muted); }
+.developer-account-profile-note { margin: 0; padding-left: 1rem; border-left: 3px solid var(--dp-accent); font-size: .875rem; }
+.developer-account-profile-card > .developer-portal-primary { width: fit-content; }
+.developer-account-profile-embedded h1 { font-size: clamp(2rem, 5vw, 2.625rem) !important; line-height: 1.1; margin-bottom: .75rem; }
+.developer-account-security-options { display: grid; gap: 1rem; }
+.developer-account-security-options article { display: grid; gap: .75rem; align-content: start; padding: 1.25rem; border: 1px solid var(--dp-border); border-radius: 1rem; background: color-mix(in srgb, var(--dp-bg) 65%, var(--dp-surface)); }
+.developer-account-security-options article h3 { margin: 0; }
+.developer-account-security-options article p { margin: 0; }
+.developer-account-security-options article .mantine-Badge-root { width: fit-content; }
+.developer-account-security-options article .mantine-Button-root { width: fit-content; }
+.developer-portal-guide-steps {
+  padding-left: 1.4rem;
+}
+.developer-portal-guide-steps li {
+  padding-left: 0.25rem;
+}
+.developer-portal pre {
+  padding: 1.25rem;
+  background: var(--dp-surface);
+  border: 1px solid var(--dp-border);
+  border-radius: 0.8rem;
+  color: var(--dp-ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 0.85rem;
+  line-height: 1.7;
+}
+.developer-portal-code-sample {
+  overflow: hidden;
+  margin: 1.25rem 0;
+  border: 1px solid color-mix(in srgb, var(--dp-border) 65%, #526b9e);
+  border-radius: .8rem;
+  background: var(--dp-code-bg);
+  box-shadow: 0 1rem 2.5rem color-mix(in srgb, #000 26%, transparent);
+}
+.developer-portal-code-toolbar {
+  display: flex;
+  min-height: 3rem;
+  align-items: center;
+  justify-content: space-between;
+  padding: .45rem .55rem .45rem 1rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--dp-border) 60%, #526b9e);
+  background: var(--dp-code-toolbar);
+  color: #d8e4ff;
+  font: 750 .75rem/1 Inter, Aptos, sans-serif;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.developer-portal-code-toolbar button {
+  display: inline-flex;
+  min-width: 4.8rem;
+  min-height: 2.15rem;
+  align-items: center;
+  justify-content: center;
+  gap: .35rem;
+  border: 1px solid #40577e;
+  border-radius: .45rem;
+  background: #16243a;
+  color: #d8e4ff;
+  cursor: pointer;
+  font: 700 .75rem/1 Inter, Aptos, sans-serif;
+}
+.developer-portal-code-toolbar button:hover,
+.developer-portal-code-toolbar button:focus-visible {
+  border-color: #7ca4ff;
+  background: #1e3352;
+  color: #fff;
+}
+.developer-portal-code-sample pre {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #edf4ff;
+  box-shadow: none;
+}
+.developer-portal-code-keyword { color: #8bb5ff; font-weight: 750; }
+.developer-portal-code-url { color: #8de2c1; }
+.developer-portal-code-option { color: #d3a7ff; }
+.developer-portal-code-method { color: #ffd58a; font-weight: 750; }
+.developer-portal-code-string { color: #f6adc6; }
+.developer-portal-language {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  color: var(--dp-ink);
+}
+.developer-portal-language select {
+  width: 100%;
+  min-height: 44px;
+  padding: 0.5rem;
+  color: var(--dp-ink);
+  background: var(--dp-surface);
+  border: 1px solid var(--dp-border);
+  border-radius: 0.5rem;
+  font: inherit;
+}
+.developer-portal-auth-form {
+  display: grid;
+  max-width: 32rem;
+  gap: 1rem;
+  margin: 2rem 0 1.25rem;
+}
+.developer-portal-auth-switch { display: inline-block; margin-top: .35rem; }
+.developer-portal-auth-form .mantine-Input-label {
+  display: block;
+  margin-bottom: .5rem;
+  color: var(--dp-ink);
+  font-weight: 650;
+}
+.developer-portal-auth-form .mantine-Input-required { margin-left: .2rem; }
+.developer-portal-auth-form input {
+  width: 100%;
+  min-height: 44px;
+  padding: .65rem .75rem;
+  border: 1px solid var(--dp-border);
+  border-radius: .5rem;
+  background: var(--dp-surface);
+  color: var(--dp-ink);
+  font: inherit;
+}
+.developer-input-otp {
+  width: min(100%, 34rem);
+}
+.developer-input-otp-group {
+  display: flex;
+  align-items: center;
+  gap: clamp(.45rem, 2vw, .9rem);
+  width: 100%;
+}
+.developer-input-otp-segment {
+  display: grid;
+  flex: 1 1 0;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.developer-input-otp-separator {
+  color: var(--dp-ink);
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+.developer-input-otp-slot {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: clamp(2.5rem, 10vw, 4.5rem);
+  aspect-ratio: 1;
+  place-items: center;
+  border: 1px solid var(--dp-border);
+  border-radius: 0;
+  background: var(--dp-surface);
+  color: var(--dp-ink);
+  font: 700 clamp(1.25rem, 4.5vw, 2rem)/1 Inter, system-ui, sans-serif;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.developer-input-otp-segment .developer-input-otp-slot + .developer-input-otp-slot {
+  margin-left: -1px;
+}
+.developer-input-otp-segment .developer-input-otp-slot:first-child { border-radius: .65rem 0 0 .65rem; }
+.developer-input-otp-segment .developer-input-otp-slot:last-child { border-radius: 0 .65rem .65rem 0; }
+.developer-input-otp-slot[data-active="true"] {
+  border-color: var(--dp-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dp-accent) 25%, transparent);
+}
+.developer-input-otp:has(input[aria-invalid="true"]) .developer-input-otp-slot {
+  border-color: #e57a8f;
+}
+.developer-input-otp-caret {
+  width: 2px;
+  height: 1.55em;
+  background: var(--dp-ink);
+  animation: developer-input-otp-blink 1s step-end infinite;
+}
+@keyframes developer-input-otp-blink {
+  50% { opacity: 0; }
+}
+.developer-portal-auth-form .developer-portal-primary {
+  width: 100%;
+  min-height: 48px;
+  border-radius: .55rem;
+}
+.developer-portal-auth-error {
+  margin: 0;
+  padding: .8rem 1rem;
+  border-left: 3px solid #e57a8f;
+  background: #4b2633;
+  color: #ffe1e7 !important;
+}
+.developer-portal-otp-field {
+  display: grid;
+  gap: .65rem;
+}
+.developer-portal-otp-label-row {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+}
+.developer-portal-otp-label-row label {
+  color: var(--dp-ink);
+  font-weight: 650;
+}
+.developer-portal-otp-resend {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: .4rem;
+  padding: .55rem .75rem;
+  border: 1px solid var(--dp-border);
+  border-radius: .55rem;
+  color: var(--dp-accent);
+  background: var(--dp-surface);
+  font: 650 .85rem/1 Inter, system-ui, sans-serif;
+  text-decoration: none;
+  cursor: pointer;
+}
+.developer-portal-otp-resend:hover:not(:disabled) { border-color: var(--dp-accent); }
+.developer-portal-otp-resend:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+.developer-portal-note {
+  border-left: 3px solid var(--dp-accent);
+  padding-left: 1.25rem;
+}
+.developer-portal-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  border-top: 1px solid var(--dp-border);
+  padding: 2rem 0 max(2rem, env(safe-area-inset-bottom));
+}
+.developer-portal-footer p {
+  margin: 0;
+}
+.developer-portal-footer span {
+  font-size: 0.8rem;
+}
+.developer-portal-skip {
+  position: absolute;
+  top: 0.5rem;
+  left: 1rem;
+  transform: translateY(-200%);
+  z-index: 2;
+  padding: 0.75rem;
+  background: var(--dp-surface);
+}
+.developer-portal-skip:focus {
+  transform: translateY(0);
+}
+@media (min-width: 48.0625em) {
+  .developer-portal-header,
+  .developer-portal-hero,
+  .developer-portal-section,
+  .developer-portal-footer {
+    width: calc(100% - 5rem);
+  }
+  .developer-portal-hero {
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+    padding: 4rem 0;
+    gap: 3rem;
+  }
+  .developer-portal-actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .developer-portal-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .developer-portal-prices {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .developer-portal-fees {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+  .developer-portal-section {
+    padding: 4rem 0;
+  }
+  .developer-portal-callout {
+    padding: 3rem;
+  }
+  .developer-portal-language select {
+    max-width: 20rem;
+  }
+  .developer-account-profile-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .developer-account-profile-fields .mantine-InputWrapper-root:last-child { grid-column: 1 / -1; }
+  .developer-account-security-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (min-width: 64em) {
+  .developer-portal-header,
+  .developer-portal-footer {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .developer-portal-header {
+    padding: 1.5rem 0;
+  }
+}
+
+/* Public and authentication screens use the same clean light palette as the
+   authenticated workspace. Code samples intentionally retain a dark editor
+   surface for syntax contrast; product surfaces stay white. */
+.developer-portal-light .developer-portal-ticket {
+  background: #f4f7fc;
+  border: 1px solid #d5dfec;
+  color: #12213b;
+}
+.developer-portal-light .developer-portal-ticket p { color: #52637a; }
+.developer-portal-light .developer-portal-ticket p.developer-portal-flow {
+  background: #eaf1ff;
+  color: #214a9f;
+}
+.developer-portal-light .developer-portal-phone {
+  background: #ffffff;
+  border-color: #b7c8e8;
+  box-shadow: 0 20px 40px #263b5a1c;
+}
+.developer-portal-light .developer-portal-phone span {
+  background: #eaf1ff;
+  color: #2459c8;
+}
+.developer-portal-light .developer-portal-phone hr { border-top-color: #d5dfec; }
+.developer-portal-light .developer-portal-phone small { color: #52637a; }
+.developer-portal-light .developer-portal-auth-error {
+  border-color: #d75b72;
+  background: #fff0f2;
+  color: #8f2940 !important;
+}
+.developer-portal-light .developer-portal-primary { border-color: #3861fb; }
+.developer-portal-light .developer-portal-secondary {
+  border-color: #8ba9e8 !important;
+  background: transparent !important;
+  border-color: #3861fb !important;
+  color: #3861fb !important;
+}
+.developer-portal-light .developer-portal-secondary:hover {
+  border-color: #3861fb !important;
+  background: #eaf1ff !important;
+  color: #17366f !important;
+}
+
+/* Keep display type legible without the oversized brutalist scale. */
+.developer-portal h1 { font-size: clamp(1.6rem, 4vw, 2.1rem); }
+.developer-portal h2 { font-size: clamp(1.2rem, 2.4vw, 1.6rem); }
+.developer-portal h3 { font-size: clamp(.9rem, 1.6vw, 1rem); }
+.developer-portal p.developer-portal-price { font-size: clamp(1.6rem, 4vw, 2.1rem); }
+.developer-portal-content h1,
+.developer-account-profile-embedded h1 { font-size: clamp(1.6rem, 4vw, 2.1rem) !important; }
+.developer-portal-content h2 { font-size: clamp(1.1rem, 2vw, 1.4rem); }

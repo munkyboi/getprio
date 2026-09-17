@@ -216,6 +216,43 @@ function buildQueueEventPayload({ event, ticket, projectId, environment }) {
   };
 }
 
+function buildDeveloperTicketEventPayload({ event, ticket }) {
+  if (!event?.id || !ticket?.id || !WEBHOOK_EVENTS.includes(event.type)) return null;
+  return {
+    id: `developer_ticket_event:${event.id}`,
+    type: event.type,
+    payload_version: 1,
+    project_id: ticket.projectId,
+    environment: ticket.environment,
+    occurred_at: event.occurredAt,
+    resource: {
+      type: "ticket",
+      id: ticket.id,
+      version: String(event.resourceVersion)
+    },
+    data: {
+      ticket: {
+        id: ticket.id,
+        ticket_number: ticket.ticketNumber,
+        status: ticket.status,
+        queue_id: ticket.queueId,
+        status_reason: ticket.statusReason || null,
+        called_at: ticket.calledAt || null,
+        served_at: ticket.servedAt || null,
+        skipped_at: ticket.skippedAt || null,
+        cancelled_at: ticket.cancelledAt || null,
+        unserved_at: ticket.unservedAt || null,
+        terminal_at: ticket.terminalAt || null
+      },
+      transition: {
+        from_status: event.fromStatus || null,
+        to_status: event.toStatus || null,
+        source: event.source || "developer_api"
+      }
+    }
+  };
+}
+
 async function enqueueQueueEvent({ event, ticket, developerWebhook }, options = {}) {
   if (!developerWebhook?.projectId || !developerWebhook?.environment) return null;
   const payload = buildQueueEventPayload({
@@ -228,6 +265,19 @@ async function enqueueQueueEvent({ event, ticket, developerWebhook }, options = 
   return enqueueEvent({
     projectId: developerWebhook.projectId,
     environment: developerWebhook.environment,
+    eventId: payload.id,
+    eventType: payload.type,
+    payloadVersion: payload.payload_version,
+    payload
+  }, options);
+}
+
+async function enqueueDeveloperTicketEvent({ event, ticket }, options = {}) {
+  const payload = buildDeveloperTicketEventPayload({ event, ticket });
+  if (!payload) return null;
+  return enqueueEvent({
+    projectId: ticket.projectId,
+    environment: ticket.environment,
     eventId: payload.id,
     eventType: payload.type,
     payloadVersion: payload.payload_version,
@@ -320,6 +370,7 @@ function verifySignature({ payload, header, secret, previousSecret, previousSecr
 module.exports = {
   WEBHOOK_EVENTS,
   QUEUE_EVENT_TYPES,
+  buildDeveloperTicketEventPayload,
   buildQueueEventPayload,
   buildSignatureHeader,
   createSigningSecret,
@@ -329,6 +380,7 @@ module.exports = {
   normalizeName,
   normalizePayloadVersion,
   enqueueQueueEvent,
+  enqueueDeveloperTicketEvent,
   enqueueEvent,
   rawPayload,
   retryDelayMs,

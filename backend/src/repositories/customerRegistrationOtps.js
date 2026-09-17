@@ -10,6 +10,7 @@ function mapChallenge(row) {
     id: row.id,
     userId: String(row.user_id),
     email: row.email,
+    purpose: row.purpose || "customer",
     codeHash: row.code_hash,
     codeExpiresAt: row.code_expires_at,
     codeAttempts: Number(row.code_attempts || 0),
@@ -21,10 +22,10 @@ function mapChallenge(row) {
 async function createChallenge(data, options = {}) {
   const result = await clientFor(options).query(
     `INSERT INTO customer_registration_otps (
-       id, user_id, email, code_hash, code_expires_at
-     ) VALUES ($1, $2, $3, $4, $5)
+       id, user_id, email, purpose, code_hash, code_expires_at
+     ) VALUES ($1, $2, $3, $4, $5, $6)
      RETURNING *`,
-    [data.id, Number(data.userId), data.email, data.codeHash, data.codeExpiresAt]
+    [data.id, Number(data.userId), data.email, data.purpose || "customer", data.codeHash, data.codeExpiresAt]
   );
   return mapChallenge(result.rows[0]);
 }

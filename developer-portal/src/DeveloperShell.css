@@ -24,9 +24,9 @@
 
 .developer-portal-light,
 .developer-reference-light {
-  --developer-shell-active-bg: #dfe9ff;
-  --developer-shell-active-border: #3156a0;
-  --developer-shell-active-ink: #172338;
+  --developer-shell-active-bg: #eaf1ff;
+  --developer-shell-active-border: #527ae0;
+  --developer-shell-active-ink: #17366f;
 }
 
 .developer-shell-header,
@@ -101,6 +101,12 @@
 
 .developer-shell-skip { position: absolute; top: .5rem; left: 1rem; z-index: 3; transform: translateY(-200%); padding: .75rem; background: var(--developer-shell-surface); color: var(--developer-shell-ink); }
 .developer-shell-skip:focus { transform: translateY(0); }
+
+/* Light mode uses flat controls. Borders and focus rings carry hierarchy
+   without adding a raised/elevated treatment to header buttons. */
+.developer-portal-light .developer-shell-header :is(a, button) {
+  box-shadow: none !important;
+}
 
 @media (min-width: 48.0625em) {
   .developer-shell-header,

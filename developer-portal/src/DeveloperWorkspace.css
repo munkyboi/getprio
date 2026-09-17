@@ -338,8 +338,11 @@
 .developer-workspace.dpp .dpp-select-option[data-combobox-selected],
 .developer-workspace.dpp .dpp-select-option[data-checked] { background: #213562 !important; color: #fff !important; }
 .developer-workspace.dpp .mantine-Select-input { min-height: 44px; background: #0d1421; color: #eef2ff; border-color: #39465e; }
+.developer-workspace.dpp .developer-workspace-sidebar .mantine-Select-input { padding-right: 2.25rem; }
+.developer-workspace.dpp .developer-workspace-sidebar .mantine-Select-section .mantine-ComboboxChevron-chevron { color: var(--dp-accent) !important; opacity: 1; }
 @media (min-width: 48.0625em) {
   .developer-workspace-resource-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: stretch; }
+  .developer-workspace-profile-grid { grid-template-columns: minmax(0, 1fr); }
   .developer-workspace-resource-card { padding: 2rem !important; }
   .developer-workspace-resource-card .dpp-application-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .developer-workspace-queue-form .dpp-application-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -426,3 +429,242 @@
 .developer-workspace.dpp .developer-workspace-account-stats strong,
 .developer-workspace.dpp .developer-workspace-allowance-countdown strong { font-size: 1.6rem !important; }
 .developer-workspace.dpp .developer-workspace-allowance h3 { font-size: 1.4rem !important; }
+/* Light mode is a true paper theme: the page is white, surfaces stay white,
+   and blue is reserved for actions, focus, and selected navigation. Keep this
+   override at the end so the prototype's dark reference rules cannot leak
+   into the live workspace when the theme changes. */
+.developer-workspace.dpp[data-api-theme="light"] {
+  --dp-bg: #ffffff;
+  --dp-surface: #ffffff;
+  --dp-ink: #12213b;
+  --dp-muted: #52637a;
+  --dp-accent: #2459c8;
+  --dp-action: #3861fb;
+  --dp-action-soft: #eaf1ff;
+  --dp-border: #d5dfec;
+  --dp-code-bg: #0d1421;
+  --dp-code-toolbar: #16253d;
+  --muted: #52637a;
+  --ink: #12213b;
+  background: #ffffff !important;
+  color: #12213b;
+}
+.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-main { background: #ffffff; }
+.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-sidebar {
+  background: #f4f7fc;
+  border-color: #d5dfec;
+}
+.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-sidebar nav button {
+  color: #52637a;
+}
+.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-sidebar nav button svg { color: #2459c8; }
+.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-sidebar nav button[aria-current="page"] {
+  background: #eaf1ff !important;
+  color: #17366f !important;
+}
+.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-sidebar nav button:hover {
+  background: #f0f5ff !important;
+  color: #17366f !important;
+}
+.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-sidebar-project button {
+  color: #52637a;
+}
+.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-environments {
+  background: #ffffff;
+  border-color: #cbd8e8;
+}
+.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-environments > button[aria-selected="true"]:not(.mantine-Button-root) {
+  color: #12213b !important;
+}
+.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-environments > button[aria-selected="false"]:not(.mantine-Button-root) {
+  color: #52637a !important;
+}
+.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-environment-indicator {
+  border-color: #527ae0;
+  background: #eaf1ff;
+  box-shadow: 0 2px 6px #263b5a22;
+}
+.developer-workspace.dpp[data-api-theme="light"] :is(input, select, textarea),
+.developer-workspace.dpp[data-api-theme="light"] .mantine-Input-input,
+.developer-workspace.dpp[data-api-theme="light"] .mantine-Select-input {
+  background: #fbfdff !important;
+  border-color: #cbd8e8 !important;
+  color: #12213b !important;
+}
+.developer-workspace.dpp[data-api-theme="light"] :is(input, select, textarea)::placeholder {
+  color: #718198;
+}
+.developer-workspace.dpp[data-api-theme="light"] :is(input, select, textarea):hover {
+  border-color: #8ba9e8 !important;
+}
+.developer-workspace.dpp[data-api-theme="light"] :is(input, select, textarea):focus {
+  border-color: #3861fb !important;
+  background: #ffffff !important;
+  box-shadow: 0 0 0 3px #3861fb33;
+}
+.developer-workspace.dpp[data-api-theme="light"] fieldset {
+  background: #ffffff;
+  border-color: #d5dfec;
+}
+.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-status.active,
+.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-status.sent,
+.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-status.open {
+  border-color: #23805e;
+  color: #176347;
+}
+.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-status.revoked,
+.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-status.disabled,
+.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-status.failed {
+  border-color: #c05a6b;
+  color: #a2384b;
+}
+.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-ticket-demo-note { color: #3156a0 !important; }
+.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-secret {
+  background: #eef4ff;
+  border-color: #9ab3e5;
+}
+.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-secret code {
+  background: #0d1421;
+  border-color: #33466b;
+  color: #eef2ff;
+}
+.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-list code,
+.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-secret code { color: #dce5ff; }
+.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-error {
+  border-color: #d75b72;
+  background: #fff0f2;
+  color: #8f2940 !important;
+}
+.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-intake-switch .mantine-Switch-track {
+  border-color: #9aa9bf;
+  background: #ffffff;
+}
+.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-intake-switch .mantine-Switch-thumb {
+  border-color: #657389;
+  background: #657389;
+}
+.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-intake-switch .mantine-Switch-input:checked + .mantine-Switch-track {
+  border-color: #3861fb;
+  background: #3861fb;
+}
+.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-intake-switch .mantine-Switch-input:checked + .mantine-Switch-track .mantine-Switch-thumb {
+  border-color: #ffffff;
+  background: #ffffff;
+}
+.developer-workspace.dpp[data-api-theme="light"] .mantine-Button-root:not([data-variant]),
+.developer-workspace.dpp[data-api-theme="light"] .mantine-Button-root[data-variant="filled"],
+.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-primary {
+  background: #3861fb !important;
+  border-color: #3861fb !important;
+  color: #ffffff !important;
+}
+.developer-workspace.dpp[data-api-theme="light"] .mantine-Button-root:not([data-variant]):hover,
+.developer-workspace.dpp[data-api-theme="light"] .mantine-Button-root[data-variant="filled"]:hover,
+.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-primary:hover {
+  background: #2c50d9 !important;
+  border-color: #2c50d9 !important;
+  color: #ffffff !important;
+}
+.developer-workspace.dpp[data-api-theme="light"] .mantine-Button-root[data-variant="light"],
+.developer-workspace.dpp[data-api-theme="light"] .mantine-Button-root[data-variant="default"] {
+  background: transparent !important;
+  border-color: #3861fb !important;
+  color: #3861fb !important;
+}
+.developer-workspace.dpp[data-api-theme="light"] .mantine-Button-root[data-variant="light"]:hover,
+.developer-workspace.dpp[data-api-theme="light"] .mantine-Button-root[data-variant="default"]:hover {
+  background: #eaf1ff !important;
+  border-color: #3861fb !important;
+  color: #17366f !important;
+}
+.developer-workspace.dpp[data-api-theme="light"] .mantine-Button-root[data-variant="subtle"] {
+  background: transparent !important;
+  border-color: transparent !important;
+  color: #2459c8 !important;
+}
+.developer-workspace.dpp[data-api-theme="light"] .mantine-Button-root[data-variant="subtle"]:hover {
+  background: #eaf1ff !important;
+  color: #17366f !important;
+}
+.developer-workspace.dpp[data-api-theme="light"] .mantine-Button-root:disabled,
+.developer-workspace.dpp[data-api-theme="light"] .mantine-Button-root:disabled:hover {
+  background: #eef1f5 !important;
+  border-color: #d5dfec !important;
+  color: #7a889d !important;
+}
+.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-context .developer-workspace-status {
+  background: #2095e8;
+  border-color: #2095e8;
+  color: #ffffff;
+}
+.developer-workspace.dpp[data-api-theme="light"] .dpp-delivery-table-wrap,
+.developer-workspace.dpp[data-api-theme="light"] .dpp-delivery-card {
+  background: #ffffff;
+  border-color: #d5dfec;
+}
+.developer-workspace.dpp[data-api-theme="light"] .dpp-delivery-table thead,
+.developer-workspace.dpp[data-api-theme="light"] .dpp-delivery-child,
+.developer-workspace.dpp[data-api-theme="light"] .dpp-delivery-note,
+.developer-workspace.dpp[data-api-theme="light"] .dpp-webhook-detail {
+  background: #f4f7fc;
+  color: #12213b;
+}
+.developer-workspace.dpp[data-api-theme="light"] .dpp-delivery-parent:hover { background: #f0f5ff; }
+.developer-workspace.dpp[data-api-theme="light"] .dpp-table-expand {
+  background: #eef4ff;
+  border-color: #8ba9e8;
+  color: #214a9f;
+}
+.developer-workspace.dpp[data-api-theme="light"] .dpp-table-expand:hover { background: #dbe8ff; }
+.developer-workspace.dpp[data-api-theme="light"] .dpp-webhook-attempts li { background: #ffffff; border-color: #d5dfec; }
+.developer-workspace.dpp[data-api-theme="light"] .dpp-select-dropdown,
+.developer-workspace.dpp[data-api-theme="light"] .mantine-Combobox-dropdown,
+.developer-workspace.dpp[data-api-theme="light"] .mantine-Select-dropdown {
+  background: #ffffff !important;
+  border-color: #cbd8e8 !important;
+  color: #12213b !important;
+  box-shadow: 0 12px 30px #263b5a22 !important;
+}
+.developer-workspace.dpp[data-api-theme="light"] .dpp-select-option,
+.developer-workspace.dpp[data-api-theme="light"] .mantine-Combobox-option,
+.developer-workspace.dpp[data-api-theme="light"] .mantine-Select-option {
+  color: #12213b !important;
+}
+.developer-workspace.dpp[data-api-theme="light"] .dpp-select-option:hover,
+.developer-workspace.dpp[data-api-theme="light"] .dpp-select-option[data-combobox-selected],
+.developer-workspace.dpp[data-api-theme="light"] .dpp-select-option[data-checked],
+.developer-workspace.dpp[data-api-theme="light"] .mantine-Combobox-option:hover,
+.developer-workspace.dpp[data-api-theme="light"] .mantine-Combobox-option[data-combobox-selected],
+.developer-workspace.dpp[data-api-theme="light"] .mantine-Select-option:hover,
+.developer-workspace.dpp[data-api-theme="light"] .mantine-Select-option[data-combobox-selected] {
+  background: #eaf1ff !important;
+  color: #17366f !important;
+}
+
+/* Flat light-theme controls: keep the blue border/fill treatment, remove
+   decorative elevation from every button, and leave focus outlines intact. */
+.developer-workspace.dpp[data-api-theme="light"] :is(button, .mantine-Button-root) {
+  box-shadow: none !important;
+}
+
+/* These two prototype cards have older, more-specific light-button rules.
+   Repeat the outline contract here so their secondary actions cannot retain
+   the pale filled treatment. */
+.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-setup-card .mantine-Button-root[data-variant="light"],
+.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-next article:last-child .mantine-Button-root[data-variant="light"] {
+  --button-bg: transparent !important;
+  --button-hover: #eaf1ff !important;
+  --button-bd: 1px solid #3861fb !important;
+  --button-color: #3861fb !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  border-color: #3861fb !important;
+  color: #3861fb !important;
+}
+.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-setup-card .mantine-Button-root[data-variant="light"]:hover,
+.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-next article:last-child .mantine-Button-root[data-variant="light"]:hover {
+  background: #eaf1ff !important;
+  background-color: #eaf1ff !important;
+  border-color: #3861fb !important;
+  color: #17366f !important;
+}

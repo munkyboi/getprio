@@ -1,5 +1,5 @@
 const express = require("express");
-const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
+const bcrypt = require("bcryptjs");
 const db = require("../config/db");
 const env = require("../config/env");
 const asyncHandler = require("../middleware/asyncHandler");
@@ -9,24 +9,16 @@ const developerAccountRepository = require("../repositories/developerAccounts");
 const userRepository = require("../repositories/users");
 const sessionService = require("../services/sessionService");
 const securityEventService = require("../services/securityEventService");
+const customerRegistrationOtpService = require("../services/customerRegistrationOtpService");
 const {
   clearBrowserSession,
   getRefreshCookie,
   issueBrowserSession,
-  parseCookies
+  parseCookies,
+  restoreBrowserCsrf
 } = require("../services/browserSessionService");
 
 const router = express.Router();
-const developerAuthLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 60,
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: (req) => ipKeyGenerator(req.ip || req.socket?.remoteAddress || "unknown"),
-  message: { message: "Too many developer authentication requests. Please try again later." }
-});
-
-router.use(developerAuthLimiter);
 
 function requestContext(req) {
   return {
@@ -80,6 +72,43 @@ function invalidCredentials() {
   const error = new Error("Invalid email or password.");
   error.statusCode = 401;
   return error;
+}
+
+function validateDeveloperEmail(value) {
+  const email = authService.normalizeEmail(value);
+  const atIndex = email.indexOf("@");
+  if (
+    !email ||
+    email.length > 254 ||
+    atIndex <= 0 ||
+    atIndex !== email.lastIndexOf("@") ||
+    email.lastIndexOf(".") <= atIndex + 1 ||
+    email.endsWith(".") ||
+    /\s/.test(email)
+  ) {
+    const error = new Error("Enter a valid email address.");
+    error.statusCode = 400;
+    throw error;
+  }
+  return email;
+}
+
+function developerRegistrationUnavailable() {
+  const error = new Error("That email is already used by another GetPrio account. Use a different email for your independent Developer Portal account.");
+  error.statusCode = 409;
+  error.code = "DEVELOPER_EMAIL_UNAVAILABLE";
+  return error;
+}
+
+function readDeveloperVerificationCode(value) {
+  const code = String(value || "").trim();
+  if (!/^\d{6}$/.test(code)) {
+    const error = new Error("Enter the six-digit verification code.");
+    error.statusCode = 400;
+    error.code = "DEVELOPER_REGISTRATION_CODE_INVALID";
+    throw error;
+  }
+  return code;
 }
 
 async function verifyDeveloperPassword(req, email, password) {
@@ -154,55 +183,67 @@ router.post(
 );
 
 router.post(
-  "/enroll",
+  "/register/otp",
   asyncHandler(async (req, res) => {
-    const email = authService.normalizeEmail(req.body?.email);
+    const name = String(req.body?.name || "").trim();
+    const email = validateDeveloperEmail(req.body?.email);
     const password = String(req.body?.password || "");
-    if (!email || !password) {
-      const error = new Error("email and password are required.");
+    if (!name || !email || !password) {
+      const error = new Error("name, email, and password are required.");
+      error.statusCode = 400;
+      throw error;
+    }
+    if (name.length < 2 || name.length > 120) {
+      const error = new Error("Enter your name using 2-120 characters.");
       error.statusCode = 400;
       throw error;
     }
 
-    const user = await verifyDeveloperPassword(req, email, password);
-    if (!user.emailVerified) {
-      const error = new Error("Verify your GetPrio email before enrolling in the Developer Portal.");
-      error.statusCode = 403;
-      error.code = "EMAIL_VERIFICATION_REQUIRED";
-      throw error;
-    }
+    customerRegistrationOtpService.assertValidPassword(password);
+    if (await userRepository.findUserByEmail(email)) throw developerRegistrationUnavailable();
 
-    const existingAccount = await developerAccountRepository.findAccountByOwnerUserId(user._id);
-    if (existingAccount) {
-      const error = new Error("This GetPrio account already has a Developer Portal account.");
-      error.statusCode = 409;
-      error.code = "DEVELOPER_ACCOUNT_EXISTS";
-      throw error;
-    }
-
-    const context = requestContext(req);
-    const result = await db.withTransaction(async (client) => {
-      const updatedUser = await authService.handleSuccessfulPasswordLogin({ user, client });
-      const membership = await developerAccountRepository.createAccountForOwner(updatedUser._id, { client });
-      const sessionResult = await sessionService.createAuthSession({
-        user: updatedUser,
-        authMethod: "password",
-        surface: "developer",
-        ...context,
-        client
-      });
-      await authService.recordLoginAttempt({
-        email,
-        success: true,
-        user: updatedUser,
-        sessionId: sessionResult.session._id,
-        req,
-        client
-      });
-      return { user: updatedUser, membership, sessionResult };
+    const challenge = await customerRegistrationOtpService.start({
+      name,
+      email,
+      passwordHash: await bcrypt.hash(password, 10),
+      roles: ["developer"],
+      purpose: "developer"
     });
+    res.status(201).json(challenge);
+  })
+);
 
+router.post(
+  "/register/otp/verify",
+  asyncHandler(async (req, res) => {
+    const result = await customerRegistrationOtpService.verify({
+      challengeId: req.body?.challengeId,
+      code: readDeveloperVerificationCode(req.body?.code),
+      purpose: "developer",
+      surface: "developer",
+      ...requestContext(req),
+      onVerified: async ({ user, client }) => ({
+        membership: await developerAccountRepository.createAccountForOwner(user._id, { client })
+      })
+    });
+    await authService.recordLoginAttempt({
+      email: result.user.email,
+      success: true,
+      user: result.user,
+      sessionId: result.sessionResult.session._id,
+      req
+    });
     res.status(201).json(authResponse(req, res, result.user, result.membership, result.sessionResult));
+  })
+);
+
+router.post(
+  "/register/otp/resend",
+  asyncHandler(async (req, res) => {
+    res.json(await customerRegistrationOtpService.resend({
+      challengeId: req.body?.challengeId,
+      purpose: "developer"
+    }));
   })
 );
 
@@ -220,7 +261,7 @@ router.post(
     const user = await verifyDeveloperPassword(req, email, password);
     const membership = await developerAccountRepository.findMembershipByUserId(user._id);
     if (!membership) {
-      const error = new Error("Enroll this GetPrio account in the Developer Portal first.");
+      const error = new Error("Create a Developer Portal account first.");
       error.statusCode = 403;
       error.code = "DEVELOPER_ENROLLMENT_REQUIRED";
       throw error;
@@ -261,7 +302,15 @@ router.get("/me", authenticateDeveloper, (req, res) => {
   res.setHeader("Cache-Control", "no-store");
   res.json({
     user: userPayload(req.user),
-    developerAccount: developerPayload(req.developerMembership)
+    developerAccount: developerPayload(req.developerMembership),
+    // The CSRF cookie is readable by the portal but signed to this server
+    // session. Restoring it here lets a freshly loaded tab make a protected
+    // mutation without putting a session token in browser storage.
+    csrfToken: restoreBrowserCsrf(req, res, {
+      secure: env.authCookieSecure,
+      csrfSecret: env.csrfSecret,
+      surface: "developer"
+    })
   });
 });
 

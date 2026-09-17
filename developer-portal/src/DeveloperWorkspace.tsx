@@ -6,17 +6,17 @@ import "./DeveloperPortalPrototype.css";
 import "./DeveloperWorkspace.css";
 
 type Props = { session: Session; accountContent?: ReactNode; light?: boolean };
-type Section = "overview" | "setup" | "readiness" | "keys" | "keyCreate" | "profiles" | "queues" | "resources" | "webhooks" | "usage" | "billing" | "subscriptions" | "teamSecurity" | "security";
+type Section = "overview" | "setup" | "readiness" | "keys" | "keyCreate" | "profiles" | "profileCreate" | "queues" | "queueCreate" | "resources" | "webhooks" | "usage" | "billing" | "subscriptions" | "teamSecurity" | "security";
 type Environment = "sandbox" | "production";
 type PendingNavigation = { section: Section; environment: Environment; projectId?: string };
 const sectionLabels: Record<Section, string> = {
   overview: "Overview", setup: "Sandbox setup", readiness: "Production readiness",
-  keys: "API keys", keyCreate: "Create API key", profiles: "Profiles", queues: "Queues & tickets", resources: "Profiles", webhooks: "Webhooks", usage: "Usage",
+  keys: "API keys", keyCreate: "Create API key", profiles: "Profiles", profileCreate: "Create profile", queues: "Queues & tickets", queueCreate: "Create queue", resources: "Profiles", webhooks: "Webhooks", usage: "Usage",
   billing: "Billing & wallet", subscriptions: "Project subscriptions", teamSecurity: "Team & security", security: "My security"
 };
 const workspacePaths: Record<Section, string> = {
   overview: "/dashboard", setup: "/dashboard/setup", readiness: "/dashboard/readiness",
-  keys: "/dashboard/keys", keyCreate: "/dashboard/keys/new", profiles: "/dashboard/profiles", queues: "/dashboard/queues", resources: "/dashboard/resources", webhooks: "/dashboard/webhooks", usage: "/dashboard/usage",
+  keys: "/dashboard/keys", keyCreate: "/dashboard/keys/new", profiles: "/dashboard/profiles", profileCreate: "/dashboard/profiles/new", queues: "/dashboard/queues", queueCreate: "/dashboard/queues/new", resources: "/dashboard/resources", webhooks: "/dashboard/webhooks", usage: "/dashboard/usage",
   billing: "/dashboard/billing", subscriptions: "/dashboard/subscriptions", teamSecurity: "/dashboard/team-security", security: "/dashboard/security"
 };
 const scopes = ["profiles:read", "profiles:write", "queues:read", "queues:write", "webhooks:read", "webhooks:write"];
@@ -151,24 +151,28 @@ function directoryStatusLabel(status: string) {
   return ({ private: "Private", draft: "Draft", pending_review: "Pending review", approved: "Published", changes_requested: "Changes requested", rejected: "Rejected", withdrawn: "Withdrawn", removed: "Removed" } as Record<string, string>)[status] || status;
 }
 
-function ProfilesPage({ project, profiles, busy, onCreateProfile, onUpdateProfile }: { project: Project; profiles: Profile[]; busy: string; onCreateProfile: (event: FormEvent<HTMLFormElement>) => void; onUpdateProfile: (profile: Profile, event: FormEvent<HTMLFormElement>) => Promise<boolean> }) {
+function ProfileCreatePage({ busy, onCreateProfile, onBack }: { busy: string; onCreateProfile: (event: FormEvent<HTMLFormElement>) => void; onBack: () => void }) {
+  return <section className="developer-workspace-panel dpp-section developer-workspace-profile-create-page">
+    <div className="dpp-actions"><Button type="button" variant="subtle" onClick={onBack}>← Back to profiles</Button></div>
+    <p className="developer-workspace-eyebrow">CREATE PROFILE</p>
+    <h1>Create a profile</h1>
+    <p>Profiles group queues and stay private by default. A profile does not appear in the customer directory unless a separate publication workflow is approved.</p>
+    <Paper component="form" withBorder p="xl" onSubmit={onCreateProfile} className="developer-workspace-resource-card developer-workspace-profile-create-form">
+      <div className="dpp-application-fields"><TextInput label="Profile name" name="displayName" required maxLength={120} placeholder="Harbor Service Centre" /><TextInput label="Profile slug" name="slug" required maxLength={64} pattern="[a-z0-9]+(?:-[a-z0-9]+)*" placeholder="harbor-service-centre" /></div>
+      <Button type="submit" className="developer-workspace-primary" loading={busy === "profile"} leftSection={<IconPlus size={16} />}>Create profile</Button>
+    </Paper>
+  </section>;
+}
+
+function ProfilesPage({ project, profiles, onCreatePage, busy, onUpdateProfile }: { project: Project; profiles: Profile[]; onCreatePage: () => void; busy: string; onUpdateProfile: (profile: Profile, event: FormEvent<HTMLFormElement>) => Promise<boolean> }) {
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
   return <section className="developer-workspace-panel dpp-section developer-workspace-resources-page">
     <p className="developer-workspace-eyebrow">PROJECT / SANDBOX / API-MANAGED PROFILES</p>
     <h1>Profiles &amp; directory.</h1>
     <p>Your integration manages profiles through the API. Directory publication is optional and separate from private ticket tracking.</p>
-    <div className="developer-workspace-resource-grid">
-      <Paper component="form" withBorder p="xl" onSubmit={onCreateProfile} className="developer-workspace-resource-card">
-        <p className="developer-workspace-eyebrow">CREATE PROFILE</p>
-        <h2>Create a profile</h2>
-        <p>Profiles group queues and stay private by default. A profile does not appear in the customer directory unless a separate publication workflow is approved.</p>
-        <div className="dpp-application-fields"><TextInput label="Profile name" name="displayName" required maxLength={120} placeholder="Harbor Service Centre" /><TextInput label="Profile slug" name="slug" required maxLength={64} pattern="[a-z0-9]+(?:-[a-z0-9]+)*" placeholder="harbor-service-centre" /></div>
-        <Button type="submit" className="developer-workspace-primary" loading={busy === "profile"} leftSection={<IconPlus size={16} />}>Create profile</Button>
-      </Paper>
+    <div className="developer-workspace-resource-grid developer-workspace-profile-grid">
       <Paper withBorder p="xl" className="developer-workspace-resource-card developer-workspace-resource-summary">
-        <p className="developer-workspace-eyebrow">PROFILE INVENTORY</p>
-        <h2>{profiles.length} private {profiles.length === 1 ? "profile" : "profiles"}</h2>
-        <p>Private queue operations remain available in Sandbox. The customer directory is independent from these API-managed resources.</p>
+        <div className="developer-workspace-resource-header"><div><p className="developer-workspace-eyebrow">PROFILE INVENTORY</p><h2>{profiles.length} private {profiles.length === 1 ? "profile" : "profiles"}</h2><p>Private queue operations remain available in Sandbox. The customer directory is independent from these API-managed resources.</p></div><Button type="button" className="developer-workspace-primary" onClick={onCreatePage} leftSection={<IconPlus size={16} />}>Create profile</Button></div>
         {profiles.length ? <div className="developer-workspace-profile-list">{profiles.map((profile) => {
           const editing = editingProfileId === profile.id;
           const content = profile.directoryContent || {};
@@ -194,7 +198,22 @@ const demoTicketRows: QueueTicketRow[] = [
   { ticket: { id: "demo-a-025", ticketNumber: "A-025", displayLabel: "A-025", status: "waiting" }, label: "A-025", ahead: "1", tracking: "Linked to GetPrio" }
 ];
 
-function QueuesPage({ profiles, selectedProfile, selectedProfileValue, queues, snapshots = [], busy, onProfileChange, onCreateQueue, onUpdateQueue }: { profiles: Profile[]; selectedProfile: string; selectedProfileValue: Profile | null; queues: Queue[]; snapshots?: QueueSnapshot[]; busy: string; onProfileChange: (value: string) => void; onCreateQueue: (event: FormEvent<HTMLFormElement>) => void; onUpdateQueue: (queue: Queue, event: FormEvent<HTMLFormElement>) => Promise<void> }) {
+function QueueCreatePage({ profiles, selectedProfileValue, busy, onCreateQueue, onBack }: { profiles: Profile[]; selectedProfileValue: Profile | null; busy: string; onCreateQueue: (event: FormEvent<HTMLFormElement>) => void; onBack: () => void }) {
+  return <section className="developer-workspace-panel dpp-section developer-workspace-queue-create-page">
+    <div className="dpp-actions"><Button type="button" variant="subtle" onClick={onBack}>← Back to queues</Button></div>
+    <p className="developer-workspace-eyebrow">{selectedProfileValue?.displayName.toUpperCase() || "PROFILE"} / QUEUE SETUP</p>
+    <h1>Create a queue</h1>
+    <p>Queues hold ticket order for this profile. Configure the initial session state and intake behavior.</p>
+    {!profiles.length ? <Paper withBorder p="xl" className="developer-workspace-resource-card"><h2>Create a profile first</h2><p>Queues belong to a private profile. Create one before adding a queue.</p></Paper> : <>
+      <Paper component="form" withBorder p="xl" onSubmit={onCreateQueue} className="developer-workspace-resource-card developer-workspace-queue-form">
+        <div className="dpp-application-fields"><TextInput label="Queue name" name="displayName" required maxLength={120} placeholder="Main service desk" /><TextInput label="Queue slug" name="slug" required maxLength={64} pattern="[a-z0-9]+(?:-[a-z0-9]+)*" placeholder="main-service-desk" /><Select label="Initial state" name="sessionState" defaultValue="closed" data={[{ value: "closed", label: "Closed" }, { value: "open", label: "Open" }, { value: "paused", label: "Paused" }]} comboboxProps={{ withinPortal: false }} classNames={{ dropdown: "dpp-select-dropdown", option: "dpp-select-option" }} /><Switch className="developer-workspace-intake-switch" name="intakeEnabled" label="Allow ticket intake" /></div>
+        <Button type="submit" className="developer-workspace-primary" loading={busy === "queue"} leftSection={<IconPlus size={16} />}>Create queue</Button>
+      </Paper>
+    </>}
+  </section>;
+}
+
+function QueuesPage({ profiles, selectedProfile, selectedProfileValue, queues, snapshots = [], busy, onProfileChange, onCreatePage, onUpdateQueue }: { profiles: Profile[]; selectedProfile: string; selectedProfileValue: Profile | null; queues: Queue[]; snapshots?: QueueSnapshot[]; busy: string; onProfileChange: (value: string) => void; onCreatePage: () => void; onUpdateQueue: (queue: Queue, event: FormEvent<HTMLFormElement>) => Promise<void> }) {
   const [selectedQueueId, setSelectedQueueId] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
@@ -244,14 +263,7 @@ function QueuesPage({ profiles, selectedProfile, selectedProfileValue, queues, s
     <p>Inspect queue order maintained by GetPrio and ticket updates from your integration. Queues belong to a private profile.</p>
     {!profiles.length ? <Paper withBorder p="xl" className="developer-workspace-resource-card"><h2>No queues in this environment.</h2><p>Create a profile first, then add its queue here.</p></Paper> : <>
       <Select className="developer-workspace-select" label="Profile" value={selectedProfile || null} onChange={(value) => changeProfile(value || "")} data={profiles.map((item) => ({ value: item.slug, label: `${item.displayName} · ${item.slug}` }))} comboboxProps={{ withinPortal: false }} classNames={{ dropdown: "dpp-select-dropdown", option: "dpp-select-option" }} />
-      {selectedProfileValue && <Paper component="form" withBorder p="xl" onSubmit={onCreateQueue} className="developer-workspace-resource-card developer-workspace-queue-form">
-        <p className="developer-workspace-eyebrow">{selectedProfileValue.displayName.toUpperCase()} / QUEUE SETUP</p>
-        <h2>Create a queue</h2>
-        <p>Queues hold ticket order for this profile. Configure the initial session state and intake behavior.</p>
-        <div className="dpp-application-fields"><TextInput label="Queue name" name="displayName" required maxLength={120} placeholder="Main service desk" /><TextInput label="Queue slug" name="slug" required maxLength={64} pattern="[a-z0-9]+(?:-[a-z0-9]+)*" placeholder="main-service-desk" /><Select label="Initial state" name="sessionState" defaultValue="closed" data={[{ value: "closed", label: "Closed" }, { value: "open", label: "Open" }, { value: "paused", label: "Paused" }]} comboboxProps={{ withinPortal: false }} classNames={{ dropdown: "dpp-select-dropdown", option: "dpp-select-option" }} /><Switch className="developer-workspace-intake-switch" name="intakeEnabled" label="Allow ticket intake" /></div>
-        <Button type="submit" className="developer-workspace-primary" loading={busy === "queue"} leftSection={<IconPlus size={16} />}>Create queue</Button>
-      </Paper>}
-      <section className="developer-workspace-resource-section"><p className="developer-workspace-eyebrow">CURRENT QUEUES</p><h2>{selectedProfileValue?.displayName || "Profile"}</h2><p>Queue state and intake settings for the selected profile.</p><div className="developer-workspace-queue-list">{queues.length ? queues.map((queue) => { const editing = editingQueueId === queue.id; return <Paper component="article" withBorder p="xl" key={queue.id}>{editing ? <form className="developer-workspace-queue-edit" onSubmit={async (event) => { event.preventDefault(); await onUpdateQueue(queue, event); setEditingQueueId(null); }}><p className="developer-workspace-eyebrow">EDIT QUEUE</p><TextInput label="Queue name" name="displayName" defaultValue={queue.displayName} required maxLength={120} /><TextInput label="Queue slug" value={queue.slug} readOnly description="Queue slugs are permanent identifiers." /><Select label="State" name="sessionState" defaultValue={queue.sessionState} data={[{ value: "closed", label: "Closed" }, { value: "open", label: "Open" }, { value: "paused", label: "Paused" }, { value: "closing", label: "Closing" }]} comboboxProps={{ withinPortal: false }} classNames={{ dropdown: "dpp-select-dropdown", option: "dpp-select-option" }} /><Switch className="developer-workspace-intake-switch" name="intakeEnabled" label="Allow ticket intake" defaultChecked={queue.intakeEnabled} /><div className="developer-workspace-queue-actions"><Button type="button" variant="subtle" onClick={() => setEditingQueueId(null)}>Cancel</Button><Button type="submit" loading={busy === `queue-update-${queue.id}`} leftSection={<IconCheck size={16} />}>Save Changes</Button></div></form> : <><div><h3>{queue.displayName}</h3><p><code>{selectedProfileValue?.slug}/{queue.slug}</code></p><small>Intake {queue.intakeEnabled ? "enabled" : "disabled"} · priority ratio {queue.priorityRatio}:1</small></div><div className="developer-workspace-queue-actions"><Badge color={queue.sessionState === "open" ? "teal" : "gray"} variant="light" radius="xl">{queue.sessionState}</Badge><Button type="button" variant="light" onClick={() => setEditingQueueId(queue.id)}>Edit queue</Button></div></>}</Paper>; }) : <Empty title="No queues in this profile">Create a queue before issuing tickets with the API.</Empty>}</div></section>
+      <section className="developer-workspace-resource-section"><div className="developer-workspace-resource-header"><div><p className="developer-workspace-eyebrow">CURRENT QUEUES</p><h2>{selectedProfileValue?.displayName || "Profile"}</h2><p>Queue state and intake settings for the selected profile.</p></div>{selectedProfileValue && <Button type="button" className="developer-workspace-primary" onClick={onCreatePage} leftSection={<IconPlus size={16} />}>Create queue</Button>}</div><div className="developer-workspace-queue-list">{queues.length ? queues.map((queue) => { const editing = editingQueueId === queue.id; return <Paper component="article" withBorder p="xl" key={queue.id}>{editing ? <form className="developer-workspace-queue-edit" onSubmit={async (event) => { event.preventDefault(); await onUpdateQueue(queue, event); setEditingQueueId(null); }}><p className="developer-workspace-eyebrow">EDIT QUEUE</p><TextInput label="Queue name" name="displayName" defaultValue={queue.displayName} required maxLength={120} /><TextInput label="Queue slug" value={queue.slug} readOnly description="Queue slugs are permanent identifiers." /><Select label="State" name="sessionState" defaultValue={queue.sessionState} data={[{ value: "closed", label: "Closed" }, { value: "open", label: "Open" }, { value: "paused", label: "Paused" }, { value: "closing", label: "Closing" }]} comboboxProps={{ withinPortal: false }} classNames={{ dropdown: "dpp-select-dropdown", option: "dpp-select-option" }} /><Switch className="developer-workspace-intake-switch" name="intakeEnabled" label="Allow ticket intake" defaultChecked={queue.intakeEnabled} /><div className="developer-workspace-queue-actions"><Button type="button" variant="subtle" onClick={() => setEditingQueueId(null)}>Cancel</Button><Button type="submit" loading={busy === `queue-update-${queue.id}`} leftSection={<IconCheck size={16} />}>Save Changes</Button></div></form> : <><div><h3>{queue.displayName}</h3><p><code>{selectedProfileValue?.slug}/{queue.slug}</code></p><small>Intake {queue.intakeEnabled ? "enabled" : "disabled"} · priority ratio {queue.priorityRatio}:1</small></div><div className="developer-workspace-queue-actions"><Badge color={queue.sessionState === "open" ? "teal" : "gray"} variant="light" radius="xl">{queue.sessionState}</Badge><Button type="button" variant="light" onClick={() => setEditingQueueId(queue.id)}>Edit queue</Button></div></>}</Paper>; }) : <Empty title="No queues in this profile">Create a queue before issuing tickets with the API.</Empty>}</div></section>
       {selectedQueue && <section className="developer-workspace-resource-section developer-workspace-ticket-section">
         <div className="developer-workspace-resource-header"><div><p className="developer-workspace-eyebrow">CURRENT TICKETS</p><h2>Current tickets</h2><p>Expand a ticket for details. “Ahead” counts waiting tickets ahead, excluding the called ticket.</p></div><Select className="developer-workspace-ticket-queue-select" label="Queue" value={selectedQueue.id} onChange={changeQueue} data={queues.map((queue) => ({ value: queue.id, label: queue.displayName }))} comboboxProps={{ withinPortal: false }} classNames={{ dropdown: "dpp-select-dropdown", option: "dpp-select-option" }} /></div>
         {selectedSnapshot ? <>
@@ -542,7 +554,8 @@ export default function DeveloperWorkspace({ session, accountContent, light = fa
   }
   async function createProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); const formElement = event.currentTarget; const form = new FormData(formElement);
-    await submit("profile", async () => { await developerApi.createProfile(projectId, { slug: String(form.get("slug") || ""), displayName: String(form.get("displayName") || "") }, session.csrfToken); await refreshWorkspace(); formElement.reset(); });
+    const saved = await submit("profile", async () => { await developerApi.createProfile(projectId, { slug: String(form.get("slug") || ""), displayName: String(form.get("displayName") || "") }, session.csrfToken); await refreshWorkspace(); formElement.reset(); });
+    if (saved) navigate("profiles", "sandbox");
   }
 
   async function updateProfile(profile: Profile, event: FormEvent<HTMLFormElement>) {
@@ -558,7 +571,8 @@ export default function DeveloperWorkspace({ session, accountContent, light = fa
   }
   async function createQueue(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); const formElement = event.currentTarget; const form = new FormData(formElement);
-    await submit("queue", async () => { await developerApi.createQueue(projectId, selectedProfile, { slug: String(form.get("slug") || ""), displayName: String(form.get("displayName") || ""), sessionState: String(form.get("sessionState") || "closed"), intakeEnabled: form.get("intakeEnabled") === "on" }, session.csrfToken); const result = await developerApi.queues(projectId, selectedProfile); setQueues(result.queues); setQueueSnapshots(result.snapshots || []); formElement.reset(); });
+    const saved = await submit("queue", async () => { await developerApi.createQueue(projectId, selectedProfile, { slug: String(form.get("slug") || ""), displayName: String(form.get("displayName") || ""), sessionState: String(form.get("sessionState") || "closed"), intakeEnabled: form.get("intakeEnabled") === "on" }, session.csrfToken); const result = await developerApi.queues(projectId, selectedProfile); setQueues(result.queues); setQueueSnapshots(result.snapshots || []); formElement.reset(); });
+    if (saved) navigate("queues", "sandbox");
   }
   async function updateQueue(queue: Queue, event: FormEvent<HTMLFormElement>) {
     const form = new FormData(event.currentTarget);
@@ -599,7 +613,7 @@ export default function DeveloperWorkspace({ session, accountContent, light = fa
         <FloatingIndicator target={environment === "sandbox" ? sandboxEnvironmentButton : productionEnvironmentButton} parent={environmentParent} className="developer-workspace-environment-indicator" transitionDuration={150} />
       </div>
       <p className="developer-workspace-eyebrow">PROJECT TOOLS</p>
-      <nav aria-label="Workspace sections">{(environment === "sandbox" ? ["overview", "setup", "keys", "queues", "profiles", "webhooks", "usage"] : ["readiness"]).map((item) => <button type="button" key={item} aria-current={section === item ? "page" : undefined} onClick={() => navigate(item as Section, environment)}>{sectionLabels[item as Section]}</button>)}</nav>
+      <nav aria-label="Workspace sections">{(environment === "sandbox" ? ["overview", "setup", "profiles", "queues", "keys", "webhooks", "usage"] : ["readiness"]).map((item) => <button type="button" key={item} aria-current={section === item || (item === "queues" && section === "queueCreate") || (item === "profiles" && section === "profileCreate") ? "page" : undefined} onClick={() => navigate(item as Section, environment)}>{sectionLabels[item as Section]}</button>)}</nav>
       <p className="developer-workspace-sidebar-note">{environment === "sandbox" ? "Isolated test data and keys" : "Production access pending approval"}</p>
       {project && <div className="developer-workspace-sidebar-project"><span>Created {formatDate(project.createdAt)}</span>{session.developerAccount.role === "owner" && <Button type="button" variant="subtle" onClick={() => setArchiveProjectOpen(true)} loading={busy === "archive"}>Archive project</Button>}</div>}
     </aside>
@@ -619,8 +633,10 @@ export default function DeveloperWorkspace({ session, accountContent, light = fa
         {section === "overview" && <section className="developer-workspace-panel"><p className="developer-workspace-eyebrow">{project.name} / DEVELOPER WORKSPACE</p><h1>Good things start with a queue.</h1><p>Keep your software. Let customers follow their place in GetPrio.</p><div className="developer-workspace-dashboard-cards dpp-stats"><Allowance value={allowance} compact /><Paper component="article" withBorder className="developer-workspace-dashboard-card"><p className="developer-workspace-eyebrow">PRODUCTION WALLET</p><strong>0 <span>credits</span></strong><p>Shared across projects · no expiration</p></Paper><Paper component="article" withBorder className="developer-workspace-dashboard-card"><p className="developer-workspace-eyebrow">TEST ACCOUNTS</p><strong>0 <span>/ 2</span></strong><p>Two devices per test account</p></Paper></div><div className="developer-workspace-next dpp-overview"><Paper component="article" withBorder><Badge className="developer-workspace-next-badge" color="blue" variant="light" radius="xl">NEXT STEP</Badge><h3>Meet your sandbox.</h3><p>Your included project is ready for testing. Install the app and create up to two test accounts.</p><Button type="button" onClick={() => navigate("setup", "sandbox")}>Set up your sandbox →</Button></Paper><Paper component="article" withBorder><p className="developer-workspace-eyebrow">PRODUCTION</p><h3>A clear path to launch.</h3><p>MFA, project approval and prepaid credits. See each requirement before you go live.</p><Button type="button" variant="light" onClick={showReadiness}>Review readiness</Button></Paper></div><p><a href="/docs">Read the quickstart <IconExternalLink size={15} /></a> <a href="/reference">Open the API reference <IconExternalLink size={15} /></a></p></section>}
         {section === "keyCreate" && <ApiKeyCreatePage project={project} busy={busy} onCreate={(event) => void createKey(event)} onBack={() => navigate("keys", "sandbox")} onDirtyChange={setKeyCreateDirty} />}
         {section === "keys" && <ApiKeysPage project={project} keys={keys} onCreatePage={() => navigate("keyCreate", "sandbox")} onRevoke={(key) => { if (window.confirm(`Revoke ${key.name}? This cannot be undone.`)) void submit(`revoke-${key.id}`, async () => { await developerApi.revokeKey(projectId, key.id, session.csrfToken); await refreshWorkspace(); }); }} />}
-        {section === "profiles" && <ProfilesPage project={project} profiles={profiles} busy={busy} onCreateProfile={(event) => void createProfile(event)} onUpdateProfile={updateProfile} />}
-        {section === "queues" && <QueuesPage profiles={profiles} selectedProfile={selectedProfile} selectedProfileValue={selectedProfileValue} queues={queues} snapshots={queueSnapshots} busy={busy} onProfileChange={setSelectedProfile} onCreateQueue={(event) => void createQueue(event)} onUpdateQueue={(queue, event) => updateQueue(queue, event)} />}
+        {section === "profileCreate" && <ProfileCreatePage busy={busy} onCreateProfile={(event) => void createProfile(event)} onBack={() => navigate("profiles", "sandbox")} />}
+        {section === "profiles" && <ProfilesPage project={project} profiles={profiles} busy={busy} onCreatePage={() => navigate("profileCreate", "sandbox")} onUpdateProfile={updateProfile} />}
+        {section === "queueCreate" && <QueueCreatePage profiles={profiles} selectedProfileValue={selectedProfileValue} busy={busy} onCreateQueue={(event) => void createQueue(event)} onBack={() => navigate("queues", "sandbox")} />}
+        {section === "queues" && <QueuesPage profiles={profiles} selectedProfile={selectedProfile} selectedProfileValue={selectedProfileValue} queues={queues} snapshots={queueSnapshots} busy={busy} onProfileChange={setSelectedProfile} onCreatePage={() => navigate("queueCreate", "sandbox")} onUpdateQueue={(queue, event) => updateQueue(queue, event)} />}
         {section === "webhooks" && <WebhooksPage project={project} webhooks={webhooks} selectedWebhook={selectedWebhook} selectedWebhookValue={selectedWebhookValue} deliveries={deliveries} busy={busy} onWebhookChange={setSelectedWebhook} onCreate={(event) => void createWebhook(event)} onRotate={(webhook) => void submit(`rotate-${webhook.id}`, async () => { const result = await developerApi.rotateWebhook(projectId, webhook.id, session.csrfToken); setSecret({ label: "Rotated webhook signing secret", value: result.secret, warning: result.warning }); await refreshWorkspace(); })} onCompromised={(webhook) => { if (window.confirm("Rotate immediately and revoke the previous signing secret?")) void submit(`compromised-${webhook.id}`, async () => { const result = await developerApi.rotateWebhook(projectId, webhook.id, session.csrfToken, true); setSecret({ label: "Emergency webhook signing secret", value: result.secret, warning: result.warning }); await refreshWorkspace(); }); }} onDisable={(webhook) => { if (window.confirm(`Disable ${webhook.name}? Deliveries will stop.`)) void submit(`disable-${webhook.id}`, async () => { await developerApi.disableWebhook(projectId, webhook.id, session.csrfToken); await refreshWorkspace(); }); }} onRefresh={() => { if (selectedWebhook) void developerApi.deliveries(projectId, selectedWebhook).then((result) => setDeliveries(result.deliveries)); }} onReplay={(delivery) => void submit(`replay-${delivery.id}`, async () => { await developerApi.replayDelivery(projectId, selectedWebhook, delivery.id, session.csrfToken); const result = await developerApi.deliveries(projectId, selectedWebhook); setDeliveries(result.deliveries); })} />}
       </>}
     </>}

@@ -8,6 +8,7 @@ const developerProjects = require("../src/repositories/developerProjects");
 const developerQueues = require("../src/repositories/developerQueues");
 const developerApiOperations = require("../src/repositories/developerApiOperations");
 const developerWebhookService = require("../src/services/developerWebhookService");
+const developerApiRateLimits = require("../src/repositories/developerApiRateLimits");
 
 async function startServer() {
   const app = express();
@@ -42,6 +43,7 @@ function restore(originals) { for (const [object, name, value] of originals.reve
 function stubKey(originals, scopes) {
   replace(developerProjects, "findApiKeyByHash", async () => key(scopes), originals);
   replace(developerProjects, "touchApiKey", async () => {}, originals);
+  replace(developerApiRateLimits, "consume", async () => ({ limit: 1000, remaining: 999, windowSeconds: 60 }), originals);
 }
 
 test("developer API metadata identifies sandbox and production hosts", async () => {
