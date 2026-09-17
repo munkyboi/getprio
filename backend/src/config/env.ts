@@ -30,7 +30,9 @@ export const mobileQrBaseUrl = resolveMobileQrBaseUrl(process.env, appBaseUrl, f
 export const mobilePaymentReturnUrl = process.env.MOBILE_PAYMENT_RETURN_URL || "";
 export const platformDashboardUrl =
   process.env.PLATFORM_DASHBOARD_URL || `http://localhost:${platformDashboardPort}`;
-export const developerPortalUrl = process.env.DEVELOPER_PORTAL_URL || "https://developers.getprio.online";
+export const developerPortalUrl = process.env.DEVELOPER_PORTAL_URL || (
+  nodeEnv === "production" ? "https://developers.getprio.online" : "http://localhost:5174"
+);
 export const appTimezone = process.env.APP_TIMEZONE || "Asia/Manila";
 export const oauthCallbackPath = process.env.OAUTH_CALLBACK_PATH || "/oauth/callback";
 export const oauthStateTtlMinutes = Number(process.env.OAUTH_STATE_TTL_MINUTES || 10);

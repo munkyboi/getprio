@@ -7,6 +7,11 @@ const { userRequiresPrivilegedMfa } = require("../services/mfaService");
 const { getAccessCookie, parseCookies } = require("../services/browserSessionService");
 const { normalizeApiPath } = require("./apiPath");
 
+function isDeveloperOnlyIdentity(user) {
+  const roles = new Set(user?.roles || []);
+  return roles.has("developer") && !["customer", "vendor", "staff", "admin", "platform_admin"].some((role) => roles.has(role));
+}
+
 function getTokenFromRequest(req) {
   const authorization = req.headers.authorization || "";
   const bearerToken = authorization.startsWith("Bearer ") ? authorization.slice(7) : null;
@@ -77,6 +82,12 @@ async function loadAuthenticatedUser(req, strict) {
     if (!user || (user.deletionRequestedAt && !deletionRetry)) {
       const error = new Error("User session is no longer valid.");
       error.statusCode = 401;
+      throw error;
+    }
+    if (isDeveloperOnlyIdentity(user)) {
+      const error = new Error("This account is only available in the Developer Portal.");
+      error.statusCode = 403;
+      error.code = "DEVELOPER_PORTAL_ONLY";
       throw error;
     }
 

@@ -1,763 +1,279 @@
 const express = require("express");
+const db = require("../config/db");
 const openApiDocument = require("./developerApiOpenapi");
 const asyncHandler = require("../middleware/asyncHandler");
-const tenantRepository = require("../repositories/tenants");
-const storeLocationRepository = require("../repositories/storeLocations");
-const ticketRepository = require("../repositories/tickets");
-const queueEventRepository = require("../repositories/queueEvents");
-const queueService = require("../services/queueService");
-const queueEvents = require("../services/queueEvents");
-const entitlementAdmissionService = require("../services/entitlementAdmissionService");
-const storeHoursService = require("../services/storeHoursService");
-const mobileTicketLinkService = require("../services/mobileTicketLinkService");
-const { validateEmail } = require("../services/authService");
-const { assertPublicTextFieldsAllowed } = require("../services/contentModeration");
-const idempotencyService = require("../services/idempotencyService");
-const idempotencyRepository = require("../repositories/idempotency");
-const {
-  authenticateDeveloperApiKey,
-  requireApiScope
-} = require("../middleware/developerApiKeyAuth");
+const developerQueues = require("../repositories/developerQueues");
+const developerApiOperations = require("../repositories/developerApiOperations");
+const developerWebhookService = require("../services/developerWebhookService");
+const { authenticateDeveloperApiKey, requireApiScope } = require("../middleware/developerApiKeyAuth");
 
 const router = express.Router();
-const DEVELOPER_API_IDEMPOTENCY_RETENTION_MS = 7 * 24 * 60 * 60_000;
-
 const PRODUCTION_HOSTS = new Set(["api.getprio.online"]);
 const SANDBOX_HOSTS = new Set(["sandbox-api.getprio.online"]);
 
 function getEnvironment(req) {
-  const hostname = String(req.hostname || req.headers.host || "")
-    .trim()
-    .toLowerCase()
-    .split(":")[0];
-
-  if (SANDBOX_HOSTS.has(hostname)) {
-    return "sandbox";
-  }
-
-  if (PRODUCTION_HOSTS.has(hostname)) {
-    return "production";
-  }
-
+  const hostname = String(req.hostname || req.headers.host || "").trim().toLowerCase().split(":")[0];
+  if (SANDBOX_HOSTS.has(hostname)) return "sandbox";
+  if (PRODUCTION_HOSTS.has(hostname)) return "production";
   return "unknown";
 }
-
-function getRequestId(req) {
-  return req.context?.correlationId || req.headers["x-request-id"] || "unknown";
+function requestId(req) { return req.context?.correlationId || req.headers["x-request-id"] || "unknown"; }
+function envelope(req, data) { return { data, request_id: requestId(req) }; }
+function send(req, res, data, status = 200) {
+  res.status(status).setHeader("Cache-Control", "no-store").setHeader("X-API-Version", "v1").json(envelope(req, data));
 }
-
-function sendEnvelope(req, res, data) {
-  res.setHeader("Cache-Control", "no-store");
-  res.setHeader("X-API-Version", "v1");
-  res.json({ data, request_id: getRequestId(req) });
-}
-
-function envelopeBody(req, data) {
-  return { data, request_id: getRequestId(req) };
-}
-
-function developerWebhookContext(req) {
-  return {
-    projectId: req.apiKey.projectId,
-    environment: req.apiKey.environment
-  };
-}
-
-function notFound(message) {
-  const error = new Error(message);
-  error.statusCode = 404;
-  error.code = "API_RESOURCE_NOT_FOUND";
-  return error;
-}
-
-function redactTicket(ticket) {
-  if (!ticket) return null;
-  const { customerName: _customerName, customerDisplayName: _customerDisplayName, lookupCode: _lookupCode, ...safeTicket } = ticket;
-  return safeTicket;
-}
-
-function formatQueueResource(snapshot) {
-  return {
-    tenant: snapshot.tenant,
-    location: snapshot.location,
-    queue_day: snapshot.queueDay,
-    queue_intake: snapshot.queueIntake,
-    stats: snapshot.stats,
-    current: redactTicket(snapshot.current),
-    next_up: (snapshot.nextUp || []).map(redactTicket),
-    overflow: (snapshot.overflow || []).map(redactTicket)
-  };
-}
-
-function formatLocationResource(location) {
-  return {
-    id: String(location._id),
-    name: location.name,
-    slug: location.slug,
-    addressLine1: location.addressLine1,
-    addressLine2: location.addressLine2,
-    city: location.city,
-    province: location.province,
-    postalCode: location.postalCode,
-    country: location.country,
-    timezone: location.timezone,
-    isPrimary: Boolean(location.isPrimary),
-    isActive: Boolean(location.isActive)
-  };
-}
-
-function formatIssuedTicket(ticket, location) {
-  return {
-    id: String(ticket._id),
-    ticket_number: ticket.ticketNumber,
-    lookup_code: ticket.lookupCode,
-    status: ticket.status,
-    location_id: String(location._id),
-    queue_date_key: ticket.dateKey,
-    created_at: ticket.createdAt,
-    ...(ticket.externalReference ? { external_reference: ticket.externalReference } : {})
-  };
-}
-
-function formatMobileLink(link) {
-  if (!link) return undefined;
-  return {
-    url: link.url,
-    expires_at: new Date(link.expiresAt).toISOString()
-  };
-}
-
-function formatTicketResource(ticket) {
-  return {
-    id: String(ticket._id),
-    ticket_number: ticket.ticketNumber,
-    status: ticket.status,
-    location_id: ticket.locationId,
-    queue_date_key: ticket.dateKey,
-    join_channel: ticket.joinChannel,
-    service_priority_band: ticket.servicePriorityBand,
-    status_reason: ticket.statusReason,
-    called_at: ticket.calledAt,
-    served_at: ticket.servedAt,
-    skipped_at: ticket.skippedAt,
-    cancelled_at: ticket.cancelledAt,
-    unserved_at: ticket.unservedAt,
-    terminal_at: ticket.terminalAt,
-    created_at: ticket.createdAt,
-    updated_at: ticket.updatedAt,
-    ...(ticket.externalReference ? { external_reference: ticket.externalReference } : {})
-  };
-}
-
-function formatTicketEvent(event) {
-  const eventType = {
-    ticket_created: "ticket.issued",
-    ticket_called: "ticket.called",
-    ticket_served: "ticket.served",
-    ticket_skipped: "ticket.skipped",
-    ticket_requeued: "ticket.restored",
-    ticket_cancelled: "ticket.cancelled",
-    ticket_unserved: "ticket.unserved",
-    ticket_expired: "ticket.expired"
-  }[event.eventType] || event.eventType;
-  return {
-    id: event._id,
-    ticket_id: event.ticketId,
-    location_id: event.locationId,
-    queue_date_key: event.queueDateKey,
-    type: eventType,
-    resource_version: event._id,
-    from_status: event.fromStatus,
-    to_status: event.toStatus,
-    source: event.source,
-    occurred_at: event.createdAt
-  };
-}
-
-function readEventCursor(value) {
-  if (value === undefined) return null;
-  const normalized = String(value).trim();
-  if (!/^\d+$/.test(normalized) || !Number.isSafeInteger(Number(normalized))) {
-    const error = new Error("cursor must be an opaque event cursor returned by the API.");
-    error.statusCode = 400;
-    error.code = "INVALID_REQUEST";
-    throw error;
-  }
+function error(statusCode, code, message) { const next = new Error(message); next.statusCode = statusCode; next.code = code; return next; }
+function notFound(message) { return error(404, "API_RESOURCE_NOT_FOUND", message); }
+function slug(value, label = "slug") {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/.test(normalized)) throw error(400, "INVALID_REQUEST", `${label} must be a lowercase URL-safe slug.`);
   return normalized;
 }
-
-function readBodyValue(body, camelName, snakeName) {
-  return body?.[camelName] ?? body?.[snakeName];
+function text(value, label, maxLength, required = false) {
+  if (value === undefined || value === null || value === "") {
+    if (!required) return null;
+    throw error(400, "INVALID_REQUEST", `${label} is required.`);
+  }
+  const normalized = String(value).trim();
+  if (!normalized || normalized.length > maxLength) throw error(400, "INVALID_REQUEST", `${label} must be at most ${maxLength} characters.`);
+  return normalized;
 }
-
-function cleanOptionalText(value, label, maxLength) {
-  if (value === undefined || value === null || value === "") return undefined;
-  const text = String(value).trim();
-  if (!text || text.length > maxLength) {
-    const error = new Error(`${label} must be at most ${maxLength} characters.`);
-    error.statusCode = 400;
-    error.code = "INVALID_REQUEST";
-    throw error;
-  }
-  return text;
+function only(body, keys) {
+  const unexpected = Object.keys(body || {}).filter((key) => !keys.has(key));
+  if (unexpected.length) throw error(400, "INVALID_REQUEST", `Unsupported fields: ${unexpected.join(", ")}.`);
 }
-
-function cleanDisplayLabel(value) {
-  if (value === undefined || value === null) return undefined;
-  if (typeof value !== "string") {
-    const error = new Error("displayLabel must be text.");
-    error.statusCode = 400;
-    error.code = "INVALID_REQUEST";
-    throw error;
-  }
-  const label = value.trim();
-  if (!label || [...label].length > 80) {
-    const error = new Error("displayLabel must be at most 80 characters.");
-    error.statusCode = 400;
-    error.code = "INVALID_REQUEST";
-    throw error;
-  }
-  const hasControlCharacter = label && [...label].some((character) => {
-    const codePoint = character.codePointAt(0);
-    return codePoint <= 0x1f || codePoint === 0x7f;
-  });
-  if (hasControlCharacter) {
-    const error = new Error("displayLabel must be plain single-line text.");
-    error.statusCode = 400;
-    error.code = "INVALID_REQUEST";
-    throw error;
-  }
-  return label;
+function directoryContent(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw error(400, "INVALID_REQUEST", "directory_content must be an object.");
+  only(value, new Set(["description", "website_url", "websiteUrl"]));
+  const description = value.description === undefined ? "" : String(value.description).trim();
+  if (description.length > 1000) throw error(400, "INVALID_REQUEST", "description must be at most 1000 characters.");
+  const websiteUrl = value.website_url ?? value.websiteUrl ?? "";
+  if (websiteUrl && !/^https?:\/\/[^\s]+$/i.test(String(websiteUrl).trim())) throw error(400, "INVALID_REQUEST", "website_url must use http or https.");
+  return { description, websiteUrl: String(websiteUrl).trim() };
 }
-
-function cleanExternalReference(value) {
-  if (value === undefined || value === null) return undefined;
-  if (typeof value !== "string" || !/^[A-Za-z0-9_.:-]{1,128}$/.test(value)) {
-    const error = new Error("externalReference must be 1-128 characters using letters, digits, underscore, hyphen, dot, or colon.");
-    error.statusCode = 400;
-    error.code = "INVALID_REQUEST";
-    throw error;
-  }
+function eventLimit(value) {
+  if (value === undefined) return 50;
+  const normalized = Number(String(value));
+  if (!Number.isSafeInteger(normalized) || normalized < 1 || normalized > 100) throw error(400, "INVALID_REQUEST", "limit must be an integer between 1 and 100.");
+  return normalized;
+}
+function eventCursor(value) {
+  if (value === undefined) return null;
+  const normalized = String(value).trim();
+  if (!/^\d+$/.test(normalized)) throw error(400, "INVALID_REQUEST", "cursor must be an event cursor returned by the API.");
+  return normalized;
+}
+function profileView(profile) {
+  const content = profile.directoryContent || {};
+  return { id: profile.id, slug: profile.slug, display_name: profile.displayName, directory_status: profile.directoryStatus, directory_content: { description: content.description || "", website_url: content.websiteUrl || "" }, created_at: profile.createdAt, updated_at: profile.updatedAt };
+}
+function queueView(queue) { return { id: queue.id, slug: queue.slug, display_name: queue.displayName, session_state: queue.sessionState, intake_enabled: queue.intakeEnabled, joining_enabled: queue.joiningEnabled, priority_ratio: queue.priorityRatio, resource_version: queue.resourceVersion, created_at: queue.createdAt, updated_at: queue.updatedAt }; }
+function ticketView(ticket) {
+  if (!ticket) return null;
+  const value = { id: ticket.id, ticket_number: ticket.ticketNumber, sequence: ticket.sequence, display_label: ticket.displayLabel, status: ticket.status, queue_id: ticket.queueId, external_reference: ticket.externalReference, status_reason: ticket.statusReason, called_at: ticket.calledAt, served_at: ticket.servedAt, skipped_at: ticket.skippedAt, cancelled_at: ticket.cancelledAt, unserved_at: ticket.unservedAt, terminal_at: ticket.terminalAt, resource_version: ticket.resourceVersion, created_at: ticket.createdAt, updated_at: ticket.updatedAt };
+  if (ticket.event) Object.defineProperty(value, "event", { value: ticket.event, enumerable: false });
+  if (ticket.projectId) Object.defineProperty(value, "projectId", { value: ticket.projectId, enumerable: false });
+  if (ticket.environment) Object.defineProperty(value, "environment", { value: ticket.environment, enumerable: false });
+  if (ticket.queueId) Object.defineProperty(value, "queueId", { value: ticket.queueId, enumerable: false });
+  if (ticket.ticketNumber) Object.defineProperty(value, "ticketNumber", { value: ticket.ticketNumber, enumerable: false });
+  if (ticket.statusReason) Object.defineProperty(value, "statusReason", { value: ticket.statusReason, enumerable: false });
+  if (ticket.calledAt) Object.defineProperty(value, "calledAt", { value: ticket.calledAt, enumerable: false });
+  if (ticket.servedAt) Object.defineProperty(value, "servedAt", { value: ticket.servedAt, enumerable: false });
+  if (ticket.skippedAt) Object.defineProperty(value, "skippedAt", { value: ticket.skippedAt, enumerable: false });
+  if (ticket.cancelledAt) Object.defineProperty(value, "cancelledAt", { value: ticket.cancelledAt, enumerable: false });
+  if (ticket.unservedAt) Object.defineProperty(value, "unservedAt", { value: ticket.unservedAt, enumerable: false });
+  if (ticket.terminalAt) Object.defineProperty(value, "terminalAt", { value: ticket.terminalAt, enumerable: false });
   return value;
 }
-
-function readBoolean(value, label) {
-  if (value === undefined || value === null || value === "") return false;
-  if (typeof value === "boolean") return value;
-  if (value === "true" || value === "1") return true;
-  if (value === "false" || value === "0") return false;
-  const error = new Error(`${label} must be a boolean.`);
-  error.statusCode = 400;
-  error.code = "INVALID_REQUEST";
-  throw error;
+async function scopedProfile(req) {
+  const profile = await developerQueues.findProfile(req.apiKey.projectId, req.apiKey.environment, slug(req.params.tenantSlug || req.params.profileSlug, "profile slug"));
+  if (!profile) throw notFound("Profile not found.");
+  return profile;
 }
-
-function readEventLimit(value) {
-  if (value === undefined) return 50;
-  const normalized = String(value).trim();
-  const limit = Number(normalized);
-  if (!/^\d+$/.test(normalized) || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
-    const error = new Error("limit must be an integer between 1 and 100.");
-    error.statusCode = 400;
-    error.code = "INVALID_REQUEST";
-    throw error;
-  }
-  return limit;
+async function context(req) {
+  const profile = await scopedProfile(req);
+  const queueSlug = req.params.locationSlug || req.params.queueSlug;
+  const queue = queueSlug ? await developerQueues.findQueue(profile.id, slug(queueSlug, "queue slug")) : await developerQueues.findFirstQueue(profile.id);
+  if (!queue) throw notFound("Queue not found.");
+  return { profile, queue };
 }
-
-async function runIdempotentMutation(req, res, { scope, payload, run }) {
-  const idempotency = await idempotencyService.claim({
-    actorId: req.apiKey.createdByUserId,
-    scope: `${scope}:${req.apiKey.id}`,
-    key: req.get("Idempotency-Key"),
-    payload,
-    retentionMs: DEVELOPER_API_IDEMPOTENCY_RETENTION_MS
-  });
-  if (idempotency.state === "replay") {
-    res.status(idempotency.statusCode)
-      .setHeader("Cache-Control", "no-store")
-      .setHeader("X-API-Version", "v1")
-      .json(idempotency.body);
-    return;
-  }
-
-  try {
-    const responseBody = envelopeBody(req, await run());
-    await idempotencyRepository.complete(idempotency.record.id, 200, responseBody);
-    res.setHeader("Cache-Control", "no-store")
-      .setHeader("X-API-Version", "v1")
-      .json(responseBody);
-  } catch (error) {
-    await idempotencyRepository.fail(idempotency.record.id).catch(() => {});
-    throw error;
-  }
-}
-
-async function getQueueContext(req) {
-  const tenant = await tenantRepository.findTenantBySlug(
-    String(req.params.tenantSlug).toLowerCase(),
-    { activeOnly: true }
-  );
-  if (!tenant) throw notFound("Queue not found.");
-
-  let location;
-  if (req.params.locationSlug) {
-    location = await storeLocationRepository.findLocationByTenantAndSlug(
-      tenant._id,
-      String(req.params.locationSlug).toLowerCase()
-    );
-    if (!location || !location.isActive) throw notFound("Queue location not found.");
-  } else {
-    location = await storeLocationRepository.findPrimaryLocationByTenantId(tenant._id);
-  }
-
-  return { tenant, location };
-}
-
-async function getScopedTicket(req, tenant, location) {
-  if (!/^\d+$/.test(String(req.params.ticketId))) throw notFound("Ticket not found.");
-  const ticket = await ticketRepository.findTicketById(req.params.ticketId);
-  if (
-    !ticket ||
-    String(ticket.tenantId) !== String(tenant._id) ||
-    (location && String(ticket.locationId) !== String(location._id))
-  ) {
-    throw notFound("Ticket not found.");
-  }
+async function scopedTicket(req, queue) {
+  const ticket = await developerQueues.findTicket(req.apiKey.projectId, req.apiKey.environment, queue.id, req.params.ticketId);
+  if (!ticket) throw notFound("Ticket not found.");
   return ticket;
+}
+async function mutate(req, res, { scope, payload, status = 200, run }) {
+  let result;
+  try {
+    result = await db.withTransaction(async (client) => {
+    const operation = await developerApiOperations.claim({ projectId: req.apiKey.projectId, environment: req.apiKey.environment, apiKeyId: req.apiKey.id, scope, key: req.get("Idempotency-Key"), payload }, { client });
+    if (operation.state === "replay") return operation;
+    const data = await run(client);
+    if (data.ticket?.event) await developerWebhookService.enqueueDeveloperTicketEvent({ event: data.ticket.event, ticket: data.ticket }, { client });
+    for (const queueEvent of data.queueEvents || []) {
+      await developerWebhookService.enqueueDeveloperQueueEvent({ event: queueEvent.event, queue: queueEvent.queue }, { client });
+    }
+    const publicData = { ...data };
+    delete publicData.queueEvents;
+    const body = envelope(req, publicData);
+    await developerApiOperations.complete(operation.recordId, status, body, { client });
+    return { state: "completed", statusCode: status, body };
+    });
+  } catch (mutationError) {
+    if (mutationError.code === "23505") throw error(409, "RESOURCE_CONFLICT", "A resource with this value already exists.");
+    throw mutationError;
+  }
+  res.status(result.statusCode).setHeader("Cache-Control", "no-store").setHeader("X-API-Version", "v1").json(result.body);
 }
 
 router.get("/", (req, res) => {
   const environment = getEnvironment(req);
-  const baseUrl = environment === "sandbox"
-    ? "https://sandbox-api.getprio.online/v1"
-    : environment === "production"
-      ? "https://api.getprio.online/v1"
-      : null;
-
-  sendEnvelope(req, res, {
-    service: "getprio-queue-api",
-    version: "v1",
-    environment,
-    base_url: baseUrl,
-    documentation_url: "https://developers.getprio.online"
-  });
+  send(req, res, { service: "getprio-queue-api", version: "v1", environment, base_url: environment === "sandbox" ? "https://sandbox-api.getprio.online/v1" : environment === "production" ? "https://api.getprio.online/v1" : null, documentation_url: "https://developers.getprio.online" });
 });
+router.get("/health", (req, res) => send(req, res, { status: "ok", service: "getprio-queue-api", version: "v1", environment: getEnvironment(req) }));
+router.get("/openapi.json", (_req, res) => res.setHeader("Cache-Control", "public, max-age=300").type("application/json").json(openApiDocument));
 
-router.get("/health", (req, res) => {
-  sendEnvelope(req, res, {
-    status: "ok",
-    service: "getprio-queue-api",
-    version: "v1",
-    environment: getEnvironment(req)
-  });
-});
-
-router.get("/openapi.json", (_req, res) => {
-  res.setHeader("Cache-Control", "public, max-age=300");
-  res.type("application/json").json(openApiDocument);
-});
-
-router.post(
-  ["/queues/:tenantSlug/tickets", "/queues/:tenantSlug/locations/:locationSlug/tickets"],
-  authenticateDeveloperApiKey,
-  requireApiScope("queues:write"),
-  asyncHandler(async (req, res) => {
-    const { tenant, location } = await getQueueContext(req);
-    if (!location) throw notFound("Queue location not found.");
-
-    const rawDisplayLabel = readBodyValue(req.body, "displayLabel", "display_label");
-    const rawCustomerName = readBodyValue(req.body, "customerName", "customer_name");
-    const customerName = rawDisplayLabel !== undefined
-      ? cleanDisplayLabel(rawDisplayLabel)
-      : String(rawCustomerName || "").trim();
-    if (rawDisplayLabel === undefined && rawCustomerName !== undefined && (!customerName || customerName.length > 120)) {
-      const error = new Error("customerName is required and must be at most 120 characters.");
-      error.statusCode = 400;
-      error.code = "INVALID_REQUEST";
-      throw error;
-    }
-    if (rawDisplayLabel !== undefined && !customerName) {
-      const error = new Error("displayLabel must contain text when supplied.");
-      error.statusCode = 400;
-      error.code = "INVALID_REQUEST";
-      throw error;
-    }
-    const externalReference = cleanExternalReference(
-      readBodyValue(req.body, "externalReference", "external_reference")
-    );
-    const rawInvitationEmail = readBodyValue(req.body, "invitationEmail", "invitation_email");
-    const rawCustomerEmail = readBodyValue(req.body, "customerEmail", "customer_email");
-    if (rawInvitationEmail !== undefined && rawCustomerEmail !== undefined) {
-      const error = new Error("Supply only one invitation email address.");
-      error.statusCode = 400;
-      error.code = "INVALID_REQUEST";
-      throw error;
-    }
-    const rawEmail = rawInvitationEmail !== undefined ? rawInvitationEmail : rawCustomerEmail;
-    const customerEmail = rawEmail === undefined || rawEmail === null || rawEmail === ""
-      ? undefined
-      : validateEmail(rawEmail);
-    const customerPhone = cleanOptionalText(
-      readBodyValue(req.body, "customerPhone", "customer_phone"),
-      "customerPhone",
-      40
-    );
-    const notes = cleanOptionalText(req.body?.notes, "notes", 1000);
-    const notifyByEmail = readBoolean(
-      readBodyValue(req.body, "notifyByEmail", "notify_by_email"),
-      "notifyByEmail"
-    );
-    const notifyBySms = readBoolean(
-      readBodyValue(req.body, "notifyBySms", "notify_by_sms"),
-      "notifyBySms"
-    );
-    assertPublicTextFieldsAllowed({ "Customer name": customerName, Notes: notes });
-
-    const idempotency = await idempotencyService.claim({
-      actorId: req.apiKey.createdByUserId,
-      scope: `developer_api.ticket.issue:${req.apiKey.id}`,
-      key: req.get("Idempotency-Key"),
-      payload: {
-        tenantSlug: req.params.tenantSlug,
-        locationSlug: req.params.locationSlug || null,
-        body: req.body || {}
-      },
-      retentionMs: DEVELOPER_API_IDEMPOTENCY_RETENTION_MS
-    });
-    if (idempotency.state === "replay") {
-      res.status(idempotency.statusCode).setHeader("Cache-Control", "no-store").setHeader("X-API-Version", "v1").json(idempotency.body);
-      return;
-    }
-
-    try {
-      await entitlementAdmissionService.admit({ tenantId: tenant._id, featureKey: "queue" });
-      await storeHoursService.assertLocationOpenForCustomerJoin(location);
-      const result = await queueService.createTicket({
-        tenant,
-        location,
-        customerName,
-        customerEmail,
-        customerPhone,
-        developerProjectId: req.apiKey.projectId,
-        developerEnvironment: req.apiKey.environment,
-        externalReference,
-        notifyByEmail,
-        notifyBySms,
-        joinChannel: "vendor",
-        notes,
-        actorRole: "developer_api",
-        source: "developer_api",
-        servicePriorityBand: "normal",
-        developerWebhook: developerWebhookContext(req),
-        developerMobileLink: {
-          projectId: req.apiKey.projectId,
-          environment: req.apiKey.environment
-        }
-      });
-
-      const responseBody = envelopeBody(req, {
-        ticket: formatIssuedTicket(result.ticket, location),
-        ...(result.mobileLink ? { mobile_link: formatMobileLink(result.mobileLink) } : {})
-      });
-      await idempotencyRepository.complete(idempotency.record.id, 201, responseBody);
-      res.status(201).setHeader("Cache-Control", "no-store").setHeader("X-API-Version", "v1").json(responseBody);
-    } catch (error) {
-      await idempotencyRepository.fail(idempotency.record.id).catch(() => {});
-      if (error.code === "23505" && error.constraint === "tickets_developer_external_reference_idx") {
-        error.statusCode = 409;
-        error.code = "EXTERNAL_REFERENCE_EXISTS";
-        error.message = "externalReference is already in use for this project and environment.";
-      }
-      throw error;
-    }
-  })
-);
-
-router.post(
-  ["/queues/:tenantSlug/call-next", "/queues/:tenantSlug/locations/:locationSlug/call-next"],
-  authenticateDeveloperApiKey,
-  requireApiScope("queues:write"),
-  asyncHandler(async (req, res) => {
-    const { tenant, location } = await getQueueContext(req);
-    if (!location) throw notFound("Queue location not found.");
-
-    await runIdempotentMutation(req, res, {
-      scope: "developer_api.queue.call_next",
-      payload: {
-        tenantSlug: req.params.tenantSlug,
-        locationSlug: req.params.locationSlug || null,
-        body: req.body || {}
-      },
-      run: async () => {
-      const result = await queueService.callNextTicket(tenant, {
-        location,
-        actorUserId: req.apiKey.createdByUserId,
-        actorRole: "developer_api",
-        source: "developer_api",
-        developerWebhook: developerWebhookContext(req)
-      });
-      return {
-        ticket: result?.ticket ? formatTicketResource(result.ticket) : null
-      };
-      }
-    });
-  })
-);
-
-function registerCurrentTicketResolution(paths, status) {
-  router.post(
-    paths,
-    authenticateDeveloperApiKey,
-    requireApiScope("queues:write"),
-    asyncHandler(async (req, res) => {
-      const { tenant, location } = await getQueueContext(req);
-      if (!location) throw notFound("Queue location not found.");
-
-      await runIdempotentMutation(req, res, {
-        scope: `developer_api.queue.${status}`,
-        payload: {
-          tenantSlug: req.params.tenantSlug,
-          locationSlug: req.params.locationSlug || null,
-          body: req.body || {}
-        },
-        run: async () => {
-          const result = await queueService.updateCurrentTicketStatus(tenant, status, {
-            location,
-            actorUserId: req.apiKey.createdByUserId,
-            actorRole: "developer_api",
-            source: "developer_api",
-            developerWebhook: developerWebhookContext(req)
-          });
-          return {
-            ticket: result?.ticket ? formatTicketResource(result.ticket) : null
-          };
-        }
-      });
-    })
-  );
-}
-
-registerCurrentTicketResolution(
-  ["/queues/:tenantSlug/current/serve", "/queues/:tenantSlug/locations/:locationSlug/current/serve"],
-  "served"
-);
-registerCurrentTicketResolution(
-  ["/queues/:tenantSlug/current/skip", "/queues/:tenantSlug/locations/:locationSlug/current/skip"],
-  "skipped"
-);
-
-function registerTicketMutation(paths, action, run) {
-  router.post(
-    paths,
-    authenticateDeveloperApiKey,
-    requireApiScope("queues:write"),
-    asyncHandler(async (req, res) => {
-      const { tenant, location } = await getQueueContext(req);
-      if (!location) throw notFound("Queue location not found.");
-      const ticket = await getScopedTicket(req, tenant, location);
-
-      await runIdempotentMutation(req, res, {
-        scope: `developer_api.ticket.${action}`,
-        payload: {
-          tenantSlug: req.params.tenantSlug,
-          locationSlug: req.params.locationSlug || null,
-          ticketId: req.params.ticketId,
-          body: req.body || {}
-        },
-        run: async () => {
-          const result = await run({ tenant, location, ticket, req });
-          return { ticket: result?.ticket ? formatTicketResource(result.ticket) : null };
-        }
-      });
-    })
-  );
-}
-
-registerTicketMutation(
-  ["/queues/:tenantSlug/tickets/:ticketId/cancel", "/queues/:tenantSlug/locations/:locationSlug/tickets/:ticketId/cancel"],
-  "cancel",
-  async ({ tenant, location, ticket, req }) => {
-    if (!["waiting", "pending_carry_over"].includes(ticket.status)) {
-      const error = new Error("Only waiting tickets can be cancelled by this endpoint.");
-      error.statusCode = 409;
-      error.code = "INVALID_TICKET_STATE";
-      throw error;
-    }
-    return queueService.cancelTicket(tenant, ticket.lookupCode, {
-      location,
-      actorUserId: req.apiKey.createdByUserId,
-      actorRole: "developer_api",
-      source: "developer_api",
-      developerWebhook: developerWebhookContext(req)
-    });
+router.get("/profiles", authenticateDeveloperApiKey, requireApiScope("profiles:read"), asyncHandler(async (req, res) => {
+  send(req, res, { profiles: (await developerQueues.listProfiles(req.apiKey.projectId, req.apiKey.environment)).map(profileView) });
+}));
+router.post("/profiles", authenticateDeveloperApiKey, requireApiScope("profiles:write"), asyncHandler(async (req, res) => {
+  only(req.body, new Set(["slug", "display_name", "displayName"]));
+  const profileSlug = slug(req.body?.slug); const displayName = text(req.body?.display_name ?? req.body?.displayName, "display_name", 120, true);
+  await mutate(req, res, { scope: "developer_api.profile.create", payload: { profileSlug, displayName }, status: 201, run: async (client) => ({ profile: profileView(await developerQueues.createProfile({ projectId: req.apiKey.projectId, environment: req.apiKey.environment, slug: profileSlug, displayName, userId: req.apiKey.createdByUserId }, { client })) }) });
+}));
+router.patch("/profiles/:profileSlug", authenticateDeveloperApiKey, requireApiScope("profiles:write"), asyncHandler(async (req, res) => {
+  only(req.body, new Set(["display_name", "displayName", "directory_content", "directoryContent"]));
+  const profile = await scopedProfile(req);
+  const changes = {};
+  if (req.body?.display_name !== undefined || req.body?.displayName !== undefined) {
+    changes.displayName = text(req.body?.display_name ?? req.body?.displayName, "display_name", 120, true);
   }
-);
-
-registerTicketMutation(
-  ["/queues/:tenantSlug/tickets/:ticketId/restore", "/queues/:tenantSlug/locations/:locationSlug/tickets/:ticketId/restore"],
-  "restore",
-  async ({ tenant, location, ticket, req }) => {
-    if (ticket.status !== "skipped") {
-      const error = new Error("Only skipped tickets can be restored.");
-      error.statusCode = 409;
-      error.code = "INVALID_TICKET_STATE";
-      throw error;
-    }
-    return queueService.restoreSkippedTicket(tenant, ticket._id, {
-      location,
-      actorUserId: req.apiKey.createdByUserId,
-      actorRole: "developer_api",
-      source: "developer_api",
-      developerWebhook: developerWebhookContext(req)
-    });
+  if (req.body?.directory_content !== undefined || req.body?.directoryContent !== undefined) {
+    changes.directoryContent = directoryContent(req.body?.directory_content ?? req.body?.directoryContent);
+    changes.directoryStatus = "draft";
   }
-);
+  if (!Object.keys(changes).length) throw error(400, "NO_PROFILE_CHANGES", "Provide a display_name or directory_content to update.");
+  await mutate(req, res, { scope: "developer_api.profile.update", payload: { profileId: profile.id, changes }, run: async (client) => {
+    const updated = await developerQueues.updateProfile(profile.id, changes, { client });
+    if (!updated) throw notFound("Profile not found.");
+    return { profile: profileView(updated) };
+  } });
+}));
+router.get("/profiles/:profileSlug/queues", authenticateDeveloperApiKey, requireApiScope("queues:read"), asyncHandler(async (req, res) => {
+  const profile = await scopedProfile(req); send(req, res, { profile: profileView(profile), queues: (await developerQueues.listQueues(profile.id)).map(queueView) });
+}));
+router.post("/profiles/:profileSlug/queues", authenticateDeveloperApiKey, requireApiScope("queues:write"), asyncHandler(async (req, res) => {
+  only(req.body, new Set(["slug", "display_name", "displayName", "session_state", "sessionState", "intake_enabled", "intakeEnabled"]));
+  const profile = await scopedProfile(req); const queueSlug = slug(req.body?.slug); const displayName = text(req.body?.display_name ?? req.body?.displayName, "display_name", 120, true);
+  const sessionState = req.body?.session_state ?? req.body?.sessionState ?? "closed"; if (!["open", "paused", "closing", "closed"].includes(sessionState)) throw error(400, "INVALID_REQUEST", "session_state is invalid.");
+  const intakeEnabled = Boolean(req.body?.intake_enabled ?? req.body?.intakeEnabled ?? false);
+  await mutate(req, res, { scope: "developer_api.queue.create", payload: { profileId: profile.id, queueSlug, displayName, sessionState, intakeEnabled }, status: 201, run: async (client) => ({ queue: queueView(await developerQueues.createQueue({ profileId: profile.id, slug: queueSlug, displayName, sessionState, intakeEnabled }, { client })) }) });
+}));
+router.patch("/profiles/:profileSlug/queues/:queueSlug", authenticateDeveloperApiKey, requireApiScope("queues:write"), asyncHandler(async (req, res) => {
+  only(req.body, new Set(["display_name", "displayName", "session_state", "sessionState", "intake_enabled", "intakeEnabled", "resource_version", "resourceVersion"]));
+  const profile = await scopedProfile(req);
+  const queue = await developerQueues.findQueue(profile.id, slug(req.params.queueSlug, "queue slug"));
+  if (!queue) throw notFound("Queue not found.");
+  const changes = {};
+  if (req.body?.display_name !== undefined || req.body?.displayName !== undefined) changes.displayName = text(req.body?.display_name ?? req.body?.displayName, "display_name", 120, true);
+  if (req.body?.session_state !== undefined || req.body?.sessionState !== undefined) {
+    changes.sessionState = req.body?.session_state ?? req.body?.sessionState;
+    if (!["open", "paused", "closing", "closed"].includes(changes.sessionState)) throw error(400, "INVALID_REQUEST", "session_state is invalid.");
+  }
+  if (req.body?.intake_enabled !== undefined || req.body?.intakeEnabled !== undefined) changes.intakeEnabled = Boolean(req.body?.intake_enabled ?? req.body?.intakeEnabled);
+  if (!Object.keys(changes).length) throw error(400, "NO_QUEUE_CHANGES", "Provide a display name, session state, or intake setting to update.");
+  if (req.body?.resource_version !== undefined || req.body?.resourceVersion !== undefined) {
+    changes.resourceVersion = Number(req.body?.resource_version ?? req.body?.resourceVersion);
+    if (!Number.isSafeInteger(changes.resourceVersion) || changes.resourceVersion < 1) throw error(400, "INVALID_REQUEST", "resource_version must be a positive integer.");
+  }
+  await mutate(req, res, { scope: "developer_api.queue.update", payload: { profileId: profile.id, queueId: queue.id, changes }, run: async (client) => {
+    const updated = await developerQueues.updateQueue(queue.id, changes, { client });
+    if (!updated) throw error(409, "QUEUE_UPDATE_CONFLICT", "Queue changed before this update was applied.");
+    const events = [];
+    if (changes.sessionState !== undefined && changes.sessionState !== queue.sessionState) {
+      const type = changes.sessionState === "open" ? "queue.session.opened"
+        : changes.sessionState === "closing" ? "queue.session.closing"
+          : changes.sessionState === "closed" ? "queue.session.closed" : "queue.session.extended";
+      events.push({ type, fromStatus: queue.sessionState, toStatus: changes.sessionState });
+    }
+    if (Object.prototype.hasOwnProperty.call(changes, "intakeEnabled") && changes.intakeEnabled !== queue.intakeEnabled) {
+      events.push({ type: changes.intakeEnabled ? "queue.intake.resumed" : "queue.intake.paused", fromStatus: String(queue.intakeEnabled), toStatus: String(changes.intakeEnabled) });
+    }
+    return { queue: queueView(updated), queueEvents: events.map((event) => ({ event: { ...event, id: `${updated.id}:${updated.resourceVersion}:${event.type}`, resourceVersion: updated.resourceVersion, occurredAt: updated.updatedAt, source: "developer_api" }, queue: { ...updated, projectId: req.apiKey.projectId, environment: req.apiKey.environment } })) };
+  } });
+}));
 
-function registerMobileLinkReplacement(paths) {
-  router.post(
-    paths,
-    authenticateDeveloperApiKey,
-    requireApiScope("queues:write"),
-    asyncHandler(async (req, res) => {
-      const { tenant, location } = await getQueueContext(req);
-      if (!location) throw notFound("Queue location not found.");
-      const ticket = await getScopedTicket(req, tenant, location);
-
-      await runIdempotentMutation(req, res, {
-        scope: "developer_api.ticket.mobile_link.replace",
-        payload: {
-          tenantSlug: req.params.tenantSlug,
-          locationSlug: req.params.locationSlug || null,
-          ticketId: req.params.ticketId,
-          body: req.body || {}
-        },
-        run: async () => ({
-          mobile_link: formatMobileLink(await mobileTicketLinkService.replacePrivateLink({
-            ticketId: ticket._id,
-            developerProjectId: req.apiKey.projectId,
-            environment: req.apiKey.environment
-          }))
-        })
-      });
-    })
-  );
+const queuePaths = (suffix) => [`/queues/:tenantSlug${suffix}`, `/queues/:tenantSlug/locations/:locationSlug${suffix}`];
+router.post(queuePaths("/tickets"), authenticateDeveloperApiKey, requireApiScope("queues:write"), asyncHandler(async (req, res) => {
+  only(req.body, new Set(["display_label", "displayLabel", "external_reference", "externalReference", "recipient_email", "recipientEmail"]));
+  const { profile, queue } = await context(req);
+  const displayLabel = text(req.body?.display_label ?? req.body?.displayLabel, "display_label", 120);
+  const externalReference = text(req.body?.external_reference ?? req.body?.externalReference, "external_reference", 160);
+  const recipientEmail = text(req.body?.recipient_email ?? req.body?.recipientEmail, "recipient_email", 320);
+  await mutate(req, res, { scope: "developer_api.ticket.issue", payload: { profileId: profile.id, queueId: queue.id, displayLabel, externalReference, recipientEmail }, status: 201, run: async (client) => {
+    const ticket = await developerQueues.issueTicket({ projectId: req.apiKey.projectId, environment: req.apiKey.environment, profileId: profile.id, queueId: queue.id, queueSlug: queue.slug, displayLabel, externalReference, recipientEmail }, { client });
+    if (!ticket) throw notFound("Queue not found."); return { ticket: ticketView(ticket) };
+  }});
+}));
+router.post(queuePaths("/call-next"), authenticateDeveloperApiKey, requireApiScope("queues:write"), asyncHandler(async (req, res) => {
+  const { profile, queue } = await context(req);
+  await mutate(req, res, { scope: "developer_api.queue.call_next", payload: { profileId: profile.id, queueId: queue.id }, run: async (client) => ({ ticket: ticketView(await developerQueues.callNextTicket({ projectId: req.apiKey.projectId, environment: req.apiKey.environment, profileId: profile.id, queueId: queue.id, queueSlug: queue.slug }, { client })) }) });
+}));
+function currentTransition(suffix, toStatus) {
+  router.post(queuePaths(suffix), authenticateDeveloperApiKey, requireApiScope("queues:write"), asyncHandler(async (req, res) => {
+    const { profile, queue } = await context(req);
+    await mutate(req, res, { scope: `developer_api.queue.${toStatus}`, payload: { profileId: profile.id, queueId: queue.id }, run: async (client) => {
+      const snapshot = await developerQueues.queueSnapshot(queue.id, { client });
+      if (!snapshot.current) throw error(409, "INVALID_TICKET_STATE", "There is no called ticket to resolve.");
+      return { ticket: ticketView(await developerQueues.transitionTicket({ projectId: req.apiKey.projectId, environment: req.apiKey.environment, queueId: queue.id, ticketId: snapshot.current.id, fromStatus: "called", toStatus }, { client })) };
+    }});
+  }));
 }
-
-registerMobileLinkReplacement([
-  "/queues/:tenantSlug/tickets/:ticketId/mobile-link",
-  "/queues/:tenantSlug/locations/:locationSlug/tickets/:ticketId/mobile-link"
-]);
-
-router.get(
-  ["/queues/:tenantSlug/tickets/:ticketId", "/queues/:tenantSlug/locations/:locationSlug/tickets/:ticketId"],
-  authenticateDeveloperApiKey,
-  requireApiScope("queues:read"),
-  asyncHandler(async (req, res) => {
-    const { tenant, location } = await getQueueContext(req);
-    if (!location) throw notFound("Queue location not found.");
-    const ticket = await getScopedTicket(req, tenant, location);
-    sendEnvelope(req, res, { ticket: formatTicketResource(ticket) });
-  })
-);
-
-router.get(
-  ["/queues/:tenantSlug/tickets/:ticketId/events", "/queues/:tenantSlug/locations/:locationSlug/tickets/:ticketId/events"],
-  authenticateDeveloperApiKey,
-  requireApiScope("queues:read"),
-  asyncHandler(async (req, res) => {
-    const { tenant, location } = await getQueueContext(req);
-    if (!location) throw notFound("Queue location not found.");
-    const ticket = await getScopedTicket(req, tenant, location);
-    const result = await queueEventRepository.listTicketEvents({
-      tenantId: tenant._id,
-      locationId: location._id,
-      ticketId: ticket._id,
-      limit: readEventLimit(req.query.limit),
-      afterId: readEventCursor(req.query.cursor)
-    });
-    sendEnvelope(req, res, {
-      events: result.events.map(formatTicketEvent),
-      next_cursor: result.nextCursor
-    });
-  })
-);
-
-router.get(
-  "/queues/:tenantSlug/locations",
-  authenticateDeveloperApiKey,
-  requireApiScope("queues:read"),
-  asyncHandler(async (req, res) => {
-    const { tenant } = await getQueueContext(req);
-    const locations = await storeLocationRepository.listLocationsByTenantId(tenant._id);
-    sendEnvelope(req, res, {
-      tenant: {
-        id: String(tenant._id),
-        name: tenant.publicProfileDisplayName || tenant.name,
-        slug: tenant.slug
-      },
-      locations: locations.filter((location) => location.isActive).map(formatLocationResource)
-    });
-  })
-);
-
-router.get(
-  ["/queues/:tenantSlug", "/queues/:tenantSlug/locations/:locationSlug"],
-  authenticateDeveloperApiKey,
-  requireApiScope("queues:read"),
-  asyncHandler(async (req, res) => {
-    const { tenant, location } = await getQueueContext(req);
-    const snapshot = await queueService.getQueueSnapshot(tenant, { location });
-    sendEnvelope(req, res, formatQueueResource(snapshot));
-  })
-);
-
-router.get(
-  ["/queues/:tenantSlug/stream", "/queues/:tenantSlug/locations/:locationSlug/stream"],
-  authenticateDeveloperApiKey,
-  requireApiScope("queues:read"),
-  asyncHandler(async (req, res) => {
-    const { tenant, location } = await getQueueContext(req);
-    const initialSnapshot = await queueService.getQueueSnapshot(tenant, { location });
-    let closed = false;
-
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache, no-transform");
-    res.setHeader("Connection", "keep-alive");
-    res.flushHeaders();
-
-    const writeSnapshot = (snapshot) => {
-      if (!closed) {
-        res.write(`event: snapshot\ndata: ${JSON.stringify(formatQueueResource(snapshot))}\n\n`);
-      }
-    };
-    writeSnapshot(initialSnapshot);
-
-    const unsubscribe = queueEvents.subscribe(
-      tenant.slug,
-      (snapshot) => {
-        if (location && snapshot?.location?.id && String(snapshot.location.id) !== String(location._id)) {
-          return;
-        }
-        try {
-          writeSnapshot(snapshot);
-        } catch (error) {
-          console.error(error);
-        }
-      },
-      { locationId: location?._id }
-    );
-    const heartbeat = setInterval(() => {
-      if (!closed) res.write(`event: heartbeat\ndata: ${Date.now()}\n\n`);
-    }, 25000);
-
-    req.on("close", () => {
-      closed = true;
-      clearInterval(heartbeat);
-      unsubscribe();
-      res.end();
-    });
-  })
-);
-
+currentTransition("/current/serve", "served"); currentTransition("/current/skip", "skipped");
+function ticketTransition(action, fromStatus, toStatus) {
+  router.post(queuePaths(`/tickets/:ticketId/${action}`), authenticateDeveloperApiKey, requireApiScope("queues:write"), asyncHandler(async (req, res) => {
+    const { profile, queue } = await context(req); const ticket = await scopedTicket(req, queue);
+    await mutate(req, res, { scope: `developer_api.ticket.${toStatus}`, payload: { profileId: profile.id, queueId: queue.id, ticketId: ticket.id }, run: async (client) => ({ ticket: ticketView(await developerQueues.transitionTicket({ projectId: req.apiKey.projectId, environment: req.apiKey.environment, queueId: queue.id, ticketId: ticket.id, fromStatus, toStatus, ...(action === "restore" ? { eventType: "ticket.restored" } : {}) }, { client })) }) });
+  }));
+}
+ticketTransition("cancel", "waiting", "cancelled"); ticketTransition("restore", "skipped", "waiting");
+router.get(queuePaths("/tickets/:ticketId"), authenticateDeveloperApiKey, requireApiScope("queues:read"), asyncHandler(async (req, res) => { const { queue } = await context(req); send(req, res, { ticket: ticketView(await scopedTicket(req, queue)) }); }));
+router.get(queuePaths("/tickets/:ticketId/events"), authenticateDeveloperApiKey, requireApiScope("queues:read"), asyncHandler(async (req, res) => {
+  const { queue } = await context(req); const ticket = await scopedTicket(req, queue);
+  const result = await developerQueues.listTicketEvents(req.apiKey.projectId, req.apiKey.environment, queue.id, ticket.id, eventLimit(req.query.limit), eventCursor(req.query.cursor));
+  send(req, res, { events: result.events.map((event) => ({ id: event.id, ticket_id: event.ticketId, queue_id: event.queueId, type: event.type, resource_version: event.resourceVersion, from_status: event.fromStatus, to_status: event.toStatus, occurred_at: event.occurredAt })), next_cursor: result.nextCursor });
+}));
+router.get("/queues/:tenantSlug/locations", authenticateDeveloperApiKey, requireApiScope("queues:read"), asyncHandler(async (req, res) => { const profile = await scopedProfile(req); send(req, res, { profile: profileView(profile), queues: (await developerQueues.listQueues(profile.id)).map(queueView) }); }));
+router.get(queuePaths(""), authenticateDeveloperApiKey, requireApiScope("queues:read"), asyncHandler(async (req, res) => {
+  const { profile, queue } = await context(req); const snapshot = await developerQueues.queueSnapshot(queue.id);
+  send(req, res, { profile: profileView(profile), queue: queueView(snapshot.queue), queue_intake: { state: snapshot.queue.sessionState === "open" && snapshot.queue.intakeEnabled ? "open" : "closed" }, stats: snapshot.stats, current: ticketView(snapshot.current), next_up: snapshot.nextUp.map(ticketView), overflow: snapshot.overflow.map(ticketView), skipped: (snapshot.skipped || []).map(ticketView) });
+}));
+let activeStreamCount = 0;
+const MAX_STREAMS = 100;
+router.get(queuePaths("/stream"), authenticateDeveloperApiKey, requireApiScope("queues:read"), asyncHandler(async (req, res) => {
+  const { profile, queue } = await context(req);
+  if (activeStreamCount >= MAX_STREAMS) throw error(429, "STREAM_LIMIT_REACHED", "Too many active queue streams. Please retry later.");
+  activeStreamCount += 1;
+  let closed = false; let prior = null; let released = false; let heartbeat; let refresh;
+  const release = () => {
+    if (released) return;
+    released = true;
+    activeStreamCount -= 1;
+    if (heartbeat) clearInterval(heartbeat);
+    if (refresh) clearInterval(refresh);
+    res.end();
+  };
+  req.on("close", () => { closed = true; release(); });
+  res.setHeader("Content-Type", "text/event-stream"); res.setHeader("Cache-Control", "no-cache, no-transform"); res.setHeader("Connection", "keep-alive"); res.flushHeaders();
+  const publish = async () => { const snapshot = await developerQueues.queueSnapshot(queue.id); const value = JSON.stringify({ profile: profileView(profile), queue: queueView(snapshot.queue), stats: snapshot.stats, current: ticketView(snapshot.current), next_up: snapshot.nextUp.map(ticketView), overflow: snapshot.overflow.map(ticketView), skipped: (snapshot.skipped || []).map(ticketView) }); if (!closed && value !== prior) { prior = value; res.write(`event: snapshot\ndata: ${value}\n\n`); } };
+  try { await publish(); } catch (streamError) { release(); throw streamError; }
+  if (closed) return;
+  heartbeat = setInterval(() => { if (!closed) res.write(`event: heartbeat\ndata: ${Date.now()}\n\n`); }, 25000);
+  let refreshInFlight = false;
+  refresh = setInterval(() => {
+    if (closed || refreshInFlight) return;
+    refreshInFlight = true;
+    publish().catch(() => {}).finally(() => { refreshInFlight = false; });
+  }, 2000);
+}));
 module.exports = router;

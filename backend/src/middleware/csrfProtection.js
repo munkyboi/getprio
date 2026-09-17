@@ -42,7 +42,15 @@ function isAuthRecoveryRequest(req) {
   // unrelated cookies must not require an old session's CSRF token. Keep
   // /register/vendor/complete protected: it uses the signed-in user's identity.
   return String(req.method || "GET").toUpperCase() === "POST" &&
-    ["/auth/login", "/auth/mfa/verify", "/auth/register/vendor", "/developer/login", "/developer/enroll"].includes(path);
+    [
+      "/auth/login",
+      "/auth/mfa/verify",
+      "/auth/register/vendor",
+      "/developer/login",
+      "/developer/register/otp",
+      "/developer/register/otp/verify",
+      "/developer/register/otp/resend"
+    ].includes(path);
 }
 
 function createCsrfProtection({ allowedOrigins, csrfSecret, authCookieSecure = true }) {

@@ -129,3 +129,23 @@ test("customer registration password validation enforces the client requirements
     /6-32 characters/
   );
 });
+
+test("verification challenges cannot be reused across customer and developer registration", async () => {
+  const service = requireWithMocks("../src/services/customerRegistrationOtpService.js", {
+    "../config/db": { withTransaction: async (callback) => callback({}) },
+    "../repositories/customerRegistrationOtps": {
+      findByIdForUpdate: async () => ({
+        id: "customer-challenge", purpose: "customer", usedAt: null,
+        codeAttempts: 0, codeExpiresAt: new Date(Date.now() + 60_000)
+      })
+    },
+    "../repositories/users": {},
+    "./notificationService": {},
+    "./sessionService": {}
+  });
+
+  await assert.rejects(
+    service.verify({ challengeId: "customer-challenge", code: "123456", purpose: "developer" }),
+    (error) => error.code === "CUSTOMER_REGISTRATION_CODE_INVALID"
+  );
+});
