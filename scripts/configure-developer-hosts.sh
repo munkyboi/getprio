@@ -6,6 +6,8 @@ nginx_site_file="${NGINX_SITE_FILE:-/etc/nginx/sites-available/getprio}"
 developer_site_file="${NGINX_DEVELOPER_SITE_FILE:-/etc/nginx/sites-available/getprio-developer-portal}"
 developer_enabled_file="${NGINX_DEVELOPER_ENABLED_FILE:-/etc/nginx/sites-enabled/getprio-developer-portal}"
 developer_root="${DEVELOPER_PORTAL_ROOT:-/var/www/getprio/developer-portal/dist}"
+developer_ssl_certificate="${DEVELOPER_PORTAL_SSL_CERT:-}"
+developer_ssl_certificate_key="${DEVELOPER_PORTAL_SSL_KEY:-}"
 
 case "$developer_root" in
   /*) ;;
@@ -44,8 +46,23 @@ if ! grep -Eq 'server_name[[:space:]]+api\.getprio\.online([[:space:];]|$)' "$ng
   exit 1
 fi
 
+if [[ -z "$developer_ssl_certificate" ]]; then
+  developer_ssl_certificate="$(awk '$1 == "ssl_certificate" { sub(/;$/, "", $2); print $2; exit }' "$nginx_site_file")"
+fi
+if [[ -z "$developer_ssl_certificate_key" ]]; then
+  developer_ssl_certificate_key="$(awk '$1 == "ssl_certificate_key" { sub(/;$/, "", $2); print $2; exit }' "$nginx_site_file")"
+fi
+has_developer_ssl=false
+if [[ -n "$developer_ssl_certificate" && -n "$developer_ssl_certificate_key" && -f "$developer_ssl_certificate" && -f "$developer_ssl_certificate_key" ]]; then
+  has_developer_ssl=true
+elif grep -Eq 'listen[[:space:]]+(\[::\]:)?443([[:space:]]|;)' "$nginx_site_file"; then
+  echo "An HTTPS Nginx listener exists, but no usable certificate was found for the developer portal." >&2
+  echo "Set DEVELOPER_PORTAL_SSL_CERT and DEVELOPER_PORTAL_SSL_KEY or configure the certificate in $nginx_site_file." >&2
+  exit 1
+fi
+
 "${sudo_cmd[@]}" sed -i -E \
-  -e '/server_name[[:space:]]+(app\.)?getprio\.online([^;]*);/ { s/[[:space:]]+developers\.getprio\.online//g; }' \
+  -e '/server_name[[:space:]][^;]*developers\.getprio\.online([^;]*);/ { s/[[:space:]]+developers\.getprio\.online//g; }' \
   -e '/server_name[[:space:]]+api\.getprio\.online([^;]*);/ { /sandbox-api\.getprio\.online/! s/;/ sandbox-api.getprio.online;/; }' \
   "$nginx_site_file"
 
@@ -69,6 +86,31 @@ server {
   }
 }
 NGINX
+
+if [[ "$has_developer_ssl" == true ]]; then
+  cat >> "$developer_site_tmp" <<NGINX
+
+server {
+  listen 443 ssl;
+  listen [::]:443 ssl;
+  server_name developers.getprio.online;
+
+  root $developer_root;
+  index index.html;
+  ssl_certificate $developer_ssl_certificate;
+  ssl_certificate_key $developer_ssl_certificate_key;
+NGINX
+  if [[ -f /etc/letsencrypt/options-ssl-nginx.conf ]]; then
+    printf '  include /etc/letsencrypt/options-ssl-nginx.conf;\n' >> "$developer_site_tmp"
+  fi
+  cat >> "$developer_site_tmp" <<'NGINX'
+
+  location / {
+    try_files $uri $uri/ /index.html;
+  }
+}
+NGINX
+fi
 
 "${sudo_cmd[@]}" mkdir -p "$(dirname "$developer_site_file")" "$(dirname "$developer_enabled_file")"
 "${sudo_cmd[@]}" install -m 644 "$developer_site_tmp" "$developer_site_file"
