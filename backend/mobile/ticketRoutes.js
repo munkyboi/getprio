@@ -17,6 +17,7 @@ const limiter = rateLimit({
   message: { message: "Too many mobile ticket requests. Please try again later." }
 });
 const ACTIVE_STATUSES = new Set(["waiting", "called", "skipped", "pending_carry_over"]);
+// Mobile ticket resources intentionally expose only customer-safe queue context.
 
 router.use(limiter);
 router.use(authenticate);
