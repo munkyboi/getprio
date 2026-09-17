@@ -375,48 +375,6 @@
 .developer-workspace.dpp .developer-workspace-key-create > p:first-child { margin: 0 0 20px; }
 @media (max-width: 48em) { .developer-workspace.dpp .developer-workspace-key-create { padding: 1.5rem; } }
 
-/* Keep the workspace controls aligned with the prototype's light palette. */
-.developer-workspace.dpp[data-api-theme="light"] {
-  --dp-bg: #f6f8fc;
-  --dp-surface: #fff;
-  --dp-ink: #172338;
-  --dp-muted: #59677c;
-  --dp-accent: #315ddd;
-  --dp-action: #3156a0;
-  --dp-action-soft: #dfe9ff;
-  --dp-border: #cbd5e3;
-}
-.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-sidebar { background: #edf2fa; }
-.developer-workspace.dpp[data-api-theme="light"] :is(input, select) { border-color: #cbd5e3; background: #fff; color: #18253b; }
-.developer-workspace.dpp[data-api-theme="light"] :is(input, select):focus { border-color: #315ddd; background: #fff; box-shadow: 0 0 0 3px #315ddd3d; }
-.developer-workspace.dpp[data-api-theme="light"] fieldset { border-color: #cbd5e3; background: #fff; }
-.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-sidebar nav button:hover { background: #e3ebfc !important; color: #172338 !important; }
-.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-sidebar nav button[aria-current="page"] { background: #dfe9ff !important; color: #284a86 !important; }
-.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-environments { background: #fff; border-color: #cbd5e3; }
-.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-environments > button[aria-selected="true"]:not(.mantine-Button-root) { color: #172338 !important; }
-.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-environments > button[aria-selected="false"]:not(.mantine-Button-root) { color: #59677c !important; }
-.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-environment-indicator { border-color: #527ae0; background: #dfe9ff; box-shadow: 0 2px 6px #263b5a22; }
-.developer-workspace.dpp[data-api-theme="light"] .mantine-Button-root[data-variant="light"],
-.developer-workspace.dpp[data-api-theme="light"] .mantine-Button-root[data-variant="default"] { background: #dfe9ff !important; border-color: #3156a0 !important; color: #284a86 !important; }
-.developer-workspace.dpp[data-api-theme="light"] .mantine-Button-root[data-variant="light"]:hover,
-.developer-workspace.dpp[data-api-theme="light"] .mantine-Button-root[data-variant="default"]:hover { background: #cbdcff !important; border-color: #315ddd !important; color: #172338 !important; }
-.developer-workspace.dpp[data-api-theme="light"] .mantine-Button-root[data-variant="subtle"] { color: #3156a0 !important; }
-.developer-workspace.dpp[data-api-theme="light"] .mantine-Button-root[data-variant="subtle"]:hover { background: #dfe9ff !important; color: #172338 !important; }
-.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-next article:first-child .mantine-Button-root { background: #3156a0 !important; border-color: #3156a0 !important; color: #fff !important; }
-.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-next article:last-child .mantine-Button-root { background: #dfe9ff !important; border-color: #3156a0 !important; color: #284a86 !important; }
-.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-setup-card .mantine-Button-root[data-variant="light"] { background: #dfe9ff !important; border-color: #3156a0 !important; color: #284a86 !important; }
-.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-next-badge { background: #eaf0ff; color: #3156a0; }
-.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-intake-switch .mantine-Switch-track { border-color: #9aa9bf; background: #fff; }
-.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-intake-switch .mantine-Switch-thumb { border-color: #657389; background: #657389; }
-.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-intake-switch .mantine-Switch-input:checked + .mantine-Switch-track { border-color: #3156a0; background: #3156a0; }
-.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-intake-switch .mantine-Switch-input:checked + .mantine-Switch-track .mantine-Switch-thumb { border-color: #fff; background: #fff; }
-.developer-workspace.dpp[data-api-theme="light"] .dpp-select-dropdown { background: #fff !important; color: #18253b !important; border-color: #cbd5e3 !important; box-shadow: 0 12px 30px #263b5a22 !important; }
-.developer-workspace.dpp[data-api-theme="light"] .dpp-select-option { color: #18253b !important; }
-.developer-workspace.dpp[data-api-theme="light"] .dpp-select-option:hover,
-.developer-workspace.dpp[data-api-theme="light"] .dpp-select-option[data-combobox-selected],
-.developer-workspace.dpp[data-api-theme="light"] .dpp-select-option[data-checked] { background: #dfe9ff !important; color: #172338 !important; }
-.developer-workspace.dpp[data-api-theme="light"] .mantine-Select-input { background: #fff !important; color: #18253b !important; border-color: #cbd5e3 !important; }
-
 /* Display typography is intentionally quieter than the original brutalist
    prototype. Scale headings and large counters down by 20%; body copy and
    the 8px uppercase eyebrow system remain unchanged. */

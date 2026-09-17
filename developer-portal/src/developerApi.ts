@@ -9,7 +9,7 @@ export type DeveloperUser = {
 
 export type DeveloperAccount = { id: string; role: string; status: string };
 export type Session = { user: DeveloperUser; developerAccount: DeveloperAccount; csrfToken: string };
-export type RegistrationChallenge = { challengeId: string; step: "email_otp"; deliveryTarget: string; expiresAt: string };
+export type RegistrationChallenge = { challengeId: string | null; step: "email_otp"; deliveryTarget: string; expiresAt: string };
 export type Project = { id: string; name: string; status: string; accessRole?: string; createdAt: string; updatedAt: string };
 export type ApiKey = { id: string; projectId: string; name: string; environment: "sandbox" | "production"; keyPrefix: string; scopes: string[]; status: string; lastUsedAt: string | null; revokedAt: string | null; createdAt: string; updatedAt: string };
 export type Profile = { id: string; projectId: string; environment: "sandbox" | "production"; slug: string; displayName: string; directoryStatus: string; directoryContent: { description?: string; websiteUrl?: string }; createdAt: string; updatedAt: string };
@@ -42,12 +42,14 @@ export class DeveloperApiError extends Error {
 }
 
 const apiBase = (import.meta.env.VITE_DEVELOPER_API_ORIGIN || "").replace(/\/$/, "");
+let csrfTokenCache: string | undefined;
 
-async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+async function request<T>(path: string, options: RequestOptions = {}, allowRefresh = true): Promise<T> {
   const method = options.method || "GET";
   const headers: Record<string, string> = { Accept: "application/json" };
   if (options.body !== undefined) headers["Content-Type"] = "application/json";
-  if (options.csrfToken) headers["X-CSRF-Token"] = options.csrfToken;
+  const csrfToken = options.csrfToken || csrfTokenCache;
+  if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
   const response = await fetch(`${apiBase}/api/developer${path}`, {
     method,
     headers,
@@ -56,12 +58,26 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   });
   if (response.status === 204) return undefined as T;
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new DeveloperApiError(response.status, payload.message || "The request could not be completed.", payload.code || payload.error);
+  if (!response.ok) {
+    const requestError = new DeveloperApiError(response.status, payload.message || "The request could not be completed.", payload.code || payload.error);
+    if (response.status === 401 && allowRefresh && path !== "/refresh") {
+      try {
+        const refreshed = await request<{ csrfToken?: string }>("/refresh", { method: "POST" }, false);
+        if (refreshed.csrfToken) csrfTokenCache = refreshed.csrfToken;
+        return request<T>(path, { ...options, csrfToken: refreshed.csrfToken || csrfToken }, false);
+      } catch {
+        // Preserve the original error so callers can decide whether to sign out.
+      }
+    }
+    throw requestError;
+  }
+  if (payload?.csrfToken) csrfTokenCache = payload.csrfToken;
   return payload as T;
 }
 
 function sessionFrom(value: { user: DeveloperUser; developerAccount: DeveloperAccount; csrfToken?: string }, prior?: string): Session {
   if (!value.csrfToken && !prior) throw new DeveloperApiError(401, "Your session needs to be refreshed. Please sign in again.");
+  if (value.csrfToken) csrfTokenCache = value.csrfToken;
   return { user: value.user, developerAccount: value.developerAccount, csrfToken: value.csrfToken || prior! };
 }
 
@@ -87,7 +103,7 @@ export const developerApi = {
   async createQueue(projectId: string, profileSlug: string, body: { slug: string; displayName: string; sessionState: string; intakeEnabled: boolean }, csrfToken: string) { return request<{ queue: Queue }>(`/projects/${projectId}/profiles/${encodeURIComponent(profileSlug)}/queues`, { method: "POST", body: { ...body, environment: "sandbox" }, csrfToken }); },
   async updateQueue(projectId: string, profileSlug: string, queueSlug: string, body: { displayName?: string; sessionState?: string; intakeEnabled?: boolean; resourceVersion?: number }, csrfToken: string) { return request<{ queue: Queue }>(`/projects/${projectId}/profiles/${encodeURIComponent(profileSlug)}/queues/${encodeURIComponent(queueSlug)}`, { method: "PATCH", body: { ...body, environment: "sandbox" }, csrfToken }); },
   async webhooks(projectId: string) { return request<{ project: Project; webhooks: Webhook[] }>(`/projects/${projectId}/webhooks`); },
-  async createWebhook(projectId: string, body: { name: string; url: string; events: string[] }, csrfToken: string) { return request<{ webhook: Webhook; secret: string; warning: string }>(`/projects/${projectId}/webhooks`, { method: "POST", body: { ...body, environment: "sandbox", payloadVersion: "2026-09-15" }, csrfToken }); },
+  async createWebhook(projectId: string, body: { name: string; url: string; events: string[] }, csrfToken: string) { return request<{ webhook: Webhook; secret: string; warning: string }>(`/projects/${projectId}/webhooks`, { method: "POST", body: { ...body, environment: "sandbox", payloadVersion: 1 }, csrfToken }); },
   async disableWebhook(projectId: string, webhookId: string, csrfToken: string) { return request<{ webhook: Webhook }>(`/projects/${projectId}/webhooks/${webhookId}`, { method: "DELETE", csrfToken }); },
   async rotateWebhook(projectId: string, webhookId: string, csrfToken: string, immediate = false) { return request<{ webhook: Webhook; secret: string; warning: string }>(`/projects/${projectId}/webhooks/${webhookId}/rotate-secret${immediate ? "/compromised" : ""}`, { method: "POST", csrfToken }); },
   async deliveries(projectId: string, webhookId: string) { return request<{ webhook: Webhook; deliveries: Delivery[] }>(`/projects/${projectId}/webhooks/${webhookId}/deliveries?limit=20`); },

@@ -100,6 +100,53 @@ async function start({ name, username, email, phone, passwordHash, password, rol
   };
 }
 
+async function restartUnverified({ userId, name, email, passwordHash, roles = ["developer"], purpose = "developer" }) {
+  const code = issueCode();
+  const challenge = await db.withTransaction(async (client) => {
+    const user = await userRepository.findUserById(userId, { client });
+    if (!user || user.emailVerified || !(user.roles || []).includes("developer")) return null;
+    await userRepository.updateUser(userId, {
+      name,
+      email,
+      passwordHash,
+      passwordHashAlgorithm: "bcrypt",
+      emailVerified: false,
+      lastLoginProvider: "password",
+      roles
+    }, { client });
+    const current = await registrationOtpRepository.findLatestByUserIdForUpdate(userId, purpose, { client });
+    if (current && !current.usedAt) {
+      return registrationOtpRepository.replaceCode(current.id, {
+        codeHash: hashCode(code),
+        codeExpiresAt: new Date(Date.now() + OTP_TTL_MS)
+      }, { client });
+    }
+    return registrationOtpRepository.createChallenge({
+      id: crypto.randomUUID(),
+      userId,
+      email,
+      purpose,
+      codeHash: hashCode(code),
+      codeExpiresAt: new Date(Date.now() + OTP_TTL_MS)
+    }, { client });
+  });
+  if (!challenge) {
+    return {
+      challengeId: null,
+      step: "email_otp",
+      deliveryTarget: maskEmail(email),
+      expiresAt: new Date(Date.now() + OTP_TTL_MS)
+    };
+  }
+  await sendOtp(email, code, purpose);
+  return {
+    challengeId: challenge.id,
+    step: "email_otp",
+    deliveryTarget: maskEmail(email),
+    expiresAt: challenge.codeExpiresAt
+  };
+}
+
 async function resend({ challengeId, purpose = "customer" }) {
   const code = issueCode();
   const challenge = await db.withTransaction(async (client) => {
@@ -172,6 +219,7 @@ function assertActiveChallenge(challenge) {
 module.exports = {
   assertValidPassword,
   resend,
+  restartUnverified,
   start,
   verify
 };

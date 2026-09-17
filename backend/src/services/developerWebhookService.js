@@ -253,6 +253,49 @@ function buildDeveloperTicketEventPayload({ event, ticket }) {
   };
 }
 
+function buildDeveloperQueueEventPayload({ event, queue }) {
+  if (!event?.id || !queue?.id || !WEBHOOK_EVENTS.includes(event.type)) return null;
+  return {
+    id: `developer_queue_event:${event.id}`,
+    type: event.type,
+    payload_version: 1,
+    project_id: queue.projectId,
+    environment: queue.environment,
+    occurred_at: event.occurredAt,
+    resource: { type: "queue", id: queue.id, version: String(event.resourceVersion) },
+    data: {
+      queue: {
+        id: queue.id,
+        slug: queue.slug,
+        display_name: queue.displayName,
+        session_state: queue.sessionState,
+        intake_enabled: queue.intakeEnabled,
+        joining_enabled: queue.joiningEnabled,
+        priority_ratio: queue.priorityRatio,
+        resource_version: queue.resourceVersion
+      },
+      transition: {
+        from_status: event.fromStatus || null,
+        to_status: event.toStatus || null,
+        source: event.source || "developer_api"
+      }
+    }
+  };
+}
+
+async function enqueueDeveloperQueueEvent({ event, queue }, options = {}) {
+  const payload = buildDeveloperQueueEventPayload({ event, queue });
+  if (!payload) return null;
+  return enqueueEvent({
+    projectId: queue.projectId,
+    environment: queue.environment,
+    eventId: payload.id,
+    eventType: payload.type,
+    payloadVersion: payload.payload_version,
+    payload
+  }, options);
+}
+
 async function enqueueQueueEvent({ event, ticket, developerWebhook }, options = {}) {
   if (!developerWebhook?.projectId || !developerWebhook?.environment) return null;
   const payload = buildQueueEventPayload({
@@ -371,6 +414,7 @@ module.exports = {
   WEBHOOK_EVENTS,
   QUEUE_EVENT_TYPES,
   buildDeveloperTicketEventPayload,
+  buildDeveloperQueueEventPayload,
   buildQueueEventPayload,
   buildSignatureHeader,
   createSigningSecret,
@@ -381,6 +425,7 @@ module.exports = {
   normalizePayloadVersion,
   enqueueQueueEvent,
   enqueueDeveloperTicketEvent,
+  enqueueDeveloperQueueEvent,
   enqueueEvent,
   rawPayload,
   retryDelayMs,

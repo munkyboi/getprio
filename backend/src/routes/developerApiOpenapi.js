@@ -220,6 +220,7 @@ const openApiDocument = {
         operationId: "createProfile",
         summary: "Create a private developer profile",
         security: [{ ApiKeyAuth: [] }],
+        parameters: [idempotencyParameter],
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["slug", "display_name"], properties: { slug: { type: "string", pattern: "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$" }, display_name: { type: "string", maxLength: 120 } }, additionalProperties: false } } } },
         responses: { "201": envelopeResponse("Created developer profile"), "400": { description: "Invalid profile details." }, "401": { description: "Missing or invalid API key." }, "403": { description: "API key is missing the profiles:write scope." }, "409": { description: "Profile slug already exists." } }
       }
@@ -232,6 +233,33 @@ const openApiDocument = {
         parameters: [pathParameter("profileSlug", "The immutable developer profile slug."), idempotencyParameter],
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { display_name: { type: "string", maxLength: 120 }, directory_content: { type: "object", properties: { description: { type: "string", maxLength: 1000 }, website_url: { type: "string", format: "uri" } }, additionalProperties: false } }, additionalProperties: false } } } },
         responses: { "200": envelopeResponse("Updated developer profile"), "400": { description: "Invalid profile details." }, "401": { description: "Missing or invalid API key." }, "403": { description: "API key is missing the profiles:write scope." }, "404": { description: "Developer profile not found." } }
+      }
+    },
+    "/profiles/{profileSlug}/queues": {
+      get: {
+        operationId: "listProfileQueues",
+        summary: "List queues for a developer profile",
+        security: [{ ApiKeyAuth: [] }],
+        parameters: [pathParameter("profileSlug", "The developer profile slug.")],
+        responses: { "200": envelopeResponse("Profile queues"), "401": { description: "Missing or invalid API key." }, "403": { description: "API key is missing the queues:read scope." }, "404": { description: "Developer profile not found." } }
+      },
+      post: {
+        operationId: "createProfileQueue",
+        summary: "Create a queue for a developer profile",
+        security: [{ ApiKeyAuth: [] }],
+        parameters: [pathParameter("profileSlug", "The developer profile slug."), idempotencyParameter],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["slug", "display_name"], properties: { slug: { type: "string" }, display_name: { type: "string", maxLength: 120 }, session_state: { type: "string", enum: ["open", "paused", "closing", "closed"] }, intake_enabled: { type: "boolean" } }, additionalProperties: false } } } },
+        responses: { "201": envelopeResponse("Created profile queue"), "400": { description: "Invalid queue details." }, "401": { description: "Missing or invalid API key." }, "403": { description: "API key is missing the queues:write scope." }, "404": { description: "Developer profile not found." }, "409": { description: "Queue slug already exists." } }
+      }
+    },
+    "/profiles/{profileSlug}/queues/{queueSlug}": {
+      patch: {
+        operationId: "updateProfileQueue",
+        summary: "Update a developer profile queue",
+        security: [{ ApiKeyAuth: [] }],
+        parameters: [pathParameter("profileSlug", "The developer profile slug."), pathParameter("queueSlug", "The queue slug."), idempotencyParameter],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { display_name: { type: "string", maxLength: 120 }, session_state: { type: "string", enum: ["open", "paused", "closing", "closed"] }, intake_enabled: { type: "boolean" }, resource_version: { type: "integer", minimum: 1 } }, additionalProperties: false } } } },
+        responses: { "200": envelopeResponse("Updated profile queue"), "400": { description: "Invalid queue details." }, "401": { description: "Missing or invalid API key." }, "403": { description: "API key is missing the queues:write scope." }, "404": { description: "Developer profile or queue not found." }, "409": { description: "Queue update conflict." } }
       }
     },
     "/queues/{tenantSlug}": queueReadPath({

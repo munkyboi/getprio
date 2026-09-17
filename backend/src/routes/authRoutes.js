@@ -265,6 +265,11 @@ function buildExistingAccountMessage(user) {
   return "That email is already registered.";
 }
 
+function isDeveloperOnlyIdentity(user) {
+  const roles = new Set(user?.roles || []);
+  return roles.has("developer") && !["customer", "vendor", "staff", "admin", "platform_admin"].some((role) => roles.has(role));
+}
+
 function buildFallbackName(provider, email) {
   if (email) {
     return email.split("@")[0] || `${getProviderLabel(provider)} User`;
@@ -953,6 +958,18 @@ router.post(
         identifierValue: loginIdentifier.identifierValue,
         success: false,
         failureReason: "invalid_credentials",
+        req
+      });
+      const error = new Error("Invalid email/username or password.");
+      error.statusCode = 401;
+      throw error;
+    }
+    if (isDeveloperOnlyIdentity(user)) {
+      await authService.recordLoginAttempt({
+        identifierType: loginIdentifier.identifierType,
+        identifierValue: loginIdentifier.identifierValue,
+        success: false,
+        failureReason: "invalid_surface",
         req
       });
       const error = new Error("Invalid email/username or password.");

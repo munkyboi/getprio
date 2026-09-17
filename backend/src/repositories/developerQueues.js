@@ -370,14 +370,26 @@ async function appendTicketEvent(input, options = {}) {
         developer_api_queue_id, developer_api_ticket_id, event_type,
         from_status, to_status, resource_version, source)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-     RETURNING id, created_at`,
+     RETURNING id, developer_api_ticket_id, developer_api_queue_id, event_type,
+       from_status, to_status, resource_version, source, created_at`,
     [
       input.projectId, input.environment, input.profileId, input.queueId,
       input.ticketId, input.type, input.fromStatus || null, input.toStatus || null,
       input.resourceVersion, input.source || "developer_api"
     ]
   );
-  return { id: String(result.rows[0].id), occurredAt: result.rows[0].created_at };
+  const row = result.rows[0];
+  return {
+    id: String(row.id),
+    ticketId: String(row.developer_api_ticket_id),
+    queueId: String(row.developer_api_queue_id),
+    type: row.event_type,
+    fromStatus: row.from_status,
+    toStatus: row.to_status,
+    resourceVersion: Number(row.resource_version),
+    source: row.source,
+    occurredAt: row.created_at
+  };
 }
 
 async function issueTicket(input, options = {}) {

@@ -1,4 +1,5 @@
 const express = require("express");
+const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
 const bcrypt = require("bcryptjs");
 const db = require("../config/db");
 const env = require("../config/env");
@@ -19,6 +20,15 @@ const {
 } = require("../services/browserSessionService");
 
 const router = express.Router();
+const developerRegistrationOtpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => ipKeyGenerator(req.ip || req.socket?.remoteAddress || "unknown"),
+  message: { message: "Too many registration verification requests. Please try again later." }
+});
+router.use("/register/otp", developerRegistrationOtpLimiter);
 
 function requestContext(req) {
   return {
@@ -91,13 +101,6 @@ function validateDeveloperEmail(value) {
     throw error;
   }
   return email;
-}
-
-function developerRegistrationUnavailable() {
-  const error = new Error("That email is already used by another GetPrio account. Use a different email for your independent Developer Portal account.");
-  error.statusCode = 409;
-  error.code = "DEVELOPER_EMAIL_UNAVAILABLE";
-  return error;
 }
 
 function readDeveloperVerificationCode(value) {
@@ -200,15 +203,11 @@ router.post(
     }
 
     customerRegistrationOtpService.assertValidPassword(password);
-    if (await userRepository.findUserByEmail(email)) throw developerRegistrationUnavailable();
-
-    const challenge = await customerRegistrationOtpService.start({
-      name,
-      email,
-      passwordHash: await bcrypt.hash(password, 10),
-      roles: ["developer"],
-      purpose: "developer"
-    });
+    const existingUser = await userRepository.findUserByEmail(email);
+    const passwordHash = await bcrypt.hash(password, 10);
+    const challenge = existingUser
+      ? await customerRegistrationOtpService.restartUnverified({ userId: existingUser._id, name, email, passwordHash, roles: ["developer"], purpose: "developer" })
+      : await customerRegistrationOtpService.start({ name, email, passwordHash, roles: ["developer"], purpose: "developer" });
     res.status(201).json(challenge);
   })
 );

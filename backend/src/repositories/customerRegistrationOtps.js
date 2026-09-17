@@ -38,6 +38,18 @@ async function findByIdForUpdate(id, options = {}) {
   return mapChallenge(result.rows[0]);
 }
 
+async function findLatestByUserIdForUpdate(userId, purpose = "customer", options = {}) {
+  const result = await clientFor(options).query(
+    `SELECT * FROM customer_registration_otps
+     WHERE user_id = $1 AND purpose = $2
+     ORDER BY created_at DESC
+     LIMIT 1
+     FOR UPDATE`,
+    [Number(userId), purpose]
+  );
+  return mapChallenge(result.rows[0]);
+}
+
 async function recordAttempt(id, options = {}) {
   const result = await clientFor(options).query(
     `UPDATE customer_registration_otps
@@ -74,6 +86,7 @@ async function markUsed(id, options = {}) {
 module.exports = {
   createChallenge,
   findByIdForUpdate,
+  findLatestByUserIdForUpdate,
   markUsed,
   recordAttempt,
   replaceCode

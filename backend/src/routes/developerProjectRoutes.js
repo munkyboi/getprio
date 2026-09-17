@@ -478,7 +478,7 @@ router.patch("/projects/:projectId/profiles/:profileSlug", asyncHandler(async (r
     actorRole: req.developerMembership.role,
     ipAddress: authService.getRequestIp(req),
     userAgent: authService.getUserAgent(req),
-    metadata: { projectId: project.id, profileId: profile.id, environment, directoryDraft: Boolean(changes.directoryContent !== undefined) }
+    metadata: { projectId: project.id, profileId: profile.id, environment, directoryDraft: Boolean(changes.directoryContent != undefined) }
   });
   res.json({ profile: profileResponse(updated) });
 }));
