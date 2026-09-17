@@ -34,7 +34,7 @@ function decodeCursor(value) {
   if (!value) return null;
   try {
     const parsed = JSON.parse(Buffer.from(String(value), "base64url").toString("utf8"));
-    if (!parsed || !parsed.createdAt || !/^\d+$/.test(String(parsed.id))) throw new Error("invalid");
+    if (!parsed?.createdAt || !/^\d+$/.test(String(parsed.id))) throw new Error("invalid");
     return { createdAt: parsed.createdAt, id: parsed.id };
   } catch {
     const error = new Error("Invalid cursor.");
@@ -94,7 +94,7 @@ async function formatMobileTicket(ticket, environment) {
     called_counter: ticket.status === "called" && counter && String(counter.locationId) === String(ticket.locationId)
       ? { id: counter._id, name: counter.name }
       : null,
-    estimated_wait_minutes: queuePosition ? null : null,
+    estimated_wait_minutes: null,
     can_cancel: canCancel,
     tracking_status: ACTIVE_STATUSES.has(ticket.status) ? "active" : "terminal",
     issued_at: ticket.createdAt,
