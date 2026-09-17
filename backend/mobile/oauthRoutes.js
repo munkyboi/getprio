@@ -28,7 +28,6 @@ const mobileOAuthLimiter = rateLimit({
   message: { message: "Too many mobile sign-in requests. Please try again later." }
 });
 router.use(mobileOAuthLimiter);
-const MOBILE_OAUTH_CALLBACK = "/api/mobile/auth/oauth";
 const MOBILE_REDIRECT_URI = process.env.MOBILE_OAUTH_REDIRECT_URI || "getprio://oauth/callback";
 
 function requiredQuery(value, label) {
@@ -168,7 +167,7 @@ router.get(
       codeChallenge
     });
     res.redirect(buildAuthorizationUrl(provider, signedState, {
-      redirectUri: `${String(env.serverUrl).replace(/\/$/, "")}${MOBILE_OAUTH_CALLBACK}/${provider}/callback`
+      redirectUri: `${String(env.serverUrl).replace(/\/$/, "")}${String(req.baseUrl || "/api/mobile/auth")}/oauth/${provider}/callback`
     }));
   })
 );

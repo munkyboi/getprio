@@ -5,6 +5,7 @@ const userRepository = require("../repositories/users");
 const permissions = require("../services/permissions");
 const { userRequiresPrivilegedMfa } = require("../services/mfaService");
 const { getAccessCookie, parseCookies } = require("../services/browserSessionService");
+const { normalizeApiPath } = require("./apiPath");
 
 function getTokenFromRequest(req) {
   const authorization = req.headers.authorization || "";
@@ -22,9 +23,7 @@ function getTokenFromRequest(req) {
 }
 
 function isPrivilegedMfaRecoveryRoute(req) {
-  const path = String(req.originalUrl || req.url || "")
-    .split("?")[0]
-    .replace(/^\/api(?=\/)/, "");
+  const path = normalizeApiPath(req.originalUrl || req.url);
   return [
     "/auth/me",
     "/auth/logout",
@@ -58,7 +57,7 @@ async function loadAuthenticatedUser(req, strict) {
     }
 
     const session = await authSessionRepository.findSessionById(sessionId);
-    const deletionRetry = req.method === 'POST' && String(req.originalUrl || '').split('?')[0] === '/api/account/delete'
+    const deletionRetry = req.method === 'POST' && normalizeApiPath(req.originalUrl || req.url) === '/account/delete'
       && session?.status === 'revoked' && session?.revokeReason === 'account_deletion';
     if (
       !session ||

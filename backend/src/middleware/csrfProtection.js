@@ -6,6 +6,7 @@ const {
   parseCookies,
   verifyCsrfToken
 } = require("../services/browserSessionService");
+const { normalizeApiPath } = require("./apiPath");
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 const ALLOWED_CONTENT_TYPES = [
@@ -36,9 +37,7 @@ function requestOrigin(req) {
 }
 
 function isAuthRecoveryRequest(req) {
-  const path = String(req.originalUrl || req.url || "")
-    .split("?")[0]
-    .replace(/^\/api(?=\/)/, "");
+  const path = normalizeApiPath(req.originalUrl || req.url);
   // These routes establish a new identity from their own credentials/input;
   // unrelated cookies must not require an old session's CSRF token. Keep
   // /register/vendor/complete protected: it uses the signed-in user's identity.
