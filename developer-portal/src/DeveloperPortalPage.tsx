@@ -515,7 +515,7 @@ function AuthScreen({ mode, onAuthenticated }: { mode: "login" | "register"; onA
     try {
       const nextChallenge = await developerApi.resendRegistration(challenge.challengeId);
       setVerificationCode("");
-      if (nextChallenge.challengeId) setChallenge(nextChallenge);
+      if (nextChallenge.challengeId) setChallenge({ challengeId: nextChallenge.challengeId, deliveryTarget: nextChallenge.deliveryTarget });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "We could not resend the code.");
     } finally { setBusy(false); }
@@ -537,7 +537,7 @@ function AuthScreen({ mode, onAuthenticated }: { mode: "login" | "register"; onA
             String(form.get("password") || "")
           );
           setVerificationCode("");
-          if (nextChallenge.challengeId) setChallenge(nextChallenge);
+          if (nextChallenge.challengeId) setChallenge({ challengeId: nextChallenge.challengeId, deliveryTarget: nextChallenge.deliveryTarget });
           else setError("If this email can be registered, a verification code will be sent.");
         }
       } else {
