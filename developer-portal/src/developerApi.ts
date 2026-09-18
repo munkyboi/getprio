@@ -46,7 +46,11 @@ export class DeveloperApiError extends Error {
   }
 }
 
-const apiBase = (import.meta.env.VITE_DEVELOPER_API_ORIGIN || "").replace(/\/$/, "");
+// Local development keeps requests same-origin so Vite can proxy `/api` to the
+// local developer service. The standalone production portal is hosted on a
+// separate origin, so its default must point at the public API service.
+const defaultApiOrigin = import.meta.env.DEV ? "" : "https://api.getprio.online";
+const apiBase = (import.meta.env.VITE_DEVELOPER_API_ORIGIN || defaultApiOrigin).replace(/\/$/, "");
 let csrfTokenCache: string | undefined;
 let refreshInFlight: Promise<string | undefined> | undefined;
 
