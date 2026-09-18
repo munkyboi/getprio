@@ -181,6 +181,55 @@ test("developer workspace edits profile metadata and keeps directory changes in 
   } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
 });
 
+test("developer workspace deletes empty profiles and queues within the signed-in project", async () => {
+  const originals = [];
+  const queue = { id: "queue-1", profileId: "profile-1", slug: "main", displayName: "Main queue", sessionState: "closed", intakeEnabled: false, joiningEnabled: false, priorityRatio: 3, resourceVersion: 1, createdAt: "2026-09-16T00:00:00.000Z", updatedAt: "2026-09-16T00:00:00.000Z" };
+  const events = [];
+  replace(developerProjects, "findProjectForUser", async (id) => id === project.id ? project : null, originals);
+  replace(developerProjects, "revokeKeysForDeletedProfile", async (projectId, environment, slug, options) => { assert.equal(projectId, project.id); assert.equal(environment, "sandbox"); assert.equal(slug, profile.slug); assert.ok(options?.client); return []; }, originals);
+  replace(developerQueues, "findProfile", async () => profile, originals);
+  replace(developerQueues, "findQueue", async () => queue, originals);
+  replace(developerQueues, "deleteProfile", async (id) => { assert.equal(id, profile.id); return profile; }, originals);
+  replace(developerQueues, "deleteQueue", async (id) => { assert.equal(id, queue.id); return queue; }, originals);
+  replace(db, "withTransaction", async (callback) => callback({}), originals);
+  replace(securityEventService, "logSecurityEvent", async (event) => events.push(event), originals);
+  const { server, baseUrl } = await startServer();
+  try {
+    const deletedQueue = await request("DELETE", `${baseUrl}/projects/project-1/profiles/harbor/queues/main?environment=sandbox`);
+    assert.equal(deletedQueue.status, 200);
+    assert.equal(deletedQueue.body.queue.id, queue.id);
+    const deletedProfile = await request("DELETE", `${baseUrl}/projects/project-1/profiles/harbor?environment=sandbox`);
+    assert.equal(deletedProfile.status, 200);
+    assert.equal(deletedProfile.body.profile.id, profile.id);
+    assert.deepEqual(events.map((event) => event.eventType), ["developer_queue_deleted", "developer_profile_deleted"]);
+    const denied = await request("DELETE", `${baseUrl}/projects/another-project/profiles/harbor?environment=sandbox`);
+    assert.equal(denied.status, 404);
+  } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
+});
+
+test("developer workspace preserves profiles and queues with ticket history", async () => {
+  const originals = [];
+  const foreignKeyError = () => Object.assign(new Error("violates foreign key constraint"), { code: "23503" });
+  replace(developerProjects, "findProjectForUser", async () => project, originals);
+  replace(developerProjects, "revokeKeysForDeletedProfile", async () => [], originals);
+  replace(db, "withTransaction", async (callback) => callback({}), originals);
+  replace(developerQueues, "findProfile", async () => profile, originals);
+  replace(developerQueues, "findQueue", async () => ({ id: "queue-1", profileId: "profile-1", slug: "main", displayName: "Main queue", sessionState: "closed", intakeEnabled: false, joiningEnabled: false, priorityRatio: 3, resourceVersion: 1, createdAt: "2026-09-16T00:00:00.000Z", updatedAt: "2026-09-16T00:00:00.000Z" }), originals);
+  replace(developerQueues, "deleteProfile", async () => { throw foreignKeyError(); }, originals);
+  replace(developerQueues, "deleteQueue", async () => { throw foreignKeyError(); }, originals);
+  const { server, baseUrl } = await startServer();
+  try {
+    const profileResponse = await request("DELETE", `${baseUrl}/projects/project-1/profiles/harbor?environment=sandbox`);
+    assert.equal(profileResponse.status, 409);
+    assert.equal(profileResponse.body.code, "RESOURCE_HAS_TICKET_HISTORY");
+    assert.match(profileResponse.body.message, /profile has ticket history/i);
+    const queueResponse = await request("DELETE", `${baseUrl}/projects/project-1/profiles/harbor/queues/main?environment=sandbox`);
+    assert.equal(queueResponse.status, 409);
+    assert.equal(queueResponse.body.code, "RESOURCE_HAS_TICKET_HISTORY");
+    assert.match(queueResponse.body.message, /queue has ticket history/i);
+  } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
+});
+
 test("sandbox allowance reads only a project accessible to the signed-in developer", async () => {
   const originals = [];
   const calls = [];

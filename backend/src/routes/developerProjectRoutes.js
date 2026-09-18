@@ -385,6 +385,15 @@ function notFound(message = "Project not found or you do not have access to it."
   return error;
 }
 
+function resourceDeletionError(error, resourceName) {
+  if (error.code === "23503") {
+    error.statusCode = 409;
+    error.code = "RESOURCE_HAS_TICKET_HISTORY";
+    error.message = `This ${resourceName} has ticket history and cannot be deleted.`;
+  }
+  return error;
+}
+
 async function rotateWebhookSecret(req, res, options = {}) {
   const project = await developerProjects.findProjectForUser(req.params.projectId, req.user._id);
   if (!project) throw notFound();
@@ -649,6 +658,34 @@ router.patch("/projects/:projectId/profiles/:profileSlug", asyncHandler(async (r
   res.json({ profile: profileResponse(updated) });
 }));
 
+router.delete("/projects/:projectId/profiles/:profileSlug", asyncHandler(async (req, res) => {
+  const project = await developerProjects.findProjectForUser(req.params.projectId, req.user._id);
+  if (!project) throw notFound();
+  const environment = workspaceEnvironment(req.query?.environment || req.body?.environment || "sandbox");
+  const profile = await developerQueues.findProfile(project.id, environment, cleanSlug(req.params.profileSlug, "Profile slug"));
+  if (!profile) throw notFound("Profile not found.");
+  try {
+    const deleted = await db.withTransaction(async (client) => {
+      const keyChanges = await developerProjects.revokeKeysForDeletedProfile(project.id, environment, profile.slug, { client });
+      const removed = await developerQueues.deleteProfile(profile.id, { client });
+      if (!removed) throw notFound("Profile not found.");
+      await securityEventService.logSecurityEvent({
+        userId: req.user._id,
+        sessionId: req.auth.sessionId,
+        eventType: "developer_profile_deleted",
+        actorRole: req.developerMembership.role,
+        ipAddress: authService.getRequestIp(req),
+        userAgent: authService.getUserAgent(req),
+        metadata: { projectId: project.id, profileId: profile.id, environment, affectedApiKeys: keyChanges.length }
+      }, { client });
+      return removed;
+    });
+    res.json({ profile: profileResponse(deleted) });
+  } catch (error) {
+    throw resourceDeletionError(error, "profile");
+  }
+}));
+
 router.get("/projects/:projectId/profiles/:profileSlug/queues", asyncHandler(async (req, res) => {
   const project = await developerProjects.findProjectForUser(req.params.projectId, req.user._id);
   if (!project) throw notFound();
@@ -783,6 +820,35 @@ router.patch("/projects/:projectId/profiles/:profileSlug/queues/:queueSlug", asy
     metadata: { projectId: project.id, profileId: profile.id, queueId: queue.id, environment, changes: Object.keys(update).filter((key) => key !== "resourceVersion") }
   });
   res.json({ queue: queueResponse(updated) });
+}));
+
+router.delete("/projects/:projectId/profiles/:profileSlug/queues/:queueSlug", asyncHandler(async (req, res) => {
+  const project = await developerProjects.findProjectForUser(req.params.projectId, req.user._id);
+  if (!project) throw notFound();
+  const environment = workspaceEnvironment(req.query?.environment || req.body?.environment || "sandbox");
+  const profile = await developerQueues.findProfile(project.id, environment, cleanSlug(req.params.profileSlug, "Profile slug"));
+  if (!profile) throw notFound("Profile not found.");
+  const queue = await developerQueues.findQueue(profile.id, cleanSlug(req.params.queueSlug, "Queue slug"));
+  if (!queue) throw notFound("Queue not found.");
+  try {
+    const deleted = await db.withTransaction(async (client) => {
+      const removed = await developerQueues.deleteQueue(queue.id, { client });
+      if (!removed) throw notFound("Queue not found.");
+      await securityEventService.logSecurityEvent({
+        userId: req.user._id,
+        sessionId: req.auth.sessionId,
+        eventType: "developer_queue_deleted",
+        actorRole: req.developerMembership.role,
+        ipAddress: authService.getRequestIp(req),
+        userAgent: authService.getUserAgent(req),
+        metadata: { projectId: project.id, profileId: profile.id, queueId: queue.id, environment }
+      }, { client });
+      return removed;
+    });
+    res.json({ queue: queueResponse(deleted) });
+  } catch (error) {
+    throw resourceDeletionError(error, "queue");
+  }
 }));
 
 router.get("/projects/:projectId/keys", asyncHandler(async (req, res) => {

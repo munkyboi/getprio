@@ -410,6 +410,21 @@ async function revokeApiKey(keyId, userId, reason, options = {}) {
   return mapKey(result.rows[0]);
 }
 
+async function revokeKeysForDeletedProfile(projectId, environment, profileSlug, options = {}) {
+  const result = await buildQueryClient(options.client).query(
+    `UPDATE developer_api_keys
+     SET profile_slugs = CASE WHEN cardinality(profile_slugs) = 1 THEN NULL ELSE array_remove(profile_slugs, $3) END,
+         status = CASE WHEN cardinality(profile_slugs) = 1 THEN 'revoked' ELSE status END,
+         revoked_at = CASE WHEN cardinality(profile_slugs) = 1 THEN NOW() ELSE revoked_at END,
+         revoke_reason = CASE WHEN cardinality(profile_slugs) = 1 THEN 'profile deleted' ELSE revoke_reason END,
+         updated_at = NOW()
+     WHERE developer_project_id = $1 AND environment = $2 AND status = 'active' AND $3 = ANY(profile_slugs)
+     RETURNING id AS key_id, status, cardinality(profile_slugs) AS remaining_profile_count`,
+    [projectId, environment, profileSlug]
+  );
+  return result.rows.map((row) => ({ id: String(row.key_id), revoked: row.status === "revoked", remainingProfileCount: Number(row.remaining_profile_count || 0) }));
+}
+
 async function archiveProject(projectId, userId, options = {}) {
   const result = await buildQueryClient(options.client).query(
     `UPDATE developer_projects p
@@ -453,6 +468,7 @@ module.exports = {
   mapKey,
   mapProject,
   revokeApiKey,
+  revokeKeysForDeletedProfile,
   reviewProductionApproval,
   saveProductionApprovalDraft,
   submitProductionApproval,
