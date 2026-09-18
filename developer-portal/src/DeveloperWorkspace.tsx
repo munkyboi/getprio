@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Badge, Button, FloatingIndicator, Modal, Paper, Select, Switch, Textarea, TextInput } from "@mantine/core";
 import { IconCheck, IconCopy, IconExternalLink, IconKey, IconPencil, IconPlus, IconRefresh, IconWebhook, IconX } from "@tabler/icons-react";
 import { DeveloperApiError, developerApi, type ApiKey, type Delivery, type DeveloperTicket, type Profile, type Project, type Queue, type QueueSnapshot, type SandboxAllowance, type Session, type UsageReport, type Webhook } from "./developerApi";
@@ -169,7 +169,7 @@ function ProfileCreatePage({ busy, onCreateProfile, onBack }: { busy: string; on
   </section>;
 }
 
-function ProfilesPage({ project, profiles, onCreatePage, busy, onUpdateProfile }: { project: Project; profiles: Profile[]; onCreatePage: () => void; busy: string; onUpdateProfile: (profile: Profile, event: FormEvent<HTMLFormElement>) => Promise<boolean> }) {
+function ProfilesPage({ profiles, onCreatePage, busy, onUpdateProfile }: { project: Project; profiles: Profile[]; onCreatePage: () => void; busy: string; onUpdateProfile: (profile: Profile, event: FormEvent<HTMLFormElement>) => Promise<boolean> }) {
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
   return <section className="developer-workspace-panel dpp-section developer-workspace-resources-page">
     <p className="developer-workspace-eyebrow">PROJECT / SANDBOX / API-MANAGED PROFILES</p>
@@ -339,7 +339,7 @@ function WebhookCreatePage({ busy, onCreate, onBack, onDirtyChange }: { busy: st
   </section>;
 }
 
-function WebhooksPage({ project, webhooks, selectedWebhook, selectedWebhookValue, deliveries, busy, onWebhookChange, onCreatePage, onRotate, onCompromised, onDisable, onRefresh, onReplay }: { project: Project; webhooks: Webhook[]; selectedWebhook: string; selectedWebhookValue: Webhook | null; deliveries: Delivery[]; busy: string; onWebhookChange: (value: string) => void; onCreatePage: () => void; onRotate: (webhook: Webhook) => void; onCompromised: (webhook: Webhook) => void; onDisable: (webhook: Webhook) => void; onRefresh: () => void; onReplay: (delivery: Delivery) => void }) {
+function WebhooksPage({ webhooks, selectedWebhook, selectedWebhookValue, deliveries, busy, onWebhookChange, onCreatePage, onRotate, onCompromised, onDisable, onRefresh, onReplay }: { project: Project; webhooks: Webhook[]; selectedWebhook: string; selectedWebhookValue: Webhook | null; deliveries: Delivery[]; busy: string; onWebhookChange: (value: string) => void; onCreatePage: () => void; onRotate: (webhook: Webhook) => void; onCompromised: (webhook: Webhook) => void; onDisable: (webhook: Webhook) => void; onRefresh: () => void; onReplay: (delivery: Delivery) => void }) {
   const [expandedDeliveryIds, setExpandedDeliveryIds] = useState<string[]>([]);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(10);
@@ -432,13 +432,6 @@ function TeamSecurityPage({ session }: { session: Session }) {
     <Paper withBorder p="xl" className="developer-workspace-account-prototype-card"><p className="developer-workspace-eyebrow">SEATS USED OR RESERVED</p><h2>1 / 3</h2><p>1 owner · 0 active members · 0 pending invitations</p><p>Team invitations are not connected in this workspace, so no invitation is sent.</p></Paper>
     <section className="dpp-section"><h2>Your account security</h2><Paper withBorder p="xl" className="developer-workspace-account-prototype-card"><h3>{session.user.email} · You</h3><Badge color="blue" variant="light" radius="xl">OWNER</Badge><p>{session.user.emailVerified ? "Email verified" : "Email not verified"} · MFA {session.user.mfaEnabled ? "set up" : "not set up"}</p><p>{session.user.mfaEnabled ? "Your personal MFA requirement is satisfied. Project approval is still required for production." : "You can use Sandbox. Set up your own MFA before accessing production tools."}</p></Paper></section>
     <section className="dpp-section"><h2>Members and invitations</h2><Paper withBorder p="xl" className="developer-workspace-account-prototype-card"><h3>No members or pending invitations yet.</h3><p>Two seats are available. Member invitations and per-member project access are not connected to the local backend.</p></Paper></section>
-  </AccountPageShell>;
-}
-
-function SecurityPage({ session }: { session: Session }) {
-  return <AccountPageShell eyebrow="ACCOUNT / MEMBER SECURITY" title="My security.">
-    <p>{session.user.email} · Member · Project access is determined by your account membership.</p>
-    <Paper withBorder p="xl" className="developer-workspace-account-prototype-card"><p className="developer-workspace-eyebrow">AUTHENTICATOR MFA</p><h2>MFA {session.user.mfaEnabled ? "set up" : "not set up"}</h2><Badge color={session.user.mfaEnabled ? "teal" : "yellow"} variant="light" radius="xl">{session.user.mfaEnabled ? "Ready" : "Action needed"}</Badge><p>Each person must satisfy their own production MFA requirement.</p><p>Enrollment, recovery codes, and removal are not exposed in this Developer Portal workspace yet.</p></Paper>
   </AccountPageShell>;
 }
 
