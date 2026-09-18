@@ -37,6 +37,7 @@ const db = require("../config/db");
 const developerProjects = require("../repositories/developerProjects");
 const developerWebhookSuspensions = require("../repositories/developerWebhookSuspensions");
 const developerApiRateLimits = require("../repositories/developerApiRateLimits");
+const { productionApprovalResponse } = require("../utils/developerProductionApproval");
 
 const router = express.Router();
 
@@ -66,28 +67,6 @@ function developerSuspensionResponse(suspension) {
     reinstatedByUserId: suspension.reinstatedByUserId,
     reinstatementReason: suspension.reinstatementReason,
     reinstatedAt: suspension.reinstatedAt
-  };
-}
-
-function developerProductionApprovalResponse(approval) {
-  if (!approval) return null;
-  return {
-    id: approval.id,
-    projectId: approval.projectId,
-    status: approval.status,
-    draft: approval.draft || {},
-    approvedSubmissionId: approval.approvedSubmissionId,
-    submissions: (approval.submissions || []).map((submission) => ({
-      id: String(submission.id),
-      version: Number(submission.version),
-      snapshot: submission.snapshot || {},
-      status: submission.status,
-      submittedByUserId: submission.submittedByUserId ? String(submission.submittedByUserId) : null,
-      submittedAt: submission.submittedAt,
-      reviewerUserId: submission.reviewerUserId ? String(submission.reviewerUserId) : null,
-      reviewedAt: submission.reviewedAt,
-      reviewFeedback: submission.reviewFeedback || null
-    }))
   };
 }
 
@@ -176,7 +155,7 @@ router.get("/developer-projects/:projectId/production-approval", requirePlatform
   if (!project) return res.status(404).json({ message: "Developer project not found." });
   const approval = await developerProjects.getProductionApproval(project.id);
   res.setHeader("Cache-Control", "no-store");
-  return res.json({ project: { id: project.id, name: project.name, status: project.status }, approval: developerProductionApprovalResponse(approval) });
+  return res.json({ project: { id: project.id, name: project.name, status: project.status }, approval: productionApprovalResponse(approval) });
 }));
 
 router.post("/developer-projects/:projectId/production-approval/:submissionId/review", requirePlatformPermission("platform.developer_api.manage"), requireIdempotency("platform.developer_production_approval.review"), asyncHandler(async (req, res) => {
@@ -206,7 +185,7 @@ router.post("/developer-projects/:projectId/production-approval/:submissionId/re
     return reviewedApproval;
   });
   if (!approval) return res.status(404).json({ message: "Production application submission not found." });
-  return res.json({ project: { id: project.id, name: project.name, status: project.status }, approval: developerProductionApprovalResponse(approval) });
+  return res.json({ project: { id: project.id, name: project.name, status: project.status }, approval: productionApprovalResponse(approval) });
 }));
 
 router.get("/business-categories", requirePlatformPermission("platform.settings.manage"), asyncHandler(async (_req, res) => {

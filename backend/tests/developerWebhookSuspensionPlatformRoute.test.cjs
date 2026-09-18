@@ -30,6 +30,7 @@ function loadRoutes() {
       save: async (data) => ({ projectId: data.projectId, environment: data.environment, readLimitPerMinute: data.readLimitPerMinute, writeLimitPerMinute: data.writeLimitPerMinute })
     },
     "../services/securityAuditService": { record: async (data, options) => calls.push(["audit", data, options]) },
+    "../utils/developerProductionApproval": { productionApprovalResponse: (approval) => approval },
     "../config/db": { withTransaction: async (callback) => callback({}) }
   };
   vm.runInNewContext(fs.readFileSync(path.resolve(__dirname, "../src/routes/platformRoutes.js"), "utf8"), { require: (name) => mocks[name] || fallback, module: { exports: {} } });
