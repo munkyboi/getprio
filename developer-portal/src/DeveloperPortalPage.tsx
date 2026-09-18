@@ -21,7 +21,7 @@ import DeveloperShell from "./DeveloperShell";
 import DeveloperWorkspace from "./DeveloperWorkspace";
 import DeveloperInputOtp from "./components/DeveloperInputOtp";
 import { developerApi, type MfaLoginChallenge, type MfaLoginMethod, type Session } from "./developerApi";
-import { codeLanguages, createWebhookSamples, requestSamples, ticketIssueSamples, type CodeLanguage, type CodeSamples } from "./apiCodeSamples";
+import { codeLanguages, requestSamples, ticketIssueSamples, type CodeLanguage, type CodeSamples, webhookVerificationSamples } from "./apiCodeSamples";
 import "./DeveloperPortalPage.css";
 
 const faqs = [
@@ -240,7 +240,7 @@ function DocsFlow() {
     ["04", "Your response", "Receive a versioned response with a request ID for support."],
     ["05", "Webhook worker", "Signed events are delivered asynchronously and retried until accepted."],
   ] as const;
-  return <ol className="developer-docs-flow" aria-label="Request flow from your backend through the API edge and queue service to the response and webhook worker.">{steps.map(([number, title, body], index) => <li key={title}><span>{number}</span><div><h3>{title}</h3><p>{body}</p></div>{index < steps.length - 1 && <b aria-hidden="true">→</b>}</li>)}</ol>;
+  return <ol className="developer-docs-flow" aria-label="Request flow from your backend through the API edge and queue service to the response and webhook worker.">{steps.map(([number, title, body], index) => <li key={title}><span aria-hidden="true">{number}</span><div><h3>{title}</h3><p>{body}</p></div>{index < steps.length - 1 && <b aria-hidden="true">→</b>}</li>)}</ol>;
 }
 
 function Guides() {
@@ -339,7 +339,7 @@ function Guides() {
           <DocsHeading id="webhooks">Reconcile signed events</DocsHeading>
           <p>Register a receiver in the Developer Portal, verify the exact raw request body with your signing secret, and return a 2xx only after durable acceptance. Delivery is at-least-once, so deduplicate by <code>GetPrio-Event-Id</code>.</p>
           <div className="developer-docs-webhook-grid"><article><strong>Verify</strong><span>Check timestamp freshness and HMAC-SHA256 before parsing JSON.</span></article><article><strong>Persist</strong><span>Store the event ID and payload before acknowledging the request.</span></article><article><strong>Retry safely</strong><span>Make handlers duplicate-safe and return non-2xx only when a retry is useful.</span></article></div>
-          <CodeSample label="Register a webhook" samples={createWebhookSamples} />
+          <CodeSample label="Verify a webhook signature" samples={webhookVerificationSamples} />
           <p><a href="/reference#webhooks">Open webhook headers and delivery details →</a></p>
         </section>
 
