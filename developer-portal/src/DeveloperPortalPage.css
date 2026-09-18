@@ -1204,3 +1204,38 @@
   .developer-portal-code-language { flex: 1 1 10rem; }
   .developer-portal-code-language select { width: 100%; max-width: none; }
 }
+
+.developer-quickstart {
+  display: grid;
+  gap: 2rem;
+  width: calc(100% - 2rem);
+  max-width: 76rem;
+  margin: 0 auto;
+  padding: 2.5rem 0 6rem;
+}
+.developer-quickstart-main { min-width: 0; }
+.developer-quickstart-main > h1 { max-width: 42rem; font-size: clamp(2.25rem, 7vw, 4.1rem); }
+.developer-quickstart-main > .developer-portal-lede { max-width: 48rem; }
+.developer-quickstart-actions { display: flex; flex-wrap: wrap; gap: .75rem; margin: 1.5rem 0 2.5rem; }
+.developer-quickstart-steps { display: grid; gap: .75rem; margin: 0 0 2.5rem; }
+.developer-quickstart-steps article { display: grid; grid-template-columns: 2.2rem minmax(0, 1fr); gap: .75rem; padding: 1rem; border: 1px solid var(--dp-border); border-radius: .85rem; background: var(--dp-surface); }
+.developer-quickstart-steps article > span { display: grid; width: 2rem; height: 2rem; place-items: center; border-radius: 50%; background: var(--dp-accent); color: var(--dp-bg); font-size: .7rem; font-weight: 800; }
+.developer-quickstart-steps h2 { margin: .1rem 0 .25rem; font-family: Inter, system-ui, sans-serif; font-size: 1rem; letter-spacing: 0; }
+.developer-quickstart-steps p { margin: 0; font-size: .9rem; line-height: 1.55; }
+.developer-quickstart-section { padding: 2.5rem 0; border-top: 1px solid var(--dp-border); scroll-margin-top: 6rem; }
+.developer-quickstart-section h2 { margin-bottom: .75rem; }
+.developer-quickstart-section > p:not(.developer-portal-eyebrow) { max-width: 46rem; }
+.developer-quickstart-next { border-bottom: 0; }
+.developer-quickstart-next .developer-portal-primary { display: inline-flex; margin-top: .5rem; }
+.developer-quickstart-aside { align-self: start; padding: 1.25rem; border: 1px solid var(--dp-border); border-radius: 1rem; background: var(--dp-surface); }
+.developer-quickstart-aside ol { display: grid; gap: .65rem; margin: 0; padding-left: 1.25rem; color: var(--dp-muted); }
+.developer-quickstart-aside li { margin: 0; padding-left: .2rem; }
+.developer-quickstart-aside-note { margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--dp-border); }
+.developer-quickstart-aside-note strong { color: var(--dp-ink); }
+.developer-quickstart-aside-note p { margin: .45rem 0; font-size: .88rem; line-height: 1.5; }
+.developer-quickstart-aside-note a { font-weight: 700; }
+@media (min-width: 48.0625em) {
+  .developer-quickstart { grid-template-columns: minmax(0, 1fr) 15rem; gap: 3.5rem; width: calc(100% - 5rem); padding-top: 4rem; }
+  .developer-quickstart-aside { position: sticky; top: 6rem; }
+  .developer-quickstart-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

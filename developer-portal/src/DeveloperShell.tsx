@@ -15,7 +15,8 @@ type DeveloperShellProps = {
 };
 
 const navigation = [
-  ["/reference", "Docs"],
+  ["/guides", "Guides"],
+  ["/reference", "API reference"],
   ["/#pricing", "Pricing"],
   ["/faq", "FAQ"],
   ["/changelog", "Changelog"],
@@ -78,7 +79,7 @@ export default function DeveloperShell({ children, light, onToggleTheme, path, a
       <footer className="developer-shell-footer">
         <p>GetPrio Developers <span>· V1 pre-launch preview</span></p>
         <nav aria-label="Developer resources">
-          <a href="/docs">Guides</a>
+          <a href="/guides">Guides</a>
           <a href="/reference">API reference</a>
           <a href="/faq">FAQ</a>
           <a href="/help">Help</a>
