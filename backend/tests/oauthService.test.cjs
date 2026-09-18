@@ -261,7 +261,7 @@ test("oauth service verifies Apple identity and exchanges the authorization code
       appleClientId: "com.getprio.getprioMobile",
       appleTeamId: "apple-team",
       appleKeyId: keyId,
-      applePrivateKey,
+      applePrivateKey: `"${applePrivateKey.replace(/\n/g, "\\n")}"`,
       serverUrl: "https://api.example.com",
       appBaseUrl: "https://app.example.com",
       oauthCallbackPath: "/oauth/callback",
