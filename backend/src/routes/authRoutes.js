@@ -411,7 +411,7 @@ function redirectOauthError(res, message) {
 }
 
 function getAuthMethodForProvider(provider) {
-  return provider === "google" || provider === "facebook" ? provider : "password";
+  return provider === "google" || provider === "facebook" || provider === "apple" ? provider : "password";
 }
 
 router.get("/oauth/providers", (req, res) => {

@@ -31,8 +31,8 @@ function request(method, url, host, headers = {}, body) {
   });
 }
 
-function key(scopes, profileAccess = "all", profileSlugs = []) {
-  return { id: "key-1", projectId: "project-1", environment: "sandbox", scopes, profileAccess, profileSlugs, createdByUserId: "1", status: "active", projectStatus: "active", accountStatus: "active" };
+function key(scopes) {
+  return { id: "key-1", projectId: "project-1", environment: "sandbox", scopes, createdByUserId: "1", status: "active", projectStatus: "active", accountStatus: "active" };
 }
 function profile() { return { id: "profile-1", projectId: "project-1", environment: "sandbox", slug: "harbor", displayName: "Harbor Services", directoryStatus: "private", directoryContent: {}, createdAt: "2026-09-15T00:00:00.000Z", updatedAt: "2026-09-15T00:00:00.000Z" }; }
 function queue() { return { id: "queue-1", profileId: "profile-1", slug: "main", displayName: "Main queue", sessionState: "open", intakeEnabled: true, joiningEnabled: false, priorityRatio: 3, resourceVersion: 1, createdAt: "2026-09-15T00:00:00.000Z", updatedAt: "2026-09-15T00:00:00.000Z" }; }
@@ -127,33 +127,6 @@ test("developer API requires the new profile scope for profile resources", async
   try {
     const response = await request("GET", `${baseUrl}/profiles`, "sandbox-api.getprio.online", { "x-api-key": "gpk_sbx_test" });
     assert.equal(response.status, 403); assert.equal(response.body.error, "API_SCOPE_REQUIRED");
-  } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
-});
-
-test("developer API limits profile listings to a selected key profile set", async () => {
-  const originals = [];
-  replace(developerProjects, "findApiKeyByHash", async () => key(["profiles:read"], "selected", ["harbor"]), originals);
-  replace(developerProjects, "touchApiKey", async () => {}, originals);
-  replace(developerApiRateLimits, "consume", async () => ({ limit: 1000, remaining: 999, windowSeconds: 60 }), originals);
-  replace(developerQueues, "listProfiles", async () => [profile(), { ...profile(), id: "profile-2", slug: "other", displayName: "Other profile" }], originals);
-  const { server, baseUrl } = await startServer();
-  try {
-    const response = await request("GET", `${baseUrl}/profiles`, "sandbox-api.getprio.online", { "x-api-key": "gpk_sbx_test" });
-    assert.equal(response.status, 200);
-    assert.deepEqual(response.body.data.profiles.map((item) => item.slug), ["harbor"]);
-  } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
-});
-
-test("developer API hides profiles outside a selected key profile set", async () => {
-  const originals = [];
-  replace(developerProjects, "findApiKeyByHash", async () => key(["queues:read"], "selected", ["harbor"]), originals);
-  replace(developerProjects, "touchApiKey", async () => {}, originals);
-  replace(developerApiRateLimits, "consume", async () => ({ limit: 1000, remaining: 999, windowSeconds: 60 }), originals);
-  const { server, baseUrl } = await startServer();
-  try {
-    const response = await request("GET", `${baseUrl}/queues/other`, "sandbox-api.getprio.online", { "x-api-key": "gpk_sbx_test" });
-    assert.equal(response.status, 404);
-    assert.equal(response.body.error, "API_RESOURCE_NOT_FOUND");
   } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
 });
 

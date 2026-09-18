@@ -1259,6 +1259,7 @@ export default function VendorDashboardPage() {
   const [applyThemeToAllLocations, setApplyThemeToAllLocations] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [billingInterval, setBillingInterval] = useState<"monthly" | "annual">("monthly");
+  const [billingPaymentMode, setBillingPaymentMode] = useState<"manual" | "automatic">("manual");
   const [selectedCounterSlug, setSelectedCounterSlug] = useState("");
   const [counterDialogOpen, setCounterDialogOpen] = useState(false);
   const [editingCounterSlug, setEditingCounterSlug] = useState("");
@@ -4199,7 +4200,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     try {
       const data = await vendorDashboardBilling.startCheckout(token, selectedTenantSlug, {
         planSlug,
-        billingInterval
+        billingInterval,
+        billingMode: billingPaymentMode,
+        paymentMethod: billingPaymentMode === "manual" ? "qrph" : "card"
       });
       window.location.href = data.checkoutSession.checkoutUrl;
     } catch (checkoutError) {
@@ -4519,50 +4522,61 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           value={billingInterval}
           onChange={(value) => setBillingInterval(value as "monthly" | "annual")}
         />
-      <SimpleGrid
-        className="subscription-plan-grid"
-        cols={{ base: 1, sm: Math.min(visiblePlans.length, 2), md: Math.min(visiblePlans.length, 4) }}
-        spacing="md"
-      >
-        {visiblePlans.map((plan) => (
-          <Card className="neura-plan-card" key={plan.slug} padding="lg">
-            <Stack gap="md" h="100%">
-              <div>
-                <Text className="neura-label">{plan.name}</Text>
-                <Title order={3}>
-                  {getPlanPriceDisplay(plan, billingInterval)}
-                </Title>
-                <Text c="dimmed" size="sm">{plan.bestFor}</Text>
-              </div>
-              <Stack gap={8} className="neura-feature-list">
-                {plan.included.map((item) => (
-                  <Text key={item} size="sm">• {item}</Text>
-                ))}
+        <SegmentedControl
+          data={[
+            { value: "manual", label: "Manual via QRPh" },
+            { value: "automatic", label: "Automatic recurring", disabled: true }
+          ]}
+          value={billingPaymentMode}
+          onChange={(value) => setBillingPaymentMode(value as "manual" | "automatic")}
+        />
+        <Alert color="blue" variant="light" icon={<IconInfoCircle size={18} />}>
+          Manual QRPh payments require a new payment each month or year. Automatic recurring payments will be available after PayMongo subscription billing is enabled for this account.
+        </Alert>
+        <SimpleGrid
+          className="subscription-plan-grid"
+          cols={{ base: 1, sm: Math.min(visiblePlans.length, 2), md: Math.min(visiblePlans.length, 4) }}
+          spacing="md"
+        >
+          {visiblePlans.map((plan) => (
+            <Card className="neura-plan-card" key={plan.slug} padding="lg">
+              <Stack gap="md" h="100%">
+                <div>
+                  <Text className="neura-label">{plan.name}</Text>
+                  <Title order={3}>
+                    {getPlanPriceDisplay(plan, billingInterval)}
+                  </Title>
+                  <Text c="dimmed" size="sm">{plan.bestFor}</Text>
+                </div>
+                <Stack gap={8} className="neura-feature-list">
+                  {plan.included.map((item) => (
+                    <Text key={item} size="sm">• {item}</Text>
+                  ))}
+                </Stack>
+                {plan.slug === "free" ? (
+                  <Button disabled mt="auto" variant="default">
+                    Free queue plan
+                  </Button>
+                ) : plan.checkoutEnabled ? (
+                  <Button
+                    className={plan.slug === "pro" ? "neura-primary-button" : "neura-secondary-button"}
+                    disabled={busyAction === `checkout:${plan.slug}`}
+                    mt="auto"
+                    onClick={() => {
+                      if (plan.slug !== "free") handleStartCheckout(plan.slug);
+                    }}
+                  >
+                    {busyAction === `checkout:${plan.slug}` ? "Opening..." : "Choose plan via QRPh"}
+                  </Button>
+                ) : (
+                  <Button disabled mt="auto" variant="default">
+                    Custom quote
+                  </Button>
+                )}
               </Stack>
-              {plan.slug === "free" ? (
-                <Button disabled mt="auto" variant="default">
-                  Free queue plan
-                </Button>
-              ) : plan.checkoutEnabled ? (
-                <Button
-                  className={plan.slug === "pro" ? "neura-primary-button" : "neura-secondary-button"}
-                  disabled={busyAction === `checkout:${plan.slug}`}
-                  mt="auto"
-                  onClick={() => {
-                    if (plan.slug !== "free") handleStartCheckout(plan.slug);
-                  }}
-                >
-                  {busyAction === `checkout:${plan.slug}` ? "Opening..." : "Choose plan"}
-                </Button>
-              ) : (
-                <Button disabled mt="auto" variant="default">
-                  Custom quote
-                </Button>
-              )}
-            </Stack>
-          </Card>
-        ))}
-      </SimpleGrid>
+            </Card>
+          ))}
+        </SimpleGrid>
       </Stack>
     );
   }

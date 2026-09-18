@@ -196,10 +196,8 @@ router.patch("/profiles/:profileSlug/queues/:queueSlug", authenticateDeveloperAp
     if (!updated) throw error(409, "QUEUE_UPDATE_CONFLICT", "Queue changed before this update was applied.");
     const events = [];
     if (changes.sessionState !== undefined && changes.sessionState !== queue.sessionState) {
-      const type = changes.sessionState === "open" ? "queue.session.opened"
-        : changes.sessionState === "closing" ? "queue.session.closing"
-          : changes.sessionState === "closed" ? "queue.session.closed" : "queue.session.extended";
-      events.push({ type, fromStatus: queue.sessionState, toStatus: changes.sessionState });
+      const type = developerWebhookService.queueSessionEventType(changes.sessionState);
+      if (type) events.push({ type, fromStatus: queue.sessionState, toStatus: changes.sessionState });
     }
     if (Object.prototype.hasOwnProperty.call(changes, "intakeEnabled") && changes.intakeEnabled !== queue.intakeEnabled) {
       events.push({ type: changes.intakeEnabled ? "queue.intake.resumed" : "queue.intake.paused", fromStatus: String(queue.intakeEnabled), toStatus: String(changes.intakeEnabled) });

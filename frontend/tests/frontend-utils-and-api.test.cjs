@@ -960,6 +960,9 @@ test("subscription plans load independently when dashboard bootstrap fails", asy
   assert.match(dashboardSource, /const visiblePlans = billing\.plans\.filter\(\(plan\) => !paidOnly \|\| plan\.slug !== "free"\)/);
   assert.match(dashboardSource, /md: Math\.min\(visiblePlans\.length, 4\)/);
   assert.match(dashboardSource, /className="subscription-plan-modal"[\s\S]*?size="90rem"/);
+  assert.match(dashboardSource, /Manual via QRPh/);
+  assert.match(dashboardSource, /Automatic recurring[\s\S]*disabled: true/);
+  assert.match(dashboardSource, /billingMode: billingPaymentMode/);
 });
 
 test("web app metadata points crawlers and installed apps at committed assets", () => {

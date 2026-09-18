@@ -1,4 +1,4 @@
-export type OAuthProviderId = "google" | "facebook";
+export type OAuthProviderId = "google" | "facebook" | "apple";
 export type AuthIntent = "login" | "register_customer" | "register_vendor";
 export type UserRole = "customer" | "vendor" | "platform_admin";
 export type TenantRole = "owner" | "admin" | "staff";
@@ -17,6 +17,8 @@ export type SubscriptionPlanSlug = "free" | "economical" | "pro" | "enterprise";
 export type PaidSubscriptionPlanSlug = Exclude<SubscriptionPlanSlug, "free">;
 export type SubscriptionStatus = "active" | "unpaid" | "past_due" | "suspended" | "canceled" | "expired";
 export type BillingInterval = "monthly" | "annual" | "custom";
+export type SubscriptionBillingMode = "manual" | "automatic" | "legacy";
+export type SubscriptionPaymentMethod = "qrph" | "card" | "maya";
 export type SmsBundleType = "none" | "fixed" | "custom";
 export type SupportLevel = "self_serve" | "standard" | "sla";
 export type HistoryExportRange = "today" | "week" | "month" | "quarter" | "year";
@@ -90,6 +92,8 @@ export interface TenantSubscriptionSummary {
   planName: string;
   status: SubscriptionStatus;
   provider: string;
+  billingMode?: SubscriptionBillingMode;
+  paymentMethod?: SubscriptionPaymentMethod | null;
   billingInterval: BillingInterval;
   currentPeriodStart: string | Date | null;
   currentPeriodEnd: string | Date | null;
@@ -105,6 +109,8 @@ export interface BillingOverviewResponse {
 export interface CreateCheckoutRequest {
   planSlug: PaidSubscriptionPlanSlug;
   billingInterval: Extract<BillingInterval, "monthly" | "annual">;
+  billingMode?: Exclude<SubscriptionBillingMode, "legacy">;
+  paymentMethod?: SubscriptionPaymentMethod;
 }
 
 export interface CheckoutSessionResponse {
@@ -116,6 +122,8 @@ export interface CheckoutSessionResponse {
     status: string;
     planSlug: SubscriptionPlanSlug;
     billingInterval: BillingInterval;
+    billingMode?: SubscriptionBillingMode;
+    paymentMethod?: SubscriptionPaymentMethod | null;
     amountCents: number;
     currency: "PHP";
   };
@@ -173,6 +181,7 @@ export interface UserSummary {
 export interface OAuthProviderAvailability {
   google: boolean;
   facebook: boolean;
+  apple: boolean;
 }
 
 export interface PasswordResetRequest {

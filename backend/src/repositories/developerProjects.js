@@ -38,6 +38,190 @@ function mapKey(row) {
   };
 }
 
+function mapProductionApproval(row) {
+  if (!row) return null;
+  const parseJson = (value) => {
+    if (!value) return {};
+    if (typeof value === "object") return value;
+    try { return JSON.parse(value); } catch { return {}; }
+  };
+  return {
+    id: String(row.application_id || row.id),
+    projectId: String(row.developer_project_id || row.project_id),
+    status: row.status,
+    draft: parseJson(row.draft),
+    approvedSubmissionId: row.approved_submission_id ? String(row.approved_submission_id) : null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    submissions: row.submissions || []
+  };
+}
+
+function mapProductionSubmission(row) {
+  if (!row) return null;
+  const snapshot = typeof row.snapshot === "object" ? row.snapshot : (() => { try { return JSON.parse(row.snapshot || "{}"); } catch { return {}; } })();
+  return {
+    id: String(row.id),
+    version: Number(row.version),
+    snapshot,
+    status: row.status,
+    submittedByUserId: row.submitted_by_user_id ? String(row.submitted_by_user_id) : null,
+    submittedAt: row.submitted_at,
+    reviewerUserId: row.reviewer_user_id ? String(row.reviewer_user_id) : null,
+    reviewedAt: row.reviewed_at,
+    reviewFeedback: row.review_feedback || null
+  };
+}
+
+async function getProductionApproval(projectId, options = {}) {
+  const result = await buildQueryClient(options.client).query(
+    `SELECT a.id AS application_id, a.developer_project_id, a.status, a.draft,
+        a.approved_submission_id, a.created_at, a.updated_at,
+        COALESCE((SELECT json_agg(json_build_object(
+          'id', s.id, 'version', s.version, 'snapshot', s.snapshot,
+          'status', s.status, 'submittedByUserId', s.submitted_by_user_id,
+          'submittedAt', s.submitted_at, 'reviewerUserId', s.reviewer_user_id,
+          'reviewedAt', s.reviewed_at, 'reviewFeedback', s.review_feedback
+        ) ORDER BY s.version DESC) FROM developer_project_production_submissions s
+        WHERE s.application_id = a.id), '[]'::json) AS submissions
+     FROM developer_project_production_applications a
+     WHERE a.developer_project_id = $1
+     LIMIT 1`,
+    [projectId]
+  );
+  return mapProductionApproval(result.rows[0]);
+}
+
+async function saveProductionApprovalDraft({ projectId, draft }, options = {}) {
+  const result = await buildQueryClient(options.client).query(
+    `INSERT INTO developer_project_production_applications (developer_project_id, draft)
+     VALUES ($1, $2::jsonb)
+     ON CONFLICT (developer_project_id) DO UPDATE SET draft = $2::jsonb, updated_at = NOW()
+     RETURNING id AS application_id, developer_project_id, status, draft,
+       approved_submission_id, created_at, updated_at`,
+    [projectId, JSON.stringify(draft)]
+  );
+  return mapProductionApproval(result.rows[0]);
+}
+
+async function mergeProductionApprovalDraft({ projectId, changes }, options = {}) {
+  const result = await buildQueryClient(options.client).query(
+    `INSERT INTO developer_project_production_applications (developer_project_id, draft)
+     VALUES ($1, $2::jsonb)
+     ON CONFLICT (developer_project_id) DO UPDATE
+       SET draft = COALESCE(developer_project_production_applications.draft, '{}'::jsonb) || EXCLUDED.draft,
+           updated_at = NOW()
+     RETURNING id AS application_id, developer_project_id, status, draft,
+       approved_submission_id, created_at, updated_at`,
+    [projectId, JSON.stringify(changes)]
+  );
+  return mapProductionApproval(result.rows[0]);
+}
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) return value.map(canonicalJson);
+  if (value && typeof value === "object") return Object.keys(value).sort((left, right) => left.localeCompare(right)).reduce((result, key) => {
+    result[key] = canonicalJson(value[key]);
+    return result;
+  }, {});
+  return value;
+}
+
+async function submitProductionApproval({ projectId, userId, snapshot }, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const applicationResult = await queryClient.query(
+    `SELECT id AS application_id, developer_project_id, status, draft,
+        approved_submission_id, created_at, updated_at
+     FROM developer_project_production_applications
+     WHERE developer_project_id = $1
+     FOR UPDATE`,
+    [projectId]
+  );
+  const application = applicationResult.rows[0];
+  if (!application) return null;
+  if (application.status === "pending_review") {
+    const error = new Error("This production application is already pending review.");
+    error.statusCode = 409;
+    error.code = "PRODUCTION_APPLICATION_PENDING_REVIEW";
+    throw error;
+  }
+  if (snapshot && JSON.stringify(canonicalJson(application.draft)) !== JSON.stringify(canonicalJson(snapshot))) {
+    const error = new Error("The production application changed while it was being submitted. Review the latest draft and try again.");
+    error.statusCode = 409;
+    error.code = "PRODUCTION_APPLICATION_CHANGED";
+    throw error;
+  }
+  const versionResult = await queryClient.query(
+    `SELECT COALESCE(MAX(version), 0) + 1 AS next_version
+     FROM developer_project_production_submissions
+     WHERE application_id = $1`,
+    [application.application_id]
+  );
+  const version = Number(versionResult.rows[0].next_version);
+  const submissionResult = await queryClient.query(
+    `INSERT INTO developer_project_production_submissions
+       (application_id, version, snapshot, submitted_by_user_id)
+     VALUES ($1, $2, $3::jsonb, $4)
+     RETURNING id, version, snapshot, status, submitted_by_user_id,
+       submitted_at, reviewer_user_id, reviewed_at, review_feedback`,
+    [application.application_id, version, JSON.stringify(application.draft), Number(userId)]
+  );
+  await queryClient.query(
+    `UPDATE developer_project_production_applications
+     SET status = 'pending_review', updated_at = NOW()
+     WHERE id = $1`,
+    [application.application_id]
+  );
+  const historyResult = await queryClient.query(
+    `SELECT id, version, snapshot, status, submitted_by_user_id,
+        submitted_at, reviewer_user_id, reviewed_at, review_feedback
+     FROM developer_project_production_submissions
+     WHERE application_id = $1
+     ORDER BY version DESC`,
+    [application.application_id]
+  );
+  const history = historyResult.rows.map(mapProductionSubmission);
+  const submission = mapProductionSubmission(submissionResult.rows[0]);
+  return {
+    ...mapProductionApproval({ ...application, status: "pending_review", submissions: history }),
+    submission
+  };
+}
+
+async function reviewProductionApproval({ projectId, submissionId, status, reviewerUserId, feedback }, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const result = await queryClient.query(
+    `SELECT a.id AS application_id, s.id, s.status AS submission_status
+     FROM developer_project_production_applications a
+     INNER JOIN developer_project_production_submissions s ON s.application_id = a.id
+     WHERE a.developer_project_id = $1 AND s.id = $2
+     FOR UPDATE`,
+    [projectId, submissionId]
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  if (row.submission_status !== "pending_review") {
+    const error = new Error("Only a pending production application can be reviewed.");
+    error.statusCode = 409;
+    error.code = "PRODUCTION_APPLICATION_NOT_PENDING";
+    throw error;
+  }
+  await queryClient.query(
+    `UPDATE developer_project_production_submissions
+     SET status = $3, reviewer_user_id = $4, reviewed_at = NOW(), review_feedback = $5
+     WHERE id = $2 AND application_id = $1`,
+    [row.application_id, submissionId, status, Number(reviewerUserId), feedback || null]
+  );
+  await queryClient.query(
+    `UPDATE developer_project_production_applications
+     SET status = $2, approved_submission_id = CASE WHEN $2 = 'approved' THEN $3 ELSE approved_submission_id END,
+         updated_at = NOW()
+     WHERE id = $1`,
+    [row.application_id, status, submissionId]
+  );
+  return getProductionApproval(projectId, { client: queryClient });
+}
+
 async function listProjectsForUser(userId, options = {}) {
   const result = await buildQueryClient(options.client).query(
     `
@@ -262,8 +446,15 @@ module.exports = {
   getSandboxAllowance,
   listApiKeys,
   listProjectsForUser,
+  getProductionApproval,
+  mapProductionApproval,
+  mapProductionSubmission,
+  mergeProductionApprovalDraft,
   mapKey,
   mapProject,
   revokeApiKey,
+  reviewProductionApproval,
+  saveProductionApprovalDraft,
+  submitProductionApproval,
   touchApiKey
 };

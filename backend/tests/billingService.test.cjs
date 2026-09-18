@@ -153,6 +153,92 @@ test("billing service creates checkout, syncs payment, and handles non-subscript
   assert.equal(fetchCalls.length >= 1, true);
 });
 
+test("billing service creates a QRPh-only checkout for manual subscription payments", async () => {
+  let checkoutRequest;
+  global.fetch = async (_url, options = {}) => {
+    checkoutRequest = JSON.parse(options.body);
+    return {
+      ok: true,
+      json: async () => ({
+        data: {
+          id: "provider-qrph-checkout-1",
+          attributes: { checkout_url: "https://checkout.example.test/qrph", client_key: "ck-qrph" }
+        }
+      })
+    };
+  };
+
+  const service = buildService();
+  const checkout = await service.createPayMongoCheckout({
+    tenant: { _id: "tenant-1", slug: "demo", name: "Demo" },
+    user: { _id: "user-1" },
+    planSlug: "economical",
+    billingInterval: "annual",
+    billingMode: "manual",
+    paymentMethod: "qrph",
+    requestOrigin: "https://client.example.test"
+  });
+
+  assert.deepEqual(checkoutRequest.data.attributes.payment_method_types, ["qrph"]);
+  assert.equal(checkoutRequest.data.attributes.metadata.billingMode, "manual");
+  assert.equal(checkoutRequest.data.attributes.metadata.paymentMethod, "qrph");
+  assert.equal(checkout.checkoutSession.billingMode, "manual");
+  assert.equal(checkout.checkoutSession.paymentMethod, "qrph");
+});
+
+test("billing service rejects automatic recurring checkout until PayMongo subscriptions are enabled", async () => {
+  const service = buildService();
+
+  await assert.rejects(
+    () => service.createPayMongoCheckout({
+      tenant: { _id: "tenant-1", slug: "demo", name: "Demo" },
+      user: { _id: "user-1" },
+      planSlug: "economical",
+      billingInterval: "monthly",
+      billingMode: "automatic",
+      paymentMethod: "card",
+      requestOrigin: "https://client.example.test"
+    }),
+    { statusCode: 503, code: "PAYMONGO_SUBSCRIPTIONS_UNAVAILABLE" }
+  );
+});
+
+test("manual QRPh checkout can renew the currently active plan", async () => {
+  let checkoutRequest;
+  global.fetch = async (_url, options = {}) => {
+    checkoutRequest = JSON.parse(options.body);
+    return {
+      ok: true,
+      json: async () => ({
+        data: {
+          id: "provider-renewal-checkout-1",
+          attributes: { checkout_url: "https://checkout.example.test/renewal" }
+        }
+      })
+    };
+  };
+
+  const service = buildService({
+    "../repositories/billing": {
+      getActiveSubscriptionByTenantId: async () => ({ _id: "subscription-1", planSlug: "economical", status: "active" }),
+      createCheckoutSession: async (data) => ({ _id: "checkout-renewal-1", status: "pending", ...data }),
+      updateCheckoutSessionProviderData: async (_id, data) => ({ _id: "checkout-renewal-1", status: "pending", planSlug: "economical", amountCents: 1000, currency: "PHP", metadata: data.metadata, ...data })
+    }
+  });
+
+  await service.createPayMongoCheckout({
+    tenant: { _id: "tenant-1", slug: "demo", name: "Demo" },
+    user: { _id: "user-1" },
+    planSlug: "economical",
+    billingInterval: "monthly",
+    billingMode: "manual",
+    paymentMethod: "qrph",
+    requestOrigin: "https://client.example.test"
+  });
+
+  assert.deepEqual(checkoutRequest.data.attributes.payment_method_types, ["qrph"]);
+});
+
 test("review controls reject Free and inactive subscriptions and allow active paid plans", async () => {
   for (const subscription of [null, { planSlug: 'free', status: 'active' }, { planSlug: 'economical', status: 'past_due' }, { planSlug: 'economical', status: 'cancelled' }, { status: 'active' }]) {
     const service = buildService({ '../repositories/billing': { getActiveSubscriptionByTenantId: async () => subscription } });

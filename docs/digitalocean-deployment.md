@@ -15,7 +15,7 @@ It matches the current codebase:
 ## Recommended Shape
 
 - `app.getprio.online` serves `frontend/dist`
-- `developers.getprio.online` serves the developer portal from `frontend/dist`
+- `developers.getprio.online` serves the standalone developer portal from `developer-portal/dist`
 - `platform.getprio.online` serves `platform-dashboard/dist`
 - `api.getprio.online` proxies to the backend on `127.0.0.1:5000`
 - `sandbox-api.getprio.online` proxies to the same backend with sandbox host labeling
@@ -165,6 +165,10 @@ GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 FACEBOOK_APP_ID=
 FACEBOOK_APP_SECRET=
+APPLE_CLIENT_ID=
+APPLE_TEAM_ID=
+APPLE_KEY_ID=
+APPLE_PRIVATE_KEY=
 
 VITE_TURNSTILE_SITE_KEY=
 TURNSTILE_SECRET_KEY=
@@ -224,7 +228,7 @@ OAuth deployment checklist:
    - `https://api.getprio.online/api/auth/oauth/google/callback`
    - `https://api.getprio.online/api/auth/oauth/facebook/callback`
 3. Set `SERVER_URL` to the API origin and `APP_BASE_URL` to the frontend origin.
-4. Populate `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `FACEBOOK_APP_ID`, and `FACEBOOK_APP_SECRET`.
+4. Populate the configured provider credentials, including `APPLE_CLIENT_ID`, `APPLE_TEAM_ID`, `APPLE_KEY_ID`, and `APPLE_PRIVATE_KEY` when Sign in with Apple is enabled. Store the `.p8` value as a secret with its newlines preserved.
 5. Verify `GET /api/auth/oauth/providers` returns the providers you intend to expose.
 6. Test `GET /api/auth/oauth/:provider/start` and the callback flow with a real provider account.
 
@@ -284,7 +288,7 @@ Create `/etc/nginx/sites-available/getprio`:
 ```nginx
 server {
   listen 80;
-  server_name app.getprio.online developers.getprio.online;
+  server_name app.getprio.online;
 
   root /var/www/getprio/frontend/dist;
   index index.html;
@@ -293,6 +297,18 @@ server {
     default_type application/json;
     try_files $uri =404;
   }
+
+  location / {
+    try_files $uri $uri/ /index.html;
+  }
+}
+
+server {
+  listen 80;
+  server_name developers.getprio.online;
+
+  root /var/www/getprio/developer-portal/dist;
+  index index.html;
 
   location / {
     try_files $uri $uri/ /index.html;

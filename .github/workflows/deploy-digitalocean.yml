@@ -155,11 +155,41 @@ jobs:
           mv -f "${production_tmp_file}" "${production_env_file}"
           rm -f "${production_patch_file}"
 
-          if [ -f .env ]; then
-            set -a
-            . ./.env
-            set +a
-          fi
+          load_env_file() {
+            local env_file="$1"
+            if [[ ! -f "$env_file" ]]; then
+              return 0
+            fi
+
+            while IFS='=' read -r key value; do
+              [[ -z "${key:-}" || "${key:0:1}" == "#" ]] && continue
+              value="${value%$'\r'}"
+              if [[ ! "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+                echo "Invalid environment variable name in $env_file: $key" >&2
+                return 1
+              fi
+              if [[ -z "${!key+x}" ]]; then
+                export "$key=$value"
+              fi
+            done < <(
+              awk -F= '
+                /^[[:space:]]*#/ { next }
+                /^[[:space:]]*$/ { next }
+                {
+                  key = $1
+                  sub(/[[:space:]]+$/, "", key)
+                  sub(/^[[:space:]]+/, "", key)
+                  sub(/^[[:space:]]+/, "", $0)
+                  sub(/^[^=]*=/, "", $0)
+                  print key "=" $0
+                }
+              ' "$env_file"
+            )
+          }
+
+          # Treat .env as data. Sourcing it would execute malformed or quoted
+          # values as shell syntax and can abort an otherwise safe deployment.
+          load_env_file ./.env
 
           # Platform Operations has approved live Plan Matrix publishing.
           # Keep the server-side release control explicit; the API still enforces
@@ -183,7 +213,7 @@ jobs:
 
           git pull --ff-only origin main
 
-          bash scripts/configure-developer-hosts.sh
+          DEVELOPER_PORTAL_ROOT="${DO_APP_DIR}/developer-portal/dist" bash scripts/configure-developer-hosts.sh
 
           bash scripts/verify-fcm-config.sh
 
