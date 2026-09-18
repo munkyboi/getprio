@@ -11,6 +11,8 @@ const userRepository = require("../repositories/users");
 const sessionService = require("../services/sessionService");
 const securityEventService = require("../services/securityEventService");
 const customerRegistrationOtpService = require("../services/customerRegistrationOtpService");
+const passwordResetService = require("../services/passwordResetService");
+const mfaFlowService = require("../services/mfaFlowService");
 const {
   clearBrowserSession,
   getRefreshCookie,
@@ -53,7 +55,8 @@ function userPayload(user) {
     displayName: user.displayName || "",
     email: user.email,
     emailVerified: Boolean(user.emailVerified),
-    mfaEnabled: Boolean(user.mfaEnabled)
+    mfaEnabled: Boolean(user.mfaEnabled),
+    emailMfaEnabled: Boolean(user.emailMfaEnabled)
   };
 }
 
@@ -66,10 +69,13 @@ function developerPayload(membership) {
 }
 
 function authResponse(req, res, user, membership, sessionResult) {
+  const accessMaxAgeSeconds = env.developerSessionNoExpiry
+    ? env.developerSessionNoExpiryDays * 24 * 60 * 60
+    : env.accessTokenTtlMinutes * 60;
   const { csrfToken } = issueBrowserSession(res, sessionResult, {
     secure: env.authCookieSecure,
     csrfSecret: env.csrfSecret,
-    accessMaxAgeSeconds: env.accessTokenTtlMinutes * 60,
+    accessMaxAgeSeconds,
     surface: "developer"
   });
   const compatibilityRequested =
@@ -164,7 +170,7 @@ router.post(
       !session ||
       session.surface !== "developer" ||
       session.status !== "active" ||
-      new Date(session.expiresAt).getTime() <= Date.now()
+      (!env.developerSessionNoExpiry && new Date(session.expiresAt).getTime() <= Date.now())
     ) {
       const error = new Error("Developer refresh session is no longer valid.");
       error.statusCode = 401;
@@ -285,6 +291,21 @@ router.post(
     const context = requestContext(req);
     const result = await db.withTransaction(async (client) => {
       const updatedUser = await authService.handleSuccessfulPasswordLogin({ user, client });
+      const methods = await mfaFlowService.getLoginMethods(updatedUser, { client });
+      if (updatedUser.mfaEnabled && !methods.length) {
+        const error = new Error("Multi-factor authentication is enabled but no usable method is configured.");
+        error.statusCode = 409;
+        error.code = "MFA_CONFIGURATION_INVALID";
+        throw error;
+      }
+      if (updatedUser.mfaEnabled) {
+        const challenge = await mfaFlowService.issueLoginChallenge({
+          user: updatedUser,
+          ipAddress: context.ipAddress,
+          userAgent: context.userAgent
+        }, { client });
+        return { user: updatedUser, challenge, methods };
+      }
       const sessionResult = await sessionService.createAuthSession({
         user: updatedUser,
         authMethod: "password",
@@ -300,9 +321,46 @@ router.post(
         req,
         client
       });
-      return { user: updatedUser, sessionResult };
+      return { user: updatedUser, sessionResult, methods: [] };
     });
 
+    if (result.challenge) {
+      res.json({ mfaRequired: true, challengeToken: result.challenge.token, expiresAt: result.challenge.expiresAt, methods: result.methods });
+      return;
+    }
+    res.json(authResponse(req, res, result.user, membership, result.sessionResult));
+  })
+);
+
+router.post(
+  "/mfa/email/send",
+  developerLoginLimiter,
+  asyncHandler(async (req, res) => {
+    res.json(await mfaFlowService.issueEmailLoginChallenge({
+      challengeToken: String(req.body?.challengeToken || ""),
+      ...requestContext(req)
+    }));
+  })
+);
+
+router.post(
+  "/mfa/verify",
+  developerLoginLimiter,
+  asyncHandler(async (req, res) => {
+    const result = await mfaFlowService.verifyLoginChallenge({
+      challengeToken: String(req.body?.challengeToken || ""),
+      code: String(req.body?.code || ""),
+      recoveryCode: String(req.body?.recoveryCode || ""),
+      method: String(req.body?.method || "totp"),
+      surface: "developer"
+    });
+    const membership = await developerAccountRepository.findMembershipByUserId(result.user._id);
+    if (!membership || membership.accountStatus !== "active") {
+      const error = new Error("This Developer Portal account is not active.");
+      error.statusCode = 403;
+      error.code = "DEVELOPER_ACCOUNT_INACTIVE";
+      throw error;
+    }
     res.json(authResponse(req, res, result.user, membership, result.sessionResult));
   })
 );
@@ -322,6 +380,133 @@ router.get("/me", authenticateDeveloper, (req, res) => {
     })
   });
 });
+
+router.post(
+  "/password",
+  authenticateDeveloper,
+  asyncHandler(async (req, res) => {
+    const currentPassword = String(req.body?.currentPassword || "");
+    const newPassword = String(req.body?.newPassword || "");
+    const confirmPassword = String(req.body?.confirmPassword || "");
+
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      const error = new Error("Current password, new password, and confirmation are required.");
+      error.statusCode = 400;
+      error.code = "PASSWORD_FIELDS_REQUIRED";
+      throw error;
+    }
+    if (newPassword !== confirmPassword) {
+      const error = new Error("New password and confirmation do not match.");
+      error.statusCode = 400;
+      error.code = "PASSWORD_CONFIRMATION_MISMATCH";
+      throw error;
+    }
+
+    customerRegistrationOtpService.assertValidPassword(newPassword);
+    await passwordResetService.changePassword({
+      user: req.user,
+      currentPassword,
+      newPassword,
+      req
+    });
+    clearBrowserSession(res, { secure: env.authCookieSecure, surface: "developer" });
+    res.json({ success: true, message: "Your password has been changed. Please sign in again." });
+  })
+);
+
+router.post(
+  "/mfa/enrollment/start",
+  authenticateDeveloper,
+  asyncHandler(async (req, res) => {
+    res.json(await mfaFlowService.startTotpEnrollment({
+      user: req.user,
+      session: req.auth.session,
+      currentCode: String(req.body?.currentCode || "")
+    }));
+  })
+);
+
+router.post(
+  "/mfa/email/enable",
+  authenticateDeveloper,
+  asyncHandler(async (req, res) => {
+    const user = await mfaFlowService.enableEmailMfa({ user: req.user });
+    res.json({ success: true, user: userPayload(user), message: "Email OTP is now enabled for sign-in." });
+  })
+);
+
+router.post(
+  "/mfa/email/disable",
+  authenticateDeveloper,
+  asyncHandler(async (req, res) => {
+    const password = String(req.body?.password || "");
+    const passwordMatches = req.user.passwordHash && await authService.verifyPasswordLogin(req.user, password);
+    if (!passwordMatches) {
+      const error = new Error("We could not verify your sign-in details.");
+      error.statusCode = 401;
+      error.code = "PRIMARY_AUTHENTICATION_INVALID";
+      throw error;
+    }
+    const user = await mfaFlowService.disableEmailMfa({ user: req.user });
+    res.json({ success: true, user: userPayload(user), message: "Email OTP has been disabled for sign-in." });
+  })
+);
+
+router.post(
+  "/mfa/enrollment/confirm",
+  authenticateDeveloper,
+  asyncHandler(async (req, res) => {
+    const result = await mfaFlowService.confirmTotpEnrollment({
+      user: req.user,
+      sessionId: req.auth.sessionId,
+      code: String(req.body?.code || "")
+    });
+    const user = await userRepository.findUserById(req.user._id);
+    res.json({
+      success: true,
+      recoveryCodes: result.recoveryCodes,
+      user: userPayload(user),
+      message: "Authenticator verification is now enabled. Save your recovery codes somewhere secure."
+    });
+  })
+);
+
+router.post(
+  "/mfa/enrollment/cancel",
+  authenticateDeveloper,
+  asyncHandler(async (req, res) => {
+    const result = await mfaFlowService.cancelTotpEnrollment({ user: req.user });
+    res.json({
+      ...result,
+      message: "Pending authenticator setup canceled. Your active authenticator was not changed."
+    });
+  })
+);
+
+router.post(
+  "/mfa/disable",
+  authenticateDeveloper,
+  asyncHandler(async (req, res) => {
+    const password = String(req.body?.password || "");
+    const passwordMatches = req.user.passwordHash && await authService.verifyPasswordLogin(req.user, password);
+    if (!passwordMatches) {
+      const error = new Error("We could not verify your sign-in details.");
+      error.statusCode = 401;
+      error.code = "PRIMARY_AUTHENTICATION_INVALID";
+      throw error;
+    }
+    await mfaFlowService.disableMfa({
+      user: req.user,
+      sessionId: req.auth.sessionId,
+      code: String(req.body?.code || ""),
+      recoveryCode: String(req.body?.recoveryCode || ""),
+      ipAddress: authService.getRequestIp(req),
+      userAgent: authService.getUserAgent(req)
+    });
+    const user = await userRepository.findUserById(req.user._id);
+    res.json({ success: true, user: userPayload(user), message: "Multi-factor authentication has been removed from your account." });
+  })
+);
 
 router.post(
   "/logout",

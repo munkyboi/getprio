@@ -78,7 +78,9 @@ async function authenticateDeveloperApiKey(req, res, next) {
       projectId: key.projectId,
       createdByUserId: key.createdByUserId,
       environment: key.environment,
-      scopes: key.scopes
+      scopes: key.scopes,
+      profileAccess: key.profileAccess,
+      profileSlugs: key.profileSlugs
     };
     const kind = ["GET", "HEAD", "OPTIONS"].includes(String(req.method || "").toUpperCase()) ? "read" : "write";
     try {

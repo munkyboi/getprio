@@ -92,6 +92,23 @@ test("developer sessions use separate access, refresh, and CSRF cookies", () => 
   assert.equal(getAccessCookie({ [ACCESS_COOKIE]: "app-access" }, true, "developer"), null);
 });
 
+test("persistent developer sessions can keep the access cookie alive with the refresh session", () => {
+  const response = buildResponse();
+  issueBrowserSession(response, {
+    accessToken: "developer-access",
+    refreshToken: "developer-refresh",
+    session: { _id: "44", expiresAt: new Date(Date.now() + 3650 * 24 * 60 * 60 * 1000) }
+  }, {
+    secure: false,
+    csrfSecret: "test-csrf-secret",
+    accessMaxAgeSeconds: 3650 * 24 * 60 * 60,
+    surface: "developer"
+  });
+  const cookies = response.headers.filter(([name]) => name === "Set-Cookie").map(([, value]) => value);
+  assert.match(cookies.find((value) => value.startsWith("prio_developer_access=")), /Max-Age=315360000/);
+  assert.match(cookies.find((value) => value.startsWith("prio_developer_refresh=")), /Max-Age=315360000/);
+});
+
 test("browser session clearing expires all session cookies", () => {
   const response = buildResponse();
   clearBrowserSession(response, { secure: false });
@@ -199,6 +216,13 @@ test("login and MFA verification can recover from a stale browser session withou
     ...request,
     originalUrl: "/api/auth/mfa/verify"
   }, response, (error) => error ? reject(error) : resolve()));
+
+  for (const originalUrl of ["/api/developer/mfa/email/send", "/api/developer/mfa/verify", "/api/developer/refresh"]) {
+    await new Promise((resolve, reject) => protect({
+      ...request,
+      originalUrl
+    }, response, (error) => error ? reject(error) : resolve()));
+  }
 });
 
 test("cookie-authenticated mutation rejects foreign origin and missing CSRF", async () => {

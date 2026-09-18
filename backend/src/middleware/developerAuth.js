@@ -53,9 +53,9 @@ async function loadDeveloperIdentity(req, strict = true) {
     !session ||
     session.surface !== "developer" ||
     session.status !== "active" ||
-    new Date(session.expiresAt).getTime() <= Date.now() ||
-    (session.absoluteExpiresAt && new Date(session.absoluteExpiresAt).getTime() <= Date.now()) ||
-    (session.inactivityExpiresAt && new Date(session.inactivityExpiresAt).getTime() <= Date.now())
+    (!env.developerSessionNoExpiry && new Date(session.expiresAt).getTime() <= Date.now()) ||
+    (!env.developerSessionNoExpiry && session.absoluteExpiresAt && new Date(session.absoluteExpiresAt).getTime() <= Date.now()) ||
+    (!env.developerSessionNoExpiry && session.inactivityExpiresAt && new Date(session.inactivityExpiresAt).getTime() <= Date.now())
   ) {
     const error = new Error("Developer session is no longer valid.");
     error.statusCode = 401;

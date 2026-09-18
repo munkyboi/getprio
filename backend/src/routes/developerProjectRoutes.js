@@ -219,12 +219,41 @@ function keyResponse(key) {
     environment: key.environment,
     keyPrefix: key.keyPrefix,
     scopes: key.scopes,
+    profileAccess: key.profileAccess,
+    profileSlugs: key.profileSlugs,
     status: key.status,
     lastUsedAt: key.lastUsedAt,
     revokedAt: key.revokedAt,
     createdAt: key.createdAt,
     updatedAt: key.updatedAt
   };
+}
+
+async function normalizeProfileAccess(projectId, environment, value, profileSlugs) {
+  const access = String(value || "all").trim().toLowerCase();
+  if (access === "all") return null;
+  if (access !== "selected") {
+    const error = new Error("profileAccess must be all or selected.");
+    error.statusCode = 400;
+    error.code = "INVALID_PROFILE_ACCESS";
+    throw error;
+  }
+  if (!Array.isArray(profileSlugs) || !profileSlugs.length) {
+    const error = new Error("Select at least one profile.");
+    error.statusCode = 400;
+    error.code = "INVALID_PROFILE_ACCESS";
+    throw error;
+  }
+  const normalized = [...new Set(profileSlugs.map((value) => cleanSlug(value, "profile slug")))];
+  const profiles = await developerQueues.listProfiles(projectId, environment);
+  const available = new Set(profiles.map((profile) => profile.slug));
+  if (normalized.some((profileSlug) => !available.has(profileSlug))) {
+    const error = new Error("One or more selected profiles do not exist in this project.");
+    error.statusCode = 400;
+    error.code = "INVALID_PROFILE_ACCESS";
+    throw error;
+  }
+  return normalized;
 }
 
 function profileResponse(profile) {
@@ -778,6 +807,7 @@ router.post("/projects/:projectId/keys", asyncHandler(async (req, res) => {
 
   const name = cleanName(req.body?.name, "API key name");
   const scopes = normalizeScopes(req.body?.scopes);
+  const profileSlugs = await normalizeProfileAccess(project.id, environment, req.body?.profileAccess, req.body?.profileSlugs);
   const generated = developerApiKeyService.createApiKey(environment);
   const key = await developerProjects.createApiKey({
     projectId: project.id,
@@ -786,7 +816,8 @@ router.post("/projects/:projectId/keys", asyncHandler(async (req, res) => {
     environment,
     keyPrefix: generated.keyPrefix,
     secretHash: generated.secretHash,
-    scopes
+    scopes,
+    profileSlugs
   });
 
   await securityEventService.logSecurityEvent({

@@ -1,10 +1,15 @@
-const envelopeResponse = (description) => ({
+const envelopeResponse = (description, dataSchema) => ({
   description,
-  content: { "application/json": { schema: { $ref: "#/components/schemas/Envelope" } } }
+  content: { "application/json": { schema: dataSchema ? {
+    allOf: [
+      { $ref: "#/components/schemas/Envelope" },
+      { type: "object", properties: { data: { $ref: "#/components/schemas/" + dataSchema } } }
+    ]
+  } : { $ref: "#/components/schemas/Envelope" } } }
 });
 
-const apiKeyResponses = (successDescription, notFoundDescription = "Developer profile not found.") => ({
-  "200": envelopeResponse(successDescription),
+const apiKeyResponses = (successDescription, notFoundDescription = "Developer profile not found.", dataSchema) => ({
+  "200": envelopeResponse(successDescription, dataSchema),
   "401": { description: "Missing or invalid API key." },
   "403": { description: "API key is missing the queues:read scope." },
   "404": { description: notFoundDescription }
@@ -31,13 +36,13 @@ const queueParameters = (location = false) => [
   ...(location ? [pathParameter("locationSlug", "The profile-owned queue slug. This legacy path parameter name is retained for v1 compatibility.")] : [])
 ];
 
-const queueReadPath = ({ operationId, summary, successDescription, location = false }) => ({
+const queueReadPath = ({ operationId, summary, successDescription, location = false, dataSchema = "QueueSnapshot" }) => ({
   get: {
     operationId,
     summary,
     security: [{ ApiKeyAuth: [] }],
     parameters: queueParameters(location),
-    responses: apiKeyResponses(successDescription, location ? "Tenant or location not found." : undefined)
+    responses: apiKeyResponses(successDescription, location ? "Tenant or location not found." : undefined, dataSchema)
   }
 });
 
@@ -56,7 +61,7 @@ const queueStreamPath = ({ operationId, summary, location = false }) => ({
   }
 });
 
-const queueWritePath = ({ operationId, summary, location = false }) => ({
+const queueWritePath = ({ operationId, summary, location = false, dataSchema = "TicketEnvelope" }) => ({
   post: {
     operationId,
     summary,
@@ -69,7 +74,7 @@ const queueWritePath = ({ operationId, summary, location = false }) => ({
       }
     },
     responses: {
-      "201": envelopeResponse("Issued queue ticket"),
+      "201": envelopeResponse("Issued queue ticket", dataSchema),
       "400": { description: "Invalid ticket details." },
       "401": { description: "Missing or invalid API key." },
       "403": { description: "API key is missing the queues:write scope." },
@@ -79,14 +84,14 @@ const queueWritePath = ({ operationId, summary, location = false }) => ({
   }
 });
 
-const queueActionPath = ({ operationId, summary, location = false }) => ({
+const queueActionPath = ({ operationId, summary, location = false, dataSchema = "TicketEnvelope" }) => ({
   post: {
     operationId,
     summary,
     security: [{ ApiKeyAuth: [] }],
     parameters: [...queueParameters(location), idempotencyParameter],
     responses: {
-      "200": envelopeResponse("Queue action result"),
+      "200": envelopeResponse("Queue action result", dataSchema),
       "400": { description: "The queue cannot advance until the current ticket is resolved." },
       "401": { description: "Missing or invalid API key." },
       "403": { description: "API key is missing the queues:write scope." },
@@ -96,14 +101,14 @@ const queueActionPath = ({ operationId, summary, location = false }) => ({
   }
 });
 
-const queueResolutionPath = ({ operationId, summary, status, location = false }) => ({
+const queueResolutionPath = ({ operationId, summary, status, location = false, dataSchema = "TicketEnvelope" }) => ({
   post: {
     operationId,
     summary,
     security: [{ ApiKeyAuth: [] }],
     parameters: [...queueParameters(location), idempotencyParameter],
     responses: {
-      "200": envelopeResponse(`Current ticket ${status} result`),
+      "200": envelopeResponse("Current ticket " + status + " result", dataSchema),
       "401": { description: "Missing or invalid API key." },
       "403": { description: "API key is missing the queues:write scope." },
       "404": { description: location ? "Tenant or location not found." : "Tenant not found." },
@@ -112,7 +117,7 @@ const queueResolutionPath = ({ operationId, summary, status, location = false })
   }
 });
 
-const queueTicketActionPath = ({ operationId, summary, action, location = false }) => ({
+const queueTicketActionPath = ({ operationId, summary, action, location = false, dataSchema = "TicketEnvelope" }) => ({
   post: {
     operationId,
     summary,
@@ -123,7 +128,7 @@ const queueTicketActionPath = ({ operationId, summary, action, location = false 
       idempotencyParameter
     ],
     responses: {
-      "200": envelopeResponse(`Queue ticket ${action} result`),
+      "200": envelopeResponse("Queue ticket " + action + " result", dataSchema),
       "401": { description: "Missing or invalid API key." },
       "403": { description: "API key is missing the queues:write scope." },
       "404": { description: "Ticket, tenant, or location not found." },
@@ -132,7 +137,7 @@ const queueTicketActionPath = ({ operationId, summary, action, location = false 
   }
 });
 
-const queueTicketReadPath = ({ operationId, summary, location = false }) => ({
+const queueTicketReadPath = ({ operationId, summary, location = false, dataSchema = "TicketEnvelope" }) => ({
   get: {
     operationId,
     summary,
@@ -142,7 +147,7 @@ const queueTicketReadPath = ({ operationId, summary, location = false }) => ({
       pathParameter("ticketId", "The opaque queue ticket identifier.")
     ],
     responses: {
-      "200": envelopeResponse("Queue ticket status"),
+      "200": envelopeResponse("Queue ticket status", dataSchema),
       "401": { description: "Missing or invalid API key." },
       "403": { description: "API key is missing the queues:read scope." },
       "404": { description: "Ticket, tenant, or location not found." }
@@ -150,7 +155,7 @@ const queueTicketReadPath = ({ operationId, summary, location = false }) => ({
   }
 });
 
-const queueTicketEventsPath = ({ operationId, summary, location = false }) => ({
+const queueTicketEventsPath = ({ operationId, summary, location = false, dataSchema = "TicketEvents" }) => ({
   get: {
     operationId,
     summary,
@@ -174,7 +179,7 @@ const queueTicketEventsPath = ({ operationId, summary, location = false }) => ({
       }
     ],
     responses: {
-      "200": envelopeResponse("Queue ticket lifecycle events"),
+      "200": envelopeResponse("Queue ticket lifecycle events", dataSchema),
       "400": { description: "The event limit is invalid." },
       "401": { description: "Missing or invalid API key." },
       "403": { description: "API key is missing the queues:read scope." },
@@ -214,7 +219,7 @@ const openApiDocument = {
         operationId: "listProfiles",
         summary: "List developer profiles",
         security: [{ ApiKeyAuth: [] }],
-        responses: { "200": envelopeResponse("Developer profiles"), "401": { description: "Missing or invalid API key." }, "403": { description: "API key is missing the profiles:read scope." } }
+        responses: { "200": envelopeResponse("Developer profiles", "ProfileList"), "401": { description: "Missing or invalid API key." }, "403": { description: "API key is missing the profiles:read scope." } }
       },
       post: {
         operationId: "createProfile",
@@ -222,7 +227,7 @@ const openApiDocument = {
         security: [{ ApiKeyAuth: [] }],
         parameters: [idempotencyParameter],
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["slug", "display_name"], properties: { slug: { type: "string", pattern: "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$" }, display_name: { type: "string", maxLength: 120 } }, additionalProperties: false } } } },
-        responses: { "201": envelopeResponse("Created developer profile"), "400": { description: "Invalid profile details." }, "401": { description: "Missing or invalid API key." }, "403": { description: "API key is missing the profiles:write scope." }, "409": { description: "Profile slug already exists." } }
+        responses: { "201": envelopeResponse("Created developer profile", "ProfileEnvelope"), "400": { description: "Invalid profile details." }, "401": { description: "Missing or invalid API key." }, "403": { description: "API key is missing the profiles:write scope." }, "409": { description: "Profile slug already exists." } }
       }
     },
     "/profiles/{profileSlug}": {
@@ -232,7 +237,7 @@ const openApiDocument = {
         security: [{ ApiKeyAuth: [] }],
         parameters: [pathParameter("profileSlug", "The immutable developer profile slug."), idempotencyParameter],
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { display_name: { type: "string", maxLength: 120 }, directory_content: { type: "object", properties: { description: { type: "string", maxLength: 1000 }, website_url: { type: "string", format: "uri" } }, additionalProperties: false } }, additionalProperties: false } } } },
-        responses: { "200": envelopeResponse("Updated developer profile"), "400": { description: "Invalid profile details." }, "401": { description: "Missing or invalid API key." }, "403": { description: "API key is missing the profiles:write scope." }, "404": { description: "Developer profile not found." } }
+        responses: { "200": envelopeResponse("Updated developer profile", "ProfileEnvelope"), "400": { description: "Invalid profile details." }, "401": { description: "Missing or invalid API key." }, "403": { description: "API key is missing the profiles:write scope." }, "404": { description: "Developer profile not found." } }
       }
     },
     "/profiles/{profileSlug}/queues": {
@@ -241,7 +246,7 @@ const openApiDocument = {
         summary: "List queues for a developer profile",
         security: [{ ApiKeyAuth: [] }],
         parameters: [pathParameter("profileSlug", "The developer profile slug.")],
-        responses: { "200": envelopeResponse("Profile queues"), "401": { description: "Missing or invalid API key." }, "403": { description: "API key is missing the queues:read scope." }, "404": { description: "Developer profile not found." } }
+        responses: { "200": envelopeResponse("Profile queues", "ProfileQueues"), "401": { description: "Missing or invalid API key." }, "403": { description: "API key is missing the queues:read scope." }, "404": { description: "Developer profile not found." } }
       },
       post: {
         operationId: "createProfileQueue",
@@ -249,7 +254,7 @@ const openApiDocument = {
         security: [{ ApiKeyAuth: [] }],
         parameters: [pathParameter("profileSlug", "The developer profile slug."), idempotencyParameter],
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["slug", "display_name"], properties: { slug: { type: "string" }, display_name: { type: "string", maxLength: 120 }, session_state: { type: "string", enum: ["open", "paused", "closing", "closed"] }, intake_enabled: { type: "boolean" } }, additionalProperties: false } } } },
-        responses: { "201": envelopeResponse("Created profile queue"), "400": { description: "Invalid queue details." }, "401": { description: "Missing or invalid API key." }, "403": { description: "API key is missing the queues:write scope." }, "404": { description: "Developer profile not found." }, "409": { description: "Queue slug already exists." } }
+        responses: { "201": envelopeResponse("Created profile queue", "QueueEnvelope"), "400": { description: "Invalid queue details." }, "401": { description: "Missing or invalid API key." }, "403": { description: "API key is missing the queues:write scope." }, "404": { description: "Developer profile not found." }, "409": { description: "Queue slug already exists." } }
       }
     },
     "/profiles/{profileSlug}/queues/{queueSlug}": {
@@ -259,7 +264,7 @@ const openApiDocument = {
         security: [{ ApiKeyAuth: [] }],
         parameters: [pathParameter("profileSlug", "The developer profile slug."), pathParameter("queueSlug", "The queue slug."), idempotencyParameter],
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { display_name: { type: "string", maxLength: 120 }, session_state: { type: "string", enum: ["open", "paused", "closing", "closed"] }, intake_enabled: { type: "boolean" }, resource_version: { type: "integer", minimum: 1 } }, additionalProperties: false } } } },
-        responses: { "200": envelopeResponse("Updated profile queue"), "400": { description: "Invalid queue details." }, "401": { description: "Missing or invalid API key." }, "403": { description: "API key is missing the queues:write scope." }, "404": { description: "Developer profile or queue not found." }, "409": { description: "Queue update conflict." } }
+        responses: { "200": envelopeResponse("Updated profile queue", "QueueEnvelope"), "400": { description: "Invalid queue details." }, "401": { description: "Missing or invalid API key." }, "403": { description: "API key is missing the queues:write scope." }, "404": { description: "Developer profile or queue not found." }, "409": { description: "Queue update conflict." } }
       }
     },
     "/queues/{tenantSlug}": queueReadPath({
@@ -378,6 +383,133 @@ const openApiDocument = {
       }
     },
     schemas: {
+      Profile: {
+        type: "object",
+        required: ["id", "slug", "display_name", "directory_status", "directory_content", "created_at", "updated_at"],
+        properties: {
+          id: { type: "string", description: "Opaque profile identifier." },
+          slug: { type: "string", pattern: "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$" },
+          display_name: { type: "string" },
+          directory_status: { type: "string", enum: ["private", "draft", "published"] },
+          directory_content: { $ref: "#/components/schemas/DirectoryContent" },
+          created_at: { type: "string", format: "date-time" },
+          updated_at: { type: "string", format: "date-time" }
+        }
+      },
+      DirectoryContent: {
+        type: "object",
+        required: ["description", "website_url"],
+        properties: {
+          description: { type: "string" },
+          website_url: { type: "string", format: "uri" }
+        }
+      },
+      Queue: {
+        type: "object",
+        required: ["id", "slug", "display_name", "session_state", "intake_enabled", "joining_enabled", "priority_ratio", "resource_version", "created_at", "updated_at"],
+        properties: {
+          id: { type: "string", description: "Opaque queue identifier." },
+          slug: { type: "string" },
+          display_name: { type: "string" },
+          session_state: { type: "string", enum: ["open", "paused", "closing", "closed"] },
+          intake_enabled: { type: "boolean" },
+          joining_enabled: { type: "boolean" },
+          priority_ratio: { type: "number" },
+          resource_version: { type: "integer", minimum: 1 },
+          created_at: { type: "string", format: "date-time" },
+          updated_at: { type: "string", format: "date-time" }
+        }
+      },
+      Ticket: {
+        type: "object",
+        required: ["id", "ticket_number", "sequence", "status", "queue_id", "resource_version", "created_at", "updated_at"],
+        properties: {
+          id: { type: "string", description: "Opaque ticket identifier." },
+          ticket_number: { type: "string" },
+          sequence: { type: "integer" },
+          display_label: { type: ["string", "null"] },
+          status: { type: "string", enum: ["waiting", "called", "served", "skipped", "cancelled", "unserved", "expired"] },
+          queue_id: { type: "string" },
+          external_reference: { type: ["string", "null"] },
+          status_reason: { type: ["string", "null"] },
+          called_at: { type: ["string", "null"], format: "date-time" },
+          served_at: { type: ["string", "null"], format: "date-time" },
+          skipped_at: { type: ["string", "null"], format: "date-time" },
+          cancelled_at: { type: ["string", "null"], format: "date-time" },
+          unserved_at: { type: ["string", "null"], format: "date-time" },
+          terminal_at: { type: ["string", "null"], format: "date-time" },
+          resource_version: { type: "integer", minimum: 1 },
+          created_at: { type: "string", format: "date-time" },
+          updated_at: { type: "string", format: "date-time" }
+        }
+      },
+      ProfileList: {
+        type: "object",
+        required: ["profiles"],
+        properties: { profiles: { type: "array", items: { $ref: "#/components/schemas/Profile" } } }
+      },
+      ProfileEnvelope: {
+        type: "object",
+        required: ["profile"],
+        properties: { profile: { $ref: "#/components/schemas/Profile" } }
+      },
+      ProfileQueues: {
+        type: "object",
+        required: ["profile", "queues"],
+        properties: {
+          profile: { $ref: "#/components/schemas/Profile" },
+          queues: { type: "array", items: { $ref: "#/components/schemas/Queue" } }
+        }
+      },
+      QueueEnvelope: {
+        type: "object",
+        required: ["queue"],
+        properties: {
+          queue: { $ref: "#/components/schemas/Queue" },
+          queueEvents: { type: "array", items: { type: "object" } }
+        }
+      },
+      QueueSnapshot: {
+        type: "object",
+        required: ["profile", "queue", "queue_intake", "stats", "current", "next_up", "overflow", "skipped"],
+        properties: {
+          profile: { $ref: "#/components/schemas/Profile" },
+          queue: { $ref: "#/components/schemas/Queue" },
+          queue_intake: { type: "object", required: ["state"], properties: { state: { type: "string", enum: ["open", "closed"] } } },
+          stats: { type: "object", properties: { waiting_count: { type: "integer" }, called_count: { type: "integer" } } },
+          current: { anyOf: [{ $ref: "#/components/schemas/Ticket" }, { type: "null" }] },
+          next_up: { type: "array", items: { $ref: "#/components/schemas/Ticket" } },
+          overflow: { type: "array", items: { $ref: "#/components/schemas/Ticket" } },
+          skipped: { type: "array", items: { $ref: "#/components/schemas/Ticket" } }
+        }
+      },
+      TicketEnvelope: {
+        type: "object",
+        required: ["ticket"],
+        properties: { ticket: { anyOf: [{ $ref: "#/components/schemas/Ticket" }, { type: "null" }] } }
+      },
+      TicketEvents: {
+        type: "object",
+        required: ["events", "next_cursor"],
+        properties: {
+          events: { type: "array", items: { $ref: "#/components/schemas/TicketEvent" } },
+          next_cursor: { type: ["string", "null"] }
+        }
+      },
+      TicketEvent: {
+        type: "object",
+        required: ["id", "ticket_id", "queue_id", "type", "resource_version", "occurred_at"],
+        properties: {
+          id: { type: "string" },
+          ticket_id: { type: "string" },
+          queue_id: { type: "string" },
+          type: { type: "string" },
+          resource_version: { type: "integer" },
+          from_status: { type: ["string", "null"] },
+          to_status: { type: ["string", "null"] },
+          occurred_at: { type: "string", format: "date-time" }
+        }
+      },
       Envelope: {
         type: "object",
         required: ["data", "request_id"],

@@ -86,7 +86,9 @@ function ticketView(ticket) {
   return value;
 }
 async function scopedProfile(req) {
-  const profile = await developerQueues.findProfile(req.apiKey.projectId, req.apiKey.environment, slug(req.params.tenantSlug || req.params.profileSlug, "profile slug"));
+  const profileSlug = slug(req.params.tenantSlug || req.params.profileSlug, "profile slug");
+  if (req.apiKey.profileAccess === "selected" && !req.apiKey.profileSlugs.includes(profileSlug)) throw notFound("Profile not found.");
+  const profile = await developerQueues.findProfile(req.apiKey.projectId, req.apiKey.environment, profileSlug);
   if (!profile) throw notFound("Profile not found.");
   return profile;
 }
@@ -134,9 +136,12 @@ router.get("/health", (req, res) => send(req, res, { status: "ok", service: "get
 router.get("/openapi.json", (_req, res) => res.setHeader("Cache-Control", "public, max-age=300").type("application/json").json(openApiDocument));
 
 router.get("/profiles", authenticateDeveloperApiKey, requireApiScope("profiles:read"), asyncHandler(async (req, res) => {
-  send(req, res, { profiles: (await developerQueues.listProfiles(req.apiKey.projectId, req.apiKey.environment)).map(profileView) });
+  const profiles = await developerQueues.listProfiles(req.apiKey.projectId, req.apiKey.environment);
+  const visible = req.apiKey.profileAccess === "selected" ? profiles.filter((profile) => req.apiKey.profileSlugs.includes(profile.slug)) : profiles;
+  send(req, res, { profiles: visible.map(profileView) });
 }));
 router.post("/profiles", authenticateDeveloperApiKey, requireApiScope("profiles:write"), asyncHandler(async (req, res) => {
+  if (req.apiKey.profileAccess === "selected") throw error(403, "API_PROFILE_ACCESS_RESTRICTED", "A key limited to selected profiles cannot create new profiles.");
   only(req.body, new Set(["slug", "display_name", "displayName"]));
   const profileSlug = slug(req.body?.slug); const displayName = text(req.body?.display_name ?? req.body?.displayName, "display_name", 120, true);
   await mutate(req, res, { scope: "developer_api.profile.create", payload: { profileSlug, displayName }, status: 201, run: async (client) => ({ profile: profileView(await developerQueues.createProfile({ projectId: req.apiKey.projectId, environment: req.apiKey.environment, slug: profileSlug, displayName, userId: req.apiKey.createdByUserId }, { client })) }) });

@@ -15,7 +15,7 @@ Source: `frontend/src/pages/prototypes/DeveloperPortalPrototype.tsx` in the prot
 | Test accounts and tester app | Not connected. The workspace says so rather than inventing accounts or devices. |
 | Production application, project subscriptions, wallet, and billing | Not connected. No production action or balance is simulated in the real workspace. |
 | Team invitations and per-member security | Not connected. Current workspace shows the signed-in account role only. |
-| Account page hierarchy | Billing remains available at `/dashboard/billing`; account access is now in the authenticated header menu, with `/account/profile` providing Personal Details, Password, and Security tabs. Live session/project state is shown; unavailable billing, team, and MFA mutations remain explicitly unavailable. |
+| Account page hierarchy | Account access is available in the authenticated header menu and sidebar at `/dashboard/account/profile`, `/dashboard/account/billing`, `/dashboard/account/subscriptions`, and `/dashboard/account/team-security`. The profile provides Personal Details, Password, and Security tabs; password changes are connected and revoke active sessions, while billing, team, and MFA mutations remain explicitly unavailable. |
 | Directory publication and moderation | Private profile creation exists; publication and review do not. |
 | Detailed key rotation history and usage ledger | Basic key state and daily allowance exist; rotation overlap and per-ticket history do not. |
 
@@ -37,3 +37,4 @@ The live workspace now uses the prototype stylesheet as its visual base (`Develo
 ## API key parity
 
 The live API keys flow follows the prototype’s two-screen interaction: `API keys` lists credentials and routes `Create API key` to `/dashboard/keys/new`. Key history is always rendered as the prototype-style expandable table; each expanded row uses the live scopes, status, revocation time, and project-preserved resource message.
+Profile access uses the prototype’s `All profiles` / `Selected profiles` control. Selected profile slugs are stored on the key and enforced by the developer API; unrestricted keys continue to include profiles added later.

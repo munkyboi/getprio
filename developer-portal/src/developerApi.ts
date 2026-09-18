@@ -5,13 +5,18 @@ export type DeveloperUser = {
   email: string;
   emailVerified: boolean;
   mfaEnabled: boolean;
+  emailMfaEnabled: boolean;
 };
 
 export type DeveloperAccount = { id: string; role: string; status: string };
 export type Session = { user: DeveloperUser; developerAccount: DeveloperAccount; csrfToken: string };
 export type RegistrationChallenge = { challengeId: string | null; step: "email_otp"; deliveryTarget: string; expiresAt: string };
+export type MfaEnrollment = { secret: string; otpAuthUri: string };
+export type MfaLoginMethod = "totp" | "email" | "recovery";
+export type MfaLoginChallenge = { mfaRequired: true; challengeToken: string; expiresAt: string; methods: MfaLoginMethod[] };
+export type DeveloperLoginResult = Session | MfaLoginChallenge;
 export type Project = { id: string; name: string; status: string; accessRole?: string; createdAt: string; updatedAt: string };
-export type ApiKey = { id: string; projectId: string; name: string; environment: "sandbox" | "production"; keyPrefix: string; scopes: string[]; status: string; lastUsedAt: string | null; revokedAt: string | null; createdAt: string; updatedAt: string };
+export type ApiKey = { id: string; projectId: string; name: string; environment: "sandbox" | "production"; keyPrefix: string; scopes: string[]; profileAccess: "all" | "selected"; profileSlugs: string[]; status: string; lastUsedAt: string | null; revokedAt: string | null; createdAt: string; updatedAt: string };
 export type Profile = { id: string; projectId: string; environment: "sandbox" | "production"; slug: string; displayName: string; directoryStatus: string; directoryContent: { description?: string; websiteUrl?: string }; createdAt: string; updatedAt: string };
 export type Queue = { id: string; profileId: string; slug: string; displayName: string; sessionState: string; intakeEnabled: boolean; joiningEnabled: boolean; priorityRatio: number; resourceVersion: number; createdAt: string; updatedAt: string };
 export type DeveloperTicket = { id: string; projectId: string; environment: "sandbox" | "production"; profileId: string; queueId: string; ticketNumber: string; sequence: number; displayLabel: string | null; externalReference: string | null; status: string; statusReason: string | null; calledAt: string | null; servedAt: string | null; skippedAt: string | null; cancelledAt: string | null; unservedAt: string | null; terminalAt: string | null; resourceVersion: number; createdAt: string; updatedAt: string };
@@ -48,7 +53,12 @@ let refreshInFlight: Promise<string | undefined> | undefined;
 async function request<T>(path: string, options: RequestOptions = {}, allowRefresh = true): Promise<T> {
   const method = options.method || "GET";
   const headers: Record<string, string> = { Accept: "application/json" };
-  if (options.body !== undefined) headers["Content-Type"] = "application/json";
+  // The API's CSRF middleware validates the content type for every unsafe
+  // request, including body-less POST and DELETE requests such as logout and
+  // key revocation. Keep those requests explicitly JSON as well.
+  if (options.body !== undefined || !["GET", "HEAD", "OPTIONS"].includes(method)) {
+    headers["Content-Type"] = "application/json";
+  }
   const csrfToken = options.csrfToken || csrfTokenCache;
   if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
   const response = await fetch(`${apiBase}/api/developer${path}`, {
@@ -89,20 +99,36 @@ function sessionFrom(value: { user: DeveloperUser; developerAccount: DeveloperAc
   return { user: value.user, developerAccount: value.developerAccount, csrfToken: value.csrfToken || prior! };
 }
 
+function isMfaLoginChallenge(value: DeveloperLoginResult): value is MfaLoginChallenge {
+  return Boolean((value as MfaLoginChallenge)?.mfaRequired && (value as MfaLoginChallenge)?.challengeToken);
+}
+
 export const developerApi = {
   async me(priorCsrf?: string) { return sessionFrom(await request<{ user: DeveloperUser; developerAccount: DeveloperAccount; csrfToken?: string }>("/me"), priorCsrf); },
-  async login(email: string, password: string) { return sessionFrom(await request<{ user: DeveloperUser; developerAccount: DeveloperAccount; csrfToken: string }>("/login", { method: "POST", body: { email, password } })); },
+  async login(email: string, password: string): Promise<DeveloperLoginResult> {
+    const result = await request<{ user: DeveloperUser; developerAccount: DeveloperAccount; csrfToken: string } | MfaLoginChallenge>("/login", { method: "POST", body: { email, password } });
+    return isMfaLoginChallenge(result) ? result : sessionFrom(result);
+  },
+  async sendLoginEmailOtp(challengeToken: string) { return request<{ token: string; expiresAt: string; deliveryTarget: string }>("/mfa/email/send", { method: "POST", body: { challengeToken } }); },
+  async verifyMfaLogin(challengeToken: string, method: MfaLoginMethod, code: string, recoveryCode = "") { return sessionFrom(await request<{ user: DeveloperUser; developerAccount: DeveloperAccount; csrfToken: string }>("/mfa/verify", { method: "POST", body: { challengeToken, method, code, recoveryCode } })); },
   async startRegistration(name: string, email: string, password: string) { return request<RegistrationChallenge>("/register/otp", { method: "POST", body: { name, email, password } }); },
   async verifyRegistration(challengeId: string, code: string) { return sessionFrom(await request<{ user: DeveloperUser; developerAccount: DeveloperAccount; csrfToken: string }>("/register/otp/verify", { method: "POST", body: { challengeId, code } })); },
   async resendRegistration(challengeId: string) { return request<RegistrationChallenge>("/register/otp/resend", { method: "POST", body: { challengeId } }); },
   async logout(csrfToken: string) { return request<void>("/logout", { method: "POST", csrfToken }); },
+  async changePassword(currentPassword: string, newPassword: string, confirmPassword: string, csrfToken: string) { return request<{ success: boolean; message: string }>("/password", { method: "POST", body: { currentPassword, newPassword, confirmPassword }, csrfToken }); },
+  async startMfaEnrollment(currentCode: string, csrfToken: string) { return request<MfaEnrollment>("/mfa/enrollment/start", { method: "POST", body: { currentCode }, csrfToken }); },
+  async confirmMfaEnrollment(code: string, csrfToken: string) { return request<{ success: boolean; recoveryCodes: string[]; user: DeveloperUser; message: string }>("/mfa/enrollment/confirm", { method: "POST", body: { code }, csrfToken }); },
+  async cancelMfaEnrollment(csrfToken: string) { return request<{ success: boolean; canceled: boolean; message: string }>("/mfa/enrollment/cancel", { method: "POST", csrfToken }); },
+  async enableEmailMfa(csrfToken: string) { return request<{ success: boolean; user: DeveloperUser; message: string }>("/mfa/email/enable", { method: "POST", csrfToken }); },
+  async disableEmailMfa(password: string, csrfToken: string) { return request<{ success: boolean; user: DeveloperUser; message: string }>("/mfa/email/disable", { method: "POST", body: { password }, csrfToken }); },
+  async disableMfa(password: string, code: string, recoveryCode: string, csrfToken: string) { return request<{ success: boolean; user: DeveloperUser; message: string }>("/mfa/disable", { method: "POST", body: { password, code, recoveryCode }, csrfToken }); },
   async projects() { return request<{ projects: Project[] }>("/projects"); },
   async sandboxAllowance(projectId: string) { return request<{ project: Project; allowance: SandboxAllowance }>(`/projects/${projectId}/sandbox/allowance`); },
   async usage(projectId: string) { return request<UsageReport>(`/projects/${projectId}/usage?environment=sandbox`); },
   async createProject(name: string, csrfToken: string) { return request<{ project: Project }>("/projects", { method: "POST", body: { name }, csrfToken }); },
   async archiveProject(id: string, csrfToken: string) { return request<{ project: Project }>(`/projects/${id}`, { method: "DELETE", csrfToken }); },
   async keys(projectId: string) { return request<{ project: Project; keys: ApiKey[] }>(`/projects/${projectId}/keys`); },
-  async createKey(projectId: string, body: { name: string; environment: "sandbox"; scopes: string[] }, csrfToken: string) { return request<{ key: ApiKey; secret: string; warning: string }>(`/projects/${projectId}/keys`, { method: "POST", body, csrfToken }); },
+  async createKey(projectId: string, body: { name: string; environment: "sandbox"; scopes: string[]; profileAccess: "all" | "selected"; profileSlugs: string[] }, csrfToken: string) { return request<{ key: ApiKey; secret: string; warning: string }>(`/projects/${projectId}/keys`, { method: "POST", body, csrfToken }); },
   async revokeKey(projectId: string, keyId: string, csrfToken: string) { return request<{ key: ApiKey }>(`/projects/${projectId}/keys/${keyId}`, { method: "DELETE", csrfToken }); },
   async profiles(projectId: string) { return request<{ project: Project; environment: string; profiles: Profile[] }>(`/projects/${projectId}/profiles?environment=sandbox`); },
   async createProfile(projectId: string, body: { slug: string; displayName: string }, csrfToken: string) { return request<{ profile: Profile }>(`/projects/${projectId}/profiles`, { method: "POST", body: { ...body, environment: "sandbox" }, csrfToken }); },

@@ -537,6 +537,21 @@
   border-color: #d5dfec !important;
   color: #7a889d !important;
 }
+.developer-workspace.dpp:not([data-api-theme="light"]) .developer-workspace-primary:disabled,
+.developer-workspace.dpp:not([data-api-theme="light"]) .developer-workspace-primary:disabled:hover,
+.developer-workspace.dpp:not([data-api-theme="light"]) .developer-workspace-primary[data-disabled],
+.developer-workspace.dpp:not([data-api-theme="light"]) .developer-workspace-primary[data-disabled]:hover {
+  background: var(--dpp-c-202b3f) !important;
+  border-color: var(--dpp-c-354159) !important;
+  color: var(--dpp-c-a1a7bb) !important;
+  box-shadow: none;
+  cursor: not-allowed;
+  opacity: 1;
+}
+.developer-workspace.dpp:not([data-api-theme="light"]) .developer-workspace-primary:disabled .mantine-Button-label,
+.developer-workspace.dpp:not([data-api-theme="light"]) .developer-workspace-primary[data-disabled] .mantine-Button-label {
+  color: var(--dpp-c-a1a7bb) !important;
+}
 .developer-workspace.dpp[data-api-theme="light"] .developer-workspace-context .developer-workspace-status {
   background: #2095e8;
   border-color: #2095e8;

@@ -120,3 +120,37 @@ test("an account role that requires MFA cannot disable it", async () => {
     (error) => error.statusCode === 403 && error.code === "MFA_REQUIRED_FOR_ROLE"
   );
 });
+
+test("email MFA issues a one-time login challenge and accepts its OTP", async () => {
+  const state = { created: null, email: null, consumed: false, authSession: null };
+  const service = requireWithMocks("../src/services/mfaFlowService.js", {
+    "../config/db": { withTransaction: async (callback) => callback({ id: "tx" }) },
+    "../config/env": { mfaEncryptionSecret: "secret", mfaRecoveryPepper: "pepper" },
+    "../repositories/authSessions": {},
+    "../repositories/mfa": {
+      findChallengeByTokenHash: async () => state.created || {
+        _id: "login-1", userId: "7", challengeType: "login", primaryAuthenticatedAt: new Date(), ipAddress: "127.0.0.1", userAgent: "test", attemptCount: 0, expiresAt: new Date(Date.now() + 300000), usedAt: null
+      },
+      createChallenge: async (challenge) => { state.created = { ...challenge, _id: "email-1", attemptCount: 0, usedAt: null }; },
+      consumeChallenge: async () => { state.consumed = true; return true; },
+      recordChallengeFailure: async () => {},
+      findTotpFactor: async () => null,
+      consumeRecoveryCode: async () => false
+    },
+    "../repositories/users": {
+      findUserById: async () => ({ _id: "7", email: "dev@example.com", emailVerified: true, emailMfaEnabled: true, lastLoginProvider: "password" })
+    },
+    "./notificationService": { sendEmail: async (email) => { state.email = email; } },
+    "./securityEventService": {},
+    "./sessionService": { createAuthSession: async (input) => { state.authSession = input; return { session: { _id: "session-1", expiresAt: new Date() }, accessToken: "access", refreshToken: "refresh" }; } }
+  });
+
+  const issued = await service.issueEmailLoginChallenge({ challengeToken: "login-token", ipAddress: "127.0.0.1", userAgent: "test" });
+  assert.equal(issued.deliveryTarget, "d***@example.com");
+  assert.match(state.email.text, /\b\d{6}\b/);
+  const code = state.email.text.match(/\b\d{6}\b/)[0];
+  const verified = await service.verifyLoginChallenge({ challengeToken: issued.token, method: "email", code });
+  assert.equal(state.consumed, true);
+  assert.equal(verified.user.email, "dev@example.com");
+  assert.equal(state.authSession.surface, "app");
+});

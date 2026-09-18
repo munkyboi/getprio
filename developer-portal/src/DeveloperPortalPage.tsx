@@ -1,5 +1,6 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Badge, Button, Paper, PasswordInput, Select, Tabs, TextInput } from "@mantine/core";
+import QRCodeStyling from "qr-code-styling";
 import {
   IconBell,
   IconBuildingCommunity,
@@ -7,6 +8,8 @@ import {
   IconCheck,
   IconCopy,
   IconDeviceMobile,
+  IconEye,
+  IconEyeOff,
   IconKey,
   IconRefresh,
   IconScissors,
@@ -17,7 +20,7 @@ import {
 import DeveloperShell from "./DeveloperShell";
 import DeveloperWorkspace from "./DeveloperWorkspace";
 import DeveloperInputOtp from "./components/DeveloperInputOtp";
-import { developerApi, type Session } from "./developerApi";
+import { developerApi, type MfaLoginChallenge, type MfaLoginMethod, type Session } from "./developerApi";
 import "./DeveloperPortalPage.css";
 
 const faqs = [
@@ -78,6 +81,81 @@ async function copyText(text: string) {
     document.execCommand("copy");
     textArea.remove();
   }
+}
+
+function MfaQrCode({ value }: { value: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!containerRef.current) return;
+    containerRef.current.replaceChildren();
+    const qrCode = new QRCodeStyling({
+      type: "svg",
+      width: 220,
+      height: 220,
+      data: value,
+      margin: 8,
+      dotsOptions: { color: "#101827", type: "rounded" },
+      cornersSquareOptions: { color: "#101827", type: "extra-rounded" },
+      cornersDotOptions: { color: "#101827", type: "dot" },
+      backgroundOptions: { color: "#ffffff" },
+    });
+    qrCode.append(containerRef.current);
+    return () => containerRef.current?.replaceChildren();
+  }, [value]);
+  return <div className="developer-account-mfa-qr" ref={containerRef} aria-label="Authenticator setup QR code" />;
+}
+
+const developerPasswordPolicy = [
+  { id: "length", label: "6–32 characters", test: (value: string) => value.length >= 6 && value.length <= 32 },
+  { id: "uppercase", label: "1 uppercase letter", test: (value: string) => /[A-Z]/.test(value) },
+  { id: "numbers", label: "2 numbers", test: (value: string) => (value.match(/[0-9]/g) || []).length >= 2 },
+  { id: "special", label: "1 special character", test: (value: string) => /[^A-Za-z0-9]/.test(value) },
+] as const;
+
+function getDeveloperPasswordChecks(value: string) {
+  return developerPasswordPolicy.map((rule) => ({ ...rule, passed: rule.test(value) }));
+}
+
+function DeveloperPasswordPolicy({ value, id }: { value: string; id: string }) {
+  const [evaluatedValue, setEvaluatedValue] = useState(value);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setEvaluatedValue(value), 250);
+    return () => window.clearTimeout(timer);
+  }, [value]);
+
+  const checks = getDeveloperPasswordChecks(evaluatedValue);
+  const passedCount = checks.filter((rule) => rule.passed).length;
+  const strength = Math.round((passedCount / developerPasswordPolicy.length) * 100);
+  const strengthLabel = evaluatedValue.length === 0
+    ? "Not started"
+    : passedCount === developerPasswordPolicy.length
+      ? "Strong"
+      : passedCount >= 3
+        ? "Almost there"
+        : passedCount >= 1
+          ? "Needs work"
+          : "Too weak";
+
+  return (
+    <div className="developer-password-policy" id={id} aria-live="polite">
+      <div className="developer-password-policy-header">
+        <span>Password strength</span>
+        <strong>{strengthLabel}</strong>
+      </div>
+      <div className="developer-password-policy-meter" role="progressbar" aria-label="Password strength" aria-valuemin={0} aria-valuemax={100} aria-valuenow={strength}>
+        <span style={{ width: `${strength}%` }} />
+      </div>
+      <ul>
+        {checks.map((rule) => (
+          <li key={rule.id} data-complete={rule.passed || undefined}>
+            <span aria-hidden="true">{rule.passed ? "✓" : "○"}</span>
+            {rule.label}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
 const codeTokenPattern = /(https?:\/\/[^\s'"`]+|'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|--?[A-Za-z][\w-]*|\b(?:curl|const|let|if|throw|new|return|fetch|POST|GET|PUT|PATCH|DELETE|true|false|null)\b)/g;
@@ -490,14 +568,26 @@ const pageTitles: Record<string, string> = {
   "/register": "Developer enrollment",
   "/login": "Developer login",
   "/account/profile": "Account profile",
+  "/dashboard/account/profile": "Account profile",
+  "/dashboard/account/billing": "Billing & wallet",
+  "/dashboard/account/subscriptions": "Project subscriptions",
+  "/dashboard/account/team-security": "Team & security",
+  "/dashboard/account/security": "Account security",
   "/dashboard": "Developer workspace",
 };
 function AuthScreen({ mode, onAuthenticated }: { mode: "login" | "register"; onAuthenticated: (session: Session) => void }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [registrationPassword, setRegistrationPassword] = useState("");
   const [challenge, setChallenge] = useState<{ challengeId: string; deliveryTarget: string } | null>(null);
   const [verificationCode, setVerificationCode] = useState("");
+  const [loginMfa, setLoginMfa] = useState<MfaLoginChallenge | null>(null);
+  const [loginMfaMethod, setLoginMfaMethod] = useState<MfaLoginMethod>("totp");
+  const [loginMfaCode, setLoginMfaCode] = useState("");
+  const [loginRecoveryCode, setLoginRecoveryCode] = useState("");
+  const [loginMfaDelivery, setLoginMfaDelivery] = useState("");
   const enrolling = mode === "register";
+
   async function verifyCode(code: string) {
     if (!challenge || busy || !/^\d{6}$/.test(code)) return;
     setBusy(true); setError("");
@@ -509,6 +599,7 @@ function AuthScreen({ mode, onAuthenticated }: { mode: "login" | "register"; onA
       setError(caught instanceof Error ? caught.message : "We could not verify that code.");
     } finally { setBusy(false); }
   }
+
   async function resendCode() {
     if (!challenge) return;
     setBusy(true); setError("");
@@ -520,57 +611,206 @@ function AuthScreen({ mode, onAuthenticated }: { mode: "login" | "register"; onA
       setError(caught instanceof Error ? caught.message : "We could not resend the code.");
     } finally { setBusy(false); }
   }
+
+  async function verifyLoginMfa() {
+    if (!loginMfa || busy) return;
+    if (loginMfaMethod === "recovery" ? !loginRecoveryCode.trim() : !/^\d{6}$/.test(loginMfaCode)) return;
+    setBusy(true); setError("");
+    try {
+      const session = await developerApi.verifyMfaLogin(loginMfa.challengeToken, loginMfaMethod, loginMfaCode, loginRecoveryCode);
+      onAuthenticated(session);
+      window.location.assign("/dashboard");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "We could not verify that sign-in code.");
+    } finally { setBusy(false); }
+  }
+
+  async function sendLoginEmailOtp() {
+    if (!loginMfa || busy) return;
+    setBusy(true); setError("");
+    try {
+      const result = await developerApi.sendLoginEmailOtp(loginMfa.challengeToken);
+      setLoginMfa({ ...loginMfa, challengeToken: result.token, expiresAt: result.expiresAt });
+      setLoginMfaDelivery(result.deliveryTarget);
+      setLoginMfaCode("");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "We could not send an email code.");
+    } finally { setBusy(false); }
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (enrolling && challenge) {
-      await verifyCode(verificationCode);
+    if (enrolling && challenge) { await verifyCode(verificationCode); return; }
+    if (!enrolling && loginMfa) {
+      if (loginMfaMethod === "email" && !loginMfaDelivery) { await sendLoginEmailOtp(); return; }
+      await verifyLoginMfa();
       return;
     }
     const form = new FormData(event.currentTarget);
     setBusy(true); setError("");
     try {
       if (enrolling) {
-        if (!challenge) {
-          const nextChallenge = await developerApi.startRegistration(
-            String(form.get("name") || ""),
-            String(form.get("email") || ""),
-            String(form.get("password") || "")
-          );
-          setVerificationCode("");
-          if (nextChallenge.challengeId) setChallenge({ challengeId: nextChallenge.challengeId, deliveryTarget: nextChallenge.deliveryTarget });
-          else setError("If this email can be registered, a verification code will be sent.");
-        }
+        const nextChallenge = await developerApi.startRegistration(String(form.get("name") || ""), String(form.get("email") || ""), String(form.get("password") || ""));
+        setVerificationCode("");
+        if (nextChallenge.challengeId) setChallenge({ challengeId: nextChallenge.challengeId, deliveryTarget: nextChallenge.deliveryTarget });
+        else setError("If this email can be registered, a verification code will be sent.");
       } else {
-        const session = await developerApi.login(String(form.get("email") || ""), String(form.get("password") || ""));
-        onAuthenticated(session);
-        window.location.assign("/dashboard");
+        const result = await developerApi.login(String(form.get("email") || ""), String(form.get("password") || ""));
+        if ("mfaRequired" in result) {
+          setLoginMfa(result);
+          setLoginMfaMethod(result.methods.includes("totp") ? "totp" : result.methods.includes("email") ? "email" : "recovery");
+          setLoginMfaCode(""); setLoginRecoveryCode(""); setLoginMfaDelivery("");
+        } else {
+          onAuthenticated(result);
+          window.location.assign("/dashboard");
+        }
       }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "We could not complete sign-in.");
     } finally { setBusy(false); }
   }
+
+  const loginMfaOptions = loginMfa?.methods.filter((method, index, methods) => methods.indexOf(method) === index) || [];
   return <>
     <p className="developer-portal-eyebrow">{enrolling ? "SANDBOX REGISTRATION" : "DEVELOPER LOGIN"}</p>
-    <h1>{enrolling ? (challenge ? "Verify your email." : "Create your Developer Portal account.") : "Welcome back."}</h1>
-    <p className="developer-portal-lede">{enrolling ? (challenge ? `Enter the code sent to ${challenge.deliveryTarget}.` : "Use an independent Developer Portal account. It starts with free Sandbox access.") : "Sign in to manage your Sandbox project, API keys, profiles, queues, and webhooks."}</p>
+    <h1>{enrolling ? (challenge ? "Verify your email." : "Create your Developer Portal account.") : loginMfa ? "Verify your sign-in." : "Welcome back."}</h1>
+    <p className="developer-portal-lede">{enrolling ? (challenge ? `Enter the code sent to ${challenge.deliveryTarget}.` : "Use an independent Developer Portal account. It starts with free Sandbox access.") : loginMfa ? (loginMfaDelivery ? `Enter the code sent to ${loginMfaDelivery}.` : "Choose an available verification method to finish signing in.") : "Sign in to manage your Sandbox project, API keys, profiles, queues, and webhooks."}</p>
     <form className="developer-portal-auth-form" onSubmit={(event) => void submit(event)}>
       {enrolling && !challenge && <TextInput label="Name" name="name" autoComplete="name" minLength={2} maxLength={120} required />}
-      {!challenge && <TextInput label="Email" name="email" type="email" autoComplete="email" required />}
-      {enrolling && challenge ? <div className="developer-portal-otp-field"><div className="developer-portal-otp-label-row"><label htmlFor="developer-registration-code">Verification code</label><Button type="button" variant="light" className="developer-portal-otp-resend" disabled={busy} onClick={() => void resendCode()} leftSection={<IconRefresh size={16} aria-hidden="true" />}>{busy ? "Resending…" : "Resend code"}</Button></div><DeveloperInputOtp id="developer-registration-code" value={verificationCode} onChange={setVerificationCode} onComplete={(code) => void verifyCode(code)} disabled={busy} invalid={Boolean(error)} /></div> : <TextInput label="Password" key="developer-registration-password" name="password" type="password" autoComplete={enrolling ? "new-password" : "current-password"} required />}
+      {!challenge && !loginMfa && <TextInput label="Email" name="email" type="email" autoComplete="email" required />}
+      {enrolling && challenge ? <div className="developer-portal-otp-field"><div className="developer-portal-otp-label-row"><label htmlFor="developer-registration-code">Verification code</label><Button type="button" variant="light" className="developer-portal-otp-resend" disabled={busy} onClick={() => void resendCode()} leftSection={<IconRefresh size={16} aria-hidden="true" />}>{busy ? "Resending…" : "Resend code"}</Button></div><DeveloperInputOtp id="developer-registration-code" value={verificationCode} onChange={setVerificationCode} onComplete={(code) => void verifyCode(code)} disabled={busy} invalid={Boolean(error)} /></div> : enrolling ? <div className="developer-password-field"><TextInput label="Password" key="developer-registration-password" name="password" type="password" autoComplete="new-password" minLength={6} maxLength={32} value={registrationPassword} onChange={(event) => setRegistrationPassword(event.currentTarget.value)} aria-describedby="developer-registration-password-policy" required /><DeveloperPasswordPolicy id="developer-registration-password-policy" value={registrationPassword} /></div> : loginMfa ? <>
+        <Select label="Verification method" value={loginMfaMethod} onChange={(value) => { const next = (value || "totp") as MfaLoginMethod; setLoginMfaMethod(next); setLoginMfaCode(""); setLoginRecoveryCode(""); setLoginMfaDelivery(""); }} data={loginMfaOptions.map((method) => ({ value: method, label: method === "totp" ? "Authenticator app" : method === "email" ? "Email OTP" : "Recovery code" }))} />
+        {loginMfaMethod === "email" && !loginMfaDelivery ? <Button type="submit" className="developer-portal-secondary" disabled={busy} loading={busy}>Send code to my email</Button> : loginMfaMethod === "recovery" ? <TextInput label="Recovery code" value={loginRecoveryCode} onChange={(event) => setLoginRecoveryCode(event.currentTarget.value)} autoComplete="one-time-code" placeholder="ABCDE-12345" /> : <TextInput label={loginMfaMethod === "email" ? "Email OTP" : "Authenticator code"} value={loginMfaCode} onChange={(event) => setLoginMfaCode(event.currentTarget.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" maxLength={6} autoComplete="one-time-code" placeholder="123456" />}
+      </> : <TextInput label="Password" key="developer-login-password" name="password" type="password" autoComplete="current-password" required />}
       {error && <p className="developer-portal-auth-error" role="alert">{error}</p>}
-      <Button type="submit" className="developer-portal-primary" loading={busy}>{busy ? "Please wait…" : enrolling ? (challenge ? "Verify and create account" : "Send verification code") : "Log in"}</Button>
+      {(!loginMfa || (loginMfaMethod !== "email" || Boolean(loginMfaDelivery))) && <Button type="submit" className="developer-portal-primary" loading={busy}>{busy ? "Please wait…" : enrolling ? (challenge ? "Verify and create account" : "Send verification code") : loginMfa ? "Verify sign-in" : "Log in"}</Button>}
     </form>
-    <p>{enrolling ? <>This creates a Developer Portal account only. You do not need a GetPrio marketplace account.<br /><span className="developer-portal-auth-switch">Already registered? <a href="/login">Developer login →</a></span></> : <>Need a Developer Portal account? <a href="/register">Get started for Free →</a></>}</p>
-    <p className="developer-portal-preview-note">Production access is separate. It requires Developer Portal approval and personal MFA; Sandbox credentials do not work in production.</p>
+    {!loginMfa && <p>{enrolling ? <>This creates a Developer Portal account only. You do not need a GetPrio marketplace account.<br /><span className="developer-portal-auth-switch">Already registered? <a href="/login">Developer login →</a></span></> : <>Need a Developer Portal account? <a href="/register">Get started for Free →</a></>}</p>}
+    {!loginMfa && <p className="developer-portal-preview-note">Production access is separate. It requires Developer Portal approval and personal MFA; Sandbox credentials do not work in production.</p>}
   </>;
 }
 
-function DeveloperAccountProfile({ session, embedded = false }: { session: Session; embedded?: boolean }) {
+function DeveloperAccountProfile({ session, embedded = false, onPasswordChanged, onSessionChange }: { session: Session; embedded?: boolean; onPasswordChanged?: () => void; onSessionChange?: (next: Session) => void }) {
+  const [passwordBusy, setPasswordBusy] = useState(false);
+  const [passwordError, setPasswordError] = useState("");
+  const [passwordSuccess, setPasswordSuccess] = useState("");
+  const [newPasswordValue, setNewPasswordValue] = useState("");
+  const [mfaBusy, setMfaBusy] = useState(false);
+  const [mfaError, setMfaError] = useState("");
+  const [mfaNotice, setMfaNotice] = useState("");
+  const [mfaEnrollment, setMfaEnrollment] = useState<{ secret: string; otpAuthUri: string } | null>(null);
+  const [mfaCode, setMfaCode] = useState("");
+  const [mfaCurrentCode, setMfaCurrentCode] = useState("");
+  const [mfaRecoveryCode, setMfaRecoveryCode] = useState("");
+  const [mfaPassword, setMfaPassword] = useState("");
+  const [emailMfaPassword, setEmailMfaPassword] = useState("");
+  const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
+
+  async function startMfaEnrollment() {
+    setMfaBusy(true); setMfaError(""); setMfaNotice("");
+    try {
+      const enrollment = await developerApi.startMfaEnrollment(mfaCurrentCode, session.csrfToken);
+      setMfaEnrollment(enrollment); setMfaCode(""); setRecoveryCodes([]);
+    } catch (caught) {
+      setMfaError(caught instanceof Error ? caught.message : "We could not start authenticator setup.");
+    } finally { setMfaBusy(false); }
+  }
+
+  async function confirmMfaEnrollment() {
+    if (!mfaEnrollment || !/^\d{6}$/.test(mfaCode)) return;
+    setMfaBusy(true); setMfaError(""); setMfaNotice("");
+    try {
+      const result = await developerApi.confirmMfaEnrollment(mfaCode, session.csrfToken);
+      setRecoveryCodes(result.recoveryCodes); setMfaEnrollment(null); setMfaCode(""); setMfaCurrentCode("");
+      onSessionChange?.({ ...session, user: result.user });
+      setMfaNotice(result.message);
+    } catch (caught) {
+      setMfaError(caught instanceof Error ? caught.message : "We could not verify that authenticator code.");
+    } finally { setMfaBusy(false); }
+  }
+
+  async function cancelMfaEnrollment() {
+    setMfaBusy(true); setMfaError("");
+    try {
+      await developerApi.cancelMfaEnrollment(session.csrfToken);
+      setMfaEnrollment(null); setMfaCode(""); setMfaCurrentCode("");
+    } catch (caught) {
+      setMfaError(caught instanceof Error ? caught.message : "We could not cancel authenticator setup.");
+    } finally { setMfaBusy(false); }
+  }
+
+  async function disableMfa() {
+    if (!mfaPassword || (!mfaCode && !mfaRecoveryCode)) return;
+    setMfaBusy(true); setMfaError(""); setMfaNotice("");
+    try {
+      const result = await developerApi.disableMfa(mfaPassword, mfaCode, mfaRecoveryCode, session.csrfToken);
+      onSessionChange?.({ ...session, user: result.user });
+      setMfaPassword(""); setMfaCode(""); setMfaRecoveryCode(""); setMfaNotice(result.message);
+    } catch (caught) {
+      setMfaError(caught instanceof Error ? caught.message : "We could not remove MFA from this account.");
+    } finally { setMfaBusy(false); }
+  }
+
+  async function enableEmailMfa() {
+    setMfaBusy(true); setMfaError(""); setMfaNotice("");
+    try {
+      const result = await developerApi.enableEmailMfa(session.csrfToken);
+      onSessionChange?.({ ...session, user: result.user });
+      setMfaNotice(result.message);
+    } catch (caught) {
+      setMfaError(caught instanceof Error ? caught.message : "We could not enable email OTP.");
+    } finally { setMfaBusy(false); }
+  }
+
+  async function disableEmailMfa() {
+    if (!emailMfaPassword) return;
+    setMfaBusy(true); setMfaError(""); setMfaNotice("");
+    try {
+      const result = await developerApi.disableEmailMfa(emailMfaPassword, session.csrfToken);
+      onSessionChange?.({ ...session, user: result.user });
+      setEmailMfaPassword(""); setMfaNotice(result.message);
+    } catch (caught) {
+      setMfaError(caught instanceof Error ? caught.message : "We could not disable email OTP.");
+    } finally { setMfaBusy(false); }
+  }
+
+  async function storeRecoveryCodes() {
+    if (!recoveryCodes.length) return;
+    await copyText(recoveryCodes.join("\n"));
+    setRecoveryCodes([]);
+    setMfaNotice("Recovery codes copied. Store them somewhere secure; they will not be shown again.");
+  }
+
+  async function submitPassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const currentPassword = String(form.get("currentPassword") || "");
+    const newPassword = String(form.get("newPassword") || newPasswordValue);
+    const confirmPassword = String(form.get("confirmPassword") || "");
+    setPasswordBusy(true);
+    setPasswordError("");
+    setPasswordSuccess("");
+    try {
+      if (!getDeveloperPasswordChecks(newPassword).every((rule) => rule.passed)) {
+        throw new Error("Use a password with 1 special character, 2 numbers, 1 uppercase letter, and 6–32 characters.");
+      }
+      const result = await developerApi.changePassword(currentPassword, newPassword, confirmPassword, session.csrfToken);
+      setPasswordSuccess(result.message);
+      event.currentTarget.reset();
+      setNewPasswordValue("");
+      window.setTimeout(() => onPasswordChanged?.(), 900);
+    } catch (caught) {
+      setPasswordError(caught instanceof Error ? caught.message : "We could not change your password.");
+    } finally {
+      setPasswordBusy(false);
+    }
+  }
+
   return <section className={`developer-portal-content developer-account-profile${embedded ? " developer-account-profile-embedded" : ""}`}>
     <p className="developer-portal-eyebrow">ACCOUNT PROFILE</p>
     <h1>Account profile.</h1>
     <p className="developer-portal-lede">Manage your Developer Portal identity, password, and security requirements.</p>
-    <Tabs defaultValue="personal" className="developer-account-tabs">
+    <Tabs defaultValue={new URLSearchParams(window.location.search).get("tab") === "security" ? "security" : "personal"} className="developer-account-tabs">
       <Tabs.List grow aria-label="Account profile sections">
         <Tabs.Tab value="personal">Personal Details</Tabs.Tab>
         <Tabs.Tab value="password">Password</Tabs.Tab>
@@ -591,14 +831,21 @@ function DeveloperAccountProfile({ session, embedded = false }: { session: Sessi
         <Paper withBorder p="xl" className="developer-account-profile-card">
           <p className="developer-portal-eyebrow">PASSWORD</p>
           <h2>Change your password</h2>
-          <p>Use a unique password for your Developer Portal account. Password changes will invalidate active sessions when the account endpoint is connected.</p>
-          <div className="developer-account-profile-fields">
-            <PasswordInput label="Current password" placeholder="Enter current password" disabled />
-            <PasswordInput label="New password" placeholder="Enter new password" disabled />
-            <PasswordInput label="Confirm new password" placeholder="Repeat new password" disabled />
-          </div>
-          <Button disabled className="developer-portal-primary">Update password</Button>
-          <p className="developer-account-profile-note">Password updates are not connected in this local Developer Portal yet.</p>
+          <p>Use a unique password for your Developer Portal account. Password changes invalidate active sessions on every device.</p>
+          <form className="developer-account-profile-form" onSubmit={(event) => void submitPassword(event)}>
+            <div className="developer-account-profile-fields">
+              <PasswordInput label="Current password" name="currentPassword" placeholder="Enter current password" autoComplete="current-password" required visibilityToggleIcon={({ reveal }) => reveal ? <IconEyeOff size={18} stroke={1.8} /> : <IconEye size={18} stroke={1.8} />} visibilityToggleButtonProps={{ "aria-label": "Toggle current password visibility" }} />
+              <div className="developer-password-field">
+                <PasswordInput label="New password" name="newPassword" placeholder="Enter new password" autoComplete="new-password" minLength={6} maxLength={32} value={newPasswordValue} onChange={(event) => setNewPasswordValue(event.currentTarget.value)} aria-describedby="developer-account-password-policy" required visibilityToggleIcon={({ reveal }) => reveal ? <IconEyeOff size={18} stroke={1.8} /> : <IconEye size={18} stroke={1.8} />} visibilityToggleButtonProps={{ "aria-label": "Toggle new password visibility" }} />
+                <DeveloperPasswordPolicy id="developer-account-password-policy" value={newPasswordValue} />
+              </div>
+              <PasswordInput label="Confirm new password" name="confirmPassword" placeholder="Repeat new password" autoComplete="new-password" minLength={6} maxLength={32} required visibilityToggleIcon={({ reveal }) => reveal ? <IconEyeOff size={18} stroke={1.8} /> : <IconEye size={18} stroke={1.8} />} visibilityToggleButtonProps={{ "aria-label": "Toggle confirmation password visibility" }} />
+            </div>
+            {passwordError && <p className="developer-workspace-error" role="alert">{passwordError}</p>}
+            {passwordSuccess && <p className="developer-account-profile-success" role="status">{passwordSuccess}</p>}
+            <Button type="submit" loading={passwordBusy} className="developer-portal-primary">Update password</Button>
+          </form>
+          <p className="developer-account-profile-note">You will be signed out on every device after the password changes.</p>
         </Paper>
       </Tabs.Panel>
       <Tabs.Panel value="security" pt="xl">
@@ -606,19 +853,25 @@ function DeveloperAccountProfile({ session, embedded = false }: { session: Sessi
           <p className="developer-portal-eyebrow">SECURITY</p>
           <h2>Protect your account</h2>
           <p>Production access requires your personal MFA. Email verification protects account recovery and enrollment.</p>
+          {mfaError && <p className="developer-workspace-error" role="alert">{mfaError}</p>}
+          {mfaNotice && <p className="developer-account-profile-success" role="status">{mfaNotice}</p>}
           <div className="developer-account-security-options">
             <article>
-              <div><h3>Authenticator app</h3><p>{session.user.mfaEnabled ? "An authenticator is enabled for this account." : "Set up an authenticator before using privileged production tools."}</p></div>
-              <Badge color={session.user.mfaEnabled ? "teal" : "yellow"} variant="light" radius="xl">{session.user.mfaEnabled ? "Enabled" : "Action needed"}</Badge>
-              <Button variant="light" disabled>{session.user.mfaEnabled ? "Manage authenticator" : "Set up authenticator app"}</Button>
+              <div><h3>Authenticator app</h3><p>{session.user.mfaEnabled && !session.user.emailMfaEnabled ? "An authenticator is enabled for this account." : "Add an authenticator app as a secure sign-in method."}</p></div>
+              <Badge color={session.user.mfaEnabled && !session.user.emailMfaEnabled ? "teal" : "blue"} variant="light" radius="xl">{session.user.mfaEnabled && !session.user.emailMfaEnabled ? "Enabled" : "Optional"}</Badge>
+              {session.user.mfaEnabled && !session.user.emailMfaEnabled && !mfaEnrollment && <TextInput label="Current authenticator code" value={mfaCurrentCode} onChange={(event) => setMfaCurrentCode(event.currentTarget.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" maxLength={6} placeholder="123456" />}
+              {!mfaEnrollment && <Button type="button" variant="light" onClick={() => void startMfaEnrollment()} disabled={mfaBusy || (session.user.mfaEnabled && !session.user.emailMfaEnabled && !/^\d{6}$/.test(mfaCurrentCode))} loading={mfaBusy}>{session.user.mfaEnabled && !session.user.emailMfaEnabled ? "Replace authenticator" : "Set up authenticator app"}</Button>}
+              {mfaEnrollment && <div className="developer-account-mfa-enrollment"><p>Scan this QR code with your authenticator app, then enter the six-digit code. You can also copy the setup secret if your app does not support scanning.</p><MfaQrCode value={mfaEnrollment.otpAuthUri} /><TextInput label="Secret" value={mfaEnrollment.secret} readOnly /><TextInput label="Authenticator URI" value={mfaEnrollment.otpAuthUri} readOnly /><TextInput label="Verification code" value={mfaCode} onChange={(event) => setMfaCode(event.currentTarget.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" maxLength={6} placeholder="123456" /><div className="developer-account-profile-actions"><Button type="button" onClick={() => void confirmMfaEnrollment()} disabled={!/^\d{6}$/.test(mfaCode) || mfaBusy} loading={mfaBusy}>Confirm authenticator</Button><Button type="button" variant="outline" onClick={() => void cancelMfaEnrollment()} disabled={mfaBusy}>Cancel</Button></div></div>}
+              {recoveryCodes.length > 0 && <div className="developer-account-mfa-recovery" role="status"><strong>Copy these recovery codes now.</strong><p>They are shown once and cannot be recovered later. Store them somewhere secure before leaving this page.</p><code>{recoveryCodes.join("\n")}</code><div className="developer-account-profile-actions"><Button type="button" onClick={() => void storeRecoveryCodes()} leftSection={<IconCopy size={16} aria-hidden="true" />}>Copy recovery codes</Button><Button type="button" variant="outline" onClick={() => { setRecoveryCodes([]); setMfaNotice("Recovery codes hidden. They will not be shown again."); }}>I stored them securely</Button></div></div>}
+              {session.user.mfaEnabled && !session.user.emailMfaEnabled && !mfaEnrollment && <div className="developer-account-mfa-disable"><PasswordInput label="Password to remove MFA" value={mfaPassword} onChange={(event) => setMfaPassword(event.currentTarget.value)} autoComplete="current-password" /><TextInput label="Authenticator code or recovery code" value={mfaRecoveryCode ? "" : mfaCode} onChange={(event) => { setMfaCode(event.currentTarget.value.replace(/\D/g, "").slice(0, 6)); setMfaRecoveryCode(""); }} placeholder="123456" /><TextInput label="Recovery code (alternative)" value={mfaRecoveryCode} onChange={(event) => { setMfaRecoveryCode(event.currentTarget.value); setMfaCode(""); }} placeholder="ABCDE-12345" /><Button type="button" color="red" variant="light" onClick={() => void disableMfa()} disabled={mfaBusy || !mfaPassword || (!mfaCode && !mfaRecoveryCode)} loading={mfaBusy}>Remove MFA</Button></div>}
             </article>
             <article>
-              <div><h3>Email MFA / verification</h3><p>{session.user.emailVerified ? "Your email address is verified." : "Verify your email address to protect account recovery."}</p></div>
-              <Badge color={session.user.emailVerified ? "teal" : "yellow"} variant="light" radius="xl">{session.user.emailVerified ? "Verified" : "Action needed"}</Badge>
-              <Button variant="light" disabled>{session.user.emailVerified ? "Email verified" : "Send verification email"}</Button>
+              <div><h3>Email OTP</h3><p>{session.user.emailMfaEnabled ? "Email OTP is enabled as an alternate sign-in method." : session.user.emailVerified ? "Optional: enable a one-time code sent to your verified email during sign-in." : "Verify your email address before enabling email OTP."}</p></div>
+              <Badge color={session.user.emailMfaEnabled ? "teal" : session.user.emailVerified ? "blue" : "yellow"} variant="light" radius="xl">{session.user.emailMfaEnabled ? "Enabled" : session.user.emailVerified ? "Optional" : "Verification needed"}</Badge>
+              {session.user.emailMfaEnabled ? <div className="developer-account-mfa-disable"><PasswordInput label="Password to disable email OTP" value={emailMfaPassword} onChange={(event) => setEmailMfaPassword(event.currentTarget.value)} autoComplete="current-password" /><Button type="button" color="red" variant="light" onClick={() => void disableEmailMfa()} disabled={mfaBusy || !emailMfaPassword} loading={mfaBusy}>Disable email OTP</Button></div> : <Button variant="light" onClick={() => void enableEmailMfa()} disabled={mfaBusy || !session.user.emailVerified} loading={mfaBusy}>Enable email OTP</Button>}
             </article>
           </div>
-          <p className="developer-account-profile-note">Authenticator enrollment, recovery codes, and email MFA/verification actions will be enabled when the Developer Portal security endpoints are connected.</p>
+          <p className="developer-account-profile-note">MFA requires at least one method for privileged accounts. Email OTP is optional, and can be used instead of an authenticator app during sign-in when enabled.</p>
         </Paper>
       </Tabs.Panel>
     </Tabs>
@@ -631,6 +884,7 @@ export default function DeveloperPortalPage() {
   const [sessionChecked, setSessionChecked] = useState(false);
   const [path, setPath] = useState(() => window.location.pathname.replace(/\/+$/, "") || "/");
   const isDashboardPath = path === "/dashboard" || path.startsWith("/dashboard/");
+  const isAccountProfilePath = path === "/dashboard/account/profile" || path === "/account/profile";
   const title = isDashboardPath ? pageTitles["/dashboard"] : pageTitles[path] || "Page not found";
   useEffect(() => {
     const syncPath = () => setPath(window.location.pathname.replace(/\/+$/, "") || "/");
@@ -644,9 +898,19 @@ export default function DeveloperPortalPage() {
     void developerApi.me().then(setSession).catch(() => setSession(null)).finally(() => setSessionChecked(true));
   }, []);
   async function logout() {
-    if (session) await developerApi.logout(session.csrfToken);
+    try {
+      if (session) await developerApi.logout(session.csrfToken);
+    } catch {
+      // A stale session or CSRF token must not leave the portal looking signed in.
+      // The server request is best-effort; the local session is still cleared below.
+    } finally {
+      setSession(null);
+      window.location.assign("/");
+    }
+  }
+  function handlePasswordChanged() {
     setSession(null);
-    window.location.assign("/");
+    window.location.assign("/login");
   }
   return (
     <div
@@ -656,9 +920,9 @@ export default function DeveloperPortalPage() {
       <DeveloperShell light={light} onToggleTheme={() => setLight(!light)} path={path} authenticated={Boolean(session)} session={session} onLogout={logout}>
         <main id="main-content" tabIndex={-1}>
         {isDashboardPath && session ? (
-          <DeveloperWorkspace session={session} light={light} />
-        ) : path === "/account/profile" && session ? (
-          <DeveloperWorkspace session={session} light={light} accountContent={<DeveloperAccountProfile session={session} embedded />} />
+          <DeveloperWorkspace session={session} light={light} accountContent={<DeveloperAccountProfile key={path} session={session} embedded onPasswordChanged={handlePasswordChanged} onSessionChange={setSession} />} />
+        ) : isAccountProfilePath && session ? (
+          <DeveloperWorkspace session={session} light={light} accountContent={<DeveloperAccountProfile key={path} session={session} embedded onPasswordChanged={handlePasswordChanged} onSessionChange={setSession} />} />
         ) : path === "/" ? (
           <Landing />
         ) : (
@@ -726,7 +990,7 @@ export default function DeveloperPortalPage() {
                 <p className="developer-portal-lede">Your session is not active. Log in to manage Sandbox projects and credentials.</p>
                 <a className="developer-portal-primary" href="/login">Developer login</a>
               </>
-            ) : path === "/account/profile" && sessionChecked ? (
+            ) : isAccountProfilePath && sessionChecked ? (
               <>
                 <p className="developer-portal-eyebrow">ACCOUNT PROFILE</p>
                 <h1>Sign in to view your profile.</h1>
