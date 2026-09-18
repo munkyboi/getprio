@@ -230,8 +230,8 @@ router.post(
   requireIdempotency("tenant.subscription_checkout.create"),
   asyncHandler(async (req, res) => {
     const tenant = req.authorizedTenant;
-    const checkoutPayload = normalizeSubscriptionCheckoutPayload(req.body);
-    const { planSlug, billingInterval, billingMode, paymentMethod } = checkoutPayload;
+    const { planSlug, billingInterval, billingMode, paymentMethod } = req.body;
+    const checkoutPayload = normalizeSubscriptionCheckoutPayload({ planSlug, billingInterval, billingMode, paymentMethod });
     await consumeCommercialConfirmation(req,tenant,"subscription.checkout",checkoutPayload);
     const checkout = await billingService.createPayMongoCheckout({
       tenant,
