@@ -69,6 +69,14 @@ router.get("/capabilities", authenticate, (_req, res) => {
   res.json({ vendorCapacityExperience: releaseControls.vendorCapacityExperience });
 });
 
+function normalizeSubscriptionCheckoutPayload(payload = {}) {
+  const billingMode = payload.billingMode === undefined ? "manual" : payload.billingMode;
+  const paymentMethod = payload.paymentMethod === undefined
+    ? (billingMode === "manual" ? "qrph" : "card")
+    : payload.paymentMethod;
+  return { ...payload, billingMode, paymentMethod };
+}
+
 router.post("/tenant/:tenantSlug/commercial-actions/preview", authenticate, asyncHandler(async (req,res)=>{
   const action=String(req.body.action || "");
   const permissionByAction={"credit.checkout":"tenant.credits.purchase","credit.refund.request":"tenant.credits.refund_request","subscription.checkout":"tenant.billing.manage"};
@@ -77,7 +85,10 @@ router.post("/tenant/:tenantSlug/commercial-actions/preview", authenticate, asyn
   if(controlByAction[action]) assertReleaseControl(controlByAction[action]);
   const tenant=await getAuthorizedTenant(req.user,req.params.tenantSlug);
   assertTenantPermission(req.user,tenant._id,permissionByAction[action]);
-  const preview=await privilegedPreviewService.resolvePreview({action,target:String(tenant._id),payload:req.body.payload || {}});
+  const payload = action === "subscription.checkout"
+    ? normalizeSubscriptionCheckoutPayload(req.body.payload || {})
+    : (req.body.payload || {});
+  const preview=await privilegedPreviewService.resolvePreview({action,target:String(tenant._id),payload});
   const confirmation=await privilegedTransactionService.issueConfirmation({actorId:req.user._id,session:req.auth.session,action,target:String(tenant._id),reason:req.body.reason,payload:preview.payload,previewRevision:preview.revision});
   res.json({preview,confirmation});
 }));
@@ -219,8 +230,9 @@ router.post(
   requireIdempotency("tenant.subscription_checkout.create"),
   asyncHandler(async (req, res) => {
     const tenant = req.authorizedTenant;
-    const { planSlug, billingInterval, billingMode, paymentMethod } = req.body;
-    const payload={planSlug,billingInterval,billingMode,paymentMethod}; await consumeCommercialConfirmation(req,tenant,"subscription.checkout",payload);
+    const checkoutPayload = normalizeSubscriptionCheckoutPayload(req.body);
+    const { planSlug, billingInterval, billingMode, paymentMethod } = checkoutPayload;
+    await consumeCommercialConfirmation(req,tenant,"subscription.checkout",checkoutPayload);
     const checkout = await billingService.createPayMongoCheckout({
       tenant,
       user: req.user,
