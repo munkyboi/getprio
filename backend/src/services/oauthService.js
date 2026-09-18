@@ -171,7 +171,7 @@ function buildFallbackName(provider, email) {
 function getApplePrivateKey() {
   const configuredValue = String(env.applePrivateKey || "").trim();
   const normalizedValue = configuredValue
-    .replace(/^(?:\"|')(.*)(?:\"|')$/s, "$1")
+    .replace(/^(?:"|')(.*)(?:"|')$/s, "$1")
     .replace(/\\r\\n/g, "\n")
     .replace(/\\n/g, "\n")
     .replace(/\r\n?/g, "\n")
