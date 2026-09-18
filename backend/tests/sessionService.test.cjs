@@ -167,6 +167,37 @@ test("session service uses role-based refresh TTLs and hashes refresh tokens", a
   }
 });
 
+test("developer-only local session override keeps the developer session alive", async () => {
+  const createCalls = [];
+  const sessionService = requireWithMocks("../src/services/sessionService.js", {
+    "../config/env": {
+      nodeEnv: "development",
+      jwtSecret: "test-secret",
+      accessTokenTtlMinutes: 15,
+      developerSessionNoExpiry: true,
+      developerSessionNoExpiryDays: 3650,
+      sessionInactivityMinutes: 60
+    },
+    "../repositories/authSessions": {
+      createSession: async (data) => { createCalls.push(data); return { _id: "developer-session", ...data }; }
+    }
+  });
+
+  const result = await sessionService.createAuthSession({
+    user: { _id: "7", roles: ["developer"], tenantMemberships: [] },
+    authMethod: "password",
+    surface: "developer"
+  });
+  const ttlDays = (new Date(createCalls[0].expiresAt).getTime() - Date.now()) / (24 * 60 * 60 * 1000);
+  assert.ok(ttlDays > 3649);
+  assert.equal(createCalls[0].inactivityExpiresAt.getTime(), createCalls[0].expiresAt.getTime());
+  assert.equal(result.accessToken, jwt.sign(
+    { sub: "7", session_id: "developer-session", roles: ["developer"], surface: "developer" },
+    "test-secret",
+    { expiresIn: "5256000m" }
+  ));
+});
+
 test("session service rejects concurrent rotation without revoking the winner", async () => {
   let revoked = false;
   const sessionService = requireWithMocks("../src/services/sessionService.js", {

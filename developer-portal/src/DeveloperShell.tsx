@@ -1,6 +1,6 @@
 import { IconCreditCard, IconListDetails, IconLogout, IconMoon, IconShieldLock, IconSun, IconUser, IconUsers } from "@tabler/icons-react";
 import { ActionIcon, Avatar, Menu } from "@mantine/core";
-import type { ReactNode } from "react";
+import type { MouseEvent, ReactNode } from "react";
 import type { Session } from "./developerApi";
 import "./DeveloperShell.css";
 
@@ -26,6 +26,17 @@ function initials(session?: Session | null) {
   return value.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase() || "").join("");
 }
 
+function navigateInternal(event: MouseEvent<HTMLAnchorElement>, href: string) {
+  // Keep dashboard navigation inside the mounted portal so the shell, loaded
+  // project data, and theme state are preserved between account pages.
+  if (!href.startsWith("/")) return;
+  event.preventDefault();
+  if (`${window.location.pathname}${window.location.search}` !== href) {
+    window.history.pushState({}, "", href);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  }
+}
+
 export default function DeveloperShell({ children, light, onToggleTheme, path, authenticated = false, session, onLogout }: DeveloperShellProps) {
   return (
     <>
@@ -48,12 +59,12 @@ export default function DeveloperShell({ children, light, onToggleTheme, path, a
             </Menu.Target>
             <Menu.Dropdown className="developer-shell-menu-dropdown">
               <Menu.Label>{session.user.email}</Menu.Label>
-              <Menu.Item component="a" href="/account/profile" leftSection={<IconUser size={16} aria-hidden="true" />}>Account profile</Menu.Item>
+              <Menu.Item component="a" href="/dashboard/account/profile" onClick={(event) => navigateInternal(event, "/dashboard/account/profile")} leftSection={<IconUser size={16} aria-hidden="true" />}>Account profile</Menu.Item>
               {session.developerAccount.role === "owner" ? <>
-                <Menu.Item component="a" href="/dashboard/billing" leftSection={<IconCreditCard size={16} aria-hidden="true" />}>Billing &amp; wallet</Menu.Item>
-                <Menu.Item component="a" href="/dashboard/subscriptions" leftSection={<IconListDetails size={16} aria-hidden="true" />}>Project subscriptions</Menu.Item>
-                <Menu.Item component="a" href="/dashboard/team-security" leftSection={<IconUsers size={16} aria-hidden="true" />}>Team &amp; security</Menu.Item>
-              </> : <Menu.Item component="a" href="/dashboard/security" leftSection={<IconShieldLock size={16} aria-hidden="true" />}>My security</Menu.Item>}
+                <Menu.Item component="a" href="/dashboard/account/billing" onClick={(event) => navigateInternal(event, "/dashboard/account/billing")} leftSection={<IconCreditCard size={16} aria-hidden="true" />}>Billing &amp; wallet</Menu.Item>
+                <Menu.Item component="a" href="/dashboard/account/subscriptions" onClick={(event) => navigateInternal(event, "/dashboard/account/subscriptions")} leftSection={<IconListDetails size={16} aria-hidden="true" />}>Project subscriptions</Menu.Item>
+                <Menu.Item component="a" href="/dashboard/account/team-security" onClick={(event) => navigateInternal(event, "/dashboard/account/team-security")} leftSection={<IconUsers size={16} aria-hidden="true" />}>Team &amp; security</Menu.Item>
+              </> : <Menu.Item component="a" href="/dashboard/account/security" onClick={(event) => navigateInternal(event, "/dashboard/account/security")} leftSection={<IconShieldLock size={16} aria-hidden="true" />}>My security</Menu.Item>}
               <Menu.Divider />
               <Menu.Item color="red" leftSection={<IconLogout size={16} aria-hidden="true" />} onClick={() => void onLogout?.()}>Logout</Menu.Item>
             </Menu.Dropdown>

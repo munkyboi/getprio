@@ -26,6 +26,8 @@ function mapKey(row) {
     environment: row.environment,
     keyPrefix: row.key_prefix,
     scopes: row.scopes || [],
+    profileAccess: Array.isArray(row.profile_slugs) && row.profile_slugs.length ? "selected" : "all",
+    profileSlugs: Array.isArray(row.profile_slugs) ? row.profile_slugs : [],
     status: row.status,
     createdByUserId: String(row.created_by_user_id),
     lastUsedAt: row.last_used_at,
@@ -145,7 +147,7 @@ async function findProjectById(projectId, options = {}) {
 async function listApiKeys(projectId, options = {}) {
   const result = await buildQueryClient(options.client).query(
     `SELECT id AS key_id, developer_project_id, name, environment, key_prefix,
-        scopes, status, created_by_user_id, last_used_at, revoked_at,
+        scopes, profile_slugs, status, created_by_user_id, last_used_at, revoked_at,
         revoke_reason, created_at, updated_at
      FROM developer_api_keys
      WHERE developer_project_id = $1
@@ -158,7 +160,7 @@ async function listApiKeys(projectId, options = {}) {
 async function findApiKeyById(projectId, keyId, options = {}) {
   const result = await buildQueryClient(options.client).query(
     `SELECT id AS key_id, developer_project_id, name, environment, key_prefix,
-        scopes, status, created_by_user_id, last_used_at, revoked_at,
+        scopes, profile_slugs, status, created_by_user_id, last_used_at, revoked_at,
         revoke_reason, created_at, updated_at
      FROM developer_api_keys
      WHERE developer_project_id = $1 AND id = $2
@@ -168,15 +170,15 @@ async function findApiKeyById(projectId, keyId, options = {}) {
   return mapKey(result.rows[0]);
 }
 
-async function createApiKey({ projectId, userId, name, environment, keyPrefix, secretHash, scopes }, options = {}) {
+async function createApiKey({ projectId, userId, name, environment, keyPrefix, secretHash, scopes, profileSlugs = null }, options = {}) {
   const result = await buildQueryClient(options.client).query(
     `INSERT INTO developer_api_keys
-       (developer_project_id, name, environment, key_prefix, secret_hash, scopes, created_by_user_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+       (developer_project_id, name, environment, key_prefix, secret_hash, scopes, profile_slugs, created_by_user_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      RETURNING id AS key_id, developer_project_id, name, environment, key_prefix,
-       scopes, status, created_by_user_id, last_used_at, revoked_at,
+       scopes, profile_slugs, status, created_by_user_id, last_used_at, revoked_at,
        revoke_reason, created_at, updated_at`,
-    [projectId, name, environment, keyPrefix, secretHash, scopes, Number(userId)]
+    [projectId, name, environment, keyPrefix, secretHash, scopes, profileSlugs, Number(userId)]
   );
   return mapKey(result.rows[0]);
 }
@@ -184,7 +186,7 @@ async function createApiKey({ projectId, userId, name, environment, keyPrefix, s
 async function findApiKeyByHash(secretHash, options = {}) {
   const result = await buildQueryClient(options.client).query(
     `SELECT k.id AS key_id, k.developer_project_id, k.name, k.environment, k.key_prefix,
-        k.scopes, k.status, k.created_by_user_id, k.last_used_at, k.revoked_at,
+        k.scopes, k.profile_slugs, k.status, k.created_by_user_id, k.last_used_at, k.revoked_at,
         k.revoke_reason, k.created_at, k.updated_at, p.status AS project_status,
         a.status AS account_status
      FROM developer_api_keys k

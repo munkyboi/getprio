@@ -55,6 +55,10 @@
   color: var(--dp-accent);
   font-style: normal;
 }
+/* The landing poster title is intentionally oversized relative to other portal headings. */
+.developer-portal-hero h1 {
+  font-size: clamp(3.2rem, 8vw, 4.2rem);
+}
 .developer-portal h2 {
   font-size: clamp(1.2rem, 2.4vw, 1.6rem);
   line-height: 1.18;
@@ -477,10 +481,12 @@
 .developer-account-profile-card .developer-portal-eyebrow { margin-bottom: 0; }
 .developer-account-profile-card h2 { margin: 0; }
 .developer-account-profile-fields { display: grid; gap: 1rem; }
+.developer-account-profile-form { display: grid; gap: 1.25rem; }
 .developer-account-profile-fields .mantine-Input-label { margin-bottom: .5rem; color: var(--dp-ink); font-weight: 650; }
 .developer-account-profile-card .mantine-Input-input { min-height: 48px; background: var(--dp-bg); color: var(--dp-ink); border-color: var(--dp-border); }
 .developer-account-profile-card .mantine-Input-input:disabled { opacity: .7; color: var(--dp-muted); }
 .developer-account-profile-note { margin: 0; padding-left: 1rem; border-left: 3px solid var(--dp-accent); font-size: .875rem; }
+.developer-account-profile-success { margin: 0; padding: .75rem 1rem; border-left: 3px solid #2f9e7a; background: color-mix(in srgb, #2f9e7a 14%, var(--dp-surface)); color: var(--dp-ink); }
 .developer-account-profile-card > .developer-portal-primary { width: fit-content; }
 .developer-account-profile-embedded h1 { font-size: clamp(1.6rem, 4vw, 2.1rem) !important; line-height: 1.1; margin-bottom: .75rem; }
 .developer-account-security-options { display: grid; gap: 1rem; }
@@ -489,6 +495,14 @@
 .developer-account-security-options article p { margin: 0; }
 .developer-account-security-options article .mantine-Badge-root { width: fit-content; }
 .developer-account-security-options article .mantine-Button-root { width: fit-content; }
+.developer-account-profile-actions { display: flex; flex-wrap: wrap; gap: .75rem; }
+.developer-account-mfa-enrollment, .developer-account-mfa-disable { display: grid; gap: .75rem; padding-top: .5rem; }
+.developer-account-mfa-enrollment > p { margin: 0; }
+.developer-account-mfa-qr { display: flex; width: fit-content; padding: .75rem; border-radius: .75rem; background: #fff; }
+.developer-account-mfa-qr svg { display: block; }
+.developer-account-mfa-recovery { display: grid; gap: .5rem; padding: 1rem; border: 1px solid var(--dp-accent); border-radius: .75rem; background: color-mix(in srgb, var(--dp-accent) 10%, var(--dp-surface)); }
+.developer-account-mfa-recovery p { margin: 0; }
+.developer-account-mfa-recovery code { white-space: pre-line; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; line-height: 1.7; }
 .developer-portal-guide-steps {
   padding-left: 1.4rem;
 }
@@ -599,6 +613,68 @@
   background: var(--dp-surface);
   color: var(--dp-ink);
   font: inherit;
+}
+.developer-password-field {
+  display: grid;
+  gap: .65rem;
+}
+.developer-password-policy {
+  display: grid;
+  gap: .55rem;
+  max-width: 36rem;
+}
+.developer-password-policy-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: .75rem;
+  color: var(--dp-muted);
+  font-size: .75rem;
+}
+.developer-password-policy-header strong {
+  color: var(--dp-ink);
+  font-size: .75rem;
+}
+.developer-password-policy-meter {
+  height: .35rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--dp-border);
+}
+.developer-password-policy-meter span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--dp-accent);
+  transition: width 180ms ease, background-color 180ms ease;
+}
+.developer-password-policy ul {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .35rem .75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.developer-password-policy li {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  margin: 0;
+  color: var(--dp-muted);
+  font-size: .75rem;
+  line-height: 1.35;
+}
+.developer-password-policy li span {
+  flex: 0 0 1rem;
+  color: var(--dp-muted);
+  font-size: .9rem;
+  line-height: 1;
+  text-align: center;
+}
+.developer-password-policy li[data-complete="true"],
+.developer-password-policy li[data-complete="true"] span {
+  color: #2f9e7a;
 }
 .developer-input-otp {
   width: min(100%, 34rem);
@@ -819,4 +895,76 @@
   border-color: #3861fb !important;
   background: #eaf1ff !important;
   color: #17366f !important;
+}
+
+/* Password fields are nested Mantine controls. Keep the outer control as the
+   only bordered surface so the workspace's native-input rules do not create
+   a second, patchy border around the inner input and visibility toggle. */
+.developer-account-profile-form {
+  width: min(100%, 36rem);
+  max-width: 36rem;
+}
+.developer-account-profile-fields {
+  grid-template-columns: minmax(0, 1fr);
+}
+.developer-account-profile-fields .mantine-InputWrapper-root:last-child {
+  grid-column: auto;
+}
+.developer-account-profile-card .mantine-PasswordInput-input {
+  min-height: 48px;
+  padding: 0 .25rem 0 .85rem;
+  border: 1px solid var(--dp-border) !important;
+  border-radius: .75rem;
+  background: var(--dp-bg) !important;
+  color: var(--dp-ink) !important;
+  box-shadow: none !important;
+}
+.developer-account-profile-card .mantine-PasswordInput-innerInput {
+  width: 100%;
+  min-height: 46px;
+  /* Mantine positions this input absolutely inside the bordered control.
+     Give its content its own inset so text never sits against the border or
+     underneath the visibility control. */
+  padding: 0 3.25rem 0 .85rem !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  color: var(--dp-ink) !important;
+  box-shadow: none !important;
+}
+.developer-account-profile-card .mantine-PasswordInput-innerInput:focus {
+  border: 0 !important;
+  outline: 0;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+.developer-account-profile-card .mantine-PasswordInput-root:focus-within .mantine-PasswordInput-input {
+  border-color: var(--dp-accent) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dp-accent) 24%, transparent) !important;
+}
+.developer-account-profile-card .mantine-PasswordInput-visibilityToggle {
+  width: 2.5rem;
+  height: 2.5rem;
+  min-height: 2.5rem !important;
+  margin-right: .2rem;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: .5rem !important;
+  background: transparent !important;
+  color: var(--dp-muted) !important;
+  box-shadow: none !important;
+  cursor: pointer;
+}
+.developer-account-profile-card .mantine-PasswordInput-visibilityToggle:hover {
+  background: color-mix(in srgb, var(--dp-accent) 12%, transparent) !important;
+  color: var(--dp-ink) !important;
+}
+.developer-account-profile-card .mantine-PasswordInput-visibilityToggle:focus-visible {
+  outline: 2px solid var(--dp-accent);
+  outline-offset: 0;
+}
+.developer-account-profile-card .mantine-PasswordInput-visibilityToggle svg {
+  display: block;
+  width: 18px;
+  height: 18px;
 }

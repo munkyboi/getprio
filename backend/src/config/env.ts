@@ -10,6 +10,9 @@ dotenv.config({ path: rootEnvPath });
 
 const backendEnvPath = path.resolve(__dirname, "../../.env");
 dotenv.config({ path: backendEnvPath, override: false });
+// Worktree-local overrides are ignored by git and loaded last.
+dotenv.config({ path: path.resolve(__dirname, "../../../.env.local"), override: true });
+dotenv.config({ path: path.resolve(__dirname, "../../.env.local"), override: true });
 
 export const port = Number(process.env.PORT || process.env.BACKEND_PORT || 5001);
 const frontendPort = Number(process.env.FRONTEND_PORT || 5173);
@@ -148,6 +151,8 @@ export const authCookieSecure = process.env.AUTH_COOKIE_SECURE
 export const authBearerCompatibilityEnabled =
   process.env.AUTH_BEARER_COMPATIBILITY_ENABLED !== "false";
 export const sessionInactivityMinutes = Number(process.env.SESSION_INACTIVITY_MINUTES || 10080);
+export const developerSessionNoExpiry = nodeEnv !== "production" && process.env.DEVELOPER_SESSION_NO_EXPIRY === "true";
+export const developerSessionNoExpiryDays = Number(process.env.DEVELOPER_SESSION_NO_EXPIRY_DAYS || 3650);
 export const mfaEncryptionSecret = process.env.MFA_ENCRYPTION_SECRET || jwtSecret;
 export const mfaRecoveryPepper = process.env.MFA_RECOVERY_PEPPER || jwtSecret;
 export const developerApiKeyPepper = process.env.DEVELOPER_API_KEY_PEPPER || jwtSecret;
@@ -229,6 +234,8 @@ const env = {
   authCookieSecure,
   authBearerCompatibilityEnabled,
   sessionInactivityMinutes,
+  developerSessionNoExpiry,
+  developerSessionNoExpiryDays,
   mfaEncryptionSecret,
   mfaRecoveryPepper,
   developerApiKeyPepper,

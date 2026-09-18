@@ -45,6 +45,9 @@ function isAuthRecoveryRequest(req) {
     [
       "/auth/login",
       "/auth/mfa/verify",
+      "/developer/mfa/email/send",
+      "/developer/mfa/verify",
+      "/developer/refresh",
       "/auth/register/vendor",
       "/developer/login",
       "/developer/register/otp",

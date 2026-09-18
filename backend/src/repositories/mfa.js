@@ -130,13 +130,13 @@ async function revokeFactorsAndRecoveryCodes(userId, options = {}) {
 async function createChallenge(data, options = {}) {
   const result = await clientFor(options).query(
     `INSERT INTO auth_mfa_challenges (
-       user_id, token_hash, challenge_type, primary_authenticated_at,
-       ip_address, user_agent, expires_at
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+      user_id, token_hash, challenge_type, primary_authenticated_at,
+       ip_address, user_agent, expires_at, code_hash
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      RETURNING id, expires_at`,
     [
       Number(data.userId), data.tokenHash, data.challengeType,
-      data.primaryAuthenticatedAt, data.ipAddress || null, data.userAgent || null, data.expiresAt
+      data.primaryAuthenticatedAt, data.ipAddress || null, data.userAgent || null, data.expiresAt, data.codeHash || null
     ]
   );
   return { _id: String(result.rows[0].id), expiresAt: result.rows[0].expires_at };
@@ -150,6 +150,7 @@ async function findChallengeByTokenHash(tokenHash, options = {}) {
   const row = result.rows[0];
   return row ? {
     _id: String(row.id), userId: String(row.user_id), challengeType: row.challenge_type,
+    codeHash: row.code_hash,
     primaryAuthenticatedAt: row.primary_authenticated_at, ipAddress: row.ip_address,
     userAgent: row.user_agent, attemptCount: row.attempt_count,
     expiresAt: row.expires_at, usedAt: row.used_at
