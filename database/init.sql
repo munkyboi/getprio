@@ -269,7 +269,7 @@ CREATE TABLE auth_sessions (
   refresh_token_hash TEXT NOT NULL UNIQUE,
   previous_refresh_token_hash TEXT,
   status TEXT NOT NULL CHECK (status IN ('active', 'revoked', 'expired')),
-  auth_method TEXT NOT NULL CHECK (auth_method IN ('password', 'google', 'facebook')),
+  auth_method TEXT NOT NULL CHECK (auth_method IN ('password', 'google', 'facebook', 'apple')),
   mfa_verified_at TIMESTAMPTZ,
   primary_authenticated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   ip_address TEXT,
