@@ -5,7 +5,7 @@ export type CodeSamples = Partial<Record<CodeLanguage, string>>;
 type RequestSampleOptions = {
   method: "GET" | "POST";
   path: string;
-  body?: Record<string, string>;
+  body?: Record<string, unknown>;
   idempotencyKey?: string;
 };
 
@@ -94,6 +94,19 @@ export const createProfileSamples = requestSamples({
   path: "/profiles",
   body: { slug: "example-profile", display_name: "Example Service Desk" },
   idempotencyKey: "profile-create-001"
+});
+
+export const createWebhookSamples = requestSamples({
+  method: "POST",
+  path: "/projects/project_123/webhooks",
+  body: {
+    name: "Queue events",
+    environment: "sandbox",
+    url: "https://example.com/getprio/webhooks",
+    payloadVersion: "1",
+    events: ["ticket.issued", "ticket.called"]
+  },
+  idempotencyKey: "webhook-create-001"
 });
 
 export const readTicketSamples = requestSamples({

@@ -21,7 +21,7 @@ import DeveloperShell from "./DeveloperShell";
 import DeveloperWorkspace from "./DeveloperWorkspace";
 import DeveloperInputOtp from "./components/DeveloperInputOtp";
 import { developerApi, type MfaLoginChallenge, type MfaLoginMethod, type Session } from "./developerApi";
-import { codeLanguages, createProfileSamples, requestSamples, ticketIssueSamples, type CodeLanguage, type CodeSamples } from "./apiCodeSamples";
+import { codeLanguages, createWebhookSamples, requestSamples, ticketIssueSamples, type CodeLanguage, type CodeSamples } from "./apiCodeSamples";
 import "./DeveloperPortalPage.css";
 
 const faqs = [
@@ -291,7 +291,7 @@ function Guides() {
         <section className="developer-docs-section">
           <p className="developer-portal-eyebrow">01 / GET STARTED</p>
           <DocsHeading id="get-started">Make a public health check</DocsHeading>
-          <p>Start with an unauthenticated request to confirm that your network can reach Sandbox. This checks availability only; it does not validate an API key or project permission.</p>
+          <p>Start with a public health check to confirm that your network can reach Sandbox. The endpoint does not require a key; the sample keeps the header so you can reuse it as the first protected request. It checks availability only, not project permission.</p>
           <CodeSample label="Health check" samples={healthSamples} />
           <ol className="developer-docs-checklist"><li><strong>Create a Developer Portal account.</strong><span>Verify your email and open the included Sandbox project.</span></li><li><strong>Create a Sandbox API key.</strong><span>Choose only the scopes your integration needs and keep the secret in server-side storage.</span></li><li><strong>Read a profile or queue.</strong><span>Use the profile slug from your project and the Sandbox host.</span></li></ol>
         </section>
@@ -339,7 +339,7 @@ function Guides() {
           <DocsHeading id="webhooks">Reconcile signed events</DocsHeading>
           <p>Register a receiver in the Developer Portal, verify the exact raw request body with your signing secret, and return a 2xx only after durable acceptance. Delivery is at-least-once, so deduplicate by <code>GetPrio-Event-Id</code>.</p>
           <div className="developer-docs-webhook-grid"><article><strong>Verify</strong><span>Check timestamp freshness and HMAC-SHA256 before parsing JSON.</span></article><article><strong>Persist</strong><span>Store the event ID and payload before acknowledging the request.</span></article><article><strong>Retry safely</strong><span>Make handlers duplicate-safe and return non-2xx only when a retry is useful.</span></article></div>
-          <CodeSample label="Create a profile" samples={createProfileSamples} />
+          <CodeSample label="Register a webhook" samples={createWebhookSamples} />
           <p><a href="/reference#webhooks">Open webhook headers and delivery details →</a></p>
         </section>
 
