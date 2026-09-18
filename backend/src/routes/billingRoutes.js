@@ -219,17 +219,19 @@ router.post(
   requireIdempotency("tenant.subscription_checkout.create"),
   asyncHandler(async (req, res) => {
     const tenant = req.authorizedTenant;
-    const { planSlug, billingInterval } = req.body;
-    const payload={planSlug,billingInterval}; await consumeCommercialConfirmation(req,tenant,"subscription.checkout",payload);
+    const { planSlug, billingInterval, billingMode, paymentMethod } = req.body;
+    const payload={planSlug,billingInterval,billingMode,paymentMethod}; await consumeCommercialConfirmation(req,tenant,"subscription.checkout",payload);
     const checkout = await billingService.createPayMongoCheckout({
       tenant,
       user: req.user,
       planSlug,
       billingInterval,
+      billingMode,
+      paymentMethod,
       requestOrigin: req.get("origin")
     });
 
-    await securityAuditService.record({actorId:req.user._id,actorRole:"vendor",sessionId:req.auth.sessionId,tenantId:tenant._id,action:"subscription.checkout",resourceType:"tenant",resourceId:tenant._id,reason:req.body.reason,outcome:"pending",afterState:{checkoutSessionId:checkout.checkoutSession?.id,planSlug}});
+    await securityAuditService.record({actorId:req.user._id,actorRole:"vendor",sessionId:req.auth.sessionId,tenantId:tenant._id,action:"subscription.checkout",resourceType:"tenant",resourceId:tenant._id,reason:req.body.reason,outcome:"pending",afterState:{checkoutSessionId:checkout.checkoutSession?.id,planSlug,billingMode,paymentMethod}});
     res.status(201).json(checkout);
   })
 );
