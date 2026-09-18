@@ -152,6 +152,60 @@ test("oauth service builds provider-specific authorization URLs", () => {
   assert.equal(facebookUrl.searchParams.get("state"), facebookState);
 });
 
+test("oauth code exchange preserves the callback URI used by mobile authorization", async () => {
+  const oauthService = requireWithMocks("../src/services/oauthService.js", {
+    "../config/env": {
+      googleClientId: "google-client",
+      googleClientSecret: "google-secret",
+      facebookAppId: "facebook-app",
+      facebookAppSecret: "facebook-secret",
+      serverUrl: "https://api.example.com",
+      appBaseUrl: "https://app.example.com",
+      oauthCallbackPath: "/oauth/callback",
+      oauthStateTtlMinutes: 10,
+      jwtSecret: "test-secret"
+    }
+  });
+  const originalFetch = global.fetch;
+  const requests = [];
+  global.fetch = async (url, options = {}) => {
+    requests.push({ url: String(url), options });
+    if (String(url) === "https://oauth2.googleapis.com/token") {
+      return { ok: true, text: async () => JSON.stringify({ access_token: "google-access" }) };
+    }
+    if (String(url) === "https://openidconnect.googleapis.com/v1/userinfo") {
+      return { ok: true, text: async () => JSON.stringify({ sub: "google-user", email: "google@example.com", email_verified: true }) };
+    }
+    if (String(url).startsWith("https://graph.facebook.com/oauth/access_token")) {
+      return { ok: true, text: async () => JSON.stringify({ access_token: "facebook-access" }) };
+    }
+    if (String(url).startsWith("https://graph.facebook.com/me")) {
+      return { ok: true, text: async () => JSON.stringify({ id: "facebook-user", email: "facebook@example.com", name: "Facebook User" }) };
+    }
+    throw new Error(`Unexpected fetch: ${url}`);
+  };
+
+  try {
+    await oauthService.exchangeCodeForProfile({
+      provider: "google",
+      code: "google-code",
+      redirectUri: "https://api.example.com/api/v1/mobile/auth/oauth/google/callback"
+    });
+    await oauthService.exchangeCodeForProfile({
+      provider: "facebook",
+      code: "facebook-code",
+      redirectUri: "https://api.example.com/api/v1/mobile/auth/oauth/facebook/callback"
+    });
+  } finally {
+    global.fetch = originalFetch;
+  }
+
+  const googleBody = new URLSearchParams(requests[0].options.body);
+  assert.equal(googleBody.get("redirect_uri"), "https://api.example.com/api/v1/mobile/auth/oauth/google/callback");
+  const facebookUrl = new URL(requests[2].url);
+  assert.equal(facebookUrl.searchParams.get("redirect_uri"), "https://api.example.com/api/v1/mobile/auth/oauth/facebook/callback");
+});
+
 test("oauth service rejects unsupported or expired OAuth state", () => {
   const oauthService = requireWithMocks("../src/services/oauthService.js", {
     "../config/env": {

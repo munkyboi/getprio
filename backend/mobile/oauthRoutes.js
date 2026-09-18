@@ -233,7 +233,9 @@ router.all(
       if (!oauthState.mobile || oauthState.provider !== provider) throw new Error("OAuth session is not valid for this mobile app.");
       if (providerError) throw new Error(providerErrorReason || `${getProviderLabel(provider)} sign-in was cancelled.`);
       const code = req.method === "POST" ? req.body?.code : req.query.code;
-      const profile = await exchangeCodeForProfile({ provider, code, requestBody: req.body });
+      const callbackBasePath = String(req.baseUrl || "/api/mobile/auth").replace(/\/$/, "");
+      const redirectUri = `${String(env.serverUrl).replace(/\/$/, "")}${callbackBasePath}/oauth/${provider}/callback`;
+      const profile = await exchangeCodeForProfile({ provider, code, redirectUri, requestBody: req.body });
       const user = await findOrCreateUser(profile);
       const responseBody = await completeMobileAuthentication({ user, profile, req });
       const oneTimeCode = crypto.randomBytes(32).toString("base64url");

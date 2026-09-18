@@ -152,6 +152,8 @@ test("mobile route wiring keeps OAuth and queue contracts under the mobile names
   assert.match(oauth, /mfaFlowService\.issueLoginChallenge/);
   assert.match(oauth, /router\.use\(mobileOAuthLimiter\)/);
   assert.match(oauth, /req\.baseUrl/);
+  assert.match(oauth, /exchangeCodeForProfile\(\{ provider, code, redirectUri, requestBody: req\.body \}\)/);
+  assert.match(oauth, /const redirectUri =/);
   assert.match(push, /router\.use\(mobilePushLimiter\)/);
   assert.match(queue, /router\.use\(mobileQueueLimiter\)/);
   assert.match(queue, /requireIdempotency\("mobile\.queue_join"\)/);
