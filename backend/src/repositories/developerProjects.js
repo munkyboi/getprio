@@ -118,7 +118,7 @@ async function mergeProductionApprovalDraft({ projectId, changes }, options = {}
 
 function canonicalJson(value) {
   if (Array.isArray(value)) return value.map(canonicalJson);
-  if (value && typeof value === "object") return Object.keys(value).sort().reduce((result, key) => {
+  if (value && typeof value === "object") return Object.keys(value).sort((left, right) => left.localeCompare(right)).reduce((result, key) => {
     result[key] = canonicalJson(value[key]);
     return result;
   }, {});

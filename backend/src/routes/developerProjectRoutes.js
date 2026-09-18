@@ -133,40 +133,48 @@ function cleanList(value, label, maxItems, itemMaxLength) {
   return [...new Set(values)];
 }
 
+function cleanBoolean(value, label) {
+  if (typeof value !== "boolean") {
+    const error = new Error(`${label} must be a boolean.`);
+    error.statusCode = 400;
+    error.code = "INVALID_PRODUCTION_APPLICATION";
+    throw error;
+  }
+  return value;
+}
+
+function cleanWebsiteUrl(value) {
+  const websiteUrl = value === null || value === undefined ? "" : String(value).trim();
+  if (websiteUrl && !/^https?:\/\/[^\s]+$/i.test(websiteUrl)) {
+    const error = new Error("Website URL must use http or https.");
+    error.statusCode = 400;
+    error.code = "INVALID_PRODUCTION_APPLICATION";
+    throw error;
+  }
+  if (websiteUrl.length > 500) {
+    const error = new Error("Website URL must be at most 500 characters.");
+    error.statusCode = 400;
+    error.code = "INVALID_PRODUCTION_APPLICATION";
+    throw error;
+  }
+  return websiteUrl;
+}
+
+const PRODUCTION_APPLICATION_FIELD_CLEANERS = [
+  { key: "applicationName", clean: (value) => cleanText(value, "Application name", 120) },
+  { key: "purpose", clean: (value) => cleanText(value, "Purpose", 2000) },
+  { key: "intendedIndustries", clean: (value) => cleanList(value, "Intended industries", 20, 80) },
+  { key: "expectedTicketVolume", clean: (value) => cleanText(value, "Expected ticket volume", 120) },
+  { key: "customerDataFields", clean: (value) => cleanList(value, "Customer data fields", 30, 100) },
+  { key: "mobileLinking", clean: (value) => cleanBoolean(value, "mobileLinking") },
+  { key: "websiteUrl", clean: cleanWebsiteUrl }
+];
+
 function cleanProductionApplicationFields(body, { partial = false } = {}) {
   onlyFields(body, PRODUCTION_APPROVAL_FIELDS);
   const result = {};
-  if (body.applicationName !== undefined || !partial) result.applicationName = cleanText(body.applicationName, "Application name", 120);
-  if (body.purpose !== undefined || !partial) result.purpose = cleanText(body.purpose, "Purpose", 2000);
-  if (body.intendedIndustries !== undefined || !partial) result.intendedIndustries = cleanList(body.intendedIndustries, "Intended industries", 20, 80);
-  if (body.expectedTicketVolume !== undefined || !partial) result.expectedTicketVolume = cleanText(body.expectedTicketVolume, "Expected ticket volume", 120);
-  if (body.customerDataFields !== undefined || !partial) result.customerDataFields = cleanList(body.customerDataFields, "Customer data fields", 30, 100);
-  if (body.mobileLinking !== undefined || !partial) {
-    if (typeof body.mobileLinking !== "boolean") {
-      const error = new Error("mobileLinking must be a boolean.");
-      error.statusCode = 400;
-      error.code = "INVALID_PRODUCTION_APPLICATION";
-      throw error;
-    }
-    result.mobileLinking = body.mobileLinking;
-  }
-  if (body.websiteUrl !== undefined) {
-    const websiteUrl = body.websiteUrl === null ? "" : String(body.websiteUrl).trim();
-    if (websiteUrl && !/^https?:\/\/[^\s]+$/i.test(websiteUrl)) {
-      const error = new Error("Website URL must use http or https.");
-      error.statusCode = 400;
-      error.code = "INVALID_PRODUCTION_APPLICATION";
-      throw error;
-    }
-    if (websiteUrl.length > 500) {
-      const error = new Error("Website URL must be at most 500 characters.");
-      error.statusCode = 400;
-      error.code = "INVALID_PRODUCTION_APPLICATION";
-      throw error;
-    }
-    result.websiteUrl = websiteUrl;
-  } else if (!partial) {
-    result.websiteUrl = "";
+  for (const field of PRODUCTION_APPLICATION_FIELD_CLEANERS) {
+    if (body[field.key] !== undefined || !partial) result[field.key] = field.clean(body[field.key]);
   }
   return result;
 }

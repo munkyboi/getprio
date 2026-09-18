@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS developer_project_production_applications (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   developer_project_id UUID NOT NULL UNIQUE REFERENCES developer_projects(id) ON DELETE CASCADE,
   status TEXT NOT NULL DEFAULT 'not_submitted'
-    CHECK (status IN ('not_submitted', 'pending_review', 'changes_requested', 'approved', 'rejected', 'withdrawn')),
+    CHECK (status ~ '^(not_submitted|pending_review|changes_requested|approved|rejected|withdrawn)$'),
   draft JSONB NOT NULL DEFAULT '{}'::jsonb,
   approved_submission_id UUID,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS developer_project_production_submissions (
   version INTEGER NOT NULL CHECK (version > 0),
   snapshot JSONB NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending_review'
-    CHECK (status IN ('pending_review', 'changes_requested', 'approved', 'rejected', 'withdrawn')),
+    CHECK (status ~ '^(pending_review|changes_requested|approved|rejected|withdrawn)$'),
   submitted_by_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
   submitted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   reviewer_user_id BIGINT REFERENCES users(id) ON DELETE RESTRICT,
