@@ -168,7 +168,7 @@ function buildFallbackName(provider, email) {
   return `${getProviderLabel(provider)} User`;
 }
 
-async function exchangeGoogleCode(code) {
+async function exchangeGoogleCode(code, redirectUri) {
   const tokenData = await fetchJson("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: {
@@ -179,7 +179,7 @@ async function exchangeGoogleCode(code) {
       client_secret: env.googleClientSecret,
       code,
       grant_type: "authorization_code",
-      redirect_uri: buildServerCallbackUrl("google")
+      redirect_uri: redirectUri || buildServerCallbackUrl("google")
     })
   });
 
@@ -198,12 +198,12 @@ async function exchangeGoogleCode(code) {
   };
 }
 
-async function exchangeFacebookCode(code) {
+async function exchangeFacebookCode(code, redirectUri) {
   const tokenUrl = new URL("https://graph.facebook.com/oauth/access_token");
   tokenUrl.search = new URLSearchParams({
     client_id: env.facebookAppId,
     client_secret: env.facebookAppSecret,
-    redirect_uri: buildServerCallbackUrl("facebook"),
+    redirect_uri: redirectUri || buildServerCallbackUrl("facebook"),
     code
   }).toString();
 
@@ -331,7 +331,7 @@ async function exchangeAppleCredential({ identityToken, authorizationCode, nonce
   };
 }
 
-async function exchangeCodeForProfile({ provider, code }) {
+async function exchangeCodeForProfile({ provider, code, redirectUri }) {
   ensureConfiguredProvider(provider);
 
   if (!code) {
@@ -342,9 +342,9 @@ async function exchangeCodeForProfile({ provider, code }) {
 
   switch (provider) {
     case "google":
-      return exchangeGoogleCode(code);
+      return exchangeGoogleCode(code, redirectUri);
     case "facebook":
-      return exchangeFacebookCode(code);
+      return exchangeFacebookCode(code, redirectUri);
     case "apple":
       throw new Error("Apple sign-in uses the native credential exchange.");
     default:
