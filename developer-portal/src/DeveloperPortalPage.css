@@ -968,3 +968,239 @@
   width: 18px;
   height: 18px;
 }
+
+/* The guide uses the same editorial documentation treatment as the API
+   reference: a focused reading column, persistent navigation on wide screens,
+   and a compact mobile contents control. */
+.developer-docs {
+  --docs-bg: var(--dp-bg);
+  --docs-surface: var(--dp-surface);
+  --docs-soft-surface: color-mix(in srgb, var(--dp-surface) 82%, var(--dp-bg));
+  --docs-ink: var(--dp-ink);
+  --docs-muted: var(--dp-muted);
+  --docs-line: var(--dp-border);
+  --docs-accent: var(--dp-accent);
+  min-height: calc(100vh - 5rem);
+  background: var(--docs-bg);
+  color: var(--docs-ink);
+}
+.developer-docs-layout {
+  display: grid;
+  width: calc(100% - 2rem);
+  max-width: 100rem;
+  margin: 0 auto;
+}
+.developer-docs-content {
+  min-width: 0;
+  padding: 2.25rem 0 6rem;
+}
+.developer-docs-hero {
+  padding-bottom: 2.5rem;
+  border-bottom: 1px solid var(--docs-line);
+}
+.developer-docs-hero h1 {
+  max-width: 42rem;
+  margin-bottom: 1rem;
+  font-size: clamp(2.25rem, 7vw, 4.1rem);
+  line-height: 1.03;
+}
+.developer-docs-hero .developer-portal-lede {
+  max-width: 46rem;
+}
+.developer-docs-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .75rem;
+  margin: 1.5rem 0;
+}
+.developer-docs-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem 1rem;
+  margin: 0;
+  color: var(--docs-muted);
+  font-size: .78rem;
+  letter-spacing: .03em;
+}
+.developer-docs-meta span::before {
+  display: inline-block;
+  width: .4rem;
+  height: .4rem;
+  margin: 0 .45rem .08rem 0;
+  border-radius: 50%;
+  background: var(--docs-accent);
+  content: "";
+}
+.developer-docs-section {
+  scroll-margin-top: 6.5rem;
+  padding: 3rem 0;
+  border-bottom: 1px solid var(--docs-line);
+}
+.developer-docs-section > p:not(.developer-portal-eyebrow) {
+  max-width: 48rem;
+}
+.developer-docs-heading {
+  display: flex;
+  align-items: baseline;
+  gap: .55rem;
+  margin: 0 0 .8rem;
+  scroll-margin-top: 6.5rem;
+}
+.developer-docs-heading a {
+  color: var(--docs-muted);
+  font-family: Inter, system-ui, sans-serif;
+  font-size: .8rem;
+  font-weight: 700;
+  opacity: 0;
+  text-decoration: none;
+  transition: opacity 160ms ease;
+}
+.developer-docs-heading:hover a,
+.developer-docs-heading a:focus-visible { opacity: 1; }
+.developer-docs-card-grid,
+.developer-docs-webhook-grid {
+  display: grid;
+  gap: .75rem;
+  margin-top: 1.4rem;
+}
+.developer-docs-card-grid article,
+.developer-docs-webhook-grid article {
+  padding: 1rem;
+  border: 1px solid var(--docs-line);
+  border-radius: .85rem;
+  background: var(--docs-soft-surface);
+}
+.developer-docs-card-grid strong,
+.developer-docs-webhook-grid strong { display: block; margin-bottom: .35rem; color: var(--docs-ink); }
+.developer-docs-card-grid p,
+.developer-docs-webhook-grid span { display: block; margin: 0; font-size: .9rem; line-height: 1.55; }
+.developer-docs-callout {
+  display: grid;
+  gap: .35rem;
+  margin: 1.2rem 0;
+  padding: 1rem 1.1rem;
+  border-left: 3px solid var(--docs-accent);
+  background: var(--docs-soft-surface);
+}
+.developer-docs-callout strong { color: var(--docs-ink); }
+.developer-docs-callout span { color: var(--docs-muted); font-size: .9rem; line-height: 1.55; }
+.developer-docs-checklist {
+  display: grid;
+  gap: 1rem;
+  max-width: 48rem;
+  margin: 1.4rem 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: docs-steps;
+}
+.developer-docs-checklist li {
+  position: relative;
+  min-height: 2.5rem;
+  margin: 0;
+  padding-left: 3rem;
+  counter-increment: docs-steps;
+}
+.developer-docs-checklist li::before {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--docs-accent) 18%, var(--docs-surface));
+  color: var(--docs-accent);
+  content: counter(docs-steps);
+  font-size: .78rem;
+  font-weight: 800;
+}
+.developer-docs-checklist strong,
+.developer-docs-checklist span { display: block; }
+.developer-docs-checklist strong { color: var(--docs-ink); }
+.developer-docs-checklist span { margin-top: .15rem; color: var(--docs-muted); font-size: .9rem; line-height: 1.5; }
+.developer-docs-table-wrap {
+  overflow-x: auto;
+  margin-top: 1.2rem;
+  border: 1px solid var(--docs-line);
+  border-radius: .75rem;
+}
+.developer-docs-table-wrap table { width: 100%; min-width: 38rem; border-collapse: collapse; font-size: .88rem; }
+.developer-docs-table-wrap caption { padding: .8rem 1rem; background: var(--docs-soft-surface); color: var(--docs-ink); font-size: .75rem; font-weight: 800; letter-spacing: .06em; text-align: left; text-transform: uppercase; }
+.developer-docs-table-wrap th,
+.developer-docs-table-wrap td { padding: .75rem .85rem; border-top: 1px solid var(--docs-line); color: var(--docs-muted); line-height: 1.45; text-align: left; vertical-align: top; }
+.developer-docs-table-wrap thead th { border-top: 0; color: var(--docs-ink); font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; }
+.developer-docs-table-wrap tbody th { color: var(--docs-ink); white-space: nowrap; }
+.developer-docs-table-wrap code { white-space: nowrap; }
+.developer-docs-payload-grid { display: grid; gap: 1rem; margin-top: 1.2rem; }
+.developer-docs-payload-grid h3 { margin: 0 0 .5rem; color: var(--docs-ink); font-family: Inter, system-ui, sans-serif; font-size: .82rem; letter-spacing: .05em; text-transform: uppercase; }
+.developer-docs-payload-grid pre { margin: 0; }
+.developer-docs-flow {
+  display: grid;
+  gap: .75rem;
+  margin-top: 1.2rem;
+  padding: 0;
+  list-style: none;
+}
+.developer-docs-flow li {
+  position: relative;
+  display: grid;
+  grid-template-columns: 2.2rem minmax(0, 1fr);
+  gap: .75rem;
+  margin: 0;
+  padding: 1rem;
+  border: 1px solid var(--docs-line);
+  border-radius: .8rem;
+  background: var(--docs-soft-surface);
+}
+.developer-docs-flow li > span { display: grid; width: 2rem; height: 2rem; place-items: center; border-radius: 50%; background: var(--docs-accent); color: var(--docs-bg); font-size: .7rem; font-weight: 800; }
+.developer-docs-flow h3 { margin: .15rem 0 .3rem; color: var(--docs-ink); font-family: Inter, system-ui, sans-serif; font-size: .95rem; }
+.developer-docs-flow p { margin: 0; font-size: .86rem; line-height: 1.5; }
+.developer-docs-flow b { display: none; }
+.developer-docs-next-step { border-bottom: 0; }
+.developer-docs-next-step .developer-portal-primary { display: inline-flex; margin-top: .5rem; }
+.developer-docs-mobile-nav { margin: 1rem 0 0; border: 1px solid var(--docs-line); border-radius: .65rem; background: var(--docs-surface); }
+.developer-docs-mobile-nav summary { display: flex; min-height: 44px; align-items: center; justify-content: space-between; padding: .7rem .85rem; color: var(--docs-ink); cursor: pointer; font-weight: 700; }
+.developer-docs-mobile-nav summary span { color: var(--docs-muted); font-size: .82rem; font-weight: 500; }
+.developer-docs-mobile-nav nav { display: grid; padding: 0 .85rem .75rem; }
+.developer-docs-mobile-nav a { display: flex; min-height: 44px; align-items: center; padding: .45rem 0; color: var(--docs-muted); text-decoration: none; }
+.developer-docs-mobile-nav a.is-active { color: var(--docs-ink); font-weight: 750; }
+.developer-docs-sidebar,
+.developer-docs-outline { display: none; }
+.developer-portal-code-actions { display: inline-flex; align-items: center; gap: .45rem; }
+.developer-portal-code-language select { min-height: 44px; max-width: 9.5rem; padding: 0 .6rem; border: 1px solid #40577e; border-radius: .45rem; background: #16243a; color: #d8e4ff; font: 700 .75rem/1 Inter, Aptos, sans-serif; }
+.developer-docs .developer-portal-code-toolbar button { min-height: 44px; }
+.developer-portal-code-language select:focus-visible { outline: 2px solid #7ca4ff; outline-offset: 2px; }
+.developer-portal-code-comment { color: #7f91ad; font-style: italic; }
+.developer-portal-code-number { color: #b9e28c; }
+.developer-portal-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+@media (min-width: 48.0625em) {
+  .developer-docs-layout { grid-template-columns: minmax(13rem, 15rem) minmax(0, 52rem) minmax(12rem, 14rem); gap: clamp(1.5rem, 4vw, 3.5rem); width: calc(100% - 5rem); padding: 0 0 2rem; }
+  .developer-docs-sidebar { display: block; align-self: start; position: sticky; top: 5.7rem; height: calc(100vh - 5.7rem); overflow-y: auto; padding: 2.4rem 1.25rem 2rem 0; border-right: 1px solid var(--docs-line); }
+  .developer-docs-brand { display: block; margin-bottom: 1.8rem; color: var(--docs-ink); font-size: .8rem; font-weight: 800; letter-spacing: .08em; text-decoration: none; }
+  .developer-docs-brand span { color: var(--docs-muted); font-weight: 600; }
+  .developer-docs-sidebar section { margin-bottom: 1.65rem; }
+  .developer-docs-sidebar h2,
+  .developer-docs-outline p { margin: 0 0 .55rem; color: var(--docs-muted); font-size: 8px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+  .developer-docs-sidebar a,
+  .developer-docs-outline a { display: block; padding: .3rem 0; color: var(--docs-muted); font-size: .88rem; text-decoration: none; }
+  .developer-docs-sidebar a.is-active { color: var(--docs-ink); font-weight: 750; }
+  .developer-docs-reference-link { margin-top: 1rem; padding-top: 1rem !important; border-top: 1px solid var(--docs-line); color: var(--docs-accent) !important; font-weight: 700; }
+  .developer-docs-outline { display: block; align-self: start; position: sticky; top: 5.7rem; margin-top: 4.75rem; padding-left: 1rem; border-left: 1px solid var(--docs-line); }
+  .developer-docs-outline a.is-active { margin-left: -.65rem; padding-left: .5rem; border-left: 2px solid var(--docs-accent); color: var(--docs-ink); font-weight: 750; }
+  .developer-docs-mobile-nav { display: none; }
+  .developer-docs-card-grid,
+  .developer-docs-webhook-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .developer-docs-payload-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .developer-docs-flow { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .35rem; }
+  .developer-docs-flow li { grid-template-columns: 1fr; min-height: 11rem; padding: .85rem; }
+  .developer-docs-flow li > span { margin-bottom: .25rem; }
+  .developer-docs-flow b { display: block; position: absolute; top: 1.7rem; right: -.55rem; z-index: 1; color: var(--docs-accent); font-size: 1rem; }
+  .developer-docs-flow li:last-child b { display: none; }
+}
+@media (max-width: 38em) {
+  .developer-portal-code-toolbar { align-items: flex-start; flex-wrap: wrap; gap: .55rem; }
+  .developer-portal-code-actions { width: 100%; justify-content: flex-end; }
+  .developer-portal-code-language { flex: 1 1 10rem; }
+  .developer-portal-code-language select { width: 100%; max-width: none; }
+}

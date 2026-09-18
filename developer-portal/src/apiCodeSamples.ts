@@ -5,9 +5,15 @@ export type CodeSamples = Partial<Record<CodeLanguage, string>>;
 type RequestSampleOptions = {
   method: "GET" | "POST";
   path: string;
-  body?: Record<string, string>;
+  body?: Record<string, unknown>;
   idempotencyKey?: string;
 };
+
+function csharpValue(value: unknown): string {
+  if (Array.isArray(value)) return "new[] { " + value.map((item) => csharpValue(item)).join(", ") + " }";
+  if (value && typeof value === "object") return "new { " + Object.entries(value).map(([key, item]) => key + " = " + csharpValue(item)).join(", ") + " }";
+  return JSON.stringify(value);
+}
 
 const apiBase = "https://sandbox-api.getprio.online/v1";
 
@@ -16,7 +22,7 @@ export function requestSamples({ method, path, body, idempotencyKey }: RequestSa
   const bodyText = body ? JSON.stringify(body) : "";
   const bodyJson = bodyText ? JSON.stringify(bodyText) : "";
   const bodyObject = body ? JSON.stringify(body, null, 2) : "";
-  const csharpBody = body ? "new { " + Object.entries(body).map(([key, value]) => key + " = " + JSON.stringify(value)).join(", ") + " }" : "";
+  const csharpBody = body ? csharpValue(body) : "";
   const idempotencyHeader = idempotencyKey ? "\n  -H 'Idempotency-Key: " + idempotencyKey + "' \\" : "";
   const curlBody = bodyText ? "\n  -H 'Content-Type: application/json' \\\n  -d '" + bodyText + "'" : "";
   const javascriptOptions = [
@@ -95,6 +101,20 @@ export const createProfileSamples = requestSamples({
   body: { slug: "example-profile", display_name: "Example Service Desk" },
   idempotencyKey: "profile-create-001"
 });
+
+export const webhookVerificationSamples: CodeSamples = {
+  cURL: "signed=\"$timestamp.$period.$raw_body\"\nprintf '%s' \"$signed\" | openssl dgst -sha256 -hmac \"$GETPRIO_WEBHOOK_SECRET\"",
+  JavaScript: "import crypto from \"node:crypto\";\n\nconst signed = `${timestamp}.${period}.${rawBody}`;\nconst expected = crypto.createHmac(\"sha256\", secret).update(signed).digest(\"hex\");\nconst valid = crypto.timingSafeEqual(Buffer.from(expected, \"hex\"), Buffer.from(signature, \"hex\"));",
+  Python: "import hashlib\nimport hmac\n\nsigned = f\"{timestamp}.{period}.{raw_body}\".encode()\nexpected = hmac.new(secret.encode(), signed, hashlib.sha256).hexdigest()\nvalid = hmac.compare_digest(expected, signature)",
+  Java: "Mac mac = Mac.getInstance(\"HmacSHA256\");\nmac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), \"HmacSHA256\"));\nbyte[] digest = mac.doFinal((timestamp + \".\" + period + \".\" + rawBody).getBytes(StandardCharsets.UTF_8));\nboolean valid = MessageDigest.isEqual(digest, HexFormat.of().parseHex(signature));",
+  Go: "signed := timestamp + \".\" + period + \".\" + rawBody\nmac := hmac.New(sha256.New, []byte(secret))\nmac.Write([]byte(signed))\nvalid := hmac.Equal(mac.Sum(nil), decodedSignature)",
+  Kotlin: "val signed = \"$timestamp.$period.$rawBody\"\nval mac = Mac.getInstance(\"HmacSHA256\")\nmac.init(SecretKeySpec(secret.toByteArray(), \"HmacSHA256\"))\nval expected = mac.doFinal(signed.toByteArray())\nval valid = MessageDigest.isEqual(expected, signatureBytes)",
+  "Objective-C": "NSString *signedValue = [NSString stringWithFormat:@\"%lld.%@.%@\", timestamp, period, rawBody];\nNSData *key = [secret dataUsingEncoding:NSUTF8StringEncoding];\nNSData *body = [signedValue dataUsingEncoding:NSUTF8StringEncoding];\nunsigned char digest[CC_SHA256_DIGEST_LENGTH];\nCCHmac(kCCHmacAlgSHA256, key.bytes, key.length, body.bytes, body.length, digest);",
+  PHP: "$signed = $timestamp . \".\" . $period . \".\" . $rawBody;\n$expected = hash_hmac('sha256', $signed, $secret);\n$valid = hash_equals($expected, $signature);",
+  ASP: "using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(secret));\nvar signed = $\"{timestamp}.{period}.{rawBody}\";\nvar expected = hmac.ComputeHash(Encoding.UTF8.GetBytes(signed));\nvar valid = CryptographicOperations.FixedTimeEquals(expected, Convert.FromHexString(signature));",
+  Ruby: "signed = \"#{timestamp}.#{period}.#{raw_body}\"\nexpected = OpenSSL::HMAC.hexdigest(\"SHA256\", secret, signed)\nvalid = Rack::Utils.secure_compare(expected, signature)",
+  Swift: "let signed = \"\\(timestamp).\\(period).\\(rawBody)\"\nlet key = SymmetricKey(data: Data(secret.utf8))\nlet digest = HMAC<SHA256>.authenticationCode(for: Data(signed.utf8), using: key)\nlet valid = Data(digest).map { String(format: \"%02x\", $0) }.joined() == signature"
+};
 
 export const readTicketSamples = requestSamples({
   method: "GET",

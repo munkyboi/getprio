@@ -21,6 +21,7 @@ import DeveloperShell from "./DeveloperShell";
 import DeveloperWorkspace from "./DeveloperWorkspace";
 import DeveloperInputOtp from "./components/DeveloperInputOtp";
 import { developerApi, type MfaLoginChallenge, type MfaLoginMethod, type Session } from "./developerApi";
+import { codeLanguages, requestSamples, ticketIssueSamples, type CodeLanguage, type CodeSamples, webhookVerificationSamples } from "./apiCodeSamples";
 import "./DeveloperPortalPage.css";
 
 const faqs = [
@@ -57,17 +58,6 @@ const faqs = [
     "Keep API keys on your backend. Public documentation is readable without login, but does not execute authenticated requests in the browser. Use a key scoped to the correct project, environment, and permissions.",
   ],
 ];
-const examples = {
-  cURL: "curl 'https://sandbox-api.getprio.online/v1/queues/example-tenant' \\\n  -H 'X-API-Key: REPLACE_WITH_SANDBOX_KEY'",
-  "Node.js / TypeScript":
-    "const key = process.env.GETPRIO_SANDBOX_KEY;\nif (!key) throw new Error('Set GETPRIO_SANDBOX_KEY on your server');\nconst response = await fetch(\n  'https://sandbox-api.getprio.online/v1/queues/example-tenant',\n  { headers: { 'X-API-Key': key } }\n);\nif (!response.ok) throw new Error(`GetPrio: ${response.status}`);\nconsole.log(await response.json());",
-  PHP: "<?php\n$curl = curl_init('https://sandbox-api.getprio.online/v1/queues/example-tenant');\ncurl_setopt_array($curl, [\n  CURLOPT_RETURNTRANSFER => true,\n  CURLOPT_HTTPHEADER => ['X-API-Key: ' . getenv('GETPRIO_SANDBOX_KEY')],\n]);\n$body = curl_exec($curl);\n$status = curl_getinfo($curl, CURLINFO_HTTP_CODE);\nif ($body === false || $status >= 400) {\n  throw new RuntimeException('GetPrio request failed');\n}\ncurl_close($curl);\necho $body;",
-  Python:
-    "import os\nimport urllib.request\n\nrequest = urllib.request.Request(\n    'https://sandbox-api.getprio.online/v1/queues/example-tenant',\n    headers={'X-API-Key': os.environ['GETPRIO_SANDBOX_KEY']}\n)\nwith urllib.request.urlopen(request, timeout=15) as response:\n    print(response.read().decode())",
-  "C# / .NET":
-    'using var client = new HttpClient();\nclient.DefaultRequestHeaders.Add(\n    "X-API-Key", Environment.GetEnvironmentVariable("GETPRIO_SANDBOX_KEY"));\nusing var response = await client.GetAsync(\n    "https://sandbox-api.getprio.online/v1/queues/example-tenant");\nresponse.EnsureSuccessStatusCode();\nConsole.WriteLine(await response.Content.ReadAsStringAsync());',
-};
-
 async function copyText(text: string) {
   try {
     await navigator.clipboard.writeText(text);
@@ -158,13 +148,15 @@ function DeveloperPasswordPolicy({ value, id }: { value: string; id: string }) {
   );
 }
 
-const codeTokenPattern = /(https?:\/\/[^\s'"`]+|'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|--?[A-Za-z][\w-]*|\b(?:curl|const|let|if|throw|new|return|fetch|POST|GET|PUT|PATCH|DELETE|true|false|null)\b)/g;
+const codeTokenPattern = /https?:\/\/[^\s'"`]+|\/\/[^\n]*|#[^\n]*|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`|\b\d+(?:\.\d+)?\b|--?[A-Za-z][\w-]*|\b(?:const|let|var|function|import|from|using|new|return|await|async|class|def|if|else|for|true|false|null|nil|None|GET|POST|PUT|PATCH|DELETE)\b/g;
 
 function codeTokenClass(token: string) {
+  if (token.startsWith("//") || token.startsWith("#")) return "developer-portal-code-comment";
   if (token.startsWith("http")) return "developer-portal-code-url";
-  if (token.startsWith("'") || token.startsWith('"')) return "developer-portal-code-string";
+  if (token.startsWith("'") || token.startsWith('"') || token.startsWith("`")) return "developer-portal-code-string";
   if (token.startsWith("-")) return "developer-portal-code-option";
   if (["POST", "GET", "PUT", "PATCH", "DELETE"].includes(token)) return "developer-portal-code-method";
+  if (/^\d/.test(token)) return "developer-portal-code-number";
   return "developer-portal-code-keyword";
 }
 
@@ -183,11 +175,13 @@ function ThemedCode({ code }: { code: string }) {
   return <code>{nodes}</code>;
 }
 
-function CodeSample({ code, language }: { code: string; language: string }) {
+function CodeSample({ code, language = "cURL", samples, label = "Example request" }: { code?: string; language?: CodeLanguage; samples?: CodeSamples; label?: string }) {
+  const [selectedLanguage, setSelectedLanguage] = useState<CodeLanguage>(language);
   const [copied, setCopied] = useState(false);
+  const selectedCode = samples?.[selectedLanguage] || code || "";
 
   async function copyCode() {
-    await copyText(code);
+    await copyText(selectedCode);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1800);
   }
@@ -195,13 +189,16 @@ function CodeSample({ code, language }: { code: string; language: string }) {
   return (
     <div className="developer-portal-code-sample">
       <div className="developer-portal-code-toolbar">
-        <span>{language}</span>
+        <span>{label}</span>
+        <div className="developer-portal-code-actions">
+          {samples && <label className="developer-portal-code-language"><span className="developer-portal-sr-only">Language</span><select value={selectedLanguage} onChange={(event) => setSelectedLanguage(event.currentTarget.value as CodeLanguage)}>{codeLanguages.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>}
         <Button type="button" variant="light" onClick={copyCode} aria-live="polite" aria-label={copied ? "Example copied" : "Copy example"}>
           {copied ? <IconCheck size={16} aria-hidden="true" /> : <IconCopy size={16} aria-hidden="true" />}
           {copied ? "Copied" : "Copy"}
         </Button>
+        </div>
       </div>
-      <pre aria-label={`${language} backend example`}><ThemedCode code={code} /></pre>
+      <pre aria-label={`${selectedLanguage} backend example`}><ThemedCode code={selectedCode} /></pre>
     </div>
   );
 }
@@ -219,78 +216,149 @@ function FAQ({ compact = false }: { compact?: boolean }) {
   );
 }
 
+type DocsLink = readonly [string, string];
+const docsNavigation: ReadonlyArray<{ title: string; links: readonly DocsLink[] }> = [
+  { title: "Start here", links: [["Overview", "overview"], ["Get started", "get-started"], ["Authentication", "authentication"], ["Environments", "environments"]] },
+  { title: "Build the flow", links: [["Request flow", "request-flow"], ["Payloads and responses", "payloads"], ["Errors and retries", "errors"], ["Webhooks", "webhooks"]] },
+  { title: "Next steps", links: [["Production checklist", "production"], ["API reference", "reference"]] },
+] as const;
+
+const docsToc: DocsLink[] = docsNavigation.flatMap((group) => group.links);
+const healthSamples = requestSamples({ method: "GET", path: "/health" });
+const queueSnapshotSamples = requestSamples({ method: "GET", path: "/queues/example-profile" });
+
+function DocsHeading({ id, children, level = "h2" }: { id: string; children: string; level?: "h1" | "h2" }) {
+  const Heading = level;
+  return <Heading id={id} className="developer-docs-heading">{children}<a href={`#${id}`} aria-label={`Link to ${children}`} title={`Link to ${children}`}>#</a></Heading>;
+}
+
+function DocsFlow() {
+  const steps = [
+    ["01", "Your backend", "Keep the API key server-side and choose the matching host."],
+    ["02", "API edge", "GetPrio validates the environment, credential, and request shape."],
+    ["03", "Queue service", "Scopes and profile access are checked before the transaction runs."],
+    ["04", "Your response", "Receive a versioned response with a request ID for support."],
+    ["05", "Webhook worker", "Signed events are delivered asynchronously and retried until accepted."],
+  ] as const;
+  return <ol className="developer-docs-flow" aria-label="Request flow from your backend through the API edge and queue service to the response and webhook worker.">{steps.map(([number, title, body], index) => <li key={title}><span aria-hidden="true">{number}</span><div><h3>{title}</h3><p>{body}</p></div>{index < steps.length - 1 && <b aria-hidden="true">→</b>}</li>)}</ol>;
+}
+
 function Guides() {
-  const [language, setLanguage] = useState<keyof typeof examples>("cURL");
-  return (
-    <>
-      <p className="developer-portal-eyebrow">GUIDES / V1 PREVIEW</p>
-      <h1>Start on your backend.</h1>
-      <p className="developer-portal-lede">
-        Read the API contract, plan your queue flow, and keep credentials on
-        your server. Create free Sandbox credentials from the developer
-        workspace when you are ready to test.
-      </p>
-      <ol className="developer-portal-guide-steps">
-        <li>
-          <h2>Choose the environment</h2>
-          <p>
-            Use <code>https://sandbox-api.getprio.online/v1</code> for isolated
-            testing. Production uses <code>https://api.getprio.online/v1</code>.
-            Start with a public health check from your terminal:
-          </p>
-          <CodeSample language="cURL" code="curl https://sandbox-api.getprio.online/v1/health" />
-          <p>
-            A successful health check confirms API availability, not your
-            account permissions or production readiness.
-          </p>
-        </li>
-        <li>
-          <h2>Read a queue with a scoped key</h2>
-          <p>
-            Once provisioned, use a Sandbox key with <code>queues:read</code>{" "}
-            and an authorized project profile slug. The fictional{" "}
-            <code>example-profile</code> and placeholder key below must be
-            replaced on your server. Never paste real keys into this site.
-          </p>
-          <Select className="developer-portal-language" label="Example language" value={language} onChange={(value) => { if (value) setLanguage(value as keyof typeof examples); }} data={Object.keys(examples)} comboboxProps={{ withinPortal: false }} />
-          <CodeSample language={language} code={examples[language]} />
-          <p>
-            Examples use standard HTTP clients. JavaScript runs in Node.js; PHP
-            requires its cURL extension. No custom SDK is required.
-          </p>
-        </li>
-        <li>
-          <h2>Issue, update, and observe</h2>
-          <p>
-            Review ticket request fields, permissions, errors, and retry
-            behavior before adding writes. Keep the same idempotency key when
-            retrying an operation where the reference supports it. Use queue
-            snapshots, server-side event streams, or webhooks as appropriate to
-            your integration.
-          </p>
-          <a href="/reference">Read endpoint details →</a>
-        </li>
-        <li>
-          <h2>Plan the customer handoff</h2>
-          <p>
-            Mobile tracking, private ticket linking, and push delivery need the
-            corresponding mobile integration. Test only with synthetic users in
-            Sandbox when app access is provided. Do not use real customer data
-            in the developer workspace.
-          </p>
-        </li>
-      </ol>
-      <div className="developer-portal-note">
-        <h2>Before production</h2>
-        <p>
-          Confirm account approval, personal MFA, environment-matched keys, and
-          production credits separately. Check the reference for supported
-          operations; the public landing page is not a guarantee that the full
-          planned platform has launched.
-        </p>
-      </div>
-    </>
-  );
+  const [activeSection, setActiveSection] = useState("overview");
+
+  useEffect(() => {
+    const updateFromHash = () => {
+      const hash = window.location.hash.slice(1);
+      if (docsToc.some(([, id]) => id === hash)) setActiveSection(hash);
+    };
+    updateFromHash();
+    window.addEventListener("hashchange", updateFromHash);
+    const headings = docsToc.map(([, id]) => document.getElementById(id)).filter((heading): heading is HTMLElement => Boolean(heading));
+    if (!headings.length || !("IntersectionObserver" in window)) return () => window.removeEventListener("hashchange", updateFromHash);
+    const observer = new IntersectionObserver(() => {
+      const threshold = window.innerHeight * 0.3;
+      const current = headings.filter((heading) => heading.getBoundingClientRect().top <= threshold).sort((a, b) => b.getBoundingClientRect().top - a.getBoundingClientRect().top)[0] || headings[0];
+      if (current) setActiveSection(current.id);
+    }, { rootMargin: "-14% 0px -68% 0px", threshold: [0, 0.1, 1] });
+    headings.forEach((heading) => observer.observe(heading));
+    return () => { observer.disconnect(); window.removeEventListener("hashchange", updateFromHash); };
+  }, []);
+
+  return <div className="developer-docs" data-testid="developer-docs">
+    <div className="developer-docs-layout">
+      <aside className="developer-docs-sidebar" aria-label="Guide navigation">
+        <a className="developer-docs-brand" href="#overview">GETPRIO <span>GUIDES</span></a>
+        {docsNavigation.map((group) => <section key={group.title}><h2>{group.title}</h2>{group.links.map(([label, id]) => <a key={id} className={activeSection === id ? "is-active" : ""} href={`#${id}`} aria-current={activeSection === id ? "location" : undefined}>{label}</a>)}</section>)}
+        <a className="developer-docs-reference-link" href="/reference">Open API reference →</a>
+      </aside>
+      <details className="developer-docs-mobile-nav"><summary>On this guide <span>{docsToc.find((link) => link[1] === activeSection)?.[0]}</span></summary><nav aria-label="Mobile guide navigation">{docsToc.map(([label, id]) => <a key={id} className={activeSection === id ? "is-active" : ""} href={`#${id}`}>{label}</a>)}</nav></details>
+      <article className="developer-docs-content" aria-labelledby="docs-title">
+        <header className="developer-docs-hero">
+          <p className="developer-portal-eyebrow">GUIDES / V1 PREVIEW</p>
+          <h1 id="docs-title">Build your first queue integration.</h1>
+          <p className="developer-portal-lede">A practical path from your first Sandbox request to a production-ready backend. Keep secrets on your server, make state changes idempotent, and use the API reference when you need exact fields.</p>
+          <div className="developer-docs-hero-actions"><a className="developer-portal-primary" href="/register">Create Sandbox access</a><a className="developer-portal-secondary" href="/reference">Browse API reference</a></div>
+          <div className="developer-docs-meta"><span>Sandbox first</span><span>Server-side credentials</span><span>Webhook-ready</span></div>
+        </header>
+
+        <section className="developer-docs-section">
+          <p className="developer-portal-eyebrow">START HERE</p>
+          <DocsHeading id="overview">What you can build</DocsHeading>
+          <p>GetPrio gives your backend the queue primitives to create profiles, operate queues, issue tickets, and receive lifecycle events. Your product remains the source of customer context and notification preferences.</p>
+          <div className="developer-docs-card-grid"><article><strong>Operate</strong><p>Issue and transition tickets with explicit, auditable state changes.</p></article><article><strong>Connect</strong><p>Give customers a private place to follow their ticket without exposing your API key.</p></article><article><strong>Observe</strong><p>Reconcile responses and signed webhook events by their stable IDs.</p></article></div>
+        </section>
+
+        <section className="developer-docs-section">
+          <p className="developer-portal-eyebrow">01 / GET STARTED</p>
+          <DocsHeading id="get-started">Make a public health check</DocsHeading>
+          <p>Start with a public health check to confirm that your network can reach Sandbox. The endpoint does not require a key; the sample keeps the header so you can reuse it as the first protected request. It checks availability only, not project permission.</p>
+          <CodeSample label="Health check" samples={healthSamples} />
+          <ol className="developer-docs-checklist"><li><strong>Create a Developer Portal account.</strong><span>Verify your email and open the included Sandbox project.</span></li><li><strong>Create a Sandbox API key.</strong><span>Choose only the scopes your integration needs and keep the secret in server-side storage.</span></li><li><strong>Read a profile or queue.</strong><span>Use the profile slug from your project and the Sandbox host.</span></li></ol>
+        </section>
+
+        <section className="developer-docs-section">
+          <p className="developer-portal-eyebrow">02 / AUTHENTICATION</p>
+          <DocsHeading id="authentication">Authenticate from your backend</DocsHeading>
+          <p>Send the API key in <code>X-API-Key</code> on every protected request. Never place it in browser JavaScript, mobile bundles, screenshots, or customer-facing URLs. Keys are tied to one project and environment; inaccessible profiles return <code>404</code> instead of revealing their existence.</p>
+          <div className="developer-docs-callout"><strong>Use the smallest useful scope.</strong><span>Read keys can inspect resources. Write scopes are required for mutations, and selected-profile keys cannot create new profiles.</span></div>
+          <CodeSample label="Read a queue snapshot" samples={queueSnapshotSamples} />
+        </section>
+
+        <section className="developer-docs-section">
+          <p className="developer-portal-eyebrow">03 / ENVIRONMENTS</p>
+          <DocsHeading id="environments">Keep Sandbox and Production separate</DocsHeading>
+          <p>Use matching credentials and origins. A Sandbox key sent to the Production host, or a Production key sent to Sandbox, is rejected as an invalid environment credential.</p>
+          <div className="developer-docs-table-wrap"><table><caption>Environment endpoints</caption><thead><tr><th>Environment</th><th>Base URL</th><th>Use it for</th></tr></thead><tbody><tr><th scope="row">Sandbox</th><td><code>https://sandbox-api.getprio.online/v1</code></td><td>Integration tests and synthetic tickets</td></tr><tr><th scope="row">Production</th><td><code>https://api.getprio.online/v1</code></td><td>Approved live applications</td></tr></tbody></table></div>
+        </section>
+
+        <section className="developer-docs-section">
+          <p className="developer-portal-eyebrow">04 / REQUEST FLOW</p>
+          <DocsHeading id="request-flow">Understand one request end to end</DocsHeading>
+          <p>Every protected request follows the same shape. Design your integration around the response first, then add webhook reconciliation for asynchronous updates.</p>
+          <DocsFlow />
+        </section>
+
+        <section className="developer-docs-section">
+          <p className="developer-portal-eyebrow">05 / PAYLOADS</p>
+          <DocsHeading id="payloads">Issue a ticket with a durable request record</DocsHeading>
+          <p>Mutations should include a unique <code>Idempotency-Key</code>. If your network retries, send the same key for the same logical operation and inspect the replayed response.</p>
+          <CodeSample label="Issue a ticket" samples={ticketIssueSamples} />
+          <div className="developer-docs-payload-grid"><div><h3>Request body</h3><CodeSample label="Request body" code={`{\n  "display_label": "Walk-in",\n  "external_reference": "order-123"\n}`} /></div><div><h3>Successful response</h3><CodeSample label="Successful response" code={`{\n  "data": {\n    "ticket": {\n      "id": "ticket_123",\n      "status": "waiting"\n    }\n  },\n  "request_id": "req_01J..."\n}`} /></div></div>
+          <p><a href="/reference#payloads">See the full response envelope and field rules in the reference →</a></p>
+        </section>
+
+        <section className="developer-docs-section">
+          <p className="developer-portal-eyebrow">06 / ERRORS</p>
+          <DocsHeading id="errors">Handle errors without guessing</DocsHeading>
+          <p>Use the HTTP status, machine-readable <code>code</code>, and <code>request_id</code> together. Retry only transient failures or an idempotent operation that your integration has recorded.</p>
+          <div className="developer-docs-table-wrap"><table><caption>Common responses</caption><thead><tr><th>Status</th><th>Meaning</th><th>Action</th></tr></thead><tbody><tr><th scope="row">400</th><td>Malformed request or unsupported field</td><td>Fix the request; do not retry unchanged.</td></tr><tr><th scope="row">401</th><td>Missing, invalid, or wrong-environment key</td><td>Check the secret and API origin.</td></tr><tr><th scope="row">403</th><td>Scope or profile access is insufficient</td><td>Use a key with the required scope.</td></tr><tr><th scope="row">409</th><td>State or idempotency conflict</td><td>Read the current resource before deciding.</td></tr><tr><th scope="row">429</th><td>Rate or stream limit reached</td><td>Honor <code>Retry-After</code> with backoff.</td></tr><tr><th scope="row">5xx</th><td>Temporary service failure</td><td>Retry with exponential backoff.</td></tr></tbody></table></div>
+        </section>
+
+        <section className="developer-docs-section">
+          <p className="developer-portal-eyebrow">07 / WEBHOOKS</p>
+          <DocsHeading id="webhooks">Reconcile signed events</DocsHeading>
+          <p>Register a receiver in the Developer Portal, verify the exact raw request body with your signing secret, and return a 2xx only after durable acceptance. Delivery is at-least-once, so deduplicate by <code>GetPrio-Event-Id</code>.</p>
+          <div className="developer-docs-webhook-grid"><article><strong>Verify</strong><span>Check timestamp freshness and HMAC-SHA256 before parsing JSON.</span></article><article><strong>Persist</strong><span>Store the event ID and payload before acknowledging the request.</span></article><article><strong>Retry safely</strong><span>Make handlers duplicate-safe and return non-2xx only when a retry is useful.</span></article></div>
+          <CodeSample label="Verify a webhook signature" samples={webhookVerificationSamples} />
+          <p><a href="/reference#webhooks">Open webhook headers and delivery details →</a></p>
+        </section>
+
+        <section className="developer-docs-section">
+          <p className="developer-portal-eyebrow">08 / PRODUCTION</p>
+          <DocsHeading id="production">Before you request live access</DocsHeading>
+          <ul className="developer-docs-checklist"><li><strong>Your integration passes Sandbox tests.</strong><span>Use synthetic profiles, queues, tickets, and customer references.</span></li><li><strong>Every production user has MFA.</strong><span>Authenticator app or email OTP satisfies the personal requirement.</span></li><li><strong>Your project is approved and funded.</strong><span>Production approval and prepaid credits are separate from Sandbox access.</span></li><li><strong>Your operational controls are ready.</strong><span>Rotate keys, verify webhook signatures, capture request IDs, and limit customer data.</span></li></ul>
+        </section>
+
+        <section className="developer-docs-section developer-docs-next-step">
+          <p className="developer-portal-eyebrow">KEEP BUILDING</p>
+          <DocsHeading id="reference">Use the API reference for exact contracts</DocsHeading>
+          <p>The reference lists every endpoint, scope, payload, response, error, and code sample in the same 11 languages. Use it when you are ready to implement a specific queue, profile, ticket, or webhook operation.</p>
+          <a className="developer-portal-primary" href="/reference">Open the API reference →</a>
+        </section>
+      </article>
+      <aside className="developer-docs-outline" aria-label="On this page"><p>On this page</p>{docsToc.map(([label, id]) => <a key={id} className={activeSection === id ? "is-active" : ""} href={`#${id}`} aria-current={activeSection === id ? "location" : undefined}>{label}</a>)}</aside>
+    </div>
+  </div>;
 }
 
 function Landing() {
@@ -925,11 +993,11 @@ export default function DeveloperPortalPage() {
           <DeveloperWorkspace session={session} light={light} accountContent={<DeveloperAccountProfile key={path} session={session} embedded onPasswordChanged={handlePasswordChanged} onSessionChange={setSession} />} />
         ) : path === "/" ? (
           <Landing />
+        ) : path === "/docs" ? (
+          <Guides />
         ) : (
           <section className="developer-portal-content">
-            {path === "/docs" ? (
-              <Guides />
-            ) : path === "/faq" ? (
+            {path === "/faq" ? (
               <>
                 <p className="developer-portal-eyebrow">GETPRIO DEVELOPERS</p>
                 <h1>Frequently asked questions.</h1>
