@@ -240,7 +240,7 @@ function DocsFlow() {
     ["04", "Your response", "Receive a versioned response with a request ID for support."],
     ["05", "Webhook worker", "Signed events are delivered asynchronously and retried until accepted."],
   ] as const;
-  return <div className="developer-docs-flow" role="img" aria-label="Request flow from your backend through the API edge and queue service to the response and webhook worker.">{steps.map(([number, title, body], index) => <article key={title}><span>{number}</span><div><h3>{title}</h3><p>{body}</p></div>{index < steps.length - 1 && <b aria-hidden="true">→</b>}</article>)}</div>;
+  return <ol className="developer-docs-flow" aria-label="Request flow from your backend through the API edge and queue service to the response and webhook worker.">{steps.map(([number, title, body], index) => <li key={title}><span>{number}</span><div><h3>{title}</h3><p>{body}</p></div>{index < steps.length - 1 && <b aria-hidden="true">→</b>}</li>)}</ol>;
 }
 
 function Guides() {
@@ -283,7 +283,7 @@ function Guides() {
 
         <section className="developer-docs-section">
           <p className="developer-portal-eyebrow">START HERE</p>
-          <DocsHeading id="overview" level="h1">What you can build</DocsHeading>
+          <DocsHeading id="overview">What you can build</DocsHeading>
           <p>GetPrio gives your backend the queue primitives to create profiles, operate queues, issue tickets, and receive lifecycle events. Your product remains the source of customer context and notification preferences.</p>
           <div className="developer-docs-card-grid"><article><strong>Operate</strong><p>Issue and transition tickets with explicit, auditable state changes.</p></article><article><strong>Connect</strong><p>Give customers a private place to follow their ticket without exposing your API key.</p></article><article><strong>Observe</strong><p>Reconcile responses and signed webhook events by their stable IDs.</p></article></div>
         </section>
@@ -323,7 +323,7 @@ function Guides() {
           <DocsHeading id="payloads">Issue a ticket with a durable request record</DocsHeading>
           <p>Mutations should include a unique <code>Idempotency-Key</code>. If your network retries, send the same key for the same logical operation and inspect the replayed response.</p>
           <CodeSample label="Issue a ticket" samples={ticketIssueSamples} />
-          <div className="developer-docs-payload-grid"><div><h3>Request body</h3><pre>{`{\n  "display_label": "Walk-in",\n  "external_reference": "order-123"\n}`}</pre></div><div><h3>Successful response</h3><pre>{`{\n  "data": {\n    "ticket": {\n      "id": "ticket_123",\n      "status": "waiting"\n    }\n  },\n  "request_id": "req_01J..."\n}`}</pre></div></div>
+          <div className="developer-docs-payload-grid"><div><h3>Request body</h3><CodeSample label="Request body" code={`{\n  "display_label": "Walk-in",\n  "external_reference": "order-123"\n}`} /></div><div><h3>Successful response</h3><CodeSample label="Successful response" code={`{\n  "data": {\n    "ticket": {\n      "id": "ticket_123",\n      "status": "waiting"\n    }\n  },\n  "request_id": "req_01J..."\n}`} /></div></div>
           <p><a href="/reference#payloads">See the full response envelope and field rules in the reference →</a></p>
         </section>
 
