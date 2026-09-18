@@ -37,6 +37,7 @@ const db = require("../config/db");
 const developerProjects = require("../repositories/developerProjects");
 const developerWebhookSuspensions = require("../repositories/developerWebhookSuspensions");
 const developerApiRateLimits = require("../repositories/developerApiRateLimits");
+const { productionApprovalResponse } = require("../utils/developerProductionApproval");
 
 const router = express.Router();
 
@@ -67,6 +68,30 @@ function developerSuspensionResponse(suspension) {
     reinstatementReason: suspension.reinstatementReason,
     reinstatedAt: suspension.reinstatedAt
   };
+}
+
+function cleanDeveloperProductionReview(body = {}) {
+  const status = String(body.status || "").trim();
+  if (!["approved", "changes_requested", "rejected"].includes(status)) {
+    const error = new Error("status must be approved, changes_requested, or rejected.");
+    error.statusCode = 400;
+    error.code = "INVALID_PRODUCTION_REVIEW";
+    throw error;
+  }
+  const feedback = String(body.feedback || "").trim();
+  if (["changes_requested", "rejected"].includes(status) && (!feedback || feedback.length > 2000)) {
+    const error = new Error("feedback is required for changes_requested and rejected reviews and must be at most 2000 characters.");
+    error.statusCode = 400;
+    error.code = "INVALID_PRODUCTION_REVIEW";
+    throw error;
+  }
+  if (feedback.length > 2000) {
+    const error = new Error("feedback must be at most 2000 characters.");
+    error.statusCode = 400;
+    error.code = "INVALID_PRODUCTION_REVIEW";
+    throw error;
+  }
+  return { status, feedback };
 }
 
 router.get("/developer-projects/:projectId/webhook-suspension", requirePlatformPermission("platform.developer_api.manage"), asyncHandler(async (req, res) => {
@@ -123,6 +148,44 @@ router.put("/developer-projects/:projectId/rate-limit", requirePlatformPermissio
   const limits = await developerApiRateLimits.save({ projectId: project.id, environment, readLimitPerMinute, writeLimitPerMinute, userId: req.user._id });
   await securityAuditService.record({ actorId: req.user._id, actorRole: "platform_admin", sessionId: req.auth.sessionId, action: "developer.api_rate_limit.update", resourceType: "developer_project", resourceId: project.id, reason: req.body?.reason, outcome: "success", afterState: { limits } });
   return res.json({ project: { id: project.id, name: project.name, status: project.status }, limits });
+}));
+
+router.get("/developer-projects/:projectId/production-approval", requirePlatformPermission("platform.developer_api.manage"), asyncHandler(async (req, res) => {
+  const project = await developerProjects.findProjectById(req.params.projectId);
+  if (!project) return res.status(404).json({ message: "Developer project not found." });
+  const approval = await developerProjects.getProductionApproval(project.id);
+  res.setHeader("Cache-Control", "no-store");
+  return res.json({ project: { id: project.id, name: project.name, status: project.status }, approval: productionApprovalResponse(approval) });
+}));
+
+router.post("/developer-projects/:projectId/production-approval/:submissionId/review", requirePlatformPermission("platform.developer_api.manage"), requireIdempotency("platform.developer_production_approval.review"), asyncHandler(async (req, res) => {
+  const project = await developerProjects.findProjectById(req.params.projectId);
+  if (!project) return res.status(404).json({ message: "Developer project not found." });
+  const review = cleanDeveloperProductionReview(req.body);
+  const approval = await db.withTransaction(async (client) => {
+    const reviewedApproval = await developerProjects.reviewProductionApproval({
+      projectId: project.id,
+      submissionId: req.params.submissionId,
+      status: review.status,
+      reviewerUserId: req.user._id,
+      feedback: review.feedback
+    }, { client });
+    if (!reviewedApproval) return null;
+    await securityAuditService.record({
+      actorId: req.user._id,
+      actorRole: "platform_admin",
+      sessionId: req.auth.sessionId,
+      action: `developer.production_approval.${review.status}`,
+      resourceType: "developer_project",
+      resourceId: project.id,
+      reason: review.feedback || `Production application ${review.status}.`,
+      outcome: "success",
+      afterState: { status: reviewedApproval.status, submissionId: req.params.submissionId }
+    }, { client });
+    return reviewedApproval;
+  });
+  if (!approval) return res.status(404).json({ message: "Production application submission not found." });
+  return res.json({ project: { id: project.id, name: project.name, status: project.status }, approval: productionApprovalResponse(approval) });
 }));
 
 router.get("/business-categories", requirePlatformPermission("platform.settings.manage"), asyncHandler(async (_req, res) => {

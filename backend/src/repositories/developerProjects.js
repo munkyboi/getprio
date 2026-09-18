@@ -186,6 +186,40 @@ async function submitProductionApproval({ projectId, userId, snapshot }, options
   };
 }
 
+async function reviewProductionApproval({ projectId, submissionId, status, reviewerUserId, feedback }, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const result = await queryClient.query(
+    `SELECT a.id AS application_id, s.id, s.status AS submission_status
+     FROM developer_project_production_applications a
+     INNER JOIN developer_project_production_submissions s ON s.application_id = a.id
+     WHERE a.developer_project_id = $1 AND s.id = $2
+     FOR UPDATE`,
+    [projectId, submissionId]
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  if (row.submission_status !== "pending_review") {
+    const error = new Error("Only a pending production application can be reviewed.");
+    error.statusCode = 409;
+    error.code = "PRODUCTION_APPLICATION_NOT_PENDING";
+    throw error;
+  }
+  await queryClient.query(
+    `UPDATE developer_project_production_submissions
+     SET status = $3, reviewer_user_id = $4, reviewed_at = NOW(), review_feedback = $5
+     WHERE id = $2 AND application_id = $1`,
+    [row.application_id, submissionId, status, Number(reviewerUserId), feedback || null]
+  );
+  await queryClient.query(
+    `UPDATE developer_project_production_applications
+     SET status = $2, approved_submission_id = CASE WHEN $2 = 'approved' THEN $3 ELSE approved_submission_id END,
+         updated_at = NOW()
+     WHERE id = $1`,
+    [row.application_id, status, submissionId]
+  );
+  return getProductionApproval(projectId, { client: queryClient });
+}
+
 async function listProjectsForUser(userId, options = {}) {
   const result = await buildQueryClient(options.client).query(
     `
@@ -417,6 +451,7 @@ module.exports = {
   mapKey,
   mapProject,
   revokeApiKey,
+  reviewProductionApproval,
   saveProductionApprovalDraft,
   submitProductionApproval,
   touchApiKey

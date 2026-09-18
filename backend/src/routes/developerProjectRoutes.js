@@ -12,6 +12,7 @@ const developerApiKeyService = require("../services/developerApiKeyService");
 const developerWebhookService = require("../services/developerWebhookService");
 const developerWebhookDispatcher = require("../services/developerWebhookDispatcher");
 const securityEventService = require("../services/securityEventService");
+const { productionApprovalResponse } = require("../utils/developerProductionApproval");
 
 const router = express.Router();
 const VALID_SCOPES = new Set([
@@ -168,28 +169,6 @@ function cleanProductionApplicationFields(body, { partial = false } = {}) {
     result.websiteUrl = "";
   }
   return result;
-}
-
-function productionApprovalResponse(approval) {
-  if (!approval) return null;
-  return {
-    id: approval.id,
-    projectId: approval.projectId,
-    status: approval.status,
-    draft: approval.draft || {},
-    approvedSubmissionId: approval.approvedSubmissionId,
-    submissions: (approval.submissions || []).map((submission) => ({
-      id: String(submission.id),
-      version: Number(submission.version),
-      snapshot: submission.snapshot || {},
-      status: submission.status,
-      submittedByUserId: submission.submittedByUserId ? String(submission.submittedByUserId) : null,
-      submittedAt: submission.submittedAt,
-      reviewerUserId: submission.reviewerUserId ? String(submission.reviewerUserId) : null,
-      reviewedAt: submission.reviewedAt,
-      reviewFeedback: submission.reviewFeedback || null
-    }))
-  };
 }
 
 function onlyFields(body, fields) {
