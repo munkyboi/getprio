@@ -44,7 +44,7 @@ function request(method, url, body) {
 
 function replace(object, name, value, originals) { originals.push([object, name, object[name]]); object[name] = value; }
 function restore(originals) { for (const [object, name, value] of originals.reverse()) object[name] = value; }
-const project = { id: "project-1", name: "Harbor", status: "active", createdAt: "2026-09-16T00:00:00.000Z", updatedAt: "2026-09-16T00:00:00.000Z" };
+const project = { id: "project-1", name: "Harbor", status: "active", accessRole: "owner", createdAt: "2026-09-16T00:00:00.000Z", updatedAt: "2026-09-16T00:00:00.000Z" };
 const profile = { id: "profile-1", projectId: "project-1", environment: "sandbox", slug: "harbor", displayName: "Harbor", directoryStatus: "private", directoryContent: {}, createdAt: "2026-09-16T00:00:00.000Z", updatedAt: "2026-09-16T00:00:00.000Z" };
 
 test("developer workspace resource routes scope profiles and queues to the signed-in project", async () => {
@@ -226,5 +226,75 @@ test("developer workspace usage returns project-scoped Sandbox activity", async 
     const denied = await request("GET", `${baseUrl}/projects/project-1/usage?environment=production`);
     assert.equal(denied.status, 403);
     assert.equal(denied.body.code, "PRODUCTION_APPROVAL_REQUIRED");
+  } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
+});
+
+test("production approval drafts are project-scoped and submissions create immutable versions", async () => {
+  const originals = [];
+  let approval = null;
+  replace(developerProjects, "findProjectForUser", async () => project, originals);
+  replace(developerProjects, "getProductionApproval", async () => approval, originals);
+  replace(developerProjects, "mergeProductionApprovalDraft", async ({ projectId, changes }) => {
+    const draft = { ...(approval?.draft || {}), ...changes };
+    approval = { id: "application-1", projectId, status: approval?.status || "not_submitted", draft, approvedSubmissionId: null, submissions: approval?.submissions || [] };
+    return approval;
+  }, originals);
+  replace(developerProjects, "submitProductionApproval", async ({ projectId, userId }, options) => {
+    assert.ok(options?.client);
+    const submission = { id: "submission-1", version: 1, snapshot: approval.draft, status: "pending_review", submittedByUserId: String(userId), submittedAt: "2026-09-18T00:00:00.000Z" };
+    approval = { ...approval, status: "pending_review", submissions: [submission] };
+    return { ...approval, submission };
+  }, originals);
+  replace(db, "withTransaction", async (callback) => callback({ query: async () => ({ rows: [] }) }), originals);
+  replace(securityEventService, "logSecurityEvent", async () => {}, originals);
+  const { server, baseUrl } = await startServer();
+  try {
+    let response = await request("GET", `${baseUrl}/projects/project-1/production-approval`);
+    assert.equal(response.status, 200);
+    assert.equal(response.body.approval, null);
+    response = await request("PUT", `${baseUrl}/projects/project-1/production-approval`, {
+      applicationName: "Harbor Queue",
+      purpose: "Connect customers to a service queue.",
+      intendedIndustries: ["Retail"],
+      expectedTicketVolume: "Up to 500 tickets per month",
+      customerDataFields: ["display name", "email"],
+      mobileLinking: true
+    });
+    assert.equal(response.status, 200);
+    assert.equal(response.body.approval.draft.applicationName, "Harbor Queue");
+    response = await request("POST", `${baseUrl}/projects/project-1/production-approval`);
+    assert.equal(response.status, 201);
+    assert.equal(response.body.approval.status, "pending_review");
+    assert.equal(response.body.approval.submissions[0].version, 1);
+    assert.equal(response.body.approval.submissions[0].snapshot.applicationName, "Harbor Queue");
+    response = await request("PUT", `${baseUrl}/projects/project-1/production-approval`, { purpose: "Updated purpose." });
+    assert.equal(response.status, 200);
+    assert.equal(response.body.approval.draft.purpose, "Updated purpose.");
+    assert.equal(response.body.approval.status, "pending_review");
+  } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
+});
+
+test("production approval submission rejects incomplete drafts", async () => {
+  const originals = [];
+  replace(developerProjects, "findProjectForUser", async () => project, originals);
+  replace(developerProjects, "getProductionApproval", async () => ({ id: "application-1", projectId: project.id, status: "not_submitted", draft: { applicationName: "Only a name" }, submissions: [] }), originals);
+  replace(securityEventService, "logSecurityEvent", async () => {}, originals);
+  const { server, baseUrl } = await startServer();
+  try {
+    const response = await request("POST", `${baseUrl}/projects/project-1/production-approval`);
+    assert.equal(response.status, 400);
+    assert.equal(response.body.code, "INVALID_PRODUCTION_APPLICATION");
+  } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
+});
+
+test("production approval submission requires ownership of the requested project's account", async () => {
+  const originals = [];
+  replace(developerProjects, "findProjectForUser", async () => ({ ...project, accessRole: "member" }), originals);
+  replace(developerProjects, "getProductionApproval", async () => ({ id: "application-1", projectId: project.id, status: "not_submitted", draft: {}, submissions: [] }), originals);
+  const { server, baseUrl } = await startServer();
+  try {
+    const response = await request("POST", `${baseUrl}/projects/project-1/production-approval`);
+    assert.equal(response.status, 403);
+    assert.equal(response.body.code, "DEVELOPER_OWNER_REQUIRED");
   } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
 });

@@ -105,6 +105,93 @@ function cleanDirectoryContent(value) {
   return { description, websiteUrl };
 }
 
+const PRODUCTION_APPROVAL_FIELDS = new Set([
+  "applicationName", "purpose", "intendedIndustries", "expectedTicketVolume",
+  "customerDataFields", "mobileLinking", "websiteUrl"
+]);
+
+function cleanText(value, label, maxLength) {
+  const text = String(value ?? "").trim();
+  if (!text || text.length > maxLength) {
+    const error = new Error(`${label} must be between 1 and ${maxLength} characters.`);
+    error.statusCode = 400;
+    error.code = "INVALID_PRODUCTION_APPLICATION";
+    throw error;
+  }
+  return text;
+}
+
+function cleanList(value, label, maxItems, itemMaxLength) {
+  if (!Array.isArray(value) || value.length < 1 || value.length > maxItems) {
+    const error = new Error(`${label} must contain between 1 and ${maxItems} items.`);
+    error.statusCode = 400;
+    error.code = "INVALID_PRODUCTION_APPLICATION";
+    throw error;
+  }
+  const values = value.map((item) => cleanText(item, label, itemMaxLength));
+  return [...new Set(values)];
+}
+
+function cleanProductionApplicationFields(body, { partial = false } = {}) {
+  onlyFields(body, PRODUCTION_APPROVAL_FIELDS);
+  const result = {};
+  if (body.applicationName !== undefined || !partial) result.applicationName = cleanText(body.applicationName, "Application name", 120);
+  if (body.purpose !== undefined || !partial) result.purpose = cleanText(body.purpose, "Purpose", 2000);
+  if (body.intendedIndustries !== undefined || !partial) result.intendedIndustries = cleanList(body.intendedIndustries, "Intended industries", 20, 80);
+  if (body.expectedTicketVolume !== undefined || !partial) result.expectedTicketVolume = cleanText(body.expectedTicketVolume, "Expected ticket volume", 120);
+  if (body.customerDataFields !== undefined || !partial) result.customerDataFields = cleanList(body.customerDataFields, "Customer data fields", 30, 100);
+  if (body.mobileLinking !== undefined || !partial) {
+    if (typeof body.mobileLinking !== "boolean") {
+      const error = new Error("mobileLinking must be a boolean.");
+      error.statusCode = 400;
+      error.code = "INVALID_PRODUCTION_APPLICATION";
+      throw error;
+    }
+    result.mobileLinking = body.mobileLinking;
+  }
+  if (body.websiteUrl !== undefined) {
+    const websiteUrl = body.websiteUrl === null ? "" : String(body.websiteUrl).trim();
+    if (websiteUrl && !/^https?:\/\/[^\s]+$/i.test(websiteUrl)) {
+      const error = new Error("Website URL must use http or https.");
+      error.statusCode = 400;
+      error.code = "INVALID_PRODUCTION_APPLICATION";
+      throw error;
+    }
+    if (websiteUrl.length > 500) {
+      const error = new Error("Website URL must be at most 500 characters.");
+      error.statusCode = 400;
+      error.code = "INVALID_PRODUCTION_APPLICATION";
+      throw error;
+    }
+    result.websiteUrl = websiteUrl;
+  } else if (!partial) {
+    result.websiteUrl = "";
+  }
+  return result;
+}
+
+function productionApprovalResponse(approval) {
+  if (!approval) return null;
+  return {
+    id: approval.id,
+    projectId: approval.projectId,
+    status: approval.status,
+    draft: approval.draft || {},
+    approvedSubmissionId: approval.approvedSubmissionId,
+    submissions: (approval.submissions || []).map((submission) => ({
+      id: String(submission.id),
+      version: Number(submission.version),
+      snapshot: submission.snapshot || {},
+      status: submission.status,
+      submittedByUserId: submission.submittedByUserId ? String(submission.submittedByUserId) : null,
+      submittedAt: submission.submittedAt,
+      reviewerUserId: submission.reviewerUserId ? String(submission.reviewerUserId) : null,
+      reviewedAt: submission.reviewedAt,
+      reviewFeedback: submission.reviewFeedback || null
+    }))
+  };
+}
+
 function onlyFields(body, fields) {
   const unexpected = Object.keys(body || {}).filter((key) => !fields.has(key));
   if (unexpected.length) {
@@ -344,6 +431,68 @@ router.get("/projects/:projectId/usage", asyncHandler(async (req, res) => {
     allowance: { ...allowance, resetAt: resetAt.toISOString() },
     ...usage
   });
+}));
+
+router.get("/projects/:projectId/production-approval", asyncHandler(async (req, res) => {
+  const project = await developerProjects.findProjectForUser(req.params.projectId, req.user._id);
+  if (!project) throw notFound();
+  const approval = await developerProjects.getProductionApproval(project.id);
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ project: projectResponse(project), approval: productionApprovalResponse(approval) });
+}));
+
+router.put("/projects/:projectId/production-approval", asyncHandler(async (req, res) => {
+  const project = await developerProjects.findProjectForUser(req.params.projectId, req.user._id);
+  if (!project) throw notFound();
+  const changes = cleanProductionApplicationFields(req.body || {}, { partial: true });
+  if (!Object.keys(changes).length) {
+    const error = new Error("Provide at least one production application field to save.");
+    error.statusCode = 400;
+    error.code = "INVALID_PRODUCTION_APPLICATION";
+    throw error;
+  }
+  const approval = await developerProjects.mergeProductionApprovalDraft({ projectId: project.id, changes });
+  await securityEventService.logSecurityEvent({
+    userId: req.user._id,
+    sessionId: req.auth.sessionId,
+    eventType: "developer_production_application_draft_saved",
+    actorRole: req.developerMembership.role,
+    ipAddress: authService.getRequestIp(req),
+    userAgent: authService.getUserAgent(req),
+    metadata: { projectId: project.id, fields: Object.keys(changes) }
+  });
+  res.json({ project: projectResponse(project), approval: productionApprovalResponse(approval) });
+}));
+
+router.post("/projects/:projectId/production-approval", asyncHandler(async (req, res) => {
+  const project = await developerProjects.findProjectForUser(req.params.projectId, req.user._id);
+  if (!project) throw notFound();
+  if (project.accessRole !== "owner") {
+    const error = new Error("Only the Developer Portal owner can submit a production application.");
+    error.statusCode = 403;
+    error.code = "DEVELOPER_OWNER_REQUIRED";
+    throw error;
+  }
+  const current = await developerProjects.getProductionApproval(project.id);
+  if (!current) {
+    const error = new Error("Save the production application before submitting it for review.");
+    error.statusCode = 400;
+    error.code = "PRODUCTION_APPLICATION_INCOMPLETE";
+    throw error;
+  }
+  const snapshot = cleanProductionApplicationFields(current.draft || {});
+  const approval = await db.withTransaction((client) => developerProjects.submitProductionApproval({ projectId: project.id, userId: req.user._id, snapshot }, { client }));
+  if (!approval) throw notFound("Production application not found.");
+  await securityEventService.logSecurityEvent({
+    userId: req.user._id,
+    sessionId: req.auth.sessionId,
+    eventType: "developer_production_application_submitted",
+    actorRole: req.developerMembership.role,
+    ipAddress: authService.getRequestIp(req),
+    userAgent: authService.getUserAgent(req),
+    metadata: { projectId: project.id, version: approval?.submission?.version, fields: Object.keys(snapshot) }
+  });
+  res.status(201).json({ project: projectResponse(project), approval: productionApprovalResponse(approval) });
 }));
 
 router.post("/projects", asyncHandler(async (req, res) => {
