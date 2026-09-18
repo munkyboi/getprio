@@ -168,6 +168,28 @@ function buildFallbackName(provider, email) {
   return `${getProviderLabel(provider)} User`;
 }
 
+function getApplePrivateKey() {
+  const configuredValue = String(env.applePrivateKey || "").trim();
+  const normalizedValue = configuredValue
+    .replace(/^(?:\"|')(.*)(?:\"|')$/s, "$1")
+    .replace(/\\r\\n/g, "\n")
+    .replace(/\\n/g, "\n")
+    .replace(/\r\n?/g, "\n")
+    .trim();
+
+  try {
+    const key = crypto.createPrivateKey({ key: normalizedValue, format: "pem" });
+    if (key.type !== "private" || key.asymmetricKeyType !== "ec") {
+      throw new Error("Apple private key is not an EC private key.");
+    }
+    return key;
+  } catch {
+    const error = new Error("Apple private key must be a valid EC (P-256) PEM key.");
+    error.statusCode = 503;
+    throw error;
+  }
+}
+
 async function exchangeGoogleCode(code, redirectUri) {
   const tokenData = await fetchJson("https://oauth2.googleapis.com/token", {
     method: "POST",
@@ -236,7 +258,7 @@ function buildAppleClientSecret() {
       aud: "https://appleid.apple.com",
       sub: env.appleClientId
     },
-    env.applePrivateKey,
+    getApplePrivateKey(),
     { algorithm: "ES256", keyid: env.appleKeyId }
   );
 }
