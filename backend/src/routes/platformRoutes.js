@@ -175,6 +175,7 @@ router.get("/developer-projects/:projectId/production-approval", requirePlatform
   const project = await developerProjects.findProjectById(req.params.projectId);
   if (!project) return res.status(404).json({ message: "Developer project not found." });
   const approval = await developerProjects.getProductionApproval(project.id);
+  res.setHeader("Cache-Control", "no-store");
   return res.json({ project: { id: project.id, name: project.name, status: project.status }, approval: developerProductionApprovalResponse(approval) });
 }));
 
@@ -182,25 +183,29 @@ router.post("/developer-projects/:projectId/production-approval/:submissionId/re
   const project = await developerProjects.findProjectById(req.params.projectId);
   if (!project) return res.status(404).json({ message: "Developer project not found." });
   const review = cleanDeveloperProductionReview(req.body);
-  const approval = await db.withTransaction((client) => developerProjects.reviewProductionApproval({
-    projectId: project.id,
-    submissionId: req.params.submissionId,
-    status: review.status,
-    reviewerUserId: req.user._id,
-    feedback: review.feedback
-  }, { client }));
-  if (!approval) return res.status(404).json({ message: "Production application submission not found." });
-  await securityAuditService.record({
-    actorId: req.user._id,
-    actorRole: "platform_admin",
-    sessionId: req.auth.sessionId,
-    action: `developer.production_approval.${review.status}`,
-    resourceType: "developer_project",
-    resourceId: project.id,
-    reason: review.feedback || `Production application ${review.status}.`,
-    outcome: "success",
-    afterState: { status: approval.status, submissionId: req.params.submissionId }
+  const approval = await db.withTransaction(async (client) => {
+    const reviewedApproval = await developerProjects.reviewProductionApproval({
+      projectId: project.id,
+      submissionId: req.params.submissionId,
+      status: review.status,
+      reviewerUserId: req.user._id,
+      feedback: review.feedback
+    }, { client });
+    if (!reviewedApproval) return null;
+    await securityAuditService.record({
+      actorId: req.user._id,
+      actorRole: "platform_admin",
+      sessionId: req.auth.sessionId,
+      action: `developer.production_approval.${review.status}`,
+      resourceType: "developer_project",
+      resourceId: project.id,
+      reason: review.feedback || `Production application ${review.status}.`,
+      outcome: "success",
+      afterState: { status: reviewedApproval.status, submissionId: req.params.submissionId }
+    }, { client });
+    return reviewedApproval;
   });
+  if (!approval) return res.status(404).json({ message: "Production application submission not found." });
   return res.json({ project: { id: project.id, name: project.name, status: project.status }, approval: developerProductionApprovalResponse(approval) });
 }));
 

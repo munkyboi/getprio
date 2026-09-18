@@ -16,3 +16,15 @@ test("idempotency identity binds tenant, operation, target, and request body", (
     requestHash({ identity: { ...identity, target: "45" }, body: { outcome: "confirmed" } })
   );
 });
+
+test("production review idempotency identity binds the submission", () => {
+  const identity = buildOperationIdentity({
+    params: { projectId: "project-1", submissionId: "submission-44" },
+    body: { status: "approved" }
+  }, "platform.developer_production_approval.review");
+  assert.deepEqual(identity, {
+    operation: "platform.developer_production_approval.review",
+    tenantId: "platform",
+    target: "submission-44"
+  });
+});

@@ -29,7 +29,7 @@ function loadRoutes() {
       get: async (_projectId, environment) => ({ projectId: "project-1", environment, readLimitPerMinute: 600, writeLimitPerMinute: 120 }),
       save: async (data) => ({ projectId: data.projectId, environment: data.environment, readLimitPerMinute: data.readLimitPerMinute, writeLimitPerMinute: data.writeLimitPerMinute })
     },
-    "../services/securityAuditService": { record: async (data) => calls.push(["audit", data]) },
+    "../services/securityAuditService": { record: async (data, options) => calls.push(["audit", data, options]) },
     "../config/db": { withTransaction: async (callback) => callback({}) }
   };
   vm.runInNewContext(fs.readFileSync(path.resolve(__dirname, "../src/routes/platformRoutes.js"), "utf8"), { require: (name) => mocks[name] || fallback, module: { exports: {} } });
@@ -37,7 +37,14 @@ function loadRoutes() {
 }
 
 function response() {
-  return { code: 200, body: null, status(code) { this.code = code; return this; }, json(body) { this.body = body; return this; } };
+  return {
+    code: 200,
+    body: null,
+    headers: {},
+    status(code) { this.code = code; return this; },
+    setHeader(name, value) { this.headers[name.toLowerCase()] = value; return this; },
+    json(body) { this.body = body; return this; }
+  };
 }
 
 test("platform webhook suspension routes require the developer API permission", async () => {
@@ -85,10 +92,12 @@ test("platform production approval routes review project submissions", async () 
   const listed = response();
   await getRoute.args.at(-1)({ params: { projectId: "project-1" } }, listed);
   assert.equal(listed.body.approval.status, "pending_review");
+  assert.equal(listed.headers["cache-control"], "no-store");
   const reviewed = response();
   await reviewRoute.args.at(-1)({ params: { projectId: "project-1", submissionId: "submission-1" }, body: { status: "approved" }, user: { _id: 7 }, auth: { sessionId: "session-1" } }, reviewed);
   assert.equal(reviewed.body.approval.status, "approved");
   assert.equal(calls.at(-1)[0], "audit");
+  assert.ok(calls.at(-1)[2].client);
 });
 
 test("platform production review requires feedback for corrective outcomes", async () => {
