@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   deploy:
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
     runs-on: ubuntu-latest
     environment:
       name: production
@@ -29,6 +29,7 @@ jobs:
           DO_SSH_KEY: ${{ secrets.DO_SSH_KEY }}
           DO_PORT: ${{ secrets.DO_PORT || '22' }}
           DO_APP_DIR: ${{ secrets.DO_APP_DIR || '/var/www/getprio' }}
+          DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
           PAYMONGO_MODE: ${{ secrets.PAYMONGO_MODE }}
           PAYMONGO_SANDBOX_SECRET_KEY: ${{ secrets.PAYMONGO_SANDBOX_SECRET_KEY }}
           PAYMONGO_SANDBOX_WEBHOOK_SECRET: ${{ secrets.PAYMONGO_SANDBOX_WEBHOOK_SECRET }}
@@ -43,6 +44,10 @@ jobs:
 
           if [ -z "${DO_HOST}" ] || [ -z "${DO_USER}" ] || [ -z "${DO_SSH_KEY}" ]; then
             echo "Missing one of required secrets: DO_HOST, DO_USER, DO_SSH_KEY"
+            exit 1
+          fi
+          if [[ ! "${DEPLOY_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "DEPLOY_SHA must be a full commit SHA."
             exit 1
           fi
           if [ -z "${PAYMONGO_MODE}" ] || [ -z "${PAYMONGO_SANDBOX_SECRET_KEY}" ] || [ -z "${PAYMONGO_SANDBOX_WEBHOOK_SECRET}" ] || [ -z "${PAYMONGO_LIVE_SECRET_KEY}" ] || [ -z "${PAYMONGO_LIVE_WEBHOOK_SECRET}" ]; then
@@ -122,7 +127,7 @@ jobs:
             -i ~/.ssh/digitalocean_deploy_key \
             -p "${DO_PORT}" \
             "${DO_USER}@${DO_HOST}" \
-            "DO_APP_DIR='${DO_APP_DIR}' bash -s" <<'REMOTE'
+            "DO_APP_DIR='${DO_APP_DIR}' DEPLOY_SHA='${DEPLOY_SHA}' bash -s" <<'REMOTE'
           set -euo pipefail
 
           cd "${DO_APP_DIR}"
@@ -210,13 +215,17 @@ jobs:
 
           git fetch origin main
 
-          if git show-ref --verify --quiet refs/heads/main; then
-            git checkout main
-          else
-            git checkout -b main origin/main
+          if ! git cat-file -e "${DEPLOY_SHA}^{commit}" 2>/dev/null; then
+            echo "Deployment commit ${DEPLOY_SHA} is not available after fetching origin/main."
+            exit 1
           fi
 
-          git pull --ff-only origin main
+          if ! git merge-base --is-ancestor "${DEPLOY_SHA}" origin/main; then
+            echo "Deployment commit ${DEPLOY_SHA} is not an ancestor of origin/main."
+            exit 1
+          fi
+
+          git checkout --detach "${DEPLOY_SHA}"
 
           DEVELOPER_PORTAL_ROOT="${DO_APP_DIR}/developer-portal/dist" bash scripts/configure-developer-hosts.sh
 
