@@ -221,6 +221,9 @@ function buildBookingService({
       sendSms: async () => {}
     },
     "./pushNotificationService": pushNotificationService,
+    "./entitlementAdmissionService": {
+      admit: async () => ({ allowed: true, enforced: false })
+    },
     "./paymentProofStorageService": {
       assertUploadMetadata: () => {},
       assertObjectKeyBelongsToBooking: (_booking, objectKey) => objectKey,
