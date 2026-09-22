@@ -1,24 +1,69 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
+const { Pool } = require("pg");
+const parseConnectionString = require("pg-connection-string");
 
 const databaseUrl = process.env.DEVELOPER_DELETION_TEST_DATABASE_URL;
 
 test("developer profile and queue deletion against disposable PostgreSQL", { skip: !databaseUrl }, async () => {
   const parsed = new URL(databaseUrl);
   assert.equal(parsed.pathname, "/getprio_developer_deletion_test", "Use only the disposable developer deletion database");
-  assert.ok(["localhost", "127.0.0.1"].includes(parsed.hostname));
+  const routingParameters = [
+    "host", "port", "user", "password", "database", "dbname", "service",
+    "ssl", "sslmode", "sslcert", "sslkey", "sslrootcert", "uselibpqcompat"
+  ];
+  assert.deepEqual(
+    routingParameters.filter((name) => parsed.searchParams.has(name)),
+    [],
+    "The disposable database URL must not override connection routing through query parameters"
+  );
+  const effectiveConnection = parseConnectionString.parseIntoClientConfig(databaseUrl);
+  assert.ok(["localhost", "127.0.0.1"].includes(effectiveConnection.host));
+  assert.equal(effectiveConnection.database, "getprio_developer_deletion_test");
 
-  process.env.DATABASE_URL = databaseUrl;
-  process.env.DATABASE_SSL = "false";
-
-  const db = require("../src/config/db");
-  const developerQueues = require("../src/repositories/developerQueues");
-  const developerProjects = require("../src/repositories/developerProjects");
+  const pool = new Pool({ connectionString: databaseUrl, ssl: false });
+  const db = {
+    pool,
+    withTransaction: async (callback) => {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const result = await callback(client);
+        await client.query("COMMIT");
+        return result;
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+    }
+  };
+  const dbModulePath = require.resolve("../src/config/db");
+  const queueModulePath = require.resolve("../src/repositories/developerQueues");
+  const projectsModulePath = require.resolve("../src/repositories/developerProjects");
+  const originalModules = new Map([
+    [dbModulePath, require.cache[dbModulePath]],
+    [queueModulePath, require.cache[queueModulePath]],
+    [projectsModulePath, require.cache[projectsModulePath]]
+  ]);
+  delete require.cache[queueModulePath];
+  delete require.cache[projectsModulePath];
+  require.cache[dbModulePath] = {
+    id: dbModulePath,
+    filename: dbModulePath,
+    loaded: true,
+    exports: db
+  };
   const suffix = crypto.randomUUID();
   const fixture = {};
+  let developerQueues;
+  let developerProjects;
 
   try {
+    developerQueues = require("../src/repositories/developerQueues");
+    developerProjects = require("../src/repositories/developerProjects");
     fixture.user = (await db.pool.query(
       `INSERT INTO users (name, username, email, email_verified)
        VALUES ($1, $2, $3, TRUE) RETURNING id`,
@@ -150,10 +195,17 @@ test("developer profile and queue deletion against disposable PostgreSQL", { ski
     assert.equal((await db.pool.query("SELECT id FROM developer_api_profiles WHERE id = $1", [fixture.historyProfile])).rowCount, 1);
     assert.equal((await db.pool.query("SELECT id FROM developer_api_queues WHERE id = $1", [fixture.historyQueue])).rowCount, 1);
   } finally {
-    if (fixture.ticket) await db.pool.query("DELETE FROM developer_api_tickets WHERE id = $1", [fixture.ticket]);
-    if (fixture.project) await db.pool.query("DELETE FROM developer_projects WHERE id = $1", [fixture.project]);
-    if (fixture.account) await db.pool.query("DELETE FROM developer_accounts WHERE id = $1", [fixture.account]);
-    if (fixture.user) await db.pool.query("DELETE FROM users WHERE id = $1", [fixture.user]);
-    await db.pool.end();
+    try {
+      if (fixture.ticket) await db.pool.query("DELETE FROM developer_api_tickets WHERE id = $1", [fixture.ticket]);
+      if (fixture.project) await db.pool.query("DELETE FROM developer_projects WHERE id = $1", [fixture.project]);
+      if (fixture.account) await db.pool.query("DELETE FROM developer_accounts WHERE id = $1", [fixture.account]);
+      if (fixture.user) await db.pool.query("DELETE FROM users WHERE id = $1", [fixture.user]);
+    } finally {
+      await db.pool.end();
+      for (const [modulePath, originalModule] of originalModules) {
+        if (originalModule) require.cache[modulePath] = originalModule;
+        else delete require.cache[modulePath];
+      }
+    }
   }
 });
