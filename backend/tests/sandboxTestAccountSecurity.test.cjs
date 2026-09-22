@@ -13,11 +13,16 @@ const sandboxUser = {
   sandboxTestAccountExpiresAt: new Date(Date.now() + 60_000)
 };
 
-test("Sandbox test accounts are limited to Sandbox mobile and auth routes", () => {
+test("Sandbox test accounts are limited to Sandbox mobile, settings, and auth routes", () => {
   assert.doesNotThrow(() => assertRequestAllowed(sandboxUser, {
     hostname: "sandbox-api.getprio.online",
     headers: { "x-getprio-ingress-host": "sandbox-api.getprio.online" },
     originalUrl: "/api/v1/mobile/tickets"
+  }));
+  assert.doesNotThrow(() => assertRequestAllowed(sandboxUser, {
+    hostname: "sandbox-api.getprio.online",
+    headers: { "x-getprio-ingress-host": "sandbox-api.getprio.online" },
+    originalUrl: "/api/v1/account/notification-settings"
   }));
   assert.doesNotThrow(() => assertRequestAllowed(sandboxUser, {
     hostname: "sandbox-api.getprio.online",
