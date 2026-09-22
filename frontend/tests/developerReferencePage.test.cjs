@@ -29,4 +29,6 @@ test("developer host exposes the prototype workspace as an explicitly fictional 
   assert.match(prototypeStyles, /@import url\("\/fonts\/aleo\/aleo\.css"\)/);
   assert.match(prototypeStyles, /font-family:"Aleo",var\(--prio-heading-font\)/);
   assert.match(portal, /href="\/prototype"/);
+  assert.doesNotMatch(prototype, /demoDeliveries|127 fictional deliveries|delivery-demo-/);
+  assert.match(prototype, /No deliveries yet/);
 });
