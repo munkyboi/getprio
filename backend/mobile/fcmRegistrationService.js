@@ -42,7 +42,7 @@ function buildData(payload) {
       eventType: payload.eventType,
       notificationId: payload.notificationId,
       ticketRef: payload.ticketRef,
-      route: payload.url,
+      route: payload.route || payload.url,
       tag: payload.tag
     }).filter(([, value]) => value !== undefined && value !== null).map(([key, value]) => [key, String(value)])
   );

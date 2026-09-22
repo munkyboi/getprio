@@ -29,6 +29,7 @@ DROP TABLE IF EXISTS security_audit_events CASCADE;
 DROP TABLE IF EXISTS idempotency_records CASCADE;
 DROP TABLE IF EXISTS mobile_oauth_codes CASCADE;
 DROP TABLE IF EXISTS mobile_push_registrations CASCADE;
+DROP TABLE IF EXISTS mobile_push_outbox_deliveries CASCADE;
 DROP TABLE IF EXISTS billing_checkout_sessions CASCADE;
 DROP TABLE IF EXISTS entitlement_rollout_anomalies CASCADE;
 DROP TABLE IF EXISTS entitlement_rollout_runs CASCADE;
@@ -1611,7 +1612,7 @@ CREATE TABLE notification_deliveries (
   id BIGSERIAL PRIMARY KEY,
   tenant_id BIGINT REFERENCES tenants(id) ON DELETE CASCADE,
   ticket_id BIGINT REFERENCES tickets(id) ON DELETE SET NULL,
-  channel TEXT NOT NULL CHECK (channel IN ('email', 'sms')),
+  channel TEXT NOT NULL CHECK (channel IN ('email', 'sms', 'web_push', 'fcm')),
   purpose TEXT NOT NULL DEFAULT 'general',
   recipient TEXT NOT NULL,
   subject TEXT,
