@@ -398,17 +398,32 @@ function resourceDeletionError(error, resourceName) {
 }
 
 const SANDBOX_TEST_ACCOUNT_TTL_DAYS = 7;
+const SANDBOX_TEST_USERNAME_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+const SANDBOX_TEST_PASSWORD_CHARSETS = [
+  "ABCDEFGHJKLMNPQRSTUVWXYZ",
+  "abcdefghijkmnopqrstuvwxyz",
+  "23456789",
+  "!@#$%^&*"
+];
+
+function randomSandboxCharacters(alphabet, length) {
+  return Array.from({ length }, () => alphabet[crypto.randomInt(0, alphabet.length)]);
+}
 
 function createSandboxTestPassword() {
-  return `Sbx${crypto.randomBytes(12).toString("base64url").replace(/[-_]/g, "A").slice(0, 16)}!9`;
+  const characters = SANDBOX_TEST_PASSWORD_CHARSETS.flatMap((charset) => randomSandboxCharacters(charset, 1));
+  const alphabet = SANDBOX_TEST_PASSWORD_CHARSETS.join("");
+  characters.push(...randomSandboxCharacters(alphabet, 8 - characters.length));
+  for (let index = characters.length - 1; index > 0; index -= 1) {
+    const swapIndex = crypto.randomInt(0, index + 1);
+    [characters[index], characters[swapIndex]] = [characters[swapIndex], characters[index]];
+  }
+  return characters.join("");
 }
 
 function createSandboxTestIdentity() {
-  const suffix = crypto.randomBytes(6).toString("hex");
-  return {
-    username: `sandbox_${suffix}`,
-    email: `sandbox-${suffix}@test.getprio.invalid`
-  };
+  const suffix = randomSandboxCharacters(SANDBOX_TEST_USERNAME_ALPHABET, 8).join("");
+  return { username: `sb_${suffix}`, email: `sb-${suffix}@test.getprio.invalid` };
 }
 
 function sandboxTestAccountResponse(account) {
