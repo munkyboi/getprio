@@ -149,6 +149,14 @@ async function findProfileById(profileId, options = {}) {
   return mapProfile(result.rows[0]);
 }
 
+async function deleteProfile(profileId, options = {}) {
+  const result = await clientFor(options).query(
+    `DELETE FROM developer_api_profiles WHERE id = $1 RETURNING ${PROFILE_COLUMNS}`,
+    [profileId]
+  );
+  return mapProfile(result.rows[0]);
+}
+
 async function findQueue(profileId, queueSlug, options = {}) {
   const lock = options.forUpdate ? " FOR UPDATE" : "";
   const result = await clientFor(options).query(
@@ -227,6 +235,14 @@ async function updateQueue(queueId, input, options = {}) {
 async function findQueueById(queueId, options = {}) {
   const result = await clientFor(options).query(
     `SELECT ${QUEUE_COLUMNS} FROM developer_api_queues WHERE id = $1 LIMIT 1`,
+    [queueId]
+  );
+  return mapQueue(result.rows[0]);
+}
+
+async function deleteQueue(queueId, options = {}) {
+  const result = await clientFor(options).query(
+    `DELETE FROM developer_api_queues WHERE id = $1 RETURNING ${QUEUE_COLUMNS}`,
     [queueId]
   );
   return mapQueue(result.rows[0]);
@@ -514,6 +530,8 @@ async function transitionTicket(input, options = {}) {
 module.exports = {
   createProfile,
   createQueue,
+  deleteProfile,
+  deleteQueue,
   callNextTicket,
   consumeSandboxAllowance,
   findFirstQueue,
