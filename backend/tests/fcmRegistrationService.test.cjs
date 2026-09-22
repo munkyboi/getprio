@@ -147,3 +147,44 @@ test("FCM test delivery returns redacted per-installation outcomes", async () =>
     global.fetch = originalFetch;
   }
 });
+
+test("FCM Sandbox delivery uses Sandbox credentials and project", async () => {
+  const originalFetch = global.fetch;
+  const requests = [];
+  global.fetch = async (url, options) => {
+    if (url === "https://oauth2.googleapis.com/token") {
+      requests.push({ url, body: options?.body });
+      return { ok: true, status: 200, json: async () => ({ access_token: "sandbox-access", expires_in: 3600 }) };
+    }
+    requests.push({ url, body: JSON.parse(options?.body || "{}") });
+    return { ok: true, status: 200, json: async () => ({ name: "projects/getprio-sandbox/messages/message-1" }) };
+  };
+
+  try {
+    const service = requireWithMocks("../mobile/fcmRegistrationService.js", {
+      "../src/config/env": {
+        fcmProjectId: "getprio",
+        fcmClientEmail: "push@getprio.iam.gserviceaccount.com",
+        fcmPrivateKey: "production-key",
+        fcmSandboxProjectId: "getprio-sandbox",
+        fcmSandboxClientEmail: "push@getprio-sandbox.iam.gserviceaccount.com",
+        fcmSandboxPrivateKey: "sandbox-key"
+      },
+      "./pushRegistrationRepository": {
+        recordSuccess: async () => {}
+      },
+      jsonwebtoken: { sign: (_claims, privateKey) => privateKey }
+    });
+
+    const result = await service.sendToRegistrations({
+      environment: "sandbox",
+      registrations: [{ id: "registration-1", installationId: "install-1", token: "token-1", platform: "ios" }],
+      payload: { title: "Sandbox", body: "Update", notificationId: "sandbox-notification" }
+    });
+
+    assert.equal(result.sent, 1);
+    assert.match(requests[1].url, /projects\/getprio-sandbox\/messages:send$/);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});

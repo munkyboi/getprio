@@ -9,8 +9,24 @@ const FCM_REQUEST_TIMEOUT_MS = 15_000;
 const FCM_DISPATCH_TIMEOUT_MS = 60_000;
 let accessTokenCache = null;
 
-function isConfigured() {
-  return Boolean(env.fcmProjectId && env.fcmClientEmail && env.fcmPrivateKey);
+function configForEnvironment(environment = "production") {
+  if (environment === "sandbox") {
+    return {
+      projectId: env.fcmSandboxProjectId || "",
+      clientEmail: env.fcmSandboxClientEmail || "",
+      privateKey: env.fcmSandboxPrivateKey || ""
+    };
+  }
+  return {
+    projectId: env.fcmProjectId || "",
+    clientEmail: env.fcmClientEmail || "",
+    privateKey: env.fcmPrivateKey || ""
+  };
+}
+
+function isConfigured(environment = "production") {
+  const config = configForEnvironment(environment);
+  return Boolean(config.projectId && config.clientEmail && config.privateKey);
 }
 
 function timeoutError() {
@@ -39,14 +55,18 @@ async function fetchWithDeadline(url, options, deadline) {
   }
 }
 
-async function getAccessToken(deadline) {
-  if (accessTokenCache && accessTokenCache.expiresAt > Date.now() + 60_000) {
+async function getAccessToken(config, deadline) {
+  const cacheKey = `${config.projectId}:${config.clientEmail}`;
+  if (
+    accessTokenCache?.key === cacheKey &&
+    accessTokenCache.expiresAt > Date.now() + 60_000
+  ) {
     return accessTokenCache.value;
   }
   const now = Math.floor(Date.now() / 1000);
   const assertion = jwt.sign(
-    { iss: env.fcmClientEmail, scope: FCM_SCOPE, aud: GOOGLE_TOKEN_URL, iat: now, exp: now + 3600 },
-    env.fcmPrivateKey,
+    { iss: config.clientEmail, scope: FCM_SCOPE, aud: GOOGLE_TOKEN_URL, iat: now, exp: now + 3600 },
+    config.privateKey,
     { algorithm: "RS256" }
   );
   const response = await fetchWithDeadline(GOOGLE_TOKEN_URL, {
@@ -60,7 +80,7 @@ async function getAccessToken(deadline) {
     error.statusCode = 502;
     throw error;
   }
-  accessTokenCache = { value: data.access_token, expiresAt: Date.now() + Number(data.expires_in || 3600) * 1000 };
+  accessTokenCache = { key: cacheKey, value: data.access_token, expiresAt: Date.now() + Number(data.expires_in || 3600) * 1000 };
   return accessTokenCache.value;
 }
 
@@ -80,10 +100,10 @@ function collapseId(payload) {
   return String(payload.notificationId || payload.tag || "getprio-queue").slice(0, 64);
 }
 
-async function send(registration, payload, deadline) {
-  if (!isConfigured()) return false;
-  const accessToken = await getAccessToken(deadline);
-  const response = await fetchWithDeadline(`https://fcm.googleapis.com/v1/projects/${encodeURIComponent(env.fcmProjectId)}/messages:send`, {
+async function send(registration, payload, deadline, config) {
+  if (!config.projectId || !config.clientEmail || !config.privateKey) return false;
+  const accessToken = await getAccessToken(config, deadline);
+  const response = await fetchWithDeadline(`https://fcm.googleapis.com/v1/projects/${encodeURIComponent(config.projectId)}/messages:send`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -115,8 +135,9 @@ async function send(registration, payload, deadline) {
   throw error;
 }
 
-async function sendToRegistrations({ registrations = [], payload, timeoutMs = FCM_DISPATCH_TIMEOUT_MS }) {
-  if (!isConfigured()) {
+async function sendToRegistrations({ registrations = [], payload, timeoutMs = FCM_DISPATCH_TIMEOUT_MS, environment = "production" }) {
+  const config = configForEnvironment(environment);
+  if (!isConfigured(environment)) {
     return {
       attempted: 0,
       sent: 0,
@@ -141,7 +162,7 @@ async function sendToRegistrations({ registrations = [], payload, timeoutMs = FC
       continue;
     }
     try {
-      if (await send(registration, payload, deadline)) {
+      if (await send(registration, payload, deadline, config)) {
         sent += 1;
         outcomes.push({
           registrationId: registration.id,
@@ -165,14 +186,14 @@ async function sendToRegistrations({ registrations = [], payload, timeoutMs = FC
   return { attempted: registrations.length, sent, configured: true, outcomes };
 }
 
-async function sendToUser({ userId, payload }) {
-  if (!isConfigured()) return { attempted: 0, sent: 0, configured: false, outcomes: [] };
+async function sendToUser({ userId, payload, environment = "production" }) {
+  if (!isConfigured(environment)) return { attempted: 0, sent: 0, configured: false, outcomes: [] };
   const registrations = await repository.listActiveByUserId(userId);
-  return sendToRegistrations({ registrations, payload });
+  return sendToRegistrations({ registrations, payload, environment });
 }
 
 function newNotificationId() {
   return crypto.randomUUID();
 }
 
-module.exports = { isConfigured, sendToRegistrations, sendToUser, newNotificationId };
+module.exports = { configForEnvironment, isConfigured, sendToRegistrations, sendToUser, newNotificationId };

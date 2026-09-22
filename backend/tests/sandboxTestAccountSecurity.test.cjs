@@ -40,9 +40,13 @@ test("Sandbox test accounts are limited to Sandbox mobile, settings, and auth ro
     originalUrl: "/api/v1/mobile/tickets"
   }), (error) => error.code === "SANDBOX_TEST_ACCOUNT_ONLY" && error.statusCode === 401);
   assert.throws(() => assertRequestAllowed(sandboxUser, {
-    hostname: "sandbox-api.getprio.online",
+    hostname: "api.getprio.online",
     originalUrl: "/api/v1/mobile/tickets"
   }), (error) => error.code === "SANDBOX_TEST_ACCOUNT_ONLY" && error.statusCode === 401);
+  assert.doesNotThrow(() => assertRequestAllowed(sandboxUser, {
+    hostname: "sandbox-api.getprio.online",
+    originalUrl: "/api/v1/mobile/tickets"
+  }));
   assert.throws(() => assertRequestAllowed({ ...sandboxUser, sandboxTestAccountExpiresAt: null }, {
     hostname: "sandbox-api.getprio.online",
     headers: { "x-getprio-ingress-host": "sandbox-api.getprio.online" },

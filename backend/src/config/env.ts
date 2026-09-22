@@ -147,6 +147,9 @@ export const vapidSubject = process.env.VAPID_SUBJECT || "mailto:admin@getprio.l
 export const fcmProjectId = process.env.FCM_PROJECT_ID || "";
 export const fcmClientEmail = process.env.FCM_CLIENT_EMAIL || "";
 export const fcmPrivateKey = (process.env.FCM_PRIVATE_KEY || "").replace(/\\n/g, "\n");
+export const fcmSandboxProjectId = process.env.FCM_SANDBOX_PROJECT_ID || "";
+export const fcmSandboxClientEmail = process.env.FCM_SANDBOX_CLIENT_EMAIL || "";
+export const fcmSandboxPrivateKey = (process.env.FCM_SANDBOX_PRIVATE_KEY || "").replace(/\\n/g, "\n");
 export const rolloutCohort = process.env.ROLLOUT_COHORT || "off";
 export const csrfSecret = process.env.CSRF_SECRET || jwtSecret;
 export const authCookieSecure = process.env.AUTH_COOKIE_SECURE
@@ -237,6 +240,9 @@ const env = {
   fcmProjectId,
   fcmClientEmail,
   fcmPrivateKey,
+  fcmSandboxProjectId,
+  fcmSandboxClientEmail,
+  fcmSandboxPrivateKey,
   rolloutCohort,
   csrfSecret,
   authCookieSecure,

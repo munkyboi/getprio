@@ -82,7 +82,8 @@ async function dispatchFcmIntent(intent, tenant, ticket, workerId) {
   try {
     result = await fcmRegistrationService.sendToRegistrations({
       registrations: pending,
-      payload
+      payload,
+      environment: ticket.developerEnvironment === "sandbox" ? "sandbox" : "production"
     });
   } catch (error) {
     await mobilePushOutboxDeliveryRepository.releasePending(intent.id, workerId).catch(() => {});

@@ -10,14 +10,14 @@ const VENDOR_ALERT_ROLES = ["owner", "admin", "staff"];
 const DEDUPE_WINDOW_MS = 2 * 60 * 1000;
 const recentNotificationKeys = new Map();
 
-function isPushConfigured() {
-  return isWebPushConfigured() || mobilePushService.isConfigured();
+function isPushConfigured(environment = "production") {
+  return isWebPushConfigured() || mobilePushService.isConfigured(environment);
 }
 
-function isPushConfiguredForChannels(channels) {
+function isPushConfiguredForChannels(channels, environment = "production") {
   const includeWebPush = channels?.webPush !== false;
   const includeFcm = channels?.fcm !== false;
-  return (includeWebPush && isWebPushConfigured()) || (includeFcm && mobilePushService.isConfigured());
+  return (includeWebPush && isWebPushConfigured()) || (includeFcm && mobilePushService.isConfigured(environment));
 }
 
 function isWebPushConfigured() {
@@ -231,7 +231,8 @@ async function sendUserNotification({
   tag,
   eventType,
   notificationId,
-  channels
+  channels,
+  environment = "production"
 }) {
   if (!userId) {
     return { attempted: 0, sent: 0 };
@@ -268,7 +269,7 @@ async function sendUserNotification({
     }
   }
   const fcm = includeFcm
-    ? await mobilePushService.sendToUser({ userId, payload })
+    ? await mobilePushService.sendToUser({ userId, payload, environment })
     : { attempted: 0, sent: 0 };
 
   return {
@@ -468,7 +469,8 @@ async function notifyCustomerBookingUpdate({ booking, action }) {
     return { attempted: 0, sent: 0 };
   }
 
-  if (!isPushConfigured()) {
+  const environment = booking.environment === "sandbox" ? "sandbox" : "production";
+  if (!isPushConfigured(environment)) {
     return { attempted: 0, sent: 0 };
   }
 
@@ -483,7 +485,8 @@ async function notifyCustomerBookingUpdate({ booking, action }) {
     body: getBookingUpdateBody(booking, action),
     url: `/account/bookings/${booking._id}`,
     tag: `customer-booking-${booking._id}-${action || booking.status}`,
-    eventType: `customer_booking_${action || "updated"}`
+    eventType: `customer_booking_${action || "updated"}`,
+    environment
   });
 }
 
@@ -525,7 +528,8 @@ async function notifyCustomerQueueUpdate({ tenant, ticket, action, channels }) {
     return { attempted: 0, sent: 0 };
   }
 
-  if (!isPushConfiguredForChannels(channels)) {
+  const environment = ticket.developerEnvironment === "sandbox" ? "sandbox" : "production";
+  if (!isPushConfiguredForChannels(channels, environment)) {
     return { attempted: 0, sent: 0 };
   }
 
@@ -537,7 +541,8 @@ async function notifyCustomerQueueUpdate({ tenant, ticket, action, channels }) {
   return sendUserNotification({
     userId: ticket.userId,
     ...buildCustomerQueueNotificationPayload({ tenant, ticket, action }),
-    channels
+    channels,
+    environment
   });
 }
 

@@ -127,6 +127,9 @@ const vapidSubject = process.env.VAPID_SUBJECT || "mailto:admin@getprio.local";
 const fcmProjectId = process.env.FCM_PROJECT_ID || "";
 const fcmClientEmail = process.env.FCM_CLIENT_EMAIL || "";
 const fcmPrivateKey = (process.env.FCM_PRIVATE_KEY || "").replace(/\\n/g, "\n");
+const fcmSandboxProjectId = process.env.FCM_SANDBOX_PROJECT_ID || "";
+const fcmSandboxClientEmail = process.env.FCM_SANDBOX_CLIENT_EMAIL || "";
+const fcmSandboxPrivateKey = (process.env.FCM_SANDBOX_PRIVATE_KEY || "").replace(/\\n/g, "\n");
 const rolloutCohort = process.env.ROLLOUT_COHORT || "off";
 const csrfSecret = process.env.CSRF_SECRET || jwtSecret;
 const authCookieSecure = process.env.AUTH_COOKIE_SECURE
@@ -216,6 +219,9 @@ const env = {
   fcmProjectId,
   fcmClientEmail,
   fcmPrivateKey,
+  fcmSandboxProjectId,
+  fcmSandboxClientEmail,
+  fcmSandboxPrivateKey,
   rolloutCohort,
   csrfSecret,
   authCookieSecure,

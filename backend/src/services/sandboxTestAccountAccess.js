@@ -23,8 +23,12 @@ function trustedIngressHostname(req) {
 function isSandboxRequest(req) {
   const ingressHostname = trustedIngressHostname(req);
   if (ingressHostname) return SANDBOX_HOSTS.has(ingressHostname);
-  if (process.env.NODE_ENV === "production") return false;
   const hostname = requestHostname(req);
+  // The reverse proxy normally supplies the trusted ingress header. Keep the
+  // explicit Sandbox host as a safe fallback for deployments where the proxy
+  // forwards the host but has not yet been configured with that header.
+  if (SANDBOX_HOSTS.has(hostname)) return true;
+  if (process.env.NODE_ENV === "production") return false;
   return hostname === "localhost" || hostname === "127.0.0.1";
 }
 
