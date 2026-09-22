@@ -2,6 +2,7 @@ const { normalizeApiPath } = require("../middleware/apiPath");
 
 const SANDBOX_HOSTS = new Set(["sandbox-api.getprio.online", "sandbox.getprio.online"]);
 const SANDBOX_AUTH_PATHS = new Set(["/auth/login", "/auth/refresh", "/auth/me", "/auth/logout"]);
+const SANDBOX_ACCOUNT_SETTINGS_PATHS = new Set(["/account/notification-settings"]);
 const TRUSTED_INGRESS_HOST_HEADER = "x-getprio-ingress-host";
 
 function normalizeHostname(value) {
@@ -29,7 +30,10 @@ function isSandboxRequest(req) {
 
 function isSupportedSandboxRoute(req) {
   const path = normalizeApiPath(req?.originalUrl || req?.url);
-  return SANDBOX_AUTH_PATHS.has(path) || path === "/mobile" || path.startsWith("/mobile/");
+  return SANDBOX_AUTH_PATHS.has(path) ||
+    SANDBOX_ACCOUNT_SETTINGS_PATHS.has(path) ||
+    path === "/mobile" ||
+    path.startsWith("/mobile/");
 }
 
 function isExpired(user, now = new Date()) {
