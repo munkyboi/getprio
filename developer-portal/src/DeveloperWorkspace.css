@@ -278,6 +278,7 @@
 .developer-workspace-usage-history > p { margin: 0; }
 .developer-workspace-usage-table-wrap { margin-top: .5rem; }
 .developer-workspace-usage-table { min-width: 32rem; }
+.developer-workspace-usage-ticket-history { margin-top: 1.5rem; }
 .developer-workspace-usage-rules { display: grid; gap: .75rem; margin: .5rem 0; }
 .developer-workspace-usage-rules > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .75rem; padding: .9rem 0; border-bottom: 1px solid var(--dp-border); }
 .developer-workspace-usage-rules dt { color: var(--dp-muted); }
