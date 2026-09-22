@@ -3,6 +3,7 @@ const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
 const { authenticate } = require("../src/middleware/auth");
 const asyncHandler = require("../src/middleware/asyncHandler");
 const ticketRepository = require("../src/repositories/tickets");
+const developerQueues = require("../src/repositories/developerQueues");
 const serviceCounterRepository = require("../src/repositories/serviceCounters");
 const tenantRepository = require("../src/repositories/tenants");
 const locationRepository = require("../src/repositories/storeLocations");
@@ -105,6 +106,58 @@ async function formatMobileTicket(ticket, environment) {
     developer_environment: isDeveloperTicket ? (ticket.developerEnvironment || environment) : null
   };
 }
+
+function formatDeveloperMobileTicket(ticket, environment, { invitation = false } = {}) {
+  const queueName = ticket.queueDisplayName || ticket.profileDisplayName || "Developer queue";
+  return {
+    id: ticket.id,
+    ticket_number: ticket.ticketNumber,
+    source: "developer_api",
+    display_label: ticket.displayLabel || null,
+    external_reference: ticket.externalReference || null,
+    status: ticket.status,
+    status_reason: ticket.statusReason || null,
+    profile: {
+      queue_name: queueName,
+      location_name: null,
+      location_slug: ticket.queueSlug
+    },
+    queue_position: null,
+    called_counter: null,
+    estimated_wait_minutes: null,
+    can_cancel: false,
+    tracking_status: ACTIVE_STATUSES.has(ticket.status) ? "active" : "terminal",
+    issued_at: ticket.createdAt,
+    updated_at: ticket.updatedAt,
+    developer_environment: ticket.environment || environment,
+    ...(invitation ? { invitation_pending: true } : {})
+  };
+}
+
+router.get("/ticket-invitations", asyncHandler(async (req, res) => {
+  const environment = environmentForRequest(req);
+  const invitations = await developerQueues.listMobileInvitationsForUser(req.user._id, environment);
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ invitations: invitations.map((ticket) => formatDeveloperMobileTicket(ticket, environment, { invitation: true })) });
+}));
+
+router.post("/ticket-invitations/:ticketId/accept", asyncHandler(async (req, res) => {
+  const ticketId = String(req.params.ticketId || "").trim();
+  if (!/^[0-9a-f-]{20,}$/i.test(ticketId)) {
+    const error = new Error("Ticket invitation not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+  const environment = environmentForRequest(req);
+  const ticket = await developerQueues.acceptMobileInvitation(ticketId, req.user._id, environment);
+  if (!ticket) {
+    const error = new Error("Ticket invitation not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ ticket: formatDeveloperMobileTicket(ticket, environment) });
+}));
 
 router.get("/tickets", asyncHandler(async (req, res) => {
   const view = normalizeView(req.query.view);
