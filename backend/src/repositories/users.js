@@ -21,6 +21,8 @@ const USER_COLUMNS = `
   users.mfa_enabled,
   users.email_mfa_enabled,
   users.mfa_required,
+  users.is_sandbox_test_account,
+  users.sandbox_test_account_expires_at,
   users.notification_settings,
   users.created_at,
   users.updated_at
@@ -70,6 +72,8 @@ function mapUser(row, relationships = {}) {
     mfaEnabled: row.mfa_enabled === true,
     emailMfaEnabled: row.email_mfa_enabled === true,
     mfaRequired: row.mfa_required === true,
+    isSandboxTestAccount: row.is_sandbox_test_account === true,
+    sandboxTestAccountExpiresAt: row.sandbox_test_account_expires_at,
     notificationSettings: row.notification_settings || {},
     oauthAccounts: relationships.oauthAccounts || [],
     tenantMemberships: relationships.tenantMemberships || [],
@@ -246,9 +250,11 @@ async function createUser(data, options = {}) {
         email_verified,
         last_login_provider,
         roles,
+        is_sandbox_test_account,
+        sandbox_test_account_expires_at,
         last_password_changed_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
       RETURNING ${USER_COLUMNS}
     `,
     [
@@ -262,6 +268,8 @@ async function createUser(data, options = {}) {
       Boolean(data.emailVerified),
       data.lastLoginProvider || "password",
       data.roles && data.roles.length ? data.roles : ["customer"],
+      Boolean(data.isSandboxTestAccount),
+      data.sandboxTestAccountExpiresAt || null,
       data.passwordHash ? new Date() : null
     ]
   );
@@ -329,6 +337,8 @@ async function updateUser(userId, changes, options = {}) {
     mfaEnabled: "mfa_enabled",
     emailMfaEnabled: "email_mfa_enabled",
     mfaRequired: "mfa_required",
+    isSandboxTestAccount: "is_sandbox_test_account",
+    sandboxTestAccountExpiresAt: "sandbox_test_account_expires_at",
     notificationSettings: "notification_settings"
   };
 

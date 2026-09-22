@@ -6,6 +6,7 @@ const permissions = require("../services/permissions");
 const { userRequiresPrivilegedMfa } = require("../services/mfaService");
 const { getAccessCookie, parseCookies } = require("../services/browserSessionService");
 const { normalizeApiPath } = require("./apiPath");
+const { assertRequestAllowed: assertSandboxTestAccountRequest } = require("../services/sandboxTestAccountAccess");
 
 function isDeveloperOnlyIdentity(user) {
   const roles = new Set(user?.roles || []);
@@ -84,6 +85,7 @@ async function loadAuthenticatedUser(req, strict) {
       error.statusCode = 401;
       throw error;
     }
+    assertSandboxTestAccountRequest(user, req);
     if (isDeveloperOnlyIdentity(user)) {
       const error = new Error("This account is only available in the Developer Portal.");
       error.statusCode = 403;

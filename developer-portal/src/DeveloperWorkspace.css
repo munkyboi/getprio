@@ -53,6 +53,10 @@
 .developer-workspace-list article, .developer-workspace-deliveries article { padding: 1rem 0; border-bottom: 1px solid var(--dp-border); }
 .developer-workspace-list p { margin: .3rem 0; overflow-wrap: anywhere; }
 .developer-workspace-list code, .developer-workspace-secret code { color: #8de2c1; overflow-wrap: anywhere; }
+.developer-workspace-test-account-list { display: grid; gap: .65rem; margin: 1rem 0; }
+.developer-workspace-test-account { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .75rem; border: 1px solid #40577e; border-radius: .5rem; background: rgba(8, 13, 23, .5); }
+.developer-workspace-test-account strong, .developer-workspace-test-account small { display: block; }
+.developer-workspace-test-account small { margin-top: .25rem; color: #9eafd0; }
 .developer-workspace-select { max-width: 35rem; margin: 1.5rem 0 0; }
 .developer-workspace-secret code { display: block; margin: 1rem 0; padding: .85rem; border: 1px solid #40577e; border-radius: .5rem; background: #080d17; color: #edf4ff; white-space: pre-wrap; }
 .developer-workspace-inline-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
