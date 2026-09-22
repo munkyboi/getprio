@@ -1,31 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const path = require("node:path");
-
-function requireWithMocks(targetPath, mocks) {
-  const resolvedTarget = require.resolve(targetPath);
-  const originals = new Map();
-  try {
-    for (const [requestPath, mockExports] of Object.entries(mocks)) {
-      const resolvedDependency = require.resolve(requestPath, { paths: [path.dirname(resolvedTarget)] });
-      originals.set(resolvedDependency, require.cache[resolvedDependency]);
-      require.cache[resolvedDependency] = {
-        id: resolvedDependency,
-        filename: resolvedDependency,
-        loaded: true,
-        exports: mockExports
-      };
-    }
-    delete require.cache[resolvedTarget];
-    return require(resolvedTarget);
-  } finally {
-    delete require.cache[resolvedTarget];
-    for (const [resolvedDependency, original] of originals.entries()) {
-      if (original) require.cache[resolvedDependency] = original;
-      else delete require.cache[resolvedDependency];
-    }
-  }
-}
+const { requireWithMocks } = require("./testSupport.cjs");
 
 function buildIntent() {
   return {

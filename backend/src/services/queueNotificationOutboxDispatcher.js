@@ -1,4 +1,5 @@
 const crypto = require("crypto");
+const path = require("node:path");
 const outboxRepository = require("../repositories/queueNotificationOutbox");
 const notificationDeliveryRepository = require("../repositories/notificationDeliveries");
 const tenantRepository = require("../repositories/tenants");
@@ -7,9 +8,12 @@ const ticketRepository = require("../repositories/tickets");
 const userRepository = require("../repositories/users");
 const notificationService = require("./notificationService");
 const pushNotificationService = require("./pushNotificationService");
-const fcmRegistrationService = require("../../mobile/fcmRegistrationService");
-const pushRegistrationRepository = require("../../mobile/pushRegistrationRepository");
-const mobilePushOutboxDeliveryRepository = require("../../mobile/mobilePushOutboxDeliveryRepository");
+// These legacy mobile modules live outside the TypeScript source tree. Resolve them
+// dynamically so the backend build does not try to emit JavaScript over the source
+// files, while both tsx (src/) and compiled (dist/) execution resolve the same files.
+const fcmRegistrationService = require(path.resolve(__dirname, "../../mobile/fcmRegistrationService.js"));
+const pushRegistrationRepository = require(path.resolve(__dirname, "../../mobile/pushRegistrationRepository.js"));
+const mobilePushOutboxDeliveryRepository = require(path.resolve(__dirname, "../../mobile/mobilePushOutboxDeliveryRepository.js"));
 const { queueLifecycleEmail, queueReconciliationEmail } = require("./queueEmailTemplates");
 
 function warningAction(templateName) {
