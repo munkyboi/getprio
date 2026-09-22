@@ -60,6 +60,8 @@ CREATE TABLE IF NOT EXISTS mobile_push_outbox_deliveries (
   status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'sent', 'stale')),
   attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
   last_error TEXT,
+  lease_owner TEXT,
+  leased_until TIMESTAMPTZ,
   sent_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -68,6 +70,9 @@ CREATE TABLE IF NOT EXISTS mobile_push_outbox_deliveries (
 
 CREATE INDEX IF NOT EXISTS mobile_push_outbox_deliveries_pending_idx
   ON mobile_push_outbox_deliveries (outbox_id, status);
+
+CREATE INDEX IF NOT EXISTS mobile_push_outbox_deliveries_registration_idx
+  ON mobile_push_outbox_deliveries (registration_id);
 
 CREATE OR REPLACE TRIGGER set_mobile_push_outbox_deliveries_updated_at
 BEFORE UPDATE ON mobile_push_outbox_deliveries

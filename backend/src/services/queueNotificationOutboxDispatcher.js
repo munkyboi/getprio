@@ -54,7 +54,7 @@ function userIdFromRecipient(recipientKey) {
   return match ? match[1] : null;
 }
 
-async function dispatchFcmIntent(intent, tenant, ticket) {
+async function dispatchFcmIntent(intent, tenant, ticket, workerId) {
   const userId = userIdFromRecipient(intent.recipient_key);
   if (!userId) {
     throw new Error("FCM outbox intent must target a user recipient.");
@@ -67,7 +67,7 @@ async function dispatchFcmIntent(intent, tenant, ticket) {
 
   const registrations = await pushRegistrationRepository.listActiveByUserId(userId);
   await mobilePushOutboxDeliveryRepository.ensurePending(intent.id, registrations);
-  const pending = await mobilePushOutboxDeliveryRepository.listPending(intent.id);
+  const pending = await mobilePushOutboxDeliveryRepository.claimPending(intent.id, workerId);
   if (!pending.length) {
     return { attempted: registrations.length, sent: 0, skipped: registrations.length === 0 };
   }
@@ -78,11 +78,18 @@ async function dispatchFcmIntent(intent, tenant, ticket) {
     action: customerAction(intent.template_name),
     notificationId: `outbox:${intent.id}`
   });
-  const result = await fcmRegistrationService.sendToRegistrations({
-    registrations: pending,
-    payload
-  });
+  let result;
+  try {
+    result = await fcmRegistrationService.sendToRegistrations({
+      registrations: pending,
+      payload
+    });
+  } catch (error) {
+    await mobilePushOutboxDeliveryRepository.releasePending(intent.id, workerId).catch(() => {});
+    throw error;
+  }
   if (!result.configured) {
+    await mobilePushOutboxDeliveryRepository.releasePending(intent.id, workerId);
     throw new Error("FCM delivery is not configured.");
   }
 
@@ -92,11 +99,11 @@ async function dispatchFcmIntent(intent, tenant, ticket) {
   const transientFailures = [];
   for (const outcome of result.outcomes) {
     if (outcome.status === "accepted") {
-      await mobilePushOutboxDeliveryRepository.markSent(intent.id, outcome.registrationId);
+      await mobilePushOutboxDeliveryRepository.markSent(intent.id, outcome.registrationId, { workerId });
     } else if (!activeAfter.has(String(outcome.registrationId))) {
-      await mobilePushOutboxDeliveryRepository.markStale(intent.id, outcome.registrationId);
+      await mobilePushOutboxDeliveryRepository.markStale(intent.id, outcome.registrationId, { workerId });
     } else {
-      await mobilePushOutboxDeliveryRepository.markFailure(intent.id, outcome.registrationId, outcome.error);
+      await mobilePushOutboxDeliveryRepository.markFailure(intent.id, outcome.registrationId, outcome.error, { workerId });
       transientFailures.push(outcome);
     }
   }
@@ -113,7 +120,8 @@ async function dispatchFcmIntent(intent, tenant, ticket) {
   };
 }
 
-async function dispatchIntent(intent) {
+async function dispatchIntent(intent, options = {}) {
+  const workerId = options.workerId || "queue-outbox-direct";
   const tenant = await tenantRepository.findTenantById(intent.tenant_id);
   if (!tenant) {
     return;
@@ -201,7 +209,7 @@ async function dispatchIntent(intent) {
     return;
   }
   if (intent.channel === "fcm") {
-    const result = await dispatchFcmIntent(intent, tenant, ticket);
+    const result = await dispatchFcmIntent(intent, tenant, ticket, workerId);
     await notificationDeliveryRepository.recordDelivery({
       tenantId: tenant._id,
       ticketId: ticket._id,
@@ -245,7 +253,7 @@ function createQueueNotificationOutboxDispatcher(options = {}) {
     const intents = await outboxRepository.claimBatch(workerId, limit);
     for (const intent of intents) {
       try {
-        await dispatchIntent(intent);
+        await dispatchIntent(intent, { workerId });
         await outboxRepository.markSent(intent.id, workerId);
       } catch (error) {
         if (intent.channel === "web_push" || intent.channel === "fcm") {

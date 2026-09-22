@@ -5,13 +5,41 @@ const repository = require("./pushRegistrationRepository");
 
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging";
+const FCM_REQUEST_TIMEOUT_MS = 15_000;
+const FCM_DISPATCH_TIMEOUT_MS = 60_000;
 let accessTokenCache = null;
 
 function isConfigured() {
   return Boolean(env.fcmProjectId && env.fcmClientEmail && env.fcmPrivateKey);
 }
 
-async function getAccessToken() {
+function timeoutError() {
+  const error = new Error("FCM request timed out.");
+  error.statusCode = 504;
+  return error;
+}
+
+async function fetchWithDeadline(url, options, deadline) {
+  const remainingMs = Math.min(FCM_REQUEST_TIMEOUT_MS, deadline - Date.now());
+  if (remainingMs <= 0) {
+    throw timeoutError();
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), remainingMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw timeoutError();
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function getAccessToken(deadline) {
   if (accessTokenCache && accessTokenCache.expiresAt > Date.now() + 60_000) {
     return accessTokenCache.value;
   }
@@ -21,11 +49,11 @@ async function getAccessToken() {
     env.fcmPrivateKey,
     { algorithm: "RS256" }
   );
-  const response = await fetch(GOOGLE_TOKEN_URL, {
+  const response = await fetchWithDeadline(GOOGLE_TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion })
-  });
+  }, deadline);
   const data = await response.json().catch(() => ({}));
   if (!response.ok || !data.access_token) {
     const error = new Error(data.error_description || "Unable to obtain the Firebase messaging access token.");
@@ -48,10 +76,14 @@ function buildData(payload) {
   );
 }
 
-async function send(registration, payload) {
+function collapseId(payload) {
+  return String(payload.notificationId || payload.tag || "getprio-queue").slice(0, 64);
+}
+
+async function send(registration, payload, deadline) {
   if (!isConfigured()) return false;
-  const accessToken = await getAccessToken();
-  const response = await fetch(`https://fcm.googleapis.com/v1/projects/${encodeURIComponent(env.fcmProjectId)}/messages:send`, {
+  const accessToken = await getAccessToken(deadline);
+  const response = await fetchWithDeadline(`https://fcm.googleapis.com/v1/projects/${encodeURIComponent(env.fcmProjectId)}/messages:send`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -59,11 +91,14 @@ async function send(registration, payload) {
         token: registration.token,
         notification: { title: payload.title, body: payload.body },
         data: buildData(payload),
-        android: { priority: "high" },
-        apns: { payload: { aps: { sound: "default" } } }
+        android: { priority: "high", collapseKey: collapseId(payload) },
+        apns: {
+          headers: { "apns-collapse-id": collapseId(payload) },
+          payload: { aps: { sound: "default" } }
+        }
       }
     })
-  });
+  }, deadline);
   const data = await response.json().catch(() => ({}));
   if (response.ok) {
     await repository.recordSuccess(registration.id);
@@ -80,7 +115,7 @@ async function send(registration, payload) {
   throw error;
 }
 
-async function sendToRegistrations({ registrations = [], payload }) {
+async function sendToRegistrations({ registrations = [], payload, timeoutMs = FCM_DISPATCH_TIMEOUT_MS }) {
   if (!isConfigured()) {
     return {
       attempted: 0,
@@ -92,9 +127,21 @@ async function sendToRegistrations({ registrations = [], payload }) {
 
   let sent = 0;
   const outcomes = [];
+  const deadline = Date.now() + Math.max(1, Number(timeoutMs) || FCM_DISPATCH_TIMEOUT_MS);
   for (const registration of registrations) {
+    if (Date.now() >= deadline) {
+      outcomes.push({
+        registrationId: registration.id,
+        installationId: registration.installationId,
+        platform: registration.platform,
+        status: "failed",
+        statusCode: 504,
+        error: "FCM request timed out."
+      });
+      continue;
+    }
     try {
-      if (await send(registration, payload)) {
+      if (await send(registration, payload, deadline)) {
         sent += 1;
         outcomes.push({
           registrationId: registration.id,

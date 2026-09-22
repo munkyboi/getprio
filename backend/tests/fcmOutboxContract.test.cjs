@@ -17,6 +17,9 @@ test("FCM outbox migration preserves leases and adds per-installation delivery s
   assert.match(migration, /CREATE TABLE IF NOT EXISTS mobile_push_outbox_deliveries/);
   assert.match(migration, /PRIMARY KEY \(outbox_id, registration_id\)/);
   assert.match(migration, /status IN \('pending', 'sent', 'stale'\)/);
+  assert.match(migration, /lease_owner TEXT/);
+  assert.match(migration, /leased_until TIMESTAMPTZ/);
+  assert.match(migration, /mobile_push_outbox_deliveries_registration_idx/);
 });
 
 test("durable queue lifecycle customer intents include one FCM channel key", () => {

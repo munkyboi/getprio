@@ -16,6 +16,59 @@ async function ensurePending(outboxId, registrations, options = {}) {
   }
 }
 
+async function claimPending(outboxId, workerId, options = {}) {
+  const client = queryClient(options.client);
+  const result = await client.query(
+    `WITH candidates AS (
+       SELECT registration_id
+       FROM mobile_push_outbox_deliveries
+       WHERE outbox_id = $1
+         AND status = 'pending'
+         AND (leased_until IS NULL OR leased_until < NOW())
+       ORDER BY registration_id
+       FOR UPDATE SKIP LOCKED
+     )
+     UPDATE mobile_push_outbox_deliveries AS delivery
+     SET lease_owner = $2,
+         leased_until = NOW() + INTERVAL '90 seconds',
+         updated_at = NOW()
+     FROM candidates
+     WHERE delivery.outbox_id = $1
+       AND delivery.registration_id = candidates.registration_id
+     RETURNING delivery.registration_id`,
+    [Number(outboxId), String(workerId)]
+  );
+
+  if (!result.rows.length) return [];
+  const registrations = await client.query(
+    `SELECT delivery.outbox_id,
+            delivery.registration_id AS id,
+            registration.user_id,
+            registration.installation_id AS "installationId",
+            registration.token,
+            registration.platform
+     FROM mobile_push_outbox_deliveries AS delivery
+     JOIN mobile_push_registrations AS registration
+       ON registration.id = delivery.registration_id
+     WHERE delivery.outbox_id = $1
+       AND delivery.lease_owner = $2
+       AND delivery.status = 'pending'
+       AND registration.is_active = TRUE
+     ORDER BY delivery.registration_id`,
+    [Number(outboxId), String(workerId)]
+  );
+  return registrations.rows;
+}
+
+async function releasePending(outboxId, workerId, options = {}) {
+  await queryClient(options.client).query(
+    `UPDATE mobile_push_outbox_deliveries
+     SET lease_owner = NULL, leased_until = NULL, updated_at = NOW()
+     WHERE outbox_id = $1 AND lease_owner = $2 AND status = 'pending'`,
+    [Number(outboxId), String(workerId)]
+  );
+}
+
 async function listPending(outboxId, options = {}) {
   const result = await queryClient(options.client).query(
     `SELECT delivery.outbox_id,
@@ -29,6 +82,7 @@ async function listPending(outboxId, options = {}) {
        ON registration.id = delivery.registration_id
      WHERE delivery.outbox_id = $1
        AND delivery.status = 'pending'
+       AND (delivery.leased_until IS NULL OR delivery.leased_until < NOW())
        AND registration.is_active = TRUE
      ORDER BY delivery.registration_id`,
     [Number(outboxId)]
@@ -40,9 +94,10 @@ async function markSent(outboxId, registrationId, options = {}) {
   await queryClient(options.client).query(
     `UPDATE mobile_push_outbox_deliveries
      SET status = 'sent', sent_at = NOW(), attempt_count = attempt_count + 1,
-         last_error = NULL, updated_at = NOW()
-     WHERE outbox_id = $1 AND registration_id = $2 AND status = 'pending'`,
-    [Number(outboxId), Number(registrationId)]
+         last_error = NULL, lease_owner = NULL, leased_until = NULL, updated_at = NOW()
+     WHERE outbox_id = $1 AND registration_id = $2 AND status = 'pending'
+       AND lease_owner = $3`,
+    [Number(outboxId), Number(registrationId), String(options.workerId)]
   );
 }
 
@@ -50,9 +105,10 @@ async function markStale(outboxId, registrationId, options = {}) {
   await queryClient(options.client).query(
     `UPDATE mobile_push_outbox_deliveries
      SET status = 'stale', attempt_count = attempt_count + 1,
-         last_error = NULL, updated_at = NOW()
-     WHERE outbox_id = $1 AND registration_id = $2 AND status = 'pending'`,
-    [Number(outboxId), Number(registrationId)]
+         last_error = NULL, lease_owner = NULL, leased_until = NULL, updated_at = NOW()
+     WHERE outbox_id = $1 AND registration_id = $2 AND status = 'pending'
+       AND lease_owner = $3`,
+    [Number(outboxId), Number(registrationId), String(options.workerId)]
   );
 }
 
@@ -60,15 +116,18 @@ async function markFailure(outboxId, registrationId, errorMessage, options = {})
   await queryClient(options.client).query(
     `UPDATE mobile_push_outbox_deliveries
      SET attempt_count = attempt_count + 1,
-         last_error = $3, updated_at = NOW()
-     WHERE outbox_id = $1 AND registration_id = $2 AND status = 'pending'`,
-    [Number(outboxId), Number(registrationId), String(errorMessage || "Delivery failed").slice(0, 500)]
+         last_error = $3, lease_owner = NULL, leased_until = NULL, updated_at = NOW()
+     WHERE outbox_id = $1 AND registration_id = $2 AND status = 'pending'
+       AND lease_owner = $4`,
+    [Number(outboxId), Number(registrationId), String(errorMessage || "Delivery failed").slice(0, 500), String(options.workerId)]
   );
 }
 
 module.exports = {
   ensurePending,
+  claimPending,
   listPending,
+  releasePending,
   markFailure,
   markSent,
   markStale

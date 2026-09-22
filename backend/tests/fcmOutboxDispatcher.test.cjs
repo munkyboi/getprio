@@ -77,7 +77,11 @@ test("FCM outbox delivery resolves stale installations without retrying accepted
     },
     "../../mobile/mobilePushOutboxDeliveryRepository": {
       ensurePending: async (outboxId, values) => assert.deepEqual([outboxId, values], ["42", registrations]),
-      listPending: async () => registrations,
+      claimPending: async (outboxId, workerId) => {
+        assert.deepEqual([outboxId, workerId], ["42", "queue-outbox-direct"]);
+        return registrations;
+      },
+      releasePending: async () => {},
       markSent: async (outboxId, registrationId) => marks.push(["sent", outboxId, registrationId]),
       markStale: async (outboxId, registrationId) => marks.push(["stale", outboxId, registrationId]),
       markFailure: async () => { throw new Error("transient failure should not be marked"); }
@@ -137,7 +141,8 @@ test("FCM outbox delivery leaves transient installations pending for the outbox 
     },
     "../../mobile/mobilePushOutboxDeliveryRepository": {
       ensurePending: async () => {},
-      listPending: async () => [{ id: "101", installationId: "ios-1", token: "token-1", platform: "ios" }],
+      claimPending: async () => [{ id: "101", installationId: "ios-1", token: "token-1", platform: "ios" }],
+      releasePending: async () => {},
       markSent: async () => { throw new Error("must not mark transient delivery sent"); },
       markStale: async () => { throw new Error("must not mark transient delivery stale"); },
       markFailure: async (...args) => marks.push(args)
@@ -152,5 +157,5 @@ test("FCM outbox delivery leaves transient installations pending for the outbox 
     service.dispatchIntent({ ...buildIntent(), id: "43" }),
     /FCM delivery failed for 1 installation/
   );
-  assert.deepEqual(marks, [["43", "101", "network"]]);
+  assert.deepEqual(marks, [["43", "101", "network", { workerId: "queue-outbox-direct" }]]);
 });
