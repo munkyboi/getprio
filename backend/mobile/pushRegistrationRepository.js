@@ -90,10 +90,24 @@ async function deactivateByToken(token, options = {}) {
 async function listActiveByUserId(userId, options = {}) {
   const result = await queryClient(options.client).query(
     `
-      SELECT *
-      FROM mobile_push_registrations
-      WHERE user_id = $1 AND is_active = TRUE
-      ORDER BY updated_at DESC
+      SELECT registration.*
+      FROM mobile_push_registrations AS registration
+      JOIN users AS account_user ON account_user.id = registration.user_id
+      LEFT JOIN developer_project_test_accounts AS test_account
+        ON test_account.user_id = account_user.id AND test_account.status = 'active'
+      LEFT JOIN developer_projects AS test_project
+        ON test_project.id = test_account.developer_project_id
+      WHERE registration.user_id = $1
+        AND registration.is_active = TRUE
+        AND NOT (
+          account_user.is_sandbox_test_account = TRUE
+          AND (
+            account_user.sandbox_test_account_expires_at IS NULL
+            OR account_user.sandbox_test_account_expires_at <= NOW()
+            OR test_project.status IS DISTINCT FROM 'active'
+          )
+        )
+      ORDER BY registration.updated_at DESC
     `,
     [Number(userId)]
   );

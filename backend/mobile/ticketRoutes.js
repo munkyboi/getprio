@@ -57,7 +57,7 @@ function normalizeView(value) {
 }
 
 async function buildQueuePosition(ticket) {
-  if (ticket.status !== "waiting") return null;
+  if (ticket.status !== "waiting" || ticket.isDeveloperApiTicket) return null;
   const waiting = await ticketRepository.listWaitingTickets(ticket.tenantId, {
     locationId: ticket.locationId,
     dateKey: ticket.dateKey
@@ -68,26 +68,28 @@ async function buildQueuePosition(ticket) {
 }
 
 async function formatMobileTicket(ticket, environment) {
+  const isDeveloperTicket = Boolean(ticket.isDeveloperApiTicket || ticket.developerProjectId);
   const [tenant, location, queuePosition, counter] = await Promise.all([
-    tenantRepository.findTenantById(ticket.tenantId),
-    locationRepository.findLocationById(ticket.locationId),
+    isDeveloperTicket ? Promise.resolve(null) : tenantRepository.findTenantById(ticket.tenantId),
+    isDeveloperTicket ? Promise.resolve(null) : locationRepository.findLocationById(ticket.locationId),
     buildQueuePosition(ticket),
     ticket.status === "called" && ticket.serviceCounterId
       ? serviceCounterRepository.findCounterById(ticket.serviceCounterId)
       : Promise.resolve(null)
   ]);
-  const isDeveloperTicket = Boolean(ticket.developerProjectId);
   const canCancel = ACTIVE_STATUSES.has(ticket.status) && ticket.status !== "pending_carry_over";
   return {
     id: ticket._id,
     ticket_number: ticket.ticketNumber,
     source: isDeveloperTicket ? "developer_api" : "first_party",
-    display_label: tenant?.publicProfileDisplayName || tenant?.name || ticket.tenantName || null,
+    display_label: isDeveloperTicket
+      ? (ticket.displayLabel || ticket.queueName || ticket.profileName || null)
+      : (tenant?.publicProfileDisplayName || tenant?.name || ticket.tenantName || null),
     external_reference: isDeveloperTicket ? ticket.externalReference : null,
     status: ticket.status,
     status_reason: ticket.statusReason,
     profile: {
-      queue_name: tenant?.name || ticket.tenantName || null,
+      queue_name: isDeveloperTicket ? (ticket.queueName || ticket.profileName || null) : (tenant?.name || ticket.tenantName || null),
       location_name: location?.name || ticket.locationName || null,
       location_slug: location?.slug || ticket.locationSlug || null
     },
@@ -106,28 +108,39 @@ async function formatMobileTicket(ticket, environment) {
 
 router.get("/tickets", asyncHandler(async (req, res) => {
   const view = normalizeView(req.query.view);
+  const environment = environmentForRequest(req);
+  if (ticketRepository.linkDeveloperTicketsForUser) {
+    await ticketRepository.linkDeveloperTicketsForUser(req.user._id, req.user.email);
+  }
   const result = await ticketRepository.listMobileTicketsForUser(req.user._id, {
-    environment: environmentForRequest(req),
+    environment,
     view,
     cursor: decodeCursor(req.query.cursor),
     limit: req.query.limit
   });
+  const developerResult = ticketRepository.listDeveloperTicketsForUser
+    ? await ticketRepository.listDeveloperTicketsForUser(req.user._id, { environment, view, limit: req.query.limit })
+    : { tickets: [] };
+  const responseLimit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 50);
+  const tickets = [...result.tickets, ...developerResult.tickets]
+    .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
+    .slice(0, responseLimit);
   res.setHeader("Cache-Control", "no-store");
   res.json({
-    tickets: await Promise.all(result.tickets.map((ticket) => formatMobileTicket(ticket, environmentForRequest(req)))),
+    tickets: await Promise.all(tickets.map((ticket) => formatMobileTicket(ticket, environment))),
     next_cursor: encodeCursor(result.nextCursor)
   });
 }));
 
 router.get("/tickets/:ticketId", asyncHandler(async (req, res) => {
-  if (!/^\d+$/.test(String(req.params.ticketId || ""))) {
-    const error = new Error("Ticket not found.");
-    error.statusCode = 404;
-    throw error;
-  }
   const environment = environmentForRequest(req);
-  const ticket = await ticketRepository.findMobileTicketForUser(req.params.ticketId, req.user._id);
-  if (!ticket || (environment === "sandbox" && (!ticket.developerProjectId || ticket.developerEnvironment !== "sandbox")) ||
+  const ticketId = String(req.params.ticketId || "");
+  let ticket = /^\d+$/.test(ticketId)
+    ? await ticketRepository.findMobileTicketForUser(ticketId, req.user._id)
+    : (ticketRepository.findDeveloperTicketForUser
+      ? await ticketRepository.findDeveloperTicketForUser(ticketId, req.user._id)
+      : null);
+  if (!ticket || (environment === "sandbox" && (!ticket.isDeveloperApiTicket && (!ticket.developerProjectId || ticket.developerEnvironment !== "sandbox"))) ||
       (environment === "production" && ticket.developerEnvironment === "sandbox")) {
     const error = new Error("Ticket not found.");
     error.statusCode = 404;

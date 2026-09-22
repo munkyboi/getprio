@@ -224,6 +224,62 @@ test("authenticated mobile tickets expose only owned, environment-scoped queue r
   }
 });
 
+test("mobile Sandbox tickets include independent Developer API records linked by recipient email", async () => {
+  const developerTicket = {
+    _id: "11111111-1111-4111-8111-111111111111",
+    isDeveloperApiTicket: true,
+    ticketNumber: "MAIN-0001",
+    displayLabel: "A-001",
+    status: "waiting",
+    statusReason: null,
+    developerProjectId: "project-1",
+    developerEnvironment: "sandbox",
+    queueName: "Main queue",
+    profileName: "My EMR",
+    externalReference: "visit-1",
+    createdAt: "2026-09-16T00:00:00.000Z",
+    updatedAt: "2026-09-16T00:00:00.000Z"
+  };
+  const calls = [];
+  const router = requireWithMocks("../mobile/ticketRoutes.js", {
+    "../src/middleware/auth": {
+      authenticate(req, _res, next) { req.user = { _id: "customer-7", email: "sandbox@example.com" }; next(); }
+    },
+    "../src/middleware/asyncHandler": (handler) => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next),
+    "../src/repositories/tickets": {
+      async linkDeveloperTicketsForUser(userId, email) { calls.push(["link", userId, email]); },
+      async listMobileTicketsForUser() { return { tickets: [], nextCursor: null }; },
+      async listDeveloperTicketsForUser() { return { tickets: [developerTicket], nextCursor: null }; },
+      async findDeveloperTicketForUser(id, userId) { calls.push(["find", id, userId]); return developerTicket; },
+      async listWaitingTickets() { return []; }
+    },
+    "../src/repositories/tenants": {},
+    "../src/repositories/storeLocations": {},
+    "../src/repositories/serviceCounters": {}
+  });
+  const app = express();
+  app.set("trust proxy", true);
+  app.use(express.json());
+  app.use("/api/v1/mobile", router);
+  app.use((error, _req, res, _next) => res.status(error.statusCode || 500).json({ message: error.message }));
+  const server = await new Promise((resolve) => { const nextServer = app.listen(0, () => resolve(nextServer)); });
+  try {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/v1/mobile/tickets`, { headers: { "x-forwarded-host": "sandbox-api.getprio.online" } });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.tickets[0].id, developerTicket._id);
+    assert.equal(body.tickets[0].source, "developer_api");
+    assert.equal(body.tickets[0].profile.queue_name, "Main queue");
+    assert.deepEqual(calls[0], ["link", "customer-7", "sandbox@example.com"]);
+
+    const detail = await fetch(`http://127.0.0.1:${server.address().port}/api/v1/mobile/tickets/${developerTicket._id}`, { headers: { "x-forwarded-host": "sandbox-api.getprio.online" } });
+    assert.equal(detail.status, 200);
+    assert.equal((await detail.json()).ticket.id, developerTicket._id);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test("mobile queue resolve reports open availability and an inactive-plan reason", async () => {
   const queueJoinId = "123e4567-e89b-42d3-a456-426614174000";
   let hasActivePlan = true;

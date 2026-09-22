@@ -77,6 +77,7 @@ function ticketView(ticket) {
   if (ticket.queueId) Object.defineProperty(value, "queueId", { value: ticket.queueId, enumerable: false });
   if (ticket.ticketNumber) Object.defineProperty(value, "ticketNumber", { value: ticket.ticketNumber, enumerable: false });
   if (ticket.statusReason) Object.defineProperty(value, "statusReason", { value: ticket.statusReason, enumerable: false });
+  if (ticket.linkedUserId) Object.defineProperty(value, "linkedUserId", { value: ticket.linkedUserId, enumerable: false });
   if (ticket.calledAt) Object.defineProperty(value, "calledAt", { value: ticket.calledAt, enumerable: false });
   if (ticket.servedAt) Object.defineProperty(value, "servedAt", { value: ticket.servedAt, enumerable: false });
   if (ticket.skippedAt) Object.defineProperty(value, "skippedAt", { value: ticket.skippedAt, enumerable: false });
@@ -124,6 +125,24 @@ async function mutate(req, res, { scope, payload, status = 200, run }) {
   } catch (mutationError) {
     if (mutationError.code === "23505") throw error(409, "RESOURCE_CONFLICT", "A resource with this value already exists.");
     throw mutationError;
+  }
+  const linkedUserId = result.body?.data?.ticket?.linkedUserId;
+  if (linkedUserId && result.body?.data?.ticket?.status) {
+    const ticket = result.body.data.ticket;
+    const action = ticket.status === "called" ? "called" : ticket.status;
+    const pushNotificationService = require("../services/pushNotificationService");
+    pushNotificationService.sendUserNotification({
+      userId: linkedUserId,
+      title: "Developer API ticket update",
+      body: `${ticket.ticket_number || "Your ticket"} is now ${ticket.status}.`,
+      url: `/tickets/${ticket.id}`,
+      route: "ticket",
+      ticketRef: ticket.ticket_number || ticket.id,
+      tag: `developer-ticket-${ticket.id}-${action}`,
+      eventType: `developer_ticket_${action}`
+    }).catch((notificationError) => {
+      console.warn("[developer-ticket-push-skipped]", notificationError.message);
+    });
   }
   res.status(result.statusCode).setHeader("Cache-Control", "no-store").setHeader("X-API-Version", "v1").json(result.body);
 }

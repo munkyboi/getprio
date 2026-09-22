@@ -110,6 +110,7 @@ async function reset(projectId, accountId, { passwordHash, expiresAt }, options 
      SET password_hash = $2, password_hash_algorithm = 'bcrypt',
          sandbox_test_account_expires_at = $3, last_password_changed_at = NOW(),
          mfa_enabled = FALSE, email_mfa_enabled = FALSE, mfa_required = FALSE,
+         failed_login_count = 0, last_failed_login_at = NULL, account_locked_until = NULL,
          updated_at = NOW()
      WHERE id = $1`,
     [Number(account.user_id), passwordHash, expiresAt]

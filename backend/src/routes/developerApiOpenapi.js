@@ -523,7 +523,7 @@ const openApiDocument = {
         properties: {
           display_label: { type: "string", maxLength: 120, description: "Optional display-only label. Do not send a customer name." },
           external_reference: { type: "string", maxLength: 160, description: "Optional opaque reference, unique within the project and environment." },
-          recipient_email: { type: "string", maxLength: 320, description: "Optional contact email when the integration has a lawful delivery purpose." }
+          recipient_email: { type: "string", maxLength: 320, description: "Optional contact email when the integration has a lawful delivery purpose. In Sandbox, a matching provisioned test-account email links the ticket to that account's mobile feed." }
         },
         additionalProperties: false
       }
