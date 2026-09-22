@@ -4,6 +4,19 @@ ALTER TABLE users
   ADD COLUMN IF NOT EXISTS is_sandbox_test_account BOOLEAN NOT NULL DEFAULT FALSE,
   ADD COLUMN IF NOT EXISTS sandbox_test_account_expires_at TIMESTAMPTZ;
 
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'users'::regclass AND conname = 'sandbox_test_account_expiry_check'
+  ) THEN
+    ALTER TABLE users
+      ADD CONSTRAINT sandbox_test_account_expiry_check CHECK (
+        is_sandbox_test_account = FALSE OR sandbox_test_account_expires_at IS NOT NULL
+      );
+  END IF;
+END $$;
+
 CREATE TABLE IF NOT EXISTS developer_project_test_accounts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   developer_project_id UUID NOT NULL REFERENCES developer_projects(id) ON DELETE CASCADE,

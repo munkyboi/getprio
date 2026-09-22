@@ -17,7 +17,7 @@ const mobileTicketLinkLimiter = rateLimit({
   message: { message: "Too many ticket-link requests. Please try again later." }
 });
 const PRODUCTION_HOSTS = new Set(["getprio.online"]);
-const SANDBOX_HOSTS = new Set(["sandbox.getprio.online"]);
+const SANDBOX_HOSTS = new Set(["sandbox.getprio.online", "sandbox-api.getprio.online"]);
 
 function getEnvironment(req) {
   const hostname = String(req.hostname || req.headers.host || "")

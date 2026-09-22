@@ -965,7 +965,6 @@ router.post(
       error.statusCode = 401;
       throw error;
     }
-    assertSandboxTestAccountRequest(user, req);
     if (isDeveloperOnlyIdentity(user)) {
       await authService.recordLoginAttempt({
         identifierType: loginIdentifier.identifierType,
@@ -1011,6 +1010,10 @@ router.post(
       error.statusCode = failureResult.updatedUser?.accountLockedUntil ? 423 : 401;
       throw error;
     }
+
+    // Keep sandbox-only and expiry details behind successful credential
+    // verification so they cannot be used to enumerate test accounts.
+    assertSandboxTestAccountRequest(user, req);
 
     const updatedUser = await db.withTransaction(async (client) => {
       return authService.handleSuccessfulPasswordLogin({

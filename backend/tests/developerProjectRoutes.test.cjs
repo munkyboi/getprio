@@ -352,15 +352,15 @@ test("production approval submission requires ownership of the requested project
 test("Sandbox test-account routes create, list, and reset project-scoped credentials", async () => {
   const originals = [];
   const account = {
-    id: "test-account-1", projectId: project.id, slot: 1, username: "sandbox_ab12cd",
-    email: "sandbox-ab12cd@test.getprio.invalid", status: "active",
+    id: "test-account-1", projectId: project.id, slot: 1, username: "sb_ab12CD34",
+    email: "sb-ab12CD34@test.getprio.invalid", status: "active",
     expiresAt: "2026-10-01T00:00:00.000Z", deviceCount: 1,
     createdAt: "2026-09-24T00:00:00.000Z", updatedAt: "2026-09-24T00:00:00.000Z"
   };
   const calls = [];
   replace(developerProjects, "findProjectForUser", async (projectId) => projectId === project.id ? project : null, originals);
   replace(developerTestAccounts, "list", async (projectId) => { calls.push(["list", projectId]); return [account]; }, originals);
-  replace(developerTestAccounts, "create", async (input, options) => { calls.push(["create", input.projectId, input.name, Boolean(input.passwordHash), options.client]); return account; }, originals);
+  replace(developerTestAccounts, "create", async (input, options) => { calls.push(["create", input.projectId, input.name, Boolean(input.passwordHash), options.client]); return { ...account, username: input.username, email: input.email }; }, originals);
   replace(developerTestAccounts, "reset", async (projectId, accountId, input, options) => { calls.push(["reset", projectId, accountId, Boolean(input.passwordHash), options.client]); return { ...account, deviceCount: 0 }; }, originals);
   replace(db, "withTransaction", async (callback) => callback({ transaction: true }), originals);
   replace(securityEventService, "logSecurityEvent", async () => {}, originals);
@@ -371,8 +371,13 @@ test("Sandbox test-account routes create, list, and reset project-scoped credent
     assert.equal(response.body.testAccounts[0].username, account.username);
     response = await request("POST", `${baseUrl}/projects/${project.id}/sandbox/test-accounts`);
     assert.equal(response.status, 201);
-    assert.equal(response.body.credentials.username, account.username);
-    assert.match(response.body.credentials.password, /^Sbx/);
+    assert.match(response.body.credentials.username, /^sb_[A-Za-z0-9]{8}$/);
+    assert.equal(response.body.testAccount.username, response.body.credentials.username);
+    assert.equal(response.body.credentials.password.length, 8);
+    assert.match(response.body.credentials.password, /[A-Z]/);
+    assert.match(response.body.credentials.password, /[a-z]/);
+    assert.match(response.body.credentials.password, /[0-9]/);
+    assert.match(response.body.credentials.password, /[^A-Za-z0-9]/);
     assert.equal(response.body.warning.includes("not be shown again"), true);
     response = await request("POST", `${baseUrl}/projects/${project.id}/sandbox/test-accounts/${account.id}/reset`);
     assert.equal(response.status, 200);

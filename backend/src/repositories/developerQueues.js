@@ -50,6 +50,7 @@ function mapTicket(row) {
     displayLabel: row.display_label || null,
     externalReference: row.external_reference || null,
     recipientEmail: row.recipient_email || null,
+    linkedUserId: row.linked_user_id ? String(row.linked_user_id) : null,
     status: row.status,
     statusReason: row.status_reason || null,
     calledAt: row.called_at,
@@ -79,6 +80,7 @@ const TICKET_COLUMNS = `
   id AS ticket_id, developer_project_id, environment, developer_api_profile_id,
   developer_api_queue_id, developer_api_queue_counter_id, ticket_number,
   sequence, display_label, external_reference, recipient_email, status,
+  linked_user_id,
   status_reason, called_at, served_at, skipped_at, cancelled_at, unserved_at,
   terminal_at, resource_version, created_at, updated_at
 `;
@@ -437,8 +439,20 @@ async function issueTicket(input, options = {}) {
     `INSERT INTO developer_api_tickets
        (developer_project_id, environment, developer_api_profile_id,
         developer_api_queue_id, ticket_number, sequence, display_label,
-        external_reference, recipient_email)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        external_reference, recipient_email, linked_user_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
+       CASE WHEN $2 = 'sandbox' THEN (
+         SELECT account_user.id
+         FROM users AS account_user
+         INNER JOIN developer_project_test_accounts AS test_account
+           ON test_account.user_id = account_user.id
+          AND test_account.developer_project_id = $1
+          AND test_account.status = 'active'
+         WHERE account_user.is_sandbox_test_account = TRUE
+           AND account_user.sandbox_test_account_expires_at > NOW()
+           AND lower(account_user.email) = lower($9)
+         LIMIT 1
+       ) ELSE NULL END)
      RETURNING ${TICKET_COLUMNS}`,
     [
       input.projectId, input.environment, input.profileId, queue.id,

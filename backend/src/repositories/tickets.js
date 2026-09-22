@@ -292,6 +292,97 @@ async function listMobileTicketsForUser(userId, options = {}) {
   };
 }
 
+async function linkDeveloperTicketsForUser(userId, email, options = {}) {
+  const result = await buildQueryClient(options.client).query(
+    `UPDATE developer_api_tickets AS ticket
+        SET linked_user_id = $1, updated_at = NOW()
+       FROM users AS account_user
+      WHERE ticket.linked_user_id IS NULL
+        AND ticket.linking_disabled_at IS NULL
+        AND ticket.environment = 'sandbox'
+        AND ticket.recipient_email IS NOT NULL
+        AND lower(ticket.recipient_email) = lower($2)
+        AND EXISTS (
+          SELECT 1
+          FROM developer_project_test_accounts AS test_account
+          WHERE test_account.user_id = $1
+            AND test_account.developer_project_id = ticket.developer_project_id
+            AND test_account.status = 'active'
+        )
+        AND account_user.id = $1
+        AND account_user.is_sandbox_test_account = TRUE
+        AND account_user.sandbox_test_account_expires_at > NOW()
+      RETURNING ticket.id`,
+    [Number(userId), String(email || "").trim()]
+  );
+  return result.rowCount || result.rows.length;
+}
+
+function mapDeveloperMobileTicket(row) {
+  if (!row) return null;
+  return {
+    _id: String(row.id),
+    tenantId: null,
+    locationId: null,
+    userId: row.linked_user_id ? String(row.linked_user_id) : null,
+    ticketNumber: row.ticket_number,
+    sequence: row.sequence,
+    displayLabel: row.display_label || row.ticket_number,
+    status: row.status,
+    statusReason: row.status_reason || null,
+    developerProjectId: row.developer_project_id ? String(row.developer_project_id) : null,
+    developerEnvironment: row.environment,
+    externalReference: row.external_reference || null,
+    profileName: row.profile_display_name || null,
+    queueName: row.queue_display_name || null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    isDeveloperApiTicket: true
+  };
+}
+
+async function listDeveloperTicketsForUser(userId, options = {}) {
+  const statusClause = options.view === "history"
+    ? "ticket.status NOT IN ('waiting', 'called', 'skipped')"
+    : "ticket.status IN ('waiting', 'called', 'skipped')";
+  const result = await buildQueryClient(options.client).query(
+    `SELECT ticket.id, ticket.developer_project_id, ticket.environment,
+            ticket.ticket_number, ticket.sequence, ticket.display_label,
+            ticket.external_reference, ticket.status, ticket.status_reason,
+            ticket.linked_user_id, ticket.created_at, ticket.updated_at,
+            profile.display_name AS profile_display_name,
+            queue.display_name AS queue_display_name
+       FROM developer_api_tickets AS ticket
+       INNER JOIN developer_api_profiles AS profile ON profile.id = ticket.developer_api_profile_id
+       INNER JOIN developer_api_queues AS queue ON queue.id = ticket.developer_api_queue_id
+      WHERE ticket.linked_user_id = $1
+        AND ticket.environment = $2
+        AND ${statusClause}
+      ORDER BY ticket.created_at DESC, ticket.id DESC
+      LIMIT $3`,
+    [Number(userId), options.environment === "sandbox" ? "sandbox" : "production", Math.min(Math.max(Number(options.limit) || 20, 1), 50)]
+  );
+  return { tickets: result.rows.map(mapDeveloperMobileTicket), nextCursor: null };
+}
+
+async function findDeveloperTicketForUser(ticketId, userId, options = {}) {
+  const result = await buildQueryClient(options.client).query(
+    `SELECT ticket.id, ticket.developer_project_id, ticket.environment,
+            ticket.ticket_number, ticket.sequence, ticket.display_label,
+            ticket.external_reference, ticket.status, ticket.status_reason,
+            ticket.linked_user_id, ticket.created_at, ticket.updated_at,
+            profile.display_name AS profile_display_name,
+            queue.display_name AS queue_display_name
+       FROM developer_api_tickets AS ticket
+       INNER JOIN developer_api_profiles AS profile ON profile.id = ticket.developer_api_profile_id
+       INNER JOIN developer_api_queues AS queue ON queue.id = ticket.developer_api_queue_id
+      WHERE ticket.id = $1 AND ticket.linked_user_id = $2
+      LIMIT 1`,
+    [String(ticketId), Number(userId)]
+  );
+  return mapDeveloperMobileTicket(result.rows[0]);
+}
+
 async function findTicketByIdForUpdate(ticketId, options = {}) {
   const queryClient = buildQueryClient(options.client);
   const result = await queryClient.query(
@@ -1050,6 +1141,9 @@ module.exports = {
   findTicketById,
   findMobileTicketForUser,
   listMobileTicketsForUser,
+  linkDeveloperTicketsForUser,
+  listDeveloperTicketsForUser,
+  findDeveloperTicketForUser,
   findTicketByIdForUpdate,
   findTicketByLookupCode,
   findTicketByTenantAndLookupCode,

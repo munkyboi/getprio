@@ -54,9 +54,16 @@
 .developer-workspace-list p { margin: .3rem 0; overflow-wrap: anywhere; }
 .developer-workspace-list code, .developer-workspace-secret code { color: #8de2c1; overflow-wrap: anywhere; }
 .developer-workspace-test-account-list { display: grid; gap: .65rem; margin: 1rem 0; }
-.developer-workspace-test-account { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .75rem; border: 1px solid #40577e; border-radius: .5rem; background: rgba(8, 13, 23, .5); }
+.developer-workspace-test-account { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; gap: 1rem; padding: .75rem; border: 1px solid #40577e; border-radius: .5rem; background: rgba(8, 13, 23, .5); }
+.developer-workspace-test-account > div { min-width: 0; }
+.developer-workspace-test-account strong { overflow-wrap: anywhere; }
+.developer-workspace-test-account .mantine-Button-root { width: 100%; }
 .developer-workspace-test-account strong, .developer-workspace-test-account small { display: block; }
 .developer-workspace-test-account small { margin-top: .25rem; color: #9eafd0; }
+@media (min-width: 48em) {
+  .developer-workspace-test-account { display: flex; justify-content: space-between; }
+  .developer-workspace-test-account .mantine-Button-root { width: auto; flex: 0 0 auto; }
+}
 .developer-workspace-select { max-width: 35rem; margin: 1.5rem 0 0; }
 .developer-workspace-secret code { display: block; margin: 1rem 0; padding: .85rem; border: 1px solid #40577e; border-radius: .5rem; background: #080d17; color: #edf4ff; white-space: pre-wrap; }
 .developer-workspace-inline-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
@@ -479,6 +486,14 @@
 }
 .developer-workspace.dpp[data-api-theme="light"] .developer-workspace-list code,
 .developer-workspace.dpp[data-api-theme="light"] .developer-workspace-secret code { color: #dce5ff; }
+.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-test-account {
+  border-color: #cbd8ee;
+  background: #ffffff;
+  color: #15264a;
+}
+.developer-workspace.dpp[data-api-theme="light"] .developer-workspace-test-account small {
+  color: #526689;
+}
 .developer-workspace.dpp[data-api-theme="light"] .developer-workspace-error {
   border-color: #d75b72;
   background: #fff0f2;
