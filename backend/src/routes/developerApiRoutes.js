@@ -139,7 +139,8 @@ async function mutate(req, res, { scope, payload, status = 200, run }) {
       route: "ticket",
       ticketRef: ticket.ticket_number || ticket.id,
       tag: `developer-ticket-${ticket.id}-${action}`,
-      eventType: `developer_ticket_${action}`
+      eventType: `developer_ticket_${action}`,
+      environment: getEnvironment(req)
     }).catch((notificationError) => {
       console.warn("[developer-ticket-push-skipped]", notificationError.message);
     });
