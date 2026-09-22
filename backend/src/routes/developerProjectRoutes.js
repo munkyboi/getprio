@@ -1,9 +1,12 @@
 const express = require("express");
+const crypto = require("node:crypto");
+const bcrypt = require("bcryptjs");
 const db = require("../config/db");
 const asyncHandler = require("../middleware/asyncHandler");
 const { authenticateDeveloper } = require("../middleware/developerAuth");
 const authService = require("../services/authService");
 const developerProjects = require("../repositories/developerProjects");
+const developerTestAccounts = require("../repositories/developerTestAccounts");
 const developerQueues = require("../repositories/developerQueues");
 const developerWebhooks = require("../repositories/developerWebhooks");
 const developerWebhookDeliveries = require("../repositories/developerWebhookDeliveries");
@@ -394,6 +397,48 @@ function resourceDeletionError(error, resourceName) {
   return error;
 }
 
+const SANDBOX_TEST_ACCOUNT_TTL_DAYS = 7;
+
+function createSandboxTestPassword() {
+  return `Sbx${crypto.randomBytes(12).toString("base64url").replace(/[-_]/g, "A").slice(0, 16)}!9`;
+}
+
+function createSandboxTestIdentity() {
+  const suffix = crypto.randomBytes(6).toString("hex");
+  return {
+    username: `sandbox_${suffix}`,
+    email: `sandbox-${suffix}@test.getprio.invalid`
+  };
+}
+
+function sandboxTestAccountResponse(account) {
+  return {
+    id: account.id,
+    projectId: account.projectId,
+    slot: account.slot,
+    username: account.username,
+    email: account.email,
+    status: account.status,
+    expiresAt: account.expiresAt,
+    deviceCount: account.deviceCount,
+    createdAt: account.createdAt,
+    updatedAt: account.updatedAt
+  };
+}
+
+function sandboxCredentials(account, password) {
+  return {
+    username: account.username,
+    email: account.email,
+    password,
+    expiresAt: account.expiresAt
+  };
+}
+
+function sandboxExpiry() {
+  return new Date(Date.now() + SANDBOX_TEST_ACCOUNT_TTL_DAYS * 24 * 60 * 60 * 1000);
+}
+
 async function rotateWebhookSecret(req, res, options = {}) {
   const project = await developerProjects.findProjectForUser(req.params.projectId, req.user._id);
   if (!project) throw notFound();
@@ -437,6 +482,73 @@ router.get("/projects/:projectId/sandbox/allowance", asyncHandler(async (req, re
   const resetAt = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
   res.setHeader("Cache-Control", "no-store");
   res.json({ project: projectResponse(project), allowance: { ...allowance, resetAt: resetAt.toISOString() } });
+}));
+
+router.get("/projects/:projectId/sandbox/test-accounts", asyncHandler(async (req, res) => {
+  const project = await developerProjects.findProjectForUser(req.params.projectId, req.user._id);
+  if (!project) throw notFound();
+  const testAccounts = await developerTestAccounts.list(project.id);
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ project: projectResponse(project), testAccounts, limit: developerTestAccounts.MAX_ACCOUNTS });
+}));
+
+router.post("/projects/:projectId/sandbox/test-accounts", asyncHandler(async (req, res) => {
+  const project = await developerProjects.findProjectForUser(req.params.projectId, req.user._id);
+  if (!project) throw notFound();
+  const password = createSandboxTestPassword();
+  const identity = createSandboxTestIdentity();
+  const expiresAt = sandboxExpiry();
+  const account = await db.withTransaction((client) => developerTestAccounts.create({
+    projectId: project.id,
+    name: `Sandbox tester ${identity.username.slice(-6)}`,
+    username: identity.username,
+    email: identity.email,
+    passwordHash: bcrypt.hashSync(password, 10),
+    expiresAt
+  }, { client }));
+  if (!account) throw notFound();
+  await securityEventService.logSecurityEvent({
+    userId: req.user._id,
+    sessionId: req.auth.sessionId,
+    eventType: "developer_sandbox_test_account_created",
+    actorRole: req.developerMembership.role,
+    ipAddress: authService.getRequestIp(req),
+    userAgent: authService.getUserAgent(req),
+    metadata: { projectId: project.id, testAccountId: account.id, slot: account.slot }
+  });
+  res.status(201).json({
+    project: projectResponse(project),
+    testAccount: sandboxTestAccountResponse(account),
+    credentials: sandboxCredentials(account, password),
+    warning: "Copy these credentials now. The password will not be shown again."
+  });
+}));
+
+router.post("/projects/:projectId/sandbox/test-accounts/:accountId/reset", asyncHandler(async (req, res) => {
+  const project = await developerProjects.findProjectForUser(req.params.projectId, req.user._id);
+  if (!project) throw notFound();
+  const password = createSandboxTestPassword();
+  const expiresAt = sandboxExpiry();
+  const account = await db.withTransaction((client) => developerTestAccounts.reset(project.id, req.params.accountId, {
+    passwordHash: bcrypt.hashSync(password, 10),
+    expiresAt
+  }, { client }));
+  if (!account) throw notFound("Sandbox test account not found.");
+  await securityEventService.logSecurityEvent({
+    userId: req.user._id,
+    sessionId: req.auth.sessionId,
+    eventType: "developer_sandbox_test_account_reset",
+    actorRole: req.developerMembership.role,
+    ipAddress: authService.getRequestIp(req),
+    userAgent: authService.getUserAgent(req),
+    metadata: { projectId: project.id, testAccountId: account.id, slot: account.slot }
+  });
+  res.json({
+    project: projectResponse(project),
+    testAccount: sandboxTestAccountResponse(account),
+    credentials: sandboxCredentials(account, password),
+    warning: "Copy these credentials now. The previous password, sessions, and registered devices were removed."
+  });
 }));
 
 router.get("/projects/:projectId/usage", asyncHandler(async (req, res) => {

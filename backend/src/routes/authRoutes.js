@@ -33,6 +33,7 @@ const securityRateLimitService = require("../services/securityRateLimitService")
 const { userRequiresPrivilegedMfa } = require("../services/mfaService");
 const { assertPublicTextFieldsAllowed } = require("../services/contentModeration");
 const { normalizePhilippineMobileNumber } = require("../utils/phone");
+const { assertRequestAllowed: assertSandboxTestAccountRequest } = require("../services/sandboxTestAccountAccess");
 const env = require("../config/env");
 const {
   clearBrowserSession,
@@ -964,6 +965,7 @@ router.post(
       error.statusCode = 401;
       throw error;
     }
+    assertSandboxTestAccountRequest(user, req);
     if (isDeveloperOnlyIdentity(user)) {
       await authService.recordLoginAttempt({
         identifierType: loginIdentifier.identifierType,
@@ -1077,6 +1079,7 @@ router.post(
       error.statusCode = 401;
       throw error;
     }
+    assertSandboxTestAccountRequest(user, req);
 
     const sessionResult = await sessionService.rotateRefreshSession({ session, user });
 

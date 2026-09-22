@@ -17,6 +17,7 @@ const router = require("../src/routes/developerProjectRoutes");
 developerAuth.authenticateDeveloper = originalAuthenticateDeveloper;
 
 const developerProjects = require("../src/repositories/developerProjects");
+const developerTestAccounts = require("../src/repositories/developerTestAccounts");
 const developerQueues = require("../src/repositories/developerQueues");
 const securityEventService = require("../src/services/securityEventService");
 const developerWebhookService = require("../src/services/developerWebhookService");
@@ -345,5 +346,64 @@ test("production approval submission requires ownership of the requested project
     const response = await request("POST", `${baseUrl}/projects/project-1/production-approval`);
     assert.equal(response.status, 403);
     assert.equal(response.body.code, "DEVELOPER_OWNER_REQUIRED");
+  } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
+});
+
+test("Sandbox test-account routes create, list, and reset project-scoped credentials", async () => {
+  const originals = [];
+  const account = {
+    id: "test-account-1", projectId: project.id, slot: 1, username: "sandbox_ab12cd",
+    email: "sandbox-ab12cd@test.getprio.invalid", status: "active",
+    expiresAt: "2026-10-01T00:00:00.000Z", deviceCount: 1,
+    createdAt: "2026-09-24T00:00:00.000Z", updatedAt: "2026-09-24T00:00:00.000Z"
+  };
+  const calls = [];
+  replace(developerProjects, "findProjectForUser", async (projectId) => projectId === project.id ? project : null, originals);
+  replace(developerTestAccounts, "list", async (projectId) => { calls.push(["list", projectId]); return [account]; }, originals);
+  replace(developerTestAccounts, "create", async (input, options) => { calls.push(["create", input.projectId, input.name, Boolean(input.passwordHash), options.client]); return account; }, originals);
+  replace(developerTestAccounts, "reset", async (projectId, accountId, input, options) => { calls.push(["reset", projectId, accountId, Boolean(input.passwordHash), options.client]); return { ...account, deviceCount: 0 }; }, originals);
+  replace(db, "withTransaction", async (callback) => callback({ transaction: true }), originals);
+  replace(securityEventService, "logSecurityEvent", async () => {}, originals);
+  const { server, baseUrl } = await startServer();
+  try {
+    let response = await request("GET", `${baseUrl}/projects/${project.id}/sandbox/test-accounts`);
+    assert.equal(response.status, 200);
+    assert.equal(response.body.testAccounts[0].username, account.username);
+    response = await request("POST", `${baseUrl}/projects/${project.id}/sandbox/test-accounts`);
+    assert.equal(response.status, 201);
+    assert.equal(response.body.credentials.username, account.username);
+    assert.match(response.body.credentials.password, /^Sbx/);
+    assert.equal(response.body.warning.includes("not be shown again"), true);
+    response = await request("POST", `${baseUrl}/projects/${project.id}/sandbox/test-accounts/${account.id}/reset`);
+    assert.equal(response.status, 200);
+    assert.equal(response.body.testAccount.deviceCount, 0);
+    assert.deepEqual(calls[0], ["list", project.id]);
+    assert.equal(calls[1][0], "create");
+    assert.equal(calls[1][1], project.id);
+    assert.match(calls[1][2], /^Sandbox tester /);
+    assert.equal(calls[1][3], true);
+    assert.equal(calls[2][0], "reset");
+    assert.equal(calls[2][1], project.id);
+    assert.equal(calls[2][2], account.id);
+    assert.equal(calls[2][3], true);
+    assert.ok(calls.slice(1).every((call) => call.at(-1)?.transaction));
+  } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
+});
+
+test("Sandbox test-account creation preserves the two-account limit error", async () => {
+  const originals = [];
+  replace(developerProjects, "findProjectForUser", async () => project, originals);
+  replace(developerTestAccounts, "create", async () => {
+    const error = new Error("This project already has two Sandbox test accounts.");
+    error.statusCode = 409;
+    error.code = "SANDBOX_TEST_ACCOUNT_LIMIT_REACHED";
+    throw error;
+  }, originals);
+  replace(db, "withTransaction", async (callback) => callback({ transaction: true }), originals);
+  const { server, baseUrl } = await startServer();
+  try {
+    const response = await request("POST", `${baseUrl}/projects/${project.id}/sandbox/test-accounts`);
+    assert.equal(response.status, 409);
+    assert.equal(response.body.code, "SANDBOX_TEST_ACCOUNT_LIMIT_REACHED");
   } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
 });

@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Badge, Button, FloatingIndicator, Modal, Paper, Select, Switch, Textarea, TextInput } from "@mantine/core";
 import { IconCheck, IconCopy, IconExternalLink, IconKey, IconPencil, IconPlus, IconRefresh, IconWebhook, IconX } from "@tabler/icons-react";
-import { DeveloperApiError, developerApi, type ApiKey, type Delivery, type DeveloperTicket, type Profile, type Project, type Queue, type QueueSnapshot, type SandboxAllowance, type Session, type UsageReport, type Webhook } from "./developerApi";
+import { DeveloperApiError, developerApi, type ApiKey, type Delivery, type DeveloperTicket, type Profile, type Project, type Queue, type QueueSnapshot, type SandboxAllowance, type SandboxTestAccount, type Session, type UsageReport, type Webhook } from "./developerApi";
 import "./DeveloperPortalPrototype.css";
 import "./DeveloperWorkspace.css";
 
@@ -100,11 +100,12 @@ function Allowance({ value, compact = false }: { value: SandboxAllowance | null;
   </Paper>;
 }
 
-function Setup({ allowance }: { allowance: SandboxAllowance | null }) {
+function Setup({ allowance, testAccounts, busy, onCreate, onReset }: { allowance: SandboxAllowance | null; testAccounts: SandboxTestAccount[]; busy: string; onCreate: () => void; onReset: (account: SandboxTestAccount) => void }) {
   const [notice, setNotice] = useState("");
+  const accountCount = testAccounts.length;
   return <section className="developer-workspace-panel dpp-section"><h1>Your first ticket, end to end.</h1><p>Install the tester app, sign in with a test account, then follow a ticket through your integration.</p><Allowance value={allowance} /><div className="developer-workspace-setup-grid dpp-steps">
     <Paper component="article" withBorder className="developer-workspace-setup-card"><p className="developer-workspace-eyebrow">01 / INSTALL</p><h3>GetPrio Sandbox</h3><p>A separate app for testing. Your production account will not sign in here.</p><div className="developer-workspace-inline-actions"><Button type="button" onClick={() => setNotice("The Android Sandbox download is not provisioned in this local portal yet.")}>Android download</Button><Button type="button" variant="light" onClick={() => setNotice("The TestFlight join link is not provisioned in this local portal yet.")}>Join TestFlight</Button></div></Paper>
-    <Paper component="article" withBorder className="developer-workspace-setup-card"><p className="developer-workspace-eyebrow">02 / SIGN IN</p><h3>Test accounts · 0 / 2</h3><p>Credentials expire after seven days. Resetting credentials ends previous sessions and removes registered devices; retained tickets remain with the account.</p><Button type="button" onClick={() => setNotice("Test-account provisioning is not connected to this local portal yet.")}>Create test account</Button></Paper>
+    <Paper component="article" withBorder className="developer-workspace-setup-card"><p className="developer-workspace-eyebrow">02 / SIGN IN</p><h3>Test accounts · {accountCount} / 2</h3><p>Credentials expire after seven days. Resetting credentials ends previous sessions and removes registered devices; retained tickets remain with the account.</p>{testAccounts.length > 0 && <div className="developer-workspace-test-account-list">{testAccounts.map((account) => <div className="developer-workspace-test-account" key={account.id}><div><strong>{account.username}</strong><small>{account.status === "active" ? `Expires ${formatDate(account.expiresAt)}` : "Expired · reset to reuse"} · {account.deviceCount} device{account.deviceCount === 1 ? "" : "s"}</small></div><Button type="button" variant="light" loading={busy === `test-account-reset-${account.id}`} onClick={() => onReset(account)}>{account.status === "active" ? "Reset" : "Reset & reuse"}</Button></div>)}</div>}<Button type="button" loading={busy === "test-account-create"} disabled={accountCount >= 2} onClick={onCreate}>{accountCount >= 2 ? "Two accounts created" : "Create test account"}</Button></Paper>
     <Paper component="article" withBorder className="developer-workspace-setup-card"><p className="developer-workspace-eyebrow">03 / VERIFY</p><h3>Follow a test ticket</h3><ol><li>Use your sandbox key from your backend.</li><li>Create a queue and issue one test ticket.</li><li>Scan its private link, or accept its in-app invitation.</li><li>Call the ticket and verify the app update and push.</li></ol><p>A public queue QR does not claim an existing ticket.</p><Button component="a" href="/guides" variant="light">Open quickstart</Button></Paper>
   </div>{notice && <p className="developer-workspace-setup-action-notice" role="status">{notice}</p>}</section>;
 }
@@ -449,6 +450,7 @@ export default function DeveloperWorkspace({ session, accountContent, light = fa
   const [webhooks, setWebhooks] = useState<Webhook[]>([]);
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [allowance, setAllowance] = useState<SandboxAllowance | null>(null);
+  const [testAccounts, setTestAccounts] = useState<SandboxTestAccount[]>([]);
   const [usage, setUsage] = useState<UsageReport | null>(null);
   const [selectedWebhook, setSelectedWebhook] = useState("");
   const [secret, setSecret] = useState<{ label: string; value: string; warning: string } | null>(null);
@@ -484,11 +486,12 @@ export default function DeveloperWorkspace({ session, accountContent, light = fa
     setProjectId((current) => result.projects.some((item) => item.id === current && item.status === "active") ? current : result.projects.find((item) => item.status === "active")?.id || "");
   }
   async function refreshWorkspace(id = projectId) {
-    if (!id) { setKeys([]); setProfiles([]); setQueues([]); setQueueSnapshots([]); setWebhooks([]); setDeliveries([]); setAllowance(null); setUsage(null); return; }
-    const [keyResult, profileResult, webhookResult, allowanceResult, usageResult] = await Promise.all([developerApi.keys(id), developerApi.profiles(id), developerApi.webhooks(id), developerApi.sandboxAllowance(id), developerApi.usage(id)]);
+    if (!id) { setKeys([]); setProfiles([]); setQueues([]); setQueueSnapshots([]); setWebhooks([]); setDeliveries([]); setAllowance(null); setUsage(null); setTestAccounts([]); return; }
+    const [keyResult, profileResult, webhookResult, allowanceResult, usageResult, testAccountResult] = await Promise.all([developerApi.keys(id), developerApi.profiles(id), developerApi.webhooks(id), developerApi.sandboxAllowance(id), developerApi.usage(id), developerApi.testAccounts(id)]);
     setKeys(keyResult.keys); setProfiles(profileResult.profiles); setWebhooks(webhookResult.webhooks);
     setAllowance(allowanceResult.allowance);
     setUsage(usageResult);
+    setTestAccounts(testAccountResult.testAccounts);
     setSelectedProfile((current) => profileResult.profiles.some((item) => item.slug === current) ? current : profileResult.profiles[0]?.slug || "");
     setSelectedWebhook((current) => webhookResult.webhooks.some((item) => item.id === current) ? current : webhookResult.webhooks[0]?.id || "");
   }
@@ -631,6 +634,22 @@ export default function DeveloperWorkspace({ session, accountContent, light = fa
     await submit("webhook", async () => { const result = await developerApi.createWebhook(projectId, { name: String(form.get("name") || ""), url: String(form.get("url") || ""), events }, session.csrfToken); setWebhookCreateDirty(false); setSecret({ label: "Webhook signing secret", value: result.secret, warning: result.warning }); await refreshWorkspace(); applyNavigation("webhooks", "sandbox"); });
   }
 
+  async function createTestAccount() {
+    await submit("test-account-create", async () => {
+      const result = await developerApi.createTestAccount(projectId, session.csrfToken);
+      setSecret({ label: "Sandbox test-account credentials", value: `Username: ${result.credentials.username}\nEmail: ${result.credentials.email}\nPassword: ${result.credentials.password}`, warning: result.warning });
+      await refreshWorkspace();
+    });
+  }
+
+  async function resetTestAccount(account: SandboxTestAccount) {
+    await submit(`test-account-reset-${account.id}`, async () => {
+      const result = await developerApi.resetTestAccount(projectId, account.id, session.csrfToken);
+      setSecret({ label: "Reset Sandbox test-account credentials", value: `Username: ${result.credentials.username}\nEmail: ${result.credentials.email}\nPassword: ${result.credentials.password}`, warning: result.warning });
+      await refreshWorkspace();
+    });
+  }
+
   // Keep the account content available while navigating within the mounted
   // workspace. Sidebar navigation uses history.pushState, so the parent does
   // not remount to replace this prop when switching from a project page.
@@ -684,10 +703,10 @@ export default function DeveloperWorkspace({ session, accountContent, light = fa
       {section === "subscriptions" && <SubscriptionsPage projects={projects} />}
       {section === "teamSecurity" && <TeamSecurityPage session={session} />}
       {["billing", "subscriptions", "teamSecurity", "security"].includes(section) ? null : !project ? <section className="developer-workspace-panel dpp-section"><p className="developer-workspace-eyebrow">FIRST STEP</p><h1>Create your Sandbox project</h1><p>A project owns its keys, profiles, queues, and webhook registrations. The current plan supports one active project.</p><form onSubmit={(event) => void createProject(event)} className="developer-workspace-form"><TextInput label="Project name" name="name" required maxLength={80} placeholder="Harbor Services integration" /><Button type="submit" className="developer-workspace-primary" loading={busy === "project"} leftSection={<IconPlus size={16} />}>Create project</Button></form></section> : <>
-        {section === "setup" && <Setup allowance={allowance} />}
+        {section === "setup" && <Setup allowance={allowance} testAccounts={testAccounts} busy={busy} onCreate={() => void createTestAccount()} onReset={(account) => void resetTestAccount(account)} />}
         {section === "readiness" && <Readiness session={session} />}
         {section === "usage" && <UsagePage project={project} allowance={allowance} usage={usage} />}
-        {section === "overview" && <section className="developer-workspace-panel"><p className="developer-workspace-eyebrow">{project.name} / DEVELOPER WORKSPACE</p><h1>Good things start with a queue.</h1><p>Keep your software. Let customers follow their place in GetPrio.</p><div className="developer-workspace-dashboard-cards dpp-stats"><Allowance value={allowance} compact /><Paper component="article" withBorder className="developer-workspace-dashboard-card"><p className="developer-workspace-eyebrow">PRODUCTION WALLET</p><strong>0 <span>credits</span></strong><p>Shared across projects · no expiration</p></Paper><Paper component="article" withBorder className="developer-workspace-dashboard-card"><p className="developer-workspace-eyebrow">TEST ACCOUNTS</p><strong>0 <span>/ 2</span></strong><p>Two devices per test account</p></Paper></div><div className="developer-workspace-next dpp-overview"><Paper component="article" withBorder><Badge className="developer-workspace-next-badge" color="blue" variant="light" radius="xl">NEXT STEP</Badge><h3>Meet your sandbox.</h3><p>Your included project is ready for testing. Install the app and create up to two test accounts.</p><Button type="button" onClick={() => navigate("setup", "sandbox")}>Set up your sandbox →</Button></Paper><Paper component="article" withBorder><p className="developer-workspace-eyebrow">PRODUCTION</p><h3>A clear path to launch.</h3><p>MFA, project approval and prepaid credits. See each requirement before you go live.</p><Button type="button" variant="light" onClick={showReadiness}>Review readiness</Button></Paper></div><p><a href="/guides">Read the quickstart <IconExternalLink size={15} /></a> <a href="/reference">Open the API reference <IconExternalLink size={15} /></a></p></section>}
+        {section === "overview" && <section className="developer-workspace-panel"><p className="developer-workspace-eyebrow">{project.name} / DEVELOPER WORKSPACE</p><h1>Good things start with a queue.</h1><p>Keep your software. Let customers follow their place in GetPrio.</p><div className="developer-workspace-dashboard-cards dpp-stats"><Allowance value={allowance} compact /><Paper component="article" withBorder className="developer-workspace-dashboard-card"><p className="developer-workspace-eyebrow">PRODUCTION WALLET</p><strong>0 <span>credits</span></strong><p>Shared across projects · no expiration</p></Paper><Paper component="article" withBorder className="developer-workspace-dashboard-card"><p className="developer-workspace-eyebrow">TEST ACCOUNTS</p><strong>{testAccounts.length} <span>/ 2</span></strong><p>Two devices per test account</p></Paper></div><div className="developer-workspace-next dpp-overview"><Paper component="article" withBorder><Badge className="developer-workspace-next-badge" color="blue" variant="light" radius="xl">NEXT STEP</Badge><h3>Meet your sandbox.</h3><p>Your included project is ready for testing. Install the app and create up to two test accounts.</p><Button type="button" onClick={() => navigate("setup", "sandbox")}>Set up your sandbox →</Button></Paper><Paper component="article" withBorder><p className="developer-workspace-eyebrow">PRODUCTION</p><h3>A clear path to launch.</h3><p>MFA, project approval and prepaid credits. See each requirement before you go live.</p><Button type="button" variant="light" onClick={showReadiness}>Review readiness</Button></Paper></div><p><a href="/guides">Read the quickstart <IconExternalLink size={15} /></a> <a href="/reference">Open the API reference <IconExternalLink size={15} /></a></p></section>}
         {section === "keyCreate" && <ApiKeyCreatePage project={project} profiles={profiles} busy={busy} onCreate={(event) => void createKey(event)} onBack={() => navigate("keys", "sandbox")} onDirtyChange={setKeyCreateDirty} />}
         {section === "keys" && <ApiKeysPage project={project} keys={keys} onCreatePage={() => navigate("keyCreate", "sandbox")} onRevoke={(key) => setConfirmation({ title: `Revoke ${key.name}?`, message: "This key will stop authorizing requests immediately. Existing queues, profiles, and tickets will remain intact.", actionLabel: "Revoke key", busyKey: `revoke-${key.id}`, run: async () => { await developerApi.revokeKey(projectId, key.id, session.csrfToken); await refreshWorkspace(); } })} />}
         {section === "profileCreate" && <ProfileCreatePage busy={busy} onCreateProfile={(event) => void createProfile(event)} onBack={() => navigate("profiles", "sandbox")} />}
