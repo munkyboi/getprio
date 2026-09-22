@@ -85,6 +85,25 @@ const TICKET_COLUMNS = `
   terminal_at, resource_version, created_at, updated_at
 `;
 
+const MOBILE_TICKET_COLUMNS = `
+  t.id AS ticket_id, t.developer_project_id, t.environment, t.developer_api_profile_id,
+  t.developer_api_queue_id, t.developer_api_queue_counter_id, t.ticket_number,
+  t.sequence, t.display_label, t.external_reference, t.recipient_email, t.status,
+  t.status_reason, t.called_at, t.served_at, t.skipped_at, t.cancelled_at, t.unserved_at,
+  t.terminal_at, t.resource_version, t.created_at, t.updated_at,
+  p.display_name AS profile_display_name, q.slug AS queue_slug, q.display_name AS queue_display_name
+`;
+
+function mapMobileTicket(row) {
+  if (!row) return null;
+  return {
+    ...mapTicket(row),
+    profileDisplayName: row.profile_display_name || null,
+    queueSlug: row.queue_slug || null,
+    queueDisplayName: row.queue_display_name || null
+  };
+}
+
 async function findProfile(projectId, environment, profileSlug, options = {}) {
   const result = await clientFor(options).query(
     `SELECT ${PROFILE_COLUMNS}
@@ -474,6 +493,50 @@ async function issueTicket(input, options = {}) {
   return ticket;
 }
 
+async function listMobileInvitationsForUser(userId, environment, options = {}) {
+  const result = await clientFor(options).query(
+    `SELECT ${MOBILE_TICKET_COLUMNS}
+       FROM developer_api_tickets t
+       INNER JOIN developer_api_profiles p ON p.id = t.developer_api_profile_id
+       INNER JOIN developer_api_queues q ON q.id = t.developer_api_queue_id
+       INNER JOIN users u ON u.id = $1
+      WHERE t.environment = $2
+        AND lower(t.recipient_email) = lower(u.email)
+        AND t.linked_user_id IS NULL
+        AND t.linking_disabled_at IS NULL
+        AND t.customer_data_deleted_at IS NULL
+        AND t.status IN ('waiting', 'called')
+      ORDER BY t.created_at DESC, t.id DESC
+      LIMIT 50`,
+    [Number(userId), environment]
+  );
+  return result.rows.map(mapMobileTicket);
+}
+
+async function acceptMobileInvitation(ticketId, userId, environment, options = {}) {
+  const result = await clientFor(options).query(
+    `UPDATE developer_api_tickets t
+        SET linked_user_id = $2, updated_at = NOW()
+      WHERE t.id = $1
+        AND t.environment = $3
+        AND t.status IN ('waiting', 'called')
+        AND t.linking_disabled_at IS NULL
+        AND t.customer_data_deleted_at IS NULL
+        AND (t.linked_user_id IS NULL OR t.linked_user_id = $2)
+        AND EXISTS (
+          SELECT 1 FROM users u
+           WHERE u.id = $2 AND lower(t.recipient_email) = lower(u.email)
+        )
+      RETURNING t.id AS ticket_id, t.developer_project_id, t.environment, t.developer_api_profile_id,
+        t.developer_api_queue_id, t.developer_api_queue_counter_id, t.ticket_number,
+        t.sequence, t.display_label, t.external_reference, t.recipient_email, t.status,
+        t.status_reason, t.called_at, t.served_at, t.skipped_at, t.cancelled_at, t.unserved_at,
+        t.terminal_at, t.resource_version, t.created_at, t.updated_at`,
+    [ticketId, Number(userId), environment]
+  );
+  return mapTicket(result.rows[0]);
+}
+
 async function callNextTicket(input, options = {}) {
   const queryClient = clientFor(options);
   const queue = await findQueue(input.profileId, input.queueSlug, { client: queryClient, forUpdate: true });
@@ -554,6 +617,7 @@ module.exports = {
   findQueueById,
   findTicket,
   getUsage,
+  listMobileInvitationsForUser,
   issueTicket,
   listProfiles,
   listTicketEvents,
@@ -562,6 +626,7 @@ module.exports = {
   mapQueue,
   mapTicket,
   queueSnapshot,
+  acceptMobileInvitation,
   transitionTicket,
   updateProfile,
   updateQueue

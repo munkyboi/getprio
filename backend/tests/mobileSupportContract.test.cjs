@@ -201,6 +201,10 @@ test("authenticated mobile tickets expose only owned, environment-scoped queue r
       async findMobileTicketForUser(id) { return tickets.find((ticket) => ticket._id === String(id)) || null; },
       async listWaitingTickets() { return [tickets[0]]; }
     },
+    "../src/repositories/developerQueues": {
+      async listMobileInvitationsForUser() { return []; },
+      async acceptMobileInvitation() { return null; }
+    },
     "../src/repositories/tenants": { async findTenantById(id) { return { _id: id, name: `Queue ${id}`, publicProfileDisplayName: `Public ${id}` }; } },
     "../src/repositories/storeLocations": { async findLocationById(id) { return { _id: id, name: `Location ${id}`, slug: `location-${id}` }; } },
     "../src/repositories/serviceCounters": { async findCounterById(id) { return { _id: id, locationId: "location-2", name: "Counter 2" }; } }
@@ -260,7 +264,11 @@ test("mobile Sandbox tickets include independent Developer API records linked by
     },
     "../src/repositories/tenants": {},
     "../src/repositories/storeLocations": {},
-    "../src/repositories/serviceCounters": {}
+    "../src/repositories/serviceCounters": {},
+    "../src/repositories/developerQueues": {
+      async listMobileInvitationsForUser() { return []; },
+      async acceptMobileInvitation() { return null; }
+    }
   });
   const app = express();
   app.set("trust proxy", true);
@@ -280,6 +288,89 @@ test("mobile Sandbox tickets include independent Developer API records linked by
     const detail = await fetch(`http://127.0.0.1:${server.address().port}/api/v1/mobile/tickets/${developerTicket._id}`, { headers: { "x-forwarded-host": "sandbox-api.getprio.online" } });
     assert.equal(detail.status, 200);
     assert.equal((await detail.json()).ticket.id, developerTicket._id);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("mobile ticket invitations are scoped by email and can be accepted", async () => {
+  const invitation = {
+    id: "123e4567-e89b-42d3-a456-426614174000",
+    ticketNumber: "QUEUE-0001",
+    displayLabel: "Johnny",
+    externalReference: "visit-1",
+    status: "waiting",
+    environment: "sandbox",
+    profileDisplayName: "Sandbox profile",
+    queueDisplayName: "Sandbox queue",
+    queueSlug: "main",
+    createdAt: "2026-09-22T00:00:00.000Z",
+    updatedAt: "2026-09-22T00:00:00.000Z"
+  };
+  const router = requireWithMocks("../mobile/ticketRoutes.js", {
+    "../src/middleware/auth": {
+      authenticate(req, _res, next) { req.user = { _id: "customer-7" }; next(); }
+    },
+    "../src/middleware/asyncHandler": (handler) => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next),
+    "../src/repositories/tickets": {
+      async listMobileTicketsForUser() { return { tickets: [], nextCursor: null }; },
+      async listWaitingTickets() { return []; }
+    },
+    "../src/repositories/developerQueues": {
+      async listMobileInvitationsForUser(userId, environment) {
+        assert.equal(userId, "customer-7");
+        assert.equal(environment, "sandbox");
+        return [invitation];
+      },
+      async acceptMobileInvitation(ticketId, userId, environment) {
+        assert.equal(ticketId, invitation.id);
+        assert.equal(userId, "customer-7");
+        assert.equal(environment, "sandbox");
+        return invitation;
+      }
+    },
+    "../src/repositories/tenants": { async findTenantById() { return null; } },
+    "../src/repositories/storeLocations": { async findLocationById() { return null; } },
+    "../src/repositories/serviceCounters": { async findCounterById() { return null; } }
+  });
+  const app = express();
+  app.set("trust proxy", true);
+  app.use(express.json());
+  app.use("/api/v1/mobile", router);
+  app.use((error, _req, res, _next) => res.status(error.statusCode || 500).json({ message: error.message }));
+  const server = await new Promise((resolve) => { const nextServer = app.listen(0, () => resolve(nextServer)); });
+  try {
+    const baseUrl = `http://127.0.0.1:${server.address().port}/api/v1/mobile`;
+    const pending = await fetch(`${baseUrl}/ticket-invitations`, { headers: { "x-forwarded-host": "sandbox.getprio.online" } });
+    const pendingBody = await pending.json();
+    assert.equal(pending.status, 200, JSON.stringify(pendingBody));
+    assert.deepEqual(pendingBody.invitations[0], {
+      id: invitation.id,
+      ticket_number: "QUEUE-0001",
+      source: "developer_api",
+      display_label: "Johnny",
+      external_reference: "visit-1",
+      status: "waiting",
+      status_reason: null,
+      profile: { queue_name: "Sandbox queue", location_name: null, location_slug: "main" },
+      queue_position: null,
+      called_counter: null,
+      estimated_wait_minutes: null,
+      can_cancel: false,
+      tracking_status: "active",
+      issued_at: invitation.createdAt,
+      updated_at: invitation.updatedAt,
+      developer_environment: "sandbox",
+      invitation_pending: true
+    });
+
+    const accepted = await fetch(`${baseUrl}/ticket-invitations/${invitation.id}/accept`, {
+      method: "POST",
+      headers: { "x-forwarded-host": "sandbox.getprio.online", "content-type": "application/json" },
+      body: "{}"
+    });
+    assert.equal(accepted.status, 200);
+    assert.equal((await accepted.json()).ticket.ticket_number, "QUEUE-0001");
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
