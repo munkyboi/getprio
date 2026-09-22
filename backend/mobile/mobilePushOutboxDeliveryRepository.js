@@ -50,10 +50,23 @@ async function claimPending(outboxId, workerId, options = {}) {
      FROM mobile_push_outbox_deliveries AS delivery
      JOIN mobile_push_registrations AS registration
        ON registration.id = delivery.registration_id
+     JOIN users AS account_user ON account_user.id = registration.user_id
+     LEFT JOIN developer_project_test_accounts AS test_account
+       ON test_account.user_id = account_user.id AND test_account.status = 'active'
+     LEFT JOIN developer_projects AS test_project
+       ON test_project.id = test_account.developer_project_id
      WHERE delivery.outbox_id = $1
        AND delivery.lease_owner = $2
        AND delivery.status = 'pending'
        AND registration.is_active = TRUE
+       AND NOT (
+         account_user.is_sandbox_test_account = TRUE
+         AND (
+           account_user.sandbox_test_account_expires_at IS NULL
+           OR account_user.sandbox_test_account_expires_at <= NOW()
+           OR test_project.status IS DISTINCT FROM 'active'
+         )
+       )
      ORDER BY delivery.registration_id`,
     [Number(outboxId), String(workerId)]
   );
@@ -80,10 +93,23 @@ async function listPending(outboxId, options = {}) {
      FROM mobile_push_outbox_deliveries AS delivery
      JOIN mobile_push_registrations AS registration
        ON registration.id = delivery.registration_id
+     JOIN users AS account_user ON account_user.id = registration.user_id
+     LEFT JOIN developer_project_test_accounts AS test_account
+       ON test_account.user_id = account_user.id AND test_account.status = 'active'
+     LEFT JOIN developer_projects AS test_project
+       ON test_project.id = test_account.developer_project_id
      WHERE delivery.outbox_id = $1
        AND delivery.status = 'pending'
        AND (delivery.leased_until IS NULL OR delivery.leased_until < NOW())
        AND registration.is_active = TRUE
+       AND NOT (
+         account_user.is_sandbox_test_account = TRUE
+         AND (
+           account_user.sandbox_test_account_expires_at IS NULL
+           OR account_user.sandbox_test_account_expires_at <= NOW()
+           OR test_project.status IS DISTINCT FROM 'active'
+         )
+       )
      ORDER BY delivery.registration_id`,
     [Number(outboxId)]
   );

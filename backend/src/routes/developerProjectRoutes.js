@@ -498,12 +498,13 @@ router.post("/projects/:projectId/sandbox/test-accounts", asyncHandler(async (re
   const password = createSandboxTestPassword();
   const identity = createSandboxTestIdentity();
   const expiresAt = sandboxExpiry();
+  const passwordHash = await bcrypt.hash(password, 10);
   const account = await db.withTransaction((client) => developerTestAccounts.create({
     projectId: project.id,
     name: `Sandbox tester ${identity.username.slice(-6)}`,
     username: identity.username,
     email: identity.email,
-    passwordHash: bcrypt.hashSync(password, 10),
+    passwordHash,
     expiresAt
   }, { client }));
   if (!account) throw notFound();
@@ -529,8 +530,9 @@ router.post("/projects/:projectId/sandbox/test-accounts/:accountId/reset", async
   if (!project) throw notFound();
   const password = createSandboxTestPassword();
   const expiresAt = sandboxExpiry();
+  const passwordHash = await bcrypt.hash(password, 10);
   const account = await db.withTransaction((client) => developerTestAccounts.reset(project.id, req.params.accountId, {
-    passwordHash: bcrypt.hashSync(password, 10),
+    passwordHash,
     expiresAt
   }, { client }));
   if (!account) throw notFound("Sandbox test account not found.");

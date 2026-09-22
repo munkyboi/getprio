@@ -1,4 +1,5 @@
 const db = require("../config/db");
+const authSessions = require("./authSessions");
 
 function buildQueryClient(client) {
   return client || db.pool;
@@ -426,7 +427,12 @@ async function revokeKeysForDeletedProfile(projectId, environment, profileSlug, 
 }
 
 async function archiveProject(projectId, userId, options = {}) {
-  const result = await buildQueryClient(options.client).query(
+  if (!options.client) {
+    return db.withTransaction((client) => archiveProject(projectId, userId, { ...options, client }));
+  }
+
+  const client = buildQueryClient(options.client);
+  const result = await client.query(
     `UPDATE developer_projects p
      SET status = 'archived', updated_at = NOW()
      WHERE p.id = $1 AND p.status = 'active'
@@ -438,7 +444,27 @@ async function archiveProject(projectId, userId, options = {}) {
      RETURNING p.id AS project_id, p.developer_account_id, p.name, p.status, p.created_at, p.updated_at`,
     [projectId, Number(userId)]
   );
-  return mapProject(result.rows[0]);
+  const project = mapProject(result.rows[0]);
+  if (!project) return null;
+
+  const accounts = await client.query(
+    `UPDATE developer_project_test_accounts
+     SET status = 'revoked', updated_at = NOW()
+     WHERE developer_project_id = $1 AND status = 'active'
+     RETURNING user_id`,
+    [projectId]
+  );
+  for (const account of accounts.rows) {
+    await client.query(
+      `UPDATE users
+       SET sandbox_test_account_expires_at = NOW(), updated_at = NOW()
+       WHERE id = $1 AND is_sandbox_test_account = TRUE`,
+      [Number(account.user_id)]
+    );
+    await authSessions.revokeAllSessionsForUser(account.user_id, "developer_project_archived", { client });
+    await client.query(`DELETE FROM mobile_push_registrations WHERE user_id = $1`, [Number(account.user_id)]);
+  }
+  return project;
 }
 
 async function touchApiKey(keyId, options = {}) {

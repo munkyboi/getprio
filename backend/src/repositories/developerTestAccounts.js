@@ -1,6 +1,7 @@
 const db = require("../config/db");
 const userRepository = require("./users");
 const authSessions = require("./authSessions");
+const mfaRepository = require("./mfa");
 
 const MAX_ACCOUNTS = 2;
 
@@ -107,10 +108,14 @@ async function reset(projectId, accountId, { passwordHash, expiresAt }, options 
   await client.query(
     `UPDATE users
      SET password_hash = $2, password_hash_algorithm = 'bcrypt',
-         sandbox_test_account_expires_at = $3, last_password_changed_at = NOW(), updated_at = NOW()
+         sandbox_test_account_expires_at = $3, last_password_changed_at = NOW(),
+         mfa_enabled = FALSE, email_mfa_enabled = FALSE, mfa_required = FALSE,
+         updated_at = NOW()
      WHERE id = $1`,
     [Number(account.user_id), passwordHash, expiresAt]
   );
+  await mfaRepository.revokeFactorsAndRecoveryCodes(account.user_id, { client });
+  await client.query(`DELETE FROM auth_mfa_challenges WHERE user_id = $1`, [Number(account.user_id)]);
   await authSessions.revokeAllSessionsForUser(account.user_id, "sandbox_test_account_reset", { client });
   await client.query(
     `DELETE FROM mobile_push_registrations WHERE user_id = $1`,
