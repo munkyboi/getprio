@@ -197,9 +197,6 @@ function ProfilesPage({ profiles, onCreatePage, busy, onUpdateProfile, onDeleteP
   </section>;
 }
 
-type QueueTicketRecord = Pick<DeveloperTicket, "id" | "ticketNumber" | "displayLabel" | "createdAt" | "updatedAt" | "status" | "externalReference" | "queueId">;
-type QueueTicketRow = { ticket: QueueTicketRecord; label: string; ahead: string; tracking: string };
-
 function QueueCreatePage({ profiles, selectedProfileValue, busy, onCreateQueue, onBack }: { profiles: Profile[]; selectedProfileValue: Profile | null; busy: string; onCreateQueue: (event: FormEvent<HTMLFormElement>) => void; onBack: () => void }) {
   return <section className="developer-workspace-panel dpp-section developer-workspace-queue-create-page">
     <div className="dpp-actions"><Button type="button" variant="subtle" onClick={onBack}>← Back to queues</Button></div>
