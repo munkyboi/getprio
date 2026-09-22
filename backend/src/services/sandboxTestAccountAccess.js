@@ -2,17 +2,29 @@ const { normalizeApiPath } = require("../middleware/apiPath");
 
 const SANDBOX_HOSTS = new Set(["sandbox-api.getprio.online", "sandbox.getprio.online"]);
 const SANDBOX_AUTH_PATHS = new Set(["/auth/login", "/auth/refresh", "/auth/me", "/auth/logout"]);
+const TRUSTED_INGRESS_HOST_HEADER = "x-getprio-ingress-host";
 
-function requestHostname(req) {
-  return String(req?.hostname || req?.headers?.host || "")
+function normalizeHostname(value) {
+  return String(value || "")
     .trim()
     .toLowerCase()
     .split(":")[0];
 }
 
+function requestHostname(req) {
+  return normalizeHostname(req?.hostname || req?.headers?.host);
+}
+
+function trustedIngressHostname(req) {
+  return normalizeHostname(req?.headers?.[TRUSTED_INGRESS_HOST_HEADER]);
+}
+
 function isSandboxRequest(req) {
+  const ingressHostname = trustedIngressHostname(req);
+  if (ingressHostname) return SANDBOX_HOSTS.has(ingressHostname);
+  if (process.env.NODE_ENV === "production") return false;
   const hostname = requestHostname(req);
-  return SANDBOX_HOSTS.has(hostname) || hostname === "localhost" || hostname === "127.0.0.1";
+  return hostname === "localhost" || hostname === "127.0.0.1";
 }
 
 function isSupportedSandboxRoute(req) {
@@ -21,11 +33,9 @@ function isSupportedSandboxRoute(req) {
 }
 
 function isExpired(user, now = new Date()) {
-  return Boolean(
-    user?.isSandboxTestAccount &&
-    user.sandboxTestAccountExpiresAt &&
-    new Date(user.sandboxTestAccountExpiresAt).getTime() <= now.getTime()
-  );
+  if (!user?.isSandboxTestAccount) return false;
+  const expiresAt = new Date(user.sandboxTestAccountExpiresAt || "");
+  return !Number.isFinite(expiresAt.getTime()) || expiresAt.getTime() <= now.getTime();
 }
 
 function assertRequestAllowed(user, req, now = new Date()) {

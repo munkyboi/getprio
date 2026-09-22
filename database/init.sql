@@ -185,6 +185,9 @@ CREATE TABLE users (
   mfa_required BOOLEAN NOT NULL DEFAULT FALSE,
   is_sandbox_test_account BOOLEAN NOT NULL DEFAULT FALSE,
   sandbox_test_account_expires_at TIMESTAMPTZ,
+  CONSTRAINT sandbox_test_account_expiry_check CHECK (
+    is_sandbox_test_account = FALSE OR sandbox_test_account_expires_at IS NOT NULL
+  ),
   notification_settings JSONB NOT NULL DEFAULT '{"bookingAlerts":true,"queueAlerts":true}'::JSONB,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

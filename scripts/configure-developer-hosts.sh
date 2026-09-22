@@ -66,6 +66,10 @@ fi
   -e '/server_name[[:space:]]+api\.getprio\.online([^;]*);/ { /sandbox-api\.getprio\.online/! s/;/ sandbox-api.getprio.online;/; }' \
   "$nginx_site_file"
 
+if ! grep -Eq 'proxy_set_header[[:space:]]+X-GetPrio-Ingress-Host[[:space:]]+\$host;' "$nginx_site_file"; then
+  "${sudo_cmd[@]}" sed -i '/proxy_set_header[[:space:]]\+Host[[:space:]]\+\$host;/a\    proxy_set_header X-GetPrio-Ingress-Host $host;' "$nginx_site_file"
+fi
+
 developer_site_tmp="$(mktemp)"
 cleanup() {
   rm -f "$developer_site_tmp"
