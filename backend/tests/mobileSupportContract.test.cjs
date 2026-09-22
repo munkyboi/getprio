@@ -133,11 +133,14 @@ test("mobile push delivery retains tokens without exposing them in mapped respon
 test("mobile route wiring keeps OAuth and queue contracts under the mobile namespace", () => {
   const app = fs.readFileSync(path.join(repositoryRoot, "backend/src/app.ts"), "utf8");
   const oauth = fs.readFileSync(path.join(repositoryRoot, "backend/mobile/oauthRoutes.js"), "utf8");
+  const sandboxAuth = fs.readFileSync(path.join(repositoryRoot, "backend/mobile/sandboxAuthRoutes.js"), "utf8");
   const push = fs.readFileSync(path.join(repositoryRoot, "backend/mobile/pushRoutes.js"), "utf8");
   const queue = fs.readFileSync(path.join(repositoryRoot, "backend/mobile/queueJoinRoutes.js"), "utf8");
   assert.match(app, /app\.use\("\/api\/mobile\/auth", mobileOAuthRoutes\)/);
+  assert.match(app, /app\.use\("\/api\/mobile\/auth", mobileSandboxAuthRoutes\)/);
   assert.match(app, /app\.use\("\/api\/mobile\/push", mobilePushRoutes\)/);
   assert.match(app, /app\.use\("\/api\/v1\/mobile\/auth", mobileOAuthRoutes\)/);
+  assert.match(app, /app\.use\("\/api\/v1\/mobile\/auth", mobileSandboxAuthRoutes\)/);
   assert.match(app, /app\.use\("\/api\/v1\/mobile\/push", mobilePushRoutes\)/);
   assert.match(app, /app\.use\("\/api\/v1\/mobile", mobileQueueJoinRoutes\)/);
   assert.match(app, /app\.use\("\/api\/v1\/auth", authRoutes\)/);
@@ -145,6 +148,8 @@ test("mobile route wiring keeps OAuth and queue contracts under the mobile names
   assert.match(app, /app\.use\("\/api\/v1\/public", publicRoutes\)/);
   assert.ok(app.indexOf('app.use("/api/mobile/auth", mobileOAuthRoutes)') < app.indexOf('app.use("/api/mobile", mobileQueueJoinRoutes)'));
   assert.ok(app.indexOf('app.use("/api/v1/mobile/auth", mobileOAuthRoutes)') < app.indexOf('app.use("/api/v1/mobile", mobileQueueJoinRoutes)'));
+  assert.match(sandboxAuth, /router\.post\(\s*"\/login"/);
+  assert.match(sandboxAuth, /SANDBOX_HOSTS/);
   assert.match(oauth, /codeChallenge/);
   assert.match(oauth, /codeRepository\.consume/);
   assert.match(oauth, /router\.post\(\s*"\/oauth\/apple"/);
