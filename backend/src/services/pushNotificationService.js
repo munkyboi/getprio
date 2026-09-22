@@ -14,6 +14,12 @@ function isPushConfigured() {
   return isWebPushConfigured() || mobilePushService.isConfigured();
 }
 
+function isPushConfiguredForChannels(channels) {
+  const includeWebPush = channels?.webPush !== false;
+  const includeFcm = channels?.fcm !== false;
+  return (includeWebPush && isWebPushConfigured()) || (includeFcm && mobilePushService.isConfigured());
+}
+
 function isWebPushConfigured() {
   return Boolean(env.vapidPublicKey && env.vapidPrivateKey && env.vapidSubject);
 }
@@ -72,6 +78,21 @@ function buildBrowserSubscription(subscription) {
       p256dh: subscription.p256dh,
       auth: subscription.auth
     }
+  };
+}
+
+function buildCustomerQueueNotificationPayload({ tenant, ticket, action, notificationId }) {
+  return {
+    title: action === "joined" ? "Joined queue" : "Queue update",
+    body: getQueueUpdateBody(tenant, ticket, action),
+    url: ticket.lookupCode
+      ? `/ticket/${tenant.slug}?ticket=${encodeURIComponent(ticket.lookupCode)}`
+      : "/account/tickets",
+    route: "ticket",
+    ticketRef: ticket.lookupCode ? String(ticket.lookupCode) : String(ticket._id),
+    tag: `customer-queue-${ticket._id}-${action || ticket.status}`,
+    eventType: `customer_queue_${action || "updated"}`,
+    notificationId: notificationId || crypto.randomUUID()
   };
 }
 
@@ -200,12 +221,25 @@ async function sendTenantNotification({
   };
 }
 
-async function sendUserNotification({ userId, title, body, url, tag, eventType }) {
+async function sendUserNotification({
+  userId,
+  title,
+  body,
+  url,
+  route,
+  ticketRef,
+  tag,
+  eventType,
+  notificationId,
+  channels
+}) {
   if (!userId) {
     return { attempted: 0, sent: 0 };
   }
 
-  if (!isPushConfigured()) {
+  const includeWebPush = channels?.webPush !== false;
+  const includeFcm = channels?.fcm !== false;
+  if (!includeWebPush && !includeFcm) {
     return { attempted: 0, sent: 0 };
   }
 
@@ -213,16 +247,18 @@ async function sendUserNotification({ userId, title, body, url, tag, eventType }
     title,
     body,
     url: url || "/account",
+    route: route || url || "/account",
+    ...(ticketRef ? { ticketRef: String(ticketRef) } : {}),
     tag: tag || eventType || "getprio-customer-notification",
     eventType: eventType || "customer_alert",
-    notificationId: crypto.randomUUID()
+    notificationId: notificationId || crypto.randomUUID()
   };
 
   if (!claimNotificationKey(`user:${userId}:${payload.tag}`)) {
     return { attempted: 0, sent: 0, deduped: true };
   }
 
-  const subscriptions = isWebPushConfigured()
+  const subscriptions = includeWebPush && isWebPushConfigured()
     ? await pushSubscriptionRepository.listActiveByUserId(userId)
     : [];
   let sent = 0;
@@ -231,7 +267,9 @@ async function sendUserNotification({ userId, title, body, url, tag, eventType }
       sent += 1;
     }
   }
-  const fcm = await mobilePushService.sendToUser({ userId, payload });
+  const fcm = includeFcm
+    ? await mobilePushService.sendToUser({ userId, payload })
+    : { attempted: 0, sent: 0 };
 
   return {
     attempted: subscriptions.length + fcm.attempted,
@@ -482,12 +520,12 @@ function getQueueUpdateBody(tenant, ticket, action) {
   }
 }
 
-async function notifyCustomerQueueUpdate({ tenant, ticket, action }) {
+async function notifyCustomerQueueUpdate({ tenant, ticket, action, channels }) {
   if (!ticket?.userId) {
     return { attempted: 0, sent: 0 };
   }
 
-  if (!isPushConfigured()) {
+  if (!isPushConfiguredForChannels(channels)) {
     return { attempted: 0, sent: 0 };
   }
 
@@ -498,13 +536,8 @@ async function notifyCustomerQueueUpdate({ tenant, ticket, action }) {
 
   return sendUserNotification({
     userId: ticket.userId,
-    title: action === "joined" ? "Joined queue" : "Queue update",
-    body: getQueueUpdateBody(tenant, ticket, action),
-    url: ticket.lookupCode
-      ? `/ticket/${tenant.slug}?ticket=${encodeURIComponent(ticket.lookupCode)}`
-      : "/account/tickets",
-    tag: `customer-queue-${ticket._id}-${action || ticket.status}`,
-    eventType: `customer_queue_${action || "updated"}`
+    ...buildCustomerQueueNotificationPayload({ tenant, ticket, action }),
+    channels
   });
 }
 
@@ -515,6 +548,7 @@ module.exports = {
   deleteSubscription,
   sendTenantNotification,
   sendUserNotification,
+  buildCustomerQueueNotificationPayload,
   notifyVendorQueueJoin,
   notifyVendorBookingIntake,
   notifyVendorPaymentProofReview,

@@ -53,7 +53,8 @@ test("FCM test delivery returns redacted per-installation outcomes", async () =>
   const successes = [];
   const originalFetch = global.fetch;
   let fcmCalls = 0;
-  global.fetch = async (url) => {
+  const messageBodies = [];
+  global.fetch = async (url, options) => {
     if (url === "https://oauth2.googleapis.com/token") {
       return {
         ok: true,
@@ -63,6 +64,7 @@ test("FCM test delivery returns redacted per-installation outcomes", async () =>
     }
 
     fcmCalls += 1;
+    messageBodies.push(JSON.parse(options?.body || "{}"));
     return {
       ok: fcmCalls === 1,
       status: fcmCalls === 1 ? 200 : 400,
@@ -117,6 +119,8 @@ test("FCM test delivery returns redacted per-installation outcomes", async () =>
     });
     assert.equal(Object.hasOwn(accepted.outcomes[0], "token"), false);
     assert.deepEqual(successes, ["registration-1"]);
+    assert.equal(messageBodies[0].message.android.collapseKey, "notification-1");
+    assert.equal(messageBodies[0].message.apns.headers["apns-collapse-id"], "notification-1");
 
     const rejected = await service.sendToRegistrations({
       registrations,

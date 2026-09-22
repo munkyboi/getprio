@@ -528,6 +528,21 @@ async function closeTicketOutcomes(client, queueDay) {
         aggregateVersion: queueDay.version,
         deadlineVersion: queueDay.deadlineVersion
       }, { client });
+      if (ticket.user_id) {
+        await outbox.enqueue({
+          idempotencyKey: `${event.eventKey}:customer:fcm`,
+          queueEventId: event._id,
+          queueDayId: queueDay._id,
+          ticketId: ticket.id,
+          tenantId: queueDay.tenantId,
+          recipientKey: `user:${ticket.user_id}`,
+          channel: "fcm",
+          templateName: `ticket_${nextStatus}`,
+          payload: { ticketId: String(ticket.id), reasonCode },
+          aggregateVersion: queueDay.version,
+          deadlineVersion: queueDay.deadlineVersion
+        }, { client });
+      }
       if (ticket.notify_by_email) {
         await outbox.enqueue({
           idempotencyKey: `${event.eventKey}:customer:email`,
@@ -796,6 +811,18 @@ async function expirePendingCarryOvers(limit = 100) {
           templateName: "ticket_expired",
           payload: { ticketId: String(ticket.id), reasonCode: "carry_over_window_expired" }
         }, { client });
+        if (ticket.user_id) {
+          await outbox.enqueue({
+            idempotencyKey: `${event.eventKey}:customer:fcm`,
+            queueEventId: event._id,
+            ticketId: ticket.id,
+            tenantId: ticket.tenant_id,
+            recipientKey: `user:${ticket.user_id}`,
+            channel: "fcm",
+            templateName: "ticket_expired",
+            payload: { ticketId: String(ticket.id), reasonCode: "carry_over_window_expired" }
+          }, { client });
+        }
         if (ticket.notify_by_email) {
           await outbox.enqueue({
             idempotencyKey: `${event.eventKey}:customer:email`,
