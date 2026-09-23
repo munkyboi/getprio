@@ -247,7 +247,18 @@ async function mutate(req, res, { scope, payload, status = 200, run, notificatio
         tag: `developer-ticket-near-turn-${ticket.id}`,
         eventType: "developer_ticket_near_turn",
         environment: getEnvironment(req)
-      }).catch((notificationError) => {
+      }).then(async (delivery) => {
+        if (delivery?.sent > 0) {
+          await developerQueues.markNearTurnTicketNotified(ticket.id);
+        } else {
+          await developerQueues.releaseNearTurnTicketClaim(ticket.id);
+        }
+      }).catch(async (notificationError) => {
+        try {
+          await developerQueues.releaseNearTurnTicketClaim(ticket.id);
+        } catch (releaseError) {
+          console.warn("[developer-ticket-near-turn-claim-release-skipped]", releaseError.message);
+        }
         console.warn("[developer-ticket-near-turn-push-skipped]", notificationError.message);
       });
     }

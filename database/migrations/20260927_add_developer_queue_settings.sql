@@ -60,4 +60,5 @@ BEGIN
 END $$;
 
 ALTER TABLE developer_api_tickets
-  ADD COLUMN IF NOT EXISTS near_turn_notified_at TIMESTAMPTZ;
+  ADD COLUMN IF NOT EXISTS near_turn_notified_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS near_turn_notification_claimed_at TIMESTAMPTZ;

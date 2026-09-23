@@ -143,6 +143,54 @@ test("sandbox Developer API lifecycle sends FCM using internal linked-user metad
   } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
 });
 
+test("near-turn notification marks the claim only after delivery succeeds", async () => {
+  const originals = []; const pushes = []; const marked = []; const released = [];
+  stubKey(originals, ["queues:write"]);
+  replace(developerQueues, "findProfile", async () => profile(), originals);
+  replace(developerQueues, "findFirstQueue", async () => queue(), originals);
+  replace(developerQueues, "callNextTicket", async () => ({ ...ticket(), status: "called" }), originals);
+  replace(developerQueues, "claimNearTurnTickets", async () => [{ id: "near-ticket-1", ticketNumber: "MAIN-0002", linkedUserId: "42", queuePosition: 2 }], originals);
+  replace(developerQueues, "markNearTurnTicketNotified", async (id) => { marked.push(id); }, originals);
+  replace(developerQueues, "releaseNearTurnTicketClaim", async (id) => { released.push(id); }, originals);
+  replace(db, "withTransaction", async (run) => run({ query: async () => ({ rows: [] }) }), originals);
+  replace(developerApiOperations, "claim", async () => ({ state: "claimed", recordId: "operation-near-turn-1" }), originals);
+  replace(developerApiOperations, "complete", async () => {}, originals);
+  replace(developerWebhookService, "enqueueDeveloperTicketEvent", async () => {}, originals);
+  replace(pushNotificationService, "sendUserNotification", async (payload) => { pushes.push(payload); return { attempted: 1, sent: 1 }; }, originals);
+  const { server, baseUrl } = await startServer();
+  try {
+    const response = await request("POST", `${baseUrl}/queues/harbor/call-next`, "sandbox-api.getprio.online", { "x-api-key": "gpk_sbx_test", "idempotency-key": "call-next-near-turn-1" });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(response.status, 200);
+    assert.equal(pushes.length, 1);
+    assert.deepEqual(marked, ["near-ticket-1"]);
+    assert.deepEqual(released, []);
+  } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
+});
+
+test("near-turn notification releases the claim when delivery fails", async () => {
+  const originals = []; const released = [];
+  stubKey(originals, ["queues:write"]);
+  replace(developerQueues, "findProfile", async () => profile(), originals);
+  replace(developerQueues, "findFirstQueue", async () => queue(), originals);
+  replace(developerQueues, "callNextTicket", async () => ({ ...ticket(), status: "called" }), originals);
+  replace(developerQueues, "claimNearTurnTickets", async () => [{ id: "near-ticket-2", ticketNumber: "MAIN-0003", linkedUserId: "42", queuePosition: 1 }], originals);
+  replace(developerQueues, "markNearTurnTicketNotified", async () => { throw new Error("must not mark failed delivery"); }, originals);
+  replace(developerQueues, "releaseNearTurnTicketClaim", async (id) => { released.push(id); }, originals);
+  replace(db, "withTransaction", async (run) => run({ query: async () => ({ rows: [] }) }), originals);
+  replace(developerApiOperations, "claim", async () => ({ state: "claimed", recordId: "operation-near-turn-2" }), originals);
+  replace(developerApiOperations, "complete", async () => {}, originals);
+  replace(developerWebhookService, "enqueueDeveloperTicketEvent", async () => {}, originals);
+  replace(pushNotificationService, "sendUserNotification", async () => ({ attempted: 1, sent: 0 }), originals);
+  const { server, baseUrl } = await startServer();
+  try {
+    const response = await request("POST", `${baseUrl}/queues/harbor/call-next`, "sandbox-api.getprio.online", { "x-api-key": "gpk_sbx_test", "idempotency-key": "call-next-near-turn-2" });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(response.status, 200);
+    assert.deepEqual(released, ["near-ticket-2"]);
+  } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
+});
+
 test("sandbox Developer API waiting push uses the profile name and customer-friendly copy", async () => {
   const originals = [];
   const pushes = [];

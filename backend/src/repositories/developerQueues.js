@@ -412,12 +412,16 @@ async function claimNearTurnTickets(queueId, threshold, options = {}) {
         WHERE developer_api_queue_id = $1 AND status = 'waiting'
      )
      UPDATE developer_api_tickets AS ticket
-        SET near_turn_notified_at = NOW()
+        SET near_turn_notification_claimed_at = NOW()
        FROM ranked
       WHERE ticket.id = ranked.id
         AND ranked.linked_user_id IS NOT NULL
         AND ranked.queue_position <= $2
         AND ticket.near_turn_notified_at IS NULL
+        AND (
+          ticket.near_turn_notification_claimed_at IS NULL
+          OR ticket.near_turn_notification_claimed_at < NOW() - INTERVAL '5 minutes'
+        )
      RETURNING ticket.id, ticket.ticket_number, ticket.linked_user_id,
                ranked.queue_position`,
     [String(queueId), Number(threshold)]
@@ -428,6 +432,36 @@ async function claimNearTurnTickets(queueId, threshold, options = {}) {
     linkedUserId: String(row.linked_user_id),
     queuePosition: Number(row.queue_position)
   }));
+}
+
+async function markNearTurnTicketNotified(ticketId, options = {}) {
+  const result = await clientFor(options).query(
+    `UPDATE developer_api_tickets
+        SET near_turn_notified_at = NOW(),
+            near_turn_notification_claimed_at = NULL,
+            updated_at = NOW()
+      WHERE id = $1
+        AND status = 'waiting'
+        AND near_turn_notified_at IS NULL
+        AND near_turn_notification_claimed_at IS NOT NULL
+      RETURNING id`,
+    [String(ticketId)]
+  );
+  return result.rows.length > 0;
+}
+
+async function releaseNearTurnTicketClaim(ticketId, options = {}) {
+  const result = await clientFor(options).query(
+    `UPDATE developer_api_tickets
+        SET near_turn_notification_claimed_at = NULL,
+            updated_at = NOW()
+      WHERE id = $1
+        AND near_turn_notified_at IS NULL
+        AND near_turn_notification_claimed_at IS NOT NULL
+      RETURNING id`,
+    [String(ticketId)]
+  );
+  return result.rows.length > 0;
 }
 
 async function getUsage(projectId, environment, options = {}) {
@@ -800,7 +834,7 @@ async function transitionTicket(input, options = {}) {
     `UPDATE developer_api_tickets
      SET status = $2, status_reason = $3, resource_version = resource_version + 1,
        ${timeColumn ? `${timeColumn} = NOW(),` : ""}
-       ${input.toStatus === "waiting" ? "called_at = NULL, near_turn_notified_at = NULL," : ""}
+       ${input.toStatus === "waiting" ? "called_at = NULL, near_turn_notified_at = NULL, near_turn_notification_claimed_at = NULL," : ""}
        terminal_at = CASE WHEN $4 THEN NOW() ELSE terminal_at END,
        updated_at = NOW()
      WHERE id = $1
@@ -829,6 +863,8 @@ module.exports = {
   deleteQueue,
   callNextTicket,
   claimNearTurnTickets,
+  markNearTurnTicketNotified,
+  releaseNearTurnTicketClaim,
   consumeSandboxAllowance,
   findFirstQueue,
   findProfile,

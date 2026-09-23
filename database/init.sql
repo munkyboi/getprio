@@ -523,6 +523,7 @@ CREATE TABLE developer_api_tickets (
   terminal_at TIMESTAMPTZ,
   customer_confirmed_at TIMESTAMPTZ,
   near_turn_notified_at TIMESTAMPTZ,
+  near_turn_notification_claimed_at TIMESTAMPTZ,
   resource_version BIGINT NOT NULL DEFAULT 1 CHECK (resource_version > 0),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
