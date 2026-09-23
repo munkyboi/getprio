@@ -36,7 +36,7 @@ function key(scopes) {
   return { id: "key-1", projectId: "project-1", environment: "sandbox", scopes, createdByUserId: "1", status: "active", projectStatus: "active", accountStatus: "active" };
 }
 function profile() { return { id: "profile-1", projectId: "project-1", environment: "sandbox", slug: "harbor", displayName: "Harbor Services", directoryStatus: "private", directoryContent: {}, createdAt: "2026-09-15T00:00:00.000Z", updatedAt: "2026-09-15T00:00:00.000Z" }; }
-function queue() { return { id: "queue-1", profileId: "profile-1", slug: "main", displayName: "Main queue", sessionState: "open", intakeEnabled: true, joiningEnabled: false, priorityRatio: 3, resourceVersion: 1, createdAt: "2026-09-15T00:00:00.000Z", updatedAt: "2026-09-15T00:00:00.000Z" }; }
+function queue() { return { id: "queue-1", profileId: "profile-1", slug: "main", displayName: "Main queue", sessionState: "open", intakeEnabled: true, joiningEnabled: false, priorityRatio: 3, queuePrefix: "MAIN", averageServiceMinutes: 15, notificationThreshold: 2, resourceVersion: 1, createdAt: "2026-09-15T00:00:00.000Z", updatedAt: "2026-09-15T00:00:00.000Z" }; }
 function ticket() { return { id: "ticket-1", projectId: "project-1", environment: "sandbox", profileId: "profile-1", queueId: "queue-1", queueSlug: "main", ticketNumber: "MAIN-0001", status: "waiting", externalReference: "customer-123", verificationCode: "AB12CD34", statusReason: null, resourceVersion: 1, createdAt: "2026-09-15T00:00:00.000Z", updatedAt: "2026-09-15T00:00:00.000Z", event: { id: "1", type: "ticket.issued", resourceVersion: 1, occurredAt: "2026-09-15T00:00:00.000Z" } }; }
 
 function replace(object, name, value, originals) { originals.push([object, name, object[name]]); object[name] = value; }
@@ -68,6 +68,7 @@ test("developer API scopes queue reads to the calling key project and environmen
     const response = await request("GET", `${baseUrl}/queues/harbor`, "sandbox-api.getprio.online", { "x-api-key": "gpk_sbx_test" });
     assert.equal(response.status, 200); assert.deepEqual(calls[0], ["project-1", "sandbox", "harbor"]);
     assert.equal(response.body.data.profile.id, "profile-1"); assert.equal(response.body.data.next_up[0].external_reference, "customer-123");
+    assert.equal(response.body.data.queue.queue_prefix, "MAIN"); assert.equal(response.body.data.queue.average_service_minutes, 15); assert.equal(response.body.data.queue.notification_threshold, 2);
   } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
 });
 

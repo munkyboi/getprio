@@ -16,6 +16,7 @@ const developerWebhookService = require("../services/developerWebhookService");
 const developerWebhookDispatcher = require("../services/developerWebhookDispatcher");
 const securityEventService = require("../services/securityEventService");
 const { productionApprovalResponse } = require("../utils/developerProductionApproval");
+const { normalizeDeveloperQueueSettings } = require("../utils/developerQueueSettings");
 
 const router = express.Router();
 const VALID_SCOPES = new Set([
@@ -281,6 +282,9 @@ function queueResponse(queue) {
     displayName: queue.displayName,
     sessionState: queue.sessionState,
     intakeEnabled: queue.intakeEnabled,
+    queuePrefix: queue.queuePrefix,
+    averageServiceMinutes: queue.averageServiceMinutes,
+    notificationThreshold: queue.notificationThreshold,
     joiningEnabled: queue.joiningEnabled,
     priorityRatio: queue.priorityRatio,
     resourceVersion: queue.resourceVersion,
@@ -842,13 +846,15 @@ router.post("/projects/:projectId/profiles/:profileSlug/queues", asyncHandler(as
     error.code = "INVALID_QUEUE_STATE";
     throw error;
   }
+  const settings = normalizeDeveloperQueueSettings(req.body, slug);
   try {
     const queue = await developerQueues.createQueue({
       profileId: profile.id,
       slug,
       displayName,
       sessionState,
-      intakeEnabled: Boolean(req.body?.intakeEnabled ?? req.body?.intake_enabled ?? false)
+      intakeEnabled: Boolean(req.body?.intakeEnabled ?? req.body?.intake_enabled ?? false),
+      ...settings
     });
     await securityEventService.logSecurityEvent({
       userId: req.user._id,
@@ -873,7 +879,7 @@ router.patch("/projects/:projectId/profiles/:profileSlug/queues/:queueSlug", asy
   const project = await developerProjects.findProjectForUser(req.params.projectId, req.user._id);
   if (!project) throw notFound();
   const environment = workspaceEnvironment(req.body?.environment || "sandbox");
-  onlyFields(req.body, new Set(["environment", "displayName", "display_name", "sessionState", "session_state", "intakeEnabled", "intake_enabled", "resourceVersion", "resource_version"]));
+  onlyFields(req.body, new Set(["environment", "displayName", "display_name", "sessionState", "session_state", "intakeEnabled", "intake_enabled", "queuePrefix", "queue_prefix", "averageServiceMinutes", "average_service_minutes", "notificationThreshold", "notification_threshold", "resourceVersion", "resource_version"]));
   const profile = await developerQueues.findProfile(project.id, environment, cleanSlug(req.params.profileSlug, "Profile slug"));
   if (!profile) throw notFound("Profile not found.");
   const queue = await developerQueues.findQueue(profile.id, cleanSlug(req.params.queueSlug, "Queue slug"));
@@ -890,8 +896,11 @@ router.patch("/projects/:projectId/profiles/:profileSlug/queues/:queueSlug", asy
     }
   }
   if (req.body?.intakeEnabled !== undefined || req.body?.intake_enabled !== undefined) update.intakeEnabled = Boolean(req.body.intakeEnabled ?? req.body.intake_enabled);
+  if (req.body?.queuePrefix !== undefined || req.body?.queue_prefix !== undefined || req.body?.averageServiceMinutes !== undefined || req.body?.average_service_minutes !== undefined || req.body?.notificationThreshold !== undefined || req.body?.notification_threshold !== undefined) {
+    Object.assign(update, normalizeDeveloperQueueSettings(req.body, queue.slug, { partial: true }));
+  }
   if (!Object.keys(update).length) {
-    const error = new Error("Provide a queue name, state, or ticket intake setting to update.");
+    const error = new Error("Provide a queue name, state, ticket intake setting, or queue configuration to update.");
     error.statusCode = 400;
     error.code = "NO_QUEUE_CHANGES";
     throw error;

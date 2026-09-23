@@ -283,7 +283,7 @@ const openApiDocument = {
         summary: "Create a queue for a developer profile",
         security: [{ ApiKeyAuth: [] }],
         parameters: [pathParameter("profileSlug", "The developer profile slug."), idempotencyParameter],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["slug", "display_name"], properties: { slug: { type: "string" }, display_name: { type: "string", maxLength: 120 }, session_state: { type: "string", enum: ["open", "paused", "closing", "closed"] }, intake_enabled: { type: "boolean" } }, additionalProperties: false } } } },
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["slug", "display_name"], properties: { slug: { type: "string" }, display_name: { type: "string", maxLength: 120 }, session_state: { type: "string", enum: ["open", "paused", "closing", "closed"] }, intake_enabled: { type: "boolean" }, queue_prefix: { type: "string", pattern: "^[A-Z0-9]{1,4}$", description: "Defaults to the first four alphanumeric characters of slug." }, average_service_minutes: { type: "integer", minimum: 1, maximum: 120, default: 15 }, notification_threshold: { type: "integer", minimum: 1, maximum: 10, default: 2 } }, additionalProperties: false } } } },
         responses: { "201": envelopeResponse("Created profile queue", "QueueEnvelope"), "400": { description: "Invalid queue details." }, "401": { description: "Missing or invalid API key." }, "403": { description: "API key is missing the queues:write scope." }, "404": { description: "Developer profile not found." }, "409": { description: "Queue slug already exists." } }
       }
     },
@@ -293,7 +293,7 @@ const openApiDocument = {
         summary: "Update a developer profile queue",
         security: [{ ApiKeyAuth: [] }],
         parameters: [pathParameter("profileSlug", "The developer profile slug."), pathParameter("queueSlug", "The queue slug."), idempotencyParameter],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { display_name: { type: "string", maxLength: 120 }, session_state: { type: "string", enum: ["open", "paused", "closing", "closed"] }, intake_enabled: { type: "boolean" }, resource_version: { type: "integer", minimum: 1 } }, additionalProperties: false } } } },
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { display_name: { type: "string", maxLength: 120 }, session_state: { type: "string", enum: ["open", "paused", "closing", "closed"] }, intake_enabled: { type: "boolean" }, queue_prefix: { type: "string", pattern: "^[A-Z0-9]{1,4}$" }, average_service_minutes: { type: "integer", minimum: 1, maximum: 120 }, notification_threshold: { type: "integer", minimum: 1, maximum: 10 }, resource_version: { type: "integer", minimum: 1 } }, additionalProperties: false } } } },
         responses: { "200": envelopeResponse("Updated profile queue", "QueueEnvelope"), "400": { description: "Invalid queue details." }, "401": { description: "Missing or invalid API key." }, "403": { description: "API key is missing the queues:write scope." }, "404": { description: "Developer profile or queue not found." }, "409": { description: "Queue update conflict." } }
       }
     },
@@ -445,7 +445,7 @@ const openApiDocument = {
       },
       Queue: {
         type: "object",
-        required: ["id", "slug", "display_name", "session_state", "intake_enabled", "joining_enabled", "priority_ratio", "resource_version", "created_at", "updated_at"],
+        required: ["id", "slug", "display_name", "session_state", "intake_enabled", "joining_enabled", "priority_ratio", "queue_prefix", "average_service_minutes", "notification_threshold", "resource_version", "created_at", "updated_at"],
         properties: {
           id: { type: "string", description: "Opaque queue identifier." },
           slug: { type: "string" },
@@ -454,6 +454,9 @@ const openApiDocument = {
           intake_enabled: { type: "boolean" },
           joining_enabled: { type: "boolean" },
           priority_ratio: { type: "number" },
+          queue_prefix: { type: "string", pattern: "^[A-Z0-9]{1,4}$" },
+          average_service_minutes: { type: "integer", minimum: 1, maximum: 120 },
+          notification_threshold: { type: "integer", minimum: 1, maximum: 10 },
           resource_version: { type: "integer", minimum: 1 },
           created_at: { type: "string", format: "date-time" },
           updated_at: { type: "string", format: "date-time" }

@@ -6,6 +6,7 @@ const developerQueues = require("../repositories/developerQueues");
 const developerApiOperations = require("../repositories/developerApiOperations");
 const developerWebhookService = require("../services/developerWebhookService");
 const { authenticateDeveloperApiKey, requireApiScope } = require("../middleware/developerApiKeyAuth");
+const { normalizeDeveloperQueueSettings } = require("../utils/developerQueueSettings");
 
 const router = express.Router();
 const PRODUCTION_HOSTS = new Set(["api.getprio.online"]);
@@ -73,7 +74,7 @@ function profileView(profile) {
   const content = profile.directoryContent || {};
   return { id: profile.id, slug: profile.slug, display_name: profile.displayName, directory_status: profile.directoryStatus, directory_content: { description: content.description || "", website_url: content.websiteUrl || "" }, created_at: profile.createdAt, updated_at: profile.updatedAt };
 }
-function queueView(queue) { return { id: queue.id, slug: queue.slug, display_name: queue.displayName, session_state: queue.sessionState, intake_enabled: queue.intakeEnabled, joining_enabled: queue.joiningEnabled, priority_ratio: queue.priorityRatio, resource_version: queue.resourceVersion, created_at: queue.createdAt, updated_at: queue.updatedAt }; }
+function queueView(queue) { return { id: queue.id, slug: queue.slug, display_name: queue.displayName, session_state: queue.sessionState, intake_enabled: queue.intakeEnabled, joining_enabled: queue.joiningEnabled, priority_ratio: queue.priorityRatio, queue_prefix: queue.queuePrefix, average_service_minutes: queue.averageServiceMinutes, notification_threshold: queue.notificationThreshold, resource_version: queue.resourceVersion, created_at: queue.createdAt, updated_at: queue.updatedAt }; }
 function ticketView(ticket) {
   if (!ticket) return null;
   const value = { id: ticket.id, ticket_number: ticket.ticketNumber, sequence: ticket.sequence, display_label: ticket.displayLabel, status: ticket.status, queue_id: ticket.queueId, external_reference: ticket.externalReference, ...(ticket.verificationCode ? { verification_code: ticket.verificationCode } : {}), ...(ticket.customerConfirmedAt ? { customer_confirmed_at: ticket.customerConfirmedAt } : {}), status_reason: ticket.statusReason, called_at: ticket.calledAt, served_at: ticket.servedAt, skipped_at: ticket.skippedAt, cancelled_at: ticket.cancelledAt, unserved_at: ticket.unservedAt, terminal_at: ticket.terminalAt, resource_version: ticket.resourceVersion, created_at: ticket.createdAt, updated_at: ticket.updatedAt };
@@ -152,19 +153,34 @@ function developerTicketInvitationCopy(profileName) {
   };
 }
 
-async function mutate(req, res, { scope, payload, status = 200, run, notificationName }) {
+function developerNearTurnNotificationCopy(profileName, ticket) {
+  const title = String(profileName || "").trim() || "Queue update";
+  const position = Number(ticket.queuePosition);
+  return {
+    title,
+    body: position <= 1
+      ? `You're next at ${title}. Please be ready.`
+      : `You're almost next at ${title}. You're #${position} in line.`
+  };
+}
+
+async function mutate(req, res, { scope, payload, status = 200, run, notificationName, nearTurnQueue }) {
   let result;
   try {
     result = await db.withTransaction(async (client) => {
     const operation = await developerApiOperations.claim({ projectId: req.apiKey.projectId, environment: req.apiKey.environment, apiKeyId: req.apiKey.id, scope, key: req.get("Idempotency-Key"), payload }, { client });
     if (operation.state === "replay") return operation;
     const data = await run(client);
+    if (nearTurnQueue) {
+      data.nearTurnTickets = await developerQueues.claimNearTurnTickets(nearTurnQueue.id, nearTurnQueue.notificationThreshold, { client });
+    }
     if (data.ticket?.event) await developerWebhookService.enqueueDeveloperTicketEvent({ event: data.ticket.event, ticket: data.ticket }, { client });
     for (const queueEvent of data.queueEvents || []) {
       await developerWebhookService.enqueueDeveloperQueueEvent({ event: queueEvent.event, queue: queueEvent.queue }, { client });
     }
     const publicData = { ...data };
     delete publicData.queueEvents;
+    delete publicData.nearTurnTickets;
     const body = envelope(req, publicData);
     await developerApiOperations.complete(operation.recordId, status, body, { client });
     return {
@@ -172,7 +188,8 @@ async function mutate(req, res, { scope, payload, status = 200, run, notificatio
       statusCode: status,
       body,
       notificationTicket: data.ticket?.[INTERNAL_TICKET] || null,
-      notificationName: notificationName || null
+      notificationName: notificationName || null,
+      nearTurnTickets: data.nearTurnTickets || []
     };
     });
   } catch (mutationError) {
@@ -215,6 +232,25 @@ async function mutate(req, res, { scope, payload, status = 200, run, notificatio
     }).catch((notificationError) => {
       console.warn("[developer-ticket-invitation-push-skipped]", notificationError.message);
     });
+  }
+  if ((result.nearTurnTickets || []).length) {
+    const pushNotificationService = require("../services/pushNotificationService");
+    for (const ticket of result.nearTurnTickets || []) {
+      const copy = developerNearTurnNotificationCopy(result.notificationName, ticket);
+      pushNotificationService.sendUserNotification({
+        userId: ticket.linkedUserId,
+        title: copy.title,
+        body: copy.body,
+        url: `/tickets/${ticket.id}`,
+        route: "ticket",
+        ticketRef: ticket.ticketNumber || ticket.id,
+        tag: `developer-ticket-near-turn-${ticket.id}`,
+        eventType: "developer_ticket_near_turn",
+        environment: getEnvironment(req)
+      }).catch((notificationError) => {
+        console.warn("[developer-ticket-near-turn-push-skipped]", notificationError.message);
+      });
+    }
   }
   res.status(result.statusCode).setHeader("Cache-Control", "no-store").setHeader("X-API-Version", "v1").json(result.body);
 }
@@ -259,14 +295,15 @@ router.get("/profiles/:profileSlug/queues", authenticateDeveloperApiKey, require
   const profile = await scopedProfile(req); send(req, res, { profile: profileView(profile), queues: (await developerQueues.listQueues(profile.id)).map(queueView) });
 }));
 router.post("/profiles/:profileSlug/queues", authenticateDeveloperApiKey, requireApiScope("queues:write"), asyncHandler(async (req, res) => {
-  only(req.body, new Set(["slug", "display_name", "displayName", "session_state", "sessionState", "intake_enabled", "intakeEnabled"]));
+  only(req.body, new Set(["slug", "display_name", "displayName", "session_state", "sessionState", "intake_enabled", "intakeEnabled", "queue_prefix", "queuePrefix", "average_service_minutes", "averageServiceMinutes", "notification_threshold", "notificationThreshold"]));
   const profile = await scopedProfile(req); const queueSlug = slug(req.body?.slug); const displayName = text(req.body?.display_name ?? req.body?.displayName, "display_name", 120, true);
   const sessionState = req.body?.session_state ?? req.body?.sessionState ?? "closed"; if (!["open", "paused", "closing", "closed"].includes(sessionState)) throw error(400, "INVALID_REQUEST", "session_state is invalid.");
   const intakeEnabled = Boolean(req.body?.intake_enabled ?? req.body?.intakeEnabled ?? false);
-  await mutate(req, res, { scope: "developer_api.queue.create", payload: { profileId: profile.id, queueSlug, displayName, sessionState, intakeEnabled }, status: 201, run: async (client) => ({ queue: queueView(await developerQueues.createQueue({ profileId: profile.id, slug: queueSlug, displayName, sessionState, intakeEnabled }, { client })) }) });
+  const settings = normalizeDeveloperQueueSettings(req.body, queueSlug);
+  await mutate(req, res, { scope: "developer_api.queue.create", payload: { profileId: profile.id, queueSlug, displayName, sessionState, intakeEnabled, settings }, status: 201, run: async (client) => ({ queue: queueView(await developerQueues.createQueue({ profileId: profile.id, slug: queueSlug, displayName, sessionState, intakeEnabled, ...settings }, { client })) }) });
 }));
 router.patch("/profiles/:profileSlug/queues/:queueSlug", authenticateDeveloperApiKey, requireApiScope("queues:write"), asyncHandler(async (req, res) => {
-  only(req.body, new Set(["display_name", "displayName", "session_state", "sessionState", "intake_enabled", "intakeEnabled", "resource_version", "resourceVersion"]));
+  only(req.body, new Set(["display_name", "displayName", "session_state", "sessionState", "intake_enabled", "intakeEnabled", "queue_prefix", "queuePrefix", "average_service_minutes", "averageServiceMinutes", "notification_threshold", "notificationThreshold", "resource_version", "resourceVersion"]));
   const profile = await scopedProfile(req);
   const queue = await developerQueues.findQueue(profile.id, slug(req.params.queueSlug, "queue slug"));
   if (!queue) throw notFound("Queue not found.");
@@ -277,7 +314,8 @@ router.patch("/profiles/:profileSlug/queues/:queueSlug", authenticateDeveloperAp
     if (!["open", "paused", "closing", "closed"].includes(changes.sessionState)) throw error(400, "INVALID_REQUEST", "session_state is invalid.");
   }
   if (req.body?.intake_enabled !== undefined || req.body?.intakeEnabled !== undefined) changes.intakeEnabled = Boolean(req.body?.intake_enabled ?? req.body?.intakeEnabled);
-  if (!Object.keys(changes).length) throw error(400, "NO_QUEUE_CHANGES", "Provide a display name, session state, or intake setting to update.");
+  Object.assign(changes, normalizeDeveloperQueueSettings(req.body, queue.slug, { partial: true }));
+  if (!Object.keys(changes).length) throw error(400, "NO_QUEUE_CHANGES", "Provide a display name, session state, intake setting, or queue configuration to update.");
   if (req.body?.resource_version !== undefined || req.body?.resourceVersion !== undefined) {
     changes.resourceVersion = Number(req.body?.resource_version ?? req.body?.resourceVersion);
     if (!Number.isSafeInteger(changes.resourceVersion) || changes.resourceVersion < 1) throw error(400, "INVALID_REQUEST", "resource_version must be a positive integer.");
@@ -311,7 +349,7 @@ router.post(queuePaths("/tickets"), authenticateDeveloperApiKey, requireApiScope
 }));
 router.post(queuePaths("/call-next"), authenticateDeveloperApiKey, requireApiScope("queues:write"), asyncHandler(async (req, res) => {
   const { profile, queue } = await context(req);
-  await mutate(req, res, { scope: "developer_api.queue.call_next", payload: { profileId: profile.id, queueId: queue.id }, notificationName: profile.displayName, run: async (client) => ({ ticket: ticketView(await developerQueues.callNextTicket({ projectId: req.apiKey.projectId, environment: req.apiKey.environment, profileId: profile.id, queueId: queue.id, queueSlug: queue.slug }, { client })) }) });
+  await mutate(req, res, { scope: "developer_api.queue.call_next", payload: { profileId: profile.id, queueId: queue.id }, notificationName: profile.displayName, nearTurnQueue: queue, run: async (client) => ({ ticket: ticketView(await developerQueues.callNextTicket({ projectId: req.apiKey.projectId, environment: req.apiKey.environment, profileId: profile.id, queueId: queue.id, queueSlug: queue.slug }, { client })) }) });
 }));
 router.post(queuePaths("/current/confirm"), authenticateDeveloperApiKey, requireApiScope("queues:write"), asyncHandler(async (req, res) => {
   only(req.body, new Set(["verification_code", "verificationCode"]));
@@ -326,7 +364,7 @@ router.post(queuePaths("/current/confirm"), authenticateDeveloperApiKey, require
 function currentTransition(suffix, toStatus) {
   router.post(queuePaths(suffix), authenticateDeveloperApiKey, requireApiScope("queues:write"), asyncHandler(async (req, res) => {
     const { profile, queue } = await context(req);
-    await mutate(req, res, { scope: `developer_api.queue.${toStatus}`, payload: { profileId: profile.id, queueId: queue.id }, notificationName: profile.displayName, run: async (client) => {
+    await mutate(req, res, { scope: `developer_api.queue.${toStatus}`, payload: { profileId: profile.id, queueId: queue.id }, notificationName: profile.displayName, nearTurnQueue: queue, run: async (client) => {
       const snapshot = await developerQueues.queueSnapshot(queue.id, { client });
       if (!snapshot.current) throw error(409, "INVALID_TICKET_STATE", "There is no called ticket to resolve.");
       return { ticket: ticketView(await developerQueues.transitionTicket({ projectId: req.apiKey.projectId, environment: req.apiKey.environment, queueId: queue.id, ticketId: snapshot.current.id, fromStatus: "called", toStatus }, { client })) };
@@ -337,7 +375,7 @@ currentTransition("/current/serve", "served"); currentTransition("/current/skip"
 function ticketTransition(action, fromStatus, toStatus) {
   router.post(queuePaths(`/tickets/:ticketId/${action}`), authenticateDeveloperApiKey, requireApiScope("queues:write"), asyncHandler(async (req, res) => {
     const { profile, queue } = await context(req); const ticket = await scopedTicket(req, queue);
-    await mutate(req, res, { scope: `developer_api.ticket.${toStatus}`, payload: { profileId: profile.id, queueId: queue.id, ticketId: ticket.id }, notificationName: profile.displayName, run: async (client) => ({ ticket: ticketView(await developerQueues.transitionTicket({ projectId: req.apiKey.projectId, environment: req.apiKey.environment, queueId: queue.id, ticketId: ticket.id, fromStatus, toStatus, ...(action === "restore" ? { eventType: "ticket.restored" } : {}) }, { client })) }) });
+    await mutate(req, res, { scope: `developer_api.ticket.${toStatus}`, payload: { profileId: profile.id, queueId: queue.id, ticketId: ticket.id }, notificationName: profile.displayName, nearTurnQueue: queue, run: async (client) => ({ ticket: ticketView(await developerQueues.transitionTicket({ projectId: req.apiKey.projectId, environment: req.apiKey.environment, queueId: queue.id, ticketId: ticket.id, fromStatus, toStatus, ...(action === "restore" ? { eventType: "ticket.restored" } : {}) }, { client })) }) });
   }));
 }
 ticketTransition("cancel", "waiting", "cancelled"); ticketTransition("restore", "skipped", "waiting");

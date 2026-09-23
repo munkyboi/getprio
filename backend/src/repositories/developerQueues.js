@@ -31,6 +31,9 @@ function mapQueue(row) {
     intakeEnabled: Boolean(row.intake_enabled),
     joiningEnabled: Boolean(row.joining_enabled),
     priorityRatio: Number(row.priority_ratio),
+    queuePrefix: row.queue_prefix,
+    averageServiceMinutes: Number(row.average_service_minutes),
+    notificationThreshold: Number(row.notification_threshold),
     resourceVersion: Number(row.resource_version),
     createdAt: row.created_at,
     updatedAt: row.updated_at
@@ -76,7 +79,8 @@ const PROFILE_COLUMNS = `
 const QUEUE_COLUMNS = `
   id AS queue_id, developer_api_profile_id, slug AS queue_slug,
   display_name AS queue_display_name, session_state, intake_enabled,
-  joining_enabled, priority_ratio, resource_version, created_at, updated_at
+  joining_enabled, priority_ratio, queue_prefix, average_service_minutes,
+  notification_threshold, resource_version, created_at, updated_at
 `;
 
 const TICKET_COLUMNS = `
@@ -218,10 +222,11 @@ async function listQueues(profileId, options = {}) {
 async function createQueue(input, options = {}) {
   const result = await clientFor(options).query(
     `INSERT INTO developer_api_queues
-       (developer_api_profile_id, slug, display_name, session_state, intake_enabled)
-     VALUES ($1, $2, $3, $4, $5)
+       (developer_api_profile_id, slug, display_name, session_state, intake_enabled,
+        queue_prefix, average_service_minutes, notification_threshold)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      RETURNING ${QUEUE_COLUMNS}`,
-    [input.profileId, input.slug, input.displayName, input.sessionState || "closed", Boolean(input.intakeEnabled)]
+    [input.profileId, input.slug, input.displayName, input.sessionState || "closed", Boolean(input.intakeEnabled), input.queuePrefix, input.averageServiceMinutes, input.notificationThreshold]
   );
   return mapQueue(result.rows[0]);
 }
@@ -241,6 +246,18 @@ async function updateQueue(queueId, input, options = {}) {
   if (input.intakeEnabled !== undefined) {
     values.push(Boolean(input.intakeEnabled));
     sets.push(`intake_enabled = $${values.length}`);
+  }
+  if (input.queuePrefix !== undefined) {
+    values.push(input.queuePrefix);
+    sets.push(`queue_prefix = $${values.length}`);
+  }
+  if (input.averageServiceMinutes !== undefined) {
+    values.push(Number(input.averageServiceMinutes));
+    sets.push(`average_service_minutes = $${values.length}`);
+  }
+  if (input.notificationThreshold !== undefined) {
+    values.push(Number(input.notificationThreshold));
+    sets.push(`notification_threshold = $${values.length}`);
   }
   if (!sets.length) return findQueueById(queueId, { client: queryClient });
   sets.push("resource_version = resource_version + 1", "updated_at = NOW()");
@@ -337,6 +354,7 @@ async function mobileQueueMetricsForTickets(queueId, ticketIds, options = {}) {
             target.status,
             target.sequence,
             queue.updated_at AS queue_updated_at,
+            queue.average_service_minutes AS configured_average_service_minutes,
             queue_state.waiting_count,
             queue_state.latest_ticket_updated_at,
             service_stats.service_sample_count,
@@ -358,9 +376,7 @@ async function mobileQueueMetricsForTickets(queueId, ticketIds, options = {}) {
   return new Map(result.rows.map((row) => {
     const position = row.queue_position === null ? null : Number(row.queue_position);
     const waitingCount = Number(row.waiting_count || 0);
-    const averageServiceMinutes = Number(row.service_sample_count || 0) >= 3
-      ? Math.max(1, Math.round(Number(row.average_service_minutes)))
-      : null;
+    const averageServiceMinutes = Math.max(1, Number(row.configured_average_service_minutes || 15));
     const updatedAt = [row.queue_updated_at, row.latest_ticket_updated_at]
       .filter(Boolean)
       .map((value) => new Date(value))
@@ -374,7 +390,7 @@ async function mobileQueueMetricsForTickets(queueId, ticketIds, options = {}) {
             asOf: updatedAt
           },
       queueLength: waitingCount,
-      estimatedWaitMinutes: position === null || averageServiceMinutes === null
+      estimatedWaitMinutes: position === null
         ? null
         : position * averageServiceMinutes,
       queueUpdatedAt: updatedAt
@@ -385,6 +401,33 @@ async function mobileQueueMetricsForTickets(queueId, ticketIds, options = {}) {
 async function mobileQueueMetrics(queueId, ticketId, options = {}) {
   const metrics = await mobileQueueMetricsForTickets(queueId, [ticketId], options);
   return metrics.get(String(ticketId)) || null;
+}
+
+async function claimNearTurnTickets(queueId, threshold, options = {}) {
+  const result = await clientFor(options).query(
+    `WITH ranked AS (
+       SELECT id, linked_user_id, ticket_number,
+              ROW_NUMBER() OVER (ORDER BY sequence ASC) AS queue_position
+         FROM developer_api_tickets
+        WHERE developer_api_queue_id = $1 AND status = 'waiting'
+     )
+     UPDATE developer_api_tickets AS ticket
+        SET near_turn_notified_at = NOW()
+       FROM ranked
+      WHERE ticket.id = ranked.id
+        AND ranked.linked_user_id IS NOT NULL
+        AND ranked.queue_position <= $2
+        AND ticket.near_turn_notified_at IS NULL
+     RETURNING ticket.id, ticket.ticket_number, ticket.linked_user_id,
+               ranked.queue_position`,
+    [String(queueId), Number(threshold)]
+  );
+  return result.rows.map((row) => ({
+    id: String(row.id),
+    ticketNumber: row.ticket_number,
+    linkedUserId: String(row.linked_user_id),
+    queuePosition: Number(row.queue_position)
+  }));
 }
 
 async function getUsage(projectId, environment, options = {}) {
@@ -538,7 +581,7 @@ async function issueTicket(input, options = {}) {
     [queue.id]
   );
   const sequence = Number(nextSequence.rows[0].next_sequence);
-  const ticketNumber = `${queue.slug.toUpperCase().slice(0, 8)}-${String(sequence).padStart(4, "0")}`;
+  const ticketNumber = `${queue.queuePrefix || queue.slug.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4)}-${String(sequence).padStart(4, "0")}`;
   const verificationCode = crypto.randomBytes(4).toString("hex").toUpperCase();
   const invitationUser = input.environment === "sandbox" && input.recipientEmail
     ? await queryClient.query(
@@ -757,7 +800,7 @@ async function transitionTicket(input, options = {}) {
     `UPDATE developer_api_tickets
      SET status = $2, status_reason = $3, resource_version = resource_version + 1,
        ${timeColumn ? `${timeColumn} = NOW(),` : ""}
-       ${input.toStatus === "waiting" ? "called_at = NULL," : ""}
+       ${input.toStatus === "waiting" ? "called_at = NULL, near_turn_notified_at = NULL," : ""}
        terminal_at = CASE WHEN $4 THEN NOW() ELSE terminal_at END,
        updated_at = NOW()
      WHERE id = $1
@@ -785,6 +828,7 @@ module.exports = {
   deleteProfile,
   deleteQueue,
   callNextTicket,
+  claimNearTurnTickets,
   consumeSandboxAllowance,
   findFirstQueue,
   findProfile,
