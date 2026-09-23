@@ -194,7 +194,7 @@ test("sandbox Developer API ticket issuance sends an invitation push for an unli
     assert.equal(pushes.length, 1);
     assert.equal(pushes[0].userId, "42");
     assert.equal(pushes[0].title, "Harbor Services");
-    assert.equal(pushes[0].body, "You have a new ticket from Harbor Services. Open GetPrio to review and accept it.");
+    assert.equal(pushes[0].body, "You have a new ticket from Harbor Services. Open GetPrio to review it.");
     assert.equal(pushes[0].eventType, "developer_ticket_invitation");
     assert.equal(pushes[0].route, "tickets");
   } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
