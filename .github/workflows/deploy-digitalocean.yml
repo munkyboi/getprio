@@ -219,6 +219,21 @@ jobs:
           export PLAN_POLICY_MUTATIONS_ENABLED=true
           export SUBSCRIPTION_LIFECYCLE_ENABLED=true
 
+          # Preserve the one known emergency FCM backup outside the checkout so
+          # the clean-tree guard can still protect the release. Do not generalize
+          # this to arbitrary untracked files: unknown server drift must continue
+          # to block deployment.
+          fcm_runtime_backup="${DO_APP_DIR}/.env.before-fcm-runtime-fix-20260923"
+          if [ -f "${fcm_runtime_backup}" ]; then
+            fcm_runtime_backup_target="${DO_APP_DIR}/../.env.before-fcm-runtime-fix-20260923"
+            if [ -e "${fcm_runtime_backup_target}" ]; then
+              fcm_runtime_backup_target="${DO_APP_DIR}/../.env.before-fcm-runtime-fix-20260923.$(date +%s)"
+            fi
+            mv "${fcm_runtime_backup}" "${fcm_runtime_backup_target}"
+            chmod 600 "${fcm_runtime_backup_target}"
+            echo "Preserved known FCM runtime backup at ${fcm_runtime_backup_target}."
+          fi
+
           if [ -n "$(git status --porcelain)" ]; then
             echo "Server working tree has local changes. Refusing to deploy."
             git status --short
