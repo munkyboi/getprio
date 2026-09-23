@@ -601,6 +601,35 @@ async function acceptMobileInvitation(ticketId, userId, environment, options = {
   return mapTicket(result.rows[0]);
 }
 
+async function claimMobileTicketByVerificationCode(verificationCode, userId, environment, options = {}) {
+  const queryClient = clientFor(options);
+  const result = await queryClient.query(
+    `UPDATE developer_api_tickets
+        SET linked_user_id = $2, updated_at = NOW()
+      WHERE upper(verification_code) = upper($1)
+        AND environment = $3
+        AND status IN ('waiting', 'called')
+        AND linked_user_id IS NULL
+        AND linking_disabled_at IS NULL
+        AND customer_data_deleted_at IS NULL
+      RETURNING id AS ticket_id`,
+    [String(verificationCode || '').trim(), Number(userId), environment]
+  );
+  const ticketId = result.rows[0]?.ticket_id;
+  if (!ticketId) return null;
+
+  const enriched = await queryClient.query(
+    `SELECT ${MOBILE_TICKET_COLUMNS}
+       FROM developer_api_tickets t
+       INNER JOIN developer_api_profiles p ON p.id = t.developer_api_profile_id
+       INNER JOIN developer_api_queues q ON q.id = t.developer_api_queue_id
+      WHERE t.id = $1
+      LIMIT 1`,
+    [ticketId]
+  );
+  return mapMobileTicket(enriched.rows[0]);
+}
+
 async function callNextTicket(input, options = {}) {
   const queryClient = clientFor(options);
   const queue = await findQueue(input.profileId, input.queueSlug, { client: queryClient, forUpdate: true });
@@ -691,6 +720,7 @@ module.exports = {
   mapTicket,
   queueSnapshot,
   acceptMobileInvitation,
+  claimMobileTicketByVerificationCode,
   confirmCurrentTicket,
   transitionTicket,
   updateProfile,

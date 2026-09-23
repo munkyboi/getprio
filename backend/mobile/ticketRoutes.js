@@ -141,6 +141,36 @@ function formatDeveloperMobileTicket(ticket, environment, { invitation = false }
   };
 }
 
+router.post("/ticket-claims", asyncHandler(async (req, res) => {
+  const verificationCode = String(req.body?.verification_code || "").trim().toUpperCase();
+  if (!/^[A-F0-9]{8}$/.test(verificationCode)) {
+    const error = new Error("This QR code is not a valid Sandbox ticket.");
+    error.statusCode = 400;
+    error.code = "INVALID_TICKET_QR";
+    throw error;
+  }
+  const environment = environmentForRequest(req);
+  if (environment !== "sandbox") {
+    const error = new Error("Printed ticket QR claims are only available in Sandbox.");
+    error.statusCode = 404;
+    error.code = "SANDBOX_TICKET_QR_ONLY";
+    throw error;
+  }
+  const ticket = await developerQueues.claimMobileTicketByVerificationCode(
+    verificationCode,
+    req.user._id,
+    environment
+  );
+  if (!ticket) {
+    const error = new Error("This ticket QR code is no longer available.");
+    error.statusCode = 404;
+    error.code = "TICKET_QR_UNAVAILABLE";
+    throw error;
+  }
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ ticket: formatDeveloperMobileTicket(ticket, environment) });
+}));
+
 router.get("/ticket-invitations", asyncHandler(async (req, res) => {
   const environment = environmentForRequest(req);
   const invitations = await developerQueues.listMobileInvitationsForUser(req.user._id, environment);
