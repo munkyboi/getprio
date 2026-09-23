@@ -231,6 +231,8 @@ async function sendUserNotification({
   tag,
   eventType,
   notificationId,
+  collapseId,
+  silent = false,
   channels,
   environment = "production"
 }) {
@@ -252,7 +254,9 @@ async function sendUserNotification({
     ...(ticketRef ? { ticketRef: String(ticketRef) } : {}),
     tag: tag || eventType || "getprio-customer-notification",
     eventType: eventType || "customer_alert",
-    notificationId: notificationId || crypto.randomUUID()
+    notificationId: notificationId || crypto.randomUUID(),
+    ...(collapseId ? { collapseId: String(collapseId) } : {}),
+    ...(silent ? { silent: true } : {})
   };
 
   if (!claimNotificationKey(`user:${userId}:${payload.tag}`)) {
@@ -276,6 +280,30 @@ async function sendUserNotification({
     attempted: subscriptions.length + fcm.attempted,
     sent: sent + fcm.sent
   };
+}
+
+async function sendUserSignal({
+  userId,
+  eventType,
+  notificationId,
+  collapseId,
+  ticketRef,
+  route = "tickets",
+  tag,
+  environment = "production"
+}) {
+  return sendUserNotification({
+    userId,
+    eventType,
+    notificationId,
+    collapseId,
+    ticketRef,
+    route,
+    tag,
+    silent: true,
+    channels: { webPush: false, fcm: true },
+    environment
+  });
 }
 
 async function notifyVendorQueueJoin({ tenant, ticket }) {
@@ -553,6 +581,7 @@ module.exports = {
   deleteSubscription,
   sendTenantNotification,
   sendUserNotification,
+  sendUserSignal,
   buildCustomerQueueNotificationPayload,
   notifyVendorQueueJoin,
   notifyVendorBookingIntake,

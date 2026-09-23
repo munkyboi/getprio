@@ -143,6 +143,49 @@ test("sandbox Developer API lifecycle sends FCM using internal linked-user metad
   } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
 });
 
+test("sandbox Developer API lifecycle sends a silent queue-moved signal to linked waiting tickets", async () => {
+  const originals = [];
+  const signals = [];
+  stubKey(originals, ["queues:write"]);
+  replace(developerQueues, "findProfile", async () => profile(), originals);
+  replace(developerQueues, "findFirstQueue", async () => queue(), originals);
+  replace(developerQueues, "callNextTicket", async () => ({
+    ...ticket(),
+    status: "called",
+    resourceVersion: 2,
+    linkedUserId: "42",
+    ticketNumber: "QUEUE1-0009",
+    event: { id: "2", type: "ticket.called", resourceVersion: 2, occurredAt: "2026-09-15T00:01:00.000Z" }
+  }), originals);
+  replace(developerQueues, "listWaitingLinkedTickets", async (...args) => {
+    assert.deepEqual(args, ["project-1", "sandbox", "queue-1"]);
+    return [{ id: "ticket-2", linkedUserId: "43", ticketNumber: "QUEUE1-0010", queueId: "queue-1" }];
+  }, originals);
+  replace(db, "withTransaction", async (run) => run({ query: async () => ({ rows: [] }) }), originals);
+  replace(developerApiOperations, "claim", async () => ({ state: "claimed", recordId: "operation-queue-moved-1" }), originals);
+  replace(developerApiOperations, "complete", async () => {}, originals);
+  replace(developerWebhookService, "enqueueDeveloperTicketEvent", async () => {}, originals);
+  replace(pushNotificationService, "sendUserNotification", async () => ({ attempted: 1, sent: 1 }), originals);
+  replace(pushNotificationService, "sendUserSignal", async (payload) => { signals.push(payload); return { attempted: 1, sent: 1 }; }, originals);
+  const { server, baseUrl } = await startServer();
+  try {
+    const response = await request("POST", `${baseUrl}/queues/harbor/call-next`, "sandbox-api.getprio.online", { "x-api-key": "gpk_sbx_test", "idempotency-key": "call-next-queue-moved-1" });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(response.status, 200);
+    assert.equal(signals.length, 1);
+    assert.deepEqual(signals[0], {
+      userId: "43",
+      eventType: "developer_queue_moved",
+      notificationId: "developer-queue-moved-queue-1:2",
+      collapseId: "developer-queue-moved-queue-1",
+      tag: "developer-queue-moved-queue-1",
+      ticketRef: "QUEUE1-0010",
+      route: "tickets",
+      environment: "sandbox"
+    });
+  } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
+});
+
 test("near-turn notification marks the claim only after delivery succeeds", async () => {
   const originals = []; const pushes = []; const marked = []; const released = [];
   stubKey(originals, ["queues:write"]);
