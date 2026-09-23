@@ -144,6 +144,50 @@ test("cookie-authenticated mutation requires same-origin session-bound CSRF", as
   await new Promise((resolve, reject) => protect(request, response, (error) => error ? reject(error) : resolve()));
 });
 
+test("vendor mutations keep using the app CSRF cookie when a developer session is also present", async () => {
+  const protect = createCsrfProtection({
+    allowedOrigins: new Set(["https://app.getprio.test"]),
+    csrfSecret: "test-csrf-secret"
+  });
+  const response = buildResponse();
+  const appSession = issueBrowserSession(response, {
+    accessToken: "app-access",
+    refreshToken: "app-refresh",
+    session: { _id: "42", expiresAt: "2026-09-01T00:00:00.000Z" }
+  }, { secure: true, csrfSecret: "test-csrf-secret" });
+  const developerSession = issueBrowserSession(response, {
+    accessToken: "developer-access",
+    refreshToken: "developer-refresh",
+    session: { _id: "43", expiresAt: "2026-09-01T00:00:00.000Z" }
+  }, { secure: true, csrfSecret: "test-csrf-secret", surface: "developer" });
+  const headers = {
+    cookie: [
+      `${ACCESS_COOKIE}=app-access`,
+      `${REFRESH_COOKIE}=app-refresh`,
+      `${CSRF_COOKIE}=${encodeURIComponent(appSession.csrfToken)}`,
+      `${DEVELOPER_ACCESS_COOKIE}=developer-access`,
+      `${DEVELOPER_REFRESH_COOKIE}=developer-refresh`,
+      `${DEVELOPER_CSRF_COOKIE}=${encodeURIComponent(developerSession.csrfToken)}`
+    ].join("; "),
+    origin: "https://app.getprio.test",
+    "sec-fetch-site": "same-site",
+    "content-type": "application/json",
+    "x-csrf-token": appSession.csrfToken
+  };
+
+  await new Promise((resolve, reject) => protect({
+    method: "POST",
+    originalUrl: "/api/vendor/tenant/example/queue/open?location=main",
+    headers
+  }, response, (error) => error ? reject(error) : resolve()));
+
+  await new Promise((resolve, reject) => protect({
+    method: "POST",
+    originalUrl: "/api/developer/projects",
+    headers: { ...headers, "x-csrf-token": developerSession.csrfToken }
+  }, response, (error) => error ? reject(error) : resolve()));
+});
+
 test("cookie-authenticated image upload requires the same CSRF checks", async () => {
   const protect = createCsrfProtection({
     allowedOrigins: new Set(["https://app.getprio.test"]),
