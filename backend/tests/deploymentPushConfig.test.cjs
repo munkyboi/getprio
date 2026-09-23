@@ -35,7 +35,8 @@ test("production deployment wires and verifies all FCM credentials", () => {
     assert.match(workflow, new RegExp(`secrets\\.${variableName}`));
   }
   assert.match(workflow, /FCM_SANDBOX_PROJECT_ID/);
-  assert.match(workflow, /printf "FCM_PRIVATE_KEY=.*fcm_private_key/);
+  assert.match(workflow, /printf 'FCM_PRIVATE_KEY=%s\\n' "\$\{fcm_private_key\}"/);
+  assert.match(workflow, /printf 'FCM_SANDBOX_PRIVATE_KEY=%s\\n' "\$\{fcm_private_key_sandbox\}"/);
   assert.match(workflow, /bash scripts\/verify-fcm-config\.sh/);
 });
 
