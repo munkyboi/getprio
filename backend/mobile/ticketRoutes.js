@@ -70,6 +70,8 @@ async function buildQueuePosition(ticket) {
 
 async function formatMobileTicket(ticket, environment) {
   const isDeveloperTicket = Boolean(ticket.isDeveloperApiTicket || ticket.developerProjectId);
+  const developerTenantName = ticket.profileName || ticket.queueName || null;
+  const developerLocationName = ticket.queueName || ticket.locationName || null;
   const [tenant, location, queuePosition, counter] = await Promise.all([
     isDeveloperTicket ? Promise.resolve(null) : tenantRepository.findTenantById(ticket.tenantId),
     isDeveloperTicket ? Promise.resolve(null) : locationRepository.findLocationById(ticket.locationId),
@@ -84,7 +86,7 @@ async function formatMobileTicket(ticket, environment) {
     ticket_number: ticket.ticketNumber,
     source: isDeveloperTicket ? "developer_api" : "first_party",
     display_label: isDeveloperTicket
-      ? (ticket.displayLabel || ticket.queueName || ticket.profileName || null)
+      ? (ticket.displayLabel || developerTenantName || null)
       : (tenant?.publicProfileDisplayName || tenant?.name || ticket.tenantName || null),
     external_reference: isDeveloperTicket ? ticket.externalReference : null,
     ...(isDeveloperTicket && ticket.verificationCode ? { verification_code: ticket.verificationCode } : {}),
@@ -92,8 +94,8 @@ async function formatMobileTicket(ticket, environment) {
     status: ticket.status,
     status_reason: ticket.statusReason,
     profile: {
-      queue_name: isDeveloperTicket ? (ticket.queueName || ticket.profileName || null) : (tenant?.name || ticket.tenantName || null),
-      location_name: location?.name || ticket.locationName || null,
+      queue_name: isDeveloperTicket ? developerTenantName : (tenant?.name || ticket.tenantName || null),
+      location_name: isDeveloperTicket ? developerLocationName : (location?.name || ticket.locationName || null),
       location_slug: location?.slug || ticket.locationSlug || null
     },
     queue_position: queuePosition,
@@ -110,7 +112,8 @@ async function formatMobileTicket(ticket, environment) {
 }
 
 function formatDeveloperMobileTicket(ticket, environment, { invitation = false } = {}) {
-  const queueName = ticket.queueDisplayName || ticket.profileDisplayName || "Developer queue";
+  const tenantName = ticket.profileDisplayName || ticket.queueDisplayName || "Developer queue";
+  const locationName = ticket.queueDisplayName || null;
   return {
     id: ticket.id,
     ticket_number: ticket.ticketNumber,
@@ -122,8 +125,8 @@ function formatDeveloperMobileTicket(ticket, environment, { invitation = false }
     status: ticket.status,
     status_reason: ticket.statusReason || null,
     profile: {
-      queue_name: queueName,
-      location_name: null,
+      queue_name: tenantName,
+      location_name: locationName,
       location_slug: ticket.queueSlug
     },
     queue_position: null,
