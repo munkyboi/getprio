@@ -148,7 +148,7 @@ function developerTicketInvitationCopy(profileName) {
   const title = String(profileName || "").trim() || "GetPrio queue";
   return {
     title,
-    body: `You have a new ticket from ${title}. Open GetPrio to review and accept it.`
+    body: `You have a new ticket from ${title}. Open GetPrio to review it.`
   };
 }
 
