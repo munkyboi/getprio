@@ -97,27 +97,42 @@ function buildData(payload) {
 }
 
 function collapseId(payload) {
-  return String(payload.notificationId || payload.tag || "getprio-queue").slice(0, 64);
+  return String(payload.collapseId || payload.notificationId || payload.tag || "getprio-queue").slice(0, 64);
 }
 
 async function send(registration, payload, deadline, config) {
   if (!config.projectId || !config.clientEmail || !config.privateKey) return false;
   const accessToken = await getAccessToken(config, deadline);
+  const collapseKey = collapseId(payload);
+  const message = {
+    token: registration.token,
+    data: buildData(payload),
+    android: { priority: "high", collapseKey },
+    apns: payload.silent
+      ? {
+          headers: {
+            "apns-push-type": "background",
+            "apns-priority": "5",
+            "apns-collapse-id": collapseKey
+          },
+          payload: { aps: { "content-available": 1 } }
+        }
+      : {
+          headers: {
+            "apns-push-type": "alert",
+            "apns-priority": "10",
+            "apns-collapse-id": collapseKey
+          },
+          payload: { aps: { sound: "default" } }
+        }
+  };
+  if (!payload.silent) {
+    message.notification = { title: payload.title, body: payload.body };
+  }
   const response = await fetchWithDeadline(`https://fcm.googleapis.com/v1/projects/${encodeURIComponent(config.projectId)}/messages:send`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      message: {
-        token: registration.token,
-        notification: { title: payload.title, body: payload.body },
-        data: buildData(payload),
-        android: { priority: "high", collapseKey: collapseId(payload) },
-        apns: {
-          headers: { "apns-collapse-id": collapseId(payload) },
-          payload: { aps: { sound: "default" } }
-        }
-      }
-    })
+    body: JSON.stringify({ message })
   }, deadline);
   const data = await response.json().catch(() => ({}));
   if (response.ok) {

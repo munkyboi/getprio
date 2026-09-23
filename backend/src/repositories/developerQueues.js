@@ -434,6 +434,28 @@ async function claimNearTurnTickets(queueId, threshold, options = {}) {
   }));
 }
 
+async function listWaitingLinkedTickets(projectId, environment, queueId, options = {}) {
+  const result = await clientFor(options).query(
+    `SELECT id, developer_api_queue_id, ticket_number, linked_user_id
+       FROM developer_api_tickets
+      WHERE developer_project_id = $1
+        AND environment = $2
+        AND developer_api_queue_id = $3
+        AND status = 'waiting'
+        AND linked_user_id IS NOT NULL
+        AND linking_disabled_at IS NULL
+        AND customer_data_deleted_at IS NULL
+      ORDER BY sequence ASC`,
+    [String(projectId), environment, String(queueId)]
+  );
+  return result.rows.map((row) => ({
+    id: String(row.id),
+    queueId: String(row.developer_api_queue_id),
+    ticketNumber: row.ticket_number,
+    linkedUserId: String(row.linked_user_id)
+  }));
+}
+
 async function markNearTurnTicketNotified(ticketId, options = {}) {
   const result = await clientFor(options).query(
     `UPDATE developer_api_tickets
@@ -863,6 +885,7 @@ module.exports = {
   deleteQueue,
   callNextTicket,
   claimNearTurnTickets,
+  listWaitingLinkedTickets,
   markNearTurnTicketNotified,
   releaseNearTurnTicketClaim,
   consumeSandboxAllowance,

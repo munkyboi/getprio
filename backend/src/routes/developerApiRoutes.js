@@ -12,6 +12,15 @@ const router = express.Router();
 const PRODUCTION_HOSTS = new Set(["api.getprio.online"]);
 const SANDBOX_HOSTS = new Set(["sandbox-api.getprio.online"]);
 const INTERNAL_TICKET = Symbol("developerApiInternalTicket");
+const QUEUE_MOVING_EVENT_TYPES = new Set([
+  "ticket.called",
+  "ticket.served",
+  "ticket.skipped",
+  "ticket.cancelled",
+  "ticket.unserved",
+  "ticket.expired",
+  "ticket.restored"
+]);
 
 function getEnvironment(req) {
   const hostname = String(req.hostname || req.headers.host || "").trim().toLowerCase().split(":")[0];
@@ -164,6 +173,35 @@ function developerNearTurnNotificationCopy(profileName, ticket) {
   };
 }
 
+async function sendDeveloperQueueMovedSignals(req, sourceTicket) {
+  if (!sourceTicket || !QUEUE_MOVING_EVENT_TYPES.has(sourceTicket.event?.type)) return;
+
+  const waitingTickets = await developerQueues.listWaitingLinkedTickets(
+    req.apiKey.projectId,
+    req.apiKey.environment,
+    sourceTicket.queueId
+  );
+  if (!waitingTickets.length) return;
+
+  const pushNotificationService = require("../services/pushNotificationService");
+  const queueTag = `developer-queue-moved-${sourceTicket.queueId}`;
+  const notificationId = `${queueTag}:${sourceTicket.resourceVersion}`;
+  const deliveries = await Promise.allSettled(waitingTickets.map((ticket) => pushNotificationService.sendUserSignal({
+    userId: ticket.linkedUserId,
+    eventType: "developer_queue_moved",
+    notificationId,
+    collapseId: queueTag,
+    tag: queueTag,
+    ticketRef: ticket.ticketNumber || ticket.id,
+    route: "tickets",
+    environment: getEnvironment(req)
+  })));
+  const failed = deliveries.filter((delivery) => delivery.status === "rejected");
+  if (failed.length) {
+    console.warn("[developer-queue-moved-signal-skipped]", { failed: failed.length, total: deliveries.length });
+  }
+}
+
 async function mutate(req, res, { scope, payload, status = 200, run, notificationName, nearTurnQueue }) {
   let result;
   try {
@@ -195,6 +233,11 @@ async function mutate(req, res, { scope, payload, status = 200, run, notificatio
   } catch (mutationError) {
     if (mutationError.code === "23505") throw error(409, "RESOURCE_CONFLICT", "A resource with this value already exists.");
     throw mutationError;
+  }
+  if (result.notificationTicket) {
+    sendDeveloperQueueMovedSignals(req, result.notificationTicket).catch((notificationError) => {
+      console.warn("[developer-queue-moved-signal-skipped]", notificationError.message);
+    });
   }
   const linkedUserId = result.notificationTicket?.linkedUserId;
   if (linkedUserId && result.body?.data?.ticket?.status) {
