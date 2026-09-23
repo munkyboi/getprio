@@ -117,6 +117,36 @@ const queueResolutionPath = ({ operationId, summary, status, location = false, d
   }
 });
 
+const queueConfirmationPath = ({ operationId, summary, location = false, dataSchema = "TicketEnvelope" }) => ({
+  post: {
+    operationId,
+    summary,
+    security: [{ ApiKeyAuth: [] }],
+    parameters: [...queueParameters(location), idempotencyParameter],
+    requestBody: {
+      required: true,
+      content: {
+        "application/json": {
+          schema: {
+            type: "object",
+            required: ["verification_code"],
+            properties: { verification_code: { type: "string", pattern: "^[A-Fa-f0-9]{8}$", description: "The code encoded in the customer's ticket barcode." } },
+            additionalProperties: false
+          }
+        }
+      }
+    },
+    responses: {
+      "200": envelopeResponse("Confirmed the current called ticket", dataSchema),
+      "400": { description: "Invalid verification code." },
+      "401": { description: "Missing or invalid API key." },
+      "403": { description: "API key is missing the queues:write scope." },
+      "404": { description: location ? "Tenant or location not found." : "Tenant not found." },
+      "409": { description: "The verification code does not match the current called ticket, or there is no called ticket." }
+    }
+  }
+});
+
 const queueTicketActionPath = ({ operationId, summary, action, location = false, dataSchema = "TicketEnvelope" }) => ({
   post: {
     operationId,
@@ -317,6 +347,15 @@ const openApiDocument = {
       summary: "Skip the current called ticket",
       status: "skipped"
     }),
+    "/queues/{tenantSlug}/current/confirm": queueConfirmationPath({
+      operationId: "confirmCurrentQueueTicket",
+      summary: "Confirm the customer for the current called ticket"
+    }),
+    "/queues/{tenantSlug}/locations/{locationSlug}/current/confirm": queueConfirmationPath({
+      operationId: "confirmCurrentLocationQueueTicket",
+      summary: "Confirm the customer for the current called ticket at a location",
+      location: true
+    }),
     "/queues/{tenantSlug}/locations/{locationSlug}/current/skip": queueResolutionPath({
       operationId: "skipCurrentLocationQueueTicket",
       summary: "Skip the current called ticket at a location",
@@ -422,7 +461,7 @@ const openApiDocument = {
       },
       Ticket: {
         type: "object",
-        required: ["id", "ticket_number", "sequence", "status", "queue_id", "resource_version", "created_at", "updated_at"],
+        required: ["id", "ticket_number", "sequence", "status", "queue_id", "verification_code", "resource_version", "created_at", "updated_at"],
         properties: {
           id: { type: "string", description: "Opaque ticket identifier." },
           ticket_number: { type: "string" },
@@ -431,6 +470,8 @@ const openApiDocument = {
           status: { type: "string", enum: ["waiting", "called", "served", "skipped", "cancelled", "unserved", "expired"] },
           queue_id: { type: "string" },
           external_reference: { type: ["string", "null"] },
+          verification_code: { type: "string", pattern: "^[A-F0-9]{8}$", description: "The code encoded in the customer's ticket barcode." },
+          customer_confirmed_at: { type: ["string", "null"], format: "date-time" },
           status_reason: { type: ["string", "null"] },
           called_at: { type: ["string", "null"], format: "date-time" },
           served_at: { type: ["string", "null"], format: "date-time" },

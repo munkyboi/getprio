@@ -65,6 +65,34 @@ test("queue webhook payloads use the event envelope and omit private ticket data
   assert.equal(payload.data.ticket.lookup_code, undefined);
 });
 
+test("developer ticket webhooks carry the verification code and confirmation event", () => {
+  const payload = webhookService.buildDeveloperTicketEventPayload({
+    event: {
+      id: "event-confirmed",
+      type: "ticket.confirmed",
+      fromStatus: "called",
+      toStatus: "called",
+      resourceVersion: 2,
+      source: "developer_api_barcode_scan",
+      occurredAt: "2026-09-23T02:00:00.000Z"
+    },
+    ticket: {
+      id: "ticket-1",
+      projectId: "project-1",
+      environment: "sandbox",
+      queueId: "queue-1",
+      ticketNumber: "MAIN-0001",
+      verificationCode: "AB12CD34",
+      customerConfirmedAt: "2026-09-23T02:00:00.000Z",
+      status: "called"
+    }
+  });
+
+  assert.equal(payload.type, "ticket.confirmed");
+  assert.equal(payload.data.ticket.verification_code, "AB12CD34");
+  assert.equal(payload.data.ticket.customer_confirmed_at, "2026-09-23T02:00:00.000Z");
+});
+
 const publicLookup = async () => [{ address: "93.184.216.34", family: 4 }];
 
 test("webhook dispatcher signs the stored raw body and rejects redirects", async () => {

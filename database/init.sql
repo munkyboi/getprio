@@ -506,6 +506,7 @@ CREATE TABLE developer_api_tickets (
   display_label TEXT CHECK (display_label IS NULL OR char_length(display_label) BETWEEN 1 AND 120),
   external_reference TEXT CHECK (external_reference IS NULL OR char_length(external_reference) BETWEEN 1 AND 160),
   recipient_email TEXT CHECK (recipient_email IS NULL OR char_length(recipient_email) <= 320),
+  verification_code TEXT NOT NULL CHECK (verification_code ~ '^[A-F0-9]{8}$'),
   status TEXT NOT NULL DEFAULT 'waiting' CHECK (status IN ('waiting', 'called', 'served', 'skipped', 'cancelled', 'unserved', 'expired')),
   status_reason TEXT CHECK (status_reason IS NULL OR char_length(status_reason) <= 120),
   linked_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
@@ -517,6 +518,7 @@ CREATE TABLE developer_api_tickets (
   cancelled_at TIMESTAMPTZ,
   unserved_at TIMESTAMPTZ,
   terminal_at TIMESTAMPTZ,
+  customer_confirmed_at TIMESTAMPTZ,
   resource_version BIGINT NOT NULL DEFAULT 1 CHECK (resource_version > 0),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -525,6 +527,7 @@ CREATE TABLE developer_api_tickets (
 );
 
 CREATE UNIQUE INDEX developer_api_tickets_external_reference_idx ON developer_api_tickets (developer_project_id, environment, external_reference) WHERE external_reference IS NOT NULL AND customer_data_deleted_at IS NULL;
+CREATE UNIQUE INDEX developer_api_tickets_verification_code_idx ON developer_api_tickets (verification_code);
 CREATE INDEX developer_api_tickets_queue_status_idx ON developer_api_tickets (developer_api_queue_id, status, sequence);
 CREATE INDEX developer_api_tickets_scope_idx ON developer_api_tickets (developer_project_id, environment, created_at DESC);
 
