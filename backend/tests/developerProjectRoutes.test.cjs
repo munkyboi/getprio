@@ -49,13 +49,13 @@ const project = { id: "project-1", name: "Harbor", status: "active", accessRole:
 const profile = { id: "profile-1", projectId: "project-1", environment: "sandbox", slug: "harbor", displayName: "Harbor", directoryStatus: "private", directoryContent: {}, createdAt: "2026-09-16T00:00:00.000Z", updatedAt: "2026-09-16T00:00:00.000Z" };
 
 test("developer workspace resource routes scope profiles and queues to the signed-in project", async () => {
-  const originals = []; const calls = [];
+  const originals = []; const calls = []; const createdQueues = [];
   replace(developerProjects, "findProjectForUser", async (...args) => { calls.push(["project", ...args]); return args[0] === "project-1" ? project : null; }, originals);
   replace(developerQueues, "listProfiles", async (...args) => { calls.push(["profiles", ...args]); return [profile]; }, originals);
   replace(developerQueues, "findProfile", async (...args) => { calls.push(["findProfile", ...args]); return args[2] === "harbor" ? profile : null; }, originals);
   replace(developerQueues, "listQueues", async (...args) => { calls.push(["queues", ...args]); return []; }, originals);
   replace(developerQueues, "createProfile", async (input) => ({ ...profile, slug: input.slug, displayName: input.displayName }), originals);
-  replace(developerQueues, "createQueue", async (input) => ({ id: "queue-1", profileId: input.profileId, slug: input.slug, displayName: input.displayName, sessionState: input.sessionState, intakeEnabled: input.intakeEnabled, joiningEnabled: false, priorityRatio: 3, resourceVersion: 1, createdAt: "2026-09-16T00:00:00.000Z", updatedAt: "2026-09-16T00:00:00.000Z" }), originals);
+  replace(developerQueues, "createQueue", async (input) => { createdQueues.push(input); return { id: "queue-1", profileId: input.profileId, slug: input.slug, displayName: input.displayName, sessionState: input.sessionState, intakeEnabled: input.intakeEnabled, joiningEnabled: false, priorityRatio: 3, queuePrefix: input.queuePrefix, averageServiceMinutes: input.averageServiceMinutes, notificationThreshold: input.notificationThreshold, resourceVersion: 1, createdAt: "2026-09-16T00:00:00.000Z", updatedAt: "2026-09-16T00:00:00.000Z" }; }, originals);
   replace(securityEventService, "logSecurityEvent", async () => {}, originals);
   const { server, baseUrl } = await startServer();
   try {
@@ -63,8 +63,11 @@ test("developer workspace resource routes scope profiles and queues to the signe
     assert.equal(listed.status, 200); assert.deepEqual(calls[1], ["profiles", "project-1", "sandbox"]);
     const created = await request("POST", `${baseUrl}/projects/project-1/profiles`, { environment: "sandbox", slug: "north-desk", displayName: "North desk" });
     assert.equal(created.status, 201); assert.equal(created.body.profile.slug, "north-desk");
-    const queue = await request("POST", `${baseUrl}/projects/project-1/profiles/harbor/queues`, { environment: "sandbox", slug: "main", displayName: "Main queue", sessionState: "open", intakeEnabled: true });
+    const queue = await request("POST", `${baseUrl}/projects/project-1/profiles/harbor/queues`, { environment: "sandbox", slug: "main", displayName: "Main queue", sessionState: "open", intakeEnabled: true, queuePrefix: "DESK", averageServiceMinutes: 20, notificationThreshold: 4 });
     assert.equal(queue.status, 201); assert.equal(queue.body.queue.profileId, "profile-1"); assert.equal(queue.body.queue.intakeEnabled, true);
+    assert.equal(queue.body.queue.queuePrefix, "DESK"); assert.equal(queue.body.queue.averageServiceMinutes, 20); assert.equal(queue.body.queue.notificationThreshold, 4);
+    await request("POST", `${baseUrl}/projects/project-1/profiles/harbor/queues`, { environment: "sandbox", slug: "front", displayName: "Front queue" });
+    assert.deepEqual(createdQueues[1], { profileId: "profile-1", slug: "front", displayName: "Front queue", sessionState: "closed", intakeEnabled: false, queuePrefix: "FRON", averageServiceMinutes: 15, notificationThreshold: 2 });
     const denied = await request("GET", `${baseUrl}/projects/another-project/profiles?environment=sandbox`);
     assert.equal(denied.status, 404); assert.equal(denied.body.code, "DEVELOPER_RESOURCE_NOT_FOUND");
   } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
@@ -82,7 +85,7 @@ test("developer workspace blocks production profile resources before database ac
 });
 
 test("developer workspace updates queue configuration without allowing slug changes", async () => {
-  const originals = []; const queue = { id: "queue-1", profileId: "profile-1", slug: "main", displayName: "Main queue", sessionState: "closed", intakeEnabled: false, joiningEnabled: false, priorityRatio: 3, resourceVersion: 1, createdAt: "2026-09-16T00:00:00.000Z", updatedAt: "2026-09-16T00:00:00.000Z" };
+  const originals = []; const queue = { id: "queue-1", profileId: "profile-1", slug: "main", displayName: "Main queue", sessionState: "closed", intakeEnabled: false, joiningEnabled: false, priorityRatio: 3, queuePrefix: "MAIN", averageServiceMinutes: 15, notificationThreshold: 2, resourceVersion: 1, createdAt: "2026-09-16T00:00:00.000Z", updatedAt: "2026-09-16T00:00:00.000Z" };
   const webhookEvents = [];
   replace(developerProjects, "findProjectForUser", async () => project, originals);
   replace(developerQueues, "findProfile", async () => profile, originals);
@@ -100,11 +103,14 @@ test("developer workspace updates queue configuration without allowing slug chan
   replace(securityEventService, "logSecurityEvent", async () => {}, originals);
   const { server, baseUrl } = await startServer();
   try {
-    const updated = await request("PATCH", `${baseUrl}/projects/project-1/profiles/harbor/queues/main`, { environment: "sandbox", displayName: "Front desk", sessionState: "open", intakeEnabled: true, resourceVersion: 1 });
+    const updated = await request("PATCH", `${baseUrl}/projects/project-1/profiles/harbor/queues/main`, { environment: "sandbox", displayName: "Front desk", sessionState: "open", intakeEnabled: true, queuePrefix: "FRNT", averageServiceMinutes: 25, notificationThreshold: 5, resourceVersion: 1 });
     assert.equal(updated.status, 200);
     assert.equal(updated.body.queue.displayName, "Front desk");
     assert.equal(updated.body.queue.sessionState, "open");
     assert.equal(updated.body.queue.intakeEnabled, true);
+    assert.equal(updated.body.queue.queuePrefix, "FRNT");
+    assert.equal(updated.body.queue.averageServiceMinutes, 25);
+    assert.equal(updated.body.queue.notificationThreshold, 5);
     assert.equal(updated.body.queue.slug, "main");
     assert.deepEqual(webhookEvents.map(({ event }) => ({ type: event.type, fromStatus: event.fromStatus, toStatus: event.toStatus })), [
       { type: "queue.session.opened", fromStatus: "closed", toStatus: "open" },

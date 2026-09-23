@@ -36,7 +36,7 @@ function key(scopes) {
   return { id: "key-1", projectId: "project-1", environment: "sandbox", scopes, createdByUserId: "1", status: "active", projectStatus: "active", accountStatus: "active" };
 }
 function profile() { return { id: "profile-1", projectId: "project-1", environment: "sandbox", slug: "harbor", displayName: "Harbor Services", directoryStatus: "private", directoryContent: {}, createdAt: "2026-09-15T00:00:00.000Z", updatedAt: "2026-09-15T00:00:00.000Z" }; }
-function queue() { return { id: "queue-1", profileId: "profile-1", slug: "main", displayName: "Main queue", sessionState: "open", intakeEnabled: true, joiningEnabled: false, priorityRatio: 3, resourceVersion: 1, createdAt: "2026-09-15T00:00:00.000Z", updatedAt: "2026-09-15T00:00:00.000Z" }; }
+function queue() { return { id: "queue-1", profileId: "profile-1", slug: "main", displayName: "Main queue", sessionState: "open", intakeEnabled: true, joiningEnabled: false, priorityRatio: 3, queuePrefix: "MAIN", averageServiceMinutes: 15, notificationThreshold: 2, resourceVersion: 1, createdAt: "2026-09-15T00:00:00.000Z", updatedAt: "2026-09-15T00:00:00.000Z" }; }
 function ticket() { return { id: "ticket-1", projectId: "project-1", environment: "sandbox", profileId: "profile-1", queueId: "queue-1", queueSlug: "main", ticketNumber: "MAIN-0001", status: "waiting", externalReference: "customer-123", verificationCode: "AB12CD34", statusReason: null, resourceVersion: 1, createdAt: "2026-09-15T00:00:00.000Z", updatedAt: "2026-09-15T00:00:00.000Z", event: { id: "1", type: "ticket.issued", resourceVersion: 1, occurredAt: "2026-09-15T00:00:00.000Z" } }; }
 
 function replace(object, name, value, originals) { originals.push([object, name, object[name]]); object[name] = value; }
@@ -68,6 +68,7 @@ test("developer API scopes queue reads to the calling key project and environmen
     const response = await request("GET", `${baseUrl}/queues/harbor`, "sandbox-api.getprio.online", { "x-api-key": "gpk_sbx_test" });
     assert.equal(response.status, 200); assert.deepEqual(calls[0], ["project-1", "sandbox", "harbor"]);
     assert.equal(response.body.data.profile.id, "profile-1"); assert.equal(response.body.data.next_up[0].external_reference, "customer-123");
+    assert.equal(response.body.data.queue.queue_prefix, "MAIN"); assert.equal(response.body.data.queue.average_service_minutes, 15); assert.equal(response.body.data.queue.notification_threshold, 2);
   } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
 });
 
@@ -139,6 +140,54 @@ test("sandbox Developer API lifecycle sends FCM using internal linked-user metad
     assert.equal(pushes[0].body, "It's your turn. Please proceed to the counter.");
     assert.equal(pushes[0].environment, "sandbox");
     assert.equal(pushes[0].ticketRef, "QUEUE1-0009");
+  } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
+});
+
+test("near-turn notification marks the claim only after delivery succeeds", async () => {
+  const originals = []; const pushes = []; const marked = []; const released = [];
+  stubKey(originals, ["queues:write"]);
+  replace(developerQueues, "findProfile", async () => profile(), originals);
+  replace(developerQueues, "findFirstQueue", async () => queue(), originals);
+  replace(developerQueues, "callNextTicket", async () => ({ ...ticket(), status: "called" }), originals);
+  replace(developerQueues, "claimNearTurnTickets", async () => [{ id: "near-ticket-1", ticketNumber: "MAIN-0002", linkedUserId: "42", queuePosition: 2 }], originals);
+  replace(developerQueues, "markNearTurnTicketNotified", async (id) => { marked.push(id); }, originals);
+  replace(developerQueues, "releaseNearTurnTicketClaim", async (id) => { released.push(id); }, originals);
+  replace(db, "withTransaction", async (run) => run({ query: async () => ({ rows: [] }) }), originals);
+  replace(developerApiOperations, "claim", async () => ({ state: "claimed", recordId: "operation-near-turn-1" }), originals);
+  replace(developerApiOperations, "complete", async () => {}, originals);
+  replace(developerWebhookService, "enqueueDeveloperTicketEvent", async () => {}, originals);
+  replace(pushNotificationService, "sendUserNotification", async (payload) => { pushes.push(payload); return { attempted: 1, sent: 1 }; }, originals);
+  const { server, baseUrl } = await startServer();
+  try {
+    const response = await request("POST", `${baseUrl}/queues/harbor/call-next`, "sandbox-api.getprio.online", { "x-api-key": "gpk_sbx_test", "idempotency-key": "call-next-near-turn-1" });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(response.status, 200);
+    assert.equal(pushes.length, 1);
+    assert.deepEqual(marked, ["near-ticket-1"]);
+    assert.deepEqual(released, []);
+  } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
+});
+
+test("near-turn notification releases the claim when delivery fails", async () => {
+  const originals = []; const released = [];
+  stubKey(originals, ["queues:write"]);
+  replace(developerQueues, "findProfile", async () => profile(), originals);
+  replace(developerQueues, "findFirstQueue", async () => queue(), originals);
+  replace(developerQueues, "callNextTicket", async () => ({ ...ticket(), status: "called" }), originals);
+  replace(developerQueues, "claimNearTurnTickets", async () => [{ id: "near-ticket-2", ticketNumber: "MAIN-0003", linkedUserId: "42", queuePosition: 1 }], originals);
+  replace(developerQueues, "markNearTurnTicketNotified", async () => { throw new Error("must not mark failed delivery"); }, originals);
+  replace(developerQueues, "releaseNearTurnTicketClaim", async (id) => { released.push(id); }, originals);
+  replace(db, "withTransaction", async (run) => run({ query: async () => ({ rows: [] }) }), originals);
+  replace(developerApiOperations, "claim", async () => ({ state: "claimed", recordId: "operation-near-turn-2" }), originals);
+  replace(developerApiOperations, "complete", async () => {}, originals);
+  replace(developerWebhookService, "enqueueDeveloperTicketEvent", async () => {}, originals);
+  replace(pushNotificationService, "sendUserNotification", async () => ({ attempted: 1, sent: 0 }), originals);
+  const { server, baseUrl } = await startServer();
+  try {
+    const response = await request("POST", `${baseUrl}/queues/harbor/call-next`, "sandbox-api.getprio.online", { "x-api-key": "gpk_sbx_test", "idempotency-key": "call-next-near-turn-2" });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(response.status, 200);
+    assert.deepEqual(released, ["near-ticket-2"]);
   } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
 });
 
