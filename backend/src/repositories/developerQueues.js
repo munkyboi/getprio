@@ -1,6 +1,8 @@
 const crypto = require("node:crypto");
 const db = require("../config/db");
 
+const DEVELOPER_QUEUE_DEFAULT_SERVICE_MINUTES = 5;
+
 function clientFor(options = {}) {
   return options.client || db.pool;
 }
@@ -302,6 +304,63 @@ async function queueSnapshot(queueId, options = {}) {
     nextUp: waiting.slice(0, 5),
     overflow: waiting.slice(5),
     skipped
+  };
+}
+
+async function mobileQueueMetrics(queueId, ticketId, options = {}) {
+  if (!queueId || !ticketId) return null;
+
+  const result = await clientFor(options).query(
+    `SELECT target.status,
+            target.sequence,
+            queue.updated_at AS queue_updated_at,
+            COUNT(active.id) FILTER (WHERE active.status = 'waiting')::INTEGER AS waiting_count,
+            MAX(active.updated_at) AS latest_ticket_updated_at,
+            AVG(EXTRACT(EPOCH FROM (active.served_at - active.called_at)) / 60.0)
+              FILTER (WHERE active.status = 'served' AND active.called_at IS NOT NULL AND active.served_at IS NOT NULL)
+              AS average_service_minutes,
+            CASE WHEN target.status = 'waiting' THEN (
+              SELECT COUNT(*)::INTEGER
+                FROM developer_api_tickets ahead
+               WHERE ahead.developer_api_queue_id = target.developer_api_queue_id
+                 AND ahead.status = 'waiting'
+                 AND ahead.sequence <= target.sequence
+            ) ELSE NULL END AS queue_position
+       FROM developer_api_tickets target
+       INNER JOIN developer_api_queues queue ON queue.id = target.developer_api_queue_id
+       LEFT JOIN developer_api_tickets active
+         ON active.developer_api_queue_id = target.developer_api_queue_id
+      WHERE target.developer_api_queue_id = $1
+        AND target.id = $2
+      GROUP BY target.status, target.sequence, target.developer_api_queue_id, queue.updated_at
+      LIMIT 1`,
+    [String(queueId), String(ticketId)]
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+
+  const position = row.queue_position === null ? null : Number(row.queue_position);
+  const waitingCount = Number(row.waiting_count || 0);
+  const averageServiceMinutes = Math.max(
+    1,
+    Math.round(Number(row.average_service_minutes) || DEVELOPER_QUEUE_DEFAULT_SERVICE_MINUTES)
+  );
+  const updatedAt = [row.queue_updated_at, row.latest_ticket_updated_at]
+    .filter(Boolean)
+    .map((value) => new Date(value))
+    .sort((left, right) => right.getTime() - left.getTime())[0] || null;
+
+  return {
+    queuePosition: position === null
+      ? null
+      : {
+          position,
+          peopleAhead: Math.max(0, position - 1),
+          asOf: updatedAt
+        },
+    queueLength: waitingCount,
+    estimatedWaitMinutes: position === null ? null : position * averageServiceMinutes,
+    queueUpdatedAt: updatedAt
   };
 }
 
@@ -718,6 +777,7 @@ module.exports = {
   mapProfile,
   mapQueue,
   mapTicket,
+  mobileQueueMetrics,
   queueSnapshot,
   acceptMobileInvitation,
   claimMobileTicketByVerificationCode,

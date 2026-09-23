@@ -68,18 +68,26 @@ async function buildQueuePosition(ticket) {
   return { position, people_ahead: Math.max(0, position - 1), as_of: new Date().toISOString() };
 }
 
+async function buildDeveloperQueueMetrics(ticket, environment) {
+  if (!ticket.isDeveloperApiTicket && !ticket.developerProjectId) return null;
+  if (!ticket.queueId || typeof developerQueues.mobileQueueMetrics !== "function") return null;
+  return developerQueues.mobileQueueMetrics(ticket.queueId, ticket._id || ticket.id, { environment });
+}
+
 async function formatMobileTicket(ticket, environment) {
   const isDeveloperTicket = Boolean(ticket.isDeveloperApiTicket || ticket.developerProjectId);
   const developerTenantName = ticket.profileName || ticket.queueName || null;
   const developerLocationName = ticket.queueName || ticket.locationName || null;
-  const [tenant, location, queuePosition, counter] = await Promise.all([
+  const [tenant, location, queuePosition, counter, developerMetrics] = await Promise.all([
     isDeveloperTicket ? Promise.resolve(null) : tenantRepository.findTenantById(ticket.tenantId),
     isDeveloperTicket ? Promise.resolve(null) : locationRepository.findLocationById(ticket.locationId),
-    buildQueuePosition(ticket),
+    isDeveloperTicket ? Promise.resolve(null) : buildQueuePosition(ticket),
     ticket.status === "called" && ticket.serviceCounterId
       ? serviceCounterRepository.findCounterById(ticket.serviceCounterId)
-      : Promise.resolve(null)
+      : Promise.resolve(null),
+    buildDeveloperQueueMetrics(ticket, environment)
   ]);
+  const resolvedQueuePosition = developerMetrics?.queuePosition || queuePosition;
   const canCancel = ACTIVE_STATUSES.has(ticket.status) && ticket.status !== "pending_carry_over";
   return {
     id: ticket._id,
@@ -98,11 +106,19 @@ async function formatMobileTicket(ticket, environment) {
       location_name: isDeveloperTicket ? developerLocationName : (location?.name || ticket.locationName || null),
       location_slug: location?.slug || ticket.locationSlug || null
     },
-    queue_position: queuePosition,
+    queue_position: resolvedQueuePosition
+      ? {
+          position: resolvedQueuePosition.position,
+          people_ahead: resolvedQueuePosition.peopleAhead ?? resolvedQueuePosition.people_ahead,
+          as_of: resolvedQueuePosition.asOf ?? resolvedQueuePosition.as_of
+        }
+      : null,
     called_counter: ticket.status === "called" && counter && String(counter.locationId) === String(ticket.locationId)
       ? { id: counter._id, name: counter.name }
       : null,
-    estimated_wait_minutes: null,
+    queue_length: developerMetrics?.queueLength ?? null,
+    queue_updated_at: developerMetrics?.queueUpdatedAt ?? null,
+    estimated_wait_minutes: developerMetrics?.estimatedWaitMinutes ?? null,
     can_cancel: canCancel,
     tracking_status: ACTIVE_STATUSES.has(ticket.status) ? "active" : "terminal",
     issued_at: ticket.createdAt,
@@ -111,11 +127,16 @@ async function formatMobileTicket(ticket, environment) {
   };
 }
 
-function formatDeveloperMobileTicket(ticket, environment, { invitation = false } = {}) {
+async function formatDeveloperMobileTicket(ticket, environment, { invitation = false } = {}) {
   const tenantName = ticket.profileDisplayName || ticket.queueDisplayName || "Developer queue";
   const locationName = ticket.queueDisplayName || null;
+  const metrics = await buildDeveloperQueueMetrics({
+    ...ticket,
+    isDeveloperApiTicket: true,
+    _id: ticket._id || ticket.id
+  }, environment);
   return {
-    id: ticket.id,
+    id: ticket.id || ticket._id,
     ticket_number: ticket.ticketNumber,
     source: "developer_api",
     display_label: ticket.displayLabel || null,
@@ -129,9 +150,17 @@ function formatDeveloperMobileTicket(ticket, environment, { invitation = false }
       location_name: locationName,
       location_slug: ticket.queueSlug
     },
-    queue_position: null,
+    queue_position: metrics?.queuePosition
+      ? {
+          position: metrics.queuePosition.position,
+          people_ahead: metrics.queuePosition.peopleAhead,
+          as_of: metrics.queuePosition.asOf
+        }
+      : null,
     called_counter: null,
-    estimated_wait_minutes: null,
+    queue_length: metrics?.queueLength ?? null,
+    queue_updated_at: metrics?.queueUpdatedAt ?? null,
+    estimated_wait_minutes: metrics?.estimatedWaitMinutes ?? null,
     can_cancel: false,
     tracking_status: ACTIVE_STATUSES.has(ticket.status) ? "active" : "terminal",
     issued_at: ticket.createdAt,
@@ -168,14 +197,14 @@ router.post("/ticket-claims", asyncHandler(async (req, res) => {
     throw error;
   }
   res.setHeader("Cache-Control", "no-store");
-  res.json({ ticket: formatDeveloperMobileTicket(ticket, environment) });
+  res.json({ ticket: await formatDeveloperMobileTicket(ticket, environment) });
 }));
 
 router.get("/ticket-invitations", asyncHandler(async (req, res) => {
   const environment = environmentForRequest(req);
   const invitations = await developerQueues.listMobileInvitationsForUser(req.user._id, environment);
   res.setHeader("Cache-Control", "no-store");
-  res.json({ invitations: invitations.map((ticket) => formatDeveloperMobileTicket(ticket, environment, { invitation: true })) });
+  res.json({ invitations: await Promise.all(invitations.map((ticket) => formatDeveloperMobileTicket(ticket, environment, { invitation: true }))) });
 }));
 
 router.post("/ticket-invitations/:ticketId/accept", asyncHandler(async (req, res) => {
@@ -193,7 +222,7 @@ router.post("/ticket-invitations/:ticketId/accept", asyncHandler(async (req, res
     throw error;
   }
   res.setHeader("Cache-Control", "no-store");
-  res.json({ ticket: formatDeveloperMobileTicket(ticket, environment) });
+  res.json({ ticket: await formatDeveloperMobileTicket(ticket, environment) });
 }));
 
 router.get("/tickets", asyncHandler(async (req, res) => {
