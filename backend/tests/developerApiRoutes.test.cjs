@@ -37,7 +37,7 @@ function key(scopes) {
 }
 function profile() { return { id: "profile-1", projectId: "project-1", environment: "sandbox", slug: "harbor", displayName: "Harbor Services", directoryStatus: "private", directoryContent: {}, createdAt: "2026-09-15T00:00:00.000Z", updatedAt: "2026-09-15T00:00:00.000Z" }; }
 function queue() { return { id: "queue-1", profileId: "profile-1", slug: "main", displayName: "Main queue", sessionState: "open", intakeEnabled: true, joiningEnabled: false, priorityRatio: 3, resourceVersion: 1, createdAt: "2026-09-15T00:00:00.000Z", updatedAt: "2026-09-15T00:00:00.000Z" }; }
-function ticket() { return { id: "ticket-1", projectId: "project-1", environment: "sandbox", profileId: "profile-1", queueId: "queue-1", ticketNumber: "MAIN-0001", status: "waiting", externalReference: "customer-123", statusReason: null, resourceVersion: 1, createdAt: "2026-09-15T00:00:00.000Z", updatedAt: "2026-09-15T00:00:00.000Z", event: { id: "1", type: "ticket.issued", resourceVersion: 1, occurredAt: "2026-09-15T00:00:00.000Z" } }; }
+function ticket() { return { id: "ticket-1", projectId: "project-1", environment: "sandbox", profileId: "profile-1", queueId: "queue-1", queueSlug: "main", ticketNumber: "MAIN-0001", status: "waiting", externalReference: "customer-123", verificationCode: "AB12CD34", statusReason: null, resourceVersion: 1, createdAt: "2026-09-15T00:00:00.000Z", updatedAt: "2026-09-15T00:00:00.000Z", event: { id: "1", type: "ticket.issued", resourceVersion: 1, occurredAt: "2026-09-15T00:00:00.000Z" } }; }
 
 function replace(object, name, value, originals) { originals.push([object, name, object[name]]); object[name] = value; }
 function restore(originals) { for (const [object, name, value] of originals.reverse()) object[name] = value; }
@@ -105,6 +105,7 @@ test("ticket issuance writes its idempotency response and webhook outbox in one 
   try {
     const response = await request("POST", `${baseUrl}/queues/harbor/tickets`, "sandbox-api.getprio.online", { "x-api-key": "gpk_sbx_test", "idempotency-key": "ticket-issue-1" }, { display_label: "Anonymous visitor", external_reference: "customer-123" });
     assert.equal(response.status, 201); assert.equal(response.body.data.ticket.id, "ticket-1");
+    assert.equal(response.body.data.ticket.verification_code, "AB12CD34");
     assert.equal(completed.length, 1); assert.equal(webhooks.length, 1); assert.equal(response.body.data.ticket.event, undefined);
   } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
 });
@@ -136,6 +137,46 @@ test("sandbox Developer API lifecycle sends FCM using internal linked-user metad
     assert.equal(pushes[0].userId, "42");
     assert.equal(pushes[0].environment, "sandbox");
     assert.equal(pushes[0].ticketRef, "QUEUE1-0009");
+  } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
+});
+
+test("developer API confirms the current called ticket with its verification code", async () => {
+  const originals = []; const webhooks = [];
+  stubKey(originals, ["queues:write"]);
+  replace(developerQueues, "findProfile", async () => profile(), originals);
+  replace(developerQueues, "findFirstQueue", async () => queue(), originals);
+  replace(developerQueues, "confirmCurrentTicket", async (input) => {
+    assert.equal(input.projectId, "project-1");
+    assert.equal(input.environment, "sandbox");
+    assert.equal(input.verificationCode, "AB12CD34");
+    return { ...ticket(), status: "called", customerConfirmedAt: "2026-09-15T00:05:00.000Z", event: { id: "2", type: "ticket.confirmed", resourceVersion: 2, occurredAt: "2026-09-15T00:05:00.000Z" } };
+  }, originals);
+  replace(db, "withTransaction", async (run) => run({ query: async () => ({ rows: [] }) }), originals);
+  replace(developerApiOperations, "claim", async () => ({ state: "claimed", recordId: "operation-2" }), originals);
+  replace(developerApiOperations, "complete", async () => {}, originals);
+  replace(developerWebhookService, "enqueueDeveloperTicketEvent", async (...args) => { webhooks.push(args); }, originals);
+  const { server, baseUrl } = await startServer();
+  try {
+    const response = await request("POST", `${baseUrl}/queues/harbor/current/confirm`, "sandbox-api.getprio.online", { "x-api-key": "gpk_sbx_test", "idempotency-key": "confirm-1" }, { verification_code: "ab12cd34" });
+    assert.equal(response.status, 200);
+    assert.equal(response.body.data.ticket.verification_code, "AB12CD34");
+    assert.equal(response.body.data.ticket.customer_confirmed_at, "2026-09-15T00:05:00.000Z");
+    assert.equal(webhooks.length, 1);
+  } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
+});
+
+test("developer API rejects malformed verification codes before confirming", async () => {
+  const originals = []; let confirmed = false;
+  stubKey(originals, ["queues:write"]);
+  replace(developerQueues, "findProfile", async () => profile(), originals);
+  replace(developerQueues, "findFirstQueue", async () => queue(), originals);
+  replace(developerQueues, "confirmCurrentTicket", async () => { confirmed = true; return ticket(); }, originals);
+  const { server, baseUrl } = await startServer();
+  try {
+    const response = await request("POST", `${baseUrl}/queues/harbor/current/confirm`, "sandbox-api.getprio.online", { "x-api-key": "gpk_sbx_test", "idempotency-key": "confirm-2" }, { verification_code: "not-a-code" });
+    assert.equal(response.status, 400);
+    assert.equal(response.body.error, "INVALID_REQUEST");
+    assert.equal(confirmed, false);
   } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
 });
 

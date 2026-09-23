@@ -333,6 +333,8 @@ function mapDeveloperMobileTicket(row) {
     developerProjectId: row.developer_project_id ? String(row.developer_project_id) : null,
     developerEnvironment: row.environment,
     externalReference: row.external_reference || null,
+    verificationCode: row.verification_code || null,
+    customerConfirmedAt: row.customer_confirmed_at || null,
     profileName: row.profile_display_name || null,
     queueName: row.queue_display_name || null,
     createdAt: row.created_at,
@@ -348,7 +350,8 @@ async function listDeveloperTicketsForUser(userId, options = {}) {
   const result = await buildQueryClient(options.client).query(
     `SELECT ticket.id, ticket.developer_project_id, ticket.environment,
             ticket.ticket_number, ticket.sequence, ticket.display_label,
-            ticket.external_reference, ticket.status, ticket.status_reason,
+            ticket.external_reference, ticket.verification_code, ticket.customer_confirmed_at,
+            ticket.status, ticket.status_reason,
             ticket.linked_user_id, ticket.created_at, ticket.updated_at,
             profile.display_name AS profile_display_name,
             queue.display_name AS queue_display_name
@@ -369,7 +372,8 @@ async function findDeveloperTicketForUser(ticketId, userId, options = {}) {
   const result = await buildQueryClient(options.client).query(
     `SELECT ticket.id, ticket.developer_project_id, ticket.environment,
             ticket.ticket_number, ticket.sequence, ticket.display_label,
-            ticket.external_reference, ticket.status, ticket.status_reason,
+            ticket.external_reference, ticket.verification_code, ticket.customer_confirmed_at,
+            ticket.status, ticket.status_reason,
             ticket.linked_user_id, ticket.created_at, ticket.updated_at,
             profile.display_name AS profile_display_name,
             queue.display_name AS queue_display_name

@@ -246,6 +246,7 @@ test("mobile Sandbox tickets include independent Developer API records linked by
     queueName: "Main queue",
     profileName: "My EMR",
     externalReference: "visit-1",
+    verificationCode: "AB12CD34",
     createdAt: "2026-09-16T00:00:00.000Z",
     updatedAt: "2026-09-16T00:00:00.000Z"
   };
@@ -299,6 +300,7 @@ test("mobile ticket invitations are scoped by email and can be accepted", async 
     ticketNumber: "QUEUE-0001",
     displayLabel: "Johnny",
     externalReference: "visit-1",
+    verificationCode: "AB12CD34",
     status: "waiting",
     environment: "sandbox",
     profileDisplayName: "Sandbox profile",
@@ -350,6 +352,7 @@ test("mobile ticket invitations are scoped by email and can be accepted", async 
       source: "developer_api",
       display_label: "Johnny",
       external_reference: "visit-1",
+      verification_code: "AB12CD34",
       status: "waiting",
       status_reason: null,
       profile: { queue_name: "Sandbox queue", location_name: null, location_slug: "main" },

@@ -1,3 +1,4 @@
+const crypto = require("node:crypto");
 const db = require("../config/db");
 
 function clientFor(options = {}) {
@@ -50,6 +51,7 @@ function mapTicket(row) {
     displayLabel: row.display_label || null,
     externalReference: row.external_reference || null,
     recipientEmail: row.recipient_email || null,
+    verificationCode: row.verification_code,
     linkedUserId: row.linked_user_id ? String(row.linked_user_id) : null,
     status: row.status,
     statusReason: row.status_reason || null,
@@ -59,6 +61,7 @@ function mapTicket(row) {
     cancelledAt: row.cancelled_at,
     unservedAt: row.unserved_at,
     terminalAt: row.terminal_at,
+    customerConfirmedAt: row.customer_confirmed_at || null,
     resourceVersion: Number(row.resource_version),
     createdAt: row.created_at,
     updatedAt: row.updated_at
@@ -79,8 +82,8 @@ const QUEUE_COLUMNS = `
 const TICKET_COLUMNS = `
   id AS ticket_id, developer_project_id, environment, developer_api_profile_id,
   developer_api_queue_id, developer_api_queue_counter_id, ticket_number,
-  sequence, display_label, external_reference, recipient_email, status,
-  linked_user_id,
+  sequence, display_label, external_reference, recipient_email, verification_code, status,
+  linked_user_id, customer_confirmed_at,
   status_reason, called_at, served_at, skipped_at, cancelled_at, unserved_at,
   terminal_at, resource_version, created_at, updated_at
 `;
@@ -88,9 +91,9 @@ const TICKET_COLUMNS = `
 const MOBILE_TICKET_COLUMNS = `
   t.id AS ticket_id, t.developer_project_id, t.environment, t.developer_api_profile_id,
   t.developer_api_queue_id, t.developer_api_queue_counter_id, t.ticket_number,
-  t.sequence, t.display_label, t.external_reference, t.recipient_email, t.status,
+  t.sequence, t.display_label, t.external_reference, t.recipient_email, t.verification_code, t.status,
   t.status_reason, t.called_at, t.served_at, t.skipped_at, t.cancelled_at, t.unserved_at,
-  t.terminal_at, t.resource_version, t.created_at, t.updated_at,
+  t.terminal_at, t.customer_confirmed_at, t.resource_version, t.created_at, t.updated_at,
   p.display_name AS profile_display_name, q.slug AS queue_slug, q.display_name AS queue_display_name
 `;
 
@@ -454,12 +457,13 @@ async function issueTicket(input, options = {}) {
   );
   const sequence = Number(nextSequence.rows[0].next_sequence);
   const ticketNumber = `${queue.slug.toUpperCase().slice(0, 8)}-${String(sequence).padStart(4, "0")}`;
+  const verificationCode = crypto.randomBytes(4).toString("hex").toUpperCase();
   const inserted = await queryClient.query(
     `INSERT INTO developer_api_tickets
        (developer_project_id, environment, developer_api_profile_id,
         developer_api_queue_id, ticket_number, sequence, display_label,
-        external_reference, recipient_email, linked_user_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
+        external_reference, recipient_email, verification_code, linked_user_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
        CASE WHEN $2 = 'sandbox' THEN (
          SELECT account_user.id
          FROM users AS account_user
@@ -476,7 +480,7 @@ async function issueTicket(input, options = {}) {
     [
       input.projectId, input.environment, input.profileId, queue.id,
       ticketNumber, sequence, input.displayLabel || null,
-      input.externalReference || null, input.recipientEmail || null
+      input.externalReference || null, input.recipientEmail || null, verificationCode
     ]
   );
   const ticket = mapTicket(inserted.rows[0]);
@@ -491,6 +495,60 @@ async function issueTicket(input, options = {}) {
     resourceVersion: ticket.resourceVersion
   }, { client: queryClient });
   return ticket;
+}
+
+async function confirmCurrentTicket(input, options = {}) {
+  const queryClient = clientFor(options);
+  const queue = await findQueue(input.profileId, input.queueSlug, { client: queryClient, forUpdate: true });
+  if (!queue || queue.id !== String(input.queueId)) return null;
+
+  const currentResult = await queryClient.query(
+    `SELECT ${TICKET_COLUMNS}
+       FROM developer_api_tickets
+      WHERE developer_project_id = $1
+        AND environment = $2
+        AND developer_api_queue_id = $3
+        AND status = 'called'
+      ORDER BY called_at ASC, sequence ASC
+      LIMIT 1
+      FOR UPDATE`,
+    [input.projectId, input.environment, queue.id]
+  );
+  const current = mapTicket(currentResult.rows[0]);
+  if (!current) return null;
+
+  const verificationCode = String(input.verificationCode || "").trim().toUpperCase();
+  if (current.verificationCode !== verificationCode) {
+    const error = new Error("Verification code does not match the current called ticket.");
+    error.statusCode = 409;
+    error.code = "INVALID_VERIFICATION_CODE";
+    throw error;
+  }
+  if (current.customerConfirmedAt) return current;
+
+  const updatedResult = await queryClient.query(
+    `UPDATE developer_api_tickets
+        SET customer_confirmed_at = NOW(),
+            resource_version = resource_version + 1,
+            updated_at = NOW()
+      WHERE id = $1
+      RETURNING ${TICKET_COLUMNS}`,
+    [current.id]
+  );
+  const updated = mapTicket(updatedResult.rows[0]);
+  updated.event = await appendTicketEvent({
+    projectId: updated.projectId,
+    environment: updated.environment,
+    profileId: updated.profileId,
+    queueId: updated.queueId,
+    ticketId: updated.id,
+    type: "ticket.confirmed",
+    fromStatus: updated.status,
+    toStatus: updated.status,
+    resourceVersion: updated.resourceVersion,
+    source: "developer_api_barcode_scan"
+  }, { client: queryClient });
+  return updated;
 }
 
 async function listMobileInvitationsForUser(userId, environment, options = {}) {
@@ -529,9 +587,9 @@ async function acceptMobileInvitation(ticketId, userId, environment, options = {
         )
       RETURNING t.id AS ticket_id, t.developer_project_id, t.environment, t.developer_api_profile_id,
         t.developer_api_queue_id, t.developer_api_queue_counter_id, t.ticket_number,
-        t.sequence, t.display_label, t.external_reference, t.recipient_email, t.status,
+        t.sequence, t.display_label, t.external_reference, t.recipient_email, t.verification_code, t.status,
         t.status_reason, t.called_at, t.served_at, t.skipped_at, t.cancelled_at, t.unserved_at,
-        t.terminal_at, t.resource_version, t.created_at, t.updated_at`,
+        t.terminal_at, t.customer_confirmed_at, t.resource_version, t.created_at, t.updated_at`,
     [ticketId, Number(userId), environment]
   );
   return mapTicket(result.rows[0]);
@@ -627,6 +685,7 @@ module.exports = {
   mapTicket,
   queueSnapshot,
   acceptMobileInvitation,
+  confirmCurrentTicket,
   transitionTicket,
   updateProfile,
   updateQueue

@@ -64,6 +64,11 @@ function eventCursor(value) {
   if (!/^\d+$/.test(normalized)) throw error(400, "INVALID_REQUEST", "cursor must be an event cursor returned by the API.");
   return normalized;
 }
+function verificationCode(value) {
+  const normalized = String(value || "").trim().toUpperCase();
+  if (!/^[A-F0-9]{8}$/.test(normalized)) throw error(400, "INVALID_REQUEST", "verification_code must be an 8-character hexadecimal code.");
+  return normalized;
+}
 function profileView(profile) {
   const content = profile.directoryContent || {};
   return { id: profile.id, slug: profile.slug, display_name: profile.displayName, directory_status: profile.directoryStatus, directory_content: { description: content.description || "", website_url: content.websiteUrl || "" }, created_at: profile.createdAt, updated_at: profile.updatedAt };
@@ -71,7 +76,7 @@ function profileView(profile) {
 function queueView(queue) { return { id: queue.id, slug: queue.slug, display_name: queue.displayName, session_state: queue.sessionState, intake_enabled: queue.intakeEnabled, joining_enabled: queue.joiningEnabled, priority_ratio: queue.priorityRatio, resource_version: queue.resourceVersion, created_at: queue.createdAt, updated_at: queue.updatedAt }; }
 function ticketView(ticket) {
   if (!ticket) return null;
-  const value = { id: ticket.id, ticket_number: ticket.ticketNumber, sequence: ticket.sequence, display_label: ticket.displayLabel, status: ticket.status, queue_id: ticket.queueId, external_reference: ticket.externalReference, status_reason: ticket.statusReason, called_at: ticket.calledAt, served_at: ticket.servedAt, skipped_at: ticket.skippedAt, cancelled_at: ticket.cancelledAt, unserved_at: ticket.unservedAt, terminal_at: ticket.terminalAt, resource_version: ticket.resourceVersion, created_at: ticket.createdAt, updated_at: ticket.updatedAt };
+  const value = { id: ticket.id, ticket_number: ticket.ticketNumber, sequence: ticket.sequence, display_label: ticket.displayLabel, status: ticket.status, queue_id: ticket.queueId, external_reference: ticket.externalReference, ...(ticket.verificationCode ? { verification_code: ticket.verificationCode } : {}), ...(ticket.customerConfirmedAt ? { customer_confirmed_at: ticket.customerConfirmedAt } : {}), status_reason: ticket.statusReason, called_at: ticket.calledAt, served_at: ticket.servedAt, skipped_at: ticket.skippedAt, cancelled_at: ticket.cancelledAt, unserved_at: ticket.unservedAt, terminal_at: ticket.terminalAt, resource_version: ticket.resourceVersion, created_at: ticket.createdAt, updated_at: ticket.updatedAt };
   if (ticket.event) Object.defineProperty(value, "event", { value: ticket.event, enumerable: false });
   if (ticket.projectId) Object.defineProperty(value, "projectId", { value: ticket.projectId, enumerable: false });
   if (ticket.environment) Object.defineProperty(value, "environment", { value: ticket.environment, enumerable: false });
@@ -248,6 +253,16 @@ router.post(queuePaths("/tickets"), authenticateDeveloperApiKey, requireApiScope
 router.post(queuePaths("/call-next"), authenticateDeveloperApiKey, requireApiScope("queues:write"), asyncHandler(async (req, res) => {
   const { profile, queue } = await context(req);
   await mutate(req, res, { scope: "developer_api.queue.call_next", payload: { profileId: profile.id, queueId: queue.id }, run: async (client) => ({ ticket: ticketView(await developerQueues.callNextTicket({ projectId: req.apiKey.projectId, environment: req.apiKey.environment, profileId: profile.id, queueId: queue.id, queueSlug: queue.slug }, { client })) }) });
+}));
+router.post(queuePaths("/current/confirm"), authenticateDeveloperApiKey, requireApiScope("queues:write"), asyncHandler(async (req, res) => {
+  only(req.body, new Set(["verification_code", "verificationCode"]));
+  const suppliedCode = verificationCode(req.body?.verification_code ?? req.body?.verificationCode);
+  const { profile, queue } = await context(req);
+  await mutate(req, res, { scope: "developer_api.queue.confirm", payload: { profileId: profile.id, queueId: queue.id, verificationCode: suppliedCode }, run: async (client) => {
+    const ticket = await developerQueues.confirmCurrentTicket({ projectId: req.apiKey.projectId, environment: req.apiKey.environment, profileId: profile.id, queueId: queue.id, queueSlug: queue.slug, verificationCode: suppliedCode }, { client });
+    if (!ticket) throw error(409, "NO_CALLED_TICKET", "There is no called ticket to confirm.");
+    return { ticket: ticketView(ticket) };
+  }});
 }));
 function currentTransition(suffix, toStatus) {
   router.post(queuePaths(suffix), authenticateDeveloperApiKey, requireApiScope("queues:write"), asyncHandler(async (req, res) => {

@@ -160,9 +160,9 @@ test("developer profile and queue deletion against disposable PostgreSQL", { ski
     fixture.ticket = (await db.pool.query(
       `INSERT INTO developer_api_tickets
          (developer_project_id, environment, developer_api_profile_id, developer_api_queue_id,
-          ticket_number, sequence, status)
-       VALUES ($1, 'sandbox', $2, $3, $4, 1, 'served') RETURNING id`,
-      [fixture.project, fixture.historyProfile, fixture.historyQueue, `H-${suffix}`]
+          ticket_number, sequence, verification_code, status)
+       VALUES ($1, 'sandbox', $2, $3, $4, 1, $5, 'served') RETURNING id`,
+      [fixture.project, fixture.historyProfile, fixture.historyQueue, `H-${suffix}`, crypto.randomBytes(4).toString("hex").toUpperCase()]
     )).rows[0].id;
     fixture.historyKey = (await db.pool.query(
       `INSERT INTO developer_api_keys

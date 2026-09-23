@@ -87,6 +87,8 @@ async function formatMobileTicket(ticket, environment) {
       ? (ticket.displayLabel || ticket.queueName || ticket.profileName || null)
       : (tenant?.publicProfileDisplayName || tenant?.name || ticket.tenantName || null),
     external_reference: isDeveloperTicket ? ticket.externalReference : null,
+    ...(isDeveloperTicket && ticket.verificationCode ? { verification_code: ticket.verificationCode } : {}),
+    ...(isDeveloperTicket && ticket.customerConfirmedAt ? { customer_confirmed_at: ticket.customerConfirmedAt } : {}),
     status: ticket.status,
     status_reason: ticket.statusReason,
     profile: {
@@ -115,6 +117,8 @@ function formatDeveloperMobileTicket(ticket, environment, { invitation = false }
     source: "developer_api",
     display_label: ticket.displayLabel || null,
     external_reference: ticket.externalReference || null,
+    ...(ticket.verificationCode ? { verification_code: ticket.verificationCode } : {}),
+    ...(ticket.customerConfirmedAt ? { customer_confirmed_at: ticket.customerConfirmedAt } : {}),
     status: ticket.status,
     status_reason: ticket.statusReason || null,
     profile: {
