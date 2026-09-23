@@ -458,24 +458,27 @@ async function issueTicket(input, options = {}) {
   const sequence = Number(nextSequence.rows[0].next_sequence);
   const ticketNumber = `${queue.slug.toUpperCase().slice(0, 8)}-${String(sequence).padStart(4, "0")}`;
   const verificationCode = crypto.randomBytes(4).toString("hex").toUpperCase();
-  const inserted = await queryClient.query(
-    `INSERT INTO developer_api_tickets
-       (developer_project_id, environment, developer_api_profile_id,
-        developer_api_queue_id, ticket_number, sequence, display_label,
-        external_reference, recipient_email, verification_code, linked_user_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-       CASE WHEN $2 = 'sandbox' THEN (
-         SELECT account_user.id
+  const invitationUser = input.environment === "sandbox" && input.recipientEmail
+    ? await queryClient.query(
+      `SELECT account_user.id
          FROM users AS account_user
          INNER JOIN developer_project_test_accounts AS test_account
            ON test_account.user_id = account_user.id
           AND test_account.developer_project_id = $1
           AND test_account.status = 'active'
-         WHERE account_user.is_sandbox_test_account = TRUE
-           AND account_user.sandbox_test_account_expires_at > NOW()
-           AND lower(account_user.email) = lower($9)
-         LIMIT 1
-       ) ELSE NULL END)
+        WHERE account_user.is_sandbox_test_account = TRUE
+          AND account_user.sandbox_test_account_expires_at > NOW()
+          AND lower(account_user.email) = lower($2)
+        LIMIT 1`,
+      [input.projectId, input.recipientEmail]
+    )
+    : { rows: [] };
+  const inserted = await queryClient.query(
+    `INSERT INTO developer_api_tickets
+       (developer_project_id, environment, developer_api_profile_id,
+        developer_api_queue_id, ticket_number, sequence, display_label,
+        external_reference, recipient_email, verification_code, linked_user_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULL)
      RETURNING ${TICKET_COLUMNS}`,
     [
       input.projectId, input.environment, input.profileId, queue.id,
@@ -484,6 +487,9 @@ async function issueTicket(input, options = {}) {
     ]
   );
   const ticket = mapTicket(inserted.rows[0]);
+  ticket.invitationUserId = invitationUser.rows[0]?.id
+    ? String(invitationUser.rows[0].id)
+    : null;
   ticket.event = await appendTicketEvent({
     projectId: ticket.projectId,
     environment: ticket.environment,

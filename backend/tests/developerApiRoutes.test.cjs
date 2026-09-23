@@ -169,6 +169,37 @@ test("sandbox Developer API waiting push uses the profile name and customer-frie
   } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
 });
 
+test("sandbox Developer API ticket issuance sends an invitation push for an unlinked recipient", async () => {
+  const originals = [];
+  const pushes = [];
+  stubKey(originals, ["queues:write"]);
+  replace(developerQueues, "findProfile", async () => profile(), originals);
+  replace(developerQueues, "findFirstQueue", async () => queue(), originals);
+  replace(developerQueues, "issueTicket", async () => ({
+    ...ticket(),
+    linkedUserId: null,
+    invitationUserId: "42",
+    ticketNumber: "QUEUE1-0019"
+  }), originals);
+  replace(db, "withTransaction", async (run) => run({ query: async () => ({ rows: [] }) }), originals);
+  replace(developerApiOperations, "claim", async () => ({ state: "claimed", recordId: "operation-4" }), originals);
+  replace(developerApiOperations, "complete", async () => {}, originals);
+  replace(developerWebhookService, "enqueueDeveloperTicketEvent", async () => {}, originals);
+  replace(pushNotificationService, "sendUserNotification", async (payload) => { pushes.push(payload); }, originals);
+  const { server, baseUrl } = await startServer();
+  try {
+    const response = await request("POST", `${baseUrl}/queues/harbor/tickets`, "sandbox-api.getprio.online", { "x-api-key": "gpk_sbx_test", "idempotency-key": "ticket-issue-4" }, { recipient_email: "customer@example.com" });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(response.status, 201);
+    assert.equal(pushes.length, 1);
+    assert.equal(pushes[0].userId, "42");
+    assert.equal(pushes[0].title, "Harbor Services");
+    assert.equal(pushes[0].body, "You have a new ticket from Harbor Services. Open GetPrio to review and accept it.");
+    assert.equal(pushes[0].eventType, "developer_ticket_invitation");
+    assert.equal(pushes[0].route, "tickets");
+  } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
+});
+
 test("developer API confirms the current called ticket with its verification code", async () => {
   const originals = []; const webhooks = [];
   stubKey(originals, ["queues:write"]);
