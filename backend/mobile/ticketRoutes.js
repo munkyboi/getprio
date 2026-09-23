@@ -74,7 +74,34 @@ async function buildDeveloperQueueMetrics(ticket, environment) {
   return developerQueues.mobileQueueMetrics(ticket.queueId, ticket._id || ticket.id, { environment });
 }
 
-async function formatMobileTicket(ticket, environment) {
+async function buildDeveloperQueueMetricsForTickets(tickets, environment) {
+  if (typeof developerQueues.mobileQueueMetricsForTickets !== "function") return new Map();
+  const byQueue = new Map();
+  for (const ticket of tickets) {
+    if ((!ticket.isDeveloperApiTicket && !ticket.developerProjectId) || !ticket.queueId) continue;
+    const queueTickets = byQueue.get(ticket.queueId) || [];
+    queueTickets.push(ticket);
+    byQueue.set(ticket.queueId, queueTickets);
+  }
+  const results = await Promise.all([...byQueue.entries()].map(async ([queueId, queueTickets]) => [
+    queueId,
+    await developerQueues.mobileQueueMetricsForTickets(
+      queueId,
+      queueTickets.map((ticket) => ticket._id || ticket.id),
+      { environment }
+    )
+  ]));
+  const metricsByTicket = new Map();
+  for (const [queueId, metrics] of results) {
+    for (const ticket of byQueue.get(queueId)) {
+      const ticketId = ticket._id || ticket.id;
+      metricsByTicket.set(ticketId, metrics.get(String(ticketId)) || null);
+    }
+  }
+  return metricsByTicket;
+}
+
+async function formatMobileTicket(ticket, environment, { developerMetrics: providedDeveloperMetrics } = {}) {
   const isDeveloperTicket = Boolean(ticket.isDeveloperApiTicket || ticket.developerProjectId);
   const developerTenantName = ticket.profileName || ticket.queueName || null;
   const developerLocationName = ticket.queueName || ticket.locationName || null;
@@ -85,7 +112,9 @@ async function formatMobileTicket(ticket, environment) {
     ticket.status === "called" && ticket.serviceCounterId
       ? serviceCounterRepository.findCounterById(ticket.serviceCounterId)
       : Promise.resolve(null),
-    buildDeveloperQueueMetrics(ticket, environment)
+    providedDeveloperMetrics === undefined
+      ? buildDeveloperQueueMetrics(ticket, environment)
+      : Promise.resolve(providedDeveloperMetrics)
   ]);
   const resolvedQueuePosition = developerMetrics?.queuePosition || queuePosition;
   const canCancel = ACTIVE_STATUSES.has(ticket.status) && ticket.status !== "pending_carry_over";
@@ -127,14 +156,16 @@ async function formatMobileTicket(ticket, environment) {
   };
 }
 
-async function formatDeveloperMobileTicket(ticket, environment, { invitation = false } = {}) {
+async function formatDeveloperMobileTicket(ticket, environment, { invitation = false, developerMetrics } = {}) {
   const tenantName = ticket.profileDisplayName || ticket.queueDisplayName || "Developer queue";
   const locationName = ticket.queueDisplayName || null;
-  const metrics = await buildDeveloperQueueMetrics({
-    ...ticket,
-    isDeveloperApiTicket: true,
-    _id: ticket._id || ticket.id
-  }, environment);
+  const metrics = developerMetrics === undefined
+    ? await buildDeveloperQueueMetrics({
+        ...ticket,
+        isDeveloperApiTicket: true,
+        _id: ticket._id || ticket.id
+      }, environment)
+    : developerMetrics;
   return {
     id: ticket.id || ticket._id,
     ticket_number: ticket.ticketNumber,
@@ -203,8 +234,12 @@ router.post("/ticket-claims", asyncHandler(async (req, res) => {
 router.get("/ticket-invitations", asyncHandler(async (req, res) => {
   const environment = environmentForRequest(req);
   const invitations = await developerQueues.listMobileInvitationsForUser(req.user._id, environment);
+  const developerMetrics = await buildDeveloperQueueMetricsForTickets(invitations, environment);
   res.setHeader("Cache-Control", "no-store");
-  res.json({ invitations: await Promise.all(invitations.map((ticket) => formatDeveloperMobileTicket(ticket, environment, { invitation: true }))) });
+  res.json({ invitations: await Promise.all(invitations.map((ticket) => formatDeveloperMobileTicket(ticket, environment, {
+    invitation: true,
+    developerMetrics: developerMetrics.get(ticket._id || ticket.id)
+  }))) });
 }));
 
 router.post("/ticket-invitations/:ticketId/accept", asyncHandler(async (req, res) => {
@@ -241,9 +276,12 @@ router.get("/tickets", asyncHandler(async (req, res) => {
   const tickets = [...result.tickets, ...developerResult.tickets]
     .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
     .slice(0, responseLimit);
+  const developerMetrics = await buildDeveloperQueueMetricsForTickets(tickets, environment);
   res.setHeader("Cache-Control", "no-store");
   res.json({
-    tickets: await Promise.all(tickets.map((ticket) => formatMobileTicket(ticket, environment))),
+    tickets: await Promise.all(tickets.map((ticket) => formatMobileTicket(ticket, environment, {
+      developerMetrics: developerMetrics.get(ticket._id || ticket.id)
+    }))),
     next_cursor: encodeCursor(result.nextCursor)
   });
 }));

@@ -1,8 +1,6 @@
 const crypto = require("node:crypto");
 const db = require("../config/db");
 
-const DEVELOPER_QUEUE_DEFAULT_SERVICE_MINUTES = 5;
-
 function clientFor(options = {}) {
   return options.client || db.pool;
 }
@@ -307,61 +305,86 @@ async function queueSnapshot(queueId, options = {}) {
   };
 }
 
-async function mobileQueueMetrics(queueId, ticketId, options = {}) {
-  if (!queueId || !ticketId) return null;
+async function mobileQueueMetricsForTickets(queueId, ticketIds, options = {}) {
+  const ids = [...new Set((ticketIds || []).map((ticketId) => String(ticketId)).filter(Boolean))];
+  if (!queueId || !ids.length) return new Map();
 
   const result = await clientFor(options).query(
-    `SELECT target.status,
+    `WITH active AS (
+      SELECT id, status, sequence, updated_at, called_at, served_at
+        FROM developer_api_tickets
+       WHERE developer_api_queue_id = $1
+    ),
+    recent_served AS (
+      SELECT called_at, served_at
+        FROM active
+       WHERE status = 'served' AND called_at IS NOT NULL AND served_at IS NOT NULL
+       ORDER BY served_at DESC
+       LIMIT 50
+    ),
+    service_stats AS (
+      SELECT COUNT(*)::INTEGER AS service_sample_count,
+             AVG(EXTRACT(EPOCH FROM (served_at - called_at)) / 60.0)
+               AS average_service_minutes
+        FROM recent_served
+    ),
+    queue_state AS (
+      SELECT COUNT(*) FILTER (WHERE status = 'waiting')::INTEGER AS waiting_count,
+             MAX(updated_at) AS latest_ticket_updated_at
+        FROM active
+    )
+    SELECT target.id AS ticket_id,
+            target.status,
             target.sequence,
             queue.updated_at AS queue_updated_at,
-            COUNT(active.id) FILTER (WHERE active.status = 'waiting')::INTEGER AS waiting_count,
-            MAX(active.updated_at) AS latest_ticket_updated_at,
-            AVG(EXTRACT(EPOCH FROM (active.served_at - active.called_at)) / 60.0)
-              FILTER (WHERE active.status = 'served' AND active.called_at IS NOT NULL AND active.served_at IS NOT NULL)
-              AS average_service_minutes,
+            queue_state.waiting_count,
+            queue_state.latest_ticket_updated_at,
+            service_stats.service_sample_count,
+            service_stats.average_service_minutes,
             CASE WHEN target.status = 'waiting' THEN (
               SELECT COUNT(*)::INTEGER
-                FROM developer_api_tickets ahead
-               WHERE ahead.developer_api_queue_id = target.developer_api_queue_id
-                 AND ahead.status = 'waiting'
-                 AND ahead.sequence <= target.sequence
+                FROM active ahead
+               WHERE ahead.status = 'waiting'
+               AND ahead.sequence <= target.sequence
             ) ELSE NULL END AS queue_position
        FROM developer_api_tickets target
        INNER JOIN developer_api_queues queue ON queue.id = target.developer_api_queue_id
-       LEFT JOIN developer_api_tickets active
-         ON active.developer_api_queue_id = target.developer_api_queue_id
+       CROSS JOIN queue_state
+       CROSS JOIN service_stats
       WHERE target.developer_api_queue_id = $1
-        AND target.id = $2
-      GROUP BY target.status, target.sequence, target.developer_api_queue_id, queue.updated_at
-      LIMIT 1`,
-    [String(queueId), String(ticketId)]
+        AND target.id = ANY($2::uuid[])`,
+    [String(queueId), ids]
   );
-  const row = result.rows[0];
-  if (!row) return null;
+  return new Map(result.rows.map((row) => {
+    const position = row.queue_position === null ? null : Number(row.queue_position);
+    const waitingCount = Number(row.waiting_count || 0);
+    const averageServiceMinutes = Number(row.service_sample_count || 0) >= 3
+      ? Math.max(1, Math.round(Number(row.average_service_minutes)))
+      : null;
+    const updatedAt = [row.queue_updated_at, row.latest_ticket_updated_at]
+      .filter(Boolean)
+      .map((value) => new Date(value))
+      .sort((left, right) => right.getTime() - left.getTime())[0] || null;
+    return [String(row.ticket_id), {
+      queuePosition: position === null
+        ? null
+        : {
+            position,
+            peopleAhead: Math.max(0, position - 1),
+            asOf: updatedAt
+          },
+      queueLength: waitingCount,
+      estimatedWaitMinutes: position === null || averageServiceMinutes === null
+        ? null
+        : position * averageServiceMinutes,
+      queueUpdatedAt: updatedAt
+    }];
+  }));
+}
 
-  const position = row.queue_position === null ? null : Number(row.queue_position);
-  const waitingCount = Number(row.waiting_count || 0);
-  const averageServiceMinutes = Math.max(
-    1,
-    Math.round(Number(row.average_service_minutes) || DEVELOPER_QUEUE_DEFAULT_SERVICE_MINUTES)
-  );
-  const updatedAt = [row.queue_updated_at, row.latest_ticket_updated_at]
-    .filter(Boolean)
-    .map((value) => new Date(value))
-    .sort((left, right) => right.getTime() - left.getTime())[0] || null;
-
-  return {
-    queuePosition: position === null
-      ? null
-      : {
-          position,
-          peopleAhead: Math.max(0, position - 1),
-          asOf: updatedAt
-        },
-    queueLength: waitingCount,
-    estimatedWaitMinutes: position === null ? null : position * averageServiceMinutes,
-    queueUpdatedAt: updatedAt
-  };
+async function mobileQueueMetrics(queueId, ticketId, options = {}) {
+  const metrics = await mobileQueueMetricsForTickets(queueId, [ticketId], options);
+  return metrics.get(String(ticketId)) || null;
 }
 
 async function getUsage(projectId, environment, options = {}) {
@@ -778,6 +801,7 @@ module.exports = {
   mapQueue,
   mapTicket,
   mobileQueueMetrics,
+  mobileQueueMetricsForTickets,
   queueSnapshot,
   acceptMobileInvitation,
   claimMobileTicketByVerificationCode,

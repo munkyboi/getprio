@@ -252,6 +252,7 @@ test("mobile Sandbox tickets include independent Developer API records linked by
     updatedAt: "2026-09-16T00:00:00.000Z"
   };
   const calls = [];
+  const metricsCalls = [];
   const router = requireWithMocks("../mobile/ticketRoutes.js", {
     "../src/middleware/auth": {
       authenticate(req, _res, next) { req.user = { _id: "customer-7", email: "sandbox@example.com" }; next(); }
@@ -270,6 +271,17 @@ test("mobile Sandbox tickets include independent Developer API records linked by
     "../src/repositories/developerQueues": {
       async listMobileInvitationsForUser() { return []; },
       async acceptMobileInvitation() { return null; },
+      async mobileQueueMetricsForTickets(queueId, ticketIds) {
+        metricsCalls.push([queueId, ticketIds]);
+        assert.equal(queueId, "queue-1");
+        assert.deepEqual(ticketIds, [developerTicket._id]);
+        return new Map([[developerTicket._id, {
+          queuePosition: { position: 2, peopleAhead: 1, asOf: "2026-09-23T00:05:00.000Z" },
+          queueLength: 3,
+          estimatedWaitMinutes: 10,
+          queueUpdatedAt: "2026-09-23T00:05:00.000Z"
+        }]]);
+      },
       async mobileQueueMetrics(queueId, ticketId) {
         assert.equal(queueId, "queue-1");
         assert.equal(ticketId, developerTicket._id);
@@ -290,8 +302,8 @@ test("mobile Sandbox tickets include independent Developer API records linked by
   const server = await new Promise((resolve) => { const nextServer = app.listen(0, () => resolve(nextServer)); });
   try {
     const response = await fetch(`http://127.0.0.1:${server.address().port}/api/v1/mobile/tickets`, { headers: { "x-forwarded-host": "sandbox-api.getprio.online" } });
-    assert.equal(response.status, 200);
     const body = await response.json();
+    assert.equal(response.status, 200, JSON.stringify(body));
     assert.equal(body.tickets[0].id, developerTicket._id);
     assert.equal(body.tickets[0].source, "developer_api");
     assert.equal(body.tickets[0].profile.queue_name, "My EMR");
@@ -299,6 +311,7 @@ test("mobile Sandbox tickets include independent Developer API records linked by
     assert.equal(body.tickets[0].queue_position.position, 2);
     assert.equal(body.tickets[0].queue_length, 3);
     assert.equal(body.tickets[0].estimated_wait_minutes, 10);
+    assert.deepEqual(metricsCalls, [["queue-1", [developerTicket._id]]]);
     assert.deepEqual(calls, []);
 
     const detail = await fetch(`http://127.0.0.1:${server.address().port}/api/v1/mobile/tickets/${developerTicket._id}`, { headers: { "x-forwarded-host": "sandbox-api.getprio.online" } });
