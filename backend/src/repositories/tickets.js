@@ -292,32 +292,6 @@ async function listMobileTicketsForUser(userId, options = {}) {
   };
 }
 
-async function linkDeveloperTicketsForUser(userId, email, options = {}) {
-  const result = await buildQueryClient(options.client).query(
-    `UPDATE developer_api_tickets AS ticket
-        SET linked_user_id = $1, updated_at = NOW()
-       FROM users AS account_user
-      WHERE ticket.linked_user_id IS NULL
-        AND ticket.linking_disabled_at IS NULL
-        AND ticket.environment = 'sandbox'
-        AND ticket.recipient_email IS NOT NULL
-        AND lower(ticket.recipient_email) = lower($2)
-        AND EXISTS (
-          SELECT 1
-          FROM developer_project_test_accounts AS test_account
-          WHERE test_account.user_id = $1
-            AND test_account.developer_project_id = ticket.developer_project_id
-            AND test_account.status = 'active'
-        )
-        AND account_user.id = $1
-        AND account_user.is_sandbox_test_account = TRUE
-        AND account_user.sandbox_test_account_expires_at > NOW()
-      RETURNING ticket.id`,
-    [Number(userId), String(email || "").trim()]
-  );
-  return result.rowCount || result.rows.length;
-}
-
 function mapDeveloperMobileTicket(row) {
   if (!row) return null;
   return {
@@ -1145,7 +1119,6 @@ module.exports = {
   findTicketById,
   findMobileTicketForUser,
   listMobileTicketsForUser,
-  linkDeveloperTicketsForUser,
   listDeveloperTicketsForUser,
   findDeveloperTicketForUser,
   findTicketByIdForUpdate,

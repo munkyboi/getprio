@@ -144,6 +144,14 @@ function developerTicketNotificationCopy(profileName, ticket) {
   return { title, body };
 }
 
+function developerTicketInvitationCopy(profileName) {
+  const title = String(profileName || "").trim() || "GetPrio queue";
+  return {
+    title,
+    body: `You have a new ticket from ${title}. Open GetPrio to review and accept it.`
+  };
+}
+
 async function mutate(req, res, { scope, payload, status = 200, run, notificationName }) {
   let result;
   try {
@@ -189,6 +197,23 @@ async function mutate(req, res, { scope, payload, status = 200, run, notificatio
       environment: getEnvironment(req)
     }).catch((notificationError) => {
       console.warn("[developer-ticket-push-skipped]", notificationError.message);
+    });
+  } else if (result.notificationTicket?.invitationUserId && result.body?.data?.ticket?.status === "waiting") {
+    const ticket = result.body.data.ticket;
+    const copy = developerTicketInvitationCopy(result.notificationName);
+    const pushNotificationService = require("../services/pushNotificationService");
+    pushNotificationService.sendUserNotification({
+      userId: result.notificationTicket.invitationUserId,
+      title: copy.title,
+      body: copy.body,
+      url: "/tickets",
+      route: "tickets",
+      ticketRef: ticket.ticket_number || ticket.id,
+      tag: `developer-ticket-invitation-${ticket.id}`,
+      eventType: "developer_ticket_invitation",
+      environment: getEnvironment(req)
+    }).catch((notificationError) => {
+      console.warn("[developer-ticket-invitation-push-skipped]", notificationError.message);
     });
   }
   res.status(result.statusCode).setHeader("Cache-Control", "no-store").setHeader("X-API-Version", "v1").json(result.body);

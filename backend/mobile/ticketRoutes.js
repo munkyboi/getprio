@@ -169,9 +169,6 @@ router.post("/ticket-invitations/:ticketId/accept", asyncHandler(async (req, res
 router.get("/tickets", asyncHandler(async (req, res) => {
   const view = normalizeView(req.query.view);
   const environment = environmentForRequest(req);
-  if (ticketRepository.linkDeveloperTicketsForUser) {
-    await ticketRepository.linkDeveloperTicketsForUser(req.user._id, req.user.email);
-  }
   const result = await ticketRepository.listMobileTicketsForUser(req.user._id, {
     environment,
     view,

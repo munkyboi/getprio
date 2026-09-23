@@ -72,7 +72,7 @@ test("Sandbox reset and push delivery contain the review fixes", () => {
   assert.match(repository, /account_locked_until = NULL/);
   assert.ok(authRoutes.indexOf("const passwordMatches") < authRoutes.indexOf("assertSandboxTestAccountRequest(user, req)"));
   assert.match(ticketLinks, /sandbox-api\.getprio\.online/);
-  assert.match(developerTickets, /linkDeveloperTicketsForUser/);
+  assert.doesNotMatch(developerTickets, /linkDeveloperTicketsForUser/);
   assert.match(developerTickets, /listDeveloperTicketsForUser/);
   assert.match(projects, /status = 'revoked'/);
   assert.match(projects, /developer_project_archived/);
