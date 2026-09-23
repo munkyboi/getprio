@@ -23,10 +23,41 @@ ALTER TABLE developer_api_queues
   ALTER COLUMN notification_threshold SET DEFAULT 2,
   ALTER COLUMN notification_threshold SET NOT NULL;
 
-ALTER TABLE developer_api_queues
-  ADD CONSTRAINT developer_api_queues_queue_prefix_check CHECK (queue_prefix ~ '^[A-Z0-9]{1,4}$'),
-  ADD CONSTRAINT developer_api_queues_average_service_minutes_check CHECK (average_service_minutes BETWEEN 1 AND 120),
-  ADD CONSTRAINT developer_api_queues_notification_threshold_check CHECK (notification_threshold BETWEEN 1 AND 10);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+      FROM pg_constraint
+     WHERE conrelid = 'developer_api_queues'::regclass
+       AND conname = 'developer_api_queues_queue_prefix_check'
+  ) THEN
+    ALTER TABLE developer_api_queues
+      ADD CONSTRAINT developer_api_queues_queue_prefix_check
+      CHECK (queue_prefix ~ '^[A-Z0-9]{1,4}$');
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+      FROM pg_constraint
+     WHERE conrelid = 'developer_api_queues'::regclass
+       AND conname = 'developer_api_queues_average_service_minutes_check'
+  ) THEN
+    ALTER TABLE developer_api_queues
+      ADD CONSTRAINT developer_api_queues_average_service_minutes_check
+      CHECK (average_service_minutes BETWEEN 1 AND 120);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+      FROM pg_constraint
+     WHERE conrelid = 'developer_api_queues'::regclass
+       AND conname = 'developer_api_queues_notification_threshold_check'
+  ) THEN
+    ALTER TABLE developer_api_queues
+      ADD CONSTRAINT developer_api_queues_notification_threshold_check
+      CHECK (notification_threshold BETWEEN 1 AND 10);
+  END IF;
+END $$;
 
 ALTER TABLE developer_api_tickets
   ADD COLUMN IF NOT EXISTS near_turn_notified_at TIMESTAMPTZ;
