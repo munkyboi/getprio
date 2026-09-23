@@ -36,9 +36,6 @@ function unavailableError() {
   return error;
 }
 
-router.use(mobileTicketLinkLimiter);
-router.use(authenticate);
-
 function setNoStore(_req, res, next) {
   res.setHeader("Cache-Control", "no-store");
   next();
@@ -68,6 +65,8 @@ async function formatSafeTicketContext(result) {
 
 router.post(
   "/ticket-links/preview",
+  mobileTicketLinkLimiter,
+  authenticate,
   setNoStore,
   asyncHandler(async (req, res) => {
     const environment = getEnvironment(req);
@@ -88,6 +87,8 @@ router.post(
 
 router.post(
   "/ticket-links/accept",
+  mobileTicketLinkLimiter,
+  authenticate,
   setNoStore,
   requireIdempotency("mobile.ticket_links.accept"),
   asyncHandler(async (req, res) => {
