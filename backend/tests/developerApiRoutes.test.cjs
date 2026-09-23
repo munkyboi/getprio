@@ -8,6 +8,7 @@ const developerProjects = require("../src/repositories/developerProjects");
 const developerQueues = require("../src/repositories/developerQueues");
 const developerApiOperations = require("../src/repositories/developerApiOperations");
 const developerWebhookService = require("../src/services/developerWebhookService");
+const pushNotificationService = require("../src/services/pushNotificationService");
 const developerApiRateLimits = require("../src/repositories/developerApiRateLimits");
 
 async function startServer() {
@@ -105,6 +106,36 @@ test("ticket issuance writes its idempotency response and webhook outbox in one 
     const response = await request("POST", `${baseUrl}/queues/harbor/tickets`, "sandbox-api.getprio.online", { "x-api-key": "gpk_sbx_test", "idempotency-key": "ticket-issue-1" }, { display_label: "Anonymous visitor", external_reference: "customer-123" });
     assert.equal(response.status, 201); assert.equal(response.body.data.ticket.id, "ticket-1");
     assert.equal(completed.length, 1); assert.equal(webhooks.length, 1); assert.equal(response.body.data.ticket.event, undefined);
+  } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
+});
+
+test("sandbox Developer API lifecycle sends FCM using internal linked-user metadata", async () => {
+  const originals = [];
+  const pushes = [];
+  stubKey(originals, ["queues:write"]);
+  replace(developerQueues, "findProfile", async () => profile(), originals);
+  replace(developerQueues, "findFirstQueue", async () => queue(), originals);
+  replace(developerQueues, "callNextTicket", async () => ({
+    ...ticket(),
+    status: "called",
+    linkedUserId: "42",
+    ticketNumber: "QUEUE1-0009"
+  }), originals);
+  replace(db, "withTransaction", async (run) => run({ query: async () => ({ rows: [] }) }), originals);
+  replace(developerApiOperations, "claim", async () => ({ state: "claimed", recordId: "operation-1" }), originals);
+  replace(developerApiOperations, "complete", async () => {}, originals);
+  replace(developerWebhookService, "enqueueDeveloperTicketEvent", async () => {}, originals);
+  replace(pushNotificationService, "sendUserNotification", async (payload) => { pushes.push(payload); }, originals);
+  const { server, baseUrl } = await startServer();
+  try {
+    const response = await request("POST", `${baseUrl}/queues/harbor/call-next`, "sandbox-api.getprio.online", { "x-api-key": "gpk_sbx_test", "idempotency-key": "call-next-1" });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(response.status, 200);
+    assert.equal(response.body.data.ticket.linkedUserId, undefined);
+    assert.equal(pushes.length, 1);
+    assert.equal(pushes[0].userId, "42");
+    assert.equal(pushes[0].environment, "sandbox");
+    assert.equal(pushes[0].ticketRef, "QUEUE1-0009");
   } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
 });
 

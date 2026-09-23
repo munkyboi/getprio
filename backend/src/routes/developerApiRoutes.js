@@ -10,6 +10,7 @@ const { authenticateDeveloperApiKey, requireApiScope } = require("../middleware/
 const router = express.Router();
 const PRODUCTION_HOSTS = new Set(["api.getprio.online"]);
 const SANDBOX_HOSTS = new Set(["sandbox-api.getprio.online"]);
+const INTERNAL_TICKET = Symbol("developerApiInternalTicket");
 
 function getEnvironment(req) {
   const hostname = String(req.hostname || req.headers.host || "").trim().toLowerCase().split(":")[0];
@@ -84,6 +85,7 @@ function ticketView(ticket) {
   if (ticket.cancelledAt) Object.defineProperty(value, "cancelledAt", { value: ticket.cancelledAt, enumerable: false });
   if (ticket.unservedAt) Object.defineProperty(value, "unservedAt", { value: ticket.unservedAt, enumerable: false });
   if (ticket.terminalAt) Object.defineProperty(value, "terminalAt", { value: ticket.terminalAt, enumerable: false });
+  Object.defineProperty(value, INTERNAL_TICKET, { value: ticket, enumerable: false });
   return value;
 }
 async function scopedProfile(req) {
@@ -120,13 +122,18 @@ async function mutate(req, res, { scope, payload, status = 200, run }) {
     delete publicData.queueEvents;
     const body = envelope(req, publicData);
     await developerApiOperations.complete(operation.recordId, status, body, { client });
-    return { state: "completed", statusCode: status, body };
+    return {
+      state: "completed",
+      statusCode: status,
+      body,
+      notificationTicket: data.ticket?.[INTERNAL_TICKET] || null
+    };
     });
   } catch (mutationError) {
     if (mutationError.code === "23505") throw error(409, "RESOURCE_CONFLICT", "A resource with this value already exists.");
     throw mutationError;
   }
-  const linkedUserId = result.body?.data?.ticket?.linkedUserId;
+  const linkedUserId = result.notificationTicket?.linkedUserId;
   if (linkedUserId && result.body?.data?.ticket?.status) {
     const ticket = result.body.data.ticket;
     const action = ticket.status === "called" ? "called" : ticket.status;
