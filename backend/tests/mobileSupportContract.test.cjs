@@ -283,7 +283,8 @@ test("mobile Sandbox tickets include independent Developer API records linked by
     const body = await response.json();
     assert.equal(body.tickets[0].id, developerTicket._id);
     assert.equal(body.tickets[0].source, "developer_api");
-    assert.equal(body.tickets[0].profile.queue_name, "Main queue");
+    assert.equal(body.tickets[0].profile.queue_name, "My EMR");
+    assert.equal(body.tickets[0].profile.location_name, "Main queue");
     assert.deepEqual(calls[0], ["link", "customer-7", "sandbox@example.com"]);
 
     const detail = await fetch(`http://127.0.0.1:${server.address().port}/api/v1/mobile/tickets/${developerTicket._id}`, { headers: { "x-forwarded-host": "sandbox-api.getprio.online" } });
@@ -355,7 +356,7 @@ test("mobile ticket invitations are scoped by email and can be accepted", async 
       verification_code: "AB12CD34",
       status: "waiting",
       status_reason: null,
-      profile: { queue_name: "Sandbox queue", location_name: null, location_slug: "main" },
+      profile: { queue_name: "Sandbox profile", location_name: "Sandbox queue", location_slug: "main" },
       queue_position: null,
       called_counter: null,
       estimated_wait_minutes: null,

@@ -112,7 +112,39 @@ async function scopedTicket(req, queue) {
   if (!ticket) throw notFound("Ticket not found.");
   return ticket;
 }
-async function mutate(req, res, { scope, payload, status = 200, run }) {
+function developerTicketNotificationCopy(profileName, ticket) {
+  const title = String(profileName || "").trim() || "Queue update";
+  const ticketNumber = ticket.ticket_number || "your ticket";
+  let body;
+
+  switch (ticket.status) {
+    case "waiting":
+      body = `Your ticket ${ticketNumber} is now in the queue.`;
+      break;
+    case "called":
+      body = "It's your turn. Please proceed to the counter.";
+      break;
+    case "served":
+      body = `Your ticket ${ticketNumber} has been served.`;
+      break;
+    case "skipped":
+      body = `Your ticket ${ticketNumber} was skipped. You may still be able to rejoin.`;
+      break;
+    case "cancelled":
+      body = `Your ticket ${ticketNumber} was canceled.`;
+      break;
+    case "unserved":
+      body = `The queue closed before your ticket ${ticketNumber} could be served.`;
+      break;
+    default:
+      body = `Your ticket ${ticketNumber} was updated.`;
+      break;
+  }
+
+  return { title, body };
+}
+
+async function mutate(req, res, { scope, payload, status = 200, run, notificationName }) {
   let result;
   try {
     result = await db.withTransaction(async (client) => {
@@ -131,7 +163,8 @@ async function mutate(req, res, { scope, payload, status = 200, run }) {
       state: "completed",
       statusCode: status,
       body,
-      notificationTicket: data.ticket?.[INTERNAL_TICKET] || null
+      notificationTicket: data.ticket?.[INTERNAL_TICKET] || null,
+      notificationName: notificationName || null
     };
     });
   } catch (mutationError) {
@@ -142,11 +175,12 @@ async function mutate(req, res, { scope, payload, status = 200, run }) {
   if (linkedUserId && result.body?.data?.ticket?.status) {
     const ticket = result.body.data.ticket;
     const action = ticket.status === "called" ? "called" : ticket.status;
+    const copy = developerTicketNotificationCopy(result.notificationName, ticket);
     const pushNotificationService = require("../services/pushNotificationService");
     pushNotificationService.sendUserNotification({
       userId: linkedUserId,
-      title: "Developer API ticket update",
-      body: `${ticket.ticket_number || "Your ticket"} is now ${ticket.status}.`,
+      title: copy.title,
+      body: copy.body,
       url: `/tickets/${ticket.id}`,
       route: "ticket",
       ticketRef: ticket.ticket_number || ticket.id,
@@ -245,20 +279,20 @@ router.post(queuePaths("/tickets"), authenticateDeveloperApiKey, requireApiScope
   const displayLabel = text(req.body?.display_label ?? req.body?.displayLabel, "display_label", 120);
   const externalReference = text(req.body?.external_reference ?? req.body?.externalReference, "external_reference", 160);
   const recipientEmail = text(req.body?.recipient_email ?? req.body?.recipientEmail, "recipient_email", 320);
-  await mutate(req, res, { scope: "developer_api.ticket.issue", payload: { profileId: profile.id, queueId: queue.id, displayLabel, externalReference, recipientEmail }, status: 201, run: async (client) => {
+  await mutate(req, res, { scope: "developer_api.ticket.issue", payload: { profileId: profile.id, queueId: queue.id, displayLabel, externalReference, recipientEmail }, status: 201, notificationName: profile.displayName, run: async (client) => {
     const ticket = await developerQueues.issueTicket({ projectId: req.apiKey.projectId, environment: req.apiKey.environment, profileId: profile.id, queueId: queue.id, queueSlug: queue.slug, displayLabel, externalReference, recipientEmail }, { client });
     if (!ticket) throw notFound("Queue not found."); return { ticket: ticketView(ticket) };
   }});
 }));
 router.post(queuePaths("/call-next"), authenticateDeveloperApiKey, requireApiScope("queues:write"), asyncHandler(async (req, res) => {
   const { profile, queue } = await context(req);
-  await mutate(req, res, { scope: "developer_api.queue.call_next", payload: { profileId: profile.id, queueId: queue.id }, run: async (client) => ({ ticket: ticketView(await developerQueues.callNextTicket({ projectId: req.apiKey.projectId, environment: req.apiKey.environment, profileId: profile.id, queueId: queue.id, queueSlug: queue.slug }, { client })) }) });
+  await mutate(req, res, { scope: "developer_api.queue.call_next", payload: { profileId: profile.id, queueId: queue.id }, notificationName: profile.displayName, run: async (client) => ({ ticket: ticketView(await developerQueues.callNextTicket({ projectId: req.apiKey.projectId, environment: req.apiKey.environment, profileId: profile.id, queueId: queue.id, queueSlug: queue.slug }, { client })) }) });
 }));
 router.post(queuePaths("/current/confirm"), authenticateDeveloperApiKey, requireApiScope("queues:write"), asyncHandler(async (req, res) => {
   only(req.body, new Set(["verification_code", "verificationCode"]));
   const suppliedCode = verificationCode(req.body?.verification_code ?? req.body?.verificationCode);
   const { profile, queue } = await context(req);
-  await mutate(req, res, { scope: "developer_api.queue.confirm", payload: { profileId: profile.id, queueId: queue.id, verificationCode: suppliedCode }, run: async (client) => {
+  await mutate(req, res, { scope: "developer_api.queue.confirm", payload: { profileId: profile.id, queueId: queue.id, verificationCode: suppliedCode }, notificationName: profile.displayName, run: async (client) => {
     const ticket = await developerQueues.confirmCurrentTicket({ projectId: req.apiKey.projectId, environment: req.apiKey.environment, profileId: profile.id, queueId: queue.id, queueSlug: queue.slug, verificationCode: suppliedCode }, { client });
     if (!ticket) throw error(409, "NO_CALLED_TICKET", "There is no called ticket to confirm.");
     return { ticket: ticketView(ticket) };
@@ -267,7 +301,7 @@ router.post(queuePaths("/current/confirm"), authenticateDeveloperApiKey, require
 function currentTransition(suffix, toStatus) {
   router.post(queuePaths(suffix), authenticateDeveloperApiKey, requireApiScope("queues:write"), asyncHandler(async (req, res) => {
     const { profile, queue } = await context(req);
-    await mutate(req, res, { scope: `developer_api.queue.${toStatus}`, payload: { profileId: profile.id, queueId: queue.id }, run: async (client) => {
+    await mutate(req, res, { scope: `developer_api.queue.${toStatus}`, payload: { profileId: profile.id, queueId: queue.id }, notificationName: profile.displayName, run: async (client) => {
       const snapshot = await developerQueues.queueSnapshot(queue.id, { client });
       if (!snapshot.current) throw error(409, "INVALID_TICKET_STATE", "There is no called ticket to resolve.");
       return { ticket: ticketView(await developerQueues.transitionTicket({ projectId: req.apiKey.projectId, environment: req.apiKey.environment, queueId: queue.id, ticketId: snapshot.current.id, fromStatus: "called", toStatus }, { client })) };
@@ -278,7 +312,7 @@ currentTransition("/current/serve", "served"); currentTransition("/current/skip"
 function ticketTransition(action, fromStatus, toStatus) {
   router.post(queuePaths(`/tickets/:ticketId/${action}`), authenticateDeveloperApiKey, requireApiScope("queues:write"), asyncHandler(async (req, res) => {
     const { profile, queue } = await context(req); const ticket = await scopedTicket(req, queue);
-    await mutate(req, res, { scope: `developer_api.ticket.${toStatus}`, payload: { profileId: profile.id, queueId: queue.id, ticketId: ticket.id }, run: async (client) => ({ ticket: ticketView(await developerQueues.transitionTicket({ projectId: req.apiKey.projectId, environment: req.apiKey.environment, queueId: queue.id, ticketId: ticket.id, fromStatus, toStatus, ...(action === "restore" ? { eventType: "ticket.restored" } : {}) }, { client })) }) });
+    await mutate(req, res, { scope: `developer_api.ticket.${toStatus}`, payload: { profileId: profile.id, queueId: queue.id, ticketId: ticket.id }, notificationName: profile.displayName, run: async (client) => ({ ticket: ticketView(await developerQueues.transitionTicket({ projectId: req.apiKey.projectId, environment: req.apiKey.environment, queueId: queue.id, ticketId: ticket.id, fromStatus, toStatus, ...(action === "restore" ? { eventType: "ticket.restored" } : {}) }, { client })) }) });
   }));
 }
 ticketTransition("cancel", "waiting", "cancelled"); ticketTransition("restore", "skipped", "waiting");

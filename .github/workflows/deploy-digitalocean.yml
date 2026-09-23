@@ -114,10 +114,10 @@ jobs:
             printf 'PAYMONGO_LIVE_WEBHOOK_SECRET=%s\n' "${PAYMONGO_LIVE_WEBHOOK_SECRET}"
             printf 'FCM_PROJECT_ID=%s\n' "${FCM_PROJECT_ID}"
             printf 'FCM_CLIENT_EMAIL=%s\n' "${FCM_CLIENT_EMAIL}"
-            printf "FCM_PRIVATE_KEY='%s'\n" "${fcm_private_key}"
+            printf 'FCM_PRIVATE_KEY=%s\n' "${fcm_private_key}"
             printf 'FCM_SANDBOX_PROJECT_ID=%s\n' "${FCM_SANDBOX_PROJECT_ID}"
             printf 'FCM_SANDBOX_CLIENT_EMAIL=%s\n' "${FCM_SANDBOX_CLIENT_EMAIL}"
-            printf "FCM_SANDBOX_PRIVATE_KEY='%s'\n" "${fcm_private_key_sandbox}"
+            printf 'FCM_SANDBOX_PRIVATE_KEY=%s\n' "${fcm_private_key_sandbox}"
             printf 'DEVELOPER_WEBHOOK_ENCRYPTION_KEY=%s\n' "${DEVELOPER_WEBHOOK_ENCRYPTION_KEY}"
           } > "${production_env_file}"
 
