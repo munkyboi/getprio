@@ -174,6 +174,22 @@ test("mobile paid joins configure the PayMongo return target for the app", () =>
   assert.match(queue, /\/payment\/return/);
 });
 
+test("mobile ticket-link rate limiting does not throttle unrelated mobile routes", () => {
+  const ticketLinks = fs.readFileSync(
+    path.join(repositoryRoot, "backend/mobile/ticketLinkRoutes.js"),
+    "utf8"
+  );
+  assert.doesNotMatch(ticketLinks, /router\.use\(mobileTicketLinkLimiter\)/);
+  assert.match(
+    ticketLinks,
+    /router\.post\(\s*"\/ticket-links\/preview",\s*mobileTicketLinkLimiter,\s*authenticate,/
+  );
+  assert.match(
+    ticketLinks,
+    /router\.post\(\s*"\/ticket-links\/accept",\s*mobileTicketLinkLimiter,\s*authenticate,/
+  );
+});
+
 test("authenticated mobile tickets expose only owned, environment-scoped queue resources", async () => {
   const tickets = [
     {
