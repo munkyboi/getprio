@@ -56,6 +56,11 @@ function isAuthRecoveryRequest(req) {
     ].includes(path);
 }
 
+function isDeveloperRequest(req) {
+  const path = normalizeApiPath(req.originalUrl || req.url);
+  return path === "/developer" || path.startsWith("/developer/");
+}
+
 function createCsrfProtection({ allowedOrigins, csrfSecret, authCookieSecure = true }) {
   const origins = allowedOrigins instanceof Set ? allowedOrigins : new Set(allowedOrigins || []);
 
@@ -80,7 +85,10 @@ function createCsrfProtection({ allowedOrigins, csrfSecret, authCookieSecure = t
     const fetchSite = String(req.headers?.["sec-fetch-site"] || "").toLowerCase();
     const contentType = String(req.headers?.["content-type"] || "").toLowerCase();
     const headerToken = String(req.headers?.["x-csrf-token"] || "");
-    const csrfCookieName = developerCookieSession || getRefreshCookie(cookies, authCookieSecure, "developer")
+    // A browser may hold both an app session and a Developer Portal session.
+    // Select the CSRF cookie from the API surface being called; otherwise a
+    // vendor mutation can be checked against the unrelated developer token.
+    const csrfCookieName = isDeveloperRequest(req)
       ? DEVELOPER_CSRF_COOKIE
       : CSRF_COOKIE;
     const cookieToken = String(cookies[csrfCookieName] || "");
