@@ -68,18 +68,55 @@ async function buildQueuePosition(ticket) {
   return { position, people_ahead: Math.max(0, position - 1), as_of: new Date().toISOString() };
 }
 
-async function formatMobileTicket(ticket, environment) {
+async function buildDeveloperQueueMetrics(ticket, environment) {
+  if (!ticket.isDeveloperApiTicket && !ticket.developerProjectId) return null;
+  if (!ticket.queueId || typeof developerQueues.mobileQueueMetrics !== "function") return null;
+  return developerQueues.mobileQueueMetrics(ticket.queueId, ticket._id || ticket.id, { environment });
+}
+
+async function buildDeveloperQueueMetricsForTickets(tickets, environment) {
+  if (typeof developerQueues.mobileQueueMetricsForTickets !== "function") return new Map();
+  const byQueue = new Map();
+  for (const ticket of tickets) {
+    if ((!ticket.isDeveloperApiTicket && !ticket.developerProjectId) || !ticket.queueId) continue;
+    const queueTickets = byQueue.get(ticket.queueId) || [];
+    queueTickets.push(ticket);
+    byQueue.set(ticket.queueId, queueTickets);
+  }
+  const results = await Promise.all([...byQueue.entries()].map(async ([queueId, queueTickets]) => [
+    queueId,
+    await developerQueues.mobileQueueMetricsForTickets(
+      queueId,
+      queueTickets.map((ticket) => ticket._id || ticket.id),
+      { environment }
+    )
+  ]));
+  const metricsByTicket = new Map();
+  for (const [queueId, metrics] of results) {
+    for (const ticket of byQueue.get(queueId)) {
+      const ticketId = ticket._id || ticket.id;
+      metricsByTicket.set(ticketId, metrics.get(String(ticketId)) || null);
+    }
+  }
+  return metricsByTicket;
+}
+
+async function formatMobileTicket(ticket, environment, { developerMetrics: providedDeveloperMetrics } = {}) {
   const isDeveloperTicket = Boolean(ticket.isDeveloperApiTicket || ticket.developerProjectId);
   const developerTenantName = ticket.profileName || ticket.queueName || null;
   const developerLocationName = ticket.queueName || ticket.locationName || null;
-  const [tenant, location, queuePosition, counter] = await Promise.all([
+  const [tenant, location, queuePosition, counter, developerMetrics] = await Promise.all([
     isDeveloperTicket ? Promise.resolve(null) : tenantRepository.findTenantById(ticket.tenantId),
     isDeveloperTicket ? Promise.resolve(null) : locationRepository.findLocationById(ticket.locationId),
-    buildQueuePosition(ticket),
+    isDeveloperTicket ? Promise.resolve(null) : buildQueuePosition(ticket),
     ticket.status === "called" && ticket.serviceCounterId
       ? serviceCounterRepository.findCounterById(ticket.serviceCounterId)
-      : Promise.resolve(null)
+      : Promise.resolve(null),
+    providedDeveloperMetrics === undefined
+      ? buildDeveloperQueueMetrics(ticket, environment)
+      : Promise.resolve(providedDeveloperMetrics)
   ]);
+  const resolvedQueuePosition = developerMetrics?.queuePosition || queuePosition;
   const canCancel = ACTIVE_STATUSES.has(ticket.status) && ticket.status !== "pending_carry_over";
   return {
     id: ticket._id,
@@ -98,11 +135,19 @@ async function formatMobileTicket(ticket, environment) {
       location_name: isDeveloperTicket ? developerLocationName : (location?.name || ticket.locationName || null),
       location_slug: location?.slug || ticket.locationSlug || null
     },
-    queue_position: queuePosition,
+    queue_position: resolvedQueuePosition
+      ? {
+          position: resolvedQueuePosition.position,
+          people_ahead: resolvedQueuePosition.peopleAhead ?? resolvedQueuePosition.people_ahead,
+          as_of: resolvedQueuePosition.asOf ?? resolvedQueuePosition.as_of
+        }
+      : null,
     called_counter: ticket.status === "called" && counter && String(counter.locationId) === String(ticket.locationId)
       ? { id: counter._id, name: counter.name }
       : null,
-    estimated_wait_minutes: null,
+    queue_length: developerMetrics?.queueLength ?? null,
+    queue_updated_at: developerMetrics?.queueUpdatedAt ?? null,
+    estimated_wait_minutes: developerMetrics?.estimatedWaitMinutes ?? null,
     can_cancel: canCancel,
     tracking_status: ACTIVE_STATUSES.has(ticket.status) ? "active" : "terminal",
     issued_at: ticket.createdAt,
@@ -111,11 +156,18 @@ async function formatMobileTicket(ticket, environment) {
   };
 }
 
-function formatDeveloperMobileTicket(ticket, environment, { invitation = false } = {}) {
+async function formatDeveloperMobileTicket(ticket, environment, { invitation = false, developerMetrics } = {}) {
   const tenantName = ticket.profileDisplayName || ticket.queueDisplayName || "Developer queue";
   const locationName = ticket.queueDisplayName || null;
+  const metrics = developerMetrics === undefined
+    ? await buildDeveloperQueueMetrics({
+        ...ticket,
+        isDeveloperApiTicket: true,
+        _id: ticket._id || ticket.id
+      }, environment)
+    : developerMetrics;
   return {
-    id: ticket.id,
+    id: ticket.id || ticket._id,
     ticket_number: ticket.ticketNumber,
     source: "developer_api",
     display_label: ticket.displayLabel || null,
@@ -129,9 +181,17 @@ function formatDeveloperMobileTicket(ticket, environment, { invitation = false }
       location_name: locationName,
       location_slug: ticket.queueSlug
     },
-    queue_position: null,
+    queue_position: metrics?.queuePosition
+      ? {
+          position: metrics.queuePosition.position,
+          people_ahead: metrics.queuePosition.peopleAhead,
+          as_of: metrics.queuePosition.asOf
+        }
+      : null,
     called_counter: null,
-    estimated_wait_minutes: null,
+    queue_length: metrics?.queueLength ?? null,
+    queue_updated_at: metrics?.queueUpdatedAt ?? null,
+    estimated_wait_minutes: metrics?.estimatedWaitMinutes ?? null,
     can_cancel: false,
     tracking_status: ACTIVE_STATUSES.has(ticket.status) ? "active" : "terminal",
     issued_at: ticket.createdAt,
@@ -168,14 +228,18 @@ router.post("/ticket-claims", asyncHandler(async (req, res) => {
     throw error;
   }
   res.setHeader("Cache-Control", "no-store");
-  res.json({ ticket: formatDeveloperMobileTicket(ticket, environment) });
+  res.json({ ticket: await formatDeveloperMobileTicket(ticket, environment) });
 }));
 
 router.get("/ticket-invitations", asyncHandler(async (req, res) => {
   const environment = environmentForRequest(req);
   const invitations = await developerQueues.listMobileInvitationsForUser(req.user._id, environment);
+  const developerMetrics = await buildDeveloperQueueMetricsForTickets(invitations, environment);
   res.setHeader("Cache-Control", "no-store");
-  res.json({ invitations: invitations.map((ticket) => formatDeveloperMobileTicket(ticket, environment, { invitation: true })) });
+  res.json({ invitations: await Promise.all(invitations.map((ticket) => formatDeveloperMobileTicket(ticket, environment, {
+    invitation: true,
+    developerMetrics: developerMetrics.get(ticket._id || ticket.id)
+  }))) });
 }));
 
 router.post("/ticket-invitations/:ticketId/accept", asyncHandler(async (req, res) => {
@@ -193,7 +257,7 @@ router.post("/ticket-invitations/:ticketId/accept", asyncHandler(async (req, res
     throw error;
   }
   res.setHeader("Cache-Control", "no-store");
-  res.json({ ticket: formatDeveloperMobileTicket(ticket, environment) });
+  res.json({ ticket: await formatDeveloperMobileTicket(ticket, environment) });
 }));
 
 router.get("/tickets", asyncHandler(async (req, res) => {
@@ -212,9 +276,12 @@ router.get("/tickets", asyncHandler(async (req, res) => {
   const tickets = [...result.tickets, ...developerResult.tickets]
     .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
     .slice(0, responseLimit);
+  const developerMetrics = await buildDeveloperQueueMetricsForTickets(tickets, environment);
   res.setHeader("Cache-Control", "no-store");
   res.json({
-    tickets: await Promise.all(tickets.map((ticket) => formatMobileTicket(ticket, environment))),
+    tickets: await Promise.all(tickets.map((ticket) => formatMobileTicket(ticket, environment, {
+      developerMetrics: developerMetrics.get(ticket._id || ticket.id)
+    }))),
     next_cursor: encodeCursor(result.nextCursor)
   });
 }));

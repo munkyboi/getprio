@@ -243,6 +243,7 @@ test("mobile Sandbox tickets include independent Developer API records linked by
     statusReason: null,
     developerProjectId: "project-1",
     developerEnvironment: "sandbox",
+    queueId: "queue-1",
     queueName: "Main queue",
     profileName: "My EMR",
     externalReference: "visit-1",
@@ -251,6 +252,7 @@ test("mobile Sandbox tickets include independent Developer API records linked by
     updatedAt: "2026-09-16T00:00:00.000Z"
   };
   const calls = [];
+  const metricsCalls = [];
   const router = requireWithMocks("../mobile/ticketRoutes.js", {
     "../src/middleware/auth": {
       authenticate(req, _res, next) { req.user = { _id: "customer-7", email: "sandbox@example.com" }; next(); }
@@ -268,7 +270,28 @@ test("mobile Sandbox tickets include independent Developer API records linked by
     "../src/repositories/serviceCounters": {},
     "../src/repositories/developerQueues": {
       async listMobileInvitationsForUser() { return []; },
-      async acceptMobileInvitation() { return null; }
+      async acceptMobileInvitation() { return null; },
+      async mobileQueueMetricsForTickets(queueId, ticketIds) {
+        metricsCalls.push([queueId, ticketIds]);
+        assert.equal(queueId, "queue-1");
+        assert.deepEqual(ticketIds, [developerTicket._id]);
+        return new Map([[developerTicket._id, {
+          queuePosition: { position: 2, peopleAhead: 1, asOf: "2026-09-23T00:05:00.000Z" },
+          queueLength: 3,
+          estimatedWaitMinutes: 10,
+          queueUpdatedAt: "2026-09-23T00:05:00.000Z"
+        }]]);
+      },
+      async mobileQueueMetrics(queueId, ticketId) {
+        assert.equal(queueId, "queue-1");
+        assert.equal(ticketId, developerTicket._id);
+        return {
+          queuePosition: { position: 2, peopleAhead: 1, asOf: "2026-09-23T00:05:00.000Z" },
+          queueLength: 3,
+          estimatedWaitMinutes: 10,
+          queueUpdatedAt: "2026-09-23T00:05:00.000Z"
+        };
+      }
     }
   });
   const app = express();
@@ -279,12 +302,16 @@ test("mobile Sandbox tickets include independent Developer API records linked by
   const server = await new Promise((resolve) => { const nextServer = app.listen(0, () => resolve(nextServer)); });
   try {
     const response = await fetch(`http://127.0.0.1:${server.address().port}/api/v1/mobile/tickets`, { headers: { "x-forwarded-host": "sandbox-api.getprio.online" } });
-    assert.equal(response.status, 200);
     const body = await response.json();
+    assert.equal(response.status, 200, JSON.stringify(body));
     assert.equal(body.tickets[0].id, developerTicket._id);
     assert.equal(body.tickets[0].source, "developer_api");
     assert.equal(body.tickets[0].profile.queue_name, "My EMR");
     assert.equal(body.tickets[0].profile.location_name, "Main queue");
+    assert.equal(body.tickets[0].queue_position.position, 2);
+    assert.equal(body.tickets[0].queue_length, 3);
+    assert.equal(body.tickets[0].estimated_wait_minutes, 10);
+    assert.deepEqual(metricsCalls, [["queue-1", [developerTicket._id]]]);
     assert.deepEqual(calls, []);
 
     const detail = await fetch(`http://127.0.0.1:${server.address().port}/api/v1/mobile/tickets/${developerTicket._id}`, { headers: { "x-forwarded-host": "sandbox-api.getprio.online" } });
@@ -307,6 +334,7 @@ test("mobile ticket invitations are scoped by email and can be accepted", async 
     profileDisplayName: "Sandbox profile",
     queueDisplayName: "Sandbox queue",
     queueSlug: "main",
+    queueId: "queue-1",
     createdAt: "2026-09-22T00:00:00.000Z",
     updatedAt: "2026-09-22T00:00:00.000Z"
   };
@@ -359,6 +387,8 @@ test("mobile ticket invitations are scoped by email and can be accepted", async 
       profile: { queue_name: "Sandbox profile", location_name: "Sandbox queue", location_slug: "main" },
       queue_position: null,
       called_counter: null,
+      queue_length: null,
+      queue_updated_at: null,
       estimated_wait_minutes: null,
       can_cancel: false,
       tracking_status: "active",
@@ -392,6 +422,7 @@ test("Sandbox ticket QR claims link an available Developer API ticket once", asy
     profileDisplayName: "Sandbox profile",
     queueDisplayName: "Sandbox queue",
     queueSlug: "main",
+    queueId: "queue-1",
     createdAt: "2026-09-23T00:00:00.000Z",
     updatedAt: "2026-09-23T00:00:00.000Z"
   };
@@ -408,6 +439,16 @@ test("Sandbox ticket QR claims link an available Developer API ticket once", asy
     "../src/repositories/developerQueues": {
       async listMobileInvitationsForUser() { return []; },
       async acceptMobileInvitation() { return null; },
+      async mobileQueueMetrics(queueId, ticketId) {
+        assert.equal(queueId, "queue-1");
+        assert.equal(ticketId, claimedTicket.id);
+        return {
+          queuePosition: { position: 4, peopleAhead: 3, asOf: "2026-09-23T00:05:00.000Z" },
+          queueLength: 6,
+          estimatedWaitMinutes: 20,
+          queueUpdatedAt: "2026-09-23T00:05:00.000Z"
+        };
+      },
       async claimMobileTicketByVerificationCode(code, userId, environment) {
         calls.push({ code, userId, environment });
         return claimedTicket;
@@ -437,6 +478,14 @@ test("Sandbox ticket QR claims link an available Developer API ticket once", asy
       location_name: "Sandbox queue",
       location_slug: "main"
     });
+    assert.deepEqual(body.ticket.queue_position, {
+      position: 4,
+      people_ahead: 3,
+      as_of: "2026-09-23T00:05:00.000Z"
+    });
+    assert.equal(body.ticket.queue_length, 6);
+    assert.equal(body.ticket.estimated_wait_minutes, 20);
+    assert.equal(body.ticket.queue_updated_at, "2026-09-23T00:05:00.000Z");
     assert.deepEqual(calls, [{ code: "AB12CD34", userId: "customer-7", environment: "sandbox" }]);
 
     const production = await fetch(`http://127.0.0.1:${server.address().port}/api/v1/mobile/ticket-claims`, {

@@ -306,6 +306,7 @@ function mapDeveloperMobileTicket(row) {
     statusReason: row.status_reason || null,
     developerProjectId: row.developer_project_id ? String(row.developer_project_id) : null,
     developerEnvironment: row.environment,
+    queueId: row.developer_api_queue_id ? String(row.developer_api_queue_id) : null,
     externalReference: row.external_reference || null,
     verificationCode: row.verification_code || null,
     customerConfirmedAt: row.customer_confirmed_at || null,
@@ -323,6 +324,7 @@ async function listDeveloperTicketsForUser(userId, options = {}) {
     : "ticket.status IN ('waiting', 'called', 'skipped')";
   const result = await buildQueryClient(options.client).query(
     `SELECT ticket.id, ticket.developer_project_id, ticket.environment,
+            ticket.developer_api_queue_id,
             ticket.ticket_number, ticket.sequence, ticket.display_label,
             ticket.external_reference, ticket.verification_code, ticket.customer_confirmed_at,
             ticket.status, ticket.status_reason,
@@ -345,6 +347,7 @@ async function listDeveloperTicketsForUser(userId, options = {}) {
 async function findDeveloperTicketForUser(ticketId, userId, options = {}) {
   const result = await buildQueryClient(options.client).query(
     `SELECT ticket.id, ticket.developer_project_id, ticket.environment,
+            ticket.developer_api_queue_id,
             ticket.ticket_number, ticket.sequence, ticket.display_label,
             ticket.external_reference, ticket.verification_code, ticket.customer_confirmed_at,
             ticket.status, ticket.status_reason,
