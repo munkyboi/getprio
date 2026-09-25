@@ -362,6 +362,7 @@ export default function DeveloperReferencePage() {
             <ol className="developer-reference-steps">
               <li><strong>Create a Sandbox key.</strong><span>Start with the smallest scopes you need. A key can only access its own project, environment, and selected profiles.</span></li>
               <li><strong>Create a profile and queue.</strong><span>Use <code>profiles:write</code> and <code>queues:write</code>. Keep the slugs in your configuration because they are the route identifiers.</span></li>
+              <li><strong>Open the queue for intake.</strong><span>When creating a queue, set <code>session_state</code> to <code>open</code> and <code>intake_enabled</code> to <code>true</code> before issuing tickets. Otherwise the queue remains closed and ticket issuance returns <code>409 QUEUE_NOT_ACCEPTING</code>.</span></li>
               <li><strong>Issue an idempotent ticket.</strong><span>Send a unique <code>Idempotency-Key</code> on every mutation. Repeating a key replays the original result instead of creating a second ticket.</span></li>
               <li><strong>Subscribe and reconcile.</strong><span>Use webhooks for low-latency updates, and use ticket events or a fresh queue snapshot to recover after missed deliveries.</span></li>
             </ol>
