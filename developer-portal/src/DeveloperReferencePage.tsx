@@ -59,7 +59,9 @@ const ticketIntakeEndpointRows: ReferenceEndpointRow[] = [
   { method: "POST", path: "/queues/:profileSlug/tickets", scope: "queues:write", purpose: "Issue a ticket; requires an idempotency key." },
   { method: "POST", path: "/queues/:profileSlug/locations/:locationSlug/tickets", scope: "queues:write", purpose: "Issue a ticket through the location-compatible route." },
   { method: "GET", path: "/queues/:profileSlug/tickets/:ticketId", scope: "queues:read", purpose: "Read one ticket by opaque ID." },
-  { method: "GET", path: "/queues/:profileSlug/locations/:locationSlug/tickets/:ticketId", scope: "queues:read", purpose: "Read a ticket through the location-compatible route." }
+  { method: "GET", path: "/queues/:profileSlug/locations/:locationSlug/tickets/:ticketId", scope: "queues:read", purpose: "Read a ticket through the location-compatible route." },
+  { method: "GET", path: "/queues/:profileSlug/tickets/:ticketId/qr", scope: "queues:read", purpose: "Generate a Sandbox ticket QR as a PNG data URL." },
+  { method: "GET", path: "/queues/:profileSlug/locations/:locationSlug/tickets/:ticketId/qr", scope: "queues:read", purpose: "Generate a Sandbox location ticket QR as a PNG data URL." }
 ];
 
 const operatorActionEndpointRows: ReferenceEndpointRow[] = [
@@ -109,10 +111,22 @@ const ticketResponseExample = [
   "    \"ticket\": {",
   "      \"id\": \"ticket_123\",",
   "      \"ticket_number\": \"A-042\",",
+  "      \"sequence\": 42,",
+  "      \"display_label\": null,",
   "      \"status\": \"waiting\",",
   "      \"queue_id\": \"queue_123\",",
+  "      \"external_reference\": null,",
+  "      \"verification_code\": \"AB12CD34\",",
+  "      \"status_reason\": null,",
+  "      \"called_at\": null,",
+  "      \"served_at\": null,",
+  "      \"skipped_at\": null,",
+  "      \"cancelled_at\": null,",
+  "      \"unserved_at\": null,",
+  "      \"terminal_at\": null,",
   "      \"resource_version\": 1,",
-  "      \"created_at\": \"2026-09-18T12:00:00.000Z\"",
+  "      \"created_at\": \"2026-09-18T12:00:00.000Z\",",
+  "      \"updated_at\": \"2026-09-18T12:00:00.000Z\"",
   "    }",
   "  },",
   "  \"request_id\": \"req_01J...\"",
@@ -385,6 +399,7 @@ export default function DeveloperReferencePage() {
               <CodeSample label="Ticket response" value={ticketResponseExample} onCopy={(value) => void copyValue(value, "ticket-response")} />
               <CodeSample label="Error response" value={errorResponseExample} onCopy={(value) => void copyValue(value, "error-response")} />
             </div>
+            <p className="developer-reference-note">Ticket responses include nullable lifecycle timestamps as <code>null</code> until the corresponding transition occurs. <code>customer_confirmed_at</code> is added after the called ticket is confirmed. The <code>verification_code</code> is the value encoded by the Sandbox ticket QR endpoint.</p>
           </section>
 
           <section>
@@ -427,7 +442,7 @@ export default function DeveloperReferencePage() {
             <p>Start here when you need the current queue state, current ticket, or available queues.</p>
             <EndpointTable caption="Queue discovery endpoints" rows={queueDiscoveryEndpointRows} />
             <h3 className="developer-reference-subheading">Ticket intake and lookup</h3>
-            <p>Issue a ticket with an idempotency key, then use its opaque ticket ID to read the current status.</p>
+            <p>Issue a ticket with an idempotency key, then use its opaque ticket ID to read the current status or generate a Sandbox QR for mobile claiming.</p>
             <EndpointTable caption="Ticket intake and lookup endpoints" rows={ticketIntakeEndpointRows} />
             <h3 className="developer-reference-subheading">Operator actions</h3>
             <p>Use these mutations to move the current queue through its operator workflow. State conflicts return <code>409</code>.</p>

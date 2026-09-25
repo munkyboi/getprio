@@ -22,6 +22,8 @@ const endpoints = [
   { method: "POST", path: "/queues/:tenantSlug/locations/:locationSlug/tickets/:ticketId/restore", description: "Restore a skipped ticket at one location." },
   { method: "GET", path: "/queues/:tenantSlug/tickets/:ticketId", description: "Read one ticket's status without exposing customer contact details." },
   { method: "GET", path: "/queues/:tenantSlug/locations/:locationSlug/tickets/:ticketId", description: "Read one location ticket's status without exposing customer contact details." },
+  { method: "GET", path: "/queues/:tenantSlug/tickets/:ticketId/qr", description: "Generate a Sandbox ticket QR as a PNG data URL." },
+  { method: "GET", path: "/queues/:tenantSlug/locations/:locationSlug/tickets/:ticketId/qr", description: "Generate a Sandbox location ticket QR as a PNG data URL." },
   { method: "GET", path: "/queues/:tenantSlug/tickets/:ticketId/events", description: "Read the ticket's safe lifecycle event history for recovery and reconciliation." },
   { method: "GET", path: "/queues/:tenantSlug/locations/:locationSlug/tickets/:ticketId/events", description: "Read one location ticket's safe lifecycle event history." }
 ];
@@ -50,7 +52,7 @@ export default function DeveloperReferencePage() {
           ))}
         </div>
         <h2>Example</h2>
-        <pre><code>{"curl https://sandbox-api.getprio.online/v1/queues/example-tenant/tickets \\\n  -X POST \\\n  -H 'X-API-Key: gpk_sbx_...' \\\n  -H 'Content-Type: application/json' \\\n  -d '{\"customerName\":\"Ada Lovelace\"}'"}</code></pre>
+        <pre><code>{"curl https://sandbox-api.getprio.online/v1/queues/example-tenant/tickets \\\n  -X POST \\\n  -H 'X-API-Key: gpk_sbx_...' \\\n  -H 'Content-Type: application/json' \\\n  -H 'Idempotency-Key: ticket-issue-123' \\\n  -d '{\"display_label\":\"Walk-in\",\"external_reference\":\"order-123\"}'"}</code></pre>
       </section>
     </main>
   );
