@@ -18,6 +18,7 @@ function mapAccount(row) {
     projectId: String(row.developer_project_id),
     userId: String(row.user_id),
     slot: Number(row.slot),
+    purpose: row.purpose || "developer",
     username: row.username,
     email: row.email,
     status: row.status === "active" && !expired ? "active" : "expired",
@@ -29,7 +30,7 @@ function mapAccount(row) {
 }
 
 const ACCOUNT_SELECT = `
-  SELECT ta.id AS test_account_id, ta.developer_project_id, ta.user_id, ta.slot, ta.status,
+  SELECT ta.id AS test_account_id, ta.developer_project_id, ta.user_id, ta.slot, ta.purpose, ta.status,
     ta.created_at, ta.updated_at, u.username, u.email, u.sandbox_test_account_expires_at,
     (SELECT COUNT(*) FROM mobile_push_registrations mpr
       WHERE mpr.user_id = ta.user_id AND mpr.is_active = TRUE) AS device_count
@@ -47,7 +48,17 @@ async function list(projectId, options = {}) {
   return result.rows.map(mapAccount);
 }
 
-async function create({ projectId, name, username, email, passwordHash, expiresAt }, options = {}) {
+async function findById(projectId, accountId, options = {}) {
+  const result = await clientFor(options).query(
+    `${ACCOUNT_SELECT}
+     WHERE ta.id = $1 AND ta.developer_project_id = $2
+     LIMIT 1`,
+    [accountId, projectId]
+  );
+  return mapAccount(result.rows[0]);
+}
+
+async function create({ projectId, name, username, email, passwordHash, expiresAt, purpose = "developer" }, options = {}) {
   const client = clientFor(options);
   const projectResult = await client.query(
     `SELECT id FROM developer_projects WHERE id = $1 AND status = 'active' FOR UPDATE`,
@@ -83,18 +94,18 @@ async function create({ projectId, name, username, email, passwordHash, expiresA
     sandboxTestAccountExpiresAt: expiresAt
   }, { client });
   const result = await client.query(
-    `INSERT INTO developer_project_test_accounts (developer_project_id, user_id, slot)
-     VALUES ($1, $2, $3)
+    `INSERT INTO developer_project_test_accounts (developer_project_id, user_id, slot, purpose)
+     VALUES ($1, $2, $3, $4)
      RETURNING id AS test_account_id, developer_project_id, user_id, slot, status, created_at, updated_at`,
-    [projectId, Number(user._id), slot]
+    [projectId, Number(user._id), slot, purpose]
   );
-  return mapAccount({ ...result.rows[0], username: user.username, email: user.email, sandbox_test_account_expires_at: expiresAt, device_count: 0 });
+  return mapAccount({ ...result.rows[0], username: user.username, email: user.email, purpose, sandbox_test_account_expires_at: expiresAt, device_count: 0 });
 }
 
 async function reset(projectId, accountId, { passwordHash, expiresAt }, options = {}) {
   const client = clientFor(options);
   const accountResult = await client.query(
-    `SELECT ta.id AS test_account_id, ta.developer_project_id, ta.user_id, ta.slot, ta.status,
+    `SELECT ta.id AS test_account_id, ta.developer_project_id, ta.user_id, ta.slot, ta.purpose, ta.status,
         ta.created_at, ta.updated_at, u.username, u.email
      FROM developer_project_test_accounts ta
      INNER JOIN users u ON u.id = ta.user_id
@@ -158,4 +169,4 @@ async function hasActiveDevice(userId, installationId, options = {}) {
   return Boolean(result.rows[0]);
 }
 
-module.exports = { MAX_ACCOUNTS, countActiveDevices, create, findByUserId, hasActiveDevice, list, mapAccount, reset };
+module.exports = { MAX_ACCOUNTS, countActiveDevices, create, findById, findByUserId, hasActiveDevice, list, mapAccount, reset };

@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS developer_project_test_accounts (
   developer_project_id UUID NOT NULL REFERENCES developer_projects(id) ON DELETE CASCADE,
   user_id BIGINT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
   slot INTEGER NOT NULL CHECK (slot BETWEEN 1 AND 2),
+  purpose TEXT NOT NULL DEFAULT 'developer' CHECK (purpose IN ('developer', 'apple_review')),
   status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'revoked')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -31,6 +32,10 @@ CREATE TABLE IF NOT EXISTS developer_project_test_accounts (
 
 CREATE INDEX IF NOT EXISTS developer_project_test_accounts_project_idx
   ON developer_project_test_accounts (developer_project_id, status, slot);
+
+CREATE UNIQUE INDEX IF NOT EXISTS developer_project_test_accounts_one_apple_review_idx
+  ON developer_project_test_accounts (developer_project_id)
+  WHERE purpose = 'apple_review' AND status = 'active';
 
 CREATE OR REPLACE TRIGGER set_developer_project_test_accounts_updated_at
 BEFORE UPDATE ON developer_project_test_accounts

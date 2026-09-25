@@ -24,7 +24,7 @@ export type QueueSnapshot = { queue: Queue; stats: { waitingCount: number; calle
 export type Webhook = { id: string; projectId: string; environment: "sandbox" | "production"; name: string; url: string; payloadVersion: string; events: string[]; status: string; disabledAt: string | null; createdAt: string; updatedAt: string };
 export type Delivery = { id: string; webhookId: string; projectId: string; environment: string; eventId: string; eventType: string; payloadVersion: string; status: string; attemptCount: number; expiresAt: string | null; retryUntil: string | null; lastError: string | null; responseStatus: number | null; sentAt: string | null; manualAttemptCount: number; lastManualAttemptAt: string | null; manualLastError: string | null; manualResponseStatus: number | null; createdAt: string; updatedAt: string };
 export type SandboxAllowance = { limit: number; issuedTickets: number; remaining: number; resetAt: string };
-export type SandboxTestAccount = { id: string; projectId: string; slot: number; username: string; email: string; status: "active" | "expired"; expiresAt: string; deviceCount: number; createdAt: string; updatedAt: string };
+export type SandboxTestAccount = { id: string; projectId: string; slot: number; purpose: "developer" | "apple_review"; username: string; email: string; status: "active" | "expired"; expiresAt: string; deviceCount: number; createdAt: string; updatedAt: string };
 export type UsageReport = {
   project: Project;
   environment: "sandbox" | "production";
@@ -131,6 +131,7 @@ export const developerApi = {
   async sandboxAllowance(projectId: string) { return request<{ project: Project; allowance: SandboxAllowance }>(`/projects/${projectId}/sandbox/allowance`); },
   async testAccounts(projectId: string) { return request<{ project: Project; testAccounts: SandboxTestAccount[]; limit: number }>(`/projects/${projectId}/sandbox/test-accounts`); },
   async createTestAccount(projectId: string, csrfToken: string) { return request<{ testAccount: SandboxTestAccount; credentials: { username: string; email: string; password: string; expiresAt: string }; warning: string }>(`/projects/${projectId}/sandbox/test-accounts`, { method: "POST", csrfToken }); },
+  async createAppleReviewAccount(projectId: string, csrfToken: string) { return request<{ testAccount: SandboxTestAccount; credentials: { username: string; email: string; password: string; expiresAt: string }; warning: string }>(`/projects/${projectId}/sandbox/test-accounts/apple-review`, { method: "POST", csrfToken }); },
   async resetTestAccount(projectId: string, accountId: string, csrfToken: string) { return request<{ testAccount: SandboxTestAccount; credentials: { username: string; email: string; password: string; expiresAt: string }; warning: string }>(`/projects/${projectId}/sandbox/test-accounts/${accountId}/reset`, { method: "POST", csrfToken }); },
   async usage(projectId: string) { return request<UsageReport>(`/projects/${projectId}/usage?environment=sandbox`); },
   async createProject(name: string, csrfToken: string) { return request<{ project: Project }>("/projects", { method: "POST", body: { name }, csrfToken }); },

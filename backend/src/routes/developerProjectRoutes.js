@@ -402,6 +402,7 @@ function resourceDeletionError(error, resourceName) {
 }
 
 const SANDBOX_TEST_ACCOUNT_TTL_DAYS = 7;
+const SANDBOX_APPLE_REVIEW_ACCOUNT_TTL_DAYS = 30;
 const SANDBOX_TEST_USERNAME_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 const SANDBOX_TEST_PASSWORD_CHARSETS = [
   "ABCDEFGHJKLMNPQRSTUVWXYZ",
@@ -435,6 +436,7 @@ function sandboxTestAccountResponse(account) {
     id: account.id,
     projectId: account.projectId,
     slot: account.slot,
+    purpose: account.purpose || "developer",
     username: account.username,
     email: account.email,
     status: account.status,
@@ -454,8 +456,9 @@ function sandboxCredentials(account, password) {
   };
 }
 
-function sandboxExpiry() {
-  return new Date(Date.now() + SANDBOX_TEST_ACCOUNT_TTL_DAYS * 24 * 60 * 60 * 1000);
+function sandboxExpiry(purpose = "developer") {
+  const ttlDays = purpose === "apple_review" ? SANDBOX_APPLE_REVIEW_ACCOUNT_TTL_DAYS : SANDBOX_TEST_ACCOUNT_TTL_DAYS;
+  return new Date(Date.now() + ttlDays * 24 * 60 * 60 * 1000);
 }
 
 async function rotateWebhookSecret(req, res, options = {}) {
@@ -524,7 +527,8 @@ router.post("/projects/:projectId/sandbox/test-accounts", asyncHandler(async (re
     username: identity.username,
     email: identity.email,
     passwordHash,
-    expiresAt
+    expiresAt,
+    purpose: "developer"
   }, { client }));
   if (!account) throw notFound();
   await securityEventService.logSecurityEvent({
@@ -544,11 +548,64 @@ router.post("/projects/:projectId/sandbox/test-accounts", asyncHandler(async (re
   });
 }));
 
+router.post("/projects/:projectId/sandbox/test-accounts/apple-review", asyncHandler(async (req, res) => {
+  const project = await developerProjects.findProjectForUser(req.params.projectId, req.user._id);
+  if (!project) throw notFound();
+  const existingAccounts = await developerTestAccounts.list(project.id);
+  if (existingAccounts.some((account) => account.purpose === "apple_review")) {
+    const error = new Error("This project already has an Apple review Sandbox account. Reset it instead.");
+    error.statusCode = 409;
+    error.code = "SANDBOX_APPLE_REVIEW_ACCOUNT_EXISTS";
+    throw error;
+  }
+  const password = createSandboxTestPassword();
+  const identity = createSandboxTestIdentity();
+  const expiresAt = sandboxExpiry("apple_review");
+  const passwordHash = await bcrypt.hash(password, 10);
+  let account;
+  try {
+    account = await db.withTransaction((client) => developerTestAccounts.create({
+      projectId: project.id,
+      name: `Apple review tester ${identity.username.slice(-6)}`,
+      username: identity.username,
+      email: identity.email,
+      passwordHash,
+      expiresAt,
+      purpose: "apple_review"
+    }, { client }));
+  } catch (error) {
+    if (error.code === "23505" && error.constraint === "developer_project_test_accounts_one_apple_review_idx") {
+      error.statusCode = 409;
+      error.code = "SANDBOX_APPLE_REVIEW_ACCOUNT_EXISTS";
+      error.message = "This project already has an Apple review Sandbox account. Reset it instead.";
+    }
+    throw error;
+  }
+  if (!account) throw notFound();
+  await securityEventService.logSecurityEvent({
+    userId: req.user._id,
+    sessionId: req.auth.sessionId,
+    eventType: "developer_sandbox_apple_review_account_created",
+    actorRole: req.developerMembership.role,
+    ipAddress: authService.getRequestIp(req),
+    userAgent: authService.getUserAgent(req),
+    metadata: { projectId: project.id, testAccountId: account.id, slot: account.slot, purpose: "apple_review", ttlDays: SANDBOX_APPLE_REVIEW_ACCOUNT_TTL_DAYS }
+  });
+  res.status(201).json({
+    project: projectResponse(project),
+    testAccount: sandboxTestAccountResponse(account),
+    credentials: sandboxCredentials(account, password),
+    warning: "Copy these Apple review credentials now. The password will not be shown again. This account expires in 30 days."
+  });
+}));
+
 router.post("/projects/:projectId/sandbox/test-accounts/:accountId/reset", asyncHandler(async (req, res) => {
   const project = await developerProjects.findProjectForUser(req.params.projectId, req.user._id);
   if (!project) throw notFound();
+  const existingAccount = await developerTestAccounts.findById(project.id, req.params.accountId);
+  if (!existingAccount) throw notFound("Sandbox test account not found.");
   const password = createSandboxTestPassword();
-  const expiresAt = sandboxExpiry();
+  const expiresAt = sandboxExpiry(existingAccount.purpose);
   const passwordHash = await bcrypt.hash(password, 10);
   const account = await db.withTransaction((client) => developerTestAccounts.reset(project.id, req.params.accountId, {
     passwordHash,

@@ -158,10 +158,14 @@
 .developer-workspace-setup-card h3 { margin: 16px 0 !important; font-size: 28px !important; line-height: 32.2px !important; font-weight: 600; }
 .developer-workspace-setup-card ol li { margin-bottom: 8px; line-height: 25.2px !important; }
 .developer-workspace-setup-card ol li:last-child { margin-bottom: 0; }
-.developer-workspace-setup-card .developer-workspace-inline-actions { display: flex; gap: 1rem; height: 44px; margin: 28px 0; }
+.developer-workspace-setup-card .developer-workspace-inline-actions { display: flex; flex-wrap: wrap; gap: 1rem; min-height: 44px; margin: 28px 0; }
 .developer-workspace-setup-card:first-child .developer-workspace-inline-actions { margin-top: 35px; }
 .developer-workspace-setup-card .mantine-Button-root { min-height: var(--dp-button-height); height: var(--dp-button-height); padding: 0 18px; font-size: var(--dp-card-body-size); line-height: 14px; }
 .developer-workspace-setup-card > .mantine-Button-root { margin: 16px 0 8px !important; }
+@media (max-width: 48em) {
+  .developer-workspace-setup-card .developer-workspace-inline-actions { flex-direction: column; align-items: stretch; }
+  .developer-workspace-setup-card .developer-workspace-inline-actions .mantine-Button-root { width: 100%; }
+}
 .developer-workspace .developer-workspace-sidebar nav button:hover { border: 0 !important; background: var(--dp-action-soft) !important; color: #fff !important; }
 .developer-workspace-keys-page > p:not(.developer-workspace-eyebrow) { max-width: 48rem; }
 .developer-workspace-key-toolbar { display: flex; flex-wrap: wrap; gap: .75rem; margin: 1.25rem 0 2rem; }
