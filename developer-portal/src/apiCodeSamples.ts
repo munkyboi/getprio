@@ -91,7 +91,7 @@ export function requestSamples({ method, path, body, idempotencyKey }: RequestSa
 export const ticketIssueSamples = requestSamples({
   method: "POST",
   path: "/queues/example-profile/tickets",
-  body: { display_label: "Walk-in", external_reference: "order-123" },
+  body: { display_label: "Walk-in", external_reference: "order-123", recipient_email: "tester@example.com" },
   idempotencyKey: "ticket-issue-001"
 });
 

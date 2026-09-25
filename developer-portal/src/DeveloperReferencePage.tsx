@@ -28,6 +28,57 @@ const tocLinks = [
   ["changelog", "Changelog"]
 ] as const;
 
+type ReferenceEndpointRow = {
+  method: "GET" | "POST" | "PATCH";
+  path: string;
+  scope: string;
+  purpose: string;
+};
+
+const utilityEndpointRows: ReferenceEndpointRow[] = [
+  { method: "GET", path: "/", scope: "—", purpose: "Read API metadata and the current contract version." },
+  { method: "GET", path: "/health", scope: "—", purpose: "Check API availability." }
+];
+
+const profileEndpointRows: ReferenceEndpointRow[] = [
+  { method: "GET", path: "/profiles", scope: "profiles:read", purpose: "List profiles visible to the key." },
+  { method: "POST", path: "/profiles", scope: "profiles:write", purpose: "Create a profile with slug and display_name." },
+  { method: "PATCH", path: "/profiles/:profileSlug", scope: "profiles:write", purpose: "Update profile metadata or save a directory draft." },
+  { method: "GET", path: "/profiles/:profileSlug/queues", scope: "queues:read", purpose: "List queues for a profile." },
+  { method: "POST", path: "/profiles/:profileSlug/queues", scope: "queues:write", purpose: "Create a queue; requires an idempotency key." },
+  { method: "PATCH", path: "/profiles/:profileSlug/queues/:queueSlug", scope: "queues:write", purpose: "Update queue settings; send resource_version for optimistic concurrency." }
+];
+
+const queueEndpointRows: ReferenceEndpointRow[] = [
+  { method: "GET", path: "/queues/:profileSlug", scope: "queues:read", purpose: "Read the snapshot, current ticket, and next tickets." },
+  { method: "GET", path: "/queues/:profileSlug/locations", scope: "queues:read", purpose: "List queues through the location-compatible route." },
+  { method: "GET", path: "/queues/:profileSlug/locations/:locationSlug", scope: "queues:read", purpose: "Read a queue snapshot through the location-compatible route." },
+  { method: "POST", path: "/queues/:profileSlug/tickets", scope: "queues:write", purpose: "Issue a ticket; requires an idempotency key." },
+  { method: "POST", path: "/queues/:profileSlug/locations/:locationSlug/tickets", scope: "queues:write", purpose: "Issue a ticket through the location-compatible route." },
+  { method: "POST", path: "/queues/:profileSlug/call-next", scope: "queues:write", purpose: "Call the next waiting ticket." },
+  { method: "POST", path: "/queues/:profileSlug/locations/:locationSlug/call-next", scope: "queues:write", purpose: "Call the next waiting ticket through the location-compatible route." },
+  { method: "POST", path: "/queues/:profileSlug/current/confirm", scope: "queues:write", purpose: "Confirm the customer for the current called ticket." },
+  { method: "POST", path: "/queues/:profileSlug/locations/:locationSlug/current/confirm", scope: "queues:write", purpose: "Confirm the customer through the location-compatible route." },
+  { method: "POST", path: "/queues/:profileSlug/current/serve", scope: "queues:write", purpose: "Mark the current called ticket served." },
+  { method: "POST", path: "/queues/:profileSlug/locations/:locationSlug/current/serve", scope: "queues:write", purpose: "Serve the current ticket through the location-compatible route." },
+  { method: "POST", path: "/queues/:profileSlug/current/skip", scope: "queues:write", purpose: "Skip the current called ticket." },
+  { method: "POST", path: "/queues/:profileSlug/locations/:locationSlug/current/skip", scope: "queues:write", purpose: "Skip the current ticket through the location-compatible route." },
+  { method: "POST", path: "/queues/:profileSlug/tickets/:ticketId/cancel", scope: "queues:write", purpose: "Cancel a waiting ticket." },
+  { method: "POST", path: "/queues/:profileSlug/locations/:locationSlug/tickets/:ticketId/cancel", scope: "queues:write", purpose: "Cancel a waiting ticket through the location-compatible route." },
+  { method: "POST", path: "/queues/:profileSlug/tickets/:ticketId/restore", scope: "queues:write", purpose: "Restore a skipped ticket." },
+  { method: "POST", path: "/queues/:profileSlug/locations/:locationSlug/tickets/:ticketId/restore", scope: "queues:write", purpose: "Restore a skipped ticket through the location-compatible route." },
+  { method: "GET", path: "/queues/:profileSlug/tickets/:ticketId", scope: "queues:read", purpose: "Read one ticket by opaque ID." },
+  { method: "GET", path: "/queues/:profileSlug/locations/:locationSlug/tickets/:ticketId", scope: "queues:read", purpose: "Read a ticket through the location-compatible route." },
+  { method: "GET", path: "/queues/:profileSlug/tickets/:ticketId/events", scope: "queues:read", purpose: "Read lifecycle events with a cursor." },
+  { method: "GET", path: "/queues/:profileSlug/locations/:locationSlug/tickets/:ticketId/events", scope: "queues:read", purpose: "Read lifecycle events through the location-compatible route." },
+  { method: "GET", path: "/queues/:profileSlug/stream", scope: "queues:read", purpose: "Open an SSE stream of queue snapshot updates." },
+  { method: "GET", path: "/queues/:profileSlug/locations/:locationSlug/stream", scope: "queues:read", purpose: "Open an SSE stream through the location-compatible route." }
+];
+
+function EndpointRows({ rows }: { rows: ReferenceEndpointRow[] }) {
+  return <>{rows.map((row) => <tr key={`${row.method}-${row.path}`}><th scope="row">{row.method}</th><td><code>{row.path}</code></td><td><code>{row.scope}</code></td><td>{row.purpose}</td></tr>)}</>;
+}
+
 
 const responseExample = [
   "{",
@@ -271,7 +322,7 @@ export default function DeveloperReferencePage() {
                   <IconWebhook size={18} aria-hidden="true" />
                   <h3>Events and recovery</h3>
                 </div>
-                <p>Each transition can produce one event. Verify the raw request body and <code>GetPrio-Signature</code> before accepting it, then deduplicate by event ID.</p>
+                <p>Each transition can produce one signed webhook event. Verify the raw request body and <code>GetPrio-Signature</code> before accepting it, then deduplicate by event ID. Mobile push signals and polling are app-specific recovery hints; the API remains authoritative.</p>
               </article>
             </div>
           </section>
@@ -349,13 +400,15 @@ export default function DeveloperReferencePage() {
           <section>
             <BookmarkableHeading id="profiles">Profiles</BookmarkableHeading>
             <p>Profiles are the top-level private namespace for your queues. The slug is immutable and appears in queue routes. A key with selected-profile access can read only the profiles it was granted.</p>
-            <div className="developer-reference-table-wrap"><table className="developer-reference-table"><caption>Profile endpoints</caption><thead><tr><th>Method</th><th>Path</th><th>Scope</th><th>Purpose</th></tr></thead><tbody><tr><th scope="row">GET</th><td><code>/profiles</code></td><td><code>profiles:read</code></td><td>List profiles visible to the key.</td></tr><tr><th scope="row">POST</th><td><code>/profiles</code></td><td><code>profiles:write</code></td><td>Create a profile with <code>slug</code> and <code>display_name</code>.</td></tr><tr><th scope="row">PATCH</th><td><code>/profiles/:profileSlug</code></td><td><code>profiles:write</code></td><td>Update the display name or save a directory draft.</td></tr></tbody></table></div>
+            <div className="developer-reference-table-wrap"><table className="developer-reference-table"><caption>API utility endpoints</caption><thead><tr><th>Method</th><th>Path</th><th>Scope</th><th>Purpose</th></tr></thead><tbody><EndpointRows rows={utilityEndpointRows} /></tbody></table></div>
+            <div className="developer-reference-table-wrap"><table className="developer-reference-table"><caption>Profile and profile-queue endpoints</caption><thead><tr><th>Method</th><th>Path</th><th>Scope</th><th>Purpose</th></tr></thead><tbody><EndpointRows rows={profileEndpointRows} /></tbody></table></div>
             <CodeSample label="Create a profile" samples={createProfileSamples} onCopy={(value) => void copyValue(value, "profile")} />
           </section>
           <section>
             <BookmarkableHeading id="queues">Queues and tickets</BookmarkableHeading>
-            <p>Read a queue snapshot before rendering a customer-facing position. If a profile has multiple queues, use the location-style route with the queue slug. Queue state and intake are separate: a queue is open only when its session state is <code>open</code> and intake is enabled.</p>
-            <div className="developer-reference-table-wrap"><table className="developer-reference-table"><caption>Queue and ticket endpoints</caption><thead><tr><th>Method</th><th>Path</th><th>Scope</th><th>Purpose</th></tr></thead><tbody><tr><th scope="row">GET</th><td><code>/queues/:profileSlug</code></td><td><code>queues:read</code></td><td>Read the snapshot, current ticket, and next tickets.</td></tr><tr><th scope="row">POST</th><td><code>/queues/:profileSlug/tickets</code></td><td><code>queues:write</code></td><td>Issue a ticket; requires an idempotency key.</td></tr><tr><th scope="row">GET</th><td><code>/queues/:profileSlug/tickets/:ticketId</code></td><td><code>queues:read</code></td><td>Read one ticket by opaque ID.</td></tr><tr><th scope="row">GET</th><td><code>/queues/:profileSlug/tickets/:ticketId/events</code></td><td><code>queues:read</code></td><td>Read lifecycle events with a cursor.</td></tr><tr><th scope="row">POST</th><td><code>/queues/:profileSlug/call-next</code></td><td><code>queues:write</code></td><td>Call the next waiting ticket.</td></tr><tr><th scope="row">POST</th><td><code>/queues/:profileSlug/current/serve</code></td><td><code>queues:write</code></td><td>Mark the called ticket served.</td></tr><tr><th scope="row">POST</th><td><code>/queues/:profileSlug/current/skip</code></td><td><code>queues:write</code></td><td>Skip the called ticket.</td></tr></tbody></table></div>
+            <p>Read a queue snapshot before rendering a customer-facing position. If a profile has multiple queues, use the location-compatible route with the queue slug. In these API routes, <code>profileSlug</code> is the developer profile slug. The OpenAPI document calls this same parameter <code>tenantSlug</code> for compatibility, and calls the queue slug <code>locationSlug</code> on the location-style routes.</p>
+            <p>Queue state and intake are separate: a queue is open only when its session state is <code>open</code> and intake is enabled. The stream endpoints use server-sent events and emit queue snapshots plus heartbeats; reconnect and reconcile from a fresh snapshot after a disconnect.</p>
+            <div className="developer-reference-table-wrap"><table className="developer-reference-table"><caption>Queue and ticket endpoints</caption><thead><tr><th>Method</th><th>Path</th><th>Scope</th><th>Purpose</th></tr></thead><tbody><EndpointRows rows={queueEndpointRows} /></tbody></table></div>
             <CodeSample label="Read a ticket" samples={readTicketSamples} onCopy={(value) => void copyValue(value, "ticket-read")} />
             <p className="developer-reference-note">Write transitions are deliberately explicit. A ticket cannot be served or skipped unless it is currently called; resolve a <code>409</code> by reading the current snapshot rather than forcing a transition.</p>
           </section>
@@ -364,6 +417,7 @@ export default function DeveloperReferencePage() {
             <p>Register receivers in the Developer Portal and choose the event types you need. GetPrio stores a delivery when the ticket transition is committed, then retries delivery independently. The signing secret is shown once when the receiver is created or rotated.</p>
             <div className="developer-reference-table-wrap"><table className="developer-reference-table"><caption>Webhook headers</caption><thead><tr><th>Header</th><th>Meaning</th></tr></thead><tbody><tr><th scope="row"><code>GetPrio-Event-Id</code></th><td>Stable event identifier for deduplication.</td></tr><tr><th scope="row"><code>GetPrio-Signature</code></th><td>HMAC-SHA256 signature in <code>t=...,p=...,v1=...</code> form.</td></tr><tr><th scope="row"><code>Content-Type</code></th><td><code>application/json</code>; verify the exact raw body bytes.</td></tr></tbody></table></div>
             <p>Return a 2xx only after durable acceptance. During normal rotation, the previous secret remains valid for 24 hours; an emergency compromised-secret rotation revokes it immediately.</p>
+            <div className="developer-reference-callout"><strong>Mobile synchronization boundary.</strong><span>The mobile app may receive a private <code>developer_queue_moved</code> push signal to trigger an authoritative refresh. It is not a public Developer API webhook or a durable event subscription. If push delivery is unavailable, the mobile client uses fallback active-ticket polling: 30 seconds in Production and 5 minutes in Sandbox. Treat the queue snapshot and ticket event endpoints as the source of truth.</span></div>
           </section>
           <section>
             <BookmarkableHeading id="changelog">Changelog</BookmarkableHeading>

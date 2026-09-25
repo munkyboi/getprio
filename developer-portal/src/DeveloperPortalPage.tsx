@@ -949,7 +949,7 @@ export default function DeveloperPortalPage() {
                   <h2>V1 developer preview</h2>
                   <p>
                     The public portal provides integration guides, FAQ, pricing
-                    information, and a read-only API reference. Independent
+                    information, and an API reference. Independent
                     Developer Portal accounts can create isolated Sandbox
                     resources in the developer workspace.
                   </p>
@@ -959,8 +959,9 @@ export default function DeveloperPortalPage() {
                       published OpenAPI document
                     </a>{" "}
                     describes the current API contract. Production access,
-                    billing, and mobile Sandbox distribution are not enabled in
-                    this preview. This is not a general-availability
+                    billing, and Developer Portal join-link integration remain
+                    gated. The Sandbox mobile build is progressing through
+                    TestFlight distribution. This is not a general-availability
                     announcement.
                   </p>
                 </article>
