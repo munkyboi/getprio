@@ -216,7 +216,7 @@ async function sendDeveloperQueueMovedSignals(req, sourceTicket) {
     // collapse ID can cause a later call to replace an earlier silent push
     // before iOS delivers it to the customer's app.
     collapseId: notificationId,
-    tag: queueTag,
+    tag: notificationId,
     ticketRef: ticket.ticketNumber || ticket.id,
     route: "tickets",
     environment: getEnvironment(req)

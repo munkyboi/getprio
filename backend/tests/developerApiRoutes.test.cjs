@@ -226,7 +226,7 @@ test("sandbox Developer API lifecycle sends a silent queue-moved signal to linke
       eventType: "developer_queue_moved",
       notificationId: "developer-queue-moved-queue-1:2",
       collapseId: "developer-queue-moved-queue-1:2",
-      tag: "developer-queue-moved-queue-1",
+      tag: "developer-queue-moved-queue-1:2",
       ticketRef: "QUEUE1-0010",
       route: "tickets",
       environment: "sandbox"
