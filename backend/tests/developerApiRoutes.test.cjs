@@ -224,9 +224,9 @@ test("sandbox Developer API lifecycle sends a silent queue-moved signal to linke
     assert.deepEqual(signals[0], {
       userId: "43",
       eventType: "developer_queue_moved",
-      notificationId: "developer-queue-moved-queue-1:2",
-      collapseId: "developer-queue-moved-queue-1:2",
-      tag: "developer-queue-moved-queue-1:2",
+      notificationId: "developer-queue-moved:2",
+      collapseId: "developer-queue-moved:2",
+      tag: "developer-queue-moved:2",
       ticketRef: "QUEUE1-0010",
       route: "tickets",
       environment: "sandbox"

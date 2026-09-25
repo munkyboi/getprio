@@ -206,8 +206,8 @@ async function sendDeveloperQueueMovedSignals(req, sourceTicket) {
   if (!waitingTickets.length) return;
 
   const pushNotificationService = require("../services/pushNotificationService");
-  const queueTag = `developer-queue-moved-${sourceTicket.queueId}`;
-  const notificationId = `${queueTag}:${sourceTicket.resourceVersion}`;
+  const movementId = sourceTicket.event.id || `${sourceTicket.id}:${sourceTicket.resourceVersion}`;
+  const notificationId = `developer-queue-moved:${movementId}`;
   const deliveries = await Promise.allSettled(waitingTickets.map((ticket) => pushNotificationService.sendUserSignal({
     userId: ticket.linkedUserId,
     eventType: "developer_queue_moved",
