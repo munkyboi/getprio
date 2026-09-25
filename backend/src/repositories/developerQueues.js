@@ -56,6 +56,8 @@ function mapTicket(row) {
     recipientEmail: row.recipient_email || null,
     verificationCode: row.verification_code,
     linkedUserId: row.linked_user_id ? String(row.linked_user_id) : null,
+    linkingDisabledAt: row.linking_disabled_at || null,
+    customerDataDeletedAt: row.customer_data_deleted_at || null,
     status: row.status,
     statusReason: row.status_reason || null,
     calledAt: row.called_at,
@@ -87,7 +89,7 @@ const TICKET_COLUMNS = `
   id AS ticket_id, developer_project_id, environment, developer_api_profile_id,
   developer_api_queue_id, developer_api_queue_counter_id, ticket_number,
   sequence, display_label, external_reference, recipient_email, verification_code, status,
-  linked_user_id, customer_confirmed_at,
+  linked_user_id, linking_disabled_at, customer_data_deleted_at, customer_confirmed_at,
   status_reason, called_at, served_at, skipped_at, cancelled_at, unserved_at,
   terminal_at, resource_version, created_at, updated_at
 `;

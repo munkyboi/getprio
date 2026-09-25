@@ -5,6 +5,7 @@ const asyncHandler = require("../middleware/asyncHandler");
 const developerQueues = require("../repositories/developerQueues");
 const developerApiOperations = require("../repositories/developerApiOperations");
 const developerWebhookService = require("../services/developerWebhookService");
+const { generateTicketQr } = require("../services/ticketQrCodeService");
 const { authenticateDeveloperApiKey, requireApiScope } = require("../middleware/developerApiKeyAuth");
 const { normalizeDeveloperQueueSettings } = require("../utils/developerQueueSettings");
 
@@ -21,6 +22,7 @@ const QUEUE_MOVING_EVENT_TYPES = new Set([
   "ticket.expired",
   "ticket.restored"
 ]);
+const SANDBOX_ENVIRONMENT = "sandbox";
 
 function getEnvironment(req) {
   const hostname = String(req.hostname || req.headers.host || "").trim().toLowerCase().split(":")[0];
@@ -78,6 +80,26 @@ function verificationCode(value) {
   const normalized = String(value || "").trim().toUpperCase();
   if (!/^[A-F0-9]{8}$/.test(normalized)) throw error(400, "INVALID_REQUEST", "verification_code must be an 8-character hexadecimal code.");
   return normalized;
+}
+async function ticketQrView(ticket, environment) {
+  if (
+    !ticket.verificationCode ||
+    !["waiting", "called"].includes(ticket.status) ||
+    ticket.linkedUserId ||
+    ticket.linkingDisabledAt ||
+    ticket.customerDataDeletedAt
+  ) {
+    throw error(409, "TICKET_QR_UNAVAILABLE", "This ticket is not available for mobile QR claiming.");
+  }
+  const { contentType, dataUrl } = await generateTicketQr(ticket.verificationCode);
+  return {
+    ticket_id: ticket.id,
+    ticket_number: ticket.ticketNumber,
+    verification_code: ticket.verificationCode,
+    environment,
+    content_type: contentType,
+    data_url: dataUrl
+  };
 }
 function profileView(profile) {
   const content = profile.directoryContent || {};
@@ -190,8 +212,11 @@ async function sendDeveloperQueueMovedSignals(req, sourceTicket) {
     userId: ticket.linkedUserId,
     eventType: "developer_queue_moved",
     notificationId,
-    collapseId: queueTag,
-    tag: queueTag,
+    // Each queue movement must remain independently deliverable. Reusing one
+    // collapse ID can cause a later call to replace an earlier silent push
+    // before iOS delivers it to the customer's app.
+    collapseId: notificationId,
+    tag: notificationId,
     ticketRef: ticket.ticketNumber || ticket.id,
     route: "tickets",
     environment: getEnvironment(req)
@@ -434,6 +459,12 @@ function ticketTransition(action, fromStatus, toStatus) {
 }
 ticketTransition("cancel", "waiting", "cancelled"); ticketTransition("restore", "skipped", "waiting");
 router.get(queuePaths("/tickets/:ticketId"), authenticateDeveloperApiKey, requireApiScope("queues:read"), asyncHandler(async (req, res) => { const { queue } = await context(req); send(req, res, { ticket: ticketView(await scopedTicket(req, queue)) }); }));
+router.get(queuePaths("/tickets/:ticketId/qr"), authenticateDeveloperApiKey, requireApiScope("queues:read"), asyncHandler(async (req, res) => {
+  if (req.apiKey.environment !== SANDBOX_ENVIRONMENT) throw error(404, "SANDBOX_TICKET_QR_ONLY", "Ticket QR claims are only available in Sandbox.");
+  const { queue } = await context(req);
+  const ticket = await scopedTicket(req, queue);
+  send(req, res, { qr: await ticketQrView(ticket, req.apiKey.environment) });
+}));
 router.get(queuePaths("/tickets/:ticketId/events"), authenticateDeveloperApiKey, requireApiScope("queues:read"), asyncHandler(async (req, res) => {
   const { queue } = await context(req); const ticket = await scopedTicket(req, queue);
   const result = await developerQueues.listTicketEvents(req.apiKey.projectId, req.apiKey.environment, queue.id, ticket.id, eventLimit(req.query.limit), eventCursor(req.query.cursor));

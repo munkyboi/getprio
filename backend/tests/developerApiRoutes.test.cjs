@@ -32,8 +32,8 @@ function request(method, url, host, headers = {}, body) {
   });
 }
 
-function key(scopes) {
-  return { id: "key-1", projectId: "project-1", environment: "sandbox", scopes, createdByUserId: "1", status: "active", projectStatus: "active", accountStatus: "active" };
+function key(scopes, environment = "sandbox") {
+  return { id: "key-1", projectId: "project-1", environment, scopes, createdByUserId: "1", status: "active", projectStatus: "active", accountStatus: "active" };
 }
 function profile() { return { id: "profile-1", projectId: "project-1", environment: "sandbox", slug: "harbor", displayName: "Harbor Services", directoryStatus: "private", directoryContent: {}, createdAt: "2026-09-15T00:00:00.000Z", updatedAt: "2026-09-15T00:00:00.000Z" }; }
 function queue() { return { id: "queue-1", profileId: "profile-1", slug: "main", displayName: "Main queue", sessionState: "open", intakeEnabled: true, joiningEnabled: false, priorityRatio: 3, queuePrefix: "MAIN", averageServiceMinutes: 15, notificationThreshold: 2, resourceVersion: 1, createdAt: "2026-09-15T00:00:00.000Z", updatedAt: "2026-09-15T00:00:00.000Z" }; }
@@ -41,8 +41,8 @@ function ticket() { return { id: "ticket-1", projectId: "project-1", environment
 
 function replace(object, name, value, originals) { originals.push([object, name, object[name]]); object[name] = value; }
 function restore(originals) { for (const [object, name, value] of originals.reverse()) object[name] = value; }
-function stubKey(originals, scopes) {
-  replace(developerProjects, "findApiKeyByHash", async () => key(scopes), originals);
+function stubKey(originals, scopes, environment = "sandbox") {
+  replace(developerProjects, "findApiKeyByHash", async () => key(scopes, environment), originals);
   replace(developerProjects, "touchApiKey", async () => {}, originals);
   replace(developerApiRateLimits, "consume", async () => ({ limit: 1000, remaining: 999, windowSeconds: 60 }), originals);
 }
@@ -89,6 +89,54 @@ test("developer API rejects customer contact fields at the machine boundary", as
   try {
     const response = await request("POST", `${baseUrl}/queues/harbor/tickets`, "sandbox-api.getprio.online", { "x-api-key": "gpk_sbx_test", "idempotency-key": "ticket-issue-1" }, { customer_name: "Not accepted" });
     assert.equal(response.status, 400); assert.equal(response.body.error, "INVALID_REQUEST");
+  } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
+});
+
+test("developer API generates a Sandbox ticket QR data URL for a scoped ticket", async () => {
+  const originals = []; stubKey(originals, ["queues:read"]);
+  replace(developerQueues, "findProfile", async () => profile(), originals);
+  replace(developerQueues, "findFirstQueue", async () => queue(), originals);
+  replace(developerQueues, "findTicket", async (projectId, environment, queueId, ticketId) => {
+    assert.deepEqual([projectId, environment, queueId, ticketId], ["project-1", "sandbox", "queue-1", "ticket-1"]);
+    return ticket();
+  }, originals);
+  const { server, baseUrl } = await startServer();
+  try {
+    const response = await request("GET", `${baseUrl}/queues/harbor/tickets/ticket-1/qr`, "sandbox-api.getprio.online", { "x-api-key": "gpk_sbx_test" });
+    assert.equal(response.status, 200);
+    assert.equal(response.body.data.qr.ticket_id, "ticket-1");
+    assert.equal(response.body.data.qr.verification_code, "AB12CD34");
+    assert.equal(response.body.data.qr.content_type, "image/svg+xml");
+    assert.match(response.body.data.qr.data_url, /^data:image\/svg\+xml;base64,/);
+    const svg = Buffer.from(response.body.data.qr.data_url.split(",")[1], "base64").toString("utf8");
+    assert.match(svg, /shape-rendering="crispEdges"/);
+    assert.match(svg, /viewBox="0 0 1254 1254"/);
+    assert.match(svg, /fill="#FD8501"/);
+  } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
+});
+
+test("developer API keeps ticket QR generation Sandbox-only", async () => {
+  const originals = []; stubKey(originals, ["queues:read"], "production");
+  replace(developerQueues, "findProfile", async () => profile(), originals);
+  replace(developerQueues, "findFirstQueue", async () => queue(), originals);
+  const { server, baseUrl } = await startServer();
+  try {
+    const response = await request("GET", `${baseUrl}/queues/harbor/tickets/ticket-1/qr`, "api.getprio.online", { "x-api-key": "gpk_live_test" });
+    assert.equal(response.status, 404);
+    assert.equal(response.body.error, "SANDBOX_TICKET_QR_ONLY");
+  } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
+});
+
+test("developer API does not generate a QR for a non-claimable ticket", async () => {
+  const originals = []; stubKey(originals, ["queues:read"]);
+  replace(developerQueues, "findProfile", async () => profile(), originals);
+  replace(developerQueues, "findFirstQueue", async () => queue(), originals);
+  replace(developerQueues, "findTicket", async () => ({ ...ticket(), status: "served" }), originals);
+  const { server, baseUrl } = await startServer();
+  try {
+    const response = await request("GET", `${baseUrl}/queues/harbor/tickets/ticket-1/qr`, "sandbox-api.getprio.online", { "x-api-key": "gpk_sbx_test" });
+    assert.equal(response.status, 409);
+    assert.equal(response.body.error, "TICKET_QR_UNAVAILABLE");
   } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
 });
 
@@ -177,8 +225,8 @@ test("sandbox Developer API lifecycle sends a silent queue-moved signal to linke
       userId: "43",
       eventType: "developer_queue_moved",
       notificationId: "developer-queue-moved-queue-1:2",
-      collapseId: "developer-queue-moved-queue-1",
-      tag: "developer-queue-moved-queue-1",
+      collapseId: "developer-queue-moved-queue-1:2",
+      tag: "developer-queue-moved-queue-1:2",
       ticketRef: "QUEUE1-0010",
       route: "tickets",
       environment: "sandbox"
