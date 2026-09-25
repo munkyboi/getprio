@@ -251,6 +251,50 @@ async function listProjectsForUser(userId, options = {}) {
   return result.rows.map(mapProject);
 }
 
+function mapPlatformProject(row) {
+  if (!row) return null;
+  return {
+    id: String(row.project_id || row.id),
+    developerAccountId: String(row.developer_account_id),
+    name: row.name,
+    status: row.status,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    appleReviewAccount: row.apple_review_account || null
+  };
+}
+
+async function listProjectsForPlatform(options = {}) {
+  const result = await buildQueryClient(options.client).query(
+    `
+      SELECT p.id AS project_id, p.developer_account_id, p.name, p.status,
+        p.created_at, p.updated_at,
+        (
+          SELECT json_build_object(
+            'id', ta.id,
+            'status', ta.status,
+            'username', u.username,
+            'email', u.email,
+            'expiresAt', u.sandbox_test_account_expires_at,
+            'createdAt', ta.created_at,
+            'updatedAt', ta.updated_at
+          )
+          FROM developer_project_test_accounts ta
+          INNER JOIN users u ON u.id = ta.user_id
+          WHERE ta.developer_project_id = p.id
+            AND ta.purpose = 'apple_review'
+            AND ta.status = 'active'
+          LIMIT 1
+        ) AS apple_review_account
+      FROM developer_projects p
+      INNER JOIN developer_accounts da ON da.id = p.developer_account_id AND da.status = 'active'
+      WHERE p.status = 'active'
+      ORDER BY p.created_at ASC
+    `
+  );
+  return result.rows.map(mapPlatformProject);
+}
+
 async function countActiveProjects(developerAccountId, options = {}) {
   const result = await buildQueryClient(options.client).query(
     `SELECT COUNT(*)::INTEGER AS count FROM developer_projects
@@ -486,6 +530,7 @@ module.exports = {
   findProjectForUser,
   getSandboxAllowance,
   listApiKeys,
+  listProjectsForPlatform,
   listProjectsForUser,
   getProductionApproval,
   mapProductionApproval,
