@@ -185,6 +185,25 @@ const queueTicketReadPath = ({ operationId, summary, location = false, dataSchem
   }
 });
 
+const queueTicketQrPath = ({ operationId, summary, location = false }) => ({
+  get: {
+    operationId,
+    summary,
+    security: [{ ApiKeyAuth: [] }],
+    parameters: [
+      ...queueParameters(location),
+      pathParameter("ticketId", "The opaque queue ticket identifier.")
+    ],
+    responses: {
+      "200": envelopeResponse("Sandbox ticket QR code", "TicketQrEnvelope"),
+      "401": { description: "Missing or invalid API key." },
+      "403": { description: "API key is missing the queues:read scope." },
+      "404": { description: "Ticket, tenant, or location not found, or QR claims are not available in Production." },
+      "409": { description: "The ticket does not have a QR code available." }
+    }
+  }
+});
+
 const queueTicketEventsPath = ({ operationId, summary, location = false, dataSchema = "TicketEvents" }) => ({
   get: {
     operationId,
@@ -388,9 +407,18 @@ const openApiDocument = {
       operationId: "getQueueTicket",
       summary: "Read a queue ticket status"
     }),
+    "/queues/{tenantSlug}/tickets/{ticketId}/qr": queueTicketQrPath({
+      operationId: "getQueueTicketQr",
+      summary: "Generate a Sandbox ticket QR code"
+    }),
     "/queues/{tenantSlug}/locations/{locationSlug}/tickets/{ticketId}": queueTicketReadPath({
       operationId: "getLocationQueueTicket",
       summary: "Read a location queue ticket status",
+      location: true
+    }),
+    "/queues/{tenantSlug}/locations/{locationSlug}/tickets/{ticketId}/qr": queueTicketQrPath({
+      operationId: "getLocationQueueTicketQr",
+      summary: "Generate a Sandbox location ticket QR code",
       location: true
     }),
     "/queues/{tenantSlug}/tickets/{ticketId}/events": queueTicketEventsPath({
@@ -531,6 +559,24 @@ const openApiDocument = {
         type: "object",
         required: ["ticket"],
         properties: { ticket: { anyOf: [{ $ref: "#/components/schemas/Ticket" }, { type: "null" }] } }
+      },
+      TicketQrEnvelope: {
+        type: "object",
+        required: ["qr"],
+        properties: {
+          qr: {
+            type: "object",
+            required: ["ticket_id", "ticket_number", "verification_code", "environment", "content_type", "data_url"],
+            properties: {
+              ticket_id: { type: "string", description: "Opaque queue ticket identifier." },
+              ticket_number: { type: "string" },
+              verification_code: { type: "string", pattern: "^[A-F0-9]{8}$", description: "The code encoded in the QR image." },
+              environment: { type: "string", enum: ["sandbox"] },
+              content_type: { type: "string", enum: ["image/png"] },
+              data_url: { type: "string", description: "A PNG data URL containing the generated QR image." }
+            }
+          }
+        }
       },
       TicketEvents: {
         type: "object",

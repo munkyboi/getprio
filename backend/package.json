@@ -24,6 +24,7 @@
     "nodemailer": "^9.1.1",
     "pdfkit": "^0.18.0",
     "pg": "^8.13.3",
+    "qrcode": "^1.5.4",
     "sanitize-html": "^2.17.7",
     "web-push": "^3.6.7"
   },
