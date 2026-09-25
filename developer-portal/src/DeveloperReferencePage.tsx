@@ -92,7 +92,7 @@ function EndpointRows({ rows }: { rows: ReferenceEndpointRow[] }) {
 }
 
 function EndpointTable({ caption, rows }: { caption: string; rows: ReferenceEndpointRow[] }) {
-  return <div className="developer-reference-table-wrap"><table className="developer-reference-table"><caption>{caption}</caption><thead><tr><th>Method</th><th>Path</th><th>Scope</th><th>Purpose</th></tr></thead><tbody><EndpointRows rows={rows} /></tbody></table></div>;
+  return <div className="developer-reference-table-wrap"><table className="developer-reference-table developer-reference-endpoint-table"><caption>{caption}</caption><thead><tr><th>Method</th><th>Path</th><th>Scope</th><th>Purpose</th></tr></thead><tbody><EndpointRows rows={rows} /></tbody></table></div>;
 }
 
 
@@ -416,8 +416,8 @@ export default function DeveloperReferencePage() {
           <section>
             <BookmarkableHeading id="profiles">Profiles</BookmarkableHeading>
             <p>Profiles are the top-level private namespace for your queues. The slug is immutable and appears in queue routes. A key with selected-profile access can read only the profiles it was granted.</p>
-            <div className="developer-reference-table-wrap"><table className="developer-reference-table"><caption>API utility endpoints</caption><thead><tr><th>Method</th><th>Path</th><th>Scope</th><th>Purpose</th></tr></thead><tbody><EndpointRows rows={utilityEndpointRows} /></tbody></table></div>
-            <div className="developer-reference-table-wrap"><table className="developer-reference-table"><caption>Profile and profile-queue endpoints</caption><thead><tr><th>Method</th><th>Path</th><th>Scope</th><th>Purpose</th></tr></thead><tbody><EndpointRows rows={profileEndpointRows} /></tbody></table></div>
+            <EndpointTable caption="API utility endpoints" rows={utilityEndpointRows} />
+            <EndpointTable caption="Profile and profile-queue endpoints" rows={profileEndpointRows} />
             <CodeSample label="Create a profile" samples={createProfileSamples} onCopy={(value) => void copyValue(value, "profile")} />
           </section>
           <section>
