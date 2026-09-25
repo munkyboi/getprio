@@ -49,12 +49,20 @@ const profileEndpointRows: ReferenceEndpointRow[] = [
   { method: "PATCH", path: "/profiles/:profileSlug/queues/:queueSlug", scope: "queues:write", purpose: "Update queue settings; send resource_version for optimistic concurrency." }
 ];
 
-const queueEndpointRows: ReferenceEndpointRow[] = [
+const queueDiscoveryEndpointRows: ReferenceEndpointRow[] = [
   { method: "GET", path: "/queues/:profileSlug", scope: "queues:read", purpose: "Read the snapshot, current ticket, and next tickets." },
   { method: "GET", path: "/queues/:profileSlug/locations", scope: "queues:read", purpose: "List queues through the location-compatible route." },
-  { method: "GET", path: "/queues/:profileSlug/locations/:locationSlug", scope: "queues:read", purpose: "Read a queue snapshot through the location-compatible route." },
+  { method: "GET", path: "/queues/:profileSlug/locations/:locationSlug", scope: "queues:read", purpose: "Read a queue snapshot through the location-compatible route." }
+];
+
+const ticketIntakeEndpointRows: ReferenceEndpointRow[] = [
   { method: "POST", path: "/queues/:profileSlug/tickets", scope: "queues:write", purpose: "Issue a ticket; requires an idempotency key." },
   { method: "POST", path: "/queues/:profileSlug/locations/:locationSlug/tickets", scope: "queues:write", purpose: "Issue a ticket through the location-compatible route." },
+  { method: "GET", path: "/queues/:profileSlug/tickets/:ticketId", scope: "queues:read", purpose: "Read one ticket by opaque ID." },
+  { method: "GET", path: "/queues/:profileSlug/locations/:locationSlug/tickets/:ticketId", scope: "queues:read", purpose: "Read a ticket through the location-compatible route." }
+];
+
+const operatorActionEndpointRows: ReferenceEndpointRow[] = [
   { method: "POST", path: "/queues/:profileSlug/call-next", scope: "queues:write", purpose: "Call the next waiting ticket." },
   { method: "POST", path: "/queues/:profileSlug/locations/:locationSlug/call-next", scope: "queues:write", purpose: "Call the next waiting ticket through the location-compatible route." },
   { method: "POST", path: "/queues/:profileSlug/current/confirm", scope: "queues:write", purpose: "Confirm the customer for the current called ticket." },
@@ -62,21 +70,29 @@ const queueEndpointRows: ReferenceEndpointRow[] = [
   { method: "POST", path: "/queues/:profileSlug/current/serve", scope: "queues:write", purpose: "Mark the current called ticket served." },
   { method: "POST", path: "/queues/:profileSlug/locations/:locationSlug/current/serve", scope: "queues:write", purpose: "Serve the current ticket through the location-compatible route." },
   { method: "POST", path: "/queues/:profileSlug/current/skip", scope: "queues:write", purpose: "Skip the current called ticket." },
-  { method: "POST", path: "/queues/:profileSlug/locations/:locationSlug/current/skip", scope: "queues:write", purpose: "Skip the current ticket through the location-compatible route." },
+  { method: "POST", path: "/queues/:profileSlug/locations/:locationSlug/current/skip", scope: "queues:write", purpose: "Skip the current ticket through the location-compatible route." }
+];
+
+const ticketLifecycleEndpointRows: ReferenceEndpointRow[] = [
   { method: "POST", path: "/queues/:profileSlug/tickets/:ticketId/cancel", scope: "queues:write", purpose: "Cancel a waiting ticket." },
   { method: "POST", path: "/queues/:profileSlug/locations/:locationSlug/tickets/:ticketId/cancel", scope: "queues:write", purpose: "Cancel a waiting ticket through the location-compatible route." },
   { method: "POST", path: "/queues/:profileSlug/tickets/:ticketId/restore", scope: "queues:write", purpose: "Restore a skipped ticket." },
   { method: "POST", path: "/queues/:profileSlug/locations/:locationSlug/tickets/:ticketId/restore", scope: "queues:write", purpose: "Restore a skipped ticket through the location-compatible route." },
-  { method: "GET", path: "/queues/:profileSlug/tickets/:ticketId", scope: "queues:read", purpose: "Read one ticket by opaque ID." },
-  { method: "GET", path: "/queues/:profileSlug/locations/:locationSlug/tickets/:ticketId", scope: "queues:read", purpose: "Read a ticket through the location-compatible route." },
   { method: "GET", path: "/queues/:profileSlug/tickets/:ticketId/events", scope: "queues:read", purpose: "Read lifecycle events with a cursor." },
-  { method: "GET", path: "/queues/:profileSlug/locations/:locationSlug/tickets/:ticketId/events", scope: "queues:read", purpose: "Read lifecycle events through the location-compatible route." },
+  { method: "GET", path: "/queues/:profileSlug/locations/:locationSlug/tickets/:ticketId/events", scope: "queues:read", purpose: "Read lifecycle events through the location-compatible route." }
+];
+
+const liveUpdateEndpointRows: ReferenceEndpointRow[] = [
   { method: "GET", path: "/queues/:profileSlug/stream", scope: "queues:read", purpose: "Open an SSE stream of queue snapshot updates." },
   { method: "GET", path: "/queues/:profileSlug/locations/:locationSlug/stream", scope: "queues:read", purpose: "Open an SSE stream through the location-compatible route." }
 ];
 
 function EndpointRows({ rows }: { rows: ReferenceEndpointRow[] }) {
   return <>{rows.map((row) => <tr key={`${row.method}-${row.path}`}><th scope="row">{row.method}</th><td><code>{row.path}</code></td><td><code>{row.scope}</code></td><td>{row.purpose}</td></tr>)}</>;
+}
+
+function EndpointTable({ caption, rows }: { caption: string; rows: ReferenceEndpointRow[] }) {
+  return <div className="developer-reference-table-wrap"><table className="developer-reference-table"><caption>{caption}</caption><thead><tr><th>Method</th><th>Path</th><th>Scope</th><th>Purpose</th></tr></thead><tbody><EndpointRows rows={rows} /></tbody></table></div>;
 }
 
 
@@ -407,8 +423,21 @@ export default function DeveloperReferencePage() {
           <section>
             <BookmarkableHeading id="queues">Queues and tickets</BookmarkableHeading>
             <p>Read a queue snapshot before rendering a customer-facing position. If a profile has multiple queues, use the location-compatible route with the queue slug. In these API routes, <code>profileSlug</code> is the developer profile slug. The OpenAPI document calls this same parameter <code>tenantSlug</code> for compatibility, and calls the queue slug <code>locationSlug</code> on the location-style routes.</p>
-            <p>Queue state and intake are separate: a queue is open only when its session state is <code>open</code> and intake is enabled. The stream endpoints use server-sent events and emit queue snapshots plus heartbeats; reconnect and reconcile from a fresh snapshot after a disconnect.</p>
-            <div className="developer-reference-table-wrap"><table className="developer-reference-table"><caption>Queue and ticket endpoints</caption><thead><tr><th>Method</th><th>Path</th><th>Scope</th><th>Purpose</th></tr></thead><tbody><EndpointRows rows={queueEndpointRows} /></tbody></table></div>
+            <h3 className="developer-reference-subheading">Queue discovery and snapshots</h3>
+            <p>Start here when you need the current queue state, current ticket, or available queues.</p>
+            <EndpointTable caption="Queue discovery endpoints" rows={queueDiscoveryEndpointRows} />
+            <h3 className="developer-reference-subheading">Ticket intake and lookup</h3>
+            <p>Issue a ticket with an idempotency key, then use its opaque ticket ID to read the current status.</p>
+            <EndpointTable caption="Ticket intake and lookup endpoints" rows={ticketIntakeEndpointRows} />
+            <h3 className="developer-reference-subheading">Operator actions</h3>
+            <p>Use these mutations to move the current queue through its operator workflow. State conflicts return <code>409</code>.</p>
+            <EndpointTable caption="Operator action endpoints" rows={operatorActionEndpointRows} />
+            <h3 className="developer-reference-subheading">Ticket lifecycle controls</h3>
+            <p>Cancel waiting tickets, restore skipped tickets, or reconcile a ticket from its cursor-paginated event history.</p>
+            <EndpointTable caption="Ticket lifecycle endpoints" rows={ticketLifecycleEndpointRows} />
+            <h3 className="developer-reference-subheading">Live updates</h3>
+            <p>The stream endpoints use server-sent events and emit queue snapshots plus heartbeats; reconnect and reconcile from a fresh snapshot after a disconnect.</p>
+            <EndpointTable caption="Live update endpoints" rows={liveUpdateEndpointRows} />
             <CodeSample label="Read a ticket" samples={readTicketSamples} onCopy={(value) => void copyValue(value, "ticket-read")} />
             <p className="developer-reference-note">Write transitions are deliberately explicit. A ticket cannot be served or skipped unless it is currently called; resolve a <code>409</code> by reading the current snapshot rather than forcing a transition.</p>
           </section>

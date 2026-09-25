@@ -63,6 +63,7 @@
 .developer-reference h1 { max-width: 42rem; margin: 0; font-size: clamp(1.6rem, 4.8vw, 2.1rem); letter-spacing: -.055em; line-height: 1.03; }
 .developer-reference h2 { margin: 3.75rem 0 1rem; font-size: clamp(1.1rem, 3.2vw, 1.4rem); letter-spacing: -.03em; line-height: 1.14; scroll-margin-top: 5rem; }
 .developer-reference h3 { margin: 0 0 .5rem; font-size: .8rem; }
+.developer-reference-subheading { margin: 2rem 0 .35rem !important; color: var(--docs-ink); font-size: 1rem !important; letter-spacing: -.02em; }
 .developer-reference-bookmark-heading { display: flex; align-items: center; gap: .45rem; scroll-margin-top: 7rem; }
 .developer-reference-heading-link { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; padding: .12em; border-radius: .3rem; color: var(--docs-accent); opacity: 0; text-decoration: none; }
 .developer-reference-bookmark-heading:hover .developer-reference-heading-link, .developer-reference-bookmark-heading:focus-within .developer-reference-heading-link { opacity: 1; }
