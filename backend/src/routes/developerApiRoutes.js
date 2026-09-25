@@ -212,7 +212,10 @@ async function sendDeveloperQueueMovedSignals(req, sourceTicket) {
     userId: ticket.linkedUserId,
     eventType: "developer_queue_moved",
     notificationId,
-    collapseId: queueTag,
+    // Each queue movement must remain independently deliverable. Reusing one
+    // collapse ID can cause a later call to replace an earlier silent push
+    // before iOS delivers it to the customer's app.
+    collapseId: notificationId,
     tag: queueTag,
     ticketRef: ticket.ticketNumber || ticket.id,
     route: "tickets",
