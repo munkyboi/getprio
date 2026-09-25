@@ -126,7 +126,7 @@
 .developer-reference-table thead th { border-top: 0; color: var(--docs-ink); font-size: .75rem; letter-spacing: .04em; text-transform: uppercase; }
 .developer-reference-table tbody th { color: var(--docs-ink); font-weight: 700; white-space: nowrap; }
 .developer-reference-table code { white-space: nowrap; }
-.developer-reference-endpoint-table th:last-child, .developer-reference-endpoint-table td:last-child { min-width: 140px; }
+.developer-reference-endpoint-table th:last-child, .developer-reference-endpoint-table td:last-child { min-width: 250px; }
 .developer-reference-checklist { display: grid; gap: .8rem; margin: 1.2rem 0 0; padding-left: 1.2rem; color: var(--docs-muted); line-height: 1.6; }
 .developer-reference-checklist li::marker { color: var(--docs-accent); }
 .developer-reference-code-sample + p { margin-top: 1rem; }
