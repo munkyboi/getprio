@@ -1,11 +1,11 @@
 const express = require("express");
-const QRCode = require("qrcode");
 const db = require("../config/db");
 const openApiDocument = require("./developerApiOpenapi");
 const asyncHandler = require("../middleware/asyncHandler");
 const developerQueues = require("../repositories/developerQueues");
 const developerApiOperations = require("../repositories/developerApiOperations");
 const developerWebhookService = require("../services/developerWebhookService");
+const { generateTicketQr } = require("../services/ticketQrCodeService");
 const { authenticateDeveloperApiKey, requireApiScope } = require("../middleware/developerApiKeyAuth");
 const { normalizeDeveloperQueueSettings } = require("../utils/developerQueueSettings");
 
@@ -91,13 +91,13 @@ async function ticketQrView(ticket, environment) {
   ) {
     throw error(409, "TICKET_QR_UNAVAILABLE", "This ticket is not available for mobile QR claiming.");
   }
-  const dataUrl = await QRCode.toDataURL(ticket.verificationCode, { errorCorrectionLevel: "H", margin: 2, width: 480 });
+  const { contentType, dataUrl } = await generateTicketQr(ticket.verificationCode);
   return {
     ticket_id: ticket.id,
     ticket_number: ticket.ticketNumber,
     verification_code: ticket.verificationCode,
     environment,
-    content_type: "image/png",
+    content_type: contentType,
     data_url: dataUrl
   };
 }

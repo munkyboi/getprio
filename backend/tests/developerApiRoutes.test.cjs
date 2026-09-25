@@ -106,8 +106,11 @@ test("developer API generates a Sandbox ticket QR data URL for a scoped ticket",
     assert.equal(response.status, 200);
     assert.equal(response.body.data.qr.ticket_id, "ticket-1");
     assert.equal(response.body.data.qr.verification_code, "AB12CD34");
-    assert.equal(response.body.data.qr.content_type, "image/png");
-    assert.match(response.body.data.qr.data_url, /^data:image\/png;base64,/);
+    assert.equal(response.body.data.qr.content_type, "image/svg+xml");
+    assert.match(response.body.data.qr.data_url, /^data:image\/svg\+xml;base64,/);
+    const svg = Buffer.from(response.body.data.qr.data_url.split(",")[1], "base64").toString("utf8");
+    assert.match(svg, /stroke-linecap="round"/);
+    assert.match(svg, /fill="#FD8501"/);
   } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
 });
 

@@ -572,8 +572,8 @@ const openApiDocument = {
               ticket_number: { type: "string" },
               verification_code: { type: "string", pattern: "^[A-F0-9]{8}$", description: "The code encoded in the QR image." },
               environment: { type: "string", enum: ["sandbox"] },
-              content_type: { type: "string", enum: ["image/png"] },
-              data_url: { type: "string", description: "A PNG data URL containing the generated QR image." }
+              content_type: { type: "string", enum: ["image/svg+xml"] },
+              data_url: { type: "string", description: "An SVG data URL containing the branded, scan-ready QR image." }
             }
           }
         }

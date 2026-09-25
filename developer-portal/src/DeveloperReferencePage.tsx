@@ -60,8 +60,8 @@ const ticketIntakeEndpointRows: ReferenceEndpointRow[] = [
   { method: "POST", path: "/queues/:profileSlug/locations/:locationSlug/tickets", scope: "queues:write", purpose: "Issue a ticket through the location-compatible route." },
   { method: "GET", path: "/queues/:profileSlug/tickets/:ticketId", scope: "queues:read", purpose: "Read one ticket by opaque ID." },
   { method: "GET", path: "/queues/:profileSlug/locations/:locationSlug/tickets/:ticketId", scope: "queues:read", purpose: "Read a ticket through the location-compatible route." },
-  { method: "GET", path: "/queues/:profileSlug/tickets/:ticketId/qr", scope: "queues:read", purpose: "Generate a Sandbox ticket QR as a PNG data URL." },
-  { method: "GET", path: "/queues/:profileSlug/locations/:locationSlug/tickets/:ticketId/qr", scope: "queues:read", purpose: "Generate a Sandbox location ticket QR as a PNG data URL." }
+  { method: "GET", path: "/queues/:profileSlug/tickets/:ticketId/qr", scope: "queues:read", purpose: "Generate a branded Sandbox ticket QR as an SVG data URL." },
+  { method: "GET", path: "/queues/:profileSlug/locations/:locationSlug/tickets/:ticketId/qr", scope: "queues:read", purpose: "Generate a branded Sandbox location ticket QR as an SVG data URL." }
 ];
 
 const operatorActionEndpointRows: ReferenceEndpointRow[] = [
