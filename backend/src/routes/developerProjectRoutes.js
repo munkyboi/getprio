@@ -548,62 +548,17 @@ router.post("/projects/:projectId/sandbox/test-accounts", asyncHandler(async (re
   });
 }));
 
-router.post("/projects/:projectId/sandbox/test-accounts/apple-review", asyncHandler(async (req, res) => {
-  const project = await developerProjects.findProjectForUser(req.params.projectId, req.user._id);
-  if (!project) throw notFound();
-  const existingAccounts = await developerTestAccounts.list(project.id);
-  if (existingAccounts.some((account) => account.purpose === "apple_review")) {
-    const error = new Error("This project already has an Apple review Sandbox account. Reset it instead.");
-    error.statusCode = 409;
-    error.code = "SANDBOX_APPLE_REVIEW_ACCOUNT_EXISTS";
-    throw error;
-  }
-  const password = createSandboxTestPassword();
-  const identity = createSandboxTestIdentity();
-  const expiresAt = sandboxExpiry("apple_review");
-  const passwordHash = await bcrypt.hash(password, 10);
-  let account;
-  try {
-    account = await db.withTransaction((client) => developerTestAccounts.create({
-      projectId: project.id,
-      name: `Apple review tester ${identity.username.slice(-6)}`,
-      username: identity.username,
-      email: identity.email,
-      passwordHash,
-      expiresAt,
-      purpose: "apple_review"
-    }, { client }));
-  } catch (error) {
-    if (error.code === "23505" && error.constraint === "developer_project_test_accounts_one_apple_review_idx") {
-      error.statusCode = 409;
-      error.code = "SANDBOX_APPLE_REVIEW_ACCOUNT_EXISTS";
-      error.message = "This project already has an Apple review Sandbox account. Reset it instead.";
-    }
-    throw error;
-  }
-  if (!account) throw notFound();
-  await securityEventService.logSecurityEvent({
-    userId: req.user._id,
-    sessionId: req.auth.sessionId,
-    eventType: "developer_sandbox_apple_review_account_created",
-    actorRole: req.developerMembership.role,
-    ipAddress: authService.getRequestIp(req),
-    userAgent: authService.getUserAgent(req),
-    metadata: { projectId: project.id, testAccountId: account.id, slot: account.slot, purpose: "apple_review", ttlDays: SANDBOX_APPLE_REVIEW_ACCOUNT_TTL_DAYS }
-  });
-  res.status(201).json({
-    project: projectResponse(project),
-    testAccount: sandboxTestAccountResponse(account),
-    credentials: sandboxCredentials(account, password),
-    warning: "Copy these Apple review credentials now. The password will not be shown again. This account expires in 30 days."
-  });
-}));
-
 router.post("/projects/:projectId/sandbox/test-accounts/:accountId/reset", asyncHandler(async (req, res) => {
   const project = await developerProjects.findProjectForUser(req.params.projectId, req.user._id);
   if (!project) throw notFound();
   const existingAccount = await developerTestAccounts.findById(project.id, req.params.accountId);
   if (!existingAccount) throw notFound("Sandbox test account not found.");
+  if (existingAccount.purpose === "apple_review") {
+    const error = new Error("Apple review Sandbox credentials are managed by Platform Dashboard.");
+    error.statusCode = 403;
+    error.code = "SANDBOX_APPLE_REVIEW_PLATFORM_ONLY";
+    throw error;
+  }
   const password = createSandboxTestPassword();
   const expiresAt = sandboxExpiry(existingAccount.purpose);
   const passwordHash = await bcrypt.hash(password, 10);

@@ -16,6 +16,7 @@ function loadRoutes() {
     "../middleware/idempotency": { requireIdempotency: (scope) => ({ scope }) },
     "../repositories/developerProjects": {
       findProjectById: async () => ({ id: "project-1", name: "Demo", status: "active" }),
+      listProjectsForPlatform: async () => [{ id: "project-1", name: "Demo", status: "active", appleReviewAccount: null }],
       getProductionApproval: async () => ({ id: "application-1", projectId: "project-1", status: "pending_review", draft: {}, approvedSubmissionId: null, submissions: [{ id: "submission-1", version: 1, snapshot: {}, status: "pending_review" }] }),
       reviewProductionApproval: async ({ status, submissionId }, options) => { assert.ok(options?.client); return { id: "application-1", projectId: "project-1", status, draft: {}, approvedSubmissionId: status === "approved" ? submissionId : null, submissions: [{ id: submissionId, version: 1, snapshot: {}, status }] }; }
     },
@@ -30,12 +31,43 @@ function loadRoutes() {
       save: async (data) => ({ projectId: data.projectId, environment: data.environment, readLimitPerMinute: data.readLimitPerMinute, writeLimitPerMinute: data.writeLimitPerMinute })
     },
     "../services/securityAuditService": { record: async (data, options) => calls.push(["audit", data, options]) },
+    "../services/authService": { getRequestIp: () => "127.0.0.1", getUserAgent: () => "test-agent" },
+    "../services/sandboxAppleReviewAccountService": {
+      create: async (input) => { calls.push(["apple-review", input]); return { testAccount: { purpose: "apple_review" }, credentials: { username: "sb_review", email: "sb-review@test.getprio.invalid", password: "Secret1!", expiresAt: "2026-10-25T00:00:00.000Z" }, warning: "Copy once." }; },
+      reset: async (input) => { calls.push(["apple-review-reset", input]); return { testAccount: { purpose: "apple_review" }, credentials: { username: "sb_review", email: "sb-review@test.getprio.invalid", password: "Secret2!", expiresAt: "2026-10-25T00:00:00.000Z" }, warning: "Copy once." }; }
+    },
     "../utils/developerProductionApproval": { productionApprovalResponse: (approval) => approval },
     "../config/db": { withTransaction: async (callback) => callback({}) }
   };
   vm.runInNewContext(fs.readFileSync(path.resolve(__dirname, "../src/routes/platformRoutes.js"), "utf8"), { require: (name) => mocks[name] || fallback, module: { exports: {} } });
   return { routes, calls };
 }
+
+test("platform dashboard owns Apple review Sandbox account provisioning", async () => {
+  const { routes, calls } = loadRoutes();
+  const listRoute = routes.find(({ method, args }) => method === "get" && args[0] === "/developer-projects");
+  const createRoute = routes.find(({ method, args }) => method === "post" && args[0] === "/developer-projects/:projectId/sandbox/test-accounts/apple-review");
+  assert.equal(listRoute.args[1].permission, "platform.developer_api.manage");
+  assert.equal(createRoute.args[1].permission, "platform.developer_api.manage");
+  assert.equal(createRoute.args[2].scope, "platform.developer_sandbox.apple_review.create");
+  const listed = response();
+  await listRoute.args.at(-1)({}, listed);
+  assert.equal(listed.body.projects[0].name, "Demo");
+  assert.equal(listed.headers["cache-control"], "no-store");
+  const created = response();
+  await createRoute.args.at(-1)({ params: { projectId: "project-1" }, user: { _id: 7 }, auth: { sessionId: "session-1" } }, created);
+  assert.equal(created.code, 201);
+  assert.equal(created.body.testAccount.purpose, "apple_review");
+  assert.equal(calls[0][0], "apple-review");
+  assert.deepEqual(JSON.parse(JSON.stringify(calls[0][1])), { projectId: "project-1", actorId: 7, sessionId: "session-1", ipAddress: "127.0.0.1", userAgent: "test-agent" });
+  const resetRoute = routes.find(({ method, args }) => method === "post" && args[0] === "/developer-projects/:projectId/sandbox/test-accounts/:accountId/reset");
+  assert.equal(resetRoute.args[1].permission, "platform.developer_api.manage");
+  assert.equal(resetRoute.args[2].scope, "platform.developer_sandbox.apple_review.reset");
+  const reset = response();
+  await resetRoute.args.at(-1)({ params: { projectId: "project-1", accountId: "review-account-1" }, user: { _id: 7 }, auth: { sessionId: "session-1" } }, reset);
+  assert.equal(reset.body.credentials.password, "Secret2!");
+  assert.equal(calls[1][0], "apple-review-reset");
+});
 
 function response() {
   return {

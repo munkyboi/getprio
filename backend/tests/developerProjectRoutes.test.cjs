@@ -406,55 +406,17 @@ test("Sandbox test-account routes create, list, and reset project-scoped credent
   } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
 });
 
-test("Apple review Sandbox account uses a dedicated 30-day credential path", async () => {
-  const originals = []; const calls = [];
-  replace(developerProjects, "findProjectForUser", async () => project, originals);
-  replace(developerTestAccounts, "list", async () => [], originals);
-  replace(developerTestAccounts, "create", async (input, options) => { calls.push({ input, client: options.client }); return { id: "review-account-1", projectId: project.id, slot: 1, purpose: input.purpose, username: input.username, email: input.email, status: "active", expiresAt: input.expiresAt, deviceCount: 0, createdAt: "2026-09-25T00:00:00.000Z", updatedAt: "2026-09-25T00:00:00.000Z" }; }, originals);
-  replace(db, "withTransaction", async (callback) => callback({ transaction: true }), originals);
-  replace(securityEventService, "logSecurityEvent", async () => {}, originals);
-  const { server, baseUrl } = await startServer();
-  try {
-    const response = await request("POST", `${baseUrl}/projects/${project.id}/sandbox/test-accounts/apple-review`);
-    assert.equal(response.status, 201);
-    assert.equal(response.body.testAccount.purpose, "apple_review");
-    assert.equal(response.body.credentials.password.length, 8);
-    assert.match(response.body.warning, /30 days/);
-    assert.equal(calls.length, 1);
-    assert.equal(calls[0].input.purpose, "apple_review");
-    assert.ok(calls[0].input.expiresAt.getTime() - Date.now() > 29 * 24 * 60 * 60 * 1000);
-    assert.ok(calls[0].client.transaction);
-  } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
-});
-
-test("Apple review Sandbox account cannot be created twice for one project", async () => {
+test("Developer Portal cannot reset a platform-managed Apple review Sandbox account", async () => {
   const originals = [];
-  replace(developerProjects, "findProjectForUser", async () => project, originals);
-  replace(developerTestAccounts, "list", async () => [{ id: "review-account-1", purpose: "apple_review", status: "expired" }], originals);
-  replace(developerTestAccounts, "create", async () => { throw new Error("must not create a second review account"); }, originals);
-  const { server, baseUrl } = await startServer();
-  try {
-    const response = await request("POST", `${baseUrl}/projects/${project.id}/sandbox/test-accounts/apple-review`);
-    assert.equal(response.status, 409);
-    assert.equal(response.body.code, "SANDBOX_APPLE_REVIEW_ACCOUNT_EXISTS");
-  } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
-});
-
-test("resetting an Apple review Sandbox account keeps the 30-day review window", async () => {
-  const originals = []; const calls = [];
   const account = { id: "review-account-1", projectId: project.id, slot: 1, purpose: "apple_review", username: "sb_review1", email: "sb-review1@test.getprio.invalid", status: "active", expiresAt: "2026-09-26T00:00:00.000Z", deviceCount: 1, createdAt: "2026-09-20T00:00:00.000Z", updatedAt: "2026-09-20T00:00:00.000Z" };
   replace(developerProjects, "findProjectForUser", async () => project, originals);
   replace(developerTestAccounts, "findById", async () => account, originals);
-  replace(developerTestAccounts, "reset", async (_projectId, _accountId, input, options) => { calls.push({ input, client: options.client }); return { ...account, expiresAt: input.expiresAt, deviceCount: 0 }; }, originals);
-  replace(db, "withTransaction", async (callback) => callback({ transaction: true }), originals);
-  replace(securityEventService, "logSecurityEvent", async () => {}, originals);
+  replace(developerTestAccounts, "reset", async () => { throw new Error("must not reset a platform-managed account"); }, originals);
   const { server, baseUrl } = await startServer();
   try {
     const response = await request("POST", `${baseUrl}/projects/${project.id}/sandbox/test-accounts/${account.id}/reset`);
-    assert.equal(response.status, 200);
-    assert.equal(response.body.testAccount.purpose, "apple_review");
-    assert.ok(calls[0].input.expiresAt.getTime() - Date.now() > 29 * 24 * 60 * 60 * 1000);
-    assert.ok(calls[0].client.transaction);
+    assert.equal(response.status, 403);
+    assert.equal(response.body.code, "SANDBOX_APPLE_REVIEW_PLATFORM_ONLY");
   } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
 });
 

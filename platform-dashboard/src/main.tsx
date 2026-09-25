@@ -65,6 +65,7 @@ import { PortalDataTable } from "./components/PortalDataTable";
 import { PromptActionModal } from "./components/PromptActionModal";
 import { ModalWheelBridge } from "./components/ModalWheelBridge";
 import { PlanMatrixPage } from "./pages/PlanMatrixPage";
+import { DeveloperProjectsPage } from "./pages/DeveloperProjectsPage";
 import "@mantine/core/styles.css";
 import "@mantine/notifications/styles.css";
 import "../../shared/typography.css";
@@ -86,6 +87,7 @@ type GenericRecord = Record<string, unknown>;
 const navItems = [
   { to: "/overview", label: "Overview", icon: IconChartBar },
   { to: "/plans", label: "Plan Matrix", icon: IconCalendarDollar },
+  { to: "/developer-projects", label: "Developer projects", icon: IconShieldExclamation },
   { to: "/tenants", label: "Tenants", icon: IconBuildingStore },
   { to: "/subscriptions", label: "Subscriptions", icon: IconListDetails },
   { to: "/users", label: "Users", icon: IconUsers },
@@ -838,6 +840,7 @@ function PortalApp({
               <Route path="/overview" element={<OverviewPage token={token} />} />
               <Route path="/queue-fees" element={<Navigate to="/plans" replace />} />
               <Route path="/plans" element={<PlanMatrixPage token={token} />} />
+              <Route path="/developer-projects" element={<DeveloperProjectsPage token={token} />} />
               <Route path="/settings" element={<SettingsPage token={token} user={user} />} />
               <Route path="/tenants/:tenantId/entitlements" element={<TenantEntitlementsPage token={token} />} />
               <Route path="/tenants" element={<ManagedRecordsPage key="tenants" token={token} kind="tenants" emptyLabel="No tenants." columns={[

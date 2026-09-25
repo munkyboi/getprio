@@ -23,6 +23,8 @@ const { validatePlanMutation } = require("../services/planPolicyService");
 const { requireIdempotency } = require("../middleware/idempotency");
 const securityAuditService = require("../services/securityAuditService");
 const securityAuditRepository = require("../repositories/securityAudit");
+const authService = require("../services/authService");
+const sandboxAppleReviewAccountService = require("../services/sandboxAppleReviewAccountService");
 const usageCreditService = require("../services/usageCreditService");
 const usageCreditRepository = require("../repositories/usageCredits");
 const subscriptionLifecycleService = require("../services/subscriptionLifecycleService");
@@ -93,6 +95,38 @@ function cleanDeveloperProductionReview(body = {}) {
   }
   return { status, feedback };
 }
+
+router.get("/developer-projects", requirePlatformPermission("platform.developer_api.manage"), asyncHandler(async (_req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  return res.json({ projects: await developerProjects.listProjectsForPlatform() });
+}));
+
+router.post("/developer-projects/:projectId/sandbox/test-accounts/apple-review", requirePlatformPermission("platform.developer_api.manage"), requireIdempotency("platform.developer_sandbox.apple_review.create"), asyncHandler(async (req, res) => {
+  const project = await developerProjects.findProjectById(req.params.projectId);
+  if (!project || project.status !== "active") return res.status(404).json({ message: "Active developer project not found." });
+  const result = await sandboxAppleReviewAccountService.create({
+    projectId: project.id,
+    actorId: req.user._id,
+    sessionId: req.auth.sessionId,
+    ipAddress: authService.getRequestIp(req),
+    userAgent: authService.getUserAgent(req)
+  });
+  return res.status(201).json({ project: { id: project.id, name: project.name, status: project.status }, ...result });
+}));
+
+router.post("/developer-projects/:projectId/sandbox/test-accounts/:accountId/reset", requirePlatformPermission("platform.developer_api.manage"), requireIdempotency("platform.developer_sandbox.apple_review.reset"), asyncHandler(async (req, res) => {
+  const project = await developerProjects.findProjectById(req.params.projectId);
+  if (!project || project.status !== "active") return res.status(404).json({ message: "Active developer project not found." });
+  const result = await sandboxAppleReviewAccountService.reset({
+    projectId: project.id,
+    accountId: req.params.accountId,
+    actorId: req.user._id,
+    sessionId: req.auth.sessionId,
+    ipAddress: authService.getRequestIp(req),
+    userAgent: authService.getUserAgent(req)
+  });
+  return res.json({ project: { id: project.id, name: project.name, status: project.status }, ...result });
+}));
 
 router.get("/developer-projects/:projectId/webhook-suspension", requirePlatformPermission("platform.developer_api.manage"), asyncHandler(async (req, res) => {
   const project = await developerProjects.findProjectById(req.params.projectId);
