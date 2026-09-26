@@ -26,6 +26,7 @@ export type Delivery = { id: string; webhookId: string; projectId: string; envir
 export type SandboxAllowance = { limit: number; issuedTickets: number; remaining: number; resetAt: string };
 export type SandboxTestAccount = { id: string; projectId: string; slot: number; purpose: "developer" | "apple_review"; username: string; email: string; status: "active" | "expired"; expiresAt: string; deviceCount: number; createdAt: string; updatedAt: string };
 export type SandboxTestFlight = { available: boolean; testFlightUrl: string | null };
+export type SandboxAndroid = { available: boolean; androidUrl: string | null; packageName: string };
 export type UsageReport = {
   project: Project;
   environment: "sandbox" | "production";
@@ -133,6 +134,7 @@ export const developerApi = {
   async projects() { return request<{ projects: Project[] }>("/projects"); },
   async sandboxAllowance(projectId: string) { return request<{ project: Project; allowance: SandboxAllowance }>(`/projects/${projectId}/sandbox/allowance`); },
   async sandboxTestFlight(projectId: string) { return request<{ project: Project } & SandboxTestFlight>(`/projects/${projectId}/sandbox/testflight`); },
+  async sandboxAndroid(projectId: string) { return request<{ project: Project } & SandboxAndroid>(`/projects/${projectId}/sandbox/android`); },
   async testAccounts(projectId: string) { return request<{ project: Project; testAccounts: SandboxTestAccount[]; limit: number }>(`/projects/${projectId}/sandbox/test-accounts`); },
   async createTestAccount(projectId: string, csrfToken: string) { return request<{ testAccount: SandboxTestAccount; credentials: { username: string; email: string; password: string; expiresAt: string }; warning: string }>(`/projects/${projectId}/sandbox/test-accounts`, { method: "POST", csrfToken }); },
   async resetTestAccount(projectId: string, accountId: string, csrfToken: string) { return request<{ testAccount: SandboxTestAccount; credentials: { username: string; email: string; password: string; expiresAt: string }; warning: string }>(`/projects/${projectId}/sandbox/test-accounts/${accountId}/reset`, { method: "POST", csrfToken }); },

@@ -1050,7 +1050,7 @@ export default function DeveloperPortalPage() {
                     describes the current API contract. Production access,
                     billing, and Developer Portal join-link integration remain
                     gated. The Sandbox mobile build is progressing through
-                    TestFlight distribution. This is not a general-availability
+                    TestFlight and Google Play testing tracks. This is not a general-availability
                     announcement.
                   </p>
                 </article>

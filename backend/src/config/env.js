@@ -57,6 +57,32 @@ function resolveSandboxTestFlightPublicUrl(source = process.env) {
   }
 }
 const sandboxTestFlightPublicUrl = resolveSandboxTestFlightPublicUrl();
+const sandboxAndroidPackageName = "com.getprio.getprioMobile.android.sandbox";
+function resolveSandboxAndroidGooglePlayPublicUrl(source = process.env) {
+  const configured = String(source.SANDBOX_ANDROID_GOOGLE_PLAY_PUBLIC_URL || "").trim();
+  if (!configured) return "";
+  try {
+    const url = new URL(configured);
+    if (
+      url.protocol !== "https:" ||
+      url.hostname !== "play.google.com" ||
+      url.port ||
+      url.username ||
+      url.password ||
+      url.pathname !== `/apps/testing/${sandboxAndroidPackageName}` ||
+      url.search ||
+      url.hash
+    ) {
+      throw new Error("invalid Google Play tester URL");
+    }
+    return url.toString();
+  } catch {
+    throw new Error(
+      "SANDBOX_ANDROID_GOOGLE_PLAY_PUBLIC_URL must be the HTTPS Google Play tester URL for the Sandbox package."
+    );
+  }
+}
+const sandboxAndroidGooglePlayPublicUrl = resolveSandboxAndroidGooglePlayPublicUrl();
 const appTimezone = process.env.APP_TIMEZONE || "Asia/Manila";
 const oauthCallbackPath = process.env.OAUTH_CALLBACK_PATH || "/oauth/callback";
 const oauthStateTtlMinutes = Number(process.env.OAUTH_STATE_TTL_MINUTES || 10);
@@ -186,6 +212,8 @@ const env = {
   platformDashboardUrl,
   developerPortalUrl,
   sandboxTestFlightPublicUrl,
+  sandboxAndroidPackageName,
+  sandboxAndroidGooglePlayPublicUrl,
   appTimezone,
   oauthCallbackPath,
   oauthStateTtlMinutes,
@@ -267,3 +295,4 @@ module.exports.resolvePaymongoMode = resolvePaymongoMode;
 module.exports.resolvePaymongoCredentials = resolvePaymongoCredentials;
 module.exports.resolveMobileQrBaseUrl = resolveMobileQrBaseUrl;
 module.exports.resolveSandboxTestFlightPublicUrl = resolveSandboxTestFlightPublicUrl;
+module.exports.resolveSandboxAndroidGooglePlayPublicUrl = resolveSandboxAndroidGooglePlayPublicUrl;

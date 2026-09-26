@@ -281,6 +281,27 @@ test("sandbox TestFlight invitation is available only to an accessible project",
   } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
 });
 
+test("sandbox Android Google Play tester link is available only to an accessible project", async () => {
+  const originals = [];
+  replace(developerProjects, "findProjectForUser", async (id, userId) => {
+    assert.equal(userId, "41");
+    return id === "project-1" ? project : null;
+  }, originals);
+  replace(env, "sandboxAndroidGooglePlayPublicUrl", "https://play.google.com/apps/testing/com.getprio.getprioMobile.android.sandbox", originals);
+  replace(env, "sandboxAndroidPackageName", "com.getprio.getprioMobile.android.sandbox", originals);
+  const { server, baseUrl } = await startServer();
+  try {
+    const allowed = await request("GET", `${baseUrl}/projects/project-1/sandbox/android`);
+    assert.equal(allowed.status, 200);
+    assert.equal(allowed.body.available, true);
+    assert.equal(allowed.body.androidUrl, "https://play.google.com/apps/testing/com.getprio.getprioMobile.android.sandbox");
+    assert.equal(allowed.body.packageName, "com.getprio.getprioMobile.android.sandbox");
+    const denied = await request("GET", `${baseUrl}/projects/another-project/sandbox/android`);
+    assert.equal(denied.status, 404);
+    assert.equal(denied.body.code, "DEVELOPER_RESOURCE_NOT_FOUND");
+  } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
+});
+
 test("developer workspace usage returns project-scoped Sandbox activity", async () => {
   const originals = [];
   replace(developerProjects, "findProjectForUser", async () => project, originals);

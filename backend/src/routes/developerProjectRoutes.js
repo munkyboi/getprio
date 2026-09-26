@@ -518,6 +518,18 @@ router.get("/projects/:projectId/sandbox/testflight", asyncHandler(async (req, r
   });
 }));
 
+router.get("/projects/:projectId/sandbox/android", asyncHandler(async (req, res) => {
+  const project = await developerProjects.findProjectForUser(req.params.projectId, req.user._id);
+  if (!project) throw notFound();
+  res.setHeader("Cache-Control", "no-store");
+  res.json({
+    project: projectResponse(project),
+    available: Boolean(env.sandboxAndroidGooglePlayPublicUrl),
+    androidUrl: env.sandboxAndroidGooglePlayPublicUrl || null,
+    packageName: env.sandboxAndroidPackageName
+  });
+}));
+
 router.get("/projects/:projectId/sandbox/test-accounts", asyncHandler(async (req, res) => {
   const project = await developerProjects.findProjectForUser(req.params.projectId, req.user._id);
   if (!project) throw notFound();
