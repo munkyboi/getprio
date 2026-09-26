@@ -36,6 +36,7 @@ test("public navigation resolves to useful content and unknown addresses show a 
     ["/faq", "Frequently asked questions."],
     ["/help", "Find your next step."],
     ["/changelog", "V1 developer preview"],
+    ["/changelog", "Developer API security baseline"],
   ]) {
     const html = render(path);
     assert.ok(html.includes(text), path);

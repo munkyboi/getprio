@@ -1055,6 +1055,28 @@ export default function DeveloperPortalPage() {
                     announcement.
                   </p>
                 </article>
+                <article className="developer-portal-note">
+                  <h2>Developer API security baseline</h2>
+                  <p>
+                    Authenticated API access is protected by environment-matched,
+                    hashed API keys, explicit scopes, project/profile access
+                    boundaries, and active account, project, and key checks.
+                  </p>
+                  <ul>
+                    <li>Read and write requests are rate limited per project and environment.</li>
+                    <li>Mutating requests require idempotency keys to prevent duplicate operations.</li>
+                    <li>Request fields, sizes, pagination, and live-stream counts are bounded.</li>
+                    <li>Production access requires project approval and personal MFA.</li>
+                    <li>Webhook secrets are protected with signing, rotation, retry, and suspension controls.</li>
+                    <li>Customer fields on terminal Developer API tickets are removed after the retention period.</li>
+                  </ul>
+                  <p>
+                    Per-key anomaly detection, automatic abuse quarantine, and
+                    production wallet or credit enforcement are not connected in
+                    this preview. Do not treat this page as a general-availability
+                    or billing-readiness announcement.
+                  </p>
+                </article>
               </>
             ) : path === "/login" || path === "/register" ? (
               <AuthScreen mode={path === "/login" ? "login" : "register"} onAuthenticated={setSession} />
