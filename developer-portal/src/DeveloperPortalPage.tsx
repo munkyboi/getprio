@@ -1036,45 +1036,68 @@ export default function DeveloperPortalPage() {
                 <p className="developer-portal-eyebrow">RELEASE INFORMATION</p>
                 <h1>Changelog.</h1>
                 <article className="developer-portal-note">
-                  <h2>V1 developer preview</h2>
+                  <h2>September 26 · Developer API preview</h2>
                   <p>
-                    The public portal provides integration guides, FAQ, pricing
-                    information, and an API reference. Independent
-                    Developer Portal accounts can create isolated Sandbox
-                    resources in the developer workspace.
-                  </p>
-                  <p>
-                    The{" "}
+                    The Developer API now has a connected preview journey from
+                    account setup and project management through queue
+                    integration, usage history, and Sandbox testing. The
+                    published{" "}
                     <a href="https://api.getprio.online/v1/openapi.json">
-                      published OpenAPI document
+                      OpenAPI document
                     </a>{" "}
-                    describes the current API contract. Production access,
-                    billing, and Developer Portal join-link integration remain
-                    gated. The Sandbox mobile build is progressing through
-                    TestFlight and Google Play testing tracks. This is not a general-availability
-                    announcement.
+                    describes the current API contract.
                   </p>
                 </article>
                 <article className="developer-portal-note">
-                  <h2>Developer API security baseline</h2>
-                  <p>
-                    Authenticated API access is protected by environment-matched,
-                    hashed API keys, explicit scopes, project/profile access
-                    boundaries, and active account, project, and key checks.
-                  </p>
+                  <h2>Queue API and ticket lifecycle</h2>
                   <ul>
-                    <li>Read and write requests are rate limited per project and environment.</li>
-                    <li>Mutating requests require idempotency keys to prevent duplicate operations.</li>
-                    <li>Request fields, sizes, pagination, and live-stream counts are bounded.</li>
-                    <li>Production access requires project approval and personal MFA.</li>
-                    <li>Webhook secrets are protected with signing, rotation, retry, and suspension controls.</li>
-                    <li>Customer fields on terminal Developer API tickets are removed after the retention period.</li>
+                    <li>Environment-bound projects and API keys with scoped profile access.</li>
+                    <li>Queue and location discovery, snapshots, and Server-Sent Events.</li>
+                    <li>Ticket issuance, reads, call-next, serve, skip, cancel, restore, and event history.</li>
+                    <li>Optional display labels, external references, and recipient-email matching.</li>
+                    <li>Ticket verification codes and Sandbox QR claims for customer confirmation.</li>
                   </ul>
+                </article>
+                <article className="developer-portal-note">
+                  <h2>Webhooks and operational tooling</h2>
                   <p>
-                    Per-key anomaly detection, automatic abuse quarantine, and
-                    production wallet or credit enforcement are not connected in
-                    this preview. Do not treat this page as a general-availability
-                    or billing-readiness announcement.
+                    Projects can register signed lifecycle webhooks with
+                    versioned payloads, retry delivery, manual replay, secret
+                    rotation, emergency rotation, and production suspension.
+                    The portal includes delivery history, ticket usage history,
+                    daily usage pagination, and live ticket details.
+                  </p>
+                </article>
+                <article className="developer-portal-note">
+                  <h2>Sandbox and customer integration</h2>
+                  <p>
+                    Sandbox now supports project test accounts, authenticated
+                    mobile ticket resources, private ticket links, email-matched
+                    invitations with explicit acceptance, queue movement and
+                    ticket push refreshes, branded tenant context, and printed
+                    ticket QR flows. Sandbox allowance and Production access
+                    remain separate environments.
+                  </p>
+                </article>
+                <article className="developer-portal-note">
+                  <h2>Security and data protection</h2>
+                  <ul>
+                    <li>Hashed environment-matched API keys, explicit scopes, and active account/project/key checks.</li>
+                    <li>Project/environment read and write rate limits with retry headers.</li>
+                    <li>Idempotency protection for mutations and bounded request, pagination, and stream resources.</li>
+                    <li>Production approval and personal MFA requirements.</li>
+                    <li>Signed, encrypted, rotatable webhook secrets with delivery suspension controls.</li>
+                    <li>Automatic removal of retained customer fields from terminal Developer API tickets.</li>
+                  </ul>
+                </article>
+                <article className="developer-portal-note">
+                  <h2>Release boundary</h2>
+                  <p>
+                    The current release is a Developer API preview, not a
+                    general-availability announcement. Production wallet or
+                    credit enforcement, project subscriptions, per-key anomaly
+                    detection, and automatic abuse quarantine are not connected
+                    yet. Production access and billing remain separately gated.
                   </p>
                 </article>
               </>

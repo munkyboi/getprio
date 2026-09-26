@@ -513,26 +513,35 @@ export default function DeveloperPortalPage() {
                 <p className="developer-portal-eyebrow">RELEASE INFORMATION</p>
                 <h1>Changelog.</h1>
                 <article className="developer-portal-note">
-                  <h2>V1 developer preview</h2>
+                  <h2>September 26 · Developer API preview</h2>
                   <p>
                     The public portal provides integration guides, FAQ, pricing
-                    information, and a read-only API reference. The workspace at{" "}
-                    <a href="/prototype">/prototype</a> is a fictional
-                    demonstration.
+                    information, and a read-only API reference. The standalone
+                    Developer Portal provides the authenticated workspace for
+                    project and Sandbox management.
                   </p>
                   <p>
                     The{" "}
                     <a href="https://api.getprio.online/v1/openapi.json">
                       published OpenAPI document
                     </a>{" "}
-                    describes the current API contract. Portal enrollment,
-                    authenticated management, and mobile Sandbox distribution
-                    are not enabled here. This preview is not a
-                    general-availability announcement.
+                    describes the current API contract. This public landing
+                    page remains read-only; use the standalone portal for
+                    authenticated workflows.
                   </p>
                 </article>
                 <article className="developer-portal-note">
-                  <h2>Developer API security baseline</h2>
+                  <h2>Current Developer API capabilities</h2>
+                  <ul>
+                    <li>Environment-bound projects, API keys, scopes, and profile access boundaries.</li>
+                    <li>Queue discovery, snapshots, Server-Sent Events, ticket issuance, reads, and lifecycle actions.</li>
+                    <li>Lifecycle event history, signed webhooks, replay, rotation, retry, and suspension controls.</li>
+                    <li>Sandbox test accounts, mobile ticket linking, email-matched invitations, push refreshes, and QR claims.</li>
+                    <li>Verification codes for customer confirmation, usage history, daily usage pagination, and live ticket details.</li>
+                  </ul>
+                </article>
+                <article className="developer-portal-note">
+                  <h2>Security baseline</h2>
                   <p>
                     Authenticated API access is protected by environment-matched,
                     hashed API keys, explicit scopes, project/profile access
@@ -547,10 +556,11 @@ export default function DeveloperPortalPage() {
                     <li>Customer fields on terminal Developer API tickets are removed after the retention period.</li>
                   </ul>
                   <p>
-                    Per-key anomaly detection, automatic abuse quarantine, and
-                    production wallet or credit enforcement are not connected in
-                    this preview. Do not treat this page as a general-availability
-                    or billing-readiness announcement.
+                    Per-key anomaly detection, automatic abuse quarantine,
+                    production wallet or credit enforcement, and project
+                    subscriptions are not connected in this preview.
+                    Production access and billing remain gated. This is not a
+                    general-availability announcement.
                   </p>
                 </article>
               </>
