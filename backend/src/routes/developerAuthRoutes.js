@@ -13,6 +13,7 @@ const securityEventService = require("../services/securityEventService");
 const customerRegistrationOtpService = require("../services/customerRegistrationOtpService");
 const passwordResetService = require("../services/passwordResetService");
 const notificationService = require("../services/notificationService");
+const { buildTemplateEmail } = require("../services/developerPasswordResendTemplates");
 const mfaFlowService = require("../services/mfaFlowService");
 const {
   clearBrowserSession,
@@ -357,20 +358,10 @@ router.post(
     if (user?.email && membership?.accountStatus === "active") {
       const reset = await db.withTransaction(async (client) => passwordResetService.issuePasswordResetToken({ user, req, client }));
       try {
+        const resetUrl = buildDeveloperPasswordResetUrl(reset.token);
         await notificationService.sendEmail({
           to: user.email,
-          subject: "Reset your GetPrio Developer Portal password",
-          text: [
-            "We received a request to reset your GetPrio Developer Portal password.",
-            `Reset link: ${buildDeveloperPasswordResetUrl(reset.token)}`,
-            `This link expires at ${new Date(reset.expiresAt).toISOString()}.`,
-            "If you did not request this, you can ignore this email."
-          ].join("\n\n"),
-          emailTemplate: {
-            illustration: "account-verification",
-            actionLabel: "Reset Developer Portal password",
-            actionUrl: buildDeveloperPasswordResetUrl(reset.token)
-          },
+          ...buildTemplateEmail({ resetUrl, expiresAt: reset.expiresAt }),
           purpose: "general",
           metadata: { category: "developer_password_reset" }
         });

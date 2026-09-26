@@ -154,7 +154,16 @@ test("developer password reset request is generic and only emails active Develop
   assert.deepEqual(issued, ["7"]);
   assert.equal(sent.length, 1);
   assert.equal(sent[0].to, "active@example.com");
-  assert.match(sent[0].text, /reset-password\?token=reset-token/);
+  assert.equal(sent[0].subject, "Reset your GetPrio Developer Portal password");
+  assert.deepEqual(sent[0].resendTemplate, {
+    id: "getprio-developer-password-reset",
+    variables: {
+      ACTION_URL: "http://localhost:5174/reset-password?token=reset-token",
+      EXPIRY_TEXT: "2026-09-26T13:00:00.000Z"
+    }
+  });
+  assert.equal("text" in sent[0], false);
+  assert.equal("emailTemplate" in sent[0], false);
 });
 
 test("developer password reset confirmation enforces the Developer Portal account boundary", async () => {
