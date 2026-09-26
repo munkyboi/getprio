@@ -2,6 +2,11 @@ import path from "path";
 import dotenv from "dotenv";
 import { resolveMobileQrBaseUrl } from "./mobileQrBaseUrl.js";
 import { resolveDeveloperWebhookConfig } from "./developerWebhookConfig.js";
+import {
+  sandboxAndroidPackageName,
+  resolveSandboxTestFlightPublicUrl,
+  resolveSandboxAndroidGooglePlayPublicUrl
+} from "./sandboxDistributionLinks.js";
 
 export { resolveMobileQrBaseUrl };
 
@@ -36,6 +41,8 @@ export const platformDashboardUrl =
 export const developerPortalUrl = process.env.DEVELOPER_PORTAL_URL || (
   nodeEnv === "production" ? "https://developers.getprio.online" : "http://localhost:5174"
 );
+export const sandboxTestFlightPublicUrl = resolveSandboxTestFlightPublicUrl();
+export const sandboxAndroidGooglePlayPublicUrl = resolveSandboxAndroidGooglePlayPublicUrl();
 export const appTimezone = process.env.APP_TIMEZONE || "Asia/Manila";
 export const oauthCallbackPath = process.env.OAUTH_CALLBACK_PATH || "/oauth/callback";
 export const oauthStateTtlMinutes = Number(process.env.OAUTH_STATE_TTL_MINUTES || 10);
@@ -183,6 +190,9 @@ const env = {
   mobilePaymentReturnUrl,
   platformDashboardUrl,
   developerPortalUrl,
+  sandboxTestFlightPublicUrl,
+  sandboxAndroidPackageName,
+  sandboxAndroidGooglePlayPublicUrl,
   appTimezone,
   oauthCallbackPath,
   oauthStateTtlMinutes,

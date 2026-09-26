@@ -50,6 +50,8 @@ function isAuthRecoveryRequest(req) {
       "/developer/refresh",
       "/auth/register/vendor",
       "/developer/login",
+      "/developer/password-reset/request",
+      "/developer/password-reset/confirm",
       "/developer/register/otp",
       "/developer/register/otp/verify",
       "/developer/register/otp/resend"

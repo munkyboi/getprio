@@ -42,6 +42,8 @@ jobs:
           FCM_SANDBOX_CLIENT_EMAIL: ${{ secrets.FCM_SANDBOX_CLIENT_EMAIL }}
           FCM_SANDBOX_PRIVATE_KEY: ${{ secrets.FCM_SANDBOX_PRIVATE_KEY }}
           DEVELOPER_WEBHOOK_ENCRYPTION_KEY: ${{ secrets.DEVELOPER_WEBHOOK_ENCRYPTION_KEY }}
+          SANDBOX_TESTFLIGHT_PUBLIC_URL: ${{ secrets.SANDBOX_TESTFLIGHT_PUBLIC_URL }}
+          SANDBOX_ANDROID_GOOGLE_PLAY_PUBLIC_URL: ${{ secrets.SANDBOX_ANDROID_GOOGLE_PLAY_PUBLIC_URL }}
         run: |
           set -euo pipefail
 
@@ -64,6 +66,14 @@ jobs:
           fi
           if [ "${#DEVELOPER_WEBHOOK_ENCRYPTION_KEY}" -lt 32 ]; then
             echo "DEVELOPER_WEBHOOK_ENCRYPTION_KEY must be at least 32 characters."
+            exit 1
+          fi
+          if [ -n "${SANDBOX_TESTFLIGHT_PUBLIC_URL}" ] && [[ ! "${SANDBOX_TESTFLIGHT_PUBLIC_URL}" =~ ^https://testflight\.apple\.com/join/[^/?#]+$ ]]; then
+            echo "SANDBOX_TESTFLIGHT_PUBLIC_URL must be an HTTPS testflight.apple.com /join/ URL."
+            exit 1
+          fi
+          if [ -n "${SANDBOX_ANDROID_GOOGLE_PLAY_PUBLIC_URL}" ] && [[ ! "${SANDBOX_ANDROID_GOOGLE_PLAY_PUBLIC_URL}" =~ ^https://play\.google\.com/apps/testing/com\.getprio\.getprioMobile\.android\.sandbox$ ]]; then
+            echo "SANDBOX_ANDROID_GOOGLE_PLAY_PUBLIC_URL must be the HTTPS Google Play tester URL for the Sandbox package."
             exit 1
           fi
           if [[ "${FCM_CLIENT_EMAIL}" != *@*.iam.gserviceaccount.com ]] || \
@@ -119,6 +129,8 @@ jobs:
             printf 'FCM_SANDBOX_CLIENT_EMAIL=%s\n' "${FCM_SANDBOX_CLIENT_EMAIL}"
             printf 'FCM_SANDBOX_PRIVATE_KEY=%s\n' "${fcm_private_key_sandbox}"
             printf 'DEVELOPER_WEBHOOK_ENCRYPTION_KEY=%s\n' "${DEVELOPER_WEBHOOK_ENCRYPTION_KEY}"
+            printf 'SANDBOX_TESTFLIGHT_PUBLIC_URL=%s\n' "${SANDBOX_TESTFLIGHT_PUBLIC_URL}"
+            printf 'SANDBOX_ANDROID_GOOGLE_PLAY_PUBLIC_URL=%s\n' "${SANDBOX_ANDROID_GOOGLE_PLAY_PUBLIC_URL}"
           } > "${production_env_file}"
 
           scp \

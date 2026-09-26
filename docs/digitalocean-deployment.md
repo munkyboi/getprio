@@ -209,11 +209,18 @@ FCM_SANDBOX_PROJECT_ID=getprio-sandbox
 FCM_SANDBOX_CLIENT_EMAIL=
 FCM_SANDBOX_PRIVATE_KEY=
 
+# Public invitation link for the Sandbox external TestFlight group.
+# SANDBOX_TESTFLIGHT_PUBLIC_URL=https://testflight.apple.com/join/...
+
 `PAYMONGO_MODE` must be `live` or `sandbox`. The app selects the matching secret key and webhook secret from the two credential sets, validates the key prefix (`sk_live_` or `sk_test_`), and rejects webhook payloads from the opposite environment. The API URL remains `https://api.paymongo.com/v1` for both modes. The old `PAYMONGO_SECRET_KEY` and `PAYMONGO_WEBHOOK_SECRET` variables remain supported as a compatibility fallback.
 
 The production deployment workflow reads the five PayMongo values from the GitHub `production` Environment secrets and securely synchronizes them to this server `.env` over SSH. Configure `PAYMONGO_MODE`, `PAYMONGO_SANDBOX_SECRET_KEY`, `PAYMONGO_SANDBOX_WEBHOOK_SECRET`, `PAYMONGO_LIVE_SECRET_KEY`, and `PAYMONGO_LIVE_WEBHOOK_SECRET` as protected Environment secrets. The workflow does not print their values.
 
 The production deployment workflow requires both the production FCM values (`FCM_PROJECT_ID`, `FCM_CLIENT_EMAIL`, `FCM_PRIVATE_KEY`) and the Sandbox values (`FCM_SANDBOX_PROJECT_ID`, `FCM_SANDBOX_CLIENT_EMAIL`, `FCM_SANDBOX_PRIVATE_KEY`) in the GitHub `production` Environment. Create each pair from the matching Firebase project's service-account key: use the project ID, the service account's `client_email`, and its `private_key`. Keep private keys out of the repository. The workflow writes both configurations into the server `.env`, validates them, and refuses to restart the API when either configuration is missing or malformed. Store each private key as one secret with its `\\n` line breaks preserved.
+
+The Developer Portal reads `SANDBOX_TESTFLIGHT_PUBLIC_URL` only for authenticated project members. Set it to the public invitation URL created for the Sandbox external TestFlight group in App Store Connect, and add the same value as a protected `SANDBOX_TESTFLIGHT_PUBLIC_URL` secret in the GitHub `production` Environment. The deployment workflow validates the Apple TestFlight host and `/join/` path without printing the URL.
+
+The Developer Portal reads `SANDBOX_ANDROID_GOOGLE_PLAY_PUBLIC_URL` only for authenticated project members. Set it to the published Google Play tester opt-in URL for the Sandbox package (`https://play.google.com/apps/testing/com.getprio.getprioMobile.android.sandbox`) and add it as a protected `SANDBOX_ANDROID_GOOGLE_PLAY_PUBLIC_URL` secret in the GitHub `production` Environment. The deployment workflow validates the host, opt-in path, and exact Sandbox package without printing the URL. Play upload credentials remain in the mobile CI environment; developers only receive the tester link.
 
 B2_S3_ENDPOINT=
 B2_REGION=us-east-005

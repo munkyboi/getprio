@@ -5,6 +5,7 @@ const express = require("express");
 
 const developerAuth = require("../src/middleware/developerAuth");
 const db = require("../src/config/db");
+const env = require("../src/config/env");
 const originalAuthenticateDeveloper = developerAuth.authenticateDeveloper;
 developerAuth.authenticateDeveloper = (req, _res, next) => {
   req.user = { _id: "41" };
@@ -258,6 +259,46 @@ test("sandbox allowance reads only a project accessible to the signed-in develop
     const denied = await request("GET", `${baseUrl}/projects/another-project/sandbox/allowance`);
     assert.equal(denied.status, 404);
     assert.deepEqual(calls, [["project", "project-1", "41"], ["allowance", "project-1"], ["project", "another-project", "41"]]);
+  } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
+});
+
+test("sandbox TestFlight invitation is available only to an accessible project", async () => {
+  const originals = [];
+  replace(developerProjects, "findProjectForUser", async (id, userId) => {
+    assert.equal(userId, "41");
+    return id === "project-1" ? project : null;
+  }, originals);
+  replace(env, "sandboxTestFlightPublicUrl", "https://testflight.apple.com/join/portal-developers", originals);
+  const { server, baseUrl } = await startServer();
+  try {
+    const allowed = await request("GET", `${baseUrl}/projects/project-1/sandbox/testflight`);
+    assert.equal(allowed.status, 200);
+    assert.equal(allowed.body.available, true);
+    assert.equal(allowed.body.testFlightUrl, "https://testflight.apple.com/join/portal-developers");
+    const denied = await request("GET", `${baseUrl}/projects/another-project/sandbox/testflight`);
+    assert.equal(denied.status, 404);
+    assert.equal(denied.body.code, "DEVELOPER_RESOURCE_NOT_FOUND");
+  } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
+});
+
+test("sandbox Android Google Play tester link is available only to an accessible project", async () => {
+  const originals = [];
+  replace(developerProjects, "findProjectForUser", async (id, userId) => {
+    assert.equal(userId, "41");
+    return id === "project-1" ? project : null;
+  }, originals);
+  replace(env, "sandboxAndroidGooglePlayPublicUrl", "https://play.google.com/apps/testing/com.getprio.getprioMobile.android.sandbox", originals);
+  replace(env, "sandboxAndroidPackageName", "com.getprio.getprioMobile.android.sandbox", originals);
+  const { server, baseUrl } = await startServer();
+  try {
+    const allowed = await request("GET", `${baseUrl}/projects/project-1/sandbox/android`);
+    assert.equal(allowed.status, 200);
+    assert.equal(allowed.body.available, true);
+    assert.equal(allowed.body.androidUrl, "https://play.google.com/apps/testing/com.getprio.getprioMobile.android.sandbox");
+    assert.equal(allowed.body.packageName, "com.getprio.getprioMobile.android.sandbox");
+    const denied = await request("GET", `${baseUrl}/projects/another-project/sandbox/android`);
+    assert.equal(denied.status, 404);
+    assert.equal(denied.body.code, "DEVELOPER_RESOURCE_NOT_FOUND");
   } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
 });
 

@@ -25,6 +25,8 @@ export type Webhook = { id: string; projectId: string; environment: "sandbox" | 
 export type Delivery = { id: string; webhookId: string; projectId: string; environment: string; eventId: string; eventType: string; payloadVersion: string; status: string; attemptCount: number; expiresAt: string | null; retryUntil: string | null; lastError: string | null; responseStatus: number | null; sentAt: string | null; manualAttemptCount: number; lastManualAttemptAt: string | null; manualLastError: string | null; manualResponseStatus: number | null; createdAt: string; updatedAt: string };
 export type SandboxAllowance = { limit: number; issuedTickets: number; remaining: number; resetAt: string };
 export type SandboxTestAccount = { id: string; projectId: string; slot: number; purpose: "developer" | "apple_review"; username: string; email: string; status: "active" | "expired"; expiresAt: string; deviceCount: number; createdAt: string; updatedAt: string };
+export type SandboxTestFlight = { available: boolean; testFlightUrl: string | null };
+export type SandboxAndroid = { available: boolean; androidUrl: string | null; packageName: string };
 export type UsageReport = {
   project: Project;
   environment: "sandbox" | "production";
@@ -114,6 +116,8 @@ export const developerApi = {
     const result = await request<{ user: DeveloperUser; developerAccount: DeveloperAccount; csrfToken: string } | MfaLoginChallenge>("/login", { method: "POST", body: { email, password } });
     return isMfaLoginChallenge(result) ? result : sessionFrom(result);
   },
+  async requestPasswordReset(email: string) { return request<{ success: boolean; message: string }>("/password-reset/request", { method: "POST", body: { email } }); },
+  async resetPassword(token: string, newPassword: string) { return request<{ success: boolean; message: string }>("/password-reset/confirm", { method: "POST", body: { token, newPassword } }); },
   async sendLoginEmailOtp(challengeToken: string) { return request<{ token: string; expiresAt: string; deliveryTarget: string }>("/mfa/email/send", { method: "POST", body: { challengeToken } }); },
   async verifyMfaLogin(challengeToken: string, method: MfaLoginMethod, code: string, recoveryCode = "") { return sessionFrom(await request<{ user: DeveloperUser; developerAccount: DeveloperAccount; csrfToken: string }>("/mfa/verify", { method: "POST", body: { challengeToken, method, code, recoveryCode } })); },
   async startRegistration(name: string, email: string, password: string) { return request<RegistrationChallenge>("/register/otp", { method: "POST", body: { name, email, password } }); },
@@ -129,6 +133,8 @@ export const developerApi = {
   async disableMfa(password: string, code: string, recoveryCode: string, csrfToken: string) { return request<{ success: boolean; user: DeveloperUser; message: string }>("/mfa/disable", { method: "POST", body: { password, code, recoveryCode }, csrfToken }); },
   async projects() { return request<{ projects: Project[] }>("/projects"); },
   async sandboxAllowance(projectId: string) { return request<{ project: Project; allowance: SandboxAllowance }>(`/projects/${projectId}/sandbox/allowance`); },
+  async sandboxTestFlight(projectId: string) { return request<{ project: Project } & SandboxTestFlight>(`/projects/${projectId}/sandbox/testflight`); },
+  async sandboxAndroid(projectId: string) { return request<{ project: Project } & SandboxAndroid>(`/projects/${projectId}/sandbox/android`); },
   async testAccounts(projectId: string) { return request<{ project: Project; testAccounts: SandboxTestAccount[]; limit: number }>(`/projects/${projectId}/sandbox/test-accounts`); },
   async createTestAccount(projectId: string, csrfToken: string) { return request<{ testAccount: SandboxTestAccount; credentials: { username: string; email: string; password: string; expiresAt: string }; warning: string }>(`/projects/${projectId}/sandbox/test-accounts`, { method: "POST", csrfToken }); },
   async resetTestAccount(projectId: string, accountId: string, csrfToken: string) { return request<{ testAccount: SandboxTestAccount; credentials: { username: string; email: string; password: string; expiresAt: string }; warning: string }>(`/projects/${projectId}/sandbox/test-accounts/${accountId}/reset`, { method: "POST", csrfToken }); },
