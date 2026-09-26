@@ -4,36 +4,36 @@ import "./DeveloperPortalPage.css";
 
 const faqs = [
   [
-    "Can I sign up and get API keys now?",
-    "Self-service developer enrollment and login are not enabled on this public site yet. You can read the guides and reference or explore the fictional workspace. The preview does not create accounts, issue keys, or take payments.",
+    "Which API base URL should I use?",
+    "Use https://sandbox-api.getprio.online/v1 with a Sandbox key or https://api.getprio.online/v1 with a Production key. Keys are environment-bound, so a key issued for one host will not authorize requests on the other.",
   ],
   [
-    "Do I need to publish my business in the directory?",
-    "No. The planned integration supports private queue operations. A public directory profile is optional, and joining a queue through GetPrio is a separate opt-in that requires an approved published profile.",
+    "How do I authenticate API requests?",
+    "Send one credential transport per request: either X-API-Key or Authorization: Bearer. Keys must be active, belong to the matching project and environment, and include the scope required by the endpoint. Keep them on your backend, never in browser code.",
   ],
   [
-    "What consumes a production credit?",
-    "The accepted pricing model charges one credit for one successfully issued ticket. Idempotent retries and updates to an existing ticket do not consume another credit. Standard GetPrio mobile queue pushes are included; you provide your own customer email or SMS service.",
+    "Which fields can I send when issuing a ticket?",
+    "The supported ticket fields are display_label, external_reference, and recipient_email. Do not send customerName, customerEmail, notifyByEmail, or notifyBySms; those fields are rejected as unsupported. display_label is display-only and is not a customer identity field.",
   ],
   [
-    "Do credits expire?",
-    "Purchased and complimentary production credits never expire and are shared across your projects. Sandbox test credits are separate: their daily allowance resets at 00:00 UTC without rollover.",
+    "How do I update a ticket status?",
+    "Use the explicit lifecycle operations instead of a generic status PATCH: call-next, current serve, current skip, ticket cancel, or ticket restore. Use the ticket read and event-history endpoints to verify the resulting state. Mutations require queues:write; reads require queues:read.",
   ],
   [
-    "What happens if my balance reaches zero?",
-    "Under the accepted model, zero credits prevent new production tickets. Already-issued tickets remain serviceable, subject to other access restrictions.",
+    "How can I safely retry a mutation?",
+    "Send an Idempotency-Key with ticket, queue, and other mutation requests. Retrying the same key with the same request returns the original result instead of applying the mutation twice. Generate a new key for a new operation.",
   ],
   [
-    "How will customers connect a ticket?",
-    "The planned mobile flow uses a private, single-use ticket link or an invitation addressed by email, followed by explicit customer acceptance. Private links expire after 15 minutes. A public queue QR is not proof of ticket ownership. Mobile linking and Sandbox app distribution are launch dependencies.",
+    "Does recipient_email send an email or SMS?",
+    "No. In Sandbox, a recipient_email matching an active test account in the same project creates an in-app invitation and can surface through GetPrio mobile notifications. The API does not send email or SMS on your behalf; unmatched addresses do not create an invitation.",
   ],
   [
-    "Is production access automatic?",
-    "No. Developer enrollment, production approval, each human's MFA setup, and purchased ticket credits are separate requirements. Developer billing is independent of GetPrio vendor subscriptions.",
+    "How does ticket verification work?",
+    "Issued tickets expose an 8-character hexadecimal verification_code. In Sandbox, the ticket QR endpoint returns a scan-ready QR for eligible unlinked tickets. Confirm the current called ticket with that code; QR claiming is not available in Production.",
   ],
   [
-    "Can I call the API directly from my frontend?",
-    "Keep API keys on your backend. Public documentation is readable without login, but does not execute authenticated requests in the browser. Use a key scoped to the correct project, environment, and permissions.",
+    "Is Production access automatic, and is billing live?",
+    "No. Production keys require Developer Portal approval and personal MFA. The current API is a preview: wallet or credit enforcement and project subscriptions are not connected, so published pricing is planning information rather than an active checkout flow.",
   ],
 ];
 const examples = {
@@ -50,7 +50,7 @@ const examples = {
 function FAQ({ compact = false }: { compact?: boolean }) {
   return (
     <div className="developer-portal-faq">
-      {(compact ? faqs.slice(0, 4) : faqs).map(([question, answer]) => (
+      {(compact ? faqs.slice(0, 5) : faqs).map(([question, answer]) => (
         <details key={question}>
           <summary>{question}</summary>
           <p>{answer}</p>
