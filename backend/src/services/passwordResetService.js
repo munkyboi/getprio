@@ -78,7 +78,7 @@ async function resolveValidResetToken(token, options = {}) {
   return resetToken;
 }
 
-async function resetPassword({ token, newPassword, req }) {
+async function resetPassword({ token, newPassword, req, userGuard }) {
   return db.withTransaction(async (client) => {
     const resetToken = await resolveValidResetToken(token, { client });
     if (!resetToken) {
@@ -91,6 +91,11 @@ async function resetPassword({ token, newPassword, req }) {
     const userRepository = require("../repositories/users");
     const user = await userRepository.findUserById(userId, { client });
     if (!user) {
+      const error = new Error("Password reset token is invalid or expired.");
+      error.statusCode = 400;
+      throw error;
+    }
+    if (userGuard && !(await userGuard({ user, client }))) {
       const error = new Error("Password reset token is invalid or expired.");
       error.statusCode = 400;
       throw error;

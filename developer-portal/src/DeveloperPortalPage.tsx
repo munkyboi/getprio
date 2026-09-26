@@ -546,6 +546,8 @@ const pageTitles: Record<string, string> = {
   "/changelog": "Changelog",
   "/register": "Developer enrollment",
   "/login": "Developer login",
+  "/forgot-password": "Reset your password",
+  "/reset-password": "Reset your password",
   "/account/profile": "Account profile",
   "/dashboard/account/profile": "Account profile",
   "/dashboard/account/billing": "Billing & wallet",
@@ -554,6 +556,92 @@ const pageTitles: Record<string, string> = {
   "/dashboard/account/security": "Account security",
   "/dashboard": "Developer workspace",
 };
+
+function ForgotPasswordScreen() {
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true); setError("");
+    try {
+      await developerApi.requestPasswordReset(email);
+      setSubmitted(true);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "We could not send reset instructions.");
+    } finally { setBusy(false); }
+  }
+
+  return <section className="developer-portal-content developer-portal-auth-screen">
+    <p className="developer-portal-eyebrow">ACCOUNT RECOVERY</p>
+    <h1>Reset your password.</h1>
+    {submitted ? <>
+      <p className="developer-portal-lede">If an active Developer Portal account exists for that email, reset instructions are on the way.</p>
+      <p>Check your inbox and follow the link within 30 minutes. If you do not see it, check your spam folder.</p>
+      <a href="/login">Return to Developer login →</a>
+    </> : <>
+      <p className="developer-portal-lede">Enter your Developer Portal email and we’ll send a secure reset link.</p>
+      <form className="developer-portal-auth-form" onSubmit={(event) => void submit(event)}>
+        <TextInput label="Email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.currentTarget.value)} required />
+        {error && <p className="developer-portal-auth-error" role="alert">{error}</p>}
+        <Button type="submit" className="developer-portal-primary" loading={busy}>{busy ? "Sending…" : "Send reset link"}</Button>
+      </form>
+      <a href="/login">Return to Developer login →</a>
+    </>}
+  </section>;
+}
+
+function ResetPasswordScreen() {
+  const token = new URLSearchParams(window.location.search).get("token") || "";
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [reset, setReset] = useState(false);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    if (!token) { setError("This reset link is missing its token. Request a new one."); return; }
+    if (!getDeveloperPasswordChecks(newPassword).every((rule) => rule.passed)) {
+      setError("Use a password with 1 special character, 2 numbers, 1 uppercase letter, and 6–32 characters.");
+      return;
+    }
+    if (newPassword !== confirmPassword) { setError("New password and confirmation do not match."); return; }
+    setBusy(true);
+    try {
+      await developerApi.resetPassword(token, newPassword);
+      setReset(true);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "We could not reset your password.");
+    } finally { setBusy(false); }
+  }
+
+  return <section className="developer-portal-content developer-portal-auth-screen">
+    <p className="developer-portal-eyebrow">ACCOUNT RECOVERY</p>
+    <h1>Choose a new password.</h1>
+    {reset ? <>
+      <p className="developer-portal-lede">Your Developer Portal password has been reset.</p>
+      <p>All active sessions were signed out. Use your new password the next time you log in.</p>
+      <a href="/login">Return to Developer login →</a>
+    </> : <>
+      <p className="developer-portal-lede">Use a new password that only you know.</p>
+      <form className="developer-portal-auth-form" onSubmit={(event) => void submit(event)}>
+        <div className="developer-password-field">
+          <PasswordInput label="New password" autoComplete="new-password" minLength={6} maxLength={32} value={newPassword} onChange={(event) => setNewPassword(event.currentTarget.value)} aria-describedby="developer-reset-password-policy" required visibilityToggleIcon={({ reveal }) => reveal ? <IconEyeOff size={18} stroke={1.8} /> : <IconEye size={18} stroke={1.8} />} visibilityToggleButtonProps={{ "aria-label": "Toggle new password visibility" }} />
+          <DeveloperPasswordPolicy id="developer-reset-password-policy" value={newPassword} />
+        </div>
+        <PasswordInput label="Confirm new password" autoComplete="new-password" minLength={6} maxLength={32} value={confirmPassword} onChange={(event) => setConfirmPassword(event.currentTarget.value)} required visibilityToggleIcon={({ reveal }) => reveal ? <IconEyeOff size={18} stroke={1.8} /> : <IconEye size={18} stroke={1.8} />} visibilityToggleButtonProps={{ "aria-label": "Toggle confirmation password visibility" }} />
+        {error && <p className="developer-portal-auth-error" role="alert">{error}</p>}
+        <Button type="submit" className="developer-portal-primary" loading={busy} disabled={!token}>{busy ? "Resetting…" : "Reset password"}</Button>
+      </form>
+      {!token && <a href="/forgot-password">Request a new reset link →</a>}
+    </>}
+  </section>;
+}
+
 function AuthScreen({ mode, onAuthenticated }: { mode: "login" | "register"; onAuthenticated: (session: Session) => void }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -663,6 +751,7 @@ function AuthScreen({ mode, onAuthenticated }: { mode: "login" | "register"; onA
       </> : <TextInput label="Password" key="developer-login-password" name="password" type="password" autoComplete="current-password" required />}
       {error && <p className="developer-portal-auth-error" role="alert">{error}</p>}
       {(!loginMfa || (loginMfaMethod !== "email" || Boolean(loginMfaDelivery))) && <Button type="submit" className="developer-portal-primary" loading={busy}>{busy ? "Please wait…" : enrolling ? (challenge ? "Verify and create account" : "Send verification code") : loginMfa ? "Verify sign-in" : "Log in"}</Button>}
+      {!enrolling && !loginMfa && <a className="developer-portal-auth-forgot" href="/forgot-password">Forgot your password?</a>}
     </form>
     {!loginMfa && <p>{enrolling ? <>This creates a Developer Portal account only. You do not need a GetPrio marketplace account.<br /><span className="developer-portal-auth-switch">Already registered? <a href="/login">Developer login →</a></span></> : <>Need a Developer Portal account? <a href="/register">Get started for Free →</a></>}</p>}
     {!loginMfa && <p className="developer-portal-preview-note">Production access is separate. It requires Developer Portal approval and personal MFA; Sandbox credentials do not work in production.</p>}
@@ -968,6 +1057,10 @@ export default function DeveloperPortalPage() {
               </>
             ) : path === "/login" || path === "/register" ? (
               <AuthScreen mode={path === "/login" ? "login" : "register"} onAuthenticated={setSession} />
+            ) : path === "/forgot-password" ? (
+              <ForgotPasswordScreen />
+            ) : path === "/reset-password" ? (
+              <ResetPasswordScreen />
             ) : isDashboardPath && sessionChecked ? (
               <>
                 <p className="developer-portal-eyebrow">DEVELOPER WORKSPACE</p>

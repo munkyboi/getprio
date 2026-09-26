@@ -597,6 +597,7 @@
   margin: 2rem 0 1.25rem;
 }
 .developer-portal-auth-switch { display: inline-block; margin-top: .35rem; }
+.developer-portal-auth-forgot { justify-self: start; font-size: .9rem; }
 .developer-portal-auth-form .mantine-Input-label {
   display: block;
   margin-bottom: .5rem;

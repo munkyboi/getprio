@@ -115,6 +115,8 @@ export const developerApi = {
     const result = await request<{ user: DeveloperUser; developerAccount: DeveloperAccount; csrfToken: string } | MfaLoginChallenge>("/login", { method: "POST", body: { email, password } });
     return isMfaLoginChallenge(result) ? result : sessionFrom(result);
   },
+  async requestPasswordReset(email: string) { return request<{ success: boolean; message: string }>("/password-reset/request", { method: "POST", body: { email } }); },
+  async resetPassword(token: string, newPassword: string) { return request<{ success: boolean; message: string }>("/password-reset/confirm", { method: "POST", body: { token, newPassword } }); },
   async sendLoginEmailOtp(challengeToken: string) { return request<{ token: string; expiresAt: string; deliveryTarget: string }>("/mfa/email/send", { method: "POST", body: { challengeToken } }); },
   async verifyMfaLogin(challengeToken: string, method: MfaLoginMethod, code: string, recoveryCode = "") { return sessionFrom(await request<{ user: DeveloperUser; developerAccount: DeveloperAccount; csrfToken: string }>("/mfa/verify", { method: "POST", body: { challengeToken, method, code, recoveryCode } })); },
   async startRegistration(name: string, email: string, password: string) { return request<RegistrationChallenge>("/register/otp", { method: "POST", body: { name, email, password } }); },

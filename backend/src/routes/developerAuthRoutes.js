@@ -12,6 +12,7 @@ const sessionService = require("../services/sessionService");
 const securityEventService = require("../services/securityEventService");
 const customerRegistrationOtpService = require("../services/customerRegistrationOtpService");
 const passwordResetService = require("../services/passwordResetService");
+const notificationService = require("../services/notificationService");
 const mfaFlowService = require("../services/mfaFlowService");
 const {
   clearBrowserSession,
@@ -37,6 +38,14 @@ const developerLoginLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: (req) => ipKeyGenerator(req.ip || req.socket?.remoteAddress || "unknown"),
   message: { message: "Too many login attempts. Please try again later." }
+});
+const developerPasswordResetLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => ipKeyGenerator(req.ip || req.socket?.remoteAddress || "unknown"),
+  message: { message: "Too many password reset requests. Please try again later." }
 });
 
 router.use("/register/otp", developerRegistrationOtpLimiter);
@@ -97,6 +106,11 @@ function invalidCredentials() {
   const error = new Error("Invalid email or password.");
   error.statusCode = 401;
   return error;
+}
+
+function buildDeveloperPasswordResetUrl(token) {
+  const baseUrl = String(env.developerPortalUrl || "").replace(/\/$/, "");
+  return `${baseUrl}/reset-password?token=${encodeURIComponent(token)}`;
 }
 
 function validateDeveloperEmail(value) {
@@ -329,6 +343,72 @@ router.post(
       return;
     }
     res.json(authResponse(req, res, result.user, membership, result.sessionResult));
+  })
+);
+
+router.post(
+  "/password-reset/request",
+  developerPasswordResetLimiter,
+  asyncHandler(async (req, res) => {
+    const email = authService.normalizeEmail(req.body?.email);
+    const user = email ? await userRepository.findUserByEmail(email) : null;
+    const membership = user && await developerAccountRepository.findMembershipByUserId(user._id);
+
+    if (user?.email && membership?.accountStatus === "active") {
+      const reset = await db.withTransaction(async (client) => passwordResetService.issuePasswordResetToken({ user, req, client }));
+      try {
+        await notificationService.sendEmail({
+          to: user.email,
+          subject: "Reset your GetPrio Developer Portal password",
+          text: [
+            "We received a request to reset your GetPrio Developer Portal password.",
+            `Reset link: ${buildDeveloperPasswordResetUrl(reset.token)}`,
+            `This link expires at ${new Date(reset.expiresAt).toISOString()}.`,
+            "If you did not request this, you can ignore this email."
+          ].join("\n\n"),
+          emailTemplate: {
+            illustration: "account-verification",
+            actionLabel: "Reset Developer Portal password",
+            actionUrl: buildDeveloperPasswordResetUrl(reset.token)
+          },
+          purpose: "general",
+          metadata: { category: "developer_password_reset" }
+        });
+      } catch (error) {
+        console.warn("[developer-password-reset-email-failed]", error.message);
+      }
+    }
+
+    res.json({
+      success: true,
+      message: "If an active Developer Portal account exists for that email, reset instructions have been sent."
+    });
+  })
+);
+
+router.post(
+  "/password-reset/confirm",
+  developerPasswordResetLimiter,
+  asyncHandler(async (req, res) => {
+    const token = String(req.body?.token || "").trim();
+    const newPassword = String(req.body?.newPassword || "");
+    if (!token || !newPassword) {
+      const error = new Error("token and newPassword are required.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    customerRegistrationOtpService.assertValidPassword(newPassword);
+    await passwordResetService.resetPassword({
+      token,
+      newPassword,
+      req,
+      userGuard: async ({ user, client }) => {
+        const membership = await developerAccountRepository.findMembershipByUserId(user._id, { client });
+        return membership?.accountStatus === "active";
+      }
+    });
+    res.json({ success: true, message: "Your Developer Portal password has been reset." });
   })
 );
 

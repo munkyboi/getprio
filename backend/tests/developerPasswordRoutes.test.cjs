@@ -105,3 +105,99 @@ test("developer password route validates and changes the signed-in developer pas
     assert.equal(clearedSurface, "developer");
   });
 });
+
+test("developer password reset request is generic and only emails active Developer Portal accounts", async () => {
+  const sent = [];
+  const issued = [];
+  const users = new Map([
+    ["active@example.com", { _id: "7", email: "active@example.com", roles: ["developer"] }],
+    ["customer@example.com", { _id: "8", email: "customer@example.com", roles: ["customer"] }]
+  ]);
+  const router = loadRoute({
+    "../config/db": { withTransaction: async (callback) => callback({}) },
+    "../middleware/asyncHandler": (handler) => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next),
+    "../middleware/developerAuth": { authenticateDeveloper: (_req, _res, next) => next() },
+    "../repositories/users": { findUserByEmail: async (email) => users.get(email) || null },
+    "../repositories/developerAccounts": { findMembershipByUserId: async (userId) => userId === "7" ? { accountStatus: "active" } : null },
+    "../services/authService": { normalizeEmail: (value) => String(value || "").trim().toLowerCase() },
+    "../services/passwordResetService": {
+      issuePasswordResetToken: async ({ user }) => {
+        issued.push(user._id);
+        return { token: "reset-token", expiresAt: "2026-09-26T13:00:00.000Z" };
+      },
+      resetPassword: async () => {}
+    },
+    "../services/notificationService": { sendEmail: async (input) => { sent.push(input); } },
+    "../services/securityEventService": {},
+    "../services/customerRegistrationOtpService": {},
+    "../services/mfaFlowService": {},
+    "../services/sessionService": {},
+    "../repositories/passwordResetTokens": {},
+    "../services/browserSessionService": {}
+  });
+
+  await withServer(router, async (baseUrl) => {
+    for (const email of ["active@example.com", "customer@example.com", "unknown@example.com"]) {
+      const response = await fetch(`${baseUrl}/password-reset/request`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email })
+      });
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), {
+        success: true,
+        message: "If an active Developer Portal account exists for that email, reset instructions have been sent."
+      });
+    }
+  });
+
+  assert.deepEqual(issued, ["7"]);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].to, "active@example.com");
+  assert.match(sent[0].text, /reset-password\?token=reset-token/);
+});
+
+test("developer password reset confirmation enforces the Developer Portal account boundary", async () => {
+  let resetInput;
+  const router = loadRoute({
+    "../config/db": {},
+    "../middleware/asyncHandler": (handler) => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next),
+    "../middleware/developerAuth": { authenticateDeveloper: (_req, _res, next) => next() },
+    "../repositories/developerAccounts": { findMembershipByUserId: async () => ({ accountStatus: "active" }) },
+    "../services/authService": {},
+    "../services/passwordResetService": { resetPassword: async (input) => { resetInput = input; } },
+    "../services/notificationService": {},
+    "../services/securityEventService": {},
+    "../services/customerRegistrationOtpService": {
+      assertValidPassword: (password) => {
+        if (password !== "Strong!12") throw Object.assign(new Error("invalid password"), { statusCode: 400 });
+      }
+    },
+    "../services/mfaFlowService": {},
+    "../services/sessionService": {},
+    "../repositories/users": {},
+    "../repositories/passwordResetTokens": {},
+    "../services/browserSessionService": {}
+  });
+
+  await withServer(router, async (baseUrl) => {
+    const missing = await fetch(`${baseUrl}/password-reset/confirm`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: "" })
+    });
+    assert.equal(missing.status, 400);
+
+    const confirmed = await fetch(`${baseUrl}/password-reset/confirm`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: "reset-token", newPassword: "Strong!12" })
+    });
+    assert.equal(confirmed.status, 200);
+    assert.deepEqual(await confirmed.json(), { success: true, message: "Your Developer Portal password has been reset." });
+  });
+
+  assert.equal(resetInput.token, "reset-token");
+  assert.equal(resetInput.newPassword, "Strong!12");
+  assert.equal(typeof resetInput.userGuard, "function");
+});
