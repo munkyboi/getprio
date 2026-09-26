@@ -20,12 +20,16 @@ const faqs = [
     "Use the explicit lifecycle operations instead of a generic status PATCH: call-next, current serve, current skip, ticket cancel, or ticket restore. Use the ticket read and event-history endpoints to verify the resulting state. Mutations require queues:write; reads require queues:read.",
   ],
   [
-    "How can I safely retry a mutation?",
-    "Send an Idempotency-Key with ticket, queue, and other mutation requests. Retrying the same key with the same request returns the original result instead of applying the mutation twice. Generate a new key for a new operation.",
+    "Is Sandbox development free?*",
+    "Yes. Sandbox development is free: no payment method or Production credits are needed. Sandbox uses isolated test data and a daily test-ticket allowance that resets at 00:00 UTC without rollover. Production access, credits, and project subscriptions are separate and are not active in this preview.",
   ],
   [
     "Does recipient_email send an email or SMS?",
     "No. In Sandbox, a recipient_email matching an active test account in the same project creates an in-app invitation and can surface through GetPrio mobile notifications. The API does not send email or SMS on your behalf; unmatched addresses do not create an invitation.",
+  ],
+  [
+    "How can I safely retry a mutation?",
+    "Send an Idempotency-Key with ticket, queue, and other mutation requests. Retrying the same key with the same request returns the original result instead of applying the mutation twice. Generate a new key for a new operation.",
   ],
   [
     "How does ticket verification work?",
