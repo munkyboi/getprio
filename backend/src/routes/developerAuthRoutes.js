@@ -376,6 +376,7 @@ router.post(
         });
       } catch (error) {
         console.warn("[developer-password-reset-email-failed]", error.message);
+        if (env.nodeEnv !== "production") throw error;
       }
     }
 
