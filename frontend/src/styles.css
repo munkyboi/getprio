@@ -3268,6 +3268,41 @@ button {
     linear-gradient(180deg, #182234 0%, #0f1724 100%);
 }
 
+.site-footer-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 2.5rem 2rem;
+  align-items: start;
+}
+
+.site-footer-brand {
+  max-width: 360px;
+}
+
+@media (min-width: 48em) {
+  .site-footer-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 3rem;
+  }
+
+  .site-footer-brand {
+    grid-column: 1 / -1;
+    max-width: 42rem;
+  }
+}
+
+@media (min-width: 62em) {
+  .site-footer-grid {
+    grid-template-columns: minmax(15rem, 1.35fr) repeat(4, minmax(0, 1fr));
+    column-gap: clamp(1.5rem, 3vw, 3.5rem);
+  }
+
+  .site-footer-brand {
+    grid-column: auto;
+    max-width: 22rem;
+  }
+}
+
 .site-footer .getprio-brand-logo {
   filter: brightness(1.1) saturate(1.05);
 }
@@ -3282,10 +3317,6 @@ button {
   height: 44px;
   object-fit: contain;
   flex: 0 0 auto;
-}
-
-.site-footer-brand {
-  max-width: 360px;
 }
 
 .site-footer-title {
