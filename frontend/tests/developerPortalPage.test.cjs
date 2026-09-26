@@ -59,3 +59,12 @@ test("landing keeps illustrative pricing and mobile availability distinct from l
   assert.match(html, /href="\/register"/);
   assert.doesNotMatch(html, /href="#login"/);
 });
+
+test("landing surfaces at least five current Developer API FAQs", () => {
+  const html = render("/");
+  assert.ok((html.match(/<details>/g) || []).length >= 5);
+  assert.match(html, /Which API base URL should I use\?/);
+  assert.match(html, /Which fields can I send when issuing a ticket\?/);
+  assert.match(html, /Is Sandbox development free\?\*/);
+  assert.match(render("/faq"), /Does recipient_email send an email or SMS\?/);
+});
