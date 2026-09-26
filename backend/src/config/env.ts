@@ -36,6 +36,29 @@ export const platformDashboardUrl =
 export const developerPortalUrl = process.env.DEVELOPER_PORTAL_URL || (
   nodeEnv === "production" ? "https://developers.getprio.online" : "http://localhost:5174"
 );
+export function resolveSandboxTestFlightPublicUrl(source: NodeJS.ProcessEnv = process.env): string {
+  const configured = String(source.SANDBOX_TESTFLIGHT_PUBLIC_URL || "").trim();
+  if (!configured) return "";
+  try {
+    const url = new URL(configured);
+    if (
+      url.protocol !== "https:" ||
+      url.hostname !== "testflight.apple.com" ||
+      url.port ||
+      url.username ||
+      url.password ||
+      !/^\/join\/[^/]+$/.test(url.pathname) ||
+      url.search ||
+      url.hash
+    ) {
+      throw new Error("invalid TestFlight public URL");
+    }
+    return url.toString();
+  } catch {
+    throw new Error("SANDBOX_TESTFLIGHT_PUBLIC_URL must be an HTTPS testflight.apple.com /join/ URL.");
+  }
+}
+export const sandboxTestFlightPublicUrl = resolveSandboxTestFlightPublicUrl();
 export const appTimezone = process.env.APP_TIMEZONE || "Asia/Manila";
 export const oauthCallbackPath = process.env.OAUTH_CALLBACK_PATH || "/oauth/callback";
 export const oauthStateTtlMinutes = Number(process.env.OAUTH_STATE_TTL_MINUTES || 10);
@@ -183,6 +206,7 @@ const env = {
   mobilePaymentReturnUrl,
   platformDashboardUrl,
   developerPortalUrl,
+  sandboxTestFlightPublicUrl,
   appTimezone,
   oauthCallbackPath,
   oauthStateTtlMinutes,

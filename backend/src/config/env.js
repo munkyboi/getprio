@@ -34,6 +34,29 @@ const platformDashboardUrl =
 const developerPortalUrl = process.env.DEVELOPER_PORTAL_URL || (
   nodeEnv === "production" ? "https://developers.getprio.online" : "http://localhost:5174"
 );
+function resolveSandboxTestFlightPublicUrl(source = process.env) {
+  const configured = String(source.SANDBOX_TESTFLIGHT_PUBLIC_URL || "").trim();
+  if (!configured) return "";
+  try {
+    const url = new URL(configured);
+    if (
+      url.protocol !== "https:" ||
+      url.hostname !== "testflight.apple.com" ||
+      url.port ||
+      url.username ||
+      url.password ||
+      !/^\/join\/[^/]+$/.test(url.pathname) ||
+      url.search ||
+      url.hash
+    ) {
+      throw new Error("invalid TestFlight public URL");
+    }
+    return url.toString();
+  } catch {
+    throw new Error("SANDBOX_TESTFLIGHT_PUBLIC_URL must be an HTTPS testflight.apple.com /join/ URL.");
+  }
+}
+const sandboxTestFlightPublicUrl = resolveSandboxTestFlightPublicUrl();
 const appTimezone = process.env.APP_TIMEZONE || "Asia/Manila";
 const oauthCallbackPath = process.env.OAUTH_CALLBACK_PATH || "/oauth/callback";
 const oauthStateTtlMinutes = Number(process.env.OAUTH_STATE_TTL_MINUTES || 10);
@@ -162,6 +185,7 @@ const env = {
   mobilePaymentReturnUrl,
   platformDashboardUrl,
   developerPortalUrl,
+  sandboxTestFlightPublicUrl,
   appTimezone,
   oauthCallbackPath,
   oauthStateTtlMinutes,
@@ -242,3 +266,4 @@ module.exports.default = env;
 module.exports.resolvePaymongoMode = resolvePaymongoMode;
 module.exports.resolvePaymongoCredentials = resolvePaymongoCredentials;
 module.exports.resolveMobileQrBaseUrl = resolveMobileQrBaseUrl;
+module.exports.resolveSandboxTestFlightPublicUrl = resolveSandboxTestFlightPublicUrl;

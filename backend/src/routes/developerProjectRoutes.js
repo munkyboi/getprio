@@ -15,6 +15,7 @@ const developerApiKeyService = require("../services/developerApiKeyService");
 const developerWebhookService = require("../services/developerWebhookService");
 const developerWebhookDispatcher = require("../services/developerWebhookDispatcher");
 const securityEventService = require("../services/securityEventService");
+const env = require("../config/env");
 const { productionApprovalResponse } = require("../utils/developerProductionApproval");
 const { normalizeDeveloperQueueSettings } = require("../utils/developerQueueSettings");
 
@@ -504,6 +505,17 @@ router.get("/projects/:projectId/sandbox/allowance", asyncHandler(async (req, re
   const resetAt = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
   res.setHeader("Cache-Control", "no-store");
   res.json({ project: projectResponse(project), allowance: { ...allowance, resetAt: resetAt.toISOString() } });
+}));
+
+router.get("/projects/:projectId/sandbox/testflight", asyncHandler(async (req, res) => {
+  const project = await developerProjects.findProjectForUser(req.params.projectId, req.user._id);
+  if (!project) throw notFound();
+  res.setHeader("Cache-Control", "no-store");
+  res.json({
+    project: projectResponse(project),
+    available: Boolean(env.sandboxTestFlightPublicUrl),
+    testFlightUrl: env.sandboxTestFlightPublicUrl || null
+  });
 }));
 
 router.get("/projects/:projectId/sandbox/test-accounts", asyncHandler(async (req, res) => {
