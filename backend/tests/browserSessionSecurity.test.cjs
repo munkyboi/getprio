@@ -303,6 +303,23 @@ test("public vendor registration is not blocked by an unrelated stale cookie ses
   }
 });
 
+test("developer password recovery is not blocked by a stale developer session", async () => {
+  const protect = createCsrfProtection({ allowedOrigins: ["https://developers.getprio.online"], csrfSecret: "test-secret" });
+  for (const originalUrl of ["/api/developer/password-reset/request", "/api/developer/password-reset/confirm"]) {
+    const error = await new Promise((resolve) => protect({
+      method: "POST",
+      originalUrl,
+      headers: {
+        cookie: `${DEVELOPER_ACCESS_COOKIE}=old-session; ${DEVELOPER_CSRF_COOKIE}=old-csrf`,
+        origin: "https://developers.getprio.online",
+        "sec-fetch-site": "same-origin",
+        "content-type": "application/json"
+      }
+    }, buildResponse(), resolve));
+    assert.equal(error, undefined);
+  }
+});
+
 test("vendor registration recovery retains origin, request-format and authenticated-route protections", async () => {
   const protect = createCsrfProtection({ allowedOrigins: ["https://getprio.online"], csrfSecret: "test-secret" });
   const headers = { cookie: `${REFRESH_COOKIE}=expired-session`, origin: "https://getprio.online", "sec-fetch-site": "same-site", "content-type": "application/json" };
