@@ -10,6 +10,29 @@ function normalizeEmail(value) {
     .toLowerCase();
 }
 
+function validateEmail(value) {
+  const email = normalizeEmail(value);
+  const atIndex = email.indexOf("@");
+  const lastAtIndex = email.lastIndexOf("@");
+  const dotIndex = email.lastIndexOf(".");
+  if (
+    typeof value !== "string" ||
+    !email ||
+    email.length > 254 ||
+    atIndex <= 0 ||
+    atIndex !== lastAtIndex ||
+    dotIndex <= atIndex + 1 ||
+    dotIndex >= email.length - 1 ||
+    /\s/.test(email)
+  ) {
+    const error = new Error("Enter a valid email address.");
+    error.statusCode = 400;
+    error.code = "INVALID_REQUEST";
+    throw error;
+  }
+  return email;
+}
+
 function normalizeLoginIdentifier(value) {
   const identifierValue = String(value || "").trim().toLowerCase();
   return {
@@ -232,6 +255,7 @@ module.exports = {
   handleSuccessfulPasswordLogin,
   isUserLocked,
   normalizeEmail,
+  validateEmail,
   normalizeLoginIdentifier,
   recordLockedLoginAttempt,
   recordLoginAttempt,

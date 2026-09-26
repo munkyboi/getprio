@@ -1348,3 +1348,47 @@ test("oauth callback rejects expired state", async () => {
     await stopServer(server);
   }
 });
+
+test("registration username availability ignores unrelated browser authentication", async () => {
+  const jwt = require("jsonwebtoken");
+  const env = require("../src/config/env");
+  const { getSessionCookieNames } = require("../src/services/browserSessionService");
+  const user = { _id: "7", roles: ["vendor"], mfaEnabled: true,
+    tenantMemberships: [{ tenantId: "3", role: "owner", isActive: true }] };
+  const session = { _id: "8", status: "active", expiresAt: new Date(Date.now() + 60_000), mfaVerifiedAt: null };
+  const users = {
+    findUserById: async () => user,
+    findUserByUsername: async (username, options) => {
+      assert.equal(options?.excludeId, undefined, "registration must not exclude the current account");
+      return username === "taken_name" ? user : null;
+    }
+  };
+  const sessions = { findSessionById: async () => session, touchSession: async () => null };
+  const auth = requireWithMocks("../src/middleware/auth.js", {
+    "../repositories/users": users, "../repositories/authSessions": sessions
+  });
+  const router = requireWithMocks("../src/routes/authRoutes.js", {
+    "../repositories/users": users, "../repositories/authSessions": sessions,
+    "../middleware/auth": auth
+  });
+  const { server, baseUrl } = await startServer(router, "/api/auth");
+  const token = jwt.sign({ sub: "7", session_id: "8", roles: user.roles }, env.jwtSecret);
+  const cookieName = getSessionCookieNames(env.authCookieSecure).access;
+  try {
+    for (const headers of [{ cookie: `${cookieName}=${token}` }, { authorization: `Bearer ${token}` },
+      { cookie: `${cookieName}=expired-or-invalid` }, {}]) {
+      const response = await fetch(`${baseUrl}/username-availability?username=new_name`, { headers });
+      const body = await response.json();
+      assert.equal(response.status, 200, body.message);
+      assert.equal(body.available, true);
+      assert.equal(body.message, "Username is available.");
+    }
+    const taken = await fetch(`${baseUrl}/username-availability?username=taken_name`, {
+      headers: { cookie: `${cookieName}=${token}` }
+    });
+    assert.equal(taken.status, 200);
+    assert.equal((await taken.json()).available, false);
+  } finally {
+    await stopServer(server);
+  }
+});

@@ -62,7 +62,7 @@ export function useLandingMotion(root: RefObject<HTMLDivElement | null>, pricing
         x: (_index, card: HTMLElement) => (grid.clientWidth / 2 - card.offsetLeft - card.offsetWidth / 2) * .32,
         y: 110,
         rotation: (index: number) => (index - (cards.length - 1) / 2) * -5,
-        scale: .92, opacity: .12, transformOrigin: '50% 100%',
+        scale: .92, opacity: .12, transformOrigin: '50% 50%',
       }, {
         x: 0, y: 0, rotation: 0, scale: 1, opacity: 1,
         stagger: .14, duration: 1, ease: 'power2.out',
@@ -78,6 +78,14 @@ export function useLandingMotion(root: RefObject<HTMLDivElement | null>, pricing
       });
     });
     ScrollTrigger.refresh();
-    return () => media.revert();
+    // Expanding plan details changes the positions of subsequent scroll scenes.
+    let resizeTimer = 0;
+    const resizeObserver = new ResizeObserver(() => {
+      window.clearTimeout(resizeTimer);
+      // Wait for animated height changes to settle before measuring scenes.
+      resizeTimer = window.setTimeout(() => ScrollTrigger.refresh(), 80);
+    });
+    resizeObserver.observe(grid);
+    return () => { resizeObserver.disconnect(); window.clearTimeout(resizeTimer); media.revert(); };
   }, [root, pricingCount]);
 }

@@ -1,4 +1,5 @@
 const businessCategories = require("../repositories/businessCategories");
+const { isValidImageUploadLimit } = require("../utils/imageUploadLimit");
 const express = require("express");
 const asyncHandler = require("../middleware/asyncHandler");
 const { authenticate, requirePlatformPermission } = require("../middleware/auth");
@@ -22,6 +23,8 @@ const { validatePlanMutation } = require("../services/planPolicyService");
 const { requireIdempotency } = require("../middleware/idempotency");
 const securityAuditService = require("../services/securityAuditService");
 const securityAuditRepository = require("../repositories/securityAudit");
+const authService = require("../services/authService");
+const sandboxAppleReviewAccountService = require("../services/sandboxAppleReviewAccountService");
 const usageCreditService = require("../services/usageCreditService");
 const usageCreditRepository = require("../repositories/usageCredits");
 const subscriptionLifecycleService = require("../services/subscriptionLifecycleService");
@@ -33,10 +36,191 @@ const allowanceLedgerRepository = require("../repositories/allowanceLedger");
 const releaseControls = require("../config/releaseControls");
 const { assertReleaseControl, requireReleaseControl } = require("../middleware/releaseControl");
 const db = require("../config/db");
+const developerProjects = require("../repositories/developerProjects");
+const developerWebhookSuspensions = require("../repositories/developerWebhookSuspensions");
+const developerApiRateLimits = require("../repositories/developerApiRateLimits");
+const { productionApprovalResponse } = require("../utils/developerProductionApproval");
 
 const router = express.Router();
 
 router.use(authenticate);
+
+function cleanDeveloperSecurityReason(value, label = "Reason") {
+  const reason = String(value || "").trim();
+  if (reason.length < 1 || reason.length > 500) {
+    const error = new Error(`${label} must be between 1 and 500 characters.`);
+    error.statusCode = 400;
+    error.code = "INVALID_REASON";
+    throw error;
+  }
+  return reason;
+}
+
+function developerSuspensionResponse(suspension) {
+  if (!suspension) return null;
+  return {
+    id: suspension.id,
+    projectId: suspension.projectId,
+    environment: suspension.environment,
+    status: suspension.status,
+    reason: suspension.reason,
+    suspendedByUserId: suspension.suspendedByUserId,
+    suspendedAt: suspension.suspendedAt,
+    reinstatedByUserId: suspension.reinstatedByUserId,
+    reinstatementReason: suspension.reinstatementReason,
+    reinstatedAt: suspension.reinstatedAt
+  };
+}
+
+function cleanDeveloperProductionReview(body = {}) {
+  const status = String(body.status || "").trim();
+  if (!["approved", "changes_requested", "rejected"].includes(status)) {
+    const error = new Error("status must be approved, changes_requested, or rejected.");
+    error.statusCode = 400;
+    error.code = "INVALID_PRODUCTION_REVIEW";
+    throw error;
+  }
+  const feedback = String(body.feedback || "").trim();
+  if (["changes_requested", "rejected"].includes(status) && (!feedback || feedback.length > 2000)) {
+    const error = new Error("feedback is required for changes_requested and rejected reviews and must be at most 2000 characters.");
+    error.statusCode = 400;
+    error.code = "INVALID_PRODUCTION_REVIEW";
+    throw error;
+  }
+  if (feedback.length > 2000) {
+    const error = new Error("feedback must be at most 2000 characters.");
+    error.statusCode = 400;
+    error.code = "INVALID_PRODUCTION_REVIEW";
+    throw error;
+  }
+  return { status, feedback };
+}
+
+router.get("/developer-projects", requirePlatformPermission("platform.developer_api.manage"), asyncHandler(async (_req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  return res.json({ projects: await developerProjects.listProjectsForPlatform() });
+}));
+
+router.post("/developer-projects/:projectId/sandbox/test-accounts/apple-review", requirePlatformPermission("platform.developer_api.manage"), requireIdempotency("platform.developer_sandbox.apple_review.create"), asyncHandler(async (req, res) => {
+  const project = await developerProjects.findProjectById(req.params.projectId);
+  if (!project || project.status !== "active") return res.status(404).json({ message: "Active developer project not found." });
+  const result = await sandboxAppleReviewAccountService.create({
+    projectId: project.id,
+    actorId: req.user._id,
+    sessionId: req.auth.sessionId,
+    ipAddress: authService.getRequestIp(req),
+    userAgent: authService.getUserAgent(req)
+  });
+  return res.status(201).json({ project: { id: project.id, name: project.name, status: project.status }, ...result });
+}));
+
+router.post("/developer-projects/:projectId/sandbox/test-accounts/:accountId/reset", requirePlatformPermission("platform.developer_api.manage"), requireIdempotency("platform.developer_sandbox.apple_review.reset"), asyncHandler(async (req, res) => {
+  const project = await developerProjects.findProjectById(req.params.projectId);
+  if (!project || project.status !== "active") return res.status(404).json({ message: "Active developer project not found." });
+  const result = await sandboxAppleReviewAccountService.reset({
+    projectId: project.id,
+    accountId: req.params.accountId,
+    actorId: req.user._id,
+    sessionId: req.auth.sessionId,
+    ipAddress: authService.getRequestIp(req),
+    userAgent: authService.getUserAgent(req)
+  });
+  return res.json({ project: { id: project.id, name: project.name, status: project.status }, ...result });
+}));
+
+router.get("/developer-projects/:projectId/webhook-suspension", requirePlatformPermission("platform.developer_api.manage"), asyncHandler(async (req, res) => {
+  const project = await developerProjects.findProjectById(req.params.projectId);
+  if (!project) return res.status(404).json({ message: "Developer project not found." });
+  const suspension = await developerWebhookSuspensions.findActive(project.id, "production");
+  return res.json({ project: { id: project.id, name: project.name, status: project.status }, suspension: developerSuspensionResponse(suspension) });
+}));
+
+router.post("/developer-projects/:projectId/webhook-suspension", requirePlatformPermission("platform.developer_api.manage"), requireIdempotency("platform.developer_webhook_suspension.suspend"), asyncHandler(async (req, res) => {
+  const project = await developerProjects.findProjectById(req.params.projectId);
+  if (!project || project.status !== "active") return res.status(404).json({ message: "Active developer project not found." });
+  const reason = cleanDeveloperSecurityReason(req.body?.reason);
+  const suspension = await developerWebhookSuspensions.suspend({ projectId: project.id, userId: req.user._id, reason });
+  await securityAuditService.record({ actorId: req.user._id, actorRole: "platform_admin", sessionId: req.auth.sessionId, action: "developer.webhooks.suspend", resourceType: "developer_project", resourceId: project.id, reason, outcome: "success", afterState: { suspension: developerSuspensionResponse(suspension) } });
+  return res.status(201).json({ project: { id: project.id, name: project.name, status: project.status }, suspension: developerSuspensionResponse(suspension) });
+}));
+
+router.post("/developer-projects/:projectId/webhook-suspension/reinstate", requirePlatformPermission("platform.developer_api.manage"), requireIdempotency("platform.developer_webhook_suspension.reinstate"), asyncHandler(async (req, res) => {
+  const project = await developerProjects.findProjectById(req.params.projectId);
+  if (!project) return res.status(404).json({ message: "Developer project not found." });
+  const reason = cleanDeveloperSecurityReason(req.body?.reason, "Reinstatement reason");
+  const suspension = await developerWebhookSuspensions.reinstate({ projectId: project.id, userId: req.user._id, reason });
+  if (!suspension) return res.status(409).json({ message: "Developer project webhook delivery is not suspended." });
+  await securityAuditService.record({ actorId: req.user._id, actorRole: "platform_admin", sessionId: req.auth.sessionId, action: "developer.webhooks.reinstate", resourceType: "developer_project", resourceId: project.id, reason, outcome: "success", afterState: { suspension: developerSuspensionResponse(suspension) } });
+  return res.json({ project: { id: project.id, name: project.name, status: project.status }, suspension: developerSuspensionResponse(suspension) });
+}));
+
+function readDeveloperRateLimit(value, label) {
+  const limit = Number(value);
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100000) {
+    const error = new Error(`${label} must be an integer between 1 and 100000.`);
+    error.statusCode = 400;
+    error.code = "INVALID_RATE_LIMIT";
+    throw error;
+  }
+  return limit;
+}
+
+router.get("/developer-projects/:projectId/rate-limit", requirePlatformPermission("platform.developer_api.manage"), asyncHandler(async (req, res) => {
+  const project = await developerProjects.findProjectById(req.params.projectId);
+  if (!project) return res.status(404).json({ message: "Developer project not found." });
+  const environment = developerApiRateLimits.normalizeEnvironment(req.query.environment);
+  const limits = await developerApiRateLimits.get(project.id, environment);
+  return res.json({ project: { id: project.id, name: project.name, status: project.status }, limits });
+}));
+
+router.put("/developer-projects/:projectId/rate-limit", requirePlatformPermission("platform.developer_api.manage"), requireIdempotency("platform.developer_api.rate_limit.update"), asyncHandler(async (req, res) => {
+  const project = await developerProjects.findProjectById(req.params.projectId);
+  if (!project) return res.status(404).json({ message: "Developer project not found." });
+  const environment = developerApiRateLimits.normalizeEnvironment(req.body?.environment);
+  const readLimitPerMinute = readDeveloperRateLimit(req.body?.readLimitPerMinute ?? req.body?.read_limit_per_minute, "readLimitPerMinute");
+  const writeLimitPerMinute = readDeveloperRateLimit(req.body?.writeLimitPerMinute ?? req.body?.write_limit_per_minute, "writeLimitPerMinute");
+  const limits = await developerApiRateLimits.save({ projectId: project.id, environment, readLimitPerMinute, writeLimitPerMinute, userId: req.user._id });
+  await securityAuditService.record({ actorId: req.user._id, actorRole: "platform_admin", sessionId: req.auth.sessionId, action: "developer.api_rate_limit.update", resourceType: "developer_project", resourceId: project.id, reason: req.body?.reason, outcome: "success", afterState: { limits } });
+  return res.json({ project: { id: project.id, name: project.name, status: project.status }, limits });
+}));
+
+router.get("/developer-projects/:projectId/production-approval", requirePlatformPermission("platform.developer_api.manage"), asyncHandler(async (req, res) => {
+  const project = await developerProjects.findProjectById(req.params.projectId);
+  if (!project) return res.status(404).json({ message: "Developer project not found." });
+  const approval = await developerProjects.getProductionApproval(project.id);
+  res.setHeader("Cache-Control", "no-store");
+  return res.json({ project: { id: project.id, name: project.name, status: project.status }, approval: productionApprovalResponse(approval) });
+}));
+
+router.post("/developer-projects/:projectId/production-approval/:submissionId/review", requirePlatformPermission("platform.developer_api.manage"), requireIdempotency("platform.developer_production_approval.review"), asyncHandler(async (req, res) => {
+  const project = await developerProjects.findProjectById(req.params.projectId);
+  if (!project) return res.status(404).json({ message: "Developer project not found." });
+  const review = cleanDeveloperProductionReview(req.body);
+  const approval = await db.withTransaction(async (client) => {
+    const reviewedApproval = await developerProjects.reviewProductionApproval({
+      projectId: project.id,
+      submissionId: req.params.submissionId,
+      status: review.status,
+      reviewerUserId: req.user._id,
+      feedback: review.feedback
+    }, { client });
+    if (!reviewedApproval) return null;
+    await securityAuditService.record({
+      actorId: req.user._id,
+      actorRole: "platform_admin",
+      sessionId: req.auth.sessionId,
+      action: `developer.production_approval.${review.status}`,
+      resourceType: "developer_project",
+      resourceId: project.id,
+      reason: review.feedback || `Production application ${review.status}.`,
+      outcome: "success",
+      afterState: { status: reviewedApproval.status, submissionId: req.params.submissionId }
+    }, { client });
+    return reviewedApproval;
+  });
+  if (!approval) return res.status(404).json({ message: "Production application submission not found." });
+  return res.json({ project: { id: project.id, name: project.name, status: project.status }, approval: productionApprovalResponse(approval) });
+}));
 
 router.get("/business-categories", requirePlatformPermission("platform.settings.manage"), asyncHandler(async (_req, res) => {
   res.json({ items: await businessCategories.list(true) });
@@ -541,6 +725,12 @@ router.patch(
   "/settings",
   requirePlatformPermission("platform.settings.manage"),
   asyncHandler(async (req, res) => {
+    const maxImageUploadKb = req.body.maxImageUploadKb;
+    if (maxImageUploadKb !== undefined && !isValidImageUploadLimit(maxImageUploadKb)) {
+      const error = new Error("Maximum image size must be a whole number from 1 to 8192 KB.");
+      error.statusCode = 400;
+      throw error;
+    }
     const enterpriseInquiryEmail = normalizeEmail(req.body.enterpriseInquiryEmail);
     const defaultTimezone = normalizeTimeZone(req.body.defaultTimezone, "");
     const mobileApprovedHosts = Object.prototype.hasOwnProperty.call(req.body, "mobileApprovedHosts")
@@ -562,6 +752,7 @@ router.patch(
         enterpriseInquiryEmail,
         defaultTimezone,
         mobileApprovedHosts,
+        maxImageUploadKb,
         userId: req.user?._id
       })
     });

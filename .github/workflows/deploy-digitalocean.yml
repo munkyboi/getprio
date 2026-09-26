@@ -1,7 +1,11 @@
 name: Deploy DigitalOcean
 
 on:
-  push:
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
     branches:
       - main
   workflow_dispatch:
@@ -12,6 +16,7 @@ concurrency:
 
 jobs:
   deploy:
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
     runs-on: ubuntu-latest
     environment:
       name: production
@@ -24,6 +29,7 @@ jobs:
           DO_SSH_KEY: ${{ secrets.DO_SSH_KEY }}
           DO_PORT: ${{ secrets.DO_PORT || '22' }}
           DO_APP_DIR: ${{ secrets.DO_APP_DIR || '/var/www/getprio' }}
+          DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
           PAYMONGO_MODE: ${{ secrets.PAYMONGO_MODE }}
           PAYMONGO_SANDBOX_SECRET_KEY: ${{ secrets.PAYMONGO_SANDBOX_SECRET_KEY }}
           PAYMONGO_SANDBOX_WEBHOOK_SECRET: ${{ secrets.PAYMONGO_SANDBOX_WEBHOOK_SECRET }}
@@ -32,6 +38,12 @@ jobs:
           FCM_PROJECT_ID: ${{ secrets.FCM_PROJECT_ID }}
           FCM_CLIENT_EMAIL: ${{ secrets.FCM_CLIENT_EMAIL }}
           FCM_PRIVATE_KEY: ${{ secrets.FCM_PRIVATE_KEY }}
+          FCM_SANDBOX_PROJECT_ID: ${{ secrets.FCM_SANDBOX_PROJECT_ID }}
+          FCM_SANDBOX_CLIENT_EMAIL: ${{ secrets.FCM_SANDBOX_CLIENT_EMAIL }}
+          FCM_SANDBOX_PRIVATE_KEY: ${{ secrets.FCM_SANDBOX_PRIVATE_KEY }}
+          DEVELOPER_WEBHOOK_ENCRYPTION_KEY: ${{ secrets.DEVELOPER_WEBHOOK_ENCRYPTION_KEY }}
+          SANDBOX_TESTFLIGHT_PUBLIC_URL: ${{ secrets.SANDBOX_TESTFLIGHT_PUBLIC_URL }}
+          SANDBOX_ANDROID_GOOGLE_PLAY_PUBLIC_URL: ${{ secrets.SANDBOX_ANDROID_GOOGLE_PLAY_PUBLIC_URL }}
         run: |
           set -euo pipefail
 
@@ -39,21 +51,41 @@ jobs:
             echo "Missing one of required secrets: DO_HOST, DO_USER, DO_SSH_KEY"
             exit 1
           fi
+          if [[ ! "${DEPLOY_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "DEPLOY_SHA must be a full commit SHA."
+            exit 1
+          fi
           if [ -z "${PAYMONGO_MODE}" ] || [ -z "${PAYMONGO_SANDBOX_SECRET_KEY}" ] || [ -z "${PAYMONGO_SANDBOX_WEBHOOK_SECRET}" ] || [ -z "${PAYMONGO_LIVE_SECRET_KEY}" ] || [ -z "${PAYMONGO_LIVE_WEBHOOK_SECRET}" ]; then
             echo "Missing one or more production PayMongo secrets."
             exit 1
           fi
-          if [ -z "${FCM_PROJECT_ID}" ] || [ -z "${FCM_CLIENT_EMAIL}" ] || [ -z "${FCM_PRIVATE_KEY}" ]; then
-            echo "Missing one or more production FCM secrets: FCM_PROJECT_ID, FCM_CLIENT_EMAIL, FCM_PRIVATE_KEY"
+          if [ -z "${FCM_PROJECT_ID}" ] || [ -z "${FCM_CLIENT_EMAIL}" ] || [ -z "${FCM_PRIVATE_KEY}" ] || \
+             [ -z "${FCM_SANDBOX_PROJECT_ID}" ] || [ -z "${FCM_SANDBOX_CLIENT_EMAIL}" ] || [ -z "${FCM_SANDBOX_PRIVATE_KEY}" ]; then
+            echo "Missing one or more FCM secrets for production or Sandbox."
             exit 1
           fi
-          if [[ "${FCM_CLIENT_EMAIL}" != *@*.iam.gserviceaccount.com ]]; then
-            echo "FCM_CLIENT_EMAIL must be a Google service-account email."
+          if [ "${#DEVELOPER_WEBHOOK_ENCRYPTION_KEY}" -lt 32 ]; then
+            echo "DEVELOPER_WEBHOOK_ENCRYPTION_KEY must be at least 32 characters."
+            exit 1
+          fi
+          if [ -n "${SANDBOX_TESTFLIGHT_PUBLIC_URL}" ] && [[ ! "${SANDBOX_TESTFLIGHT_PUBLIC_URL}" =~ ^https://testflight\.apple\.com/join/[^/?#]+$ ]]; then
+            echo "SANDBOX_TESTFLIGHT_PUBLIC_URL must be an HTTPS testflight.apple.com /join/ URL."
+            exit 1
+          fi
+          if [ -n "${SANDBOX_ANDROID_GOOGLE_PLAY_PUBLIC_URL}" ] && [[ ! "${SANDBOX_ANDROID_GOOGLE_PLAY_PUBLIC_URL}" =~ ^https://play\.google\.com/apps/testing/com\.getprio\.getprioMobile\.android\.sandbox$ ]]; then
+            echo "SANDBOX_ANDROID_GOOGLE_PLAY_PUBLIC_URL must be the HTTPS Google Play tester URL for the Sandbox package."
+            exit 1
+          fi
+          if [[ "${FCM_CLIENT_EMAIL}" != *@*.iam.gserviceaccount.com ]] || \
+             [[ "${FCM_SANDBOX_CLIENT_EMAIL}" != *@*.iam.gserviceaccount.com ]]; then
+            echo "FCM client email values must be Google service-account emails."
             exit 1
           fi
           if [[ "${FCM_PRIVATE_KEY}" != *"BEGIN PRIVATE KEY"* && "${FCM_PRIVATE_KEY}" != *"BEGIN RSA PRIVATE KEY"* ]] || \
-             [[ "${FCM_PRIVATE_KEY}" != *"END PRIVATE KEY"* && "${FCM_PRIVATE_KEY}" != *"END RSA PRIVATE KEY"* ]]; then
-            echo "FCM_PRIVATE_KEY must contain a supported PEM key."
+             [[ "${FCM_PRIVATE_KEY}" != *"END PRIVATE KEY"* && "${FCM_PRIVATE_KEY}" != *"END RSA PRIVATE KEY"* ]] || \
+             [[ "${FCM_SANDBOX_PRIVATE_KEY}" != *"BEGIN PRIVATE KEY"* && "${FCM_SANDBOX_PRIVATE_KEY}" != *"BEGIN RSA PRIVATE KEY"* ]] || \
+             [[ "${FCM_SANDBOX_PRIVATE_KEY}" != *"END PRIVATE KEY"* && "${FCM_SANDBOX_PRIVATE_KEY}" != *"END RSA PRIVATE KEY"* ]]; then
+            echo "FCM private key values must contain supported PEM keys."
             exit 1
           fi
 
@@ -80,6 +112,8 @@ jobs:
           umask 077
           fcm_private_key="${FCM_PRIVATE_KEY//$'\r'/}"
           fcm_private_key="${fcm_private_key//$'\n'/\\n}"
+          fcm_private_key_sandbox="${FCM_SANDBOX_PRIVATE_KEY//$'\r'/}"
+          fcm_private_key_sandbox="${fcm_private_key_sandbox//$'\n'/\\n}"
           production_env_file="$(mktemp)"
           trap 'rm -f "${production_env_file}"' EXIT
           {
@@ -90,7 +124,13 @@ jobs:
             printf 'PAYMONGO_LIVE_WEBHOOK_SECRET=%s\n' "${PAYMONGO_LIVE_WEBHOOK_SECRET}"
             printf 'FCM_PROJECT_ID=%s\n' "${FCM_PROJECT_ID}"
             printf 'FCM_CLIENT_EMAIL=%s\n' "${FCM_CLIENT_EMAIL}"
-            printf "FCM_PRIVATE_KEY='%s'\n" "${fcm_private_key}"
+            printf 'FCM_PRIVATE_KEY=%s\n' "${fcm_private_key}"
+            printf 'FCM_SANDBOX_PROJECT_ID=%s\n' "${FCM_SANDBOX_PROJECT_ID}"
+            printf 'FCM_SANDBOX_CLIENT_EMAIL=%s\n' "${FCM_SANDBOX_CLIENT_EMAIL}"
+            printf 'FCM_SANDBOX_PRIVATE_KEY=%s\n' "${fcm_private_key_sandbox}"
+            printf 'DEVELOPER_WEBHOOK_ENCRYPTION_KEY=%s\n' "${DEVELOPER_WEBHOOK_ENCRYPTION_KEY}"
+            printf 'SANDBOX_TESTFLIGHT_PUBLIC_URL=%s\n' "${SANDBOX_TESTFLIGHT_PUBLIC_URL}"
+            printf 'SANDBOX_ANDROID_GOOGLE_PLAY_PUBLIC_URL=%s\n' "${SANDBOX_ANDROID_GOOGLE_PLAY_PUBLIC_URL}"
           } > "${production_env_file}"
 
           scp \
@@ -111,7 +151,7 @@ jobs:
             -i ~/.ssh/digitalocean_deploy_key \
             -p "${DO_PORT}" \
             "${DO_USER}@${DO_HOST}" \
-            "DO_APP_DIR='${DO_APP_DIR}' bash -s" <<'REMOTE'
+            "DO_APP_DIR='${DO_APP_DIR}' DEPLOY_SHA='${DEPLOY_SHA}' bash -s" <<'REMOTE'
           set -euo pipefail
 
           cd "${DO_APP_DIR}"
@@ -149,17 +189,62 @@ jobs:
           mv -f "${production_tmp_file}" "${production_env_file}"
           rm -f "${production_patch_file}"
 
-          if [ -f .env ]; then
-            set -a
-            . ./.env
-            set +a
-          fi
+          load_env_file() {
+            local env_file="$1"
+            if [[ ! -f "$env_file" ]]; then
+              return 0
+            fi
+
+            while IFS='=' read -r key value; do
+              [[ -z "${key:-}" || "${key:0:1}" == "#" ]] && continue
+              value="${value%$'\r'}"
+              if [[ ! "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+                echo "Invalid environment variable name in $env_file: $key" >&2
+                return 1
+              fi
+              if [[ -z "${!key+x}" ]]; then
+                export "$key=$value"
+              fi
+            done < <(
+              awk -F= '
+                /^[[:space:]]*#/ { next }
+                /^[[:space:]]*$/ { next }
+                {
+                  key = $1
+                  sub(/[[:space:]]+$/, "", key)
+                  sub(/^[[:space:]]+/, "", key)
+                  sub(/^[[:space:]]+/, "", $0)
+                  sub(/^[^=]*=/, "", $0)
+                  print key "=" $0
+                }
+              ' "$env_file"
+            )
+          }
+
+          # Treat .env as data. Sourcing it would execute malformed or quoted
+          # values as shell syntax and can abort an otherwise safe deployment.
+          load_env_file ./.env
 
           # Platform Operations has approved live Plan Matrix publishing.
           # Keep the server-side release control explicit; the API still enforces
           # platform permissions, recent authentication, confirmation, and audit.
           export PLAN_POLICY_MUTATIONS_ENABLED=true
           export SUBSCRIPTION_LIFECYCLE_ENABLED=true
+
+          # Preserve the one known emergency FCM backup outside the checkout so
+          # the clean-tree guard can still protect the release. Do not generalize
+          # this to arbitrary untracked files: unknown server drift must continue
+          # to block deployment.
+          fcm_runtime_backup="${DO_APP_DIR}/.env.before-fcm-runtime-fix-20260923"
+          if [ -f "${fcm_runtime_backup}" ]; then
+            fcm_runtime_backup_target="${DO_APP_DIR}/../.env.before-fcm-runtime-fix-20260923"
+            if [ -e "${fcm_runtime_backup_target}" ]; then
+              fcm_runtime_backup_target="${DO_APP_DIR}/../.env.before-fcm-runtime-fix-20260923.$(date +%s)"
+            fi
+            mv "${fcm_runtime_backup}" "${fcm_runtime_backup_target}"
+            chmod 600 "${fcm_runtime_backup_target}"
+            echo "Preserved known FCM runtime backup at ${fcm_runtime_backup_target}."
+          fi
 
           if [ -n "$(git status --porcelain)" ]; then
             echo "Server working tree has local changes. Refusing to deploy."
@@ -169,13 +254,19 @@ jobs:
 
           git fetch origin main
 
-          if git show-ref --verify --quiet refs/heads/main; then
-            git checkout main
-          else
-            git checkout -b main origin/main
+          if ! git cat-file -e "${DEPLOY_SHA}^{commit}" 2>/dev/null; then
+            echo "Deployment commit ${DEPLOY_SHA} is not available after fetching origin/main."
+            exit 1
           fi
 
-          git pull --ff-only origin main
+          if ! git merge-base --is-ancestor "${DEPLOY_SHA}" origin/main; then
+            echo "Deployment commit ${DEPLOY_SHA} is not an ancestor of origin/main."
+            exit 1
+          fi
+
+          git checkout --detach "${DEPLOY_SHA}"
+
+          DEVELOPER_PORTAL_ROOT="${DO_APP_DIR}/developer-portal/dist" bash scripts/configure-developer-hosts.sh
 
           bash scripts/verify-fcm-config.sh
 

@@ -4,12 +4,14 @@ const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
 const {
   buildAuthorizationUrl,
   createOAuthState,
+  exchangeAppleCredential,
   ensureSupportedProvider,
   exchangeCodeForProfile,
   getProviderLabel,
   readOAuthState
 } = require("../src/services/oauthService");
 const authService = require("../src/services/authService");
+const mfaFlowService = require("../src/services/mfaFlowService");
 const sessionService = require("../src/services/sessionService");
 const securityEventService = require("../src/services/securityEventService");
 const tenantRepository = require("../src/repositories/tenants");
@@ -28,12 +30,21 @@ const mobileOAuthLimiter = rateLimit({
   message: { message: "Too many mobile sign-in requests. Please try again later." }
 });
 router.use(mobileOAuthLimiter);
-const MOBILE_OAUTH_CALLBACK = "/api/mobile/auth/oauth";
 const MOBILE_REDIRECT_URI = process.env.MOBILE_OAUTH_REDIRECT_URI || "getprio://oauth/callback";
 
 function requiredQuery(value, label) {
   const text = String(value || "").trim();
   if (!text || text.length > 256) {
+    const error = new Error(`${label} is required.`);
+    error.statusCode = 400;
+    throw error;
+  }
+  return text;
+}
+
+function requiredCredential(value, label) {
+  const text = String(value || "").trim();
+  if (!text || text.length > 16384) {
     const error = new Error(`${label} is required.`);
     error.statusCode = 400;
     throw error;
@@ -148,6 +159,42 @@ async function buildUserPayload(user) {
   };
 }
 
+async function completeMobileAuthentication({ user, profile, req }) {
+  if (user.mfaEnabled) {
+    const challenge = await mfaFlowService.issueLoginChallenge({
+      user,
+      ipAddress: authService.getRequestIp(req),
+      userAgent: authService.getUserAgent(req)
+    });
+    return {
+      mfaRequired: true,
+      challengeToken: challenge.token,
+      expiresAt: challenge.expiresAt,
+      methods: ["totp", "recovery"]
+    };
+  }
+
+  const sessionResult = await sessionService.createAuthSession({
+    user,
+    authMethod: profile.provider,
+    ipAddress: authService.getRequestIp(req),
+    userAgent: authService.getUserAgent(req)
+  });
+  await authService.recordLoginAttempt({
+    email: user.email || profile.email || "",
+    success: true,
+    user,
+    sessionId: sessionResult.session._id,
+    req
+  });
+  return {
+    token: sessionResult.accessToken,
+    refreshToken: sessionResult.refreshToken,
+    sessionExpiresAt: sessionResult.session.inactivityExpiresAt || sessionResult.session.expiresAt,
+    user: await buildUserPayload(user)
+  };
+}
+
 router.get(
   "/oauth/:provider/start",
   asyncHandler(async (req, res) => {
@@ -168,7 +215,7 @@ router.get(
       codeChallenge
     });
     res.redirect(buildAuthorizationUrl(provider, signedState, {
-      redirectUri: `${String(env.serverUrl).replace(/\/$/, "")}${MOBILE_OAUTH_CALLBACK}/${provider}/callback`
+      redirectUri: `${String(env.serverUrl).replace(/\/$/, "")}${String(req.baseUrl || "/api/mobile/auth")}/oauth/${provider}/callback`
     }));
   })
 );
@@ -186,33 +233,18 @@ router.all(
       if (!oauthState.mobile || oauthState.provider !== provider) throw new Error("OAuth session is not valid for this mobile app.");
       if (providerError) throw new Error(providerErrorReason || `${getProviderLabel(provider)} sign-in was cancelled.`);
       const code = req.method === "POST" ? req.body?.code : req.query.code;
-      const profile = await exchangeCodeForProfile({ provider, code, requestBody: req.body });
+      const callbackBasePath = String(req.baseUrl || "/api/mobile/auth").replace(/\/$/, "");
+      const redirectUri = `${String(env.serverUrl).replace(/\/$/, "")}${callbackBasePath}/oauth/${provider}/callback`;
+      const profile = await exchangeCodeForProfile({ provider, code, redirectUri, requestBody: req.body });
       const user = await findOrCreateUser(profile);
-      const sessionResult = await sessionService.createAuthSession({
-        user,
-        authMethod: provider,
-        ipAddress: authService.getRequestIp(req),
-        userAgent: authService.getUserAgent(req)
-      });
-      await authService.recordLoginAttempt({
-        email: user.email || profile.email || "",
-        success: true,
-        user,
-        sessionId: sessionResult.session._id,
-        req
-      });
+      const responseBody = await completeMobileAuthentication({ user, profile, req });
       const oneTimeCode = crypto.randomBytes(32).toString("base64url");
       await codeRepository.deleteExpired();
       await codeRepository.create({
         codeHash: crypto.createHash("sha256").update(oneTimeCode).digest("hex"),
         state: oauthState.mobileState,
         codeChallenge: oauthState.codeChallenge,
-        responseBody: {
-          token: sessionResult.accessToken,
-          refreshToken: sessionResult.refreshToken,
-          sessionExpiresAt: sessionResult.session.inactivityExpiresAt || sessionResult.session.expiresAt,
-          user: await buildUserPayload(user)
-        },
+        responseBody,
         expiresAt: new Date(Date.now() + 2 * 60 * 1000)
       });
       redirectToMobile(res, { code: oneTimeCode, state: oauthState.mobileState });
@@ -222,6 +254,21 @@ router.all(
       })();
       redirectToMobile(res, { state, error: error.message || "Social sign-in failed." });
     }
+  })
+);
+
+router.post(
+  "/oauth/apple",
+  asyncHandler(async (req, res) => {
+    const profile = await exchangeAppleCredential({
+      identityToken: requiredCredential(req.body?.identityToken, "identityToken"),
+      authorizationCode: requiredCredential(req.body?.authorizationCode, "authorizationCode"),
+      nonce: requiredCredential(req.body?.nonce, "nonce"),
+      givenName: String(req.body?.givenName || "").trim().slice(0, 120),
+      familyName: String(req.body?.familyName || "").trim().slice(0, 120)
+    });
+    const user = await findOrCreateUser(profile);
+    res.json(await completeMobileAuthentication({ user, profile, req }));
   })
 );
 

@@ -5,6 +5,13 @@ const userRepository = require("../repositories/users");
 const permissions = require("../services/permissions");
 const { userRequiresPrivilegedMfa } = require("../services/mfaService");
 const { getAccessCookie, parseCookies } = require("../services/browserSessionService");
+const { normalizeApiPath } = require("./apiPath");
+const { assertRequestAllowed: assertSandboxTestAccountRequest } = require("../services/sandboxTestAccountAccess");
+
+function isDeveloperOnlyIdentity(user) {
+  const roles = new Set(user?.roles || []);
+  return roles.has("developer") && !["customer", "vendor", "staff", "admin", "platform_admin"].some((role) => roles.has(role));
+}
 
 function getTokenFromRequest(req) {
   const authorization = req.headers.authorization || "";
@@ -22,9 +29,7 @@ function getTokenFromRequest(req) {
 }
 
 function isPrivilegedMfaRecoveryRoute(req) {
-  const path = String(req.originalUrl || req.url || "")
-    .split("?")[0]
-    .replace(/^\/api(?=\/)/, "");
+  const path = normalizeApiPath(req.originalUrl || req.url);
   return [
     "/auth/me",
     "/auth/logout",
@@ -58,10 +63,11 @@ async function loadAuthenticatedUser(req, strict) {
     }
 
     const session = await authSessionRepository.findSessionById(sessionId);
-    const deletionRetry = req.method === 'POST' && String(req.originalUrl || '').split('?')[0] === '/api/account/delete'
+    const deletionRetry = req.method === 'POST' && normalizeApiPath(req.originalUrl || req.url) === '/account/delete'
       && session?.status === 'revoked' && session?.revokeReason === 'account_deletion';
     if (
       !session ||
+      (session.surface && session.surface !== "app") ||
       (session.status !== "active" && !deletionRetry) ||
       new Date(session.expiresAt).getTime() <= Date.now() ||
       (session.absoluteExpiresAt && new Date(session.absoluteExpiresAt).getTime() <= Date.now()) ||
@@ -77,6 +83,13 @@ async function loadAuthenticatedUser(req, strict) {
     if (!user || (user.deletionRequestedAt && !deletionRetry)) {
       const error = new Error("User session is no longer valid.");
       error.statusCode = 401;
+      throw error;
+    }
+    assertSandboxTestAccountRequest(user, req);
+    if (isDeveloperOnlyIdentity(user)) {
+      const error = new Error("This account is only available in the Developer Portal.");
+      error.statusCode = 403;
+      error.code = "DEVELOPER_PORTAL_ONLY";
       throw error;
     }
 

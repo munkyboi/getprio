@@ -1,0 +1,71 @@
+const { normalizeApiPath } = require("../middleware/apiPath");
+
+const SANDBOX_HOSTS = new Set(["sandbox-api.getprio.online", "sandbox.getprio.online"]);
+const SANDBOX_AUTH_PATHS = new Set(["/auth/login", "/auth/refresh", "/auth/me", "/auth/logout"]);
+const SANDBOX_ACCOUNT_SETTINGS_PATHS = new Set(["/account/notification-settings"]);
+const TRUSTED_INGRESS_HOST_HEADER = "x-getprio-ingress-host";
+
+function normalizeHostname(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .split(":")[0];
+}
+
+function requestHostname(req) {
+  return normalizeHostname(req?.hostname || req?.headers?.host);
+}
+
+function trustedIngressHostname(req) {
+  return normalizeHostname(req?.headers?.[TRUSTED_INGRESS_HOST_HEADER]);
+}
+
+function isSandboxRequest(req) {
+  const ingressHostname = trustedIngressHostname(req);
+  if (ingressHostname) return SANDBOX_HOSTS.has(ingressHostname);
+  const hostname = requestHostname(req);
+  // The reverse proxy normally supplies the trusted ingress header. Keep the
+  // explicit Sandbox host as a safe fallback for deployments where the proxy
+  // forwards the host but has not yet been configured with that header.
+  if (SANDBOX_HOSTS.has(hostname)) return true;
+  if (process.env.NODE_ENV === "production") return false;
+  return hostname === "localhost" || hostname === "127.0.0.1";
+}
+
+function isSupportedSandboxRoute(req) {
+  const path = normalizeApiPath(req?.originalUrl || req?.url);
+  return SANDBOX_AUTH_PATHS.has(path) ||
+    SANDBOX_ACCOUNT_SETTINGS_PATHS.has(path) ||
+    path === "/mobile" ||
+    path.startsWith("/mobile/");
+}
+
+function isExpired(user, now = new Date()) {
+  if (!user?.isSandboxTestAccount) return false;
+  const expiresAt = new Date(user.sandboxTestAccountExpiresAt || "");
+  return !Number.isFinite(expiresAt.getTime()) || expiresAt.getTime() <= now.getTime();
+}
+
+function assertRequestAllowed(user, req, now = new Date()) {
+  if (!user?.isSandboxTestAccount) return;
+  if (isExpired(user, now)) {
+    const error = new Error("This Sandbox test account has expired. Reset it from the Developer Portal.");
+    error.statusCode = 401;
+    error.code = "SANDBOX_TEST_ACCOUNT_EXPIRED";
+    throw error;
+  }
+  if (!isSandboxRequest(req)) {
+    const error = new Error("Sandbox test accounts can only be used with the Sandbox app.");
+    error.statusCode = 401;
+    error.code = "SANDBOX_TEST_ACCOUNT_ONLY";
+    throw error;
+  }
+  if (!isSupportedSandboxRoute(req)) {
+    const error = new Error("Sandbox test accounts can only use the Sandbox mobile API.");
+    error.statusCode = 403;
+    error.code = "SANDBOX_TEST_ACCOUNT_ROUTE_NOT_ALLOWED";
+    throw error;
+  }
+}
+
+module.exports = { assertRequestAllowed, isExpired, isSandboxRequest, isSupportedSandboxRoute };

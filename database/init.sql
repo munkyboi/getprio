@@ -29,6 +29,7 @@ DROP TABLE IF EXISTS security_audit_events CASCADE;
 DROP TABLE IF EXISTS idempotency_records CASCADE;
 DROP TABLE IF EXISTS mobile_oauth_codes CASCADE;
 DROP TABLE IF EXISTS mobile_push_registrations CASCADE;
+DROP TABLE IF EXISTS mobile_push_outbox_deliveries CASCADE;
 DROP TABLE IF EXISTS billing_checkout_sessions CASCADE;
 DROP TABLE IF EXISTS entitlement_rollout_anomalies CASCADE;
 DROP TABLE IF EXISTS entitlement_rollout_runs CASCADE;
@@ -57,6 +58,26 @@ DROP TABLE IF EXISTS password_reset_tokens CASCADE;
 DROP TABLE IF EXISTS account_email_change_challenges CASCADE;
 DROP TABLE IF EXISTS customer_registration_otps CASCADE;
 DROP TABLE IF EXISTS account_phone_change_challenges CASCADE;
+DROP TABLE IF EXISTS developer_sandbox_daily_allowances CASCADE;
+DROP TABLE IF EXISTS developer_api_operations CASCADE;
+DROP TABLE IF EXISTS developer_api_ticket_events CASCADE;
+DROP TABLE IF EXISTS developer_api_tickets CASCADE;
+DROP TABLE IF EXISTS developer_api_queue_counters CASCADE;
+DROP TABLE IF EXISTS developer_api_queues CASCADE;
+DROP TABLE IF EXISTS developer_api_profiles CASCADE;
+DROP TABLE IF EXISTS developer_account_memberships CASCADE;
+DROP TABLE IF EXISTS developer_accounts CASCADE;
+DROP TABLE IF EXISTS developer_project_webhook_suspensions CASCADE;
+DROP TABLE IF EXISTS developer_project_rate_limits CASCADE;
+DROP TABLE IF EXISTS developer_webhook_deliveries CASCADE;
+DROP TABLE IF EXISTS developer_webhook_registrations CASCADE;
+DROP TABLE IF EXISTS developer_api_keys CASCADE;
+DROP TABLE IF EXISTS developer_project_production_submissions CASCADE;
+DROP TABLE IF EXISTS developer_project_production_applications CASCADE;
+DROP TABLE IF EXISTS developer_project_test_accounts CASCADE;
+DROP TABLE IF EXISTS developer_project_memberships CASCADE;
+DROP TABLE IF EXISTS developer_projects CASCADE;
+DROP TABLE IF EXISTS ticket_mobile_links CASCADE;
 DROP TABLE IF EXISTS auth_sessions CASCADE;
 DROP TABLE IF EXISTS rating_disputes CASCADE;
 DROP TABLE IF EXISTS vendor_review_revisions CASCADE;
@@ -97,6 +118,7 @@ DROP TABLE IF EXISTS public_board_themes CASCADE;
 DROP TABLE IF EXISTS public_board_assets CASCADE;
 DROP TABLE IF EXISTS push_subscriptions CASCADE;
 DROP TABLE IF EXISTS notification_deliveries CASCADE;
+DROP TABLE IF EXISTS staff_access_email_outbox CASCADE;
 DROP TABLE IF EXISTS queue_join_otps CASCADE;
 DROP TABLE IF EXISTS tickets CASCADE;
 DROP TABLE IF EXISTS counters CASCADE;
@@ -159,11 +181,35 @@ CREATE TABLE users (
   last_failed_login_at TIMESTAMPTZ,
   last_password_changed_at TIMESTAMPTZ,
   mfa_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+  email_mfa_enabled BOOLEAN NOT NULL DEFAULT FALSE,
   mfa_required BOOLEAN NOT NULL DEFAULT FALSE,
+  is_sandbox_test_account BOOLEAN NOT NULL DEFAULT FALSE,
+  sandbox_test_account_expires_at TIMESTAMPTZ,
+  CONSTRAINT sandbox_test_account_expiry_check CHECK (
+    is_sandbox_test_account = FALSE OR sandbox_test_account_expires_at IS NOT NULL
+  ),
   notification_settings JSONB NOT NULL DEFAULT '{"bookingAlerts":true,"queueAlerts":true}'::JSONB,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE TABLE customer_registration_otps (
+  id UUID PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  email TEXT NOT NULL,
+  purpose TEXT NOT NULL DEFAULT 'customer' CHECK (purpose IN ('customer', 'developer')),
+  code_hash TEXT NOT NULL,
+  code_expires_at TIMESTAMPTZ NOT NULL,
+  code_attempts INTEGER NOT NULL DEFAULT 0,
+  used_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX customer_registration_otps_user_created_idx
+  ON customer_registration_otps (user_id, created_at DESC);
+CREATE INDEX customer_registration_otps_active_idx
+  ON customer_registration_otps (user_id, used_at, code_expires_at);
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS deletion_requested_at TIMESTAMPTZ;
 CREATE TABLE IF NOT EXISTS account_deletion_requests (
@@ -227,10 +273,11 @@ CREATE TABLE oauth_accounts (
 CREATE TABLE auth_sessions (
   id BIGSERIAL PRIMARY KEY,
   user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  surface TEXT NOT NULL DEFAULT 'app' CHECK (surface IN ('app', 'developer')),
   refresh_token_hash TEXT NOT NULL UNIQUE,
   previous_refresh_token_hash TEXT,
   status TEXT NOT NULL CHECK (status IN ('active', 'revoked', 'expired')),
-  auth_method TEXT NOT NULL CHECK (auth_method IN ('password', 'google', 'facebook')),
+  auth_method TEXT NOT NULL CHECK (auth_method IN ('password', 'google', 'facebook', 'apple')),
   mfa_verified_at TIMESTAMPTZ,
   primary_authenticated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   ip_address TEXT,
@@ -248,10 +295,383 @@ CREATE TABLE auth_sessions (
 );
 
 CREATE INDEX auth_sessions_user_status_idx ON auth_sessions (user_id, status);
+CREATE INDEX auth_sessions_user_surface_status_idx ON auth_sessions (user_id, surface, status);
 CREATE INDEX auth_sessions_expires_at_idx ON auth_sessions (expires_at);
 CREATE INDEX auth_sessions_previous_refresh_hash_idx
   ON auth_sessions (previous_refresh_token_hash)
   WHERE previous_refresh_token_hash IS NOT NULL;
+
+CREATE TABLE developer_accounts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  owner_user_id BIGINT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'suspended')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE developer_account_memberships (
+  id BIGSERIAL PRIMARY KEY,
+  developer_account_id UUID NOT NULL REFERENCES developer_accounts(id) ON DELETE CASCADE,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role TEXT NOT NULL CHECK (role IN ('owner', 'member')),
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'revoked')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (developer_account_id, user_id)
+);
+
+CREATE UNIQUE INDEX developer_account_one_owner_idx
+  ON developer_account_memberships (developer_account_id)
+  WHERE role = 'owner' AND status = 'active';
+
+CREATE INDEX developer_account_memberships_user_idx
+  ON developer_account_memberships (user_id, status);
+
+CREATE TABLE developer_projects (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  developer_account_id UUID NOT NULL REFERENCES developer_accounts(id) ON DELETE CASCADE,
+  name TEXT NOT NULL CHECK (char_length(name) BETWEEN 1 AND 80),
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived')),
+  created_by_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX developer_projects_account_name_idx
+  ON developer_projects (developer_account_id, lower(name))
+  WHERE status = 'active';
+
+CREATE UNIQUE INDEX developer_projects_one_active_per_account_idx
+  ON developer_projects (developer_account_id)
+  WHERE status = 'active';
+
+CREATE INDEX developer_projects_account_status_idx
+  ON developer_projects (developer_account_id, status, created_at DESC);
+
+CREATE TABLE developer_project_production_applications (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  developer_project_id UUID NOT NULL UNIQUE REFERENCES developer_projects(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'not_submitted'
+    CHECK (status ~ '^(not_submitted|pending_review|changes_requested|approved|rejected|withdrawn)$'),
+  draft JSONB NOT NULL DEFAULT '{}'::jsonb,
+  approved_submission_id UUID,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE developer_project_production_submissions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  application_id UUID NOT NULL REFERENCES developer_project_production_applications(id) ON DELETE CASCADE,
+  version INTEGER NOT NULL CHECK (version > 0),
+  snapshot JSONB NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending_review'
+    CHECK (status ~ '^(pending_review|changes_requested|approved|rejected|withdrawn)$'),
+  submitted_by_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  submitted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  reviewer_user_id BIGINT REFERENCES users(id) ON DELETE RESTRICT,
+  reviewed_at TIMESTAMPTZ,
+  review_feedback TEXT,
+  UNIQUE (application_id, version)
+);
+
+ALTER TABLE developer_project_production_applications
+  ADD CONSTRAINT developer_project_production_applications_approved_submission_fk
+  FOREIGN KEY (approved_submission_id)
+  REFERENCES developer_project_production_submissions(id)
+  ON DELETE SET NULL;
+
+CREATE INDEX developer_project_production_submissions_status_idx
+  ON developer_project_production_submissions (application_id, status, version DESC);
+
+CREATE TABLE developer_project_rate_limits (
+  developer_project_id UUID NOT NULL REFERENCES developer_projects(id) ON DELETE CASCADE,
+  environment TEXT NOT NULL CHECK (environment IN ('sandbox', 'production')),
+  read_limit_per_minute INTEGER NOT NULL CHECK (read_limit_per_minute > 0),
+  write_limit_per_minute INTEGER NOT NULL CHECK (write_limit_per_minute > 0),
+  updated_by_user_id BIGINT REFERENCES users(id) ON DELETE RESTRICT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (developer_project_id, environment)
+);
+
+CREATE TABLE developer_project_memberships (
+  id BIGSERIAL PRIMARY KEY,
+  developer_project_id UUID NOT NULL REFERENCES developer_projects(id) ON DELETE CASCADE,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'revoked')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (developer_project_id, user_id)
+);
+
+CREATE INDEX developer_project_memberships_user_idx
+  ON developer_project_memberships (user_id, status);
+
+CREATE TABLE developer_project_test_accounts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  developer_project_id UUID NOT NULL REFERENCES developer_projects(id) ON DELETE CASCADE,
+  user_id BIGINT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+  slot INTEGER NOT NULL CHECK (slot BETWEEN 1 AND 2),
+  purpose TEXT NOT NULL DEFAULT 'developer' CHECK (purpose IN ('developer', 'apple_review')),
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'revoked')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (developer_project_id, slot),
+  UNIQUE (developer_project_id, user_id)
+);
+
+CREATE INDEX developer_project_test_accounts_project_idx
+  ON developer_project_test_accounts (developer_project_id, status, slot);
+
+CREATE UNIQUE INDEX developer_project_test_accounts_one_apple_review_idx
+  ON developer_project_test_accounts (developer_project_id)
+  WHERE purpose = 'apple_review' AND status = 'active';
+
+CREATE TABLE developer_api_keys (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  developer_project_id UUID NOT NULL REFERENCES developer_projects(id) ON DELETE CASCADE,
+  name TEXT NOT NULL CHECK (char_length(name) BETWEEN 1 AND 80),
+  environment TEXT NOT NULL CHECK (environment IN ('sandbox', 'production')),
+  key_prefix TEXT NOT NULL,
+  secret_hash TEXT NOT NULL UNIQUE,
+  scopes TEXT[] NOT NULL DEFAULT ARRAY['queues:read']::TEXT[],
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'revoked')),
+  created_by_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  last_used_at TIMESTAMPTZ,
+  revoked_at TIMESTAMPTZ,
+  revoke_reason TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CHECK (scopes <@ ARRAY[
+    'profiles:read', 'profiles:write',
+    'queues:read', 'queues:write',
+    'webhooks:read', 'webhooks:write'
+  ]::TEXT[])
+);
+
+CREATE INDEX developer_api_keys_project_status_idx
+  ON developer_api_keys (developer_project_id, status, created_at DESC);
+
+CREATE INDEX developer_api_keys_prefix_idx
+  ON developer_api_keys (key_prefix);
+
+CREATE TABLE developer_api_profiles (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  developer_project_id UUID NOT NULL REFERENCES developer_projects(id) ON DELETE CASCADE,
+  environment TEXT NOT NULL CHECK (environment IN ('sandbox', 'production')),
+  slug TEXT NOT NULL CHECK (slug ~ '^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$'),
+  display_name TEXT NOT NULL CHECK (char_length(display_name) BETWEEN 1 AND 120),
+  directory_status TEXT NOT NULL DEFAULT 'private' CHECK (directory_status IN ('private', 'draft', 'pending_review', 'approved', 'changes_requested', 'rejected', 'withdrawn', 'removed')),
+  directory_content JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_by_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (developer_project_id, environment, slug)
+);
+
+CREATE INDEX developer_api_profiles_scope_idx ON developer_api_profiles (developer_project_id, environment, created_at DESC);
+
+CREATE TABLE developer_api_queues (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  developer_api_profile_id UUID NOT NULL REFERENCES developer_api_profiles(id) ON DELETE CASCADE,
+  slug TEXT NOT NULL CHECK (slug ~ '^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$'),
+  display_name TEXT NOT NULL CHECK (char_length(display_name) BETWEEN 1 AND 120),
+  session_state TEXT NOT NULL DEFAULT 'closed' CHECK (session_state IN ('open', 'paused', 'closing', 'closed')),
+  intake_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+  joining_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+  priority_ratio INTEGER NOT NULL DEFAULT 3 CHECK (priority_ratio BETWEEN 1 AND 20),
+  queue_prefix VARCHAR(4) NOT NULL DEFAULT 'MAIN' CHECK (queue_prefix ~ '^[A-Z0-9]{1,4}$'),
+  average_service_minutes INTEGER NOT NULL DEFAULT 15 CHECK (average_service_minutes BETWEEN 1 AND 120),
+  notification_threshold INTEGER NOT NULL DEFAULT 2 CHECK (notification_threshold BETWEEN 1 AND 10),
+  resource_version BIGINT NOT NULL DEFAULT 1 CHECK (resource_version > 0),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (developer_api_profile_id, slug)
+);
+
+CREATE INDEX developer_api_queues_profile_state_idx ON developer_api_queues (developer_api_profile_id, session_state, created_at DESC);
+
+CREATE TABLE developer_api_queue_counters (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  developer_api_queue_id UUID NOT NULL REFERENCES developer_api_queues(id) ON DELETE CASCADE,
+  slug TEXT NOT NULL CHECK (slug ~ '^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$'),
+  display_name TEXT NOT NULL CHECK (char_length(display_name) BETWEEN 1 AND 80),
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'paused', 'closed')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (developer_api_queue_id, slug)
+);
+
+CREATE TABLE developer_api_tickets (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  developer_project_id UUID NOT NULL REFERENCES developer_projects(id) ON DELETE RESTRICT,
+  environment TEXT NOT NULL CHECK (environment IN ('sandbox', 'production')),
+  developer_api_profile_id UUID NOT NULL REFERENCES developer_api_profiles(id) ON DELETE RESTRICT,
+  developer_api_queue_id UUID NOT NULL REFERENCES developer_api_queues(id) ON DELETE RESTRICT,
+  developer_api_queue_counter_id UUID REFERENCES developer_api_queue_counters(id) ON DELETE SET NULL,
+  ticket_number TEXT NOT NULL CHECK (char_length(ticket_number) BETWEEN 1 AND 40),
+  sequence BIGINT NOT NULL CHECK (sequence > 0),
+  display_label TEXT CHECK (display_label IS NULL OR char_length(display_label) BETWEEN 1 AND 120),
+  external_reference TEXT CHECK (external_reference IS NULL OR char_length(external_reference) BETWEEN 1 AND 160),
+  recipient_email TEXT CHECK (recipient_email IS NULL OR char_length(recipient_email) <= 320),
+  verification_code TEXT NOT NULL CHECK (verification_code ~ '^[A-F0-9]{8}$'),
+  status TEXT NOT NULL DEFAULT 'waiting' CHECK (status IN ('waiting', 'called', 'served', 'skipped', 'cancelled', 'unserved', 'expired')),
+  status_reason TEXT CHECK (status_reason IS NULL OR char_length(status_reason) <= 120),
+  linked_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  linking_disabled_at TIMESTAMPTZ,
+  customer_data_deleted_at TIMESTAMPTZ,
+  called_at TIMESTAMPTZ,
+  served_at TIMESTAMPTZ,
+  skipped_at TIMESTAMPTZ,
+  cancelled_at TIMESTAMPTZ,
+  unserved_at TIMESTAMPTZ,
+  terminal_at TIMESTAMPTZ,
+  customer_confirmed_at TIMESTAMPTZ,
+  near_turn_notified_at TIMESTAMPTZ,
+  near_turn_notification_claimed_at TIMESTAMPTZ,
+  resource_version BIGINT NOT NULL DEFAULT 1 CHECK (resource_version > 0),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (developer_api_queue_id, sequence),
+  UNIQUE (developer_api_queue_id, ticket_number)
+);
+
+CREATE UNIQUE INDEX developer_api_tickets_external_reference_idx ON developer_api_tickets (developer_project_id, environment, external_reference) WHERE external_reference IS NOT NULL AND customer_data_deleted_at IS NULL;
+CREATE UNIQUE INDEX developer_api_tickets_verification_code_idx ON developer_api_tickets (verification_code);
+CREATE INDEX developer_api_tickets_queue_status_idx ON developer_api_tickets (developer_api_queue_id, status, sequence);
+CREATE INDEX developer_api_tickets_scope_idx ON developer_api_tickets (developer_project_id, environment, created_at DESC);
+
+CREATE TABLE developer_api_ticket_events (
+  id BIGSERIAL PRIMARY KEY,
+  developer_project_id UUID NOT NULL REFERENCES developer_projects(id) ON DELETE RESTRICT,
+  environment TEXT NOT NULL CHECK (environment IN ('sandbox', 'production')),
+  developer_api_profile_id UUID NOT NULL REFERENCES developer_api_profiles(id) ON DELETE RESTRICT,
+  developer_api_queue_id UUID NOT NULL REFERENCES developer_api_queues(id) ON DELETE RESTRICT,
+  developer_api_ticket_id UUID REFERENCES developer_api_tickets(id) ON DELETE RESTRICT,
+  event_type TEXT NOT NULL CHECK (char_length(event_type) BETWEEN 1 AND 100),
+  from_status TEXT,
+  to_status TEXT,
+  resource_version BIGINT NOT NULL CHECK (resource_version > 0),
+  source TEXT NOT NULL CHECK (char_length(source) BETWEEN 1 AND 80),
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX developer_api_ticket_events_ticket_idx ON developer_api_ticket_events (developer_api_ticket_id, id);
+CREATE INDEX developer_api_ticket_events_scope_idx ON developer_api_ticket_events (developer_project_id, environment, id);
+
+CREATE TABLE developer_api_operations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  developer_project_id UUID NOT NULL REFERENCES developer_projects(id) ON DELETE RESTRICT,
+  environment TEXT NOT NULL CHECK (environment IN ('sandbox', 'production')),
+  developer_api_key_id UUID NOT NULL REFERENCES developer_api_keys(id) ON DELETE RESTRICT,
+  operation_scope TEXT NOT NULL CHECK (char_length(operation_scope) BETWEEN 1 AND 120),
+  idempotency_key TEXT NOT NULL CHECK (char_length(idempotency_key) BETWEEN 8 AND 128),
+  request_hash TEXT NOT NULL CHECK (char_length(request_hash) = 64),
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'completed')),
+  response_status INTEGER,
+  response_body JSONB,
+  completed_at TIMESTAMPTZ,
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (developer_api_key_id, operation_scope, idempotency_key)
+);
+
+CREATE INDEX developer_api_operations_expiry_idx ON developer_api_operations (expires_at);
+
+CREATE TABLE developer_sandbox_daily_allowances (
+  developer_project_id UUID NOT NULL REFERENCES developer_projects(id) ON DELETE CASCADE,
+  allowance_date DATE NOT NULL,
+  issued_tickets INTEGER NOT NULL DEFAULT 0 CHECK (issued_tickets BETWEEN 0 AND 100),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (developer_project_id, allowance_date)
+);
+
+CREATE TABLE developer_webhook_registrations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  developer_project_id UUID NOT NULL REFERENCES developer_projects(id) ON DELETE CASCADE,
+  environment TEXT NOT NULL CHECK (environment IN ('sandbox', 'production')),
+  name TEXT NOT NULL CHECK (char_length(name) BETWEEN 1 AND 80),
+  url TEXT NOT NULL CHECK (char_length(url) BETWEEN 1 AND 2048),
+  payload_version INTEGER NOT NULL DEFAULT 1 CHECK (payload_version > 0),
+  event_types TEXT[] NOT NULL CHECK (cardinality(event_types) > 0),
+  signing_secret_ciphertext TEXT NOT NULL,
+  previous_signing_secret_ciphertext TEXT,
+  previous_signing_secret_expires_at TIMESTAMPTZ,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'disabled')),
+  disabled_at TIMESTAMPTZ,
+  created_by_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX developer_webhook_registrations_version_idx
+  ON developer_webhook_registrations (developer_project_id, environment, lower(url), payload_version)
+  WHERE status = 'active';
+
+CREATE INDEX developer_webhook_registrations_scope_idx
+  ON developer_webhook_registrations (developer_project_id, environment, status, created_at DESC);
+
+CREATE TABLE developer_webhook_deliveries (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  registration_id UUID NOT NULL REFERENCES developer_webhook_registrations(id) ON DELETE CASCADE,
+  event_id TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  payload_version INTEGER NOT NULL CHECK (payload_version > 0),
+  payload_body TEXT NOT NULL,
+  payload JSONB NOT NULL,
+  payload_purged_at TIMESTAMPTZ,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'retry', 'sent', 'failed')),
+  attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+  available_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at TIMESTAMPTZ,
+  lease_owner TEXT,
+  leased_until TIMESTAMPTZ,
+  last_attempt_at TIMESTAMPTZ,
+  retry_until TIMESTAMPTZ,
+  manual_attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (manual_attempt_count >= 0),
+  last_manual_attempt_at TIMESTAMPTZ,
+  manual_last_error TEXT,
+  manual_response_status INTEGER,
+  last_error TEXT,
+  response_status INTEGER,
+  sent_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (registration_id, event_id)
+);
+
+CREATE INDEX developer_webhook_deliveries_dispatch_idx
+  ON developer_webhook_deliveries (available_at, id)
+  WHERE status IN ('pending', 'retry');
+
+CREATE TABLE developer_project_webhook_suspensions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  developer_project_id UUID NOT NULL REFERENCES developer_projects(id) ON DELETE CASCADE,
+  environment TEXT NOT NULL DEFAULT 'production' CHECK (environment = 'production'),
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'reinstated')),
+  reason TEXT NOT NULL CHECK (char_length(reason) BETWEEN 1 AND 500),
+  suspended_by_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  suspended_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  reinstated_by_user_id BIGINT REFERENCES users(id) ON DELETE RESTRICT,
+  reinstatement_reason TEXT,
+  reinstated_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CHECK (
+    (status = 'active' AND reinstated_at IS NULL AND reinstated_by_user_id IS NULL)
+    OR (status = 'reinstated' AND reinstated_at IS NOT NULL AND reinstated_by_user_id IS NOT NULL)
+  )
+);
+
+CREATE UNIQUE INDEX developer_project_webhook_suspensions_active_idx
+  ON developer_project_webhook_suspensions (developer_project_id, environment)
+  WHERE status = 'active';
+
+CREATE INDEX developer_project_webhook_suspensions_history_idx
+  ON developer_project_webhook_suspensions (developer_project_id, environment, suspended_at DESC);
+
 
 CREATE TABLE auth_mfa_factors (
   id BIGSERIAL PRIMARY KEY,
@@ -288,7 +708,8 @@ CREATE TABLE auth_mfa_challenges (
   id BIGSERIAL PRIMARY KEY,
   user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   token_hash TEXT NOT NULL UNIQUE,
-  challenge_type TEXT NOT NULL CHECK (challenge_type IN ('login', 'step_up', 'recovery')),
+  challenge_type TEXT NOT NULL CHECK (challenge_type IN ('login', 'email_login', 'step_up', 'recovery')),
+  code_hash TEXT,
   primary_authenticated_at TIMESTAMPTZ NOT NULL,
   ip_address TEXT,
   user_agent TEXT,
@@ -1065,6 +1486,9 @@ CREATE TABLE tickets (
   sequence INTEGER NOT NULL,
   date_key TEXT NOT NULL,
   lookup_code TEXT NOT NULL UNIQUE,
+  developer_project_id UUID REFERENCES developer_projects(id) ON DELETE SET NULL,
+  developer_environment TEXT CHECK (developer_environment IN ('sandbox', 'production')),
+  external_reference TEXT,
   customer_name TEXT NOT NULL,
   customer_email TEXT,
   customer_phone TEXT,
@@ -1094,6 +1518,33 @@ CREATE TABLE tickets (
   ),
   UNIQUE (tenant_id, location_id, date_key, sequence)
 );
+
+CREATE UNIQUE INDEX tickets_developer_external_reference_idx
+  ON tickets (developer_project_id, developer_environment, external_reference)
+  WHERE external_reference IS NOT NULL;
+
+CREATE TABLE ticket_mobile_links (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  ticket_id BIGINT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  developer_project_id UUID NOT NULL REFERENCES developer_projects(id) ON DELETE CASCADE,
+  environment TEXT NOT NULL CHECK (environment IN ('sandbox', 'production')),
+  token_hash TEXT NOT NULL UNIQUE,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at TIMESTAMPTZ,
+  revoked_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX ticket_mobile_links_active_ticket_idx
+  ON ticket_mobile_links (ticket_id)
+  WHERE used_at IS NULL AND revoked_at IS NULL;
+
+CREATE INDEX ticket_mobile_links_scope_idx
+  ON ticket_mobile_links (developer_project_id, environment, created_at DESC);
+
+CREATE INDEX ticket_mobile_links_expiry_idx
+  ON ticket_mobile_links (expires_at)
+  WHERE used_at IS NULL AND revoked_at IS NULL;
 
 CREATE TABLE queue_events (
   id BIGSERIAL PRIMARY KEY,
@@ -1195,7 +1646,7 @@ CREATE TABLE notification_deliveries (
   id BIGSERIAL PRIMARY KEY,
   tenant_id BIGINT REFERENCES tenants(id) ON DELETE CASCADE,
   ticket_id BIGINT REFERENCES tickets(id) ON DELETE SET NULL,
-  channel TEXT NOT NULL CHECK (channel IN ('email', 'sms')),
+  channel TEXT NOT NULL CHECK (channel IN ('email', 'sms', 'web_push', 'fcm')),
   purpose TEXT NOT NULL DEFAULT 'general',
   recipient TEXT NOT NULL,
   subject TEXT,
@@ -1217,6 +1668,7 @@ CREATE TABLE platform_settings (
 
 INSERT INTO platform_settings (key, value)
 VALUES ('enterprise_inquiry_email', 'carlo.abella@gmail.com');
+INSERT INTO platform_settings (key, value) VALUES ('max_image_upload_kb', '200') ON CONFLICT (key) DO NOTHING;
 
 CREATE TABLE public_board_assets (
   id BIGSERIAL PRIMARY KEY,

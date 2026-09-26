@@ -34,6 +34,10 @@ const { normalizePhilippineMobileNumber } = require("../utils/phone");
 const entitlementAdmissionService = require("../services/entitlementAdmissionService");
 
 const router = express.Router();
+router.get("/upload-policy", asyncHandler(async (_req, res) => {
+  const maxImageUploadKb = await platformRepository.getImageUploadLimitKb();
+  res.set("Cache-Control", "no-store").json({ maxImageUploadKb, maxImageUploadBytes: maxImageUploadKb * 1024 });
+}));
 router.get("/business-categories", asyncHandler(async (_req, res) => res.json({ items: await businessCategories.list() })));
 const enterpriseInquiryLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,

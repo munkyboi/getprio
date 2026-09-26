@@ -13,7 +13,13 @@ import pushRoutes from "./routes/pushRoutes";
 import mobilePushRoutes from "./routes/mobilePushRoutes";
 import mobileQueueJoinRoutes from "./routes/mobileQueueJoinRoutes";
 import mobileOAuthRoutes from "./routes/mobileOAuthRoutes";
+import mobileSandboxAuthRoutes from "./routes/mobileSandboxAuthRoutes";
+import mobileTicketLinkRoutes from "./routes/mobileTicketLinkRoutes";
+import mobileTicketRoutes from "./routes/mobileTicketRoutes";
 import vendorRoutes from "./routes/vendorRoutes";
+import developerApiRoutes from "./routes/developerApiRoutes";
+import developerAuthRoutes from "./routes/developerAuthRoutes";
+import developerProjectRoutes from "./routes/developerProjectRoutes";
 import errorHandler from "./middleware/errorHandler";
 import requestContextModule from "./middleware/requestContext";
 import csrfProtectionModule from "./middleware/csrfProtection";
@@ -24,7 +30,7 @@ function normalizeOrigin(origin?: string): string {
 
 function buildAllowedOrigins(): Set<string> {
   const origins = new Set<string>();
-  const configuredOrigins = [env.clientUrl, env.appBaseUrl, env.platformDashboardUrl]
+  const configuredOrigins = [env.clientUrl, env.appBaseUrl, env.platformDashboardUrl, env.developerPortalUrl]
     .filter(Boolean)
     .map((origin) => normalizeOrigin(origin));
 
@@ -106,15 +112,37 @@ app.get("/api/health", (_req, res) => {
 });
 
 app.use("/api/auth", authRoutes);
+app.use("/api/developer", developerAuthRoutes);
+app.use("/api/developer", developerProjectRoutes);
 app.use("/api/account", accountRoutes);
 app.use("/api/billing", billingRoutes);
 app.use("/api/platform", platformRoutes);
 app.use("/api/public", publicRoutes);
 app.use("/api/push", pushRoutes);
+app.use("/api/mobile/auth", mobileOAuthRoutes);
+app.use("/api/mobile/auth", mobileSandboxAuthRoutes);
 app.use("/api/mobile/push", mobilePushRoutes);
 app.use("/api/mobile", mobileQueueJoinRoutes);
-app.use("/api/mobile/auth", mobileOAuthRoutes);
 app.use("/api/vendor", vendorRoutes);
+app.use("/v1", developerApiRoutes);
+
+// Keep the legacy namespace available while first-party clients migrate to v1.
+// Reuse the same routers and middleware so authorization and response contracts remain identical.
+app.use("/api/v1/auth", authRoutes);
+app.use("/api/v1/developer", developerAuthRoutes);
+app.use("/api/v1/developer", developerProjectRoutes);
+app.use("/api/v1/account", accountRoutes);
+app.use("/api/v1/billing", billingRoutes);
+app.use("/api/v1/platform", platformRoutes);
+app.use("/api/v1/public", publicRoutes);
+app.use("/api/v1/mobile/auth", mobileOAuthRoutes);
+app.use("/api/v1/mobile/auth", mobileSandboxAuthRoutes);
+app.use("/api/v1/push", pushRoutes);
+app.use("/api/v1/mobile/push", mobilePushRoutes);
+app.use("/api/v1/mobile", mobileTicketLinkRoutes);
+app.use("/api/v1/mobile", mobileTicketRoutes);
+app.use("/api/v1/mobile", mobileQueueJoinRoutes);
+app.use("/api/v1/vendor", vendorRoutes);
 
 app.use(errorHandler);
 

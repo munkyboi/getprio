@@ -28,6 +28,62 @@ function invalidCodeError() {
   return error;
 }
 
+function hashEmailCode(value) {
+  return crypto.createHash("sha256").update(String(value || "")).digest("hex");
+}
+
+function createEmailCode() {
+  return String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
+}
+
+function maskedEmail(email) {
+  const value = String(email || "");
+  const at = value.indexOf("@");
+  return at > 1 ? `${value.slice(0, 1)}***${value.slice(at)}` : "your verified email address";
+}
+
+async function getLoginMethods(user, options = {}) {
+  const methods = [];
+  if (await mfaRepository.findTotpFactor(user._id, "active", options)) methods.push("totp", "recovery");
+  if (user.emailMfaEnabled && user.emailVerified) methods.push("email");
+  return methods;
+}
+
+async function enableEmailMfa({ user }) {
+  if (!user.emailVerified) {
+    const error = new Error("Verify your email address before enabling email OTP.");
+    error.statusCode = 409;
+    error.code = "EMAIL_VERIFICATION_REQUIRED";
+    throw error;
+  }
+  return userRepository.updateUser(user._id, {
+    emailMfaEnabled: true,
+    mfaEnabled: true,
+    mfaRequired: userRequiresPrivilegedMfa(user)
+  });
+}
+
+async function disableEmailMfa({ user }) {
+  if (!user.emailMfaEnabled) {
+    const error = new Error("Email OTP is not enabled on this account.");
+    error.statusCode = 409;
+    error.code = "EMAIL_MFA_NOT_ENABLED";
+    throw error;
+  }
+  const hasTotp = Boolean(await mfaRepository.findTotpFactor(user._id, "active"));
+  if (userRequiresPrivilegedMfa(user) && !hasTotp) {
+    const error = new Error("Keep at least one MFA method enabled for this account.");
+    error.statusCode = 403;
+    error.code = "MFA_METHOD_REQUIRED";
+    throw error;
+  }
+  return userRepository.updateUser(user._id, {
+    emailMfaEnabled: false,
+    mfaEnabled: hasTotp,
+    mfaRequired: userRequiresPrivilegedMfa(user)
+  });
+}
+
 async function issueLoginChallenge({ user, ipAddress, userAgent }, options = {}) {
   const token = crypto.randomBytes(48).toString("hex");
   const expiresAt = new Date(Date.now() + 5 * 60_000);
@@ -43,8 +99,46 @@ async function issueLoginChallenge({ user, ipAddress, userAgent }, options = {})
   return { token, expiresAt };
 }
 
+async function issueEmailLoginChallenge({ challengeToken, ipAddress, userAgent }) {
+  const challenge = await mfaRepository.findChallengeByTokenHash(hashToken(challengeToken));
+  if (!challenge || challenge.challengeType !== "login" || challenge.usedAt || new Date(challenge.expiresAt).getTime() <= Date.now()) {
+    const error = new Error("This sign-in verification has expired. Please sign in again.");
+    error.statusCode = 401;
+    error.code = "MFA_CHALLENGE_EXPIRED";
+    throw error;
+  }
+  const user = await userRepository.findUserById(challenge.userId);
+  if (!user?.emailMfaEnabled || !user.emailVerified) {
+    const error = new Error("Email OTP is not enabled for this account.");
+    error.statusCode = 403;
+    error.code = "EMAIL_MFA_NOT_ENABLED";
+    throw error;
+  }
+  const code = createEmailCode();
+  const token = crypto.randomBytes(48).toString("hex");
+  const expiresAt = new Date(Date.now() + 10 * 60_000);
+  await mfaRepository.createChallenge({
+    userId: user._id,
+    tokenHash: hashToken(token),
+    challengeType: "email_login",
+    codeHash: hashEmailCode(code),
+    primaryAuthenticatedAt: challenge.primaryAuthenticatedAt,
+    ipAddress: ipAddress || challenge.ipAddress,
+    userAgent: userAgent || challenge.userAgent,
+    expiresAt
+  });
+  await notificationService.sendEmail({
+    to: user.email,
+    subject: "Your GetPrio Developer Portal sign-in code",
+    text: `Your Developer Portal email verification code is ${code}. It expires in 10 minutes. If you did not request this code, reset your password.`,
+    purpose: "developer_mfa_email_otp"
+  });
+  return { token, expiresAt, deliveryTarget: maskedEmail(user.email) };
+}
+
 async function startTotpEnrollment({ user, session, currentCode }, options = {}) {
-  if (user.mfaEnabled) {
+  const activeFactor = await mfaRepository.findTotpFactor(user._id, "active", options);
+  if (activeFactor) {
     const primaryAge = Date.now() - new Date(session?.primaryAuthenticatedAt || 0).getTime();
     if (!Number.isFinite(primaryAge) || primaryAge > 10 * 60_000) {
       const error = new Error("Please sign in again before replacing your authenticator.");
@@ -52,7 +146,6 @@ async function startTotpEnrollment({ user, session, currentCode }, options = {})
       error.code = "RECENT_AUTHENTICATION_REQUIRED";
       throw error;
     }
-    const activeFactor = await mfaRepository.findTotpFactor(user._id, "active", options);
     const activeSecret = activeFactor && decryptSecret(activeFactor, env.mfaEncryptionSecret);
     if (!activeSecret || !verifyTotp(activeSecret, currentCode)) throw invalidCodeError();
   }
@@ -142,8 +235,8 @@ async function disableMfa({ user, sessionId, code, recoveryCode, ipAddress, user
 
     await mfaRepository.revokeFactorsAndRecoveryCodes(user._id, { client });
     await userRepository.updateUser(user._id, {
-      mfaEnabled: false,
-      mfaRequired: false
+      mfaEnabled: Boolean(user.emailMfaEnabled),
+      mfaRequired: userRequiresPrivilegedMfa(user)
     }, { client });
     await authSessionRepository.clearMfaVerification(sessionId, { client });
     await authSessionRepository.revokeOtherSessionsForUser(
@@ -174,7 +267,7 @@ async function disableMfa({ user, sessionId, code, recoveryCode, ipAddress, user
   return { success: true };
 }
 
-async function verifyLoginChallenge({ challengeToken, code, recoveryCode }) {
+async function verifyLoginChallenge({ challengeToken, code, recoveryCode, method, surface = "app" }) {
   return db.withTransaction(async (client) => {
     const challenge = await mfaRepository.findChallengeByTokenHash(hashToken(challengeToken), { client });
     if (!challenge || challenge.usedAt || challenge.attemptCount >= 5 || new Date(challenge.expiresAt).getTime() <= Date.now()) {
@@ -183,15 +276,25 @@ async function verifyLoginChallenge({ challengeToken, code, recoveryCode }) {
       error.code = "MFA_CHALLENGE_EXPIRED";
       throw error;
     }
-    const factor = await mfaRepository.findTotpFactor(challenge.userId, "active", { client });
-    const secret = factor && decryptSecret(factor, env.mfaEncryptionSecret);
-    let verified = Boolean(secret && code && verifyTotp(secret, code));
-    if (!verified && recoveryCode) {
-      verified = await mfaRepository.consumeRecoveryCode(
-        challenge.userId,
-        hashRecoveryCode(recoveryCode, env.mfaRecoveryPepper),
-        { client }
-      );
+    let verified = false;
+    if (challenge.challengeType === "email_login") {
+      if (challenge.codeHash && code) {
+        const expected = Buffer.from(challenge.codeHash, "hex");
+        const actual = Buffer.from(hashEmailCode(code), "hex");
+        verified = expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+      }
+    } else {
+      const factor = await mfaRepository.findTotpFactor(challenge.userId, "active", { client });
+      const secret = factor && decryptSecret(factor, env.mfaEncryptionSecret);
+      if (method === "email") throw invalidCodeError();
+      verified = Boolean(secret && code && verifyTotp(secret, code));
+      if (!verified && recoveryCode) {
+        verified = await mfaRepository.consumeRecoveryCode(
+          challenge.userId,
+          hashRecoveryCode(recoveryCode, env.mfaRecoveryPepper),
+          { client }
+        );
+      }
     }
     if (!verified) {
       await mfaRepository.recordChallengeFailure(challenge._id, { client });
@@ -207,6 +310,7 @@ async function verifyLoginChallenge({ challengeToken, code, recoveryCode }) {
     const sessionResult = await sessionService.createAuthSession({
       user,
       authMethod: user.lastLoginProvider || "password",
+      surface,
       ipAddress: challenge.ipAddress,
       userAgent: challenge.userAgent,
       primaryAuthenticatedAt: challenge.primaryAuthenticatedAt,
@@ -221,6 +325,10 @@ module.exports = {
   cancelTotpEnrollment,
   confirmTotpEnrollment,
   disableMfa,
+  disableEmailMfa,
+  enableEmailMfa,
+  getLoginMethods,
+  issueEmailLoginChallenge,
   issueLoginChallenge,
   startTotpEnrollment,
   verifyLoginChallenge

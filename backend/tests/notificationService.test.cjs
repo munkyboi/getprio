@@ -150,3 +150,44 @@ test("all email providers deliver the shared HTML while retaining the original p
     }
   } finally { global.fetch = originalFetch; }
 });
+
+test("Resend receives the saved staff email and stable idempotency header", async () => {
+  const originalFetch = global.fetch;
+  let request;
+  global.fetch = async (_url, options) => { request = options; return { ok: true }; };
+  try {
+    const service = requireWithMocks("../src/services/notificationService.js", {
+      "../config/env": { resendApiKey: "fixture", resendFromEmail: "sender@example.test", resendApiUrl: "https://example.test/emails" },
+      "../repositories/notificationDeliveries": { recordDelivery: async () => {} }
+    });
+    await service.sendEmail({ to: "member@example.test", subject: "Access changed", text: "Saved text", html: "<p>Saved HTML</p>",
+      purpose: "vendor_staff_access", idempotencyKey: "staff-access/event/member" });
+    assert.equal(request.headers["Idempotency-Key"], "staff-access/event/member");
+    assert.equal(JSON.parse(request.body).html, "<p>Saved HTML</p>");
+    assert.equal(JSON.parse(request.body).text, "Saved text");
+    assert.ok(request.signal);
+  } finally { global.fetch = originalFetch; }
+});
+
+test("managed Resend sends template variables without forbidden inline bodies", async () => {
+  const originalFetch = global.fetch; let request;
+  global.fetch = async (_url, options) => { request = options; return { ok: true }; };
+  try {
+    const service = requireWithMocks("../src/services/notificationService.js", {
+      "../config/env": { resendApiKey: "fixture", resendFromEmail: "sender@example.test", resendApiUrl: "https://example.test/emails" },
+      "../repositories/notificationDeliveries": { recordDelivery: async () => {} }
+    });
+    const template = { id: 'getprio-vendor-staff-added', variables: { BUSINESS_TEXT: 'Studio' } };
+    await service.sendEmail({ to: 'member@example.test', subject: 'Added', text: 'Must not be sent', html: '<p>Must not be sent</p>', resendTemplate: template });
+    const body = JSON.parse(request.body);
+    assert.deepEqual(body.template, template);
+    assert.equal('html' in body, false); assert.equal('text' in body, false);
+  } finally { global.fetch = originalFetch; }
+});
+
+test("managed templates fail closed when Resend is not configured", async () => {
+  const service = requireWithMocks("../src/services/notificationService.js", {
+    "../config/env": {}, "../repositories/notificationDeliveries": { recordDelivery: async () => {} }
+  });
+  await assert.rejects(service.sendEmail({ to: 'member@example.test', resendTemplate: { id: 'staff' } }), /require Resend/);
+});

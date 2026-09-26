@@ -10,8 +10,14 @@ const VENDOR_ALERT_ROLES = ["owner", "admin", "staff"];
 const DEDUPE_WINDOW_MS = 2 * 60 * 1000;
 const recentNotificationKeys = new Map();
 
-function isPushConfigured() {
-  return isWebPushConfigured() || mobilePushService.isConfigured();
+function isPushConfigured(environment = "production") {
+  return isWebPushConfigured() || mobilePushService.isConfigured(environment);
+}
+
+function isPushConfiguredForChannels(channels, environment = "production") {
+  const includeWebPush = channels?.webPush !== false;
+  const includeFcm = channels?.fcm !== false;
+  return (includeWebPush && isWebPushConfigured()) || (includeFcm && mobilePushService.isConfigured(environment));
 }
 
 function isWebPushConfigured() {
@@ -72,6 +78,21 @@ function buildBrowserSubscription(subscription) {
       p256dh: subscription.p256dh,
       auth: subscription.auth
     }
+  };
+}
+
+function buildCustomerQueueNotificationPayload({ tenant, ticket, action, notificationId }) {
+  return {
+    title: action === "joined" ? "Joined queue" : "Queue update",
+    body: getQueueUpdateBody(tenant, ticket, action),
+    url: ticket.lookupCode
+      ? `/ticket/${tenant.slug}?ticket=${encodeURIComponent(ticket.lookupCode)}`
+      : "/account/tickets",
+    route: "ticket",
+    ticketRef: ticket.lookupCode ? String(ticket.lookupCode) : String(ticket._id),
+    tag: `customer-queue-${ticket._id}-${action || ticket.status}`,
+    eventType: `customer_queue_${action || "updated"}`,
+    notificationId: notificationId || crypto.randomUUID()
   };
 }
 
@@ -200,12 +221,28 @@ async function sendTenantNotification({
   };
 }
 
-async function sendUserNotification({ userId, title, body, url, tag, eventType }) {
+async function sendUserNotification({
+  userId,
+  title,
+  body,
+  url,
+  route,
+  ticketRef,
+  tag,
+  eventType,
+  notificationId,
+  collapseId,
+  silent = false,
+  channels,
+  environment = "production"
+}) {
   if (!userId) {
     return { attempted: 0, sent: 0 };
   }
 
-  if (!isPushConfigured()) {
+  const includeWebPush = channels?.webPush !== false;
+  const includeFcm = channels?.fcm !== false;
+  if (!includeWebPush && !includeFcm) {
     return { attempted: 0, sent: 0 };
   }
 
@@ -213,16 +250,20 @@ async function sendUserNotification({ userId, title, body, url, tag, eventType }
     title,
     body,
     url: url || "/account",
+    route: route || url || "/account",
+    ...(ticketRef ? { ticketRef: String(ticketRef) } : {}),
     tag: tag || eventType || "getprio-customer-notification",
     eventType: eventType || "customer_alert",
-    notificationId: crypto.randomUUID()
+    notificationId: notificationId || crypto.randomUUID(),
+    ...(collapseId ? { collapseId: String(collapseId) } : {}),
+    ...(silent ? { silent: true } : {})
   };
 
   if (!claimNotificationKey(`user:${userId}:${payload.tag}`)) {
     return { attempted: 0, sent: 0, deduped: true };
   }
 
-  const subscriptions = isWebPushConfigured()
+  const subscriptions = includeWebPush && isWebPushConfigured()
     ? await pushSubscriptionRepository.listActiveByUserId(userId)
     : [];
   let sent = 0;
@@ -231,12 +272,38 @@ async function sendUserNotification({ userId, title, body, url, tag, eventType }
       sent += 1;
     }
   }
-  const fcm = await mobilePushService.sendToUser({ userId, payload });
+  const fcm = includeFcm
+    ? await mobilePushService.sendToUser({ userId, payload, environment })
+    : { attempted: 0, sent: 0 };
 
   return {
     attempted: subscriptions.length + fcm.attempted,
     sent: sent + fcm.sent
   };
+}
+
+async function sendUserSignal({
+  userId,
+  eventType,
+  notificationId,
+  collapseId,
+  ticketRef,
+  route = "tickets",
+  tag,
+  environment = "production"
+}) {
+  return sendUserNotification({
+    userId,
+    eventType,
+    notificationId,
+    collapseId,
+    ticketRef,
+    route,
+    tag,
+    silent: true,
+    channels: { webPush: false, fcm: true },
+    environment
+  });
 }
 
 async function notifyVendorQueueJoin({ tenant, ticket }) {
@@ -430,7 +497,8 @@ async function notifyCustomerBookingUpdate({ booking, action }) {
     return { attempted: 0, sent: 0 };
   }
 
-  if (!isPushConfigured()) {
+  const environment = booking.environment === "sandbox" ? "sandbox" : "production";
+  if (!isPushConfigured(environment)) {
     return { attempted: 0, sent: 0 };
   }
 
@@ -445,7 +513,8 @@ async function notifyCustomerBookingUpdate({ booking, action }) {
     body: getBookingUpdateBody(booking, action),
     url: `/account/bookings/${booking._id}`,
     tag: `customer-booking-${booking._id}-${action || booking.status}`,
-    eventType: `customer_booking_${action || "updated"}`
+    eventType: `customer_booking_${action || "updated"}`,
+    environment
   });
 }
 
@@ -482,12 +551,13 @@ function getQueueUpdateBody(tenant, ticket, action) {
   }
 }
 
-async function notifyCustomerQueueUpdate({ tenant, ticket, action }) {
+async function notifyCustomerQueueUpdate({ tenant, ticket, action, channels }) {
   if (!ticket?.userId) {
     return { attempted: 0, sent: 0 };
   }
 
-  if (!isPushConfigured()) {
+  const environment = ticket.developerEnvironment === "sandbox" ? "sandbox" : "production";
+  if (!isPushConfiguredForChannels(channels, environment)) {
     return { attempted: 0, sent: 0 };
   }
 
@@ -498,13 +568,9 @@ async function notifyCustomerQueueUpdate({ tenant, ticket, action }) {
 
   return sendUserNotification({
     userId: ticket.userId,
-    title: action === "joined" ? "Joined queue" : "Queue update",
-    body: getQueueUpdateBody(tenant, ticket, action),
-    url: ticket.lookupCode
-      ? `/ticket/${tenant.slug}?ticket=${encodeURIComponent(ticket.lookupCode)}`
-      : "/account/tickets",
-    tag: `customer-queue-${ticket._id}-${action || ticket.status}`,
-    eventType: `customer_queue_${action || "updated"}`
+    ...buildCustomerQueueNotificationPayload({ tenant, ticket, action }),
+    channels,
+    environment
   });
 }
 
@@ -515,6 +581,8 @@ module.exports = {
   deleteSubscription,
   sendTenantNotification,
   sendUserNotification,
+  sendUserSignal,
+  buildCustomerQueueNotificationPayload,
   notifyVendorQueueJoin,
   notifyVendorBookingIntake,
   notifyVendorPaymentProofReview,

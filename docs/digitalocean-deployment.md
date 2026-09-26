@@ -14,9 +14,11 @@ It matches the current codebase:
 
 ## Recommended Shape
 
-- `getprio.online` serves `frontend/dist`
+- `app.getprio.online` serves `frontend/dist`
+- `developers.getprio.online` serves the standalone developer portal from `developer-portal/dist`
 - `platform.getprio.online` serves `platform-dashboard/dist`
 - `api.getprio.online` proxies to the backend on `127.0.0.1:5000`
+- `sandbox-api.getprio.online` proxies to the same backend with sandbox host labeling
 - PostgreSQL runs locally on the Droplet, or on managed DigitalOcean Postgres if you prefer not to host the database on the app box
 - PM2 keeps the backend process alive
 - Nginx serves static assets and handles TLS
@@ -29,9 +31,11 @@ For a tiny MVP, start with a 1 GB Droplet and add swap. If the app feels tight, 
 2. Pick the closest region to your users, such as Singapore if available.
 3. Use SSH keys instead of password login.
 4. Point DNS A records to the Droplet IP:
-   - `getprio.online`
+   - `app.getprio.online`
+   - `developers.getprio.online`
    - `platform.getprio.online`
    - `api.getprio.online`
+   - `sandbox-api.getprio.online`
 
 ## 2. Initial Server Setup
 
@@ -125,6 +129,9 @@ If you use managed DigitalOcean Postgres instead of local Postgres:
 
 - Set `DATABASE_URL` to the managed connection string
 - Set `DATABASE_SSL=true`
+- For a Standard Edition cluster, download its CA certificate and set `DATABASE_SSL_CA_FILE` to the absolute path
+- For an Advanced Edition cluster, leave both CA variables empty to use the system trust store
+- The application ignores TLS query options in `DATABASE_URL` while application TLS is enabled, so they cannot override this verification policy
 - Skip installing local PostgreSQL packages and the local `psql` bootstrap above
 
 ## 5. Configure Environment
@@ -141,6 +148,8 @@ POSTGRES_USER=getprio
 POSTGRES_PASSWORD=CHANGE_THIS_PASSWORD
 DATABASE_URL=postgresql://getprio:CHANGE_THIS_PASSWORD@localhost:5432/getprio
 DATABASE_SSL=false
+DATABASE_SSL_CA=
+DATABASE_SSL_CA_FILE=
 
 JWT_SECRET=CHANGE_THIS_TO_A_LONG_RANDOM_SECRET
 
@@ -156,6 +165,10 @@ GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 FACEBOOK_APP_ID=
 FACEBOOK_APP_SECRET=
+APPLE_CLIENT_ID=
+APPLE_TEAM_ID=
+APPLE_KEY_ID=
+APPLE_PRIVATE_KEY=
 
 VITE_TURNSTILE_SITE_KEY=
 TURNSTILE_SECRET_KEY=
@@ -192,12 +205,22 @@ PAYMONGO_PAYMENT_METHOD_TYPES=card
 FCM_PROJECT_ID=getprio
 FCM_CLIENT_EMAIL=
 FCM_PRIVATE_KEY=
+FCM_SANDBOX_PROJECT_ID=getprio-sandbox
+FCM_SANDBOX_CLIENT_EMAIL=
+FCM_SANDBOX_PRIVATE_KEY=
+
+# Public invitation link for the Sandbox external TestFlight group.
+# SANDBOX_TESTFLIGHT_PUBLIC_URL=https://testflight.apple.com/join/...
 
 `PAYMONGO_MODE` must be `live` or `sandbox`. The app selects the matching secret key and webhook secret from the two credential sets, validates the key prefix (`sk_live_` or `sk_test_`), and rejects webhook payloads from the opposite environment. The API URL remains `https://api.paymongo.com/v1` for both modes. The old `PAYMONGO_SECRET_KEY` and `PAYMONGO_WEBHOOK_SECRET` variables remain supported as a compatibility fallback.
 
 The production deployment workflow reads the five PayMongo values from the GitHub `production` Environment secrets and securely synchronizes them to this server `.env` over SSH. Configure `PAYMONGO_MODE`, `PAYMONGO_SANDBOX_SECRET_KEY`, `PAYMONGO_SANDBOX_WEBHOOK_SECRET`, `PAYMONGO_LIVE_SECRET_KEY`, and `PAYMONGO_LIVE_WEBHOOK_SECRET` as protected Environment secrets. The workflow does not print their values.
 
-The production deployment workflow also requires `FCM_PROJECT_ID`, `FCM_CLIENT_EMAIL`, and `FCM_PRIVATE_KEY` in the GitHub `production` Environment. Create these from a Firebase service-account key: use the Firebase project ID, the service account's `client_email`, and its `private_key`. Keep the private key out of the repository. The workflow writes the key into the server `.env`, validates all three values, and refuses to restart the API when the configuration is missing or malformed. Store the private key as one value with its `\\n` line breaks preserved.
+The production deployment workflow requires both the production FCM values (`FCM_PROJECT_ID`, `FCM_CLIENT_EMAIL`, `FCM_PRIVATE_KEY`) and the Sandbox values (`FCM_SANDBOX_PROJECT_ID`, `FCM_SANDBOX_CLIENT_EMAIL`, `FCM_SANDBOX_PRIVATE_KEY`) in the GitHub `production` Environment. Create each pair from the matching Firebase project's service-account key: use the project ID, the service account's `client_email`, and its `private_key`. Keep private keys out of the repository. The workflow writes both configurations into the server `.env`, validates them, and refuses to restart the API when either configuration is missing or malformed. Store each private key as one secret with its `\\n` line breaks preserved.
+
+The Developer Portal reads `SANDBOX_TESTFLIGHT_PUBLIC_URL` only for authenticated project members. Set it to the public invitation URL created for the Sandbox external TestFlight group in App Store Connect, and add the same value as a protected `SANDBOX_TESTFLIGHT_PUBLIC_URL` secret in the GitHub `production` Environment. The deployment workflow validates the Apple TestFlight host and `/join/` path without printing the URL.
+
+The Developer Portal reads `SANDBOX_ANDROID_GOOGLE_PLAY_PUBLIC_URL` only for authenticated project members. Set it to the published Google Play tester opt-in URL for the Sandbox package (`https://play.google.com/apps/testing/com.getprio.getprioMobile.android.sandbox`) and add it as a protected `SANDBOX_ANDROID_GOOGLE_PLAY_PUBLIC_URL` secret in the GitHub `production` Environment. The deployment workflow validates the host, opt-in path, and exact Sandbox package without printing the URL. Play upload credentials remain in the mobile CI environment; developers only receive the tester link.
 
 B2_S3_ENDPOINT=
 B2_REGION=us-east-005
@@ -215,7 +238,7 @@ OAuth deployment checklist:
    - `https://api.getprio.online/api/auth/oauth/google/callback`
    - `https://api.getprio.online/api/auth/oauth/facebook/callback`
 3. Set `SERVER_URL` to the API origin and `APP_BASE_URL` to the frontend origin.
-4. Populate `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `FACEBOOK_APP_ID`, and `FACEBOOK_APP_SECRET`.
+4. Populate the configured provider credentials, including `APPLE_CLIENT_ID`, `APPLE_TEAM_ID`, `APPLE_KEY_ID`, and `APPLE_PRIVATE_KEY` when Sign in with Apple is enabled. Store the `.p8` value as a secret with its newlines preserved.
 5. Verify `GET /api/auth/oauth/providers` returns the providers you intend to expose.
 6. Test `GET /api/auth/oauth/:provider/start` and the callback flow with a real provider account.
 
@@ -275,7 +298,7 @@ Create `/etc/nginx/sites-available/getprio`:
 ```nginx
 server {
   listen 80;
-  server_name getprio.online;
+  server_name app.getprio.online;
 
   root /var/www/getprio/frontend/dist;
   index index.html;
@@ -284,6 +307,18 @@ server {
     default_type application/json;
     try_files $uri =404;
   }
+
+  location / {
+    try_files $uri $uri/ /index.html;
+  }
+}
+
+server {
+  listen 80;
+  server_name developers.getprio.online;
+
+  root /var/www/getprio/developer-portal/dist;
+  index index.html;
 
   location / {
     try_files $uri $uri/ /index.html;
@@ -304,12 +339,14 @@ server {
 
 server {
   listen 80;
-  server_name api.getprio.online;
+  server_name api.getprio.online sandbox-api.getprio.online;
 
   location / {
     proxy_pass http://127.0.0.1:5000;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
+    # The backend uses this ingress-controlled value for Sandbox test-account isolation.
+    proxy_set_header X-GetPrio-Ingress-Host $host;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
@@ -336,7 +373,7 @@ Install Certbot:
 
 ```bash
 apt install -y certbot python3-certbot-nginx
-certbot --nginx -d getprio.online -d platform.getprio.online -d api.getprio.online
+certbot --nginx -d getprio.online -d developers.getprio.online -d platform.getprio.online -d api.getprio.online -d sandbox-api.getprio.online
 ```
 
 ## 10. Payment Webhook URLs

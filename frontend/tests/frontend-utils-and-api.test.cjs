@@ -777,6 +777,7 @@ test("vendor media uploads send image bytes only to the authenticated API", asyn
   const file = new Blob(["image"], { type: "image/png" });
 
   await withFetch(async (url, options) => {
+    if (String(url).endsWith("/public/upload-policy")) return mockResponse(200, { maxImageUploadKb: 200, maxImageUploadBytes: 204800 });
     calls.push([String(url), options]);
     return mockResponse(201, { asset: { id: "asset-1" } });
   }, async () => {
@@ -798,6 +799,7 @@ test("customer image and proof uploads use cookie authentication with binary bod
   });
 
   await withFetch(async (url, options) => {
+    if (String(url).endsWith("/public/upload-policy")) return mockResponse(200, { maxImageUploadKb: 200, maxImageUploadBytes: 204800 });
     calls.push([String(url), options]);
     return mockResponse(201, {
       user: { id: "customer-1" },
@@ -958,6 +960,9 @@ test("subscription plans load independently when dashboard bootstrap fails", asy
   assert.match(dashboardSource, /const visiblePlans = billing\.plans\.filter\(\(plan\) => !paidOnly \|\| plan\.slug !== "free"\)/);
   assert.match(dashboardSource, /md: Math\.min\(visiblePlans\.length, 4\)/);
   assert.match(dashboardSource, /className="subscription-plan-modal"[\s\S]*?size="90rem"/);
+  assert.match(dashboardSource, /Manual via QRPh/);
+  assert.match(dashboardSource, /Automatic recurring[\s\S]*disabled: true/);
+  assert.match(dashboardSource, /billingMode: billingPaymentMode/);
 });
 
 test("web app metadata points crawlers and installed apps at committed assets", () => {
@@ -2160,7 +2165,7 @@ test("customer settings upload and preview a campaign profile photo", () => {
   const app = fs.readFileSync(path.join(frontendRoot, "src", "App.tsx"), "utf8");
 
   assert.match(account, /accept="image\/jpeg,image\/png,image\/webp"/);
-  assert.match(account, /file\.size > 5 \* 1024 \* 1024/);
+  assert.match(account, /Maximum \$\{maxImageUploadKb\} KB/);
   assert.match(account, /customerAccountApi\.uploadAvatar\(token, avatarFile\)/);
   assert.match(account, /src=\{avatarPreviewUrl \|\| accountUser\?\.avatarUrl \|\| undefined\}/);
   assert.match(api, /\/account\/profile\/avatar\?fileName=/);
@@ -2748,7 +2753,8 @@ test("landing pricing uses the server-owned four-plan tier list", () => {
   assert.match(source, /apiRequest<BillingOverviewResponse>\("\/billing\/plans"\)/);
   assert.match(source, /free: "\/illustrations\/generated\/pricing-economical-transparent\.png"/);
   assert.match(source, /cols=\{\{ base: 1, sm: 2, xl: 4 \}\}/);
-  assert.match(source, /plan\.included\.map/);
+  assert.match(source, /<PricingHighlights/);
+  assert.doesNotMatch(source, /plan\.included\.map/);
   assert.match(source, /className="prio-price-currency"/);
   assert.match(source, /className="prio-price-amount"/);
   assert.match(source, /className="prio-price-period">\/mo/);
@@ -2758,6 +2764,29 @@ test("landing pricing uses the server-owned four-plan tier list", () => {
   assert.match(source, /plan\.slug === "free" \? "Start free"/);
   assert.doesNotMatch(source, /const pricingPlans = \[/);
   assert.doesNotMatch(source, /"500 tickets\/mo"/);
+});
+
+test("pricing highlights follow current entitlements instead of stale marketing copy", () => {
+  const { getPlanHighlights } = require("../src/utils/subscriptionPlans.ts");
+  const plan = {
+    included: ["1 vendor seat", "500 tickets/mo", "100 transactional emails/mo"],
+    entitlements: {
+      locations: 1, counters: 1, staffSeats: 2, monthlyTickets: 1000,
+      monthlyQueueEmailJourneys: 1000, monthlyTransactionalEmails: 100,
+      monthlyServiceBookings: 100, serviceBookingAccess: true,
+      historyDays: 30, qrJoinPage: true, publicQueueBoard: true
+    }
+  };
+  const highlights = getPlanHighlights(plan);
+  for (const text of ["2 staff seats", "1,000 Queue Tickets/mo", "1,000 Queue Email Journeys/mo", "100 service bookings/mo"]) {
+    assert.ok(highlights.includes(text), text);
+  }
+  for (const stale of plan.included) assert.ok(!highlights.includes(stale));
+  assert.ok(highlights.indexOf("QR join page") < highlights.indexOf("GetPrio-branded public queue page"));
+  const changed = getPlanHighlights({ ...plan, allowances: { queueTickets: 8000, queueEmailJourneys: 0, serviceBookings: 250 } });
+  assert.ok(changed.includes("8,000 Queue Tickets/mo"));
+  assert.ok(changed.includes("0 Queue Email Journeys/mo"));
+  assert.ok(changed.includes("250 service bookings/mo"));
 });
 
 test("enterprise inquiries use protected intake and a bounded autosizing message", () => {
@@ -2790,4 +2819,22 @@ test("vendor usage cards report queue email journeys instead of legacy deliverie
   assert.match(bootstrap, /getCapacityExperience/);
   assert.match(bootstrap, /\/billing\/capabilities/);
   assert.match(bootstrap, /\/billing\/tenant\/\$\{tenantSlug\}\/capacity/);
+});
+
+
+test("image preflight rejects oversized files before POST and rechecks a changed policy", async () => {
+  let limit = 200;
+  let uploads = 0;
+  await withFetch(async (url) => {
+    if (String(url).endsWith("/public/upload-policy")) return mockResponse(200, { maxImageUploadKb: limit, maxImageUploadBytes: limit * 1024 });
+    uploads += 1;
+    return mockResponse(201, { uploaded: true });
+  }, async () => {
+    const body = new Blob([new Uint8Array(204801)], { type: "image/png" });
+    await assert.rejects(apiUpload("/vendor/upload", { body, contentType: "image/png" }), /200 KB/);
+    assert.equal(uploads, 0);
+    limit = 300;
+    await apiUpload("/vendor/upload", { body, contentType: "image/png" });
+    assert.equal(uploads, 1);
+  });
 });

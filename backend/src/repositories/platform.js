@@ -1,3 +1,4 @@
+const { DEFAULT_IMAGE_UPLOAD_KB, isValidImageUploadLimit } = require("../utils/imageUploadLimit");
 const db = require("../config/db");
 const { mapPayment } = require("./queueJoinPayments");
 
@@ -315,6 +316,11 @@ async function upsertSetting({ key, value, userId }, options = {}) {
   return result.rows[0];
 }
 
+async function getImageUploadLimitKb(options = {}) {
+  const value = Number(await getSetting("max_image_upload_kb", String(DEFAULT_IMAGE_UPLOAD_KB), options));
+  return isValidImageUploadLimit(value) ? value : DEFAULT_IMAGE_UPLOAD_KB;
+}
+
 async function getPlatformSettings(options = {}) {
   const rawMobileApprovedHosts = await getSetting("mobile_approved_hosts", "", options);
   let mobileApprovedHosts = [];
@@ -338,11 +344,12 @@ async function getPlatformSettings(options = {}) {
       "Asia/Manila",
       options
     ),
-    mobileApprovedHosts
+    mobileApprovedHosts,
+    maxImageUploadKb: await getImageUploadLimitKb(options)
   };
 }
 
-async function updatePlatformSettings({ enterpriseInquiryEmail, defaultTimezone, mobileApprovedHosts, userId }, options = {}) {
+async function updatePlatformSettings({ enterpriseInquiryEmail, defaultTimezone, mobileApprovedHosts, maxImageUploadKb, userId }, options = {}) {
   await upsertSetting({
     key: "enterprise_inquiry_email",
     value: enterpriseInquiryEmail,
@@ -361,6 +368,9 @@ async function updatePlatformSettings({ enterpriseInquiryEmail, defaultTimezone,
     }, options);
   }
 
+  if (maxImageUploadKb !== undefined) {
+    await upsertSetting({ key: "max_image_upload_kb", value: String(maxImageUploadKb), userId }, options);
+  }
   return getPlatformSettings(options);
 }
 
@@ -372,6 +382,7 @@ module.exports = {
   listSubscriptions,
   listBillingEvents,
   listRecentPayments,
+  getImageUploadLimitKb,
   getPlatformSettings,
   updatePlatformSettings
 };

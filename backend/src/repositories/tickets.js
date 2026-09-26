@@ -12,6 +12,9 @@ const TICKET_COLUMNS = `
   date_key,
   queue_date_key,
   lookup_code,
+  developer_project_id,
+  developer_environment,
+  external_reference,
   customer_name,
   customer_email,
   customer_phone,
@@ -63,6 +66,9 @@ function mapTicket(row) {
     dateKey: row.date_key,
     queueDateKey: row.queue_date_key,
     lookupCode: row.lookup_code,
+    developerProjectId: row.developer_project_id ? String(row.developer_project_id) : null,
+    developerEnvironment: row.developer_environment || null,
+    externalReference: row.external_reference || null,
     customerName: row.customer_name,
     customerDisplayName: row.customer_display_name || "",
     customerEmail: row.customer_email,
@@ -145,6 +151,9 @@ async function createTicket(data, options = {}) {
         date_key,
         queue_date_key,
         lookup_code,
+        developer_project_id,
+        developer_environment,
+        external_reference,
         customer_name,
         customer_email,
         customer_phone,
@@ -160,7 +169,7 @@ async function createTicket(data, options = {}) {
         original_queue_day_id,
         current_queue_day_id
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
       RETURNING ${TICKET_COLUMNS}
     `,
     [
@@ -172,6 +181,9 @@ async function createTicket(data, options = {}) {
       data.dateKey,
       data.dateKey,
       data.lookupCode,
+      data.developerProjectId || null,
+      data.developerEnvironment || null,
+      data.externalReference || null,
       data.customerName,
       data.customerEmail || null,
       data.customerPhone || null,
@@ -206,6 +218,156 @@ async function findTicketById(ticketId, options = {}) {
   const queryClient = buildQueryClient(options.client);
   const result = await queryClient.query(
     `SELECT ${TICKET_COLUMNS} FROM tickets WHERE id = $1 LIMIT 1`,
+    [Number(ticketId)]
+  );
+
+  return mapTicket(result.rows[0]);
+}
+
+async function findMobileTicketForUser(ticketId, userId, options = {}) {
+  const result = await buildQueryClient(options.client).query(
+    `SELECT tickets.*, tenants.name AS tenant_name, tenants.slug AS tenant_slug,
+            store_locations.name AS location_name, store_locations.slug AS location_slug
+       FROM tickets
+       INNER JOIN tenants ON tenants.id = tickets.tenant_id
+       INNER JOIN store_locations ON store_locations.id = tickets.location_id
+      WHERE tickets.id = $1 AND tickets.user_id = $2
+      LIMIT 1`,
+    [Number(ticketId), Number(userId)]
+  );
+  const row = result.rows[0];
+  return row ? {
+    ...mapTicket(row),
+    tenantName: row.tenant_name,
+    tenantSlug: row.tenant_slug,
+    locationName: row.location_name,
+    locationSlug: row.location_slug
+  } : null;
+}
+
+async function listMobileTicketsForUser(userId, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const values = [Number(userId)];
+  const conditions = ["tickets.user_id = $1"];
+  if (options.environment === "sandbox") {
+    conditions.push("tickets.developer_project_id IS NOT NULL", "tickets.developer_environment = 'sandbox'");
+  } else if (options.environment === "production") {
+    conditions.push("tickets.developer_environment IS DISTINCT FROM 'sandbox'");
+  }
+  if (options.view === "active") {
+    conditions.push("tickets.status IN ('waiting', 'called', 'skipped', 'pending_carry_over')");
+  } else {
+    conditions.push("tickets.status NOT IN ('waiting', 'called', 'skipped', 'pending_carry_over')");
+  }
+  if (options.cursor) {
+    values.push(options.cursor.createdAt, Number(options.cursor.id));
+    conditions.push(`(tickets.created_at, tickets.id) < ($${values.length - 1}, $${values.length})`);
+  }
+  const limit = Math.min(Math.max(Number(options.limit) || 20, 1), 50);
+  values.push(limit + 1);
+  const result = await queryClient.query(
+    `SELECT tickets.*, tenants.name AS tenant_name, tenants.slug AS tenant_slug,
+            store_locations.name AS location_name, store_locations.slug AS location_slug
+       FROM tickets
+       INNER JOIN tenants ON tenants.id = tickets.tenant_id
+       INNER JOIN store_locations ON store_locations.id = tickets.location_id
+      WHERE ${conditions.join(" AND ")}
+      ORDER BY tickets.created_at DESC, tickets.id DESC
+      LIMIT $${values.length}`,
+    values
+  );
+  const rows = result.rows;
+  const hasMore = rows.length > limit;
+  const page = rows.slice(0, limit).map((row) => ({
+    ...mapTicket(row),
+    tenantName: row.tenant_name,
+    tenantSlug: row.tenant_slug,
+    locationName: row.location_name,
+    locationSlug: row.location_slug
+  }));
+  const last = page[page.length - 1];
+  return {
+    tickets: page,
+    nextCursor: hasMore && last ? { createdAt: last.createdAt, id: last._id } : null
+  };
+}
+
+function mapDeveloperMobileTicket(row) {
+  if (!row) return null;
+  return {
+    _id: String(row.id),
+    tenantId: null,
+    locationId: null,
+    userId: row.linked_user_id ? String(row.linked_user_id) : null,
+    ticketNumber: row.ticket_number,
+    sequence: row.sequence,
+    displayLabel: row.display_label || row.ticket_number,
+    status: row.status,
+    statusReason: row.status_reason || null,
+    developerProjectId: row.developer_project_id ? String(row.developer_project_id) : null,
+    developerEnvironment: row.environment,
+    queueId: row.developer_api_queue_id ? String(row.developer_api_queue_id) : null,
+    externalReference: row.external_reference || null,
+    verificationCode: row.verification_code || null,
+    customerConfirmedAt: row.customer_confirmed_at || null,
+    profileName: row.profile_display_name || null,
+    queueName: row.queue_display_name || null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    isDeveloperApiTicket: true
+  };
+}
+
+async function listDeveloperTicketsForUser(userId, options = {}) {
+  const statusClause = options.view === "history"
+    ? "ticket.status NOT IN ('waiting', 'called', 'skipped')"
+    : "ticket.status IN ('waiting', 'called', 'skipped')";
+  const result = await buildQueryClient(options.client).query(
+    `SELECT ticket.id, ticket.developer_project_id, ticket.environment,
+            ticket.developer_api_queue_id,
+            ticket.ticket_number, ticket.sequence, ticket.display_label,
+            ticket.external_reference, ticket.verification_code, ticket.customer_confirmed_at,
+            ticket.status, ticket.status_reason,
+            ticket.linked_user_id, ticket.created_at, ticket.updated_at,
+            profile.display_name AS profile_display_name,
+            queue.display_name AS queue_display_name
+       FROM developer_api_tickets AS ticket
+       INNER JOIN developer_api_profiles AS profile ON profile.id = ticket.developer_api_profile_id
+       INNER JOIN developer_api_queues AS queue ON queue.id = ticket.developer_api_queue_id
+      WHERE ticket.linked_user_id = $1
+        AND ticket.environment = $2
+        AND ${statusClause}
+      ORDER BY ticket.created_at DESC, ticket.id DESC
+      LIMIT $3`,
+    [Number(userId), options.environment === "sandbox" ? "sandbox" : "production", Math.min(Math.max(Number(options.limit) || 20, 1), 50)]
+  );
+  return { tickets: result.rows.map(mapDeveloperMobileTicket), nextCursor: null };
+}
+
+async function findDeveloperTicketForUser(ticketId, userId, options = {}) {
+  const result = await buildQueryClient(options.client).query(
+    `SELECT ticket.id, ticket.developer_project_id, ticket.environment,
+            ticket.developer_api_queue_id,
+            ticket.ticket_number, ticket.sequence, ticket.display_label,
+            ticket.external_reference, ticket.verification_code, ticket.customer_confirmed_at,
+            ticket.status, ticket.status_reason,
+            ticket.linked_user_id, ticket.created_at, ticket.updated_at,
+            profile.display_name AS profile_display_name,
+            queue.display_name AS queue_display_name
+       FROM developer_api_tickets AS ticket
+       INNER JOIN developer_api_profiles AS profile ON profile.id = ticket.developer_api_profile_id
+       INNER JOIN developer_api_queues AS queue ON queue.id = ticket.developer_api_queue_id
+      WHERE ticket.id = $1 AND ticket.linked_user_id = $2
+      LIMIT 1`,
+    [String(ticketId), Number(userId)]
+  );
+  return mapDeveloperMobileTicket(result.rows[0]);
+}
+
+async function findTicketByIdForUpdate(ticketId, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const result = await queryClient.query(
+    `SELECT ${TICKET_COLUMNS} FROM tickets WHERE id = $1 LIMIT 1 FOR UPDATE`,
     [Number(ticketId)]
   );
 
@@ -958,6 +1120,11 @@ module.exports = {
   mapTicket,
   createTicket,
   findTicketById,
+  findMobileTicketForUser,
+  listMobileTicketsForUser,
+  listDeveloperTicketsForUser,
+  findDeveloperTicketForUser,
+  findTicketByIdForUpdate,
   findTicketByLookupCode,
   findTicketByTenantAndLookupCode,
   listWaitingTickets,

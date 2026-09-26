@@ -30,6 +30,9 @@ import JoinedQueuePage from "./pages/JoinedQueuePage";
 import PaymentReturnPage from "./pages/PaymentReturnPage";
 import TermsPage from "./pages/TermsPage";
 import NotFoundPage from "./pages/NotFoundPage";
+import DeveloperPortalPage from "./pages/DeveloperPortalPage";
+import DeveloperReferencePage from "./pages/DeveloperReferencePage";
+import DeveloperPortalPrototype from "./pages/prototypes/DeveloperPortalPrototype";
 import SiteFooter from "./components/SiteFooter";
 import CustomerAccountLayout from "./components/CustomerAccountLayout";
 import {
@@ -330,6 +333,23 @@ function ScrollToTop() {
 }
 
 export default function App() {
+  const isDeveloperHostname = typeof window !== "undefined" && ["developers.getprio.online"].includes(window.location.hostname);
+  const isLocalPrototypePreview = import.meta.env.DEV && typeof window !== "undefined" && window.location.pathname === "/prototype";
+
+  if (isDeveloperHostname || isLocalPrototypePreview) {
+    if (typeof window !== "undefined" && window.location.pathname === "/prototype") {
+      return <DeveloperPortalPrototype />;
+    }
+    if (
+      typeof window !== "undefined" &&
+      (window.location.pathname === "/reference" ||
+        ["/docs/reference", "/reference/", "/docs/reference/"].includes(window.location.pathname))
+    ) {
+      return <DeveloperReferencePage />;
+    }
+    return <DeveloperPortalPage />;
+  }
+
   return (
     <>
       <ScrollToTop />

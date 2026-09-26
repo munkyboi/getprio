@@ -89,6 +89,37 @@ function formatPlanResponse(plan) {
   };
 }
 
+function normalizeCheckoutBillingOptions({ billingMode, paymentMethod } = {}) {
+  const hasExplicitMode = billingMode !== undefined || paymentMethod !== undefined;
+  const normalizedMode = String(billingMode || (hasExplicitMode ? "manual" : "legacy")).toLowerCase();
+  const normalizedMethod = String(paymentMethod || (normalizedMode === "manual" ? "qrph" : "")).toLowerCase();
+
+  if (!["manual", "automatic", "legacy"].includes(normalizedMode)) {
+    throw Object.assign(new Error("Unknown subscription payment mode."), { statusCode: 400, code: "BILLING_MODE_INVALID" });
+  }
+
+  if (normalizedMode === "manual" && normalizedMethod !== "qrph") {
+    throw Object.assign(new Error("Manual subscription payments currently use QRPh."), { statusCode: 400, code: "PAYMENT_METHOD_INVALID" });
+  }
+
+  if (normalizedMode === "automatic") {
+    if (!["card", "maya"].includes(normalizedMethod)) {
+      throw Object.assign(new Error("Automatic recurring payments support card or Maya."), { statusCode: 400, code: "PAYMENT_METHOD_INVALID" });
+    }
+
+    throw Object.assign(
+      new Error("Automatic recurring payments are not enabled for this PayMongo account yet."),
+      { statusCode: 503, code: "PAYMONGO_SUBSCRIPTIONS_UNAVAILABLE" }
+    );
+  }
+
+  return {
+    billingMode: normalizedMode,
+    paymentMethod: normalizedMethod || null,
+    paymentMethodTypes: normalizedMode === "manual" ? ["qrph"] : env.paymongoPaymentMethodTypes
+  };
+}
+
 async function buildSubscriptionResponse(subscription) {
   if (!subscription) {
     return null;
@@ -102,6 +133,8 @@ async function buildSubscriptionResponse(subscription) {
     planName: plan?.name || subscription.planSlug,
     status: subscription.status,
     provider: subscription.provider,
+    billingMode: subscription.metadata?.billingMode || "legacy",
+    paymentMethod: subscription.metadata?.paymentMethod || null,
     billingInterval: subscription.billingInterval,
     currentPeriodStart: subscription.currentPeriodStart,
     currentPeriodEnd: subscription.currentPeriodEnd,
@@ -167,8 +200,11 @@ async function createPayMongoCheckout({
   user,
   planSlug,
   billingInterval = "monthly",
+  billingMode,
+  paymentMethod,
   requestOrigin
 }) {
+  const billingOptions = normalizeCheckoutBillingOptions({ billingMode, paymentMethod });
   const currentSubscription = await billingRepository.getActiveSubscriptionByTenantId(tenant._id);
   if (["past_due", "unpaid", "suspended"].includes(currentSubscription?.status)) throw Object.assign(new Error("Please resolve the current subscription balance before starting a new plan checkout."), { statusCode: 409, code: "SUBSCRIPTION_RESTRICTED" });
   const plan = await findPlanBySlug(planSlug);
@@ -179,7 +215,8 @@ async function createPayMongoCheckout({
   }
   if (currentSubscription?.status === "active") {
     const currentPlan = await findPlanBySlug(currentSubscription.planSlug);
-    if (currentPlan && Number(plan.sortOrder) <= Number(currentPlan.sortOrder)) throw Object.assign(new Error("Use a scheduled plan transition for a downgrade or paid-plan exit."), { statusCode: 409, code: "SUBSCRIPTION_TRANSITION_REQUIRED" });
+    const isManualRenewal = billingOptions.billingMode === "manual" && plan.slug === currentSubscription.planSlug;
+    if (currentPlan && Number(plan.sortOrder) <= Number(currentPlan.sortOrder) && !isManualRenewal) throw Object.assign(new Error("Use a scheduled plan transition for a downgrade or paid-plan exit."), { statusCode: 409, code: "SUBSCRIPTION_TRANSITION_REQUIRED" });
   }
 
   if (!plan.checkoutEnabled) {
@@ -217,6 +254,8 @@ async function createPayMongoCheckout({
       planSlug: plan.slug,
       userId: String(user._id),
       billingInterval,
+      billingMode: billingOptions.billingMode,
+      paymentMethod: billingOptions.paymentMethod,
       expectedSubscriptionId: currentSubscription?._id || null,
       expectedPlanSlug: currentSubscription?.planSlug || null
     }
@@ -237,13 +276,15 @@ async function createPayMongoCheckout({
             description: plan.included.join(", ")
           }
         ],
-        payment_method_types: env.paymongoPaymentMethodTypes,
+        payment_method_types: billingOptions.paymentMethodTypes,
         metadata: {
           localCheckoutId: checkout._id,
           tenantId: String(tenant._id),
           tenantSlug: tenant.slug,
           planSlug: plan.slug,
-          billingInterval
+          billingInterval,
+          billingMode: billingOptions.billingMode,
+          paymentMethod: billingOptions.paymentMethod
         },
         send_email_receipt: true,
         show_description: true,
@@ -302,6 +343,8 @@ async function createPayMongoCheckout({
       status: updatedCheckout.status,
       planSlug: updatedCheckout.planSlug,
       billingInterval,
+      billingMode: billingOptions.billingMode,
+      paymentMethod: billingOptions.paymentMethod,
       amountCents: updatedCheckout.amountCents,
       currency: updatedCheckout.currency
     }
@@ -439,6 +482,8 @@ async function activateCheckoutSession(checkout, providerCheckoutSessionId, paym
       currentPeriodEnd: addMonths(now, checkout.metadata?.billingInterval === "annual" ? 12 : 1),
       entitlements: plan.entitlements,
       metadata: {
+        billingMode: checkout.metadata?.billingMode || "legacy",
+        paymentMethod: checkout.metadata?.paymentMethod || null,
         providerPaymentId,
         paidAt: normalizeProviderTimestamp(paymentAttributes.paid_at),
         amount: paymentAttributes.amount || checkout.amountCents,

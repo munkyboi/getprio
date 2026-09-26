@@ -70,6 +70,14 @@ async function findCounterByLocationAndSlug(locationId, slug, options = {}) {
   return mapCounter(result.rows[0]);
 }
 
+async function findCounterById(counterId, options = {}) {
+  const result = await buildQueryClient(options.client).query(
+    `SELECT * FROM service_counters WHERE id = $1 LIMIT 1`,
+    [Number(counterId)]
+  );
+  return result.rows[0] ? mapCounter({ ...result.rows[0], assigned_user_ids: [] }) : null;
+}
+
 async function isCounterSlugAvailable(locationId, slug, excludeCounterId = null, options = {}) {
   const source = String(slug || "").trim().toLowerCase();
   let normalizedSlug = "";
@@ -184,6 +192,7 @@ async function removeAssignmentsForUserAndTenant(userId, tenantId, options = {})
 module.exports = {
   listCountersByLocationId,
   findCounterByLocationAndSlug,
+  findCounterById,
   isCounterSlugAvailable,
   createCounter,
   updateCounter,

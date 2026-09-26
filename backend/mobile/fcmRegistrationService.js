@@ -5,34 +5,82 @@ const repository = require("./pushRegistrationRepository");
 
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging";
+const FCM_REQUEST_TIMEOUT_MS = 15_000;
+const FCM_DISPATCH_TIMEOUT_MS = 60_000;
 let accessTokenCache = null;
 
-function isConfigured() {
-  return Boolean(env.fcmProjectId && env.fcmClientEmail && env.fcmPrivateKey);
+function configForEnvironment(environment = "production") {
+  if (environment === "sandbox") {
+    return {
+      projectId: env.fcmSandboxProjectId || "",
+      clientEmail: env.fcmSandboxClientEmail || "",
+      privateKey: env.fcmSandboxPrivateKey || ""
+    };
+  }
+  return {
+    projectId: env.fcmProjectId || "",
+    clientEmail: env.fcmClientEmail || "",
+    privateKey: env.fcmPrivateKey || ""
+  };
 }
 
-async function getAccessToken() {
-  if (accessTokenCache && accessTokenCache.expiresAt > Date.now() + 60_000) {
+function isConfigured(environment = "production") {
+  const config = configForEnvironment(environment);
+  return Boolean(config.projectId && config.clientEmail && config.privateKey);
+}
+
+function timeoutError() {
+  const error = new Error("FCM request timed out.");
+  error.statusCode = 504;
+  return error;
+}
+
+async function fetchWithDeadline(url, options, deadline) {
+  const remainingMs = Math.min(FCM_REQUEST_TIMEOUT_MS, deadline - Date.now());
+  if (remainingMs <= 0) {
+    throw timeoutError();
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), remainingMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw timeoutError();
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function getAccessToken(config, deadline) {
+  const cacheKey = `${config.projectId}:${config.clientEmail}`;
+  if (
+    accessTokenCache?.key === cacheKey &&
+    accessTokenCache.expiresAt > Date.now() + 60_000
+  ) {
     return accessTokenCache.value;
   }
   const now = Math.floor(Date.now() / 1000);
   const assertion = jwt.sign(
-    { iss: env.fcmClientEmail, scope: FCM_SCOPE, aud: GOOGLE_TOKEN_URL, iat: now, exp: now + 3600 },
-    env.fcmPrivateKey,
+    { iss: config.clientEmail, scope: FCM_SCOPE, aud: GOOGLE_TOKEN_URL, iat: now, exp: now + 3600 },
+    config.privateKey,
     { algorithm: "RS256" }
   );
-  const response = await fetch(GOOGLE_TOKEN_URL, {
+  const response = await fetchWithDeadline(GOOGLE_TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion })
-  });
+  }, deadline);
   const data = await response.json().catch(() => ({}));
   if (!response.ok || !data.access_token) {
     const error = new Error(data.error_description || "Unable to obtain the Firebase messaging access token.");
     error.statusCode = 502;
     throw error;
   }
-  accessTokenCache = { value: data.access_token, expiresAt: Date.now() + Number(data.expires_in || 3600) * 1000 };
+  accessTokenCache = { key: cacheKey, value: data.access_token, expiresAt: Date.now() + Number(data.expires_in || 3600) * 1000 };
   return accessTokenCache.value;
 }
 
@@ -42,28 +90,50 @@ function buildData(payload) {
       eventType: payload.eventType,
       notificationId: payload.notificationId,
       ticketRef: payload.ticketRef,
-      route: payload.url,
+      route: payload.route || payload.url,
       tag: payload.tag
     }).filter(([, value]) => value !== undefined && value !== null).map(([key, value]) => [key, String(value)])
   );
 }
 
-async function send(registration, payload) {
-  if (!isConfigured()) return false;
-  const accessToken = await getAccessToken();
-  const response = await fetch(`https://fcm.googleapis.com/v1/projects/${encodeURIComponent(env.fcmProjectId)}/messages:send`, {
+function collapseId(payload) {
+  return String(payload.collapseId || payload.notificationId || payload.tag || "getprio-queue").slice(0, 64);
+}
+
+async function send(registration, payload, deadline, config) {
+  if (!config.projectId || !config.clientEmail || !config.privateKey) return false;
+  const accessToken = await getAccessToken(config, deadline);
+  const collapseKey = collapseId(payload);
+  const message = {
+    token: registration.token,
+    data: buildData(payload),
+    android: { priority: "high", collapseKey },
+    apns: payload.silent
+      ? {
+          headers: {
+            "apns-push-type": "background",
+            "apns-priority": "5",
+            "apns-collapse-id": collapseKey
+          },
+          payload: { aps: { "content-available": 1 } }
+        }
+      : {
+          headers: {
+            "apns-push-type": "alert",
+            "apns-priority": "10",
+            "apns-collapse-id": collapseKey
+          },
+          payload: { aps: { sound: "default" } }
+        }
+  };
+  if (!payload.silent) {
+    message.notification = { title: payload.title, body: payload.body };
+  }
+  const response = await fetchWithDeadline(`https://fcm.googleapis.com/v1/projects/${encodeURIComponent(config.projectId)}/messages:send`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      message: {
-        token: registration.token,
-        notification: { title: payload.title, body: payload.body },
-        data: buildData(payload),
-        android: { priority: "high" },
-        apns: { payload: { aps: { sound: "default" } } }
-      }
-    })
-  });
+    body: JSON.stringify({ message })
+  }, deadline);
   const data = await response.json().catch(() => ({}));
   if (response.ok) {
     await repository.recordSuccess(registration.id);
@@ -80,8 +150,9 @@ async function send(registration, payload) {
   throw error;
 }
 
-async function sendToRegistrations({ registrations = [], payload }) {
-  if (!isConfigured()) {
+async function sendToRegistrations({ registrations = [], payload, timeoutMs = FCM_DISPATCH_TIMEOUT_MS, environment = "production" }) {
+  const config = configForEnvironment(environment);
+  if (!isConfigured(environment)) {
     return {
       attempted: 0,
       sent: 0,
@@ -92,9 +163,21 @@ async function sendToRegistrations({ registrations = [], payload }) {
 
   let sent = 0;
   const outcomes = [];
+  const deadline = Date.now() + Math.max(1, Number(timeoutMs) || FCM_DISPATCH_TIMEOUT_MS);
   for (const registration of registrations) {
+    if (Date.now() >= deadline) {
+      outcomes.push({
+        registrationId: registration.id,
+        installationId: registration.installationId,
+        platform: registration.platform,
+        status: "failed",
+        statusCode: 504,
+        error: "FCM request timed out."
+      });
+      continue;
+    }
     try {
-      if (await send(registration, payload)) {
+      if (await send(registration, payload, deadline, config)) {
         sent += 1;
         outcomes.push({
           registrationId: registration.id,
@@ -118,14 +201,14 @@ async function sendToRegistrations({ registrations = [], payload }) {
   return { attempted: registrations.length, sent, configured: true, outcomes };
 }
 
-async function sendToUser({ userId, payload }) {
-  if (!isConfigured()) return { attempted: 0, sent: 0, configured: false, outcomes: [] };
+async function sendToUser({ userId, payload, environment = "production" }) {
+  if (!isConfigured(environment)) return { attempted: 0, sent: 0, configured: false, outcomes: [] };
   const registrations = await repository.listActiveByUserId(userId);
-  return sendToRegistrations({ registrations, payload });
+  return sendToRegistrations({ registrations, payload, environment });
 }
 
 function newNotificationId() {
   return crypto.randomUUID();
 }
 
-module.exports = { isConfigured, sendToRegistrations, sendToUser, newNotificationId };
+module.exports = { configForEnvironment, isConfigured, sendToRegistrations, sendToUser, newNotificationId };

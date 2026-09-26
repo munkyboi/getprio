@@ -31,6 +31,7 @@ function requireWithMocks(targetPath, mocks) {
 
 function loadService() {
   return requireWithMocks("../src/services/campaignReportAttachmentService.js", {
+    "../repositories/platform": { getImageUploadLimitKb: async () => 200 },
     "../config/env": {
       b2Region: "us-west-004",
       b2S3Endpoint: "https://s3.example.test",
@@ -78,7 +79,7 @@ test("campaign report attachment service rejects non-string request fields", asy
       body: { contentType: "image/png", fileName: "report.png" },
       fileBuffer: "not a binary upload"
     }),
-    (error) => error.statusCode === 400 && /between 1 byte and 8 mb/i.test(error.message)
+    (error) => error.statusCode === 400 && /payload must be binary/i.test(error.message)
   );
 
   assert.throws(

@@ -1,12 +1,21 @@
 const path = require("path");
 const dotenv = require("dotenv");
 const { resolveMobileQrBaseUrl } = require("./mobileQrBaseUrl");
+const { resolveDeveloperWebhookConfig } = require("./developerWebhookConfig");
+const {
+  sandboxAndroidPackageName,
+  resolveSandboxTestFlightPublicUrl,
+  resolveSandboxAndroidGooglePlayPublicUrl
+} = require("./sandboxDistributionLinks");
 
 const rootEnvPath = path.resolve(__dirname, "../../../.env");
 dotenv.config({ path: rootEnvPath });
 
 const backendEnvPath = path.resolve(__dirname, "../../.env");
 dotenv.config({ path: backendEnvPath, override: false });
+// Worktree-local overrides are ignored by git and loaded last.
+dotenv.config({ path: path.resolve(__dirname, "../../../.env.local"), override: true });
+dotenv.config({ path: path.resolve(__dirname, "../../.env.local"), override: true });
 
 const port = Number(process.env.PORT || process.env.BACKEND_PORT || 5001);
 const frontendPort = Number(process.env.FRONTEND_PORT || 5173);
@@ -16,6 +25,8 @@ const nodeEnv = process.env.NODE_ENV || "development";
 const databaseUrl =
   process.env.DATABASE_URL || "postgresql://prio:prio@127.0.0.1:5432/prio_queue";
 const databaseSsl = process.env.DATABASE_SSL === "true";
+const databaseSslCa = process.env.DATABASE_SSL_CA || "";
+const databaseSslCaFile = process.env.DATABASE_SSL_CA_FILE || "";
 const jwtSecret = process.env.JWT_SECRET || "change-me";
 const serverUrl = process.env.SERVER_URL || `http://localhost:${port}`;
 const clientUrl = process.env.CLIENT_URL || `http://localhost:${frontendPort}`;
@@ -25,6 +36,11 @@ const mobileQrBaseUrl = resolveMobileQrBaseUrl(process.env, appBaseUrl, frontend
 const mobilePaymentReturnUrl = process.env.MOBILE_PAYMENT_RETURN_URL || "";
 const platformDashboardUrl =
   process.env.PLATFORM_DASHBOARD_URL || `http://localhost:${platformDashboardPort}`;
+const developerPortalUrl = process.env.DEVELOPER_PORTAL_URL || (
+  nodeEnv === "production" ? "https://developers.getprio.online" : "http://localhost:5174"
+);
+const sandboxTestFlightPublicUrl = resolveSandboxTestFlightPublicUrl();
+const sandboxAndroidGooglePlayPublicUrl = resolveSandboxAndroidGooglePlayPublicUrl();
 const appTimezone = process.env.APP_TIMEZONE || "Asia/Manila";
 const oauthCallbackPath = process.env.OAUTH_CALLBACK_PATH || "/oauth/callback";
 const oauthStateTtlMinutes = Number(process.env.OAUTH_STATE_TTL_MINUTES || 10);
@@ -47,6 +63,10 @@ const googleClientId = process.env.GOOGLE_CLIENT_ID || "";
 const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET || "";
 const facebookAppId = process.env.FACEBOOK_APP_ID || "";
 const facebookAppSecret = process.env.FACEBOOK_APP_SECRET || "";
+const appleClientId = process.env.APPLE_CLIENT_ID || "";
+const appleTeamId = process.env.APPLE_TEAM_ID || "";
+const appleKeyId = process.env.APPLE_KEY_ID || "";
+const applePrivateKey = (process.env.APPLE_PRIVATE_KEY || "").replace(/\\n/g, "\n");
 const smtpHost = process.env.SMTP_HOST || "";
 const smtpPort = Number(process.env.SMTP_PORT || 587);
 const smtpSecure = process.env.SMTP_SECURE === "true";
@@ -114,6 +134,9 @@ const vapidSubject = process.env.VAPID_SUBJECT || "mailto:admin@getprio.local";
 const fcmProjectId = process.env.FCM_PROJECT_ID || "";
 const fcmClientEmail = process.env.FCM_CLIENT_EMAIL || "";
 const fcmPrivateKey = (process.env.FCM_PRIVATE_KEY || "").replace(/\\n/g, "\n");
+const fcmSandboxProjectId = process.env.FCM_SANDBOX_PROJECT_ID || "";
+const fcmSandboxClientEmail = process.env.FCM_SANDBOX_CLIENT_EMAIL || "";
+const fcmSandboxPrivateKey = (process.env.FCM_SANDBOX_PRIVATE_KEY || "").replace(/\\n/g, "\n");
 const rolloutCohort = process.env.ROLLOUT_COHORT || "off";
 const csrfSecret = process.env.CSRF_SECRET || jwtSecret;
 const authCookieSecure = process.env.AUTH_COOKIE_SECURE
@@ -121,14 +144,22 @@ const authCookieSecure = process.env.AUTH_COOKIE_SECURE
   : nodeEnv === "production";
 const authBearerCompatibilityEnabled = process.env.AUTH_BEARER_COMPATIBILITY_ENABLED !== "false";
 const sessionInactivityMinutes = Number(process.env.SESSION_INACTIVITY_MINUTES || 10080);
+const developerSessionNoExpiry = nodeEnv !== "production" && process.env.DEVELOPER_SESSION_NO_EXPIRY === "true";
+const developerSessionNoExpiryDays = Number(process.env.DEVELOPER_SESSION_NO_EXPIRY_DAYS || 3650);
 const mfaEncryptionSecret = process.env.MFA_ENCRYPTION_SECRET || jwtSecret;
 const mfaRecoveryPepper = process.env.MFA_RECOVERY_PEPPER || jwtSecret;
+const developerApiKeyPepper = process.env.DEVELOPER_API_KEY_PEPPER || jwtSecret;
+const developerApiReadRateLimitPerMinute = Number(process.env.DEVELOPER_API_READ_RATE_LIMIT_PER_MINUTE || 600);
+const developerApiWriteRateLimitPerMinute = Number(process.env.DEVELOPER_API_WRITE_RATE_LIMIT_PER_MINUTE || 120);
+const developerWebhookConfig = resolveDeveloperWebhookConfig(process.env, nodeEnv);
 
 const env = {
   nodeEnv,
   port,
   databaseUrl,
   databaseSsl,
+  databaseSslCa,
+  databaseSslCaFile,
   jwtSecret,
   serverUrl,
   clientUrl,
@@ -137,6 +168,10 @@ const env = {
   mobileQrBaseUrl,
   mobilePaymentReturnUrl,
   platformDashboardUrl,
+  developerPortalUrl,
+  sandboxTestFlightPublicUrl,
+  sandboxAndroidPackageName,
+  sandboxAndroidGooglePlayPublicUrl,
   appTimezone,
   oauthCallbackPath,
   oauthStateTtlMinutes,
@@ -153,6 +188,10 @@ const env = {
   googleClientSecret,
   facebookAppId,
   facebookAppSecret,
+  appleClientId,
+  appleTeamId,
+  appleKeyId,
+  applePrivateKey,
   smtpHost,
   smtpPort,
   smtpSecure,
@@ -190,13 +229,22 @@ const env = {
   fcmProjectId,
   fcmClientEmail,
   fcmPrivateKey,
+  fcmSandboxProjectId,
+  fcmSandboxClientEmail,
+  fcmSandboxPrivateKey,
   rolloutCohort,
   csrfSecret,
   authCookieSecure,
   authBearerCompatibilityEnabled,
   sessionInactivityMinutes,
+  developerSessionNoExpiry,
+  developerSessionNoExpiryDays,
   mfaEncryptionSecret,
-  mfaRecoveryPepper
+  mfaRecoveryPepper,
+  developerApiKeyPepper,
+  developerApiReadRateLimitPerMinute,
+  developerApiWriteRateLimitPerMinute,
+  ...developerWebhookConfig
 };
 
 module.exports = env;
@@ -204,3 +252,5 @@ module.exports.default = env;
 module.exports.resolvePaymongoMode = resolvePaymongoMode;
 module.exports.resolvePaymongoCredentials = resolvePaymongoCredentials;
 module.exports.resolveMobileQrBaseUrl = resolveMobileQrBaseUrl;
+module.exports.resolveSandboxTestFlightPublicUrl = resolveSandboxTestFlightPublicUrl;
+module.exports.resolveSandboxAndroidGooglePlayPublicUrl = resolveSandboxAndroidGooglePlayPublicUrl;

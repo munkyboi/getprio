@@ -33,11 +33,13 @@ const securityRateLimitService = require("../services/securityRateLimitService")
 const { userRequiresPrivilegedMfa } = require("../services/mfaService");
 const { assertPublicTextFieldsAllowed } = require("../services/contentModeration");
 const { normalizePhilippineMobileNumber } = require("../utils/phone");
+const { assertRequestAllowed: assertSandboxTestAccountRequest } = require("../services/sandboxTestAccountAccess");
 const env = require("../config/env");
 const {
   clearBrowserSession,
   getRefreshCookie,
   issueBrowserSession,
+  restoreBrowserCsrf,
   parseCookies
 } = require("../services/browserSessionService");
 
@@ -264,6 +266,11 @@ function buildExistingAccountMessage(user) {
   return "That email is already registered.";
 }
 
+function isDeveloperOnlyIdentity(user) {
+  const roles = new Set(user?.roles || []);
+  return roles.has("developer") && !["customer", "vendor", "staff", "admin", "platform_admin"].some((role) => roles.has(role));
+}
+
 function buildFallbackName(provider, email) {
   if (email) {
     return email.split("@")[0] || `${getProviderLabel(provider)} User`;
@@ -405,7 +412,7 @@ function redirectOauthError(res, message) {
 }
 
 function getAuthMethodForProvider(provider) {
-  return provider === "google" || provider === "facebook" ? provider : "password";
+  return provider === "google" || provider === "facebook" || provider === "apple" ? provider : "password";
 }
 
 router.get("/oauth/providers", (req, res) => {
@@ -416,7 +423,6 @@ router.get("/oauth/providers", (req, res) => {
 
 router.get(
   "/username-availability",
-  maybeAuthenticate,
   asyncHandler(async (req, res) => {
     const validation = validateUsername(req.query.username);
 
@@ -430,9 +436,8 @@ router.get(
       return;
     }
 
-    const existingUser = await userRepository.findUserByUsername(validation.username, {
-      excludeId: req.user?._id
-    });
+    // Registration checks are public and must not depend on an existing browser session.
+    const existingUser = await userRepository.findUserByUsername(validation.username);
 
     res.json({
       username: validation.username,
@@ -960,6 +965,18 @@ router.post(
       error.statusCode = 401;
       throw error;
     }
+    if (isDeveloperOnlyIdentity(user)) {
+      await authService.recordLoginAttempt({
+        identifierType: loginIdentifier.identifierType,
+        identifierValue: loginIdentifier.identifierValue,
+        success: false,
+        failureReason: "invalid_surface",
+        req
+      });
+      const error = new Error("Invalid email/username or password.");
+      error.statusCode = 401;
+      throw error;
+    }
 
     const normalizedEmail = normalizeEmail(user.email);
     if (authService.isUserLocked(user)) {
@@ -993,6 +1010,10 @@ router.post(
       error.statusCode = failureResult.updatedUser?.accountLockedUntil ? 423 : 401;
       throw error;
     }
+
+    // Keep sandbox-only and expiry details behind successful credential
+    // verification so they cannot be used to enumerate test accounts.
+    assertSandboxTestAccountRequest(user, req);
 
     const updatedUser = await db.withTransaction(async (client) => {
       return authService.handleSuccessfulPasswordLogin({
@@ -1049,7 +1070,7 @@ router.post(
     }
 
     const session = await sessionService.resolveSessionByRefreshToken(refreshToken);
-    if (!session || session.status !== "active" || new Date(session.expiresAt).getTime() <= Date.now()) {
+    if (!session || (session.surface && session.surface !== "app") || session.status !== "active" || new Date(session.expiresAt).getTime() <= Date.now()) {
       const error = new Error("Refresh session is no longer valid.");
       error.statusCode = 401;
       throw error;
@@ -1061,6 +1082,7 @@ router.post(
       error.statusCode = 401;
       throw error;
     }
+    assertSandboxTestAccountRequest(user, req);
 
     const sessionResult = await sessionService.rotateRefreshSession({ session, user });
 
@@ -1297,8 +1319,12 @@ router.get(
   "/me",
   authenticate,
   asyncHandler(async (req, res) => {
+    const user = await buildUserPayload(req.user);
+    const csrfToken = restoreBrowserCsrf(req, res, { secure: env.authCookieSecure, csrfSecret: env.csrfSecret });
+    res.set("Cache-Control", "no-store");
     res.json({
-      user: await buildUserPayload(req.user),
+      user,
+      csrfToken,
       sessionExpiresAt: req.auth.session?.inactivityExpiresAt || req.auth.session?.expiresAt || null
     });
   })

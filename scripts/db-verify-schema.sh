@@ -63,6 +63,12 @@ BEGIN
       WHERE table_schema = 'public' AND table_name = 'tickets' AND column_name = 'service_priority_band'
     )
     UNION ALL
+    SELECT 'developer_api_tickets.verification_code'
+    WHERE NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='developer_api_tickets' AND column_name='verification_code')
+    UNION ALL
+    SELECT 'developer_api_tickets.customer_confirmed_at'
+    WHERE NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='developer_api_tickets' AND column_name='customer_confirmed_at')
+    UNION ALL
     SELECT 'queue_day_closures.closed_at'
     WHERE NOT EXISTS (
       SELECT 1
@@ -181,7 +187,9 @@ BEGIN
     ('entitlement_rollout_runs'),
     ('entitlement_rollout_anomalies'),
     ('mobile_push_registrations'),
-    ('mobile_oauth_codes')
+    ('mobile_oauth_codes'),
+    ('developer_webhook_registrations'),
+    ('developer_webhook_deliveries')
   ) required(table_name)
   WHERE to_regclass('public.' || table_name) IS NULL;
 

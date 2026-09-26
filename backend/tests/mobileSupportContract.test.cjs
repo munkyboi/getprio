@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const express = require("express");
+const http = require("node:http");
 
 const repositoryRoot = path.resolve(__dirname, "../..");
 
@@ -132,13 +133,32 @@ test("mobile push delivery retains tokens without exposing them in mapped respon
 test("mobile route wiring keeps OAuth and queue contracts under the mobile namespace", () => {
   const app = fs.readFileSync(path.join(repositoryRoot, "backend/src/app.ts"), "utf8");
   const oauth = fs.readFileSync(path.join(repositoryRoot, "backend/mobile/oauthRoutes.js"), "utf8");
+  const sandboxAuth = fs.readFileSync(path.join(repositoryRoot, "backend/mobile/sandboxAuthRoutes.js"), "utf8");
   const push = fs.readFileSync(path.join(repositoryRoot, "backend/mobile/pushRoutes.js"), "utf8");
   const queue = fs.readFileSync(path.join(repositoryRoot, "backend/mobile/queueJoinRoutes.js"), "utf8");
   assert.match(app, /app\.use\("\/api\/mobile\/auth", mobileOAuthRoutes\)/);
+  assert.match(app, /app\.use\("\/api\/mobile\/auth", mobileSandboxAuthRoutes\)/);
   assert.match(app, /app\.use\("\/api\/mobile\/push", mobilePushRoutes\)/);
+  assert.match(app, /app\.use\("\/api\/v1\/mobile\/auth", mobileOAuthRoutes\)/);
+  assert.match(app, /app\.use\("\/api\/v1\/mobile\/auth", mobileSandboxAuthRoutes\)/);
+  assert.match(app, /app\.use\("\/api\/v1\/mobile\/push", mobilePushRoutes\)/);
+  assert.match(app, /app\.use\("\/api\/v1\/mobile", mobileQueueJoinRoutes\)/);
+  assert.match(app, /app\.use\("\/api\/v1\/auth", authRoutes\)/);
+  assert.match(app, /app\.use\("\/api\/v1\/account", accountRoutes\)/);
+  assert.match(app, /app\.use\("\/api\/v1\/public", publicRoutes\)/);
+  assert.ok(app.indexOf('app.use("/api/mobile/auth", mobileOAuthRoutes)') < app.indexOf('app.use("/api/mobile", mobileQueueJoinRoutes)'));
+  assert.ok(app.indexOf('app.use("/api/v1/mobile/auth", mobileOAuthRoutes)') < app.indexOf('app.use("/api/v1/mobile", mobileQueueJoinRoutes)'));
+  assert.match(sandboxAuth, /router\.post\(\s*"\/login"/);
+  assert.match(sandboxAuth, /SANDBOX_HOSTS/);
   assert.match(oauth, /codeChallenge/);
   assert.match(oauth, /codeRepository\.consume/);
+  assert.match(oauth, /router\.post\(\s*"\/oauth\/apple"/);
+  assert.match(oauth, /exchangeAppleCredential/);
+  assert.match(oauth, /mfaFlowService\.issueLoginChallenge/);
   assert.match(oauth, /router\.use\(mobileOAuthLimiter\)/);
+  assert.match(oauth, /req\.baseUrl/);
+  assert.match(oauth, /exchangeCodeForProfile\(\{ provider, code, redirectUri, requestBody: req\.body \}\)/);
+  assert.match(oauth, /const redirectUri =/);
   assert.match(push, /router\.use\(mobilePushLimiter\)/);
   assert.match(queue, /router\.use\(mobileQueueLimiter\)/);
   assert.match(queue, /requireIdempotency\("mobile\.queue_join"\)/);
@@ -152,6 +172,348 @@ test("mobile paid joins configure the PayMongo return target for the app", () =>
   const queue = fs.readFileSync(path.join(repositoryRoot, "backend/mobile/queueJoinRoutes.js"), "utf8");
   assert.match(queue, /mobileReturnUrl/);
   assert.match(queue, /\/payment\/return/);
+});
+
+test("mobile ticket-link rate limiting does not throttle unrelated mobile routes", () => {
+  const ticketLinks = fs.readFileSync(
+    path.join(repositoryRoot, "backend/mobile/ticketLinkRoutes.js"),
+    "utf8"
+  );
+  assert.doesNotMatch(ticketLinks, /router\.use\(mobileTicketLinkLimiter\)/);
+  assert.match(
+    ticketLinks,
+    /router\.post\(\s*"\/ticket-links\/preview",\s*mobileTicketLinkLimiter,\s*authenticate,/
+  );
+  assert.match(
+    ticketLinks,
+    /router\.post\(\s*"\/ticket-links\/accept",\s*mobileTicketLinkLimiter,\s*authenticate,/
+  );
+});
+
+test("authenticated mobile tickets expose only owned, environment-scoped queue resources", async () => {
+  const tickets = [
+    {
+      _id: "101", tenantId: "tenant-1", locationId: "location-1", userId: "customer-7",
+      ticketNumber: "PRI-101", status: "waiting", statusReason: null, dateKey: "20260916",
+      developerProjectId: null, developerEnvironment: null, externalReference: null,
+      createdAt: "2026-09-16T00:00:00.000Z", updatedAt: "2026-09-16T00:01:00.000Z"
+    },
+    {
+      _id: "102", tenantId: "tenant-2", locationId: "location-2", userId: "customer-7",
+      ticketNumber: "SBX-102", status: "called", statusReason: null, dateKey: "20260916",
+      developerProjectId: "project-2", developerEnvironment: "sandbox", externalReference: "ext-102",
+      serviceCounterId: "counter-2", createdAt: "2026-09-15T00:00:00.000Z", updatedAt: "2026-09-15T00:01:00.000Z"
+    }
+  ];
+  const router = requireWithMocks("../mobile/ticketRoutes.js", {
+    "../src/middleware/auth": {
+      authenticate(req, _res, next) { req.user = { _id: "customer-7" }; next(); }
+    },
+    "../src/middleware/asyncHandler": (handler) => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next),
+    "../src/repositories/tickets": {
+      async listMobileTicketsForUser(_userId, options) {
+        return { tickets: options.environment === "sandbox" ? [tickets[1]] : tickets, nextCursor: null };
+      },
+      async findMobileTicketForUser(id) { return tickets.find((ticket) => ticket._id === String(id)) || null; },
+      async listWaitingTickets() { return [tickets[0]]; }
+    },
+    "../src/repositories/developerQueues": {
+      async listMobileInvitationsForUser() { return []; },
+      async acceptMobileInvitation() { return null; }
+    },
+    "../src/repositories/tenants": { async findTenantById(id) { return { _id: id, name: `Queue ${id}`, publicProfileDisplayName: `Public ${id}` }; } },
+    "../src/repositories/storeLocations": { async findLocationById(id) { return { _id: id, name: `Location ${id}`, slug: `location-${id}` }; } },
+    "../src/repositories/serviceCounters": { async findCounterById(id) { return { _id: id, locationId: "location-2", name: "Counter 2" }; } }
+  });
+  const app = express();
+  app.set("trust proxy", true);
+  app.use(express.json());
+  app.use("/api/v1/mobile", router);
+  app.use((error, _req, res, _next) => res.status(error.statusCode || 500).json({ message: error.message }));
+  const server = await new Promise((resolve) => { const nextServer = app.listen(0, () => resolve(nextServer)); });
+  try {
+    const production = await fetch(`http://127.0.0.1:${server.address().port}/api/v1/mobile/tickets?view=active`);
+    assert.equal(production.status, 200);
+    const productionBody = await production.json();
+    assert.equal(productionBody.tickets.length, 2);
+    assert.equal(productionBody.tickets[0].source, "first_party");
+    assert.equal(productionBody.tickets[0].queue_position.people_ahead, 0);
+    assert.equal(productionBody.tickets[1].called_counter.name, "Counter 2");
+    assert.equal(production.headers.get("cache-control"), "no-store");
+
+    const sandbox = await fetch(`http://127.0.0.1:${server.address().port}/api/v1/mobile/tickets`, { headers: { "x-forwarded-host": "sandbox.getprio.online" } });
+    assert.equal(sandbox.status, 200);
+    assert.equal((await sandbox.json()).tickets[0].source, "developer_api");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("mobile Sandbox tickets include independent Developer API records linked by recipient email", async () => {
+  const developerTicket = {
+    _id: "11111111-1111-4111-8111-111111111111",
+    isDeveloperApiTicket: true,
+    ticketNumber: "MAIN-0001",
+    displayLabel: "A-001",
+    status: "waiting",
+    statusReason: null,
+    developerProjectId: "project-1",
+    developerEnvironment: "sandbox",
+    queueId: "queue-1",
+    queueName: "Main queue",
+    profileName: "My EMR",
+    externalReference: "visit-1",
+    verificationCode: "AB12CD34",
+    createdAt: "2026-09-16T00:00:00.000Z",
+    updatedAt: "2026-09-16T00:00:00.000Z"
+  };
+  const calls = [];
+  const metricsCalls = [];
+  const router = requireWithMocks("../mobile/ticketRoutes.js", {
+    "../src/middleware/auth": {
+      authenticate(req, _res, next) { req.user = { _id: "customer-7", email: "sandbox@example.com" }; next(); }
+    },
+    "../src/middleware/asyncHandler": (handler) => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next),
+    "../src/repositories/tickets": {
+      async linkDeveloperTicketsForUser(userId, email) { calls.push(["link", userId, email]); },
+      async listMobileTicketsForUser() { return { tickets: [], nextCursor: null }; },
+      async listDeveloperTicketsForUser() { return { tickets: [developerTicket], nextCursor: null }; },
+      async findDeveloperTicketForUser(id, userId) { calls.push(["find", id, userId]); return developerTicket; },
+      async listWaitingTickets() { return []; }
+    },
+    "../src/repositories/tenants": {},
+    "../src/repositories/storeLocations": {},
+    "../src/repositories/serviceCounters": {},
+    "../src/repositories/developerQueues": {
+      async listMobileInvitationsForUser() { return []; },
+      async acceptMobileInvitation() { return null; },
+      async mobileQueueMetricsForTickets(queueId, ticketIds) {
+        metricsCalls.push([queueId, ticketIds]);
+        assert.equal(queueId, "queue-1");
+        assert.deepEqual(ticketIds, [developerTicket._id]);
+        return new Map([[developerTicket._id, {
+          queuePosition: { position: 2, peopleAhead: 1, asOf: "2026-09-23T00:05:00.000Z" },
+          queueLength: 3,
+          estimatedWaitMinutes: 10,
+          queueUpdatedAt: "2026-09-23T00:05:00.000Z"
+        }]]);
+      },
+      async mobileQueueMetrics(queueId, ticketId) {
+        assert.equal(queueId, "queue-1");
+        assert.equal(ticketId, developerTicket._id);
+        return {
+          queuePosition: { position: 2, peopleAhead: 1, asOf: "2026-09-23T00:05:00.000Z" },
+          queueLength: 3,
+          estimatedWaitMinutes: 10,
+          queueUpdatedAt: "2026-09-23T00:05:00.000Z"
+        };
+      }
+    }
+  });
+  const app = express();
+  app.set("trust proxy", true);
+  app.use(express.json());
+  app.use("/api/v1/mobile", router);
+  app.use((error, _req, res, _next) => res.status(error.statusCode || 500).json({ message: error.message }));
+  const server = await new Promise((resolve) => { const nextServer = app.listen(0, () => resolve(nextServer)); });
+  try {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/v1/mobile/tickets`, { headers: { "x-forwarded-host": "sandbox-api.getprio.online" } });
+    const body = await response.json();
+    assert.equal(response.status, 200, JSON.stringify(body));
+    assert.equal(body.tickets[0].id, developerTicket._id);
+    assert.equal(body.tickets[0].source, "developer_api");
+    assert.equal(body.tickets[0].profile.queue_name, "My EMR");
+    assert.equal(body.tickets[0].profile.location_name, "Main queue");
+    assert.equal(body.tickets[0].queue_position.position, 2);
+    assert.equal(body.tickets[0].queue_length, 3);
+    assert.equal(body.tickets[0].estimated_wait_minutes, 10);
+    assert.deepEqual(metricsCalls, [["queue-1", [developerTicket._id]]]);
+    assert.deepEqual(calls, []);
+
+    const detail = await fetch(`http://127.0.0.1:${server.address().port}/api/v1/mobile/tickets/${developerTicket._id}`, { headers: { "x-forwarded-host": "sandbox-api.getprio.online" } });
+    assert.equal(detail.status, 200);
+    assert.equal((await detail.json()).ticket.id, developerTicket._id);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("mobile ticket invitations are scoped by email and can be accepted", async () => {
+  const invitation = {
+    id: "123e4567-e89b-42d3-a456-426614174000",
+    ticketNumber: "QUEUE-0001",
+    displayLabel: "Johnny",
+    externalReference: "visit-1",
+    verificationCode: "AB12CD34",
+    status: "waiting",
+    environment: "sandbox",
+    profileDisplayName: "Sandbox profile",
+    queueDisplayName: "Sandbox queue",
+    queueSlug: "main",
+    queueId: "queue-1",
+    createdAt: "2026-09-22T00:00:00.000Z",
+    updatedAt: "2026-09-22T00:00:00.000Z"
+  };
+  const router = requireWithMocks("../mobile/ticketRoutes.js", {
+    "../src/middleware/auth": {
+      authenticate(req, _res, next) { req.user = { _id: "customer-7" }; next(); }
+    },
+    "../src/middleware/asyncHandler": (handler) => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next),
+    "../src/repositories/tickets": {
+      async listMobileTicketsForUser() { return { tickets: [], nextCursor: null }; },
+      async listWaitingTickets() { return []; }
+    },
+    "../src/repositories/developerQueues": {
+      async listMobileInvitationsForUser(userId, environment) {
+        assert.equal(userId, "customer-7");
+        assert.equal(environment, "sandbox");
+        return [invitation];
+      },
+      async acceptMobileInvitation(ticketId, userId, environment) {
+        assert.equal(ticketId, invitation.id);
+        assert.equal(userId, "customer-7");
+        assert.equal(environment, "sandbox");
+        return invitation;
+      }
+    },
+    "../src/repositories/tenants": { async findTenantById() { return null; } },
+    "../src/repositories/storeLocations": { async findLocationById() { return null; } },
+    "../src/repositories/serviceCounters": { async findCounterById() { return null; } }
+  });
+  const app = express();
+  app.set("trust proxy", true);
+  app.use(express.json());
+  app.use("/api/v1/mobile", router);
+  app.use((error, _req, res, _next) => res.status(error.statusCode || 500).json({ message: error.message }));
+  const server = await new Promise((resolve) => { const nextServer = app.listen(0, () => resolve(nextServer)); });
+  try {
+    const baseUrl = `http://127.0.0.1:${server.address().port}/api/v1/mobile`;
+    const pending = await fetch(`${baseUrl}/ticket-invitations`, { headers: { "x-forwarded-host": "sandbox.getprio.online" } });
+    const pendingBody = await pending.json();
+    assert.equal(pending.status, 200, JSON.stringify(pendingBody));
+    assert.deepEqual(pendingBody.invitations[0], {
+      id: invitation.id,
+      ticket_number: "QUEUE-0001",
+      source: "developer_api",
+      display_label: "Johnny",
+      external_reference: "visit-1",
+      verification_code: "AB12CD34",
+      status: "waiting",
+      status_reason: null,
+      profile: { queue_name: "Sandbox profile", location_name: "Sandbox queue", location_slug: "main" },
+      queue_position: null,
+      called_counter: null,
+      queue_length: null,
+      queue_updated_at: null,
+      estimated_wait_minutes: null,
+      can_cancel: false,
+      tracking_status: "active",
+      issued_at: invitation.createdAt,
+      updated_at: invitation.updatedAt,
+      developer_environment: "sandbox",
+      invitation_pending: true
+    });
+
+    const accepted = await fetch(`${baseUrl}/ticket-invitations/${invitation.id}/accept`, {
+      method: "POST",
+      headers: { "x-forwarded-host": "sandbox.getprio.online", "content-type": "application/json" },
+      body: "{}"
+    });
+    assert.equal(accepted.status, 200);
+    assert.equal((await accepted.json()).ticket.ticket_number, "QUEUE-0001");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("Sandbox ticket QR claims link an available Developer API ticket once", async () => {
+  const claimedTicket = {
+    id: "123e4567-e89b-42d3-a456-426614174000",
+    ticketNumber: "QUEUE-0001",
+    displayLabel: "Sandbox customer",
+    externalReference: null,
+    verificationCode: "AB12CD34",
+    status: "waiting",
+    environment: "sandbox",
+    profileDisplayName: "Sandbox profile",
+    queueDisplayName: "Sandbox queue",
+    queueSlug: "main",
+    queueId: "queue-1",
+    createdAt: "2026-09-23T00:00:00.000Z",
+    updatedAt: "2026-09-23T00:00:00.000Z"
+  };
+  const calls = [];
+  const router = requireWithMocks("../mobile/ticketRoutes.js", {
+    "../src/middleware/auth": {
+      authenticate(req, _res, next) { req.user = { _id: "customer-7" }; next(); }
+    },
+    "../src/middleware/asyncHandler": (handler) => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next),
+    "../src/repositories/tickets": {
+      async listMobileTicketsForUser() { return { tickets: [], nextCursor: null }; },
+      async listWaitingTickets() { return []; }
+    },
+    "../src/repositories/developerQueues": {
+      async listMobileInvitationsForUser() { return []; },
+      async acceptMobileInvitation() { return null; },
+      async mobileQueueMetrics(queueId, ticketId) {
+        assert.equal(queueId, "queue-1");
+        assert.equal(ticketId, claimedTicket.id);
+        return {
+          queuePosition: { position: 4, peopleAhead: 3, asOf: "2026-09-23T00:05:00.000Z" },
+          queueLength: 6,
+          estimatedWaitMinutes: 20,
+          queueUpdatedAt: "2026-09-23T00:05:00.000Z"
+        };
+      },
+      async claimMobileTicketByVerificationCode(code, userId, environment) {
+        calls.push({ code, userId, environment });
+        return claimedTicket;
+      }
+    },
+    "../src/repositories/tenants": { async findTenantById() { return null; } },
+    "../src/repositories/storeLocations": { async findLocationById() { return null; } },
+    "../src/repositories/serviceCounters": { async findCounterById() { return null; } }
+  });
+  const app = express();
+  app.set("trust proxy", true);
+  app.use(express.json());
+  app.use("/api/v1/mobile", router);
+  app.use((error, _req, res, _next) => res.status(error.statusCode || 500).json({ message: error.message }));
+  const server = await new Promise((resolve) => { const nextServer = app.listen(0, () => resolve(nextServer)); });
+  try {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/v1/mobile/ticket-claims`, {
+      method: "POST",
+      headers: { "x-forwarded-host": "sandbox-api.getprio.online", "content-type": "application/json" },
+      body: JSON.stringify({ verification_code: "ab12cd34" })
+    });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.ticket.ticket_number, "QUEUE-0001");
+    assert.deepEqual(body.ticket.profile, {
+      queue_name: "Sandbox profile",
+      location_name: "Sandbox queue",
+      location_slug: "main"
+    });
+    assert.deepEqual(body.ticket.queue_position, {
+      position: 4,
+      people_ahead: 3,
+      as_of: "2026-09-23T00:05:00.000Z"
+    });
+    assert.equal(body.ticket.queue_length, 6);
+    assert.equal(body.ticket.estimated_wait_minutes, 20);
+    assert.equal(body.ticket.queue_updated_at, "2026-09-23T00:05:00.000Z");
+    assert.deepEqual(calls, [{ code: "AB12CD34", userId: "customer-7", environment: "sandbox" }]);
+
+    const production = await fetch(`http://127.0.0.1:${server.address().port}/api/v1/mobile/ticket-claims`, {
+      method: "POST",
+      headers: { "x-forwarded-host": "api.getprio.online", "content-type": "application/json" },
+      body: JSON.stringify({ verification_code: "AB12CD34" })
+    });
+    assert.equal(production.status, 404);
+    assert.deepEqual(calls, [{ code: "AB12CD34", userId: "customer-7", environment: "sandbox" }]);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
 });
 
 test("mobile queue resolve reports open availability and an inactive-plan reason", async () => {
@@ -422,6 +784,207 @@ test("mobile queue resolve reports open availability and an inactive-plan reason
     assert.equal(unavailableBody.vendorName, "BOSS LOT");
     assert.equal(unavailableBody.vendorSlug, "bosslot");
     assert.equal(unavailableBody.locationName, "Main location");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+async function startPreviewServer(serviceResult, overrides = {}) {
+  const serviceCalls = [];
+  const router = requireWithMocks("../mobile/ticketLinkRoutes.js", {
+    "../src/middleware/auth": {
+      authenticate(req, _res, next) {
+        req.user = { _id: "customer-1", roles: ["customer"] };
+        next();
+      }
+    },
+    "../src/middleware/asyncHandler": (handler) => (req, res, next) =>
+      Promise.resolve(handler(req, res, next)).catch(next),
+    "../src/services/mobileTicketLinkService": {
+      async previewPrivateLink(input) {
+        serviceCalls.push(input);
+        if (overrides.serviceError) throw overrides.serviceError;
+        return serviceResult;
+      }
+    },
+    "../src/repositories/tenants": {
+      async findTenantById(id) {
+        assert.equal(id, "tenant-1");
+        return overrides.tenant || { _id: "tenant-1", name: "Acme Clinic" };
+      }
+    },
+    "../src/repositories/storeLocations": {
+      async findLocationById(id) {
+        assert.equal(id, "location-1");
+        return overrides.location || { _id: "location-1", name: "Main Branch" };
+      }
+    }
+  });
+  const app = express();
+  app.use(express.json());
+  app.use("/api/v1/mobile", router);
+  app.use((error, _req, res, _next) => res.status(error.statusCode || 500).json({
+    code: error.code,
+    message: error.message
+  }));
+  const server = await new Promise((resolve) => {
+    const nextServer = app.listen(0, () => resolve(nextServer));
+  });
+  return { server, serviceCalls };
+}
+
+function requestPreview(server, host, body) {
+  return new Promise((resolve, reject) => {
+    const payload = JSON.stringify(body);
+    const request = http.request({
+      host: "127.0.0.1",
+      port: server.address().port,
+      path: "/api/v1/mobile/ticket-links/preview",
+      method: "POST",
+      headers: { host, "content-type": "application/json", "content-length": Buffer.byteLength(payload) }
+    }, (response) => {
+      let text = "";
+      response.setEncoding("utf8");
+      response.on("data", (chunk) => { text += chunk; });
+      response.on("end", () => resolve({
+        status: response.statusCode,
+        headers: response.headers,
+        json: () => JSON.parse(text)
+      }));
+    });
+    request.on("error", reject);
+    request.end(payload);
+  });
+}
+
+test("mobile ticket-link preview returns safe context for the matching environment", async () => {
+  const { server, serviceCalls } = await startPreviewServer({
+    link: { expiresAt: "2026-09-16T01:00:00.000Z" },
+    ticket: {
+      ticketNumber: "A-042",
+      tenantId: "tenant-1",
+      locationId: "location-1",
+      status: "waiting",
+      customerEmail: "private@example.com"
+    }
+  });
+  try {
+    const response = await requestPreview(server, "getprio.online", { token: "token-value" });
+    assert.equal(response.status, 200);
+    assert.deepEqual(response.json(), {
+      ticket_number: "A-042",
+      queue_name: "Acme Clinic",
+      location_name: "Main Branch",
+      status: "waiting",
+      expires_at: "2026-09-16T01:00:00.000Z"
+    });
+    assert.equal(response.headers["cache-control"], "no-store");
+    assert.deepEqual(serviceCalls, [{ token: "token-value", environment: "production" }]);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("mobile ticket-link preview maps unavailable proofs to a generic response", async () => {
+  const unavailable = Object.assign(new Error("internal reason"), { code: "INTERNAL_ONLY", statusCode: 409 });
+  const { server } = await startPreviewServer(null, { serviceError: unavailable });
+  try {
+    const response = await requestPreview(server, "sandbox.getprio.online", { token: "expired-token" });
+    assert.equal(response.status, 404);
+    assert.equal(response.headers["cache-control"], "no-store");
+    assert.deepEqual(response.json(), {
+      code: "TICKET_LINK_UNAVAILABLE",
+      message: "This ticket link can’t be used. Please request a new link."
+    });
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("mobile ticket-link acceptance requires idempotency and returns only the linked context", async () => {
+  const serviceCalls = [];
+  const router = requireWithMocks("../mobile/ticketLinkRoutes.js", {
+    "../src/middleware/auth": {
+      authenticate(req, _res, next) {
+        req.user = { _id: "17", roles: ["customer"] };
+        next();
+      }
+    },
+    "../src/middleware/asyncHandler": (handler) => (req, res, next) =>
+      Promise.resolve(handler(req, res, next)).catch(next),
+    "../src/middleware/idempotency": {
+      requireIdempotency(scope) {
+        return (req, _res, next) => {
+          assert.equal(scope, "mobile.ticket_links.accept");
+          assert.equal(req.get("Idempotency-Key"), "accept-1");
+          next();
+        };
+      }
+    },
+    "../src/services/mobileTicketLinkService": {
+      async acceptPrivateLink(input) {
+        serviceCalls.push(input);
+        return {
+          link: { expiresAt: "2026-09-16T01:00:00.000Z" },
+          ticket: { ticketNumber: "S-042", tenantId: "tenant-1", locationId: "location-1", status: "called" }
+        };
+      }
+    },
+    "../src/repositories/tenants": {
+      async findTenantById(id) {
+        assert.equal(id, "tenant-1");
+        return { name: "Sandbox Clinic" };
+      }
+    },
+    "../src/repositories/storeLocations": {
+      async findLocationById(id) {
+        assert.equal(id, "location-1");
+        return { name: "Test Branch" };
+      }
+    }
+  });
+  const app = express();
+  app.use(express.json());
+  app.use("/api/v1/mobile", router);
+  app.use((error, _req, res, _next) => res.status(error.statusCode || 500).json({ code: error.code, message: error.message }));
+  const server = await new Promise((resolve) => {
+    const nextServer = app.listen(0, () => resolve(nextServer));
+  });
+  try {
+    const response = await new Promise((resolve, reject) => {
+      const payload = JSON.stringify({ token: "token-value" });
+      const request = http.request({
+        host: "127.0.0.1",
+        port: server.address().port,
+        path: "/api/v1/mobile/ticket-links/accept",
+        method: "POST",
+        headers: {
+          host: "sandbox.getprio.online",
+          "content-type": "application/json",
+          "content-length": Buffer.byteLength(payload),
+          "idempotency-key": "accept-1"
+        }
+      }, (result) => {
+        let text = "";
+        result.setEncoding("utf8");
+        result.on("data", (chunk) => { text += chunk; });
+        result.on("end", () => resolve({ status: result.statusCode, headers: result.headers, body: JSON.parse(text) }));
+      });
+      request.on("error", reject);
+      request.end(payload);
+    });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers["cache-control"], "no-store");
+    assert.deepEqual(response.body, {
+      linked: true,
+      ticket_number: "S-042",
+      queue_name: "Sandbox Clinic",
+      location_name: "Test Branch",
+      status: "called",
+      expires_at: "2026-09-16T01:00:00.000Z"
+    });
+    assert.deepEqual(serviceCalls, [{ token: "token-value", environment: "sandbox", userId: "17" }]);
+    assert.equal(JSON.stringify(response.body).includes("token-value"), false);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }

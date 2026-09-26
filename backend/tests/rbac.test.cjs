@@ -224,6 +224,7 @@ test("vendor location payment QR settings are private vendor-managed configurati
   let updatedLocation = null;
 
   const vendorRouter = requireWithMocks("../src/routes/vendorRoutes.js", {
+    "../services/staffAccessEmailService": { change: async (_context, mutate) => mutate({ client: {} }) },
     "../middleware/auth": buildAuthMock(),
     "../middleware/asyncHandler": buildAsyncHandlerMock(),
     "../repositories/tenants": {
@@ -407,6 +408,7 @@ test("vendor availability is manageable by vendor admins but denied to staff", a
   let deletedExceptionId = null;
 
   const vendorRouter = requireWithMocks("../src/routes/vendorRoutes.js", {
+    "../services/staffAccessEmailService": { change: async (_context, mutate) => mutate({ client: {} }) },
     "../middleware/auth": buildAuthMock(),
     "../middleware/asyncHandler": buildAsyncHandlerMock(),
     "../repositories/tenants": {
@@ -623,6 +625,7 @@ test("vendor service catalog is manageable by vendor admins but denied to staff"
   let deactivatedServiceId = null;
 
   const vendorRouter = requireWithMocks("../src/routes/vendorRoutes.js", {
+    "../services/staffAccessEmailService": { change: async (_context, mutate) => mutate({ client: {} }) },
     "../middleware/auth": buildAuthMock(),
     "../middleware/asyncHandler": buildAsyncHandlerMock(),
     "../repositories/tenants": {
@@ -759,6 +762,7 @@ test("vendor service catalog is manageable by vendor admins but denied to staff"
 
 test("vendor staff is denied owner-only settings route but can operate queue and read staff, clients, and history", async () => {
   const vendorRouter = requireWithMocks("../src/routes/vendorRoutes.js", {
+    "../services/staffAccessEmailService": { change: async (_context, mutate) => mutate({ client: {} }) },
     "../middleware/auth": buildAuthMock(),
     "../middleware/asyncHandler": buildAsyncHandlerMock(),
     "../repositories/tenants": {
@@ -965,6 +969,7 @@ test("tenant owner can access billing management routes", async () => {
 
 test("tenant admin cannot add another admin through staff invite", async () => {
   const vendorRouter = requireWithMocks("../src/routes/vendorRoutes.js", {
+    "../services/staffAccessEmailService": { change: async (_context, mutate) => mutate({ client: {} }) },
     "../middleware/auth": buildAuthMock(),
     "../middleware/asyncHandler": buildAsyncHandlerMock(),
     "../repositories/tenants": {
@@ -1054,6 +1059,7 @@ test("tenant admin cannot add another admin through staff invite", async () => {
 test("tenant admin can invite a staff member", async () => {
   let addMembershipCalled = false;
   const vendorRouter = requireWithMocks("../src/routes/vendorRoutes.js", {
+    "../services/staffAccessEmailService": { change: async (_context, mutate) => mutate({ client: {} }) },
     "../middleware/auth": buildAuthMock(),
     "../middleware/asyncHandler": buildAsyncHandlerMock(),
     "../repositories/tenants": {
@@ -1142,6 +1148,7 @@ test("tenant admin can invite a staff member", async () => {
 
 test("tenant admin cannot change another staff member role", async () => {
   const vendorRouter = requireWithMocks("../src/routes/vendorRoutes.js", {
+    "../services/staffAccessEmailService": { change: async (_context, mutate) => mutate({ client: {} }) },
     "../middleware/auth": buildAuthMock(),
     "../middleware/asyncHandler": buildAsyncHandlerMock(),
     "../repositories/tenants": {
@@ -1227,6 +1234,7 @@ test("tenant admin cannot change another staff member role", async () => {
 
 test("tenant admin cannot remove another staff member", async () => {
   const vendorRouter = requireWithMocks("../src/routes/vendorRoutes.js", {
+    "../services/staffAccessEmailService": { change: async (_context, mutate) => mutate({ client: {} }) },
     "../middleware/auth": buildAuthMock(),
     "../middleware/asyncHandler": buildAsyncHandlerMock(),
     "../repositories/tenants": {
@@ -1301,6 +1309,7 @@ test("tenant admin cannot remove another staff member", async () => {
 
 test("tenant owner cannot add a second owner through staff invite", async () => {
   const vendorRouter = requireWithMocks("../src/routes/vendorRoutes.js", {
+    "../services/staffAccessEmailService": { change: async (_context, mutate) => mutate({ client: {} }) },
     "../middleware/auth": buildAuthMock(),
     "../middleware/asyncHandler": buildAsyncHandlerMock(),
     "../repositories/tenants": {

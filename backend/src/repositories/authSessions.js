@@ -12,6 +12,7 @@ function mapSession(row) {
   return {
     _id: String(row.id),
     userId: String(row.user_id),
+    surface: row.surface || "app",
     refreshTokenHash: row.refresh_token_hash,
     previousRefreshTokenHash: row.previous_refresh_token_hash,
     status: row.status,
@@ -36,6 +37,7 @@ function mapSession(row) {
 const SESSION_COLUMNS = `
   id,
   user_id,
+  surface,
   refresh_token_hash,
   previous_refresh_token_hash,
   status,
@@ -62,6 +64,7 @@ async function createSession(data, options = {}) {
     `
       INSERT INTO auth_sessions (
         user_id,
+        surface,
         refresh_token_hash,
         previous_refresh_token_hash,
         status,
@@ -76,11 +79,12 @@ async function createSession(data, options = {}) {
         absolute_expires_at,
         inactivity_expires_at
       )
-      VALUES ($1, $2, NULL, 'active', $3, $4, COALESCE($5, NOW()), $6, $7, $8, NOW(), $9, $10, $11)
+      VALUES ($1, $2, $3, NULL, 'active', $4, $5, COALESCE($6, NOW()), $7, $8, $9, NOW(), $10, $11, $12)
       RETURNING ${SESSION_COLUMNS}
     `,
     [
       Number(data.userId),
+      data.surface || "app",
       data.refreshTokenHash,
       data.authMethod,
       data.mfaVerifiedAt || null,

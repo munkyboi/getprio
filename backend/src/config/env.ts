@@ -1,6 +1,12 @@
 import path from "path";
 import dotenv from "dotenv";
 import { resolveMobileQrBaseUrl } from "./mobileQrBaseUrl.js";
+import { resolveDeveloperWebhookConfig } from "./developerWebhookConfig.js";
+import {
+  sandboxAndroidPackageName,
+  resolveSandboxTestFlightPublicUrl,
+  resolveSandboxAndroidGooglePlayPublicUrl
+} from "./sandboxDistributionLinks.js";
 
 export { resolveMobileQrBaseUrl };
 
@@ -9,6 +15,9 @@ dotenv.config({ path: rootEnvPath });
 
 const backendEnvPath = path.resolve(__dirname, "../../.env");
 dotenv.config({ path: backendEnvPath, override: false });
+// Worktree-local overrides are ignored by git and loaded last.
+dotenv.config({ path: path.resolve(__dirname, "../../../.env.local"), override: true });
+dotenv.config({ path: path.resolve(__dirname, "../../.env.local"), override: true });
 
 export const port = Number(process.env.PORT || process.env.BACKEND_PORT || 5001);
 const frontendPort = Number(process.env.FRONTEND_PORT || 5173);
@@ -18,6 +27,8 @@ export const nodeEnv = process.env.NODE_ENV || "development";
 export const databaseUrl =
   process.env.DATABASE_URL || "postgresql://prio:prio@127.0.0.1:5432/prio_queue";
 export const databaseSsl = process.env.DATABASE_SSL === "true";
+export const databaseSslCa = process.env.DATABASE_SSL_CA || "";
+export const databaseSslCaFile = process.env.DATABASE_SSL_CA_FILE || "";
 export const jwtSecret = process.env.JWT_SECRET || "change-me";
 export const serverUrl = process.env.SERVER_URL || `http://localhost:${port}`;
 export const clientUrl = process.env.CLIENT_URL || `http://localhost:${frontendPort}`;
@@ -27,6 +38,11 @@ export const mobileQrBaseUrl = resolveMobileQrBaseUrl(process.env, appBaseUrl, f
 export const mobilePaymentReturnUrl = process.env.MOBILE_PAYMENT_RETURN_URL || "";
 export const platformDashboardUrl =
   process.env.PLATFORM_DASHBOARD_URL || `http://localhost:${platformDashboardPort}`;
+export const developerPortalUrl = process.env.DEVELOPER_PORTAL_URL || (
+  nodeEnv === "production" ? "https://developers.getprio.online" : "http://localhost:5174"
+);
+export const sandboxTestFlightPublicUrl = resolveSandboxTestFlightPublicUrl();
+export const sandboxAndroidGooglePlayPublicUrl = resolveSandboxAndroidGooglePlayPublicUrl();
 export const appTimezone = process.env.APP_TIMEZONE || "Asia/Manila";
 export const oauthCallbackPath = process.env.OAUTH_CALLBACK_PATH || "/oauth/callback";
 export const oauthStateTtlMinutes = Number(process.env.OAUTH_STATE_TTL_MINUTES || 10);
@@ -55,6 +71,10 @@ export const googleClientId = process.env.GOOGLE_CLIENT_ID || "";
 export const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET || "";
 export const facebookAppId = process.env.FACEBOOK_APP_ID || "";
 export const facebookAppSecret = process.env.FACEBOOK_APP_SECRET || "";
+export const appleClientId = process.env.APPLE_CLIENT_ID || "";
+export const appleTeamId = process.env.APPLE_TEAM_ID || "";
+export const appleKeyId = process.env.APPLE_KEY_ID || "";
+export const applePrivateKey = (process.env.APPLE_PRIVATE_KEY || "").replace(/\\n/g, "\n");
 export const smtpHost = process.env.SMTP_HOST || "";
 export const smtpPort = Number(process.env.SMTP_PORT || 587);
 export const smtpSecure = process.env.SMTP_SECURE === "true";
@@ -134,6 +154,9 @@ export const vapidSubject = process.env.VAPID_SUBJECT || "mailto:admin@getprio.l
 export const fcmProjectId = process.env.FCM_PROJECT_ID || "";
 export const fcmClientEmail = process.env.FCM_CLIENT_EMAIL || "";
 export const fcmPrivateKey = (process.env.FCM_PRIVATE_KEY || "").replace(/\\n/g, "\n");
+export const fcmSandboxProjectId = process.env.FCM_SANDBOX_PROJECT_ID || "";
+export const fcmSandboxClientEmail = process.env.FCM_SANDBOX_CLIENT_EMAIL || "";
+export const fcmSandboxPrivateKey = (process.env.FCM_SANDBOX_PRIVATE_KEY || "").replace(/\\n/g, "\n");
 export const rolloutCohort = process.env.ROLLOUT_COHORT || "off";
 export const csrfSecret = process.env.CSRF_SECRET || jwtSecret;
 export const authCookieSecure = process.env.AUTH_COOKIE_SECURE
@@ -142,14 +165,22 @@ export const authCookieSecure = process.env.AUTH_COOKIE_SECURE
 export const authBearerCompatibilityEnabled =
   process.env.AUTH_BEARER_COMPATIBILITY_ENABLED !== "false";
 export const sessionInactivityMinutes = Number(process.env.SESSION_INACTIVITY_MINUTES || 10080);
+export const developerSessionNoExpiry = nodeEnv !== "production" && process.env.DEVELOPER_SESSION_NO_EXPIRY === "true";
+export const developerSessionNoExpiryDays = Number(process.env.DEVELOPER_SESSION_NO_EXPIRY_DAYS || 3650);
 export const mfaEncryptionSecret = process.env.MFA_ENCRYPTION_SECRET || jwtSecret;
 export const mfaRecoveryPepper = process.env.MFA_RECOVERY_PEPPER || jwtSecret;
+export const developerApiKeyPepper = process.env.DEVELOPER_API_KEY_PEPPER || jwtSecret;
+export const developerApiReadRateLimitPerMinute = Number(process.env.DEVELOPER_API_READ_RATE_LIMIT_PER_MINUTE || 600);
+export const developerApiWriteRateLimitPerMinute = Number(process.env.DEVELOPER_API_WRITE_RATE_LIMIT_PER_MINUTE || 120);
+const developerWebhookConfig = resolveDeveloperWebhookConfig(process.env, nodeEnv);
 
 const env = {
   nodeEnv,
   port,
   databaseUrl,
   databaseSsl,
+  databaseSslCa,
+  databaseSslCaFile,
   jwtSecret,
   serverUrl,
   clientUrl,
@@ -158,6 +189,10 @@ const env = {
   mobileQrBaseUrl,
   mobilePaymentReturnUrl,
   platformDashboardUrl,
+  developerPortalUrl,
+  sandboxTestFlightPublicUrl,
+  sandboxAndroidPackageName,
+  sandboxAndroidGooglePlayPublicUrl,
   appTimezone,
   oauthCallbackPath,
   oauthStateTtlMinutes,
@@ -174,6 +209,10 @@ const env = {
   googleClientSecret,
   facebookAppId,
   facebookAppSecret,
+  appleClientId,
+  appleTeamId,
+  appleKeyId,
+  applePrivateKey,
   smtpHost,
   smtpPort,
   smtpSecure,
@@ -211,13 +250,22 @@ const env = {
   fcmProjectId,
   fcmClientEmail,
   fcmPrivateKey,
+  fcmSandboxProjectId,
+  fcmSandboxClientEmail,
+  fcmSandboxPrivateKey,
   rolloutCohort,
   csrfSecret,
   authCookieSecure,
   authBearerCompatibilityEnabled,
   sessionInactivityMinutes,
+  developerSessionNoExpiry,
+  developerSessionNoExpiryDays,
   mfaEncryptionSecret,
-  mfaRecoveryPepper
+  mfaRecoveryPepper,
+  developerApiKeyPepper,
+  developerApiReadRateLimitPerMinute,
+  developerApiWriteRateLimitPerMinute,
+  ...developerWebhookConfig
 };
 
 export default env;

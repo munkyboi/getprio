@@ -10,6 +10,15 @@ try {
   } else if(command==='tasks' && requestId) {
     const {rows}=await db.pool.query('SELECT kind,status,evidence FROM account_deletion_tasks WHERE request_id=$1',[requestId]);
     console.table(rows);
+  } else if(command==='avatars' && requestId) {
+    if(kind && kind!=='--apply') throw Error('Use avatars REQUEST_UUID [--apply].');
+    try {
+      const result = await require('../backend/src/services/avatarDeletionService').cleanupAvatars({requestId, apply:kind==='--apply'});
+      console.log(JSON.stringify(result));
+      console.log('Origin-only check. Verify caches and other uploads before attesting storage cleanup.');
+    } catch {
+      throw Error('Avatar cleanup failed; task remains unattested. Check configuration, request eligibility, provider permissions/locks and retry.');
+    }
   } else if(command==='attest' && requestId && kind && evidence) {
     const {rowCount}=await db.pool.query(`UPDATE account_deletion_tasks SET status='completed',evidence=$3,completed_at=NOW()
       WHERE request_id=$1 AND kind=$2 AND status='pending'`,[requestId,kind,evidence]);
@@ -21,5 +30,5 @@ try {
     console.log('Completion notice stored.');
   } else if(command==='run') {
     await require('../backend/src/services/accountDeletionWorker').runOnce();
-  } else throw Error('Usage: account-deletion.mjs list | tasks REQUEST | attest REQUEST KIND EVIDENCE_REFERENCE | notice REQUEST NOTICE_TEXT | run');
+  } else throw Error('Usage: account-deletion.mjs list | tasks REQUEST | avatars REQUEST [--apply] | attest REQUEST KIND EVIDENCE_REFERENCE | notice REQUEST NOTICE_TEXT | run');
 } finally {await db.pool.end();}

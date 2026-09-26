@@ -1,0 +1,917 @@
+const crypto = require("node:crypto");
+const db = require("../config/db");
+
+function clientFor(options = {}) {
+  return options.client || db.pool;
+}
+
+function mapProfile(row) {
+  if (!row) return null;
+  return {
+    id: String(row.profile_id || row.id),
+    projectId: String(row.developer_project_id),
+    environment: row.environment,
+    slug: row.slug,
+    displayName: row.display_name,
+    directoryStatus: row.directory_status,
+    directoryContent: row.directory_content || {},
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function mapQueue(row) {
+  if (!row) return null;
+  return {
+    id: String(row.queue_id || row.id),
+    profileId: String(row.developer_api_profile_id),
+    slug: row.queue_slug || row.slug,
+    displayName: row.queue_display_name || row.display_name,
+    sessionState: row.session_state,
+    intakeEnabled: Boolean(row.intake_enabled),
+    joiningEnabled: Boolean(row.joining_enabled),
+    priorityRatio: Number(row.priority_ratio),
+    queuePrefix: row.queue_prefix,
+    averageServiceMinutes: Number(row.average_service_minutes),
+    notificationThreshold: Number(row.notification_threshold),
+    resourceVersion: Number(row.resource_version),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function mapTicket(row) {
+  if (!row) return null;
+  return {
+    id: String(row.ticket_id || row.id),
+    projectId: String(row.developer_project_id),
+    environment: row.environment,
+    profileId: String(row.developer_api_profile_id),
+    queueId: String(row.developer_api_queue_id),
+    counterId: row.developer_api_queue_counter_id ? String(row.developer_api_queue_counter_id) : null,
+    ticketNumber: row.ticket_number,
+    sequence: Number(row.sequence),
+    displayLabel: row.display_label || null,
+    externalReference: row.external_reference || null,
+    recipientEmail: row.recipient_email || null,
+    verificationCode: row.verification_code,
+    linkedUserId: row.linked_user_id ? String(row.linked_user_id) : null,
+    linkingDisabledAt: row.linking_disabled_at || null,
+    customerDataDeletedAt: row.customer_data_deleted_at || null,
+    status: row.status,
+    statusReason: row.status_reason || null,
+    calledAt: row.called_at,
+    servedAt: row.served_at,
+    skippedAt: row.skipped_at,
+    cancelledAt: row.cancelled_at,
+    unservedAt: row.unserved_at,
+    terminalAt: row.terminal_at,
+    customerConfirmedAt: row.customer_confirmed_at || null,
+    resourceVersion: Number(row.resource_version),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+const PROFILE_COLUMNS = `
+  id AS profile_id, developer_project_id, environment, slug, display_name,
+  directory_status, directory_content, created_at, updated_at
+`;
+
+const QUEUE_COLUMNS = `
+  id AS queue_id, developer_api_profile_id, slug AS queue_slug,
+  display_name AS queue_display_name, session_state, intake_enabled,
+  joining_enabled, priority_ratio, queue_prefix, average_service_minutes,
+  notification_threshold, resource_version, created_at, updated_at
+`;
+
+const TICKET_COLUMNS = `
+  id AS ticket_id, developer_project_id, environment, developer_api_profile_id,
+  developer_api_queue_id, developer_api_queue_counter_id, ticket_number,
+  sequence, display_label, external_reference, recipient_email, verification_code, status,
+  linked_user_id, linking_disabled_at, customer_data_deleted_at, customer_confirmed_at,
+  status_reason, called_at, served_at, skipped_at, cancelled_at, unserved_at,
+  terminal_at, resource_version, created_at, updated_at
+`;
+
+const MOBILE_TICKET_COLUMNS = `
+  t.id AS ticket_id, t.developer_project_id, t.environment, t.developer_api_profile_id,
+  t.developer_api_queue_id, t.developer_api_queue_counter_id, t.ticket_number,
+  t.sequence, t.display_label, t.external_reference, t.recipient_email, t.verification_code, t.status,
+  t.status_reason, t.called_at, t.served_at, t.skipped_at, t.cancelled_at, t.unserved_at,
+  t.terminal_at, t.customer_confirmed_at, t.resource_version, t.created_at, t.updated_at,
+  p.display_name AS profile_display_name, q.slug AS queue_slug, q.display_name AS queue_display_name
+`;
+
+function mapMobileTicket(row) {
+  if (!row) return null;
+  return {
+    ...mapTicket(row),
+    profileDisplayName: row.profile_display_name || null,
+    queueSlug: row.queue_slug || null,
+    queueDisplayName: row.queue_display_name || null
+  };
+}
+
+async function findProfile(projectId, environment, profileSlug, options = {}) {
+  const result = await clientFor(options).query(
+    `SELECT ${PROFILE_COLUMNS}
+     FROM developer_api_profiles
+     WHERE developer_project_id = $1 AND environment = $2 AND slug = $3
+     LIMIT 1`,
+    [projectId, environment, profileSlug]
+  );
+  return mapProfile(result.rows[0]);
+}
+
+async function listProfiles(projectId, environment, options = {}) {
+  const result = await clientFor(options).query(
+    `SELECT ${PROFILE_COLUMNS}
+     FROM developer_api_profiles
+     WHERE developer_project_id = $1 AND environment = $2
+     ORDER BY created_at ASC, id ASC`,
+    [projectId, environment]
+  );
+  return result.rows.map(mapProfile);
+}
+
+async function createProfile(input, options = {}) {
+  const result = await clientFor(options).query(
+    `INSERT INTO developer_api_profiles
+       (developer_project_id, environment, slug, display_name, created_by_user_id)
+     VALUES ($1, $2, $3, $4, $5)
+     RETURNING ${PROFILE_COLUMNS}`,
+    [input.projectId, input.environment, input.slug, input.displayName, Number(input.userId)]
+  );
+  return mapProfile(result.rows[0]);
+}
+
+async function updateProfile(profileId, input, options = {}) {
+  const queryClient = clientFor(options);
+  const sets = [];
+  const values = [profileId];
+  if (input.displayName !== undefined) {
+    values.push(input.displayName);
+    sets.push(`display_name = $${values.length}`);
+  }
+  if (input.directoryContent !== undefined) {
+    values.push(JSON.stringify(input.directoryContent));
+    sets.push(`directory_content = $${values.length}::jsonb`);
+  }
+  if (input.directoryStatus !== undefined) {
+    values.push(input.directoryStatus);
+    sets.push(`directory_status = $${values.length}`);
+  }
+  if (!sets.length) return findProfileById(profileId, { client: queryClient });
+  sets.push("updated_at = NOW()");
+  const result = await queryClient.query(
+    `UPDATE developer_api_profiles SET ${sets.join(", ")} WHERE id = $1 RETURNING ${PROFILE_COLUMNS}`,
+    values
+  );
+  return mapProfile(result.rows[0]);
+}
+
+async function findProfileById(profileId, options = {}) {
+  const result = await clientFor(options).query(
+    `SELECT ${PROFILE_COLUMNS} FROM developer_api_profiles WHERE id = $1 LIMIT 1`,
+    [profileId]
+  );
+  return mapProfile(result.rows[0]);
+}
+
+async function deleteProfile(profileId, options = {}) {
+  const result = await clientFor(options).query(
+    `DELETE FROM developer_api_profiles WHERE id = $1 RETURNING ${PROFILE_COLUMNS}`,
+    [profileId]
+  );
+  return mapProfile(result.rows[0]);
+}
+
+async function findQueue(profileId, queueSlug, options = {}) {
+  const lock = options.forUpdate ? " FOR UPDATE" : "";
+  const result = await clientFor(options).query(
+    `SELECT ${QUEUE_COLUMNS}
+     FROM developer_api_queues
+     WHERE developer_api_profile_id = $1 AND slug = $2${lock}`,
+    [profileId, queueSlug]
+  );
+  return mapQueue(result.rows[0]);
+}
+
+async function findFirstQueue(profileId, options = {}) {
+  const result = await clientFor(options).query(
+    `SELECT ${QUEUE_COLUMNS}
+     FROM developer_api_queues
+     WHERE developer_api_profile_id = $1
+     ORDER BY created_at ASC, id ASC
+     LIMIT 1${options.forUpdate ? " FOR UPDATE" : ""}`,
+    [profileId]
+  );
+  return mapQueue(result.rows[0]);
+}
+
+async function listQueues(profileId, options = {}) {
+  const result = await clientFor(options).query(
+    `SELECT ${QUEUE_COLUMNS}
+     FROM developer_api_queues
+     WHERE developer_api_profile_id = $1
+     ORDER BY created_at ASC, id ASC`,
+    [profileId]
+  );
+  return result.rows.map(mapQueue);
+}
+
+async function createQueue(input, options = {}) {
+  const result = await clientFor(options).query(
+    `INSERT INTO developer_api_queues
+       (developer_api_profile_id, slug, display_name, session_state, intake_enabled,
+        queue_prefix, average_service_minutes, notification_threshold)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     RETURNING ${QUEUE_COLUMNS}`,
+    [input.profileId, input.slug, input.displayName, input.sessionState || "closed", Boolean(input.intakeEnabled), input.queuePrefix, input.averageServiceMinutes, input.notificationThreshold]
+  );
+  return mapQueue(result.rows[0]);
+}
+
+async function updateQueue(queueId, input, options = {}) {
+  const queryClient = clientFor(options);
+  const sets = [];
+  const values = [queueId];
+  if (input.displayName !== undefined) {
+    values.push(input.displayName);
+    sets.push(`display_name = $${values.length}`);
+  }
+  if (input.sessionState !== undefined) {
+    values.push(input.sessionState);
+    sets.push(`session_state = $${values.length}`);
+  }
+  if (input.intakeEnabled !== undefined) {
+    values.push(Boolean(input.intakeEnabled));
+    sets.push(`intake_enabled = $${values.length}`);
+  }
+  if (input.queuePrefix !== undefined) {
+    values.push(input.queuePrefix);
+    sets.push(`queue_prefix = $${values.length}`);
+  }
+  if (input.averageServiceMinutes !== undefined) {
+    values.push(Number(input.averageServiceMinutes));
+    sets.push(`average_service_minutes = $${values.length}`);
+  }
+  if (input.notificationThreshold !== undefined) {
+    values.push(Number(input.notificationThreshold));
+    sets.push(`notification_threshold = $${values.length}`);
+  }
+  if (!sets.length) return findQueueById(queueId, { client: queryClient });
+  sets.push("resource_version = resource_version + 1", "updated_at = NOW()");
+  let versionWhere = "WHERE id = $1";
+  if (input.resourceVersion !== undefined) {
+    values.push(Number(input.resourceVersion));
+    versionWhere = `WHERE id = $1 AND resource_version = $${values.length}`;
+  }
+  const result = await queryClient.query(
+    `UPDATE developer_api_queues SET ${sets.join(", ")} ${versionWhere} RETURNING ${QUEUE_COLUMNS}`,
+    values
+  );
+  return mapQueue(result.rows[0]);
+}
+
+async function findQueueById(queueId, options = {}) {
+  const result = await clientFor(options).query(
+    `SELECT ${QUEUE_COLUMNS} FROM developer_api_queues WHERE id = $1 LIMIT 1`,
+    [queueId]
+  );
+  return mapQueue(result.rows[0]);
+}
+
+async function deleteQueue(queueId, options = {}) {
+  const result = await clientFor(options).query(
+    `DELETE FROM developer_api_queues WHERE id = $1 RETURNING ${QUEUE_COLUMNS}`,
+    [queueId]
+  );
+  return mapQueue(result.rows[0]);
+}
+
+async function queueSnapshot(queueId, options = {}) {
+  const queryClient = clientFor(options);
+  const queueResult = await queryClient.query(
+    `SELECT ${QUEUE_COLUMNS}
+     FROM developer_api_queues
+     WHERE id = $1
+     LIMIT 1`,
+    [queueId]
+  );
+  const queue = mapQueue(queueResult.rows[0]);
+  if (!queue) return null;
+
+  const tickets = await queryClient.query(
+    `SELECT ${TICKET_COLUMNS}
+     FROM developer_api_tickets
+     WHERE developer_api_queue_id = $1 AND status IN ('waiting', 'called', 'skipped')
+     ORDER BY sequence ASC`,
+    [queueId]
+  );
+  const mappedTickets = tickets.rows.map(mapTicket);
+  const current = mappedTickets.find((ticket) => ticket.status === "called") || null;
+  const waiting = mappedTickets.filter((ticket) => ticket.status === "waiting");
+  const skipped = mappedTickets.filter((ticket) => ticket.status === "skipped");
+  return {
+    queue,
+    stats: { waitingCount: waiting.length, calledCount: current ? 1 : 0 },
+    current,
+    nextUp: waiting.slice(0, 5),
+    overflow: waiting.slice(5),
+    skipped
+  };
+}
+
+async function mobileQueueMetricsForTickets(queueId, ticketIds, options = {}) {
+  const ids = [...new Set((ticketIds || []).map((ticketId) => String(ticketId)).filter(Boolean))];
+  if (!queueId || !ids.length) return new Map();
+
+  const result = await clientFor(options).query(
+    `WITH active AS (
+      SELECT id, status, sequence, updated_at, called_at, served_at
+        FROM developer_api_tickets
+       WHERE developer_api_queue_id = $1
+    ),
+    recent_served AS (
+      SELECT called_at, served_at
+        FROM active
+       WHERE status = 'served' AND called_at IS NOT NULL AND served_at IS NOT NULL
+       ORDER BY served_at DESC
+       LIMIT 50
+    ),
+    service_stats AS (
+      SELECT COUNT(*)::INTEGER AS service_sample_count,
+             AVG(EXTRACT(EPOCH FROM (served_at - called_at)) / 60.0)
+               AS average_service_minutes
+        FROM recent_served
+    ),
+    queue_state AS (
+      SELECT COUNT(*) FILTER (WHERE status = 'waiting')::INTEGER AS waiting_count,
+             MAX(updated_at) AS latest_ticket_updated_at
+        FROM active
+    )
+    SELECT target.id AS ticket_id,
+            target.status,
+            target.sequence,
+            queue.updated_at AS queue_updated_at,
+            queue.average_service_minutes AS configured_average_service_minutes,
+            queue_state.waiting_count,
+            queue_state.latest_ticket_updated_at,
+            service_stats.service_sample_count,
+            service_stats.average_service_minutes,
+            CASE WHEN target.status = 'waiting' THEN (
+              SELECT COUNT(*)::INTEGER
+                FROM active ahead
+               WHERE ahead.status = 'waiting'
+               AND ahead.sequence <= target.sequence
+            ) ELSE NULL END AS queue_position
+       FROM developer_api_tickets target
+       INNER JOIN developer_api_queues queue ON queue.id = target.developer_api_queue_id
+       CROSS JOIN queue_state
+       CROSS JOIN service_stats
+      WHERE target.developer_api_queue_id = $1
+        AND target.id = ANY($2::uuid[])`,
+    [String(queueId), ids]
+  );
+  return new Map(result.rows.map((row) => {
+    const position = row.queue_position === null ? null : Number(row.queue_position);
+    const waitingCount = Number(row.waiting_count || 0);
+    const averageServiceMinutes = Math.max(1, Number(row.configured_average_service_minutes || 15));
+    const updatedAt = [row.queue_updated_at, row.latest_ticket_updated_at]
+      .filter(Boolean)
+      .map((value) => new Date(value))
+      .sort((left, right) => right.getTime() - left.getTime())[0] || null;
+    return [String(row.ticket_id), {
+      queuePosition: position === null
+        ? null
+        : {
+            position,
+            peopleAhead: Math.max(0, position - 1),
+            asOf: updatedAt
+          },
+      queueLength: waitingCount,
+      estimatedWaitMinutes: position === null
+        ? null
+        : position * averageServiceMinutes,
+      queueUpdatedAt: updatedAt
+    }];
+  }));
+}
+
+async function mobileQueueMetrics(queueId, ticketId, options = {}) {
+  const metrics = await mobileQueueMetricsForTickets(queueId, [ticketId], options);
+  return metrics.get(String(ticketId)) || null;
+}
+
+async function claimNearTurnTickets(queueId, threshold, options = {}) {
+  const result = await clientFor(options).query(
+    `WITH ranked AS (
+       SELECT id, linked_user_id, ticket_number,
+              ROW_NUMBER() OVER (ORDER BY sequence ASC) AS queue_position
+         FROM developer_api_tickets
+        WHERE developer_api_queue_id = $1 AND status = 'waiting'
+     )
+     UPDATE developer_api_tickets AS ticket
+        SET near_turn_notification_claimed_at = NOW()
+       FROM ranked
+      WHERE ticket.id = ranked.id
+        AND ranked.linked_user_id IS NOT NULL
+        AND ranked.queue_position <= $2
+        AND ticket.near_turn_notified_at IS NULL
+        AND (
+          ticket.near_turn_notification_claimed_at IS NULL
+          OR ticket.near_turn_notification_claimed_at < NOW() - INTERVAL '5 minutes'
+        )
+     RETURNING ticket.id, ticket.ticket_number, ticket.linked_user_id,
+               ranked.queue_position`,
+    [String(queueId), Number(threshold)]
+  );
+  return result.rows.map((row) => ({
+    id: String(row.id),
+    ticketNumber: row.ticket_number,
+    linkedUserId: String(row.linked_user_id),
+    queuePosition: Number(row.queue_position)
+  }));
+}
+
+async function listWaitingLinkedTickets(projectId, environment, queueId, options = {}) {
+  const result = await clientFor(options).query(
+    `SELECT id, developer_api_queue_id, ticket_number, linked_user_id
+       FROM developer_api_tickets
+      WHERE developer_project_id = $1
+        AND environment = $2
+        AND developer_api_queue_id = $3
+        AND status = 'waiting'
+        AND linked_user_id IS NOT NULL
+        AND linking_disabled_at IS NULL
+        AND customer_data_deleted_at IS NULL
+      ORDER BY sequence ASC`,
+    [String(projectId), environment, String(queueId)]
+  );
+  return result.rows.map((row) => ({
+    id: String(row.id),
+    queueId: String(row.developer_api_queue_id),
+    ticketNumber: row.ticket_number,
+    linkedUserId: String(row.linked_user_id)
+  }));
+}
+
+async function markNearTurnTicketNotified(ticketId, options = {}) {
+  const result = await clientFor(options).query(
+    `UPDATE developer_api_tickets
+        SET near_turn_notified_at = NOW(),
+            near_turn_notification_claimed_at = NULL,
+            updated_at = NOW()
+      WHERE id = $1
+        AND status = 'waiting'
+        AND near_turn_notified_at IS NULL
+        AND near_turn_notification_claimed_at IS NOT NULL
+      RETURNING id`,
+    [String(ticketId)]
+  );
+  return result.rows.length > 0;
+}
+
+async function releaseNearTurnTicketClaim(ticketId, options = {}) {
+  const result = await clientFor(options).query(
+    `UPDATE developer_api_tickets
+        SET near_turn_notification_claimed_at = NULL,
+            updated_at = NOW()
+      WHERE id = $1
+        AND near_turn_notified_at IS NULL
+        AND near_turn_notification_claimed_at IS NOT NULL
+      RETURNING id`,
+    [String(ticketId)]
+  );
+  return result.rows.length > 0;
+}
+
+async function getUsage(projectId, environment, options = {}) {
+  const queryClient = clientFor(options);
+  const [summaryResult, dailyResult, recentResult] = await Promise.all([
+    queryClient.query(
+      `SELECT COUNT(*)::INTEGER AS issued_tickets,
+          COUNT(*) FILTER (WHERE status IN ('waiting', 'called'))::INTEGER AS active_tickets,
+          COUNT(*) FILTER (WHERE terminal_at IS NOT NULL)::INTEGER AS completed_tickets
+       FROM developer_api_tickets
+       WHERE developer_project_id = $1 AND environment = $2`,
+      [projectId, environment]
+    ),
+    queryClient.query(
+      `SELECT (created_at AT TIME ZONE 'UTC')::DATE AS usage_date,
+          COUNT(*)::INTEGER AS issued_tickets
+       FROM developer_api_tickets
+       WHERE developer_project_id = $1 AND environment = $2
+       GROUP BY usage_date
+       ORDER BY usage_date DESC
+       LIMIT 30`,
+      [projectId, environment]
+    ),
+    queryClient.query(
+      `SELECT ${TICKET_COLUMNS}
+       FROM developer_api_tickets
+       WHERE developer_project_id = $1 AND environment = $2
+       ORDER BY created_at DESC
+       LIMIT 50`,
+      [projectId, environment]
+    )
+  ]);
+  const summary = summaryResult.rows[0] || {};
+  return {
+    summary: {
+      issuedTickets: Number(summary.issued_tickets || 0),
+      activeTickets: Number(summary.active_tickets || 0),
+      completedTickets: Number(summary.completed_tickets || 0)
+    },
+    daily: dailyResult.rows.map((row) => ({ date: row.usage_date, issuedTickets: Number(row.issued_tickets || 0) })),
+    recentTickets: recentResult.rows.map(mapTicket)
+  };
+}
+
+async function findTicket(projectId, environment, queueId, ticketId, options = {}) {
+  const lock = options.forUpdate ? " FOR UPDATE" : "";
+  const result = await clientFor(options).query(
+    `SELECT ${TICKET_COLUMNS}
+     FROM developer_api_tickets
+     WHERE id = $1 AND developer_project_id = $2
+       AND environment = $3 AND developer_api_queue_id = $4${lock}`,
+    [ticketId, projectId, environment, queueId]
+  );
+  return mapTicket(result.rows[0]);
+}
+
+async function listTicketEvents(projectId, environment, queueId, ticketId, limit, afterId, options = {}) {
+  const result = await clientFor(options).query(
+    `SELECT id, developer_api_ticket_id, developer_api_queue_id, event_type,
+        from_status, to_status, resource_version, source, created_at
+     FROM developer_api_ticket_events
+     WHERE developer_project_id = $1 AND environment = $2
+       AND developer_api_queue_id = $3 AND developer_api_ticket_id = $4
+       AND ($5::BIGINT IS NULL OR id > $5::BIGINT)
+     ORDER BY id ASC
+     LIMIT $6`,
+    [projectId, environment, queueId, ticketId, afterId ? Number(afterId) : null, Number(limit) + 1]
+  );
+  const rows = result.rows;
+  const hasMore = rows.length > Number(limit);
+  if (hasMore) rows.length = Number(limit);
+  return {
+    events: rows.map((row) => ({
+      id: String(row.id),
+      ticketId: String(row.developer_api_ticket_id),
+      queueId: String(row.developer_api_queue_id),
+      type: row.event_type,
+      fromStatus: row.from_status,
+      toStatus: row.to_status,
+      resourceVersion: Number(row.resource_version),
+      source: row.source,
+      occurredAt: row.created_at
+    })),
+    nextCursor: hasMore ? String(rows[rows.length - 1].id) : null
+  };
+}
+
+async function consumeSandboxAllowance(projectId, options = {}) {
+  const result = await clientFor(options).query(
+    `INSERT INTO developer_sandbox_daily_allowances
+       (developer_project_id, allowance_date, issued_tickets)
+     VALUES ($1, CURRENT_DATE, 1)
+     ON CONFLICT (developer_project_id, allowance_date)
+     DO UPDATE SET issued_tickets = developer_sandbox_daily_allowances.issued_tickets + 1,
+       updated_at = NOW()
+     WHERE developer_sandbox_daily_allowances.issued_tickets < 100
+     RETURNING issued_tickets`,
+    [projectId]
+  );
+  return result.rows[0] ? Number(result.rows[0].issued_tickets) : null;
+}
+
+async function appendTicketEvent(input, options = {}) {
+  const result = await clientFor(options).query(
+    `INSERT INTO developer_api_ticket_events
+       (developer_project_id, environment, developer_api_profile_id,
+        developer_api_queue_id, developer_api_ticket_id, event_type,
+        from_status, to_status, resource_version, source)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+     RETURNING id, developer_api_ticket_id, developer_api_queue_id, event_type,
+       from_status, to_status, resource_version, source, created_at`,
+    [
+      input.projectId, input.environment, input.profileId, input.queueId,
+      input.ticketId, input.type, input.fromStatus || null, input.toStatus || null,
+      input.resourceVersion, input.source || "developer_api"
+    ]
+  );
+  const row = result.rows[0];
+  return {
+    id: String(row.id),
+    ticketId: String(row.developer_api_ticket_id),
+    queueId: String(row.developer_api_queue_id),
+    type: row.event_type,
+    fromStatus: row.from_status,
+    toStatus: row.to_status,
+    resourceVersion: Number(row.resource_version),
+    source: row.source,
+    occurredAt: row.created_at
+  };
+}
+
+async function issueTicket(input, options = {}) {
+  const queryClient = clientFor(options);
+  const queue = await findQueue(input.profileId, input.queueSlug, { client: queryClient, forUpdate: true });
+  if (!queue || queue.id !== String(input.queueId)) return null;
+  if (queue.sessionState !== "open" || !queue.intakeEnabled) {
+    const error = new Error("Queue intake is not open.");
+    error.statusCode = 409;
+    error.code = "QUEUE_NOT_ACCEPTING";
+    throw error;
+  }
+  if (input.environment === "sandbox" && !await consumeSandboxAllowance(input.projectId, { client: queryClient })) {
+    const error = new Error("Sandbox daily ticket allowance is exhausted.");
+    error.statusCode = 429;
+    error.code = "SANDBOX_ALLOWANCE_EXHAUSTED";
+    throw error;
+  }
+  const nextSequence = await queryClient.query(
+    `SELECT COALESCE(MAX(sequence), 0)::BIGINT + 1 AS next_sequence
+     FROM developer_api_tickets WHERE developer_api_queue_id = $1`,
+    [queue.id]
+  );
+  const sequence = Number(nextSequence.rows[0].next_sequence);
+  const ticketNumber = `${queue.queuePrefix || queue.slug.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4)}-${String(sequence).padStart(4, "0")}`;
+  const verificationCode = crypto.randomBytes(4).toString("hex").toUpperCase();
+  const invitationUser = input.environment === "sandbox" && input.recipientEmail
+    ? await queryClient.query(
+      `SELECT account_user.id
+         FROM users AS account_user
+         INNER JOIN developer_project_test_accounts AS test_account
+           ON test_account.user_id = account_user.id
+          AND test_account.developer_project_id = $1
+          AND test_account.status = 'active'
+        WHERE account_user.is_sandbox_test_account = TRUE
+          AND account_user.sandbox_test_account_expires_at > NOW()
+          AND lower(account_user.email) = lower($2)
+        LIMIT 1`,
+      [input.projectId, input.recipientEmail]
+    )
+    : { rows: [] };
+  const inserted = await queryClient.query(
+    `INSERT INTO developer_api_tickets
+       (developer_project_id, environment, developer_api_profile_id,
+        developer_api_queue_id, ticket_number, sequence, display_label,
+        external_reference, recipient_email, verification_code, linked_user_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULL)
+     RETURNING ${TICKET_COLUMNS}`,
+    [
+      input.projectId, input.environment, input.profileId, queue.id,
+      ticketNumber, sequence, input.displayLabel || null,
+      input.externalReference || null, input.recipientEmail || null, verificationCode
+    ]
+  );
+  const ticket = mapTicket(inserted.rows[0]);
+  ticket.invitationUserId = invitationUser.rows[0]?.id
+    ? String(invitationUser.rows[0].id)
+    : null;
+  ticket.event = await appendTicketEvent({
+    projectId: ticket.projectId,
+    environment: ticket.environment,
+    profileId: ticket.profileId,
+    queueId: ticket.queueId,
+    ticketId: ticket.id,
+    type: "ticket.issued",
+    toStatus: ticket.status,
+    resourceVersion: ticket.resourceVersion
+  }, { client: queryClient });
+  return ticket;
+}
+
+async function confirmCurrentTicket(input, options = {}) {
+  const queryClient = clientFor(options);
+  const queue = await findQueue(input.profileId, input.queueSlug, { client: queryClient, forUpdate: true });
+  if (!queue || queue.id !== String(input.queueId)) return null;
+
+  const currentResult = await queryClient.query(
+    `SELECT ${TICKET_COLUMNS}
+       FROM developer_api_tickets
+      WHERE developer_project_id = $1
+        AND environment = $2
+        AND developer_api_queue_id = $3
+        AND status = 'called'
+      ORDER BY called_at ASC, sequence ASC
+      LIMIT 1
+      FOR UPDATE`,
+    [input.projectId, input.environment, queue.id]
+  );
+  const current = mapTicket(currentResult.rows[0]);
+  if (!current) return null;
+
+  const verificationCode = String(input.verificationCode || "").trim().toUpperCase();
+  if (current.verificationCode !== verificationCode) {
+    const error = new Error("Verification code does not match the current called ticket.");
+    error.statusCode = 409;
+    error.code = "INVALID_VERIFICATION_CODE";
+    throw error;
+  }
+  if (current.customerConfirmedAt) return current;
+
+  const updatedResult = await queryClient.query(
+    `UPDATE developer_api_tickets
+        SET customer_confirmed_at = NOW(),
+            resource_version = resource_version + 1,
+            updated_at = NOW()
+      WHERE id = $1
+      RETURNING ${TICKET_COLUMNS}`,
+    [current.id]
+  );
+  const updated = mapTicket(updatedResult.rows[0]);
+  updated.event = await appendTicketEvent({
+    projectId: updated.projectId,
+    environment: updated.environment,
+    profileId: updated.profileId,
+    queueId: updated.queueId,
+    ticketId: updated.id,
+    type: "ticket.confirmed",
+    fromStatus: updated.status,
+    toStatus: updated.status,
+    resourceVersion: updated.resourceVersion,
+    source: "developer_api_barcode_scan"
+  }, { client: queryClient });
+  return updated;
+}
+
+async function listMobileInvitationsForUser(userId, environment, options = {}) {
+  const result = await clientFor(options).query(
+    `SELECT ${MOBILE_TICKET_COLUMNS}
+       FROM developer_api_tickets t
+       INNER JOIN developer_api_profiles p ON p.id = t.developer_api_profile_id
+       INNER JOIN developer_api_queues q ON q.id = t.developer_api_queue_id
+       INNER JOIN users u ON u.id = $1
+      WHERE t.environment = $2
+        AND lower(t.recipient_email) = lower(u.email)
+        AND t.linked_user_id IS NULL
+        AND t.linking_disabled_at IS NULL
+        AND t.customer_data_deleted_at IS NULL
+        AND t.status IN ('waiting', 'called')
+      ORDER BY t.created_at DESC, t.id DESC
+      LIMIT 50`,
+    [Number(userId), environment]
+  );
+  return result.rows.map(mapMobileTicket);
+}
+
+async function acceptMobileInvitation(ticketId, userId, environment, options = {}) {
+  const result = await clientFor(options).query(
+    `UPDATE developer_api_tickets t
+        SET linked_user_id = $2, updated_at = NOW()
+      WHERE t.id = $1
+        AND t.environment = $3
+        AND t.status IN ('waiting', 'called')
+        AND t.linking_disabled_at IS NULL
+        AND t.customer_data_deleted_at IS NULL
+        AND (t.linked_user_id IS NULL OR t.linked_user_id = $2)
+        AND EXISTS (
+          SELECT 1 FROM users u
+           WHERE u.id = $2 AND lower(t.recipient_email) = lower(u.email)
+        )
+      RETURNING t.id AS ticket_id, t.developer_project_id, t.environment, t.developer_api_profile_id,
+        t.developer_api_queue_id, t.developer_api_queue_counter_id, t.ticket_number,
+        t.sequence, t.display_label, t.external_reference, t.recipient_email, t.verification_code, t.status,
+        t.status_reason, t.called_at, t.served_at, t.skipped_at, t.cancelled_at, t.unserved_at,
+        t.terminal_at, t.customer_confirmed_at, t.resource_version, t.created_at, t.updated_at`,
+    [ticketId, Number(userId), environment]
+  );
+  return mapTicket(result.rows[0]);
+}
+
+async function claimMobileTicketByVerificationCode(verificationCode, userId, environment, options = {}) {
+  const queryClient = clientFor(options);
+  const result = await queryClient.query(
+    `UPDATE developer_api_tickets
+        SET linked_user_id = $2, updated_at = NOW()
+      WHERE upper(verification_code) = upper($1)
+        AND environment = $3
+        AND status IN ('waiting', 'called')
+        AND linked_user_id IS NULL
+        AND linking_disabled_at IS NULL
+        AND customer_data_deleted_at IS NULL
+      RETURNING id AS ticket_id`,
+    [String(verificationCode || '').trim(), Number(userId), environment]
+  );
+  const ticketId = result.rows[0]?.ticket_id;
+  if (!ticketId) return null;
+
+  const enriched = await queryClient.query(
+    `SELECT ${MOBILE_TICKET_COLUMNS}
+       FROM developer_api_tickets t
+       INNER JOIN developer_api_profiles p ON p.id = t.developer_api_profile_id
+       INNER JOIN developer_api_queues q ON q.id = t.developer_api_queue_id
+      WHERE t.id = $1
+      LIMIT 1`,
+    [ticketId]
+  );
+  return mapMobileTicket(enriched.rows[0]);
+}
+
+async function callNextTicket(input, options = {}) {
+  const queryClient = clientFor(options);
+  const queue = await findQueue(input.profileId, input.queueSlug, { client: queryClient, forUpdate: true });
+  if (!queue || queue.id !== String(input.queueId)) return null;
+  const active = await queryClient.query(
+    `SELECT id FROM developer_api_tickets
+     WHERE developer_api_queue_id = $1 AND status = 'called'
+     LIMIT 1 FOR UPDATE`,
+    [queue.id]
+  );
+  if (active.rows[0]) {
+    const error = new Error("Resolve the currently called ticket before calling another.");
+    error.statusCode = 409;
+    error.code = "CURRENT_TICKET_ACTIVE";
+    throw error;
+  }
+  const next = await queryClient.query(
+    `SELECT ${TICKET_COLUMNS} FROM developer_api_tickets
+     WHERE developer_api_queue_id = $1 AND status = 'waiting'
+     ORDER BY sequence ASC LIMIT 1 FOR UPDATE`,
+    [queue.id]
+  );
+  const waiting = mapTicket(next.rows[0]);
+  if (!waiting) return null;
+  return transitionTicket({ ...input, ticketId: waiting.id, fromStatus: "waiting", toStatus: "called" }, { client: queryClient });
+}
+
+async function transitionTicket(input, options = {}) {
+  const queryClient = clientFor(options);
+  const ticket = await findTicket(input.projectId, input.environment, input.queueId, input.ticketId, { client: queryClient, forUpdate: true });
+  if (!ticket) return null;
+  if (input.fromStatus && ticket.status !== input.fromStatus) {
+    const error = new Error("Ticket cannot transition from its current status.");
+    error.statusCode = 409;
+    error.code = "INVALID_TICKET_STATE";
+    throw error;
+  }
+  const terminal = ["served", "cancelled", "unserved", "expired"].includes(input.toStatus);
+  const timeColumn = {
+    called: "called_at", served: "served_at", skipped: "skipped_at", cancelled: "cancelled_at", unserved: "unserved_at"
+  }[input.toStatus];
+  const result = await queryClient.query(
+    `UPDATE developer_api_tickets
+     SET status = $2, status_reason = $3, resource_version = resource_version + 1,
+       ${timeColumn ? `${timeColumn} = NOW(),` : ""}
+       ${input.toStatus === "waiting" ? "called_at = NULL, near_turn_notified_at = NULL, near_turn_notification_claimed_at = NULL," : ""}
+       terminal_at = CASE WHEN $4 THEN NOW() ELSE terminal_at END,
+       updated_at = NOW()
+     WHERE id = $1
+     RETURNING ${TICKET_COLUMNS}`,
+    [ticket.id, input.toStatus, input.statusReason || null, terminal]
+  );
+  const updated = mapTicket(result.rows[0]);
+  updated.event = await appendTicketEvent({
+    projectId: updated.projectId,
+    environment: updated.environment,
+    profileId: updated.profileId,
+    queueId: updated.queueId,
+    ticketId: updated.id,
+    type: input.eventType || `ticket.${input.toStatus === "called" ? "called" : input.toStatus === "skipped" ? "skipped" : input.toStatus}`,
+    fromStatus: ticket.status,
+    toStatus: updated.status,
+    resourceVersion: updated.resourceVersion
+  }, { client: queryClient });
+  return updated;
+}
+
+module.exports = {
+  createProfile,
+  createQueue,
+  deleteProfile,
+  deleteQueue,
+  callNextTicket,
+  claimNearTurnTickets,
+  listWaitingLinkedTickets,
+  markNearTurnTicketNotified,
+  releaseNearTurnTicketClaim,
+  consumeSandboxAllowance,
+  findFirstQueue,
+  findProfile,
+  findQueue,
+  findQueueById,
+  findTicket,
+  getUsage,
+  listMobileInvitationsForUser,
+  issueTicket,
+  listProfiles,
+  listTicketEvents,
+  listQueues,
+  mapProfile,
+  mapQueue,
+  mapTicket,
+  mobileQueueMetrics,
+  mobileQueueMetricsForTickets,
+  queueSnapshot,
+  acceptMobileInvitation,
+  claimMobileTicketByVerificationCode,
+  confirmCurrentTicket,
+  transitionTicket,
+  updateProfile,
+  updateQueue
+};

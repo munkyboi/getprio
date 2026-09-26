@@ -23,6 +23,7 @@ import {
   Text,
   Textarea,
   TextInput,
+  NumberInput,
   Title,
   createTheme
 } from "@mantine/core";
@@ -64,6 +65,7 @@ import { PortalDataTable } from "./components/PortalDataTable";
 import { PromptActionModal } from "./components/PromptActionModal";
 import { ModalWheelBridge } from "./components/ModalWheelBridge";
 import { PlanMatrixPage } from "./pages/PlanMatrixPage";
+import { DeveloperProjectsPage } from "./pages/DeveloperProjectsPage";
 import "@mantine/core/styles.css";
 import "@mantine/notifications/styles.css";
 import "../../shared/typography.css";
@@ -85,6 +87,7 @@ type GenericRecord = Record<string, unknown>;
 const navItems = [
   { to: "/overview", label: "Overview", icon: IconChartBar },
   { to: "/plans", label: "Plan Matrix", icon: IconCalendarDollar },
+  { to: "/developer-projects", label: "Developer projects", icon: IconShieldExclamation },
   { to: "/tenants", label: "Tenants", icon: IconBuildingStore },
   { to: "/subscriptions", label: "Subscriptions", icon: IconListDetails },
   { to: "/users", label: "Users", icon: IconUsers },
@@ -293,6 +296,10 @@ function OverviewPage({ token }: { token: string }) {
 
 function SettingsPage({ token, user }: { token: string; user: UserSummary & { mfaEnabled?: boolean } }) {
   const [settings, setSettings] = useState<PlatformSettingsResponse["settings"] | null>(null);
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [imageLimit, setImageLimit] = useState<string | number>(200);
+  const [settingsError, setSettingsError] = useState("");
+  const validImageLimit = typeof imageLimit === "number" && Number.isInteger(imageLimit) && imageLimit >= 1 && imageLimit <= 8192;
   const [mfaSecret, setMfaSecret] = useState("");
   const [mfaUri, setMfaUri] = useState("");
   const [mfaCode, setMfaCode] = useState("");
@@ -302,13 +309,26 @@ function SettingsPage({ token, user }: { token: string; user: UserSummary & { mf
   const [mfaPassword, setMfaPassword] = useState("");
   const [currentMfaCode, setCurrentMfaCode] = useState("");
   const [mfaBusy, setMfaBusy] = useState(false);
-  useEffect(() => { apiRequest<PlatformSettingsResponse>("/platform/settings", { token }).then((data) => setSettings(data.settings)); }, [token]);
+  useEffect(() => {
+    apiRequest<PlatformSettingsResponse>("/platform/settings", { token })
+      .then((data) => { setSettings(data.settings); setImageLimit(data.settings.maxImageUploadKb); })
+      .catch((error) => setSettingsError(error instanceof Error ? error.message : "Settings could not be loaded. Refresh to try again."));
+  }, [token]);
   useEffect(() => { setMfaActive(Boolean(user.mfaEnabled)); }, [user.mfaEnabled]);
   async function save() {
-    if (!settings) return;
-    const data = await apiRequest<PlatformSettingsResponse, UpdatePlatformSettingsRequest>("/platform/settings", { method: "PATCH", token, body: settings });
-    setSettings(data.settings);
-    showSaved("Settings updated");
+    if (!settings || !validImageLimit || savingSettings) return;
+    setSavingSettings(true);
+    setSettingsError("");
+    try {
+      const data = await apiRequest<PlatformSettingsResponse, UpdatePlatformSettingsRequest>("/platform/settings", { method: "PATCH", token, body: { ...settings, maxImageUploadKb: Number(imageLimit) } });
+      setSettings(data.settings);
+      setImageLimit(data.settings.maxImageUploadKb);
+      showSaved("Settings updated");
+    } catch (error) {
+      setSettingsError(error instanceof Error ? error.message : "Settings could not be saved. Please try again.");
+    } finally {
+      setSavingSettings(false);
+    }
   }
   async function startMfa() {
     setMfaBusy(true);
@@ -383,7 +403,22 @@ function SettingsPage({ token, user }: { token: string; user: UserSummary & { mf
               value={(settings?.mobileApprovedHosts || []).join("\n")}
               onChange={(event) => setSettings((current) => current ? { ...current, mobileApprovedHosts: event.target.value.split(/\n|,/).map((host) => host.trim()).filter(Boolean) } : current)}
             />
-            <Group justify="flex-end"><Button onClick={save}>Save settings</Button></Group>
+            <NumberInput
+              label="Maximum image upload size (KB)"
+              hideControls
+              styles={{ input: { minHeight: 44 } }}
+              description="Applies to all new image uploads. Default: 200 KB. 1 KB = 1,024 bytes. Existing images and PDF limits are unchanged."
+              value={imageLimit}
+              onChange={setImageLimit}
+              min={1}
+              max={8192}
+              allowDecimal={false}
+              allowNegative={false}
+              disabled={!settings || savingSettings}
+              error={validImageLimit ? undefined : "Enter a whole number from 1 to 8192 KB."}
+            />
+            {settingsError && <Text c="red" role="alert">{settingsError}</Text>}
+            <Group justify="flex-end"><Button mih={44} disabled={!settings || !validImageLimit} loading={savingSettings} onClick={save}>Save settings</Button></Group>
           </Stack>
         </Paper>
       </Tabs.Panel>
@@ -805,6 +840,7 @@ function PortalApp({
               <Route path="/overview" element={<OverviewPage token={token} />} />
               <Route path="/queue-fees" element={<Navigate to="/plans" replace />} />
               <Route path="/plans" element={<PlanMatrixPage token={token} />} />
+              <Route path="/developer-projects" element={<DeveloperProjectsPage token={token} />} />
               <Route path="/settings" element={<SettingsPage token={token} user={user} />} />
               <Route path="/tenants/:tenantId/entitlements" element={<TenantEntitlementsPage token={token} />} />
               <Route path="/tenants" element={<ManagedRecordsPage key="tenants" token={token} kind="tenants" emptyLabel="No tenants." columns={[

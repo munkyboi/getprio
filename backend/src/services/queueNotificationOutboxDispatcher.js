@@ -1,4 +1,5 @@
 const crypto = require("crypto");
+const path = require("node:path");
 const outboxRepository = require("../repositories/queueNotificationOutbox");
 const notificationDeliveryRepository = require("../repositories/notificationDeliveries");
 const tenantRepository = require("../repositories/tenants");
@@ -7,6 +8,12 @@ const ticketRepository = require("../repositories/tickets");
 const userRepository = require("../repositories/users");
 const notificationService = require("./notificationService");
 const pushNotificationService = require("./pushNotificationService");
+// These legacy mobile modules live outside the TypeScript source tree. Resolve them
+// dynamically so the backend build does not try to emit JavaScript over the source
+// files, while both tsx (src/) and compiled (dist/) execution resolve the same files.
+const fcmRegistrationService = require(path.resolve(__dirname, "../../mobile/fcmRegistrationService.js"));
+const pushRegistrationRepository = require(path.resolve(__dirname, "../../mobile/pushRegistrationRepository.js"));
+const mobilePushOutboxDeliveryRepository = require(path.resolve(__dirname, "../../mobile/mobilePushOutboxDeliveryRepository.js"));
 const { queueLifecycleEmail, queueReconciliationEmail } = require("./queueEmailTemplates");
 
 function warningAction(templateName) {
@@ -42,7 +49,80 @@ function customerEmailCopy(tenant, ticket, action) {
   return queueLifecycleEmail({ tenant, ticket, kind: action, action });
 }
 
-async function dispatchIntent(intent) {
+function userIdFromRecipient(recipientKey) {
+  const match = /^user:(\d+)$/.exec(String(recipientKey || ""));
+  return match ? match[1] : null;
+}
+
+async function dispatchFcmIntent(intent, tenant, ticket, workerId) {
+  const userId = userIdFromRecipient(intent.recipient_key);
+  if (!userId) {
+    throw new Error("FCM outbox intent must target a user recipient.");
+  }
+
+  const user = await userRepository.findUserById(userId);
+  if (!user || user.notificationSettings?.queueAlerts === false) {
+    return { attempted: 0, sent: 0, skipped: true };
+  }
+
+  const registrations = await pushRegistrationRepository.listActiveByUserId(userId);
+  await mobilePushOutboxDeliveryRepository.ensurePending(intent.id, registrations);
+  const pending = await mobilePushOutboxDeliveryRepository.claimPending(intent.id, workerId);
+  if (!pending.length) {
+    return { attempted: registrations.length, sent: 0, skipped: registrations.length === 0 };
+  }
+
+  const payload = pushNotificationService.buildCustomerQueueNotificationPayload({
+    tenant,
+    ticket,
+    action: customerAction(intent.template_name),
+    notificationId: `outbox:${intent.id}`
+  });
+  let result;
+  try {
+    result = await fcmRegistrationService.sendToRegistrations({
+      registrations: pending,
+      payload,
+      environment: ticket.developerEnvironment === "sandbox" ? "sandbox" : "production"
+    });
+  } catch (error) {
+    await mobilePushOutboxDeliveryRepository.releasePending(intent.id, workerId).catch(() => {});
+    throw error;
+  }
+  if (!result.configured) {
+    await mobilePushOutboxDeliveryRepository.releasePending(intent.id, workerId);
+    throw new Error("FCM delivery is not configured.");
+  }
+
+  const activeAfter = new Set(
+    (await pushRegistrationRepository.listActiveByUserId(userId)).map((registration) => String(registration.id))
+  );
+  const transientFailures = [];
+  for (const outcome of result.outcomes) {
+    if (outcome.status === "accepted") {
+      await mobilePushOutboxDeliveryRepository.markSent(intent.id, outcome.registrationId, { workerId });
+    } else if (!activeAfter.has(String(outcome.registrationId))) {
+      await mobilePushOutboxDeliveryRepository.markStale(intent.id, outcome.registrationId, { workerId });
+    } else {
+      await mobilePushOutboxDeliveryRepository.markFailure(intent.id, outcome.registrationId, outcome.error, { workerId });
+      transientFailures.push(outcome);
+    }
+  }
+
+  if (transientFailures.length) {
+    throw new Error(`FCM delivery failed for ${transientFailures.length} installation(s).`);
+  }
+
+  return {
+    attempted: result.attempted,
+    sent: result.sent,
+    stale: result.outcomes.filter((outcome) => outcome.status !== "accepted").length,
+    skipped: false
+  };
+}
+
+async function dispatchIntent(intent, options = {}) {
+  const workerId = options.workerId || "queue-outbox-direct";
   const tenant = await tenantRepository.findTenantById(intent.tenant_id);
   if (!tenant) {
     return;
@@ -114,7 +194,8 @@ async function dispatchIntent(intent) {
     await pushNotificationService.notifyCustomerQueueUpdate({
       tenant,
       ticket,
-      action: customerAction(intent.template_name)
+      action: customerAction(intent.template_name),
+      channels: { webPush: true, fcm: false }
     });
     await notificationDeliveryRepository.recordDelivery({
       tenantId: tenant._id,
@@ -125,6 +206,26 @@ async function dispatchIntent(intent) {
       provider: "web_push",
       status: "sent",
       outboxId: intent.id
+    });
+    return;
+  }
+  if (intent.channel === "fcm") {
+    const result = await dispatchFcmIntent(intent, tenant, ticket, workerId);
+    await notificationDeliveryRepository.recordDelivery({
+      tenantId: tenant._id,
+      ticketId: ticket._id,
+      channel: "fcm",
+      purpose: intent.template_name,
+      recipient: intent.recipient_key,
+      provider: "fcm",
+      status: "sent",
+      outboxId: intent.id,
+      metadata: {
+        attempted: result.attempted,
+        sent: result.sent,
+        stale: result.stale || 0,
+        skipped: Boolean(result.skipped)
+      }
     });
     return;
   }
@@ -153,17 +254,17 @@ function createQueueNotificationOutboxDispatcher(options = {}) {
     const intents = await outboxRepository.claimBatch(workerId, limit);
     for (const intent of intents) {
       try {
-        await dispatchIntent(intent);
+        await dispatchIntent(intent, { workerId });
         await outboxRepository.markSent(intent.id, workerId);
       } catch (error) {
-        if (intent.channel === "web_push") {
+        if (intent.channel === "web_push" || intent.channel === "fcm") {
           await notificationDeliveryRepository.recordDelivery({
             tenantId: intent.tenant_id,
             ticketId: intent.ticket_id,
-            channel: "web_push",
+            channel: intent.channel,
             purpose: intent.template_name,
             recipient: intent.recipient_key,
-            provider: "web_push",
+            provider: intent.channel,
             status: "failed",
             errorMessage: String(error.message || error).slice(0, 500),
             outboxId: intent.id

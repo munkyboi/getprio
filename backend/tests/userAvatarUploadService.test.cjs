@@ -2,10 +2,12 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
 
-function loadService({ env = {}, updateUser = async () => null, send = async () => {} } = {}) {
+function loadService({ env = {}, updateUser = async () => null, send = async () => {}, current = {} } = {}) {
   const target = require.resolve("../src/services/userAvatarUploadService.js");
   const originals = new Map();
   const mocks = {
+    "../config/db": { withTransaction: async (fn) => fn({ query: async () => ({ rows: current ? [current] : [] }) }) },
+    "../repositories/platform": { getImageUploadLimitKb: async () => 200 },
     "../config/env": {
       b2Region: "us-east-005",
       b2S3Endpoint: "https://s3.example.test",
@@ -48,7 +50,7 @@ function loadService({ env = {}, updateUser = async () => null, send = async () 
   }
 }
 
-test("avatar upload stores an immutable public image and updates the user", async () => {
+test("avatar upload stores a non-cacheable public image and updates the user", async () => {
   const commands = [];
   const updates = [];
   const service = loadService({
@@ -75,7 +77,7 @@ test("avatar upload stores an immutable public image and updates the user", asyn
   assert.equal(commands[0].Bucket, "public-assets");
   assert.match(commands[0].Key, /^user-avatars\/users\/42\/.+\.png$/);
   assert.equal(commands[0].ContentType, "image/png");
-  assert.equal(commands[0].CacheControl, "public, max-age=31536000, immutable");
+  assert.equal(commands[0].CacheControl, "no-store");
   assert.match(result.avatarUrl, /^https:\/\/cdn\.example\.test\/file\/public-assets\/user-avatars\/users\/42\//);
   assert.deepEqual(updates, [{ userId: "42", changes: { avatarUrl: result.avatarUrl } }]);
 });
@@ -98,9 +100,9 @@ test("avatar upload rejects unsupported files and oversized images", async () =>
       user: { _id: "42" },
       fileName: "portrait.png",
       contentType: "image/png",
-      fileBuffer: Buffer.alloc(service.MAX_UPLOAD_BYTES + 1)
+      fileBuffer: Buffer.alloc(200 * 1024 + 1)
     }),
-    { statusCode: 400, message: "Avatar image must be between 1 byte and 5 MB." }
+    { statusCode: 400, message: "Image must be between 1 byte and 200 KB. Choose a smaller image or compress it before uploading." }
   );
 
   await assert.rejects(
@@ -132,3 +134,10 @@ test("avatar upload rejects non-binary request payloads before inspecting image 
   assert.equal(service.matchesImageSignature("image/png", "not-binary"), false);
   assert.equal(service.matchesImageSignature("image/png", [0x89, 0x50]), false);
 });
+
+for (const current of [null, { deletion_requested_at: new Date() }]) {
+  test(`avatar upload refuses missing/deleting account: ${Boolean(current)}`, async () => {
+    const service = loadService({ current, send: async () => assert.fail('must not upload'), updateUser: async () => assert.fail('must not update') });
+    await assert.rejects(service.uploadAvatar({user: {_id: '42'}, fileName: 'a.jpg', contentType: 'image/jpeg', fileBuffer: Buffer.from([0xff,0xd8,0xff,0xe0])}), {statusCode: 403});
+  });
+}

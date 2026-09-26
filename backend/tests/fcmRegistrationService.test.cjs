@@ -53,7 +53,8 @@ test("FCM test delivery returns redacted per-installation outcomes", async () =>
   const successes = [];
   const originalFetch = global.fetch;
   let fcmCalls = 0;
-  global.fetch = async (url) => {
+  const messageBodies = [];
+  global.fetch = async (url, options) => {
     if (url === "https://oauth2.googleapis.com/token") {
       return {
         ok: true,
@@ -63,6 +64,7 @@ test("FCM test delivery returns redacted per-installation outcomes", async () =>
     }
 
     fcmCalls += 1;
+    messageBodies.push(JSON.parse(options?.body || "{}"));
     return {
       ok: fcmCalls === 1,
       status: fcmCalls === 1 ? 200 : 400,
@@ -117,6 +119,8 @@ test("FCM test delivery returns redacted per-installation outcomes", async () =>
     });
     assert.equal(Object.hasOwn(accepted.outcomes[0], "token"), false);
     assert.deepEqual(successes, ["registration-1"]);
+    assert.equal(messageBodies[0].message.android.collapseKey, "notification-1");
+    assert.equal(messageBodies[0].message.apns.headers["apns-collapse-id"], "notification-1");
 
     const rejected = await service.sendToRegistrations({
       registrations,
@@ -139,6 +143,95 @@ test("FCM test delivery returns redacted per-installation outcomes", async () =>
     });
     assert.deepEqual(deactivatedTokens, ["secret-device-token"]);
     assert.equal(Object.hasOwn(rejected.outcomes[0], "token"), false);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("FCM Sandbox delivery uses Sandbox credentials and project", async () => {
+  const originalFetch = global.fetch;
+  const requests = [];
+  global.fetch = async (url, options) => {
+    if (url === "https://oauth2.googleapis.com/token") {
+      requests.push({ url, body: options?.body });
+      return { ok: true, status: 200, json: async () => ({ access_token: "sandbox-access", expires_in: 3600 }) };
+    }
+    requests.push({ url, body: JSON.parse(options?.body || "{}") });
+    return { ok: true, status: 200, json: async () => ({ name: "projects/getprio-sandbox/messages/message-1" }) };
+  };
+
+  try {
+    const service = requireWithMocks("../mobile/fcmRegistrationService.js", {
+      "../src/config/env": {
+        fcmProjectId: "getprio",
+        fcmClientEmail: "push@getprio.iam.gserviceaccount.com",
+        fcmPrivateKey: "production-key",
+        fcmSandboxProjectId: "getprio-sandbox",
+        fcmSandboxClientEmail: "push@getprio-sandbox.iam.gserviceaccount.com",
+        fcmSandboxPrivateKey: "sandbox-key"
+      },
+      "./pushRegistrationRepository": {
+        recordSuccess: async () => {}
+      },
+      jsonwebtoken: { sign: (_claims, privateKey) => privateKey }
+    });
+
+    const result = await service.sendToRegistrations({
+      environment: "sandbox",
+      registrations: [{ id: "registration-1", installationId: "install-1", token: "token-1", platform: "ios" }],
+      payload: { title: "Sandbox", body: "Update", notificationId: "sandbox-notification" }
+    });
+
+    assert.equal(result.sent, 1);
+    assert.match(requests[1].url, /projects\/getprio-sandbox\/messages:send$/);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("FCM queue movement signals are silent and collapsible", async () => {
+  const originalFetch = global.fetch;
+  let message;
+  global.fetch = async (url, options) => {
+    if (url === "https://oauth2.googleapis.com/token") {
+      return { ok: true, status: 200, json: async () => ({ access_token: "access-token", expires_in: 3600 }) };
+    }
+    message = JSON.parse(options?.body || "{}").message;
+    return { ok: true, status: 200, json: async () => ({ name: "projects/getprio/messages/message-quiet" }) };
+  };
+
+  try {
+    const service = requireWithMocks("../mobile/fcmRegistrationService.js", {
+      "../src/config/env": {
+        fcmProjectId: "getprio",
+        fcmClientEmail: "push@getprio.iam.gserviceaccount.com",
+        fcmPrivateKey: "private-key"
+      },
+      "./pushRegistrationRepository": { recordSuccess: async () => {} },
+      jsonwebtoken: { sign: () => "signed-assertion" }
+    });
+
+    const result = await service.sendToRegistrations({
+      registrations: [{ id: "registration-1", installationId: "install-1", token: "token-1", platform: "ios" }],
+      payload: {
+        silent: true,
+        eventType: "developer_queue_moved",
+        notificationId: "queue-movement-1",
+        collapseId: "developer-queue-moved:queue-1",
+        tag: "developer-queue-moved-queue-1"
+      }
+    });
+
+    assert.equal(result.sent, 1);
+    assert.equal(Object.hasOwn(message, "notification"), false);
+    assert.equal(message.data.eventType, "developer_queue_moved");
+    assert.equal(message.android.priority, "high");
+    assert.equal(message.android.collapseKey, "developer-queue-moved:queue-1");
+    assert.equal(message.apns.headers["apns-push-type"], "background");
+    assert.equal(message.apns.headers["apns-priority"], "5");
+    assert.equal(message.apns.headers["apns-collapse-id"], "developer-queue-moved:queue-1");
+    assert.equal(message.apns.payload.aps["content-available"], 1);
+    assert.equal(Object.hasOwn(message.apns.payload.aps, "sound"), false);
   } finally {
     global.fetch = originalFetch;
   }

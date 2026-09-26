@@ -4,6 +4,9 @@ const assert = require("node:assert/strict");
 const {
   ACCESS_COOKIE,
   CSRF_COOKIE,
+  DEVELOPER_ACCESS_COOKIE,
+  DEVELOPER_CSRF_COOKIE,
+  DEVELOPER_REFRESH_COOKIE,
   REFRESH_COOKIE,
   clearBrowserSession,
   getAccessCookie,
@@ -69,6 +72,43 @@ test("insecure local sessions use browser-valid non-Host cookie names", () => {
   assert.equal(getAccessCookie({ prio_access: "untrusted-production-cookie" }, true), null);
 });
 
+test("developer sessions use separate access, refresh, and CSRF cookies", () => {
+  const response = buildResponse();
+  const result = issueBrowserSession(response, {
+    accessToken: "developer-access",
+    refreshToken: "developer-refresh",
+    session: { _id: "43", expiresAt: "2026-09-01T00:00:00.000Z" }
+  }, {
+    secure: true,
+    csrfSecret: "test-csrf-secret",
+    surface: "developer"
+  });
+
+  const cookies = response.headers.filter(([name]) => name === "Set-Cookie").map(([, value]) => value);
+  assert.equal(cookies.some((value) => value.startsWith(`${DEVELOPER_ACCESS_COOKIE}=developer-access`)), true);
+  assert.equal(cookies.some((value) => value.startsWith(`${DEVELOPER_REFRESH_COOKIE}=developer-refresh`)), true);
+  assert.equal(cookies.some((value) => value.startsWith(`${DEVELOPER_CSRF_COOKIE}=${encodeURIComponent(result.csrfToken)}`)), true);
+  assert.equal(getAccessCookie({ [DEVELOPER_ACCESS_COOKIE]: "developer-access" }, true, "developer"), "developer-access");
+  assert.equal(getAccessCookie({ [ACCESS_COOKIE]: "app-access" }, true, "developer"), null);
+});
+
+test("persistent developer sessions can keep the access cookie alive with the refresh session", () => {
+  const response = buildResponse();
+  issueBrowserSession(response, {
+    accessToken: "developer-access",
+    refreshToken: "developer-refresh",
+    session: { _id: "44", expiresAt: new Date(Date.now() + 3650 * 24 * 60 * 60 * 1000) }
+  }, {
+    secure: false,
+    csrfSecret: "test-csrf-secret",
+    accessMaxAgeSeconds: 3650 * 24 * 60 * 60,
+    surface: "developer"
+  });
+  const cookies = response.headers.filter(([name]) => name === "Set-Cookie").map(([, value]) => value);
+  assert.match(cookies.find((value) => value.startsWith("prio_developer_access=")), /Max-Age=315360000/);
+  assert.match(cookies.find((value) => value.startsWith("prio_developer_refresh=")), /Max-Age=315360000/);
+});
+
 test("browser session clearing expires all session cookies", () => {
   const response = buildResponse();
   clearBrowserSession(response, { secure: false });
@@ -102,6 +142,50 @@ test("cookie-authenticated mutation requires same-origin session-bound CSRF", as
   };
 
   await new Promise((resolve, reject) => protect(request, response, (error) => error ? reject(error) : resolve()));
+});
+
+test("vendor mutations keep using the app CSRF cookie when a developer session is also present", async () => {
+  const protect = createCsrfProtection({
+    allowedOrigins: new Set(["https://app.getprio.test"]),
+    csrfSecret: "test-csrf-secret"
+  });
+  const response = buildResponse();
+  const appSession = issueBrowserSession(response, {
+    accessToken: "app-access",
+    refreshToken: "app-refresh",
+    session: { _id: "42", expiresAt: "2026-09-01T00:00:00.000Z" }
+  }, { secure: true, csrfSecret: "test-csrf-secret" });
+  const developerSession = issueBrowserSession(response, {
+    accessToken: "developer-access",
+    refreshToken: "developer-refresh",
+    session: { _id: "43", expiresAt: "2026-09-01T00:00:00.000Z" }
+  }, { secure: true, csrfSecret: "test-csrf-secret", surface: "developer" });
+  const headers = {
+    cookie: [
+      `${ACCESS_COOKIE}=app-access`,
+      `${REFRESH_COOKIE}=app-refresh`,
+      `${CSRF_COOKIE}=${encodeURIComponent(appSession.csrfToken)}`,
+      `${DEVELOPER_ACCESS_COOKIE}=developer-access`,
+      `${DEVELOPER_REFRESH_COOKIE}=developer-refresh`,
+      `${DEVELOPER_CSRF_COOKIE}=${encodeURIComponent(developerSession.csrfToken)}`
+    ].join("; "),
+    origin: "https://app.getprio.test",
+    "sec-fetch-site": "same-site",
+    "content-type": "application/json",
+    "x-csrf-token": appSession.csrfToken
+  };
+
+  await new Promise((resolve, reject) => protect({
+    method: "POST",
+    originalUrl: "/api/vendor/tenant/example/queue/open?location=main",
+    headers
+  }, response, (error) => error ? reject(error) : resolve()));
+
+  await new Promise((resolve, reject) => protect({
+    method: "POST",
+    originalUrl: "/api/developer/projects",
+    headers: { ...headers, "x-csrf-token": developerSession.csrfToken }
+  }, response, (error) => error ? reject(error) : resolve()));
 });
 
 test("cookie-authenticated image upload requires the same CSRF checks", async () => {
@@ -176,6 +260,13 @@ test("login and MFA verification can recover from a stale browser session withou
     ...request,
     originalUrl: "/api/auth/mfa/verify"
   }, response, (error) => error ? reject(error) : resolve()));
+
+  for (const originalUrl of ["/api/developer/mfa/email/send", "/api/developer/mfa/verify", "/api/developer/refresh"]) {
+    await new Promise((resolve, reject) => protect({
+      ...request,
+      originalUrl
+    }, response, (error) => error ? reject(error) : resolve()));
+  }
 });
 
 test("cookie-authenticated mutation rejects foreign origin and missing CSRF", async () => {
@@ -212,6 +303,23 @@ test("public vendor registration is not blocked by an unrelated stale cookie ses
   }
 });
 
+test("developer password recovery is not blocked by a stale developer session", async () => {
+  const protect = createCsrfProtection({ allowedOrigins: ["https://developers.getprio.online"], csrfSecret: "test-secret" });
+  for (const originalUrl of ["/api/developer/password-reset/request", "/api/developer/password-reset/confirm"]) {
+    const error = await new Promise((resolve) => protect({
+      method: "POST",
+      originalUrl,
+      headers: {
+        cookie: `${DEVELOPER_ACCESS_COOKIE}=old-session; ${DEVELOPER_CSRF_COOKIE}=old-csrf`,
+        origin: "https://developers.getprio.online",
+        "sec-fetch-site": "same-origin",
+        "content-type": "application/json"
+      }
+    }, buildResponse(), resolve));
+    assert.equal(error, undefined);
+  }
+});
+
 test("vendor registration recovery retains origin, request-format and authenticated-route protections", async () => {
   const protect = createCsrfProtection({ allowedOrigins: ["https://getprio.online"], csrfSecret: "test-secret" });
   const headers = { cookie: `${REFRESH_COOKIE}=expired-session`, origin: "https://getprio.online", "sec-fetch-site": "same-site", "content-type": "application/json" };
@@ -227,4 +335,38 @@ test("vendor registration recovery retains origin, request-format and authentica
     const error = await new Promise(resolve => protect({ method: "POST", originalUrl: "/api/auth/register/vendor", ...request }, buildResponse(), resolve));
     assert.equal(error?.code, "CSRF_VALIDATION_FAILED");
   }
+});
+
+test("account bootstrap restores the current CSRF token without rotating another tab's cookie", () => {
+  const { restoreBrowserCsrf, signCsrfToken } = require("../src/services/browserSessionService");
+  const csrfToken = signCsrfToken("42", "test-secret");
+  const req = { headers: { cookie: `prio_csrf=${encodeURIComponent(csrfToken)}` }, auth: { transport: "cookie", session: { _id: "42", expiresAt: new Date(Date.now() + 3600000) } } };
+  const res = buildResponse();
+  assert.equal(restoreBrowserCsrf(req, res, { csrfSecret: "test-secret" }), csrfToken);
+  assert.equal(restoreBrowserCsrf(req, res, { csrfSecret: "test-secret" }), csrfToken);
+  assert.equal(res.headers.length, 0);
+});
+
+test("account bootstrap repairs missing, tampered, and previous-session CSRF cookies", () => {
+  const { restoreBrowserCsrf, signCsrfToken, verifyCsrfToken, parseCookies } = require("../src/services/browserSessionService");
+  for (const oldToken of ["", "tampered", signCsrfToken("previous-session", "test-secret"), signCsrfToken("42", "old-secret")]) {
+    const req = { headers: { cookie: `prio_csrf=${encodeURIComponent(oldToken)}` }, auth: { transport: "cookie", session: { _id: "42", expiresAt: new Date(Date.now() + 3600000) } } };
+    const res = buildResponse();
+    const token = restoreBrowserCsrf(req, res, { csrfSecret: "test-secret" });
+    assert.equal(verifyCsrfToken(token, "test-secret"), true);
+    assert.equal(Buffer.from(token.split(".")[0], "base64url").toString(), "42");
+    assert.equal(res.headers.length, 1);
+    assert.match(res.headers[0][1], /^prio_csrf=.*; Path=\/; SameSite=Lax; Secure; Max-Age=\d+$/);
+    assert.equal(parseCookies(res.headers[0][1]).prio_csrf, token);
+    assert.doesNotMatch(res.headers[0][1], /Domain=/);
+  }
+});
+
+test("CSRF restoration does not issue browser cookies for bearer or unauthenticated requests", () => {
+  const { restoreBrowserCsrf } = require("../src/services/browserSessionService");
+  const res = buildResponse();
+  for (const auth of [undefined, { transport: "bearer", session: { _id: "42" } }]) {
+    assert.equal(restoreBrowserCsrf({ auth }, res, { csrfSecret: "test-secret" }), undefined);
+  }
+  assert.equal(res.headers.length, 0);
 });

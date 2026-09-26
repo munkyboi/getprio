@@ -136,6 +136,7 @@ Core variables to set:
 - `POSTGRES_PASSWORD`
 - `DATABASE_URL`
 - `DATABASE_SSL`
+- `DATABASE_SSL_CA` or `DATABASE_SSL_CA_FILE` when the database CA is not system-trusted
 - `JWT_SECRET`
 - `SERVER_URL`
 - `CLIENT_URL`

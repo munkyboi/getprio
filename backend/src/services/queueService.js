@@ -8,10 +8,12 @@ const queueDayRepository = require("../repositories/queueDays");
 const ticketRepository = require("../repositories/tickets");
 const bookingRepository = require("../repositories/bookings");
 const queueEvents = require("./queueEvents");
+const developerWebhookService = require("./developerWebhookService");
 const queueLifecycle = require("./queueLifecycle");
 const queueDayLifecycleService = require("./queueDayLifecycleService");
 const notificationService = require("./notificationService");
 const pushNotificationService = require("./pushNotificationService");
+const mobileTicketLinkService = require("./mobileTicketLinkService");
 const allowanceService = require("./allowanceService");
 const {
   buildQueueEventActor,
@@ -31,7 +33,7 @@ const {
 } = require("./queueAutomationHelpers");
 
 async function appendQueueEvent(client, ticket, eventType, options = {}) {
-  return queueEventRepository.createQueueEvent(
+  const event = await queueEventRepository.createQueueEvent(
     {
       ticketId: ticket?._id || null,
       tenantId: ticket.tenantId,
@@ -47,6 +49,12 @@ async function appendQueueEvent(client, ticket, eventType, options = {}) {
     },
     { client }
   );
+  await developerWebhookService.enqueueQueueEvent({
+    event,
+    ticket,
+    developerWebhook: options.developerWebhook
+  }, { client });
+  return event;
 }
 
 async function appendScopedQueueEvent(client, data) {
@@ -298,19 +306,25 @@ async function createTicket({
   customerName,
   customerEmail,
   customerPhone,
+  developerProjectId,
+  developerEnvironment,
+  externalReference,
   notifyByEmail,
   notifyBySms,
   joinChannel,
   notes,
   actorUserId,
   actorRole,
+  source,
   servicePriorityBand,
   otpChainId,
-  allowanceReservationKey
+  allowanceReservationKey,
+  developerWebhook,
+  developerMobileLink
 }) {
   const resolvedLocation = await resolveLocation(tenant, { location });
   await assertQueueIntakeOpen(tenant, resolvedLocation);
-  const ticket = await db.withTransaction(async (client) => {
+  const transactionResult = await db.withTransaction(async (client) => {
     const createdTicket = await createTicketForTenantInTransaction(client, {
       tenant,
       location: resolvedLocation,
@@ -318,6 +332,9 @@ async function createTicket({
       customerName,
       customerEmail,
       customerPhone,
+      developerProjectId,
+      developerEnvironment,
+      externalReference,
       notifyByEmail,
       notifyBySms,
       joinChannel,
@@ -326,11 +343,19 @@ async function createTicket({
       otpChainId,
       allowanceReservationKey
     });
+    const mobileLink = developerMobileLink
+      ? await mobileTicketLinkService.issuePrivateLink({
+        ticketId: createdTicket._id,
+        developerProjectId: developerMobileLink.projectId,
+        environment: developerMobileLink.environment,
+        client
+      })
+      : null;
 
     const actor = buildQueueEventActor({
       actorUserId,
       actorRole,
-      source: joinChannel === "vendor" ? "vendor" : "public"
+      source: source || (joinChannel === "vendor" ? "vendor" : "public")
     });
     await appendQueueEvent(client, createdTicket, "ticket_created", {
       toStatus: createdTicket.status,
@@ -339,11 +364,13 @@ async function createTicket({
       source: actor.source,
       metadata: {
         joinChannel: createdTicket.joinChannel
-      }
+      },
+      developerWebhook
     });
 
-    return createdTicket;
+    return { ticket: createdTicket, mobileLink };
   });
+  const { ticket, mobileLink } = transactionResult;
 
   pushNotificationService.notifyCustomerQueueUpdate({ tenant, ticket, action: "joined" }).catch((error) => {
     console.warn("[push-customer-queue-joined-skipped]", error.message);
@@ -362,7 +389,7 @@ async function createTicket({
   }
   await notificationService.notifyJourneyLifecycle({ ticket, tenant, slot: "joined", action: "joined" });
 
-  return { ticket, snapshot };
+  return { ticket, snapshot, ...(mobileLink ? { mobileLink } : {}) };
 }
 
 async function createTicketForTenantInTransaction(client, {
@@ -372,6 +399,9 @@ async function createTicketForTenantInTransaction(client, {
   customerName,
   customerEmail,
   customerPhone,
+  developerProjectId,
+  developerEnvironment,
+  externalReference,
   notifyByEmail,
   notifyBySms,
   joinChannel,
@@ -399,16 +429,20 @@ async function createTicketForTenantInTransaction(client, {
     sequence = await reserveNextSequence(client, tenant._id, resolvedLocation._id, dateKey);
   }
 
+  const ticketNumber = formatTicketNumber(tenant.queuePrefix, sequence);
   const ticket = await createTicketRecord(client, {
     tenantId: tenant._id,
     locationId: resolvedLocation._id,
     userId,
-    ticketNumber: formatTicketNumber(tenant.queuePrefix, sequence),
+    ticketNumber,
     sequence,
     dateKey,
-    customerName,
+    customerName: customerName || ticketNumber,
     customerEmail,
     customerPhone,
+    developerProjectId,
+    developerEnvironment,
+    externalReference,
     notifyByEmail: Boolean(notifyByEmail && customerEmail),
     notifyBySms: Boolean(notifyBySms && customerPhone),
     joinChannel: joinChannel || "online",
@@ -552,7 +586,8 @@ async function callNextTicket(tenant, options = {}) {
       source: actor.source,
       metadata: {
         serviceCounterId: options.serviceCounter?._id || null
-      }
+      },
+      developerWebhook: options.developerWebhook
     });
 
     return nextTicket;
@@ -647,7 +682,8 @@ async function updateCurrentTicketStatus(tenant, status, options = {}) {
       actorUserId: actor.actorUserId,
       actorRole: actor.actorRole,
       source: actor.source,
-      metadata: {}
+      metadata: {},
+      developerWebhook: options.developerWebhook
     });
 
     return updatedTicket;
@@ -792,7 +828,8 @@ async function cancelTicket(tenant, lookupCode, options = {}) {
         reason: existingTicket.status === "pending_carry_over"
           ? "carry_over_declined"
           : "customer_cancelled"
-      }
+      },
+      developerWebhook: options.developerWebhook
     });
 
     return cancelledTicket;
@@ -1329,7 +1366,8 @@ async function restoreSkippedTicket(tenant, ticketId, options = {}) {
         reason: servicePriorityBand === "recovery" ? "missed_ticket_recovery" : "missed_ticket_rejoin_expired",
         servicePriorityBand,
         queueDateKey: dateKey
-      }
+      },
+      developerWebhook: options.developerWebhook
     });
 
     return restoredTicket;

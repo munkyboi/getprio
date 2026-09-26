@@ -67,7 +67,8 @@ test("vendor management handler lists history and invites staff", async () => {
       listUsersByTenantId: async () => [{ tenantMemberships: [{ tenantId: 1, role: "owner", isActive: true }] }],
       findUserByEmail: async () => ({ _id: 9 }),
       addTenantMembership: async () => {}
-    }
+    },
+    staffAccessEmailService: { change: async (_context, mutate) => mutate({ client: {} }) }
   });
   assert.equal(inviteResponse.statusCode, 201);
 });
