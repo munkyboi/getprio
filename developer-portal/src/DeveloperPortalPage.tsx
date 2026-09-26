@@ -593,7 +593,7 @@ function ForgotPasswordScreen() {
   </section>;
 }
 
-function ResetPasswordScreen() {
+function ResetPasswordScreen({ onResetComplete }: { onResetComplete: () => void }) {
   const token = new URLSearchParams(window.location.search).get("token") || "";
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -614,6 +614,7 @@ function ResetPasswordScreen() {
     try {
       await developerApi.resetPassword(token, newPassword);
       setReset(true);
+      onResetComplete();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "We could not reset your password.");
     } finally { setBusy(false); }
@@ -1060,7 +1061,7 @@ export default function DeveloperPortalPage() {
             ) : path === "/forgot-password" ? (
               <ForgotPasswordScreen />
             ) : path === "/reset-password" ? (
-              <ResetPasswordScreen />
+              <ResetPasswordScreen onResetComplete={() => setSession(null)} />
             ) : isDashboardPath && sessionChecked ? (
               <>
                 <p className="developer-portal-eyebrow">DEVELOPER WORKSPACE</p>

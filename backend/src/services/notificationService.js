@@ -185,8 +185,10 @@ async function sendEmail({ to, subject, text, html, emailTemplate, tenantId, tic
 
   try {
     await assertTransactionalEmailAllowance({ tenantId, purpose });
-    // Managed templates must not silently fall back to an empty email on another provider.
-    if (resendTemplate && provider !== "resend") throw new Error("Managed email templates require Resend");
+    // Resend-managed templates may carry a branded inline fallback for other configured providers.
+    if (resendTemplate && provider !== "resend" && !text && !html) {
+      throw new Error("Managed email templates require Resend or an inline fallback");
+    }
     if (!resendTemplate) html = html || createBrandedEmail({ subject, message: text, ...emailTemplate }).html;
 
     await deliverEmail({ provider, to, subject, text, html, idempotencyKey, resendTemplate });

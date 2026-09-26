@@ -162,7 +162,8 @@ test("developer password reset request is generic and only emails active Develop
       EXPIRY_TEXT: "2026-09-26T13:00:00.000Z"
     }
   });
-  assert.equal("text" in sent[0], false);
+  assert.match(sent[0].text, /Reset your password/);
+  assert.match(sent[0].html, /Reset Developer Portal password/);
   assert.equal("emailTemplate" in sent[0], false);
 });
 

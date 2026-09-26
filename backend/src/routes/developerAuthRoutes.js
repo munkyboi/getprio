@@ -48,6 +48,7 @@ const developerPasswordResetLimiter = rateLimit({
   keyGenerator: (req) => ipKeyGenerator(req.ip || req.socket?.remoteAddress || "unknown"),
   message: { message: "Too many password reset requests. Please try again later." }
 });
+const DEVELOPER_PASSWORD_RESET_RESPONSE_DELAY_MS = 100;
 
 router.use("/register/otp", developerRegistrationOtpLimiter);
 
@@ -351,25 +352,28 @@ router.post(
   "/password-reset/request",
   developerPasswordResetLimiter,
   asyncHandler(async (req, res) => {
+    const startedAt = Date.now();
     const email = authService.normalizeEmail(req.body?.email);
     const user = email ? await userRepository.findUserByEmail(email) : null;
     const membership = user && await developerAccountRepository.findMembershipByUserId(user._id);
 
     if (user?.email && membership?.accountStatus === "active") {
       const reset = await db.withTransaction(async (client) => passwordResetService.issuePasswordResetToken({ user, req, client }));
-      try {
-        const resetUrl = buildDeveloperPasswordResetUrl(reset.token);
-        await notificationService.sendEmail({
-          to: user.email,
-          ...buildTemplateEmail({ resetUrl, expiresAt: reset.expiresAt }),
-          purpose: "general",
-          metadata: { category: "developer_password_reset" }
-        });
-      } catch (error) {
+      const resetUrl = buildDeveloperPasswordResetUrl(reset.token);
+      void notificationService.sendEmail({
+        to: user.email,
+        ...buildTemplateEmail({ resetUrl, expiresAt: reset.expiresAt }),
+        purpose: "general",
+        metadata: { category: "developer_password_reset" }
+      }).catch((error) => {
         console.warn("[developer-password-reset-email-failed]", error.message);
-        if (env.nodeEnv !== "production") throw error;
-      }
+      });
     }
+
+    // Keep the generic response on one fixed floor and dispatch delivery out of band so
+    // account existence and provider latency are not observable through this endpoint.
+    const remainingDelay = DEVELOPER_PASSWORD_RESET_RESPONSE_DELAY_MS - (Date.now() - startedAt);
+    if (remainingDelay > 0) await new Promise((resolve) => setTimeout(resolve, remainingDelay));
 
     res.json({
       success: true,

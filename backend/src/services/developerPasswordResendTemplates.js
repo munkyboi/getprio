@@ -42,8 +42,22 @@ function buildTemplateEmail({ resetUrl, expiresAt }) {
     throw new Error("Invalid developer password reset expiry.");
   }
 
+  const subject = "Reset your GetPrio Developer Portal password";
+  const fallback = createBrandedEmail({
+    subject,
+    title: "Reset your password",
+    subtitle: "Use the button below to choose a new Developer Portal password.",
+    message: `We received a request to reset your GetPrio Developer Portal password. This link expires at ${expiryText}.`,
+    illustration: "account-verification",
+    actionLabel: "Reset Developer Portal password",
+    actionUrl,
+    footer: "If you did not request this, you can ignore this email."
+  });
+
   return {
-    subject: "Reset your GetPrio Developer Portal password",
+    subject,
+    text: fallback.text,
+    html: fallback.html,
     resendTemplate: {
       id: alias,
       variables: { ACTION_URL: actionUrl, EXPIRY_TEXT: expiryText }
