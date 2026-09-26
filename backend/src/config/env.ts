@@ -2,6 +2,11 @@ import path from "path";
 import dotenv from "dotenv";
 import { resolveMobileQrBaseUrl } from "./mobileQrBaseUrl.js";
 import { resolveDeveloperWebhookConfig } from "./developerWebhookConfig.js";
+import {
+  sandboxAndroidPackageName,
+  resolveSandboxTestFlightPublicUrl,
+  resolveSandboxAndroidGooglePlayPublicUrl
+} from "./sandboxDistributionLinks.js";
 
 export { resolveMobileQrBaseUrl };
 
@@ -36,54 +41,7 @@ export const platformDashboardUrl =
 export const developerPortalUrl = process.env.DEVELOPER_PORTAL_URL || (
   nodeEnv === "production" ? "https://developers.getprio.online" : "http://localhost:5174"
 );
-export function resolveSandboxTestFlightPublicUrl(source: NodeJS.ProcessEnv = process.env): string {
-  const configured = String(source.SANDBOX_TESTFLIGHT_PUBLIC_URL || "").trim();
-  if (!configured) return "";
-  try {
-    const url = new URL(configured);
-    if (
-      url.protocol !== "https:" ||
-      url.hostname !== "testflight.apple.com" ||
-      url.port ||
-      url.username ||
-      url.password ||
-      !/^\/join\/[^/]+$/.test(url.pathname) ||
-      url.search ||
-      url.hash
-    ) {
-      throw new Error("invalid TestFlight public URL");
-    }
-    return url.toString();
-  } catch {
-    throw new Error("SANDBOX_TESTFLIGHT_PUBLIC_URL must be an HTTPS testflight.apple.com /join/ URL.");
-  }
-}
 export const sandboxTestFlightPublicUrl = resolveSandboxTestFlightPublicUrl();
-export const sandboxAndroidPackageName = "com.getprio.getprioMobile.android.sandbox";
-export function resolveSandboxAndroidGooglePlayPublicUrl(source: NodeJS.ProcessEnv = process.env): string {
-  const configured = String(source.SANDBOX_ANDROID_GOOGLE_PLAY_PUBLIC_URL || "").trim();
-  if (!configured) return "";
-  try {
-    const url = new URL(configured);
-    if (
-      url.protocol !== "https:" ||
-      url.hostname !== "play.google.com" ||
-      url.port ||
-      url.username ||
-      url.password ||
-      url.pathname !== `/apps/testing/${sandboxAndroidPackageName}` ||
-      url.search ||
-      url.hash
-    ) {
-      throw new Error("invalid Google Play tester URL");
-    }
-    return url.toString();
-  } catch {
-    throw new Error(
-      "SANDBOX_ANDROID_GOOGLE_PLAY_PUBLIC_URL must be the HTTPS Google Play tester URL for the Sandbox package."
-    );
-  }
-}
 export const sandboxAndroidGooglePlayPublicUrl = resolveSandboxAndroidGooglePlayPublicUrl();
 export const appTimezone = process.env.APP_TIMEZONE || "Asia/Manila";
 export const oauthCallbackPath = process.env.OAUTH_CALLBACK_PATH || "/oauth/callback";
