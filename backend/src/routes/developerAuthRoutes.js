@@ -414,7 +414,8 @@ router.post(
   asyncHandler(async (req, res) => {
     res.json(await mfaFlowService.issueEmailLoginChallenge({
       challengeToken: String(req.body?.challengeToken || ""),
-      ...requestContext(req)
+      ...requestContext(req),
+      surface: "developer"
     }));
   })
 );

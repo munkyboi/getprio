@@ -261,12 +261,32 @@ test("login and MFA verification can recover from a stale browser session withou
     originalUrl: "/api/auth/mfa/verify"
   }, response, (error) => error ? reject(error) : resolve()));
 
-  for (const originalUrl of ["/api/developer/mfa/email/send", "/api/developer/mfa/verify", "/api/developer/refresh"]) {
+  for (const originalUrl of ["/api/auth/mfa/email/send", "/api/developer/mfa/email/send", "/api/developer/mfa/verify", "/api/developer/refresh"]) {
     await new Promise((resolve, reject) => protect({
       ...request,
       originalUrl
     }, response, (error) => error ? reject(error) : resolve()));
   }
+});
+
+test("pre-auth email MFA sending still rejects foreign origins with a stale browser session", async () => {
+  const protect = createCsrfProtection({
+    allowedOrigins: new Set(["https://app.getprio.test"]),
+    csrfSecret: "test-csrf-secret"
+  });
+  const error = await new Promise((resolve) => protect({
+    method: "POST",
+    originalUrl: "/api/auth/mfa/email/send",
+    headers: {
+      cookie: `${ACCESS_COOKIE}=stale-access; ${CSRF_COOKIE}=stale-csrf`,
+      origin: "https://evil.example",
+      "sec-fetch-site": "cross-site",
+      "content-type": "application/json"
+    }
+  }, buildResponse(), resolve));
+
+  assert.equal(error.statusCode, 403);
+  assert.equal(error.code, "CSRF_VALIDATION_FAILED");
 });
 
 test("cookie-authenticated mutation rejects foreign origin and missing CSRF", async () => {

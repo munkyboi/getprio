@@ -308,6 +308,7 @@ async function buildUserPayload(user) {
     emailVerified: Boolean(user.emailVerified),
     hasPassword: Boolean(user.passwordHash),
     mfaEnabled: Boolean(user.mfaEnabled),
+    emailMfaEnabled: Boolean(user.emailMfaEnabled),
     mfaRequired: Boolean(user.mfaRequired || userRequiresPrivilegedMfa(user)),
     oauthProviders: [...new Set((user.oauthAccounts || []).map((account) => account.provider))],
     lastLoginProvider: user.lastLoginProvider,
@@ -1022,6 +1023,15 @@ router.post(
         client
       });
     });
+    const methods = updatedUser.mfaEnabled
+      ? await mfaFlowService.getLoginMethods(updatedUser)
+      : [];
+    if (updatedUser.mfaEnabled && !methods.length) {
+      const error = new Error("Multi-factor authentication is enabled but no usable method is configured.");
+      error.statusCode = 409;
+      error.code = "MFA_CONFIGURATION_INVALID";
+      throw error;
+    }
     if (updatedUser.mfaEnabled) {
       const challenge = await mfaFlowService.issueLoginChallenge({
         user: updatedUser,
@@ -1032,7 +1042,7 @@ router.post(
         mfaRequired: true,
         challengeToken: challenge.token,
         expiresAt: challenge.expiresAt,
-        methods: ["totp", "recovery"]
+        methods
       });
       return;
     }
@@ -1107,9 +1117,23 @@ router.post(
     const result = await mfaFlowService.verifyLoginChallenge({
       challengeToken: req.body?.challengeToken,
       code: req.body?.code,
-      recoveryCode: req.body?.recoveryCode
+      recoveryCode: req.body?.recoveryCode,
+      method: String(req.body?.method || "totp")
     });
     res.json(buildAuthResponse(req, res, await buildUserPayload(result.user), result.sessionResult));
+  })
+);
+
+router.post(
+  "/mfa/email/send",
+  authAttemptLimiter,
+  asyncHandler(async (req, res) => {
+    res.json(await mfaFlowService.issueEmailLoginChallenge({
+      challengeToken: String(req.body?.challengeToken || ""),
+      ipAddress: authService.getRequestIp(req),
+      userAgent: authService.getUserAgent(req),
+      surface: "app"
+    }));
   })
 );
 
@@ -1150,6 +1174,42 @@ router.post(
     res.json({
       ...result,
       message: "Pending authenticator setup canceled. Your active authenticator was not changed."
+    });
+  })
+);
+
+router.post(
+  "/mfa/email/enable",
+  authenticate,
+  asyncHandler(async (req, res) => {
+    const user = await mfaFlowService.enableEmailMfa({ user: req.user });
+    res.json({
+      success: true,
+      user: await buildUserPayload(user),
+      message: "Email OTP is now enabled for sign-in."
+    });
+  })
+);
+
+router.post(
+  "/mfa/email/disable",
+  authenticate,
+  authAttemptLimiter,
+  asyncHandler(async (req, res) => {
+    const passwordMatches = req.user.passwordHash &&
+      await authService.verifyPasswordLogin(req.user, String(req.body?.password || ""));
+    if (!passwordMatches) {
+      const error = new Error("We could not verify your sign-in details.");
+      error.statusCode = 401;
+      error.code = "PRIMARY_AUTHENTICATION_INVALID";
+      throw error;
+    }
+
+    const user = await mfaFlowService.disableEmailMfa({ user: req.user });
+    res.json({
+      success: true,
+      user: await buildUserPayload(user),
+      message: "Email OTP has been disabled for sign-in."
     });
   })
 );

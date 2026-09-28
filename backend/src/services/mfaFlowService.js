@@ -99,7 +99,7 @@ async function issueLoginChallenge({ user, ipAddress, userAgent }, options = {})
   return { token, expiresAt };
 }
 
-async function issueEmailLoginChallenge({ challengeToken, ipAddress, userAgent }) {
+async function issueEmailLoginChallenge({ challengeToken, ipAddress, userAgent, surface = "app" }) {
   const challenge = await mfaRepository.findChallengeByTokenHash(hashToken(challengeToken));
   if (!challenge || challenge.challengeType !== "login" || challenge.usedAt || new Date(challenge.expiresAt).getTime() <= Date.now()) {
     const error = new Error("This sign-in verification has expired. Please sign in again.");
@@ -129,9 +129,9 @@ async function issueEmailLoginChallenge({ challengeToken, ipAddress, userAgent }
   });
   await notificationService.sendEmail({
     to: user.email,
-    subject: "Your GetPrio Developer Portal sign-in code",
-    text: `Your Developer Portal email verification code is ${code}. It expires in 10 minutes. If you did not request this code, reset your password.`,
-    purpose: "developer_mfa_email_otp"
+    subject: `Your GetPrio ${surface === "developer" ? "Developer Portal" : "Platform"} sign-in code`,
+    text: `Your GetPrio ${surface === "developer" ? "Developer Portal" : "Platform"} email verification code is ${code}. It expires in 10 minutes. If you did not request this code, reset your password.`,
+    purpose: surface === "developer" ? "developer_mfa_email_otp" : "platform_mfa_email_otp"
   });
   return { token, expiresAt, deliveryTarget: maskedEmail(user.email) };
 }

@@ -2,6 +2,9 @@ const PLATFORM_PERMISSIONS = {
   platform_admin: new Set([
     "platform.tenants.read",
     "platform.users.read",
+    "platform.user_sessions.revoke",
+    "platform.user_password_reset.send",
+    "platform.account_deletion.manage",
     "platform.settings.manage",
     "platform.plans.manage",
     "platform.queue_fees.manage",

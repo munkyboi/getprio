@@ -214,10 +214,13 @@ for (const roles of [["customer"], ["platform_admin"]]) {
           getUserAgent: () => "test-agent",
           recordLoginAttempt: async () => {}
         },
-        "../services/mfaFlowService": { issueLoginChallenge: async ({ user }) => {
-          challengedUser = user;
-          return { token: "challenge-only", expiresAt: "2026-09-07T12:00:00Z" };
-        } },
+        "../services/mfaFlowService": {
+          getLoginMethods: async () => ["totp", "recovery"],
+          issueLoginChallenge: async ({ user }) => {
+            challengedUser = user;
+            return { token: "challenge-only", expiresAt: "2026-09-07T12:00:00Z" };
+          }
+        },
         "../services/sessionService": { createAuthSession: async () => {
           sessionCalls++;
           throw new Error("A session must not be issued before MFA verification");

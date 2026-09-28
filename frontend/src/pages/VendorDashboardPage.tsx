@@ -120,6 +120,7 @@ import type {
 } from "@shared";
 import { DEFAULT_TIMEZONE, getTimeZoneOptions } from "../../../shared/timezones";
 import { BusinessCategorySelect } from "../components/BusinessCategorySelect";
+import { VendorAccountDeletionPanel } from "../components/VendorAccountDeletionPanel";
 import { API_BASE_URL } from "../api/client";
 import PhilippineMobileInput from "../components/PhilippineMobileInput";
 import FiveStarRatingInput from "../components/FiveStarRatingInput";
@@ -9950,6 +9951,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             ) : null}
           </Stack>
         </Card>
+        <VendorAccountDeletionPanel />
       </Stack>
     );
   }

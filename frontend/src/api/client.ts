@@ -1,4 +1,33 @@
-const API_BASE_URL = import.meta.env?.VITE_API_URL || "http://localhost:5001/api";
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+function resolveApiBaseUrl(
+  configuredUrl: string | undefined,
+  pageHostname: string | undefined,
+  isDevelopment: boolean
+): string {
+  const fallback = configuredUrl || "http://localhost:5001/api";
+  if (!isDevelopment || !pageHostname) return fallback;
+
+  try {
+    const apiUrl = new URL(fallback);
+    const apiHostname = apiUrl.hostname.toLowerCase();
+    const frontendHostname = pageHostname.toLowerCase();
+    if (LOOPBACK_HOSTS.has(apiHostname) && LOOPBACK_HOSTS.has(frontendHostname)) {
+      apiUrl.hostname = frontendHostname;
+      return apiUrl.toString().replace(/\/$/, "");
+    }
+  } catch {
+    // Preserve an invalid configured URL so existing configuration errors remain visible.
+  }
+
+  return fallback;
+}
+
+const API_BASE_URL = resolveApiBaseUrl(
+  import.meta.env?.VITE_API_URL,
+  typeof window === "undefined" ? undefined : window.location.hostname,
+  Boolean(import.meta.env?.DEV)
+);
 const CSRF_STORAGE_KEY = "prio_csrf";
 
 type RefreshTokenHandler = () => Promise<string | null>;
@@ -183,4 +212,4 @@ export async function apiUpload<TResponse>(
   return data as TResponse;
 }
 
-export { API_BASE_URL };
+export { API_BASE_URL, resolveApiBaseUrl };

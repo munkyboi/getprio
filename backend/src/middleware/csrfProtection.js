@@ -38,12 +38,13 @@ function requestOrigin(req) {
 
 function isAuthRecoveryRequest(req) {
   const path = normalizeApiPath(req.originalUrl || req.url);
-  // These routes establish a new identity from their own credentials/input;
-  // unrelated cookies must not require an old session's CSRF token. Keep
-  // /register/vendor/complete protected: it uses the signed-in user's identity.
+  // These routes establish or continue a pre-auth identity/challenge flow
+  // without relying on cookies. Keep /register/vendor/complete protected: it
+  // uses the signed-in user's identity.
   return String(req.method || "GET").toUpperCase() === "POST" &&
     [
       "/auth/login",
+      "/auth/mfa/email/send",
       "/auth/mfa/verify",
       "/developer/mfa/email/send",
       "/developer/mfa/verify",

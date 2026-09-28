@@ -16,6 +16,7 @@ test("permissions helpers resolve tenant roles, ignore inactive memberships, and
   assert.deepEqual(Array.from(permissions.getGlobalPermissions(user)).sort(), [
     "account.change_password",
     "account.read_self",
+    "platform.account_deletion.manage",
     "platform.billing.manage",
     "platform.billing.read",
     "platform.capacity.read",
@@ -42,6 +43,8 @@ test("permissions helpers resolve tenant roles, ignore inactive memberships, and
     "platform.subscription_lifecycle.manage",
     "platform.tenants.read",
     "platform.usage.read",
+    "platform.user_password_reset.send",
+    "platform.user_sessions.revoke",
     "platform.users.read"
   ]);
   assert.equal(permissions.getTenantRole(user, "tenant-1"), "staff");
@@ -52,6 +55,7 @@ test("permissions helpers resolve tenant roles, ignore inactive memberships, and
   assert.equal(permissions.userHasPermission(user, "tenant.billing.read", { tenantId: "tenant-1" }), false);
   assert.equal(permissions.userHasPermission(user, "tenant.capacity.read_operational", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(user, "platform.users.read"), true);
+  assert.equal(permissions.userHasPermission(user, "platform.user_sessions.revoke"), true);
 
   assert.throws(
     () => permissions.assertPermission(user, "tenant.settings.manage", { tenantId: "tenant-1" }),

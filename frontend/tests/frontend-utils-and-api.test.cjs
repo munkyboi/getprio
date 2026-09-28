@@ -5,7 +5,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const { ApiError, apiRequest, apiUpload, setAuthHandlers, API_BASE_URL } = require("../src/api/client.ts");
+const { ApiError, apiRequest, apiUpload, setAuthHandlers, API_BASE_URL, resolveApiBaseUrl } = require("../src/api/client.ts");
 const { getErrorMessage } = require("../src/utils/errors.ts");
 const {
   buildTenantSlugFromName,
@@ -284,6 +284,28 @@ test("utility formatters and validators cover common cases", () => {
   assert.equal(formatDateTimeInputValue(localDate), "2026-06-30T08:30");
   assert.equal(toDate("bad value"), null);
   assert.equal(Number.isNaN(toTimestamp("bad value")), true);
+});
+
+test("development API URL follows the frontend hostname for loopback hosts", () => {
+  assert.equal(
+    resolveApiBaseUrl("http://127.0.0.1:5001/api", "localhost", true),
+    "http://localhost:5001/api"
+  );
+  assert.equal(
+    resolveApiBaseUrl("http://localhost:5001/api", "127.0.0.1", true),
+    "http://127.0.0.1:5001/api"
+  );
+});
+
+test("API hostname alignment leaves remote hosts and production builds unchanged", () => {
+  assert.equal(
+    resolveApiBaseUrl("https://api.getprio.online/api", "localhost", true),
+    "https://api.getprio.online/api"
+  );
+  assert.equal(
+    resolveApiBaseUrl("http://127.0.0.1:5001/api", "localhost", false),
+    "http://127.0.0.1:5001/api"
+  );
 });
 
 test("campaign funding progress uses monetary percentage and a bottom-right label", () => {
