@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Badge, Button, FloatingIndicator, Modal, Paper, Select, Switch, Textarea, TextInput } from "@mantine/core";
 import { IconBrandAndroid, IconBrandApple, IconCheck, IconCopy, IconDownload, IconExternalLink, IconKey, IconPencil, IconPlus, IconRefresh, IconWebhook, IconX } from "@tabler/icons-react";
 import { DeveloperApiError, developerApi, type ApiKey, type Delivery, type DeveloperTicket, type Profile, type Project, type Queue, type QueueSnapshot, type SandboxAllowance, type SandboxTestAccount, type Session, type UsageReport, type Webhook } from "./developerApi";
@@ -106,9 +106,19 @@ function Setup({ allowance, testAccounts, testFlightUrl, androidApkUrl, busy, on
   const accountCount = testAccounts.length;
   const provisioningBusy = busy.startsWith("test-account-");
   const [platform, setPlatform] = useState<SandboxPlatform>("ios");
+  const platformSelectionByUser = useRef(false);
   const [platformTabsParent, setPlatformTabsParent] = useState<HTMLDivElement | null>(null);
   const [iosPlatformTab, setIosPlatformTab] = useState<HTMLButtonElement | null>(null);
   const [androidPlatformTab, setAndroidPlatformTab] = useState<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    if (!platformSelectionByUser.current) setPlatform(testFlightUrl ? "ios" : "android");
+  }, [testFlightUrl]);
+  useEffect(() => {
+    if (!platformTabsParent) return;
+    const rememberUserSelection = () => { platformSelectionByUser.current = true; };
+    platformTabsParent.addEventListener("click", rememberUserSelection);
+    return () => platformTabsParent.removeEventListener("click", rememberUserSelection);
+  }, [platformTabsParent]);
   const isIos = platform === "ios";
   const installUrl = isIos ? testFlightUrl : androidApkUrl;
   const platformName = isIos ? "iOS" : "Android";
@@ -126,6 +136,7 @@ function Setup({ allowance, testAccounts, testFlightUrl, androidApkUrl, busy, on
             : null;
     if (!nextPlatform) return;
     event.preventDefault();
+    platformSelectionByUser.current = true;
     setPlatform(nextPlatform);
     document.getElementById(`sandbox-platform-tab-${nextPlatform}`)?.focus();
   }

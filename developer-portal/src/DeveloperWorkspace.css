@@ -123,7 +123,7 @@
 .developer-workspace.dpp .developer-workspace-platform-tabs { position: relative; }
 .developer-workspace.dpp .developer-workspace-platform-tabs > button:not(.mantine-Button-root) { position: relative; z-index: 1; }
 .developer-workspace.dpp .developer-workspace-platform-tabs > button[aria-selected="true"]:not(.mantine-Button-root) { border-color: transparent !important; background: transparent !important; color: #fff !important; box-shadow: none !important; }
-.developer-workspace.dpp .developer-workspace-platform-tabs > button[aria-selected="false"]:not(.mantine-Button-root) { border-color: transparent !important; background: transparent !important; color: #a1a7bb !important; box-shadow: none !important; }
+.developer-workspace.dpp .developer-workspace-platform-tabs > button[aria-selected="false"]:not(.mantine-Button-root) { border-color: transparent !important; background: transparent !important; color: var(--dp-muted) !important; box-shadow: none !important; }
 .developer-workspace-platform-indicator { z-index: 0; border: 1px solid #527ae0; border-radius: 8px; background: #213562; box-shadow: 0 2px 6px #0004; pointer-events: none; }
 .developer-workspace-platform-tabs button svg { flex: 0 0 auto; }
 .developer-workspace-platform-panel { margin-top: 1rem; padding: 1.25rem; border: 1px solid var(--dp-border); border-radius: 1rem; background: color-mix(in srgb, var(--dp-bg) 68%, var(--dp-surface)); }
