@@ -206,10 +206,10 @@ test("wait-time prediction features use the lookup ticket Queue Day", async (t) 
   const originalSnapshotHelpers = require.cache[
     require.resolve("../src/services/queueSnapshotHelpers")
   ];
-  let predictedFeatures = null;
+  const predictedFeatures = [];
   waitTimePredictor.predictWaitTime = (input) => {
     const prediction = originalPredictWaitTime(input);
-    predictedFeatures = prediction.features;
+    predictedFeatures.push(prediction.features);
     return prediction;
   };
   delete require.cache[require.resolve("../src/services/queueSnapshotHelpers")];
@@ -282,8 +282,8 @@ test("wait-time prediction features use the lookup ticket Queue Day", async (t) 
   await new Promise((resolve) => setImmediate(resolve));
 
   assert.equal(result.focusTicket.position, 2);
-  assert.equal(predictedFeatures.waitingCount, 2);
-  assert.equal(predictedFeatures.position, 2);
-  assert.equal(predictedFeatures.queuePaused, true);
-  assert.ok(predictedFeatures.currentTicketElapsedMinutes >= 2);
+  assert.equal(predictedFeatures[0].waitingCount, 2);
+  assert.equal(predictedFeatures[0].position, 2);
+  assert.equal(predictedFeatures[0].queuePaused, true);
+  assert.ok(predictedFeatures[0].currentTicketElapsedMinutes >= 2);
 });
