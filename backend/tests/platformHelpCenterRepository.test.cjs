@@ -47,7 +47,7 @@ test("archived help items disappear from public output while draft records remai
   assert.equal(content.articles.some((item) => item.id === "join"), true);
 });
 
-test("first-run seed stays a draft and public output is empty until an admin publishes it", async () => {
+test("first-run verified seed stays publicly available while becoming the initial managed revision", async () => {
   const originalTransaction = db.withTransaction;
   let initialized = false;
   let draftSeeded = false;
@@ -55,24 +55,26 @@ test("first-run seed stays a draft and public output is empty until an admin pub
     query: async (sql) => {
       if (sql.includes("SELECT published_revision, draft_revision")) {
         if (!initialized) return { rows: [] };
-        return { rows: [{ published_revision: null, draft_revision: draftSeeded ? 11 : null }] };
+        return { rows: [{ published_revision: draftSeeded ? 11 : null, draft_revision: draftSeeded ? 11 : null }] };
       }
       if (sql.includes("pg_advisory_xact_lock")) return { rows: [] };
       if (sql.includes("INSERT INTO platform_help_center_state")) { initialized = true; return { rows: [] }; }
       if (sql.includes("INSERT INTO platform_help_center_revisions")) {
         assert.match(sql, /created_by, change_reason/);
-        assert.doesNotMatch(sql, /published_at/);
+        assert.match(sql, /published_at/);
         draftSeeded = true;
         return { rows: [{ revision: 11 }] };
       }
-      if (sql.includes("SET draft_revision=$1")) return { rows: [] };
-      if (sql.includes("SELECT content FROM platform_help_center_revisions")) return { rows: [] };
+      if (sql.includes("SET published_revision=$1, draft_revision=$1")) return { rows: [] };
+      if (sql.includes("SELECT content FROM platform_help_center_revisions")) return { rows: [{ content: seed }] };
       throw new Error(`Unexpected Help Center query: ${sql}`);
     }
   });
   try {
     const content = await helpCenter.getPublished();
-    assert.deepEqual(content, { topics: [], articles: [], faqs: [] });
+    assert.equal(content.topics.length, 7);
+    assert.equal(content.articles.length, 24);
+    assert.equal(content.faqs.length, 17);
     assert.equal(draftSeeded, true);
   } finally {
     db.withTransaction = originalTransaction;

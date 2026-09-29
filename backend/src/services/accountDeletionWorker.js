@@ -272,8 +272,12 @@ async function runOnce() {
     const { rows: [lock] } = await client.query('SELECT pg_try_advisory_lock(7090701) AS locked');
     if (!lock.locked) return;
     locked = true;
+    const notificationBranches = emailConfigured()
+      ? `(next_attempt_at<=NOW() AND contact_email IS NOT NULL AND acknowledgement_sent_at IS NULL)
+         OR (next_attempt_at<=NOW() AND contact_email IS NOT NULL AND status='completed' AND completion_sent_at IS NULL)`
+      : "FALSE";
     const { rows } = await client.query(`SELECT * FROM account_deletion_requests
-      WHERE (next_attempt_at<=NOW() AND (status<>'completed' OR completion_sent_at IS NULL))
+      WHERE (${notificationBranches})
          OR (scan_status IN ('queued','running') AND scan_next_attempt_at<=NOW())
          OR cleanup_status IN ('queued','running')
          OR (report_status='sending' AND next_attempt_at<=NOW())
@@ -288,6 +292,7 @@ async function runOnce() {
         }
         if (request.report_status === 'sending') {
           await sendUserReport(client, request);
+          continue;
         }
         if (!request.acknowledgement_sent_at && emailConfigured() && request.contact_email) {
           const sent = await notificationService.sendEmail({to: request.contact_email,subject:'GetPrio account deletion requested',

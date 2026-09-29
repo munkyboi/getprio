@@ -1,4 +1,5 @@
 import assert from "node:assert/strict"
+import { readFileSync } from "node:fs"
 import test from "node:test"
 import { resolvePlatformApiBaseUrl } from "../src/lib/platform-api-url.ts"
 import { requiresPlatformSignIn } from "../src/lib/platform-session-recovery.ts"
@@ -48,4 +49,14 @@ test("authorization failures unrelated to CSRF remain access denied", () => {
 test("missing or rejected refresh sessions return the browser to sign-in", () => {
   assert.equal(requiresPlatformSignIn(Object.assign(new Error("Missing refresh cookie"), { status: 400 })), true)
   assert.equal(requiresPlatformSignIn(Object.assign(new Error("Revoked session"), { status: 401 })), true)
+})
+
+test("refresh bootstraps a readable CSRF token from the API host before rotating cookies", () => {
+  const source = readFileSync(new URL("../src/lib/platform-auth.ts", import.meta.url), "utf8")
+  const csrfBootstrap = source.indexOf('request<{ csrfToken: string }>("/auth/csrf")')
+  const refreshRequest = source.indexOf('request<{ user: PlatformAuthUser }, Record<string, never>>("/auth/refresh"')
+
+  assert.notEqual(csrfBootstrap, -1)
+  assert.notEqual(refreshRequest, -1)
+  assert.ok(csrfBootstrap < refreshRequest)
 })

@@ -206,7 +206,7 @@ test("release readiness does not infer production status from this runtime's con
 });
 
 test("release readiness uses the latest authenticated post-deploy smoke report for web and API evidence", async () => {
-  const service = loadReadModelService({ deploymentReport: {
+  const service = loadReadModelService({ env: { deploymentSha: "a".repeat(40) }, deploymentReport: {
     workflow_run_id: "19384756201",
     deployment_sha: "a".repeat(40),
     workflow_url: "https://github.com/getprio/web-app/actions/runs/19384756201",
@@ -230,7 +230,7 @@ test("release readiness uses the latest authenticated post-deploy smoke report f
 });
 
 test("release readiness keeps failed smoke reports in review instead of calling production blocked or ready", async () => {
-  const service = loadReadModelService({ deploymentReport: {
+  const service = loadReadModelService({ env: { deploymentSha: "b".repeat(40) }, deploymentReport: {
     workflow_run_id: "19384756202",
     deployment_sha: "b".repeat(40),
     workflow_url: "https://github.com/getprio/web-app/actions/runs/19384756202",
@@ -245,6 +245,24 @@ test("release readiness keeps failed smoke reports in review instead of calling 
   assert.equal(web.state, "review");
   assert.equal(api.state, "review");
   assert.equal(result.data.deploymentEvidence.outcome, "failure");
+});
+
+test("release readiness ignores evidence from a previous deployment revision", async () => {
+  const service = loadReadModelService({ env: { deploymentSha: "c".repeat(40) }, deploymentReport: {
+    workflow_run_id: "19384756203",
+    deployment_sha: "d".repeat(40),
+    workflow_url: "https://github.com/getprio/web-app/actions/runs/19384756203",
+    outcome: "success",
+    summary: "Authenticated Platform API and web smoke passed.",
+    observed_at: "2026-09-29T10:20:30.000Z"
+  } });
+  const result = await service.getReleaseReadiness({});
+  const web = result.data.surfaces.find((surface) => surface.id === "platform-web");
+  const api = result.data.surfaces.find((surface) => surface.id === "platform-api");
+
+  assert.equal(web.state, "unknown");
+  assert.equal(api.state, "unknown");
+  assert.equal(result.data.deploymentEvidence, null);
 });
 
 test("billing tab counts report full category totals independently of bounded lists", async () => {
@@ -266,6 +284,8 @@ test("billing tab counts report full category totals independently of bounded li
   });
 
   const result = await service.getBilling({});
+  assert.ok(calls.some((sql) => sql.includes("status IN ('requested', 'provider_pending')")));
+  assert.ok(calls.every((sql) => !sql.includes("status IN ('requested', 'processing')")));
   assert.deepEqual(JSON.parse(JSON.stringify(result.data.counts)), {
     subscriptions: 125,
     purchases: 240,

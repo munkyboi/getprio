@@ -129,9 +129,9 @@ export function EmailMfaSettingsPanel({ variant, onUpdated }: Props) {
             </Alert>
           )}
           {error ? <Alert color="red" title="Email OTP was not disabled" variant="light">{error}</Alert> : null}
-          <Group justify="flex-end">
-            <Button disabled={busy} onClick={() => { setDisableOpened(false); setPassword(""); setError(""); }} variant="default">Keep Email OTP</Button>
-            <Button color="red" disabled={busy || Boolean(hasPassword && !password)} loading={busy} onClick={() => void updateEmailMfa(false)}>
+          <Group justify="flex-end" className="flex-col-reverse items-stretch sm:flex-row sm:items-center">
+            <Button className="w-full sm:w-auto" disabled={busy} onClick={() => { setDisableOpened(false); setPassword(""); setError(""); }} variant="default">Keep Email OTP</Button>
+            <Button className="w-full sm:w-auto" color="red" disabled={busy || Boolean(hasPassword && !password)} loading={busy} onClick={() => void updateEmailMfa(false)}>
               Disable Email OTP
             </Button>
           </Group>

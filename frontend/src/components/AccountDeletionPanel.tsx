@@ -129,11 +129,11 @@ export function AccountDeletionPanel({ accountType }: { accountType: AccountType
             Only records with a documented legal or operational retention basis may remain. The Platform team reviews required cleanup before the worker completes erasure.
           </Alert>
           {error ? <Alert color="red" title="Request not submitted" variant="light">{error}</Alert> : null}
-          <Group justify="flex-end">
-            <Button disabled={submitting} onClick={() => { setDialogOpen(false); setError(""); }} variant="default">
+          <Group justify="flex-end" className="flex-col-reverse items-stretch sm:flex-row sm:items-center">
+            <Button className="w-full sm:w-auto" disabled={submitting} onClick={() => { setDialogOpen(false); setError(""); }} variant="default">
               Keep my account
             </Button>
-            <Button color="red" disabled={submitting || (passwordRequired && !password)} loading={submitting} onClick={() => void submitRequest()}>
+            <Button className="w-full sm:w-auto" color="red" disabled={submitting || (passwordRequired && !password)} loading={submitting} onClick={() => void submitRequest()}>
               Request permanent deletion
             </Button>
           </Group>

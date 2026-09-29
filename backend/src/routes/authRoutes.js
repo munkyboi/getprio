@@ -1114,6 +1114,24 @@ router.post(
   })
 );
 
+router.get(
+  "/csrf",
+  asyncHandler(async (req, res) => {
+    const refreshToken = String(getRefreshCookie(parseCookies(req.headers.cookie), env.authCookieSecure) || "");
+    if (!refreshToken) return res.status(401).json({ message: "Please sign in again." });
+    const session = await sessionService.resolveSessionByRefreshToken(refreshToken);
+    if (!session || (session.surface && session.surface !== "app") || session.status !== "active" || new Date(session.expiresAt).getTime() <= Date.now()) {
+      return res.status(401).json({ message: "Please sign in again." });
+    }
+    const csrfToken = restoreBrowserCsrf({
+      headers: req.headers,
+      auth: { transport: "cookie", session }
+    }, res, { secure: env.authCookieSecure, csrfSecret: env.csrfSecret });
+    res.set("Cache-Control", "no-store");
+    return res.json({ csrfToken });
+  })
+);
+
 router.post(
   "/mfa/verify",
   authAttemptLimiter,

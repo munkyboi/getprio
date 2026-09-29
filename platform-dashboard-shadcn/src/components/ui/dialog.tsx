@@ -45,18 +45,29 @@ function DialogContent({
 }: DialogPrimitive.Popup.Props & {
   showCloseButton?: boolean
 }) {
+  const contentChildren = React.Children.toArray(children)
+  const headerChildren = contentChildren.filter((child) => React.isValidElement(child) && child.type === DialogHeader)
+  const footerChildren = contentChildren.filter((child) => React.isValidElement(child) && child.type === DialogFooter)
+  const bodyChildren = contentChildren.filter((child) =>
+    !(React.isValidElement(child) && (child.type === DialogHeader || child.type === DialogFooter))
+  )
+
   return (
     <DialogPortal>
       <DialogOverlay />
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(
-          "fixed inset-x-0 top-auto bottom-0 z-50 flex max-h-[min(92dvh,48rem)] w-full max-w-none translate-x-0 translate-y-0 flex-col gap-4 overflow-y-auto rounded-t-xl rounded-b-none bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0 md:inset-auto md:top-1/2 md:left-1/2 md:max-h-[min(88dvh,48rem)] md:w-[calc(100%-2rem)] md:max-w-sm md:-translate-x-1/2 md:-translate-y-1/2 md:rounded-xl md:data-open:zoom-in-95 md:data-closed:zoom-out-95",
+          "fixed inset-x-0 top-auto bottom-0 z-50 flex max-h-[min(92dvh,48rem)] w-full max-w-none translate-x-0 translate-y-0 flex-col gap-4 overflow-hidden rounded-t-xl rounded-b-none bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0 md:inset-auto md:top-1/2 md:left-1/2 md:max-h-[min(88dvh,48rem)] md:w-[calc(100%-2rem)] md:max-w-sm md:-translate-x-1/2 md:-translate-y-1/2 md:rounded-xl md:data-open:zoom-in-95 md:data-closed:zoom-out-95",
           className
         )}
         {...props}
       >
-        {children}
+        {headerChildren}
+        <div data-slot="dialog-body" className="min-h-0 w-full flex-1 overflow-y-auto overscroll-contain">
+          {bodyChildren}
+        </div>
+        {footerChildren}
         {showCloseButton && (
         <DialogPrimitive.Close
             data-slot="dialog-close"
@@ -100,7 +111,7 @@ function DialogFooter({
     <div
       data-slot="dialog-footer"
       className={cn(
-        "-mx-4 -mb-4 mt-auto flex shrink-0 flex-col-reverse gap-2 rounded-b-none border-t bg-popover px-4 py-4 sm:flex-row sm:justify-end md:rounded-b-xl",
+        "sticky bottom-0 -mx-4 -mb-4 mt-auto flex shrink-0 flex-col-reverse gap-2 rounded-b-none border-t bg-popover px-4 py-4 pb-[calc(1rem+env(safe-area-inset-bottom))] [&>button]:w-full min-[48rem]:flex-row min-[48rem]:justify-end min-[48rem]:[&>button]:w-auto md:rounded-b-xl",
         className
       )}
       {...props}

@@ -123,11 +123,11 @@ async function initialize(client) {
   if (!state.published_revision && !state.draft_revision) {
     const content = validateContent(seed, { requireReviewed: true });
     const inserted = (await client.query(
-      "INSERT INTO platform_help_center_revisions (content, created_by, change_reason) VALUES ($1::jsonb, NULL, 'Initial audited Help Center content — awaiting Platform Admin preview and publish') RETURNING revision",
+      "INSERT INTO platform_help_center_revisions (content, created_by, change_reason, published_at) VALUES ($1::jsonb, NULL, 'Initial verified Help Center content migrated from the public app', NOW()) RETURNING revision",
       [JSON.stringify(content)]
     )).rows[0];
-    await client.query("UPDATE platform_help_center_state SET draft_revision=$1, updated_at=NOW() WHERE singleton=TRUE", [inserted.revision]);
-    state = { published_revision: null, draft_revision: inserted.revision };
+    await client.query("UPDATE platform_help_center_state SET published_revision=$1, draft_revision=$1, updated_at=NOW() WHERE singleton=TRUE", [inserted.revision]);
+    state = { published_revision: inserted.revision, draft_revision: inserted.revision };
   }
   return state;
 }

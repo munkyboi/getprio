@@ -160,6 +160,7 @@ const env = {
   nodeEnv,
   apiEnvironment,
   port,
+  deploymentSha: process.env.DEPLOY_SHA || null,
   databaseUrl,
   databaseSsl,
   databaseSslCa,

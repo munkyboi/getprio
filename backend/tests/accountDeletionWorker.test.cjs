@@ -52,6 +52,29 @@ test('worker does not unlock another worker and always releases its connection',
   assert.equal(calls.at(-1),'RELEASE');
   assert.equal(calls.some(sql=>sql.includes('pg_advisory_unlock')),false);
 });
+test('worker polling excludes idle acknowledged requests from its bounded batch', async()=>{
+  const {calls,client}=fixture();
+  await workerWith(client,async()=>true,{resendApiKey:'fixture'}).runOnce();
+  const selection=calls.find(sql=>sql.startsWith('SELECT * FROM account_deletion_requests'));
+  assert.match(selection,/acknowledgement_sent_at IS NULL/);
+  assert.doesNotMatch(selection,/status<>'completed'/);
+});
+test('sending the completion report cannot be followed by a stale deletion acknowledgment', async()=>{
+  const {calls,client}=fixture();
+  const sent=[];
+  const requestQuery=client.query;
+  client.query=async(sql)=>{
+    if(sql.startsWith('SELECT * FROM account_deletion_requests')) return {rows:[{
+      id:'request', status:'processing', report_status:'sending', acknowledgement_sent_at:null,
+      contact_email:'fixture@example.invalid', cleanup_report:{actions:[],exclusions:[]}
+    }]};
+    return requestQuery(sql);
+  };
+  await workerWith(client,async(message)=>{sent.push(message);return true;},{resendApiKey:'fixture'}).runOnce();
+  assert.equal(sent.length,1);
+  assert.match(sent[0].subject,/Update on your GetPrio account deletion request/);
+  assert.doesNotMatch(sent[0].text,/request .* was accepted/);
+});
 test('completion notification is sent for an already-completed request and clears contact only after sending',async()=>{
   const {calls,client}=fixture({completed:true});
   await workerWith(client,async()=>{

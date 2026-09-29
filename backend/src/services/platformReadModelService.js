@@ -233,7 +233,13 @@ async function getSettings(req) {
 }
 
 async function getReleaseReadiness(req) {
-  const deploymentReport = await platformReleaseReadinessEvidence.getLatestReport();
+  const latestDeploymentReport = await platformReleaseReadinessEvidence.getLatestReport();
+  const currentDeploymentSha = String(env.deploymentSha || "").toLowerCase();
+  const deploymentReport = latestDeploymentReport
+    && /^[0-9a-f]{40}$/.test(currentDeploymentSha)
+    && String(latestDeploymentReport.deployment_sha || "").toLowerCase() === currentDeploymentSha
+    ? latestDeploymentReport
+    : null;
   const sandboxIosConfigured = Boolean(env.sandboxTestFlightPublicUrl);
   const sandboxAndroidConfigured = Boolean(env.sandboxAndroidPackageName && env.sandboxAndroidGooglePlayPublicUrl);
   const sandboxPushConfigured = Boolean(env.fcmSandboxProjectId && env.fcmSandboxClientEmail && env.fcmSandboxPrivateKey);
@@ -762,7 +768,7 @@ async function getBilling(req) {
     `),
     db.pool.query(`
       SELECT (
-        (SELECT COUNT(*) FROM usage_credit_refunds WHERE status IN ('requested', 'processing'))
+        (SELECT COUNT(*) FROM usage_credit_refunds WHERE status IN ('requested', 'provider_pending'))
         + (SELECT COUNT(*) FROM usage_credit_disputes WHERE status IN ('open', 'under_review'))
       )::INTEGER AS cases
     `),

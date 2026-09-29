@@ -68,10 +68,15 @@ let refreshInFlight: Promise<void> | null = null
 
 async function refreshBrowserSession() {
   try {
-    await request<{ user: PlatformAuthUser }, Record<string, never>>("/auth/refresh", { method: "POST", body: {} })
+    const refresh = async () => {
+      await request<{ csrfToken: string }>("/auth/csrf")
+      await request<{ user: PlatformAuthUser }, Record<string, never>>("/auth/refresh", { method: "POST", body: {} })
+    }
+    await refresh()
   } catch (error) {
     if (!(error instanceof PlatformAuthError) || error.status !== 409 || error.code !== "REFRESH_ALREADY_ROTATED") throw error
     await new Promise((resolve) => window.setTimeout(resolve, 100))
+    await request<{ csrfToken: string }>("/auth/csrf")
     await request<{ user: PlatformAuthUser }, Record<string, never>>("/auth/refresh", { method: "POST", body: {} })
   }
 }

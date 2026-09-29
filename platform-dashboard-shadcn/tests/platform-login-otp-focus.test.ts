@@ -9,4 +9,5 @@ test("Platform sign-in focuses the OTP input when a verification method becomes 
   assert.match(source, /otpInputRef\.current\?\.focus\(\{ preventScroll: true \}\)/)
   assert.match(source, /<InputOTP[^>]*ref=\{otpInputRef\}/s)
   assert.match(source, /\[challengeToken, method, emailSent\]/)
+  assert.match(source, /method === "email" && !emailSent[\s\S]*Send email OTP/)
 })

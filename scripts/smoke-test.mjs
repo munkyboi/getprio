@@ -691,7 +691,7 @@ async function reportPlatformSmoke(outcome, summary) {
   }
   if (Buffer.byteLength(PLATFORM_RELEASE_EVIDENCE_SECRET) < 32) {
     log("::warning::PLATFORM_RELEASE_EVIDENCE_SECRET is missing or shorter than 32 bytes; the Platform dashboard will not receive this smoke result.");
-    return;
+    throw new Error("Authenticated smoke passed, but its release evidence could not be signed or recorded.");
   }
 
   const runId = String(process.env.GITHUB_RUN_ID);
@@ -721,7 +721,7 @@ async function reportPlatformSmoke(outcome, summary) {
   });
   if (!response.response.ok || response.body?.accepted !== true) {
     log(`::warning::Platform smoke ran, but evidence was not accepted by the API (HTTP ${response.response.status}).`);
-    return;
+    throw new Error("Authenticated smoke evidence was not accepted by the Platform API.");
   }
   log("post-deploy smoke result recorded in Platform Release Readiness");
 }

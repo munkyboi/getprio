@@ -290,7 +290,7 @@ jobs:
           fi
           npm run db:migrate
           npm run db:verify
-          VITE_DEPLOY_SHA="${DEPLOY_SHA}" NODE_OPTIONS="--max-old-space-size=4096" npm run build
+          VITE_DEPLOY_SHA="${DEPLOY_SHA}" VITE_PLATFORM_DATA_SOURCE=live NODE_OPTIONS="--max-old-space-size=4096" npm run build
           mkdir -p platform-dashboard/dist
           cp -a platform-dashboard-shadcn/dist/. platform-dashboard/dist/
           NODE_OPTIONS="--max-old-space-size=4096" npm run build:backend

@@ -574,6 +574,38 @@ test("refresh route rotates refresh tokens and returns a fresh session payload",
   }
 });
 
+test("CSRF bootstrap returns a session-bound token to the Platform origin using the API-host refresh cookie", async () => {
+  const session = { _id: "session-csrf", userId: "user-1", status: "active", surface: "app", expiresAt: new Date(Date.now() + 60000) };
+  const router = requireWithMocks("../src/routes/authRoutes.js", {
+    "../config/db": {},
+    "../middleware/moderatePublicText": { moderatePublicText: (_req, _res, next) => next() },
+    "../services/sessionService": {
+      resolveSessionByRefreshToken: async (token) => token === "refresh-token" ? session : null
+    }
+  });
+  const app = express();
+  app.use(express.json());
+  app.use("/api/auth", router);
+  app.use(buildErrorHandlerMock());
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const cookieName = require("../src/config/env").authCookieSecure ? "__Host-prio_refresh" : "prio_refresh";
+  try {
+    const response = await fetch(`${baseUrl}/api/auth/csrf`, { headers: { cookie: `${cookieName}=refresh-token` } });
+    const body = await response.json();
+    assert.equal(response.status, 200);
+    assert.match(body.csrfToken, /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
+    assert.match(response.headers.get("cache-control"), /no-store/);
+    assert.match(response.headers.get("set-cookie"), /prio_csrf=/);
+
+    const unauthenticated = await fetch(`${baseUrl}/api/auth/csrf`);
+    assert.equal(unauthenticated.status, 401);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test("logout route revokes the current session", async () => {
   let revokedSessionId = null;
   let loggedEvent = null;

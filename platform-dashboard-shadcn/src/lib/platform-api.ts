@@ -713,7 +713,7 @@ function createHttpPlatformApi(baseUrl = API_BASE_URL): PlatformApi {
 
   return {
     getViewerContext: () => read<PlatformViewerContext>("/platform/viewer-context", "global"),
-    getOverview: () => read<PlatformOverviewReadModel>("/platform/overview", "global"),
+    getOverview: () => read<PlatformOverviewReadModel>("/platform/overview/read-model", "global"),
     getServiceHealth: () => read<PlatformServiceHealthReadModel>("/platform/service-health", "global"),
     getQueueOperations: () => read<PlatformQueueOperationsReadModel>("/platform/queues", "global"),
     getTenants: () => read<PlatformTenantsReadModel>("/platform/tenants/read-model", "global"),

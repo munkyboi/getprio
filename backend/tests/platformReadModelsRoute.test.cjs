@@ -65,7 +65,7 @@ test("Platform read-model routes require authentication and their capability-spe
 
   const expected = new Map([
     ["/viewer-context", "platform.tenants.read"],
-    ["/overview", "platform.tenants.read"],
+    ["/overview/read-model", "platform.tenants.read"],
     ["/service-health", "platform.tenants.read"],
     ["/queues", "platform.tenants.read"],
     ["/tenants/read-model", "platform.tenants.read"],
@@ -92,7 +92,7 @@ test("read-model handlers return no-store responses and delegate to the matching
   const { routes, serviceCalls } = loadReadModelRoutes();
   const cases = [
     ["/viewer-context", "getViewerContext"],
-    ["/overview", "getOverview"],
+    ["/overview/read-model", "getOverview"],
     ["/service-health", "getServiceHealth"],
     ["/queues", "getQueueOperations"],
     ["/tenants/read-model", "getTenants"],
@@ -118,6 +118,12 @@ test("read-model handlers return no-store responses and delegate to the matching
 
   assert.deepEqual(serviceCalls.map(({ method }) => method), cases.map(([, method]) => method));
   assert.equal(serviceCalls.at(-1).args[1], "proj_7fd3");
+});
+
+test("legacy Platform overview remains available separately for billing analytics consumers", () => {
+  const { routes } = loadReadModelRoutes();
+  assert.ok(routes.some(({ method, args }) => method === "get" && args[0] === "/overview/read-model"));
+  assert.ok(routes.some(({ method, args }) => method === "get" && args[0] === "/overview"));
 });
 
 test("release evidence ingestion is signed and separate from the authenticated Platform routes", async () => {

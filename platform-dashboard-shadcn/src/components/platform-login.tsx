@@ -142,6 +142,7 @@ export function PlatformLogin({ dark, onToggleTheme, onAuthenticated }: { dark: 
               {error ? <Alert variant="destructive"><AlertTitle>Sign-in failed</AlertTitle><AlertDescription>{error}</AlertDescription></Alert> : null}
               {challengeToken ? submitting ? <p role="status" aria-live="polite" className="text-center text-sm text-muted-foreground">Verifying code…</p> : null : <Button type="submit" disabled={submitting || !identifier || !password}>{submitting ? "Signing in…" : "Continue"}</Button>}
               {challengeToken && method === "totp" && methods.includes("email") ? <Button type="button" variant="link" className="h-auto justify-self-center px-0 text-sm" onClick={sendEmailCode} disabled={submitting}>{submitting ? "Sending…" : "Send email OTP instead"}</Button> : null}
+              {challengeToken && method === "email" && !emailSent ? <Button type="button" onClick={sendEmailCode} disabled={submitting}>{submitting ? "Sending code…" : "Send email OTP"}</Button> : null}
               {challengeToken && method === "email" && emailSent ? <Button type="button" variant="link" className="h-auto justify-self-center px-0 text-sm" onClick={switchToTotp} disabled={submitting}>Use authenticator app instead</Button> : null}
               {challengeToken ? <Button type="button" variant="ghost" onClick={resetMfaChallenge}>Use a different account</Button> : null}
             </form>

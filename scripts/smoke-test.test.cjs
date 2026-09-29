@@ -3,6 +3,7 @@ const { spawn } = require("node:child_process");
 const { createHmac } = require("node:crypto");
 const http = require("node:http");
 const path = require("node:path");
+const fs = require("node:fs");
 const test = require("node:test");
 
 function totp(secret, timestamp = Date.now()) {
@@ -139,4 +140,11 @@ test("platform smoke completes an authenticator MFA challenge before checking pr
   assert.equal(report.body.outcome, "success");
   assert.equal(report.body.deploymentSha, deploymentSha);
   assert.equal(report.body.workflowUrl, "https://github.com/getprio/web-app/actions/runs/19384756201");
+});
+
+test("missing release-evidence credentials fail the report-only smoke step instead of looking successful", () => {
+  const source = fs.readFileSync(path.join(__dirname, "smoke-test.mjs"), "utf8");
+  const workflow = fs.readFileSync(path.join(__dirname, "../.github/workflows/deploy-digitalocean.yml"), "utf8");
+  assert.match(source, /PLATFORM_RELEASE_EVIDENCE_SECRET is missing[\s\S]*?throw new Error\("Authenticated smoke passed, but its release evidence could not be signed or recorded\."\)/);
+  assert.match(workflow, /Authenticated Platform post-deploy smoke \(report-only\)[\s\S]*?continue-on-error: true/);
 });

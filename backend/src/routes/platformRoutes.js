@@ -144,7 +144,7 @@ router.get("/viewer-context", requirePlatformPermission("platform.tenants.read")
   return res.json(await platformReadModelService.getViewerContext(req));
 }));
 
-router.get("/overview", requirePlatformPermission("platform.tenants.read"), asyncHandler(async (req, res) => {
+router.get("/overview/read-model", requirePlatformPermission("platform.tenants.read"), asyncHandler(async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
   return res.json(await platformReadModelService.getOverview(req));
 }));
