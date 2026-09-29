@@ -6,6 +6,7 @@ const developerTestAccounts = require("../repositories/developerTestAccounts");
 const developerWebhooks = require("../repositories/developerWebhooks");
 const developerWebhookSuspensions = require("../repositories/developerWebhookSuspensions");
 const developerApiRateLimits = require("../repositories/developerApiRateLimits");
+const platformReleaseReadinessEvidence = require("./platformReleaseReadinessEvidence");
 const organizerCampaignRepository = require("../repositories/organizerCampaigns");
 const ratingRepository = require("../repositories/ratings");
 const platformRepository = require("../repositories/platform");
@@ -232,6 +233,7 @@ async function getSettings(req) {
 }
 
 async function getReleaseReadiness(req) {
+  const deploymentReport = await platformReleaseReadinessEvidence.getLatestReport();
   const sandboxIosConfigured = Boolean(env.sandboxTestFlightPublicUrl);
   const sandboxAndroidConfigured = Boolean(env.sandboxAndroidPackageName && env.sandboxAndroidGooglePlayPublicUrl);
   const sandboxPushConfigured = Boolean(env.fcmSandboxProjectId && env.fcmSandboxClientEmail && env.fcmSandboxPrivateKey);
@@ -240,21 +242,21 @@ async function getReleaseReadiness(req) {
       id: "platform-web",
       surface: "Platform web dashboard",
       environment: "production",
-      state: "review",
-      signal: "Dashboard origin configured",
-      evidence: "Platform dashboard origin is configured; deployment and authenticated browser proof remain separate.",
-      nextAction: "Deploy and verify the authenticated public flow.",
-      observedAt: new Date().toISOString()
+      state: "unknown",
+      signal: "Production deployment not observed",
+      evidence: "No verified production deployment observation is connected. This server's configured origin does not establish production deployment or availability.",
+      nextAction: "Connect production deployment evidence, then verify the authenticated public flow.",
+      observedAt: "Not observed"
     },
     {
       id: "platform-api",
       surface: "Platform API",
       environment: "production",
-      state: "review",
-      signal: "Authenticated read models implemented",
-      evidence: "Permissioned read models are implemented; deployed authenticated smoke evidence has not been observed.",
-      nextAction: "Run authenticated smoke against the deployed API.",
-      observedAt: new Date().toISOString()
+      state: "unknown",
+      signal: "Production deployment not observed",
+      evidence: "Authenticated production smoke evidence has not been observed; local read-model availability does not establish a deployed production API.",
+      nextAction: "Connect production deployment evidence and run an authenticated smoke against the deployed API.",
+      observedAt: "Not observed"
     },
     {
       id: "sandbox-ios",
@@ -287,15 +289,43 @@ async function getReleaseReadiness(req) {
       observedAt: sandboxPushConfigured ? "Configured" : "Not observed"
     }
   ];
-  const readyOrReview = surfaces.filter((surface) => surface.state === "ready" || surface.state === "review").length;
-  const needsEvidence = surfaces.filter((surface) => surface.state === "review" || surface.state === "unknown").length;
+  if (deploymentReport) {
+    const outcome = deploymentReport.outcome === "success" ? "ready" : "review";
+    const signal = deploymentReport.outcome === "success" ? "Authenticated post-deploy smoke passed" : "Post-deploy smoke needs review";
+    const observedAt = new Date(deploymentReport.observed_at).toISOString();
+    for (const surfaceId of ["platform-web", "platform-api"]) {
+      const surface = surfaces.find((item) => item.id === surfaceId);
+      surface.state = outcome;
+      surface.signal = signal;
+      surface.evidence = `${deploymentReport.summary} Deployed revision ${String(deploymentReport.deployment_sha).slice(0, 12)}.`;
+      surface.nextAction = deploymentReport.outcome === "success"
+        ? "Continue monitoring the deployed Platform flow."
+        : "Review the post-deploy smoke result and rerun after resolving the issue.";
+      surface.observedAt = observedAt;
+    }
+  }
+  const countState = (state) => surfaces.filter((surface) => surface.state === state).length;
+  const readyCount = countState("ready");
+  const reviewCount = countState("review");
+  const blockedCount = countState("blocked");
+  const unknownCount = countState("unknown");
   return envelope(req, "global", {
     metrics: [
-      { label: "Surfaces in view", value: String(surfaces.length), trend: "Web, API, Sandbox, and mobile signals", trendTone: "neutral" },
-      { label: "Ready to review", value: String(readyOrReview), trend: "Configuration or observed contract available", trendTone: readyOrReview ? "positive" : "attention" },
-      { label: "Needs evidence", value: String(needsEvidence), trend: "Deployment, install, or heartbeat proof is separate", trendTone: needsEvidence ? "attention" : "positive" }
+      { label: "Surfaces in scope", value: String(surfaces.length), trend: "Web, API, Sandbox, and mobile signals", trendTone: "neutral" },
+      { label: "Verified ready", value: String(readyCount), trend: "Requires current verification evidence", trendTone: readyCount ? "positive" : "attention" },
+      { label: "Review required", value: String(reviewCount), trend: "Configured surfaces still need checks", trendTone: reviewCount ? "attention" : "positive" },
+      { label: "Blocked", value: String(blockedCount), trend: "Known release blockers", trendTone: blockedCount ? "attention" : "positive" },
+      { label: "Not observed", value: String(unknownCount), trend: "Deployment or operational evidence unavailable", trendTone: unknownCount ? "attention" : "positive" }
     ],
     surfaces,
+    deploymentEvidence: deploymentReport ? {
+      workflowRunId: String(deploymentReport.workflow_run_id),
+      deploymentSha: deploymentReport.deployment_sha,
+      workflowUrl: deploymentReport.workflow_url,
+      outcome: deploymentReport.outcome,
+      summary: deploymentReport.summary,
+      observedAt: new Date(deploymentReport.observed_at).toISOString()
+    } : null,
     controls: [
       { label: "Usage-credit checkout", environment: "production", enabled: Boolean(releaseControls.usageCreditCheckout), detail: "Server release control for usage-credit checkout mutations." },
       { label: "Subscription lifecycle", environment: "production", enabled: Boolean(releaseControls.subscriptionLifecycle), detail: "Server release control for subscription lifecycle mutations." },

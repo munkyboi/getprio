@@ -304,14 +304,17 @@ const settings: PlatformSettingsReadModel = {
 }
 
 const releaseReadiness: PlatformReleaseReadinessReadModel = {
+  deploymentEvidence: null,
   metrics: [
-    { label: "Surfaces in view", value: "5", trend: "Web, API, Sandbox, and mobile signals", trendTone: "neutral" },
-    { label: "Ready to review", value: "4", trend: "Configuration or observed contract available", trendTone: "positive" },
-    { label: "Needs evidence", value: "2", trend: "Deployment or heartbeat proof is still separate", trendTone: "attention" },
+    { label: "Surfaces in scope", value: "5", trend: "Web, API, Sandbox, and mobile signals", trendTone: "neutral" },
+    { label: "Verified ready", value: "0", trend: "Requires current verification evidence", trendTone: "attention" },
+    { label: "Review required", value: "2", trend: "Configured surfaces still need checks", trendTone: "attention" },
+    { label: "Blocked", value: "0", trend: "Known release blockers", trendTone: "positive" },
+    { label: "Not observed", value: "3", trend: "Deployment or operational evidence unavailable", trendTone: "attention" },
   ],
   surfaces: [
-    { id: "platform-web", surface: "Platform web dashboard", environment: "production", state: "review", signal: "Dashboard build available", evidence: "Frontend read model and theme contract are verified locally.", nextAction: "Deploy and verify the authenticated public flow.", observedAt: "Just now" },
-    { id: "platform-api", surface: "Platform API", environment: "production", state: "review", signal: "Authenticated read models implemented", evidence: "Permissioned read models are implemented; deployed authenticated smoke evidence has not been observed.", nextAction: "Run authenticated smoke against the deployed API.", observedAt: "Just now" },
+    { id: "platform-web", surface: "Platform web dashboard", environment: "production", state: "unknown", signal: "Production deployment not observed", evidence: "No verified production deployment observation is connected. Development URLs are not used to determine production status.", nextAction: "Connect production deployment evidence, then verify the authenticated public flow.", observedAt: "Not observed" },
+    { id: "platform-api", surface: "Platform API", environment: "production", state: "unknown", signal: "Production deployment not observed", evidence: "Authenticated production smoke evidence has not been observed; local read-model availability does not establish a deployed production API.", nextAction: "Connect production deployment evidence and run an authenticated smoke against the deployed API.", observedAt: "Not observed" },
     { id: "sandbox-ios", surface: "Sandbox iOS", environment: "sandbox", state: "review", signal: "TestFlight distribution configured", evidence: "Sandbox distribution contract is represented without exposing invite URLs.", nextAction: "Confirm build availability and install on a physical device.", observedAt: "4 min ago" },
     { id: "sandbox-android", surface: "Sandbox Android", environment: "sandbox", state: "review", signal: "Google Play testing track configured", evidence: "Sandbox package and distribution contract are represented.", nextAction: "Confirm tester access and install on a physical device.", observedAt: "4 min ago" },
     { id: "mobile-push", surface: "Mobile push pipeline", environment: "all", state: "unknown", signal: "Heartbeat required", evidence: "No delivery heartbeat is included in this read model.", nextAction: "Add a safe heartbeat and verify push on vendor and Sandbox clients.", observedAt: "Not observed" },

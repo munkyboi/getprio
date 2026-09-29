@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 
-function loadReadModelService({ query, repositories = {}, releaseControls = {} } = {}) {
+function loadReadModelService({ env = {}, query, repositories = {}, releaseControls = {}, deploymentReport = null } = {}) {
   const fallback = new Proxy({}, { get: () => () => undefined });
   const permissions = new Set([
     "platform.tenants.read",
@@ -14,7 +14,7 @@ function loadReadModelService({ query, repositories = {}, releaseControls = {} }
   ]);
   const mocks = {
     "../config/db": { pool: { query: query || (async () => ({ rows: [] })) } },
-    "../config/env": {},
+    "../config/env": env,
     "../config/releaseControls": releaseControls,
     "../repositories/developerProjects": repositories.developerProjects || {},
     "../repositories/developerTestAccounts": { MAX_ACCOUNTS: 2, ...repositories.developerTestAccounts },
@@ -24,6 +24,7 @@ function loadReadModelService({ query, repositories = {}, releaseControls = {} }
     "../repositories/organizerCampaigns": repositories.organizerCampaigns || {},
     "../repositories/ratings": repositories.ratings || {},
     "../repositories/platform": {},
+    "./platformReleaseReadinessEvidence": { getLatestReport: async () => deploymentReport },
     "./permissions": { getGlobalPermissions: () => permissions }
   };
   const module = { exports: {} };
@@ -165,13 +166,85 @@ test("overview signals no recent queue observations instead of implying full hea
   assert.deepEqual(JSON.parse(JSON.stringify(result.data.attentionItems)), []);
 });
 
-test("release readiness keeps the Platform API in review until deployed smoke evidence exists", async () => {
-  const service = loadReadModelService();
+test("release readiness does not infer production status from this runtime's configured origins", async () => {
+  const sandboxConfiguration = {
+    sandboxTestFlightPublicUrl: "https://testflight.apple.com/join/AbCdEf",
+    sandboxAndroidPackageName: "com.getprio.sandbox",
+    sandboxAndroidGooglePlayPublicUrl: "https://play.google.com/store/apps/details?id=com.getprio.sandbox",
+    fcmSandboxProjectId: "sandbox-project",
+    fcmSandboxClientEmail: "push@example.test",
+    fcmSandboxPrivateKey: "configured-only"
+  };
+  const runtimeEnvironments = [
+    { ...sandboxConfiguration, platformDashboardUrl: "http://localhost:5176", serverUrl: "http://localhost:5001" },
+    { ...sandboxConfiguration, platformDashboardUrl: "https://platform.getprio.online", serverUrl: "https://api.getprio.online" }
+  ];
+
+  for (const env of runtimeEnvironments) {
+    const service = loadReadModelService({ env });
+    const result = await service.getReleaseReadiness({});
+    const web = result.data.surfaces.find((surface) => surface.id === "platform-web");
+    const api = result.data.surfaces.find((surface) => surface.id === "platform-api");
+
+    assert.equal(web.state, "unknown");
+    assert.equal(web.signal, "Production deployment not observed");
+    assert.match(web.evidence, /No verified production deployment observation is connected/);
+    assert.equal(web.observedAt, "Not observed");
+    assert.equal(api.state, "unknown");
+    assert.equal(api.signal, "Production deployment not observed");
+    assert.match(api.evidence, /Authenticated production smoke evidence has not been observed/);
+    assert.equal(api.observedAt, "Not observed");
+    assert.equal(result.data.deploymentEvidence, null);
+    assert.deepEqual(JSON.parse(JSON.stringify(result.data.metrics)), [
+      { label: "Surfaces in scope", value: "5", trend: "Web, API, Sandbox, and mobile signals", trendTone: "neutral" },
+      { label: "Verified ready", value: "0", trend: "Requires current verification evidence", trendTone: "attention" },
+      { label: "Review required", value: "3", trend: "Configured surfaces still need checks", trendTone: "attention" },
+      { label: "Blocked", value: "0", trend: "Known release blockers", trendTone: "positive" },
+      { label: "Not observed", value: "2", trend: "Deployment or operational evidence unavailable", trendTone: "attention" }
+    ]);
+  }
+});
+
+test("release readiness uses the latest authenticated post-deploy smoke report for web and API evidence", async () => {
+  const service = loadReadModelService({ deploymentReport: {
+    workflow_run_id: "19384756201",
+    deployment_sha: "a".repeat(40),
+    workflow_url: "https://github.com/getprio/web-app/actions/runs/19384756201",
+    outcome: "success",
+    summary: "Authenticated Platform API and web smoke passed.",
+    observed_at: "2026-09-29T10:20:30.000Z"
+  } });
   const result = await service.getReleaseReadiness({});
+  const web = result.data.surfaces.find((surface) => surface.id === "platform-web");
   const api = result.data.surfaces.find((surface) => surface.id === "platform-api");
+
+  for (const surface of [web, api]) {
+    assert.equal(surface.state, "ready");
+    assert.equal(surface.signal, "Authenticated post-deploy smoke passed");
+    assert.match(surface.evidence, /aaaaaaaaaaaa/);
+    assert.equal(surface.observedAt, "2026-09-29T10:20:30.000Z");
+  }
+  assert.equal(result.data.deploymentEvidence.workflowRunId, "19384756201");
+  assert.equal(result.data.deploymentEvidence.outcome, "success");
+  assert.equal(result.data.metrics.find((metric) => metric.label === "Verified ready").value, "2");
+});
+
+test("release readiness keeps failed smoke reports in review instead of calling production blocked or ready", async () => {
+  const service = loadReadModelService({ deploymentReport: {
+    workflow_run_id: "19384756202",
+    deployment_sha: "b".repeat(40),
+    workflow_url: "https://github.com/getprio/web-app/actions/runs/19384756202",
+    outcome: "failure",
+    summary: "The authenticated Platform API smoke did not pass.",
+    observed_at: "2026-09-29T10:20:30.000Z"
+  } });
+  const result = await service.getReleaseReadiness({});
+  const web = result.data.surfaces.find((surface) => surface.id === "platform-web");
+  const api = result.data.surfaces.find((surface) => surface.id === "platform-api");
+
+  assert.equal(web.state, "review");
   assert.equal(api.state, "review");
-  assert.match(api.evidence, /deployed authenticated smoke evidence has not been observed/);
-  assert.match(api.nextAction, /deployed API/);
+  assert.equal(result.data.deploymentEvidence.outcome, "failure");
 });
 
 test("billing tab counts report full category totals independently of bounded lists", async () => {

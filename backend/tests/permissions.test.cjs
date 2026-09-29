@@ -38,6 +38,7 @@ test("permissions helpers resolve tenant roles, ignore inactive memberships, and
     "platform.queue_lifecycle.reconcile",
     "platform.queue_lifecycle.repair",
     "platform.queue_notifications.requeue",
+    "platform.release_readiness.read",
     "platform.security_audit.export",
     "platform.security_audit.read",
     "platform.settings.manage",
@@ -62,4 +63,16 @@ test("permissions helpers resolve tenant roles, ignore inactive memberships, and
     () => permissions.assertPermission(user, "tenant.settings.manage", { tenantId: "tenant-1" }),
     (error) => error.statusCode === 403 && /permission/i.test(error.message)
   );
+});
+
+test("release observer role has only the release readiness permission", () => {
+  const permissionsForObserver = permissions.getGlobalPermissions({ roles: ["platform_release_observer"] });
+  assert.deepEqual(Array.from(permissionsForObserver).sort(), [
+    "account.change_password",
+    "account.read_self",
+    "platform.release_readiness.read"
+  ]);
+  assert.equal(permissions.userHasPermission({ roles: ["platform_release_observer"] }, "platform.release_readiness.read"), true);
+  assert.equal(permissions.userHasPermission({ roles: ["platform_release_observer"] }, "platform.tenants.read"), false);
+  assert.equal(permissions.userHasPermission({ roles: ["platform_release_observer"] }, "platform.settings.manage"), false);
 });

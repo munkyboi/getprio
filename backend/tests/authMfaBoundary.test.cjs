@@ -76,3 +76,19 @@ test("privileged sessions require verified MFA while customers remain unaffected
   const customerAuth = loadAuth({ user: customer, session: baseSession });
   assert.equal((await authenticate(customerAuth, customer, "/account")).error, undefined);
 });
+
+test("release observer accounts must enroll and verify MFA before using the release evidence read API", async () => {
+  const observer = { _id: "10", roles: ["platform_release_observer"], tenantMemberships: [], mfaEnabled: false };
+  const setupAuth = loadAuth({ user: observer, session: baseSession });
+  const setupDenied = await authenticate(setupAuth, observer, "/api/platform/release-readiness/read-model");
+  assert.equal(setupDenied.error?.code, "MFA_ENROLLMENT_REQUIRED");
+
+  const enrolled = { ...observer, mfaEnabled: true };
+  const verifyAuth = loadAuth({ user: enrolled, session: { ...baseSession, mfaVerifiedAt: null } });
+  const verifyDenied = await authenticate(verifyAuth, enrolled, "/api/platform/release-readiness/read-model");
+  assert.equal(verifyDenied.error?.code, "MFA_VERIFICATION_REQUIRED");
+
+  const verifiedAuth = loadAuth({ user: enrolled, session: { ...baseSession, mfaVerifiedAt: new Date() } });
+  const verified = await authenticate(verifiedAuth, enrolled, "/api/platform/release-readiness/read-model");
+  assert.equal(verified.error, undefined);
+});

@@ -394,6 +394,14 @@ export type PlatformReleaseSurfaceState = "ready" | "review" | "blocked" | "unkn
 
 export interface PlatformReleaseReadinessReadModel {
   metrics: PlatformMetric[]
+  deploymentEvidence: {
+    workflowRunId: string
+    deploymentSha: string
+    workflowUrl: string
+    outcome: "success" | "failure"
+    summary: string
+    observedAt: string
+  } | null
   surfaces: Array<{
     id: string
     surface: string

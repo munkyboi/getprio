@@ -44,12 +44,29 @@ const developerWebhookSuspensions = require("../repositories/developerWebhookSus
 const developerApiRateLimits = require("../repositories/developerApiRateLimits");
 const { productionApprovalResponse } = require("../utils/developerProductionApproval");
 const platformReadModelService = require("../services/platformReadModelService");
+const platformReleaseReadinessEvidence = require("../services/platformReleaseReadinessEvidence");
 const accountDeletionAdminService = require("../services/accountDeletionAdminService");
 const passwordResetService = require("../services/passwordResetService");
 const notificationService = require("../services/notificationService");
 const passwordResetTokenRepository = require("../repositories/passwordResetTokens");
 
 const router = express.Router();
+
+router.post("/release-readiness/evidence", asyncHandler(async (req, res) => {
+  const secret = process.env.PLATFORM_RELEASE_EVIDENCE_SECRET || "";
+  const timestamp = String(req.get("x-platform-evidence-timestamp") || "");
+  const signature = String(req.get("x-platform-evidence-signature") || "");
+  const rawBody = JSON.stringify(req.body || {});
+  if (!platformReleaseReadinessEvidence.verifySignature({ secret, timestamp, signature, rawBody })) {
+    return res.status(401).json({ message: "Invalid or expired evidence signature." });
+  }
+  if (!platformReleaseReadinessEvidence.validateReport(req.body)) {
+    return res.status(400).json({ message: "Invalid release evidence report." });
+  }
+  await platformReleaseReadinessEvidence.recordReport(req.body);
+  res.setHeader("Cache-Control", "no-store");
+  return res.status(202).json({ accepted: true });
+}));
 
 router.use(authenticate);
 
@@ -338,7 +355,7 @@ router.get("/settings/read-model", requirePlatformPermission("platform.settings.
   return res.json(await platformReadModelService.getSettings(req));
 }));
 
-router.get("/release-readiness/read-model", requirePlatformPermission("platform.tenants.read"), asyncHandler(async (req, res) => {
+router.get("/release-readiness/read-model", requirePlatformPermission("platform.release_readiness.read"), asyncHandler(async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
   return res.json(await platformReadModelService.getReleaseReadiness(req));
 }));

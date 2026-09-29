@@ -22,6 +22,11 @@ function loadReadModelRoutes({ missingGovernanceProject = false, overrides = {} 
       return { readModel: method };
     }
   });
+  const evidenceService = {
+    verifySignature: ({ signature }) => signature === "valid-signature",
+    validateReport: (report) => report?.outcome === "success",
+    recordReport: async (report) => serviceCalls.push({ method: "recordReport", args: [report] })
+  };
   const authenticate = () => {};
   const mocks = {
     express: { Router: () => router },
@@ -30,13 +35,14 @@ function loadReadModelRoutes({ missingGovernanceProject = false, overrides = {} 
       authenticate,
       requirePlatformPermission: (permission) => ({ type: "permission", permission })
     },
-    "../services/platformReadModelService": platformReadModelService
+    "../services/platformReadModelService": platformReadModelService,
+    "../services/platformReleaseReadinessEvidence": evidenceService
   };
   Object.assign(mocks, overrides);
 
   vm.runInNewContext(
     fs.readFileSync(path.resolve(__dirname, "../src/routes/platformRoutes.js"), "utf8"),
-    { require: (name) => mocks[name] || fallback, module: { exports: {} } }
+    { require: (name) => mocks[name] || fallback, module: { exports: {} }, process: { env: {} } }
   );
 
   return { routes, uses, serviceCalls, authenticate };
@@ -69,7 +75,7 @@ test("Platform read-model routes require authentication and their capability-spe
     ["/billing/read-model", "platform.billing.read"],
     ["/moderation/read-model", "platform.users.read"],
     ["/settings/read-model", "platform.settings.manage"],
-    ["/release-readiness/read-model", "platform.tenants.read"],
+    ["/release-readiness/read-model", "platform.release_readiness.read"],
     ["/developer-projects/read-model", "platform.developer_api.manage"],
     ["/developer-projects/:projectId/governance", "platform.developer_api.manage"]
   ]);
@@ -112,6 +118,28 @@ test("read-model handlers return no-store responses and delegate to the matching
 
   assert.deepEqual(serviceCalls.map(({ method }) => method), cases.map(([, method]) => method));
   assert.equal(serviceCalls.at(-1).args[1], "proj_7fd3");
+});
+
+test("release evidence ingestion is signed and separate from the authenticated Platform routes", async () => {
+  const { routes, uses, serviceCalls } = loadReadModelRoutes();
+  const route = routes.find(({ method, args }) => method === "post" && args[0] === "/release-readiness/evidence");
+  assert.ok(route, "the deployment evidence ingestion route is registered");
+  assert.notEqual(uses[0], route.args[1], "the signed pipeline report does not require a user session");
+  const report = { outcome: "success" };
+  const res = response();
+  res.statusCode = 200;
+  res.status = function status(code) { this.code = code; return this; };
+  await route.args.at(-1)({
+    body: report,
+    get: (header) => header === "x-platform-evidence-signature" ? "valid-signature" : "1730000000"
+  }, res);
+  assert.equal(res.code, 202);
+  assert.equal(res.headers["Cache-Control"], "no-store");
+  assert.equal(serviceCalls.at(-1).method, "recordReport");
+
+  const rejected = response();
+  await route.args.at(-1)({ body: report, get: (header) => header === "x-platform-evidence-signature" ? "bad" : "1730000000" }, rejected);
+  assert.equal(rejected.code, 401);
 });
 
 test("password reset route is registered with dedicated capability and idempotency boundary", () => {

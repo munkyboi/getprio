@@ -22,7 +22,18 @@ jobs:
       name: production
 
     steps:
+      - name: Checkout deployment commit for post-deploy smoke
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Setup Node.js for post-deploy smoke
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
       - name: Deploy over SSH
+        id: deploy-production
         env:
           DO_HOST: ${{ secrets.DO_HOST }}
           DO_USER: ${{ secrets.DO_USER }}
@@ -44,6 +55,7 @@ jobs:
           DEVELOPER_WEBHOOK_ENCRYPTION_KEY: ${{ secrets.DEVELOPER_WEBHOOK_ENCRYPTION_KEY }}
           SANDBOX_TESTFLIGHT_PUBLIC_URL: ${{ secrets.SANDBOX_TESTFLIGHT_PUBLIC_URL }}
           SANDBOX_ANDROID_GOOGLE_PLAY_PUBLIC_URL: ${{ secrets.SANDBOX_ANDROID_GOOGLE_PLAY_PUBLIC_URL }}
+          PLATFORM_RELEASE_EVIDENCE_SECRET: ${{ secrets.PLATFORM_RELEASE_EVIDENCE_SECRET }}
         run: |
           set -euo pipefail
 
@@ -131,6 +143,7 @@ jobs:
             printf 'DEVELOPER_WEBHOOK_ENCRYPTION_KEY=%s\n' "${DEVELOPER_WEBHOOK_ENCRYPTION_KEY}"
             printf 'SANDBOX_TESTFLIGHT_PUBLIC_URL=%s\n' "${SANDBOX_TESTFLIGHT_PUBLIC_URL}"
             printf 'SANDBOX_ANDROID_GOOGLE_PLAY_PUBLIC_URL=%s\n' "${SANDBOX_ANDROID_GOOGLE_PLAY_PUBLIC_URL}"
+            printf 'PLATFORM_RELEASE_EVIDENCE_SECRET=%s\n' "${PLATFORM_RELEASE_EVIDENCE_SECRET}"
           } > "${production_env_file}"
 
           scp \
@@ -271,6 +284,7 @@ jobs:
           bash scripts/verify-fcm-config.sh
 
           npm ci --include=dev
+          npm ci --prefix platform-dashboard-shadcn --include=dev
           set +e
           db_status_output="$(npm run db:status 2>&1)"
           db_status_code=$?
@@ -282,9 +296,24 @@ jobs:
           fi
           npm run db:migrate
           npm run db:verify
-          NODE_OPTIONS="--max-old-space-size=4096" npm run build
+          VITE_DEPLOY_SHA="${DEPLOY_SHA}" NODE_OPTIONS="--max-old-space-size=4096" npm run build
+          mkdir -p platform-dashboard/dist
+          cp -a platform-dashboard-shadcn/dist/. platform-dashboard/dist/
           NODE_OPTIONS="--max-old-space-size=4096" npm run build:backend
 
           pm2 restart getprio-api --update-env
           pm2 save
           REMOTE
+
+      - name: Authenticated Platform post-deploy smoke (report-only)
+        if: steps.deploy-production.outcome == 'success'
+        continue-on-error: true
+        env:
+          PLATFORM_SMOKE_EMAIL: ${{ secrets.PLATFORM_SMOKE_EMAIL }}
+          PLATFORM_SMOKE_PASSWORD: ${{ secrets.PLATFORM_SMOKE_PASSWORD }}
+          PLATFORM_SMOKE_TOTP_SECRET: ${{ secrets.PLATFORM_SMOKE_TOTP_SECRET }}
+          PLATFORM_RELEASE_EVIDENCE_SECRET: ${{ secrets.PLATFORM_RELEASE_EVIDENCE_SECRET }}
+          SMOKE_API_URL: https://api.getprio.online/api
+          SMOKE_PLATFORM_URL: https://platform.getprio.online
+          SMOKE_EXPECTED_DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: node scripts/smoke-test.mjs --stage platform

@@ -8,6 +8,7 @@ DROP TABLE IF EXISTS account_deletion_tasks CASCADE;
 DROP TABLE IF EXISTS account_deletion_requests CASCADE;
 DROP TABLE IF EXISTS platform_help_center_state CASCADE;
 DROP TABLE IF EXISTS platform_help_center_revisions CASCADE;
+DROP TABLE IF EXISTS platform_release_readiness_evidence CASCADE;
 DROP TABLE IF EXISTS billing_events CASCADE;
 DROP TABLE IF EXISTS usage_credit_disputes CASCADE;
 DROP TABLE IF EXISTS usage_credit_refunds CASCADE;

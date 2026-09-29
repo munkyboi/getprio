@@ -5,7 +5,7 @@ This guide targets the current MVP deployment path: a low-budget DigitalOcean Dr
 It matches the current codebase:
 
 - `frontend/dist` served at `getprio.online`
-- `platform-dashboard/dist` served at `platform.getprio.online`
+- the new `platform-dashboard-shadcn` build copied into `platform-dashboard/dist` and served at `platform.getprio.online`
 - backend proxied at `api.getprio.online`
 - Backblaze B2 used for public assets, location QR images, and private payment proofs
 - Resend or SMTP used for email
@@ -16,7 +16,7 @@ It matches the current codebase:
 
 - `app.getprio.online` serves `frontend/dist`
 - `developers.getprio.online` serves the standalone developer portal from `developer-portal/dist`
-- `platform.getprio.online` serves `platform-dashboard/dist`
+- `platform.getprio.online` serves the new `platform-dashboard-shadcn` build copied into `platform-dashboard/dist` during deployment
 - `api.getprio.online` proxies to the backend on `127.0.0.1:5000`
 - `sandbox-api.getprio.online` proxies to the same backend with sandbox host labeling
 - PostgreSQL runs locally on the Droplet, or on managed DigitalOcean Postgres if you prefer not to host the database on the app box
@@ -217,6 +217,18 @@ FCM_SANDBOX_PRIVATE_KEY=
 The production deployment workflow reads the five PayMongo values from the GitHub `production` Environment secrets and securely synchronizes them to this server `.env` over SSH. Configure `PAYMONGO_MODE`, `PAYMONGO_SANDBOX_SECRET_KEY`, `PAYMONGO_SANDBOX_WEBHOOK_SECRET`, `PAYMONGO_LIVE_SECRET_KEY`, and `PAYMONGO_LIVE_WEBHOOK_SECRET` as protected Environment secrets. The workflow does not print their values.
 
 The production deployment workflow requires both the production FCM values (`FCM_PROJECT_ID`, `FCM_CLIENT_EMAIL`, `FCM_PRIVATE_KEY`) and the Sandbox values (`FCM_SANDBOX_PROJECT_ID`, `FCM_SANDBOX_CLIENT_EMAIL`, `FCM_SANDBOX_PRIVATE_KEY`) in the GitHub `production` Environment. Create each pair from the matching Firebase project's service-account key: use the project ID, the service account's `client_email`, and its `private_key`. Keep private keys out of the repository. The workflow writes both configurations into the server `.env`, validates them, and refuses to restart the API when either configuration is missing or malformed. Store each private key as one secret with its `\\n` line breaks preserved.
+
+## Authenticated Platform post-deploy smoke
+
+After a successful deployment, the GitHub `production` Environment runs a report-only smoke against `api.getprio.online` and `platform.getprio.online`. It signs in through the authenticator-app MFA flow, reads only the Release Readiness API, and confirms both the API and Platform web page serve the deployed commit SHA. A failed smoke is recorded for review and does not roll back or block the deployment.
+
+Configure these additional protected Environment secrets:
+
+- `PLATFORM_SMOKE_EMAIL` and `PLATFORM_SMOKE_PASSWORD`: a dedicated smoke account, not a personal administrator account.
+- `PLATFORM_SMOKE_TOTP_SECRET`: the account's Base32 authenticator setup key. Enroll that exact key in the smoke account's authenticator app; do not use a changing six-digit code.
+- `PLATFORM_RELEASE_EVIDENCE_SECRET`: a separate random signing key, at least 32 bytes, used only for authenticating workflow evidence. Generate a value locally with `openssl rand -hex 32`; do not reuse the TOTP seed, password, or deployment SSH key.
+
+Assign the dedicated smoke account the `platform_release_observer` role and enroll its authenticator; that role has only the Release Readiness read permission and MFA is mandatory. Do not point these secrets at a personal Platform Admin account. The workflow never receives a Platform Admin bearer token for reporting: it submits a short-lived HMAC-signed result, and the API stores only the workflow run, deployed SHA, outcome, summary, and observation time. No credential, OTP, or raw response body is saved in the report.
 
 The Developer Portal reads `SANDBOX_TESTFLIGHT_PUBLIC_URL` only for authenticated project members. Set it to the public invitation URL created for the Sandbox external TestFlight group in App Store Connect, and add the same value as a protected `SANDBOX_TESTFLIGHT_PUBLIC_URL` secret in the GitHub `production` Environment. The deployment workflow validates the Apple TestFlight host and `/join/` path without printing the URL.
 
