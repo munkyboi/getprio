@@ -215,12 +215,17 @@ does not include customer names, email addresses, or phone numbers.
 
 After samples have accumulated, inspect coverage and baseline error with the read-only audit command:
 
+Set `API_ENVIRONMENT=sandbox`, `DATABASE_HOST`, and `DATABASE_NAME` to values matching the Sandbox
+`DATABASE_URL`, then run:
+
 ```bash
 node scripts/wait-time-prediction-audit.mjs
 ```
 
-It requires `DATABASE_URL` and reports aggregate metrics only; it does not print vendor IDs or
-change database state.
+It verifies the configured Sandbox database target before connecting and again after connection,
+then reports aggregate metrics only; it does not print vendor IDs or change database state. The
+baseline audit supports coverage and error analysis; a future candidate model still needs a
+time-separated holdout evaluation before production use.
 
 ## Main API routes
 

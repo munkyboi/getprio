@@ -4,12 +4,38 @@ import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
 const env = require("../backend/src/config/env");
+const db = require("../backend/src/config/db");
 
-if (!String(process.env.DATABASE_URL || "").trim()) {
-  throw new Error("DATABASE_URL is required. No database connection was opened.");
+function assertSandboxTarget() {
+  if (!String(process.env.DATABASE_URL || "").trim()) {
+    throw new Error("DATABASE_URL is required. No database connection was opened.");
+  }
+  if (env.apiEnvironment !== "sandbox") {
+    throw new Error("Set API_ENVIRONMENT=sandbox before auditing. No database connection was opened.");
+  }
+
+  const expectedHost = String(process.env.DATABASE_HOST || "").trim().toLowerCase();
+  const expectedDatabase = String(process.env.DATABASE_NAME || "").trim();
+  if (!expectedHost || !expectedDatabase) {
+    throw new Error("Set DATABASE_HOST and DATABASE_NAME to the Sandbox database target. No connection was opened.");
+  }
+
+  let configuredUrl;
+  try {
+    configuredUrl = new URL(env.databaseUrl);
+  } catch {
+    throw new Error("DATABASE_URL is not a valid URL. No database connection was opened.");
+  }
+  const configuredDatabase = decodeURIComponent(configuredUrl.pathname.replace(/^\//, ""));
+  if (
+    configuredUrl.hostname.toLowerCase() !== expectedHost ||
+    configuredDatabase !== expectedDatabase
+  ) {
+    throw new Error("DATABASE_URL does not match the configured Sandbox target. No database connection was opened.");
+  }
 }
 
-const db = require("../backend/src/config/db");
+assertSandboxTarget();
 
 async function runAudit() {
   const client = await db.pool.connect();
@@ -20,6 +46,9 @@ async function runAudit() {
     transactionOpen = true;
 
     const target = await client.query("SELECT current_database() AS database_name");
+    if (target.rows[0]?.database_name !== String(process.env.DATABASE_NAME).trim()) {
+      throw new Error("Connected database does not match the configured Sandbox target.");
+    }
     const table = await client.query("SELECT to_regclass('public.wait_time_prediction_samples') AS table_name");
 
     if (!table.rows[0]?.table_name) {

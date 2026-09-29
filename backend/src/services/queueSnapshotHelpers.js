@@ -185,7 +185,7 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
         predictorVersion: prediction.predictorVersion,
         featureHash: prediction.featureHash,
         sampleBucket: prediction.sampleBucket,
-        sampledAt: prediction.observedAt,
+        observedAt: prediction.observedAt,
         features: prediction.features,
         predictedWaitMinutes: prediction.estimatedWaitMinutes
       }).catch((error) => {

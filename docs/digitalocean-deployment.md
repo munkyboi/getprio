@@ -226,7 +226,7 @@ Android Sandbox installs are distributed directly from the Developer Portal at `
 
 The Sandbox API has a separate manually triggered deployment workflow. Configure these values in a GitHub Actions environment named `sandbox` before running it:
 
-- `DO_HOST`, `DO_USER`, `DO_SSH_KEY`, and `DO_APP_DIR` for the Sandbox API server.
+- `DO_HOST`, `DO_USER`, `DO_SSH_KEY`, and `DO_APP_DIR` for the Sandbox API server. `DO_SSH_HOST_FINGERPRINT` must hold the server host-key fingerprint verified through a trusted channel; the deployment refuses a mismatch and uses strict host-key checking.
 - `DATABASE_HOST` and `DATABASE_NAME` for the Sandbox PostgreSQL database. The workflow verifies both against the server's `DATABASE_URL` and makes a read-only connection check before it applies migrations.
 - `DO_PORT` is optional and defaults to `22`.
 
