@@ -597,6 +597,7 @@ export interface PlatformApi {
   publishQueueFees(queueFees: Array<Pick<QueueFeeSetting, "planSlug" | "enabled" | "amountCents">>, reason: string, preview: PlanPolicyPreview): Promise<QueueFeeSetting[]>
   getModeration(): Promise<ReadModelModule<PlatformModerationReadModel> & { meta: ReadModelMeta }>
   getSettings(): Promise<ReadModelModule<PlatformSettingsReadModel> & { meta: ReadModelMeta }>
+  updateSettings(settings: PlatformSettingsReadModel["settings"], reason: string, expectedSettings: PlatformSettingsReadModel["settings"]): Promise<PlatformSettingsReadModel["settings"]>
   getReleaseReadiness(): Promise<ReadModelModule<PlatformReleaseReadinessReadModel> & { meta: ReadModelMeta }>
   getHelpCenterAdmin(): Promise<PlatformHelpCenterAdminReadModel>
   saveHelpCenterDraft(content: PlatformHelpCenterContent, reason: string): Promise<{ draft: { revision: number } }>

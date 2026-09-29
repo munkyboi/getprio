@@ -1789,6 +1789,8 @@ export interface UpdatePlatformSettingsRequest {
   defaultTimezone: string;
   mobileApprovedHosts: string[];
   maxImageUploadKb?: number;
+  reason: string;
+  expectedSettings?: PlatformSettingsResponse["settings"];
 }
 
 export interface UpdatePlatformQueueFeesRequest {

@@ -500,6 +500,9 @@ export const fixturePlatformApi: PlatformApi = {
   async getSettings() {
     return available(settings, "global")
   },
+  async updateSettings() {
+    throw new Error("Platform settings changes are disabled in fixture mode.")
+  },
   async getReleaseReadiness() {
     return available(releaseReadiness, "global")
   },
@@ -790,6 +793,10 @@ function createHttpPlatformApi(baseUrl = API_BASE_URL): PlatformApi {
     },
     getModeration: () => read<PlatformModerationReadModel>("/platform/moderation/read-model", "global"),
     getSettings: () => read<PlatformSettingsReadModel>("/platform/settings/read-model", "global"),
+    updateSettings: async (settings, reason, expectedSettings) => {
+      const response = await writePlatform<{ settings: PlatformSettingsReadModel["settings"] }>(baseUrl, "/platform/settings", { ...settings, reason, expectedSettings }, crypto.randomUUID(), "PATCH")
+      return response.settings
+    },
     getReleaseReadiness: () => read<PlatformReleaseReadinessReadModel>("/platform/release-readiness/read-model", "global"),
     getHelpCenterAdmin: async () => {
       const response = await fetchWithSessionRefresh(() => fetch(`${baseUrl.replace(/\/$/, "")}/platform/help-center`, { credentials: "include", headers: { Accept: "application/json" } }))

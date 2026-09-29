@@ -1212,13 +1212,46 @@ router.patch(
       throw error;
     }
 
+    const requestedReason = String(req.body.reason || "").trim().replace(/\s+/g, " ");
+    if (requestedReason.length < 8 || requestedReason.length > 500) {
+      const error = new Error("Enter an audit reason between 8 and 500 characters.");
+      error.statusCode = 400;
+      error.code = "INVALID_REASON";
+      throw error;
+    }
+    const reason = requestedReason;
     res.json({
-      settings: await platformRepository.updatePlatformSettings({
-        enterpriseInquiryEmail,
-        defaultTimezone,
-        mobileApprovedHosts,
-        maxImageUploadKb,
-        userId: req.user?._id
+      settings: await db.withTransaction(async (client) => {
+        const beforeState = await platformRepository.getPlatformSettings({ client });
+        const expectedSettings = req.body.expectedSettings;
+        if (expectedSettings && ["enterpriseInquiryEmail", "defaultTimezone", "mobileApprovedHosts", "maxImageUploadKb"].some((key) => JSON.stringify(expectedSettings[key]) !== JSON.stringify(beforeState[key]))) {
+          const error = new Error("Platform settings changed after this page loaded. Refresh and review your changes before saving again.");
+          error.statusCode = 409;
+          error.code = "SETTINGS_CHANGED";
+          throw error;
+        }
+        const settings = await platformRepository.updatePlatformSettings({
+          enterpriseInquiryEmail,
+          defaultTimezone,
+          mobileApprovedHosts,
+          maxImageUploadKb,
+          userId: req.user?._id
+        }, { client });
+        const changedFields = Object.keys(settings).filter((key) => JSON.stringify(beforeState[key]) !== JSON.stringify(settings[key]));
+        await securityAuditService.record({
+          actorId: req.user?._id,
+          actorRole: "platform_admin",
+          sessionId: req.auth?.sessionId,
+          action: "platform.settings.update",
+          resourceType: "platform_settings",
+          resourceId: "global",
+          reason,
+          outcome: "success",
+          metadata: { changedFields },
+          beforeState,
+          afterState: settings
+        }, { client });
+        return settings;
       })
     });
   })
