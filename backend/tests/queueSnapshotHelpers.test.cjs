@@ -192,3 +192,95 @@ test("queue snapshot overflow includes tickets saved for future carry-over", asy
   assert.equal(result.overflow[1].isCarriedOver, true);
   assert.equal(result.overflow[1].position, 1);
 });
+
+test("wait-time prediction features use the lookup ticket Queue Day", async (t) => {
+  const env = require("../src/config/env");
+  const storeLocations = require("../src/repositories/storeLocations");
+  const tickets = require("../src/repositories/tickets");
+  const closures = require("../src/repositories/queueDayClosures");
+  const pauses = require("../src/repositories/queueDayPauses");
+  const themes = require("../src/repositories/publicBoardThemes");
+  const queueFeeService = require("../src/services/queueFeeService");
+  const hours = require("../src/services/storeHoursService");
+  const predictionRepository = require("../src/repositories/waitTimePredictions");
+  const originalCaptureEnabled = env.waitTimePredictionCaptureEnabled;
+  const originalRecordPrediction = predictionRepository.recordPrediction;
+  const capturedSamples = [];
+  const location = {
+    _id: 4,
+    tenantId: 10,
+    slug: "main",
+    timezone: "Asia/Manila",
+    isPrimary: true,
+    isActive: true
+  };
+  const lookupTicket = {
+    _id: 102,
+    tenantId: 10,
+    locationId: 4,
+    dateKey: "20260928",
+    lookupCode: "LOOKUP102",
+    ticketNumber: "Q102",
+    customerName: "Test Customer",
+    status: "waiting",
+    servicePriorityBand: "normal",
+    createdAt: new Date("2026-09-28T09:00:00.000Z")
+  };
+
+  env.waitTimePredictionCaptureEnabled = true;
+  storeLocations.findPrimaryLocationByTenantId = async () => location;
+  storeLocations.findLocationByTenantAndSlug = async () => null;
+  storeLocations.findLocationById = async () => null;
+  storeLocations.listHoursByLocationId = async () => [];
+  tickets.findTicketByTenantAndLookupCode = async () => lookupTicket;
+  tickets.findCurrentCalledTicket = async (_tenantId, options = {}) => ({
+    _id: options.dateKey === lookupTicket.dateKey ? 50 : 60,
+    calledAt: new Date(Date.now() - (options.dateKey === lookupTicket.dateKey ? 120_000 : 30_000))
+  });
+  tickets.listWaitingTickets = async (_tenantId, options = {}) => {
+    if (options.onlyCarriedOver) return [];
+    if (options.dateKey === lookupTicket.dateKey) {
+      return [{ _id: 101 }, lookupTicket];
+    }
+    return [{ _id: 201 }];
+  };
+  tickets.listPendingCarryOverTickets = async () => [];
+  tickets.listSkippedTickets = async () => [];
+  tickets.listHistoryTickets = async () => [];
+  tickets.countServedToday = async () => 0;
+  closures.findActiveClosure = async () => null;
+  pauses.findActivePause = async (_tenantId, _locationId, queueDateKey) =>
+    queueDateKey === lookupTicket.dateKey ? { _id: 91 } : null;
+  themes.getResolvedTheme = async () => null;
+  queueFeeService.getQueueFeeForTenant = async () => ({ amount: 0 });
+  queueFeeService.getActiveTenantSubscription = async () => null;
+  hours.getOpenStatus = async () => ({
+    isOpen: true,
+    timezone: "Asia/Manila",
+    summary: "Open",
+    today: null,
+    nextOpenAt: null
+  });
+  predictionRepository.recordPrediction = async (sample) => {
+    capturedSamples.push(sample);
+  };
+  t.after(() => {
+    env.waitTimePredictionCaptureEnabled = originalCaptureEnabled;
+    predictionRepository.recordPrediction = originalRecordPrediction;
+  });
+
+  const result = await queueSnapshotHelpers.buildQueueSnapshot(
+    { _id: 10, name: "Tenant", slug: "tenant", averageServiceMinutes: 10 },
+    { lookupCode: lookupTicket.lookupCode, queueDateKey: "20260929" },
+    async () => ({ emailsSentThisPeriod: 0 })
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(result.focusTicket.position, 2);
+  assert.equal(capturedSamples.length, 1);
+  assert.equal(capturedSamples[0].queueDateKey, "20260928");
+  assert.equal(capturedSamples[0].features.waitingCount, 2);
+  assert.equal(capturedSamples[0].features.position, 2);
+  assert.equal(capturedSamples[0].features.queuePaused, true);
+  assert.ok(capturedSamples[0].features.currentTicketElapsedMinutes >= 2);
+});

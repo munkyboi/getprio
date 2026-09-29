@@ -22,6 +22,10 @@ const frontendPort = Number(process.env.FRONTEND_PORT || 5173);
 const platformDashboardPort = Number(process.env.PLATFORM_DASHBOARD_PORT || 7100);
 
 export const nodeEnv = process.env.NODE_ENV || "development";
+export function resolveApiEnvironment(source: NodeJS.ProcessEnv = process.env): string {
+  return source.API_ENVIRONMENT || "production";
+}
+export const apiEnvironment = resolveApiEnvironment();
 export const databaseUrl =
   process.env.DATABASE_URL || "postgresql://prio:prio@127.0.0.1:5432/prio_queue";
 export const databaseSsl = process.env.DATABASE_SSL === "true";
@@ -175,6 +179,7 @@ const developerWebhookConfig = resolveDeveloperWebhookConfig(process.env, nodeEn
 
 const env = {
   nodeEnv,
+  apiEnvironment,
   port,
   databaseUrl,
   databaseSsl,

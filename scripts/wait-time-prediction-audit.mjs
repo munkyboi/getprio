@@ -84,14 +84,21 @@ async function runAudit() {
     `);
 
     const vendorCoverage = await client.query(`
-      WITH per_vendor AS (
-        SELECT tenant_id, COUNT(*)::int AS completed_samples
-        FROM wait_time_prediction_samples
-        WHERE outcome_type = 'called'
-        GROUP BY tenant_id
+      WITH eligible_vendors AS (
+        SELECT id
+        FROM tenants
+        WHERE is_active = TRUE
+          AND vendor_approval_status = 'approved'
+      ), per_vendor AS (
+        SELECT vendors.id AS tenant_id, COUNT(samples.id)::int AS completed_samples
+        FROM eligible_vendors AS vendors
+        LEFT JOIN wait_time_prediction_samples AS samples
+          ON samples.tenant_id = vendors.id
+         AND samples.outcome_type = 'called'
+        GROUP BY vendors.id
       )
       SELECT
-        COUNT(*)::int AS vendors_with_completed_samples,
+        COUNT(*) FILTER (WHERE completed_samples > 0)::int AS vendors_with_completed_samples,
         COUNT(*) FILTER (WHERE completed_samples < 30)::int AS vendors_below_30_samples,
         COUNT(*) FILTER (WHERE completed_samples BETWEEN 30 AND 99)::int AS vendors_with_30_to_99_samples,
         COUNT(*) FILTER (WHERE completed_samples >= 100)::int AS vendors_with_at_least_100_samples,

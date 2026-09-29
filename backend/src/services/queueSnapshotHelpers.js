@@ -153,23 +153,42 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
 
   let focusTicket = null;
   if (lookupTicket) {
-    const position =
-      lookupTicket.status === "waiting"
-        ? (
-            await ticketRepository.listWaitingTickets(tenant._id, {
-              locationId,
-              dateKey: lookupTicket.dateKey
-            })
-          ).findIndex((waitingTicket) => String(waitingTicket._id) === String(lookupTicket._id)) + 1
-        : null;
+    const predictionDateKey = lookupTicket.dateKey || dateKey;
+    const isSnapshotDate = predictionDateKey === dateKey;
+    const predictionWaitingTickets = lookupTicket.status === "waiting"
+      ? isSnapshotDate
+        ? waitingTickets
+        : await ticketRepository.listWaitingTickets(tenant._id, {
+            locationId,
+            dateKey: predictionDateKey
+          })
+      : [];
+    const position = lookupTicket.status === "waiting"
+      ? predictionWaitingTickets.findIndex(
+          (waitingTicket) => String(waitingTicket._id) === String(lookupTicket._id)
+        ) + 1
+      : null;
+    const predictionCurrent = lookupTicket.status !== "waiting" || isSnapshotDate
+      ? current
+      : await ticketRepository.findCurrentCalledTicket(tenant._id, {
+          locationId,
+          dateKey: predictionDateKey
+        });
+    const predictionPause = lookupTicket.status !== "waiting" || isSnapshotDate || !locationId
+      ? queueDayPause
+      : await queueDayPauseRepository.findActivePause(
+          tenant._id,
+          locationId,
+          predictionDateKey
+        );
 
     const prediction = predictWaitTime({
       position: position || 0,
-      waitingCount: waitingTickets.length,
+      waitingCount: predictionWaitingTickets.length,
       averageServiceMinutes: tenant.averageServiceMinutes,
       priorityBand: lookupTicket.servicePriorityBand || "normal",
-      currentTicketCalledAt: current?.calledAt || null,
-      queuePaused: Boolean(queueDayPause)
+      currentTicketCalledAt: predictionCurrent?.calledAt || null,
+      queuePaused: Boolean(predictionPause)
     });
 
     if (
@@ -181,7 +200,7 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
         ticketId: lookupTicket._id,
         tenantId: tenant._id,
         locationId,
-        queueDateKey: lookupTicket.dateKey,
+        queueDateKey: predictionDateKey,
         predictorVersion: prediction.predictorVersion,
         featureHash: prediction.featureHash,
         sampleBucket: prediction.sampleBucket,

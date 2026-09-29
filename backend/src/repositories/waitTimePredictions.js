@@ -5,7 +5,49 @@ function buildQueryClient(client) {
 }
 
 async function recordPrediction(sample, options = {}) {
-  const result = await buildQueryClient(options.client).query(
+  if (!options.client) {
+    return db.withTransaction((client) => recordPrediction(sample, { ...options, client }));
+  }
+
+  const observedAt = new Date(sample.observedAt);
+  if (!Number.isFinite(observedAt.getTime())) {
+    throw new Error("Wait-time prediction sample requires a valid observedAt timestamp.");
+  }
+
+  const queryClient = buildQueryClient(options.client);
+  const ticketResult = await queryClient.query(
+    `
+      SELECT status, called_at, updated_at, date_key
+      FROM tickets
+      WHERE id = $1
+      FOR UPDATE
+    `,
+    [Number(sample.ticketId)]
+  );
+  const ticket = ticketResult.rows[0];
+  if (!ticket) {
+    return false;
+  }
+
+  const calledAt = ticket.called_at ? new Date(ticket.called_at) : null;
+  const updatedAt = new Date(ticket.updated_at);
+  const queueDateChanged = String(ticket.date_key) !== String(sample.queueDateKey);
+  let outcomeType = null;
+  let outcomeAt = null;
+  if (calledAt && calledAt >= observedAt) {
+    outcomeType = "called";
+    outcomeAt = calledAt;
+  } else if (
+    updatedAt >= observedAt &&
+    (queueDateChanged || ["cancelled", "unserved", "pending_carry_over", "expired", "skipped"].includes(ticket.status))
+  ) {
+    outcomeType = "censored";
+    outcomeAt = updatedAt;
+  } else if (ticket.status !== "waiting" || queueDateChanged) {
+    return false;
+  }
+
+  const result = await queryClient.query(
     `
       INSERT INTO wait_time_prediction_samples (
         ticket_id,
@@ -37,25 +79,8 @@ async function recordPrediction(sample, options = {}) {
   );
 
   if (result.rowCount > 0) {
-    const ticketResult = await buildQueryClient(options.client).query(
-      `
-        SELECT status, called_at, updated_at
-        FROM tickets
-        WHERE id = $1
-        FOR UPDATE
-      `,
-      [Number(sample.ticketId)]
-    );
-    const ticket = ticketResult.rows[0];
-    const calledAt = ticket?.called_at ? new Date(ticket.called_at) : null;
-    const sampledAt = new Date(sample.observedAt);
-
-    if (calledAt && calledAt >= sampledAt) {
-      await recordOutcome(sample.ticketId, "called", { outcomeAt: calledAt });
-    } else if (["cancelled", "unserved"].includes(ticket?.status)) {
-      await recordOutcome(sample.ticketId, "censored", {
-        outcomeAt: ticket.updated_at
-      });
+    if (outcomeType) {
+      await recordOutcome(sample.ticketId, outcomeType, { client: options.client, outcomeAt });
     }
   }
 
