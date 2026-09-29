@@ -82,6 +82,7 @@ test('account deletion against disposable PostgreSQL', { skip: !url }, async (t)
       await auth(request('POST','/api/account/delete'));
       await assert.rejects(sessions.createAuthSession({user:await users.findUserById(user._id),authMethod:'password'}), {code:'ACCOUNT_DELETION_PENDING'});
       const load = async () => (await db.pool.query('SELECT * FROM account_deletion_requests WHERE id=$1',[result.requestId])).rows[0];
+      await db.pool.query("UPDATE account_deletion_requests SET scan_status='queued',scan_next_attempt_at=NOW() WHERE id=$1", [result.requestId]);
       const cleanupClient = await db.pool.connect();
       try {
         const request = await load();
