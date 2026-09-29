@@ -120,6 +120,10 @@ jobs:
           npm ci --include=dev
           node scripts/verify-sandbox-database-target.mjs
 
+          # Load the effective URL from the app's dotenv configuration for the
+          # shell-based migration status and verification scripts.
+          export DATABASE_URL="$(node -e 'process.stdout.write(require("./backend/src/config/env").databaseUrl)')"
+
           set +e
           db_status_output="$(npm run db:status 2>&1)"
           db_status_code=$?
