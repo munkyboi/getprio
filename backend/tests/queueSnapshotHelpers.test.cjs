@@ -194,7 +194,6 @@ test("queue snapshot overflow includes tickets saved for future carry-over", asy
 });
 
 test("wait-time prediction features use the lookup ticket Queue Day", async (t) => {
-  const env = require("../src/config/env");
   const storeLocations = require("../src/repositories/storeLocations");
   const tickets = require("../src/repositories/tickets");
   const closures = require("../src/repositories/queueDayClosures");
@@ -202,10 +201,19 @@ test("wait-time prediction features use the lookup ticket Queue Day", async (t) 
   const themes = require("../src/repositories/publicBoardThemes");
   const queueFeeService = require("../src/services/queueFeeService");
   const hours = require("../src/services/storeHoursService");
-  const predictionRepository = require("../src/repositories/waitTimePredictions");
-  const originalCaptureEnabled = env.waitTimePredictionCaptureEnabled;
-  const originalRecordPrediction = predictionRepository.recordPrediction;
-  const capturedSamples = [];
+  const waitTimePredictor = require("../src/services/waitTimePredictor");
+  const originalPredictWaitTime = waitTimePredictor.predictWaitTime;
+  const originalSnapshotHelpers = require.cache[
+    require.resolve("../src/services/queueSnapshotHelpers")
+  ];
+  let predictedFeatures = null;
+  waitTimePredictor.predictWaitTime = (input) => {
+    const prediction = originalPredictWaitTime(input);
+    predictedFeatures = prediction.features;
+    return prediction;
+  };
+  delete require.cache[require.resolve("../src/services/queueSnapshotHelpers")];
+  const snapshotHelpersWithPredictorSpy = require("../src/services/queueSnapshotHelpers");
   const location = {
     _id: 4,
     tenantId: 10,
@@ -227,7 +235,6 @@ test("wait-time prediction features use the lookup ticket Queue Day", async (t) 
     createdAt: new Date("2026-09-28T09:00:00.000Z")
   };
 
-  env.waitTimePredictionCaptureEnabled = true;
   storeLocations.findPrimaryLocationByTenantId = async () => location;
   storeLocations.findLocationByTenantAndSlug = async () => null;
   storeLocations.findLocationById = async () => null;
@@ -261,15 +268,13 @@ test("wait-time prediction features use the lookup ticket Queue Day", async (t) 
     today: null,
     nextOpenAt: null
   });
-  predictionRepository.recordPrediction = async (sample) => {
-    capturedSamples.push(sample);
-  };
   t.after(() => {
-    env.waitTimePredictionCaptureEnabled = originalCaptureEnabled;
-    predictionRepository.recordPrediction = originalRecordPrediction;
+    waitTimePredictor.predictWaitTime = originalPredictWaitTime;
+    delete require.cache[require.resolve("../src/services/queueSnapshotHelpers")];
+    require.cache[require.resolve("../src/services/queueSnapshotHelpers")] = originalSnapshotHelpers;
   });
 
-  const result = await queueSnapshotHelpers.buildQueueSnapshot(
+  const result = await snapshotHelpersWithPredictorSpy.buildQueueSnapshot(
     { _id: 10, name: "Tenant", slug: "tenant", averageServiceMinutes: 10 },
     { lookupCode: lookupTicket.lookupCode, queueDateKey: "20260929" },
     async () => ({ emailsSentThisPeriod: 0 })
@@ -277,10 +282,8 @@ test("wait-time prediction features use the lookup ticket Queue Day", async (t) 
   await new Promise((resolve) => setImmediate(resolve));
 
   assert.equal(result.focusTicket.position, 2);
-  assert.equal(capturedSamples.length, 1);
-  assert.equal(capturedSamples[0].queueDateKey, "20260928");
-  assert.equal(capturedSamples[0].features.waitingCount, 2);
-  assert.equal(capturedSamples[0].features.position, 2);
-  assert.equal(capturedSamples[0].features.queuePaused, true);
-  assert.ok(capturedSamples[0].features.currentTicketElapsedMinutes >= 2);
+  assert.equal(predictedFeatures.waitingCount, 2);
+  assert.equal(predictedFeatures.position, 2);
+  assert.equal(predictedFeatures.queuePaused, true);
+  assert.ok(predictedFeatures.currentTicketElapsedMinutes >= 2);
 });
