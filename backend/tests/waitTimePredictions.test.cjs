@@ -64,7 +64,7 @@ test("prediction capture records an outcome when a call wins the snapshot-insert
   assert.equal(queries.length, 3);
   assert.equal(queries[1].params[7], observedAt);
   assert.equal(queries[2].params[1], "called");
-  assert.equal(queries[2].params[2], calledAt);
+  assert.equal(queries[2].params[2].getTime(), calledAt.getTime());
 });
 
 test("prediction capture discards an observation taken after the ticket was called", async (t) => {
@@ -150,7 +150,7 @@ test("prediction captured during Queue Day rollover is censored", async (t) => {
 
   assert.equal(recorded, true);
   assert.equal(queries[2].params[1], "censored");
-  assert.equal(queries[2].params[2], updatedAt);
+  assert.equal(queries[2].params[2].getTime(), updatedAt.getTime());
 });
 
 test("authoritative Queue Day close censors outstanding prediction samples", () => {
