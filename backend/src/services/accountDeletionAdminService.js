@@ -2,7 +2,8 @@ const db = require("../config/db");
 const { REQUIRED_TASKS } = require("./accountDeletionService");
 
 const TASK_LABELS = Object.freeze({
-  personal_data_inventory: "Personal data inventory",
+  application_relational_inventory: "Automated application relational inventory",
+  personal_data_inventory: "Copied identifiers and non-relational review",
   object_storage_versions_and_caches: "Object storage, versions, and caches",
   supplier_data: "Supplier data",
   financial_and_legal_retention: "Financial and legal retention",
@@ -27,6 +28,11 @@ async function listRequests(options = {}) {
     SELECT r.id, r.user_id, r.status, r.requested_at, r.due_at, r.completed_at,
            r.retention_notice, r.policy_version, r.attempts, r.next_attempt_at,
            r.last_error_code, r.acknowledgement_sent_at, r.completion_sent_at, r.contact_email,
+           r.scan_status, r.scan_report, r.scan_requested_at, r.scan_started_at,
+           r.scan_completed_at, r.scan_attempts, r.scan_error_code,
+           r.cleanup_status, r.cleanup_selection, r.cleanup_report,
+           r.cleanup_started_at, r.cleanup_completed_at,
+           r.report_status, r.report_sent_at, r.report_attempts, r.report_error_code,
            COALESCE(u.display_name, u.name, u.username) AS account_name,
            u.email AS account_email
     FROM account_deletion_requests r
@@ -37,7 +43,7 @@ async function listRequests(options = {}) {
   `);
   const ids = requests.rows.map((row) => row.id);
   const tasks = ids.length ? await client.query(`
-    SELECT request_id, kind, status, evidence, completed_at
+    SELECT request_id, kind, status, evidence, completed_at, automation_report
     FROM account_deletion_tasks
     WHERE request_id = ANY($1::uuid[])
     ORDER BY request_id, kind
@@ -50,7 +56,8 @@ async function listRequests(options = {}) {
       label: TASK_LABELS[row.kind] || row.kind,
       status: row.status,
       evidence: row.evidence,
-      completedAt: row.completed_at
+      completedAt: row.completed_at,
+      automationReport: row.automation_report || null
     });
     tasksByRequest.set(row.request_id, items);
   }
@@ -70,8 +77,158 @@ async function listRequests(options = {}) {
     lastErrorCode: row.last_error_code,
     acknowledgementSentAt: row.acknowledgement_sent_at,
     completionSentAt: row.completion_sent_at,
+    scan: {
+      status: row.scan_status,
+      report: row.scan_report,
+      requestedAt: row.scan_requested_at,
+      startedAt: row.scan_started_at,
+      completedAt: row.scan_completed_at,
+      attempts: Number(row.scan_attempts || 0),
+      errorCode: row.scan_error_code
+    },
+    cleanup: {
+      status: row.cleanup_status,
+      selection: row.cleanup_selection,
+      report: row.cleanup_report,
+      startedAt: row.cleanup_started_at,
+      completedAt: row.cleanup_completed_at
+    },
+    userReport: {
+      status: row.report_status,
+      sentAt: row.report_sent_at,
+      attempts: Number(row.report_attempts || 0),
+      errorCode: row.report_error_code
+    },
     tasks: tasksByRequest.get(row.id) || []
   }));
+}
+
+async function beginScan(requestId, options = {}) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(requestId || ""))) {
+    throw serviceError(400, "INVALID_DELETION_REQUEST", "Deletion request ID is invalid.");
+  }
+
+  const enqueue = async (client) => {
+    const { rows: [request] } = await client.query(
+      "SELECT id, status, scan_status, cleanup_status FROM account_deletion_requests WHERE id=$1 FOR UPDATE",
+      [requestId]
+    );
+    if (!request) throw serviceError(404, "DELETION_REQUEST_NOT_FOUND", "Account-deletion request not found.");
+    if (request.status === "completed" || !["not_started", "needs_attention"].includes(request.cleanup_status)) {
+      throw serviceError(409, "DELETION_SCAN_UNAVAILABLE", "This request can no longer start or restart its cleanup scan.");
+    }
+    if (["queued", "running"].includes(request.scan_status)) {
+      return { id: request.id, scanStatus: request.scan_status, beforeScanStatus: request.scan_status, alreadyQueued: true };
+    }
+
+    const { rows: [updated] } = await client.query(`
+      UPDATE account_deletion_requests
+      SET scan_status='queued', scan_report=NULL, scan_requested_at=NOW(), scan_started_at=NULL,
+          scan_completed_at=NULL, scan_next_attempt_at=NOW(),
+          scan_error_code=NULL, updated_at=NOW()
+      WHERE id=$1
+      RETURNING id, scan_status
+    `, [requestId]);
+    return { id: updated.id, scanStatus: updated.scan_status, beforeScanStatus: request.scan_status, alreadyQueued: false };
+  };
+
+  if (options.client) return enqueue(options.client);
+  return db.withTransaction(enqueue);
+}
+
+async function queueCleanup(requestId, { selection, exclusions, referenceSelection, reportVersion }, options = {}) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(requestId || ""))) {
+    throw serviceError(400, "INVALID_DELETION_REQUEST", "Deletion request ID is invalid.");
+  }
+  const enqueue = async (client) => {
+    const { rows: [request] } = await client.query(`
+      SELECT id,status,scan_status,scan_report,cleanup_status
+      FROM account_deletion_requests WHERE id=$1 FOR UPDATE
+    `, [requestId]);
+    if (!request) throw serviceError(404, "DELETION_REQUEST_NOT_FOUND", "Account-deletion request not found.");
+    if (["queued", "running", "completed"].includes(request.cleanup_status)) {
+      return { id: request.id, cleanupStatus: request.cleanup_status, beforeCleanupStatus: request.cleanup_status, alreadyQueued: true };
+    }
+    if (request.status === "completed" || request.scan_status !== "report_ready" || !request.scan_report) {
+      throw serviceError(409, "DELETION_SCAN_REQUIRED", "A completed cleanup scan is required before deletion can begin.");
+    }
+    if (Number(reportVersion) !== Number(request.scan_report.version)) {
+      throw serviceError(409, "DELETION_REPORT_CHANGED", "The cleanup report changed. Refresh it and review the proposed actions again.");
+    }
+    const categories = request.scan_report.categories || [];
+    const expectedIds = new Set(categories.map((item) => item.id));
+    const selectedIds = Object.keys(selection || {});
+    if (selectedIds.length !== expectedIds.size || selectedIds.some((id) => !expectedIds.has(id)) || categories.some((item) => typeof selection?.[item.id] !== "boolean")) {
+      throw serviceError(400, "INVALID_CLEANUP_SELECTION", "Choose a disposition for every report category.");
+    }
+    if (selection.relational_references !== true) {
+      throw serviceError(400, "ACCOUNT_CLEANUP_REQUIRED", "The account and its relational identity data must be selected for deletion.");
+    }
+    if (selectedIds.some((id) => selection[id] && id !== "relational_references")) {
+      throw serviceError(409, "CLEANUP_CATEGORY_UNSUPPORTED", "One or more selected categories are not connected to a verified deletion action. Unselect them and document why they are excluded.");
+    }
+    const unsafeSelected = categories.find((item) => selection[item.id] && item.status !== "scanned");
+    if (unsafeSelected) throw serviceError(409, "CLEANUP_CATEGORY_NEEDS_REVIEW", `${unsafeSelected.label} has unresolved scan findings and cannot be deleted automatically.`);
+    const referenceSources = (request.scan_report.inventory?.sources || []).filter((item) => item.recordCount > 0 && item.source !== "public.users.id");
+    const expectedSources = new Set(referenceSources.map((item) => item.source));
+    if (!referenceSelection || Object.keys(referenceSelection).length !== expectedSources.size
+      || Object.keys(referenceSelection).some((source) => !expectedSources.has(source))) {
+      throw serviceError(400, "REFERENCE_SELECTION_INCOMPLETE", "Review every populated relational source before queuing cleanup.");
+    }
+    for (const source of referenceSources) {
+      const items = source.items || [];
+      const hasRowIdentities = items.every((item) => item.rowIdentity && typeof item.rowIdentity === "object" && Object.keys(item.rowIdentity).length > 0);
+      const expectedItems = items.map((item) => item.id).sort();
+      const selectedItems = Array.isArray(referenceSelection[source.source]) ? [...referenceSelection[source.source]].sort() : [];
+      if (!source.itemsComplete || !hasRowIdentities || expectedItems.length !== source.recordCount
+        || selectedItems.length !== expectedItems.length
+        || selectedItems.some((itemId, index) => itemId !== expectedItems[index])) {
+        throw serviceError(409, "REFERENCE_SELECTION_INCOMPLETE", `Include every identified reference in ${source.source}, or resolve the excluded records before cleanup.`);
+      }
+    }
+    const normalizedExclusions = {};
+    for (const item of categories) {
+      if (selection[item.id]) continue;
+      const reason = String(exclusions?.[item.id] || "").trim().replace(/\s+/g, " ");
+      if (reason.length < 8 || reason.length > 500) throw serviceError(400, "EXCLUSION_REASON_REQUIRED", `Add an 8–500 character reason for excluding ${item.label}.`);
+      normalizedExclusions[item.id] = reason;
+    }
+    const { rows: [updated] } = await client.query(`
+      UPDATE account_deletion_requests
+      SET cleanup_status='queued', cleanup_selection=$2::jsonb,
+          cleanup_report=NULL, cleanup_started_at=NULL, cleanup_completed_at=NULL,
+          report_status='not_ready', report_error_code=NULL,
+          status='processing', updated_at=NOW()
+      WHERE id=$1 RETURNING id,cleanup_status
+    `, [requestId, JSON.stringify({ reportVersion: Number(reportVersion), selected: selection, references: referenceSelection, exclusions: normalizedExclusions })]);
+    return { id: updated.id, cleanupStatus: updated.cleanup_status, beforeCleanupStatus: request.cleanup_status, alreadyQueued: false };
+  };
+  if (options.client) return enqueue(options.client);
+  return db.withTransaction(enqueue);
+}
+
+async function queueUserReport(requestId, options = {}) {
+  const enqueue = async (client) => {
+    const { rows: [request] } = await client.query(`
+      SELECT id,status,cleanup_status,report_status,contact_email
+      FROM account_deletion_requests WHERE id=$1 FOR UPDATE
+    `, [requestId]);
+    if (!request) throw serviceError(404, "DELETION_REQUEST_NOT_FOUND", "Account-deletion request not found.");
+    if (request.report_status === "sending" || request.report_status === "sent") {
+      return { id: request.id, reportStatus: request.report_status, beforeReportStatus: request.report_status, alreadyQueued: true };
+    }
+    if (request.cleanup_status !== "completed" || !["ready", "needs_attention"].includes(request.report_status) || !request.contact_email) {
+      throw serviceError(409, "DELETION_REPORT_UNAVAILABLE", "A completed cleanup and a deliverable user report are required.");
+    }
+    const { rows: [updated] } = await client.query(`
+      UPDATE account_deletion_requests
+      SET report_status='sending', report_error_code=NULL, next_attempt_at=NOW(), updated_at=NOW()
+      WHERE id=$1 RETURNING id,report_status
+    `, [requestId]);
+    return { id: updated.id, reportStatus: updated.report_status, beforeReportStatus: request.report_status, alreadyQueued: false };
+  };
+  if (options.client) return enqueue(options.client);
+  return db.withTransaction(enqueue);
 }
 
 async function completeTask({ requestId, taskKind, evidence, retentionNotice }, options = {}) {
@@ -153,4 +310,4 @@ async function completeTask({ requestId, taskKind, evidence, retentionNotice }, 
   return db.withTransaction(complete);
 }
 
-module.exports = { TASK_LABELS, completeTask, listRequests };
+module.exports = { TASK_LABELS, beginScan, queueCleanup, queueUserReport, completeTask, listRequests };

@@ -1541,7 +1541,7 @@ test("login MFA challenge focuses the authenticator code when mounted", () => {
     "utf8"
   );
 
-  assert.match(source, /autoComplete="one-time-code"\s+autoFocus\s+inputMode="numeric"\s+label="Authenticator code"/);
+  assert.match(source, /autoComplete="one-time-code"\s+autoFocus\s+inputMode="numeric"\s+label=\{emailMfaActive \? "Email code" : "Authenticator code"\}/);
 });
 
 test("signup forms use provider icons, helpful labels, and touch-friendly actions", () => {
@@ -2215,9 +2215,11 @@ test("customer MFA confirmation immediately shows enabled and retires the setup 
     "utf8"
   );
 
-  assert.match(source, /const mfaEnabled = !mfaRemoved && Boolean\(accountUser\?\.mfaEnabled \|\| mfaRecoveryCodes\.length\)/);
+  assert.match(source, /const totpMfaEnabled = !mfaRemoved && Boolean\(accountUser\?\.totpMfaEnabled \|\| mfaRecoveryCodes\.length\)/);
+  assert.match(source, /const emailMfaEnabled = Boolean\(accountUser\?\.emailMfaEnabled\)/);
+  assert.match(source, /const mfaEnabled = totpMfaEnabled \|\| emailMfaEnabled/);
   assert.match(source, /invalidateQueries\(\{ queryKey: \["customer-account", token\] \}\)/);
-  assert.match(source, /!mfaEnabled && !mfaSecret && !mfaRecoveryCodes\.length/);
+  assert.match(source, /!totpMfaEnabled && !mfaSecret/);
   assert.match(source, /mfaEnabled \? "Enabled" : "Not enabled"/);
 });
 
@@ -2227,7 +2229,7 @@ test("customer can remove optional MFA through a verified confirmation modal", (
     "utf8"
   );
 
-  assert.match(source, />Remove MFA<\/Button>/);
+  assert.match(source, />Remove authenticator<\/Button>/);
   assert.match(source, /\/auth\/mfa\/disable/);
   assert.match(source, /password: mfaRemovalPassword/);
   assert.match(source, /code: mfaRemovalCode/);
@@ -2639,7 +2641,7 @@ test("vendor dashboard provides account-level MFA enrollment with a QR code", ()
   assert.match(dashboard, /autoFocus[\s\S]*?label="6-digit authenticator code"/);
   assert.match(dashboard, /Verify and enable/);
   assert.match(dashboard, /mfaEnabled && mfaSecret[\s\S]*?cancelMfaEnrollment/);
-  assert.match(dashboard, /mfaEnabled && !mfaSecret && !mfaRecoveryCodes\.length/);
+  assert.match(dashboard, /totpMfaEnabled && !mfaSecret && !mfaRecoveryCodes\.length/);
   assert.match(dashboard, /These recovery codes are shown only once\./);
   assert.match(dashboard, /I saved these recovery codes/);
   assert.match(operations, /\/auth\/mfa\/enrollment\/start/);
@@ -2765,7 +2767,7 @@ test("vendor security supports password changes and role-aware MFA management", 
   assert.match(dashboard, /name="newPassword"/);
   assert.match(dashboard, /await changePassword\(passwordForm\)/);
   assert.match(dashboard, /Replace authenticator/);
-  assert.match(dashboard, /!mfaRequired[\s\S]*?>Remove MFA<\/Button>/);
+  assert.match(dashboard, /!mfaRequired[\s\S]*?>Remove authenticator<\/Button>/);
   assert.match(operations, /\/auth\/mfa\/step-up/);
   assert.match(operations, /\/auth\/mfa\/disable/);
 });

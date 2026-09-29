@@ -71,6 +71,7 @@ DROP TABLE IF EXISTS developer_project_webhook_suspensions CASCADE;
 DROP TABLE IF EXISTS developer_project_rate_limits CASCADE;
 DROP TABLE IF EXISTS developer_webhook_deliveries CASCADE;
 DROP TABLE IF EXISTS developer_webhook_registrations CASCADE;
+DROP TABLE IF EXISTS developer_api_key_activity_hourly CASCADE;
 DROP TABLE IF EXISTS developer_api_keys CASCADE;
 DROP TABLE IF EXISTS developer_project_production_submissions CASCADE;
 DROP TABLE IF EXISTS developer_project_production_applications CASCADE;
@@ -227,9 +228,27 @@ CREATE TABLE IF NOT EXISTS account_deletion_requests (
  last_error_code TEXT,
  acknowledgement_sent_at TIMESTAMPTZ,
  completion_sent_at TIMESTAMPTZ,
+ scan_status TEXT NOT NULL DEFAULT 'not_started' CHECK (scan_status IN ('not_started','queued','running','report_ready','needs_attention')),
+ scan_report JSONB,
+ scan_requested_at TIMESTAMPTZ,
+ scan_started_at TIMESTAMPTZ,
+ scan_completed_at TIMESTAMPTZ,
+ scan_next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ scan_attempts INTEGER NOT NULL DEFAULT 0,
+ scan_error_code TEXT,
+ cleanup_status TEXT NOT NULL DEFAULT 'not_started' CHECK (cleanup_status IN ('not_started','queued','running','needs_attention','completed')),
+ cleanup_selection JSONB,
+ cleanup_report JSONB,
+ cleanup_started_at TIMESTAMPTZ,
+ cleanup_completed_at TIMESTAMPTZ,
+ report_status TEXT NOT NULL DEFAULT 'not_ready' CHECK (report_status IN ('not_ready','ready','sending','sent','needs_attention')),
+ report_sent_at TIMESTAMPTZ,
+ report_attempts INTEGER NOT NULL DEFAULT 0,
+ report_error_code TEXT,
  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS account_deletion_due_idx ON account_deletion_requests(next_attempt_at) WHERE status <> 'completed';
+CREATE INDEX IF NOT EXISTS account_deletion_scan_due_idx ON account_deletion_requests(scan_next_attempt_at) WHERE scan_status IN ('queued','running');
 CREATE TABLE IF NOT EXISTS account_deletion_tasks (
  id BIGSERIAL PRIMARY KEY,
  request_id UUID NOT NULL REFERENCES account_deletion_requests(id) ON DELETE CASCADE,
@@ -237,6 +256,7 @@ CREATE TABLE IF NOT EXISTS account_deletion_tasks (
  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','completed')),
  evidence TEXT,
  completed_at TIMESTAMPTZ,
+ automation_report JSONB,
  UNIQUE(request_id,kind)
 );
 

@@ -291,6 +291,9 @@ function buildOauthAccount(profile) {
 
 async function buildUserPayload(user) {
   const memberships = user.tenantMemberships || [];
+  const mfaMethods = user.mfaEnabled && typeof mfaFlowService.getLoginMethods === "function"
+    ? await mfaFlowService.getLoginMethods(user)
+    : null;
   const tenants = await tenantRepository.findTenantsByIds(
     memberships.map((membership) => membership.tenantId)
   );
@@ -308,6 +311,7 @@ async function buildUserPayload(user) {
     emailVerified: Boolean(user.emailVerified),
     hasPassword: Boolean(user.passwordHash),
     mfaEnabled: Boolean(user.mfaEnabled),
+    totpMfaEnabled: mfaMethods ? mfaMethods.includes("totp") : Boolean(user.mfaEnabled && !user.emailMfaEnabled),
     emailMfaEnabled: Boolean(user.emailMfaEnabled),
     mfaRequired: Boolean(user.mfaRequired || userRequiresPrivilegedMfa(user)),
     oauthProviders: [...new Set((user.oauthAccounts || []).map((account) => account.provider))],
@@ -1173,7 +1177,7 @@ router.post(
     const result = await mfaFlowService.cancelTotpEnrollment({ user: req.user });
     res.json({
       ...result,
-      message: "Pending authenticator setup canceled. Your active authenticator was not changed."
+      message: "Pending authenticator setup canceled. Your active sign-in methods were not changed."
     });
   })
 );
@@ -1196,12 +1200,24 @@ router.post(
   authenticate,
   authAttemptLimiter,
   asyncHandler(async (req, res) => {
-    const passwordMatches = req.user.passwordHash &&
-      await authService.verifyPasswordLogin(req.user, String(req.body?.password || ""));
-    if (!passwordMatches) {
-      const error = new Error("We could not verify your sign-in details.");
-      error.statusCode = 401;
-      error.code = "PRIMARY_AUTHENTICATION_INVALID";
+    let primaryAuthenticationValid = false;
+    if (req.user.passwordHash) {
+      primaryAuthenticationValid = await authService.verifyPasswordLogin(req.user, String(req.body?.password || ""));
+    } else {
+      const session = req.auth?.session;
+      const primaryAge = Date.now() - new Date(session?.primaryAuthenticatedAt || 0).getTime();
+      primaryAuthenticationValid = ["google", "facebook", "apple"].includes(session?.authMethod)
+        && Number.isFinite(primaryAge)
+        && primaryAge >= 0
+        && primaryAge <= 5 * 60_000;
+    }
+    if (!primaryAuthenticationValid) {
+      const providerOnly = !req.user.passwordHash;
+      const error = new Error(providerOnly
+        ? "Sign out and sign in again with your original provider before disabling Email OTP."
+        : "We could not verify your sign-in details.");
+      error.statusCode = providerOnly ? 403 : 401;
+      error.code = providerOnly ? "RECENT_AUTHENTICATION_REQUIRED" : "PRIMARY_AUTHENTICATION_INVALID";
       throw error;
     }
 

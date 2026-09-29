@@ -27,7 +27,10 @@ import type {
   ReadModelMeta,
   PlatformDeveloperApiKey,
   PlatformDeveloperApiKeyReview,
+  PlatformPlanMatrix,
+  PlanPolicyPreview,
 } from "@/lib/platform-contracts"
+import type { QueueFeeSetting, SubscriptionPlan } from "../../../shared/types"
 import { platformAuth } from "@/lib/platform-auth"
 import { resolvePlatformApiBaseUrl } from "@/lib/platform-api-url"
 
@@ -134,8 +137,34 @@ const fixtureDeletionRequests: PlatformAccountDeletionQueue = { requests: [{
   lastErrorCode: "DELETION_PREREQUISITES_INCOMPLETE",
   acknowledgementSentAt: "2026-09-26T08:30:01.000Z",
   completionSentAt: null,
+  scan: {
+    status: "report_ready",
+    requestedAt: "2026-09-26T08:45:00.000Z",
+    startedAt: "2026-09-26T08:45:01.000Z",
+    completedAt: "2026-09-26T08:45:02.000Z",
+    attempts: 1,
+    errorCode: null,
+    report: {
+      version: 1,
+      generatedAt: "2026-09-26T08:45:02.000Z",
+      coverage: "partial",
+      scope: "Numeric relational references to users.id or user-ID-named columns only.",
+      categories: [
+        { id: "relational_references", label: "Application relational references", status: "scanned", sourceCount: 3, referenceCount: 8 },
+        { id: "copied_identifiers", label: "Copied identifiers and JSON payloads", status: "not_scanned", reason: "The current scan does not inspect copied text or JSON values." },
+        { id: "object_storage", label: "Object storage and caches", status: "not_scanned", reason: "Provider-wide object and cache inventory is not connected to this scan." },
+        { id: "supplier_data", label: "Supplier data", status: "not_scanned", reason: "Supplier-side inventory and deletion receipts are not connected." },
+        { id: "financial_and_legal_retention", label: "Financial and legal retention", status: "requires_review", reason: "Retention disposition requires an approved category-level rule." },
+        { id: "backup_disposal", label: "Backups and restore replay", status: "not_scanned", reason: "Backup lifecycle and restore-replay evidence are not connected." }
+      ],
+      inventory: { version: 1, generatedAt: "2026-09-26T08:45:02.000Z", scope: "Numeric relational references to users.id or user-ID-named columns only.", sourceCount: 3, referenceCount: 8, sources: [{ source: "public.bookings.customer_user_id", recordCount: 2, items: [{ id: "fixture-booking-1", ordinal: 1 }, { id: "fixture-booking-2", ordinal: 2 }], itemsComplete: true }, { source: "public.tickets.user_id", recordCount: 5, items: Array.from({ length: 5 }, (_, index) => ({ id: `fixture-ticket-${index + 1}`, ordinal: index + 1 })), itemsComplete: true }, { source: "public.users.id", recordCount: 1, items: [{ id: "fixture-user-1", ordinal: 1 }], itemsComplete: true }] }
+    }
+  },
+  cleanup: { status: "not_started", selection: null, report: null },
+  userReport: { status: "not_ready", sentAt: null, attempts: 0, errorCode: null },
   tasks: [
-    { kind: "personal_data_inventory", label: "Personal data inventory", status: "completed", evidence: "Inventory review INV-104", completedAt: "2026-09-26T09:00:00.000Z" },
+    { kind: "application_relational_inventory", label: "Automated application relational inventory", status: "completed", evidence: "Automated relational inventory: 3 sources and 8 user-ID references.", completedAt: "2026-09-26T09:00:00.000Z", automationReport: { version: 1, generatedAt: "2026-09-26T09:00:00.000Z", scope: "Numeric relational references to users.id or user-ID-named columns only; copied identifiers, JSON payloads, object storage, suppliers, and backups are outside this automated scan.", sourceCount: 3, referenceCount: 8, sources: [{ source: "public.bookings.customer_user_id", recordCount: 2 }, { source: "public.tickets.user_id", recordCount: 5 }, { source: "public.users.id", recordCount: 1 }] } },
+    { kind: "personal_data_inventory", label: "Copied identifiers and non-relational review", status: "pending", evidence: null, completedAt: null },
     { kind: "object_storage_versions_and_caches", label: "Object storage, versions, and caches", status: "pending", evidence: null, completedAt: null },
     { kind: "supplier_data", label: "Supplier data", status: "pending", evidence: null, completedAt: null },
     { kind: "financial_and_legal_retention", label: "Financial and legal retention", status: "pending", evidence: null, completedAt: null },
@@ -299,6 +328,14 @@ const fixtureCapabilities = [
   "platform.settings.manage",
 ]
 
+const fixturePlans: SubscriptionPlan[] = [
+  { slug: "free", name: "Free", price: { currency: "PHP", monthlyAmountCents: 0, monthlyDisplay: "Free", annualAmountCents: 0, annualDisplay: "Free" }, bestFor: "Getting started", checkoutEnabled: false, sortOrder: 0, policyRevision: 1, features: { queue: true, branding: false, discovery: false, booking: false, campaigns: false }, allowances: { queueTickets: 500, queueEmailJourneys: 500, serviceBookings: 0 }, entitlements: { locations: 1, counters: 1, staffSeats: 1, monthlyTickets: 500, monthlyTransactionalEmails: 500, monthlyQueueEmailJourneys: 500, monthlyServiceBookings: 0, historyDays: 7, historyLabel: "7 days", emailAlerts: true, smsAllowance: 0, smsBundleType: "none", qrJoinPage: true, publicQueueBoard: true, basicDashboard: true, queueSettings: true, brandedQueuePages: false, analytics: false, csvExport: false, pdfExport: false, allowedHistoryExportRanges: ["today"], advancedRoles: false, slaSupport: false, supportLevel: "self_serve", customDomain: false, sso: false }, included: ["Queue management"] },
+  { slug: "economical", name: "Economical", price: { currency: "PHP", monthlyAmountCents: 49900, monthlyDisplay: "PHP 499/mo", annualAmountCents: 498000, annualDisplay: "PHP 4,980/yr" }, bestFor: "Growing teams", checkoutEnabled: true, sortOrder: 1, policyRevision: 1, features: { queue: true, branding: false, discovery: true, booking: true, campaigns: true }, allowances: { queueTickets: 1000, queueEmailJourneys: 1000, serviceBookings: 100 }, entitlements: { locations: 2, counters: 3, staffSeats: 5, monthlyTickets: 1000, monthlyTransactionalEmails: 1000, monthlyQueueEmailJourneys: 1000, monthlyServiceBookings: 100, historyDays: 30, historyLabel: "30 days", emailAlerts: true, smsAllowance: 0, smsBundleType: "none", qrJoinPage: true, publicQueueBoard: true, basicDashboard: true, queueSettings: true, brandedQueuePages: false, analytics: true, csvExport: true, pdfExport: false, allowedHistoryExportRanges: ["today", "week", "month"], advancedRoles: false, slaSupport: false, supportLevel: "self_serve", customDomain: false, sso: false }, included: ["Expanded queue capacity"] },
+  { slug: "pro", name: "Pro", price: { currency: "PHP", monthlyAmountCents: 149900, monthlyDisplay: "PHP 1,499/mo", annualAmountCents: 1499000, annualDisplay: "PHP 14,990/yr" }, bestFor: "Established businesses", checkoutEnabled: true, sortOrder: 2, policyRevision: 1, features: { queue: true, branding: true, discovery: true, booking: true, campaigns: true }, allowances: { queueTickets: 5000, queueEmailJourneys: 5000, serviceBookings: 1000 }, entitlements: { locations: 5, counters: 10, staffSeats: 20, monthlyTickets: 5000, monthlyTransactionalEmails: 5000, monthlyQueueEmailJourneys: 5000, monthlyServiceBookings: 1000, historyDays: 90, historyLabel: "90 days", emailAlerts: true, smsAllowance: 100, smsBundleType: "fixed", qrJoinPage: true, publicQueueBoard: true, basicDashboard: true, queueSettings: true, brandedQueuePages: true, analytics: true, csvExport: true, pdfExport: true, allowedHistoryExportRanges: ["today", "week", "month", "quarter"], advancedRoles: true, slaSupport: false, supportLevel: "standard", customDomain: true, sso: false }, included: ["Advanced operations"] },
+  { slug: "enterprise", name: "Enterprise", price: { currency: "PHP", monthlyAmountCents: 699900, monthlyDisplay: "PHP 6,999/mo", annualAmountCents: 6999000, annualDisplay: "PHP 69,990/yr" }, bestFor: "Large organizations", checkoutEnabled: false, sortOrder: 3, policyRevision: 1, features: { queue: true, branding: true, discovery: true, booking: true, campaigns: true }, allowances: { queueTickets: 50000, queueEmailJourneys: 50000, serviceBookings: 10000 }, entitlements: { locations: 100, counters: 500, staffSeats: 1000, monthlyTickets: 50000, monthlyTransactionalEmails: 50000, monthlyQueueEmailJourneys: 50000, monthlyServiceBookings: 10000, historyDays: 365, historyLabel: "1 year", emailAlerts: true, smsAllowance: 1000, smsBundleType: "custom", qrJoinPage: true, publicQueueBoard: true, basicDashboard: true, queueSettings: true, brandedQueuePages: true, analytics: true, csvExport: true, pdfExport: true, allowedHistoryExportRanges: ["today", "week", "month", "quarter", "year"], advancedRoles: true, slaSupport: true, supportLevel: "sla", customDomain: true, sso: true }, included: ["Dedicated support"] },
+]
+const fixtureQueueFees: QueueFeeSetting[] = fixturePlans.map((plan) => ({ planSlug: plan.slug, enabled: plan.slug !== "free", amountCents: plan.slug === "pro" ? 1500 : plan.slug === "enterprise" ? 1000 : 2000, currency: "PHP", updatedAt: "2026-09-29T00:00:00.000Z" }))
+
 export const fixturePlatformApi: PlatformApi = {
   async getViewerContext() {
     const data: PlatformViewerContext = {
@@ -363,6 +400,33 @@ export const fixturePlatformApi: PlatformApi = {
   async getAccountDeletionRequests() {
     return fixtureDeletionRequests
   },
+  async beginAccountDeletionScan(requestId: string) {
+    const request = fixtureDeletionRequests.requests.find((item) => item.id === requestId)
+    if (!request) throw new Error("Account-deletion request not found.")
+    if (request.scan.status === "report_ready" || request.scan.status === "queued" || request.scan.status === "running") {
+      return { scan: { id: request.id, scanStatus: request.scan.status, alreadyQueued: true } }
+    }
+    request.scan.status = "queued"
+    request.scan.requestedAt = new Date().toISOString()
+    return { scan: { id: request.id, scanStatus: "queued", alreadyQueued: false } }
+  },
+  async previewAccountDeletionAction(requestId: string) {
+    return { revision: `fixture-deletion-${requestId}`, confirmationToken: "fixture-confirmation-token" }
+  },
+  async beginAccountDeletionCleanup(requestId: string, reportVersion: number, selection: Record<string, boolean>, references: Record<string, string[]>, exclusions: Record<string, string>) {
+    const request = fixtureDeletionRequests.requests.find((item) => item.id === requestId)
+    if (!request || request.scan.status !== "report_ready") throw new Error("A completed cleanup scan is required.")
+    request.cleanup = { ...request.cleanup, status: "queued", selection: { reportVersion, selected: selection, references, exclusions }, report: null }
+    return { cleanup: { id: request.id, cleanupStatus: "queued", alreadyQueued: false } }
+  },
+  async sendAccountDeletionReport(requestId: string) {
+    const request = fixtureDeletionRequests.requests.find((item) => item.id === requestId)
+    if (!request || request.cleanup.status !== "completed") throw new Error("Cleanup must complete before sending the report.")
+    request.userReport = { ...request.userReport, status: "sent", sentAt: new Date().toISOString(), attempts: request.userReport.attempts + 1, errorCode: null }
+    request.status = "completed"
+    request.completedAt = new Date().toISOString()
+    return { report: { id: request.id, reportStatus: "sent", alreadyQueued: false } }
+  },
   async completeAccountDeletionTask(requestId: string, taskKind: AccountDeletionTaskKind, evidence: string, reason: string, retentionNotice?: string) {
     const request = fixtureDeletionRequests.requests.find((item) => item.id === requestId)
     if (!request) throw new Error("Account-deletion request not found.")
@@ -408,6 +472,18 @@ export const fixturePlatformApi: PlatformApi = {
   },
   async getBilling() {
     return available(billing, "global")
+  },
+  async getPlanMatrix() {
+    return { plans: fixturePlans, queueFees: fixtureQueueFees, activeSubscribersByPlan: { free: 8, economical: 4, pro: 3, enterprise: 1 }, planPolicyMutations: false }
+  },
+  async previewPlanPolicy() {
+    throw new Error("Plan policy mutations are disabled in fixture mode.")
+  },
+  async publishPlan() {
+    throw new Error("Plan policy mutations are disabled in fixture mode.")
+  },
+  async publishQueueFees() {
+    throw new Error("Plan policy mutations are disabled in fixture mode.")
   },
   async getModeration() {
     return available(moderation, "global")
@@ -630,6 +706,14 @@ function createHttpPlatformApi(baseUrl = API_BASE_URL): PlatformApi {
       if (!response.ok) throw Object.assign(new Error(payload.message || "Account-deletion requests could not be loaded."), { status: response.status, code: payload.code })
       return payload
     },
+    beginAccountDeletionScan: (requestId, reason) => writePlatform(baseUrl, `/platform/account-deletion-requests/${encodeURIComponent(requestId)}/begin-scan`, { reason }, crypto.randomUUID()),
+    previewAccountDeletionAction: async (requestId, action, payload, reason) => {
+      const actionName = action === "cleanup.begin" ? "platform.account_deletion.cleanup.begin" : "platform.account_deletion.report.send"
+      const response = await writePlatform<{ preview: { revision: string }; confirmation: { token: string } }>(baseUrl, "/platform/privileged-actions/preview", { action: actionName, target: requestId, reason, payload }, crypto.randomUUID())
+      return { revision: response.preview.revision, confirmationToken: response.confirmation.token }
+    },
+    beginAccountDeletionCleanup: (requestId, reportVersion, selection, references, exclusions, reason, revision, confirmationToken) => writePlatform(baseUrl, `/platform/account-deletion-requests/${encodeURIComponent(requestId)}/begin-cleanup`, { reportVersion, selection, references, exclusions, reason, previewRevision: revision }, crypto.randomUUID(), "POST", { "X-Transaction-Confirmation": confirmationToken }),
+    sendAccountDeletionReport: (requestId, reason, revision, confirmationToken) => writePlatform(baseUrl, `/platform/account-deletion-requests/${encodeURIComponent(requestId)}/send-report`, { reason, previewRevision: revision }, crypto.randomUUID(), "POST", { "X-Transaction-Confirmation": confirmationToken }),
     completeAccountDeletionTask: (requestId, taskKind, evidence, reason, retentionNotice) => writePlatform(baseUrl, `/platform/account-deletion-requests/${encodeURIComponent(requestId)}/tasks/${encodeURIComponent(taskKind)}/complete`, { evidence, reason, ...(retentionNotice ? { retentionNotice } : {}) }, crypto.randomUUID()),
     getUserDetails: async (userId) => {
       const response = await read<{ user: PlatformUserDetails }>(`/platform/users/${encodeURIComponent(userId)}/details`, "global")
@@ -638,6 +722,35 @@ function createHttpPlatformApi(baseUrl = API_BASE_URL): PlatformApi {
     },
     getSecurityAudit: () => read<PlatformAuditReadModel>("/platform/security-audit/read-model", "global"),
     getBilling: () => read<PlatformBillingReadModel>("/platform/billing/read-model", "global"),
+    getPlanMatrix: async (): Promise<PlatformPlanMatrix> => {
+      const getJson = async <T,>(path: string): Promise<T> => {
+        const response = await fetchWithSessionRefresh(() => fetch(`${baseUrl.replace(/\/$/, "")}${path}`, { credentials: "include", headers: { Accept: "application/json" } }))
+        const payload = await response.json().catch(() => ({})) as T & { message?: string }
+        if (!response.ok) throw Object.assign(new Error(payload.message || "The Plan Matrix could not be loaded."), { status: response.status })
+        return payload
+      }
+      const [plans, queueFees, capabilities] = await Promise.all([
+        getJson<{ plans: SubscriptionPlan[] }>("/platform/plans"),
+        getJson<{ queueFees: QueueFeeSetting[] }>("/platform/queue-fees"),
+        getJson<{ planMatrix: boolean; planPolicyMutations: boolean }>("/platform/capabilities"),
+      ])
+      if (!capabilities.planMatrix) throw new Error("Plan Matrix access is disabled by the server.")
+      const overview = await getJson<{ analytics?: { subscriptionsByPlan?: Array<{ planSlug: SubscriptionPlan["slug"]; count: number }> } }>("/platform/overview")
+      const activeSubscribersByPlan = Object.fromEntries((overview.analytics?.subscriptionsByPlan || []).map((item) => [item.planSlug, item.count]))
+      return { plans: plans.plans, queueFees: queueFees.queueFees, activeSubscribersByPlan, planPolicyMutations: capabilities.planPolicyMutations }
+    },
+    previewPlanPolicy: async (action, target, payload, reason, previewRevision): Promise<PlanPolicyPreview> => {
+      const response = await writePlatform<{ preview: { revision: string }; confirmation: { token: string } }>(baseUrl, "/platform/privileged-actions/preview", { action, target, payload, reason, previewRevision }, crypto.randomUUID())
+      return { revision: response.preview.revision, confirmationToken: response.confirmation.token }
+    },
+    publishPlan: async (plan: SubscriptionPlan, reason: string, preview: PlanPolicyPreview): Promise<SubscriptionPlan> => {
+      const response = await writePlatform<{ plan: SubscriptionPlan }>(baseUrl, `/platform/plans/${encodeURIComponent(plan.slug)}`, { plan, reason, previewRevision: preview.revision }, crypto.randomUUID(), "PATCH", { "X-Transaction-Confirmation": preview.confirmationToken })
+      return response.plan
+    },
+    publishQueueFees: async (queueFees: Array<Pick<QueueFeeSetting, "planSlug" | "enabled" | "amountCents">>, reason: string, preview: PlanPolicyPreview): Promise<QueueFeeSetting[]> => {
+      const response = await writePlatform<{ queueFees: QueueFeeSetting[] }>(baseUrl, "/platform/queue-fees", { queueFees, reason, previewRevision: preview.revision }, crypto.randomUUID(), "PATCH", { "X-Transaction-Confirmation": preview.confirmationToken })
+      return response.queueFees
+    },
     getModeration: () => read<PlatformModerationReadModel>("/platform/moderation/read-model", "global"),
     getSettings: () => read<PlatformSettingsReadModel>("/platform/settings/read-model", "global"),
     getReleaseReadiness: () => read<PlatformReleaseReadinessReadModel>("/platform/release-readiness/read-model", "global"),

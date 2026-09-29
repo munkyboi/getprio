@@ -215,7 +215,7 @@ for (const roles of [["customer"], ["platform_admin"]]) {
           recordLoginAttempt: async () => {}
         },
         "../services/mfaFlowService": {
-          getLoginMethods: async () => ["totp", "recovery"],
+          getLoginMethods: async () => ["totp", "recovery", "email"],
           issueLoginChallenge: async ({ user }) => {
             challengedUser = user;
             return { token: "challenge-only", expiresAt: "2026-09-07T12:00:00Z" };
@@ -236,7 +236,7 @@ for (const roles of [["customer"], ["platform_admin"]]) {
         assert.equal(response.status, 200);
         assert.deepEqual(await response.json(), {
           mfaRequired: true, challengeToken: "challenge-only",
-          expiresAt: "2026-09-07T12:00:00Z", methods: ["totp", "recovery"]
+          expiresAt: "2026-09-07T12:00:00Z", methods: ["totp", "recovery", "email"]
         });
         assert.equal(response.headers.get("set-cookie"), null);
         assert.equal(challengedUser, user);
@@ -247,6 +247,58 @@ for (const roles of [["customer"], ["platform_admin"]]) {
     });
   }
 }
+
+test("email MFA login action sends a code for the existing password challenge", async () => {
+  let issuedInput;
+  const router = requireWithMocks("../src/routes/authRoutes.js", {
+    "../config/db": {},
+    "../repositories/tenants": {},
+    "../repositories/authSessions": {},
+    "../repositories/users": {},
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../middleware/auth": buildAuthMock(),
+    "../services/authService": {
+      normalizeEmail: (value) => String(value || "").trim().toLowerCase(),
+      getRequestIp: () => "127.0.0.1",
+      getUserAgent: () => "test-agent"
+    },
+    "../services/mfaFlowService": {
+      issueEmailLoginChallenge: async (input) => {
+        issuedInput = input;
+        return { token: "email-challenge", expiresAt: "2026-09-07T12:10:00Z", deliveryTarget: "c***@example.com" };
+      }
+    },
+    "../services/securityRateLimitService": { consume: async () => ({ allowed: true }) },
+    "../services/oauthService": {},
+    "../services/notificationService": {},
+    "../services/passwordResetService": {},
+    "../services/securityEventService": {},
+    "../services/sessionService": {}
+  });
+
+  const { server, baseUrl } = await startServer(router, "/api/auth");
+  try {
+    const response = await fetch(`${baseUrl}/mfa/email/send`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ challengeToken: "password-challenge" })
+    });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      token: "email-challenge",
+      expiresAt: "2026-09-07T12:10:00Z",
+      deliveryTarget: "c***@example.com"
+    });
+    assert.deepEqual(issuedInput, {
+      challengeToken: "password-challenge",
+      ipAddress: "127.0.0.1",
+      userAgent: "test-agent",
+      surface: "app"
+    });
+  } finally {
+    await stopServer(server);
+  }
+});
 
 test("login route returns tracked session tokens", async () => {
   const sessionResult = {
@@ -654,6 +706,84 @@ test("customer can disable optional MFA after password and authenticator verific
     assert.equal(disablePayload.user._id, "user-1");
     assert.equal(disablePayload.sessionId, "session-1");
     assert.equal(disablePayload.code, "123456");
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("provider-only customer can disable Email OTP after recent provider authentication", async () => {
+  let disableCalls = 0;
+  let primaryAuthenticatedAt = new Date();
+  const user = {
+    _id: "user-provider",
+    name: "Provider Customer",
+    username: "provider_customer",
+    email: "customer@example.com",
+    emailVerified: true,
+    passwordHash: null,
+    emailMfaEnabled: true,
+    mfaEnabled: true,
+    roles: ["customer"],
+    tenantMemberships: [],
+    oauthAccounts: []
+  };
+  const router = requireWithMocks("../src/routes/authRoutes.js", {
+    "../config/db": {},
+    "../repositories/tenants": { findTenantsByIds: async () => [] },
+    "../repositories/authSessions": {},
+    "../repositories/users": {},
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../middleware/auth": {
+      authenticate(req, _res, next) {
+        req.user = user;
+        req.auth = { session: { authMethod: "google", primaryAuthenticatedAt } };
+        next();
+      },
+      maybeAuthenticate: buildAuthMock().maybeAuthenticate
+    },
+    "../services/authService": {
+      verifyPasswordLogin: async () => { throw new Error("Password verification should not run for provider-only accounts"); }
+    },
+    "../services/mfaFlowService": {
+      disableEmailMfa: async ({ user: currentUser }) => {
+        assert.equal(currentUser, user);
+        disableCalls += 1;
+        user.emailMfaEnabled = false;
+        user.mfaEnabled = false;
+        return user;
+      }
+    },
+    "../services/securityRateLimitService": { consume: async () => ({ allowed: true }) },
+    "../services/oauthService": {},
+    "../services/notificationService": {},
+    "../services/passwordResetService": {},
+    "../services/securityEventService": {},
+    "../services/sessionService": {}
+  });
+
+  const { server, baseUrl } = await startServer(router, "/api/auth");
+  try {
+    const response = await fetch(`${baseUrl}/mfa/email/disable`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}"
+    });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.user.emailMfaEnabled, false);
+    assert.equal(disableCalls, 1);
+
+    user.emailMfaEnabled = true;
+    user.mfaEnabled = true;
+    primaryAuthenticatedAt = new Date(Date.now() - 6 * 60_000);
+    const staleResponse = await fetch(`${baseUrl}/mfa/email/disable`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}"
+    });
+    assert.equal(staleResponse.status, 403);
+    assert.match((await staleResponse.json()).message, /sign in again with your original provider/i);
+    assert.equal(disableCalls, 1);
   } finally {
     await stopServer(server);
   }

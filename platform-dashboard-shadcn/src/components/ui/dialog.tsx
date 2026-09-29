@@ -51,7 +51,7 @@ function DialogContent({
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(
-          "fixed inset-x-0 top-auto bottom-0 z-50 grid max-h-[min(92dvh,48rem)] w-full max-w-none translate-x-0 translate-y-0 gap-4 overflow-y-auto rounded-t-xl rounded-b-none bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0 md:inset-auto md:top-1/2 md:left-1/2 md:max-h-[min(88dvh,48rem)] md:w-[calc(100%-2rem)] md:max-w-sm md:-translate-x-1/2 md:-translate-y-1/2 md:rounded-xl md:data-open:zoom-in-95 md:data-closed:zoom-out-95",
+          "fixed inset-x-0 top-auto bottom-0 z-50 flex max-h-[min(92dvh,48rem)] w-full max-w-none translate-x-0 translate-y-0 flex-col gap-4 overflow-y-auto rounded-t-xl rounded-b-none bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0 md:inset-auto md:top-1/2 md:left-1/2 md:max-h-[min(88dvh,48rem)] md:w-[calc(100%-2rem)] md:max-w-sm md:-translate-x-1/2 md:-translate-y-1/2 md:rounded-xl md:data-open:zoom-in-95 md:data-closed:zoom-out-95",
           className
         )}
         {...props}
@@ -82,7 +82,7 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="dialog-header"
-      className={cn("sticky top-0 z-10 -mx-4 -mt-4 flex flex-col gap-2 bg-popover px-4 pt-4 pb-2", className)}
+      className={cn("-mx-4 -mt-4 flex shrink-0 flex-col gap-2 bg-popover px-4 pt-4 pb-2", className)}
       {...props}
     />
   )
@@ -100,7 +100,7 @@ function DialogFooter({
     <div
       data-slot="dialog-footer"
       className={cn(
-        "sticky bottom-0 z-10 -mx-4 -mb-4 flex flex-col-reverse gap-2 rounded-b-none border-t bg-popover p-4 sm:flex-row sm:justify-end md:rounded-b-xl",
+        "-mx-4 -mb-4 mt-auto flex shrink-0 flex-col-reverse gap-2 rounded-b-none border-t bg-popover px-4 py-4 sm:flex-row sm:justify-end md:rounded-b-xl",
         className
       )}
       {...props}

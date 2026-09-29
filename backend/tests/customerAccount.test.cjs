@@ -131,6 +131,92 @@ async function stopServer(server) {
   });
 }
 
+test("customer can reach the self-service account deletion options endpoint", async () => {
+  const previousFlag = process.env.ACCOUNT_DELETION_ENABLED;
+  process.env.ACCOUNT_DELETION_ENABLED = "true";
+  const router = requireWithMocks("../src/routes/accountRoutes.js", {
+    "../middleware/auth": {
+      authenticate(req, _res, next) {
+        req.user = { _id: "customer-delete-1", roles: ["customer"], passwordHash: "hash" };
+        req.auth = { session: { authMethod: "password", primaryAuthenticatedAt: new Date() } };
+        next();
+      },
+      assertTenantPermission: () => {}
+    },
+    "../middleware/asyncHandler": buildAsyncHandlerMock()
+  });
+  const { server, baseUrl } = await startServer(router, "/api/account");
+  try {
+    const response = await fetch(`${baseUrl}/deletion-options`);
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { passwordRequired: true });
+  } finally {
+    await stopServer(server);
+    if (previousFlag === undefined) delete process.env.ACCOUNT_DELETION_ENABLED;
+    else process.env.ACCOUNT_DELETION_ENABLED = previousFlag;
+  }
+});
+
+test("customer account deletion request uses only the authenticated account", async () => {
+  const previousFlag = process.env.ACCOUNT_DELETION_ENABLED;
+  process.env.ACCOUNT_DELETION_ENABLED = "true";
+  let requestInput;
+  let sessionCleared = false;
+  const deletionPath = require.resolve("../src/services/accountDeletionService");
+  const browserSessionPath = require.resolve("../src/services/browserSessionService");
+  const previousDeletion = require.cache[deletionPath];
+  const previousBrowserSession = require.cache[browserSessionPath];
+  require.cache[deletionPath] = {
+    id: deletionPath,
+    filename: deletionPath,
+    loaded: true,
+    exports: {
+      requestDeletion: async (input) => {
+        requestInput = input;
+        return { status: "accepted", requestId: "request-1", dueAt: "2026-10-28T00:00:00.000Z" };
+      }
+    }
+  };
+  require.cache[browserSessionPath] = {
+    id: browserSessionPath,
+    filename: browserSessionPath,
+    loaded: true,
+    exports: { clearBrowserSession: () => { sessionCleared = true; } }
+  };
+  const router = requireWithMocks("../src/routes/accountRoutes.js", {
+    "../middleware/auth": {
+      authenticate(req, _res, next) {
+        req.user = { _id: "customer-delete-1", roles: ["customer"], passwordHash: "hash" };
+        req.auth = { session: { authMethod: "password", primaryAuthenticatedAt: new Date() } };
+        next();
+      },
+      assertTenantPermission: () => {}
+    },
+    "../middleware/asyncHandler": buildAsyncHandlerMock()
+  });
+  const { server, baseUrl } = await startServer(router, "/api/account");
+  try {
+    const response = await fetch(`${baseUrl}/delete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: "current-password", userId: "another-user" })
+    });
+    assert.equal(response.status, 202);
+    assert.equal((await response.json()).requestId, "request-1");
+    assert.equal(requestInput.userId, "customer-delete-1");
+    assert.equal(requestInput.password, "current-password");
+    assert.equal(sessionCleared, true);
+  } finally {
+    await stopServer(server);
+    if (previousDeletion) require.cache[deletionPath] = previousDeletion;
+    else delete require.cache[deletionPath];
+    if (previousBrowserSession) require.cache[browserSessionPath] = previousBrowserSession;
+    else delete require.cache[browserSessionPath];
+    if (previousFlag === undefined) delete process.env.ACCOUNT_DELETION_ENABLED;
+    else process.env.ACCOUNT_DELETION_ENABLED = previousFlag;
+  }
+});
+
 test("legacy group-funded QR route is retired", async () => {
   const requestedQrUrls = [];
   const router = requireWithMocks("../src/routes/accountRoutes.js", {
@@ -218,6 +304,12 @@ test("customer account overview and history expose owned tickets only", async ()
     "../repositories/ratings": {
       getUserTrustAggregate: async () => ({ average: 4.4, count: 5 })
     },
+    "../services/mfaFlowService": {
+      getLoginMethods: async (user) => {
+        assert.equal(user._id, "user-1");
+        return ["totp", "recovery", "email"];
+      }
+    },
     "../services/passwordResetService": {
       changePassword: async () => {}
     }
@@ -232,6 +324,8 @@ test("customer account overview and history expose owned tickets only", async ()
     assert.equal(overviewResponse.status, 200);
     const overview = await overviewResponse.json();
     assert.equal(overview.user.email, "customer@example.com");
+    assert.equal(overview.user.totpMfaEnabled, true);
+    assert.equal(overview.user.emailMfaEnabled, true);
     assert.deepEqual(overview.trustRating, { average: 4.4, count: 5 });
     assert.deepEqual(overview.ticketStats, { joined: 75, served: 1 });
     assert.equal(overview.tickets.length, 1);

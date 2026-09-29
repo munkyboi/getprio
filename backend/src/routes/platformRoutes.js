@@ -96,6 +96,121 @@ router.get("/account-deletion-requests", requirePlatformPermission("platform.acc
 }));
 
 router.post(
+  "/account-deletion-requests/:requestId/begin-scan",
+  requirePlatformPermission("platform.account_deletion.manage"),
+  requireIdempotency("platform.account_deletion.scan.begin"),
+  asyncHandler(async (req, res) => {
+    const reason = String(req.body?.reason || "").trim().replace(/\s+/g, " ");
+    if (reason.length < 8 || reason.length > 500) {
+      const error = new Error("Enter an audit reason between 8 and 500 characters.");
+      error.statusCode = 400;
+      error.code = "INVALID_REASON";
+      throw error;
+    }
+
+    const scan = await db.withTransaction(async (client) => {
+      const result = await accountDeletionAdminService.beginScan(req.params.requestId, { client });
+      await securityAuditService.record({
+        actorId: req.user._id,
+        actorRole: "platform_admin",
+        sessionId: req.auth.sessionId,
+        action: "platform.account_deletion.scan.begin",
+        resourceType: "account_deletion_request",
+        resourceId: req.params.requestId,
+        reason,
+        outcome: result.alreadyQueued ? "noop" : "success",
+        beforeState: { scanStatus: result.beforeScanStatus },
+        afterState: { scanStatus: result.scanStatus }
+      }, { client });
+      return result;
+    });
+    return res.status(scan.alreadyQueued ? 200 : 202).json({ scan });
+  })
+);
+
+router.post(
+  "/account-deletion-requests/:requestId/begin-cleanup",
+  requirePlatformPermission("platform.account_deletion.manage"),
+  requireIdempotency("platform.account_deletion.cleanup.begin"),
+  asyncHandler(async (req, res) => {
+    const reason = String(req.body?.reason || "").trim().replace(/\s+/g, " ");
+    if (reason.length < 8 || reason.length > 500) {
+      const error = new Error("Enter an audit reason between 8 and 500 characters.");
+      error.statusCode = 400;
+      error.code = "INVALID_REASON";
+      throw error;
+    }
+    const result = await db.withTransaction(async (client) => {
+      const action = "platform.account_deletion.cleanup.begin";
+      const payload = { reportVersion: req.body?.reportVersion, selection: req.body?.selection || {}, references: req.body?.references || {}, exclusions: req.body?.exclusions || {} };
+      const preview = await privilegedPreviewService.resolvePreview({ action, target: req.params.requestId, payload }, { client, lock: true });
+      await privilegedTransactionService.consumeConfirmation({
+        token: req.get("x-transaction-confirmation"), actorId: req.user._id, session: req.auth.session,
+        action, target: req.params.requestId, reason, payload,
+        previewRevision: req.body?.previewRevision, currentPreviewRevision: preview.revision
+      }, { client });
+      const cleanup = await accountDeletionAdminService.queueCleanup(req.params.requestId, {
+        selection: req.body?.selection,
+        referenceSelection: req.body?.references,
+        exclusions: req.body?.exclusions,
+        reportVersion: req.body?.reportVersion
+      }, { client });
+      await securityAuditService.record({
+        actorId: req.user._id, actorRole: "platform_admin", sessionId: req.auth.sessionId,
+        action: "platform.account_deletion.cleanup.begin", resourceType: "account_deletion_request",
+        resourceId: req.params.requestId, reason,
+        outcome: cleanup.alreadyQueued ? "noop" : "pending",
+        beforeState: { cleanupStatus: cleanup.beforeCleanupStatus, scanStatus: preview.state?.[0]?.scan_status },
+        afterState: {
+          cleanupStatus: cleanup.cleanupStatus,
+          selectedCategories: Object.entries(req.body.selection || {}).filter(([, selected]) => selected === true).map(([id]) => id),
+          excludedCategories: Object.entries(req.body.selection || {}).filter(([, selected]) => selected === false).map(([id]) => id),
+          reviewedReferenceSources: Object.keys(req.body.references || {}).length
+        }
+      }, { client });
+      return cleanup;
+    });
+    return res.status(result.alreadyQueued ? 200 : 202).json({ cleanup: result });
+  })
+);
+
+router.post(
+  "/account-deletion-requests/:requestId/send-report",
+  requirePlatformPermission("platform.account_deletion.manage"),
+  requireIdempotency("platform.account_deletion.report.send"),
+  asyncHandler(async (req, res) => {
+    const reason = String(req.body?.reason || "").trim().replace(/\s+/g, " ");
+    if (reason.length < 8 || reason.length > 500) {
+      const error = new Error("Enter an audit reason between 8 and 500 characters.");
+      error.statusCode = 400;
+      error.code = "INVALID_REASON";
+      throw error;
+    }
+    const result = await db.withTransaction(async (client) => {
+      const action = "platform.account_deletion.report.send";
+      const payload = { requestId: req.params.requestId };
+      const preview = await privilegedPreviewService.resolvePreview({ action, target: req.params.requestId, payload }, { client, lock: true });
+      await privilegedTransactionService.consumeConfirmation({
+        token: req.get("x-transaction-confirmation"), actorId: req.user._id, session: req.auth.session,
+        action, target: req.params.requestId, reason, payload,
+        previewRevision: req.body?.previewRevision, currentPreviewRevision: preview.revision
+      }, { client });
+      const report = await accountDeletionAdminService.queueUserReport(req.params.requestId, { client });
+      await securityAuditService.record({
+        actorId: req.user._id, actorRole: "platform_admin", sessionId: req.auth.sessionId,
+        action: "platform.account_deletion.report.send", resourceType: "account_deletion_request",
+        resourceId: req.params.requestId, reason,
+        outcome: report.alreadyQueued ? "noop" : "pending",
+        beforeState: { reportStatus: report.beforeReportStatus, cleanupStatus: preview.state?.[0]?.cleanup_status },
+        afterState: { reportStatus: report.reportStatus }
+      }, { client });
+      return report;
+    });
+    return res.status(result.alreadyQueued ? 200 : 202).json({ report: result });
+  })
+);
+
+router.post(
   "/account-deletion-requests/:requestId/tasks/:taskKind/complete",
   requirePlatformPermission("platform.account_deletion.manage"),
   requireIdempotency("platform.account_deletion.task.complete"),
@@ -456,7 +571,7 @@ const PRIVILEGED_ACTIONS = new Set([
   "credit.pack.publish", "credit.grant", "credit.revoke",
   "credit.refund.resolve", "credit.dispute.open", "credit.dispute.resolve",
   "plan.defaults.publish", "queue.fees.publish", "subscription.transition", "subscription.suspend"
-  , "moderation.campaign_report.status", "moderation.rating_dispute.resolve", "platform.user_sessions.revoke", "platform.user.password_reset.send", "entitlement.override.publish", "entitlement.override.revoke", "allowance.reverse", "allowance.reconcile"
+  , "moderation.campaign_report.status", "moderation.rating_dispute.resolve", "platform.user_sessions.revoke", "platform.user.password_reset.send", "platform.account_deletion.cleanup.begin", "platform.account_deletion.report.send", "entitlement.override.publish", "entitlement.override.revoke", "allowance.reverse", "allowance.reconcile"
 ]);
 
 const PRIVILEGED_ACTION_CONTROLS = Object.freeze({
@@ -491,7 +606,7 @@ router.post(
       "credit.pack.publish": "platform.credit_catalog.manage", "credit.grant": "platform.credit_grants.manage", "credit.revoke": "platform.credit_revocations.manage",
       "credit.refund.resolve": "platform.credit_adjustments.manage", "credit.dispute.open": "platform.credit_disputes.manage", "credit.dispute.resolve": "platform.credit_disputes.manage",
       "plan.defaults.publish": "platform.plans.manage", "queue.fees.publish": "platform.queue_fees.manage", "subscription.transition": "platform.subscription_lifecycle.manage", "subscription.suspend": "platform.subscription_lifecycle.manage", "moderation.campaign_report.status": "platform.settings.manage", "moderation.rating_dispute.resolve": "platform.settings.manage", "platform.user_sessions.revoke": "platform.user_sessions.revoke"
-      , "platform.user.password_reset.send": "platform.user_password_reset.send", "entitlement.override.publish": "platform.entitlement_overrides.manage", "entitlement.override.revoke": "platform.entitlement_overrides.manage", "allowance.reverse": "platform.credit_adjustments.manage", "allowance.reconcile": "platform.credit_reconcile"
+      , "platform.user.password_reset.send": "platform.user_password_reset.send", "platform.account_deletion.cleanup.begin": "platform.account_deletion.manage", "platform.account_deletion.report.send": "platform.account_deletion.manage", "entitlement.override.publish": "platform.entitlement_overrides.manage", "entitlement.override.revoke": "platform.entitlement_overrides.manage", "allowance.reverse": "platform.credit_adjustments.manage", "allowance.reconcile": "platform.credit_reconcile"
     };
     if (!getGlobalPermissions(req.user).has(permissionByAction[action])) throw Object.assign(new Error("You do not have permission to preview this action."), { statusCode: 403 });
     const target = String(req.body.target || "");

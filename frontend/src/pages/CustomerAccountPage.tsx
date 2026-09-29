@@ -58,6 +58,8 @@ import { getErrorMessage } from "../utils/errors";
 import { showCustomerError, showCustomerSuccess } from "../utils/customerNotifications";
 import { isBrowserPushSupported, subscribeToBrowserPush } from "../utils/pushNotifications";
 import CustomerAccountLayout, { type CustomerAccountSection } from "../components/CustomerAccountLayout";
+import { AccountDeletionPanel } from "../components/AccountDeletionPanel";
+import { EmailMfaSettingsPanel } from "../components/EmailMfaSettingsPanel";
 import EmailChangePanel from "../components/EmailChangePanel";
 import { getTicketStateSummary } from "../utils/queueStatus";
 
@@ -334,13 +336,19 @@ export default function CustomerAccountPage() {
         refreshUser(),
         queryClient.invalidateQueries({ queryKey: ["customer-account", token] })
       ]);
-      showCustomerSuccess("MFA removed", "Your authenticator and recovery codes are no longer active.");
+      showCustomerSuccess(
+        "Authenticator removed",
+        emailMfaEnabled
+          ? "Email OTP remains enabled as your sign-in verification method."
+          : "Your authenticator and recovery codes are no longer active."
+      );
     } catch (mfaError) {
       showCustomerError(getErrorMessage(mfaError), "MFA could not be removed");
     } finally {
       setMfaRemovalBusy(false);
     }
   }
+
   const accountQuery = useQuery({
     queryKey: ["customer-account", token],
     queryFn: async () => {
@@ -463,7 +471,9 @@ export default function CustomerAccountPage() {
     navigate(`/account/bookings/${booking.id}`);
   }
   const accountUser = account?.user;
-  const mfaEnabled = !mfaRemoved && Boolean(accountUser?.mfaEnabled || mfaRecoveryCodes.length);
+  const totpMfaEnabled = !mfaRemoved && Boolean(accountUser?.totpMfaEnabled || mfaRecoveryCodes.length);
+  const emailMfaEnabled = Boolean(accountUser?.emailMfaEnabled);
+  const mfaEnabled = totpMfaEnabled || emailMfaEnabled;
 
   useEffect(() => {
     return () => {
@@ -1494,6 +1504,7 @@ export default function CustomerAccountPage() {
           <div>
             <Text className="finazze-section-label">2FA/MFA</Text>
             <Title order={2}>Multi-factor authentication</Title>
+            <Text c="dimmed" mt="xs">Choose an authenticator app, email OTP, or both as optional sign-in verification.</Text>
           </div>
           <Group gap="sm">
             <Badge color={mfaEnabled ? "teal" : "gray"} variant="light">
@@ -1504,7 +1515,12 @@ export default function CustomerAccountPage() {
             </Badge>
           </Group>
           {mfaRecoveryCodes.length ? <Alert color="teal" title="Save these one-time recovery codes" variant="light"><Stack gap={4}>{mfaRecoveryCodes.map((code) => <Text ff="monospace" key={code}>{code}</Text>)}</Stack></Alert> : null}
-          {!mfaEnabled && !mfaSecret && !mfaRecoveryCodes.length ? <Button className="customer-primary-action" color="dark" loading={mfaBusy} onClick={() => void startMfaEnrollment()}>Set up authenticator</Button> : null}
+          <Divider />
+          <div>
+            <Title order={3}>Authenticator app</Title>
+            <Text c="dimmed" mt={4} size="sm">Use a time-based code from an authenticator app. Recovery codes are created during setup.</Text>
+          </div>
+          {!totpMfaEnabled && !mfaSecret ? <Button className="customer-primary-action" color="dark" loading={mfaBusy} onClick={() => void startMfaEnrollment()}>Set up authenticator</Button> : null}
           {mfaSecret ? (
             <Stack gap="md">
               <Stack align="center" gap="sm">
@@ -1525,14 +1541,19 @@ export default function CustomerAccountPage() {
               <Button className="customer-primary-action" color="dark" disabled={mfaCode.length !== 6} loading={mfaBusy} onClick={() => void confirmMfaEnrollment()}>Verify and enable</Button>
             </Stack>
           ) : null}
-          {mfaEnabled && !mfaRecoveryCodes.length ? (
+          {totpMfaEnabled && !mfaRecoveryCodes.length ? (
             <Stack gap="sm">
               <Alert color="teal" variant="light">Your authenticator is active. You will be asked for a security code during protected sign-ins and sensitive actions.</Alert>
-              {!accountUser?.mfaRequired ? <Button color="red" variant="light" onClick={() => setMfaRemovalOpened(true)}>Remove MFA</Button> : null}
+              {!accountUser?.mfaRequired ? <Button color="red" variant="light" onClick={() => setMfaRemovalOpened(true)}>Remove authenticator</Button> : null}
             </Stack>
           ) : null}
         </Stack>
       </Card>
+      <EmailMfaSettingsPanel
+        variant="customer"
+        onUpdated={() => queryClient.invalidateQueries({ queryKey: ["customer-account", token] })}
+      />
+      <AccountDeletionPanel accountType="customer" />
       <Modal
         className="customer-modal mfa-removal-modal"
         closeOnClickOutside={!mfaRemovalBusy}
@@ -1544,13 +1565,13 @@ export default function CustomerAccountPage() {
         title={(
           <div>
             <Text className="finazze-section-label">ACCOUNT SECURITY</Text>
-            <Title order={3}>Remove multi-factor authentication</Title>
+            <Title order={3}>Remove authenticator app</Title>
           </div>
         )}
       >
         <Stack className="mfa-removal-modal__shell" gap="md">
           <Alert color="red" title="Your account will be less secure" variant="light">
-            Removing MFA revokes your authenticator and every recovery code. Other signed-in sessions will be closed.
+            This revokes your authenticator and recovery codes. {emailMfaEnabled ? "Email OTP will remain enabled." : "Your account will no longer have MFA."} Other signed-in sessions will be closed.
           </Alert>
           <Stack className="mfa-removal-modal__main" gap="md">
             <PasswordInput autoComplete="current-password" label="Current password" required value={mfaRemovalPassword} onChange={(event) => setMfaRemovalPassword(event.target.value)} />
@@ -1566,7 +1587,7 @@ export default function CustomerAccountPage() {
               loading={mfaRemovalBusy}
               onClick={() => void removeMfa()}
             >
-              Remove MFA
+              Remove authenticator
             </Button>
           </Group>
         </Stack>

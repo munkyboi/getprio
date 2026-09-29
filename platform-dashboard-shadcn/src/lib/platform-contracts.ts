@@ -1,3 +1,5 @@
+import type { QueueFeeSetting, SubscriptionPlan, SubscriptionPlanSlug } from "../../../shared/types"
+
 export type ReadModelState = "available" | "unavailable" | "stale" | "denied" | "failed"
 
 export type PlatformScope = "global" | "tenant" | "developer-project" | "environment"
@@ -185,6 +187,7 @@ export interface PlatformUserDetails {
 }
 
 export type AccountDeletionTaskKind =
+  | "application_relational_inventory"
   | "personal_data_inventory"
   | "object_storage_versions_and_caches"
   | "supplier_data"
@@ -197,6 +200,47 @@ export interface PlatformAccountDeletionTask {
   status: "pending" | "completed"
   evidence: string | null
   completedAt: string | null
+  automationReport?: {
+    version: number
+    generatedAt: string
+    scope: string
+    sourceCount: number
+    referenceCount: number
+    sources: Array<{ source: string; recordCount: number }>
+  } | null
+}
+
+export interface PlatformAccountDeletionScanReport {
+  version: number
+  generatedAt: string
+  coverage: "partial" | "complete"
+  scope: string
+  referenceCount?: number
+  sources?: Array<{ source: string; recordCount: number }>
+  categories: Array<{
+    id: string
+    label: string
+    status: "scanned" | "not_scanned" | "requires_review"
+    sourceCount?: number
+    referenceCount?: number
+    reason?: string
+    blockers?: Array<{ source: string; recordCount: number; deleteRules: string[]; items?: Array<{ id: string; ordinal: number }>; itemsComplete?: boolean }>
+  }>
+  inventory?: {
+    version: number
+    generatedAt: string
+    scope: string
+    sourceCount: number
+    referenceCount: number
+    sources: Array<{ source: string; recordCount: number; deleteRules?: string[]; items?: Array<{ id: string; ordinal: number; rowIdentity?: Record<string, string | null> }>; itemsComplete?: boolean }>
+  }
+}
+
+export interface PlatformAccountDeletionCleanupSelection {
+  reportVersion: number
+  selected: Record<string, boolean>
+  references: Record<string, string[]>
+  exclusions: Record<string, string>
 }
 
 export interface PlatformAccountDeletionRequest {
@@ -215,6 +259,26 @@ export interface PlatformAccountDeletionRequest {
   lastErrorCode: string | null
   acknowledgementSentAt: string | null
   completionSentAt: string | null
+  scan: {
+    status: "not_started" | "queued" | "running" | "report_ready" | "needs_attention"
+    report: PlatformAccountDeletionScanReport | null
+    requestedAt: string | null
+    startedAt: string | null
+    completedAt: string | null
+    attempts: number
+    errorCode: string | null
+  }
+  cleanup: {
+    status: "not_started" | "queued" | "running" | "needs_attention" | "completed"
+    selection: PlatformAccountDeletionCleanupSelection | null
+    report: unknown
+  }
+  userReport: {
+    status: "not_ready" | "ready" | "sending" | "sent" | "needs_attention"
+    sentAt: string | null
+    attempts: number
+    errorCode: string | null
+  }
   tasks: PlatformAccountDeletionTask[]
 }
 
@@ -348,6 +412,18 @@ export interface PlatformReleaseReadinessReadModel {
   }>
 }
 
+export interface PlatformPlanMatrix {
+  plans: SubscriptionPlan[]
+  queueFees: QueueFeeSetting[]
+  activeSubscribersByPlan: Partial<Record<SubscriptionPlanSlug, number>>
+  planPolicyMutations: boolean
+}
+
+export interface PlanPolicyPreview {
+  revision: string
+  confirmationToken: string
+}
+
 export interface DeveloperProjectGovernanceReadModel {
   projectId: string
   projectName: string
@@ -446,10 +522,18 @@ export interface PlatformApi {
   getTenants(): Promise<ReadModelModule<PlatformTenantsReadModel> & { meta: ReadModelMeta }>
   getUsers(): Promise<ReadModelModule<PlatformUsersReadModel> & { meta: ReadModelMeta }>
   getAccountDeletionRequests(): Promise<PlatformAccountDeletionQueue>
+  beginAccountDeletionScan(requestId: string, reason: string): Promise<{ scan: { id: string; scanStatus: PlatformAccountDeletionRequest["scan"]["status"]; alreadyQueued: boolean } }>
+  previewAccountDeletionAction(requestId: string, action: "cleanup.begin" | "report.send", payload: Record<string, unknown>, reason: string): Promise<{ revision: string; confirmationToken: string }>
+  beginAccountDeletionCleanup(requestId: string, reportVersion: number, selection: Record<string, boolean>, references: Record<string, string[]>, exclusions: Record<string, string>, reason: string, revision: string, confirmationToken: string): Promise<{ cleanup: { id: string; cleanupStatus: PlatformAccountDeletionRequest["cleanup"]["status"]; alreadyQueued: boolean } }>
+  sendAccountDeletionReport(requestId: string, reason: string, revision: string, confirmationToken: string): Promise<{ report: { id: string; reportStatus: PlatformAccountDeletionRequest["userReport"]["status"]; alreadyQueued: boolean } }>
   completeAccountDeletionTask(requestId: string, taskKind: AccountDeletionTaskKind, evidence: string, reason: string, retentionNotice?: string): Promise<{ request: { id: string; status: PlatformAccountDeletionRequest["status"]; dueAt: string; readyForErasure: boolean; task: PlatformAccountDeletionTask } }>
   getUserDetails(userId: string): Promise<PlatformUserDetails>
   getSecurityAudit(): Promise<ReadModelModule<PlatformAuditReadModel> & { meta: ReadModelMeta }>
   getBilling(): Promise<ReadModelModule<PlatformBillingReadModel> & { meta: ReadModelMeta }>
+  getPlanMatrix(): Promise<PlatformPlanMatrix>
+  previewPlanPolicy(action: "plan.defaults.publish" | "queue.fees.publish", target: string, payload: Record<string, unknown>, reason: string, previewRevision: string): Promise<PlanPolicyPreview>
+  publishPlan(plan: SubscriptionPlan, reason: string, preview: PlanPolicyPreview): Promise<SubscriptionPlan>
+  publishQueueFees(queueFees: Array<Pick<QueueFeeSetting, "planSlug" | "enabled" | "amountCents">>, reason: string, preview: PlanPolicyPreview): Promise<QueueFeeSetting[]>
   getModeration(): Promise<ReadModelModule<PlatformModerationReadModel> & { meta: ReadModelMeta }>
   getSettings(): Promise<ReadModelModule<PlatformSettingsReadModel> & { meta: ReadModelMeta }>
   getReleaseReadiness(): Promise<ReadModelModule<PlatformReleaseReadinessReadModel> & { meta: ReadModelMeta }>

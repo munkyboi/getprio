@@ -121,8 +121,45 @@ test("an account role that requires MFA cannot disable it", async () => {
   );
 });
 
+test("Email OTP can be enabled only for a verified email and remains independent of TOTP", async () => {
+  const state = { update: null, notifications: [] };
+  const service = requireWithMocks("../src/services/mfaFlowService.js", {
+    "../config/db": {},
+    "../config/env": { mfaEncryptionSecret: "secret", mfaRecoveryPepper: "pepper" },
+    "../repositories/authSessions": {},
+    "../repositories/mfa": { findTotpFactor: async () => null },
+    "../repositories/users": {
+      updateUser: async (_id, update) => {
+        state.update = update;
+        return { _id: "customer-1", email: "customer@example.com", ...update };
+      }
+    },
+    "./notificationService": { sendEmail: async (email) => { state.notifications.push(email); } },
+    "./securityEventService": {},
+    "./sessionService": {}
+  });
+
+  const user = { _id: "customer-1", email: "customer@example.com", emailVerified: true, emailMfaEnabled: false, mfaEnabled: false, roles: ["customer"] };
+  const enabled = await service.enableEmailMfa({ user });
+  assert.equal(enabled.emailMfaEnabled, true);
+  assert.deepEqual(state.update, { emailMfaEnabled: true, mfaEnabled: true, mfaRequired: false });
+  assert.match(state.notifications[0].text, /Email OTP was enabled/);
+
+  user.emailMfaEnabled = true;
+  user.mfaEnabled = true;
+  const disabled = await service.disableEmailMfa({ user });
+  assert.equal(disabled.emailMfaEnabled, false);
+  assert.deepEqual(state.update, { emailMfaEnabled: false, mfaEnabled: false, mfaRequired: false });
+  assert.match(state.notifications[1].text, /Email OTP was disabled/);
+
+  await assert.rejects(
+    service.enableEmailMfa({ user: { ...user, emailVerified: false } }),
+    (error) => error.statusCode === 409 && error.code === "EMAIL_VERIFICATION_REQUIRED"
+  );
+});
+
 test("email MFA issues a one-time login challenge and accepts its OTP", async () => {
-  const state = { created: null, email: null, consumed: false, authSession: null };
+  const state = { created: null, email: null, consumed: false, authSession: null, rateLimit: null };
   const service = requireWithMocks("../src/services/mfaFlowService.js", {
     "../config/db": { withTransaction: async (callback) => callback({ id: "tx" }) },
     "../config/env": { mfaEncryptionSecret: "secret", mfaRecoveryPepper: "pepper" },
@@ -141,12 +178,19 @@ test("email MFA issues a one-time login challenge and accepts its OTP", async ()
       findUserById: async () => ({ _id: "7", email: "dev@example.com", emailVerified: true, emailMfaEnabled: true, lastLoginProvider: "password" })
     },
     "./notificationService": { sendEmail: async (email) => { state.email = email; } },
+    "./securityRateLimitService": { consume: async (input) => { state.rateLimit = input; } },
     "./securityEventService": {},
     "./sessionService": { createAuthSession: async (input) => { state.authSession = input; return { session: { _id: "session-1", expiresAt: new Date() }, accessToken: "access", refreshToken: "refresh" }; } }
   });
 
   const issued = await service.issueEmailLoginChallenge({ challengeToken: "login-token", ipAddress: "127.0.0.1", userAgent: "test" });
   assert.equal(issued.deliveryTarget, "d***@example.com");
+  assert.deepEqual(state.rateLimit, {
+    bucketKey: "email-mfa-login:7",
+    limit: 5,
+    windowSeconds: 3600,
+    blockedMessage: "Too many sign-in codes have been sent. Please try again later."
+  });
   assert.match(state.email.text, /\b\d{6}\b/);
   const code = state.email.text.match(/\b\d{6}\b/)[0];
   const verified = await service.verifyLoginChallenge({ challengeToken: issued.token, method: "email", code });

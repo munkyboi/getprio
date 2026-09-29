@@ -16,6 +16,7 @@ const passwordResetService = require("../services/passwordResetService");
 const emailChangeService = require("../services/emailChangeService");
 const phoneChangeService = require("../services/phoneChangeService");
 const authService = require("../services/authService");
+const mfaFlowService = require("../services/mfaFlowService");
 const pushNotificationService = require("../services/pushNotificationService");
 const userAvatarUploadService = require("../services/userAvatarUploadService");
 const customerTicketAccess = require("../services/customerTicketAccess");
@@ -307,6 +308,8 @@ function formatAccountUser(user) {
     phone: user.phone,
     emailVerified: Boolean(user.emailVerified),
     mfaEnabled: Boolean(user.mfaEnabled),
+    emailMfaEnabled: Boolean(user.emailMfaEnabled),
+    hasPassword: Boolean(user.passwordHash),
     mfaRequired: Boolean(user.mfaRequired)
   };
 }
@@ -325,15 +328,18 @@ function normalizeCustomerNotificationSettings(settings = {}) {
 router.get(
   "/overview",
   asyncHandler(async (req, res) => {
-    const [tickets, trustRating, ticketStats] = await Promise.all([
+    const [tickets, trustRating, ticketStats, mfaMethods] = await Promise.all([
       ticketRepository.listTicketsForCustomerAccount(req.user, { limit: 50 }),
       ratingRepository.getUserTrustAggregate(req.user._id),
-      ticketRepository.getCustomerTicketStats(req.user._id)
+      ticketRepository.getCustomerTicketStats(req.user._id),
+      mfaFlowService.getLoginMethods(req.user)
     ]);
 
     res.json({
     user: {
-      ...formatAccountUser(req.user)
+      ...formatAccountUser(req.user),
+      totpMfaEnabled: mfaMethods.includes("totp"),
+      emailMfaEnabled: mfaMethods.includes("email")
     },
     trustRating,
     ticketStats,

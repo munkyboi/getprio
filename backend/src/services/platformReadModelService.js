@@ -190,7 +190,7 @@ async function getModeration(req) {
     category: row.category,
     status: mapStatus(row.report_status),
     campaignStatus: row.campaign_status,
-    reporter: `user_${row.reporter_user_id}`,
+    reporter: row.reporter_user_id == null ? "Anonymized account" : `user_${row.reporter_user_id}`,
     details: row.details || null,
     createdAt: row.created_at
   }));

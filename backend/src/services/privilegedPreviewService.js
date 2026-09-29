@@ -22,6 +22,12 @@ async function queryState(action, target, options = {}) {
       return (await client.query(`SELECT u.id,u.updated_at,(SELECT COUNT(*)::int FROM auth_sessions s WHERE s.user_id=u.id AND s.status='active') AS active_sessions FROM users u WHERE u.id=$1${lock}`, [target])).rows;
     case "platform.user.password_reset.send":
       return (await client.query(`SELECT id,email,email_verified,updated_at FROM users WHERE id=$1${lock}`, [target])).rows;
+    case "platform.account_deletion.cleanup.begin":
+      return (await client.query(`SELECT id,user_id,status,scan_status,scan_report,cleanup_status,cleanup_selection
+        FROM account_deletion_requests WHERE id=$1${lock}`, [target])).rows;
+    case "platform.account_deletion.report.send":
+      return (await client.query(`SELECT id,status,cleanup_status,cleanup_report,report_status,contact_email
+        FROM account_deletion_requests WHERE id=$1${lock}`, [target])).rows;
     case "credit.pack.publish":
       return (await client.query(`SELECT id,code,state,current_revision,updated_at FROM usage_credit_packs WHERE code=$1${lock}`, [target])).rows;
     case "credit.grant":

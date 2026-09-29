@@ -34,7 +34,7 @@ function mapCampaign(row) {
     id: String(row.id),
     publicToken: row.public_token,
     bookingId: String(row.booking_id),
-    organizerUserId: String(row.organizer_user_id),
+    organizerUserId: row.organizer_user_id == null ? null : String(row.organizer_user_id),
     organizerDisplayName: row.organizer_display_name || "Organizer",
     organizerAvatarUrl: row.organizer_avatar_url || "",
     ...(row.organizer_trust_count == null ? {} : {
@@ -195,7 +195,7 @@ async function listReports() {
     `SELECT reports.*, campaigns.title AS campaign_title, campaigns.campaign_status, campaigns.public_token,
       users.email AS reporter_email FROM organizer_campaign_reports reports
      JOIN organizer_campaigns campaigns ON campaigns.id = reports.campaign_id
-     JOIN users ON users.id = reports.reporter_user_id ORDER BY reports.created_at DESC LIMIT 200`
+     LEFT JOIN users ON users.id = reports.reporter_user_id ORDER BY reports.created_at DESC LIMIT 200`
   );
   return rows;
 }

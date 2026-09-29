@@ -121,6 +121,7 @@ import type {
 import { DEFAULT_TIMEZONE, getTimeZoneOptions } from "../../../shared/timezones";
 import { BusinessCategorySelect } from "../components/BusinessCategorySelect";
 import { VendorAccountDeletionPanel } from "../components/VendorAccountDeletionPanel";
+import { EmailMfaSettingsPanel } from "../components/EmailMfaSettingsPanel";
 import { API_BASE_URL } from "../api/client";
 import PhilippineMobileInput from "../components/PhilippineMobileInput";
 import FiveStarRatingInput from "../components/FiveStarRatingInput";
@@ -2519,7 +2520,7 @@ export default function VendorDashboardPage() {
       setMfaSecret("");
       setMfaEnrollmentUri("");
       setMfaCode("");
-      showSuccessNotification("Replacement canceled", "Your current authenticator is still active.");
+      showSuccessNotification("Setup canceled", "Your active sign-in methods were not changed.");
     } catch (mfaError) {
       setError(getErrorMessage(mfaError));
     } finally {
@@ -2607,8 +2608,14 @@ export default function VendorDashboardPage() {
       setRemovalCode("");
       setRemovalRecoveryCode("");
       setRemovalAcknowledged(false);
-      await refreshUser();
-      showSuccessNotification("MFA removed", "Your authenticator and recovery codes are no longer active.");
+      const updatedUser = await refreshUser();
+      setMfaEnabled(Boolean(updatedUser?.mfaEnabled));
+      showSuccessNotification(
+        "Authenticator removed",
+        updatedUser?.emailMfaEnabled
+          ? "Email OTP remains enabled as your sign-in verification method."
+          : "Your authenticator and recovery codes are no longer active."
+      );
     } catch (mfaError) {
       setError(getErrorMessage(mfaError));
     } finally {
@@ -9698,6 +9705,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   function renderSecurityPage() {
     const mfaRequired = Boolean(user?.mfaRequired || isOwner || isAdmin);
+    const totpMfaEnabled = Boolean(user?.totpMfaEnabled);
 
     return (
       <Stack gap="md">
@@ -9786,7 +9794,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               </Alert>
             ) : null}
 
-            {!mfaEnabled && !mfaSecret && !mfaRecoveryCodes.length ? (
+            {!totpMfaEnabled && !mfaSecret && !mfaRecoveryCodes.length ? (
               <Button
                 className="neura-primary-button"
                 loading={mfaBusy}
@@ -9839,7 +9847,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               </Stack>
             ) : null}
 
-            {mfaEnabled && !mfaSecret && !mfaRecoveryCodes.length ? (
+            {totpMfaEnabled && !mfaSecret && !mfaRecoveryCodes.length ? (
               <Stack gap="md">
                 <Alert color="teal" variant="light">
                   Your authenticator is active. Protected sign-ins and sensitive actions can require a security code.
@@ -9850,7 +9858,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       Replace authenticator
                     </Button>
                     {!mfaRequired ? (
-                      <Button color="red" onClick={() => setRemovingMfa(true)} variant="light">Remove MFA</Button>
+                      <Button color="red" onClick={() => setRemovingMfa(true)} variant="light">Remove authenticator</Button>
                     ) : null}
                   </Group>
                 ) : null}
@@ -9899,7 +9907,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   <Card className="vendor-security-action" padding="md" withBorder>
                     <Stack gap="md">
                       <Alert color="red" title="Your account will be less secure" variant="light">
-                        Removing MFA revokes your authenticator and every recovery code. Other sessions will be closed.
+                        This revokes your authenticator and recovery codes. {user?.emailMfaEnabled ? "Email OTP will remain enabled." : "Your account will no longer have MFA."} Other sessions will be closed.
                       </Alert>
                       <PasswordInput
                         autoComplete="current-password"
@@ -9941,7 +9949,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           loading={mfaBusy}
                           onClick={() => void removeMfa()}
                         >
-                          Remove MFA
+                          Remove authenticator
                         </Button>
                       </Group>
                     </Stack>
@@ -9951,6 +9959,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             ) : null}
           </Stack>
         </Card>
+        <EmailMfaSettingsPanel
+          variant="vendor"
+          onUpdated={(updatedUser) => setMfaEnabled(Boolean(updatedUser?.mfaEnabled))}
+        />
         <VendorAccountDeletionPanel />
       </Stack>
     );

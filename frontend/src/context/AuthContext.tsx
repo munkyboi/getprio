@@ -6,6 +6,7 @@ import type {
   AuthLoginResponse,
   AuthResponse,
   CompleteVendorOnboardingRequest,
+  EmailMfaChallengeResponse,
   LoginRequest,
   OAuthProviderAvailability,
   OAuthProviderId,
@@ -159,6 +160,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(data.user);
       setSessionExpiresAt(data.sessionExpiresAt ? new Date(data.sessionExpiresAt).getTime() : null);
       return data;
+    },
+    async sendEmailMfaCode(payload): Promise<EmailMfaChallengeResponse> {
+      return apiRequest<EmailMfaChallengeResponse, typeof payload>("/auth/mfa/email/send", {
+        method: "POST",
+        body: payload
+      });
     },
     async registerVendor(payload: RegisterVendorRequest): Promise<AuthResponse> {
       const data = await apiRequest<AuthResponse, RegisterVendorRequest>("/auth/register/vendor", {

@@ -5,7 +5,7 @@ const path = require("node:path");
 
 const root = path.resolve(__dirname, "..");
 const page = fs.readFileSync(path.join(root, "src/pages/VendorDashboardPage.tsx"), "utf8");
-const panel = fs.readFileSync(path.join(root, "src/components/VendorAccountDeletionPanel.tsx"), "utf8");
+const panel = fs.readFileSync(path.join(root, "src/components/AccountDeletionPanel.tsx"), "utf8");
 
 test("vendor account deletion request is available from Account security", () => {
   const securityPage = page.match(/function renderSecurityPage\(\) \{([\s\S]*?)\n  function renderAccountPage\(\)/)?.[1];
@@ -15,6 +15,7 @@ test("vendor account deletion request is available from Account security", () =>
 });
 
 test("vendor deletion request explains account-wide impact and uses guarded self-service endpoints", () => {
+  assert.match(fs.readFileSync(path.join(root, "src/components/VendorAccountDeletionPanel.tsx"), "utf8"), /accountType="vendor"/);
   assert.match(panel, /\/account\/deletion-options/);
   assert.match(panel, /\/account\/delete/);
   assert.match(panel, /method: "POST"/);
