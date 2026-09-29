@@ -22,6 +22,10 @@ const frontendPort = Number(process.env.FRONTEND_PORT || 5173);
 const platformDashboardPort = Number(process.env.PLATFORM_DASHBOARD_PORT || 7100);
 
 export const nodeEnv = process.env.NODE_ENV || "development";
+export function resolveApiEnvironment(source: NodeJS.ProcessEnv = process.env): string {
+  return source.API_ENVIRONMENT || "production";
+}
+export const apiEnvironment = resolveApiEnvironment();
 export const databaseUrl =
   process.env.DATABASE_URL || "postgresql://prio:prio@127.0.0.1:5432/prio_queue";
 export const databaseSsl = process.env.DATABASE_SSL === "true";
@@ -138,6 +142,8 @@ export const notificationCooldownMinutes = Number(
 export const queueRecoveryGraceMinutes = Number(
   process.env.QUEUE_RECOVERY_GRACE_MINUTES || 30
 );
+export const waitTimePredictionCaptureEnabled =
+  process.env.WAIT_TIME_PREDICTION_CAPTURE_ENABLED === "true";
 export const b2S3Endpoint = process.env.B2_S3_ENDPOINT || "";
 export const b2Region = process.env.B2_REGION || "us-east-005";
 export const b2BucketPublicBoard = process.env.B2_BUCKET_PUBLIC_BOARD || "";
@@ -173,6 +179,7 @@ const developerWebhookConfig = resolveDeveloperWebhookConfig(process.env, nodeEn
 
 const env = {
   nodeEnv,
+  apiEnvironment,
   port,
   databaseUrl,
   databaseSsl,
@@ -232,6 +239,7 @@ const env = {
   turnstileSecretKey,
   notificationCooldownMinutes,
   queueRecoveryGraceMinutes,
+  waitTimePredictionCaptureEnabled,
   b2S3Endpoint,
   b2Region,
   b2BucketPublicBoard,
