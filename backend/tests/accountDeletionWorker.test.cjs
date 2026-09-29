@@ -168,6 +168,7 @@ test('approved cleanup is transactional, emits a reviewed report, and only execu
   assert.equal(await worker.runApprovedCleanup(client, { id: 'request-cleanup' }), true);
   assert.ok(calls.some(({ sql }) => sql === 'BEGIN'));
   assert.ok(calls.some(({ sql }) => sql === 'COMMIT'));
+  assert.ok(calls.some(({ sql }) => sql === 'DELETE FROM mobile_push_registrations WHERE user_id=$1'));
   assert.ok(calls.some(({ sql }) => sql.startsWith('DELETE FROM users')));
   const update = calls.find(({ sql }) => sql.includes("SET cleanup_status='completed'"));
   const report = JSON.parse(update.params[1]);

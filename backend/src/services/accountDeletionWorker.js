@@ -129,6 +129,9 @@ async function runApprovedCleanup(client, request) {
       throw Object.assign(new Error('The relational references changed or were not all included in the reviewed checklist.'), { code: 'CLEANUP_REFERENCES_CHANGED' });
     }
     const anonymization = await applyBestEffortAnonymization(client, currentInventory, userId, selectedReferences);
+    // Device tokens are revoked at request time and removed during cleanup so
+    // that no device registration retains a link to the deleted account.
+    await client.query('DELETE FROM mobile_push_registrations WHERE user_id=$1', [userId]);
     const afterAnonymizationInventory = await collectRelationalInventory(client, userId);
     const unsafeReferences = unsafeCleanupReferences(afterAnonymizationInventory);
     if (unsafeReferences.length) {

@@ -1,6 +1,15 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { collectRelationalInventory } = require('../src/services/accountDeletionInventoryService');
+const { collectRelationalInventory, unsafeCleanupReferences } = require('../src/services/accountDeletionInventoryService');
+
+test('mobile push registrations are recognized as a supported cleanup reference', () => {
+  const inventory = { sources: [
+    { source: 'public.mobile_push_registrations.user_id', recordCount: 1 },
+    { source: 'public.unknown_user_links.user_id', recordCount: 1 }
+  ] };
+
+  assert.deepEqual(unsafeCleanupReferences(inventory).map(({ source }) => source), ['public.unknown_user_links.user_id']);
+});
 
 test('relational inventory exposes stable opaque items for each referenced row', async () => {
   const client = {

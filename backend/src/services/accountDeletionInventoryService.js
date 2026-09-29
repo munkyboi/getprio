@@ -24,6 +24,7 @@ const SAFE_CLEANUP_SOURCES = new Set([
   "public.auth_mfa_challenges.user_id",
   "public.password_reset_tokens.user_id",
   "public.push_subscriptions.user_id",
+  "public.mobile_push_registrations.user_id",
   "public.tickets.user_id",
   "public.bookings.customer_user_id",
   "public.auth_security_events.user_id"

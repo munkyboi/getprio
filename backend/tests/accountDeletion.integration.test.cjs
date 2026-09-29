@@ -82,12 +82,21 @@ test('account deletion against disposable PostgreSQL', { skip: !url }, async (t)
       await auth(request('POST','/api/account/delete'));
       await assert.rejects(sessions.createAuthSession({user:await users.findUserById(user._id),authMethod:'password'}), {code:'ACCOUNT_DELETION_PENDING'});
       const load = async () => (await db.pool.query('SELECT * FROM account_deletion_requests WHERE id=$1',[result.requestId])).rows[0];
-      await db.pool.query(`UPDATE account_deletion_requests SET scan_status='report_ready',
-        scan_report=$2::jsonb,cleanup_status='queued',cleanup_selection=$3::jsonb,status='processing' WHERE id=$1`, [result.requestId,
-        JSON.stringify({version:1,coverage:'partial',categories:[{id:'relational_references'}]}),
-        JSON.stringify({reportVersion:1,selected:{relational_references:true},exclusions:{}})]);
       const cleanupClient = await db.pool.connect();
-      try { assert.equal(await worker.runApprovedCleanup(cleanupClient,await load()),true); }
+      try {
+        const request = await load();
+        assert.equal(await worker.generateInventory(cleanupClient, request), true);
+        const scanned = await load();
+        const selected = Object.fromEntries(scanned.scan_report.categories.map((category) => [category.id, category.id === 'relational_references']));
+        const exclusions = Object.fromEntries(scanned.scan_report.categories.filter((category) => !selected[category.id])
+          .map((category) => [category.id, 'Outside the verified automated cleanup scope.']));
+        const references = Object.fromEntries(scanned.scan_report.inventory.sources
+          .filter((source) => source.recordCount > 0 && source.source !== 'public.users.id')
+          .map((source) => [source.source, source.items.map((item) => item.id)]));
+        await db.pool.query(`UPDATE account_deletion_requests SET cleanup_status='queued',cleanup_selection=$2::jsonb,status='processing' WHERE id=$1`,
+          [result.requestId, JSON.stringify({reportVersion:scanned.scan_report.version,selected,references,exclusions})]);
+        assert.equal(await worker.runApprovedCleanup(cleanupClient,await load()),true);
+      }
       finally { cleanupClient.release(); }
       assert.equal(await users.findUserById(user._id),null);
       assert.equal((await load()).cleanup_status,'completed');
@@ -95,6 +104,7 @@ test('account deletion against disposable PostgreSQL', { skip: !url }, async (t)
       assert.notEqual((await load()).status,'completed');
       assert.equal((await load()).user_id,null);
       assert.equal((await db.pool.query('SELECT * FROM auth_sessions WHERE user_id=$1',[user._id])).rowCount,0);
+      assert.equal((await db.pool.query('SELECT * FROM mobile_push_registrations WHERE user_id=$1',[user._id])).rowCount,0);
     });
     async function ticketFixture(user, status) {
       const key = require('node:crypto').randomUUID();
