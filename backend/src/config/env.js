@@ -118,6 +118,8 @@ const paymongoPaymentMethodTypes = (process.env.PAYMONGO_PAYMENT_METHOD_TYPES ||
 const turnstileSecretKey = process.env.TURNSTILE_SECRET_KEY || "";
 const notificationCooldownMinutes = Number(process.env.NOTIFICATION_COOLDOWN_MINUTES || 30);
 const queueRecoveryGraceMinutes = Number(process.env.QUEUE_RECOVERY_GRACE_MINUTES || 30);
+const waitTimePredictionCaptureEnabled =
+  process.env.WAIT_TIME_PREDICTION_CAPTURE_ENABLED === "true";
 const b2S3Endpoint = process.env.B2_S3_ENDPOINT || "";
 const b2Region = process.env.B2_REGION || "us-east-005";
 const b2BucketPublicBoard = process.env.B2_BUCKET_PUBLIC_BOARD || "";
@@ -211,6 +213,7 @@ const env = {
   turnstileSecretKey,
   notificationCooldownMinutes,
   queueRecoveryGraceMinutes,
+  waitTimePredictionCaptureEnabled,
   b2S3Endpoint,
   b2Region,
   b2BucketPublicBoard,

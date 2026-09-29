@@ -4,8 +4,10 @@ const queueDayClosureRepository = require("../repositories/queueDayClosures");
 const queueDayPauseRepository = require("../repositories/queueDayPauses");
 const storeLocationRepository = require("../repositories/storeLocations");
 const ticketRepository = require("../repositories/tickets");
+const waitTimePredictionRepository = require("../repositories/waitTimePredictions");
 const queueFeeService = require("./queueFeeService");
 const storeHoursService = require("./storeHoursService");
+const { predictWaitTime } = require("./waitTimePredictor");
 const {
   getDateKey,
   getQueueIntakeState,
@@ -161,6 +163,36 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
           ).findIndex((waitingTicket) => String(waitingTicket._id) === String(lookupTicket._id)) + 1
         : null;
 
+    const prediction = predictWaitTime({
+      position: position || 0,
+      waitingCount: waitingTickets.length,
+      averageServiceMinutes: tenant.averageServiceMinutes,
+      priorityBand: lookupTicket.servicePriorityBand || "normal",
+      currentTicketCalledAt: current?.calledAt || null,
+      queuePaused: Boolean(queueDayPause)
+    });
+
+    if (
+      lookupTicket.status === "waiting" &&
+      position > 0 &&
+      env.waitTimePredictionCaptureEnabled
+    ) {
+      void waitTimePredictionRepository.recordPrediction({
+        ticketId: lookupTicket._id,
+        tenantId: tenant._id,
+        locationId,
+        queueDateKey: lookupTicket.dateKey,
+        predictorVersion: prediction.predictorVersion,
+        featureHash: prediction.featureHash,
+        sampleBucket: prediction.sampleBucket,
+        sampledAt: prediction.observedAt,
+        features: prediction.features,
+        predictedWaitMinutes: prediction.estimatedWaitMinutes
+      }).catch((error) => {
+        console.error("Wait-time prediction sample capture failed.", error);
+      });
+    }
+
     focusTicket = {
       id: String(lookupTicket._id),
       lookupCode: lookupTicket.lookupCode,
@@ -181,8 +213,7 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
       currentQueueDayId: lookupTicket.currentQueueDayId || null,
       emailJourneyMode: lookupTicket.emailJourneyMode || "not_eligible",
       position: position || null,
-      estimatedWaitMinutes:
-        position && position > 0 ? position * tenant.averageServiceMinutes : 0,
+      estimatedWaitMinutes: prediction.estimatedWaitMinutes,
       joinedAt: lookupTicket.createdAt
     };
   }
@@ -263,8 +294,11 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
       waitingCount: waitingTickets.length,
       servedToday,
       currentTicketNumber: current ? current.ticketNumber : null,
-      estimatedWaitMinutes:
-        waitingTickets.length > 0 ? waitingTickets.length * tenant.averageServiceMinutes : 0
+      estimatedWaitMinutes: predictWaitTime({
+        position: waitingTickets.length,
+        waitingCount: waitingTickets.length,
+        averageServiceMinutes: tenant.averageServiceMinutes
+      }).estimatedWaitMinutes
     },
     current: current
       ? {

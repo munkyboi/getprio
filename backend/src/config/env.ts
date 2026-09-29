@@ -138,6 +138,8 @@ export const notificationCooldownMinutes = Number(
 export const queueRecoveryGraceMinutes = Number(
   process.env.QUEUE_RECOVERY_GRACE_MINUTES || 30
 );
+export const waitTimePredictionCaptureEnabled =
+  process.env.WAIT_TIME_PREDICTION_CAPTURE_ENABLED === "true";
 export const b2S3Endpoint = process.env.B2_S3_ENDPOINT || "";
 export const b2Region = process.env.B2_REGION || "us-east-005";
 export const b2BucketPublicBoard = process.env.B2_BUCKET_PUBLIC_BOARD || "";
@@ -232,6 +234,7 @@ const env = {
   turnstileSecretKey,
   notificationCooldownMinutes,
   queueRecoveryGraceMinutes,
+  waitTimePredictionCaptureEnabled,
   b2S3Endpoint,
   b2Region,
   b2BucketPublicBoard,

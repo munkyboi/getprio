@@ -207,6 +207,21 @@ For existing databases, do not run `database/init.sql` by hand. Use `npm run db:
 
 `npm run db:status` is the deploy gate. It reports whether the database is clean, pending migrations exist, or a previously applied migration is missing from the repo.
 
+Wait-time predictor observation capture is off by default. After applying the additive wait-time
+prediction migration, set `WAIT_TIME_PREDICTION_CAPTURE_ENABLED=true` in the backend environment to
+record privacy-minimized queue features and outcomes for later model evaluation. Samples are
+deduplicated to at most one observation per ticket per five-minute bucket. Captured feature data
+does not include customer names, email addresses, or phone numbers.
+
+After samples have accumulated, inspect coverage and baseline error with the read-only audit command:
+
+```bash
+node scripts/wait-time-prediction-audit.mjs
+```
+
+It requires `DATABASE_URL` and reports aggregate metrics only; it does not print vendor IDs or
+change database state.
+
 ## Main API routes
 
 ### Auth

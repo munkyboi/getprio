@@ -222,6 +222,16 @@ The Developer Portal reads `SANDBOX_TESTFLIGHT_PUBLIC_URL` only for authenticate
 
 Android Sandbox installs are distributed directly from the Developer Portal at `/downloads/getprio-sandbox-android.apk`. The APK is included at `developer-portal/public/downloads/getprio-sandbox-android.apk` and shipped with the portal build; no Google Play tester URL or production secret is used. Remove the retired `SANDBOX_ANDROID_GOOGLE_PLAY_PUBLIC_URL` secret from the GitHub `production` Environment and its old entry from the server `.env` when convenient. Play upload credentials remain scoped to the mobile release workflow and are not used by the portal.
 
+## Sandbox API deployment
+
+The Sandbox API has a separate manually triggered deployment workflow. Configure these values in a GitHub Actions environment named `sandbox` before running it:
+
+- `DO_HOST`, `DO_USER`, `DO_SSH_KEY`, and `DO_APP_DIR` for the Sandbox API server.
+- `DATABASE_HOST` and `DATABASE_NAME` for the Sandbox PostgreSQL database. The workflow verifies both against the server's `DATABASE_URL` and makes a read-only connection check before it applies migrations.
+- `DO_PORT` is optional and defaults to `22`.
+
+The workflow deploys the current `main` branch, applies migrations, verifies the schema, builds the app, enables `WAIT_TIME_PREDICTION_CAPTURE_ENABLED=true` in the Sandbox server `.env`, and restarts `getprio-api`. It is manual-only and refuses to proceed unless its confirmation input is exactly `sandbox` and the server is configured with `API_ENVIRONMENT=sandbox`.
+
 B2_S3_ENDPOINT=
 B2_REGION=us-east-005
 B2_BUCKET_PUBLIC_BOARD=
