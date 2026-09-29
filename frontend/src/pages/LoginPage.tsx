@@ -37,7 +37,7 @@ type ResetConfirmValues = z.infer<typeof resetConfirmSchema>;
 export default function LoginPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { login, loading, requestPasswordReset, confirmPasswordReset, verifyMfaChallenge, user } = useAuth();
+  const { login, loading, requestPasswordReset, confirmPasswordReset, verifyMfaChallenge, sendEmailMfaCode, user } = useAuth();
   const resetToken = searchParams.get("resetToken") || "";
   const passwordChanged = searchParams.get("passwordChanged") === "1";
   const passwordResetSuccess = searchParams.get("reset") === "success";
@@ -47,6 +47,12 @@ export default function LoginPage() {
   const [resetRequestMessage, setResetRequestMessage] = useState("");
   const [resetConfirmMessage, setResetConfirmMessage] = useState("");
   const [mfaChallengeToken, setMfaChallengeToken] = useState("");
+  const [mfaLoginChallengeToken, setMfaLoginChallengeToken] = useState("");
+  const [mfaMethods, setMfaMethods] = useState<Array<"totp" | "recovery" | "email">>([]);
+  const [emailMfaActive, setEmailMfaActive] = useState(false);
+  const [emailMfaDeliveryTarget, setEmailMfaDeliveryTarget] = useState("");
+  const [emailMfaSent, setEmailMfaSent] = useState(false);
+  const [emailMfaSending, setEmailMfaSending] = useState(false);
   const [mfaCode, setMfaCode] = useState("");
   const [mfaRecoveryCode, setMfaRecoveryCode] = useState("");
   const [mfaSubmitting, setMfaSubmitting] = useState(false);
@@ -74,6 +80,38 @@ export default function LoginPage() {
     resetConfirmForm.setValue("token", resetToken);
   }, [resetToken, resetConfirmForm]);
 
+  async function sendEmailOtp(challengeToken = mfaLoginChallengeToken) {
+    if (!challengeToken || emailMfaSending) return;
+    setError("");
+    setEmailMfaActive(true);
+    setEmailMfaSending(true);
+    try {
+      const result = await sendEmailMfaCode({ challengeToken });
+      setMfaChallengeToken(result.token);
+      setEmailMfaDeliveryTarget(result.deliveryTarget);
+      setEmailMfaSent(true);
+      setMfaCode("");
+      setMfaRecoveryCode("");
+    } catch (sendError) {
+      setEmailMfaSent(false);
+      setError(getErrorMessage(sendError));
+    } finally {
+      setEmailMfaSending(false);
+    }
+  }
+
+  function returnToSignIn() {
+    setMfaChallengeToken("");
+    setMfaLoginChallengeToken("");
+    setMfaMethods([]);
+    setEmailMfaActive(false);
+    setEmailMfaDeliveryTarget("");
+    setEmailMfaSent(false);
+    setMfaCode("");
+    setMfaRecoveryCode("");
+    setError("");
+  }
+
   if (loading) {
     return <Paper className="finazze-auth-card" p="xl">Loading session...</Paper>;
   }
@@ -88,6 +126,14 @@ export default function LoginPage() {
       const result = await login(values);
       if ("mfaRequired" in result) {
         setMfaChallengeToken(result.challengeToken);
+        setMfaLoginChallengeToken(result.challengeToken);
+        setMfaMethods(result.methods);
+        setEmailMfaActive(false);
+        setEmailMfaDeliveryTarget("");
+        setEmailMfaSent(false);
+        if (result.methods.includes("email") && !result.methods.includes("totp")) {
+          void sendEmailOtp(result.challengeToken);
+        }
         return;
       }
       navigate(
@@ -108,7 +154,8 @@ export default function LoginPage() {
     try {
       const result = await verifyMfaChallenge({
         challengeToken: mfaChallengeToken,
-        ...(mfaRecoveryCode.trim() ? { recoveryCode: mfaRecoveryCode } : { code: mfaCode })
+        ...(mfaRecoveryCode.trim() && !emailMfaActive ? { recoveryCode: mfaRecoveryCode } : { code: mfaCode }),
+        ...(emailMfaActive ? { method: "email" as const } : {})
       });
       navigate(
         result.user.mfaRequired && !result.user.mfaEnabled
@@ -193,25 +240,56 @@ export default function LoginPage() {
             {mfaChallengeToken ? (
               <form onSubmit={handleMfaVerification}>
                 <Stack gap="md">
-                  <Alert color="blue">For your security, confirm the code from your authenticator app. You can use one saved recovery code if your authenticator is unavailable.</Alert>
+                  <Alert color="blue">
+                    {emailMfaActive
+                      ? `Enter the six-digit code sent to ${emailMfaDeliveryTarget || "your verified email address"}. It expires in 10 minutes.`
+                      : "For your security, confirm the code from your authenticator app. You can use one saved recovery code if your authenticator is unavailable."}
+                  </Alert>
                   <TextInput
+                    key={emailMfaActive ? "email-code" : "authenticator-code"}
                     autoComplete="one-time-code"
                     autoFocus
                     inputMode="numeric"
-                    label="Authenticator code"
+                    label={emailMfaActive ? "Email code" : "Authenticator code"}
+                    maxLength={6}
                     value={mfaCode}
-                    onChange={(event) => { setMfaCode(event.currentTarget.value); setMfaRecoveryCode(""); }}
+                    onChange={(event) => { setMfaCode(event.currentTarget.value.replace(/\D/g, "")); setMfaRecoveryCode(""); }}
                   />
-                  <TextInput
-                    label="Recovery code (optional)"
-                    value={mfaRecoveryCode}
-                    onChange={(event) => { setMfaRecoveryCode(event.currentTarget.value); setMfaCode(""); }}
-                  />
+                  {!emailMfaActive && mfaMethods.includes("recovery") ? (
+                    <TextInput
+                      label="Recovery code (optional)"
+                      value={mfaRecoveryCode}
+                      onChange={(event) => { setMfaRecoveryCode(event.currentTarget.value); setMfaCode(""); }}
+                    />
+                  ) : null}
                   {error ? <Alert color="red">{error}</Alert> : null}
                   <Button className="auth-primary-action" color="dark" loading={mfaSubmitting} size="lg" type="submit">
                     Confirm and sign in
                   </Button>
-                  <Anchor component="button" type="button" onClick={() => { setMfaChallengeToken(""); setError(""); }}>
+                  {mfaMethods.includes("totp") && mfaMethods.includes("email") && !emailMfaActive ? (
+                    <Anchor component="button" disabled={emailMfaSending} type="button" onClick={() => void sendEmailOtp()}>
+                      {emailMfaSending ? "Sending email OTP..." : "Send email OTP instead"}
+                    </Anchor>
+                  ) : null}
+                  {emailMfaActive ? (
+                    <>
+                      <Anchor component="button" disabled={emailMfaSending} type="button" onClick={() => void sendEmailOtp()}>
+                        {emailMfaSending ? "Sending email OTP..." : emailMfaSent ? "Resend email OTP" : "Send email OTP"}
+                      </Anchor>
+                      {mfaMethods.includes("totp") ? (
+                        <Anchor component="button" type="button" onClick={() => {
+                          setEmailMfaActive(false);
+                          setMfaChallengeToken(mfaLoginChallengeToken);
+                          setMfaCode("");
+                          setMfaRecoveryCode("");
+                          setError("");
+                        }}>
+                          Use authenticator app instead
+                        </Anchor>
+                      ) : null}
+                    </>
+                  ) : null}
+                  <Anchor component="button" type="button" onClick={returnToSignIn}>
                     Return to sign in
                   </Anchor>
                 </Stack>

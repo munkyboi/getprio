@@ -455,6 +455,19 @@ async function revokeApiKey(keyId, userId, reason, options = {}) {
   return mapKey(result.rows[0]);
 }
 
+async function revokeApiKeyForPlatform(projectId, keyId, reason, options = {}) {
+  const result = await buildQueryClient(options.client).query(
+    `UPDATE developer_api_keys
+     SET status = 'revoked', revoked_at = NOW(), revoke_reason = $3, updated_at = NOW()
+     WHERE developer_project_id = $1 AND id = $2 AND status = 'active'
+     RETURNING id AS key_id, developer_project_id, name, environment, key_prefix,
+       scopes, profile_slugs, status, created_by_user_id, last_used_at, revoked_at,
+       revoke_reason, created_at, updated_at`,
+    [projectId, keyId, reason]
+  );
+  return mapKey(result.rows[0]);
+}
+
 async function revokeKeysForDeletedProfile(projectId, environment, profileSlug, options = {}) {
   const result = await buildQueryClient(options.client).query(
     `UPDATE developer_api_keys
@@ -539,6 +552,7 @@ module.exports = {
   mapKey,
   mapProject,
   revokeApiKey,
+  revokeApiKeyForPlatform,
   revokeKeysForDeletedProfile,
   reviewProductionApproval,
   saveProductionApprovalDraft,

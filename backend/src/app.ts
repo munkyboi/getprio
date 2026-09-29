@@ -107,7 +107,8 @@ app.use(
 
 app.get("/api/health", (_req, res) => {
   res.json({
-    status: "ok"
+    status: "ok",
+    deploymentSha: process.env.DEPLOY_SHA || null
   });
 });
 

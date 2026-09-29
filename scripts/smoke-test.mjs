@@ -1,13 +1,18 @@
 #!/usr/bin/env node
 
+import { createHmac } from "node:crypto";
+
 const API_BASE_URL = process.env.SMOKE_API_URL || process.env.VITE_API_URL || "http://localhost:5001/api";
 const APP_BASE_URL = process.env.SMOKE_APP_URL || process.env.APP_BASE_URL || "http://localhost:5173";
 const PLATFORM_BASE_URL = process.env.SMOKE_PLATFORM_URL || process.env.PLATFORM_BASE_URL || "http://localhost:7100";
 
 const SMOKE_EMAIL = String(process.env.SMOKE_EMAIL || "").trim();
 const SMOKE_PASSWORD = String(process.env.SMOKE_PASSWORD || "").trim();
-const PLATFORM_SMOKE_EMAIL = String(process.env.PLATFORM_SMOKE_EMAIL || "getprio-smoke@getprio.local").trim();
-const PLATFORM_SMOKE_PASSWORD = String(process.env.PLATFORM_SMOKE_PASSWORD || "Smoke1234!").trim();
+const PLATFORM_SMOKE_EMAIL = String(process.env.PLATFORM_SMOKE_EMAIL || "").trim();
+const PLATFORM_SMOKE_PASSWORD = String(process.env.PLATFORM_SMOKE_PASSWORD || "").trim();
+const PLATFORM_SMOKE_TOTP_SECRET = String(process.env.PLATFORM_SMOKE_TOTP_SECRET || "").trim();
+const PLATFORM_RELEASE_EVIDENCE_SECRET = String(process.env.PLATFORM_RELEASE_EVIDENCE_SECRET || "");
+const SMOKE_EXPECTED_DEPLOY_SHA = String(process.env.SMOKE_EXPECTED_DEPLOY_SHA || "").trim();
 const VENDOR_STAFF_SMOKE_EMAIL = String(process.env.VENDOR_STAFF_SMOKE_EMAIL || "").trim();
 const VENDOR_STAFF_SMOKE_PASSWORD = String(process.env.VENDOR_STAFF_SMOKE_PASSWORD || "").trim();
 const CAMPAIGN_SMOKE_ENABLED = ["1", "true", "yes"].includes(
@@ -132,6 +137,66 @@ async function login(email, password) {
   }
 
   return result.body;
+}
+
+function generateTotpCode(secret, timestamp = Date.now()) {
+  const normalized = String(secret || "").replace(/[\s=-]/gu, "").toUpperCase();
+  if (!normalized || !/^[A-Z2-7]+$/u.test(normalized)) {
+    fail("PLATFORM_SMOKE_TOTP_SECRET must be a Base32 authenticator setup key");
+  }
+
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  let bits = "";
+  for (const character of normalized) {
+    bits += alphabet.indexOf(character).toString(2).padStart(5, "0");
+  }
+  const secretBytes = [];
+  for (let index = 0; index + 8 <= bits.length; index += 8) {
+    secretBytes.push(Number.parseInt(bits.slice(index, index + 8), 2));
+  }
+  if (!secretBytes.length) fail("PLATFORM_SMOKE_TOTP_SECRET is not a valid Base32 setup key");
+
+  const counter = Buffer.alloc(8);
+  counter.writeBigUInt64BE(BigInt(Math.floor(timestamp / 30_000)));
+  const digest = createHmac("sha1", Buffer.from(secretBytes)).update(counter).digest();
+  const offset = digest[digest.length - 1] & 0x0f;
+  const binary = ((digest[offset] & 0x7f) << 24)
+    | ((digest[offset + 1] & 0xff) << 16)
+    | ((digest[offset + 2] & 0xff) << 8)
+    | (digest[offset + 3] & 0xff);
+  return String(binary % 1_000_000).padStart(6, "0");
+}
+
+async function loginPlatform(email, password) {
+  const result = await requestJson(`${API_BASE_URL}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password })
+  });
+  assertOk(result.response, "platform smoke login");
+
+  if (result.body?.token && result.body?.user) return result.body;
+  if (!result.body?.mfaRequired || !result.body?.challengeToken) {
+    fail("platform smoke login response did not contain a session or MFA challenge");
+  }
+  if (!PLATFORM_SMOKE_TOTP_SECRET) {
+    fail("platform smoke login requires MFA; set PLATFORM_SMOKE_TOTP_SECRET to the account's Base32 authenticator setup key");
+  }
+
+  const verification = await requestJson(`${API_BASE_URL}/auth/mfa/verify`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      challengeToken: result.body.challengeToken,
+      method: "totp",
+      code: generateTotpCode(PLATFORM_SMOKE_TOTP_SECRET)
+    })
+  });
+  assertOk(verification.response, "platform smoke MFA verification");
+  if (!verification.body?.token || !verification.body?.user) {
+    fail("platform smoke MFA response missing token or user");
+  }
+  return verification.body;
 }
 
 async function smokePublicStage() {
@@ -577,36 +642,39 @@ async function smokeOrganizerCampaignStage() {
 }
 
 async function smokePlatformStage() {
-  const platformAuth = await login(PLATFORM_SMOKE_EMAIL, PLATFORM_SMOKE_PASSWORD);
+  if (!PLATFORM_SMOKE_EMAIL || !PLATFORM_SMOKE_PASSWORD) {
+    fail("platform smoke requires PLATFORM_SMOKE_EMAIL and PLATFORM_SMOKE_PASSWORD");
+  }
+  if (SMOKE_EXPECTED_DEPLOY_SHA && !/^[a-f0-9]{40}$/u.test(SMOKE_EXPECTED_DEPLOY_SHA)) {
+    fail("SMOKE_EXPECTED_DEPLOY_SHA must be a full commit SHA");
+  }
+  const platformAuth = await loginPlatform(PLATFORM_SMOKE_EMAIL, PLATFORM_SMOKE_PASSWORD);
   const platformHeaders = { Authorization: `Bearer ${platformAuth.token}` };
 
-  const platformOverview = await requestJson(`${API_BASE_URL}/platform/overview`, { headers: platformHeaders });
-  assertOk(platformOverview.response, "platform overview api");
-  if (!platformOverview.body?.totals) {
-    fail("platform overview api missing totals");
+  const apiHealth = await requestJson(`${API_BASE_URL}/health`);
+  assertOk(apiHealth.response, "production API health");
+  if (apiHealth.body?.status !== "ok") fail("production API health did not report ok");
+  if (SMOKE_EXPECTED_DEPLOY_SHA && apiHealth.body?.deploymentSha !== SMOKE_EXPECTED_DEPLOY_SHA) {
+    fail("production API is not serving the expected deployment revision");
   }
-  log("platform overview api ok");
+  log("production API health and deployed revision ok");
 
-  const platformPlans = await requestJson(`${API_BASE_URL}/platform/plans`, { headers: platformHeaders });
-  assertOk(platformPlans.response, "platform plans api");
-  if (!Array.isArray(platformPlans.body?.plans)) {
-    fail("platform plans api missing plans array");
+  const releaseReadiness = await requestJson(`${API_BASE_URL}/platform/release-readiness/read-model`, { headers: platformHeaders });
+  assertOk(releaseReadiness.response, "authenticated release readiness api");
+  if (!Array.isArray(releaseReadiness.body?.data?.surfaces)) {
+    fail("authenticated release readiness api response missing surfaces");
   }
-  log("platform plans api ok");
+  log("authenticated release readiness api ok");
 
-  const platformQueueFees = await requestJson(`${API_BASE_URL}/platform/queue-fees`, { headers: platformHeaders });
-  assertOk(platformQueueFees.response, "platform queue fees api");
-  if (!Array.isArray(platformQueueFees.body?.queueFees)) {
-    fail("platform queue fees api missing queueFees array");
+  const platformRoot = await requestText(PLATFORM_BASE_URL);
+  assertOk(platformRoot.response, "platform dashboard root");
+  if (SMOKE_EXPECTED_DEPLOY_SHA) {
+    const deployedSha = platformRoot.text.match(/<meta\s+name="getprio-deploy-sha"\s+content="([a-f0-9]{40})"/iu)?.[1];
+    if (deployedSha !== SMOKE_EXPECTED_DEPLOY_SHA) {
+      fail("Platform dashboard is not serving the expected deployment revision");
+    }
   }
-  log("platform queue fees api ok");
-
-  const platformSettings = await requestJson(`${API_BASE_URL}/platform/settings`, { headers: platformHeaders });
-  assertOk(platformSettings.response, "platform settings api");
-  if (!platformSettings.body?.settings) {
-    fail("platform settings api missing settings");
-  }
-  log("platform settings api ok");
+  log("platform dashboard root and deployed revision ok");
 
   for (const page of platformPages) {
     const { response, text } = await requestText(`${PLATFORM_BASE_URL}${page.path}`);
@@ -614,6 +682,48 @@ async function smokePlatformStage() {
     assertContains(text, "<div id=\"root\">", `${page.label} page`);
     log(`${page.label} page ok`);
   }
+}
+
+async function reportPlatformSmoke(outcome, summary) {
+  if (!process.env.GITHUB_RUN_ID || !SMOKE_EXPECTED_DEPLOY_SHA) {
+    log("deployment evidence report skipped outside a configured GitHub deployment run");
+    return;
+  }
+  if (Buffer.byteLength(PLATFORM_RELEASE_EVIDENCE_SECRET) < 32) {
+    log("::warning::PLATFORM_RELEASE_EVIDENCE_SECRET is missing or shorter than 32 bytes; the Platform dashboard will not receive this smoke result.");
+    throw new Error("Authenticated smoke passed, but its release evidence could not be signed or recorded.");
+  }
+
+  const runId = String(process.env.GITHUB_RUN_ID);
+  const serverUrl = String(process.env.GITHUB_SERVER_URL || "https://github.com").replace(/\/$/u, "");
+  const repository = String(process.env.GITHUB_REPOSITORY || "");
+  const report = {
+    workflowRunId: runId,
+    deploymentSha: SMOKE_EXPECTED_DEPLOY_SHA,
+    workflowUrl: `${serverUrl}/${repository}/actions/runs/${runId}`,
+    outcome,
+    summary: String(summary || "Post-deploy smoke completed.").slice(0, 1000),
+    observedAt: new Date().toISOString()
+  };
+  const rawBody = JSON.stringify(report);
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const signature = createHmac("sha256", PLATFORM_RELEASE_EVIDENCE_SECRET)
+    .update(`${timestamp}.${rawBody}`)
+    .digest("hex");
+  const response = await requestJson(`${API_BASE_URL}/platform/release-readiness/evidence`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Platform-Evidence-Timestamp": timestamp,
+      "X-Platform-Evidence-Signature": signature
+    },
+    body: rawBody
+  });
+  if (!response.response.ok || response.body?.accepted !== true) {
+    log(`::warning::Platform smoke ran, but evidence was not accepted by the API (HTTP ${response.response.status}).`);
+    throw new Error("Authenticated smoke evidence was not accepted by the Platform API.");
+  }
+  log("post-deploy smoke result recorded in Platform Release Readiness");
 }
 
 async function main() {
@@ -647,7 +757,15 @@ async function main() {
   log("smoke checks completed");
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+main()
+  .then(() => reportPlatformSmoke("success", "Authenticated release-readiness API and matching Platform dashboard revision passed."))
+  .catch(async (error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(message);
+    try {
+      await reportPlatformSmoke("failure", `Post-deploy smoke needs review: ${message}`);
+    } catch {
+      log("::warning::Unable to submit the post-deploy smoke result to Platform Release Readiness.");
+    }
+    process.exitCode = 1;
+  });

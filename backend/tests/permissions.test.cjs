@@ -16,6 +16,7 @@ test("permissions helpers resolve tenant roles, ignore inactive memberships, and
   assert.deepEqual(Array.from(permissions.getGlobalPermissions(user)).sort(), [
     "account.change_password",
     "account.read_self",
+    "platform.account_deletion.manage",
     "platform.billing.manage",
     "platform.billing.read",
     "platform.capacity.read",
@@ -28,6 +29,7 @@ test("permissions helpers resolve tenant roles, ignore inactive memberships, and
     "platform.credit_revocations.manage",
     "platform.developer_api.manage",
     "platform.entitlement_overrides.manage",
+    "platform.help_center.manage",
     "platform.plan_policy.manage",
     "platform.plan_policy.read",
     "platform.plans.manage",
@@ -36,12 +38,15 @@ test("permissions helpers resolve tenant roles, ignore inactive memberships, and
     "platform.queue_lifecycle.reconcile",
     "platform.queue_lifecycle.repair",
     "platform.queue_notifications.requeue",
+    "platform.release_readiness.read",
     "platform.security_audit.export",
     "platform.security_audit.read",
     "platform.settings.manage",
     "platform.subscription_lifecycle.manage",
     "platform.tenants.read",
     "platform.usage.read",
+    "platform.user_password_reset.send",
+    "platform.user_sessions.revoke",
     "platform.users.read"
   ]);
   assert.equal(permissions.getTenantRole(user, "tenant-1"), "staff");
@@ -52,9 +57,22 @@ test("permissions helpers resolve tenant roles, ignore inactive memberships, and
   assert.equal(permissions.userHasPermission(user, "tenant.billing.read", { tenantId: "tenant-1" }), false);
   assert.equal(permissions.userHasPermission(user, "tenant.capacity.read_operational", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(user, "platform.users.read"), true);
+  assert.equal(permissions.userHasPermission(user, "platform.user_sessions.revoke"), true);
 
   assert.throws(
     () => permissions.assertPermission(user, "tenant.settings.manage", { tenantId: "tenant-1" }),
     (error) => error.statusCode === 403 && /permission/i.test(error.message)
   );
+});
+
+test("release observer role has only the release readiness permission", () => {
+  const permissionsForObserver = permissions.getGlobalPermissions({ roles: ["platform_release_observer"] });
+  assert.deepEqual(Array.from(permissionsForObserver).sort(), [
+    "account.change_password",
+    "account.read_self",
+    "platform.release_readiness.read"
+  ]);
+  assert.equal(permissions.userHasPermission({ roles: ["platform_release_observer"] }, "platform.release_readiness.read"), true);
+  assert.equal(permissions.userHasPermission({ roles: ["platform_release_observer"] }, "platform.tenants.read"), false);
+  assert.equal(permissions.userHasPermission({ roles: ["platform_release_observer"] }, "platform.settings.manage"), false);
 });

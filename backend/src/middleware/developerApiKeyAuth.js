@@ -1,4 +1,5 @@
 const developerApiKeyRepository = require("../repositories/developerProjects");
+const developerApiKeyActivity = require("../repositories/developerApiKeyActivity");
 const developerApiRateLimits = require("../repositories/developerApiRateLimits");
 const { hashApiKey } = require("../services/developerApiKeyService");
 
@@ -48,6 +49,17 @@ function getApiKey(req) {
   return legacyValue || null;
 }
 
+function countKeyResponse(req, res, key, authFailure = false) {
+  const kind = ["GET", "HEAD", "OPTIONS"].includes(String(req.method || "").toUpperCase()) ? "read" : "write";
+  const record = (statusCode) => developerApiKeyActivity.record({ apiKeyId: key.id, kind, statusCode, authFailure }).catch(() => {
+    console.error("[developer-api-key-activity] event write failed");
+  });
+  if (authFailure) return record(401);
+  if (typeof res.once !== "function") return Promise.resolve();
+  res.once("finish", () => { void record(res.statusCode); });
+  return Promise.resolve();
+}
+
 async function authenticateDeveloperApiKey(req, res, next) {
   try {
     const value = getApiKey(req);
@@ -67,6 +79,7 @@ async function authenticateDeveloperApiKey(req, res, next) {
       key.accountStatus !== "active" ||
       key.environment !== environment
     ) {
+      if (key) await countKeyResponse(req, res, key, true);
       const error = new Error("API key is not valid for this environment.");
       error.statusCode = 401;
       error.code = "API_KEY_INVALID";
@@ -82,6 +95,7 @@ async function authenticateDeveloperApiKey(req, res, next) {
       profileAccess: key.profileAccess,
       profileSlugs: key.profileSlugs
     };
+    await countKeyResponse(req, res, key);
     const kind = ["GET", "HEAD", "OPTIONS"].includes(String(req.method || "").toUpperCase()) ? "read" : "write";
     try {
       const rate = await developerApiRateLimits.consume({ projectId: key.projectId, environment, kind });

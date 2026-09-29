@@ -1,8 +1,16 @@
 const PLATFORM_PERMISSIONS = {
+  platform_release_observer: new Set([
+    "platform.release_readiness.read"
+  ]),
   platform_admin: new Set([
     "platform.tenants.read",
+    "platform.release_readiness.read",
     "platform.users.read",
+    "platform.user_sessions.revoke",
+    "platform.user_password_reset.send",
+    "platform.account_deletion.manage",
     "platform.settings.manage",
+    "platform.help_center.manage",
     "platform.plans.manage",
     "platform.queue_fees.manage",
     "platform.billing.read",

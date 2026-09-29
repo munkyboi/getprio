@@ -296,8 +296,10 @@ function OverviewPage({ token }: { token: string }) {
 
 function SettingsPage({ token, user }: { token: string; user: UserSummary & { mfaEnabled?: boolean } }) {
   const [settings, setSettings] = useState<PlatformSettingsResponse["settings"] | null>(null);
+  const [initialSettings, setInitialSettings] = useState<PlatformSettingsResponse["settings"] | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
   const [imageLimit, setImageLimit] = useState<string | number>(200);
+  const [settingsReason, setSettingsReason] = useState("");
   const [settingsError, setSettingsError] = useState("");
   const validImageLimit = typeof imageLimit === "number" && Number.isInteger(imageLimit) && imageLimit >= 1 && imageLimit <= 8192;
   const [mfaSecret, setMfaSecret] = useState("");
@@ -311,18 +313,20 @@ function SettingsPage({ token, user }: { token: string; user: UserSummary & { mf
   const [mfaBusy, setMfaBusy] = useState(false);
   useEffect(() => {
     apiRequest<PlatformSettingsResponse>("/platform/settings", { token })
-      .then((data) => { setSettings(data.settings); setImageLimit(data.settings.maxImageUploadKb); })
+      .then((data) => { setSettings(data.settings); setInitialSettings(data.settings); setImageLimit(data.settings.maxImageUploadKb); })
       .catch((error) => setSettingsError(error instanceof Error ? error.message : "Settings could not be loaded. Refresh to try again."));
   }, [token]);
   useEffect(() => { setMfaActive(Boolean(user.mfaEnabled)); }, [user.mfaEnabled]);
   async function save() {
-    if (!settings || !validImageLimit || savingSettings) return;
+    if (!settings || !initialSettings || !validImageLimit || settingsReason.trim().length < 8 || settingsReason.trim().length > 500 || savingSettings) return;
     setSavingSettings(true);
     setSettingsError("");
     try {
-      const data = await apiRequest<PlatformSettingsResponse, UpdatePlatformSettingsRequest>("/platform/settings", { method: "PATCH", token, body: { ...settings, maxImageUploadKb: Number(imageLimit) } });
+      const data = await apiRequest<PlatformSettingsResponse, UpdatePlatformSettingsRequest>("/platform/settings", { method: "PATCH", token, body: { ...settings, maxImageUploadKb: Number(imageLimit), reason: settingsReason.trim(), expectedSettings: initialSettings } });
       setSettings(data.settings);
+      setInitialSettings(data.settings);
       setImageLimit(data.settings.maxImageUploadKb);
+      setSettingsReason("");
       showSaved("Settings updated");
     } catch (error) {
       setSettingsError(error instanceof Error ? error.message : "Settings could not be saved. Please try again.");
@@ -417,8 +421,9 @@ function SettingsPage({ token, user }: { token: string; user: UserSummary & { mf
               disabled={!settings || savingSettings}
               error={validImageLimit ? undefined : "Enter a whole number from 1 to 8192 KB."}
             />
+            <TextInput label="Audit reason" description="Required (8–500 characters). This reason is saved with the settings change." maxLength={500} value={settingsReason} onChange={(event) => setSettingsReason(event.currentTarget.value)} disabled={!settings || savingSettings} />
             {settingsError && <Text c="red" role="alert">{settingsError}</Text>}
-            <Group justify="flex-end"><Button mih={44} disabled={!settings || !validImageLimit} loading={savingSettings} onClick={save}>Save settings</Button></Group>
+            <Group justify="flex-end"><Button mih={44} disabled={!settings || !validImageLimit || settingsReason.trim().length < 8 || settingsReason.trim().length > 500} loading={savingSettings} onClick={save}>Save settings</Button></Group>
           </Stack>
         </Paper>
       </Tabs.Panel>

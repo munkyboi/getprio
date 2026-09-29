@@ -4,7 +4,7 @@ const authService = require('./authService');
 const queueEventRepository = require('../repositories/queueEvents');
 const sessions = require('../repositories/authSessions');
 
-const REQUIRED_TASKS = ['personal_data_inventory','object_storage_versions_and_caches','supplier_data','financial_and_legal_retention','backup_disposal'];
+const REQUIRED_TASKS = ['application_relational_inventory','personal_data_inventory','object_storage_versions_and_caches','supplier_data','financial_and_legal_retention','backup_disposal'];
 
 function failure(statusCode, code, message) {
   return Object.assign(new Error(message), { statusCode, code });
@@ -82,10 +82,6 @@ function createAccountDeletionService({ transaction = db.withTransaction, verify
       await client.query(`UPDATE queue_notification_outbox SET status='obsolete',lease_owner=NULL,leased_until=NULL
         WHERE ticket_id IN (SELECT id FROM tickets WHERE user_id=$1) AND status IN ('pending','retry','processing')`, [userId]);
       await client.query('DELETE FROM vendor_reviews WHERE customer_user_id=$1', [userId]);
-      // External stores and retained business records require evidence before completion.
-      for (const kind of REQUIRED_TASKS) {
-        await client.query(`INSERT INTO account_deletion_tasks(request_id,kind) VALUES($1,$2) ON CONFLICT DO NOTHING`, [request.id, kind]);
-      }
       return { status: request.status === 'completed' ? 'completed' : 'accepted', requestId: request.id, dueAt: request.due_at };
     });
     try { await refreshQueues(userId); } catch {

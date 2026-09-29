@@ -68,7 +68,7 @@ test('account deletion against disposable PostgreSQL', { skip: !url }, async (t)
       assert.equal((await users.findUserById(user._id)).deletionRequestedAt, null);
       assert.equal((await db.pool.query('SELECT * FROM account_deletion_requests WHERE user_id=$1',[user._id])).rowCount,0);
     });
-    await t.test('atomic revocation, retry, blocked login, evidence gates and final erasure', async () => {
+    await t.test('atomic revocation, retry, blocked login, and reviewed asynchronous cleanup', async () => {
       const user = await fixture();
       const session = await sessions.createAuthSession({user,authMethod:'password'});
       await db.pool.query("INSERT INTO mobile_push_registrations(user_id,installation_id,token,platform) VALUES($1,$2,$2,'ios')",[user._id,'fixture-'+user._id]);
@@ -82,19 +82,30 @@ test('account deletion against disposable PostgreSQL', { skip: !url }, async (t)
       await auth(request('POST','/api/account/delete'));
       await assert.rejects(sessions.createAuthSession({user:await users.findUserById(user._id),authMethod:'password'}), {code:'ACCOUNT_DELETION_PENDING'});
       const load = async () => (await db.pool.query('SELECT * FROM account_deletion_requests WHERE id=$1',[result.requestId])).rows[0];
-      assert.equal(await db.withTransaction(async c => worker.processRequest(c,await load())),false);
-      // Missing tasks must fail closed, rather than an empty set being treated as complete.
-      await db.pool.query('DELETE FROM account_deletion_tasks WHERE request_id=$1',[result.requestId]);
-      await db.pool.query("UPDATE account_deletion_requests SET retention_notice='No retained records in fixture.' WHERE id=$1",[result.requestId]);
-      assert.equal(await db.withTransaction(async c => worker.processRequest(c,await load())),false);
-      for(const kind of service.REQUIRED_TASKS) {
-        await db.pool.query("INSERT INTO account_deletion_tasks(request_id,kind,status,evidence) VALUES($1,$2,'completed','fixture evidence')",[result.requestId,kind]);
+      await db.pool.query("UPDATE account_deletion_requests SET scan_status='queued',scan_next_attempt_at=NOW() WHERE id=$1", [result.requestId]);
+      const cleanupClient = await db.pool.connect();
+      try {
+        const request = await load();
+        assert.equal(await worker.generateInventory(cleanupClient, request), true);
+        const scanned = await load();
+        const selected = Object.fromEntries(scanned.scan_report.categories.map((category) => [category.id, category.id === 'relational_references']));
+        const exclusions = Object.fromEntries(scanned.scan_report.categories.filter((category) => !selected[category.id])
+          .map((category) => [category.id, 'Outside the verified automated cleanup scope.']));
+        const references = Object.fromEntries(scanned.scan_report.inventory.sources
+          .filter((source) => source.recordCount > 0 && source.source !== 'public.users.id')
+          .map((source) => [source.source, source.items.map((item) => item.id)]));
+        await db.pool.query(`UPDATE account_deletion_requests SET cleanup_status='queued',cleanup_selection=$2::jsonb,status='processing' WHERE id=$1`,
+          [result.requestId, JSON.stringify({reportVersion:scanned.scan_report.version,selected,references,exclusions})]);
+        assert.equal(await worker.runApprovedCleanup(cleanupClient,await load()),true);
       }
-      assert.equal(await db.withTransaction(async c => worker.processRequest(c,await load())),true);
+      finally { cleanupClient.release(); }
       assert.equal(await users.findUserById(user._id),null);
-      assert.equal((await load()).status,'completed');
+      assert.equal((await load()).cleanup_status,'completed');
+      assert.equal((await load()).report_status,'ready');
+      assert.notEqual((await load()).status,'completed');
       assert.equal((await load()).user_id,null);
       assert.equal((await db.pool.query('SELECT * FROM auth_sessions WHERE user_id=$1',[user._id])).rowCount,0);
+      assert.equal((await db.pool.query('SELECT * FROM mobile_push_registrations WHERE user_id=$1',[user._id])).rowCount,0);
     });
     async function ticketFixture(user, status) {
       const key = require('node:crypto').randomUUID();

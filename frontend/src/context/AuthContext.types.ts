@@ -4,6 +4,7 @@ import type {
   AuthLoginResponse,
   AuthResponse,
   CompleteVendorOnboardingRequest,
+  EmailMfaChallengeResponse,
   LoginRequest,
   OAuthProviderAvailability,
   OAuthProviderId,
@@ -23,7 +24,8 @@ export interface AuthContextValue {
   oauthProviders: OAuthProviderAvailability;
   oauthLoading: boolean;
   login(credentials: LoginRequest): Promise<AuthLoginResponse>;
-  verifyMfaChallenge(payload: { challengeToken: string; code?: string; recoveryCode?: string }): Promise<AuthResponse>;
+  verifyMfaChallenge(payload: { challengeToken: string; code?: string; recoveryCode?: string; method?: "totp" | "email" }): Promise<AuthResponse>;
+  sendEmailMfaCode(payload: { challengeToken: string }): Promise<EmailMfaChallengeResponse>;
   registerVendor(payload: RegisterVendorRequest): Promise<AuthResponse>;
   completeVendorOnboarding(payload: CompleteVendorOnboardingRequest): Promise<AuthResponse>;
   registerCustomer(payload: RegisterCustomerRequest): Promise<AuthResponse>;

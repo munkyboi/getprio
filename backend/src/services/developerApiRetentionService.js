@@ -20,9 +20,14 @@ async function runRetentionSweep(options = {}) {
        AND customer_data_deleted_at IS NULL
      RETURNING id`
   );
+  const expiredActivity = await client.query(
+    `DELETE FROM developer_api_key_activity_hourly
+     WHERE bucket_start < NOW() - INTERVAL '30 days'`
+  );
   return {
     expiredOperationCount: expiredOperations.rowCount,
-    deletedCustomerDataCount: deletedCustomerData.rowCount
+    deletedCustomerDataCount: deletedCustomerData.rowCount,
+    expiredApiKeyActivityBuckets: expiredActivity.rowCount
   };
 }
 

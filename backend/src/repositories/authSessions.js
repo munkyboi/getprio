@@ -245,7 +245,7 @@ async function listActiveSessionsByUserId(userId, options = {}) {
 
 async function revokeAllSessionsForUser(userId, revokeReason, options = {}) {
   const queryClient = buildQueryClient(options.client);
-  await queryClient.query(
+  const result = await queryClient.query(
     `
       UPDATE auth_sessions
       SET
@@ -257,6 +257,7 @@ async function revokeAllSessionsForUser(userId, revokeReason, options = {}) {
     `,
     [Number(userId), revokeReason || null]
   );
+  return result.rowCount || 0;
 }
 
 async function revokeOtherSessionsForUser(userId, currentSessionId, revokeReason, options = {}) {

@@ -1,4 +1,5 @@
 const businessCategories = require("../repositories/businessCategories");
+const platformHelpCenter = require("../repositories/platformHelpCenter");
 const express = require("express");
 const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
 const tenantRepository = require("../repositories/tenants");
@@ -39,6 +40,10 @@ router.get("/upload-policy", asyncHandler(async (_req, res) => {
   res.set("Cache-Control", "no-store").json({ maxImageUploadKb, maxImageUploadBytes: maxImageUploadKb * 1024 });
 }));
 router.get("/business-categories", asyncHandler(async (_req, res) => res.json({ items: await businessCategories.list() })));
+router.get("/help-center", asyncHandler(async (_req, res) => {
+  res.set("Cache-Control", "public, max-age=60");
+  return res.json(await platformHelpCenter.getPublished());
+}));
 const enterpriseInquiryLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 5,

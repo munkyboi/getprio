@@ -1,4 +1,5 @@
 const businessCategories = require("../repositories/businessCategories");
+const platformHelpCenter = require("../repositories/platformHelpCenter");
 const { isValidImageUploadLimit } = require("../utils/imageUploadLimit");
 const express = require("express");
 const asyncHandler = require("../middleware/asyncHandler");
@@ -24,6 +25,7 @@ const { requireIdempotency } = require("../middleware/idempotency");
 const securityAuditService = require("../services/securityAuditService");
 const securityAuditRepository = require("../repositories/securityAudit");
 const authService = require("../services/authService");
+const authSessionsRepository = require("../repositories/authSessions");
 const sandboxAppleReviewAccountService = require("../services/sandboxAppleReviewAccountService");
 const usageCreditService = require("../services/usageCreditService");
 const usageCreditRepository = require("../repositories/usageCredits");
@@ -37,13 +39,338 @@ const releaseControls = require("../config/releaseControls");
 const { assertReleaseControl, requireReleaseControl } = require("../middleware/releaseControl");
 const db = require("../config/db");
 const developerProjects = require("../repositories/developerProjects");
+const developerApiKeyActivity = require("../repositories/developerApiKeyActivity");
 const developerWebhookSuspensions = require("../repositories/developerWebhookSuspensions");
 const developerApiRateLimits = require("../repositories/developerApiRateLimits");
 const { productionApprovalResponse } = require("../utils/developerProductionApproval");
+const platformReadModelService = require("../services/platformReadModelService");
+const platformReleaseReadinessEvidence = require("../services/platformReleaseReadinessEvidence");
+const accountDeletionAdminService = require("../services/accountDeletionAdminService");
+const passwordResetService = require("../services/passwordResetService");
+const notificationService = require("../services/notificationService");
+const passwordResetTokenRepository = require("../repositories/passwordResetTokens");
 
 const router = express.Router();
 
+router.post("/release-readiness/evidence", asyncHandler(async (req, res) => {
+  const secret = process.env.PLATFORM_RELEASE_EVIDENCE_SECRET || "";
+  const timestamp = String(req.get("x-platform-evidence-timestamp") || "");
+  const signature = String(req.get("x-platform-evidence-signature") || "");
+  const rawBody = JSON.stringify(req.body || {});
+  if (!platformReleaseReadinessEvidence.verifySignature({ secret, timestamp, signature, rawBody })) {
+    return res.status(401).json({ message: "Invalid or expired evidence signature." });
+  }
+  if (!platformReleaseReadinessEvidence.validateReport(req.body)) {
+    return res.status(400).json({ message: "Invalid release evidence report." });
+  }
+  await platformReleaseReadinessEvidence.recordReport(req.body);
+  res.setHeader("Cache-Control", "no-store");
+  return res.status(202).json({ accepted: true });
+}));
+
 router.use(authenticate);
+
+router.get("/help-center", requirePlatformPermission("platform.help_center.manage"), asyncHandler(async (_req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  return res.json(await platformHelpCenter.getAdmin());
+}));
+
+router.post("/help-center/drafts", requirePlatformPermission("platform.help_center.manage"), requireIdempotency("platform.help_center.draft.save"), asyncHandler(async (req, res) => {
+  const reason = String(req.body?.reason || "").trim().replace(/\s+/g, " ");
+  if (reason.length < 8 || reason.length > 500) {
+    const error = new Error("Enter an audit reason between 8 and 500 characters.");
+    error.statusCode = 400;
+    error.code = "INVALID_REASON";
+    throw error;
+  }
+  const result = await db.withTransaction(async (client) => {
+    const draft = await platformHelpCenter.saveDraft(req.body?.content, req.user._id, reason, { client });
+    await securityAuditService.record({
+      actorId: req.user._id, actorRole: "platform_admin", sessionId: req.auth.sessionId,
+      action: "platform.help_center.draft.save", resourceType: "help_center_revision",
+      resourceId: String(draft.revision), reason, outcome: "success",
+      afterState: { revision: draft.revision, articleCount: req.body.content?.articles?.length || 0, faqCount: req.body.content?.faqs?.length || 0 }
+    }, { client });
+    return draft;
+  });
+  return res.status(201).json({ draft: result });
+}));
+
+router.post("/help-center/publish", requirePlatformPermission("platform.help_center.manage"), requireIdempotency("platform.help_center.publish"), asyncHandler(async (req, res) => {
+  const reason = String(req.body?.reason || "").trim().replace(/\s+/g, " ");
+  if (reason.length < 8 || reason.length > 500) {
+    const error = new Error("Enter an audit reason between 8 and 500 characters.");
+    error.statusCode = 400;
+    error.code = "INVALID_REASON";
+    throw error;
+  }
+  const result = await db.withTransaction(async (client) => {
+    const published = await platformHelpCenter.publishDraft(req.body?.revision, req.user._id, reason, { client });
+    await securityAuditService.record({
+      actorId: req.user._id, actorRole: "platform_admin", sessionId: req.auth.sessionId,
+      action: "platform.help_center.publish", resourceType: "help_center_revision",
+      resourceId: String(published.publishedRevision), reason, outcome: "success",
+      beforeState: { publishedRevision: published.previousPublishedRevision },
+      afterState: { publishedRevision: published.publishedRevision }
+    }, { client });
+    return published;
+  });
+  return res.json({ publish: result });
+}));
+
+router.post("/help-center/revisions/:revision/restore", requirePlatformPermission("platform.help_center.manage"), requireIdempotency("platform.help_center.revision.restore"), asyncHandler(async (req, res) => {
+  const reason = String(req.body?.reason || "").trim().replace(/\s+/g, " ");
+  if (reason.length < 8 || reason.length > 500) {
+    const error = new Error("Enter an audit reason between 8 and 500 characters.");
+    error.statusCode = 400;
+    error.code = "INVALID_REASON";
+    throw error;
+  }
+  const result = await db.withTransaction(async (client) => {
+    const draft = await platformHelpCenter.restoreRevision(req.params.revision, req.user._id, reason, { client });
+    await securityAuditService.record({
+      actorId: req.user._id, actorRole: "platform_admin", sessionId: req.auth.sessionId,
+      action: "platform.help_center.revision.restore", resourceType: "help_center_revision",
+      resourceId: String(draft.revision), reason, outcome: "success",
+      afterState: { revision: draft.revision, restoredFromRevision: draft.restoredFromRevision }
+    }, { client });
+    return draft;
+  });
+  return res.status(201).json({ draft: result });
+}));
+
+router.get("/viewer-context", requirePlatformPermission("platform.tenants.read"), asyncHandler(async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  return res.json(await platformReadModelService.getViewerContext(req));
+}));
+
+router.get("/overview/read-model", requirePlatformPermission("platform.tenants.read"), asyncHandler(async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  return res.json(await platformReadModelService.getOverview(req));
+}));
+
+router.get("/service-health", requirePlatformPermission("platform.tenants.read"), asyncHandler(async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  return res.json(await platformReadModelService.getServiceHealth(req));
+}));
+
+router.get("/queues", requirePlatformPermission("platform.tenants.read"), asyncHandler(async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  return res.json(await platformReadModelService.getQueueOperations(req));
+}));
+
+router.get("/tenants/read-model", requirePlatformPermission("platform.tenants.read"), asyncHandler(async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  return res.json(await platformReadModelService.getTenants(req));
+}));
+
+router.get("/users/read-model", requirePlatformPermission("platform.users.read"), asyncHandler(async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  return res.json(await platformReadModelService.getUsers(req));
+}));
+
+router.get("/users/:userId/details", requirePlatformPermission("platform.users.read"), asyncHandler(async (req, res) => {
+  if (!/^\d{1,18}$/.test(req.params.userId)) return res.status(400).json({ message: "Invalid user ID." });
+  const details = await platformReadModelService.getUserDetails(req, req.params.userId);
+  if (!details) return res.status(404).json({ message: "User not found." });
+  res.setHeader("Cache-Control", "no-store");
+  return res.json(details);
+}));
+
+router.get("/account-deletion-requests", requirePlatformPermission("platform.account_deletion.manage"), asyncHandler(async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  return res.json({ requests: await accountDeletionAdminService.listRequests() });
+}));
+
+router.post(
+  "/account-deletion-requests/:requestId/begin-scan",
+  requirePlatformPermission("platform.account_deletion.manage"),
+  requireIdempotency("platform.account_deletion.scan.begin"),
+  asyncHandler(async (req, res) => {
+    const reason = String(req.body?.reason || "").trim().replace(/\s+/g, " ");
+    if (reason.length < 8 || reason.length > 500) {
+      const error = new Error("Enter an audit reason between 8 and 500 characters.");
+      error.statusCode = 400;
+      error.code = "INVALID_REASON";
+      throw error;
+    }
+
+    const scan = await db.withTransaction(async (client) => {
+      const result = await accountDeletionAdminService.beginScan(req.params.requestId, { client });
+      await securityAuditService.record({
+        actorId: req.user._id,
+        actorRole: "platform_admin",
+        sessionId: req.auth.sessionId,
+        action: "platform.account_deletion.scan.begin",
+        resourceType: "account_deletion_request",
+        resourceId: req.params.requestId,
+        reason,
+        outcome: result.alreadyQueued ? "noop" : "success",
+        beforeState: { scanStatus: result.beforeScanStatus },
+        afterState: { scanStatus: result.scanStatus }
+      }, { client });
+      return result;
+    });
+    return res.status(scan.alreadyQueued ? 200 : 202).json({ scan });
+  })
+);
+
+router.post(
+  "/account-deletion-requests/:requestId/begin-cleanup",
+  requirePlatformPermission("platform.account_deletion.manage"),
+  requireIdempotency("platform.account_deletion.cleanup.begin"),
+  asyncHandler(async (req, res) => {
+    const reason = String(req.body?.reason || "").trim().replace(/\s+/g, " ");
+    if (reason.length < 8 || reason.length > 500) {
+      const error = new Error("Enter an audit reason between 8 and 500 characters.");
+      error.statusCode = 400;
+      error.code = "INVALID_REASON";
+      throw error;
+    }
+    const result = await db.withTransaction(async (client) => {
+      const action = "platform.account_deletion.cleanup.begin";
+      const payload = { reportVersion: req.body?.reportVersion, selection: req.body?.selection || {}, references: req.body?.references || {}, exclusions: req.body?.exclusions || {} };
+      const preview = await privilegedPreviewService.resolvePreview({ action, target: req.params.requestId, payload }, { client, lock: true });
+      await privilegedTransactionService.consumeConfirmation({
+        token: req.get("x-transaction-confirmation"), actorId: req.user._id, session: req.auth.session,
+        action, target: req.params.requestId, reason, payload,
+        previewRevision: req.body?.previewRevision, currentPreviewRevision: preview.revision
+      }, { client });
+      const cleanup = await accountDeletionAdminService.queueCleanup(req.params.requestId, {
+        selection: req.body?.selection,
+        referenceSelection: req.body?.references,
+        exclusions: req.body?.exclusions,
+        reportVersion: req.body?.reportVersion
+      }, { client });
+      await securityAuditService.record({
+        actorId: req.user._id, actorRole: "platform_admin", sessionId: req.auth.sessionId,
+        action: "platform.account_deletion.cleanup.begin", resourceType: "account_deletion_request",
+        resourceId: req.params.requestId, reason,
+        outcome: cleanup.alreadyQueued ? "noop" : "pending",
+        beforeState: { cleanupStatus: cleanup.beforeCleanupStatus, scanStatus: preview.state?.[0]?.scan_status },
+        afterState: {
+          cleanupStatus: cleanup.cleanupStatus,
+          selectedCategories: Object.entries(req.body.selection || {}).filter(([, selected]) => selected === true).map(([id]) => id),
+          excludedCategories: Object.entries(req.body.selection || {}).filter(([, selected]) => selected === false).map(([id]) => id),
+          reviewedReferenceSources: Object.keys(req.body.references || {}).length
+        }
+      }, { client });
+      return cleanup;
+    });
+    return res.status(result.alreadyQueued ? 200 : 202).json({ cleanup: result });
+  })
+);
+
+router.post(
+  "/account-deletion-requests/:requestId/send-report",
+  requirePlatformPermission("platform.account_deletion.manage"),
+  requireIdempotency("platform.account_deletion.report.send"),
+  asyncHandler(async (req, res) => {
+    const reason = String(req.body?.reason || "").trim().replace(/\s+/g, " ");
+    if (reason.length < 8 || reason.length > 500) {
+      const error = new Error("Enter an audit reason between 8 and 500 characters.");
+      error.statusCode = 400;
+      error.code = "INVALID_REASON";
+      throw error;
+    }
+    const result = await db.withTransaction(async (client) => {
+      const action = "platform.account_deletion.report.send";
+      const payload = { requestId: req.params.requestId };
+      const preview = await privilegedPreviewService.resolvePreview({ action, target: req.params.requestId, payload }, { client, lock: true });
+      await privilegedTransactionService.consumeConfirmation({
+        token: req.get("x-transaction-confirmation"), actorId: req.user._id, session: req.auth.session,
+        action, target: req.params.requestId, reason, payload,
+        previewRevision: req.body?.previewRevision, currentPreviewRevision: preview.revision
+      }, { client });
+      const report = await accountDeletionAdminService.queueUserReport(req.params.requestId, { client });
+      await securityAuditService.record({
+        actorId: req.user._id, actorRole: "platform_admin", sessionId: req.auth.sessionId,
+        action: "platform.account_deletion.report.send", resourceType: "account_deletion_request",
+        resourceId: req.params.requestId, reason,
+        outcome: report.alreadyQueued ? "noop" : "pending",
+        beforeState: { reportStatus: report.beforeReportStatus, cleanupStatus: preview.state?.[0]?.cleanup_status },
+        afterState: { reportStatus: report.reportStatus }
+      }, { client });
+      return report;
+    });
+    return res.status(result.alreadyQueued ? 200 : 202).json({ report: result });
+  })
+);
+
+router.post(
+  "/account-deletion-requests/:requestId/tasks/:taskKind/complete",
+  requirePlatformPermission("platform.account_deletion.manage"),
+  requireIdempotency("platform.account_deletion.task.complete"),
+  asyncHandler(async (req, res) => {
+    const reason = String(req.body?.reason || "").trim().replace(/\s+/g, " ");
+    if (reason.length < 8 || reason.length > 500) {
+      const error = new Error("Enter an audit reason between 8 and 500 characters.");
+      error.statusCode = 400;
+      error.code = "INVALID_REASON";
+      throw error;
+    }
+
+    const request = await db.withTransaction(async (client) => {
+      const result = await accountDeletionAdminService.completeTask({
+        requestId: req.params.requestId,
+        taskKind: req.params.taskKind,
+        evidence: req.body?.evidence,
+        retentionNotice: req.body?.retentionNotice
+      }, { client });
+      await securityAuditService.record({
+        actorId: req.user._id,
+        actorRole: "platform_admin",
+        sessionId: req.auth.sessionId,
+        action: "platform.account_deletion.task.complete",
+        resourceType: "account_deletion_request",
+        resourceId: req.params.requestId,
+        reason,
+        outcome: "success",
+        beforeState: { taskKind: req.params.taskKind, status: "pending" },
+        afterState: { taskKind: req.params.taskKind, status: "completed", readyForErasure: result.readyForErasure }
+      }, { client });
+      return result;
+    });
+    return res.json({ request });
+  })
+);
+
+router.get("/security-audit/read-model", requirePlatformPermission("platform.security_audit.read"), asyncHandler(async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  return res.json(await platformReadModelService.getSecurityAudit(req));
+}));
+
+router.get("/billing/read-model", requirePlatformPermission("platform.billing.read"), asyncHandler(async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  return res.json(await platformReadModelService.getBilling(req));
+}));
+
+router.get("/moderation/read-model", requirePlatformPermission("platform.users.read"), asyncHandler(async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  return res.json(await platformReadModelService.getModeration(req));
+}));
+
+router.get("/settings/read-model", requirePlatformPermission("platform.settings.manage"), asyncHandler(async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  return res.json(await platformReadModelService.getSettings(req));
+}));
+
+router.get("/release-readiness/read-model", requirePlatformPermission("platform.release_readiness.read"), asyncHandler(async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  return res.json(await platformReadModelService.getReleaseReadiness(req));
+}));
+
+router.get("/developer-projects/read-model", requirePlatformPermission("platform.developer_api.manage"), asyncHandler(async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  return res.json(await platformReadModelService.getDeveloperProjects(req));
+}));
+
+router.get("/developer-projects/:projectId/governance", requirePlatformPermission("platform.developer_api.manage"), asyncHandler(async (req, res) => {
+  const readModel = await platformReadModelService.getDeveloperProjectGovernance(req, req.params.projectId);
+  if (!readModel) return res.status(404).json({ message: "Active developer project not found." });
+  res.setHeader("Cache-Control", "no-store");
+  return res.json(readModel);
+}));
 
 function cleanDeveloperSecurityReason(value, label = "Reason") {
   const reason = String(value || "").trim();
@@ -99,6 +426,89 @@ function cleanDeveloperProductionReview(body = {}) {
 router.get("/developer-projects", requirePlatformPermission("platform.developer_api.manage"), asyncHandler(async (_req, res) => {
   res.setHeader("Cache-Control", "no-store");
   return res.json({ projects: await developerProjects.listProjectsForPlatform() });
+}));
+
+router.get("/developer-projects/:projectId/api-keys", requirePlatformPermission("platform.developer_api.manage"), asyncHandler(async (req, res) => {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(req.params.projectId)) return res.status(400).json({ message: "Developer project ID is invalid." });
+  const project = await developerProjects.findProjectById(req.params.projectId);
+  if (!project) return res.status(404).json({ message: "Developer project not found." });
+  const [keys, activityRows] = await Promise.all([
+    developerProjects.listApiKeys(project.id),
+    developerApiKeyActivity.listForProject(project.id)
+  ]);
+  const activityByKeyId = new Map(activityRows.map((activity) => [activity.keyId, activity]));
+  res.setHeader("Cache-Control", "no-store");
+  return res.json({
+    project: { id: project.id, name: project.name, status: project.status },
+    keys: keys.map((key) => {
+      const activity = activityByKeyId.get(key.id) || { keyId: key.id, requests: 0, reads: 0, writes: 0, clientErrors: 0, serverErrors: 0, rateLimited: 0, authFailures: 0, lastSeenAt: null };
+      const signal = activity.rateLimited > 0 || activity.authFailures > 0 || activity.serverErrors >= 3 ? "review" : "normal";
+      return {
+        id: key.id,
+        name: key.name,
+        environment: key.environment,
+        keyPrefix: key.keyPrefix,
+        scopes: key.scopes,
+        status: key.status,
+        createdAt: key.createdAt,
+        lastUsedAt: key.lastUsedAt,
+        revokedAt: key.revokedAt,
+        revokeReason: key.revokeReason,
+        activity,
+        signal
+      };
+    })
+  });
+}));
+
+router.post("/developer-projects/:projectId/api-keys/:keyId/revoke", requirePlatformPermission("platform.developer_api.manage"), requireIdempotency("platform.developer_api_key.revoke"), asyncHandler(async (req, res) => {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(req.params.projectId) || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(req.params.keyId)) return res.status(400).json({ message: "Developer project or API key ID is invalid." });
+  const reason = String(req.body?.reason || "").trim().replace(/\s+/g, " ");
+  if (reason.length < 8 || reason.length > 500) {
+    const error = new Error("Enter an audit reason between 8 and 500 characters.");
+    error.statusCode = 400;
+    error.code = "INVALID_REASON";
+    throw error;
+  }
+  const project = await developerProjects.findProjectById(req.params.projectId);
+  if (!project) return res.status(404).json({ message: "Developer project not found." });
+  const key = await db.withTransaction(async (client) => {
+    const before = await developerProjects.findApiKeyById(project.id, req.params.keyId, { client });
+    if (!before) {
+      const error = new Error("Developer API key not found in this project.");
+      error.statusCode = 404;
+      error.code = "DEVELOPER_API_KEY_NOT_FOUND";
+      throw error;
+    }
+    if (before.status !== "active") {
+      const error = new Error("This API key has already been revoked.");
+      error.statusCode = 409;
+      error.code = "DEVELOPER_API_KEY_ALREADY_REVOKED";
+      throw error;
+    }
+    const revoked = await developerProjects.revokeApiKeyForPlatform(project.id, before.id, reason, { client });
+    if (!revoked) {
+      const error = new Error("The API key changed before revocation completed. Refresh and retry.");
+      error.statusCode = 409;
+      error.code = "DEVELOPER_API_KEY_CHANGED";
+      throw error;
+    }
+    await securityAuditService.record({
+      actorId: req.user._id,
+      actorRole: "platform_admin",
+      sessionId: req.auth.sessionId,
+      action: "developer.api_key.revoke",
+      resourceType: "developer_api_key",
+      resourceId: revoked.id,
+      reason,
+      outcome: "success",
+      beforeState: { projectId: project.id, environment: before.environment, status: before.status, keyPrefix: before.keyPrefix },
+      afterState: { projectId: project.id, environment: revoked.environment, status: revoked.status, keyPrefix: revoked.keyPrefix }
+    }, { client });
+    return revoked;
+  });
+  res.setHeader("Cache-Control", "no-store");
+  return res.json({ key: { id: key.id, projectId: key.projectId, name: key.name, environment: key.environment, keyPrefix: key.keyPrefix, scopes: key.scopes, status: key.status, revokedAt: key.revokedAt, revokeReason: key.revokeReason } });
 }));
 
 router.post("/developer-projects/:projectId/sandbox/test-accounts/apple-review", requirePlatformPermission("platform.developer_api.manage"), requireIdempotency("platform.developer_sandbox.apple_review.create"), asyncHandler(async (req, res) => {
@@ -248,7 +658,7 @@ const PRIVILEGED_ACTIONS = new Set([
   "credit.pack.publish", "credit.grant", "credit.revoke",
   "credit.refund.resolve", "credit.dispute.open", "credit.dispute.resolve",
   "plan.defaults.publish", "queue.fees.publish", "subscription.transition", "subscription.suspend"
-  , "entitlement.override.publish", "entitlement.override.revoke", "allowance.reverse", "allowance.reconcile"
+  , "moderation.campaign_report.status", "moderation.rating_dispute.resolve", "platform.user_sessions.revoke", "platform.user.password_reset.send", "platform.account_deletion.cleanup.begin", "platform.account_deletion.report.send", "entitlement.override.publish", "entitlement.override.revoke", "allowance.reverse", "allowance.reconcile"
 ]);
 
 const PRIVILEGED_ACTION_CONTROLS = Object.freeze({
@@ -282,8 +692,8 @@ router.post(
     const permissionByAction = {
       "credit.pack.publish": "platform.credit_catalog.manage", "credit.grant": "platform.credit_grants.manage", "credit.revoke": "platform.credit_revocations.manage",
       "credit.refund.resolve": "platform.credit_adjustments.manage", "credit.dispute.open": "platform.credit_disputes.manage", "credit.dispute.resolve": "platform.credit_disputes.manage",
-      "plan.defaults.publish": "platform.plans.manage", "queue.fees.publish": "platform.queue_fees.manage", "subscription.transition": "platform.subscription_lifecycle.manage", "subscription.suspend": "platform.subscription_lifecycle.manage"
-      , "entitlement.override.publish": "platform.entitlement_overrides.manage", "entitlement.override.revoke": "platform.entitlement_overrides.manage", "allowance.reverse": "platform.credit_adjustments.manage", "allowance.reconcile": "platform.credit_reconcile"
+      "plan.defaults.publish": "platform.plans.manage", "queue.fees.publish": "platform.queue_fees.manage", "subscription.transition": "platform.subscription_lifecycle.manage", "subscription.suspend": "platform.subscription_lifecycle.manage", "moderation.campaign_report.status": "platform.settings.manage", "moderation.rating_dispute.resolve": "platform.settings.manage", "platform.user_sessions.revoke": "platform.user_sessions.revoke"
+      , "platform.user.password_reset.send": "platform.user_password_reset.send", "platform.account_deletion.cleanup.begin": "platform.account_deletion.manage", "platform.account_deletion.report.send": "platform.account_deletion.manage", "entitlement.override.publish": "platform.entitlement_overrides.manage", "entitlement.override.revoke": "platform.entitlement_overrides.manage", "allowance.reverse": "platform.credit_adjustments.manage", "allowance.reconcile": "platform.credit_reconcile"
     };
     if (!getGlobalPermissions(req.user).has(permissionByAction[action])) throw Object.assign(new Error("You do not have permission to preview this action."), { statusCode: 403 });
     const target = String(req.body.target || "");
@@ -291,6 +701,78 @@ router.post(
     const preview = await privilegedPreviewService.resolvePreview({ action, target, payload: req.body.payload || {} });
     const confirmation = await privilegedTransactionService.issueConfirmation({ actorId: req.user._id, session: req.auth.session, action, target, reason, payload: preview.payload, previewRevision: preview.revision });
     res.json({ preview, confirmation });
+  })
+);
+
+router.post(
+  "/users/:userId/password-reset",
+  requirePlatformPermission("platform.user_password_reset.send"),
+  requireIdempotency("platform.user_password_reset.send"),
+  asyncHandler(async (req, res) => {
+    if (!/^\d{1,18}$/.test(req.params.userId)) return res.status(400).json({ message: "Invalid user ID." });
+    const userId = String(req.params.userId);
+    const reason = String(req.body?.reason || "").trim().replace(/\s+/g, " ");
+    if (reason.length < 8 || reason.length > 500) return res.status(400).json({ message: "Enter an audit reason between 8 and 500 characters." });
+    const payload = { userId };
+    const issued = await db.withTransaction(async (client) => {
+      const user = (await client.query("SELECT id,email,roles FROM users WHERE id=$1 FOR UPDATE", [Number(userId)])).rows[0];
+      if (!user) return { missing: true };
+      if (!user.email) return { noEmail: true };
+      const preview = await privilegedPreviewService.resolvePreview({ action: "platform.user.password_reset.send", target: userId, payload }, { client, lock: true });
+      await privilegedTransactionService.consumeConfirmation({
+        token: req.get("x-transaction-confirmation"), actorId: req.user._id, session: req.auth.session,
+        action: "platform.user.password_reset.send", target: userId, reason, payload,
+        previewRevision: req.body?.previewRevision, currentPreviewRevision: preview.revision
+      }, { client });
+      const reset = await passwordResetService.issuePasswordResetToken({
+        user: { _id: String(user.id), email: user.email, roles: user.roles || [] }, req, client
+      });
+      return { user, reset };
+    });
+    if (issued.missing) return res.status(404).json({ message: "User not found." });
+    if (issued.noEmail) return res.status(409).json({ message: "This account has no email address for password recovery." });
+    try {
+      const delivered = await notificationService.sendEmail({
+        to: issued.user.email,
+        subject: "Reset your GetPrio password",
+        text: ["A Platform administrator requested a password reset for your GetPrio account.", `Reset link: ${issued.reset.resetUrl}`, `This link expires at ${new Date(issued.reset.expiresAt).toISOString()}.`, "If you did not expect this email, ignore it and contact GetPrio support."].join("\n\n"),
+        emailTemplate: { illustration: "account-verification", actionLabel: "Reset password", actionUrl: issued.reset.resetUrl },
+        purpose: "general",
+        metadata: { category: "platform_password_reset" }
+      });
+      if (!delivered) throw Object.assign(new Error("Password reset email could not be delivered."), { statusCode: 503 });
+      await securityAuditService.record({ actorId: req.user._id, actorRole: "platform_admin", sessionId: req.auth.sessionId, action: "platform.user.password_reset.send", resourceType: "user", resourceId: userId, reason, outcome: "success", metadata: { delivery: "email" } });
+    } catch (deliveryError) {
+      await db.withTransaction(async (client) => {
+        await passwordResetTokenRepository.invalidateUnusedTokensForUser(userId, { client });
+        await securityAuditService.record({ actorId: req.user._id, actorRole: "platform_admin", sessionId: req.auth.sessionId, action: "platform.user.password_reset.send", resourceType: "user", resourceId: userId, reason, outcome: "failed", metadata: { delivery: "email" } }, { client });
+      });
+      throw deliveryError;
+    }
+    return res.json({ success: true, message: "Password reset instructions were sent to the account email." });
+  })
+);
+
+router.post(
+  "/users/:userId/sessions/revoke",
+  requirePlatformPermission("platform.user_sessions.revoke"),
+  requireIdempotency("platform.user_sessions.revoke"),
+  asyncHandler(async (req, res) => {
+    if (!/^\d{1,18}$/.test(req.params.userId)) return res.status(400).json({ message: "Invalid user ID." });
+    if (String(req.params.userId) === String(req.user._id)) return res.status(409).json({ message: "The current Platform session cannot revoke itself. Sign out from the account menu instead." });
+    const reason = String(req.body?.reason || "").trim();
+    const payload = { userId: String(req.params.userId) };
+    const result = await db.withTransaction(async (client) => {
+      const targetUser = (await client.query("SELECT id FROM users WHERE id=$1 FOR UPDATE", [Number(req.params.userId)])).rows[0];
+      if (!targetUser) return null;
+      const preview = await privilegedPreviewService.resolvePreview({ action: "platform.user_sessions.revoke", target: req.params.userId, payload }, { client, lock: true });
+      await privilegedTransactionService.consumeConfirmation({ token: req.get("x-transaction-confirmation"), actorId: req.user._id, session: req.auth.session, action: "platform.user_sessions.revoke", target: req.params.userId, reason, payload, previewRevision: req.body.previewRevision, currentPreviewRevision: preview.revision }, { client });
+      const revokedSessions = await authSessionsRepository.revokeAllSessionsForUser(req.params.userId, reason, { client });
+      await securityAuditService.record({ actorId: req.user._id, actorRole: "platform_admin", sessionId: req.auth.sessionId, action: "platform.user_sessions.revoke", resourceType: "user", resourceId: req.params.userId, reason, outcome: "success", metadata: { revokedSessions } }, { client });
+      return { user: { id: String(targetUser.id) }, revokedSessions };
+    });
+    if (!result) return res.status(404).json({ message: "User not found." });
+    return res.json(result);
   })
 );
 
@@ -747,13 +1229,46 @@ router.patch(
       throw error;
     }
 
+    const requestedReason = String(req.body.reason || "").trim().replace(/\s+/g, " ");
+    if (requestedReason.length < 8 || requestedReason.length > 500) {
+      const error = new Error("Enter an audit reason between 8 and 500 characters.");
+      error.statusCode = 400;
+      error.code = "INVALID_REASON";
+      throw error;
+    }
+    const reason = requestedReason;
     res.json({
-      settings: await platformRepository.updatePlatformSettings({
-        enterpriseInquiryEmail,
-        defaultTimezone,
-        mobileApprovedHosts,
-        maxImageUploadKb,
-        userId: req.user?._id
+      settings: await db.withTransaction(async (client) => {
+        const beforeState = await platformRepository.getPlatformSettings({ client });
+        const expectedSettings = req.body.expectedSettings;
+        if (expectedSettings && ["enterpriseInquiryEmail", "defaultTimezone", "mobileApprovedHosts", "maxImageUploadKb"].some((key) => JSON.stringify(expectedSettings[key]) !== JSON.stringify(beforeState[key]))) {
+          const error = new Error("Platform settings changed after this page loaded. Refresh and review your changes before saving again.");
+          error.statusCode = 409;
+          error.code = "SETTINGS_CHANGED";
+          throw error;
+        }
+        const settings = await platformRepository.updatePlatformSettings({
+          enterpriseInquiryEmail,
+          defaultTimezone,
+          mobileApprovedHosts,
+          maxImageUploadKb,
+          userId: req.user?._id
+        }, { client });
+        const changedFields = Object.keys(settings).filter((key) => JSON.stringify(beforeState[key]) !== JSON.stringify(settings[key]));
+        await securityAuditService.record({
+          actorId: req.user?._id,
+          actorRole: "platform_admin",
+          sessionId: req.auth?.sessionId,
+          action: "platform.settings.update",
+          resourceType: "platform_settings",
+          resourceId: "global",
+          reason,
+          outcome: "success",
+          metadata: { changedFields },
+          beforeState,
+          afterState: settings
+        }, { client });
+        return settings;
       })
     });
   })
@@ -898,10 +1413,31 @@ router.get(
 router.patch(
   "/campaign-reports/:reportId",
   requirePlatformPermission("platform.settings.manage"),
+  requireIdempotency("platform.campaign_report.status"),
   asyncHandler(async (req, res) => {
-    const status = req.body?.status;
+    const status = String(req.body?.status || "");
     if (!["reviewing", "resolved", "dismissed"].includes(status)) { const error = new Error("Invalid report status."); error.statusCode = 400; throw error; }
-    res.json({ report: await organizerCampaignRepository.updateReportStatus({ reportId: req.params.reportId, status }) });
+    const report = await db.withTransaction(async (client) => {
+      const payload = { status };
+      const preview = await privilegedPreviewService.resolvePreview({ action: "moderation.campaign_report.status", target: req.params.reportId, payload }, { client, lock: true });
+      await privilegedTransactionService.consumeConfirmation({ token: req.get("x-transaction-confirmation"), actorId: req.user._id, session: req.auth.session, action: "moderation.campaign_report.status", target: req.params.reportId, reason: req.body.reason, payload, previewRevision: req.body.previewRevision, currentPreviewRevision: preview.revision }, { client });
+      const before = preview.state[0];
+      if (!before || !["open", "reviewing"].includes(before.report_status)) {
+        const error = new Error("Active campaign report not found.");
+        error.statusCode = 404;
+        throw error;
+      }
+      const result = await client.query("UPDATE organizer_campaign_reports SET report_status = $2 WHERE id = $1 AND report_status IN ('open','reviewing') RETURNING *", [Number(req.params.reportId), status]);
+      const updated = result.rows[0];
+      if (!updated) {
+        const error = new Error("Campaign report changed before the action completed.");
+        error.statusCode = 409;
+        throw error;
+      }
+      await securityAuditService.record({ actorId: req.user._id, actorRole: "platform_admin", sessionId: req.auth.sessionId, action: "moderation.campaign_report.status", resourceType: "campaign_report", resourceId: req.params.reportId, reason: req.body.reason, outcome: "success", beforeState: { status: before.report_status }, afterState: { status: updated.report_status } }, { client });
+      return updated;
+    });
+    res.json({ report });
   })
 );
 
@@ -942,14 +1478,27 @@ router.get(
 router.patch(
   "/rating-disputes/:disputeId",
   requirePlatformPermission("platform.settings.manage"),
+  requireIdempotency("platform.moderation.rating_dispute.resolve"),
   asyncHandler(async (req, res) => {
-    const status = req.body?.status;
-    const moderationStatus = req.body?.moderationStatus;
+    const status = String(req.body?.status || "");
+    const moderationStatus = String(req.body?.moderationStatus || "");
     if (!["resolved", "dismissed"].includes(status) || !["active", "hidden"].includes(moderationStatus)) {
       const error = new Error("Choose a valid dispute resolution."); error.statusCode = 400; throw error;
     }
-    const dispute = await ratingRepository.resolveDispute({ disputeId: req.params.disputeId, actorUserId: req.user?._id, status, moderationStatus });
-    if (!dispute) { const error = new Error("Rating dispute not found."); error.statusCode = 404; throw error; }
+    const dispute = await db.withTransaction(async (client) => {
+      const payload = { status, moderationStatus };
+      const preview = await privilegedPreviewService.resolvePreview({ action: "moderation.rating_dispute.resolve", target: req.params.disputeId, payload }, { client, lock: true });
+      await privilegedTransactionService.consumeConfirmation({ token: req.get("x-transaction-confirmation"), actorId: req.user._id, session: req.auth.session, action: "moderation.rating_dispute.resolve", target: req.params.disputeId, reason: req.body.reason, payload, previewRevision: req.body.previewRevision, currentPreviewRevision: preview.revision }, { client });
+      const before = preview.state[0];
+      if (!before || !["open", "reviewing"].includes(before.dispute_status)) { const error = new Error("Rating dispute not found."); error.statusCode = 404; throw error; }
+      const result = await client.query("UPDATE rating_disputes SET dispute_status = $2, resolved_by_user_id = $3, resolved_at = NOW() WHERE id = $1 AND dispute_status IN ('open','reviewing') RETURNING *", [Number(req.params.disputeId), status, Number(req.user._id)]);
+      const updated = result.rows[0];
+      if (!updated) { const error = new Error("Rating dispute changed before the action completed."); error.statusCode = 409; throw error; }
+      const table = before.rating_type === "vendor_review" ? "vendor_reviews" : "user_trust_ratings";
+      await client.query(`UPDATE ${table} SET moderation_status = $2 WHERE id = $1`, [Number(before.rating_id), moderationStatus]);
+      await securityAuditService.record({ actorId: req.user._id, actorRole: "platform_admin", sessionId: req.auth.sessionId, action: "moderation.rating_dispute.resolve", resourceType: "rating_dispute", resourceId: req.params.disputeId, reason: req.body.reason, outcome: "success", beforeState: { status: before.dispute_status }, afterState: { status: updated.dispute_status, moderationStatus } }, { client });
+      return updated;
+    });
     res.json({ dispute });
   })
 );

@@ -14,6 +14,20 @@ async function queryState(action, target, options = {}) {
       return (await client.query(`SELECT id,plan_slug,status,current_period_start,current_period_end,updated_at FROM tenant_subscriptions WHERE tenant_id=$1 AND status IN ('active','past_due','unpaid','suspended') ORDER BY updated_at${lock}`, [target])).rows;
     case "subscription.suspend":
       return (await client.query(`SELECT id,tenant_id,plan_slug,status,updated_at FROM tenant_subscriptions WHERE id=$1${lock}`, [target])).rows;
+    case "moderation.campaign_report.status":
+      return (await client.query(`SELECT id,campaign_id,report_status,category,updated_at FROM organizer_campaign_reports WHERE id=$1${lock}`, [target])).rows;
+    case "moderation.rating_dispute.resolve":
+      return (await client.query(`SELECT id,rating_type,rating_id,dispute_status,resolved_at FROM rating_disputes WHERE id=$1${lock}`, [target])).rows;
+    case "platform.user_sessions.revoke":
+      return (await client.query(`SELECT u.id,u.updated_at,(SELECT COUNT(*)::int FROM auth_sessions s WHERE s.user_id=u.id AND s.status='active') AS active_sessions FROM users u WHERE u.id=$1${lock}`, [target])).rows;
+    case "platform.user.password_reset.send":
+      return (await client.query(`SELECT id,email,email_verified,updated_at FROM users WHERE id=$1${lock}`, [target])).rows;
+    case "platform.account_deletion.cleanup.begin":
+      return (await client.query(`SELECT id,user_id,status,scan_status,scan_report,cleanup_status,cleanup_selection
+        FROM account_deletion_requests WHERE id=$1${lock}`, [target])).rows;
+    case "platform.account_deletion.report.send":
+      return (await client.query(`SELECT id,status,cleanup_status,cleanup_report,report_status,contact_email
+        FROM account_deletion_requests WHERE id=$1${lock}`, [target])).rows;
     case "credit.pack.publish":
       return (await client.query(`SELECT id,code,state,current_revision,updated_at FROM usage_credit_packs WHERE code=$1${lock}`, [target])).rows;
     case "credit.grant":

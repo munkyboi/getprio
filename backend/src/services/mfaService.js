@@ -105,7 +105,7 @@ function decryptSecret(encrypted, secret) {
 }
 
 function userRequiresPrivilegedMfa(user) {
-  return (user?.roles || []).includes("platform_admin") ||
+  return (user?.roles || []).some((role) => ["platform_admin", "platform_release_observer"].includes(role)) ||
     (user?.tenantMemberships || []).some(
       (membership) => membership.isActive !== false && ["owner", "admin"].includes(membership.role)
     );

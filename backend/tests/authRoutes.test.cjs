@@ -214,10 +214,13 @@ for (const roles of [["customer"], ["platform_admin"]]) {
           getUserAgent: () => "test-agent",
           recordLoginAttempt: async () => {}
         },
-        "../services/mfaFlowService": { issueLoginChallenge: async ({ user }) => {
-          challengedUser = user;
-          return { token: "challenge-only", expiresAt: "2026-09-07T12:00:00Z" };
-        } },
+        "../services/mfaFlowService": {
+          getLoginMethods: async () => ["totp", "recovery", "email"],
+          issueLoginChallenge: async ({ user }) => {
+            challengedUser = user;
+            return { token: "challenge-only", expiresAt: "2026-09-07T12:00:00Z" };
+          }
+        },
         "../services/sessionService": { createAuthSession: async () => {
           sessionCalls++;
           throw new Error("A session must not be issued before MFA verification");
@@ -233,7 +236,7 @@ for (const roles of [["customer"], ["platform_admin"]]) {
         assert.equal(response.status, 200);
         assert.deepEqual(await response.json(), {
           mfaRequired: true, challengeToken: "challenge-only",
-          expiresAt: "2026-09-07T12:00:00Z", methods: ["totp", "recovery"]
+          expiresAt: "2026-09-07T12:00:00Z", methods: ["totp", "recovery", "email"]
         });
         assert.equal(response.headers.get("set-cookie"), null);
         assert.equal(challengedUser, user);
@@ -244,6 +247,58 @@ for (const roles of [["customer"], ["platform_admin"]]) {
     });
   }
 }
+
+test("email MFA login action sends a code for the existing password challenge", async () => {
+  let issuedInput;
+  const router = requireWithMocks("../src/routes/authRoutes.js", {
+    "../config/db": {},
+    "../repositories/tenants": {},
+    "../repositories/authSessions": {},
+    "../repositories/users": {},
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../middleware/auth": buildAuthMock(),
+    "../services/authService": {
+      normalizeEmail: (value) => String(value || "").trim().toLowerCase(),
+      getRequestIp: () => "127.0.0.1",
+      getUserAgent: () => "test-agent"
+    },
+    "../services/mfaFlowService": {
+      issueEmailLoginChallenge: async (input) => {
+        issuedInput = input;
+        return { token: "email-challenge", expiresAt: "2026-09-07T12:10:00Z", deliveryTarget: "c***@example.com" };
+      }
+    },
+    "../services/securityRateLimitService": { consume: async () => ({ allowed: true }) },
+    "../services/oauthService": {},
+    "../services/notificationService": {},
+    "../services/passwordResetService": {},
+    "../services/securityEventService": {},
+    "../services/sessionService": {}
+  });
+
+  const { server, baseUrl } = await startServer(router, "/api/auth");
+  try {
+    const response = await fetch(`${baseUrl}/mfa/email/send`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ challengeToken: "password-challenge" })
+    });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      token: "email-challenge",
+      expiresAt: "2026-09-07T12:10:00Z",
+      deliveryTarget: "c***@example.com"
+    });
+    assert.deepEqual(issuedInput, {
+      challengeToken: "password-challenge",
+      ipAddress: "127.0.0.1",
+      userAgent: "test-agent",
+      surface: "app"
+    });
+  } finally {
+    await stopServer(server);
+  }
+});
 
 test("login route returns tracked session tokens", async () => {
   const sessionResult = {
@@ -519,6 +574,38 @@ test("refresh route rotates refresh tokens and returns a fresh session payload",
   }
 });
 
+test("CSRF bootstrap returns a session-bound token to the Platform origin using the API-host refresh cookie", async () => {
+  const session = { _id: "session-csrf", userId: "user-1", status: "active", surface: "app", expiresAt: new Date(Date.now() + 60000) };
+  const router = requireWithMocks("../src/routes/authRoutes.js", {
+    "../config/db": {},
+    "../middleware/moderatePublicText": { moderatePublicText: (_req, _res, next) => next() },
+    "../services/sessionService": {
+      resolveSessionByRefreshToken: async (token) => token === "refresh-token" ? session : null
+    }
+  });
+  const app = express();
+  app.use(express.json());
+  app.use("/api/auth", router);
+  app.use(buildErrorHandlerMock());
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const cookieName = require("../src/config/env").authCookieSecure ? "__Host-prio_refresh" : "prio_refresh";
+  try {
+    const response = await fetch(`${baseUrl}/api/auth/csrf`, { headers: { cookie: `${cookieName}=refresh-token` } });
+    const body = await response.json();
+    assert.equal(response.status, 200);
+    assert.match(body.csrfToken, /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
+    assert.match(response.headers.get("cache-control"), /no-store/);
+    assert.match(response.headers.get("set-cookie"), /prio_csrf=/);
+
+    const unauthenticated = await fetch(`${baseUrl}/api/auth/csrf`);
+    assert.equal(unauthenticated.status, 401);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test("logout route revokes the current session", async () => {
   let revokedSessionId = null;
   let loggedEvent = null;
@@ -651,6 +738,84 @@ test("customer can disable optional MFA after password and authenticator verific
     assert.equal(disablePayload.user._id, "user-1");
     assert.equal(disablePayload.sessionId, "session-1");
     assert.equal(disablePayload.code, "123456");
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("provider-only customer can disable Email OTP after recent provider authentication", async () => {
+  let disableCalls = 0;
+  let primaryAuthenticatedAt = new Date();
+  const user = {
+    _id: "user-provider",
+    name: "Provider Customer",
+    username: "provider_customer",
+    email: "customer@example.com",
+    emailVerified: true,
+    passwordHash: null,
+    emailMfaEnabled: true,
+    mfaEnabled: true,
+    roles: ["customer"],
+    tenantMemberships: [],
+    oauthAccounts: []
+  };
+  const router = requireWithMocks("../src/routes/authRoutes.js", {
+    "../config/db": {},
+    "../repositories/tenants": { findTenantsByIds: async () => [] },
+    "../repositories/authSessions": {},
+    "../repositories/users": {},
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../middleware/auth": {
+      authenticate(req, _res, next) {
+        req.user = user;
+        req.auth = { session: { authMethod: "google", primaryAuthenticatedAt } };
+        next();
+      },
+      maybeAuthenticate: buildAuthMock().maybeAuthenticate
+    },
+    "../services/authService": {
+      verifyPasswordLogin: async () => { throw new Error("Password verification should not run for provider-only accounts"); }
+    },
+    "../services/mfaFlowService": {
+      disableEmailMfa: async ({ user: currentUser }) => {
+        assert.equal(currentUser, user);
+        disableCalls += 1;
+        user.emailMfaEnabled = false;
+        user.mfaEnabled = false;
+        return user;
+      }
+    },
+    "../services/securityRateLimitService": { consume: async () => ({ allowed: true }) },
+    "../services/oauthService": {},
+    "../services/notificationService": {},
+    "../services/passwordResetService": {},
+    "../services/securityEventService": {},
+    "../services/sessionService": {}
+  });
+
+  const { server, baseUrl } = await startServer(router, "/api/auth");
+  try {
+    const response = await fetch(`${baseUrl}/mfa/email/disable`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}"
+    });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.user.emailMfaEnabled, false);
+    assert.equal(disableCalls, 1);
+
+    user.emailMfaEnabled = true;
+    user.mfaEnabled = true;
+    primaryAuthenticatedAt = new Date(Date.now() - 6 * 60_000);
+    const staleResponse = await fetch(`${baseUrl}/mfa/email/disable`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}"
+    });
+    assert.equal(staleResponse.status, 403);
+    assert.match((await staleResponse.json()).message, /sign in again with your original provider/i);
+    assert.equal(disableCalls, 1);
   } finally {
     await stopServer(server);
   }

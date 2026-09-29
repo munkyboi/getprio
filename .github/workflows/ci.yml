@@ -44,6 +44,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install new Platform dashboard dependencies
+        run: npm ci --prefix platform-dashboard-shadcn
+
       - name: Backend production dependency audit
         working-directory: backend
         run: npm audit --omit=dev --audit-level=high
@@ -59,6 +62,9 @@ jobs:
 
       - name: Platform Dashboard tests
         run: npm run test:platform
+
+      - name: Post-deploy smoke runner tests
+        run: node --test scripts/smoke-test.test.cjs
 
       - name: Frontend coverage
         run: npm run test:frontend:coverage

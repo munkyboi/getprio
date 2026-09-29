@@ -38,6 +38,8 @@ test("production deployment wires and verifies all FCM credentials", () => {
   assert.match(workflow, /printf 'FCM_PRIVATE_KEY=%s\\n' "\$\{fcm_private_key\}"/);
   assert.match(workflow, /printf 'FCM_SANDBOX_PRIVATE_KEY=%s\\n' "\$\{fcm_private_key_sandbox\}"/);
   assert.match(workflow, /bash scripts\/verify-fcm-config\.sh/);
+  assert.match(workflow, /VITE_PLATFORM_DATA_SOURCE=live/);
+  assert.match(workflow, /Authenticated Platform post-deploy smoke \(report-only\)[\s\S]*?continue-on-error: true[\s\S]*?run: node scripts\/smoke-test\.mjs --stage platform/);
 });
 
 test("FCM verifier accepts a complete service-account configuration", () => {

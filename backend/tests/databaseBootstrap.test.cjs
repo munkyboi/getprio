@@ -47,3 +47,31 @@ test("booking bundle repair restores vendor and location boundary constraints", 
   assert.match(verifier, /pg_get_constraintdef\(oid\) = required\.required_definition/);
   assert.match(verifier, /Found % cross-boundary booking bundle rows/);
 });
+
+test("account deletion automation migration stores reports and adds a separate inventory gate", () => {
+  const migrationSql = fs.readFileSync(
+    path.join(repositoryRoot, "database", "migrations", "20260928_add_account_deletion_automation_report.sql"),
+    "utf8"
+  );
+
+  assert.match(migrationSql, /ADD COLUMN IF NOT EXISTS automation_report JSONB/);
+  assert.match(migrationSql, /'application_relational_inventory'/);
+  assert.match(migrationSql, /WHERE kind='personal_data_inventory'/);
+  assert.match(migrationSql, /ON CONFLICT \(request_id, kind\) DO NOTHING/);
+});
+
+test("account deletion workflow migration persists background scan, cleanup, and user-report states", () => {
+  const migrationSql = fs.readFileSync(
+    path.join(repositoryRoot, "database", "migrations", "20260928_add_account_deletion_workflow_states.sql"),
+    "utf8"
+  );
+  const initSql = fs.readFileSync(path.join(repositoryRoot, "database", "init.sql"), "utf8");
+
+  for (const stateColumn of ["scan_status", "scan_report", "cleanup_status", "cleanup_selection", "cleanup_report", "report_status", "report_sent_at"]) {
+    assert.match(migrationSql, new RegExp(`ADD COLUMN IF NOT EXISTS ${stateColumn}`));
+    assert.match(initSql, new RegExp(`\\b${stateColumn}\\b`));
+  }
+  assert.match(migrationSql, /account_deletion_scan_due_idx/);
+  assert.match(migrationSql, /'report_ready'/);
+  assert.match(migrationSql, /'needs_attention'/);
+});

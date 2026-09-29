@@ -172,6 +172,8 @@ export interface UserSummary {
   emailVerified: boolean;
   hasPassword: boolean;
   mfaEnabled?: boolean;
+  totpMfaEnabled?: boolean;
+  emailMfaEnabled?: boolean;
   mfaRequired?: boolean;
   oauthProviders: OAuthProviderId[];
   lastLoginProvider: string | null;
@@ -1493,7 +1495,13 @@ export interface MfaChallengeResponse {
   mfaRequired: true;
   challengeToken: string;
   expiresAt: string | Date;
-  methods: Array<"totp" | "recovery">;
+  methods: Array<"totp" | "recovery" | "email">;
+}
+
+export interface EmailMfaChallengeResponse {
+  token: string;
+  expiresAt: string | Date;
+  deliveryTarget: string;
 }
 
 export type AuthLoginResponse = AuthResponse | MfaChallengeResponse;
@@ -1781,6 +1789,8 @@ export interface UpdatePlatformSettingsRequest {
   defaultTimezone: string;
   mobileApprovedHosts: string[];
   maxImageUploadKb?: number;
+  reason: string;
+  expectedSettings?: PlatformSettingsResponse["settings"];
 }
 
 export interface UpdatePlatformQueueFeesRequest {
@@ -1912,6 +1922,9 @@ export interface CustomerAccountOverviewResponse {
     phone: string | null;
     emailVerified: boolean;
     mfaEnabled: boolean;
+    totpMfaEnabled?: boolean;
+    emailMfaEnabled?: boolean;
+    hasPassword?: boolean;
     mfaRequired: boolean;
   };
   trustRating: { average: number; count: number };

@@ -6,6 +6,7 @@ const mfaRepository = require("../repositories/mfa");
 const userRepository = require("../repositories/users");
 const sessionService = require("./sessionService");
 const notificationService = require("./notificationService");
+const securityRateLimitService = require("./securityRateLimitService");
 const securityEventService = require("./securityEventService");
 const {
   createRecoveryCodes,
@@ -56,11 +57,20 @@ async function enableEmailMfa({ user }) {
     error.code = "EMAIL_VERIFICATION_REQUIRED";
     throw error;
   }
-  return userRepository.updateUser(user._id, {
+  const updatedUser = await userRepository.updateUser(user._id, {
     emailMfaEnabled: true,
     mfaEnabled: true,
     mfaRequired: userRequiresPrivilegedMfa(user)
   });
+  if (user.email) {
+    await notificationService.sendEmail({
+      to: user.email,
+      subject: "Email OTP enabled for your GetPrio account",
+      text: "Email OTP was enabled as a sign-in verification method for your GetPrio account. If you did not make this change, reset your password and contact GetPrio support.",
+      purpose: "security_mfa_changed"
+    }).catch((error) => console.warn("[mfa-change-notification-skipped]", error.message));
+  }
+  return updatedUser;
 }
 
 async function disableEmailMfa({ user }) {
@@ -77,11 +87,20 @@ async function disableEmailMfa({ user }) {
     error.code = "MFA_METHOD_REQUIRED";
     throw error;
   }
-  return userRepository.updateUser(user._id, {
+  const updatedUser = await userRepository.updateUser(user._id, {
     emailMfaEnabled: false,
     mfaEnabled: hasTotp,
     mfaRequired: userRequiresPrivilegedMfa(user)
   });
+  if (user.email) {
+    await notificationService.sendEmail({
+      to: user.email,
+      subject: "Email OTP disabled for your GetPrio account",
+      text: "Email OTP was disabled as a sign-in verification method for your GetPrio account. If you did not make this change, reset your password and contact GetPrio support.",
+      purpose: "security_mfa_changed"
+    }).catch((error) => console.warn("[mfa-change-notification-skipped]", error.message));
+  }
+  return updatedUser;
 }
 
 async function issueLoginChallenge({ user, ipAddress, userAgent }, options = {}) {
@@ -99,7 +118,7 @@ async function issueLoginChallenge({ user, ipAddress, userAgent }, options = {})
   return { token, expiresAt };
 }
 
-async function issueEmailLoginChallenge({ challengeToken, ipAddress, userAgent }) {
+async function issueEmailLoginChallenge({ challengeToken, ipAddress, userAgent, surface = "app" }) {
   const challenge = await mfaRepository.findChallengeByTokenHash(hashToken(challengeToken));
   if (!challenge || challenge.challengeType !== "login" || challenge.usedAt || new Date(challenge.expiresAt).getTime() <= Date.now()) {
     const error = new Error("This sign-in verification has expired. Please sign in again.");
@@ -114,6 +133,12 @@ async function issueEmailLoginChallenge({ challengeToken, ipAddress, userAgent }
     error.code = "EMAIL_MFA_NOT_ENABLED";
     throw error;
   }
+  await securityRateLimitService.consume({
+    bucketKey: `email-mfa-login:${user._id}`,
+    limit: 5,
+    windowSeconds: 60 * 60,
+    blockedMessage: "Too many sign-in codes have been sent. Please try again later."
+  });
   const code = createEmailCode();
   const token = crypto.randomBytes(48).toString("hex");
   const expiresAt = new Date(Date.now() + 10 * 60_000);
@@ -129,9 +154,9 @@ async function issueEmailLoginChallenge({ challengeToken, ipAddress, userAgent }
   });
   await notificationService.sendEmail({
     to: user.email,
-    subject: "Your GetPrio Developer Portal sign-in code",
-    text: `Your Developer Portal email verification code is ${code}. It expires in 10 minutes. If you did not request this code, reset your password.`,
-    purpose: "developer_mfa_email_otp"
+    subject: `Your GetPrio ${surface === "developer" ? "Developer Portal" : "Platform"} sign-in code`,
+    text: `Your GetPrio ${surface === "developer" ? "Developer Portal" : "Platform"} email verification code is ${code}. It expires in 10 minutes. If you did not request this code, reset your password.`,
+    purpose: surface === "developer" ? "developer_mfa_email_otp" : "platform_mfa_email_otp"
   });
   return { token, expiresAt, deliveryTarget: maskedEmail(user.email) };
 }
