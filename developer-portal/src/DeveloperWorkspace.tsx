@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Badge, Button, FloatingIndicator, Modal, Paper, Select, Switch, Textarea, TextInput } from "@mantine/core";
-import { IconCheck, IconCopy, IconExternalLink, IconKey, IconPencil, IconPlus, IconRefresh, IconWebhook, IconX } from "@tabler/icons-react";
+import { IconBrandAndroid, IconBrandApple, IconCheck, IconCopy, IconDownload, IconExternalLink, IconKey, IconPencil, IconPlus, IconRefresh, IconWebhook, IconX } from "@tabler/icons-react";
 import { DeveloperApiError, developerApi, type ApiKey, type Delivery, type DeveloperTicket, type Profile, type Project, type Queue, type QueueSnapshot, type SandboxAllowance, type SandboxTestAccount, type Session, type UsageReport, type Webhook } from "./developerApi";
 import "./DeveloperPortalPrototype.css";
 import "./DeveloperWorkspace.css";
@@ -10,6 +10,7 @@ type Section = "overview" | "setup" | "readiness" | "keys" | "keyCreate" | "prof
 type Environment = "sandbox" | "production";
 type PendingNavigation = { section: Section; environment: Environment; projectId?: string };
 type ConfirmationRequest = { title: string; message: string; actionLabel: string; busyKey: string; run: () => Promise<void> };
+type SandboxPlatform = "ios" | "android";
 const sectionLabels: Record<Section, string> = {
   overview: "Overview", setup: "Sandbox setup", readiness: "Production readiness",
   keys: "API keys", keyCreate: "Create API key", profiles: "Profiles", profileCreate: "Create profile", queues: "Queues & tickets", queueCreate: "Create queue", resources: "Profiles", webhooks: "Webhooks", webhookCreate: "Create webhook", usage: "Usage",
@@ -21,6 +22,7 @@ const workspacePaths: Record<Section, string> = {
   accountProfile: "/dashboard/account/profile", billing: "/dashboard/account/billing", subscriptions: "/dashboard/account/subscriptions", teamSecurity: "/dashboard/account/team-security", security: "/dashboard/account/security"
 };
 const scopes = ["profiles:read", "profiles:write", "queues:read", "queues:write", "webhooks:read", "webhooks:write"];
+const sandboxAndroidApkUrl = "/downloads/getprio-sandbox-android.apk";
 const scopeLabels: Record<string, string> = {
   "profiles:read": "Read profiles and locations",
   "profiles:write": "Manage profiles and locations",
@@ -100,11 +102,35 @@ function Allowance({ value, compact = false }: { value: SandboxAllowance | null;
   </Paper>;
 }
 
-function Setup({ allowance, testAccounts, testFlightUrl, androidUrl, busy, onCreate, onReset }: { allowance: SandboxAllowance | null; testAccounts: SandboxTestAccount[]; testFlightUrl: string | null; androidUrl: string | null; busy: string; onCreate: () => void; onReset: (account: SandboxTestAccount) => void }) {
+function Setup({ allowance, testAccounts, testFlightUrl, androidApkUrl, busy, onCreate, onReset }: { allowance: SandboxAllowance | null; testAccounts: SandboxTestAccount[]; testFlightUrl: string | null; androidApkUrl: string; busy: string; onCreate: () => void; onReset: (account: SandboxTestAccount) => void }) {
   const accountCount = testAccounts.length;
   const provisioningBusy = busy.startsWith("test-account-");
+  const [platform, setPlatform] = useState<SandboxPlatform>("ios");
+  const [platformTabsParent, setPlatformTabsParent] = useState<HTMLDivElement | null>(null);
+  const [iosPlatformTab, setIosPlatformTab] = useState<HTMLButtonElement | null>(null);
+  const [androidPlatformTab, setAndroidPlatformTab] = useState<HTMLButtonElement | null>(null);
+  const isIos = platform === "ios";
+  const installUrl = isIos ? testFlightUrl : androidApkUrl;
+  const platformName = isIos ? "iOS" : "Android";
+  const joinLabel = isIos ? "Join TestFlight" : "Download Android APK";
+  const installTitle = isIos ? "Install with TestFlight" : "Download and install the APK";
+  const platformDescription = isIos
+    ? "Use Apple TestFlight to join the private iOS build and install GetPrio Sandbox."
+    : "Download the signed Sandbox APK directly, then install GetPrio Sandbox on your Android device.";
+  const PlatformIcon = isIos ? IconBrandApple : IconBrandAndroid;
+  function handlePlatformTabKeyDown(event: React.KeyboardEvent<HTMLButtonElement>) {
+    const nextPlatform = event.key === "Home" ? "ios"
+      : event.key === "End" ? "android"
+        : event.key === "ArrowRight" ? (isIos ? "android" : "ios")
+          : event.key === "ArrowLeft" ? (isIos ? "android" : "ios")
+            : null;
+    if (!nextPlatform) return;
+    event.preventDefault();
+    setPlatform(nextPlatform);
+    document.getElementById(`sandbox-platform-tab-${nextPlatform}`)?.focus();
+  }
   return <section className="developer-workspace-panel dpp-section"><h1>Your first ticket, end to end.</h1><p>Install the tester app, sign in with a test account, then follow a ticket through your integration.</p><Allowance value={allowance} /><div className="developer-workspace-setup-grid dpp-steps">
-    <Paper component="article" withBorder className="developer-workspace-setup-card"><p className="developer-workspace-eyebrow">01 / INSTALL</p><h3>GetPrio Sandbox</h3><p>A separate app for testing. Your production account will not sign in here.</p><div className="developer-workspace-inline-actions">{androidUrl ? <Button component="a" href={androidUrl} target="_blank" rel="noreferrer" variant="light" rightSection={<IconExternalLink size={16} />}>Join Google Play test</Button> : <Button type="button" variant="light" disabled title="The Sandbox Google Play test has not been configured yet.">Android download</Button>}{testFlightUrl ? <Button component="a" href={testFlightUrl} target="_blank" rel="noreferrer" variant="light" rightSection={<IconExternalLink size={16} />}>Join TestFlight</Button> : <Button type="button" variant="light" disabled title="The Sandbox TestFlight invitation has not been configured yet.">Join TestFlight</Button>}</div>{androidUrl || testFlightUrl ? <p>Join the appropriate platform test, install GetPrio Sandbox, then sign in with a Sandbox test account.</p> : <p>Sandbox installation links will appear here after the platform testing releases are configured.</p>}</Paper>
+    <Paper component="article" withBorder className="developer-workspace-setup-card developer-workspace-install-card"><p className="developer-workspace-eyebrow">01 / INSTALL</p><div className="developer-workspace-install-heading"><div><h3>GetPrio Sandbox</h3><p>A separate app for testing. Your production account will not sign in here.</p></div><span className="developer-workspace-install-badge">{platformName}</span></div><div className="developer-workspace-platform-tabs" ref={setPlatformTabsParent} role="tablist" aria-label="Sandbox mobile platform"><button type="button" role="tab" id="sandbox-platform-tab-ios" tabIndex={isIos ? 0 : -1} aria-selected={isIos} aria-controls="sandbox-platform-panel-ios" ref={setIosPlatformTab} onKeyDown={handlePlatformTabKeyDown} onClick={() => setPlatform("ios")}><IconBrandApple size={19} aria-hidden="true" />iOS</button><button type="button" role="tab" id="sandbox-platform-tab-android" tabIndex={!isIos ? 0 : -1} aria-selected={!isIos} aria-controls="sandbox-platform-panel-android" ref={setAndroidPlatformTab} onKeyDown={handlePlatformTabKeyDown} onClick={() => setPlatform("android")}><IconBrandAndroid size={19} aria-hidden="true" />Android</button><FloatingIndicator target={isIos ? iosPlatformTab : androidPlatformTab} parent={platformTabsParent} className="developer-workspace-platform-indicator" transitionDuration={150} /></div><div role="tabpanel" id={`sandbox-platform-panel-${platform}`} aria-labelledby={`sandbox-platform-tab-${platform}`} className={`developer-workspace-platform-panel ${platform}`}><div className="developer-workspace-platform-intro"><span className={`developer-workspace-platform-logo ${platform}`} aria-hidden="true"><PlatformIcon size={36} stroke={1.8} /></span><div><p className="developer-workspace-eyebrow">{platformName} TEST BUILD</p><h4>{installTitle}</h4><p>{platformDescription}</p></div></div><div className="developer-workspace-platform-action">{installUrl ? <Button component="a" href={installUrl} target={isIos ? "_blank" : undefined} rel={isIos ? "noreferrer" : undefined} download={!isIos ? "getprio-sandbox-android.apk" : undefined} variant="light" rightSection={isIos ? <IconExternalLink size={16} /> : <IconDownload size={16} />}>{joinLabel}</Button> : <Button type="button" variant="light" disabled title={`${platformName} Sandbox distribution has not been configured yet.`}>{joinLabel}</Button>}<span>{installUrl ? (isIos ? "Opens Apple's TestFlight invite." : "Downloads the signed Sandbox APK.") : "This platform is not configured yet."}</span></div><div className="developer-workspace-platform-steps"><p className="developer-workspace-eyebrow">JOIN, INSTALL, USE</p><ol>{isIos ? <><li>On your iPhone or iPad, install <strong>TestFlight</strong> from the App Store.</li><li>Tap <strong>Join TestFlight</strong>, accept the invitation, then install <strong>GetPrio Sandbox</strong>.</li><li>Open the app and sign in with a Sandbox test account from the section below.</li></> : <><li>Tap <strong>Download Android APK</strong> and open the downloaded file.</li><li>If Android asks, allow your browser or Files app to install unknown apps, then confirm the installation.</li><li>Open <strong>GetPrio Sandbox</strong> and sign in with a Sandbox test account from the section below.</li></>}</ol></div><div className="developer-workspace-platform-note"><strong>Use the Sandbox</strong><span>Create a test ticket from your integration using the test account email as the recipient, then watch the app for the queue update and push notification.</span></div>{!isIos && <p className="developer-workspace-setup-hint">This direct APK route bypasses Google Play. Download a newer APK when a new Sandbox build is released.</p>}</div></Paper>
     <Paper component="article" withBorder className="developer-workspace-setup-card"><p className="developer-workspace-eyebrow">02 / SIGN IN</p><h3>Test accounts · {accountCount} / 2</h3><p>Developer credentials expire after seven days. Apple review credentials are managed by the GetPrio platform team. Resetting your credentials ends previous sessions and removes registered devices. Tickets addressed to the account email appear in the Sandbox app.</p>{testAccounts.length > 0 && <div className="developer-workspace-test-account-list">{testAccounts.map((account) => <div className="developer-workspace-test-account" key={account.id}><div><strong>{account.purpose === "apple_review" ? "Apple review account" : account.username}</strong><small>{account.status === "active" ? `Expires ${formatDate(account.expiresAt)}` : "Expired · reset to reuse"} · {account.purpose === "apple_review" ? "Managed by platform" : `${account.deviceCount} device${account.deviceCount === 1 ? "" : "s"}`}</small></div>{account.purpose !== "apple_review" && <Button type="button" variant="light" loading={busy === `test-account-reset-${account.id}`} disabled={provisioningBusy} onClick={() => onReset(account)}>{account.status === "active" ? "Reset" : "Reset & reuse"}</Button>}</div>)}</div>}<div className="developer-workspace-inline-actions"><Button type="button" loading={busy === "test-account-create"} disabled={provisioningBusy || accountCount >= 2} onClick={onCreate}>{accountCount >= 2 ? "Two accounts created" : "Create test account"}</Button></div></Paper>
     <Paper component="article" withBorder className="developer-workspace-setup-card"><p className="developer-workspace-eyebrow">03 / VERIFY</p><h3>Follow a test ticket</h3><ol><li>Use your sandbox key from your backend.</li><li>Create a queue and issue one test ticket with the test account email.</li><li>Sign in to the Sandbox app with that test account.</li><li>Call the ticket and verify the app update and push.</li></ol><p>Sandbox ticket matching uses the recipient email; a public queue QR does not claim an existing ticket.</p><Button component="a" href="/guides" variant="light">Open quickstart</Button></Paper>
   </div></section>;
@@ -453,7 +479,6 @@ export default function DeveloperWorkspace({ session, accountContent, light = fa
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [allowance, setAllowance] = useState<SandboxAllowance | null>(null);
   const [testFlightUrl, setTestFlightUrl] = useState<string | null>(null);
-  const [androidUrl, setAndroidUrl] = useState<string | null>(null);
   const [testAccounts, setTestAccounts] = useState<SandboxTestAccount[]>([]);
   const [usage, setUsage] = useState<UsageReport | null>(null);
   const [selectedWebhook, setSelectedWebhook] = useState("");
@@ -490,14 +515,13 @@ export default function DeveloperWorkspace({ session, accountContent, light = fa
     setProjectId((current) => result.projects.some((item) => item.id === current && item.status === "active") ? current : result.projects.find((item) => item.status === "active")?.id || "");
   }
   async function refreshWorkspace(id = projectId) {
-    if (!id) { setKeys([]); setProfiles([]); setQueues([]); setQueueSnapshots([]); setWebhooks([]); setDeliveries([]); setAllowance(null); setUsage(null); setTestAccounts([]); setTestFlightUrl(null); setAndroidUrl(null); return; }
-    const [keyResult, profileResult, webhookResult, allowanceResult, usageResult, testAccountResult, testFlightResult, androidResult] = await Promise.all([developerApi.keys(id), developerApi.profiles(id), developerApi.webhooks(id), developerApi.sandboxAllowance(id), developerApi.usage(id), developerApi.testAccounts(id), developerApi.sandboxTestFlight(id), developerApi.sandboxAndroid(id)]);
+    if (!id) { setKeys([]); setProfiles([]); setQueues([]); setQueueSnapshots([]); setWebhooks([]); setDeliveries([]); setAllowance(null); setUsage(null); setTestAccounts([]); setTestFlightUrl(null); return; }
+    const [keyResult, profileResult, webhookResult, allowanceResult, usageResult, testAccountResult, testFlightResult] = await Promise.all([developerApi.keys(id), developerApi.profiles(id), developerApi.webhooks(id), developerApi.sandboxAllowance(id), developerApi.usage(id), developerApi.testAccounts(id), developerApi.sandboxTestFlight(id)]);
     setKeys(keyResult.keys); setProfiles(profileResult.profiles); setWebhooks(webhookResult.webhooks);
     setAllowance(allowanceResult.allowance);
     setUsage(usageResult);
     setTestAccounts(testAccountResult.testAccounts);
     setTestFlightUrl(testFlightResult.testFlightUrl);
-    setAndroidUrl(androidResult.androidUrl);
     setSelectedProfile((current) => profileResult.profiles.some((item) => item.slug === current) ? current : profileResult.profiles[0]?.slug || "");
     setSelectedWebhook((current) => webhookResult.webhooks.some((item) => item.id === current) ? current : webhookResult.webhooks[0]?.id || "");
   }
@@ -709,7 +733,7 @@ export default function DeveloperWorkspace({ session, accountContent, light = fa
       {section === "subscriptions" && <SubscriptionsPage projects={projects} />}
       {section === "teamSecurity" && <TeamSecurityPage session={session} />}
       {["billing", "subscriptions", "teamSecurity", "security"].includes(section) ? null : !project ? <section className="developer-workspace-panel dpp-section"><p className="developer-workspace-eyebrow">FIRST STEP</p><h1>Create your Sandbox project</h1><p>A project owns its keys, profiles, queues, and webhook registrations. The current plan supports one active project.</p><form onSubmit={(event) => void createProject(event)} className="developer-workspace-form"><TextInput label="Project name" name="name" required maxLength={80} placeholder="Harbor Services integration" /><Button type="submit" className="developer-workspace-primary" loading={busy === "project"} leftSection={<IconPlus size={16} />}>Create project</Button></form></section> : <>
-        {section === "setup" && <Setup allowance={allowance} testAccounts={testAccounts} testFlightUrl={testFlightUrl} androidUrl={androidUrl} busy={busy} onCreate={() => void createTestAccount()} onReset={(account) => void resetTestAccount(account)} />}
+        {section === "setup" && <Setup allowance={allowance} testAccounts={testAccounts} testFlightUrl={testFlightUrl} androidApkUrl={sandboxAndroidApkUrl} busy={busy} onCreate={() => void createTestAccount()} onReset={(account) => void resetTestAccount(account)} />}
         {section === "readiness" && <Readiness session={session} />}
         {section === "usage" && <UsagePage project={project} allowance={allowance} usage={usage} />}
         {section === "overview" && <section className="developer-workspace-panel"><p className="developer-workspace-eyebrow">{project.name} / DEVELOPER WORKSPACE</p><h1>Good things start with a queue.</h1><p>Keep your software. Let customers follow their place in GetPrio.</p><div className="developer-workspace-dashboard-cards dpp-stats"><Allowance value={allowance} compact /><Paper component="article" withBorder className="developer-workspace-dashboard-card"><p className="developer-workspace-eyebrow">PRODUCTION WALLET</p><strong>0 <span>credits</span></strong><p>Shared across projects · no expiration</p></Paper><Paper component="article" withBorder className="developer-workspace-dashboard-card"><p className="developer-workspace-eyebrow">TEST ACCOUNTS</p><strong>{testAccounts.length} <span>/ 2</span></strong><p>Two devices per test account</p></Paper></div><div className="developer-workspace-next dpp-overview"><Paper component="article" withBorder><Badge className="developer-workspace-next-badge" color="blue" variant="light" radius="xl">NEXT STEP</Badge><h3>Meet your sandbox.</h3><p>Your included project is ready for testing. Install the app and create up to two test accounts.</p><Button type="button" onClick={() => navigate("setup", "sandbox")}>Set up your sandbox →</Button></Paper><Paper component="article" withBorder><p className="developer-workspace-eyebrow">PRODUCTION</p><h3>A clear path to launch.</h3><p>MFA, project approval and prepaid credits. See each requirement before you go live.</p><Button type="button" variant="light" onClick={showReadiness}>Review readiness</Button></Paper></div><p><a href="/guides">Read the quickstart <IconExternalLink size={15} /></a> <a href="/reference">Open the API reference <IconExternalLink size={15} /></a></p></section>}
