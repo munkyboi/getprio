@@ -26,36 +26,40 @@ import "./DeveloperPortalPage.css";
 
 const faqs = [
   [
-    "Can I sign up and get API keys now?",
-    "Create a Developer Portal account, verify its email, then create a free Sandbox project from the developer workspace. The portal never takes production payments, and production access requires separate approval and MFA.",
+    "Which API base URL should I use?",
+    "Use https://sandbox-api.getprio.online/v1 with a Sandbox key or https://api.getprio.online/v1 with a Production key. Keys are environment-bound, so a key issued for one host will not authorize requests on the other.",
   ],
   [
-    "Do I need to publish my business in the directory?",
-    "No. The planned integration supports private queue operations. A public directory profile is optional, and joining a queue through GetPrio is a separate opt-in that requires an approved published profile.",
+    "How do I authenticate API requests?",
+    "Send one credential transport per request: either X-API-Key or Authorization: Bearer. Keys must be active, belong to the matching project and environment, and include the scope required by the endpoint. Keep them on your backend, never in browser code.",
   ],
   [
-    "What consumes a production credit?",
-    "The accepted pricing model charges one credit for one successfully issued ticket. Idempotent retries and updates to an existing ticket do not consume another credit. Standard GetPrio mobile queue pushes are included; you provide your own customer email or SMS service.",
+    "Which fields can I send when issuing a ticket?",
+    "The supported ticket fields are display_label, external_reference, and recipient_email. Do not send customerName, customerEmail, notifyByEmail, or notifyBySms; those fields are rejected as unsupported. display_label is display-only and is not a customer identity field.",
   ],
   [
-    "Do credits expire?",
-    "Purchased and complimentary production credits never expire and are shared across your projects. Sandbox test credits are separate: their daily allowance resets at 00:00 UTC without rollover.",
+    "How do I update a ticket status?",
+    "Use the explicit lifecycle operations instead of a generic status PATCH: call-next, current serve, current skip, ticket cancel, or ticket restore. Use the ticket read and event-history endpoints to verify the resulting state. Mutations require queues:write; reads require queues:read.",
   ],
   [
-    "What happens if my balance reaches zero?",
-    "Under the accepted model, zero credits prevent new production tickets. Already-issued tickets remain serviceable, subject to other access restrictions.",
+    "Is Sandbox development free?*",
+    "Yes. Sandbox development is free: no payment method or Production credits are needed. Sandbox uses isolated test data and a daily test-ticket allowance that resets at 00:00 UTC without rollover. Production access, credits, and project subscriptions are separate and are not active in this preview.",
   ],
   [
-    "How will customers connect a ticket?",
-    "The planned mobile flow uses a private, single-use ticket link or an invitation addressed by email, followed by explicit customer acceptance. Private links expire after 15 minutes. A public queue QR is not proof of ticket ownership. Mobile linking and Sandbox app distribution are launch dependencies.",
+    "Does recipient_email send an email or SMS?",
+    "No. In Sandbox, a recipient_email matching an active test account in the same project creates an in-app invitation and can surface through GetPrio mobile notifications. The API does not send email or SMS on your behalf; unmatched addresses do not create an invitation.",
   ],
   [
-    "Is production access automatic?",
-    "No. Developer enrollment, production approval, each human's MFA setup, and purchased ticket credits are separate requirements. Developer billing is independent of GetPrio vendor subscriptions.",
+    "How can I safely retry a mutation?",
+    "Send an Idempotency-Key with ticket, queue, and other mutation requests. Retrying the same key with the same request returns the original result instead of applying the mutation twice. Generate a new key for a new operation.",
   ],
   [
-    "Can I call the API directly from my frontend?",
-    "Keep API keys on your backend. Public documentation is readable without login, but does not execute authenticated requests in the browser. Use a key scoped to the correct project, environment, and permissions.",
+    "How does ticket verification work?",
+    "Issued tickets expose an 8-character hexadecimal verification_code. In Sandbox, the ticket QR endpoint returns a scan-ready QR for eligible unlinked tickets. Confirm the current called ticket with that code; QR claiming is not available in Production.",
+  ],
+  [
+    "Is Production access automatic, and is billing live?",
+    "No. Production keys require Developer Portal approval and personal MFA. The current API is a preview: wallet or credit enforcement and project subscriptions are not connected, so published pricing is planning information rather than an active checkout flow.",
   ],
 ];
 async function copyText(text: string) {
@@ -206,7 +210,7 @@ function CodeSample({ code, language = "cURL", samples, label = "Example request
 function FAQ({ compact = false }: { compact?: boolean }) {
   return (
     <div className="developer-portal-faq">
-      {(compact ? faqs.slice(0, 4) : faqs).map(([question, answer]) => (
+      {(compact ? faqs.slice(0, 5) : faqs).map(([question, answer]) => (
         <details key={question}>
           <summary>{question}</summary>
           <p>{answer}</p>
@@ -1036,23 +1040,68 @@ export default function DeveloperPortalPage() {
                 <p className="developer-portal-eyebrow">RELEASE INFORMATION</p>
                 <h1>Changelog.</h1>
                 <article className="developer-portal-note">
-                  <h2>V1 developer preview</h2>
+                  <h2>September 26 · Developer API preview</h2>
                   <p>
-                    The public portal provides integration guides, FAQ, pricing
-                    information, and an API reference. Independent
-                    Developer Portal accounts can create isolated Sandbox
-                    resources in the developer workspace.
-                  </p>
-                  <p>
-                    The{" "}
+                    The Developer API now has a connected preview journey from
+                    account setup and project management through queue
+                    integration, usage history, and Sandbox testing. The
+                    published{" "}
                     <a href="https://api.getprio.online/v1/openapi.json">
-                      published OpenAPI document
+                      OpenAPI document
                     </a>{" "}
-                    describes the current API contract. Production access,
-                    billing, and Developer Portal join-link integration remain
-                    gated. The Sandbox mobile build is progressing through
-                    TestFlight and Google Play testing tracks. This is not a general-availability
-                    announcement.
+                    describes the current API contract.
+                  </p>
+                </article>
+                <article className="developer-portal-note">
+                  <h2>Queue API and ticket lifecycle</h2>
+                  <ul>
+                    <li>Environment-bound projects and API keys with scoped profile access.</li>
+                    <li>Queue and location discovery, snapshots, and Server-Sent Events.</li>
+                    <li>Ticket issuance, reads, call-next, serve, skip, cancel, restore, and event history.</li>
+                    <li>Optional display labels, external references, and recipient-email matching.</li>
+                    <li>Ticket verification codes and Sandbox QR claims for customer confirmation.</li>
+                  </ul>
+                </article>
+                <article className="developer-portal-note">
+                  <h2>Webhooks and operational tooling</h2>
+                  <p>
+                    Projects can register signed lifecycle webhooks with
+                    versioned payloads, retry delivery, manual replay, secret
+                    rotation, emergency rotation, and production suspension.
+                    The portal includes delivery history, ticket usage history,
+                    daily usage pagination, and live ticket details.
+                  </p>
+                </article>
+                <article className="developer-portal-note">
+                  <h2>Sandbox and customer integration</h2>
+                  <p>
+                    Sandbox now supports project test accounts, authenticated
+                    mobile ticket resources, private ticket links, email-matched
+                    invitations with explicit acceptance, queue movement and
+                    ticket push refreshes, branded tenant context, and printed
+                    ticket QR flows. Sandbox allowance and Production access
+                    remain separate environments.
+                  </p>
+                </article>
+                <article className="developer-portal-note">
+                  <h2>Security and data protection</h2>
+                  <ul>
+                    <li>Hashed environment-matched API keys, explicit scopes, and active account/project/key checks.</li>
+                    <li>Project/environment read and write rate limits with retry headers.</li>
+                    <li>Idempotency protection for mutations and bounded request, pagination, and stream resources.</li>
+                    <li>Production approval and personal MFA requirements.</li>
+                    <li>Signed, encrypted, rotatable webhook secrets with delivery suspension controls.</li>
+                    <li>Automatic removal of retained customer fields from terminal Developer API tickets.</li>
+                  </ul>
+                </article>
+                <article className="developer-portal-note">
+                  <h2>Release boundary</h2>
+                  <p>
+                    The current release is a Developer API preview, not a
+                    general-availability announcement. Production wallet or
+                    credit enforcement, project subscriptions, per-key anomaly
+                    detection, and automatic abuse quarantine are not connected
+                    yet. Production access and billing remain separately gated.
                   </p>
                 </article>
               </>

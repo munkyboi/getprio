@@ -49,6 +49,7 @@ function isAuthRecoveryRequest(req) {
       "/developer/mfa/email/send",
       "/developer/mfa/verify",
       "/developer/refresh",
+      "/auth/register/customer",
       "/auth/register/vendor",
       "/developer/login",
       "/developer/password-reset/request",

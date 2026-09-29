@@ -1,0 +1,162 @@
+name: Deploy Sandbox DigitalOcean API
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_sandbox:
+        description: Type sandbox to deploy the Sandbox API and apply database migrations
+        required: true
+        type: string
+
+concurrency:
+  group: sandbox-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: ${{ github.ref == 'refs/heads/main' && github.event.inputs.confirm_sandbox == 'sandbox' }}
+    runs-on: ubuntu-latest
+    environment:
+      name: sandbox
+
+    steps:
+      - name: Deploy over SSH
+        env:
+          DO_HOST: ${{ secrets.DO_HOST }}
+          DO_USER: ${{ secrets.DO_USER }}
+          DO_SSH_KEY: ${{ secrets.DO_SSH_KEY }}
+          DO_SSH_HOST_FINGERPRINT: ${{ secrets.DO_SSH_HOST_FINGERPRINT }}
+          DO_PORT: ${{ secrets.DO_PORT || '22' }}
+          DO_APP_DIR: ${{ secrets.DO_APP_DIR }}
+          DATABASE_HOST: ${{ secrets.DATABASE_HOST }}
+          DATABASE_NAME: ${{ secrets.DATABASE_NAME }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${DO_HOST}" ] || [ -z "${DO_USER}" ] || [ -z "${DO_SSH_KEY}" ] || \
+             [ -z "${DO_SSH_HOST_FINGERPRINT}" ] || \
+             [ -z "${DO_APP_DIR}" ] || [ -z "${DATABASE_HOST}" ] || [ -z "${DATABASE_NAME}" ]; then
+            echo "Configure DO_HOST, DO_USER, DO_SSH_KEY, DO_SSH_HOST_FINGERPRINT, DO_APP_DIR, DATABASE_HOST, and DATABASE_NAME in the sandbox environment."
+            exit 1
+          fi
+          if [[ ! "${DO_PORT}" =~ ^[0-9]{1,5}$ ]] || (( DO_PORT < 1 || DO_PORT > 65535 )); then
+            echo "DO_PORT must be a valid TCP port."
+            exit 1
+          fi
+          if [[ ! "${DO_SSH_HOST_FINGERPRINT}" =~ ^SHA256:[A-Za-z0-9+/=]+$ ]] || \
+             [[ ! "${DATABASE_HOST}" =~ ^[A-Za-z0-9.-]+$ ]] || \
+             [[ ! "${DATABASE_NAME}" =~ ^[A-Za-z0-9_.-]+$ ]] || \
+             [[ ! "${DO_APP_DIR}" =~ ^/[A-Za-z0-9_./-]+$ ]]; then
+            echo "Sandbox database host/name and app directory have an invalid format."
+            exit 1
+          fi
+
+          mkdir -p ~/.ssh
+          printf '%s\n' "${DO_SSH_KEY}" > ~/.ssh/sandbox_deploy_key
+          chmod 600 ~/.ssh/sandbox_deploy_key
+
+          pinned_host_key=""
+          for attempt in 1 2 3; do
+            if host_keys="$(ssh-keyscan -4 -T 15 -p "${DO_PORT}" "${DO_HOST}" 2>/dev/null)" \
+              && [ -n "${host_keys}" ]; then
+              while IFS=' ' read -r host key_type key_data; do
+                fingerprint="$(printf '%s %s\n' "${key_type}" "${key_data}" | ssh-keygen -lf /dev/stdin 2>/dev/null | awk '{print $2}')"
+                if [ "${fingerprint}" = "${DO_SSH_HOST_FINGERPRINT}" ]; then
+                  pinned_host_key="${host} ${key_type} ${key_data}"
+                  break
+                fi
+              done <<< "${host_keys}"
+              if [ -n "${pinned_host_key}" ]; then
+                break
+              fi
+              echo "Sandbox SSH host key did not match the configured fingerprint (attempt ${attempt}/3); retrying..."
+            else
+              echo "Sandbox SSH host-key lookup failed (attempt ${attempt}/3); retrying..."
+            fi
+            if [ -n "${pinned_host_key}" ]; then
+              break
+            fi
+            if [ "${attempt}" -lt 3 ]; then sleep 5; fi
+          done
+
+          if [ -z "${pinned_host_key}" ]; then
+            echo "::error::Unable to verify the Sandbox deployment host against DO_SSH_HOST_FINGERPRINT."
+            exit 1
+          fi
+          printf '%s\n' "${pinned_host_key}" >> ~/.ssh/known_hosts
+
+          ssh \
+            -4 \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=20 \
+            -o ConnectionAttempts=3 \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=2 \
+            -i ~/.ssh/sandbox_deploy_key \
+            -p "${DO_PORT}" \
+            "${DO_USER}@${DO_HOST}" \
+            "DO_APP_DIR='${DO_APP_DIR}' DATABASE_HOST='${DATABASE_HOST}' DATABASE_NAME='${DATABASE_NAME}' bash -s" <<'REMOTE'
+          set -euo pipefail
+
+          cd "${DO_APP_DIR}"
+          if [ ! -f .env ]; then
+            echo "Sandbox deployment requires an existing server .env file."
+            exit 1
+          fi
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "Sandbox server working tree has local changes. Refusing to deploy."
+            git status --short
+            exit 1
+          fi
+
+          git fetch origin main
+          if git show-ref --verify --quiet refs/heads/main; then
+            git checkout main
+          else
+            git checkout -b main origin/main
+          fi
+          git pull --ff-only origin main
+
+          npm ci --include=dev
+          node scripts/verify-sandbox-database-target.mjs
+
+          # Load the effective URL from the app's dotenv configuration for the
+          # shell-based migration status and verification scripts.
+          export DATABASE_URL="$(node -e 'process.stdout.write(require("./backend/src/config/env").databaseUrl)')"
+
+          set +e
+          db_status_output="$(npm run db:status 2>&1)"
+          db_status_code=$?
+          set -e
+          printf '%s\n' "${db_status_output}"
+          if printf '%s\n' "${db_status_output}" | grep -q "schema_migrations table is missing" || \
+             ! printf '%s\n' "${db_status_output}" | grep -qE '^  missing from repo: 0$' || \
+             ! printf '%s\n' "${db_status_output}" | grep -qE '^  applied: [0-9]+$'; then
+            echo "Sandbox database migration history is unavailable or has drift. Refusing to migrate."
+            exit 1
+          fi
+          npm run db:migrate
+          npm run db:verify
+          NODE_OPTIONS="--max-old-space-size=4096" npm run build
+          NODE_OPTIONS="--max-old-space-size=4096" npm run build:backend
+
+          capture_tmp_file="$(mktemp .env.wait-time.XXXXXX)"
+          trap 'rm -f "${capture_tmp_file}"' EXIT
+          awk -F= '
+            $1 == "WAIT_TIME_PREDICTION_CAPTURE_ENABLED" {
+              if (!written) print "WAIT_TIME_PREDICTION_CAPTURE_ENABLED=true"
+              written = 1
+              next
+            }
+            { print }
+            END {
+              if (!written) print "WAIT_TIME_PREDICTION_CAPTURE_ENABLED=true"
+            }
+          ' .env > "${capture_tmp_file}"
+          chmod 600 "${capture_tmp_file}"
+          mv -f "${capture_tmp_file}" .env
+          trap - EXIT
+
+          pm2 restart getprio-api --update-env
+          pm2 save
+          REMOTE

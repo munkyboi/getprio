@@ -1,7 +1,9 @@
 const db = require("../config/db");
+const env = require("../config/env");
 const billingRepository = require("../repositories/billing");
 const notificationDeliveryRepository = require("../repositories/notificationDeliveries");
 const queueEventRepository = require("../repositories/queueEvents");
+const waitTimePredictionRepository = require("../repositories/waitTimePredictions");
 const queueDayClosureRepository = require("../repositories/queueDayClosures");
 const queueDayPauseRepository = require("../repositories/queueDayPauses");
 const queueDayRepository = require("../repositories/queueDays");
@@ -589,6 +591,12 @@ async function callNextTicket(tenant, options = {}) {
       },
       developerWebhook: options.developerWebhook
     });
+    if (env.waitTimePredictionCaptureEnabled) {
+      await waitTimePredictionRepository.recordOutcome(nextTicket._id, "called", {
+        client,
+        outcomeAt: nextTicket.calledAt
+      });
+    }
 
     return nextTicket;
   });
@@ -685,6 +693,12 @@ async function updateCurrentTicketStatus(tenant, status, options = {}) {
       metadata: {},
       developerWebhook: options.developerWebhook
     });
+    if (env.waitTimePredictionCaptureEnabled && ["cancelled", "unserved"].includes(status)) {
+      await waitTimePredictionRepository.recordOutcome(updatedTicket._id, "censored", {
+        client,
+        outcomeAt: updatedTicket.updatedAt
+      });
+    }
 
     return updatedTicket;
   });
@@ -831,6 +845,12 @@ async function cancelTicket(tenant, lookupCode, options = {}) {
       },
       developerWebhook: options.developerWebhook
     });
+    if (env.waitTimePredictionCaptureEnabled) {
+      await waitTimePredictionRepository.recordOutcome(cancelledTicket._id, "censored", {
+        client,
+        outcomeAt: cancelledTicket.updatedAt
+      });
+    }
 
     return cancelledTicket;
   });
@@ -957,6 +977,12 @@ async function closeQueueDay(tenant, options = {}) {
           carryOverCount: ticket.carryOverCount
         }
       });
+      if (env.waitTimePredictionCaptureEnabled) {
+        await waitTimePredictionRepository.recordOutcome(ticket._id, "censored", {
+          client,
+          outcomeAt: ticket.updatedAt
+        });
+      }
     }
 
     await queueDayClosureRepository.createClosure(

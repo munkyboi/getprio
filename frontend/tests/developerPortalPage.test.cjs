@@ -35,7 +35,9 @@ test("public navigation resolves to useful content and unknown addresses show a 
     ["/docs", "Start on your backend."],
     ["/faq", "Frequently asked questions."],
     ["/help", "Find your next step."],
-    ["/changelog", "V1 developer preview"],
+    ["/changelog", "September 26 · Developer API preview"],
+    ["/changelog", "Current Developer API capabilities"],
+    ["/changelog", "Security baseline"],
   ]) {
     const html = render(path);
     assert.ok(html.includes(text), path);
@@ -56,4 +58,13 @@ test("landing keeps illustrative pricing and mobile availability distinct from l
   assert.match(html, /monthly totals, not per-project rates/);
   assert.match(html, /href="\/register"/);
   assert.doesNotMatch(html, /href="#login"/);
+});
+
+test("landing surfaces at least five current Developer API FAQs", () => {
+  const html = render("/");
+  assert.ok((html.match(/<details>/g) || []).length >= 5);
+  assert.match(html, /Which API base URL should I use\?/);
+  assert.match(html, /Which fields can I send when issuing a ticket\?/);
+  assert.match(html, /Is Sandbox development free\?\*/);
+  assert.match(render("/faq"), /Does recipient_email send an email or SMS\?/);
 });

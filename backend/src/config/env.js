@@ -3,9 +3,7 @@ const dotenv = require("dotenv");
 const { resolveMobileQrBaseUrl } = require("./mobileQrBaseUrl");
 const { resolveDeveloperWebhookConfig } = require("./developerWebhookConfig");
 const {
-  sandboxAndroidPackageName,
-  resolveSandboxTestFlightPublicUrl,
-  resolveSandboxAndroidGooglePlayPublicUrl
+  resolveSandboxTestFlightPublicUrl
 } = require("./sandboxDistributionLinks");
 
 const rootEnvPath = path.resolve(__dirname, "../../../.env");
@@ -22,6 +20,10 @@ const frontendPort = Number(process.env.FRONTEND_PORT || 5173);
 const platformDashboardPort = Number(process.env.PLATFORM_DASHBOARD_PORT || 7100);
 
 const nodeEnv = process.env.NODE_ENV || "development";
+function resolveApiEnvironment(source = process.env) {
+  return source.API_ENVIRONMENT || "production";
+}
+const apiEnvironment = resolveApiEnvironment();
 const databaseUrl =
   process.env.DATABASE_URL || "postgresql://prio:prio@127.0.0.1:5432/prio_queue";
 const databaseSsl = process.env.DATABASE_SSL === "true";
@@ -40,7 +42,6 @@ const developerPortalUrl = process.env.DEVELOPER_PORTAL_URL || (
   nodeEnv === "production" ? "https://developers.getprio.online" : "http://localhost:5174"
 );
 const sandboxTestFlightPublicUrl = resolveSandboxTestFlightPublicUrl();
-const sandboxAndroidGooglePlayPublicUrl = resolveSandboxAndroidGooglePlayPublicUrl();
 const appTimezone = process.env.APP_TIMEZONE || "Asia/Manila";
 const oauthCallbackPath = process.env.OAUTH_CALLBACK_PATH || "/oauth/callback";
 const oauthStateTtlMinutes = Number(process.env.OAUTH_STATE_TTL_MINUTES || 10);
@@ -121,6 +122,8 @@ const paymongoPaymentMethodTypes = (process.env.PAYMONGO_PAYMENT_METHOD_TYPES ||
 const turnstileSecretKey = process.env.TURNSTILE_SECRET_KEY || "";
 const notificationCooldownMinutes = Number(process.env.NOTIFICATION_COOLDOWN_MINUTES || 30);
 const queueRecoveryGraceMinutes = Number(process.env.QUEUE_RECOVERY_GRACE_MINUTES || 30);
+const waitTimePredictionCaptureEnabled =
+  process.env.WAIT_TIME_PREDICTION_CAPTURE_ENABLED === "true";
 const b2S3Endpoint = process.env.B2_S3_ENDPOINT || "";
 const b2Region = process.env.B2_REGION || "us-east-005";
 const b2BucketPublicBoard = process.env.B2_BUCKET_PUBLIC_BOARD || "";
@@ -155,6 +158,7 @@ const developerWebhookConfig = resolveDeveloperWebhookConfig(process.env, nodeEn
 
 const env = {
   nodeEnv,
+  apiEnvironment,
   port,
   databaseUrl,
   databaseSsl,
@@ -170,8 +174,6 @@ const env = {
   platformDashboardUrl,
   developerPortalUrl,
   sandboxTestFlightPublicUrl,
-  sandboxAndroidPackageName,
-  sandboxAndroidGooglePlayPublicUrl,
   appTimezone,
   oauthCallbackPath,
   oauthStateTtlMinutes,
@@ -216,6 +218,7 @@ const env = {
   turnstileSecretKey,
   notificationCooldownMinutes,
   queueRecoveryGraceMinutes,
+  waitTimePredictionCaptureEnabled,
   b2S3Endpoint,
   b2Region,
   b2BucketPublicBoard,
@@ -251,6 +254,6 @@ module.exports = env;
 module.exports.default = env;
 module.exports.resolvePaymongoMode = resolvePaymongoMode;
 module.exports.resolvePaymongoCredentials = resolvePaymongoCredentials;
+module.exports.resolveApiEnvironment = resolveApiEnvironment;
 module.exports.resolveMobileQrBaseUrl = resolveMobileQrBaseUrl;
 module.exports.resolveSandboxTestFlightPublicUrl = resolveSandboxTestFlightPublicUrl;
-module.exports.resolveSandboxAndroidGooglePlayPublicUrl = resolveSandboxAndroidGooglePlayPublicUrl;

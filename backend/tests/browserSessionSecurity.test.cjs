@@ -323,6 +323,27 @@ test("public vendor registration is not blocked by an unrelated stale cookie ses
   }
 });
 
+test("customer registration recovers from stale sessions while retaining origin and request-format checks", async () => {
+  const protect = createCsrfProtection({ allowedOrigins: ["https://getprio.online"], csrfSecret: "test-secret" });
+  const baseHeaders = {
+    cookie: `${REFRESH_COOKIE}=expired-session`, origin: "https://getprio.online", "sec-fetch-site": "same-site", "content-type": "application/json"
+  };
+  const run = (headers) => new Promise(resolve => protect({
+    method: "POST", originalUrl: "/api/auth/register/customer", headers
+  }, buildResponse(), resolve));
+
+  assert.equal(await run(baseHeaders), undefined);
+  for (const headers of [
+    { ...baseHeaders, origin: "https://evil.example" },
+    { ...baseHeaders, origin: "" },
+    { ...baseHeaders, "sec-fetch-site": "cross-site" },
+    { ...baseHeaders, "content-type": "text/plain" }
+  ]) {
+    const error = await run(headers);
+    assert.equal(error?.code, "CSRF_VALIDATION_FAILED");
+  }
+});
+
 test("developer password recovery is not blocked by a stale developer session", async () => {
   const protect = createCsrfProtection({ allowedOrigins: ["https://developers.getprio.online"], csrfSecret: "test-secret" });
   for (const originalUrl of ["/api/developer/password-reset/request", "/api/developer/password-reset/confirm"]) {

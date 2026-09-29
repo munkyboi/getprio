@@ -1,7 +1,9 @@
 const db = require("../config/db");
+const env = require("../config/env");
 const queueDays = require("../repositories/queueDays");
 const queueEvents = require("../repositories/queueEvents");
 const outbox = require("../repositories/queueNotificationOutbox");
+const waitTimePredictionRepository = require("../repositories/waitTimePredictions");
 const storeLocations = require("../repositories/storeLocations");
 const { formatTicketNumber } = require("./queueHelpers");
 const {
@@ -483,6 +485,9 @@ async function closeTicketOutcomes(client, queueDay) {
        WHERE id = $1`,
       [Number(ticket.id), nextStatus, reasonCode, CARRY_OVER_DAYS]
     );
+    if (env.waitTimePredictionCaptureEnabled) {
+      await waitTimePredictionRepository.recordOutcome(ticket.id, "censored", { client });
+    }
     await client.query(
       `UPDATE queue_ticket_segments
        SET ended_at = COALESCE(ended_at, NOW()),

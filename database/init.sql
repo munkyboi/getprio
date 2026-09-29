@@ -52,6 +52,7 @@ DROP TABLE IF EXISTS queue_days CASCADE;
 DROP TABLE IF EXISTS queue_day_pauses CASCADE;
 DROP TABLE IF EXISTS queue_day_closures CASCADE;
 DROP TABLE IF EXISTS queue_events CASCADE;
+DROP TABLE IF EXISTS wait_time_prediction_samples CASCADE;
 DROP TABLE IF EXISTS auth_security_events CASCADE;
 DROP TABLE IF EXISTS auth_mfa_challenges CASCADE;
 DROP TABLE IF EXISTS auth_mfa_recovery_codes CASCADE;
@@ -1584,6 +1585,36 @@ CREATE TABLE queue_events (
   metadata JSONB NOT NULL DEFAULT '{}'::JSONB,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE TABLE wait_time_prediction_samples (
+  id BIGSERIAL PRIMARY KEY,
+  ticket_id BIGINT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  location_id BIGINT REFERENCES store_locations(id) ON DELETE SET NULL,
+  queue_date_key TEXT NOT NULL,
+  predictor_version TEXT NOT NULL,
+  feature_hash TEXT NOT NULL,
+  sample_bucket TIMESTAMPTZ NOT NULL,
+  sampled_at TIMESTAMPTZ NOT NULL,
+  features JSONB NOT NULL,
+  predicted_wait_minutes NUMERIC(10, 2) NOT NULL CHECK (predicted_wait_minutes >= 0),
+  outcome_type TEXT CHECK (outcome_type IN ('called', 'censored')),
+  outcome_at TIMESTAMPTZ,
+  outcome_wait_minutes NUMERIC(10, 2) CHECK (outcome_wait_minutes >= 0),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CHECK (
+    (outcome_type = 'called' AND outcome_at IS NOT NULL AND outcome_wait_minutes IS NOT NULL)
+    OR (outcome_type = 'censored' AND outcome_at IS NOT NULL AND outcome_wait_minutes IS NULL)
+    OR (outcome_type IS NULL AND outcome_at IS NULL AND outcome_wait_minutes IS NULL)
+  )
+);
+
+CREATE UNIQUE INDEX wait_time_prediction_samples_dedupe_idx
+  ON wait_time_prediction_samples (ticket_id, predictor_version, sample_bucket);
+
+CREATE INDEX wait_time_prediction_samples_training_idx
+  ON wait_time_prediction_samples (tenant_id, location_id, created_at)
+  WHERE outcome_type = 'called';
 
 CREATE TABLE queue_day_closures (
   id BIGSERIAL PRIMARY KEY,

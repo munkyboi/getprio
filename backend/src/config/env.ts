@@ -3,9 +3,7 @@ import dotenv from "dotenv";
 import { resolveMobileQrBaseUrl } from "./mobileQrBaseUrl.js";
 import { resolveDeveloperWebhookConfig } from "./developerWebhookConfig.js";
 import {
-  sandboxAndroidPackageName,
-  resolveSandboxTestFlightPublicUrl,
-  resolveSandboxAndroidGooglePlayPublicUrl
+  resolveSandboxTestFlightPublicUrl
 } from "./sandboxDistributionLinks.js";
 
 export { resolveMobileQrBaseUrl };
@@ -24,6 +22,10 @@ const frontendPort = Number(process.env.FRONTEND_PORT || 5173);
 const platformDashboardPort = Number(process.env.PLATFORM_DASHBOARD_PORT || 7100);
 
 export const nodeEnv = process.env.NODE_ENV || "development";
+export function resolveApiEnvironment(source: NodeJS.ProcessEnv = process.env): string {
+  return source.API_ENVIRONMENT || "production";
+}
+export const apiEnvironment = resolveApiEnvironment();
 export const databaseUrl =
   process.env.DATABASE_URL || "postgresql://prio:prio@127.0.0.1:5432/prio_queue";
 export const databaseSsl = process.env.DATABASE_SSL === "true";
@@ -42,7 +44,6 @@ export const developerPortalUrl = process.env.DEVELOPER_PORTAL_URL || (
   nodeEnv === "production" ? "https://developers.getprio.online" : "http://localhost:5174"
 );
 export const sandboxTestFlightPublicUrl = resolveSandboxTestFlightPublicUrl();
-export const sandboxAndroidGooglePlayPublicUrl = resolveSandboxAndroidGooglePlayPublicUrl();
 export const appTimezone = process.env.APP_TIMEZONE || "Asia/Manila";
 export const oauthCallbackPath = process.env.OAUTH_CALLBACK_PATH || "/oauth/callback";
 export const oauthStateTtlMinutes = Number(process.env.OAUTH_STATE_TTL_MINUTES || 10);
@@ -141,6 +142,8 @@ export const notificationCooldownMinutes = Number(
 export const queueRecoveryGraceMinutes = Number(
   process.env.QUEUE_RECOVERY_GRACE_MINUTES || 30
 );
+export const waitTimePredictionCaptureEnabled =
+  process.env.WAIT_TIME_PREDICTION_CAPTURE_ENABLED === "true";
 export const b2S3Endpoint = process.env.B2_S3_ENDPOINT || "";
 export const b2Region = process.env.B2_REGION || "us-east-005";
 export const b2BucketPublicBoard = process.env.B2_BUCKET_PUBLIC_BOARD || "";
@@ -176,6 +179,7 @@ const developerWebhookConfig = resolveDeveloperWebhookConfig(process.env, nodeEn
 
 const env = {
   nodeEnv,
+  apiEnvironment,
   port,
   databaseUrl,
   databaseSsl,
@@ -191,8 +195,6 @@ const env = {
   platformDashboardUrl,
   developerPortalUrl,
   sandboxTestFlightPublicUrl,
-  sandboxAndroidPackageName,
-  sandboxAndroidGooglePlayPublicUrl,
   appTimezone,
   oauthCallbackPath,
   oauthStateTtlMinutes,
@@ -237,6 +239,7 @@ const env = {
   turnstileSecretKey,
   notificationCooldownMinutes,
   queueRecoveryGraceMinutes,
+  waitTimePredictionCaptureEnabled,
   b2S3Endpoint,
   b2Region,
   b2BucketPublicBoard,

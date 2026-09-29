@@ -114,6 +114,35 @@
 .developer-workspace-next, .developer-workspace-steps, .developer-workspace-readiness { display: grid; gap: 1rem; margin: 1.75rem 0; }
 .developer-workspace-setup-grid { display: grid; gap: 1.125rem; margin: 1.75rem 0; }
 .developer-workspace-setup-card { display: block !important; min-height: 17.5rem; padding: 2rem; border: 1px solid var(--dp-border); border-radius: 1.5rem; background: var(--dp-surface); }
+.developer-workspace-install-card { min-height: 0; }
+.developer-workspace-install-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.developer-workspace-install-heading h3 { margin-bottom: .5rem !important; }
+.developer-workspace-install-badge { flex: 0 0 auto; padding: .4rem .7rem; border: 1px solid #38568c; border-radius: 999px; color: #a8bfff; font-size: .7rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.developer-workspace-platform-tabs { display: flex; gap: .35rem; margin: 1.75rem 0 0; padding: .3rem; border: 1px solid var(--dp-border); border-radius: .85rem; background: var(--dp-bg); }
+.developer-workspace-platform-tabs button { display: inline-flex; flex: 1 1 0; align-items: center; justify-content: center; gap: .5rem; min-height: 2.75rem; border: 1px solid transparent; border-radius: .65rem; background: transparent; color: var(--dp-muted); font: inherit; cursor: pointer; }
+.developer-workspace.dpp .developer-workspace-platform-tabs { position: relative; }
+.developer-workspace.dpp .developer-workspace-platform-tabs > button:not(.mantine-Button-root) { position: relative; z-index: 1; }
+.developer-workspace.dpp .developer-workspace-platform-tabs > button[aria-selected="true"]:not(.mantine-Button-root) { border-color: transparent !important; background: transparent !important; color: #fff !important; box-shadow: none !important; }
+.developer-workspace.dpp .developer-workspace-platform-tabs > button[aria-selected="false"]:not(.mantine-Button-root) { border-color: transparent !important; background: transparent !important; color: var(--dp-muted) !important; box-shadow: none !important; }
+.developer-workspace-platform-indicator { z-index: 0; border: 1px solid #527ae0; border-radius: 8px; background: #213562; box-shadow: 0 2px 6px #0004; pointer-events: none; }
+.developer-workspace-platform-tabs button svg { flex: 0 0 auto; }
+.developer-workspace-platform-panel { margin-top: 1rem; padding: 1.25rem; border: 1px solid var(--dp-border); border-radius: 1rem; background: color-mix(in srgb, var(--dp-bg) 68%, var(--dp-surface)); }
+.developer-workspace-platform-intro { display: flex; align-items: center; gap: 1rem; }
+.developer-workspace-platform-logo { display: grid; flex: 0 0 auto; width: 3.5rem; height: 3.5rem; place-items: center; border-radius: 1rem; }
+.developer-workspace-platform-logo.ios { background: #e8edf7; color: #111827; }
+.developer-workspace-platform-logo.android { background: #d8f7e3; color: #087f3f; }
+.developer-workspace-platform-intro h4 { margin: .25rem 0 .35rem; color: var(--dp-ink); font: 600 1.25rem/1.2 "Aleo", Georgia, serif; }
+.developer-workspace-platform-intro p:not(.developer-workspace-eyebrow) { margin: 0; }
+.developer-workspace-platform-action { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; margin: 1.25rem 0; padding-bottom: 1.25rem; border-bottom: 1px solid var(--dp-border); }
+.developer-workspace-platform-action > span { color: var(--dp-muted); font-size: .78rem; }
+.developer-workspace-platform-steps { margin-top: 1.15rem; }
+.developer-workspace-platform-steps ol { margin: .75rem 0 0 !important; padding-left: 1.5rem; }
+.developer-workspace-platform-steps li { margin-bottom: .6rem; line-height: 1.5 !important; }
+.developer-workspace-platform-steps li:last-child { margin-bottom: 0; }
+.developer-workspace-platform-note { display: grid; gap: .35rem; margin-top: 1.25rem; padding: .9rem 1rem; border-left: 2px solid var(--dp-accent); background: color-mix(in srgb, var(--dp-accent) 7%, transparent); }
+.developer-workspace-platform-note strong { color: var(--dp-ink); font-size: .82rem; }
+.developer-workspace-platform-note span { color: var(--dp-muted); font-size: .82rem; line-height: 1.45; }
+.developer-workspace-platform-panel > .developer-workspace-setup-hint { margin-top: 1rem !important; }
 .developer-workspace-setup-card:nth-child(3) { min-height: 25.5rem; }
 .developer-workspace-setup-card .developer-workspace-eyebrow { margin: 0; color: var(--dp-ink) !important; font-weight: 500; }
 .developer-workspace-setup-card p:not(.developer-workspace-eyebrow) { margin: 0; }
