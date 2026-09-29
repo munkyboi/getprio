@@ -1,4 +1,5 @@
 const businessCategories = require("../repositories/businessCategories");
+const platformHelpCenter = require("../repositories/platformHelpCenter");
 const { isValidImageUploadLimit } = require("../utils/imageUploadLimit");
 const express = require("express");
 const asyncHandler = require("../middleware/asyncHandler");
@@ -51,6 +52,75 @@ const passwordResetTokenRepository = require("../repositories/passwordResetToken
 const router = express.Router();
 
 router.use(authenticate);
+
+router.get("/help-center", requirePlatformPermission("platform.help_center.manage"), asyncHandler(async (_req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  return res.json(await platformHelpCenter.getAdmin());
+}));
+
+router.post("/help-center/drafts", requirePlatformPermission("platform.help_center.manage"), requireIdempotency("platform.help_center.draft.save"), asyncHandler(async (req, res) => {
+  const reason = String(req.body?.reason || "").trim().replace(/\s+/g, " ");
+  if (reason.length < 8 || reason.length > 500) {
+    const error = new Error("Enter an audit reason between 8 and 500 characters.");
+    error.statusCode = 400;
+    error.code = "INVALID_REASON";
+    throw error;
+  }
+  const result = await db.withTransaction(async (client) => {
+    const draft = await platformHelpCenter.saveDraft(req.body?.content, req.user._id, reason, { client });
+    await securityAuditService.record({
+      actorId: req.user._id, actorRole: "platform_admin", sessionId: req.auth.sessionId,
+      action: "platform.help_center.draft.save", resourceType: "help_center_revision",
+      resourceId: String(draft.revision), reason, outcome: "success",
+      afterState: { revision: draft.revision, articleCount: req.body.content?.articles?.length || 0, faqCount: req.body.content?.faqs?.length || 0 }
+    }, { client });
+    return draft;
+  });
+  return res.status(201).json({ draft: result });
+}));
+
+router.post("/help-center/publish", requirePlatformPermission("platform.help_center.manage"), requireIdempotency("platform.help_center.publish"), asyncHandler(async (req, res) => {
+  const reason = String(req.body?.reason || "").trim().replace(/\s+/g, " ");
+  if (reason.length < 8 || reason.length > 500) {
+    const error = new Error("Enter an audit reason between 8 and 500 characters.");
+    error.statusCode = 400;
+    error.code = "INVALID_REASON";
+    throw error;
+  }
+  const result = await db.withTransaction(async (client) => {
+    const published = await platformHelpCenter.publishDraft(req.body?.revision, req.user._id, reason, { client });
+    await securityAuditService.record({
+      actorId: req.user._id, actorRole: "platform_admin", sessionId: req.auth.sessionId,
+      action: "platform.help_center.publish", resourceType: "help_center_revision",
+      resourceId: String(published.publishedRevision), reason, outcome: "success",
+      beforeState: { publishedRevision: published.previousPublishedRevision },
+      afterState: { publishedRevision: published.publishedRevision }
+    }, { client });
+    return published;
+  });
+  return res.json({ publish: result });
+}));
+
+router.post("/help-center/revisions/:revision/restore", requirePlatformPermission("platform.help_center.manage"), requireIdempotency("platform.help_center.revision.restore"), asyncHandler(async (req, res) => {
+  const reason = String(req.body?.reason || "").trim().replace(/\s+/g, " ");
+  if (reason.length < 8 || reason.length > 500) {
+    const error = new Error("Enter an audit reason between 8 and 500 characters.");
+    error.statusCode = 400;
+    error.code = "INVALID_REASON";
+    throw error;
+  }
+  const result = await db.withTransaction(async (client) => {
+    const draft = await platformHelpCenter.restoreRevision(req.params.revision, req.user._id, reason, { client });
+    await securityAuditService.record({
+      actorId: req.user._id, actorRole: "platform_admin", sessionId: req.auth.sessionId,
+      action: "platform.help_center.revision.restore", resourceType: "help_center_revision",
+      resourceId: String(draft.revision), reason, outcome: "success",
+      afterState: { revision: draft.revision, restoredFromRevision: draft.restoredFromRevision }
+    }, { client });
+    return draft;
+  });
+  return res.status(201).json({ draft: result });
+}));
 
 router.get("/viewer-context", requirePlatformPermission("platform.tenants.read"), asyncHandler(async (req, res) => {
   res.setHeader("Cache-Control", "no-store");

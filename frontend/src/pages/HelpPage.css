@@ -143,6 +143,11 @@
 .hp-faq details p {
   padding:0 12px;
   font-size:14px}
+.hp-faq .hp-faq-guide {
+  display:inline-block;
+  margin:8px 12px 14px;
+  padding:4px 0;
+  text-underline-offset:4px}
 .hp-contact {
   background:#e9eddf;
   border-radius:18px;

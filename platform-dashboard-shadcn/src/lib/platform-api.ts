@@ -29,8 +29,11 @@ import type {
   PlatformDeveloperApiKeyReview,
   PlatformPlanMatrix,
   PlanPolicyPreview,
+  PlatformHelpCenterContent,
+  PlatformHelpCenterAdminReadModel,
 } from "@/lib/platform-contracts"
 import type { QueueFeeSetting, SubscriptionPlan } from "../../../shared/types"
+import helpCenterSeed from "../../../shared/helpCenterSeed.json"
 import { platformAuth } from "@/lib/platform-auth"
 import { resolvePlatformApiBaseUrl } from "@/lib/platform-api-url"
 
@@ -65,6 +68,12 @@ const available = <T>(data: T, scope: ReadModelMeta["scope"]): ReadModelModule<T
   data,
   meta: meta(scope),
 })
+
+let fixtureHelpCenterContent = helpCenterSeed as unknown as PlatformHelpCenterContent
+let fixtureHelpCenterPublishedRevision = 1
+let fixtureHelpCenterDraftRevision: number | null = null
+let fixtureHelpCenterRevision = 1
+const fixtureHelpCenterRevisions: PlatformHelpCenterAdminReadModel["revisions"] = []
 
 const overview: PlatformOverviewReadModel = {
   metrics: [
@@ -494,6 +503,34 @@ export const fixturePlatformApi: PlatformApi = {
   async getReleaseReadiness() {
     return available(releaseReadiness, "global")
   },
+  async getHelpCenterAdmin() {
+    return {
+      publishedRevision: fixtureHelpCenterPublishedRevision,
+      draftRevision: fixtureHelpCenterDraftRevision,
+      content: structuredClone(fixtureHelpCenterContent),
+      revisions: structuredClone(fixtureHelpCenterRevisions),
+    }
+  },
+  async saveHelpCenterDraft(content, reason) {
+    fixtureHelpCenterContent = structuredClone(content)
+    fixtureHelpCenterDraftRevision = ++fixtureHelpCenterRevision
+    fixtureHelpCenterRevisions.unshift({ revision: fixtureHelpCenterDraftRevision, createdAt: new Date().toISOString(), createdBy: "fixture-admin", changeReason: reason, publishedAt: null, publishedBy: null })
+    return { draft: { revision: fixtureHelpCenterDraftRevision } }
+  },
+  async publishHelpCenterRevision(revision) {
+    if (fixtureHelpCenterDraftRevision !== revision) throw new Error("This draft has changed. Refresh the Help Center before publishing.")
+    const previousPublishedRevision = fixtureHelpCenterPublishedRevision
+    fixtureHelpCenterPublishedRevision = revision
+    fixtureHelpCenterDraftRevision = null
+    return { publish: { publishedRevision: revision, previousPublishedRevision } }
+  },
+  async restoreHelpCenterRevision(revision, reason) {
+    const snapshot = fixtureHelpCenterRevisions.find((item) => item.revision === revision)
+    if (!snapshot) throw new Error("Help Center revision not found.")
+    fixtureHelpCenterDraftRevision = ++fixtureHelpCenterRevision
+    fixtureHelpCenterRevisions.unshift({ ...snapshot, revision: fixtureHelpCenterDraftRevision, createdAt: new Date().toISOString(), createdBy: "fixture-admin", changeReason: reason, publishedAt: null, publishedBy: null })
+    return { draft: { revision: fixtureHelpCenterDraftRevision, restoredFromRevision: revision } }
+  },
   async getDeveloperProjects() {
     return available({ projects }, "global")
   },
@@ -754,6 +791,15 @@ function createHttpPlatformApi(baseUrl = API_BASE_URL): PlatformApi {
     getModeration: () => read<PlatformModerationReadModel>("/platform/moderation/read-model", "global"),
     getSettings: () => read<PlatformSettingsReadModel>("/platform/settings/read-model", "global"),
     getReleaseReadiness: () => read<PlatformReleaseReadinessReadModel>("/platform/release-readiness/read-model", "global"),
+    getHelpCenterAdmin: async () => {
+      const response = await fetchWithSessionRefresh(() => fetch(`${baseUrl.replace(/\/$/, "")}/platform/help-center`, { credentials: "include", headers: { Accept: "application/json" } }))
+      const payload = await response.json().catch(() => ({})) as PlatformHelpCenterAdminReadModel & { message?: string }
+      if (!response.ok) throw Object.assign(new Error(payload.message || "Help Center content could not be loaded."), { status: response.status })
+      return payload
+    },
+    saveHelpCenterDraft: (content, reason) => writePlatform(baseUrl, "/platform/help-center/drafts", { content, reason }, crypto.randomUUID()),
+    publishHelpCenterRevision: (revision, reason) => writePlatform(baseUrl, "/platform/help-center/publish", { revision, reason }, crypto.randomUUID()),
+    restoreHelpCenterRevision: (revision, reason) => writePlatform(baseUrl, `/platform/help-center/revisions/${revision}/restore`, { reason }, crypto.randomUUID()),
     getDeveloperProjects: () => read<{ projects: DeveloperProjectSummary[] }>("/platform/developer-projects/read-model", "global"),
     getDeveloperProjectGovernance: (projectId) => read<DeveloperProjectGovernanceReadModel>(`/platform/developer-projects/${encodeURIComponent(projectId)}/governance`, "developer-project"),
     getDeveloperApiKeys: async (projectId) => {

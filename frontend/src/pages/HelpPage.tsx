@@ -1,7 +1,8 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { IconSearch, IconArrowRight, IconX } from '@tabler/icons-react';
-import { helpArticles, helpFaqs, helpTopics, searchHelpArticles } from './helpContent';
+import { apiRequest } from '../api/client';
+import { emptyHelpContent, helpTopicIcon, searchHelpArticles, type PublicHelpCenterContent } from './helpContent';
 import './HelpPage.css';
 
 const articleUrl = (id: string) => `/help?article=${encodeURIComponent(id)}`;
@@ -22,14 +23,20 @@ function ContactHelp() {
 
 export default function HelpPage() {
   const [params, setParams] = useSearchParams();
+  const [content, setContent] = useState<PublicHelpCenterContent>(emptyHelpContent);
+  const [loading, setLoading] = useState(true);
+  const [unavailable, setUnavailable] = useState(false);
+  const topics = content.topics.map((item) => ({ ...item, Icon: helpTopicIcon(item.id) }));
+  const articles = content.articles;
+  const faqs = content.faqs;
   const query = params.get('q') || '';
   const selectedTopic = params.get('topic') || '';
   const selectedArticle = params.get('article') || '';
-  const topic = helpTopics.find(item => item.id === selectedTopic);
-  const article = helpArticles.find(item => item.id === selectedArticle);
+  const topic = topics.find(item => item.id === selectedTopic);
+  const article = articles.find(item => item.id === selectedArticle);
   const heading = useRef<HTMLHeadingElement>(null);
   const missing = Boolean((selectedArticle && !article) || (selectedTopic && !topic));
-  const results = searchHelpArticles(query, topic?.id);
+  const results = searchHelpArticles(query, topic?.id, articles, topics);
   const browsing = !query.trim() && !topic;
 
   useEffect(() => {
@@ -44,11 +51,29 @@ export default function HelpPage() {
     }
   }, [selectedArticle, selectedTopic]);
 
+  useEffect(() => {
+    let active = true;
+    apiRequest<PublicHelpCenterContent>('/public/help-center', { skipAuthRefresh: true })
+      .then((next) => {
+        if (active && Array.isArray(next.topics) && Array.isArray(next.articles) && Array.isArray(next.faqs)) {
+          setContent(next);
+          setUnavailable(false);
+        }
+      })
+      .catch(() => { if (active) setUnavailable(true); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, []);
+
   function changeQuery(value: string) {
     const next = new URLSearchParams();
     if (value) next.set('q', value);
     setParams(next, { replace: true });
   }
+
+  if (loading) return <div className="hp"><div className="hp-wrap"><section className="hp-empty" role="status"><h1>Loading the Help Center…</h1></section></div></div>;
+  if (unavailable) return <div className="hp"><div className="hp-wrap"><section className="hp-empty"><h1>The Help Center is temporarily unavailable.</h1><p>Please try again in a little while, or contact our team for help.</p><Link to="/contact">Contact GetPrio →</Link></section></div></div>;
+  if (!content.topics.length && !content.articles.length && !content.faqs.length) return <div className="hp"><div className="hp-wrap"><section className="hp-empty"><h1>Help is on the way.</h1><p>We’re preparing the GetPrio Help Center. In the meantime, our team can help with your question.</p><Link to="/contact">Contact GetPrio →</Link></section></div></div>;
 
   return (
     <div className="hp">
@@ -64,7 +89,7 @@ export default function HelpPage() {
           <>
             <nav className="hp-breadcrumb" aria-label="Breadcrumb">
               <Link to="/help">Help Center</Link><span aria-hidden="true">/</span>
-              <Link to={topicUrl(article.topic)}>{helpTopics.find(item => item.id === article.topic)?.title}</Link>
+              <Link to={topicUrl(article.topic)}>{topics.find(item => item.id === article.topic)?.title}</Link>
             </nav>
             <div className="hp-reading">
               <article>
@@ -78,7 +103,7 @@ export default function HelpPage() {
               </article>
               <aside className="hp-related" aria-label="Related help">
                 <span className="hp-eyebrow">KEEP EXPLORING</span>
-                {helpArticles.filter(item => item.topic === article.topic && item.id !== article.id).map(item => (
+                {articles.filter(item => item.topic === article.topic && item.id !== article.id).map(item => (
                   <Link key={item.id} to={articleUrl(item.id)}>{item.title} →</Link>
                 ))}
                 <Link to="/contact">Talk to our team →</Link>
@@ -108,7 +133,7 @@ export default function HelpPage() {
               <>
                 <div className="hp-section-head"><h2>What can we help with?</h2><span>START WITH A TOPIC</span></div>
                 <div className="hp-grid">
-                  {helpTopics.map(({ id, title, description, Icon }) => (
+                  {topics.map(({ id, title, description, Icon }) => (
                     <Link key={id} to={topicUrl(id)}>
                       <Icon size={28} stroke={1.5} aria-hidden="true" />
                       <h3>{title}</h3><p>{description}</p>
@@ -119,7 +144,7 @@ export default function HelpPage() {
                 <section className="hp-faq" id="faq">
                   <span className="hp-eyebrow">QUICK ANSWERS</span>
                   <h2>A few things you might be wondering.</h2>
-                  {helpFaqs.map(({ question, answer }) => <details key={question}><summary>{question}</summary><p>{answer}</p></details>)}
+                  {faqs.map(({ id, question, answer, relatedArticleId }) => <details key={id}><summary>{question}</summary><p>{answer}</p>{relatedArticleId && articles.some((item) => item.id === relatedArticleId) ? <Link className="hp-faq-guide" to={articleUrl(relatedArticleId)}>Read the related guide →</Link> : null}</details>)}
                 </section>
               </>
             ) : (
@@ -132,7 +157,7 @@ export default function HelpPage() {
                 <div className="hp-article-list">
                   {results.map(item => (
                     <Link key={item.id} to={articleUrl(item.id)}>
-                      <span><small>{helpTopics.find(category => category.id === item.topic)?.title}</small><strong>{item.title}</strong></span>
+                      <span><small>{topics.find(category => category.id === item.topic)?.title}</small><strong>{item.title}</strong></span>
                       <IconArrowRight size={19} aria-hidden="true" />
                     </Link>
                   ))}

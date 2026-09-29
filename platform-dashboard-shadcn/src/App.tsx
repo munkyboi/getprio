@@ -4,6 +4,7 @@ import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts"
 import {
   Activity,
   AlertTriangle,
+  BookOpenText,
   ArrowUpRight,
   CheckCircle2,
   ChevronDown,
@@ -39,14 +40,16 @@ import { Separator } from "@/components/ui/separator"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area"
 import { NavigationMenu, NavigationMenuContent, NavigationMenuItem, NavigationMenuLink, NavigationMenuList, NavigationMenuTrigger } from "@/components/ui/navigation-menu"
-import { Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarHeader, SidebarInset, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
+import { Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarHeader, SidebarInset, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarMenuSub, SidebarMenuSubButton, SidebarMenuSubItem, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { PlatformDataTable } from "@/components/platform-data-table"
+import { PlatformMetricCard } from "@/components/platform-metric-card"
 import { PlatformAccountSettings } from "@/components/platform-account-settings"
 import { PlanMatrix } from "@/components/plan-matrix"
+import { PlatformHelpCenterManager } from "@/components/platform-help-center"
 import { PlatformLogin } from "@/components/platform-login"
 import { platformAuth } from "@/lib/platform-auth"
 import { platformApi } from "@/lib/platform-api"
@@ -54,7 +57,7 @@ import type { AccountDeletionTaskKind, DeveloperProjectGovernanceReadModel, Deve
 import { cn } from "cn"
 import "./App.css"
 
-type NavItem = { label: string; icon: typeof LayoutDashboard; capability: string }
+type NavItem = { label: string; icon: typeof LayoutDashboard; capability: string; route?: string; subItems?: Array<{ label: string; route: string }> }
 type ServiceRow = PlatformServiceHealthReadModel["services"][number]
 type QueueRow = PlatformQueueOperationsReadModel["queueDays"][number]
 type TenantRow = PlatformTenantsReadModel["tenants"][number]
@@ -95,7 +98,7 @@ const navGroups: Array<{ label: string; items: NavItem[] }> = [
   { label: "Workspace", items: [{ label: "Overview", icon: LayoutDashboard, capability: "platform.tenants.read" }] },
   { label: "Operations", items: [{ label: "Queues & recovery", icon: ListChecks, capability: "platform.tenants.read" }, { label: "Tenants", icon: DatabaseZap, capability: "platform.tenants.read" }, { label: "Users", icon: Users, capability: "platform.users.read" }, { label: "Service health", icon: Activity, capability: "platform.tenants.read" }] },
   { label: "Governance", items: [{ label: "Developer projects", icon: Code2, capability: "platform.developer_api.manage" }, { label: "Plan Matrix", icon: Settings2, capability: "platform.billing.read" }, { label: "Billing & credits", icon: CircleDollarSign, capability: "platform.billing.read" }, { label: "Moderation", icon: ShieldCheck, capability: "platform.users.read" }] },
-  { label: "Trust", items: [{ label: "Release readiness", icon: Rocket, capability: "platform.tenants.read" }, { label: "Security audit", icon: FileSearch, capability: "platform.security_audit.read" }, { label: "Settings", icon: Settings2, capability: "platform.settings.manage" }] },
+  { label: "Trust", items: [{ label: "Release readiness", icon: Rocket, capability: "platform.tenants.read" }, { label: "Security audit", icon: FileSearch, capability: "platform.security_audit.read" }, { label: "Help Center", icon: BookOpenText, capability: "platform.help_center.manage", route: "Help Center / Overview", subItems: [{ label: "Overview", route: "Help Center / Overview" }, { label: "Topics", route: "Help Center / Topics" }, { label: "Guides", route: "Help Center / Guides" }, { label: "FAQs", route: "Help Center / FAQs" }] }, { label: "Settings", icon: Settings2, capability: "platform.settings.manage" }] },
 ]
 
 const fixtureCapabilities = navGroups.flatMap((group) => group.items.map((item) => item.capability))
@@ -112,6 +115,10 @@ const routePathByLabel: Record<string, string> = {
   Moderation: "/moderation",
   "Release readiness": "/release-readiness",
   "Security audit": "/security-audit",
+  "Help Center / Overview": "/help-center",
+  "Help Center / Topics": "/help-center/topics",
+  "Help Center / Guides": "/help-center/guides",
+  "Help Center / FAQs": "/help-center/faqs",
   Settings: "/settings",
   "My account": "/my-account",
 }
@@ -792,7 +799,7 @@ function PlatformSidebar({ activeRoute, dark, onRouteChange, viewer, onLogout }:
         </SidebarHeader>
         <SidebarContent className="overflow-hidden">
           <ScrollArea className="min-h-0 flex-1">
-            {navGroups.map((group) => { const items = group.items.filter((item) => capabilities.has(item.capability)); return items.length ? <SidebarGroup key={group.label}><SidebarGroupLabel>{group.label}</SidebarGroupLabel><SidebarGroupContent><SidebarMenu>{items.map((item) => <SidebarMenuItem key={item.label}><SidebarMenuButton isActive={activeRoute === item.label} tooltip={item.label} onClick={() => onRouteChange(item.label)}><item.icon /><span>{item.label}</span></SidebarMenuButton></SidebarMenuItem>)}</SidebarMenu></SidebarGroupContent></SidebarGroup> : null })}
+            {navGroups.map((group) => { const items = group.items.filter((item) => capabilities.has(item.capability)); return items.length ? <SidebarGroup key={group.label}><SidebarGroupLabel>{group.label}</SidebarGroupLabel><SidebarGroupContent><SidebarMenu>{items.map((item) => { const active = item.subItems ? activeRoute.startsWith("Help Center /") : activeRoute === item.label; return <SidebarMenuItem key={item.label}><SidebarMenuButton isActive={active} tooltip={item.label} onClick={() => onRouteChange(item.route || item.label)}><item.icon /><span>{item.label}</span></SidebarMenuButton>{item.subItems ? <SidebarMenuSub>{item.subItems.map((subItem) => <SidebarMenuSubItem key={subItem.route}><SidebarMenuSubButton isActive={activeRoute === subItem.route} onClick={() => onRouteChange(subItem.route)}><span>{subItem.label}</span></SidebarMenuSubButton></SidebarMenuSubItem>)}</SidebarMenuSub> : null}</SidebarMenuItem> })}</SidebarMenu></SidebarGroupContent></SidebarGroup> : null })}
           </ScrollArea>
         </SidebarContent>
         <SidebarFooter className="p-3">
@@ -839,13 +846,34 @@ function PlatformSidebar({ activeRoute, dark, onRouteChange, viewer, onLogout }:
 }
 
 type MetricTone = "attention" | "positive" | "neutral" | "info"
-type MetricVisual = { icon: typeof Activity; tone: MetricTone; series: number[] }
+type MetricVisual = { icon: typeof Activity; tone: MetricTone }
 
 const metricVisuals: Record<string, MetricVisual> = {
-  "Needs attention": { icon: AlertTriangle, tone: "attention", series: [5, 7, 6, 9, 8, 11, 12] },
-  "Active tenants": { icon: Users, tone: "positive", series: [218, 224, 229, 232, 240, 244, 248] },
-  "Queue health": { icon: Activity, tone: "positive", series: [96.4, 97.1, 96.8, 98.1, 97.9, 98.5, 98.7] },
-  "API projects": { icon: Code2, tone: "info", series: [24, 26, 27, 29, 31, 34, 36] },
+  "Needs attention": { icon: AlertTriangle, tone: "attention" },
+  "Active tenants": { icon: Users, tone: "positive" },
+  "Queue health": { icon: Activity, tone: "positive" },
+  "API projects": { icon: Code2, tone: "info" },
+}
+
+const metricIcons: Record<string, typeof Activity> = {
+  "Open queue days": ListChecks,
+  "Needs reconciliation": AlertTriangle,
+  "Unresolved tickets": ListChecks,
+  "Notification backlog": Activity,
+  "Pending approval": ShieldCheck,
+  "Without plan signal": CircleDollarSign,
+  "Users in scope": Users,
+  "MFA required": ShieldCheck,
+  "Account attention": AlertTriangle,
+  "Events in view": FileSearch,
+  "Failed, denied, or conflicting": AlertTriangle,
+  "Chain status": ShieldCheck,
+  "Active subscriptions": CircleDollarSign,
+  "Restricted billing": AlertTriangle,
+  "Pending transitions": Activity,
+  "Observed services": Activity,
+  Degraded: AlertTriangle,
+  "Without heartbeat": Activity,
 }
 
 const metricToneClasses: Record<MetricTone, string> = {
@@ -855,25 +883,11 @@ const metricToneClasses: Record<MetricTone, string> = {
   info: "bg-chart-1/10 text-chart-1 dark:bg-chart-1/20",
 }
 
-const metricChartColors: Record<MetricTone, string> = {
-  attention: "var(--brand)",
-  positive: "var(--chart-2)",
-  neutral: "var(--muted-foreground)",
-  info: "var(--chart-1)",
-}
-
-function MetricSparkline({ series, tone }: Pick<MetricVisual, "series" | "tone">) {
-  const config = { value: { label: "Trend", color: metricChartColors[tone] } } satisfies ChartConfig
-  const data = series.map((value, index) => ({ index, value }))
-
-  return <ChartContainer config={config} className="h-12 w-24 shrink-0 aspect-auto" aria-hidden="true"><AreaChart data={data} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}><XAxis dataKey="index" hide /><YAxis domain={["dataMin", "dataMax"]} hide /><Area dataKey="value" type="monotone" stroke="var(--color-value)" strokeWidth={2} fill="var(--color-value)" fillOpacity={0.14} isAnimationActive={false} /></AreaChart></ChartContainer>
-}
-
-function MetricCard({ label, value, trend, trendTone, visual, showSparkline = true }: PlatformOverviewReadModel["metrics"][number] & { visual?: MetricVisual; showSparkline?: boolean }) {
-  const Icon = visual?.icon
+function MetricCard({ label, value, trend, trendTone, visual }: PlatformOverviewReadModel["metrics"][number] & { visual?: MetricVisual }) {
+  const Icon = visual?.icon ?? metricIcons[label] ?? Activity
   const tone = visual?.tone ?? trendTone
 
-  return <Card size="sm" className="shadow-none"><CardHeader className={visual ? "gap-4 pb-2" : "pb-1"}>{visual ? <div className="flex items-start justify-between gap-3"><div className={cn("grid size-10 place-items-center rounded-md", metricToneClasses[tone])}>{Icon && <Icon />}</div>{showSparkline ? <MetricSparkline series={visual.series} tone={visual.tone} /> : null}</div> : null}<CardDescription>{label}</CardDescription></CardHeader><CardContent className="grid gap-1"><div className="text-2xl font-semibold tracking-tight tabular-nums">{value}</div><p className={cn("text-xs", trendTone === "attention" ? "text-brand" : trendTone === "positive" ? "text-success" : "text-muted-foreground")}>{trend}</p></CardContent></Card>
+  return <PlatformMetricCard label={label} value={value} icon={Icon} iconClassName={metricToneClasses[tone]} supportingContent={trend} />
 }
 
 const serviceColumns: ColumnDef<ServiceRow>[] = [
@@ -1046,7 +1060,7 @@ function Overview({ overview, health, viewer }: { overview: PlatformOverviewRead
   return (
     <div className="grid gap-5">
     <div className="grid gap-1"><p className="text-xs font-semibold uppercase tracking-[0.14em] text-brand">Global Platform</p><div className="flex flex-col justify-between gap-4 md:flex-row md:items-end"><div><h1 className="text-3xl font-semibold tracking-tight md:text-4xl">Welcome, {viewer.user.displayName}</h1><p className="mt-1 text-muted-foreground">Here’s what needs attention across GetPrio.</p></div><Badge variant="outline" className="w-fit">All tenants <ChevronDown data-icon="inline-end" /></Badge></div></div>
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{overview.metrics.map((metric) => <MetricCard key={metric.label} {...metric} visual={metricVisuals[metric.label]} showSparkline={!usesLiveData} />)}</div>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{overview.metrics.map((metric) => <MetricCard key={metric.label} {...metric} visual={metricVisuals[metric.label]} />)}</div>
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,.85fr)]">
         <div className="grid min-w-0 gap-5">
           <Card className="shadow-none"><CardHeader><CardTitle>Operational activity</CardTitle><CardDescription>Cross-surface audit events · last 14 days · UTC</CardDescription><CardAction><Button variant="link" size="sm" onClick={() => navigateToRoute("Security audit")}>View report <ArrowUpRight data-icon="inline-end" /></Button></CardAction></CardHeader><CardContent className="pl-1 sm:pl-3"><ChartContainer config={chartConfig} className="h-[260px] w-full"><AreaChart accessibilityLayer data={overview.activity} margin={{ left: 8, right: 12, top: 10, bottom: 0 }}><defs><linearGradient id="fillAuditEvents" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="var(--color-events)" stopOpacity={0.28} /><stop offset="95%" stopColor="var(--color-events)" stopOpacity={0} /></linearGradient><linearGradient id="fillSuccessfulEvents" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="var(--color-successfulEvents)" stopOpacity={0.2} /><stop offset="95%" stopColor="var(--color-successfulEvents)" stopOpacity={0} /></linearGradient></defs><CartesianGrid vertical={false} /><XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} /><YAxis hide /><ChartTooltip cursor={false} content={<ChartTooltipContent indicator="line" />} /><Area dataKey="events" type="natural" fill="url(#fillAuditEvents)" stroke="var(--color-events)" strokeWidth={2} /><Area dataKey="successfulEvents" type="natural" fill="url(#fillSuccessfulEvents)" stroke="var(--color-successfulEvents)" strokeWidth={2} /></AreaChart></ChartContainer></CardContent></Card>
@@ -1613,7 +1627,9 @@ function App() {
     navigateToRoute(route)
   }
 
-  const routeLabel = useMemo(() => activeRoute === "Overview" ? "Platform control plane" : activeRoute, [activeRoute])
+  const isHelpCenterRoute = activeRoute.startsWith("Help Center /")
+  const routeTitle = isHelpCenterRoute ? "Help Center" : activeRoute
+  const routeLabel = useMemo(() => isHelpCenterRoute ? activeRoute.replace("Help Center / ", "") : activeRoute === "Overview" ? "Platform control plane" : activeRoute, [activeRoute, isHelpCenterRoute])
 
   if (usesLiveData && authStatus === "checking") return <div className="grid min-h-screen place-items-center bg-background text-sm text-muted-foreground">Checking Platform session…</div>
   if (usesLiveData && authStatus === "unavailable") return <div className="grid min-h-screen place-items-center bg-background px-4"><Alert variant="destructive" className="max-w-lg"><AlertTriangle /><AlertTitle>Authentication service unavailable</AlertTitle><AlertDescription>{authError || "Unable to verify the Platform session."}</AlertDescription></Alert></div>
@@ -1623,7 +1639,7 @@ function App() {
   const activeViewer = viewer || { user: { id: "fixture", displayName: "Carlo Abella", role: "Platform Admin" }, capabilities: fixtureCapabilities, navigation: ["overview", "operations", "developer", "billing", "trust", "settings"] as PlatformViewerContext["navigation"], sessionExpiresAt: "" }
   const availableCapabilities = new Set(activeViewer.capabilities)
 
-  return <TooltipProvider><SidebarProvider defaultOpen><PlatformSidebar activeRoute={activeRoute} dark={dark} viewer={activeViewer} onRouteChange={navigate} onLogout={handleLogout} /><SidebarInset className="min-w-0"><header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-2 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/80 md:px-6"><SidebarTrigger className="-ml-1" aria-label="Toggle Platform navigation"><PanelLeft data-icon="inline-start" /></SidebarTrigger><Separator orientation="vertical" className="mr-1 h-4" /><div className="flex min-w-0 items-center gap-2 text-sm"><span className="font-medium">{activeRoute}</span><span className="hidden text-muted-foreground sm:inline">{routeLabel}</span></div><div className="ml-auto flex items-center gap-1"><Button variant="outline" size="sm" className="hidden gap-2 text-muted-foreground md:flex" onClick={() => setCommandOpen(true)}><Search data-icon="inline-start" /> Search <kbd className="rounded border bg-muted px-1.5 py-0.5 text-[10px]">⌘K</kbd></Button><Button variant="ghost" size="icon" aria-label={dark ? "Switch to light theme" : "Switch to dark theme"} onClick={() => setDark((value) => !value)}>{dark ? <Sun /> : <Moon />}</Button><Button variant="ghost" size="icon" className="md:hidden" aria-label="Open command search" onClick={() => setCommandOpen(true)}><CommandIcon /></Button></div></header><main className="min-w-0 flex-1 p-4 md:p-6 lg:p-8"><div className="mx-auto max-w-[1440px]">{activeRoute === "My account" ? <PlatformAccountSettings live={usesLiveData} onPasswordChanged={() => { setAuthStatus("signed-out"); setViewer(null) }} onSessionExpired={handleAccountSessionExpired} /> : error ? <Alert variant="destructive"><AlertTriangle /><AlertTitle>Platform unavailable</AlertTitle><AlertDescription>{error}</AlertDescription></Alert> : overview && viewer && serviceHealth && queueOperations && tenants && releaseReadiness ? activeRoute === "Overview" ? <Overview overview={overview} health={serviceHealth} viewer={viewer} /> : activeRoute === "Service health" ? <ServiceHealth health={serviceHealth} /> : activeRoute === "Queues & recovery" ? <QueueOperations operations={queueOperations} onPreview={handleQueueRepairPreview} onExecute={handleQueueRepairExecute} /> : activeRoute === "Tenants" ? <Tenants tenants={tenants} canManageOverrides={availableCapabilities.has("platform.entitlement_overrides.manage")} canGrantCredits={availableCapabilities.has("platform.credit_grants.manage")} canRevokeCredits={availableCapabilities.has("platform.credit_revocations.manage")} onInspect={handleTenantInspect} onPreviewEntitlement={handleTenantEntitlementPreview} onExecuteEntitlement={handleTenantEntitlementExecute} onGrantCredits={handleTenantCreditGrant} onRevokeCredits={handleTenantCreditRevoke} /> : activeRoute === "Users" && users ? <PlatformUsers users={users} viewerId={viewer.user.id} canManage={availableCapabilities.has("platform.user_sessions.revoke")} deletionRequests={accountDeletionQueue} deletionError={accountDeletionError} canManageDeletion={availableCapabilities.has("platform.account_deletion.manage")} onCompleteDeletionTask={handleAccountDeletionTaskComplete} onPreview={handleUserSessionRevokePreview} onExecute={handleUserSessionRevokeExecute} /> : activeRoute === "Security audit" && securityAudit ? <SecurityAudit audit={securityAudit} /> : activeRoute === "Billing & credits" && billing ? <Billing billing={billing} canSuspend={availableCapabilities.has("platform.subscription_lifecycle.manage")} canResolveRefunds={availableCapabilities.has("platform.credit_adjustments.manage")} canResolveDisputes={availableCapabilities.has("platform.credit_disputes.manage")} onPreviewSuspend={handleSubscriptionSuspendPreview} onExecuteSuspend={handleSubscriptionSuspendExecute} onPreviewCreditCase={handleCreditCasePreview} onResolveCreditRefund={handleCreditRefundResolve} onResolveCreditDispute={handleCreditDisputeResolve} /> : activeRoute === "Moderation" && moderation ? <Moderation moderation={moderation} canManage={availableCapabilities.has("platform.settings.manage")} onPreview={handleModerationPreview} onExecute={handleModerationExecute} /> : activeRoute === "Release readiness" ? <ReleaseReadiness readiness={releaseReadiness} /> : activeRoute === "Settings" && settings ? <Settings settings={settings} /> : activeRoute === "Developer projects" && developerProject && selectedProjectId ? <DeveloperProjects project={developerProject} projects={developerProjects} selectedProjectId={selectedProjectId} onProjectChange={selectDeveloperProject} projectLoading={developerProjectLoading} onWebhookAction={handleDeveloperWebhookAction} onDeveloperApprovalReview={handleDeveloperApprovalReview} onSandboxAction={handleSandboxAction} onRateLimitUpdate={handleRateLimitUpdate} onRevokeApiKey={handleDeveloperApiKeyRevoke} /> : <RoutePlaceholder route={activeRoute} /> : <div className="grid min-h-[420px] place-items-center text-sm text-muted-foreground">Loading Platform overview…</div>}</div></main></SidebarInset></SidebarProvider><CommandDialog open={commandOpen} onOpenChange={setCommandOpen} title="Search Platform" description="Find a Platform route, tenant, project, or audit event."><Command><CommandInput placeholder="Search routes, tenants, projects…" /><CommandList><CommandEmpty>No matching Platform records.</CommandEmpty><CommandGroup heading="Navigate">{navGroups.flatMap((group) => group.items).filter((item) => availableCapabilities.has(item.capability)).map((item) => <CommandItem key={item.label} onSelect={() => { navigate(item.label); setCommandOpen(false) }}><item.icon />{item.label}</CommandItem>)}</CommandGroup></CommandList></Command></CommandDialog></TooltipProvider>
+  return <TooltipProvider><SidebarProvider defaultOpen><PlatformSidebar activeRoute={activeRoute} dark={dark} viewer={activeViewer} onRouteChange={navigate} onLogout={handleLogout} /><SidebarInset className="min-w-0"><header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-2 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/80 md:px-6"><SidebarTrigger className="-ml-1" aria-label="Toggle Platform navigation"><PanelLeft data-icon="inline-start" /></SidebarTrigger><Separator orientation="vertical" className="mr-1 h-4" /><div className="flex min-w-0 items-center gap-2 text-sm"><span className="font-medium">{routeTitle}</span><span className="hidden text-muted-foreground sm:inline">{routeLabel}</span></div><div className="ml-auto flex items-center gap-1"><Button variant="outline" size="sm" className="hidden gap-2 text-muted-foreground md:flex" onClick={() => setCommandOpen(true)}><Search data-icon="inline-start" /> Search <kbd className="rounded border bg-muted px-1.5 py-0.5 text-[10px]">⌘K</kbd></Button><Button variant="ghost" size="icon" aria-label={dark ? "Switch to light theme" : "Switch to dark theme"} onClick={() => setDark((value) => !value)}>{dark ? <Sun /> : <Moon />}</Button><Button variant="ghost" size="icon" className="md:hidden" aria-label="Open command search" onClick={() => setCommandOpen(true)}><CommandIcon /></Button></div></header><main className="min-w-0 flex-1 p-4 md:p-6 lg:p-8"><div className="mx-auto max-w-[1440px]">{activeRoute === "My account" ? <PlatformAccountSettings live={usesLiveData} onPasswordChanged={() => { setAuthStatus("signed-out"); setViewer(null) }} onSessionExpired={handleAccountSessionExpired} /> : isHelpCenterRoute && viewer && availableCapabilities.has("platform.help_center.manage") ? <PlatformHelpCenterManager page={activeRoute.replace("Help Center / ", "").toLowerCase() as "overview" | "topics" | "guides" | "faqs"} onNavigate={(page) => navigate(`Help Center / ${page[0].toUpperCase()}${page.slice(1)}`)} /> : error ? <Alert variant="destructive"><AlertTriangle /><AlertTitle>Platform unavailable</AlertTitle><AlertDescription>{error}</AlertDescription></Alert> : overview && viewer && serviceHealth && queueOperations && tenants && releaseReadiness ? activeRoute === "Overview" ? <Overview overview={overview} health={serviceHealth} viewer={viewer} /> : activeRoute === "Service health" ? <ServiceHealth health={serviceHealth} /> : activeRoute === "Queues & recovery" ? <QueueOperations operations={queueOperations} onPreview={handleQueueRepairPreview} onExecute={handleQueueRepairExecute} /> : activeRoute === "Tenants" ? <Tenants tenants={tenants} canManageOverrides={availableCapabilities.has("platform.entitlement_overrides.manage")} canGrantCredits={availableCapabilities.has("platform.credit_grants.manage")} canRevokeCredits={availableCapabilities.has("platform.credit_revocations.manage")} onInspect={handleTenantInspect} onPreviewEntitlement={handleTenantEntitlementPreview} onExecuteEntitlement={handleTenantEntitlementExecute} onGrantCredits={handleTenantCreditGrant} onRevokeCredits={handleTenantCreditRevoke} /> : activeRoute === "Users" && users ? <PlatformUsers users={users} viewerId={viewer.user.id} canManage={availableCapabilities.has("platform.user_sessions.revoke")} deletionRequests={accountDeletionQueue} deletionError={accountDeletionError} canManageDeletion={availableCapabilities.has("platform.account_deletion.manage")} onCompleteDeletionTask={handleAccountDeletionTaskComplete} onPreview={handleUserSessionRevokePreview} onExecute={handleUserSessionRevokeExecute} /> : activeRoute === "Security audit" && securityAudit ? <SecurityAudit audit={securityAudit} /> : activeRoute === "Billing & credits" && billing ? <Billing billing={billing} canSuspend={availableCapabilities.has("platform.subscription_lifecycle.manage")} canResolveRefunds={availableCapabilities.has("platform.credit_adjustments.manage")} canResolveDisputes={availableCapabilities.has("platform.credit_disputes.manage")} onPreviewSuspend={handleSubscriptionSuspendPreview} onExecuteSuspend={handleSubscriptionSuspendExecute} onPreviewCreditCase={handleCreditCasePreview} onResolveCreditRefund={handleCreditRefundResolve} onResolveCreditDispute={handleCreditDisputeResolve} /> : activeRoute === "Moderation" && moderation ? <Moderation moderation={moderation} canManage={availableCapabilities.has("platform.settings.manage")} onPreview={handleModerationPreview} onExecute={handleModerationExecute} /> : activeRoute === "Release readiness" ? <ReleaseReadiness readiness={releaseReadiness} /> : activeRoute === "Settings" && settings ? <Settings settings={settings} /> : activeRoute === "Developer projects" && developerProject && selectedProjectId ? <DeveloperProjects project={developerProject} projects={developerProjects} selectedProjectId={selectedProjectId} onProjectChange={selectDeveloperProject} projectLoading={developerProjectLoading} onWebhookAction={handleDeveloperWebhookAction} onDeveloperApprovalReview={handleDeveloperApprovalReview} onSandboxAction={handleSandboxAction} onRateLimitUpdate={handleRateLimitUpdate} onRevokeApiKey={handleDeveloperApiKeyRevoke} /> : <RoutePlaceholder route={activeRoute} /> : <div className="grid min-h-[420px] place-items-center text-sm text-muted-foreground">Loading Platform overview…</div>}</div></main></SidebarInset></SidebarProvider><CommandDialog open={commandOpen} onOpenChange={setCommandOpen} title="Search Platform" description="Find a Platform route, tenant, project, or audit event."><Command><CommandInput placeholder="Search routes, tenants, projects…" /><CommandList><CommandEmpty>No matching Platform records.</CommandEmpty><CommandGroup heading="Navigate">{navGroups.flatMap((group) => group.items.flatMap((item) => item.subItems ? item.subItems.map((child) => ({ ...item, label: `Help Center · ${child.label}`, route: child.route })) : [item])).filter((item) => availableCapabilities.has(item.capability)).map((item) => <CommandItem key={item.route || item.label} onSelect={() => { navigate(item.route || item.label); setCommandOpen(false) }}><item.icon />{item.label}</CommandItem>)}</CommandGroup></CommandList></Command></CommandDialog></TooltipProvider>
 }
 
 export default App

@@ -6,6 +6,7 @@ const PLATFORM_PERMISSIONS = {
     "platform.user_password_reset.send",
     "platform.account_deletion.manage",
     "platform.settings.manage",
+    "platform.help_center.manage",
     "platform.plans.manage",
     "platform.queue_fees.manage",
     "platform.billing.read",

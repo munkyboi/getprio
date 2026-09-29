@@ -412,6 +412,67 @@ export interface PlatformReleaseReadinessReadModel {
   }>
 }
 
+export interface HelpCenterReviewMetadata {
+  owner: string
+  timeZone: string
+  cadenceDays: number
+  appliesTo: Array<"web" | "mobile">
+  lastReviewedAt: string | null
+  reviewDueAt: string | null
+  sourceReferences: string[]
+}
+
+export interface PlatformHelpCenterTopic {
+  id: string
+  title: string
+  description: string
+  archived?: boolean
+}
+
+export interface PlatformHelpCenterArticle {
+  id: string
+  topic: string
+  title: string
+  intro: string
+  steps: string[]
+  note: string
+  link: string | null
+  linkLabel: string | null
+  archived?: boolean
+  review: HelpCenterReviewMetadata
+}
+
+export interface PlatformHelpCenterFaq {
+  id: string
+  question: string
+  answer: string
+  relatedArticleId: string | null
+  archived?: boolean
+  review: HelpCenterReviewMetadata
+}
+
+export interface PlatformHelpCenterContent {
+  topics: PlatformHelpCenterTopic[]
+  articles: PlatformHelpCenterArticle[]
+  faqs: PlatformHelpCenterFaq[]
+}
+
+export interface PlatformHelpCenterRevision {
+  revision: number
+  createdAt: string
+  createdBy: string | number | null
+  changeReason: string
+  publishedAt: string | null
+  publishedBy: string | number | null
+}
+
+export interface PlatformHelpCenterAdminReadModel {
+  publishedRevision: number | null
+  draftRevision: number | null
+  content: PlatformHelpCenterContent
+  revisions: PlatformHelpCenterRevision[]
+}
+
 export interface PlatformPlanMatrix {
   plans: SubscriptionPlan[]
   queueFees: QueueFeeSetting[]
@@ -537,6 +598,10 @@ export interface PlatformApi {
   getModeration(): Promise<ReadModelModule<PlatformModerationReadModel> & { meta: ReadModelMeta }>
   getSettings(): Promise<ReadModelModule<PlatformSettingsReadModel> & { meta: ReadModelMeta }>
   getReleaseReadiness(): Promise<ReadModelModule<PlatformReleaseReadinessReadModel> & { meta: ReadModelMeta }>
+  getHelpCenterAdmin(): Promise<PlatformHelpCenterAdminReadModel>
+  saveHelpCenterDraft(content: PlatformHelpCenterContent, reason: string): Promise<{ draft: { revision: number } }>
+  publishHelpCenterRevision(revision: number, reason: string): Promise<{ publish: { publishedRevision: number; previousPublishedRevision: number | null } }>
+  restoreHelpCenterRevision(revision: number, reason: string): Promise<{ draft: { revision: number; restoredFromRevision: number } }>
   getDeveloperProjects(): Promise<ReadModelModule<{ projects: DeveloperProjectSummary[] }> & { meta: ReadModelMeta }>
   getDeveloperProjectGovernance(projectId: string): Promise<ReadModelModule<DeveloperProjectGovernanceReadModel> & { meta: ReadModelMeta }>
   getDeveloperApiKeys(projectId: string): Promise<PlatformDeveloperApiKeyReview>

@@ -6,6 +6,8 @@ BEGIN;
 
 DROP TABLE IF EXISTS account_deletion_tasks CASCADE;
 DROP TABLE IF EXISTS account_deletion_requests CASCADE;
+DROP TABLE IF EXISTS platform_help_center_state CASCADE;
+DROP TABLE IF EXISTS platform_help_center_revisions CASCADE;
 DROP TABLE IF EXISTS billing_events CASCADE;
 DROP TABLE IF EXISTS usage_credit_disputes CASCADE;
 DROP TABLE IF EXISTS usage_credit_refunds CASCADE;
@@ -2495,7 +2497,25 @@ CREATE TABLE usage_credit_disputes (
   resolved_at TIMESTAMPTZ
 );
 
-COMMIT;
+CREATE TABLE IF NOT EXISTS platform_help_center_revisions (
+  revision BIGSERIAL PRIMARY KEY,
+  content JSONB NOT NULL CHECK (jsonb_typeof(content) = 'object'),
+  created_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  change_reason TEXT NOT NULL,
+  published_at TIMESTAMPTZ,
+  published_by BIGINT REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS platform_help_center_state (
+  singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton = TRUE),
+  published_revision BIGINT REFERENCES platform_help_center_revisions(revision) ON DELETE RESTRICT,
+  draft_revision BIGINT REFERENCES platform_help_center_revisions(revision) ON DELETE RESTRICT,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS platform_help_center_revisions_created_idx
+  ON platform_help_center_revisions (created_at DESC, revision DESC);
 
 CREATE TABLE IF NOT EXISTS business_categories (
   id BIGSERIAL PRIMARY KEY,
@@ -2559,3 +2579,5 @@ END $$;
 DROP TRIGGER IF EXISTS tenants_business_category_guard ON tenants;
 CREATE TRIGGER tenants_business_category_guard BEFORE INSERT OR UPDATE OF business_category_id, public_profile_category ON tenants
 FOR EACH ROW EXECUTE FUNCTION enforce_tenant_business_category();
+
+COMMIT;
