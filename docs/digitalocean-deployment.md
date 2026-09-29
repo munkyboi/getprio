@@ -220,7 +220,7 @@ The production deployment workflow requires both the production FCM values (`FCM
 
 The Developer Portal reads `SANDBOX_TESTFLIGHT_PUBLIC_URL` only for authenticated project members. Set it to the public invitation URL created for the Sandbox external TestFlight group in App Store Connect, and add the same value as a protected `SANDBOX_TESTFLIGHT_PUBLIC_URL` secret in the GitHub `production` Environment. The deployment workflow validates the Apple TestFlight host and `/join/` path without printing the URL.
 
-The Developer Portal reads `SANDBOX_ANDROID_GOOGLE_PLAY_PUBLIC_URL` only for authenticated project members. Set it to the published Google Play tester opt-in URL for the Sandbox package (`https://play.google.com/apps/testing/com.getprio.getprioMobile.android.sandbox`) and add it as a protected `SANDBOX_ANDROID_GOOGLE_PLAY_PUBLIC_URL` secret in the GitHub `production` Environment. The deployment workflow validates the host, opt-in path, and exact Sandbox package without printing the URL. Play upload credentials remain in the mobile CI environment; developers only receive the tester link.
+Android Sandbox installs are distributed directly from the Developer Portal at `/downloads/getprio-sandbox-android.apk`. The APK is included at `developer-portal/public/downloads/getprio-sandbox-android.apk` and shipped with the portal build; no Google Play tester URL or production secret is used. Remove the retired `SANDBOX_ANDROID_GOOGLE_PLAY_PUBLIC_URL` secret from the GitHub `production` Environment and its old entry from the server `.env` when convenient. Play upload credentials remain scoped to the mobile release workflow and are not used by the portal.
 
 B2_S3_ENDPOINT=
 B2_REGION=us-east-005

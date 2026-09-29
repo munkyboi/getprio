@@ -1,5 +1,3 @@
-const sandboxAndroidPackageName = "com.getprio.getprioMobile.android.sandbox";
-
 function resolvePublicUrl(configured, isAllowed, errorMessage) {
   if (!configured) return "";
   try {
@@ -22,18 +20,6 @@ function resolveSandboxTestFlightPublicUrl(source = process.env) {
   );
 }
 
-function resolveSandboxAndroidGooglePlayPublicUrl(source = process.env) {
-  return resolvePublicUrl(
-    String(source.SANDBOX_ANDROID_GOOGLE_PLAY_PUBLIC_URL || "").trim(),
-    (url) => url.protocol === "https:" && url.hostname === "play.google.com" && !url.port &&
-      !url.username && !url.password && url.pathname === `/apps/testing/${sandboxAndroidPackageName}` &&
-      !url.search && !url.hash,
-    "SANDBOX_ANDROID_GOOGLE_PLAY_PUBLIC_URL must be the HTTPS Google Play tester URL for the Sandbox package."
-  );
-}
-
 module.exports = {
-  sandboxAndroidPackageName,
-  resolveSandboxTestFlightPublicUrl,
-  resolveSandboxAndroidGooglePlayPublicUrl
+  resolveSandboxTestFlightPublicUrl
 };
