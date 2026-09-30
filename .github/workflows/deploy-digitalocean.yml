@@ -277,8 +277,9 @@ jobs:
 
           bash scripts/verify-fcm-config.sh
 
-          npm ci --include=dev
-          npm ci --prefix platform-dashboard-shadcn --include=dev
+          npm ci --include=dev --bin-links=true
+          npm ci --prefix platform-dashboard-shadcn --include=dev --bin-links=true
+          bash scripts/verify-build-tools.sh
           set +e
           db_status_output="$(npm run db:status 2>&1)"
           db_status_code=$?
