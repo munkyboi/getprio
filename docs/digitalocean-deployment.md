@@ -212,6 +212,15 @@ FCM_SANDBOX_PRIVATE_KEY=
 # Public invitation link for the Sandbox external TestFlight group.
 # SANDBOX_TESTFLIGHT_PUBLIC_URL=https://testflight.apple.com/join/...
 
+B2_S3_ENDPOINT=
+B2_REGION=us-east-005
+B2_BUCKET_PUBLIC_BOARD=
+B2_BUCKET_PAYMENT_PROOF=
+B2_KEY_ID=
+B2_APPLICATION_KEY=
+B2_PUBLIC_BASE_URL=
+```
+
 `PAYMONGO_MODE` must be `live` or `sandbox`. The app selects the matching secret key and webhook secret from the two credential sets, validates the key prefix (`sk_live_` or `sk_test_`), and rejects webhook payloads from the opposite environment. The API URL remains `https://api.paymongo.com/v1` for both modes. The old `PAYMONGO_SECRET_KEY` and `PAYMONGO_WEBHOOK_SECRET` variables remain supported as a compatibility fallback.
 
 The production deployment workflow reads the five PayMongo values from the GitHub `production` Environment secrets and securely synchronizes them to this server `.env` over SSH. Configure `PAYMONGO_MODE`, `PAYMONGO_SANDBOX_SECRET_KEY`, `PAYMONGO_SANDBOX_WEBHOOK_SECRET`, `PAYMONGO_LIVE_SECRET_KEY`, and `PAYMONGO_LIVE_WEBHOOK_SECRET` as protected Environment secrets. The workflow does not print their values.
@@ -270,15 +279,6 @@ Review the `developerApiSandbox` section for completed samples. Older printed-on
 are not backfilled because their initial queue state was not observed. These are baseline
 observations for evaluation; they do not enable a trained AI predictor. Live vendor capture
 and a production-safe audit remain a separate rollout.
-
-B2_S3_ENDPOINT=
-B2_REGION=us-east-005
-B2_BUCKET_PUBLIC_BOARD=
-B2_BUCKET_PAYMENT_PROOF=
-B2_KEY_ID=
-B2_APPLICATION_KEY=
-B2_PUBLIC_BASE_URL=
-```
 
 OAuth deployment checklist:
 

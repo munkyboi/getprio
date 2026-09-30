@@ -116,6 +116,7 @@ const ticketResponseExample = [
   "      \"status\": \"waiting\",",
   "      \"queue_id\": \"queue_123\",",
   "      \"external_reference\": null,",
+  "      \"estimated_wait_minutes\": 15,",
   "      \"verification_code\": \"AB12CD34\",",
   "      \"status_reason\": null,",
   "      \"called_at\": null,",
@@ -401,6 +402,7 @@ export default function DeveloperReferencePage() {
               <CodeSample label="Error response" value={errorResponseExample} onCopy={(value) => void copyValue(value, "error-response")} />
             </div>
             <p className="developer-reference-note">Ticket responses include nullable lifecycle timestamps as <code>null</code> until the corresponding transition occurs. <code>customer_confirmed_at</code> is added after the called ticket is confirmed. The <code>verification_code</code> is the value encoded by the Sandbox ticket QR endpoint.</p>
+            <p className="developer-reference-note">The example shows a Sandbox issuance response. Its optional <code>estimated_wait_minutes</code> is the initial baseline estimate and can be <code>null</code> when unavailable. Idempotent retries return the same initial estimate. Production and other ticket responses omit this field.</p>
           </section>
 
           <section>
