@@ -212,6 +212,15 @@ FCM_SANDBOX_PRIVATE_KEY=
 # Public invitation link for the Sandbox external TestFlight group.
 # SANDBOX_TESTFLIGHT_PUBLIC_URL=https://testflight.apple.com/join/...
 
+B2_S3_ENDPOINT=
+B2_REGION=us-east-005
+B2_BUCKET_PUBLIC_BOARD=
+B2_BUCKET_PAYMENT_PROOF=
+B2_KEY_ID=
+B2_APPLICATION_KEY=
+B2_PUBLIC_BASE_URL=
+```
+
 `PAYMONGO_MODE` must be `live` or `sandbox`. The app selects the matching secret key and webhook secret from the two credential sets, validates the key prefix (`sk_live_` or `sk_test_`), and rejects webhook payloads from the opposite environment. The API URL remains `https://api.paymongo.com/v1` for both modes. The old `PAYMONGO_SECRET_KEY` and `PAYMONGO_WEBHOOK_SECRET` variables remain supported as a compatibility fallback.
 
 The production deployment workflow reads the five PayMongo values from the GitHub `production` Environment secrets and securely synchronizes them to this server `.env` over SSH. Configure `PAYMONGO_MODE`, `PAYMONGO_SANDBOX_SECRET_KEY`, `PAYMONGO_SANDBOX_WEBHOOK_SECRET`, `PAYMONGO_LIVE_SECRET_KEY`, and `PAYMONGO_LIVE_WEBHOOK_SECRET` as protected Environment secrets. The workflow does not print their values.
@@ -244,14 +253,32 @@ The Sandbox API has a separate manually triggered deployment workflow. Configure
 
 The workflow deploys the current `main` branch, applies migrations, verifies the schema, builds the app, enables `WAIT_TIME_PREDICTION_CAPTURE_ENABLED=true` in the Sandbox server `.env`, and restarts `getprio-api`. It is manual-only and refuses to proceed unless its confirmation input is exactly `sandbox` and the server is configured with `API_ENVIRONMENT=sandbox`.
 
-B2_S3_ENDPOINT=
-B2_REGION=us-east-005
-B2_BUCKET_PUBLIC_BOARD=
-B2_BUCKET_PAYMENT_PROOF=
-B2_KEY_ID=
-B2_APPLICATION_KEY=
-B2_PUBLIC_BASE_URL=
+Sandbox Developer API ticket issuance returns an initial `ticket.estimated_wait_minutes`
+from the existing baseline (waiting position × configured service minutes). With capture
+enabled, issuance stores the matching observation in the ticket transaction, including
+printed-only tickets with no linked mobile user. Calling the ticket completes its wait
+observation; cancellation or another censoring outcome does not count as a completed wait.
+Mobile refreshes can still collect later observations, with one observation per ticket,
+predictor version, and five-minute bucket. An observation write failure rolls back Sandbox
+issuance when capture is enabled. Production Developer API issuance is unchanged.
+
+After deploying this change to Sandbox, issue a new ticket through the Developer API,
+call it using `call-next` without scanning its QR code, then rerun the read-only audit
+from `/var/www/getprio` on the Sandbox Droplet. Set the expected host and database name
+to match the Sandbox `DATABASE_URL` loaded from its environment files:
+
+```bash
+API_ENVIRONMENT=sandbox DATABASE_HOST='your-sandbox-db-host' DATABASE_NAME='your-sandbox-db-name' node scripts/wait-time-prediction-audit.mjs
 ```
+
+Use `localhost` and `getprio` only when those are the configured Sandbox database host
+and name. For a managed database, use its configured hostname and database name. The audit
+refuses to connect if these expected values differ from the loaded connection URL.
+
+Review the `developerApiSandbox` section for completed samples. Older printed-only tickets
+are not backfilled because their initial queue state was not observed. These are baseline
+observations for evaluation; they do not enable a trained AI predictor. Live vendor capture
+and a production-safe audit remain a separate rollout.
 
 OAuth deployment checklist:
 

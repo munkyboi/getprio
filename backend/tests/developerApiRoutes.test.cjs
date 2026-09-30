@@ -145,7 +145,7 @@ test("ticket issuance writes its idempotency response and webhook outbox in one 
   stubKey(originals, ["queues:write"]);
   replace(developerQueues, "findProfile", async () => profile(), originals);
   replace(developerQueues, "findFirstQueue", async () => queue(), originals);
-  replace(developerQueues, "issueTicket", async () => ticket(), originals);
+  replace(developerQueues, "issueTicket", async () => ({ ...ticket(), estimatedWaitMinutes: 15 }), originals);
   replace(db, "withTransaction", async (run) => run({ query: async () => ({ rows: [] }) }), originals);
   replace(developerApiOperations, "claim", async () => ({ state: "claimed", recordId: "operation-1" }), originals);
   replace(developerApiOperations, "complete", async (...args) => { completed.push(args); }, originals);
@@ -155,6 +155,8 @@ test("ticket issuance writes its idempotency response and webhook outbox in one 
     const response = await request("POST", `${baseUrl}/queues/harbor/tickets`, "sandbox-api.getprio.online", { "x-api-key": "gpk_sbx_test", "idempotency-key": "ticket-issue-1" }, { display_label: "Anonymous visitor", external_reference: "customer-123" });
     assert.equal(response.status, 201); assert.equal(response.body.data.ticket.id, "ticket-1");
     assert.equal(response.body.data.ticket.verification_code, "AB12CD34");
+    assert.equal(response.body.data.ticket.estimated_wait_minutes, 15);
+    assert.equal(completed[0][2].data.ticket.estimated_wait_minutes, 15);
     assert.equal(completed.length, 1); assert.equal(webhooks.length, 1); assert.equal(response.body.data.ticket.event, undefined);
   } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
 });
@@ -385,11 +387,13 @@ test("developer API replays a completed operation without issuing another ticket
   replace(developerQueues, "findProfile", async () => profile(), originals);
   replace(developerQueues, "findFirstQueue", async () => queue(), originals);
   replace(db, "withTransaction", async (run) => run({}), originals);
-  replace(developerApiOperations, "claim", async () => ({ state: "replay", statusCode: 201, body: { data: { ticket: { id: "original-ticket" } }, request_id: "first-request" } }), originals);
+  replace(developerQueues, "issueTicket", async () => { throw new Error("Replay must not issue or capture again"); }, originals);
+  replace(developerApiOperations, "claim", async () => ({ state: "replay", statusCode: 201, body: { data: { ticket: { id: "original-ticket", estimated_wait_minutes: 15 } }, request_id: "first-request" } }), originals);
   const { server, baseUrl } = await startServer();
   try {
     const response = await request("POST", `${baseUrl}/queues/harbor/tickets`, "sandbox-api.getprio.online", { "x-api-key": "gpk_sbx_test", "idempotency-key": "ticket-issue-1" }, { display_label: "Anonymous visitor" });
     assert.equal(response.status, 201); assert.equal(response.body.data.ticket.id, "original-ticket");
+    assert.equal(response.body.data.ticket.estimated_wait_minutes, 15);
   } finally { restore(originals); await new Promise((resolve) => server.close(resolve)); }
 });
 

@@ -501,6 +501,11 @@ const openApiDocument = {
           status: { type: "string", enum: ["waiting", "called", "served", "skipped", "cancelled", "unserved", "expired"] },
           queue_id: { type: "string" },
           external_reference: { type: ["string", "null"] },
+          estimated_wait_minutes: {
+            type: ["number", "null"],
+            minimum: 0,
+            description: "Initial baseline wait estimate returned on Sandbox ticket issuance and its idempotent replay. Omitted from production and other ticket responses; null when unavailable."
+          },
           verification_code: { type: "string", pattern: "^[A-F0-9]{8}$", description: "The code encoded in the customer's ticket barcode." },
           customer_confirmed_at: { type: ["string", "null"], format: "date-time" },
           status_reason: { type: ["string", "null"] },

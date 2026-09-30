@@ -450,8 +450,10 @@ async function mobileQueueMetricsForTickets(queueId, ticketIds, options = {}) {
 
   if (predictions.length) {
     try {
-      await developerApiWaitTimePredictions.recordPredictions(predictions);
+      await developerApiWaitTimePredictions.recordPredictions(predictions, { client: options.client });
     } catch (error) {
+      // Issuance must roll back with its observation; mobile reads remain best-effort.
+      if (options.client) throw error;
       console.error("Developer API Sandbox wait-time sample capture failed.", error);
     }
   }
@@ -676,6 +678,9 @@ async function appendTicketEvent(input, options = {}) {
 }
 
 async function issueTicket(input, options = {}) {
+  if (!options.client) {
+    return db.withTransaction((client) => issueTicket(input, { ...options, client }));
+  }
   const queryClient = clientFor(options);
   const queue = await findQueue(input.profileId, input.queueSlug, { client: queryClient, forUpdate: true });
   if (!queue || queue.id !== String(input.queueId)) return null;
@@ -741,6 +746,13 @@ async function issueTicket(input, options = {}) {
     toStatus: ticket.status,
     resourceVersion: ticket.resourceVersion
   }, { client: queryClient });
+  if (ticket.environment === "sandbox") {
+    const metrics = await mobileQueueMetrics(queue.id, ticket.id, {
+      client: queryClient,
+      environment: ticket.environment
+    });
+    ticket.estimatedWaitMinutes = metrics?.estimatedWaitMinutes ?? null;
+  }
   return ticket;
 }
 
