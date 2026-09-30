@@ -61,6 +61,24 @@ function response() {
   };
 }
 
+function platformAdminRequest({ userId = "27", body = {} } = {}) {
+  return {
+    params: { userId },
+    body,
+    user: { _id: "8" },
+    auth: { session: { _id: "session-8" }, sessionId: "session-8" },
+    get: (header) => header === "x-transaction-confirmation" ? "confirmation-token" : null
+  };
+}
+
+function assertProtectedMutationRoute(routePath, permission, action) {
+  const { routes } = loadReadModelRoutes();
+  const route = routes.find(({ method, args }) => method === "post" && args[0] === routePath);
+  assert.ok(route);
+  assert.equal(route.args[1].permission, permission);
+  assert.equal(route.args[2].action, action);
+}
+
 test("Platform read-model routes require authentication and their capability-specific permissions", () => {
   const { routes, uses, authenticate } = loadReadModelRoutes();
   assert.equal(uses[0], authenticate);
@@ -245,11 +263,7 @@ test("global role update rejects an attempt to remove the last Platform Admin", 
 });
 
 test("admin MFA reset requires a dedicated capability and security confirmation", () => {
-  const { routes } = loadReadModelRoutes();
-  const route = routes.find(({ method, args }) => method === "post" && args[0] === "/users/:userId/mfa/reset");
-  assert.ok(route);
-  assert.equal(route.args[1].permission, "platform.user_mfa.reset");
-  assert.equal(route.args[2].action, "platform.user.mfa.reset");
+  assertProtectedMutationRoute("/users/:userId/mfa/reset", "platform.user_mfa.reset", "platform.user.mfa.reset");
 });
 
 test("admin MFA reset revokes factors, recovery codes, and sessions while preserving role-required MFA", async () => {
@@ -273,11 +287,7 @@ test("admin MFA reset revokes factors, recovery codes, and sessions while preser
   } });
   const route = routes.find(({ method, args }) => method === "post" && args[0] === "/users/:userId/mfa/reset");
   const res = response();
-  await route.args.at(-1)({
-    params: { userId: "27" }, body: { reason: "Owner lost authenticator device", previewRevision: "mfa-reset-revision" },
-    user: { _id: "8" }, auth: { session: { _id: "session-8" }, sessionId: "session-8" },
-    get: (header) => header === "x-transaction-confirmation" ? "confirmation-token" : null
-  }, res);
+  await route.args.at(-1)(platformAdminRequest({ body: { reason: "Owner lost authenticator device", previewRevision: "mfa-reset-revision" } }), res);
 
   assert.equal(res.code, 200);
   assert.equal(res.body.mfaRequired, true);
@@ -291,11 +301,7 @@ test("admin MFA reset revokes factors, recovery codes, and sessions while preser
 });
 
 test("account access changes use a dedicated capability and previewed action", () => {
-  const { routes } = loadReadModelRoutes();
-  const route = routes.find(({ method, args }) => method === "post" && args[0] === "/users/:userId/access");
-  assert.ok(route);
-  assert.equal(route.args[1].permission, "platform.user_access.manage");
-  assert.equal(route.args[2].action, "platform.user.access.update");
+  assertProtectedMutationRoute("/users/:userId/access", "platform.user_access.manage", "platform.user.access.update");
 });
 
 test("suspending an account revokes sessions, persists the suspension, and audits the reason", async () => {
@@ -409,11 +415,7 @@ test("password reset sends the one-time link only to the target account and neve
   } });
   const route = routes.find(({ method, args }) => method === "post" && args[0] === "/users/:userId/password-reset");
   const res = response();
-  await route.args.at(-1)({
-    params: { userId: "27" }, body: { reason: "Account owner requested recovery", previewRevision: "revision-1" },
-    user: { _id: "8" }, auth: { session: { _id: "session-8" }, sessionId: "session-8" },
-    get: (header) => header === "x-transaction-confirmation" ? "confirmation-token" : null
-  }, res);
+  await route.args.at(-1)(platformAdminRequest({ body: { reason: "Account owner requested recovery", previewRevision: "revision-1" } }), res);
 
   assert.equal(res.code, 200);
   assert.deepEqual(JSON.parse(JSON.stringify(res.body)), { success: true, message: "Password reset instructions were sent to the account email." });
