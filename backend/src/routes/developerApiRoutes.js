@@ -110,6 +110,9 @@ function ticketView(ticket) {
   if (!ticket) return null;
   const value = { id: ticket.id, ticket_number: ticket.ticketNumber, sequence: ticket.sequence, display_label: ticket.displayLabel, status: ticket.status, queue_id: ticket.queueId, external_reference: ticket.externalReference, ...(ticket.verificationCode ? { verification_code: ticket.verificationCode } : {}), ...(ticket.customerConfirmedAt ? { customer_confirmed_at: ticket.customerConfirmedAt } : {}), status_reason: ticket.statusReason, called_at: ticket.calledAt, served_at: ticket.servedAt, skipped_at: ticket.skippedAt, cancelled_at: ticket.cancelledAt, unserved_at: ticket.unservedAt, terminal_at: ticket.terminalAt, resource_version: ticket.resourceVersion, created_at: ticket.createdAt, updated_at: ticket.updatedAt };
   if (ticket.event) Object.defineProperty(value, "event", { value: ticket.event, enumerable: false });
+  if (ticket.environment === "sandbox" && Object.hasOwn(ticket, "estimatedWaitMinutes")) {
+    value.estimated_wait_minutes = ticket.estimatedWaitMinutes;
+  }
   if (ticket.projectId) Object.defineProperty(value, "projectId", { value: ticket.projectId, enumerable: false });
   if (ticket.environment) Object.defineProperty(value, "environment", { value: ticket.environment, enumerable: false });
   if (ticket.queueId) Object.defineProperty(value, "queueId", { value: ticket.queueId, enumerable: false });

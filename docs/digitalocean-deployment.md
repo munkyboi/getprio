@@ -244,6 +244,27 @@ The Sandbox API has a separate manually triggered deployment workflow. Configure
 
 The workflow deploys the current `main` branch, applies migrations, verifies the schema, builds the app, enables `WAIT_TIME_PREDICTION_CAPTURE_ENABLED=true` in the Sandbox server `.env`, and restarts `getprio-api`. It is manual-only and refuses to proceed unless its confirmation input is exactly `sandbox` and the server is configured with `API_ENVIRONMENT=sandbox`.
 
+Sandbox Developer API ticket issuance returns an initial `ticket.estimated_wait_minutes`
+from the existing baseline (waiting position × configured service minutes). With capture
+enabled, issuance stores the matching observation in the ticket transaction, including
+printed-only tickets with no linked mobile user. Calling the ticket completes its wait
+observation; cancellation or another censoring outcome does not count as a completed wait.
+Mobile refreshes can still collect later observations, with one observation per ticket,
+predictor version, and five-minute bucket. An observation write failure rolls back Sandbox
+issuance when capture is enabled. Production Developer API issuance is unchanged.
+
+After deploying this change to Sandbox, issue a new ticket through the Developer API,
+call it using `call-next` without scanning its QR code, then rerun the read-only audit:
+
+```bash
+API_ENVIRONMENT=sandbox DATABASE_HOST=localhost DATABASE_NAME=getprio node scripts/wait-time-prediction-audit.mjs
+```
+
+Review the `developerApiSandbox` section for completed samples. Older printed-only tickets
+are not backfilled because their initial queue state was not observed. These are baseline
+observations for evaluation; they do not enable a trained AI predictor. Live vendor capture
+and a production-safe audit remain a separate rollout.
+
 B2_S3_ENDPOINT=
 B2_REGION=us-east-005
 B2_BUCKET_PUBLIC_BOARD=
