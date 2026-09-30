@@ -2223,6 +2223,18 @@ test("customer MFA confirmation immediately shows enabled and retires the setup 
   assert.match(source, /mfaEnabled \? "Enabled" : "Not enabled"/);
 });
 
+test("customer security keeps privileged MFA recovery accurate when account overview is gated", () => {
+  const source = fs.readFileSync(
+    path.join(path.resolve(__dirname, ".."), "src", "pages", "CustomerAccountPage.tsx"),
+    "utf8"
+  );
+
+  assert.match(source, /const accountUser = account\?\.user \?\? user/);
+  assert.match(source, /recoveringRequiredMfa = activeSection === "security"/);
+  assert.match(source, /Set up multi-factor authentication before accessing this account\./);
+  assert.match(source, /Set up an authenticator app or email OTP to satisfy the required sign-in verification\./);
+});
+
 test("customer can remove optional MFA through a verified confirmation modal", () => {
   const source = fs.readFileSync(
     path.join(path.resolve(__dirname, ".."), "src", "pages", "CustomerAccountPage.tsx"),
