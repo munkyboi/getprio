@@ -29,11 +29,16 @@ function totp(secret, timestamp = Date.now()) {
   return String(binary % 1_000_000).padStart(6, "0");
 }
 
-test("platform smoke completes an authenticator MFA challenge before checking protected APIs", async (t) => {
+test("platform smoke waits for the deployed API revision before MFA and protected API checks", async (t) => {
   const secret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
   const evidenceSecret = "evidence-signing-secret-for-test-only-32-bytes";
   const deploymentSha = "a".repeat(40);
   const requests = [];
+  const healthResponses = [
+    { status: 502, body: { message: "starting" } },
+    { status: 200, body: { status: "ok", deploymentSha: "b".repeat(40) } },
+    { status: 200, body: { status: "ok", deploymentSha } }
+  ];
   const server = http.createServer(async (request, response) => {
     const chunks = [];
     for await (const chunk of request) chunks.push(chunk);
@@ -56,7 +61,9 @@ test("platform smoke completes an authenticator MFA challenge before checking pr
       return;
     }
     if (request.url === "/api/health") {
-      response.end(JSON.stringify({ status: "ok", deploymentSha }));
+      const nextHealthResponse = healthResponses.shift() || { status: 200, body: { status: "ok", deploymentSha } };
+      response.writeHead(nextHealthResponse.status);
+      response.end(JSON.stringify(nextHealthResponse.body));
       return;
     }
     if (request.url === "/api/platform/release-readiness/read-model") {
@@ -114,6 +121,7 @@ test("platform smoke completes an authenticator MFA challenge before checking pr
       PLATFORM_SMOKE_TOTP_SECRET: secret,
       PLATFORM_RELEASE_EVIDENCE_SECRET: evidenceSecret,
       SMOKE_EXPECTED_DEPLOY_SHA: deploymentSha,
+      SMOKE_API_READY_RETRY_INTERVAL_MS: "10",
       GITHUB_RUN_ID: "19384756201",
       GITHUB_REPOSITORY: "getprio/web-app",
       GITHUB_SERVER_URL: "https://github.com"
@@ -130,12 +138,16 @@ test("platform smoke completes an authenticator MFA challenge before checking pr
   });
 
   assert.equal(exitCode, 0, `${stdout}\n${stderr}`);
-  assert.deepEqual(requests.slice(0, 2).map(({ path: requestPath }) => requestPath), [
+  assert.deepEqual(requests.slice(0, 6).map(({ path: requestPath }) => requestPath), [
+    "/api/health",
+    "/api/health",
+    "/api/health",
     "/api/auth/login",
-    "/api/auth/mfa/verify"
+    "/api/auth/mfa/verify",
+    "/api/platform/release-readiness/read-model"
   ]);
-  assert.equal(requests[1].authorization, undefined);
-  assert.ok(requests.some((request) => request.path === "/api/platform/release-readiness/read-model" && request.authorization === "Bearer session-token"));
+  assert.equal(requests[4].authorization, undefined);
+  assert.equal(requests[5].authorization, "Bearer session-token");
   const report = requests.find((request) => request.path === "/api/platform/release-readiness/evidence");
   assert.equal(report.body.outcome, "success");
   assert.equal(report.body.deploymentSha, deploymentSha);

@@ -13,6 +13,8 @@ const PLATFORM_SMOKE_PASSWORD = String(process.env.PLATFORM_SMOKE_PASSWORD || ""
 const PLATFORM_SMOKE_TOTP_SECRET = String(process.env.PLATFORM_SMOKE_TOTP_SECRET || "").trim();
 const PLATFORM_RELEASE_EVIDENCE_SECRET = String(process.env.PLATFORM_RELEASE_EVIDENCE_SECRET || "");
 const SMOKE_EXPECTED_DEPLOY_SHA = String(process.env.SMOKE_EXPECTED_DEPLOY_SHA || "").trim();
+const SMOKE_API_READY_TIMEOUT_MS = Math.max(1, Number.parseInt(process.env.SMOKE_API_READY_TIMEOUT_MS || "90000", 10) || 90_000);
+const SMOKE_API_READY_RETRY_INTERVAL_MS = Math.max(1, Number.parseInt(process.env.SMOKE_API_READY_RETRY_INTERVAL_MS || "2000", 10) || 2_000);
 const VENDOR_STAFF_SMOKE_EMAIL = String(process.env.VENDOR_STAFF_SMOKE_EMAIL || "").trim();
 const VENDOR_STAFF_SMOKE_PASSWORD = String(process.env.VENDOR_STAFF_SMOKE_PASSWORD || "").trim();
 const CAMPAIGN_SMOKE_ENABLED = ["1", "true", "yes"].includes(
@@ -120,6 +122,39 @@ function assertContains(text, needle, context) {
   if (!text.includes(needle)) {
     fail(`${context} missing expected content: ${needle}`);
   }
+}
+
+async function waitForPlatformApiReadiness() {
+  const deadline = Date.now() + SMOKE_API_READY_TIMEOUT_MS;
+  let latestFailure = "no health response";
+
+  while (Date.now() < deadline) {
+    try {
+      const health = await requestJson(`${API_BASE_URL}/health`, {
+        signal: AbortSignal.timeout(Math.min(10_000, SMOKE_API_READY_TIMEOUT_MS))
+      });
+      const expectedShaMatches = !SMOKE_EXPECTED_DEPLOY_SHA
+        || health.body?.deploymentSha === SMOKE_EXPECTED_DEPLOY_SHA;
+      if (health.response.ok && health.body?.status === "ok" && expectedShaMatches) {
+        log("production API health and deployed revision ok");
+        return;
+      }
+      latestFailure = !health.response.ok
+        ? `HTTP ${health.response.status}`
+        : !expectedShaMatches
+          ? `serving deployment ${health.body?.deploymentSha || "unknown"}`
+          : "health response did not report ok";
+    } catch (error) {
+      latestFailure = error instanceof Error ? error.message : String(error);
+    }
+
+    const remainingMs = deadline - Date.now();
+    if (remainingMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, Math.min(SMOKE_API_READY_RETRY_INTERVAL_MS, remainingMs)));
+    }
+  }
+
+  fail(`production API did not become ready with the expected deployment revision within ${SMOKE_API_READY_TIMEOUT_MS}ms (${latestFailure})`);
 }
 
 async function login(email, password) {
@@ -648,16 +683,9 @@ async function smokePlatformStage() {
   if (SMOKE_EXPECTED_DEPLOY_SHA && !/^[a-f0-9]{40}$/u.test(SMOKE_EXPECTED_DEPLOY_SHA)) {
     fail("SMOKE_EXPECTED_DEPLOY_SHA must be a full commit SHA");
   }
+  await waitForPlatformApiReadiness();
   const platformAuth = await loginPlatform(PLATFORM_SMOKE_EMAIL, PLATFORM_SMOKE_PASSWORD);
   const platformHeaders = { Authorization: `Bearer ${platformAuth.token}` };
-
-  const apiHealth = await requestJson(`${API_BASE_URL}/health`);
-  assertOk(apiHealth.response, "production API health");
-  if (apiHealth.body?.status !== "ok") fail("production API health did not report ok");
-  if (SMOKE_EXPECTED_DEPLOY_SHA && apiHealth.body?.deploymentSha !== SMOKE_EXPECTED_DEPLOY_SHA) {
-    fail("production API is not serving the expected deployment revision");
-  }
-  log("production API health and deployed revision ok");
 
   const releaseReadiness = await requestJson(`${API_BASE_URL}/platform/release-readiness/read-model`, { headers: platformHeaders });
   assertOk(releaseReadiness.response, "authenticated release readiness api");
