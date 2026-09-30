@@ -77,7 +77,10 @@ export default function DeveloperShell({ children, light, onToggleTheme, path, a
       </header>
       {children}
       <footer className="developer-shell-footer">
-        <p>GetPrio Developers <span>· V1 pre-launch preview</span></p>
+        <div>
+          <p>GetPrio Developers <span>· V1 pre-launch preview</span></p>
+          <p>© 2026 MNK-Labs Software Development Services</p>
+        </div>
         <nav aria-label="Developer resources">
           <a href="/guides">Guides</a>
           <a href="/reference">API reference</a>

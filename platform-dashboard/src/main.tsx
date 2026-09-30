@@ -240,6 +240,7 @@ function LoginPanel({
           </Stack>
         </form>
       </Paper>
+      <footer className="portal-copyright">© 2026 MNK-Labs Software Development Services</footer>
     </main>
   );
 }
@@ -872,7 +873,7 @@ function PortalApp({
           </Stack>
         </Container>
       </AppShell.Main>
-    </AppShell><Modal centered closeOnClickOutside={false} closeOnEscape={false} opened={expiryWarningOpen} onClose={() => undefined} title={<div><Text className="portal-label">SESSION SECURITY</Text><Title order={3}>Your admin session will expire soon</Title></div>}><Stack><Text>Continue now to keep your secure Platform session active.</Text><Button onClick={async () => { const data = await apiRequest<AuthResponse>("/auth/refresh", { method: "POST", body: {} }); setUser(data.user); setSessionExpiresAt(data.sessionExpiresAt ? new Date(data.sessionExpiresAt).getTime() : null); setExpiryWarningOpen(false); }}>Continue session</Button><Button variant="subtle" onClick={() => { setToken(""); setUser(null); setSessionExpiresAt(null); }}>Sign out</Button></Stack></Modal></>
+    </AppShell><footer className="portal-copyright portal-shell-copyright">© 2026 MNK-Labs Software Development Services</footer><Modal centered closeOnClickOutside={false} closeOnEscape={false} opened={expiryWarningOpen} onClose={() => undefined} title={<div><Text className="portal-label">SESSION SECURITY</Text><Title order={3}>Your admin session will expire soon</Title></div>}><Stack><Text>Continue now to keep your secure Platform session active.</Text><Button onClick={async () => { const data = await apiRequest<AuthResponse>("/auth/refresh", { method: "POST", body: {} }); setUser(data.user); setSessionExpiresAt(data.sessionExpiresAt ? new Date(data.sessionExpiresAt).getTime() : null); setExpiryWarningOpen(false); }}>Continue session</Button><Button variant="subtle" onClick={() => { setToken(""); setUser(null); setSessionExpiresAt(null); }}>Sign out</Button></Stack></Modal></>
   );
 }
 

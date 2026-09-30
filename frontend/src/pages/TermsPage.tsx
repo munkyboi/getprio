@@ -2,7 +2,7 @@ import { Alert, Container, List, Stack, Text } from "@mantine/core";
 import LegalArticleLayout from "../components/LegalArticleLayout";
 import LegalSection from "../components/LegalSection";
 
-const lastUpdated = "July 19, 2026";
+const lastUpdated = "September 30, 2026";
 
 export default function TermsPage() {
   return (
@@ -30,8 +30,9 @@ export default function TermsPage() {
         ]}
       >
         <Text c="dimmed" lh={1.8}>
-          These Terms of Service govern your use of GetPrio, including public browsing, account
-          registration, booking flows, vendor dashboards, queue tools, and related services. This
+          These Terms of Service govern your use of GetPrio, which is owned and operated by
+          MNK-Labs Software Development Services, including public browsing, account registration,
+          booking flows, vendor dashboards, queue tools, and related services. This
           is a capstone-friendly draft and should be reviewed before any production use.
         </Text>
 
@@ -178,7 +179,8 @@ export default function TermsPage() {
 
           <LegalSection id="intellectual-property" title="12. Intellectual property">
             <Text lh={1.8}>
-              The GetPrio name, logo, interface design, and related content are protected by
+              The GetPrio name, logo, interface design, and related content are owned by
+              MNK-Labs Software Development Services or its licensors and are protected by
               intellectual property laws. You may not copy, resell, or reuse them without permission,
               except as allowed for normal use of the service.
             </Text>

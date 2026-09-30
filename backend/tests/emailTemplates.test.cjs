@@ -24,7 +24,9 @@ test("email artwork can use a public origin while booking actions stay in the lo
 
 test("minimal emails omit optional sections and preserve live text without images", () => {
   const email = createBrandedEmail({ subject: "Account update", message: "First paragraph.\n\nSecond paragraph." });
+  assert.match(email.text, /© \d{4} MNK-Labs Software Development Services/);
   assert.match(email.html, /First paragraph\.<\/p><p[^>]*>Second paragraph/);
+  assert.match(email.html, /© \d{4} MNK-Labs Software Development Services/);
   assert.match(email.html, /alt="GetPrio"/);
   assert.match(email.html, /getprio-logo\.png\?rev=20260909/);
   assert.doesNotMatch(email.html, /VERIFICATION CODE|YOUR QUEUE NUMBER|Email preferences|Unsubscribe|<td[^>]*><\/td>/);

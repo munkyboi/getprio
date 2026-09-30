@@ -2,7 +2,7 @@ import { Anchor, Container, List, Stack, Text } from "@mantine/core";
 import LegalArticleLayout from "../components/LegalArticleLayout";
 import LegalSection from "../components/LegalSection";
 
-const lastUpdated = "September 7, 2026";
+const lastUpdated = "September 30, 2026";
 
 export default function PrivacyPolicyPage() {
   return (
@@ -36,7 +36,9 @@ export default function PrivacyPolicyPage() {
             <Text lh={1.8}>
               GetPrio is a service marketplace and booking platform that helps guests discover
               vendors, customers make bookings, vendors manage services and queues, and platform
-              administrators oversee the system.
+              administrators oversee the system. GetPrio is owned and operated by MNK-Labs
+              Software Development Services, which is responsible for the service and the personal
+              information described in this policy.
             </Text>
           </LegalSection>
 

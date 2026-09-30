@@ -122,7 +122,7 @@ export default function SiteFooter() {
           ))}
         </div>
         <Group className="site-footer-bottom" justify="space-between" wrap="wrap">
-          <Text c="rgba(255,255,255,0.7)">© 2026 GetPrio</Text>
+          <Text c="rgba(255,255,255,0.7)">© 2026 MNK-Labs Software Development Services</Text>
           <Group gap="xl">
             <Anchor className="site-footer-bottom-link" component={Link} to="/privacy-policy">
               Privacy Policy

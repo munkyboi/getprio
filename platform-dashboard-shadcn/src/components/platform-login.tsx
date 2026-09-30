@@ -149,6 +149,7 @@ export function PlatformLogin({ dark, onToggleTheme, onAuthenticated }: { dark: 
           </CardContent>
         </Card>
         <p className="text-center text-xs text-muted-foreground">Platform admin access is protected by the existing session, CSRF, and MFA policies.</p>
+        <footer className="text-center text-xs text-muted-foreground">© 2026 MNK-Labs Software Development Services</footer>
       </div>
     </main>
   )
