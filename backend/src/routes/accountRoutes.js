@@ -17,6 +17,7 @@ const emailChangeService = require("../services/emailChangeService");
 const phoneChangeService = require("../services/phoneChangeService");
 const authService = require("../services/authService");
 const mfaFlowService = require("../services/mfaFlowService");
+const { userRequiresPrivilegedMfa } = require("../services/mfaService");
 const pushNotificationService = require("../services/pushNotificationService");
 const userAvatarUploadService = require("../services/userAvatarUploadService");
 const customerTicketAccess = require("../services/customerTicketAccess");
@@ -310,7 +311,9 @@ function formatAccountUser(user) {
     mfaEnabled: Boolean(user.mfaEnabled),
     emailMfaEnabled: Boolean(user.emailMfaEnabled),
     hasPassword: Boolean(user.passwordHash),
-    mfaRequired: Boolean(user.mfaRequired)
+    // Role membership is authoritative for privileged MFA. The persisted flag can
+    // lag a role change, so use the same policy as the MFA enforcement boundary.
+    mfaRequired: Boolean(user.mfaRequired || userRequiresPrivilegedMfa(user))
   };
 }
 
