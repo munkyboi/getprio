@@ -27,6 +27,10 @@ async function queryState(action, target, options = {}) {
       return (await client.query(`SELECT u.id,u.updated_at,(SELECT COUNT(*)::int FROM auth_sessions s WHERE s.user_id=u.id AND s.status='active') AS active_sessions FROM users u WHERE u.id=$1${lock}`, [target])).rows;
     case "platform.user.roles.update":
       return (await client.query(`SELECT id,roles,updated_at FROM users WHERE id=$1${lock}`, [target])).rows;
+    case "platform.user.tenant_membership.update":
+      return (await client.query(`SELECT m.user_id,m.tenant_id,t.name AS tenant_name,m.role,m.is_active
+        FROM tenant_memberships m JOIN tenants t ON t.id=m.tenant_id
+        WHERE m.user_id=$1 ORDER BY m.tenant_id${options.lock ? " FOR UPDATE OF m" : ""}`, [target])).rows;
     case "platform.user.mfa.reset":
       return (await client.query(`SELECT id,mfa_enabled,email_mfa_enabled,mfa_required,roles,updated_at FROM users WHERE id=$1${lock}`, [target])).rows;
     case "platform.user.access.suspend":

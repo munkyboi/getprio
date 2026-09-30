@@ -474,6 +474,7 @@ export const fixturePlatformApi: PlatformApi = {
       email: row.id === "user_1001" ? "carlo.abella@example.com" : row.id === "user_1027" ? "mara.santos@example.com" : row.id === "user_1148" ? "sandbox@example.com" : "pending@example.com",
       phone: row.id === "user_1001" ? "+639171234567" : "",
       roles: row.roles,
+      tenantMemberships: [],
       state: row.state,
       emailVerified: row.emailVerified,
       emailMfaEnabled: false,
@@ -658,6 +659,12 @@ export const fixturePlatformApi: PlatformApi = {
     const user = users.users.find((item) => item.id === preview.targetId)
     if (user) user.roles = preview.roles
     return { roles: preview.roles, mfaRequired: preview.roles.includes("platform_admin") || preview.roles.includes("platform_release_observer"), revokedSessions: 2, notificationSent: true }
+  },
+  async previewUserTenantMembershipUpdate(userId, tenantId, role, active, _reason) {
+    return { action: "platform.user.tenant_membership.update", targetId: userId, tenantId, tenantName: "Fixture tenant", role, active, previousRole: null, previouslyActive: null, revision: "tenant-membership-v1", confirmationToken: "fixture-confirmation-token" }
+  },
+  async executeUserTenantMembershipUpdate(preview, _reason) {
+    return { mfaRequired: preview.active && ["owner", "admin"].includes(preview.role), revokedSessions: 2 }
   },
   async previewUserMfaReset(userId: string, _reason: string): Promise<UserMfaResetPreview> {
     return { action: "platform.user.mfa.reset", targetId: userId, revision: "user-mfa-reset-v1", confirmationToken: "fixture-confirmation-token" }
@@ -907,6 +914,15 @@ function createHttpPlatformApi(baseUrl = API_BASE_URL): PlatformApi {
     executeUserRolesUpdate: async (preview, reason) => {
       const response = await writePlatform<UserRolesUpdateResult>(baseUrl, `/platform/users/${encodeURIComponent(preview.targetId)}/roles`, { roles: preview.roles, reason, previewRevision: preview.revision }, crypto.randomUUID(), "POST", { "X-Transaction-Confirmation": preview.confirmationToken })
       return { roles: response.roles || preview.roles, mfaRequired: Boolean(response.mfaRequired), revokedSessions: Number(response.revokedSessions || 0), notificationSent: Boolean(response.notificationSent) }
+    },
+    previewUserTenantMembershipUpdate: async (userId, tenantId, role, active, reason) => {
+      const response = await writePlatform<{ preview: { target: string; revision: string; state: Array<{ tenant_id: string | number; tenant_name: string; role: "owner" | "admin" | "staff"; is_active: boolean }> }; confirmation: { token: string } }>(baseUrl, "/platform/privileged-actions/preview", { action: "platform.user.tenant_membership.update", target: userId, reason, payload: { userId, tenantId, role, active } }, crypto.randomUUID())
+      const current = response.preview.state.find((item) => String(item.tenant_id) === tenantId)
+      return { action: "platform.user.tenant_membership.update", targetId: response.preview.target, tenantId, tenantName: current?.tenant_name || "Selected tenant", role, active, previousRole: current?.role || null, previouslyActive: current ? current.is_active !== false : null, revision: response.preview.revision, confirmationToken: response.confirmation.token }
+    },
+    executeUserTenantMembershipUpdate: async (preview, reason) => {
+      const response = await writePlatform<{ mfaRequired: boolean; revokedSessions: number }>(baseUrl, `/platform/users/${encodeURIComponent(preview.targetId)}/tenant-memberships`, { tenantId: preview.tenantId, role: preview.role, active: preview.active, reason, previewRevision: preview.revision }, crypto.randomUUID(), "POST", { "X-Transaction-Confirmation": preview.confirmationToken })
+      return { mfaRequired: Boolean(response.mfaRequired), revokedSessions: Number(response.revokedSessions || 0) }
     },
     previewUserMfaReset: async (userId, reason) => {
       const response = await writePlatform<{ preview: { action: string; target: string; revision: string }; confirmation: { token: string } }>(baseUrl, "/platform/privileged-actions/preview", { action: "platform.user.mfa.reset", target: userId, reason, payload: { userId } }, crypto.randomUUID())

@@ -633,7 +633,7 @@ const PRIVILEGED_ACTIONS = new Set([
   "credit.pack.publish", "credit.grant", "credit.revoke",
   "credit.refund.resolve", "credit.dispute.open", "credit.dispute.resolve",
   "plan.defaults.publish", "queue.fees.publish", "subscription.transition", "subscription.suspend"
-  , "moderation.campaign_report.status", "moderation.rating_dispute.resolve", "platform.user_sessions.revoke", "platform.user.password_reset.send", "platform.user.roles.update", "platform.user.mfa.reset", "platform.user.access.suspend", "platform.user.access.reactivate", "platform.account_deletion.cleanup.begin", "platform.account_deletion.report.send", "entitlement.override.publish", "entitlement.override.revoke", "allowance.reverse", "allowance.reconcile"
+  , "moderation.campaign_report.status", "moderation.rating_dispute.resolve", "platform.user_sessions.revoke", "platform.user.password_reset.send", "platform.user.roles.update", "platform.user.tenant_membership.update", "platform.user.mfa.reset", "platform.user.access.suspend", "platform.user.access.reactivate", "platform.account_deletion.cleanup.begin", "platform.account_deletion.report.send", "entitlement.override.publish", "entitlement.override.revoke", "allowance.reverse", "allowance.reconcile"
 ]);
 
 const PRIVILEGED_ACTION_CONTROLS = Object.freeze({
@@ -668,7 +668,7 @@ router.post(
       "credit.pack.publish": "platform.credit_catalog.manage", "credit.grant": "platform.credit_grants.manage", "credit.revoke": "platform.credit_revocations.manage",
       "credit.refund.resolve": "platform.credit_adjustments.manage", "credit.dispute.open": "platform.credit_disputes.manage", "credit.dispute.resolve": "platform.credit_disputes.manage",
       "plan.defaults.publish": "platform.plans.manage", "queue.fees.publish": "platform.queue_fees.manage", "subscription.transition": "platform.subscription_lifecycle.manage", "subscription.suspend": "platform.subscription_lifecycle.manage", "moderation.campaign_report.status": "platform.settings.manage", "moderation.rating_dispute.resolve": "platform.settings.manage", "platform.user_sessions.revoke": "platform.user_sessions.revoke"
-      , "platform.user.password_reset.send": "platform.user_password_reset.send", "platform.user.roles.update": "platform.user_roles.manage", "platform.user.mfa.reset": "platform.user_mfa.reset", "platform.user.access.suspend": "platform.user_access.manage", "platform.user.access.reactivate": "platform.user_access.manage", "platform.account_deletion.cleanup.begin": "platform.account_deletion.manage", "platform.account_deletion.report.send": "platform.account_deletion.manage", "entitlement.override.publish": "platform.entitlement_overrides.manage", "entitlement.override.revoke": "platform.entitlement_overrides.manage", "allowance.reverse": "platform.credit_adjustments.manage", "allowance.reconcile": "platform.credit_reconcile"
+      , "platform.user.password_reset.send": "platform.user_password_reset.send", "platform.user.roles.update": "platform.user_roles.manage", "platform.user.tenant_membership.update": "platform.user_roles.manage", "platform.user.mfa.reset": "platform.user_mfa.reset", "platform.user.access.suspend": "platform.user_access.manage", "platform.user.access.reactivate": "platform.user_access.manage", "platform.account_deletion.cleanup.begin": "platform.account_deletion.manage", "platform.account_deletion.report.send": "platform.account_deletion.manage", "entitlement.override.publish": "platform.entitlement_overrides.manage", "entitlement.override.revoke": "platform.entitlement_overrides.manage", "allowance.reverse": "platform.credit_adjustments.manage", "allowance.reconcile": "platform.credit_reconcile"
     };
     if (!getGlobalPermissions(req.user).has(permissionByAction[action])) throw Object.assign(new Error("You do not have permission to preview this action."), { statusCode: 403 });
     const target = String(req.body.target || "");
@@ -855,6 +855,54 @@ registerPlatformUserMutation("/users/:userId/roles", "platform.user_roles.manage
       } catch { notificationSent = false; }
     }
     return res.json({ success: true, roles: outcome.roles, mfaRequired: outcome.mfaRequired, revokedSessions: Number(outcome.revokedSessions || 0), notificationSent });
+});
+
+registerPlatformUserMutation("/users/:userId/tenant-memberships", "platform.user_roles.manage", "platform.user.tenant_membership.update", async (req, res) => {
+  if (!/^\d{1,18}$/.test(req.params.userId) || !/^\d{1,18}$/.test(String(req.body?.tenantId || ""))) {
+    return res.status(400).json({ message: "Choose a valid user and tenant." });
+  }
+  const userId = String(req.params.userId);
+  if (userId === String(req.user._id)) return res.status(409).json({ message: "You cannot change your own tenant memberships.", code: "SELF_MEMBERSHIP_CHANGE_DENIED" });
+  const tenantId = String(req.body.tenantId);
+  const role = String(req.body?.role || "");
+  const active = req.body?.active;
+  if (!["owner", "admin", "staff"].includes(role) || typeof active !== "boolean") {
+    return res.status(400).json({ message: "Choose an owner, admin, or staff role and an active state." });
+  }
+  const reason = platformAuditReason(req);
+  const payload = { userId, tenantId, role, active };
+  const outcome = await db.withTransaction(async (client) => {
+    await client.query("SELECT pg_advisory_xact_lock(73921, $1)", [Number(tenantId)]);
+    const target = (await client.query("SELECT id,email,roles,mfa_required,deletion_requested_at FROM users WHERE id=$1 FOR UPDATE", [Number(userId)])).rows[0];
+    if (!target) return { missingUser: true };
+    if (target.deletion_requested_at) return { deletionPending: true };
+    const tenant = (await client.query("SELECT id,name FROM tenants WHERE id=$1 FOR UPDATE", [Number(tenantId)])).rows[0];
+    if (!tenant) return { missingTenant: true };
+    const current = (await client.query("SELECT role,is_active FROM tenant_memberships WHERE user_id=$1 AND tenant_id=$2 FOR UPDATE", [Number(userId), Number(tenantId)])).rows[0] || null;
+    if (!current) return { missingMembership: true };
+    if (current?.role === "owner" && current.is_active !== false && (!active || role !== "owner")) {
+      const ownerCount = Number((await client.query("SELECT COUNT(*)::INTEGER AS count FROM tenant_memberships WHERE tenant_id=$1 AND role='owner' AND is_active=TRUE", [Number(tenantId)])).rows[0]?.count || 0);
+      if (ownerCount <= 1) return { lastOwner: true };
+    }
+    const preview = await privilegedPreviewService.resolvePreview({ action: "platform.user.tenant_membership.update", target: userId, payload }, { client, lock: true });
+    await privilegedTransactionService.consumeConfirmation({ token: req.get("x-transaction-confirmation"), actorId: req.user._id, session: req.auth.session, action: "platform.user.tenant_membership.update", target: userId, reason, payload, previewRevision: req.body?.previewRevision, currentPreviewRevision: preview.revision }, { client });
+    if (current && current.role === role && (current.is_active !== false) === active) {
+      return { tenant, role, active, unchanged: true, mfaRequired: target.mfa_required === true, revokedSessions: 0 };
+    }
+    await client.query("UPDATE tenant_memberships SET role=$3,is_active=$4 WHERE user_id=$1 AND tenant_id=$2", [Number(userId), Number(tenantId), role, active]);
+    const memberships = (await client.query("SELECT role,is_active FROM tenant_memberships WHERE user_id=$1", [Number(userId)])).rows.map((item) => ({ role: item.role, isActive: item.is_active !== false }));
+    const mfaRequired = userRequiresPrivilegedMfa({ roles: target.roles || [], tenantMemberships: memberships });
+    await client.query("UPDATE users SET mfa_required=$2,updated_at=NOW() WHERE id=$1", [Number(userId), mfaRequired]);
+    const revokedSessions = await authSessionsRepository.revokeAllSessionsForUser(userId, "Platform tenant membership changed", { client });
+    await securityAuditService.record({ actorId: req.user._id, actorRole: "platform_admin", sessionId: req.auth.sessionId, action: "platform.user.tenant_membership.update", resourceType: "tenant_membership", resourceId: `${tenantId}:${userId}`, tenantId, reason, outcome: "success", beforeState: current, afterState: { role, isActive: active }, metadata: { revokedSessions } }, { client });
+    return { tenant, role, active, mfaRequired, revokedSessions };
+  });
+  if (outcome.missingUser) return res.status(404).json({ message: "User not found." });
+  if (outcome.missingTenant) return res.status(404).json({ message: "Tenant not found." });
+  if (outcome.missingMembership) return res.status(404).json({ message: "This user has no membership in the selected tenant.", code: "TENANT_MEMBERSHIP_NOT_FOUND" });
+  if (outcome.deletionPending) return res.status(409).json({ message: "Memberships cannot be changed while account deletion is in progress." });
+  if (outcome.lastOwner) return res.status(409).json({ message: "Assign another active owner before changing this tenant's final owner.", code: "LAST_TENANT_OWNER" });
+  res.json({ success: true, unchanged: Boolean(outcome.unchanged), membership: { tenantId, tenantName: outcome.tenant.name, role: outcome.role, isActive: outcome.active }, mfaRequired: outcome.mfaRequired, revokedSessions: Number(outcome.revokedSessions || 0) });
 });
 
 registerPlatformUserMutation("/users/:userId/mfa/reset", "platform.user_mfa.reset", "platform.user.mfa.reset", async (req, res) => {

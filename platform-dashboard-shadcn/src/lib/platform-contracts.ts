@@ -173,6 +173,7 @@ export interface PlatformUserDetails {
   email: string
   phone: string
   roles: string[]
+  tenantMemberships: Array<{ tenantId: string; tenantName: string; tenantSlug: string; role: "owner" | "admin" | "staff"; isActive: boolean }>
   state: PlatformUsersReadModel["users"][number]["state"]
   emailVerified: boolean
   emailMfaEnabled: boolean
@@ -593,6 +594,19 @@ export interface UserRolesUpdateResult {
   notificationSent: boolean
 }
 
+export interface UserTenantMembershipPreview {
+  action: "platform.user.tenant_membership.update"
+  targetId: string
+  tenantId: string
+  role: "owner" | "admin" | "staff"
+  active: boolean
+  revision: string
+  confirmationToken: string
+  tenantName: string
+  previousRole: "owner" | "admin" | "staff" | null
+  previouslyActive: boolean | null
+}
+
 export interface UserMfaResetPreview {
   action: "platform.user.mfa.reset"
   targetId: string
@@ -631,6 +645,8 @@ export interface PlatformApi {
   sendAccountDeletionReport(requestId: string, reason: string, revision: string, confirmationToken: string): Promise<{ report: { id: string; reportStatus: PlatformAccountDeletionRequest["userReport"]["status"]; alreadyQueued: boolean } }>
   completeAccountDeletionTask(requestId: string, taskKind: AccountDeletionTaskKind, evidence: string, reason: string, retentionNotice?: string): Promise<{ request: { id: string; status: PlatformAccountDeletionRequest["status"]; dueAt: string; readyForErasure: boolean; task: PlatformAccountDeletionTask } }>
   getUserDetails(userId: string): Promise<PlatformUserDetails>
+  previewUserTenantMembershipUpdate(userId: string, tenantId: string, role: "owner" | "admin" | "staff", active: boolean, reason: string): Promise<UserTenantMembershipPreview>
+  executeUserTenantMembershipUpdate(preview: UserTenantMembershipPreview, reason: string): Promise<{ mfaRequired: boolean; revokedSessions: number }>
   getSecurityAudit(): Promise<ReadModelModule<PlatformAuditReadModel> & { meta: ReadModelMeta }>
   getBilling(): Promise<ReadModelModule<PlatformBillingReadModel> & { meta: ReadModelMeta }>
   getPlanMatrix(): Promise<PlatformPlanMatrix>
