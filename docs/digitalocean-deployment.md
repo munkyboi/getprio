@@ -254,11 +254,17 @@ predictor version, and five-minute bucket. An observation write failure rolls ba
 issuance when capture is enabled. Production Developer API issuance is unchanged.
 
 After deploying this change to Sandbox, issue a new ticket through the Developer API,
-call it using `call-next` without scanning its QR code, then rerun the read-only audit:
+call it using `call-next` without scanning its QR code, then rerun the read-only audit
+from `/var/www/getprio` on the Sandbox Droplet. Set the expected host and database name
+to match the Sandbox `DATABASE_URL` loaded from its environment files:
 
 ```bash
-API_ENVIRONMENT=sandbox DATABASE_HOST=localhost DATABASE_NAME=getprio node scripts/wait-time-prediction-audit.mjs
+API_ENVIRONMENT=sandbox DATABASE_HOST='your-sandbox-db-host' DATABASE_NAME='your-sandbox-db-name' node scripts/wait-time-prediction-audit.mjs
 ```
+
+Use `localhost` and `getprio` only when those are the configured Sandbox database host
+and name. For a managed database, use its configured hostname and database name. The audit
+refuses to connect if these expected values differ from the loaded connection URL.
 
 Review the `developerApiSandbox` section for completed samples. Older printed-only tickets
 are not backfilled because their initial queue state was not observed. These are baseline
