@@ -127,7 +127,7 @@ function createBrandedEmail(input) {
     section(`${footer ? `<p style="margin:0 0 24px;font-size:13px;color:${BRAND.muted};">${escapeHtml(footer)}</p>` : ""}<p style="margin:0;">See you soon,<br><strong>The GetPrio Team</strong></p>`),
     section(`<div style="border-top:1px solid ${BRAND.border};padding-top:24px;text-align:center;font-size:12px;color:${BRAND.muted};">
       ${link("Contact support", appUrl("/contact"))} &nbsp; ${link("getprio.online", appUrl())}<br>
-      © ${new Date().getFullYear()} GetPrio. All rights reserved.
+      © ${new Date().getFullYear()} MNK-Labs Software Development Services
       ${safeUrl(preferencesUrl) ? `<br>${link("Email preferences", preferencesUrl)}` : ""}
       ${safeUrl(unsubscribeUrl) ? `<br>${link("Unsubscribe", unsubscribeUrl)}` : ""}</div>`)
   ].join("");

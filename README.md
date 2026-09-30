@@ -2,6 +2,8 @@
 
 GetPrio is a multi-tenant queue platform for vendors that want QR-based ticketing, remote queue joins, live queue monitoring, and booking/queue notifications through email, in-app alerts, and planned browser Web Push.
 
+GetPrio is owned and operated by MNK-Labs Software Development Services.
+
 ## Project layout
 
 - `frontend/`: React + Vite client application.

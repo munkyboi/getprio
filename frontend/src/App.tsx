@@ -207,7 +207,11 @@ function AppShell({ children }: { children: ReactNode }) {
         {children}
       </Box>
 
-      {!isDashboardRoute ? <SiteFooter /> : null}
+      {!isDashboardRoute ? <SiteFooter /> : (
+        <Box className="dashboard-copyright" component="footer">
+          © 2026 MNK-Labs Software Development Services
+        </Box>
+      )}
     </Box>
   );
 }

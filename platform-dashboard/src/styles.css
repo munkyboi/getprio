@@ -43,6 +43,7 @@ body {
 }
 
 .portal-login {
+  position: relative;
   min-height: 100vh;
   display: grid;
   place-items: center;
@@ -60,6 +61,24 @@ body {
   background:
     radial-gradient(circle at top left, var(--portal-shell-radial), transparent 24%),
     var(--portal-page-bg);
+}
+
+.portal-copyright {
+  color: var(--portal-muted);
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+.portal-login .portal-copyright {
+  position: absolute;
+  right: 1rem;
+  bottom: max(1.25rem, env(safe-area-inset-bottom));
+  left: 1rem;
+}
+
+.portal-shell-copyright {
+  padding: 1rem;
+  border-top: 1px solid var(--portal-border);
 }
 
 .portal-sidebar {

@@ -3364,6 +3364,14 @@ button {
   border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
+.dashboard-copyright {
+  padding: 1rem 1.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 0.8rem;
+  text-align: center;
+}
+
 .policy-page {
   padding: clamp(3rem, 8vw, 5rem) 0;
 }
