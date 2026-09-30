@@ -50,6 +50,7 @@ DROP TABLE IF EXISTS queue_day_pauses CASCADE;
 DROP TABLE IF EXISTS queue_day_closures CASCADE;
 DROP TABLE IF EXISTS queue_events CASCADE;
 DROP TABLE IF EXISTS wait_time_prediction_samples CASCADE;
+DROP TABLE IF EXISTS developer_api_wait_time_prediction_samples CASCADE;
 DROP TABLE IF EXISTS auth_security_events CASCADE;
 DROP TABLE IF EXISTS auth_mfa_challenges CASCADE;
 DROP TABLE IF EXISTS auth_mfa_recovery_codes CASCADE;
