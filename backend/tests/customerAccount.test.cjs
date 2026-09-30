@@ -18,7 +18,8 @@ function buildAuthMock(options = {}) {
         phone: "09171234567",
         emailVerified: true,
         mfaEnabled: false,
-        mfaRequired: false
+        mfaRequired: false,
+        ...(options.user || {})
       };
       next();
     },
@@ -295,7 +296,9 @@ test("customer account overview and history expose owned tickets only", async ()
   ];
 
   const router = requireWithMocks("../src/routes/accountRoutes.js", {
-    "../middleware/auth": buildAuthMock(),
+    "../middleware/auth": buildAuthMock({
+      user: { roles: ["customer", "platform_release_observer"] }
+    }),
     "../middleware/asyncHandler": buildAsyncHandlerMock(),
     "../repositories/tickets": {
       getCustomerTicketStats: async () => ({ joined: 75, served: 1 }),
@@ -309,6 +312,11 @@ test("customer account overview and history expose owned tickets only", async ()
         assert.equal(user._id, "user-1");
         return ["totp", "recovery", "email"];
       }
+    },
+    "../services/mfaService": {
+      userRequiresPrivilegedMfa: (user) => (user.roles || []).some((role) =>
+        ["platform_admin", "platform_release_observer"].includes(role)
+      )
     },
     "../services/passwordResetService": {
       changePassword: async () => {}
@@ -324,6 +332,7 @@ test("customer account overview and history expose owned tickets only", async ()
     assert.equal(overviewResponse.status, 200);
     const overview = await overviewResponse.json();
     assert.equal(overview.user.email, "customer@example.com");
+    assert.equal(overview.user.mfaRequired, true);
     assert.equal(overview.user.totpMfaEnabled, true);
     assert.equal(overview.user.emailMfaEnabled, true);
     assert.deepEqual(overview.trustRating, { average: 4.4, count: 5 });
