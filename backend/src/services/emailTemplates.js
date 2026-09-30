@@ -108,6 +108,7 @@ function plainText(options) {
     safeUrl(actionUrl) && `${actionLabel}: ${safeUrl(actionUrl)}`,
     safeUrl(secondaryUrl) && `${secondaryLabel}: ${safeUrl(secondaryUrl)}`, footer,
     "The GetPrio Team", `Contact support: ${appUrl("/contact")}`, appUrl(),
+    `© ${new Date().getFullYear()} MNK-Labs Software Development Services`,
     safeUrl(preferencesUrl) && `Email preferences: ${safeUrl(preferencesUrl)}`,
     safeUrl(unsubscribeUrl) && `Unsubscribe: ${safeUrl(unsubscribeUrl)}`
   ].filter((value) => value !== undefined && value !== null && value !== false && value !== "").join("\n\n");
