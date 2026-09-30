@@ -1,5 +1,8 @@
 const crypto = require("node:crypto");
 const db = require("../config/db");
+const env = require("../config/env");
+const developerApiWaitTimePredictions = require("./developerApiWaitTimePredictions");
+const { predictWaitTime } = require("../services/waitTimePredictor");
 
 function clientFor(options = {}) {
   return options.client || db.pool;
@@ -325,6 +328,7 @@ async function queueSnapshot(queueId, options = {}) {
 }
 
 async function mobileQueueMetricsForTickets(queueId, ticketIds, options = {}) {
+  const environment = options.environment;
   const ids = [...new Set((ticketIds || []).map((ticketId) => String(ticketId)).filter(Boolean))];
   if (!queueId || !ids.length) return new Map();
 
@@ -353,14 +357,27 @@ async function mobileQueueMetricsForTickets(queueId, ticketIds, options = {}) {
         FROM active
     )
     SELECT target.id AS ticket_id,
+            target.developer_project_id,
+            target.environment,
+            target.developer_api_profile_id,
+            target.developer_api_queue_id,
             target.status,
             target.sequence,
             queue.updated_at AS queue_updated_at,
+            queue.session_state,
+            queue.intake_enabled,
             queue.average_service_minutes AS configured_average_service_minutes,
             queue_state.waiting_count,
             queue_state.latest_ticket_updated_at,
             service_stats.service_sample_count,
             service_stats.average_service_minutes,
+            (SELECT current_ticket.called_at
+               FROM developer_api_tickets current_ticket
+              WHERE current_ticket.developer_api_queue_id = target.developer_api_queue_id
+                AND current_ticket.status = 'called'
+                AND current_ticket.called_at IS NOT NULL
+              ORDER BY current_ticket.called_at DESC
+              LIMIT 1) AS current_ticket_called_at,
             CASE WHEN target.status = 'waiting' THEN (
               SELECT COUNT(*)::INTEGER
                 FROM active ahead
@@ -375,7 +392,9 @@ async function mobileQueueMetricsForTickets(queueId, ticketIds, options = {}) {
         AND target.id = ANY($2::uuid[])`,
     [String(queueId), ids]
   );
-  return new Map(result.rows.map((row) => {
+  const observedAt = new Date();
+  const predictions = [];
+  const metricsByTicket = new Map(result.rows.map((row) => {
     const position = row.queue_position === null ? null : Number(row.queue_position);
     const waitingCount = Number(row.waiting_count || 0);
     const averageServiceMinutes = Math.max(1, Number(row.configured_average_service_minutes || 15));
@@ -383,7 +402,7 @@ async function mobileQueueMetricsForTickets(queueId, ticketIds, options = {}) {
       .filter(Boolean)
       .map((value) => new Date(value))
       .sort((left, right) => right.getTime() - left.getTime())[0] || null;
-    return [String(row.ticket_id), {
+    const metrics = {
       queuePosition: position === null
         ? null
         : {
@@ -396,8 +415,47 @@ async function mobileQueueMetricsForTickets(queueId, ticketIds, options = {}) {
         ? null
         : position * averageServiceMinutes,
       queueUpdatedAt: updatedAt
-    }];
+    };
+    if (
+      environment === "sandbox" &&
+      row.environment === "sandbox" &&
+      env.waitTimePredictionCaptureEnabled &&
+      position !== null && position > 0
+    ) {
+      const prediction = predictWaitTime({
+        position,
+        waitingCount,
+        averageServiceMinutes,
+        priorityBand: "normal",
+        currentTicketCalledAt: row.current_ticket_called_at || null,
+        queuePaused: row.session_state !== "open" || !row.intake_enabled,
+        observedAt
+      });
+      predictions.push({
+        ticketId: String(row.ticket_id),
+        projectId: String(row.developer_project_id),
+        profileId: String(row.developer_api_profile_id),
+        queueId: String(row.developer_api_queue_id),
+        environment: row.environment,
+        predictorVersion: prediction.predictorVersion,
+        featureHash: prediction.featureHash,
+        sampleBucket: prediction.sampleBucket,
+        sampledAt: prediction.observedAt,
+        features: prediction.features,
+        predictedWaitMinutes: prediction.estimatedWaitMinutes
+      });
+    }
+    return [String(row.ticket_id), metrics];
   }));
+
+  if (predictions.length) {
+    try {
+      await developerApiWaitTimePredictions.recordPredictions(predictions);
+    } catch (error) {
+      console.error("Developer API Sandbox wait-time sample capture failed.", error);
+    }
+  }
+  return metricsByTicket;
 }
 
 async function mobileQueueMetrics(queueId, ticketId, options = {}) {
@@ -877,6 +935,21 @@ async function transitionTicket(input, options = {}) {
     toStatus: updated.status,
     resourceVersion: updated.resourceVersion
   }, { client: queryClient });
+  if (updated.environment === "sandbox") {
+    const outcomeType = updated.status === "called"
+      ? "called"
+      : ["cancelled", "unserved", "expired", "skipped"].includes(updated.status)
+        ? "censored"
+        : null;
+    if (outcomeType) {
+      await developerApiWaitTimePredictions.recordOutcome(
+        updated.id,
+        outcomeType,
+        outcomeType === "called" ? updated.calledAt : updated.updatedAt,
+        { client: queryClient }
+      );
+    }
+  }
   return updated;
 }
 

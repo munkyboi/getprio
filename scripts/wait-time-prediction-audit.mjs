@@ -134,6 +134,104 @@ async function runAudit() {
       ORDER BY position_group
     `);
 
+    const developerApiTable = await client.query(
+      "SELECT to_regclass('public.developer_api_wait_time_prediction_samples') AS table_name"
+    );
+    let developerApiSandbox;
+    if (!developerApiTable.rows[0]?.table_name) {
+      developerApiSandbox = {
+        tableAvailable: false,
+        summary: [],
+        queueCoverage: null,
+        positionCoverage: [],
+        message: "Apply the Developer API Sandbox wait-time prediction migration before auditing its samples."
+      };
+    } else {
+      const developerApiSummary = await client.query(`
+        SELECT
+          predictor_version,
+          COUNT(*)::int AS total_samples,
+          COUNT(*) FILTER (WHERE outcome_type = 'called')::int AS completed_samples,
+          COUNT(*) FILTER (WHERE outcome_type = 'censored')::int AS censored_samples,
+          COUNT(*) FILTER (WHERE outcome_type IS NULL)::int AS pending_samples,
+          COUNT(DISTINCT developer_project_id) FILTER (WHERE outcome_type = 'called')::int AS projects_with_completed_samples,
+          COUNT(DISTINCT developer_api_queue_id) FILTER (WHERE outcome_type = 'called')::int AS queues_with_completed_samples,
+          MIN(sampled_at) AS first_sample_at,
+          MAX(sampled_at) AS latest_sample_at,
+          ROUND(AVG(ABS(predicted_wait_minutes - outcome_wait_minutes))
+            FILTER (WHERE outcome_type = 'called'), 2) AS mean_absolute_error_minutes,
+          ROUND(AVG(outcome_wait_minutes - predicted_wait_minutes)
+            FILTER (WHERE outcome_type = 'called'), 2) AS mean_signed_error_minutes,
+          ROUND(100 * AVG((ABS(predicted_wait_minutes - outcome_wait_minutes) <= 5)::int)
+            FILTER (WHERE outcome_type = 'called'), 1) AS within_five_minutes_percent
+        FROM developer_api_wait_time_prediction_samples
+        WHERE environment = 'sandbox'
+        GROUP BY predictor_version
+        ORDER BY predictor_version
+      `);
+
+      const developerApiQueueCoverage = await client.query(`
+        WITH eligible_queues AS (
+          SELECT queues.id
+            FROM developer_api_queues AS queues
+            INNER JOIN developer_api_profiles AS profiles
+              ON profiles.id = queues.developer_api_profile_id
+           WHERE profiles.environment = 'sandbox'
+        ), per_queue AS (
+          SELECT queues.id AS queue_id, COUNT(samples.id)::int AS completed_samples
+            FROM eligible_queues AS queues
+            LEFT JOIN developer_api_wait_time_prediction_samples AS samples
+              ON samples.developer_api_queue_id = queues.id
+             AND samples.environment = 'sandbox'
+             AND samples.outcome_type = 'called'
+           GROUP BY queues.id
+        )
+        SELECT
+          COUNT(*) FILTER (WHERE completed_samples > 0)::int AS queues_with_completed_samples,
+          COUNT(*) FILTER (WHERE completed_samples < 30)::int AS queues_below_30_samples,
+          COUNT(*) FILTER (WHERE completed_samples BETWEEN 30 AND 99)::int AS queues_with_30_to_99_samples,
+          COUNT(*) FILTER (WHERE completed_samples >= 100)::int AS queues_with_at_least_100_samples,
+          MIN(completed_samples)::int AS fewest_samples_for_a_queue,
+          PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY completed_samples) AS median_samples_per_queue
+        FROM per_queue
+      `);
+
+      const developerApiPositionCoverage = await client.query(`
+        WITH labeled AS (
+          SELECT
+            CASE
+              WHEN (features->>'position') ~ '^[0-9]+$'
+                AND (features->>'position')::int <= 1 THEN 'position_1'
+              WHEN (features->>'position') ~ '^[0-9]+$'
+                AND (features->>'position')::int BETWEEN 2 AND 3 THEN 'position_2_to_3'
+              WHEN (features->>'position') ~ '^[0-9]+$'
+                AND (features->>'position')::int >= 4 THEN 'position_4_plus'
+              ELSE 'position_unknown'
+            END AS position_group,
+            predicted_wait_minutes,
+            outcome_wait_minutes
+          FROM developer_api_wait_time_prediction_samples
+          WHERE environment = 'sandbox' AND outcome_type = 'called'
+        )
+        SELECT
+          position_group,
+          COUNT(*)::int AS completed_samples,
+          ROUND(AVG(ABS(predicted_wait_minutes - outcome_wait_minutes))::numeric, 2)
+            AS mean_absolute_error_minutes
+        FROM labeled
+        GROUP BY position_group
+        ORDER BY position_group
+      `);
+
+      developerApiSandbox = {
+        tableAvailable: true,
+        summary: developerApiSummary.rows,
+        queueCoverage: developerApiQueueCoverage.rows[0],
+        positionCoverage: developerApiPositionCoverage.rows,
+        note: "Sandbox Developer API results are separate from merchant queue samples. Review queue coverage and temporal holdout performance before model rollout."
+      };
+    }
+
     console.log(JSON.stringify({
       database: target.rows[0].database_name,
       tableAvailable: true,
@@ -141,6 +239,7 @@ async function runAudit() {
       summary: summary.rows,
       vendorCoverage: vendorCoverage.rows[0],
       positionCoverage: positionCoverage.rows,
+      developerApiSandbox,
       note: "Read-only report. Review temporal holdout performance and vendor coverage before model rollout."
     }, null, 2));
   } finally {
