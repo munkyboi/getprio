@@ -756,9 +756,9 @@ router.post(
 );
 
 const PLATFORM_MANAGED_GLOBAL_ROLES = new Set([
-  "customer", "vendor", "vendor_admin", "staff", "admin", "platform_admin"
+  "customer", "vendor", "vendor_admin", "staff", "admin", "platform_admin", "platform_release_observer"
 ]);
-const PLATFORM_PRESERVED_GLOBAL_ROLES = new Set(["developer", "platform_release_observer"]);
+const PLATFORM_PRESERVED_GLOBAL_ROLES = new Set(["developer"]);
 const PLATFORM_ROLE_ORDER = [...PLATFORM_MANAGED_GLOBAL_ROLES, ...PLATFORM_PRESERVED_GLOBAL_ROLES];
 const sortPlatformRoles = (roles) => [...roles].sort((left, right) => PLATFORM_ROLE_ORDER.indexOf(left) - PLATFORM_ROLE_ORDER.indexOf(right));
 function platformUserAccessState({ suspended, isSandboxTestAccount, accountLockedUntil }) {

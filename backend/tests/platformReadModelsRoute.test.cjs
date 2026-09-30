@@ -195,12 +195,12 @@ test("global role preview canonicalizes the role list used by the later confirme
   const route = routes.find(({ method, args }) => method === "post" && args[0] === "/privileged-actions/preview");
   const res = response();
   await route.args.at(-1)({
-    body: { action: "platform.user.roles.update", target: "27", reason: "Add vendor account access", payload: { userId: "27", roles: ["developer", "vendor", "customer"] } },
+    body: { action: "platform.user.roles.update", target: "27", reason: "Add release observer access", payload: { userId: "27", roles: ["developer", "platform_release_observer", "customer"] } },
     user: { _id: "8", roles: ["platform_admin"] }, auth: { session: { _id: "session-8" } }
   }, res);
 
-  assert.deepEqual(JSON.parse(JSON.stringify(calls[0][1].payload.roles)), ["customer", "vendor", "developer"]);
-  assert.deepEqual(JSON.parse(JSON.stringify(calls[1][1].payload.roles)), ["customer", "vendor", "developer"]);
+  assert.deepEqual(JSON.parse(JSON.stringify(calls[0][1].payload.roles)), ["customer", "platform_release_observer", "developer"]);
+  assert.deepEqual(JSON.parse(JSON.stringify(calls[1][1].payload.roles)), ["customer", "platform_release_observer", "developer"]);
   assert.equal(res.body.confirmation.token, "roles-token");
 });
 
@@ -210,7 +210,7 @@ test("global role update persists the exact reviewed roles, revokes sessions, an
     calls.push(["query", sql, params]);
     if (/SELECT id,email,roles,deletion_requested_at,platform_access_suspended_at,is_sandbox_test_account FROM users/.test(sql)) return { rows: [{ id: 27, email: "owner@example.com", roles: ["customer", "developer"], deletion_requested_at: null, platform_access_suspended_at: null, is_sandbox_test_account: false }] };
     if (/SELECT role,is_active FROM tenant_memberships/.test(sql)) return { rows: [{ role: "owner", is_active: true }] };
-    if (/UPDATE users SET roles/.test(sql)) return { rows: [{ id: 27, roles: ["customer", "vendor", "developer"], mfa_required: true }] };
+    if (/UPDATE users SET roles/.test(sql)) return { rows: [{ id: 27, roles: ["customer", "platform_release_observer", "developer"], mfa_required: true }] };
     return { rows: [] };
   } };
   const { routes } = loadReadModelRoutes({ overrides: {
@@ -224,19 +224,19 @@ test("global role update persists the exact reviewed roles, revokes sessions, an
   const route = routes.find(({ method, args }) => method === "post" && args[0] === "/users/:userId/roles");
   const res = response();
   await route.args.at(-1)({
-    params: { userId: "27" }, body: { roles: ["customer", "vendor", "developer"], reason: "Add vendor access role", previewRevision: "roles-revision" },
+    params: { userId: "27" }, body: { roles: ["customer", "platform_release_observer", "developer"], reason: "Add release observer access", previewRevision: "roles-revision" },
     user: { _id: "8" }, auth: { session: { _id: "session-8" }, sessionId: "session-8" },
     get: (header) => header === "x-transaction-confirmation" ? "confirmation-token" : null
   }, res);
 
   assert.equal(res.code, 200);
-  assert.deepEqual(JSON.parse(JSON.stringify(res.body)), { success: true, roles: ["customer", "vendor", "developer"], mfaRequired: true, revokedSessions: 3, notificationSent: true });
-  assert.deepEqual(JSON.parse(JSON.stringify(calls.find(([kind]) => kind === "confirmation")[1].payload)), { userId: "27", roles: ["customer", "vendor", "developer"] });
+  assert.deepEqual(JSON.parse(JSON.stringify(res.body)), { success: true, roles: ["customer", "platform_release_observer", "developer"], mfaRequired: true, revokedSessions: 3, notificationSent: true });
+  assert.deepEqual(JSON.parse(JSON.stringify(calls.find(([kind]) => kind === "confirmation")[1].payload)), { userId: "27", roles: ["customer", "platform_release_observer", "developer"] });
   const roleUpdate = calls.find(([kind, sql]) => kind === "query" && /UPDATE users SET roles/.test(sql));
   assert.equal(roleUpdate[2][2], true, "an active tenant owner retains the MFA requirement after a global-role edit");
   assert.equal(calls.find(([kind]) => kind === "revoke-sessions")[1], "27");
   assert.equal(calls.find(([kind]) => kind === "audit")[1].action, "platform.user.roles.update");
-  assert.deepEqual(calls.find(([kind]) => kind === "audit")[1].afterState.roles, ["customer", "vendor", "developer"]);
+  assert.deepEqual(calls.find(([kind]) => kind === "audit")[1].afterState.roles, ["customer", "platform_release_observer", "developer"]);
   assert.equal(calls.find(([kind]) => kind === "email")[1].to, "owner@example.com");
 });
 
