@@ -27,13 +27,15 @@ type PlatformDataTableProps<TData> = {
   searchColumn?: string
   searchPlaceholder?: string
   pageSize?: number
+  serverPagination?: { pageIndex: number; pageCount: number; onPageIndexChange: (pageIndex: number) => void }
+  serverSearch?: { value: string; totalCount: number; onChange: (value: string) => void }
   rowActions?: (row: TData) => ReactNode
   onRowClick?: (row: TData) => void
   getRowLabel?: (row: TData) => string
   isRowSelected?: (row: TData) => boolean
 }
 
-export function PlatformDataTable<TData>({ columns, data, emptyMessage, tableClassName, stickyColumnId, searchColumn, searchPlaceholder = "Search records…", pageSize = 10, rowActions, onRowClick, getRowLabel, isRowSelected }: PlatformDataTableProps<TData>) {
+export function PlatformDataTable<TData>({ columns, data, emptyMessage, tableClassName, stickyColumnId, searchColumn, searchPlaceholder = "Search records…", pageSize = 10, serverPagination, serverSearch, rowActions, onRowClick, getRowLabel, isRowSelected }: PlatformDataTableProps<TData>) {
   const [sorting, setSorting] = useState<SortingState>([])
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
   const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize })
@@ -46,22 +48,31 @@ export function PlatformDataTable<TData>({ columns, data, emptyMessage, tableCla
   const table = useReactTable({
     data,
     columns: resolvedColumns,
-    state: { sorting, columnFilters, pagination },
+    state: { sorting, columnFilters, pagination: serverPagination ? { pageIndex: serverPagination.pageIndex, pageSize } : pagination },
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
-    onPaginationChange: setPagination,
+    onPaginationChange: (updater) => {
+      if (!serverPagination) { setPagination(updater); return }
+      const current = { pageIndex: serverPagination.pageIndex, pageSize }
+      const next = typeof updater === "function" ? updater(current) : updater
+      serverPagination.onPageIndexChange(next.pageIndex)
+    },
+    manualFiltering: Boolean(serverSearch),
+    manualPagination: Boolean(serverPagination),
+    ...(serverPagination ? { pageCount: serverPagination.pageCount } : {}),
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
     getSortedRowModel: getSortedRowModel(),
   })
   const searchableColumn = searchColumn ? table.getColumn(searchColumn) : undefined
-  const filteredCount = table.getFilteredRowModel().rows.length
-  const pageCount = table.getPageCount()
+  const filteredCount = serverSearch?.totalCount ?? table.getFilteredRowModel().rows.length
+  const pageCount = serverPagination?.pageCount ?? table.getPageCount()
+  const currentPageIndex = serverPagination?.pageIndex ?? pagination.pageIndex
 
   return (
     <div className="grid min-w-0 gap-3">
-      {searchableColumn ? <div className="flex flex-col justify-between gap-3 border-y py-3 sm:flex-row sm:items-center"><div className="relative w-full sm:max-w-xs"><Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" /><Input aria-label={searchPlaceholder} className="pl-9" placeholder={searchPlaceholder} value={(searchableColumn.getFilterValue() as string) ?? ""} onChange={(event) => searchableColumn.setFilterValue(event.target.value)} /></div><p className="text-xs text-muted-foreground">{filteredCount} {filteredCount === 1 ? "record" : "records"}</p></div> : null}
+      {searchableColumn ? <div className="flex flex-col justify-between gap-3 border-y py-3 sm:flex-row sm:items-center"><div className="relative w-full sm:max-w-xs"><Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" /><Input aria-label={searchPlaceholder} className="pl-9" placeholder={searchPlaceholder} value={serverSearch?.value ?? (searchableColumn.getFilterValue() as string) ?? ""} onChange={(event) => serverSearch ? serverSearch.onChange(event.target.value) : searchableColumn.setFilterValue(event.target.value)} /></div><p className="text-xs text-muted-foreground">{filteredCount} {filteredCount === 1 ? "record" : "records"}</p></div> : null}
       <ScrollArea className="min-w-0 w-full">
         <div className="min-w-max">
           <Table className={tableClassName}>
@@ -75,7 +86,7 @@ export function PlatformDataTable<TData>({ columns, data, emptyMessage, tableCla
         </div>
         <ScrollBar orientation="horizontal" />
       </ScrollArea>
-      {pageCount > 1 ? <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground"><span>Page {pagination.pageIndex + 1} of {pageCount}</span><div className="flex items-center gap-1"><Button variant="outline" size="icon-xs" className="min-h-11 min-w-11 sm:min-h-8 sm:min-w-8" aria-label="Previous page" disabled={!table.getCanPreviousPage()} onClick={() => table.previousPage()}><ChevronLeft /></Button><Button variant="outline" size="icon-xs" className="min-h-11 min-w-11 sm:min-h-8 sm:min-w-8" aria-label="Next page" disabled={!table.getCanNextPage()} onClick={() => table.nextPage()}><ChevronRight /></Button></div></div> : null}
+      {pageCount > 1 ? <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground"><span>Page {currentPageIndex + 1} of {pageCount}</span><div className="flex items-center gap-1"><Button variant="outline" size="icon-xs" className="min-h-11 min-w-11 sm:min-h-8 sm:min-w-8" aria-label="Previous page" disabled={!table.getCanPreviousPage()} onClick={() => table.previousPage()}><ChevronLeft /></Button><Button variant="outline" size="icon-xs" className="min-h-11 min-w-11 sm:min-h-8 sm:min-w-8" aria-label="Next page" disabled={!table.getCanNextPage()} onClick={() => table.nextPage()}><ChevronRight /></Button></div></div> : null}
     </div>
   )
 }

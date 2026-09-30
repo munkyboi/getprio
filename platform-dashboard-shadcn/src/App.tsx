@@ -54,7 +54,7 @@ import { PlatformSettingsEditor } from "@/components/platform-settings-editor"
 import { PlatformLogin } from "@/components/platform-login"
 import { platformAuth } from "@/lib/platform-auth"
 import { platformApi } from "@/lib/platform-api"
-import type { AccountDeletionTaskKind, DeveloperProjectGovernanceReadModel, DeveloperProjectSummary, PlatformAccountDeletionQueue, PlatformAccountDeletionRequest, PlatformAttentionItem, PlatformAuditReadModel, PlatformBillingReadModel, PlatformDeveloperApiKey, PlatformDeveloperApiKeyReview, PlatformModerationReadModel, PlatformOverviewReadModel, PlatformQueueOperationsReadModel, PlatformReleaseReadinessReadModel, PlatformReleaseSurfaceState, PlatformServiceHealthReadModel, PlatformServiceState, PlatformSettingsReadModel, PlatformTenantCreditLot, PlatformTenantInspection, PlatformTenantsReadModel, PlatformUserDetails, PlatformUsersReadModel, PlatformViewerContext, SandboxCredentialResult, TenantEntitlementPreview, UserPasswordResetPreview, UserSessionRevokePreview } from "@/lib/platform-contracts"
+import type { AccountDeletionTaskKind, DeveloperProjectGovernanceReadModel, DeveloperProjectSummary, PlatformAccountDeletionQueue, PlatformAccountDeletionRequest, PlatformAttentionItem, PlatformAuditReadModel, PlatformBillingReadModel, PlatformDeveloperApiKey, PlatformDeveloperApiKeyReview, PlatformModerationReadModel, PlatformOverviewReadModel, PlatformQueueOperationsReadModel, PlatformReleaseReadinessReadModel, PlatformReleaseSurfaceState, PlatformServiceHealthReadModel, PlatformServiceState, PlatformSettingsReadModel, PlatformTenantCreditLot, PlatformTenantInspection, PlatformTenantsReadModel, PlatformUserDetails, PlatformUsersReadModel, PlatformViewerContext, SandboxCredentialResult, TenantEntitlementPreview, UserAccessUpdatePreview, UserMfaResetPreview, UserPasswordResetPreview, UserRolesUpdatePreview, UserSessionRevokePreview } from "@/lib/platform-contracts"
 import { cn } from "cn"
 import "./App.css"
 
@@ -82,6 +82,15 @@ type QueueRepairPreview = {
 type SubscriptionSuspendPreview = { action: string; targetId: string; revision: string; confirmationToken: string }
 type ModerationPreview = { action: string; targetId: string; revision: string; confirmationToken: string }
 type UserSessionAction = { row: UserRow }
+const platformRoleOptions = [
+  { id: "platform_admin", label: "Platform Admin", description: "Full Platform dashboard administration; MFA is required." },
+  { id: "customer", label: "Customer", description: "Customer application access." },
+  { id: "vendor", label: "Vendor", description: "Vendor application access." },
+  { id: "vendor_admin", label: "Vendor Admin (legacy)", description: "Legacy global role label; tenant memberships are managed separately." },
+  { id: "staff", label: "Staff", description: "Staff application access." },
+  { id: "admin", label: "Admin (legacy)", description: "Legacy global role label; tenant memberships are managed separately." },
+]
+const portalManagedRoleIds = ["developer", "platform_release_observer"]
 type ModerationAction =
   | { kind: "report"; row: ModerationReportRow; status: "reviewing" | "resolved" | "dismissed" }
   | { kind: "dispute"; row: RatingDisputeRow; status: "resolved" | "dismissed"; moderationStatus: "active" | "hidden" }
@@ -393,6 +402,7 @@ function Tenants({ tenants, canManageOverrides, canGrantCredits, canRevokeCredit
 function UserStateBadge({ state }: { state: PlatformUsersReadModel["users"][number]["state"] }) {
   if (state === "active") return <Badge variant="success">Active</Badge>
   if (state === "sandbox") return <Badge variant="secondary">Sandbox</Badge>
+  if (state === "suspended") return <Badge variant="destructive">Suspended</Badge>
   if (state === "locked") return <Badge variant="destructive">Locked</Badge>
   return <Badge variant="warning">Deletion requested</Badge>
 }
@@ -431,7 +441,7 @@ function DeletionTaskProgress({ request }: { request: PlatformAccountDeletionReq
     : <>{deletionTaskProgress(request)}</>
 }
 
-function PlatformUsers({ users, viewerId, canManage, deletionRequests, deletionError, canManageDeletion, onPreview, onExecute }: { users: PlatformUsersReadModel; viewerId: string; canManage: boolean; deletionRequests: PlatformAccountDeletionQueue | null; deletionError: string | null; canManageDeletion: boolean; onCompleteDeletionTask?: (requestId: string, taskKind: AccountDeletionTaskKind, evidence: string, reason: string, retentionNotice?: string) => Promise<void>; onPreview: (userId: string, reason: string) => Promise<UserSessionRevokePreview>; onExecute: (preview: UserSessionRevokePreview, reason: string) => Promise<{ revokedSessions: number }> }) {
+function PlatformUsers({ users, viewerId, canManage, canManageRoles = canManage, canResetMfa = canManage, canManageAccess = canManage, deletionRequests, deletionError, canManageDeletion, onPreview, onExecute, onPageChange, onSearchChange }: { users: PlatformUsersReadModel; viewerId: string; canManage: boolean; canManageRoles?: boolean; canResetMfa?: boolean; canManageAccess?: boolean; deletionRequests: PlatformAccountDeletionQueue | null; deletionError: string | null; canManageDeletion: boolean; onCompleteDeletionTask?: (requestId: string, taskKind: AccountDeletionTaskKind, evidence: string, reason: string, retentionNotice?: string) => Promise<void>; onPreview: (userId: string, reason: string) => Promise<UserSessionRevokePreview>; onExecute: (preview: UserSessionRevokePreview, reason: string) => Promise<{ revokedSessions: number }>; onPageChange: (page: number) => void; onSearchChange: (search: string) => void }) {
   const canSendPasswordReset = canManage
   const [selectedAction, setSelectedAction] = useState<UserSessionAction | null>(null)
   const [selectedDetailsUserId, setSelectedDetailsUserId] = useState<string | null>(null)
@@ -447,6 +457,27 @@ function PlatformUsers({ users, viewerId, canManage, deletionRequests, deletionE
   const [resetPending, setResetPending] = useState(false)
   const [resetError, setResetError] = useState<string | null>(null)
   const [resetSent, setResetSent] = useState(false)
+  const [roleDialogOpen, setRoleDialogOpen] = useState(false)
+  const [roleDraft, setRoleDraft] = useState<string[]>([])
+  const [roleReason, setRoleReason] = useState("")
+  const [rolePreview, setRolePreview] = useState<UserRolesUpdatePreview | null>(null)
+  const [rolePending, setRolePending] = useState(false)
+  const [roleError, setRoleError] = useState<string | null>(null)
+  const [roleUpdated, setRoleUpdated] = useState<string | null>(null)
+  const [mfaResetOpen, setMfaResetOpen] = useState(false)
+  const [mfaResetReason, setMfaResetReason] = useState("")
+  const [mfaResetPreview, setMfaResetPreview] = useState<UserMfaResetPreview | null>(null)
+  const [mfaResetPending, setMfaResetPending] = useState(false)
+  const [mfaResetError, setMfaResetError] = useState<string | null>(null)
+  const [mfaResetNotice, setMfaResetNotice] = useState<string | null>(null)
+  const [accessDialogOpen, setAccessDialogOpen] = useState(false)
+  const [accessSuspended, setAccessSuspended] = useState(false)
+  const [accessReason, setAccessReason] = useState("")
+  const [accessPreview, setAccessPreview] = useState<UserAccessUpdatePreview | null>(null)
+  const [accessPending, setAccessPending] = useState(false)
+  const [accessError, setAccessError] = useState<string | null>(null)
+  const [accessNotice, setAccessNotice] = useState<string | null>(null)
+  const [discardAction, setDiscardAction] = useState<"roles" | "mfa" | "access" | null>(null)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [selectedDeletionRequestId, setSelectedDeletionRequestId] = useState<string | null>(null)
@@ -491,6 +522,27 @@ function PlatformUsers({ users, viewerId, canManage, deletionRequests, deletionE
     setPreview(null)
     setError(null)
   }
+  const requestRoleDialogClose = () => {
+    const dirty = Boolean(rolePreview || roleReason.trim() || (details && JSON.stringify([...roleDraft].sort((left, right) => left.localeCompare(right))) !== JSON.stringify([...details.roles].sort((left, right) => left.localeCompare(right)))))
+    if (dirty) setDiscardAction("roles")
+    else { setRoleDialogOpen(false); setRolePreview(null); setRoleError(null) }
+  }
+  const requestMfaDialogClose = () => {
+    if (mfaResetPreview || mfaResetReason.trim()) setDiscardAction("mfa")
+    else { setMfaResetOpen(false); setMfaResetPreview(null); setMfaResetError(null) }
+  }
+  const requestAccessDialogClose = () => {
+    const initialSuspended = details?.state === "suspended"
+    const initialDesiredSuspended = !initialSuspended
+    if (accessPreview || accessReason.trim() || accessSuspended !== initialDesiredSuspended) setDiscardAction("access")
+    else { setAccessDialogOpen(false); setAccessPreview(null); setAccessError(null) }
+  }
+  const confirmDiscard = () => {
+    if (discardAction === "roles") { setRoleDialogOpen(false); setRolePreview(null); setRoleError(null); setRoleReason(""); if (details) setRoleDraft(details.roles) }
+    if (discardAction === "mfa") { setMfaResetOpen(false); setMfaResetPreview(null); setMfaResetError(null); setMfaResetReason("") }
+    if (discardAction === "access") { setAccessDialogOpen(false); setAccessPreview(null); setAccessError(null); setAccessReason(""); if (details) setAccessSuspended(details.state !== "suspended") }
+    setDiscardAction(null)
+  }
   const createPreview = async () => {
     if (!selectedAction) return
     const cleanReason = reason.trim()
@@ -518,6 +570,96 @@ function PlatformUsers({ users, viewerId, canManage, deletionRequests, deletionE
     setResetPending(true)
     setResetError(null)
     try { await platformApi.executeUserPasswordReset(resetPreview.targetId, resetReason.trim(), resetPreview.revision, resetPreview.confirmationToken); setResetSent(true); setResetOpen(false); setResetPreview(null); setResetReason("") } catch (sendError) { setResetError(sendError instanceof Error ? sendError.message : "The password reset email could not be sent.") } finally { setResetPending(false) }
+  }
+  const openRoleEditor = () => {
+    if (!details) return
+    setRoleDraft(details.roles)
+    setRoleReason("")
+    setRolePreview(null)
+    setRoleError(null)
+    setRoleUpdated(null)
+    setRoleDialogOpen(true)
+  }
+  const createRolePreview = async () => {
+    if (!details) return
+    const cleanReason = roleReason.trim()
+    if (cleanReason.length < 8 || cleanReason.length > 500) { setRoleError("Enter a clear audit reason between 8 and 500 characters."); return }
+    setRolePending(true)
+    setRoleError(null)
+    try { setRolePreview(await platformApi.previewUserRolesUpdate(details.id, roleDraft, cleanReason)) } catch (previewError) { setRoleError(previewError instanceof Error ? previewError.message : "Unable to prepare the role change.") } finally { setRolePending(false) }
+  }
+  const executeRoleChange = async () => {
+    if (!rolePreview || !details) return
+    setRolePending(true)
+    setRoleError(null)
+    try {
+      const result = await platformApi.executeUserRolesUpdate(rolePreview, roleReason.trim())
+      window.dispatchEvent(new Event("platform:refresh"))
+      setDetails({ ...details, roles: result.roles, mfaRequired: result.mfaRequired })
+      setRoleUpdated(result.notificationSent
+        ? "Global roles updated. The account owner’s active sessions were signed out, and the owner was notified."
+        : "Global roles updated and active sessions were signed out, but the account owner could not be notified.")
+      setRoleDialogOpen(false)
+      setRolePreview(null)
+    } catch (changeError) { setRoleError(changeError instanceof Error ? changeError.message : "Unable to update account roles.") } finally { setRolePending(false) }
+  }
+  const openMfaReset = () => {
+    setMfaResetReason("")
+    setMfaResetPreview(null)
+    setMfaResetError(null)
+    setMfaResetNotice(null)
+    setMfaResetOpen(true)
+  }
+  const createMfaResetPreview = async () => {
+    if (!details) return
+    const cleanReason = mfaResetReason.trim()
+    if (cleanReason.length < 8 || cleanReason.length > 500) { setMfaResetError("Enter a clear audit reason between 8 and 500 characters."); return }
+    setMfaResetPending(true)
+    setMfaResetError(null)
+    try { setMfaResetPreview(await platformApi.previewUserMfaReset(details.id, cleanReason)) } catch (previewError) { setMfaResetError(previewError instanceof Error ? previewError.message : "Unable to prepare the MFA reset.") } finally { setMfaResetPending(false) }
+  }
+  const executeMfaReset = async () => {
+    if (!mfaResetPreview || !details) return
+    setMfaResetPending(true)
+    setMfaResetError(null)
+    try {
+      const result = await platformApi.executeUserMfaReset(mfaResetPreview, mfaResetReason.trim())
+      window.dispatchEvent(new Event("platform:refresh"))
+      setDetails({ ...details, emailMfaEnabled: false, mfaEnabled: false, mfaRequired: result.mfaRequired, activeMfaFactors: 0, pendingMfaFactors: 0, unusedRecoveryCodes: 0, activeSessions: 0 })
+      setMfaResetNotice(`${result.mfaRequired ? "MFA was reset. This account still requires MFA and must enroll again before accessing protected features." : "MFA was reset. The account owner can set it up again in Account → Security."}${result.notificationSent ? " The owner was notified." : " The owner could not be notified."}`)
+      setMfaResetOpen(false)
+      setMfaResetPreview(null)
+    } catch (resetError) { setMfaResetError(resetError instanceof Error ? resetError.message : "Unable to reset MFA.") } finally { setMfaResetPending(false) }
+  }
+  const openAccessEditor = () => {
+    if (!details) return
+    setAccessSuspended(details.state !== "suspended")
+    setAccessReason("")
+    setAccessPreview(null)
+    setAccessError(null)
+    setAccessNotice(null)
+    setAccessDialogOpen(true)
+  }
+  const createAccessPreview = async () => {
+    if (!details) return
+    const cleanReason = accessReason.trim()
+    if (cleanReason.length < 8 || cleanReason.length > 500) { setAccessError("Enter a clear audit reason between 8 and 500 characters."); return }
+    setAccessPending(true)
+    setAccessError(null)
+    try { setAccessPreview(await platformApi.previewUserAccessUpdate(details.id, accessSuspended, cleanReason)) } catch (previewError) { setAccessError(previewError instanceof Error ? previewError.message : "Unable to prepare the access change.") } finally { setAccessPending(false) }
+  }
+  const executeAccessChange = async () => {
+    if (!accessPreview || !details) return
+    setAccessPending(true)
+    setAccessError(null)
+    try {
+      const result = await platformApi.executeUserAccessUpdate(accessPreview, accessReason.trim())
+      window.dispatchEvent(new Event("platform:refresh"))
+      setDetails({ ...details, state: result.state, activeSessions: 0 })
+      setAccessNotice(`${result.suspended ? "Sign-in access suspended. Active sessions were signed out." : "Sign-in access restored. Previously active sessions remain signed out."}${result.notificationSent ? " The owner was notified." : " The owner could not be notified."}`)
+      setAccessDialogOpen(false)
+      setAccessPreview(null)
+    } catch (changeError) { setAccessError(changeError instanceof Error ? changeError.message : "Unable to update account access.") } finally { setAccessPending(false) }
   }
   const submitDeletionAction = async () => {
     if (!selectedDeletionRequest || !deletionDialog) return
@@ -571,8 +713,8 @@ function PlatformUsers({ users, viewerId, canManage, deletionRequests, deletionE
           {canManageDeletion ? <TabsTrigger value="deletion" size="lg">Data deletion <span className="text-xs text-muted-foreground">{deletionRequests?.requests.filter((request) => request.status !== "completed").length ?? "—"}</span></TabsTrigger> : null}
         </TabsList>
         <TabsContent value="accounts" className="grid gap-4 pt-3">
-          <PlatformDataTable columns={userColumns} data={users.users} emptyMessage="No users in scope." tableClassName="min-w-[900px]" searchColumn="name" searchPlaceholder="Search users…" onRowClick={(row) => void openDetails(row)} getRowLabel={(row) => `View account details for ${row.name}`} isRowSelected={(row) => detailsOpen && row.id === selectedDetailsUserId} rowActions={(row) => canManage && row.id !== viewerId ? <Button variant="outline" size="sm" onClick={() => { setSelectedAction({ row }); setReason(""); setPreview(null); setError(null) }}>Revoke sessions</Button> : null} />
-          <Alert><ShieldCheck /><AlertTitle>Account security guardrails</AlertTitle><AlertDescription>Profile and authentication details are view-only here. Password recovery sends a one-time link to the account email after recent MFA confirmation; MFA enrollment and recovery remain owner-verified in Account → Security.</AlertDescription></Alert>
+          <PlatformDataTable columns={userColumns} data={users.users} emptyMessage="No users in scope." tableClassName="min-w-[900px]" searchColumn="name" searchPlaceholder="Search all accounts…" serverPagination={{ pageIndex: users.pagination.page - 1, pageCount: users.pagination.totalPages, onPageIndexChange: (pageIndex) => onPageChange(pageIndex + 1) }} serverSearch={{ value: users.pagination.search, totalCount: users.pagination.total, onChange: onSearchChange }} onRowClick={(row) => void openDetails(row)} getRowLabel={(row) => `View account details for ${row.name}`} isRowSelected={(row) => detailsOpen && row.id === selectedDetailsUserId} rowActions={(row) => canManage && row.id !== viewerId ? <Button variant="outline" size="sm" onClick={() => { setSelectedAction({ row }); setReason(""); setPreview(null); setError(null) }}>Revoke sessions</Button> : null} />
+          <Alert><ShieldCheck /><AlertTitle>Account security guardrails</AlertTitle><AlertDescription>Global role changes require a recent MFA check and audit reason, notify the account owner, and sign out active sessions. MFA secrets and recovery codes remain owner-managed; account deletion stays in its dedicated workflow.</AlertDescription></Alert>
         </TabsContent>
         {canManageDeletion ? <TabsContent value="deletion" className="grid gap-4 pt-3">
           <div className="grid gap-1"><h2 className="text-lg font-semibold">Account deletion</h2><p className="text-sm text-muted-foreground">Disable access promptly; preserve shared business records until cleanup is safe and approved.</p></div>
@@ -636,11 +778,15 @@ function PlatformUsers({ users, viewerId, canManage, deletionRequests, deletionE
       <Dialog open={Boolean(selectedAction)} onOpenChange={(open) => { if (!open) reset() }}><DialogContent><DialogHeader><DialogTitle>{preview ? "Confirm session revocation" : "Preview session revocation"}</DialogTitle><DialogDescription>{preview ? "Review the server-issued preview before signing this account out of every active session." : "This action invalidates every active session for the selected account. The account password and MFA settings are unchanged."}</DialogDescription></DialogHeader>{selectedAction ? <div className="grid gap-3"><div className="grid gap-1 rounded-md border bg-muted/30 p-3 text-sm"><span className="font-medium">{selectedAction.row.name}</span><span className="text-muted-foreground">{selectedAction.row.id} · {selectedAction.row.roles.join(", ") || "No roles"}</span></div><div className="grid gap-2"><label htmlFor="user-session-revoke-reason" className="text-sm font-medium">Audit reason</label><Textarea id="user-session-revoke-reason" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Example: suspected session compromise reported by account owner" maxLength={500} disabled={pending || Boolean(preview)} /><p className="text-xs text-muted-foreground">Required. This reason is written to the security audit record.</p></div>{preview ? <div className="grid gap-1 rounded-md border border-brand/30 bg-brand/5 p-3 text-sm"><span className="font-medium">Server preview ready</span><span className="text-muted-foreground">{preview.activeSessions} active session{preview.activeSessions === 1 ? "" : "s"} will be revoked.</span><span className="text-muted-foreground">Recent MFA assurance is required before execution.</span><span className="text-muted-foreground">Revision: {preview.revision}</span></div> : null}{error ? <p className="text-sm text-destructive">{error}</p> : null}</div> : null}<DialogFooter><Button variant="outline" onClick={reset} disabled={pending}>Cancel</Button>{preview ? <Button variant="destructive" onClick={execute} disabled={pending}>{pending ? "Applying…" : "Confirm revocation"}</Button> : <Button onClick={createPreview} disabled={pending}>{pending ? "Previewing…" : "Create preview"}</Button>}</DialogFooter></DialogContent></Dialog>
       <Sheet open={detailsOpen} onOpenChange={(open) => { setDetailsOpen(open); if (!open) setSelectedDetailsUserId(null) }}><SheetContent side="right" className="gap-0 overflow-y-auto p-0"><SheetHeader className="sticky top-0 z-10 border-b bg-popover pr-12"><SheetTitle>{details?.displayName || details?.name || "Account details"}</SheetTitle><SheetDescription>{details?.email || details?.username || "Profile and authentication posture"}</SheetDescription></SheetHeader>{detailsPending ? <p className="p-5 text-sm text-muted-foreground">Loading account details…</p> : detailsError ? <p role="alert" className="p-5 text-sm text-destructive">{detailsError}</p> : details ? <div className="grid gap-5 p-4">
         <section className="grid gap-3"><h3 className="text-sm font-semibold">Profile</h3><dl className="grid gap-2 rounded-lg border p-3 text-sm">{[["Full name", details.name], ["Display name", details.displayName], ["Username", details.username], ["Email", details.email], ["Phone", details.phone]].map(([label, value]) => <div key={label} className="grid grid-cols-[7rem_minmax(0,1fr)] gap-3"><dt className="text-muted-foreground">{label}</dt><dd className="break-all">{value || "Not provided"}</dd></div>)}<div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-3"><dt className="text-muted-foreground">Email status</dt><dd><Badge variant={details.emailVerified ? "success" : "warning"}>{details.emailVerified ? "Verified" : "Unverified"}</Badge></dd></div><div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-3"><dt className="text-muted-foreground">Roles</dt><dd>{details.roles.join(", ") || "None"}</dd></div><div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-3"><dt className="text-muted-foreground">Account state</dt><dd><UserStateBadge state={details.state} /></dd></div></dl></section>
-        <section className="grid gap-3"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-semibold">Sign-in security</h3><Badge variant={details.mfaRequired ? "warning" : details.mfaEnabled || details.emailMfaEnabled ? "success" : "secondary"}>{details.mfaRequired ? "MFA required" : details.mfaEnabled || details.emailMfaEnabled ? "MFA enabled" : "MFA not enabled"}</Badge></div><dl className="grid gap-2 rounded-lg border p-3 text-sm">{[["Sign-in method", details.lastLoginProvider || "Not observed"], ["Password login", details.hasPassword ? "Available" : "Not configured"], ["Authenticator factors", String(details.activeMfaFactors)], ["Email OTP", details.emailMfaEnabled ? "Enabled" : "Not enabled"], ["Pending factor setup", String(details.pendingMfaFactors)], ["Unused recovery codes", String(details.unusedRecoveryCodes)], ["Active sessions", String(details.activeSessions)]].map(([label, value]) => <div key={label} className="grid grid-cols-[10rem_minmax(0,1fr)] gap-3"><dt className="text-muted-foreground">{label}</dt><dd>{value}</dd></div>)}</dl><Alert><ShieldCheck /><AlertTitle>MFA is owner-managed</AlertTitle><AlertDescription>The account owner sets up or recovers MFA from GetPrio → Account → Security. Platform staff cannot view authenticator secrets or recovery codes.</AlertDescription></Alert></section>
-        <section className="grid gap-3 border-t pt-4"><h3 className="text-sm font-semibold">Account support</h3>{resetSent ? <p role="status" className="text-sm text-emerald-600">Password reset instructions were sent to the account email.</p> : null}<div className="flex flex-wrap gap-2">{canSendPasswordReset ? <Button variant="outline" onClick={() => { setResetReason(""); setResetPreview(null); setResetError(null); setResetOpen(true) }} disabled={!details.email}>Send password reset email</Button> : null}{canManage && details.id !== viewerId ? <Button variant="destructive" onClick={() => { const row = users.users.find((item) => item.id === details.id); if (row) { setSelectedAction({ row }); setReason(""); setPreview(null); setError(null) } }}>Revoke sessions</Button> : null}</div><p className="text-xs text-muted-foreground">A reset link is delivered directly to this verified or unverified account email; the password is never revealed or set by Platform staff.</p></section>
+        <section className="grid gap-3"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-semibold">Sign-in security</h3><Badge variant={details.mfaRequired ? "warning" : details.mfaEnabled || details.emailMfaEnabled ? "success" : "secondary"}>{details.mfaRequired ? "MFA required" : details.mfaEnabled || details.emailMfaEnabled ? "MFA enabled" : "MFA not enabled"}</Badge></div><dl className="grid gap-2 rounded-lg border p-3 text-sm">{[["Sign-in method", details.lastLoginProvider || "Not observed"], ["Password login", details.hasPassword ? "Available" : "Not configured"], ["Authenticator factors", String(details.activeMfaFactors)], ["Email OTP", details.emailMfaEnabled ? "Enabled" : "Not enabled"], ["Pending factor setup", String(details.pendingMfaFactors)], ["Unused recovery codes", String(details.unusedRecoveryCodes)], ["Active sessions", String(details.activeSessions)]].map(([label, value]) => <div key={label} className="grid grid-cols-[10rem_minmax(0,1fr)] gap-3"><dt className="text-muted-foreground">{label}</dt><dd>{value}</dd></div>)}</dl><Alert><ShieldCheck /><AlertTitle>MFA recovery keeps secrets private</AlertTitle><AlertDescription>The owner enrolls and recovers MFA from GetPrio → Account → Security. Platform staff cannot view authenticator secrets or recovery codes. An authorized admin can revoke the existing enrollment and require a fresh setup.</AlertDescription></Alert></section>
+        <section className="grid gap-3 border-t pt-4"><h3 className="text-sm font-semibold">Account support</h3>{resetSent ? <p role="status" className="text-sm text-emerald-600">Password reset instructions were sent to the account email.</p> : null}{roleUpdated ? <p role="status" className="text-sm text-emerald-600">{roleUpdated}</p> : null}{mfaResetNotice ? <p role="status" className="text-sm text-emerald-600">{mfaResetNotice}</p> : null}{accessNotice ? <p role="status" className="text-sm text-emerald-600">{accessNotice}</p> : null}<div className="flex flex-wrap gap-2">{canManageRoles && details.id !== viewerId ? <Button variant="outline" onClick={openRoleEditor}>Manage global roles</Button> : null}{canManageAccess && details.id !== viewerId && details.state !== "deletion-requested" ? <Button variant={details.state === "suspended" ? "outline" : "destructive"} onClick={openAccessEditor}>{details.state === "suspended" ? "Restore sign-in access" : "Suspend sign-in access"}</Button> : null}{canResetMfa && details.id !== viewerId && (details.mfaEnabled || details.emailMfaEnabled) ? <Button variant="destructive" onClick={openMfaReset}>Reset MFA enrollment</Button> : null}{canSendPasswordReset ? <Button variant="outline" onClick={() => { setResetReason(""); setResetPreview(null); setResetError(null); setResetOpen(true) }} disabled={!details.email}>Send password reset email</Button> : null}{canManage && details.id !== viewerId ? <Button variant="destructive" onClick={() => { const row = users.users.find((item) => item.id === details.id); if (row) { setSelectedAction({ row }); setReason(""); setPreview(null); setError(null) } }}>Revoke sessions</Button> : null}</div><p className="text-xs text-muted-foreground">Suspension blocks app and Developer Portal sign-in and revokes sessions. MFA reset preserves role-based MFA requirements. Password recovery sends a one-time email; Platform staff never set passwords. Tenant memberships, profile identity, and deletion are managed separately.</p></section>
         <div className="text-xs text-muted-foreground">Created {details.createdAt ? new Date(details.createdAt).toLocaleString() : "not recorded"} · Updated {details.updatedAt ? new Date(details.updatedAt).toLocaleString() : "not recorded"}</div>
       </div> : null}</SheetContent></Sheet>
       <Dialog open={resetOpen} onOpenChange={(open) => { if (!resetPending) { setResetOpen(open); if (!open) { setResetPreview(null); setResetError(null) } } }}><DialogContent><DialogHeader><DialogTitle>{resetPreview ? "Confirm password reset email" : "Preview password reset email"}</DialogTitle><DialogDescription>{resetPreview ? `A one-time reset link will be sent to ${details?.email}. Platform staff will not see or set the password.` : `Prepare a reset email for ${details?.email}. The action requires recent MFA assurance and an audit reason.`}</DialogDescription></DialogHeader><div className="grid gap-3"><label className="grid gap-2 text-sm font-medium">Audit reason<Textarea value={resetReason} onChange={(event) => setResetReason(event.target.value)} placeholder="Example: account owner requested password recovery" maxLength={500} disabled={resetPending || Boolean(resetPreview)} /></label><p className="text-xs text-muted-foreground">Required. The email will be sent only to the address on this account.</p>{resetPreview ? <div className="grid gap-1 rounded-md border border-brand/30 bg-brand/5 p-3 text-sm"><span className="font-medium">Server confirmation ready</span><span className="text-muted-foreground">The reset link expires shortly and can be used once.</span><span className="text-muted-foreground">Recent MFA assurance is required · preview {resetPreview.revision}</span></div> : null}{resetError ? <p role="alert" className="text-sm text-destructive">{resetError}</p> : null}</div><DialogFooter><Button variant="outline" onClick={() => setResetOpen(false)} disabled={resetPending}>Cancel</Button>{resetPreview ? <Button onClick={() => void sendPasswordReset()} disabled={resetPending}>{resetPending ? "Sending…" : "Send reset email"}</Button> : <Button onClick={() => void createPasswordResetPreview()} disabled={resetPending}>{resetPending ? "Preparing…" : "Create preview"}</Button>}</DialogFooter></DialogContent></Dialog>
+      <Dialog open={roleDialogOpen} onOpenChange={(open) => { if (rolePending) return; if (open) setRoleDialogOpen(true); else requestRoleDialogClose() }}><DialogContent><DialogHeader><p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">ACCOUNT MANAGEMENT</p><DialogTitle className="text-xl">{rolePreview ? "Confirm global role change" : "Manage global roles"}</DialogTitle><DialogDescription>{details ? `${details.displayName || details.name} · ${details.email || details.username}` : "Update account roles"}</DialogDescription></DialogHeader><div className="grid gap-3"><Alert><ShieldCheck /><AlertTitle>Global roles only</AlertTitle><AlertDescription>Tenant memberships are unchanged. Changing roles signs out all active sessions; Platform Admin access requires MFA at the next sign-in.</AlertDescription></Alert><div className="grid gap-2">{platformRoleOptions.map((role) => <label key={role.id} className="flex min-h-12 items-start gap-3 rounded-lg border p-3"><input type="checkbox" className="mt-1 size-4 accent-primary" checked={roleDraft.includes(role.id)} disabled={rolePending || Boolean(rolePreview)} onChange={(event) => setRoleDraft((current) => event.target.checked ? [...current, role.id] : current.filter((item) => item !== role.id))} /><span className="grid gap-1 text-sm"><span className="font-medium">{role.label}</span><span className="text-xs text-muted-foreground">{role.description}</span></span></label>)}</div>{details?.roles.some((role) => portalManagedRoleIds.includes(role)) ? <p className="text-xs text-muted-foreground">Portal-managed roles remain unchanged here: {details.roles.filter((role) => portalManagedRoleIds.includes(role)).join(", ")}.</p> : null}<label className="grid gap-2 text-sm font-medium">Audit reason<Textarea value={roleReason} onChange={(event) => { setRoleReason(event.target.value); setRolePreview(null) }} placeholder="Why are these global roles changing?" maxLength={500} disabled={rolePending || Boolean(rolePreview)} /></label><p className="text-xs text-muted-foreground">Required (8–500 characters). The reviewed role set is bound to a short-lived confirmation.</p>{rolePreview ? <div className="grid gap-1 rounded-md border border-brand/30 bg-brand/5 p-3 text-sm"><span className="font-medium">Secure preview ready</span><span className="text-muted-foreground">New roles: {rolePreview.roles.map((role) => platformRoleOptions.find((option) => option.id === role)?.label || role).join(", ") || "No global roles"}</span><span className="text-muted-foreground">Recent MFA is required. Active sessions will be revoked after the change.</span></div> : null}{roleError ? <p role="alert" className="text-sm text-destructive">{roleError}</p> : null}</div><DialogFooter><Button className="min-h-11" variant="outline" onClick={requestRoleDialogClose} disabled={rolePending}>Cancel</Button>{rolePreview ? <Button className="min-h-11 w-full sm:w-auto" variant="destructive" onClick={() => void executeRoleChange()} disabled={rolePending}>{rolePending ? "Updating…" : "Confirm role change"}</Button> : <Button className="min-h-11 w-full sm:w-auto" onClick={() => void createRolePreview()} disabled={rolePending}>{rolePending ? "Preparing…" : "Create secure preview"}</Button>}</DialogFooter></DialogContent></Dialog>
+      <Dialog open={mfaResetOpen} onOpenChange={(open) => { if (mfaResetPending) return; if (open) setMfaResetOpen(true); else requestMfaDialogClose() }}><DialogContent><DialogHeader><p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">ACCOUNT SECURITY</p><DialogTitle className="text-xl">{mfaResetPreview ? "Confirm MFA reset" : "Reset MFA enrollment"}</DialogTitle><DialogDescription>{details ? `${details.displayName || details.name} · ${details.email || details.username}` : "Account security recovery"}</DialogDescription></DialogHeader><div className="grid gap-3"><Alert variant="destructive"><ShieldCheck /><AlertTitle>Existing MFA methods will be revoked</AlertTitle><AlertDescription>Authenticator factors, email OTP enrollment, and recovery codes will be removed. Active sessions will be signed out. If this account’s role requires MFA, that requirement remains and the owner must enroll again before accessing protected features.</AlertDescription></Alert><label className="grid gap-2 text-sm font-medium">Audit reason<Textarea value={mfaResetReason} onChange={(event) => { setMfaResetReason(event.target.value); setMfaResetPreview(null) }} placeholder="Why does the owner need MFA recovery?" maxLength={500} disabled={mfaResetPending || Boolean(mfaResetPreview)} /></label><p className="text-xs text-muted-foreground">Required (8–500 characters). Recent MFA is required for the acting administrator.</p>{mfaResetPreview ? <Alert><ShieldCheck /><AlertTitle>Secure preview ready</AlertTitle><AlertDescription>The confirmation is bound to this account and reason. The owner will be notified; no MFA secret is shown to Platform staff.</AlertDescription></Alert> : null}{mfaResetError ? <p role="alert" className="text-sm text-destructive">{mfaResetError}</p> : null}</div><DialogFooter><Button className="min-h-11" variant="outline" onClick={requestMfaDialogClose} disabled={mfaResetPending}>Cancel</Button>{mfaResetPreview ? <Button className="min-h-11 w-full sm:w-auto" variant="destructive" onClick={() => void executeMfaReset()} disabled={mfaResetPending}>{mfaResetPending ? "Resetting…" : "Confirm MFA reset"}</Button> : <Button className="min-h-11 w-full sm:w-auto" onClick={() => void createMfaResetPreview()} disabled={mfaResetPending}>{mfaResetPending ? "Preparing…" : "Create secure preview"}</Button>}</DialogFooter></DialogContent></Dialog>
+      <Dialog open={accessDialogOpen} onOpenChange={(open) => { if (accessPending) return; if (open) setAccessDialogOpen(true); else requestAccessDialogClose() }}><DialogContent><DialogHeader><p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">ACCOUNT ACCESS</p><DialogTitle className="text-xl">{accessPreview ? `Confirm ${accessSuspended ? "suspension" : "access restoration"}` : `${accessSuspended ? "Suspend" : "Restore"} sign-in access`}</DialogTitle><DialogDescription>{details ? `${details.displayName || details.name} · ${details.email || details.username}` : "Account access"}</DialogDescription></DialogHeader><div className="grid gap-3">{accessSuspended ? <Alert variant="destructive"><ShieldCheck /><AlertTitle>Sign-in will be blocked</AlertTitle><AlertDescription>Suspending access signs the account out of all active sessions and prevents new sign-ins across GetPrio and the Developer Portal. This does not delete the account or its data.</AlertDescription></Alert> : <Alert><ShieldCheck /><AlertTitle>Access will be restored</AlertTitle><AlertDescription>The account can sign in again. Previously revoked sessions remain closed; the owner must sign in again.</AlertDescription></Alert>}<label className="grid gap-2 text-sm font-medium">Audit reason<Textarea value={accessReason} onChange={(event) => { setAccessReason(event.target.value); setAccessPreview(null) }} placeholder={accessSuspended ? "Why is sign-in being suspended?" : "Why is sign-in access being restored?"} maxLength={500} disabled={accessPending || Boolean(accessPreview)} /></label><p className="text-xs text-muted-foreground">Required (8–500 characters). Recent MFA assurance is required for the acting administrator.</p>{accessPreview ? <Alert><ShieldCheck /><AlertTitle>Secure preview ready</AlertTitle><AlertDescription>The confirmation is bound to this account, access change, and audit reason. The account owner will be notified.</AlertDescription></Alert> : null}{accessError ? <p role="alert" className="text-sm text-destructive">{accessError}</p> : null}</div><DialogFooter><Button className="min-h-11" variant="outline" onClick={requestAccessDialogClose} disabled={accessPending}>Cancel</Button>{accessPreview ? <Button className="min-h-11 w-full sm:w-auto" variant={accessSuspended ? "destructive" : "default"} onClick={() => void executeAccessChange()} disabled={accessPending}>{accessPending ? "Applying…" : accessSuspended ? "Confirm suspension" : "Confirm restoration"}</Button> : <Button className="min-h-11 w-full sm:w-auto" onClick={() => void createAccessPreview()} disabled={accessPending}>{accessPending ? "Preparing…" : "Create secure preview"}</Button>}</DialogFooter></DialogContent></Dialog>
+      <Dialog open={Boolean(discardAction)} onOpenChange={(open) => { if (!open) setDiscardAction(null) }}><DialogContent showCloseButton={false}><DialogHeader><DialogTitle>Discard unsaved changes?</DialogTitle><DialogDescription>Your edits or secure preview will be lost if you close this dialog.</DialogDescription></DialogHeader><DialogFooter><Button className="min-h-11" variant="outline" onClick={() => setDiscardAction(null)}>Keep editing</Button><Button className="min-h-11 w-full sm:w-auto" variant="destructive" onClick={confirmDiscard}>Discard changes</Button></DialogFooter></DialogContent></Dialog>
     </div>
   )
 }
@@ -1309,7 +1455,7 @@ function RoutePlaceholder({ route }: { route: string }) {
 }
 
 const usesLiveData = import.meta.env.VITE_PLATFORM_DATA_SOURCE === "live"
-type AuthStatus = "checking" | "signed-out" | "authenticated" | "forbidden" | "unavailable"
+type AuthStatus = "checking" | "signed-out" | "authenticated" | "mfa-enrollment-required" | "forbidden" | "unavailable"
 
 function App() {
   const [dark, setDark] = useState(true)
@@ -1323,6 +1469,8 @@ function App() {
   const [queueOperations, setQueueOperations] = useState<PlatformQueueOperationsReadModel | null>(null)
   const [tenants, setTenants] = useState<PlatformTenantsReadModel | null>(null)
   const [users, setUsers] = useState<PlatformUsersReadModel | null>(null)
+  const [usersPage, setUsersPage] = useState(1)
+  const [usersSearch, setUsersSearch] = useState("")
   const [accountDeletionQueue, setAccountDeletionQueue] = useState<PlatformAccountDeletionQueue | null>(null)
   const [accountDeletionError, setAccountDeletionError] = useState<string | null>(null)
   const [securityAudit, setSecurityAudit] = useState<PlatformAuditReadModel | null>(null)
@@ -1379,6 +1527,10 @@ function App() {
       if (!mounted) return
       if (viewerResponse.state === "denied") {
         if (viewerResponse.status === 401) setAuthStatus("signed-out")
+        else if (viewerResponse.code === "MFA_ENROLLMENT_REQUIRED") {
+          setAuthError("Set up an authenticator before returning to the Platform dashboard.")
+          setAuthStatus("mfa-enrollment-required")
+        }
         else {
           setAuthError(viewerResponse.message || "This account does not have permission to access the Platform dashboard.")
           setAuthStatus("forbidden")
@@ -1399,7 +1551,7 @@ function App() {
         platformApi.getServiceHealth(),
         platformApi.getQueueOperations(),
         platformApi.getTenants(),
-        can("platform.users.read") ? platformApi.getUsers() : Promise.resolve(null),
+        can("platform.users.read") ? platformApi.getUsers(usersPage, usersSearch) : Promise.resolve(null),
         can("platform.security_audit.read") ? platformApi.getSecurityAudit() : Promise.resolve(null),
         can("platform.billing.read") ? platformApi.getBilling() : Promise.resolve(null),
         can("platform.users.read") ? platformApi.getModeration() : Promise.resolve(null),
@@ -1457,7 +1609,7 @@ function App() {
     }
     load().catch(() => mounted && setError("Unable to load the Platform read model."))
     return () => { mounted = false }
-  }, [authStatus, refreshToken])
+  }, [authStatus, refreshToken, usersPage, usersSearch])
 
   useEffect(() => {
     const hasBackgroundWork = accountDeletionQueue?.requests.some((request) =>
@@ -1634,13 +1786,57 @@ function App() {
 
   if (usesLiveData && authStatus === "checking") return <div className="grid min-h-screen place-items-center bg-background text-sm text-muted-foreground">Checking Platform session…</div>
   if (usesLiveData && authStatus === "unavailable") return <div className="grid min-h-screen place-items-center bg-background px-4"><Alert variant="destructive" className="max-w-lg"><AlertTriangle /><AlertTitle>Authentication service unavailable</AlertTitle><AlertDescription>{authError || "Unable to verify the Platform session."}</AlertDescription></Alert></div>
+  if (usesLiveData && authStatus === "mfa-enrollment-required") return <div className="min-h-screen bg-background px-4 py-8 md:px-8"><div className="mx-auto grid max-w-4xl gap-5"><Alert variant="destructive"><ShieldCheck /><AlertTitle>Set up required MFA to continue</AlertTitle><AlertDescription>{authError || "Your account needs a security method before Platform access can continue."}</AlertDescription></Alert><PlatformAccountSettings live mfaEnrollmentOnly onMfaEnrollmentComplete={() => { setAuthError(null); setAuthStatus("authenticated") }} onPasswordChanged={() => { setAuthStatus("signed-out"); setViewer(null) }} onSessionExpired={handleAccountSessionExpired} /></div></div>
   if (usesLiveData && authStatus === "forbidden") return <div className="grid min-h-screen place-items-center bg-background px-4"><Alert variant="destructive" className="max-w-lg"><ShieldCheck /><AlertTitle>Platform access denied</AlertTitle><AlertDescription>{authError || "Your session is valid, but this account is not authorized to access the Platform dashboard."}</AlertDescription></Alert></div>
   if (usesLiveData && authStatus === "signed-out") return <PlatformLogin dark={dark} onToggleTheme={() => setDark((value) => !value)} onAuthenticated={handleAuthenticated} />
 
   const activeViewer = viewer || { user: { id: "fixture", displayName: "Carlo Abella", role: "Platform Admin" }, capabilities: fixtureCapabilities, navigation: ["overview", "operations", "developer", "billing", "trust", "settings"] as PlatformViewerContext["navigation"], sessionExpiresAt: "" }
   const availableCapabilities = new Set(activeViewer.capabilities)
 
-  return <TooltipProvider><SidebarProvider defaultOpen><PlatformSidebar activeRoute={activeRoute} dark={dark} viewer={activeViewer} onRouteChange={navigate} onLogout={handleLogout} /><SidebarInset className="min-w-0"><header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-2 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/80 md:px-6"><SidebarTrigger className="-ml-1" aria-label="Toggle Platform navigation"><PanelLeft data-icon="inline-start" /></SidebarTrigger><Separator orientation="vertical" className="mr-1 h-4" /><div className="flex min-w-0 items-center gap-2 text-sm"><span className="font-medium">{routeTitle}</span><span className="hidden text-muted-foreground sm:inline">{routeLabel}</span></div><div className="ml-auto flex items-center gap-1"><Button variant="outline" size="sm" className="hidden gap-2 text-muted-foreground md:flex" onClick={() => setCommandOpen(true)}><Search data-icon="inline-start" /> Search <kbd className="rounded border bg-muted px-1.5 py-0.5 text-[10px]">⌘K</kbd></Button><Button variant="ghost" size="icon" aria-label={dark ? "Switch to light theme" : "Switch to dark theme"} onClick={() => setDark((value) => !value)}>{dark ? <Sun /> : <Moon />}</Button><Button variant="ghost" size="icon" className="md:hidden" aria-label="Open command search" onClick={() => setCommandOpen(true)}><CommandIcon /></Button></div></header><main className="min-w-0 flex-1 p-4 md:p-6 lg:p-8"><div className="mx-auto max-w-[1440px]">{activeRoute === "My account" ? <PlatformAccountSettings live={usesLiveData} onPasswordChanged={() => { setAuthStatus("signed-out"); setViewer(null) }} onSessionExpired={handleAccountSessionExpired} /> : isHelpCenterRoute && viewer && availableCapabilities.has("platform.help_center.manage") ? <PlatformHelpCenterManager page={activeRoute.replace("Help Center / ", "").toLowerCase() as "overview" | "topics" | "guides" | "faqs"} onNavigate={(page) => navigate(`Help Center / ${page[0].toUpperCase()}${page.slice(1)}`)} /> : error ? <Alert variant="destructive"><AlertTriangle /><AlertTitle>Platform unavailable</AlertTitle><AlertDescription>{error}</AlertDescription></Alert> : overview && viewer && serviceHealth && queueOperations && tenants && releaseReadiness ? activeRoute === "Overview" ? <Overview overview={overview} health={serviceHealth} viewer={viewer} /> : activeRoute === "Service health" ? <ServiceHealth health={serviceHealth} /> : activeRoute === "Queues & recovery" ? <QueueOperations operations={queueOperations} onPreview={handleQueueRepairPreview} onExecute={handleQueueRepairExecute} /> : activeRoute === "Tenants" ? <Tenants tenants={tenants} canManageOverrides={availableCapabilities.has("platform.entitlement_overrides.manage")} canGrantCredits={availableCapabilities.has("platform.credit_grants.manage")} canRevokeCredits={availableCapabilities.has("platform.credit_revocations.manage")} onInspect={handleTenantInspect} onPreviewEntitlement={handleTenantEntitlementPreview} onExecuteEntitlement={handleTenantEntitlementExecute} onGrantCredits={handleTenantCreditGrant} onRevokeCredits={handleTenantCreditRevoke} /> : activeRoute === "Users" && users ? <PlatformUsers users={users} viewerId={viewer.user.id} canManage={availableCapabilities.has("platform.user_sessions.revoke")} deletionRequests={accountDeletionQueue} deletionError={accountDeletionError} canManageDeletion={availableCapabilities.has("platform.account_deletion.manage")} onCompleteDeletionTask={handleAccountDeletionTaskComplete} onPreview={handleUserSessionRevokePreview} onExecute={handleUserSessionRevokeExecute} /> : activeRoute === "Security audit" && securityAudit ? <SecurityAudit audit={securityAudit} /> : activeRoute === "Billing & credits" && billing ? <Billing billing={billing} canSuspend={availableCapabilities.has("platform.subscription_lifecycle.manage")} canResolveRefunds={availableCapabilities.has("platform.credit_adjustments.manage")} canResolveDisputes={availableCapabilities.has("platform.credit_disputes.manage")} onPreviewSuspend={handleSubscriptionSuspendPreview} onExecuteSuspend={handleSubscriptionSuspendExecute} onPreviewCreditCase={handleCreditCasePreview} onResolveCreditRefund={handleCreditRefundResolve} onResolveCreditDispute={handleCreditDisputeResolve} /> : activeRoute === "Moderation" && moderation ? <Moderation moderation={moderation} canManage={availableCapabilities.has("platform.settings.manage")} onPreview={handleModerationPreview} onExecute={handleModerationExecute} /> : activeRoute === "Release readiness" ? <ReleaseReadiness readiness={releaseReadiness} /> : activeRoute === "Settings" && settings ? <PlatformSettingsEditor settings={settings.settings} controls={settings.controls} editable={usesLiveData && availableCapabilities.has("platform.settings.manage")} onSave={handlePlatformSettingsSave} onRefresh={requestPlatformRefresh} /> : activeRoute === "Developer projects" && developerProject && selectedProjectId ? <DeveloperProjects project={developerProject} projects={developerProjects} selectedProjectId={selectedProjectId} onProjectChange={selectDeveloperProject} projectLoading={developerProjectLoading} onWebhookAction={handleDeveloperWebhookAction} onDeveloperApprovalReview={handleDeveloperApprovalReview} onSandboxAction={handleSandboxAction} onRateLimitUpdate={handleRateLimitUpdate} onRevokeApiKey={handleDeveloperApiKeyRevoke} /> : <RoutePlaceholder route={activeRoute} /> : <div className="grid min-h-[420px] place-items-center text-sm text-muted-foreground">Loading Platform overview…</div>}</div></main><footer className="border-t px-4 py-3 text-center text-xs text-muted-foreground md:px-6">© 2026 MNK-Labs Software Development Services</footer></SidebarInset></SidebarProvider><CommandDialog open={commandOpen} onOpenChange={setCommandOpen} title="Search Platform" description="Find a Platform route, tenant, project, or audit event."><Command><CommandInput placeholder="Search routes, tenants, projects…" /><CommandList><CommandEmpty>No matching Platform records.</CommandEmpty><CommandGroup heading="Navigate">{navGroups.flatMap((group) => group.items.flatMap((item) => item.subItems ? item.subItems.map((child) => ({ ...item, label: `Help Center · ${child.label}`, route: child.route })) : [item])).filter((item) => availableCapabilities.has(item.capability)).map((item) => <CommandItem key={item.route || item.label} onSelect={() => { navigate(item.route || item.label); setCommandOpen(false) }}><item.icon />{item.label}</CommandItem>)}</CommandGroup></CommandList></Command></CommandDialog></TooltipProvider>
+  return (
+    <TooltipProvider>
+      <SidebarProvider defaultOpen>
+        <PlatformSidebar activeRoute={activeRoute} dark={dark} viewer={activeViewer} onRouteChange={navigate} onLogout={handleLogout} />
+        <SidebarInset className="min-w-0">
+          <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-2 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/80 md:px-6">
+            <SidebarTrigger className="-ml-1" aria-label="Toggle Platform navigation"><PanelLeft data-icon="inline-start" /></SidebarTrigger>
+            <Separator orientation="vertical" className="mr-1 h-4" />
+            <div className="flex min-w-0 items-center gap-2 text-sm"><span className="font-medium">{routeTitle}</span><span className="hidden text-muted-foreground sm:inline">{routeLabel}</span></div>
+            <div className="ml-auto flex items-center gap-1">
+              <Button variant="outline" size="sm" className="hidden gap-2 text-muted-foreground md:flex" onClick={() => setCommandOpen(true)}><Search data-icon="inline-start" /> Search <kbd className="rounded border bg-muted px-1.5 py-0.5 text-[10px]">⌘K</kbd></Button>
+              <Button variant="ghost" size="icon" aria-label={dark ? "Switch to light theme" : "Switch to dark theme"} onClick={() => setDark((value) => !value)}>{dark ? <Sun /> : <Moon />}</Button>
+              <Button variant="ghost" size="icon" className="md:hidden" aria-label="Open command search" onClick={() => setCommandOpen(true)}><CommandIcon /></Button>
+            </div>
+          </header>
+          <main className="min-w-0 flex-1 p-4 md:p-6 lg:p-8">
+            <div className="mx-auto max-w-[1440px]">
+              {activeRoute === "My account" ? <PlatformAccountSettings live={usesLiveData} onPasswordChanged={() => { setAuthStatus("signed-out"); setViewer(null) }} onSessionExpired={handleAccountSessionExpired} />
+                : isHelpCenterRoute && viewer && availableCapabilities.has("platform.help_center.manage") ? <PlatformHelpCenterManager page={activeRoute.replace("Help Center / ", "").toLowerCase() as "overview" | "topics" | "guides" | "faqs"} onNavigate={(page) => navigate(`Help Center / ${page[0].toUpperCase()}${page.slice(1)}`)} />
+                  : error ? <Alert variant="destructive"><AlertTriangle /><AlertTitle>Platform unavailable</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>
+                    : overview && viewer && serviceHealth && queueOperations && tenants && releaseReadiness
+                      ? activeRoute === "Overview" ? <Overview overview={overview} health={serviceHealth} viewer={viewer} />
+                        : activeRoute === "Service health" ? <ServiceHealth health={serviceHealth} />
+                          : activeRoute === "Queues & recovery" ? <QueueOperations operations={queueOperations} onPreview={handleQueueRepairPreview} onExecute={handleQueueRepairExecute} />
+                            : activeRoute === "Tenants" ? <Tenants tenants={tenants} canManageOverrides={availableCapabilities.has("platform.entitlement_overrides.manage")} canGrantCredits={availableCapabilities.has("platform.credit_grants.manage")} canRevokeCredits={availableCapabilities.has("platform.credit_revocations.manage")} onInspect={handleTenantInspect} onPreviewEntitlement={handleTenantEntitlementPreview} onExecuteEntitlement={handleTenantEntitlementExecute} onGrantCredits={handleTenantCreditGrant} onRevokeCredits={handleTenantCreditRevoke} />
+                              : activeRoute === "Users" && users ? <PlatformUsers users={users} viewerId={viewer.user.id} canManage={availableCapabilities.has("platform.user_sessions.revoke")} canManageRoles={availableCapabilities.has("platform.user_roles.manage")} deletionRequests={accountDeletionQueue} deletionError={accountDeletionError} canManageDeletion={availableCapabilities.has("platform.account_deletion.manage")} onCompleteDeletionTask={handleAccountDeletionTaskComplete} onPreview={handleUserSessionRevokePreview} onExecute={handleUserSessionRevokeExecute} onPageChange={setUsersPage} onSearchChange={(search) => { setUsersPage(1); setUsersSearch(search) }} />
+                                : activeRoute === "Security audit" && securityAudit ? <SecurityAudit audit={securityAudit} />
+                                  : activeRoute === "Billing & credits" && billing ? <Billing billing={billing} canSuspend={availableCapabilities.has("platform.subscription_lifecycle.manage")} canResolveRefunds={availableCapabilities.has("platform.credit_adjustments.manage")} canResolveDisputes={availableCapabilities.has("platform.credit_disputes.manage")} onPreviewSuspend={handleSubscriptionSuspendPreview} onExecuteSuspend={handleSubscriptionSuspendExecute} onPreviewCreditCase={handleCreditCasePreview} onResolveCreditRefund={handleCreditRefundResolve} onResolveCreditDispute={handleCreditDisputeResolve} />
+                                    : activeRoute === "Moderation" && moderation ? <Moderation moderation={moderation} canManage={availableCapabilities.has("platform.settings.manage")} onPreview={handleModerationPreview} onExecute={handleModerationExecute} />
+                                      : activeRoute === "Release readiness" ? <ReleaseReadiness readiness={releaseReadiness} />
+                                        : activeRoute === "Settings" && settings ? <PlatformSettingsEditor settings={settings.settings} controls={settings.controls} editable={usesLiveData && availableCapabilities.has("platform.settings.manage")} onSave={handlePlatformSettingsSave} onRefresh={requestPlatformRefresh} />
+                                          : activeRoute === "Developer projects" && developerProject && selectedProjectId ? <DeveloperProjects project={developerProject} projects={developerProjects} selectedProjectId={selectedProjectId} onProjectChange={selectDeveloperProject} projectLoading={developerProjectLoading} onWebhookAction={handleDeveloperWebhookAction} onDeveloperApprovalReview={handleDeveloperApprovalReview} onSandboxAction={handleSandboxAction} onRateLimitUpdate={handleRateLimitUpdate} onRevokeApiKey={handleDeveloperApiKeyRevoke} />
+                                            : <RoutePlaceholder route={activeRoute} />
+                      : <div className="grid min-h-[420px] place-items-center text-sm text-muted-foreground">Loading Platform overview…</div>}
+            </div>
+          </main>
+          <footer className="border-t px-4 py-3 text-center text-xs text-muted-foreground md:px-6">© 2026 MNK-Labs Software Development Services</footer>
+        </SidebarInset>
+        <CommandDialog open={commandOpen} onOpenChange={setCommandOpen} title="Search Platform" description="Find a Platform route, tenant, project, or audit event.">
+          <Command><CommandInput placeholder="Search routes, tenants, projects…" /><CommandList><CommandEmpty>No matching Platform records.</CommandEmpty><CommandGroup heading="Navigate">{navGroups.flatMap((group) => group.items.flatMap((item) => item.subItems ? item.subItems.map((child) => ({ ...item, label: `Help Center · ${child.label}`, route: child.route })) : [item])).filter((item) => availableCapabilities.has(item.capability)).map((item) => <CommandItem key={item.route || item.label} onSelect={() => { navigate(item.route || item.label); setCommandOpen(false) }}><item.icon />{item.label}</CommandItem>)}</CommandGroup></CommandList></Command>
+        </CommandDialog>
+      </SidebarProvider>
+    </TooltipProvider>
+  )
 }
 
 export default App

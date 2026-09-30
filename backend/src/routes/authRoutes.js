@@ -31,6 +31,7 @@ const mfaFlowService = require("../services/mfaFlowService");
 const customerRegistrationOtpService = require("../services/customerRegistrationOtpService");
 const securityRateLimitService = require("../services/securityRateLimitService");
 const { userRequiresPrivilegedMfa } = require("../services/mfaService");
+const { buildBaseAuthUserPayload } = require("../services/authUserPayloadService");
 const { assertPublicTextFieldsAllowed } = require("../services/contentModeration");
 const { normalizePhilippineMobileNumber } = require("../utils/phone");
 const { assertRequestAllowed: assertSandboxTestAccountRequest } = require("../services/sandboxTestAccountAccess");
@@ -290,48 +291,15 @@ function buildOauthAccount(profile) {
 }
 
 async function buildUserPayload(user) {
-  const memberships = user.tenantMemberships || [];
   const mfaMethods = user.mfaEnabled && typeof mfaFlowService.getLoginMethods === "function"
     ? await mfaFlowService.getLoginMethods(user)
     : null;
-  const tenants = await tenantRepository.findTenantsByIds(
-    memberships.map((membership) => membership.tenantId)
-  );
-  const tenantsById = new Map(tenants.map((tenant) => [String(tenant._id), tenant]));
-
   return {
-    id: String(user._id),
-    name: user.name,
-    displayName: user.displayName || "",
-    avatarUrl: user.avatarUrl || "",
-    username: user.username,
-    email: user.email,
-    phone: user.phone,
-    roles: user.roles,
-    emailVerified: Boolean(user.emailVerified),
-    hasPassword: Boolean(user.passwordHash),
-    mfaEnabled: Boolean(user.mfaEnabled),
+    ...await buildBaseAuthUserPayload(user, tenantRepository),
     totpMfaEnabled: mfaMethods ? mfaMethods.includes("totp") : Boolean(user.mfaEnabled && !user.emailMfaEnabled),
     emailMfaEnabled: Boolean(user.emailMfaEnabled),
     mfaRequired: Boolean(user.mfaRequired || userRequiresPrivilegedMfa(user)),
-    oauthProviders: [...new Set((user.oauthAccounts || []).map((account) => account.provider))],
-    lastLoginProvider: user.lastLoginProvider,
-    tenants: memberships
-      .map((membership) => {
-        const tenant = tenantsById.get(String(membership.tenantId));
-        if (!tenant) {
-          return null;
-        }
-
-        return {
-          id: String(tenant._id),
-          name: tenant.name,
-          slug: tenant.slug,
-          role: membership.role,
-          isActive: membership.isActive !== false
-        };
-      })
-      .filter(Boolean)
+    lastLoginProvider: user.lastLoginProvider
   };
 }
 
@@ -958,24 +926,12 @@ router.post(
     const user = loginIdentifier.identifierType === "email"
       ? await userRepository.findUserByEmail(loginIdentifier.identifierValue)
       : await userRepository.findUserByUsername(loginIdentifier.identifierValue);
-    if (!user) {
+    if (!user || isDeveloperOnlyIdentity(user)) {
       await authService.recordLoginAttempt({
         identifierType: loginIdentifier.identifierType,
         identifierValue: loginIdentifier.identifierValue,
         success: false,
-        failureReason: "invalid_credentials",
-        req
-      });
-      const error = new Error("Invalid email/username or password.");
-      error.statusCode = 401;
-      throw error;
-    }
-    if (isDeveloperOnlyIdentity(user)) {
-      await authService.recordLoginAttempt({
-        identifierType: loginIdentifier.identifierType,
-        identifierValue: loginIdentifier.identifierValue,
-        success: false,
-        failureReason: "invalid_surface",
+        failureReason: user ? "invalid_surface" : "invalid_credentials",
         req
       });
       const error = new Error("Invalid email/username or password.");
@@ -1013,6 +969,13 @@ router.post(
           : "Invalid email/username or password."
       );
       error.statusCode = failureResult.updatedUser?.accountLockedUntil ? 423 : 401;
+      throw error;
+    }
+
+    if (user.platformAccessSuspendedAt) {
+      const error = new Error("This account's access is suspended. Contact GetPrio support.");
+      error.statusCode = 403;
+      error.code = "ACCOUNT_ACCESS_SUSPENDED";
       throw error;
     }
 

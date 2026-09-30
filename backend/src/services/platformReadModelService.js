@@ -583,16 +583,29 @@ async function getTenants(req) {
 }
 
 async function getUsers(req) {
-  const [summary, result] = await Promise.all([
+  const page = Math.max(1, Math.floor(Number(req.query?.page) || 1));
+  const pageSize = Math.min(100, Math.max(10, Math.floor(Number(req.query?.pageSize) || 50)));
+  const search = String(req.query?.search || "").trim().slice(0, 200);
+  const searchPattern = `%${search.replace(/[\\%_]/g, "\\$&")}%`;
+  const offset = (page - 1) * pageSize;
+  const [summary, count, result] = await Promise.all([
     db.pool.query(`
       SELECT COUNT(*)::INTEGER AS total,
              COUNT(*) FILTER (WHERE mfa_required = TRUE)::INTEGER AS mfa_required,
              COUNT(*) FILTER (
                WHERE COALESCE(is_sandbox_test_account, FALSE) = FALSE
-                 AND (deletion_requested_at IS NOT NULL OR account_locked_until > NOW())
+               AND (deletion_requested_at IS NOT NULL OR platform_access_suspended_at IS NOT NULL OR account_locked_until > NOW())
              )::INTEGER AS attention
       FROM users
     `),
+    db.pool.query(`
+      SELECT COUNT(*)::INTEGER AS total
+      FROM users
+      WHERE $1 = ''
+         OR COALESCE(display_name, name, username, 'Platform user') ILIKE $2 ESCAPE E'\\\\'
+         OR COALESCE(username, '') ILIKE $2 ESCAPE E'\\\\'
+         OR COALESCE(email, '') ILIKE $2 ESCAPE E'\\\\'
+    `, [search, searchPattern]),
     db.pool.query(`
     SELECT id,
            COALESCE(display_name, name, username, 'Platform user') AS display_name,
@@ -603,22 +616,24 @@ async function getUsers(req) {
            last_login_provider,
            is_sandbox_test_account,
            deletion_requested_at,
+           platform_access_suspended_at,
            account_locked_until
     FROM users
+    WHERE $1 = ''
+       OR COALESCE(display_name, name, username, 'Platform user') ILIKE $2 ESCAPE E'\\\\'
+       OR COALESCE(username, '') ILIKE $2 ESCAPE E'\\\\'
+       OR COALESCE(email, '') ILIKE $2 ESCAPE E'\\\\'
     ORDER BY updated_at DESC, id DESC
-    LIMIT 250
-  `)
+    LIMIT $3 OFFSET $4
+  `, [search, searchPattern, pageSize, offset])
   ]);
 
   const users = result.rows.map((row) => {
-    const locked = row.account_locked_until && new Date(row.account_locked_until).getTime() > Date.now();
-    const state = row.is_sandbox_test_account
-      ? "sandbox"
-      : row.deletion_requested_at
-        ? "deletion-requested"
-        : locked
-          ? "locked"
-          : "active";
+    let state = "active";
+    if (row.deletion_requested_at) state = "deletion-requested";
+    else if (row.platform_access_suspended_at) state = "suspended";
+    else if (row.is_sandbox_test_account) state = "sandbox";
+    else if (row.account_locked_until && new Date(row.account_locked_until).getTime() > Date.now()) state = "locked";
     return {
       id: String(row.id),
       name: row.display_name,
@@ -639,6 +654,7 @@ async function getUsers(req) {
       { label: "MFA required", value: String(mfaRequired), trend: "Privileged access boundary", trendTone: "positive" },
       { label: "Account attention", value: String(attention), trend: attention ? "Locked or deletion requested" : "No account attention signals", trendTone: attention ? "attention" : "positive" }
     ],
+    pagination: { page, pageSize, total: Number(count.rows[0]?.total || 0), totalPages: Math.ceil(Number(count.rows[0]?.total || 0) / pageSize), search },
     users
   });
 }
@@ -661,6 +677,7 @@ async function getUserDetails(req, userId) {
            u.last_login_provider,
            u.is_sandbox_test_account,
            u.deletion_requested_at,
+           u.platform_access_suspended_at,
            u.account_locked_until,
            u.created_at,
            u.updated_at,
@@ -674,14 +691,11 @@ async function getUserDetails(req, userId) {
   const row = result.rows[0];
   if (!row) return null;
 
-  const locked = row.account_locked_until && new Date(row.account_locked_until).getTime() > Date.now();
-  const state = row.is_sandbox_test_account
-    ? "sandbox"
-    : row.deletion_requested_at
-      ? "deletion-requested"
-      : locked
-        ? "locked"
-        : "active";
+  let state = "active";
+  if (row.deletion_requested_at) state = "deletion-requested";
+  else if (row.platform_access_suspended_at) state = "suspended";
+  else if (row.is_sandbox_test_account) state = "sandbox";
+  else if (row.account_locked_until && new Date(row.account_locked_until).getTime() > Date.now()) state = "locked";
   return envelope(req, "global", {
     user: {
       id: String(row.id),

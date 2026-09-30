@@ -26,6 +26,8 @@ const securityAuditService = require("../services/securityAuditService");
 const securityAuditRepository = require("../repositories/securityAudit");
 const authService = require("../services/authService");
 const authSessionsRepository = require("../repositories/authSessions");
+const mfaRepository = require("../repositories/mfa");
+const { userRequiresPrivilegedMfa } = require("../services/mfaService");
 const sandboxAppleReviewAccountService = require("../services/sandboxAppleReviewAccountService");
 const usageCreditService = require("../services/usageCreditService");
 const usageCreditRepository = require("../repositories/usageCredits");
@@ -52,6 +54,21 @@ const passwordResetTokenRepository = require("../repositories/passwordResetToken
 
 const router = express.Router();
 
+function registerPlatformUserMutation(route, permission, idempotencyScope, handler) {
+  router.post(route, requirePlatformPermission(permission), requireIdempotency(idempotencyScope), asyncHandler(handler));
+}
+
+function platformAuditReason(req) {
+  const reason = String(req.body?.reason || "").trim().replace(/\s+/g, " ");
+  if (reason.length < 8 || reason.length > 500) {
+    const error = new Error("Enter an audit reason between 8 and 500 characters.");
+    error.statusCode = 400;
+    error.code = "INVALID_REASON";
+    throw error;
+  }
+  return reason;
+}
+
 router.post("/release-readiness/evidence", asyncHandler(async (req, res) => {
   const secret = process.env.PLATFORM_RELEASE_EVIDENCE_SECRET || "";
   const timestamp = String(req.get("x-platform-evidence-timestamp") || "");
@@ -76,13 +93,7 @@ router.get("/help-center", requirePlatformPermission("platform.help_center.manag
 }));
 
 router.post("/help-center/drafts", requirePlatformPermission("platform.help_center.manage"), requireIdempotency("platform.help_center.draft.save"), asyncHandler(async (req, res) => {
-  const reason = String(req.body?.reason || "").trim().replace(/\s+/g, " ");
-  if (reason.length < 8 || reason.length > 500) {
-    const error = new Error("Enter an audit reason between 8 and 500 characters.");
-    error.statusCode = 400;
-    error.code = "INVALID_REASON";
-    throw error;
-  }
+  const reason = platformAuditReason(req);
   const result = await db.withTransaction(async (client) => {
     const draft = await platformHelpCenter.saveDraft(req.body?.content, req.user._id, reason, { client });
     await securityAuditService.record({
@@ -97,13 +108,7 @@ router.post("/help-center/drafts", requirePlatformPermission("platform.help_cent
 }));
 
 router.post("/help-center/publish", requirePlatformPermission("platform.help_center.manage"), requireIdempotency("platform.help_center.publish"), asyncHandler(async (req, res) => {
-  const reason = String(req.body?.reason || "").trim().replace(/\s+/g, " ");
-  if (reason.length < 8 || reason.length > 500) {
-    const error = new Error("Enter an audit reason between 8 and 500 characters.");
-    error.statusCode = 400;
-    error.code = "INVALID_REASON";
-    throw error;
-  }
+  const reason = platformAuditReason(req);
   const result = await db.withTransaction(async (client) => {
     const published = await platformHelpCenter.publishDraft(req.body?.revision, req.user._id, reason, { client });
     await securityAuditService.record({
@@ -119,13 +124,7 @@ router.post("/help-center/publish", requirePlatformPermission("platform.help_cen
 }));
 
 router.post("/help-center/revisions/:revision/restore", requirePlatformPermission("platform.help_center.manage"), requireIdempotency("platform.help_center.revision.restore"), asyncHandler(async (req, res) => {
-  const reason = String(req.body?.reason || "").trim().replace(/\s+/g, " ");
-  if (reason.length < 8 || reason.length > 500) {
-    const error = new Error("Enter an audit reason between 8 and 500 characters.");
-    error.statusCode = 400;
-    error.code = "INVALID_REASON";
-    throw error;
-  }
+  const reason = platformAuditReason(req);
   const result = await db.withTransaction(async (client) => {
     const draft = await platformHelpCenter.restoreRevision(req.params.revision, req.user._id, reason, { client });
     await securityAuditService.record({
@@ -187,13 +186,7 @@ router.post(
   requirePlatformPermission("platform.account_deletion.manage"),
   requireIdempotency("platform.account_deletion.scan.begin"),
   asyncHandler(async (req, res) => {
-    const reason = String(req.body?.reason || "").trim().replace(/\s+/g, " ");
-    if (reason.length < 8 || reason.length > 500) {
-      const error = new Error("Enter an audit reason between 8 and 500 characters.");
-      error.statusCode = 400;
-      error.code = "INVALID_REASON";
-      throw error;
-    }
+    const reason = platformAuditReason(req);
 
     const scan = await db.withTransaction(async (client) => {
       const result = await accountDeletionAdminService.beginScan(req.params.requestId, { client });
@@ -220,13 +213,7 @@ router.post(
   requirePlatformPermission("platform.account_deletion.manage"),
   requireIdempotency("platform.account_deletion.cleanup.begin"),
   asyncHandler(async (req, res) => {
-    const reason = String(req.body?.reason || "").trim().replace(/\s+/g, " ");
-    if (reason.length < 8 || reason.length > 500) {
-      const error = new Error("Enter an audit reason between 8 and 500 characters.");
-      error.statusCode = 400;
-      error.code = "INVALID_REASON";
-      throw error;
-    }
+    const reason = platformAuditReason(req);
     const result = await db.withTransaction(async (client) => {
       const action = "platform.account_deletion.cleanup.begin";
       const payload = { reportVersion: req.body?.reportVersion, selection: req.body?.selection || {}, references: req.body?.references || {}, exclusions: req.body?.exclusions || {} };
@@ -266,13 +253,7 @@ router.post(
   requirePlatformPermission("platform.account_deletion.manage"),
   requireIdempotency("platform.account_deletion.report.send"),
   asyncHandler(async (req, res) => {
-    const reason = String(req.body?.reason || "").trim().replace(/\s+/g, " ");
-    if (reason.length < 8 || reason.length > 500) {
-      const error = new Error("Enter an audit reason between 8 and 500 characters.");
-      error.statusCode = 400;
-      error.code = "INVALID_REASON";
-      throw error;
-    }
+    const reason = platformAuditReason(req);
     const result = await db.withTransaction(async (client) => {
       const action = "platform.account_deletion.report.send";
       const payload = { requestId: req.params.requestId };
@@ -302,13 +283,7 @@ router.post(
   requirePlatformPermission("platform.account_deletion.manage"),
   requireIdempotency("platform.account_deletion.task.complete"),
   asyncHandler(async (req, res) => {
-    const reason = String(req.body?.reason || "").trim().replace(/\s+/g, " ");
-    if (reason.length < 8 || reason.length > 500) {
-      const error = new Error("Enter an audit reason between 8 and 500 characters.");
-      error.statusCode = 400;
-      error.code = "INVALID_REASON";
-      throw error;
-    }
+    const reason = platformAuditReason(req);
 
     const request = await db.withTransaction(async (client) => {
       const result = await accountDeletionAdminService.completeTask({
@@ -658,7 +633,7 @@ const PRIVILEGED_ACTIONS = new Set([
   "credit.pack.publish", "credit.grant", "credit.revoke",
   "credit.refund.resolve", "credit.dispute.open", "credit.dispute.resolve",
   "plan.defaults.publish", "queue.fees.publish", "subscription.transition", "subscription.suspend"
-  , "moderation.campaign_report.status", "moderation.rating_dispute.resolve", "platform.user_sessions.revoke", "platform.user.password_reset.send", "platform.account_deletion.cleanup.begin", "platform.account_deletion.report.send", "entitlement.override.publish", "entitlement.override.revoke", "allowance.reverse", "allowance.reconcile"
+  , "moderation.campaign_report.status", "moderation.rating_dispute.resolve", "platform.user_sessions.revoke", "platform.user.password_reset.send", "platform.user.roles.update", "platform.user.mfa.reset", "platform.user.access.suspend", "platform.user.access.reactivate", "platform.account_deletion.cleanup.begin", "platform.account_deletion.report.send", "entitlement.override.publish", "entitlement.override.revoke", "allowance.reverse", "allowance.reconcile"
 ]);
 
 const PRIVILEGED_ACTION_CONTROLS = Object.freeze({
@@ -693,12 +668,16 @@ router.post(
       "credit.pack.publish": "platform.credit_catalog.manage", "credit.grant": "platform.credit_grants.manage", "credit.revoke": "platform.credit_revocations.manage",
       "credit.refund.resolve": "platform.credit_adjustments.manage", "credit.dispute.open": "platform.credit_disputes.manage", "credit.dispute.resolve": "platform.credit_disputes.manage",
       "plan.defaults.publish": "platform.plans.manage", "queue.fees.publish": "platform.queue_fees.manage", "subscription.transition": "platform.subscription_lifecycle.manage", "subscription.suspend": "platform.subscription_lifecycle.manage", "moderation.campaign_report.status": "platform.settings.manage", "moderation.rating_dispute.resolve": "platform.settings.manage", "platform.user_sessions.revoke": "platform.user_sessions.revoke"
-      , "platform.user.password_reset.send": "platform.user_password_reset.send", "platform.account_deletion.cleanup.begin": "platform.account_deletion.manage", "platform.account_deletion.report.send": "platform.account_deletion.manage", "entitlement.override.publish": "platform.entitlement_overrides.manage", "entitlement.override.revoke": "platform.entitlement_overrides.manage", "allowance.reverse": "platform.credit_adjustments.manage", "allowance.reconcile": "platform.credit_reconcile"
+      , "platform.user.password_reset.send": "platform.user_password_reset.send", "platform.user.roles.update": "platform.user_roles.manage", "platform.user.mfa.reset": "platform.user_mfa.reset", "platform.user.access.suspend": "platform.user_access.manage", "platform.user.access.reactivate": "platform.user_access.manage", "platform.account_deletion.cleanup.begin": "platform.account_deletion.manage", "platform.account_deletion.report.send": "platform.account_deletion.manage", "entitlement.override.publish": "platform.entitlement_overrides.manage", "entitlement.override.revoke": "platform.entitlement_overrides.manage", "allowance.reverse": "platform.credit_adjustments.manage", "allowance.reconcile": "platform.credit_reconcile"
     };
     if (!getGlobalPermissions(req.user).has(permissionByAction[action])) throw Object.assign(new Error("You do not have permission to preview this action."), { statusCode: 403 });
     const target = String(req.body.target || "");
     const reason = String(req.body.reason || "");
-    const preview = await privilegedPreviewService.resolvePreview({ action, target, payload: req.body.payload || {} });
+    const requestPayload = req.body.payload || {};
+    const payload = action === "platform.user.roles.update" && Array.isArray(requestPayload.roles)
+      ? { ...requestPayload, roles: sortPlatformRoles(new Set(requestPayload.roles)) }
+      : requestPayload;
+    const preview = await privilegedPreviewService.resolvePreview({ action, target, payload });
     const confirmation = await privilegedTransactionService.issueConfirmation({ actorId: req.user._id, session: req.auth.session, action, target, reason, payload: preview.payload, previewRevision: preview.revision });
     res.json({ preview, confirmation });
   })
@@ -775,6 +754,231 @@ router.post(
     return res.json(result);
   })
 );
+
+const PLATFORM_MANAGED_GLOBAL_ROLES = new Set([
+  "customer", "vendor", "vendor_admin", "staff", "admin", "platform_admin"
+]);
+const PLATFORM_PRESERVED_GLOBAL_ROLES = new Set(["developer", "platform_release_observer"]);
+const PLATFORM_ROLE_ORDER = [...PLATFORM_MANAGED_GLOBAL_ROLES, ...PLATFORM_PRESERVED_GLOBAL_ROLES];
+const sortPlatformRoles = (roles) => [...roles].sort((left, right) => PLATFORM_ROLE_ORDER.indexOf(left) - PLATFORM_ROLE_ORDER.indexOf(right));
+function platformUserAccessState({ suspended, isSandboxTestAccount, accountLockedUntil }) {
+  if (suspended) return "suspended";
+  if (isSandboxTestAccount) return "sandbox";
+  if (accountLockedUntil && new Date(accountLockedUntil).getTime() > Date.now()) return "locked";
+  return "active";
+}
+function mfaResetBlockReason(target) {
+  if (!target) return "missing";
+  if (target.deletion_requested_at) return "deletionPending";
+  if (!target.mfa_enabled && !target.email_mfa_enabled) return "notEnabled";
+  return null;
+}
+
+registerPlatformUserMutation("/users/:userId/roles", "platform.user_roles.manage", "platform.user.roles.update", async (req, res) => {
+    if (!/^\d{1,18}$/.test(req.params.userId)) return res.status(400).json({ message: "Invalid user ID." });
+    const userId = String(req.params.userId);
+    if (userId === String(req.user._id)) {
+      return res.status(409).json({ message: "You cannot change your own account roles." , code: "SELF_ROLE_CHANGE_DENIED" });
+    }
+    const roleInput = req.body?.roles;
+    if (!Array.isArray(roleInput) || roleInput.some((role) => typeof role !== "string" || (!PLATFORM_MANAGED_GLOBAL_ROLES.has(role) && !PLATFORM_PRESERVED_GLOBAL_ROLES.has(role)))) {
+      return res.status(400).json({ message: "Choose only supported global account roles.", code: "INVALID_ROLE_SET" });
+    }
+    const submittedRoles = [...new Set(roleInput)];
+    const reason = platformAuditReason(req);
+    const outcome = await db.withTransaction(async (client) => {
+      // Serialize global role edits so two concurrent requests cannot both remove the final admin.
+      await client.query("SELECT pg_advisory_xact_lock(73921, 1)");
+      const target = (await client.query(
+        "SELECT id,email,roles,deletion_requested_at,platform_access_suspended_at,is_sandbox_test_account FROM users WHERE id=$1 FOR UPDATE",
+        [Number(userId)]
+      )).rows[0];
+      if (!target) return { missing: true };
+      if (target.deletion_requested_at) return { deletionPending: true };
+      const previousRoles = Array.isArray(target.roles) ? target.roles : [];
+      const previousPreservedRoles = sortPlatformRoles(previousRoles.filter((role) => PLATFORM_PRESERVED_GLOBAL_ROLES.has(role)));
+      const submittedPreservedRoles = sortPlatformRoles(submittedRoles.filter((role) => PLATFORM_PRESERVED_GLOBAL_ROLES.has(role)));
+      if (JSON.stringify(previousPreservedRoles) !== JSON.stringify(submittedPreservedRoles)) {
+        throw Object.assign(new Error("Developer Portal access roles are managed in their respective portal."), { statusCode: 400, code: "ROLE_MANAGED_ELSEWHERE" });
+      }
+      const roles = sortPlatformRoles(new Set([...submittedRoles, ...previousPreservedRoles]));
+      if (roles.includes("platform_admin") && target.is_sandbox_test_account) {
+        throw Object.assign(new Error("Sandbox test accounts cannot be granted Platform Admin access."), { statusCode: 409, code: "SANDBOX_PLATFORM_ADMIN_DENIED" });
+      }
+      const tenantMemberships = (await client.query(
+        "SELECT role,is_active FROM tenant_memberships WHERE user_id=$1",
+        [Number(userId)]
+      )).rows.map((membership) => ({ role: membership.role, isActive: membership.is_active !== false }));
+      const mfaRequired = userRequiresPrivilegedMfa({ roles, tenantMemberships });
+      const payload = { userId, roles };
+      const preview = await privilegedPreviewService.resolvePreview({ action: "platform.user.roles.update", target: userId, payload }, { client, lock: true });
+      await privilegedTransactionService.consumeConfirmation({
+        token: req.get("x-transaction-confirmation"), actorId: req.user._id, session: req.auth.session,
+        action: "platform.user.roles.update", target: userId, reason, payload,
+        previewRevision: req.body?.previewRevision, currentPreviewRevision: preview.revision
+      }, { client });
+      if (previousRoles.includes("platform_admin") && !target.platform_access_suspended_at && !roles.includes("platform_admin")) {
+        const admins = Number((await client.query(
+          "SELECT COUNT(*)::INTEGER AS count FROM users WHERE 'platform_admin'=ANY(COALESCE(roles,ARRAY[]::TEXT[])) AND platform_access_suspended_at IS NULL AND deletion_requested_at IS NULL AND COALESCE(is_sandbox_test_account,FALSE)=FALSE"
+        )).rows[0]?.count || 0);
+        if (admins <= 1) throw Object.assign(new Error("The last active Platform Admin cannot be removed."), { statusCode: 409, code: "LAST_PLATFORM_ADMIN" });
+      }
+      if (JSON.stringify(sortPlatformRoles(previousRoles)) === JSON.stringify(roles)) {
+        return { roles: previousRoles, mfaRequired, revokedSessions: 0, email: target.email, unchanged: true };
+      }
+      const updated = (await client.query(
+        "UPDATE users SET roles=$2,mfa_required=$3,updated_at=NOW() WHERE id=$1 RETURNING roles,mfa_required",
+        [Number(userId), roles, mfaRequired]
+      )).rows[0];
+      const revokedSessions = await authSessionsRepository.revokeAllSessionsForUser(userId, "Platform account roles changed", { client });
+      await securityAuditService.record({
+        actorId: req.user._id, actorRole: "platform_admin", sessionId: req.auth.sessionId,
+        action: "platform.user.roles.update", resourceType: "user", resourceId: userId,
+        reason, outcome: "success", beforeState: { roles: previousRoles },
+        afterState: { roles: updated.roles || roles }, metadata: { revokedSessions }
+      }, { client });
+      return { roles: updated.roles || roles, mfaRequired: updated.mfa_required === true, revokedSessions, email: target.email, unchanged: false };
+    });
+    if (outcome.missing) return res.status(404).json({ message: "User not found." });
+    if (outcome.deletionPending) return res.status(409).json({ message: "Roles cannot be changed while account deletion is in progress." });
+    if (outcome.unchanged) return res.json({ success: true, roles: outcome.roles, mfaRequired: outcome.mfaRequired, revokedSessions: 0, notificationSent: true, unchanged: true });
+    let notificationSent = false;
+    if (outcome.email) {
+      try {
+        notificationSent = Boolean(await notificationService.sendEmail({
+          to: outcome.email,
+          subject: "Your GetPrio account access changed",
+          text: `A Platform administrator updated the roles on your GetPrio account. Your active sessions were signed out. If you did not expect this change, contact GetPrio support.`,
+          purpose: "general",
+          metadata: { category: "platform_user_roles_changed" }
+        }));
+      } catch { notificationSent = false; }
+    }
+    return res.json({ success: true, roles: outcome.roles, mfaRequired: outcome.mfaRequired, revokedSessions: Number(outcome.revokedSessions || 0), notificationSent });
+});
+
+registerPlatformUserMutation("/users/:userId/mfa/reset", "platform.user_mfa.reset", "platform.user.mfa.reset", async (req, res) => {
+    if (!/^\d{1,18}$/.test(req.params.userId)) return res.status(400).json({ message: "Invalid user ID." });
+    const userId = String(req.params.userId);
+    if (userId === String(req.user._id)) return res.status(409).json({ message: "Use your own Account → Security page to recover MFA.", code: "SELF_MFA_RESET_DENIED" });
+    const reason = platformAuditReason(req);
+    const payload = { userId };
+    const outcome = await db.withTransaction(async (client) => {
+      const target = (await client.query(
+        "SELECT id,email,roles,mfa_enabled,email_mfa_enabled,deletion_requested_at FROM users WHERE id=$1 FOR UPDATE",
+        [Number(userId)]
+      )).rows[0];
+      const blockReason = mfaResetBlockReason(target);
+      if (blockReason) return { [blockReason]: true };
+      const preview = await privilegedPreviewService.resolvePreview({ action: "platform.user.mfa.reset", target: userId, payload }, { client, lock: true });
+      await privilegedTransactionService.consumeConfirmation({
+        token: req.get("x-transaction-confirmation"), actorId: req.user._id, session: req.auth.session,
+        action: "platform.user.mfa.reset", target: userId, reason, payload,
+        previewRevision: req.body?.previewRevision, currentPreviewRevision: preview.revision
+      }, { client });
+      await mfaRepository.revokeFactorsAndRecoveryCodes(userId, { client });
+      const tenantMemberships = (await client.query(
+        "SELECT role,is_active FROM tenant_memberships WHERE user_id=$1",
+        [Number(userId)]
+      )).rows.map((membership) => ({ role: membership.role, isActive: membership.is_active !== false }));
+      const mfaRequired = userRequiresPrivilegedMfa({ roles: target.roles || [], tenantMemberships });
+      await client.query("UPDATE users SET mfa_enabled=FALSE,email_mfa_enabled=FALSE,mfa_required=$2,updated_at=NOW() WHERE id=$1", [Number(userId), mfaRequired]);
+      const revokedSessions = await authSessionsRepository.revokeAllSessionsForUser(userId, "Platform administrator reset MFA", { client });
+      await securityAuditService.record({
+        actorId: req.user._id, actorRole: "platform_admin", sessionId: req.auth.sessionId,
+        action: "platform.user.mfa.reset", resourceType: "user", resourceId: userId,
+        reason, outcome: "success",
+        beforeState: { mfaEnabled: Boolean(target.mfa_enabled), emailMfaEnabled: Boolean(target.email_mfa_enabled) },
+        afterState: { mfaEnabled: false, emailMfaEnabled: false, mfaRequired }, metadata: { revokedSessions }
+      }, { client });
+      return { email: target.email, mfaRequired, revokedSessions };
+    });
+    if (outcome.missing) return res.status(404).json({ message: "User not found." });
+    if (outcome.deletionPending) return res.status(409).json({ message: "MFA cannot be changed while account deletion is in progress." });
+    if (outcome.notEnabled) return res.status(409).json({ message: "This account has no active MFA method to reset." });
+    let notificationSent = false;
+    if (outcome.email) {
+      try {
+        notificationSent = Boolean(await notificationService.sendEmail({
+          to: outcome.email,
+          subject: "Multi-factor authentication reset for your GetPrio account",
+          text: `A Platform administrator reset the multi-factor authentication methods on your GetPrio account. All active sessions were signed out. Sign in again and set up MFA before using privileged features. If you did not expect this, contact GetPrio support immediately.`,
+          purpose: "security_mfa_disabled",
+          metadata: { category: "platform_user_mfa_reset" }
+        }));
+      } catch { notificationSent = false; }
+    }
+    return res.json({ success: true, mfaRequired: outcome.mfaRequired, revokedSessions: Number(outcome.revokedSessions || 0), notificationSent });
+});
+
+registerPlatformUserMutation("/users/:userId/access", "platform.user_access.manage", "platform.user.access.update", async (req, res) => {
+    if (!/^\d{1,18}$/.test(req.params.userId)) return res.status(400).json({ message: "Invalid user ID." });
+    const userId = String(req.params.userId);
+    if (userId === String(req.user._id)) return res.status(409).json({ message: "You cannot suspend your own account.", code: "SELF_ACCESS_CHANGE_DENIED" });
+    if (typeof req.body?.suspended !== "boolean") return res.status(400).json({ message: "Choose whether account access should be suspended.", code: "INVALID_ACCESS_STATE" });
+    const suspended = req.body.suspended;
+    const action = suspended ? "platform.user.access.suspend" : "platform.user.access.reactivate";
+    const reason = platformAuditReason(req);
+    const payload = { userId, suspended };
+    const outcome = await db.withTransaction(async (client) => {
+      await client.query("SELECT pg_advisory_xact_lock(73921, 1)");
+      const target = (await client.query(
+        "SELECT id,email,roles,deletion_requested_at,platform_access_suspended_at,is_sandbox_test_account,account_locked_until FROM users WHERE id=$1 FOR UPDATE",
+        [Number(userId)]
+      )).rows[0];
+      if (!target) return { missing: true };
+      if (target.deletion_requested_at) return { deletionPending: true };
+      const currentlySuspended = Boolean(target.platform_access_suspended_at);
+      if (currentlySuspended === suspended) return { unchanged: true, suspended, state: platformUserAccessState({ suspended, isSandboxTestAccount: target.is_sandbox_test_account, accountLockedUntil: target.account_locked_until }), email: target.email, revokedSessions: 0 };
+      const preview = await privilegedPreviewService.resolvePreview({ action, target: userId, payload }, { client, lock: true });
+      await privilegedTransactionService.consumeConfirmation({
+        token: req.get("x-transaction-confirmation"), actorId: req.user._id, session: req.auth.session,
+        action, target: userId, reason, payload,
+        previewRevision: req.body?.previewRevision, currentPreviewRevision: preview.revision
+      }, { client });
+      if (suspended && (target.roles || []).includes("platform_admin")) {
+        const admins = Number((await client.query(
+          "SELECT COUNT(*)::INTEGER AS count FROM users WHERE 'platform_admin'=ANY(COALESCE(roles,ARRAY[]::TEXT[])) AND platform_access_suspended_at IS NULL AND deletion_requested_at IS NULL AND COALESCE(is_sandbox_test_account,FALSE)=FALSE"
+        )).rows[0]?.count || 0);
+        if (admins <= 1) throw Object.assign(new Error("The last active Platform Admin cannot be suspended."), { statusCode: 409, code: "LAST_PLATFORM_ADMIN" });
+      }
+      await client.query(
+        "UPDATE users SET platform_access_suspended_at=CASE WHEN $2 THEN NOW() ELSE NULL END,platform_access_suspended_reason=CASE WHEN $2 THEN $3 ELSE NULL END,updated_at=NOW() WHERE id=$1",
+        [Number(userId), suspended, reason]
+      );
+      const revokedSessions = await authSessionsRepository.revokeAllSessionsForUser(
+        userId,
+        suspended ? "Platform account access suspended" : "Platform account access restored; fresh sign-in required",
+        { client }
+      );
+      await securityAuditService.record({
+        actorId: req.user._id, actorRole: "platform_admin", sessionId: req.auth.sessionId,
+        action, resourceType: "user", resourceId: userId, reason, outcome: "success",
+        beforeState: { suspended: currentlySuspended }, afterState: { suspended },
+        metadata: { revokedSessions }
+      }, { client });
+      const state = platformUserAccessState({ suspended, isSandboxTestAccount: target.is_sandbox_test_account, accountLockedUntil: target.account_locked_until });
+      return { suspended, state, email: target.email, revokedSessions, unchanged: false };
+    });
+    if (outcome.missing) return res.status(404).json({ message: "User not found." });
+    if (outcome.deletionPending) return res.status(409).json({ message: "Sign-in access cannot be changed while account deletion is in progress." });
+    if (outcome.unchanged) return res.json({ success: true, suspended: outcome.suspended, state: outcome.state, revokedSessions: 0, notificationSent: true, unchanged: true });
+    let notificationSent = false;
+    if (outcome.email) {
+      try {
+        notificationSent = Boolean(await notificationService.sendEmail({
+          to: outcome.email,
+          subject: suspended ? "GetPrio account access temporarily suspended" : "GetPrio account access restored",
+          text: suspended
+            ? "A Platform administrator temporarily suspended sign-in access to your GetPrio account. Active sessions were signed out. Contact GetPrio support if you believe this is a mistake."
+            : "A Platform administrator restored sign-in access to your GetPrio account. You can sign in again; previous sessions remain signed out.",
+          purpose: "general",
+          metadata: { category: suspended ? "platform_user_access_suspended" : "platform_user_access_restored" }
+        }));
+      } catch { notificationSent = false; }
+    }
+    return res.json({ success: true, suspended: outcome.suspended, state: outcome.state, revokedSessions: Number(outcome.revokedSessions || 0), notificationSent });
+});
 
 // Compatibility alias for the first Usage Credit dashboard client.
 router.post(

@@ -1,6 +1,11 @@
 const db = require("../config/db");
 const { buildPayloadDigest } = require("./privilegedTransactionService");
 
+async function queryRows(client, statement, params = []) {
+  const result = await client.query(statement, params);
+  return result.rows;
+}
+
 async function queryState(action, target, options = {}) {
   const client = options.client || db.pool;
   const lock = options.lock ? " FOR UPDATE" : "";
@@ -11,7 +16,7 @@ async function queryState(action, target, options = {}) {
       return (await client.query(`SELECT plan_slug,enabled,amount_cents,currency,updated_at FROM queue_fee_settings ORDER BY plan_slug${lock}`)).rows;
     case "subscription.transition":
     case "subscription.transition.request":
-      return (await client.query(`SELECT id,plan_slug,status,current_period_start,current_period_end,updated_at FROM tenant_subscriptions WHERE tenant_id=$1 AND status IN ('active','past_due','unpaid','suspended') ORDER BY updated_at${lock}`, [target])).rows;
+      return queryRows(client, `SELECT id,plan_slug,status,current_period_start,current_period_end,updated_at FROM tenant_subscriptions WHERE tenant_id=$1 AND status IN ('active','past_due','unpaid','suspended') ORDER BY updated_at${lock}`, [target]);
     case "subscription.suspend":
       return (await client.query(`SELECT id,tenant_id,plan_slug,status,updated_at FROM tenant_subscriptions WHERE id=$1${lock}`, [target])).rows;
     case "moderation.campaign_report.status":
@@ -20,6 +25,13 @@ async function queryState(action, target, options = {}) {
       return (await client.query(`SELECT id,rating_type,rating_id,dispute_status,resolved_at FROM rating_disputes WHERE id=$1${lock}`, [target])).rows;
     case "platform.user_sessions.revoke":
       return (await client.query(`SELECT u.id,u.updated_at,(SELECT COUNT(*)::int FROM auth_sessions s WHERE s.user_id=u.id AND s.status='active') AS active_sessions FROM users u WHERE u.id=$1${lock}`, [target])).rows;
+    case "platform.user.roles.update":
+      return (await client.query(`SELECT id,roles,updated_at FROM users WHERE id=$1${lock}`, [target])).rows;
+    case "platform.user.mfa.reset":
+      return (await client.query(`SELECT id,mfa_enabled,email_mfa_enabled,mfa_required,roles,updated_at FROM users WHERE id=$1${lock}`, [target])).rows;
+    case "platform.user.access.suspend":
+    case "platform.user.access.reactivate":
+      return (await client.query(`SELECT id,roles,platform_access_suspended_at,updated_at FROM users WHERE id=$1${lock}`, [target])).rows;
     case "platform.user.password_reset.send":
       return (await client.query(`SELECT id,email,email_verified,updated_at FROM users WHERE id=$1${lock}`, [target])).rows;
     case "platform.account_deletion.cleanup.begin":
@@ -36,7 +48,7 @@ async function queryState(action, target, options = {}) {
       return (await client.query(`SELECT id,tenant_id,resource_key,granted_units,revoked_units,frozen_units,status,updated_at FROM usage_credit_lots WHERE id=$1${lock}`, [target])).rows;
     case "credit.refund.resolve":
     case "credit.dispute.open":
-      return (await client.query(`SELECT id,tenant_id,status,amount_cents,currency,updated_at FROM usage_credit_purchases WHERE id=$1${lock}`, [target])).rows;
+      return queryRows(client, `SELECT id,tenant_id,status,amount_cents,currency,updated_at FROM usage_credit_purchases WHERE id=$1${lock}`, [target]);
     case "credit.dispute.resolve":
       return (await client.query(`SELECT id,purchase_id,status,resolved_at FROM usage_credit_disputes WHERE provider_dispute_id=$1${lock}`, [target])).rows;
     case "entitlement.override.publish":

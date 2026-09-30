@@ -94,6 +94,27 @@ test("user detail read model returns null for an unknown user", async () => {
   assert.equal(await service.getUserDetails({}, "999"), null);
 });
 
+test("user read model searches and paginates the full account set with a stable bounded query", async () => {
+  const calls = [];
+  const service = loadReadModelService({
+    query: async (sql, params) => {
+      calls.push({ sql, params });
+      if (sql.includes("mfa_required = TRUE")) return { rows: [{ total: 1842, mfa_required: 6, attention: 3 }] };
+      if (sql.includes("SELECT COUNT(*)::INTEGER AS total") && sql.includes("WHERE $1 = ''")) return { rows: [{ total: 27 }] };
+      if (sql.includes("FROM users") && sql.includes("ORDER BY updated_at DESC")) return { rows: [{ id: 126, display_name: "Carlo Abella", roles: ["customer"], email_verified: true, mfa_enabled: false, mfa_required: false, is_sandbox_test_account: false }] };
+      assert.fail(`Unexpected users read-model query: ${sql}`);
+    }
+  });
+
+  const result = await service.getUsers({ query: { page: "3", pageSize: "25", search: "carlo_%" } });
+  assert.deepEqual(JSON.parse(JSON.stringify(result.data.pagination)), { page: 3, pageSize: 25, total: 27, totalPages: 2, search: "carlo_%" });
+  assert.equal(result.data.users[0].id, "126");
+  const pageQuery = calls.find(({ sql }) => sql.includes("ORDER BY updated_at DESC"));
+  assert.deepEqual(JSON.parse(JSON.stringify(pageQuery.params)), ["carlo_%", "%carlo\\_\\%%", 25, 50]);
+  assert.match(pageQuery.sql, /LIMIT \$3 OFFSET \$4/);
+  assert.doesNotMatch(pageQuery.sql, /LIMIT 250/);
+});
+
 test("overview normalizes live aggregate counts and maps audit outcomes into activity signals", async () => {
   const calls = [];
   const service = loadReadModelService({
@@ -410,11 +431,12 @@ test("tenant metrics come from the full tenant population rather than the 250-ro
   assert.equal(result.data.tenants.length, 1);
 });
 
-test("user metrics come from global security aggregates rather than the 250-row table window", async () => {
+test("user metrics remain global while the account list is searchable and paginated", async () => {
   const service = loadReadModelService({
-    query: async (sql) => {
+    query: async (sql, params) => {
       if (sql.includes("AS mfa_required") && sql.includes("AS attention")) return { rows: [{ total: "1842", mfa_required: "6", attention: "3" }] };
-      if (sql.includes("FROM users") && sql.includes("LIMIT 250")) return { rows: [{
+      if (sql.includes("SELECT COUNT(*)::INTEGER AS total") && sql.includes("WHERE $1 = ''")) return { rows: [{ total: 1842 }] };
+      if (sql.includes("FROM users") && sql.includes("LIMIT $3 OFFSET $4")) return { rows: [{
         id: "1001", display_name: "Platform Admin", roles: ["platform_admin"], email_verified: true,
         mfa_enabled: true, mfa_required: true, last_login_provider: "password",
         is_sandbox_test_account: false, deletion_requested_at: null, account_locked_until: null
@@ -426,6 +448,7 @@ test("user metrics come from global security aggregates rather than the 250-row 
   const result = await service.getUsers({});
   assert.deepEqual(JSON.parse(JSON.stringify(result.data.metrics.map((metric) => metric.value))), ["1842", "6", "3"]);
   assert.equal(result.data.users.length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.data.pagination)), { page: 1, pageSize: 50, total: 1842, totalPages: 37, search: "" });
 });
 
 test("security audit in-view count matches the bounded event list, not the global event total", async () => {

@@ -22,6 +22,10 @@ import type {
   SandboxCredentialResult,
   TenantEntitlementPreview,
   UserPasswordResetPreview,
+  UserRolesUpdatePreview,
+  UserRolesUpdateResult,
+  UserMfaResetPreview,
+  UserAccessUpdatePreview,
   UserSessionRevokePreview,
   ReadModelModule,
   ReadModelMeta,
@@ -232,6 +236,7 @@ const users: PlatformUsersReadModel = {
     { label: "MFA required", value: "6", trend: "Privileged access boundary", trendTone: "positive" },
     { label: "Account attention", value: "3", trend: "Locked or deletion requested", trendTone: "attention" },
   ],
+  pagination: { page: 1, pageSize: 50, total: 4, totalPages: 1, search: "" },
   users: [
     { id: "user_1001", name: "Carlo Abella", roles: ["platform_admin"], state: "active", emailVerified: true, mfa: "required", lastLoginProvider: "password" },
     { id: "user_1027", name: "Mara Santos", roles: ["vendor_admin"], state: "active", emailVerified: true, mfa: "enabled", lastLoginProvider: "google" },
@@ -331,6 +336,9 @@ const fixtureCapabilities = [
   "platform.queue_lifecycle.read",
   "platform.users.read",
   "platform.user_sessions.revoke",
+  "platform.user_roles.manage",
+  "platform.user_mfa.reset",
+  "platform.user_access.manage",
   "platform.user_password_reset.send",
   "platform.account_deletion.manage",
   "platform.developer_api.manage",
@@ -406,8 +414,10 @@ export const fixturePlatformApi: PlatformApi = {
       fixtureTenantLots[tenant.id] = lots.map((lot) => lot.id === lotId ? { ...lot, revokedUnits: lot.revokedUnits + units, remainingUnits: Math.max(0, lot.remainingUnits - units), status: units >= lot.remainingUnits ? "revoked" : lot.status } : lot)
     }
   },
-  async getUsers() {
-    return available(users, "global")
+  async getUsers(page = 1, search = "") {
+    const normalizedSearch = search.trim().toLocaleLowerCase()
+    const matchingUsers = normalizedSearch ? users.users.filter((user) => `${user.name} ${user.roles.join(" ")}`.toLocaleLowerCase().includes(normalizedSearch)) : users.users
+    return available({ ...users, pagination: { page, pageSize: 50, total: matchingUsers.length, totalPages: Math.ceil(matchingUsers.length / 50), search }, users: matchingUsers }, "global")
   },
   async getAccountDeletionRequests() {
     return fixtureDeletionRequests
@@ -641,6 +651,29 @@ export const fixturePlatformApi: PlatformApi = {
   async executeUserPasswordReset(_userId: string, _reason: string, _revision: string, _confirmationToken: string) {
     return undefined
   },
+  async previewUserRolesUpdate(userId: string, roles: string[], _reason: string): Promise<UserRolesUpdatePreview> {
+    return { action: "platform.user.roles.update", targetId: userId, roles, revision: "user-roles-update-v1", confirmationToken: "fixture-confirmation-token" }
+  },
+  async executeUserRolesUpdate(preview: UserRolesUpdatePreview, _reason: string): Promise<UserRolesUpdateResult> {
+    const user = users.users.find((item) => item.id === preview.targetId)
+    if (user) user.roles = preview.roles
+    return { roles: preview.roles, mfaRequired: preview.roles.includes("platform_admin") || preview.roles.includes("platform_release_observer"), revokedSessions: 2, notificationSent: true }
+  },
+  async previewUserMfaReset(userId: string, _reason: string): Promise<UserMfaResetPreview> {
+    return { action: "platform.user.mfa.reset", targetId: userId, revision: "user-mfa-reset-v1", confirmationToken: "fixture-confirmation-token" }
+  },
+  async executeUserMfaReset(_preview: UserMfaResetPreview, _reason: string) {
+    return { mfaRequired: false, revokedSessions: 2, notificationSent: true }
+  },
+  async previewUserAccessUpdate(userId: string, suspended: boolean, _reason: string): Promise<UserAccessUpdatePreview> {
+    return { action: suspended ? "platform.user.access.suspend" : "platform.user.access.reactivate", targetId: userId, suspended, revision: "user-access-update-v1", confirmationToken: "fixture-confirmation-token" }
+  },
+  async executeUserAccessUpdate(preview: UserAccessUpdatePreview, _reason: string) {
+    const user = users.users.find((item) => item.id === preview.targetId)
+    if (user) user.state = preview.suspended ? "suspended" : "active"
+    const state = preview.suspended ? "suspended" : user?.state === "sandbox" || user?.state === "locked" ? user.state : "active"
+    return { suspended: preview.suspended, state, revokedSessions: 2, notificationSent: true }
+  },
 }
 
 type HttpReadModel<T> = {
@@ -697,7 +730,7 @@ function createHttpPlatformApi(baseUrl = API_BASE_URL): PlatformApi {
       const payload = await response.json() as HttpReadModel<T> & { message?: string; code?: string }
       const meta = payload.meta || fallbackMeta(scope)
       if (!response.ok) {
-        return { state: response.status === 401 || response.status === 403 ? "denied" : "failed", status: response.status, message: payload.message || "The Platform read model could not be loaded.", meta }
+        return { state: response.status === 401 || response.status === 403 ? "denied" : "failed", status: response.status, code: payload.code, message: payload.message || "The Platform read model could not be loaded.", meta }
       }
       return { state: "available", generatedAt: meta.generatedAt, data: payload.data, meta }
     } catch (error) {
@@ -705,6 +738,7 @@ function createHttpPlatformApi(baseUrl = API_BASE_URL): PlatformApi {
       return {
         state: status === 401 || status === 403 ? "denied" : "failed",
         ...(status ? { status } : {}),
+        ...(error instanceof Error && "code" in error && typeof error.code === "string" ? { code: error.code } : {}),
         message: error instanceof Error ? error.message : "The Platform API is unavailable.",
         meta: fallbackMeta(scope),
       }
@@ -742,7 +776,7 @@ function createHttpPlatformApi(baseUrl = API_BASE_URL): PlatformApi {
         tenantCreditGrantsEnabled: capabilities.usageCreditAdministration,
       }
     },
-    getUsers: () => read<PlatformUsersReadModel>("/platform/users/read-model", "global"),
+    getUsers: (page = 1, search = "") => read<PlatformUsersReadModel>(`/platform/users/read-model?page=${page}&pageSize=50&search=${encodeURIComponent(search)}`, "global"),
     getAccountDeletionRequests: async () => {
       const response = await fetchWithSessionRefresh(() => fetch(`${baseUrl.replace(/\/$/, "")}/platform/account-deletion-requests`, { credentials: "include", headers: { Accept: "application/json" } }))
       const payload = await response.json().catch(() => ({})) as PlatformAccountDeletionQueue & { message?: string; code?: string }
@@ -866,6 +900,31 @@ function createHttpPlatformApi(baseUrl = API_BASE_URL): PlatformApi {
       return { action: "platform.user.password_reset.send", targetId: response.preview.target, revision: response.preview.revision, confirmationToken: response.confirmation.token }
     },
     executeUserPasswordReset: (userId, reason, revision, confirmationToken) => writePlatform(baseUrl, `/platform/users/${encodeURIComponent(userId)}/password-reset`, { reason, previewRevision: revision }, crypto.randomUUID(), "POST", { "X-Transaction-Confirmation": confirmationToken }).then(() => undefined),
+    previewUserRolesUpdate: async (userId, roles, reason) => {
+      const response = await writePlatform<{ preview: { action: string; target: string; revision: string; payload: { roles?: string[] } }; confirmation: { token: string } }>(baseUrl, "/platform/privileged-actions/preview", { action: "platform.user.roles.update", target: userId, reason, payload: { userId, roles } }, crypto.randomUUID())
+      return { action: "platform.user.roles.update", targetId: response.preview.target, roles: response.preview.payload.roles || roles, revision: response.preview.revision, confirmationToken: response.confirmation.token }
+    },
+    executeUserRolesUpdate: async (preview, reason) => {
+      const response = await writePlatform<UserRolesUpdateResult>(baseUrl, `/platform/users/${encodeURIComponent(preview.targetId)}/roles`, { roles: preview.roles, reason, previewRevision: preview.revision }, crypto.randomUUID(), "POST", { "X-Transaction-Confirmation": preview.confirmationToken })
+      return { roles: response.roles || preview.roles, mfaRequired: Boolean(response.mfaRequired), revokedSessions: Number(response.revokedSessions || 0), notificationSent: Boolean(response.notificationSent) }
+    },
+    previewUserMfaReset: async (userId, reason) => {
+      const response = await writePlatform<{ preview: { action: string; target: string; revision: string }; confirmation: { token: string } }>(baseUrl, "/platform/privileged-actions/preview", { action: "platform.user.mfa.reset", target: userId, reason, payload: { userId } }, crypto.randomUUID())
+      return { action: "platform.user.mfa.reset", targetId: response.preview.target, revision: response.preview.revision, confirmationToken: response.confirmation.token }
+    },
+    executeUserMfaReset: async (preview, reason) => {
+      const response = await writePlatform<{ mfaRequired: boolean; revokedSessions: number; notificationSent: boolean }>(baseUrl, `/platform/users/${encodeURIComponent(preview.targetId)}/mfa/reset`, { reason, previewRevision: preview.revision }, crypto.randomUUID(), "POST", { "X-Transaction-Confirmation": preview.confirmationToken })
+      return { mfaRequired: Boolean(response.mfaRequired), revokedSessions: Number(response.revokedSessions || 0), notificationSent: Boolean(response.notificationSent) }
+    },
+    previewUserAccessUpdate: async (userId, suspended, reason) => {
+      const action = suspended ? "platform.user.access.suspend" : "platform.user.access.reactivate"
+      const response = await writePlatform<{ preview: { action: string; target: string; revision: string }; confirmation: { token: string } }>(baseUrl, "/platform/privileged-actions/preview", { action, target: userId, reason, payload: { userId, suspended } }, crypto.randomUUID())
+      return { action: action as UserAccessUpdatePreview["action"], targetId: response.preview.target, suspended, revision: response.preview.revision, confirmationToken: response.confirmation.token }
+    },
+    executeUserAccessUpdate: async (preview, reason) => {
+      const response = await writePlatform<{ suspended: boolean; state: import("@/lib/platform-contracts").PlatformUserAccountState; revokedSessions: number; notificationSent: boolean }>(baseUrl, `/platform/users/${encodeURIComponent(preview.targetId)}/access`, { suspended: preview.suspended, reason, previewRevision: preview.revision }, crypto.randomUUID(), "POST", { "X-Transaction-Confirmation": preview.confirmationToken })
+      return { suspended: Boolean(response.suspended), state: response.state, revokedSessions: Number(response.revokedSessions || 0), notificationSent: Boolean(response.notificationSent) }
+    },
     previewTenantEntitlement: async (action, targetId, payload, reason) => {
       const response = await writePlatform<{ preview: { action: TenantEntitlementPreview["action"]; target: string; revision: string }; confirmation: { token: string } }>(baseUrl, "/platform/privileged-actions/preview", { action, target: targetId, reason, payload }, crypto.randomUUID())
       return { action: response.preview.action, targetId: response.preview.target, revision: response.preview.revision, confirmationToken: response.confirmation.token }

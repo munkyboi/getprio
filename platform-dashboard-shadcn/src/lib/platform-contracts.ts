@@ -15,6 +15,7 @@ export interface ReadModelMeta {
 export interface ReadModelModule<T> {
   state: ReadModelState
   status?: number
+  code?: string
   generatedAt?: string
   staleAfterSeconds?: number
   data?: T
@@ -152,11 +153,12 @@ export interface TenantEntitlementPreview {
 
 export interface PlatformUsersReadModel {
   metrics: Array<{ label: string; value: string; trend: string; trendTone: "positive" | "neutral" | "attention" }>
+  pagination: { page: number; pageSize: number; total: number; totalPages: number; search: string }
   users: Array<{
     id: string
     name: string
     roles: string[]
-    state: "active" | "locked" | "deletion-requested" | "sandbox"
+    state: "active" | "locked" | "suspended" | "deletion-requested" | "sandbox"
     emailVerified: boolean
     mfa: "required" | "enabled" | "not-enabled"
     lastLoginProvider: string | null
@@ -576,6 +578,38 @@ export interface UserPasswordResetPreview {
   confirmationToken: string
 }
 
+export interface UserRolesUpdatePreview {
+  action: "platform.user.roles.update"
+  targetId: string
+  roles: string[]
+  revision: string
+  confirmationToken: string
+}
+
+export interface UserRolesUpdateResult {
+  roles: string[]
+  mfaRequired: boolean
+  revokedSessions: number
+  notificationSent: boolean
+}
+
+export interface UserMfaResetPreview {
+  action: "platform.user.mfa.reset"
+  targetId: string
+  revision: string
+  confirmationToken: string
+}
+
+export interface UserAccessUpdatePreview {
+  action: "platform.user.access.suspend" | "platform.user.access.reactivate"
+  targetId: string
+  suspended: boolean
+  revision: string
+  confirmationToken: string
+}
+
+export type PlatformUserAccountState = "active" | "suspended" | "locked" | "sandbox" | "deletion-requested"
+
 export interface DeveloperProjectSummary {
   id: string
   name: string
@@ -589,7 +623,7 @@ export interface PlatformApi {
   getServiceHealth(): Promise<ReadModelModule<PlatformServiceHealthReadModel> & { meta: ReadModelMeta }>
   getQueueOperations(): Promise<ReadModelModule<PlatformQueueOperationsReadModel> & { meta: ReadModelMeta }>
   getTenants(): Promise<ReadModelModule<PlatformTenantsReadModel> & { meta: ReadModelMeta }>
-  getUsers(): Promise<ReadModelModule<PlatformUsersReadModel> & { meta: ReadModelMeta }>
+  getUsers(page?: number, search?: string): Promise<ReadModelModule<PlatformUsersReadModel> & { meta: ReadModelMeta }>
   getAccountDeletionRequests(): Promise<PlatformAccountDeletionQueue>
   beginAccountDeletionScan(requestId: string, reason: string): Promise<{ scan: { id: string; scanStatus: PlatformAccountDeletionRequest["scan"]["status"]; alreadyQueued: boolean } }>
   previewAccountDeletionAction(requestId: string, action: "cleanup.begin" | "report.send", payload: Record<string, unknown>, reason: string): Promise<{ revision: string; confirmationToken: string }>
@@ -633,6 +667,12 @@ export interface PlatformApi {
   executeUserSessionRevoke(userId: string, reason: string, revision: string, confirmationToken: string): Promise<{ revokedSessions: number }>
   previewUserPasswordReset(userId: string, reason: string): Promise<UserPasswordResetPreview>
   executeUserPasswordReset(userId: string, reason: string, revision: string, confirmationToken: string): Promise<void>
+  previewUserRolesUpdate(userId: string, roles: string[], reason: string): Promise<UserRolesUpdatePreview>
+  executeUserRolesUpdate(preview: UserRolesUpdatePreview, reason: string): Promise<UserRolesUpdateResult>
+  previewUserMfaReset(userId: string, reason: string): Promise<UserMfaResetPreview>
+  executeUserMfaReset(preview: UserMfaResetPreview, reason: string): Promise<{ mfaRequired: boolean; revokedSessions: number; notificationSent: boolean }>
+  previewUserAccessUpdate(userId: string, suspended: boolean, reason: string): Promise<UserAccessUpdatePreview>
+  executeUserAccessUpdate(preview: UserAccessUpdatePreview, reason: string): Promise<{ suspended: boolean; state: PlatformUserAccountState; revokedSessions: number; notificationSent: boolean }>
   inspectTenant(tenantId: string): Promise<PlatformTenantInspection>
   previewTenantEntitlement(action: TenantEntitlementPreview["action"], targetId: string, payload: Record<string, unknown>, reason: string): Promise<TenantEntitlementPreview>
   executeTenantEntitlement(tenantId: string, overrideId: string | null, payload: Record<string, unknown>, reason: string, preview: TenantEntitlementPreview): Promise<void>

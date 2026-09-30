@@ -45,7 +45,10 @@ test("permissions helpers resolve tenant roles, ignore inactive memberships, and
     "platform.subscription_lifecycle.manage",
     "platform.tenants.read",
     "platform.usage.read",
+    "platform.user_access.manage",
+    "platform.user_mfa.reset",
     "platform.user_password_reset.send",
+    "platform.user_roles.manage",
     "platform.user_sessions.revoke",
     "platform.users.read"
   ]);
