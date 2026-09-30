@@ -54,6 +54,10 @@ const passwordResetTokenRepository = require("../repositories/passwordResetToken
 
 const router = express.Router();
 
+function registerPlatformUserMutation(route, permission, idempotencyScope, handler) {
+  router.post(route, requirePlatformPermission(permission), requireIdempotency(idempotencyScope), asyncHandler(handler));
+}
+
 function platformAuditReason(req) {
   const reason = String(req.body?.reason || "").trim().replace(/\s+/g, " ");
   if (reason.length < 8 || reason.length > 500) {
@@ -770,11 +774,7 @@ function mfaResetBlockReason(target) {
   return null;
 }
 
-router.post(
-  "/users/:userId/roles",
-  requirePlatformPermission("platform.user_roles.manage"),
-  requireIdempotency("platform.user.roles.update"),
-  asyncHandler(async (req, res) => {
+registerPlatformUserMutation("/users/:userId/roles", "platform.user_roles.manage", "platform.user.roles.update", async (req, res) => {
     if (!/^\d{1,18}$/.test(req.params.userId)) return res.status(400).json({ message: "Invalid user ID." });
     const userId = String(req.params.userId);
     if (userId === String(req.user._id)) {
@@ -855,14 +855,9 @@ router.post(
       } catch { notificationSent = false; }
     }
     return res.json({ success: true, roles: outcome.roles, mfaRequired: outcome.mfaRequired, revokedSessions: Number(outcome.revokedSessions || 0), notificationSent });
-  })
-);
+});
 
-router.post(
-  "/users/:userId/mfa/reset",
-  requirePlatformPermission("platform.user_mfa.reset"),
-  requireIdempotency("platform.user.mfa.reset"),
-  asyncHandler(async (req, res) => {
+registerPlatformUserMutation("/users/:userId/mfa/reset", "platform.user_mfa.reset", "platform.user.mfa.reset", async (req, res) => {
     if (!/^\d{1,18}$/.test(req.params.userId)) return res.status(400).json({ message: "Invalid user ID." });
     const userId = String(req.params.userId);
     if (userId === String(req.user._id)) return res.status(409).json({ message: "Use your own Account → Security page to recover MFA.", code: "SELF_MFA_RESET_DENIED" });
@@ -914,14 +909,9 @@ router.post(
       } catch { notificationSent = false; }
     }
     return res.json({ success: true, mfaRequired: outcome.mfaRequired, revokedSessions: Number(outcome.revokedSessions || 0), notificationSent });
-  })
-);
+});
 
-router.post(
-  "/users/:userId/access",
-  requirePlatformPermission("platform.user_access.manage"),
-  requireIdempotency("platform.user.access.update"),
-  asyncHandler(async (req, res) => {
+registerPlatformUserMutation("/users/:userId/access", "platform.user_access.manage", "platform.user.access.update", async (req, res) => {
     if (!/^\d{1,18}$/.test(req.params.userId)) return res.status(400).json({ message: "Invalid user ID." });
     const userId = String(req.params.userId);
     if (userId === String(req.user._id)) return res.status(409).json({ message: "You cannot suspend your own account.", code: "SELF_ACCESS_CHANGE_DENIED" });
@@ -988,8 +978,7 @@ router.post(
       } catch { notificationSent = false; }
     }
     return res.json({ success: true, suspended: outcome.suspended, state: outcome.state, revokedSessions: Number(outcome.revokedSessions || 0), notificationSent });
-  })
-);
+});
 
 // Compatibility alias for the first Usage Credit dashboard client.
 router.post(
