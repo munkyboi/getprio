@@ -54,6 +54,15 @@ const passwordResetTokenRepository = require("../repositories/passwordResetToken
 
 const router = express.Router();
 
+function requirePlatformAuditReason(req, res, next) {
+  const reason = String(req.body?.reason || "").trim().replace(/\s+/g, " ");
+  if (reason.length < 8 || reason.length > 500) {
+    return res.status(400).json({ message: "Enter an audit reason between 8 and 500 characters.", code: "INVALID_REASON" });
+  }
+  req.platformAuditReason = reason;
+  return next();
+}
+
 router.post("/release-readiness/evidence", asyncHandler(async (req, res) => {
   const secret = process.env.PLATFORM_RELEASE_EVIDENCE_SECRET || "";
   const timestamp = String(req.get("x-platform-evidence-timestamp") || "");
@@ -77,14 +86,8 @@ router.get("/help-center", requirePlatformPermission("platform.help_center.manag
   return res.json(await platformHelpCenter.getAdmin());
 }));
 
-router.post("/help-center/drafts", requirePlatformPermission("platform.help_center.manage"), requireIdempotency("platform.help_center.draft.save"), asyncHandler(async (req, res) => {
-  const reason = String(req.body?.reason || "").trim().replace(/\s+/g, " ");
-  if (reason.length < 8 || reason.length > 500) {
-    const error = new Error("Enter an audit reason between 8 and 500 characters.");
-    error.statusCode = 400;
-    error.code = "INVALID_REASON";
-    throw error;
-  }
+router.post("/help-center/drafts", requirePlatformPermission("platform.help_center.manage"), requireIdempotency("platform.help_center.draft.save"), requirePlatformAuditReason, asyncHandler(async (req, res) => {
+  const reason = req.platformAuditReason;
   const result = await db.withTransaction(async (client) => {
     const draft = await platformHelpCenter.saveDraft(req.body?.content, req.user._id, reason, { client });
     await securityAuditService.record({
@@ -98,14 +101,8 @@ router.post("/help-center/drafts", requirePlatformPermission("platform.help_cent
   return res.status(201).json({ draft: result });
 }));
 
-router.post("/help-center/publish", requirePlatformPermission("platform.help_center.manage"), requireIdempotency("platform.help_center.publish"), asyncHandler(async (req, res) => {
-  const reason = String(req.body?.reason || "").trim().replace(/\s+/g, " ");
-  if (reason.length < 8 || reason.length > 500) {
-    const error = new Error("Enter an audit reason between 8 and 500 characters.");
-    error.statusCode = 400;
-    error.code = "INVALID_REASON";
-    throw error;
-  }
+router.post("/help-center/publish", requirePlatformPermission("platform.help_center.manage"), requireIdempotency("platform.help_center.publish"), requirePlatformAuditReason, asyncHandler(async (req, res) => {
+  const reason = req.platformAuditReason;
   const result = await db.withTransaction(async (client) => {
     const published = await platformHelpCenter.publishDraft(req.body?.revision, req.user._id, reason, { client });
     await securityAuditService.record({
@@ -120,14 +117,8 @@ router.post("/help-center/publish", requirePlatformPermission("platform.help_cen
   return res.json({ publish: result });
 }));
 
-router.post("/help-center/revisions/:revision/restore", requirePlatformPermission("platform.help_center.manage"), requireIdempotency("platform.help_center.revision.restore"), asyncHandler(async (req, res) => {
-  const reason = String(req.body?.reason || "").trim().replace(/\s+/g, " ");
-  if (reason.length < 8 || reason.length > 500) {
-    const error = new Error("Enter an audit reason between 8 and 500 characters.");
-    error.statusCode = 400;
-    error.code = "INVALID_REASON";
-    throw error;
-  }
+router.post("/help-center/revisions/:revision/restore", requirePlatformPermission("platform.help_center.manage"), requireIdempotency("platform.help_center.revision.restore"), requirePlatformAuditReason, asyncHandler(async (req, res) => {
+  const reason = req.platformAuditReason;
   const result = await db.withTransaction(async (client) => {
     const draft = await platformHelpCenter.restoreRevision(req.params.revision, req.user._id, reason, { client });
     await securityAuditService.record({
@@ -188,14 +179,9 @@ router.post(
   "/account-deletion-requests/:requestId/begin-scan",
   requirePlatformPermission("platform.account_deletion.manage"),
   requireIdempotency("platform.account_deletion.scan.begin"),
+  requirePlatformAuditReason,
   asyncHandler(async (req, res) => {
-    const reason = String(req.body?.reason || "").trim().replace(/\s+/g, " ");
-    if (reason.length < 8 || reason.length > 500) {
-      const error = new Error("Enter an audit reason between 8 and 500 characters.");
-      error.statusCode = 400;
-      error.code = "INVALID_REASON";
-      throw error;
-    }
+    const reason = req.platformAuditReason;
 
     const scan = await db.withTransaction(async (client) => {
       const result = await accountDeletionAdminService.beginScan(req.params.requestId, { client });
@@ -221,14 +207,9 @@ router.post(
   "/account-deletion-requests/:requestId/begin-cleanup",
   requirePlatformPermission("platform.account_deletion.manage"),
   requireIdempotency("platform.account_deletion.cleanup.begin"),
+  requirePlatformAuditReason,
   asyncHandler(async (req, res) => {
-    const reason = String(req.body?.reason || "").trim().replace(/\s+/g, " ");
-    if (reason.length < 8 || reason.length > 500) {
-      const error = new Error("Enter an audit reason between 8 and 500 characters.");
-      error.statusCode = 400;
-      error.code = "INVALID_REASON";
-      throw error;
-    }
+    const reason = req.platformAuditReason;
     const result = await db.withTransaction(async (client) => {
       const action = "platform.account_deletion.cleanup.begin";
       const payload = { reportVersion: req.body?.reportVersion, selection: req.body?.selection || {}, references: req.body?.references || {}, exclusions: req.body?.exclusions || {} };
@@ -267,14 +248,9 @@ router.post(
   "/account-deletion-requests/:requestId/send-report",
   requirePlatformPermission("platform.account_deletion.manage"),
   requireIdempotency("platform.account_deletion.report.send"),
+  requirePlatformAuditReason,
   asyncHandler(async (req, res) => {
-    const reason = String(req.body?.reason || "").trim().replace(/\s+/g, " ");
-    if (reason.length < 8 || reason.length > 500) {
-      const error = new Error("Enter an audit reason between 8 and 500 characters.");
-      error.statusCode = 400;
-      error.code = "INVALID_REASON";
-      throw error;
-    }
+    const reason = req.platformAuditReason;
     const result = await db.withTransaction(async (client) => {
       const action = "platform.account_deletion.report.send";
       const payload = { requestId: req.params.requestId };
@@ -303,14 +279,9 @@ router.post(
   "/account-deletion-requests/:requestId/tasks/:taskKind/complete",
   requirePlatformPermission("platform.account_deletion.manage"),
   requireIdempotency("platform.account_deletion.task.complete"),
+  requirePlatformAuditReason,
   asyncHandler(async (req, res) => {
-    const reason = String(req.body?.reason || "").trim().replace(/\s+/g, " ");
-    if (reason.length < 8 || reason.length > 500) {
-      const error = new Error("Enter an audit reason between 8 and 500 characters.");
-      error.statusCode = 400;
-      error.code = "INVALID_REASON";
-      throw error;
-    }
+    const reason = req.platformAuditReason;
 
     const request = await db.withTransaction(async (client) => {
       const result = await accountDeletionAdminService.completeTask({
@@ -782,10 +753,10 @@ router.post(
   })
 );
 
-const PLATFORM_MANAGED_GLOBAL_ROLES = [
+const PLATFORM_MANAGED_GLOBAL_ROLES = new Set([
   "customer", "vendor", "vendor_admin", "staff", "admin", "platform_admin"
-];
-const PLATFORM_PRESERVED_GLOBAL_ROLES = ["developer", "platform_release_observer"];
+]);
+const PLATFORM_PRESERVED_GLOBAL_ROLES = new Set(["developer", "platform_release_observer"]);
 const PLATFORM_ROLE_ORDER = [...PLATFORM_MANAGED_GLOBAL_ROLES, ...PLATFORM_PRESERVED_GLOBAL_ROLES];
 const sortPlatformRoles = (roles) => [...roles].sort((left, right) => PLATFORM_ROLE_ORDER.indexOf(left) - PLATFORM_ROLE_ORDER.indexOf(right));
 function platformUserAccessState({ suspended, isSandboxTestAccount, accountLockedUntil }) {
@@ -805,6 +776,7 @@ router.post(
   "/users/:userId/roles",
   requirePlatformPermission("platform.user_roles.manage"),
   requireIdempotency("platform.user.roles.update"),
+  requirePlatformAuditReason,
   asyncHandler(async (req, res) => {
     if (!/^\d{1,18}$/.test(req.params.userId)) return res.status(400).json({ message: "Invalid user ID." });
     const userId = String(req.params.userId);
@@ -812,14 +784,11 @@ router.post(
       return res.status(409).json({ message: "You cannot change your own account roles." , code: "SELF_ROLE_CHANGE_DENIED" });
     }
     const roleInput = req.body?.roles;
-    if (!Array.isArray(roleInput) || roleInput.some((role) => typeof role !== "string" || (!PLATFORM_MANAGED_GLOBAL_ROLES.includes(role) && !PLATFORM_PRESERVED_GLOBAL_ROLES.includes(role)))) {
+    if (!Array.isArray(roleInput) || roleInput.some((role) => typeof role !== "string" || (!PLATFORM_MANAGED_GLOBAL_ROLES.has(role) && !PLATFORM_PRESERVED_GLOBAL_ROLES.has(role)))) {
       return res.status(400).json({ message: "Choose only supported global account roles.", code: "INVALID_ROLE_SET" });
     }
     const submittedRoles = [...new Set(roleInput)];
-    const reason = String(req.body?.reason || "").trim().replace(/\s+/g, " ");
-    if (reason.length < 8 || reason.length > 500) {
-      return res.status(400).json({ message: "Enter an audit reason between 8 and 500 characters.", code: "INVALID_REASON" });
-    }
+    const reason = req.platformAuditReason;
     const outcome = await db.withTransaction(async (client) => {
       // Serialize global role edits so two concurrent requests cannot both remove the final admin.
       await client.query("SELECT pg_advisory_xact_lock(73921, 1)");
@@ -830,8 +799,8 @@ router.post(
       if (!target) return { missing: true };
       if (target.deletion_requested_at) return { deletionPending: true };
       const previousRoles = Array.isArray(target.roles) ? target.roles : [];
-      const previousPreservedRoles = sortPlatformRoles(previousRoles.filter((role) => PLATFORM_PRESERVED_GLOBAL_ROLES.includes(role)));
-      const submittedPreservedRoles = sortPlatformRoles(submittedRoles.filter((role) => PLATFORM_PRESERVED_GLOBAL_ROLES.includes(role)));
+      const previousPreservedRoles = sortPlatformRoles(previousRoles.filter((role) => PLATFORM_PRESERVED_GLOBAL_ROLES.has(role)));
+      const submittedPreservedRoles = sortPlatformRoles(submittedRoles.filter((role) => PLATFORM_PRESERVED_GLOBAL_ROLES.has(role)));
       if (JSON.stringify(previousPreservedRoles) !== JSON.stringify(submittedPreservedRoles)) {
         throw Object.assign(new Error("Developer Portal access roles are managed in their respective portal."), { statusCode: 400, code: "ROLE_MANAGED_ELSEWHERE" });
       }
@@ -896,12 +865,12 @@ router.post(
   "/users/:userId/mfa/reset",
   requirePlatformPermission("platform.user_mfa.reset"),
   requireIdempotency("platform.user.mfa.reset"),
+  requirePlatformAuditReason,
   asyncHandler(async (req, res) => {
     if (!/^\d{1,18}$/.test(req.params.userId)) return res.status(400).json({ message: "Invalid user ID." });
     const userId = String(req.params.userId);
     if (userId === String(req.user._id)) return res.status(409).json({ message: "Use your own Account → Security page to recover MFA.", code: "SELF_MFA_RESET_DENIED" });
-    const reason = String(req.body?.reason || "").trim().replace(/\s+/g, " ");
-    if (reason.length < 8 || reason.length > 500) return res.status(400).json({ message: "Enter an audit reason between 8 and 500 characters.", code: "INVALID_REASON" });
+    const reason = req.platformAuditReason;
     const payload = { userId };
     const outcome = await db.withTransaction(async (client) => {
       const target = (await client.query(
@@ -956,6 +925,7 @@ router.post(
   "/users/:userId/access",
   requirePlatformPermission("platform.user_access.manage"),
   requireIdempotency("platform.user.access.update"),
+  requirePlatformAuditReason,
   asyncHandler(async (req, res) => {
     if (!/^\d{1,18}$/.test(req.params.userId)) return res.status(400).json({ message: "Invalid user ID." });
     const userId = String(req.params.userId);
@@ -963,8 +933,7 @@ router.post(
     if (typeof req.body?.suspended !== "boolean") return res.status(400).json({ message: "Choose whether account access should be suspended.", code: "INVALID_ACCESS_STATE" });
     const suspended = req.body.suspended;
     const action = suspended ? "platform.user.access.suspend" : "platform.user.access.reactivate";
-    const reason = String(req.body?.reason || "").trim().replace(/\s+/g, " ");
-    if (reason.length < 8 || reason.length > 500) return res.status(400).json({ message: "Enter an audit reason between 8 and 500 characters.", code: "INVALID_REASON" });
+    const reason = req.platformAuditReason;
     const payload = { userId, suspended };
     const outcome = await db.withTransaction(async (client) => {
       await client.query("SELECT pg_advisory_xact_lock(73921, 1)");

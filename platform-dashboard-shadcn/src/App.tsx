@@ -523,7 +523,7 @@ function PlatformUsers({ users, viewerId, canManage, canManageRoles = canManage,
     setError(null)
   }
   const requestRoleDialogClose = () => {
-    const dirty = Boolean(rolePreview || roleReason.trim() || (details && JSON.stringify([...roleDraft].sort()) !== JSON.stringify([...details.roles].sort())))
+    const dirty = Boolean(rolePreview || roleReason.trim() || (details && JSON.stringify([...roleDraft].sort((left, right) => left.localeCompare(right))) !== JSON.stringify([...details.roles].sort((left, right) => left.localeCompare(right)))))
     if (dirty) setDiscardAction("roles")
     else { setRoleDialogOpen(false); setRolePreview(null); setRoleError(null) }
   }
