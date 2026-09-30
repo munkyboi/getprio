@@ -1,3 +1,4 @@
+import { tenantMembershipOptions } from "@/lib/tenant-membership-options"
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
 import type { ColumnDef } from "@tanstack/react-table"
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts"
@@ -442,7 +443,7 @@ function DeletionTaskProgress({ request }: { request: PlatformAccountDeletionReq
     : <>{deletionTaskProgress(request)}</>
 }
 
-function PlatformUsers({ users, tenants = [], viewerId, canManage, canManageRoles = canManage, canResetMfa = canManage, canManageAccess = canManage, deletionRequests, deletionError, canManageDeletion, onPreview, onExecute, onPageChange, onSearchChange }: { users: PlatformUsersReadModel; tenants?: PlatformTenantsReadModel["tenants"]; viewerId: string; canManage: boolean; canManageRoles?: boolean; canResetMfa?: boolean; canManageAccess?: boolean; deletionRequests: PlatformAccountDeletionQueue | null; deletionError: string | null; canManageDeletion: boolean; onCompleteDeletionTask?: (requestId: string, taskKind: AccountDeletionTaskKind, evidence: string, reason: string, retentionNotice?: string) => Promise<void>; onPreview: (userId: string, reason: string) => Promise<UserSessionRevokePreview>; onExecute: (preview: UserSessionRevokePreview, reason: string) => Promise<{ revokedSessions: number }>; onPageChange: (page: number) => void; onSearchChange: (search: string) => void }) {
+function PlatformUsers({ users, viewerId, canManage, canManageRoles = canManage, canResetMfa = canManage, canManageAccess = canManage, deletionRequests, deletionError, canManageDeletion, onPreview, onExecute, onPageChange, onSearchChange }: { users: PlatformUsersReadModel; viewerId: string; canManage: boolean; canManageRoles?: boolean; canResetMfa?: boolean; canManageAccess?: boolean; deletionRequests: PlatformAccountDeletionQueue | null; deletionError: string | null; canManageDeletion: boolean; onCompleteDeletionTask?: (requestId: string, taskKind: AccountDeletionTaskKind, evidence: string, reason: string, retentionNotice?: string) => Promise<void>; onPreview: (userId: string, reason: string) => Promise<UserSessionRevokePreview>; onExecute: (preview: UserSessionRevokePreview, reason: string) => Promise<{ revokedSessions: number }>; onPageChange: (page: number) => void; onSearchChange: (search: string) => void }) {
   const canSendPasswordReset = canManage
   const [selectedAction, setSelectedAction] = useState<UserSessionAction | null>(null)
   const [selectedDetailsUserId, setSelectedDetailsUserId] = useState<string | null>(null)
@@ -524,9 +525,10 @@ function PlatformUsers({ users, tenants = [], viewerId, canManage, canManageRole
     setResetSent(false)
     try { setDetails(await platformApi.getUserDetails(row.id)) } catch (detailError) { setDetailsError(detailError instanceof Error ? detailError.message : "Unable to load account details.") } finally { setDetailsPending(false) }
   }
-  const editMembership = (tenantId = "") => {
+  const tenants = tenantMembershipOptions(details?.tenantMemberships || [])
+  const editMembership = (tenantId: string) => {
     const current = details?.tenantMemberships.find((item) => item.tenantId === tenantId)
-    setMembershipTenantId(tenantId || tenants.find((tenant) => !details?.tenantMemberships.some((item) => item.tenantId === tenant.id))?.id || tenants[0]?.id || "")
+    setMembershipTenantId(tenantId)
     setMembershipRole(current?.role || "staff"); setMembershipActive(current?.isActive ?? true); setMembershipReason(""); setMembershipPreview(null); setMembershipError(null); setMembershipOpen(true)
   }
   const submitMembership = async () => {
@@ -1842,7 +1844,7 @@ function App() {
                         : activeRoute === "Service health" ? <ServiceHealth health={serviceHealth} />
                           : activeRoute === "Queues & recovery" ? <QueueOperations operations={queueOperations} onPreview={handleQueueRepairPreview} onExecute={handleQueueRepairExecute} />
                             : activeRoute === "Tenants" ? <Tenants tenants={tenants} canManageOverrides={availableCapabilities.has("platform.entitlement_overrides.manage")} canGrantCredits={availableCapabilities.has("platform.credit_grants.manage")} canRevokeCredits={availableCapabilities.has("platform.credit_revocations.manage")} onInspect={handleTenantInspect} onPreviewEntitlement={handleTenantEntitlementPreview} onExecuteEntitlement={handleTenantEntitlementExecute} onGrantCredits={handleTenantCreditGrant} onRevokeCredits={handleTenantCreditRevoke} />
-                              : activeRoute === "Users" && users ? <PlatformUsers users={users} tenants={tenants.tenants} viewerId={viewer.user.id} canManage={availableCapabilities.has("platform.user_sessions.revoke")} canManageRoles={availableCapabilities.has("platform.user_roles.manage")} deletionRequests={accountDeletionQueue} deletionError={accountDeletionError} canManageDeletion={availableCapabilities.has("platform.account_deletion.manage")} onCompleteDeletionTask={handleAccountDeletionTaskComplete} onPreview={handleUserSessionRevokePreview} onExecute={handleUserSessionRevokeExecute} onPageChange={setUsersPage} onSearchChange={(search) => { setUsersPage(1); setUsersSearch(search) }} />
+                              : activeRoute === "Users" && users ? <PlatformUsers users={users} viewerId={viewer.user.id} canManage={availableCapabilities.has("platform.user_sessions.revoke")} canManageRoles={availableCapabilities.has("platform.user_roles.manage")} deletionRequests={accountDeletionQueue} deletionError={accountDeletionError} canManageDeletion={availableCapabilities.has("platform.account_deletion.manage")} onCompleteDeletionTask={handleAccountDeletionTaskComplete} onPreview={handleUserSessionRevokePreview} onExecute={handleUserSessionRevokeExecute} onPageChange={setUsersPage} onSearchChange={(search) => { setUsersPage(1); setUsersSearch(search) }} />
                                 : activeRoute === "Security audit" && securityAudit ? <SecurityAudit audit={securityAudit} />
                                   : activeRoute === "Billing & credits" && billing ? <Billing billing={billing} canSuspend={availableCapabilities.has("platform.subscription_lifecycle.manage")} canResolveRefunds={availableCapabilities.has("platform.credit_adjustments.manage")} canResolveDisputes={availableCapabilities.has("platform.credit_disputes.manage")} onPreviewSuspend={handleSubscriptionSuspendPreview} onExecuteSuspend={handleSubscriptionSuspendExecute} onPreviewCreditCase={handleCreditCasePreview} onResolveCreditRefund={handleCreditRefundResolve} onResolveCreditDispute={handleCreditDisputeResolve} />
                                     : activeRoute === "Moderation" && moderation ? <Moderation moderation={moderation} canManage={availableCapabilities.has("platform.settings.manage")} onPreview={handleModerationPreview} onExecute={handleModerationExecute} />

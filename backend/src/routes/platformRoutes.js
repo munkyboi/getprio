@@ -879,6 +879,7 @@ registerPlatformUserMutation("/users/:userId/tenant-memberships", "platform.user
     const tenant = (await client.query("SELECT id,name FROM tenants WHERE id=$1 FOR UPDATE", [Number(tenantId)])).rows[0];
     if (!tenant) return { missingTenant: true };
     const current = (await client.query("SELECT role,is_active FROM tenant_memberships WHERE user_id=$1 AND tenant_id=$2 FOR UPDATE", [Number(userId), Number(tenantId)])).rows[0] || null;
+    if (!current) return { missingMembership: true };
     if (current?.role === "owner" && current.is_active !== false && (!active || role !== "owner")) {
       const ownerCount = Number((await client.query("SELECT COUNT(*)::INTEGER AS count FROM tenant_memberships WHERE tenant_id=$1 AND role='owner' AND is_active=TRUE", [Number(tenantId)])).rows[0]?.count || 0);
       if (ownerCount <= 1) return { lastOwner: true };
@@ -888,8 +889,7 @@ registerPlatformUserMutation("/users/:userId/tenant-memberships", "platform.user
     if (current && current.role === role && (current.is_active !== false) === active) {
       return { tenant, role, active, unchanged: true, mfaRequired: target.mfa_required === true, revokedSessions: 0 };
     }
-    await client.query(`INSERT INTO tenant_memberships (user_id,tenant_id,role,is_active) VALUES ($1,$2,$3,$4)
-      ON CONFLICT (user_id,tenant_id) DO UPDATE SET role=EXCLUDED.role,is_active=EXCLUDED.is_active`, [Number(userId), Number(tenantId), role, active]);
+    await client.query("UPDATE tenant_memberships SET role=$3,is_active=$4 WHERE user_id=$1 AND tenant_id=$2", [Number(userId), Number(tenantId), role, active]);
     const memberships = (await client.query("SELECT role,is_active FROM tenant_memberships WHERE user_id=$1", [Number(userId)])).rows.map((item) => ({ role: item.role, isActive: item.is_active !== false }));
     const mfaRequired = userRequiresPrivilegedMfa({ roles: target.roles || [], tenantMemberships: memberships });
     await client.query("UPDATE users SET mfa_required=$2,updated_at=NOW() WHERE id=$1", [Number(userId), mfaRequired]);
@@ -899,6 +899,7 @@ registerPlatformUserMutation("/users/:userId/tenant-memberships", "platform.user
   });
   if (outcome.missingUser) return res.status(404).json({ message: "User not found." });
   if (outcome.missingTenant) return res.status(404).json({ message: "Tenant not found." });
+  if (outcome.missingMembership) return res.status(404).json({ message: "This user has no membership in the selected tenant.", code: "TENANT_MEMBERSHIP_NOT_FOUND" });
   if (outcome.deletionPending) return res.status(409).json({ message: "Memberships cannot be changed while account deletion is in progress." });
   if (outcome.lastOwner) return res.status(409).json({ message: "Assign another active owner before changing this tenant's final owner.", code: "LAST_TENANT_OWNER" });
   res.json({ success: true, unchanged: Boolean(outcome.unchanged), membership: { tenantId, tenantName: outcome.tenant.name, role: outcome.role, isActive: outcome.active }, mfaRequired: outcome.mfaRequired, revokedSessions: Number(outcome.revokedSessions || 0) });

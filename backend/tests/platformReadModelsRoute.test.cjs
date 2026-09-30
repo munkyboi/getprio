@@ -210,6 +210,67 @@ test("tenant membership updates reject self-assignment before opening a transact
   assert.equal(transactionOpened, false);
 });
 
+test("tenant membership management refuses to create access for an unrelated tenant", async () => {
+  const client = { query: async (sql) => {
+    if (sql.includes("FROM users")) return { rows: [{ id: 27, roles: ["customer"] }] };
+    if (sql.includes("FROM tenants")) return { rows: [{ id: 9, name: "Tenant Nine" }] };
+    if (sql.includes("FROM tenant_memberships")) return { rows: [] };
+    if (sql.includes("INSERT")) throw new Error("New tenant access must not be created.");
+    return { rows: [] };
+  } };
+  const { routes } = loadReadModelRoutes({ overrides: {
+    "../config/db": { withTransaction: async (callback) => callback(client) },
+    "../services/privilegedPreviewService": { resolvePreview: async () => ({ revision: "membership-v1" }) },
+    "../services/privilegedTransactionService": { consumeConfirmation: async () => {} }
+  } });
+  const route = routes.find(({ method, args }) => method === "post" && args[0] === "/users/:userId/tenant-memberships");
+  const res = response();
+  await route.args.at(-1)(platformAdminRequest({ body: { tenantId: "9", role: "staff", active: true, reason: "Review existing tenant access" } }), res);
+  assert.equal(res.code, 404);
+  assert.equal(res.body.code, "TENANT_MEMBERSHIP_NOT_FOUND");
+});
+
+for (const scenario of [
+  { name: "protects the final active owner", current: { role: "owner", is_active: true }, role: "staff", active: true, owners: 1, status: 409, code: "LAST_TENANT_OWNER" },
+  { name: "suspends an existing administrator", current: { role: "admin", is_active: true }, role: "admin", active: false, status: 200, mfa: false },
+  { name: "reactivates an existing administrator with required MFA", current: { role: "admin", is_active: false }, role: "admin", active: true, status: 200, mfa: true },
+  { name: "allows demotion when another active owner remains", current: { role: "owner", is_active: true }, role: "staff", active: true, owners: 2, status: 200, mfa: false },
+  { name: "leaves sessions intact for an unchanged membership", current: { role: "staff", is_active: true }, role: "staff", active: true, status: 200, unchanged: true, mfa: false },
+]) {
+  test(`tenant membership management ${scenario.name}`, async () => {
+    let current = { ...scenario.current };
+    const client = { query: async (sql) => {
+      if (sql.includes("FROM users")) return { rows: [{ id: 27, roles: ["customer"], mfa_required: false }] };
+      if (sql.includes("FROM tenants")) return { rows: [{ id: 9, name: "Tenant Nine" }] };
+      if (sql.includes("COUNT(*)")) return { rows: [{ count: scenario.owners }] };
+      if (sql.includes("FROM tenant_memberships")) return { rows: [current] };
+      if (sql.startsWith("UPDATE tenant_memberships")) current = { role: scenario.role, is_active: scenario.active };
+      return { rows: [] };
+    } };
+    const effects = [];
+    const { routes } = loadReadModelRoutes({ overrides: {
+      "../config/db": { withTransaction: async (callback) => callback(client) },
+      "../services/privilegedPreviewService": { resolvePreview: async () => ({ revision: "membership-v1" }) },
+      "../services/privilegedTransactionService": { consumeConfirmation: async () => {} },
+      "../repositories/authSessions": { revokeAllSessionsForUser: async () => { effects.push("sessions-revoked"); return 2; } },
+      "../services/securityAuditService": { record: async () => effects.push("audited") },
+    } });
+    const route = routes.find(({ method, args }) => method === "post" && args[0] === "/users/:userId/tenant-memberships");
+    const res = response();
+    await route.args.at(-1)(platformAdminRequest({ body: { tenantId: "9", role: scenario.role, active: scenario.active, reason: "Review existing tenant access" } }), res);
+    assert.equal(res.code, scenario.status);
+    if (scenario.code) assert.equal(res.body.code, scenario.code);
+    else {
+      assert.equal(res.body.membership.role, scenario.role);
+      assert.equal(res.body.membership.isActive, scenario.active);
+      assert.equal(res.body.mfaRequired, scenario.mfa);
+      assert.equal(res.body.unchanged, Boolean(scenario.unchanged));
+      assert.equal(res.body.revokedSessions, scenario.unchanged ? 0 : 2);
+    }
+    assert.deepEqual(effects, scenario.status === 409 || scenario.unchanged ? [] : ["sessions-revoked", "audited"]);
+  });
+}
+
 test("global role preview canonicalizes the role list used by the later confirmed update", async () => {
   const calls = [];
   const { routes } = loadReadModelRoutes({ overrides: {
