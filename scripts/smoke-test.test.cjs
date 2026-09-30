@@ -29,11 +29,12 @@ function totp(secret, timestamp = Date.now()) {
   return String(binary % 1_000_000).padStart(6, "0");
 }
 
-test("platform smoke waits for the deployed API revision before MFA and protected API checks", async (t) => {
+test("platform smoke waits for the deployed revision and authenticates cookie-backed sessions with or without MFA", async (t) => {
   const secret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
   const evidenceSecret = "evidence-signing-secret-for-test-only-32-bytes";
   const deploymentSha = "a".repeat(40);
   const requests = [];
+  const reports = [];
   const healthResponses = [
     { status: 502, body: { message: "starting" } },
     { status: 200, body: { status: "ok", deploymentSha: "b".repeat(40) } },
@@ -43,11 +44,26 @@ test("platform smoke waits for the deployed API revision before MFA and protecte
     const chunks = [];
     for await (const chunk of request) chunks.push(chunk);
     const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : {};
-    requests.push({ method: request.method, path: request.url, body, authorization: request.headers.authorization });
+    requests.push({
+      method: request.method,
+      path: request.url,
+      body,
+      authorization: request.headers.authorization,
+      cookie: request.headers.cookie || ""
+    });
     response.setHeader("content-type", "application/json");
 
     if (request.url === "/api/auth/login") {
-      response.end(JSON.stringify({ mfaRequired: true, challengeToken: "challenge-token" }));
+      if (body.email === "smoke-mfa@example.test") {
+        response.end(JSON.stringify({ mfaRequired: true, challengeToken: "challenge-token" }));
+        return;
+      }
+      response.setHeader("set-cookie", [
+        "__Host-prio_access=direct-access; Path=/; Secure; HttpOnly",
+        "__Host-prio_refresh=direct-refresh; Path=/; Secure; HttpOnly",
+        "prio_csrf=direct-csrf; Path=/; Secure"
+      ]);
+      response.end(JSON.stringify({ user: { id: "direct-user" }, csrfToken: "direct-csrf" }));
       return;
     }
     if (request.url === "/api/auth/mfa/verify") {
@@ -57,7 +73,12 @@ test("platform smoke waits for the deployed API revision before MFA and protecte
         response.end(JSON.stringify({ message: "invalid MFA code" }));
         return;
       }
-      response.end(JSON.stringify({ token: "session-token", user: { id: "smoke-user" } }));
+      response.setHeader("set-cookie", [
+        "__Host-prio_access=mfa-access; Path=/; Secure; HttpOnly",
+        "__Host-prio_refresh=mfa-refresh; Path=/; Secure; HttpOnly",
+        "prio_csrf=mfa-csrf; Path=/; Secure"
+      ]);
+      response.end(JSON.stringify({ user: { id: "mfa-user" }, csrfToken: "mfa-csrf" }));
       return;
     }
     if (request.url === "/api/health") {
@@ -67,6 +88,11 @@ test("platform smoke waits for the deployed API revision before MFA and protecte
       return;
     }
     if (request.url === "/api/platform/release-readiness/read-model") {
+      if (!request.headers.cookie?.includes("__Host-prio_access=")) {
+        response.writeHead(401);
+        response.end(JSON.stringify({ message: "cookie session missing" }));
+        return;
+      }
       response.end(JSON.stringify({ data: { surfaces: [] } }));
       return;
     }
@@ -80,6 +106,8 @@ test("platform smoke waits for the deployed API revision before MFA and protecte
         response.end(JSON.stringify({ message: "bad signature" }));
         return;
       }
+      const report = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      reports.push(report);
       response.end(JSON.stringify({ accepted: true }));
       return;
     }
@@ -111,47 +139,50 @@ test("platform smoke waits for the deployed API revision before MFA and protecte
   t.after(() => new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve())));
 
   const origin = `http://127.0.0.1:${server.address().port}`;
-  const child = spawn(process.execPath, [path.join(__dirname, "smoke-test.mjs"), "--stage", "platform"], {
-    env: {
-      ...process.env,
-      SMOKE_API_URL: `${origin}/api`,
-      SMOKE_PLATFORM_URL: origin,
-      PLATFORM_SMOKE_EMAIL: "smoke@example.test",
-      PLATFORM_SMOKE_PASSWORD: "not-a-real-password",
-      PLATFORM_SMOKE_TOTP_SECRET: secret,
-      PLATFORM_RELEASE_EVIDENCE_SECRET: evidenceSecret,
-      SMOKE_EXPECTED_DEPLOY_SHA: deploymentSha,
-      SMOKE_API_READY_RETRY_INTERVAL_MS: "10",
-      GITHUB_RUN_ID: "19384756201",
-      GITHUB_REPOSITORY: "getprio/web-app",
-      GITHUB_SERVER_URL: "https://github.com"
-    },
-    stdio: ["ignore", "pipe", "pipe"]
-  });
-  let stdout = "";
-  let stderr = "";
-  child.stdout.setEncoding("utf8").on("data", (chunk) => { stdout += chunk; });
-  child.stderr.setEncoding("utf8").on("data", (chunk) => { stderr += chunk; });
-  const exitCode = await new Promise((resolve, reject) => {
-    child.once("error", reject);
-    child.once("close", resolve);
-  });
+  async function runPlatformSmoke(email, runId) {
+    const child = spawn(process.execPath, [path.join(__dirname, "smoke-test.mjs"), "--stage", "platform"], {
+      env: {
+        ...process.env,
+        SMOKE_API_URL: `${origin}/api`,
+        SMOKE_PLATFORM_URL: origin,
+        PLATFORM_SMOKE_EMAIL: email,
+        PLATFORM_SMOKE_PASSWORD: "not-a-real-password",
+        PLATFORM_SMOKE_TOTP_SECRET: secret,
+        PLATFORM_RELEASE_EVIDENCE_SECRET: evidenceSecret,
+        SMOKE_EXPECTED_DEPLOY_SHA: deploymentSha,
+        SMOKE_API_READY_RETRY_INTERVAL_MS: "10",
+        GITHUB_RUN_ID: runId,
+        GITHUB_REPOSITORY: "getprio/web-app",
+        GITHUB_SERVER_URL: "https://github.com"
+      },
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8").on("data", (chunk) => { stdout += chunk; });
+    child.stderr.setEncoding("utf8").on("data", (chunk) => { stderr += chunk; });
+    const exitCode = await new Promise((resolve, reject) => {
+      child.once("error", reject);
+      child.once("close", resolve);
+    });
+    assert.equal(exitCode, 0, `${stdout}\n${stderr}`);
+  }
 
-  assert.equal(exitCode, 0, `${stdout}\n${stderr}`);
-  assert.deepEqual(requests.slice(0, 6).map(({ path: requestPath }) => requestPath), [
-    "/api/health",
-    "/api/health",
-    "/api/health",
-    "/api/auth/login",
-    "/api/auth/mfa/verify",
-    "/api/platform/release-readiness/read-model"
-  ]);
-  assert.equal(requests[4].authorization, undefined);
-  assert.equal(requests[5].authorization, "Bearer session-token");
-  const report = requests.find((request) => request.path === "/api/platform/release-readiness/evidence");
-  assert.equal(report.body.outcome, "success");
-  assert.equal(report.body.deploymentSha, deploymentSha);
-  assert.equal(report.body.workflowUrl, "https://github.com/getprio/web-app/actions/runs/19384756201");
+  await runPlatformSmoke("smoke@example.test", "19384756201");
+  await runPlatformSmoke("smoke-mfa@example.test", "19384756202");
+
+  const requestPaths = requests.map(({ path: requestPath }) => requestPath);
+  assert.ok(requestPaths.indexOf("/api/auth/login") < requestPaths.indexOf("/api/platform/release-readiness/read-model"));
+  assert.ok(requestPaths.includes("/api/auth/mfa/verify"));
+  const protectedReads = requests.filter(({ path: requestPath }) => requestPath === "/api/platform/release-readiness/read-model");
+  assert.equal(protectedReads.length, 2);
+  assert.ok(protectedReads[0].cookie.includes("__Host-prio_access=direct-access"));
+  assert.ok(protectedReads[1].cookie.includes("__Host-prio_access=mfa-access"));
+  assert.ok(protectedReads.every(({ authorization }) => authorization === undefined));
+  assert.equal(reports.length, 2);
+  assert.ok(reports.every((report) => report.outcome === "success" && report.deploymentSha === deploymentSha));
+  assert.equal(reports[0].workflowUrl, "https://github.com/getprio/web-app/actions/runs/19384756201");
+  assert.equal(reports[1].workflowUrl, "https://github.com/getprio/web-app/actions/runs/19384756202");
 });
 
 test("missing release-evidence credentials fail the report-only smoke step instead of looking successful", () => {

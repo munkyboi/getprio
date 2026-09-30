@@ -102,6 +102,54 @@ async function requestJson(url, options = {}) {
   return { response, body, text };
 }
 
+class BrowserSessionClient {
+  constructor() {
+    this.cookies = new Map();
+    this.csrfToken = "";
+  }
+
+  hasAccessCookie() {
+    return Boolean(this.cookies.get("__Host-prio_access") || this.cookies.get("prio_access"));
+  }
+
+  async requestJson(url, options = {}) {
+    const method = String(options.method || "GET").toUpperCase();
+    const headers = {
+      ...(options.headers || {})
+    };
+    if (this.cookies.size) {
+      headers.Cookie = [...this.cookies].map(([name, value]) => `${name}=${value}`).join("; ");
+    }
+    if (this.csrfToken && !["GET", "HEAD", "OPTIONS"].includes(method)) {
+      headers["X-CSRF-Token"] = this.csrfToken;
+      headers.Origin ||= new URL(PLATFORM_BASE_URL).origin;
+    }
+
+    const result = await requestJson(url, { ...options, headers });
+    const setCookieHeaders = typeof result.response.headers.getSetCookie === "function"
+      ? result.response.headers.getSetCookie()
+      : String(result.response.headers.get("set-cookie") || "")
+        .split(/,(?=\s*[^;,=\s]+=[^;,]*)/u)
+        .filter(Boolean);
+    for (const setCookie of setCookieHeaders) {
+      const pair = String(setCookie).split(";", 1)[0];
+      const separator = pair.indexOf("=");
+      if (separator < 1) continue;
+      const name = pair.slice(0, separator).trim();
+      const value = pair.slice(separator + 1).trim();
+      if (!value || /(?:^|;)\s*max-age=0(?:;|$)/iu.test(setCookie)) {
+        this.cookies.delete(name);
+      } else {
+        this.cookies.set(name, value);
+      }
+    }
+    if (typeof result.body?.csrfToken === "string") {
+      this.csrfToken = result.body.csrfToken;
+    }
+    return result;
+  }
+}
+
 async function requestText(url) {
   const response = await fetch(url, {
     headers: {
@@ -202,15 +250,21 @@ function generateTotpCode(secret, timestamp = Date.now()) {
   return String(binary % 1_000_000).padStart(6, "0");
 }
 
-async function loginPlatform(email, password) {
-  const result = await requestJson(`${API_BASE_URL}/auth/login`, {
+function assertPlatformBrowserSession(result, session, context) {
+  if (!result.body?.user || !session.hasAccessCookie() || !session.csrfToken) {
+    fail(`${context} response did not establish a cookie-backed browser session`);
+  }
+}
+
+async function loginPlatform(email, password, session) {
+  const result = await session.requestJson(`${API_BASE_URL}/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password })
   });
   assertOk(result.response, "platform smoke login");
 
-  if (result.body?.token && result.body?.user) return result.body;
+  if (result.body?.user && session.hasAccessCookie() && session.csrfToken) return result.body;
   if (!result.body?.mfaRequired || !result.body?.challengeToken) {
     fail("platform smoke login response did not contain a session or MFA challenge");
   }
@@ -218,7 +272,7 @@ async function loginPlatform(email, password) {
     fail("platform smoke login requires MFA; set PLATFORM_SMOKE_TOTP_SECRET to the account's Base32 authenticator setup key");
   }
 
-  const verification = await requestJson(`${API_BASE_URL}/auth/mfa/verify`, {
+  const verification = await session.requestJson(`${API_BASE_URL}/auth/mfa/verify`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -228,9 +282,7 @@ async function loginPlatform(email, password) {
     })
   });
   assertOk(verification.response, "platform smoke MFA verification");
-  if (!verification.body?.token || !verification.body?.user) {
-    fail("platform smoke MFA response missing token or user");
-  }
+  assertPlatformBrowserSession(verification, session, "platform smoke MFA verification");
   return verification.body;
 }
 
@@ -684,10 +736,10 @@ async function smokePlatformStage() {
     fail("SMOKE_EXPECTED_DEPLOY_SHA must be a full commit SHA");
   }
   await waitForPlatformApiReadiness();
-  const platformAuth = await loginPlatform(PLATFORM_SMOKE_EMAIL, PLATFORM_SMOKE_PASSWORD);
-  const platformHeaders = { Authorization: `Bearer ${platformAuth.token}` };
+  const platformSession = new BrowserSessionClient();
+  await loginPlatform(PLATFORM_SMOKE_EMAIL, PLATFORM_SMOKE_PASSWORD, platformSession);
 
-  const releaseReadiness = await requestJson(`${API_BASE_URL}/platform/release-readiness/read-model`, { headers: platformHeaders });
+  const releaseReadiness = await platformSession.requestJson(`${API_BASE_URL}/platform/release-readiness/read-model`);
   assertOk(releaseReadiness.response, "authenticated release readiness api");
   if (!Array.isArray(releaseReadiness.body?.data?.surfaces)) {
     fail("authenticated release readiness api response missing surfaces");
