@@ -54,13 +54,15 @@ const passwordResetTokenRepository = require("../repositories/passwordResetToken
 
 const router = express.Router();
 
-function requirePlatformAuditReason(req, res, next) {
+function platformAuditReason(req) {
   const reason = String(req.body?.reason || "").trim().replace(/\s+/g, " ");
   if (reason.length < 8 || reason.length > 500) {
-    return res.status(400).json({ message: "Enter an audit reason between 8 and 500 characters.", code: "INVALID_REASON" });
+    const error = new Error("Enter an audit reason between 8 and 500 characters.");
+    error.statusCode = 400;
+    error.code = "INVALID_REASON";
+    throw error;
   }
-  req.platformAuditReason = reason;
-  return next();
+  return reason;
 }
 
 router.post("/release-readiness/evidence", asyncHandler(async (req, res) => {
@@ -86,8 +88,8 @@ router.get("/help-center", requirePlatformPermission("platform.help_center.manag
   return res.json(await platformHelpCenter.getAdmin());
 }));
 
-router.post("/help-center/drafts", requirePlatformPermission("platform.help_center.manage"), requireIdempotency("platform.help_center.draft.save"), requirePlatformAuditReason, asyncHandler(async (req, res) => {
-  const reason = req.platformAuditReason;
+router.post("/help-center/drafts", requirePlatformPermission("platform.help_center.manage"), requireIdempotency("platform.help_center.draft.save"), asyncHandler(async (req, res) => {
+  const reason = platformAuditReason(req);
   const result = await db.withTransaction(async (client) => {
     const draft = await platformHelpCenter.saveDraft(req.body?.content, req.user._id, reason, { client });
     await securityAuditService.record({
@@ -101,8 +103,8 @@ router.post("/help-center/drafts", requirePlatformPermission("platform.help_cent
   return res.status(201).json({ draft: result });
 }));
 
-router.post("/help-center/publish", requirePlatformPermission("platform.help_center.manage"), requireIdempotency("platform.help_center.publish"), requirePlatformAuditReason, asyncHandler(async (req, res) => {
-  const reason = req.platformAuditReason;
+router.post("/help-center/publish", requirePlatformPermission("platform.help_center.manage"), requireIdempotency("platform.help_center.publish"), asyncHandler(async (req, res) => {
+  const reason = platformAuditReason(req);
   const result = await db.withTransaction(async (client) => {
     const published = await platformHelpCenter.publishDraft(req.body?.revision, req.user._id, reason, { client });
     await securityAuditService.record({
@@ -117,8 +119,8 @@ router.post("/help-center/publish", requirePlatformPermission("platform.help_cen
   return res.json({ publish: result });
 }));
 
-router.post("/help-center/revisions/:revision/restore", requirePlatformPermission("platform.help_center.manage"), requireIdempotency("platform.help_center.revision.restore"), requirePlatformAuditReason, asyncHandler(async (req, res) => {
-  const reason = req.platformAuditReason;
+router.post("/help-center/revisions/:revision/restore", requirePlatformPermission("platform.help_center.manage"), requireIdempotency("platform.help_center.revision.restore"), asyncHandler(async (req, res) => {
+  const reason = platformAuditReason(req);
   const result = await db.withTransaction(async (client) => {
     const draft = await platformHelpCenter.restoreRevision(req.params.revision, req.user._id, reason, { client });
     await securityAuditService.record({
@@ -179,9 +181,8 @@ router.post(
   "/account-deletion-requests/:requestId/begin-scan",
   requirePlatformPermission("platform.account_deletion.manage"),
   requireIdempotency("platform.account_deletion.scan.begin"),
-  requirePlatformAuditReason,
   asyncHandler(async (req, res) => {
-    const reason = req.platformAuditReason;
+    const reason = platformAuditReason(req);
 
     const scan = await db.withTransaction(async (client) => {
       const result = await accountDeletionAdminService.beginScan(req.params.requestId, { client });
@@ -207,9 +208,8 @@ router.post(
   "/account-deletion-requests/:requestId/begin-cleanup",
   requirePlatformPermission("platform.account_deletion.manage"),
   requireIdempotency("platform.account_deletion.cleanup.begin"),
-  requirePlatformAuditReason,
   asyncHandler(async (req, res) => {
-    const reason = req.platformAuditReason;
+    const reason = platformAuditReason(req);
     const result = await db.withTransaction(async (client) => {
       const action = "platform.account_deletion.cleanup.begin";
       const payload = { reportVersion: req.body?.reportVersion, selection: req.body?.selection || {}, references: req.body?.references || {}, exclusions: req.body?.exclusions || {} };
@@ -248,9 +248,8 @@ router.post(
   "/account-deletion-requests/:requestId/send-report",
   requirePlatformPermission("platform.account_deletion.manage"),
   requireIdempotency("platform.account_deletion.report.send"),
-  requirePlatformAuditReason,
   asyncHandler(async (req, res) => {
-    const reason = req.platformAuditReason;
+    const reason = platformAuditReason(req);
     const result = await db.withTransaction(async (client) => {
       const action = "platform.account_deletion.report.send";
       const payload = { requestId: req.params.requestId };
@@ -279,9 +278,8 @@ router.post(
   "/account-deletion-requests/:requestId/tasks/:taskKind/complete",
   requirePlatformPermission("platform.account_deletion.manage"),
   requireIdempotency("platform.account_deletion.task.complete"),
-  requirePlatformAuditReason,
   asyncHandler(async (req, res) => {
-    const reason = req.platformAuditReason;
+    const reason = platformAuditReason(req);
 
     const request = await db.withTransaction(async (client) => {
       const result = await accountDeletionAdminService.completeTask({
@@ -776,7 +774,6 @@ router.post(
   "/users/:userId/roles",
   requirePlatformPermission("platform.user_roles.manage"),
   requireIdempotency("platform.user.roles.update"),
-  requirePlatformAuditReason,
   asyncHandler(async (req, res) => {
     if (!/^\d{1,18}$/.test(req.params.userId)) return res.status(400).json({ message: "Invalid user ID." });
     const userId = String(req.params.userId);
@@ -788,7 +785,7 @@ router.post(
       return res.status(400).json({ message: "Choose only supported global account roles.", code: "INVALID_ROLE_SET" });
     }
     const submittedRoles = [...new Set(roleInput)];
-    const reason = req.platformAuditReason;
+    const reason = platformAuditReason(req);
     const outcome = await db.withTransaction(async (client) => {
       // Serialize global role edits so two concurrent requests cannot both remove the final admin.
       await client.query("SELECT pg_advisory_xact_lock(73921, 1)");
@@ -865,12 +862,11 @@ router.post(
   "/users/:userId/mfa/reset",
   requirePlatformPermission("platform.user_mfa.reset"),
   requireIdempotency("platform.user.mfa.reset"),
-  requirePlatformAuditReason,
   asyncHandler(async (req, res) => {
     if (!/^\d{1,18}$/.test(req.params.userId)) return res.status(400).json({ message: "Invalid user ID." });
     const userId = String(req.params.userId);
     if (userId === String(req.user._id)) return res.status(409).json({ message: "Use your own Account → Security page to recover MFA.", code: "SELF_MFA_RESET_DENIED" });
-    const reason = req.platformAuditReason;
+    const reason = platformAuditReason(req);
     const payload = { userId };
     const outcome = await db.withTransaction(async (client) => {
       const target = (await client.query(
@@ -925,7 +921,6 @@ router.post(
   "/users/:userId/access",
   requirePlatformPermission("platform.user_access.manage"),
   requireIdempotency("platform.user.access.update"),
-  requirePlatformAuditReason,
   asyncHandler(async (req, res) => {
     if (!/^\d{1,18}$/.test(req.params.userId)) return res.status(400).json({ message: "Invalid user ID." });
     const userId = String(req.params.userId);
@@ -933,7 +928,7 @@ router.post(
     if (typeof req.body?.suspended !== "boolean") return res.status(400).json({ message: "Choose whether account access should be suspended.", code: "INVALID_ACCESS_STATE" });
     const suspended = req.body.suspended;
     const action = suspended ? "platform.user.access.suspend" : "platform.user.access.reactivate";
-    const reason = req.platformAuditReason;
+    const reason = platformAuditReason(req);
     const payload = { userId, suspended };
     const outcome = await db.withTransaction(async (client) => {
       await client.query("SELECT pg_advisory_xact_lock(73921, 1)");
