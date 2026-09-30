@@ -268,7 +268,7 @@ from `/var/www/getprio` on the Sandbox Droplet. Set the expected host and databa
 to match the Sandbox `DATABASE_URL` loaded from its environment files:
 
 ```bash
-API_ENVIRONMENT=sandbox DATABASE_HOST='your-sandbox-db-host' DATABASE_NAME='your-sandbox-db-name' node scripts/wait-time-prediction-audit.mjs
+DATABASE_HOST='your-sandbox-db-host' DATABASE_NAME='your-sandbox-db-name' node scripts/wait-time-prediction-audit.mjs --scope developer-sandbox
 ```
 
 Use `localhost` and `getprio` only when those are the configured Sandbox database host
@@ -277,8 +277,52 @@ refuses to connect if these expected values differ from the loaded connection UR
 
 Review the `developerApiSandbox` section for completed samples. Older printed-only tickets
 are not backfilled because their initial queue state was not observed. These are baseline
-observations for evaluation; they do not enable a trained AI predictor. Live vendor capture
-and a production-safe audit remain a separate rollout.
+observations for evaluation; they do not enable a trained AI predictor.
+
+## Read-only vendor wait-time audit
+
+The audit accepts both production and Sandbox CLI configurations. Leave `API_ENVIRONMENT`
+as configured on the server; do not override it to label live data as Sandbox. From the
+deployment checkout, specify the expected database hostname and name explicitly. These
+must match the dotenv-loaded `DATABASE_URL`, and the script also checks the connected
+database name before reading samples. It uses a read-only repeatable-read transaction,
+limits each statement to 30 seconds and lock waits to 5 seconds, then rolls back.
+
+```bash
+cd /var/www/getprio
+DATABASE_HOST='your-db-host' DATABASE_NAME='your-db-name' node scripts/wait-time-prediction-audit.mjs --scope vendors
+```
+
+To inspect a dedicated test vendor, use its public vendor slug:
+
+```bash
+DATABASE_HOST='your-db-host' DATABASE_NAME='your-db-name' node scripts/wait-time-prediction-audit.mjs --scope vendors --vendor-slug 'your-test-vendor-slug'
+```
+
+The filter applies to the vendor summary, vendor coverage, and position coverage. An
+unknown vendor slug fails the audit. Coverage counts eligible active, approved vendors;
+the summary includes recorded samples for the selected vendor regardless of its current
+approval status. Vendor Portal samples have no environment tag, so they must not be
+described as Sandbox simply because the audit CLI is configured that way.
+
+`--scope developer-sandbox` reads only Developer API observations explicitly tagged
+`sandbox`. Omitting `--scope` (or using `--scope all`) retains both separate reports.
+With `all`, a vendor slug filters only vendor results; Developer API results stay global.
+Each section reports its own table availability, so a missing vendor table does not
+prevent inspecting Developer API samples.
+
+The report's `target` includes the audit host, checkout directory, configured database
+host/port/name, connected database address/port, and CLI API environment. It contains no
+connection credentials. Compare reports run on the actual API hosts with their deployment
+configuration to establish whether they share a server or database; the `sandbox` GitHub
+Environment name alone does not establish isolation. The repository workflows use
+environment-scoped `DO_HOST` secrets, whose values are not visible in source.
+
+`captureEnabled` describes the configuration loaded by this CLI, not independently
+verified PM2 process state. A newly captured ticket observation is stronger evidence of
+running capture. This audit does not enable capture, restart services, change queue data,
+or enable an AI model. Controlled capture configuration and model evaluation remain
+separate rollout decisions.
 
 OAuth deployment checklist:
 
