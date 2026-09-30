@@ -589,7 +589,7 @@ async function getUsers(req) {
              COUNT(*) FILTER (WHERE mfa_required = TRUE)::INTEGER AS mfa_required,
              COUNT(*) FILTER (
                WHERE COALESCE(is_sandbox_test_account, FALSE) = FALSE
-                 AND (deletion_requested_at IS NOT NULL OR account_locked_until > NOW())
+               AND (deletion_requested_at IS NOT NULL OR platform_access_suspended_at IS NOT NULL OR account_locked_until > NOW())
              )::INTEGER AS attention
       FROM users
     `),
@@ -603,6 +603,7 @@ async function getUsers(req) {
            last_login_provider,
            is_sandbox_test_account,
            deletion_requested_at,
+           platform_access_suspended_at,
            account_locked_until
     FROM users
     ORDER BY updated_at DESC, id DESC
@@ -612,13 +613,15 @@ async function getUsers(req) {
 
   const users = result.rows.map((row) => {
     const locked = row.account_locked_until && new Date(row.account_locked_until).getTime() > Date.now();
-    const state = row.is_sandbox_test_account
-      ? "sandbox"
-      : row.deletion_requested_at
-        ? "deletion-requested"
-        : locked
-          ? "locked"
-          : "active";
+    const state = row.deletion_requested_at
+      ? "deletion-requested"
+      : row.platform_access_suspended_at
+        ? "suspended"
+        : row.is_sandbox_test_account
+          ? "sandbox"
+          : locked
+            ? "locked"
+            : "active";
     return {
       id: String(row.id),
       name: row.display_name,
@@ -661,6 +664,7 @@ async function getUserDetails(req, userId) {
            u.last_login_provider,
            u.is_sandbox_test_account,
            u.deletion_requested_at,
+           u.platform_access_suspended_at,
            u.account_locked_until,
            u.created_at,
            u.updated_at,
@@ -675,13 +679,15 @@ async function getUserDetails(req, userId) {
   if (!row) return null;
 
   const locked = row.account_locked_until && new Date(row.account_locked_until).getTime() > Date.now();
-  const state = row.is_sandbox_test_account
-    ? "sandbox"
-    : row.deletion_requested_at
-      ? "deletion-requested"
-      : locked
-        ? "locked"
-        : "active";
+  const state = row.deletion_requested_at
+    ? "deletion-requested"
+    : row.platform_access_suspended_at
+      ? "suspended"
+      : row.is_sandbox_test_account
+        ? "sandbox"
+        : locked
+          ? "locked"
+          : "active";
   return envelope(req, "global", {
     user: {
       id: String(row.id),

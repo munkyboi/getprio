@@ -156,7 +156,7 @@ export interface PlatformUsersReadModel {
     id: string
     name: string
     roles: string[]
-    state: "active" | "locked" | "deletion-requested" | "sandbox"
+    state: "active" | "locked" | "suspended" | "deletion-requested" | "sandbox"
     emailVerified: boolean
     mfa: "required" | "enabled" | "not-enabled"
     lastLoginProvider: string | null
@@ -576,6 +576,35 @@ export interface UserPasswordResetPreview {
   confirmationToken: string
 }
 
+export interface UserRolesUpdatePreview {
+  action: "platform.user.roles.update"
+  targetId: string
+  roles: string[]
+  revision: string
+  confirmationToken: string
+}
+
+export interface UserRolesUpdateResult {
+  roles: string[]
+  revokedSessions: number
+  notificationSent: boolean
+}
+
+export interface UserMfaResetPreview {
+  action: "platform.user.mfa.reset"
+  targetId: string
+  revision: string
+  confirmationToken: string
+}
+
+export interface UserAccessUpdatePreview {
+  action: "platform.user.access.suspend" | "platform.user.access.reactivate"
+  targetId: string
+  suspended: boolean
+  revision: string
+  confirmationToken: string
+}
+
 export interface DeveloperProjectSummary {
   id: string
   name: string
@@ -633,6 +662,12 @@ export interface PlatformApi {
   executeUserSessionRevoke(userId: string, reason: string, revision: string, confirmationToken: string): Promise<{ revokedSessions: number }>
   previewUserPasswordReset(userId: string, reason: string): Promise<UserPasswordResetPreview>
   executeUserPasswordReset(userId: string, reason: string, revision: string, confirmationToken: string): Promise<void>
+  previewUserRolesUpdate(userId: string, roles: string[], reason: string): Promise<UserRolesUpdatePreview>
+  executeUserRolesUpdate(preview: UserRolesUpdatePreview, reason: string): Promise<UserRolesUpdateResult>
+  previewUserMfaReset(userId: string, reason: string): Promise<UserMfaResetPreview>
+  executeUserMfaReset(preview: UserMfaResetPreview, reason: string): Promise<{ mfaRequired: boolean; revokedSessions: number; notificationSent: boolean }>
+  previewUserAccessUpdate(userId: string, suspended: boolean, reason: string): Promise<UserAccessUpdatePreview>
+  executeUserAccessUpdate(preview: UserAccessUpdatePreview, reason: string): Promise<{ suspended: boolean; revokedSessions: number; notificationSent: boolean }>
   inspectTenant(tenantId: string): Promise<PlatformTenantInspection>
   previewTenantEntitlement(action: TenantEntitlementPreview["action"], targetId: string, payload: Record<string, unknown>, reason: string): Promise<TenantEntitlementPreview>
   executeTenantEntitlement(tenantId: string, overrideId: string | null, payload: Record<string, unknown>, reason: string, preview: TenantEntitlementPreview): Promise<void>

@@ -198,6 +198,40 @@ test("developer-only local session override keeps the developer session alive", 
   ));
 });
 
+test("suspended accounts cannot create or refresh authenticated sessions", async () => {
+  let repositoryCalls = 0;
+  const sessionService = requireWithMocks("../src/services/sessionService.js", {
+    "../config/env": {
+      jwtSecret: "test-secret",
+      accessTokenTtlMinutes: 15,
+      refreshTokenTtlDaysCustomer: 30,
+      refreshTokenTtlDaysVendorStaff: 14,
+      refreshTokenTtlDaysVendorAdmin: 7,
+      refreshTokenTtlDaysPlatformAdmin: 3
+    },
+    "../repositories/authSessions": {
+      createSession: async () => { repositoryCalls += 1; },
+      rotateSessionRefreshToken: async () => { repositoryCalls += 1; }
+    }
+  });
+  const suspendedUser = {
+    _id: "user-1",
+    roles: ["customer"],
+    tenantMemberships: [],
+    platformAccessSuspendedAt: new Date()
+  };
+
+  await assert.rejects(
+    sessionService.createAuthSession({ user: suspendedUser, authMethod: "password" }),
+    (error) => error.code === "ACCOUNT_ACCESS_SUSPENDED" && error.statusCode === 403
+  );
+  await assert.rejects(
+    sessionService.rotateRefreshSession({ session: { _id: "session-1" }, user: suspendedUser }),
+    (error) => error.code === "ACCOUNT_ACCESS_SUSPENDED" && error.statusCode === 403
+  );
+  assert.equal(repositoryCalls, 0);
+});
+
 test("session service rejects concurrent rotation without revoking the winner", async () => {
   let revoked = false;
   const sessionService = requireWithMocks("../src/services/sessionService.js", {

@@ -22,6 +22,10 @@ import type {
   SandboxCredentialResult,
   TenantEntitlementPreview,
   UserPasswordResetPreview,
+  UserRolesUpdatePreview,
+  UserRolesUpdateResult,
+  UserMfaResetPreview,
+  UserAccessUpdatePreview,
   UserSessionRevokePreview,
   ReadModelModule,
   ReadModelMeta,
@@ -331,6 +335,9 @@ const fixtureCapabilities = [
   "platform.queue_lifecycle.read",
   "platform.users.read",
   "platform.user_sessions.revoke",
+  "platform.user_roles.manage",
+  "platform.user_mfa.reset",
+  "platform.user_access.manage",
   "platform.user_password_reset.send",
   "platform.account_deletion.manage",
   "platform.developer_api.manage",
@@ -641,6 +648,28 @@ export const fixturePlatformApi: PlatformApi = {
   async executeUserPasswordReset(_userId: string, _reason: string, _revision: string, _confirmationToken: string) {
     return undefined
   },
+  async previewUserRolesUpdate(userId: string, roles: string[], _reason: string): Promise<UserRolesUpdatePreview> {
+    return { action: "platform.user.roles.update", targetId: userId, roles, revision: "user-roles-update-v1", confirmationToken: "fixture-confirmation-token" }
+  },
+  async executeUserRolesUpdate(preview: UserRolesUpdatePreview, _reason: string): Promise<UserRolesUpdateResult> {
+    const user = users.users.find((item) => item.id === preview.targetId)
+    if (user) user.roles = preview.roles
+    return { roles: preview.roles, revokedSessions: 2, notificationSent: true }
+  },
+  async previewUserMfaReset(userId: string, _reason: string): Promise<UserMfaResetPreview> {
+    return { action: "platform.user.mfa.reset", targetId: userId, revision: "user-mfa-reset-v1", confirmationToken: "fixture-confirmation-token" }
+  },
+  async executeUserMfaReset(_preview: UserMfaResetPreview, _reason: string) {
+    return { mfaRequired: false, revokedSessions: 2, notificationSent: true }
+  },
+  async previewUserAccessUpdate(userId: string, suspended: boolean, _reason: string): Promise<UserAccessUpdatePreview> {
+    return { action: suspended ? "platform.user.access.suspend" : "platform.user.access.reactivate", targetId: userId, suspended, revision: "user-access-update-v1", confirmationToken: "fixture-confirmation-token" }
+  },
+  async executeUserAccessUpdate(preview: UserAccessUpdatePreview, _reason: string) {
+    const user = users.users.find((item) => item.id === preview.targetId)
+    if (user) user.state = preview.suspended ? "suspended" : "active"
+    return { suspended: preview.suspended, revokedSessions: preview.suspended ? 2 : 0, notificationSent: true }
+  },
 }
 
 type HttpReadModel<T> = {
@@ -866,6 +895,31 @@ function createHttpPlatformApi(baseUrl = API_BASE_URL): PlatformApi {
       return { action: "platform.user.password_reset.send", targetId: response.preview.target, revision: response.preview.revision, confirmationToken: response.confirmation.token }
     },
     executeUserPasswordReset: (userId, reason, revision, confirmationToken) => writePlatform(baseUrl, `/platform/users/${encodeURIComponent(userId)}/password-reset`, { reason, previewRevision: revision }, crypto.randomUUID(), "POST", { "X-Transaction-Confirmation": confirmationToken }).then(() => undefined),
+    previewUserRolesUpdate: async (userId, roles, reason) => {
+      const response = await writePlatform<{ preview: { action: string; target: string; revision: string }; confirmation: { token: string } }>(baseUrl, "/platform/privileged-actions/preview", { action: "platform.user.roles.update", target: userId, reason, payload: { userId, roles } }, crypto.randomUUID())
+      return { action: "platform.user.roles.update", targetId: response.preview.target, roles, revision: response.preview.revision, confirmationToken: response.confirmation.token }
+    },
+    executeUserRolesUpdate: async (preview, reason) => {
+      const response = await writePlatform<UserRolesUpdateResult>(baseUrl, `/platform/users/${encodeURIComponent(preview.targetId)}/roles`, { roles: preview.roles, reason, previewRevision: preview.revision }, crypto.randomUUID(), "POST", { "X-Transaction-Confirmation": preview.confirmationToken })
+      return { roles: response.roles || preview.roles, revokedSessions: Number(response.revokedSessions || 0), notificationSent: Boolean(response.notificationSent) }
+    },
+    previewUserMfaReset: async (userId, reason) => {
+      const response = await writePlatform<{ preview: { action: string; target: string; revision: string }; confirmation: { token: string } }>(baseUrl, "/platform/privileged-actions/preview", { action: "platform.user.mfa.reset", target: userId, reason, payload: { userId } }, crypto.randomUUID())
+      return { action: "platform.user.mfa.reset", targetId: response.preview.target, revision: response.preview.revision, confirmationToken: response.confirmation.token }
+    },
+    executeUserMfaReset: async (preview, reason) => {
+      const response = await writePlatform<{ mfaRequired: boolean; revokedSessions: number; notificationSent: boolean }>(baseUrl, `/platform/users/${encodeURIComponent(preview.targetId)}/mfa/reset`, { reason, previewRevision: preview.revision }, crypto.randomUUID(), "POST", { "X-Transaction-Confirmation": preview.confirmationToken })
+      return { mfaRequired: Boolean(response.mfaRequired), revokedSessions: Number(response.revokedSessions || 0), notificationSent: Boolean(response.notificationSent) }
+    },
+    previewUserAccessUpdate: async (userId, suspended, reason) => {
+      const action = suspended ? "platform.user.access.suspend" : "platform.user.access.reactivate"
+      const response = await writePlatform<{ preview: { action: string; target: string; revision: string }; confirmation: { token: string } }>(baseUrl, "/platform/privileged-actions/preview", { action, target: userId, reason, payload: { userId, suspended } }, crypto.randomUUID())
+      return { action: action as UserAccessUpdatePreview["action"], targetId: response.preview.target, suspended, revision: response.preview.revision, confirmationToken: response.confirmation.token }
+    },
+    executeUserAccessUpdate: async (preview, reason) => {
+      const response = await writePlatform<{ suspended: boolean; revokedSessions: number; notificationSent: boolean }>(baseUrl, `/platform/users/${encodeURIComponent(preview.targetId)}/access`, { suspended: preview.suspended, reason, previewRevision: preview.revision }, crypto.randomUUID(), "POST", { "X-Transaction-Confirmation": preview.confirmationToken })
+      return { suspended: Boolean(response.suspended), revokedSessions: Number(response.revokedSessions || 0), notificationSent: Boolean(response.notificationSent) }
+    },
     previewTenantEntitlement: async (action, targetId, payload, reason) => {
       const response = await writePlatform<{ preview: { action: TenantEntitlementPreview["action"]; target: string; revision: string }; confirmation: { token: string } }>(baseUrl, "/platform/privileged-actions/preview", { action, target: targetId, reason, payload }, crypto.randomUUID())
       return { action: response.preview.action, targetId: response.preview.target, revision: response.preview.revision, confirmationToken: response.confirmation.token }

@@ -63,6 +63,12 @@ async function loadDeveloperIdentity(req, strict = true) {
   }
 
   const user = await userRepository.findUserById(payload.sub);
+  if (user?.platformAccessSuspendedAt) {
+    const error = new Error("This account's access is suspended. Contact GetPrio support.");
+    error.statusCode = 403;
+    error.code = "ACCOUNT_ACCESS_SUSPENDED";
+    throw error;
+  }
   const membership = user && await developerAccountRepository.findMembershipByUserId(user._id);
   if (!user || !membership || membership.accountStatus !== "active") {
     const error = new Error("Developer account is not active.");

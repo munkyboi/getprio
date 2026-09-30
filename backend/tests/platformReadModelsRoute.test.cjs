@@ -36,7 +36,8 @@ function loadReadModelRoutes({ missingGovernanceProject = false, overrides = {} 
       requirePlatformPermission: (permission) => ({ type: "permission", permission })
     },
     "../services/platformReadModelService": platformReadModelService,
-    "../services/platformReleaseReadinessEvidence": evidenceService
+    "../services/platformReleaseReadinessEvidence": evidenceService,
+    "../middleware/idempotency": { requireIdempotency: (action) => ({ action }) }
   };
   Object.assign(mocks, overrides);
 
@@ -154,6 +155,154 @@ test("password reset route is registered with dedicated capability and idempoten
   assert.ok(route);
   assert.equal(route.args[1].permission, "platform.user_password_reset.send");
   assert.equal(typeof route.args.at(-1), "function");
+});
+
+test("global role updates require their dedicated capability and privileged confirmation", () => {
+  const { routes } = loadReadModelRoutes();
+  const route = routes.find(({ method, args }) => method === "post" && args[0] === "/users/:userId/roles");
+  assert.ok(route);
+  assert.equal(route.args[1].permission, "platform.user_roles.manage");
+  assert.equal(route.args[2].action, "platform.user.roles.update");
+  assert.equal(typeof route.args.at(-1), "function");
+});
+
+test("global role update persists the exact reviewed roles, revokes sessions, and audits the change", async () => {
+  const calls = [];
+  const client = { query: async (sql, params) => {
+    calls.push(["query", sql, params]);
+    if (/SELECT id,email,roles,deletion_requested_at,platform_access_suspended_at FROM users/.test(sql)) return { rows: [{ id: 27, email: "owner@example.com", roles: ["customer"], deletion_requested_at: null, platform_access_suspended_at: null }] };
+    if (/SELECT COUNT\(\*\)::INTEGER AS count FROM users/.test(sql)) return { rows: [{ count: 2 }] };
+    if (/UPDATE users SET roles/.test(sql)) return { rows: [{ id: 27, roles: ["customer", "platform_release_observer"] }] };
+    return { rows: [] };
+  } };
+  const { routes } = loadReadModelRoutes({ overrides: {
+    "../config/db": { withTransaction: async (callback) => callback(client) },
+    "../services/privilegedPreviewService": { resolvePreview: async (input) => { calls.push(["preview", input]); return { revision: "roles-revision" }; } },
+    "../services/privilegedTransactionService": { consumeConfirmation: async (input) => calls.push(["confirmation", input]) },
+    "../repositories/authSessions": { revokeAllSessionsForUser: async (...args) => { calls.push(["revoke-sessions", ...args]); return 3; } },
+    "../services/notificationService": { sendEmail: async (input) => { calls.push(["email", input]); return true; } },
+    "../services/securityAuditService": { record: async (event) => calls.push(["audit", event]) },
+  } });
+  const route = routes.find(({ method, args }) => method === "post" && args[0] === "/users/:userId/roles");
+  const res = response();
+  await route.args.at(-1)({
+    params: { userId: "27" }, body: { roles: ["customer", "platform_release_observer"], reason: "Enable release smoke account", previewRevision: "roles-revision" },
+    user: { _id: "8" }, auth: { session: { _id: "session-8" }, sessionId: "session-8" },
+    get: (header) => header === "x-transaction-confirmation" ? "confirmation-token" : null
+  }, res);
+
+  assert.equal(res.code, 200);
+  assert.deepEqual(JSON.parse(JSON.stringify(res.body)), { success: true, roles: ["customer", "platform_release_observer"], revokedSessions: 3, notificationSent: true });
+  assert.deepEqual(JSON.parse(JSON.stringify(calls.find(([kind]) => kind === "confirmation")[1].payload)), { userId: "27", roles: ["customer", "platform_release_observer"] });
+  assert.equal(calls.find(([kind]) => kind === "revoke-sessions")[1], "27");
+  assert.equal(calls.find(([kind]) => kind === "audit")[1].action, "platform.user.roles.update");
+  assert.deepEqual(calls.find(([kind]) => kind === "audit")[1].afterState.roles, ["customer", "platform_release_observer"]);
+  assert.equal(calls.find(([kind]) => kind === "email")[1].to, "owner@example.com");
+});
+
+test("global role update rejects an attempt to remove the last Platform Admin", async () => {
+  const client = { query: async (sql) => {
+    if (/pg_advisory_xact_lock/.test(sql)) return { rows: [] };
+    if (/SELECT id,email,roles,deletion_requested_at,platform_access_suspended_at FROM users/.test(sql)) return { rows: [{ id: 27, email: "admin@example.com", roles: ["platform_admin"], deletion_requested_at: null, platform_access_suspended_at: null }] };
+    if (/SELECT COUNT\(\*\)::INTEGER AS count FROM users/.test(sql)) return { rows: [{ count: 1 }] };
+    throw new Error("A last-admin removal must stop before mutation.");
+  } };
+  const { routes } = loadReadModelRoutes({ overrides: {
+    "../config/db": { withTransaction: async (callback) => callback(client) },
+    "../services/privilegedPreviewService": { resolvePreview: async () => ({ revision: "roles-revision" }) },
+    "../services/privilegedTransactionService": { consumeConfirmation: async () => {} }
+  } });
+  const route = routes.find(({ method, args }) => method === "post" && args[0] === "/users/:userId/roles");
+  const res = response();
+  await assert.rejects(route.args.at(-1)({
+    params: { userId: "27" }, body: { roles: ["customer"], reason: "Remove obsolete admin role", previewRevision: "roles-revision" },
+    user: { _id: "8" }, auth: { session: { _id: "session-8" }, sessionId: "session-8" },
+    get: () => "confirmation-token"
+  }, res), (error) => error.code === "LAST_PLATFORM_ADMIN");
+});
+
+test("admin MFA reset requires a dedicated capability and security confirmation", () => {
+  const { routes } = loadReadModelRoutes();
+  const route = routes.find(({ method, args }) => method === "post" && args[0] === "/users/:userId/mfa/reset");
+  assert.ok(route);
+  assert.equal(route.args[1].permission, "platform.user_mfa.reset");
+  assert.equal(route.args[2].action, "platform.user.mfa.reset");
+});
+
+test("admin MFA reset revokes factors, recovery codes, and sessions while preserving role-required MFA", async () => {
+  const calls = [];
+  const client = { query: async (sql, params) => {
+    calls.push(["query", sql, params]);
+    if (/SELECT id,email,roles,mfa_enabled,email_mfa_enabled,deletion_requested_at FROM users/.test(sql)) return { rows: [{ id: 27, email: "owner@example.com", roles: ["platform_release_observer"], mfa_enabled: true, email_mfa_enabled: true, deletion_requested_at: null }] };
+    if (/UPDATE users SET mfa_enabled=FALSE,email_mfa_enabled=FALSE/.test(sql)) return { rows: [] };
+    return { rows: [] };
+  } };
+  const { routes } = loadReadModelRoutes({ overrides: {
+    "../config/db": { withTransaction: async (callback) => callback(client) },
+    "../services/privilegedPreviewService": { resolvePreview: async () => ({ revision: "mfa-reset-revision" }) },
+    "../services/privilegedTransactionService": { consumeConfirmation: async (input) => calls.push(["confirmation", input]) },
+    "../repositories/mfa": { revokeFactorsAndRecoveryCodes: async (userId, options) => calls.push(["revoke-mfa", userId, options]) },
+    "../repositories/authSessions": { revokeAllSessionsForUser: async (userId, reason, options) => { calls.push(["revoke-sessions", userId, reason, options]); return 2; } },
+    "../services/mfaService": { userRequiresPrivilegedMfa: (user) => user.roles.includes("platform_release_observer") },
+    "../services/notificationService": { sendEmail: async (input) => { calls.push(["email", input]); return true; } },
+    "../services/securityAuditService": { record: async (event) => calls.push(["audit", event]) },
+  } });
+  const route = routes.find(({ method, args }) => method === "post" && args[0] === "/users/:userId/mfa/reset");
+  const res = response();
+  await route.args.at(-1)({
+    params: { userId: "27" }, body: { reason: "Owner lost authenticator device", previewRevision: "mfa-reset-revision" },
+    user: { _id: "8" }, auth: { session: { _id: "session-8" }, sessionId: "session-8" },
+    get: (header) => header === "x-transaction-confirmation" ? "confirmation-token" : null
+  }, res);
+
+  assert.equal(res.code, 200);
+  assert.equal(res.body.mfaRequired, true);
+  assert.equal(res.body.revokedSessions, 2);
+  assert.equal(calls.some(([kind]) => kind === "revoke-mfa"), true);
+  assert.deepEqual(JSON.parse(JSON.stringify(calls.find(([kind]) => kind === "confirmation")[1].payload)), { userId: "27" });
+  assert.equal(calls.find(([kind]) => kind === "audit")[1].action, "platform.user.mfa.reset");
+  assert.equal(calls.find(([kind]) => kind === "email")[1].to, "owner@example.com");
+});
+
+test("account access changes use a dedicated capability and previewed action", () => {
+  const { routes } = loadReadModelRoutes();
+  const route = routes.find(({ method, args }) => method === "post" && args[0] === "/users/:userId/access");
+  assert.ok(route);
+  assert.equal(route.args[1].permission, "platform.user_access.manage");
+  assert.equal(route.args[2].action, "platform.user.access.update");
+});
+
+test("suspending an account revokes sessions, persists the suspension, and audits the reason", async () => {
+  const calls = [];
+  const client = { query: async (sql, params) => {
+    calls.push(["query", sql, params]);
+    if (/pg_advisory_xact_lock/.test(sql)) return { rows: [] };
+    if (/SELECT id,email,roles,deletion_requested_at,platform_access_suspended_at FROM users/.test(sql)) return { rows: [{ id: 27, email: "owner@example.com", roles: ["customer"], deletion_requested_at: null, platform_access_suspended_at: null }] };
+    if (/UPDATE users SET platform_access_suspended_at=CASE/.test(sql)) return { rows: [] };
+    return { rows: [] };
+  } };
+  const { routes } = loadReadModelRoutes({ overrides: {
+    "../config/db": { withTransaction: async (callback) => callback(client) },
+    "../services/privilegedPreviewService": { resolvePreview: async (input) => { calls.push(["preview", input]); return { revision: "access-revision" }; } },
+    "../services/privilegedTransactionService": { consumeConfirmation: async (input) => calls.push(["confirmation", input]) },
+    "../repositories/authSessions": { revokeAllSessionsForUser: async (userId, reason, options) => { calls.push(["revoke-sessions", userId, reason, options]); return 4; } },
+    "../services/notificationService": { sendEmail: async (input) => { calls.push(["email", input]); return true; } },
+    "../services/securityAuditService": { record: async (event) => calls.push(["audit", event]) },
+  } });
+  const route = routes.find(({ method, args }) => method === "post" && args[0] === "/users/:userId/access");
+  const res = response();
+  await route.args.at(-1)({
+    params: { userId: "27" }, body: { suspended: true, reason: "Abuse investigation in progress", previewRevision: "access-revision" },
+    user: { _id: "8" }, auth: { session: { _id: "session-8" }, sessionId: "session-8" },
+    get: (header) => header === "x-transaction-confirmation" ? "confirmation-token" : null
+  }, res);
+
+  assert.equal(res.code, 200);
+  assert.deepEqual(JSON.parse(JSON.stringify(res.body)), { success: true, suspended: true, revokedSessions: 4, notificationSent: true });
+  assert.equal(calls.find(([kind]) => kind === "preview")[1].action, "platform.user.access.suspend");
+  assert.equal(calls.find(([kind]) => kind === "revoke-sessions")[1], "27");
+  assert.equal(calls.find(([kind]) => kind === "audit")[1].action, "platform.user.access.suspend");
+  assert.equal(calls.find(([kind]) => kind === "email")[1].to, "owner@example.com");
 });
 
 test("password reset sends the one-time link only to the target account and never returns it", async () => {

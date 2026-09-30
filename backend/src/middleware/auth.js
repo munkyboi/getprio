@@ -85,6 +85,12 @@ async function loadAuthenticatedUser(req, strict) {
       error.statusCode = 401;
       throw error;
     }
+    if (user.platformAccessSuspendedAt) {
+      const error = new Error("This account's access is suspended. Contact GetPrio support.");
+      error.statusCode = 403;
+      error.code = "ACCOUNT_ACCESS_SUSPENDED";
+      throw error;
+    }
     assertSandboxTestAccountRequest(user, req);
     if (isDeveloperOnlyIdentity(user)) {
       const error = new Error("This account is only available in the Developer Portal.");
