@@ -185,6 +185,31 @@ test("global role updates require their dedicated capability and privileged conf
   assert.equal(typeof route.args.at(-1), "function");
 });
 
+test("tenant membership updates use the user-role capability and privileged confirmation", () => {
+  const { routes } = loadReadModelRoutes();
+  const route = routes.find(({ method, args }) => method === "post" && args[0] === "/users/:userId/tenant-memberships");
+  assert.ok(route);
+  assert.equal(route.args[1].permission, "platform.user_roles.manage");
+  assert.equal(route.args[2].action, "platform.user.tenant_membership.update");
+  assert.equal(typeof route.args.at(-1), "function");
+});
+
+test("tenant membership updates reject self-assignment before opening a transaction", async () => {
+  let transactionOpened = false;
+  const { routes } = loadReadModelRoutes({ overrides: {
+    "../config/db": { withTransaction: async () => { transactionOpened = true; } }
+  } });
+  const route = routes.find(({ method, args }) => method === "post" && args[0] === "/users/:userId/tenant-memberships");
+  const res = response();
+  await route.args.at(-1)({
+    params: { userId: "8" }, body: { tenantId: "9", role: "owner", active: true, reason: "Grant myself tenant ownership" },
+    user: { _id: "8" }, auth: { session: { _id: "session-8" }, sessionId: "session-8" }, get: () => "confirmation-token"
+  }, res);
+  assert.equal(res.code, 409);
+  assert.equal(res.body.code, "SELF_MEMBERSHIP_CHANGE_DENIED");
+  assert.equal(transactionOpened, false);
+});
+
 test("global role preview canonicalizes the role list used by the later confirmed update", async () => {
   const calls = [];
   const { routes } = loadReadModelRoutes({ overrides: {

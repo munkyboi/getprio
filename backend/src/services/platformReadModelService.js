@@ -660,7 +660,7 @@ async function getUsers(req) {
 }
 
 async function getUserDetails(req, userId) {
-  const result = await db.pool.query(`
+  const [result, membershipResult] = await Promise.all([db.pool.query(`
     SELECT u.id,
            COALESCE(u.display_name, u.name, u.username, 'Platform user') AS display_name,
            u.name,
@@ -687,7 +687,13 @@ async function getUserDetails(req, userId) {
            (SELECT COUNT(*)::INTEGER FROM auth_mfa_recovery_codes c WHERE c.user_id = u.id AND c.used_at IS NULL) AS unused_recovery_codes
     FROM users u
     WHERE u.id = $1
-  `, [Number(userId)]);
+  `, [Number(userId)]), db.pool.query(`
+    SELECT m.tenant_id, t.name AS tenant_name, t.slug AS tenant_slug, m.role, m.is_active
+    FROM tenant_memberships m
+    INNER JOIN tenants t ON t.id = m.tenant_id
+    WHERE m.user_id = $1
+    ORDER BY t.name ASC, m.tenant_id ASC
+  `, [Number(userId)])]);
   const row = result.rows[0];
   if (!row) return null;
 
@@ -705,6 +711,13 @@ async function getUserDetails(req, userId) {
       email: row.email || "",
       phone: row.phone || "",
       roles: Array.isArray(row.roles) ? row.roles : [],
+      tenantMemberships: membershipResult.rows.map((membership) => ({
+        tenantId: String(membership.tenant_id),
+        tenantName: membership.tenant_name,
+        tenantSlug: membership.tenant_slug,
+        role: membership.role,
+        isActive: membership.is_active !== false
+      })),
       state,
       emailVerified: Boolean(row.email_verified),
       emailMfaEnabled: Boolean(row.email_mfa_enabled),

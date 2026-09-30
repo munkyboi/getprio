@@ -66,6 +66,7 @@ test("user detail read model returns account and security posture without creden
   const service = loadReadModelService({
     query: async (sql, params) => {
       calls.push({ sql, params });
+      if (sql.includes("FROM tenant_memberships m")) return { rows: [{ tenant_id: 9, tenant_name: "North Clinic", tenant_slug: "north-clinic", role: "admin", is_active: true }] };
       return { rows: [{
         id: 27, name: "Carlo Abella", display_name: "Carlo", username: "carlo", email: "carlo@example.com", phone: "+639171234567",
         roles: ["platform_admin"], email_verified: true, email_mfa_enabled: true, mfa_enabled: true, mfa_required: true,
@@ -79,7 +80,7 @@ test("user detail read model returns account and security posture without creden
   const result = await service.getUserDetails({ context: { correlationId: "user_detail_1" } }, "27");
   assert.deepEqual(JSON.parse(JSON.stringify(result.data.user)), {
     id: "27", name: "Carlo Abella", displayName: "Carlo", username: "carlo", email: "carlo@example.com", phone: "+639171234567",
-    roles: ["platform_admin"], state: "active", emailVerified: true, emailMfaEnabled: true, mfaEnabled: true, mfaRequired: true,
+    roles: ["platform_admin"], tenantMemberships: [{ tenantId: "9", tenantName: "North Clinic", tenantSlug: "north-clinic", role: "admin", isActive: true }], state: "active", emailVerified: true, emailMfaEnabled: true, mfaEnabled: true, mfaRequired: true,
     hasPassword: true, lastLoginProvider: "password", activeSessions: 3, activeMfaFactors: 1, pendingMfaFactors: 0,
     unusedRecoveryCodes: 5, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-09-27T00:00:00.000Z"
   });

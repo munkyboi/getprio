@@ -45,3 +45,12 @@ test("user-management API contracts keep previews and confirmed actions separate
   assert.match(app, /serverPagination=\{\{ pageIndex: users\.pagination\.page - 1/)
   assert.match(app, /Search all accounts/)
 })
+
+test("user details expose audited tenant membership management", () => {
+  assert.match(app, /Tenant memberships/)
+  assert.match(app, /Manage tenant membership/)
+  assert.match(app, /The final active owner cannot be removed/)
+  assert.match(contracts, /previewUserTenantMembershipUpdate\(/)
+  assert.match(api, /platform\.user\.tenant_membership\.update/)
+  assert.match(api, /\/tenant-memberships/)
+})
