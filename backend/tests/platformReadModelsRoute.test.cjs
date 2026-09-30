@@ -77,6 +77,7 @@ function assertProtectedMutationRoute(routePath, permission, action) {
   assert.ok(route);
   assert.equal(route.args[1].permission, permission);
   assert.equal(route.args[2].action, action);
+  assert.equal(typeof route.args.at(-1), "function");
 }
 
 test("Platform read-model routes require authentication and their capability-specific permissions", () => {
@@ -177,21 +178,11 @@ test("password reset route is registered with dedicated capability and idempoten
 });
 
 test("global role updates require their dedicated capability and privileged confirmation", () => {
-  const { routes } = loadReadModelRoutes();
-  const route = routes.find(({ method, args }) => method === "post" && args[0] === "/users/:userId/roles");
-  assert.ok(route);
-  assert.equal(route.args[1].permission, "platform.user_roles.manage");
-  assert.equal(route.args[2].action, "platform.user.roles.update");
-  assert.equal(typeof route.args.at(-1), "function");
+  assertProtectedMutationRoute("/users/:userId/roles", "platform.user_roles.manage", "platform.user.roles.update");
 });
 
 test("tenant membership updates use the user-role capability and privileged confirmation", () => {
-  const { routes } = loadReadModelRoutes();
-  const route = routes.find(({ method, args }) => method === "post" && args[0] === "/users/:userId/tenant-memberships");
-  assert.ok(route);
-  assert.equal(route.args[1].permission, "platform.user_roles.manage");
-  assert.equal(route.args[2].action, "platform.user.tenant_membership.update");
-  assert.equal(typeof route.args.at(-1), "function");
+  assertProtectedMutationRoute("/users/:userId/tenant-memberships", "platform.user_roles.manage", "platform.user.tenant_membership.update");
 });
 
 test("tenant membership updates reject self-assignment before opening a transaction", async () => {
