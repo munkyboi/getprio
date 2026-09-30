@@ -44,7 +44,7 @@ import type {
   UpdateCustomerNotificationSettingsResponse,
   TicketStatus
 } from "@shared";
-import { apiRequest } from "../api/client";
+import { ApiError, apiRequest } from "../api/client";
 import { customerAccountApi } from "../api/customerAccount";
 import StyledQRCode from "../components/StyledQRCode";
 import { useAuth } from "../context/AuthContext";
@@ -470,7 +470,10 @@ export default function CustomerAccountPage() {
   function openBooking(booking: (typeof bookings)[number]) {
     navigate(`/account/bookings/${booking.id}`);
   }
-  const accountUser = account?.user;
+  // Privileged users can reach Security recovery while the broader account
+  // overview remains MFA-gated. Keep the authenticated user as the fallback
+  // so required enrollment is never presented as optional.
+  const accountUser = account?.user ?? user;
   const totpMfaEnabled = !mfaRemoved && Boolean(accountUser?.totpMfaEnabled || mfaRecoveryCodes.length);
   const emailMfaEnabled = Boolean(accountUser?.emailMfaEnabled);
   const mfaEnabled = totpMfaEnabled || emailMfaEnabled;
@@ -496,7 +499,13 @@ export default function CustomerAccountPage() {
   }, [accountQuery.data]);
 
   useEffect(() => {
-    if (accountQuery.error) {
+    const recoveringRequiredMfa = activeSection === "security"
+      && user?.mfaRequired === true
+      && user.mfaEnabled !== true
+      && accountQuery.error instanceof ApiError
+      && accountQuery.error.status === 403
+      && accountQuery.error.message === "Set up multi-factor authentication before accessing this account.";
+    if (accountQuery.error && !recoveringRequiredMfa) {
       showCustomerError(getErrorMessage(accountQuery.error), "Could not load your account");
       return;
     }
@@ -1504,7 +1513,7 @@ export default function CustomerAccountPage() {
           <div>
             <Text className="finazze-section-label">2FA/MFA</Text>
             <Title order={2}>Multi-factor authentication</Title>
-            <Text c="dimmed" mt="xs">Choose an authenticator app, email OTP, or both as optional sign-in verification.</Text>
+            <Text c="dimmed" mt="xs">{accountUser?.mfaRequired ? "Set up an authenticator app or email OTP to satisfy the required sign-in verification." : "Choose an authenticator app, email OTP, or both as optional sign-in verification."}</Text>
           </div>
           <Group gap="sm">
             <Badge color={mfaEnabled ? "teal" : "gray"} variant="light">
