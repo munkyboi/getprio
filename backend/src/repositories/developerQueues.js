@@ -935,7 +935,7 @@ async function transitionTicket(input, options = {}) {
     toStatus: updated.status,
     resourceVersion: updated.resourceVersion
   }, { client: queryClient });
-  if (updated.environment === "sandbox") {
+  if (updated.environment === "sandbox" && env.waitTimePredictionCaptureEnabled) {
     const outcomeType = updated.status === "called"
       ? "called"
       : ["cancelled", "unserved", "expired", "skipped"].includes(updated.status)
