@@ -18,6 +18,11 @@ test("User details expose audited global-role, MFA-recovery, and sign-in access 
   assert.match(app, /ACCOUNT SECURITY/)
   assert.match(app, /ACCOUNT ACCESS/)
   assert.match(app, /min-h-11 w-full sm:w-auto/)
+  assert.match(app, /Discard unsaved changes\?/)
+  assert.match(app, /ROLE_MANAGED_ELSEWHERE|Portal-managed roles remain unchanged here/)
+  assert.match(app, /mfa-enrollment-required/)
+  assert.match(app, /MFA_ENROLLMENT_REQUIRED/)
+  assert.match(app, /onMfaEnrollmentComplete/)
 })
 
 test("user-management API contracts keep previews and confirmed actions separate", () => {
@@ -29,4 +34,10 @@ test("user-management API contracts keep previews and confirmed actions separate
   assert.match(api, /\/platform\/users\/\$\{encodeURIComponent\(preview\.targetId\)\}\/mfa\/reset/)
   assert.match(api, /\/platform\/users\/\$\{encodeURIComponent\(preview\.targetId\)\}\/access/)
   assert.match(api, /X-Transaction-Confirmation/)
+  assert.match(api, /mfaRequired: Boolean\(response\.mfaRequired\)/)
+  assert.match(api, /state: response\.state/)
+  assert.match(api, /code: payload\.code/)
+  assert.match(api, /getUsers: \(page = 1, search = ""\)/)
+  assert.match(app, /serverPagination=\{\{ pageIndex: users\.pagination\.page - 1/)
+  assert.match(app, /Search all accounts/)
 })

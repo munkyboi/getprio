@@ -700,7 +700,11 @@ router.post(
     if (!getGlobalPermissions(req.user).has(permissionByAction[action])) throw Object.assign(new Error("You do not have permission to preview this action."), { statusCode: 403 });
     const target = String(req.body.target || "");
     const reason = String(req.body.reason || "");
-    const preview = await privilegedPreviewService.resolvePreview({ action, target, payload: req.body.payload || {} });
+    const requestPayload = req.body.payload || {};
+    const payload = action === "platform.user.roles.update" && Array.isArray(requestPayload.roles)
+      ? { ...requestPayload, roles: sortPlatformRoles(new Set(requestPayload.roles)) }
+      : requestPayload;
+    const preview = await privilegedPreviewService.resolvePreview({ action, target, payload });
     const confirmation = await privilegedTransactionService.issueConfirmation({ actorId: req.user._id, session: req.auth.session, action, target, reason, payload: preview.payload, previewRevision: preview.revision });
     res.json({ preview, confirmation });
   })
@@ -779,8 +783,23 @@ router.post(
 );
 
 const PLATFORM_MANAGED_GLOBAL_ROLES = [
-  "customer", "vendor", "vendor_admin", "staff", "admin", "developer", "platform_release_observer", "platform_admin"
+  "customer", "vendor", "vendor_admin", "staff", "admin", "platform_admin"
 ];
+const PLATFORM_PRESERVED_GLOBAL_ROLES = ["developer", "platform_release_observer"];
+const PLATFORM_ROLE_ORDER = [...PLATFORM_MANAGED_GLOBAL_ROLES, ...PLATFORM_PRESERVED_GLOBAL_ROLES];
+const sortPlatformRoles = (roles) => [...roles].sort((left, right) => PLATFORM_ROLE_ORDER.indexOf(left) - PLATFORM_ROLE_ORDER.indexOf(right));
+function platformUserAccessState({ suspended, isSandboxTestAccount, accountLockedUntil }) {
+  if (suspended) return "suspended";
+  if (isSandboxTestAccount) return "sandbox";
+  if (accountLockedUntil && new Date(accountLockedUntil).getTime() > Date.now()) return "locked";
+  return "active";
+}
+function mfaResetBlockReason(target) {
+  if (!target) return "missing";
+  if (target.deletion_requested_at) return "deletionPending";
+  if (!target.mfa_enabled && !target.email_mfa_enabled) return "notEnabled";
+  return null;
+}
 
 router.post(
   "/users/:userId/roles",
@@ -793,25 +812,39 @@ router.post(
       return res.status(409).json({ message: "You cannot change your own account roles." , code: "SELF_ROLE_CHANGE_DENIED" });
     }
     const roleInput = req.body?.roles;
-    if (!Array.isArray(roleInput) || roleInput.some((role) => typeof role !== "string" || !PLATFORM_MANAGED_GLOBAL_ROLES.includes(role))) {
+    if (!Array.isArray(roleInput) || roleInput.some((role) => typeof role !== "string" || (!PLATFORM_MANAGED_GLOBAL_ROLES.includes(role) && !PLATFORM_PRESERVED_GLOBAL_ROLES.includes(role)))) {
       return res.status(400).json({ message: "Choose only supported global account roles.", code: "INVALID_ROLE_SET" });
     }
-    const roles = [...new Set(roleInput)].sort((a, b) => PLATFORM_MANAGED_GLOBAL_ROLES.indexOf(a) - PLATFORM_MANAGED_GLOBAL_ROLES.indexOf(b));
+    const submittedRoles = [...new Set(roleInput)];
     const reason = String(req.body?.reason || "").trim().replace(/\s+/g, " ");
     if (reason.length < 8 || reason.length > 500) {
       return res.status(400).json({ message: "Enter an audit reason between 8 and 500 characters.", code: "INVALID_REASON" });
     }
-    const payload = { userId, roles };
     const outcome = await db.withTransaction(async (client) => {
       // Serialize global role edits so two concurrent requests cannot both remove the final admin.
       await client.query("SELECT pg_advisory_xact_lock(73921, 1)");
       const target = (await client.query(
-        "SELECT id,email,roles,deletion_requested_at,platform_access_suspended_at FROM users WHERE id=$1 FOR UPDATE",
+        "SELECT id,email,roles,deletion_requested_at,platform_access_suspended_at,is_sandbox_test_account FROM users WHERE id=$1 FOR UPDATE",
         [Number(userId)]
       )).rows[0];
       if (!target) return { missing: true };
       if (target.deletion_requested_at) return { deletionPending: true };
       const previousRoles = Array.isArray(target.roles) ? target.roles : [];
+      const previousPreservedRoles = sortPlatformRoles(previousRoles.filter((role) => PLATFORM_PRESERVED_GLOBAL_ROLES.includes(role)));
+      const submittedPreservedRoles = sortPlatformRoles(submittedRoles.filter((role) => PLATFORM_PRESERVED_GLOBAL_ROLES.includes(role)));
+      if (JSON.stringify(previousPreservedRoles) !== JSON.stringify(submittedPreservedRoles)) {
+        throw Object.assign(new Error("Developer Portal access roles are managed in their respective portal."), { statusCode: 400, code: "ROLE_MANAGED_ELSEWHERE" });
+      }
+      const roles = sortPlatformRoles(new Set([...submittedRoles, ...previousPreservedRoles]));
+      if (roles.includes("platform_admin") && target.is_sandbox_test_account) {
+        throw Object.assign(new Error("Sandbox test accounts cannot be granted Platform Admin access."), { statusCode: 409, code: "SANDBOX_PLATFORM_ADMIN_DENIED" });
+      }
+      const tenantMemberships = (await client.query(
+        "SELECT role,is_active FROM tenant_memberships WHERE user_id=$1",
+        [Number(userId)]
+      )).rows.map((membership) => ({ role: membership.role, isActive: membership.is_active !== false }));
+      const mfaRequired = userRequiresPrivilegedMfa({ roles, tenantMemberships });
+      const payload = { userId, roles };
       const preview = await privilegedPreviewService.resolvePreview({ action: "platform.user.roles.update", target: userId, payload }, { client, lock: true });
       await privilegedTransactionService.consumeConfirmation({
         token: req.get("x-transaction-confirmation"), actorId: req.user._id, session: req.auth.session,
@@ -820,16 +853,16 @@ router.post(
       }, { client });
       if (previousRoles.includes("platform_admin") && !target.platform_access_suspended_at && !roles.includes("platform_admin")) {
         const admins = Number((await client.query(
-          "SELECT COUNT(*)::INTEGER AS count FROM users WHERE 'platform_admin'=ANY(COALESCE(roles,ARRAY[]::TEXT[])) AND platform_access_suspended_at IS NULL AND deletion_requested_at IS NULL"
+          "SELECT COUNT(*)::INTEGER AS count FROM users WHERE 'platform_admin'=ANY(COALESCE(roles,ARRAY[]::TEXT[])) AND platform_access_suspended_at IS NULL AND deletion_requested_at IS NULL AND COALESCE(is_sandbox_test_account,FALSE)=FALSE"
         )).rows[0]?.count || 0);
         if (admins <= 1) throw Object.assign(new Error("The last active Platform Admin cannot be removed."), { statusCode: 409, code: "LAST_PLATFORM_ADMIN" });
       }
-      if (JSON.stringify([...previousRoles].sort()) === JSON.stringify([...roles].sort())) {
-        return { roles: previousRoles, revokedSessions: 0, email: target.email, unchanged: true };
+      if (JSON.stringify(sortPlatformRoles(previousRoles)) === JSON.stringify(roles)) {
+        return { roles: previousRoles, mfaRequired, revokedSessions: 0, email: target.email, unchanged: true };
       }
       const updated = (await client.query(
-        "UPDATE users SET roles=$2,updated_at=NOW() WHERE id=$1 RETURNING roles",
-        [Number(userId), roles]
+        "UPDATE users SET roles=$2,mfa_required=$3,updated_at=NOW() WHERE id=$1 RETURNING roles,mfa_required",
+        [Number(userId), roles, mfaRequired]
       )).rows[0];
       const revokedSessions = await authSessionsRepository.revokeAllSessionsForUser(userId, "Platform account roles changed", { client });
       await securityAuditService.record({
@@ -838,11 +871,11 @@ router.post(
         reason, outcome: "success", beforeState: { roles: previousRoles },
         afterState: { roles: updated.roles || roles }, metadata: { revokedSessions }
       }, { client });
-      return { roles: updated.roles || roles, revokedSessions, email: target.email, unchanged: false };
+      return { roles: updated.roles || roles, mfaRequired: updated.mfa_required === true, revokedSessions, email: target.email, unchanged: false };
     });
     if (outcome.missing) return res.status(404).json({ message: "User not found." });
     if (outcome.deletionPending) return res.status(409).json({ message: "Roles cannot be changed while account deletion is in progress." });
-    if (outcome.unchanged) return res.json({ success: true, roles: outcome.roles, revokedSessions: 0, notificationSent: true, unchanged: true });
+    if (outcome.unchanged) return res.json({ success: true, roles: outcome.roles, mfaRequired: outcome.mfaRequired, revokedSessions: 0, notificationSent: true, unchanged: true });
     let notificationSent = false;
     if (outcome.email) {
       try {
@@ -855,7 +888,7 @@ router.post(
         }));
       } catch { notificationSent = false; }
     }
-    return res.json({ success: true, roles: outcome.roles, revokedSessions: Number(outcome.revokedSessions || 0), notificationSent });
+    return res.json({ success: true, roles: outcome.roles, mfaRequired: outcome.mfaRequired, revokedSessions: Number(outcome.revokedSessions || 0), notificationSent });
   })
 );
 
@@ -875,9 +908,8 @@ router.post(
         "SELECT id,email,roles,mfa_enabled,email_mfa_enabled,deletion_requested_at FROM users WHERE id=$1 FOR UPDATE",
         [Number(userId)]
       )).rows[0];
-      if (!target) return { missing: true };
-      if (target.deletion_requested_at) return { deletionPending: true };
-      if (!target.mfa_enabled && !target.email_mfa_enabled) return { notEnabled: true };
+      const blockReason = mfaResetBlockReason(target);
+      if (blockReason) return { [blockReason]: true };
       const preview = await privilegedPreviewService.resolvePreview({ action: "platform.user.mfa.reset", target: userId, payload }, { client, lock: true });
       await privilegedTransactionService.consumeConfirmation({
         token: req.get("x-transaction-confirmation"), actorId: req.user._id, session: req.auth.session,
@@ -885,7 +917,11 @@ router.post(
         previewRevision: req.body?.previewRevision, currentPreviewRevision: preview.revision
       }, { client });
       await mfaRepository.revokeFactorsAndRecoveryCodes(userId, { client });
-      const mfaRequired = userRequiresPrivilegedMfa({ roles: target.roles || [] });
+      const tenantMemberships = (await client.query(
+        "SELECT role,is_active FROM tenant_memberships WHERE user_id=$1",
+        [Number(userId)]
+      )).rows.map((membership) => ({ role: membership.role, isActive: membership.is_active !== false }));
+      const mfaRequired = userRequiresPrivilegedMfa({ roles: target.roles || [], tenantMemberships });
       await client.query("UPDATE users SET mfa_enabled=FALSE,email_mfa_enabled=FALSE,mfa_required=$2,updated_at=NOW() WHERE id=$1", [Number(userId), mfaRequired]);
       const revokedSessions = await authSessionsRepository.revokeAllSessionsForUser(userId, "Platform administrator reset MFA", { client });
       await securityAuditService.record({
@@ -933,13 +969,13 @@ router.post(
     const outcome = await db.withTransaction(async (client) => {
       await client.query("SELECT pg_advisory_xact_lock(73921, 1)");
       const target = (await client.query(
-        "SELECT id,email,roles,deletion_requested_at,platform_access_suspended_at FROM users WHERE id=$1 FOR UPDATE",
+        "SELECT id,email,roles,deletion_requested_at,platform_access_suspended_at,is_sandbox_test_account,account_locked_until FROM users WHERE id=$1 FOR UPDATE",
         [Number(userId)]
       )).rows[0];
       if (!target) return { missing: true };
       if (target.deletion_requested_at) return { deletionPending: true };
       const currentlySuspended = Boolean(target.platform_access_suspended_at);
-      if (currentlySuspended === suspended) return { unchanged: true, suspended, email: target.email, revokedSessions: 0 };
+      if (currentlySuspended === suspended) return { unchanged: true, suspended, state: platformUserAccessState({ suspended, isSandboxTestAccount: target.is_sandbox_test_account, accountLockedUntil: target.account_locked_until }), email: target.email, revokedSessions: 0 };
       const preview = await privilegedPreviewService.resolvePreview({ action, target: userId, payload }, { client, lock: true });
       await privilegedTransactionService.consumeConfirmation({
         token: req.get("x-transaction-confirmation"), actorId: req.user._id, session: req.auth.session,
@@ -948,7 +984,7 @@ router.post(
       }, { client });
       if (suspended && (target.roles || []).includes("platform_admin")) {
         const admins = Number((await client.query(
-          "SELECT COUNT(*)::INTEGER AS count FROM users WHERE 'platform_admin'=ANY(COALESCE(roles,ARRAY[]::TEXT[])) AND platform_access_suspended_at IS NULL AND deletion_requested_at IS NULL"
+          "SELECT COUNT(*)::INTEGER AS count FROM users WHERE 'platform_admin'=ANY(COALESCE(roles,ARRAY[]::TEXT[])) AND platform_access_suspended_at IS NULL AND deletion_requested_at IS NULL AND COALESCE(is_sandbox_test_account,FALSE)=FALSE"
         )).rows[0]?.count || 0);
         if (admins <= 1) throw Object.assign(new Error("The last active Platform Admin cannot be suspended."), { statusCode: 409, code: "LAST_PLATFORM_ADMIN" });
       }
@@ -956,20 +992,23 @@ router.post(
         "UPDATE users SET platform_access_suspended_at=CASE WHEN $2 THEN NOW() ELSE NULL END,platform_access_suspended_reason=CASE WHEN $2 THEN $3 ELSE NULL END,updated_at=NOW() WHERE id=$1",
         [Number(userId), suspended, reason]
       );
-      const revokedSessions = suspended
-        ? await authSessionsRepository.revokeAllSessionsForUser(userId, "Platform account access suspended", { client })
-        : 0;
+      const revokedSessions = await authSessionsRepository.revokeAllSessionsForUser(
+        userId,
+        suspended ? "Platform account access suspended" : "Platform account access restored; fresh sign-in required",
+        { client }
+      );
       await securityAuditService.record({
         actorId: req.user._id, actorRole: "platform_admin", sessionId: req.auth.sessionId,
         action, resourceType: "user", resourceId: userId, reason, outcome: "success",
         beforeState: { suspended: currentlySuspended }, afterState: { suspended },
         metadata: { revokedSessions }
       }, { client });
-      return { suspended, email: target.email, revokedSessions, unchanged: false };
+      const state = platformUserAccessState({ suspended, isSandboxTestAccount: target.is_sandbox_test_account, accountLockedUntil: target.account_locked_until });
+      return { suspended, state, email: target.email, revokedSessions, unchanged: false };
     });
     if (outcome.missing) return res.status(404).json({ message: "User not found." });
     if (outcome.deletionPending) return res.status(409).json({ message: "Sign-in access cannot be changed while account deletion is in progress." });
-    if (outcome.unchanged) return res.json({ success: true, suspended: outcome.suspended, revokedSessions: 0, notificationSent: true, unchanged: true });
+    if (outcome.unchanged) return res.json({ success: true, suspended: outcome.suspended, state: outcome.state, revokedSessions: 0, notificationSent: true, unchanged: true });
     let notificationSent = false;
     if (outcome.email) {
       try {
@@ -984,7 +1023,7 @@ router.post(
         }));
       } catch { notificationSent = false; }
     }
-    return res.json({ success: true, suspended: outcome.suspended, revokedSessions: Number(outcome.revokedSessions || 0), notificationSent });
+    return res.json({ success: true, suspended: outcome.suspended, state: outcome.state, revokedSessions: Number(outcome.revokedSessions || 0), notificationSent });
   })
 );
 

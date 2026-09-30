@@ -958,24 +958,12 @@ router.post(
     const user = loginIdentifier.identifierType === "email"
       ? await userRepository.findUserByEmail(loginIdentifier.identifierValue)
       : await userRepository.findUserByUsername(loginIdentifier.identifierValue);
-    if (!user) {
+    if (!user || isDeveloperOnlyIdentity(user)) {
       await authService.recordLoginAttempt({
         identifierType: loginIdentifier.identifierType,
         identifierValue: loginIdentifier.identifierValue,
         success: false,
-        failureReason: "invalid_credentials",
-        req
-      });
-      const error = new Error("Invalid email/username or password.");
-      error.statusCode = 401;
-      throw error;
-    }
-    if (isDeveloperOnlyIdentity(user)) {
-      await authService.recordLoginAttempt({
-        identifierType: loginIdentifier.identifierType,
-        identifierValue: loginIdentifier.identifierValue,
-        success: false,
-        failureReason: "invalid_surface",
+        failureReason: user ? "invalid_surface" : "invalid_credentials",
         req
       });
       const error = new Error("Invalid email/username or password.");
