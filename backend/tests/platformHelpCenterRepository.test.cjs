@@ -8,9 +8,10 @@ const helpCenter = require("../src/repositories/platformHelpCenter");
 test("audited Help Center seed validates and keeps customer payload free of review metadata", () => {
   const content = validateContent(seed, { requireReviewed: true });
   const published = publicContent(content);
-  assert.equal(published.topics.length, 7);
-  assert.equal(published.articles.length, 24);
-  assert.equal(published.faqs.length, 17);
+  assert.equal(published.topics.length, 6);
+  assert.equal(published.articles.length, 21);
+  assert.equal(published.faqs.length, 15);
+  assert.equal(published.faqs.some((item) => item.id.startsWith("campaign-")), false);
   assert.equal("review" in published.articles[0], false);
   assert.equal("sourceReferences" in published.articles[0], false);
   assert.equal("owner" in published.faqs[0], false);
@@ -47,6 +48,22 @@ test("archived help items disappear from public output while draft records remai
   assert.equal(content.articles.some((item) => item.id === "join"), true);
 });
 
+test("previously published campaign help stays stored but disappears from public content", () => {
+  const content = structuredClone(seed);
+  content.topics.push({ id: "campaigns", title: "Campaigns", description: "Historical campaign guidance" });
+  content.articles.push({ ...structuredClone(content.articles[0]), id: "group-funded-contributor", topic: "campaigns", title: "Join a campaign" });
+  content.faqs.push({ ...structuredClone(content.faqs[0]), id: "campaign-funds", relatedArticleId: "group-funded-contributor" });
+  const safetyGuide = content.articles.find((article) => article.id === "report-safety");
+  safetyGuide.steps[0] = "Identify the business, booking, ticket, campaign, or content involved.";
+  const published = publicContent(content);
+  assert.equal(published.topics.some((topic) => topic.id === "campaigns"), false);
+  assert.equal(published.articles.some((article) => article.id === "group-funded-contributor"), false);
+  assert.equal(published.faqs.some((faq) => faq.id === "campaign-funds"), false);
+  assert.equal(content.articles.some((article) => article.id === "group-funded-contributor"), true);
+  assert.equal(published.articles.find((article) => article.id === "report-safety").steps[0], "Identify the business, booking, ticket, or content involved.");
+  assert.match(safetyGuide.steps[0], /campaign/);
+});
+
 test("first-run verified seed stays publicly available while becoming the initial managed revision", async () => {
   const originalTransaction = db.withTransaction;
   let initialized = false;
@@ -72,9 +89,9 @@ test("first-run verified seed stays publicly available while becoming the initia
   });
   try {
     const content = await helpCenter.getPublished();
-    assert.equal(content.topics.length, 7);
-    assert.equal(content.articles.length, 24);
-    assert.equal(content.faqs.length, 17);
+    assert.equal(content.topics.length, 6);
+    assert.equal(content.articles.length, 21);
+    assert.equal(content.faqs.length, 15);
     assert.equal(draftSeeded, true);
   } finally {
     db.withTransaction = originalTransaction;

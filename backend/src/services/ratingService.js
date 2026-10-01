@@ -63,15 +63,12 @@ async function rateCampaignUser() {
 }
 
 async function disputeRating({ user, body }) {
-  const ratingType = body?.ratingType; if (!["vendor_review", "user_trust"].includes(ratingType)) throw error("Choose a valid rating type.", 400);
+  if (body?.ratingType === "user_trust") throw error("Customer ratings have been retired. Ratings apply only to vendors.", 410);
+  const ratingType = body?.ratingType; if (ratingType !== "vendor_review") throw error("Choose a valid rating type.", 400);
   const reason = String(body?.reason || "").trim(); if (!reason || reason.length > 1000) throw error("Dispute reason is required and must be 1000 characters or fewer.", 400);
-  const rating = ratingType === "vendor_review"
-    ? await ratingRepository.findVendorReviewById(body.ratingId)
-    : await ratingRepository.findTrustRatingById(body.ratingId);
+  const rating = await ratingRepository.findVendorReviewById(body.ratingId);
   if (!rating) throw error("Rating not found.", 404);
-  const isParticipant = ratingType === "vendor_review"
-    ? String(rating.customer_user_id) === String(user?._id)
-    : [rating.rater_user_id, rating.subject_user_id].some((id) => String(id) === String(user?._id));
+  const isParticipant = String(rating.customer_user_id) === String(user?._id);
   if (!isParticipant) throw error("Rating not found.", 404);
   if (new Date(rating.created_at).getTime() < Date.now() - 30 * 24 * 60 * 60 * 1000) throw error("The 30-day rating appeal window has closed.", 409);
   try { return await ratingRepository.createDispute({ ratingType, ratingId: body.ratingId, reporterUserId: user._id, reason }); }

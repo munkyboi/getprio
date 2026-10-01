@@ -2,6 +2,10 @@
 
 GetPrio is a service marketplace where scheduled service requests and same-day queue operations work together without becoming the same concept.
 
+## Active product scope — 2026-10-01
+
+Queue operations, ordinary service bookings, and evidence-grounded AI assistance are the active product direction. Campaigns and ratings of customers are retired directly. Any organizer/contributor, campaign, contribution, reimbursement, publication, or customer trust-rating definitions below are historical vocabulary only, not active permissions, screens, jobs, or release requirements. Vendor reviews remain supported. Stored historical records and migrations remain; no schema/data purge or campaign transition/history UI is authorized. See `docs/plan/queue-booking-ai-cleanup.md`.
+
 ## Language
 
 **Free Plan**:
@@ -249,7 +253,7 @@ One monthly booking unit is consumed when GetPrio successfully creates a Booking
 _Avoid_: Per-service-unit charge, per-status charge, campaign booking charge
 
 **Group-Funded Campaign Access**:
-The plan-controlled ability for eligible customers to create and operate Group-Funded Bookings attached to a vendor's qualifying Bookings or Service Bundles. It depends on Service Booking Access and does not grant independent queue or marketplace access.
+Retired capability. Saved plan settings and tenant overrides cannot enable campaign access. Historical campaign records and migrations are retained, but creation, participation, discovery, management, and history UI are unavailable.
 _Avoid_: Generic crowdfunding, vendor-managed collections, booking access
 
 **Plan Entitlement**:
@@ -285,11 +289,11 @@ Vendor Admin/Owner may view detailed usage, balances, prices, receipts, and purc
 _Avoid_: Staff billing access, vendor-authored catalog, hidden operational capacity
 
 **Entitlement Wind-Down**:
-The non-destructive state entered when a subscription loses Service Booking Access, Group-Funded Campaign Access, or Marketplace Discovery. New restricted activity stops immediately, while existing bookings and campaigns remain accessible through completion, customer records remain available, and vendor data is preserved for a later upgrade.
+The non-destructive state entered when a subscription loses Service Booking Access or Marketplace Discovery. New restricted activity stops immediately, while existing ordinary bookings remain accessible through completion, customer records remain available, and vendor data is preserved for a later upgrade. This does not apply to retired campaigns, which have no transition or history UI.
 _Avoid_: Data deletion, immediate workflow abandonment, permanent archival
 
 **Entitlement Admission**:
-The server-recorded decision that a new Queue Ticket, Booking, Group-Funded Campaign, or bounded customer payment checkout may begin while its required Plan Entitlement is effective. Work admitted before a live entitlement change may finish under Entitlement Wind-Down, while OTPs, browser drafts, and other uncommitted intent do not create admission.
+The server-recorded decision that a new Queue Ticket, ordinary Booking, or bounded customer payment checkout may begin while its required Plan Entitlement is effective. Work admitted before a live entitlement change may finish under Entitlement Wind-Down, while OTPs, browser drafts, and other uncommitted intent do not create admission. Campaign admission is retired.
 _Avoid_: Page-load permission, client-side flag, unlimited grace period
 
 **Booking**:
@@ -297,6 +301,7 @@ A customer's scheduled request for a vendor service at a selected future time. A
 _Avoid_: Appointment, reservation, queue ticket
 
 **Group-Funded Booking**:
+Historical term only: this feature and its organizer/contributor lifecycle are retired. Campaign definitions below describe retained records, not active permissions or product requirements. No campaign transition or history UI is supported.
 An organizer-led collection campaign attached to one already-paid, vendor-confirmed scheduled Booking or Service Bundle. It is category-agnostic and lets contributors reimburse or share the organizer's cost; it never gates vendor confirmation, capacity, or service execution. Its deadline must precede the booking's scheduled start. A campaign that misses its target or deadline closes without changing the underlying booking, which remains the organizer's responsibility.
 _Avoid_: Vendor-funded booking, pooled queue ticket, shared wallet booking
 
@@ -325,7 +330,7 @@ A payment that a campaign contributor sends directly to the Booking Organizer af
 _Avoid_: Vendor payment, booking checkout, platform-held funds
 
 **Role-Scoped Trust Rating**:
-A post-interaction five-star rating that records reliability and conduct for a specific relationship. Each eligible rater leaves one rating per qualifying interaction: completed Booking, contribution review, or campaign closure. Customers publish vendor ratings after completed service. Vendors rate Booking Organizers after service completion, Organizers rate contributors after contribution review, and contributors rate Organizers after campaign closure. Individual-user ratings are private to authorized roles; vendor ratings are public. Private user ratings are reusable only as aggregate summaries for a later role-relevant decision, without rater identities or private comments and without automatic blocking in v1. Aggregate ratings use a minimalist gold-star plus numeric-value display; rating input uses five selectable stars.
+Customer trust ratings are retired: vendors cannot rate customers or booking organizers, and organizers/contributors cannot rate each other. Customer scores must not be created, displayed, aggregated, or used for access decisions. Historical rating and dispute records remain restricted evidence, not an active reputation system. Customers may still publish vendor ratings after a qualifying completed service, and vendors may reply under the vendor-review policy.
 _Avoid_: Public user reputation score, anonymous account review, pre-service rating
 
 **Vendor Review Revision**:
@@ -337,7 +342,7 @@ A required structured category attached to a one- or two-star rating, such as pa
 _Avoid_: Forced public complaint, unstructured low-rating evidence, mandatory long-form review
 
 **Rating Dispute**:
-A report or appeal filed within 30 days of a rating. The disputed rating is excluded from aggregate calculations while Platform Admin reviews it. A public vendor comment may be temporarily hidden for abuse, personal-data exposure, or clear falsehood; a private rating remains inaccessible outside the case during review.
+A report or appeal filed within 30 days of a vendor review. The disputed vendor review is excluded from aggregate calculations while Platform Admin reviews it. A public vendor comment may be temporarily hidden for abuse, personal-data exposure, or clear falsehood. Retained historical customer-rating disputes are restricted evidence only; they do not authorize new customer ratings or restore customer-score display.
 _Avoid_: Public retaliation, permanent aggregate impact during appeal, unreviewable rating
 
 **Campaign Visibility**:
@@ -421,7 +426,7 @@ An OS/browser notification delivered through the browser Push API after a logged
 _Avoid_: In-app alert, toast, SMS
 
 **Customer Contact Preference**:
-A customer's selected, permitted delivery channel for non-emergency GetPrio notifications. Campaign and reimbursement notifications use this preference while retaining an in-app notification record. Future native-app silent pushes may refresh campaign state in the background but contain no payment evidence or other sensitive details.
+A customer's selected, permitted delivery channel for non-emergency GetPrio queue and booking notifications. Campaign and reimbursement notifications are retired. Sensitive payment evidence must never be included in notification payloads.
 _Avoid_: Mandatory marketing contact, proof-data push payload, unaudited notification
 
 **Booking Verification**:

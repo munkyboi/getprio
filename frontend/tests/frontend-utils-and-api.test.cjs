@@ -798,11 +798,9 @@ test("customer image and proof uploads use cookie authentication with binary bod
   }, async () => {
     await customerAccountApi.uploadAvatar("cookie-session", file);
     await customerAccountApi.uploadBookingPaymentProof("cookie-session", "booking-2", file);
-    await customerAccountApi.uploadCampaignContributionProof("cookie-session", "campaign-3", "reference 4", file);
-    await customerAccountApi.uploadCampaignReimbursementEvidence("cookie-session", "campaign-3", "contribution-5", file);
   });
 
-  assert.equal(calls.length, 4);
+  assert.equal(calls.length, 2);
   assert.ok(calls.every(([, options]) => options.method === "POST"));
   assert.ok(calls.every(([, options]) => options.credentials === "include"));
   assert.ok(calls.every(([, options]) => options.body === file));
@@ -810,9 +808,7 @@ test("customer image and proof uploads use cookie authentication with binary bod
   assert.ok(calls.every(([, options]) => options.headers["Content-Type"] === "image/webp"));
   assert.deepEqual(calls.map(([url]) => url), [
     `${API_BASE_URL}/account/profile/avatar?fileName=proof%20image.webp`,
-    `${API_BASE_URL}/account/bookings/booking-2/payment-proof/uploads/direct?fileName=proof%20image.webp`,
-    `${API_BASE_URL}/account/campaigns/campaign-3/contributions/proof?fileName=proof%20image.webp&paymentReference=reference%204`,
-    `${API_BASE_URL}/account/campaigns/campaign-3/contributions/contribution-5/reimbursement/evidence?fileName=proof%20image.webp`
+    `${API_BASE_URL}/account/bookings/booking-2/payment-proof/uploads/direct?fileName=proof%20image.webp`
   ]);
 });
 
@@ -1030,7 +1026,7 @@ test("booking services use their own stepped quantity sliders", () => {
   assert.match(source, /aria-label=\{`\$\{service\.name\} \$\{quantityLabel\}`\}/);
   assert.match(source, /const updateServiceQuantity = useCallback/);
   assert.match(source, /onChange=\{\(value\) => updateServiceQuantity\(service, value\)\}/);
-  assert.match(source, /max=\{maxGroupFundedBookingQuantity\}/);
+  assert.match(source, /max=\{maxBookableQuantity\}/);
   assert.match(source, /disabled=\{Boolean\(otp\) \|\| !isSelected\}/);
   assert.doesNotMatch(source, /selectedBundleServices\.length\} item/);
 });
@@ -1051,7 +1047,7 @@ test("together bookings synchronize matching-duration service quantity sliders",
   assert.match(source, /Matching service durations are linked while this visit is together\./);
 });
 
-test("booking availability uses a time-slot picker and resolves deadline bounds from the selected instant", () => {
+test("booking availability uses a time-slot picker without retired funding deadlines", () => {
   const frontendRoot = path.resolve(__dirname, "..");
   const source = fs.readFileSync(
     path.join(frontendRoot, "src", "pages", "BookingRequestPage.tsx"),
@@ -1074,7 +1070,7 @@ test("booking availability uses a time-slot picker and resolves deadline bounds 
   assert.doesNotMatch(source, /timeSlotGroups/);
   assert.match(source, /Unavailable — \$\{unavailableSlotResourceLabel\} is booked/);
   assert.match(source, /className="booking-time-slot-summary"/);
-  assert.match(source, /Funding deadline:/);
+  assert.doesNotMatch(source, /Funding deadline:/);
   assert.doesNotMatch(source, /className="booking-schedule-field booking-schedule-field--slot"/);
   assert.match(styles, /\.booking-time-slot-carousel \{/);
   assert.doesNotMatch(styles, /\.booking-time-slot-period \{/);
@@ -1394,7 +1390,7 @@ test("public vendor details render only effective plan capabilities", () => {
   assert.match(source, /if \(!vendor\?\.capabilities\.booking \|\| !selectedLocationSlug\)/);
   assert.match(source, /\{vendor\.capabilities\.queue \? \(/);
   assert.match(source, /\{vendor\.capabilities\.booking \? \(/);
-  assert.match(source, /vendor\?\.capabilities\.campaigns && service\.groupFunded\?\.enabled/);
+  assert.doesNotMatch(source, /vendor\?\.capabilities\.campaigns|service\.groupFunded\?\.enabled/);
 });
 
 test("contact form submit action is mobile-first", () => {
