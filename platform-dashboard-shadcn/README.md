@@ -41,3 +41,20 @@ npm run lint
 ```
 
 The lint command currently reports warnings from generated Shadcn primitives. The dashboard composition itself is warning-free.
+
+## Sidebar interaction checks
+
+Help Center opens Overview and expands its submenu. Its separate chevron expands
+or collapses without leaving the current page; direct links reveal the selected
+section. Menu visibility still follows the viewer's Help Center capability.
+
+Start a local fixture dashboard, then run the browser checks in another terminal:
+
+```bash
+VITE_PLATFORM_DATA_SOURCE=fixture npm run dev -- --host 127.0.0.1 --port 5187 --strictPort
+npm run test:sidebar:browser
+```
+
+The browser check covers label navigation, chevron toggling, keyboard operation,
+direct links, desktop icon-only navigation, and mobile navigation. It uses
+Playwright CLI and requires a local fixture dashboard, not a production session.

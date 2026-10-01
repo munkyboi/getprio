@@ -9,6 +9,7 @@
     "typecheck": "tsc -b",
     "lint": "oxlint",
     "test": "node --test tests/*.test.ts",
+    "test:sidebar:browser": "node tests/run-sidebar-browser.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
