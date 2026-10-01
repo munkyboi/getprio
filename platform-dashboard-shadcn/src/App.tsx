@@ -975,9 +975,9 @@ function PlatformNavigationItem({ item, activeRoute, onRouteChange }: { item: Na
     onRouteChange(route)
   }
   return <SidebarMenuItem>
-    <SidebarMenuButton className={cn(item.subItems && "h-11 pr-12")} isActive={active} tooltip={item.label} onClick={navigate} aria-expanded={item.subItems ? expanded : undefined} aria-controls={item.subItems ? submenuId : undefined}><item.icon /><span>{item.label}</span></SidebarMenuButton>
+    <SidebarMenuButton className={cn("h-11 md:h-8", item.subItems && "pr-12 md:pr-8")} isActive={active} tooltip={item.label} onClick={navigate} aria-expanded={item.subItems ? expanded : undefined} aria-controls={item.subItems ? submenuId : undefined}><item.icon /><span>{item.label}</span></SidebarMenuButton>
     {item.subItems ? <>
-      <SidebarMenuAction className="top-0 right-0 size-11 after:hidden peer-data-[size=default]/menu-button:top-0" aria-label={`${expanded ? "Collapse" : "Expand"} ${item.label} menu`} aria-expanded={expanded} aria-controls={submenuId} onClick={() => setExpansion({ route: activeRoute, open: !expanded })}><ChevronDown className={cn("transition-transform", !expanded && "-rotate-90")} /></SidebarMenuAction>
+      <SidebarMenuAction className="top-0 right-0 size-11 md:size-8 after:hidden peer-data-[size=default]/menu-button:top-0" aria-label={`${expanded ? "Collapse" : "Expand"} ${item.label} menu`} aria-expanded={expanded} aria-controls={submenuId} onClick={() => setExpansion({ route: activeRoute, open: !expanded })}><ChevronDown className={cn("transition-transform", !expanded && "-rotate-90")} /></SidebarMenuAction>
       <SidebarMenuSub id={submenuId} className={cn(!expanded && "hidden")}>{item.subItems.map((child) => <SidebarMenuSubItem key={child.route}><SidebarMenuSubButton href={routePathByLabel[child.route]} isActive={activeRoute === child.route} aria-current={activeRoute === child.route ? "page" : undefined} onClick={(event) => {
         if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
         event.preventDefault()

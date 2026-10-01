@@ -7,6 +7,20 @@ export default async function verifySidebarNavigation(page) {
   await page.goto(origin);
   await page.getByLabel("Fixture data only, not connected to live Platform data").waitFor();
   await help.waitFor();
+  const assertUniformRows = async () => {
+    const regular = page.getByRole("button", { name: "Security audit", exact: true });
+    const helpBox = await help.boundingBox();
+    const regularBox = await regular.boundingBox();
+    expect(helpBox?.height === regularBox?.height, "Help Center must match regular row height");
+    const spacing = (element) => {
+      const style = getComputedStyle(element);
+      return { left: element.querySelector("span").getBoundingClientRect().left, padding: style.paddingLeft, gap: style.gap };
+    };
+    const helpSpacing = await help.evaluate(spacing);
+    const regularSpacing = await regular.evaluate(spacing);
+    expect(JSON.stringify(helpSpacing) === JSON.stringify(regularSpacing), "Help Center text, padding and icon gap must align with regular items");
+  };
+  await assertUniformRows();
   expect(!(await guides.isVisible()), "Submenu must start collapsed outside Help Center");
   await help.focus();
   await page.keyboard.press("Enter");
@@ -20,7 +34,7 @@ export default async function verifySidebarNavigation(page) {
   await page.keyboard.press("Tab");
   expect(await page.getByRole("link", { name: "Overview", exact: true }).evaluate((element) => element === document.activeElement), "Next Tab must reach the expanded submenu");
   const toggle = await page.getByRole("button", { name: "Collapse Help Center menu" }).boundingBox();
-  expect(toggle?.width >= 44 && toggle?.height >= 44, "Menu toggle must have a dedicated 44px target");
+  expect(toggle?.width >= 32 && toggle?.height === (await help.boundingBox())?.height, "Desktop toggle must fit the standard row");
   await page.getByRole("button", { name: "Collapse Help Center menu" }).click();
   expect(!(await guides.isVisible()), "Chevron must collapse the submenu");
   expect(page.url() === `${origin}/help-center`, "Collapsing must not navigate");
@@ -48,6 +62,7 @@ export default async function verifySidebarNavigation(page) {
   expect(await help.getAttribute("aria-expanded") === "true", "History navigation must reveal the selected Help Center page");
   await page.goto(`${origin}/help-center/faqs`);
   await help.waitFor();
+  await assertUniformRows();
   expect(await help.getAttribute("aria-expanded") === "true", "Direct FAQ link must expand Help Center");
   expect(await page.locator('[aria-current="page"]').innerText() === "FAQs", "Direct FAQ route must be current");
   await page.goto(origin);
@@ -62,6 +77,9 @@ export default async function verifySidebarNavigation(page) {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "Toggle Platform navigation" }).click();
   await help.waitFor();
+  await assertUniformRows();
+  const mobileToggle = await page.getByRole("button", { name: "Collapse Help Center menu" }).boundingBox();
+  expect(mobileToggle?.width >= 44 && mobileToggle?.height >= 44, "Mobile toggle must retain a dedicated 44px target");
   await page.getByRole("button", { name: "Collapse Help Center menu" }).click();
   await help.click();
   expect(await guides.isVisible(), "Mobile Help Center click must expand its submenu");
