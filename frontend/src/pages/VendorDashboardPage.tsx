@@ -162,7 +162,7 @@ import {
 } from "../utils/queueStatus";
 import type { LocalQueueDayUpdate, QueueDaySyncState } from "../utils/queueStatus";
 import { getQueueCustomerFullNameLabel } from "../utils/queueNames";
-import { getPlanPriceDisplay } from "../utils/subscriptionPlans";
+import { getPlanHighlights, getPlanPriceDisplay } from "../utils/subscriptionPlans";
 import { checkServiceSlugAvailability } from "../api/vendorDashboardCatalog";
 import { checkCounterSlugAvailability } from "../api/vendorDashboardOperations";
 
@@ -4142,7 +4142,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   <Text c="dimmed" size="sm">{plan.bestFor}</Text>
                 </div>
                 <Stack gap={8} className="neura-feature-list">
-                  {plan.included.map((item) => (
+                  {getPlanHighlights(plan).map((item) => (
                     <Text key={item} size="sm">• {item}</Text>
                   ))}
                 </Stack>

@@ -1848,7 +1848,7 @@ test("landing pricing uses the server-owned four-plan tier list", () => {
 test("pricing highlights follow current entitlements instead of stale marketing copy", () => {
   const { getPlanHighlights } = require("../src/utils/subscriptionPlans.ts");
   const plan = {
-    included: ["1 vendor seat", "500 tickets/mo", "100 transactional emails/mo"],
+    included: ["1 vendor seat", "500 tickets/mo", "100 transactional emails/mo", "Group-funded campaigns"],
     entitlements: {
       locations: 1, counters: 1, staffSeats: 2, monthlyTickets: 1000,
       monthlyQueueEmailJourneys: 1000, monthlyTransactionalEmails: 100,
@@ -1868,6 +1868,9 @@ test("pricing highlights follow current entitlements instead of stale marketing 
   assert.ok(changed.includes("250 service bookings/mo"));
   const legacy = getPlanHighlights({ ...plan, features: { campaigns: true }, entitlements: { ...plan.entitlements, groupFundedCampaignAccess: true } });
   assert.ok(!legacy.includes("Group-funded campaigns"));
+  const vendorCards = fs.readFileSync(path.resolve(__dirname, "../src/pages/VendorDashboardPage.tsx"), "utf8");
+  assert.match(vendorCards, /getPlanHighlights\(plan\)\.map/);
+  assert.doesNotMatch(vendorCards, /plan\.included\.map/);
 });
 
 test("privacy policy discloses retained campaign evidence without offering the retired workflow", () => {
