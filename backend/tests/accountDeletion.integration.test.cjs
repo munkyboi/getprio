@@ -124,6 +124,8 @@ test('account deletion against disposable PostgreSQL', { skip: !url }, async (t)
       assert.equal(await users.findUserById(user._id),null);
       assert.equal((await load()).cleanup_status,'completed');
       assert.equal((await load()).report_status,'ready');
+      assert.deepEqual((await load()).cleanup_report.actions[0].deletedPreferenceReferences, [{ source: 'public.customer_favorites.customer_user_id', count: 2 }]);
+      assert.equal((await load()).cleanup_report.actions[0].deletedTransientReferences.some((item) => item.source === 'public.customer_favorites.customer_user_id'), false);
       assert.notEqual((await load()).status,'completed');
       assert.equal((await load()).user_id,null);
       assert.equal((await db.pool.query('SELECT * FROM auth_sessions WHERE user_id=$1',[user._id])).rowCount,0);

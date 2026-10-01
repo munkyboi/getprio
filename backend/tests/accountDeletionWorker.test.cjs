@@ -255,7 +255,8 @@ test('customer deletion report uses plain-language summaries without internal sc
         bookingsMinimized: 3,
         securityEventsMinimized: 4,
         anonymizedReferences: [{ source: 'public.queue_events.actor_user_id', count: 5 }],
-        deletedTransientReferences: [{ source: 'public.customer_favorites.customer_user_id', count: 6 }]
+        deletedPreferenceReferences: [{ source: 'public.customer_favorites.customer_user_id', count: 6 }],
+        deletedTransientReferences: [{ source: 'public.auth_mfa_challenges.user_id', count: 2 }]
       }],
       exclusions: [
         { categoryId: 'object_storage', label: 'public.user_files.user_id' },
@@ -269,10 +270,26 @@ test('customer deletion report uses plain-language summaries without internal sc
   assert.match(email.text, /Your GetPrio account and sign-in access were removed\./);
   assert.match(email.text, /Direct account links were removed from 5 retained records/);
   assert.match(email.text, /This does not mean all content in those records was erased/);
-  assert.match(email.text, /6 account-related records were removed/);
+  assert.match(email.text, /6 saved favorites were removed/);
+  assert.match(email.text, /2 temporary records were removed/);
   assert.match(email.text, /Copies of account details embedded in messages or other content were not included/);
   assert.match(email.text, /We minimized personal details in 3 bookings, 2 support records, and 4 security records retained for service integrity\./);
   assert.match(email.text, /Stored files and cached copies were not included in this automated process\./);
   assert.match(email.text, /Backup copies were not included in this automated process/);
   assert.doesNotMatch(email.text, /public\.|subject_user_id|auth_mfa_challenges|user_id|relational_references|object_storage|internal-request-uuid/);
+});
+
+test('legacy cleanup reports classify saved favorites separately from temporary records', async () => {
+  let email;
+  const client = { query: async () => ({ rows: [] }) };
+  const worker = workerWith(client, async (message) => { email = message; return true; }, { resendApiKey: 'fixture' });
+  await worker.sendUserReport(client, { id: 'legacy', contact_email: 'owner@example.invalid', cleanup_report: {
+    actions: [{ deletedTransientReferences: [
+      { source: 'public.customer_favorites.customer_user_id', count: 3 },
+      { source: 'public.idempotency_records.actor_user_id', count: 1 }
+    ] }], exclusions: []
+  } });
+  assert.match(email.text, /3 saved favorites were removed/);
+  assert.match(email.text, /1 temporary record was removed/);
+  assert.doesNotMatch(email.text, /4 temporary|public\.|customer_user_id/);
 });
