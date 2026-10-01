@@ -332,6 +332,7 @@ const releaseReadiness: PlatformReleaseReadinessReadModel = {
 }
 
 const fixtureCapabilities = [
+  "platform.help_center.manage",
   "platform.tenants.read",
   "platform.queue_lifecycle.read",
   "platform.users.read",
