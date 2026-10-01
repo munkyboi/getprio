@@ -70,6 +70,10 @@ test('account deletion against disposable PostgreSQL', { skip: !url }, async (t)
     });
     await t.test('atomic revocation, retry, blocked login, and reviewed asynchronous cleanup', async () => {
       const user = await fixture();
+      const other = await fixture();
+      await db.pool.query('INSERT INTO customer_favorites(customer_user_id,tenant_id) VALUES($1,$3),($2,$3)', [user._id, other._id, scope.tenant_id]);
+      const event = (await db.pool.query("INSERT INTO queue_events(tenant_id,location_id,queue_date_key,event_type,actor_user_id,actor_role,source,metadata) VALUES($1,$2,'2026-10-01','fixture_event',$3,'customer','cleanup-test','{\"fixture\":true}') RETURNING *", [scope.tenant_id, scope.id, user._id])).rows[0];
+      const otherEvent = (await db.pool.query("INSERT INTO queue_events(tenant_id,queue_date_key,event_type,actor_user_id,source) VALUES($1,'2026-10-01','fixture_event',$2,'cleanup-test') RETURNING id", [scope.tenant_id, other._id])).rows[0];
       const session = await sessions.createAuthSession({user,authMethod:'password'});
       await db.pool.query("INSERT INTO mobile_push_registrations(user_id,installation_id,token,platform) VALUES($1,$2,$2,'ios')",[user._id,'fixture-'+user._id]);
       const result = await service.requestDeletion({userId:user._id,password:'correct-password'});
@@ -88,6 +92,7 @@ test('account deletion against disposable PostgreSQL', { skip: !url }, async (t)
         const request = await load();
         assert.equal(await worker.generateInventory(cleanupClient, request), true);
         const scanned = await load();
+        assert.equal(scanned.scan_report.categories.find((category) => category.id === 'relational_references').status, 'scanned');
         const selected = Object.fromEntries(scanned.scan_report.categories.map((category) => [category.id, category.id === 'relational_references']));
         const exclusions = Object.fromEntries(scanned.scan_report.categories.filter((category) => !selected[category.id])
           .map((category) => [category.id, 'Outside the verified automated cleanup scope.']));
@@ -106,6 +111,11 @@ test('account deletion against disposable PostgreSQL', { skip: !url }, async (t)
       assert.equal((await load()).user_id,null);
       assert.equal((await db.pool.query('SELECT * FROM auth_sessions WHERE user_id=$1',[user._id])).rowCount,0);
       assert.equal((await db.pool.query('SELECT * FROM mobile_push_registrations WHERE user_id=$1',[user._id])).rowCount,0);
+      assert.equal((await db.pool.query('SELECT * FROM customer_favorites WHERE customer_user_id=$1', [user._id])).rowCount, 0);
+      assert.equal((await db.pool.query('SELECT * FROM customer_favorites WHERE customer_user_id=$1', [other._id])).rowCount, 1);
+      assert.equal((await db.pool.query('SELECT * FROM tenants WHERE id=$1', [scope.tenant_id])).rowCount, 1);
+      assert.deepEqual((await db.pool.query('SELECT * FROM queue_events WHERE id=$1', [event.id])).rows[0], { ...event, actor_user_id: null });
+      assert.equal(String((await db.pool.query('SELECT actor_user_id FROM queue_events WHERE id=$1', [otherEvent.id])).rows[0].actor_user_id), String(other._id));
     });
     async function ticketFixture(user, status) {
       const key = require('node:crypto').randomUUID();
