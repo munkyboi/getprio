@@ -254,11 +254,12 @@ test('customer deletion report uses plain-language summaries without internal sc
         ticketsMinimized: 2,
         bookingsMinimized: 3,
         securityEventsMinimized: 4,
-        anonymizedReferences: [{ source: 'public.user_trust_ratings.subject_user_id', count: 5 }],
-        deletedTransientReferences: [{ source: 'public.auth_mfa_challenges.user_id', count: 6 }]
+        anonymizedReferences: [{ source: 'public.queue_events.actor_user_id', count: 5 }],
+        deletedTransientReferences: [{ source: 'public.customer_favorites.customer_user_id', count: 6 }]
       }],
       exclusions: [
         { categoryId: 'object_storage', label: 'public.user_files.user_id' },
+        { categoryId: 'copied_identifiers', label: 'private metadata' },
         { categoryId: 'backup_disposal', label: 'public.backups.user_id' }
       ]
     }
@@ -266,8 +267,10 @@ test('customer deletion report uses plain-language summaries without internal sc
 
   assert.equal(email.subject, 'Update on your GetPrio account deletion request');
   assert.match(email.text, /Your GetPrio account and sign-in access were removed\./);
-  assert.match(email.text, /5 account-linked records were anonymized/);
-  assert.match(email.text, /6 temporary records were removed/);
+  assert.match(email.text, /Direct account links were removed from 5 retained records/);
+  assert.match(email.text, /This does not mean all content in those records was erased/);
+  assert.match(email.text, /6 account-related records were removed/);
+  assert.match(email.text, /Copies of account details embedded in messages or other content were not included/);
   assert.match(email.text, /We minimized personal details in 3 bookings, 2 support records, and 4 security records retained for service integrity\./);
   assert.match(email.text, /Stored files and cached copies were not included in this automated process\./);
   assert.match(email.text, /Backup copies were not included in this automated process/);

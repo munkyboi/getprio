@@ -18,6 +18,7 @@ test('account deletion against disposable PostgreSQL', { skip: !url }, async (t)
   const { authenticate } = require('../src/middleware/auth');
   const ids = [];
   let scope;
+  let secondTenant;
   async function fixture(password = 'correct-password') {
     const suffix = require('node:crypto').randomUUID();
     const {rows: [row]} = await db.pool.query(
@@ -71,9 +72,10 @@ test('account deletion against disposable PostgreSQL', { skip: !url }, async (t)
     await t.test('atomic revocation, retry, blocked login, and reviewed asynchronous cleanup', async () => {
       const user = await fixture();
       const other = await fixture();
-      await db.pool.query('INSERT INTO customer_favorites(customer_user_id,tenant_id) VALUES($1,$3),($2,$3)', [user._id, other._id, scope.tenant_id]);
-      const event = (await db.pool.query("INSERT INTO queue_events(tenant_id,location_id,queue_date_key,event_type,actor_user_id,actor_role,source,metadata) VALUES($1,$2,'2026-10-01','fixture_event',$3,'customer','cleanup-test','{\"fixture\":true}') RETURNING *", [scope.tenant_id, scope.id, user._id])).rows[0];
-      const otherEvent = (await db.pool.query("INSERT INTO queue_events(tenant_id,queue_date_key,event_type,actor_user_id,source) VALUES($1,'2026-10-01','fixture_event',$2,'cleanup-test') RETURNING id", [scope.tenant_id, other._id])).rows[0];
+      secondTenant = (await db.pool.query("INSERT INTO tenants(name,slug) VALUES('Second deletion fixture',$1) RETURNING id", ['delete-test-' + require('node:crypto').randomUUID()])).rows[0];
+      await db.pool.query('INSERT INTO customer_favorites(customer_user_id,tenant_id) VALUES($1,$3),($2,$3),($1,$4),($2,$4)', [user._id, other._id, scope.tenant_id, secondTenant.id]);
+      const event = (await db.pool.query("INSERT INTO queue_events(tenant_id,location_id,queue_date_key,event_type,actor_user_id,actor_role,source,metadata) VALUES($1,$2,'2026-10-01','fixture_event',$3,'customer','cleanup-test',$4::jsonb) RETURNING *", [scope.tenant_id, scope.id, user._id, JSON.stringify({ accountEmail: user.email })])).rows[0];
+      const otherEvent = (await db.pool.query("INSERT INTO queue_events(tenant_id,queue_date_key,event_type,actor_user_id,source) VALUES($1,'2026-10-01','fixture_event',$2,'cleanup-test') RETURNING *", [scope.tenant_id, other._id])).rows[0];
       const session = await sessions.createAuthSession({user,authMethod:'password'});
       await db.pool.query("INSERT INTO mobile_push_registrations(user_id,installation_id,token,platform) VALUES($1,$2,$2,'ios')",[user._id,'fixture-'+user._id]);
       const result = await service.requestDeletion({userId:user._id,password:'correct-password'});
@@ -101,6 +103,21 @@ test('account deletion against disposable PostgreSQL', { skip: !url }, async (t)
           .map((source) => [source.source, source.items.map((item) => item.id)]));
         await db.pool.query(`UPDATE account_deletion_requests SET cleanup_status='queued',cleanup_selection=$2::jsonb,status='processing' WHERE id=$1`,
           [result.requestId, JSON.stringify({reportVersion:scanned.scan_report.version,selected,references,exclusions})]);
+        const lateEvent = (await db.pool.query("INSERT INTO queue_events(tenant_id,queue_date_key,event_type,actor_user_id,source) VALUES($1,'2026-10-01','fixture_event',$2,'cleanup-test') RETURNING id", [scope.tenant_id, user._id])).rows[0];
+        await assert.rejects(worker.runApprovedCleanup(cleanupClient, await load()), { code: 'CLEANUP_REFERENCES_CHANGED' });
+        assert.equal((await db.pool.query('SELECT * FROM customer_favorites WHERE customer_user_id=$1', [user._id])).rowCount, 2);
+        await db.pool.query('DELETE FROM queue_events WHERE id=$1', [lateEvent.id]);
+        await db.pool.query("UPDATE account_deletion_requests SET cleanup_status='queued' WHERE id=$1", [result.requestId]);
+        const failingClient = { query(sql, params) {
+          if (sql === 'DELETE FROM mobile_push_registrations WHERE user_id=$1') throw Object.assign(new Error('Failure after reviewed reference mutations'), { code: 'FIXTURE_FAILURE' });
+          return cleanupClient.query(sql, params);
+        } };
+        await assert.rejects(worker.runApprovedCleanup(failingClient, await load()), { code: 'FIXTURE_FAILURE' });
+        assert.equal((await load()).cleanup_status, 'needs_attention');
+        assert.ok(await users.findUserById(user._id));
+        assert.equal((await db.pool.query('SELECT * FROM customer_favorites WHERE customer_user_id=$1', [user._id])).rowCount, 2);
+        assert.deepEqual((await db.pool.query('SELECT * FROM queue_events WHERE id=$1', [event.id])).rows[0], event);
+        await db.pool.query("UPDATE account_deletion_requests SET cleanup_status='queued' WHERE id=$1", [result.requestId]);
         assert.equal(await worker.runApprovedCleanup(cleanupClient,await load()),true);
       }
       finally { cleanupClient.release(); }
@@ -112,10 +129,11 @@ test('account deletion against disposable PostgreSQL', { skip: !url }, async (t)
       assert.equal((await db.pool.query('SELECT * FROM auth_sessions WHERE user_id=$1',[user._id])).rowCount,0);
       assert.equal((await db.pool.query('SELECT * FROM mobile_push_registrations WHERE user_id=$1',[user._id])).rowCount,0);
       assert.equal((await db.pool.query('SELECT * FROM customer_favorites WHERE customer_user_id=$1', [user._id])).rowCount, 0);
-      assert.equal((await db.pool.query('SELECT * FROM customer_favorites WHERE customer_user_id=$1', [other._id])).rowCount, 1);
+      assert.equal((await db.pool.query('SELECT * FROM customer_favorites WHERE customer_user_id=$1', [other._id])).rowCount, 2);
       assert.equal((await db.pool.query('SELECT * FROM tenants WHERE id=$1', [scope.tenant_id])).rowCount, 1);
+      assert.equal((await db.pool.query('SELECT * FROM tenants WHERE id=$1', [secondTenant.id])).rowCount, 1);
       assert.deepEqual((await db.pool.query('SELECT * FROM queue_events WHERE id=$1', [event.id])).rows[0], { ...event, actor_user_id: null });
-      assert.equal(String((await db.pool.query('SELECT actor_user_id FROM queue_events WHERE id=$1', [otherEvent.id])).rows[0].actor_user_id), String(other._id));
+      assert.deepEqual((await db.pool.query('SELECT * FROM queue_events WHERE id=$1', [otherEvent.id])).rows[0], otherEvent);
     });
     async function ticketFixture(user, status) {
       const key = require('node:crypto').randomUUID();
@@ -201,6 +219,7 @@ test('account deletion against disposable PostgreSQL', { skip: !url }, async (t)
     await db.pool.query('DELETE FROM tickets WHERE user_id=ANY($1::bigint[])',[ids]);
     await db.pool.query('DELETE FROM users WHERE id=ANY($1::bigint[])',[ids]);
     if (scope) await db.pool.query('DELETE FROM tenants WHERE id=$1',[scope.tenant_id]);
+    if (secondTenant) await db.pool.query('DELETE FROM tenants WHERE id=$1',[secondTenant.id]);
     await db.pool.end();
   }
 });

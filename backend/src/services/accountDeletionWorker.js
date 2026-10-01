@@ -227,8 +227,8 @@ async function sendUserReport(client, request) {
   }), { bookings: 0, support: 0, security: 0 });
   const actionSummary = [
     '- Your GetPrio account and sign-in access were removed.',
-    anonymizedCount ? `- ${anonymizedCount} account-linked ${anonymizedCount === 1 ? 'record was' : 'records were'} anonymized so they are no longer directly linked to your account.` : null,
-    removedCount ? `- ${removedCount} temporary ${removedCount === 1 ? 'record was' : 'records were'} removed.` : null,
+    anonymizedCount ? `- Direct account links were removed from ${anonymizedCount} retained ${anonymizedCount === 1 ? 'record' : 'records'}. This does not mean all content in those records was erased.` : null,
+    removedCount ? `- ${removedCount} account-related ${removedCount === 1 ? 'record was' : 'records were'} removed.` : null,
     minimizedCounts.bookings || minimizedCounts.support || minimizedCounts.security
       ? `- We minimized personal details in ${minimizedCounts.bookings} ${minimizedCounts.bookings === 1 ? 'booking' : 'bookings'}, ${minimizedCounts.support} ${minimizedCounts.support === 1 ? 'support record' : 'support records'}, and ${minimizedCounts.security} ${minimizedCounts.security === 1 ? 'security record' : 'security records'} retained for service integrity.`
       : null
