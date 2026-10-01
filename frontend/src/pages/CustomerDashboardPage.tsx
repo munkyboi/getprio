@@ -20,8 +20,6 @@ import {
   IconChevronRight,
   IconMapPin,
   IconSpeakerphone,
-  IconStar,
-  IconStarFilled,
   IconTicket,
   IconUsersGroup
 } from "@tabler/icons-react";
@@ -213,21 +211,7 @@ export default function CustomerDashboardPage() {
                 Here&apos;s what needs your attention today, {formatDashboardDate(now)}.
               </Text>
             </div>
-            <Stack align="flex-end" className="customer-dashboard__rating-block" gap={6}>
-              <Text className="finazze-section-label">Your rating</Text>
-              {account?.trustRating.count ? (
-                <Group aria-label={`Trust rating ${account.trustRating.average.toFixed(1)} from ${account.trustRating.count} ratings`} className="customer-dashboard__rating" gap={7} wrap="nowrap">
-                  <IconStarFilled aria-hidden className="customer-dashboard__rating-star customer-dashboard__rating-star--filled" size={24} />
-                  <Text fw={900}>{account.trustRating.average.toFixed(1)}</Text>
-                  <Text c="dimmed" size="sm">({account.trustRating.count})</Text>
-                </Group>
-              ) : (
-                <Group aria-label="Not yet rated" className="customer-dashboard__rating" gap={7} wrap="nowrap">
-                  <IconStar aria-hidden className="customer-dashboard__rating-star" size={24} />
-                  <Text fw={700}>Not yet rated</Text>
-                </Group>
-              )}
-            </Stack>
+
           </header>
 
           <Card className="customer-dashboard__next" p="lg">

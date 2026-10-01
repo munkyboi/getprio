@@ -97,9 +97,9 @@ test("queue vendor reviews have a single booking-or-ticket source constraint", (
   assert.match(routes, /router\.post\("\/tickets\/:lookupCode\/rating"/);
 });
 
-test("one or two-star private trust rating requires a structured reason", async () => {
+test("customer ratings are retired before reading campaign data", async () => {
   const service = load({ "../repositories/bookings": {}, "../repositories/organizerCampaigns": { findCampaignById: async () => ({ id: "9", organizerUserId: "7", status: "collected" }), findContributionById: async () => ({ id: "5", campaignId: "9", contributorUserId: "8", status: "accepted" }) }, "../repositories/ratings": { createTrustRating: async (data) => data }, "./contentModeration": { assertPublicTextFieldsAllowed: () => {} } });
-  await assert.rejects(() => service.rateCampaignUser({ user: { _id: "7" }, campaignId: "9", contributionId: "5", body: { stars: 2 } }), { statusCode: 400 });
+  await assert.rejects(() => service.rateCampaignUser({ user: { _id: "7" }, campaignId: "9", contributionId: "5", body: { stars: 2 } }), { statusCode: 410 });
 });
 
 test("only a private trust rating participant can appeal it within 30 days", async () => {

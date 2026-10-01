@@ -6,7 +6,6 @@ const paymentProofStorageService = require("./paymentProofStorageService");
 const pushNotificationService = require("./pushNotificationService");
 const notificationService = require("./notificationService");
 const userRepository = require("../repositories/users");
-const ratingRepository = require("../repositories/ratings");
 const { assertPublicTextFieldsAllowed } = require("./contentModeration");
 const organizerCampaignEvents = require("./organizerCampaignEvents");
 const entitlementAdmissionService = require("./entitlementAdmissionService");
@@ -175,8 +174,6 @@ async function attachBookingDetails(campaign, existingBooking = null) {
   if (!campaign) return campaign;
   const booking = existingBooking || await bookingRepository.findBookingById(campaign.bookingId);
   if (!booking) return campaign;
-  const organizerTrustRating = campaign.organizerTrustRating
-    || (campaign.organizerUserId ? await ratingRepository.getUserTrustAggregate(campaign.organizerUserId) : undefined);
   const bundleItems = booking.bundleItems?.length
     ? booking.bundleItems
     : [{
@@ -194,7 +191,6 @@ async function attachBookingDetails(campaign, existingBooking = null) {
       }];
   return {
     ...campaign,
-    ...(organizerTrustRating ? { organizerTrustRating } : {}),
     scheduledStartAt: booking.scheduledStartAt,
     booking: {
       id: booking._id,
@@ -223,8 +219,7 @@ async function getCampaignForOrganizer({ user, campaignId }) {
     campaignRepository.listReimbursementsByCampaign?.(campaign.id) || [],
     campaignRepository.listEventsByCampaign?.(campaign.id) || []
   ]);
-  const contributionsWithTrust = await Promise.all(contributions.map(async (contribution) => ({ ...contribution, trustRating: await ratingRepository.getUserTrustAggregate(contribution.contributorUserId) })));
-  return { ...campaign, contributions: contributionsWithTrust, reimbursements, events };
+  return { ...campaign, contributions, reimbursements, events };
 }
 
 async function updateCampaign({ user, campaignId, body }) {
@@ -262,15 +257,13 @@ async function getCampaignForCustomer({ user, campaignId }) {
   if (!campaign) throw makeHttpError("Campaign not found.", 404);
   if (String(campaign.organizerUserId) === String(user?._id)) {
     const result = await getCampaignForOrganizer({ user, campaignId });
-    const organizerTrustRating = await ratingRepository.getUserTrustAggregate(campaign.organizerUserId);
-    return attachBookingDetails({ ...result, organizerTrustRating, notices: await campaignRepository.listNotices?.({ campaignId: campaign.id, recipientUserId: user._id }) || [] });
+    return attachBookingDetails({ ...result, notices: await campaignRepository.listNotices?.({ campaignId: campaign.id, recipientUserId: user._id }) || [] });
   }
   const contribution = await campaignRepository.findContributionByCampaignAndUser(campaign.id, user?._id);
   if (!contribution) throw makeHttpError("Campaign not found.", 404);
   const reimbursement = await campaignRepository.findReimbursementByContributionId(contribution.id);
-  const organizerTrustRating = await ratingRepository.getUserTrustAggregate(campaign.organizerUserId);
   const notices = await campaignRepository.listNotices?.({ campaignId: campaign.id, recipientUserId: user._id }) || [];
-  return attachBookingDetails({ ...campaign, contribution, reimbursement, organizerTrustRating, notices });
+  return attachBookingDetails({ ...campaign, contribution, reimbursement, notices });
 }
 
 async function publishCampaign({ user, campaignId, visibility = "private_link", website = "" }) {

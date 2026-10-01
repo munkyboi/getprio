@@ -1,5 +1,4 @@
 import { Avatar, Badge, Button, Card, Group, Stack, Text, Title } from "@mantine/core";
-import { IconStar } from "@tabler/icons-react";
 import { Link } from "react-router-dom";
 import type { OrganizerCampaign, OrganizerCampaignStatus, PublicOrganizerCampaign } from "@shared";
 import RichCampaignDescription from "./RichCampaignDescription";
@@ -63,7 +62,7 @@ export default function CampaignSummaryCard({
   const fundedAmountCents = "acceptedAmountCents" in campaign
     ? campaign.acceptedAmountCents ?? confirmedContributors * campaign.contributionFeeCents
     : confirmedContributors * campaign.contributionFeeCents;
-  const rating = campaign.organizerTrustRating;
+
   const timeZone = campaign.location?.timezone || "Asia/Manila";
   const scheduleDuration = formatCampaignDuration(campaign.scheduledStartAt, campaign.scheduledEndAt);
   const scheduleTime = campaign.scheduledStartAt && campaign.scheduledEndAt
@@ -81,8 +80,8 @@ export default function CampaignSummaryCard({
         <Avatar alt={`${campaign.organizerDisplayName || "Organizer"} profile photo`} color="orange" radius="xl" size={30} src={campaign.organizerAvatarUrl || undefined}>{getInitials(campaign.organizerDisplayName || "Organizer")}</Avatar>
         <Group gap={6} wrap="wrap">
           <Text size="sm">Organized by <Text component="span" fw={800}>{campaign.organizerDisplayName || "Organizer"}</Text></Text>
-          <Text aria-hidden="true" c="dimmed" size="sm">|</Text>
-          {rating?.count ? <Group gap={4} wrap="nowrap"><IconStar aria-hidden="true" color="#ffd000" fill="#ffd000" size={15}/><Text size="sm">{rating.average.toFixed(1)} ({rating.count})</Text></Group> : <Group gap={4} wrap="nowrap"><IconStar aria-hidden="true" color="var(--mantine-color-gray-5)" size={15}/><Text c="dimmed" size="sm">Not yet rated</Text></Group>}
+
+
         </Group>
       </Group>
       {campaign.description ? <RichCampaignDescription className={descriptionClassName} content={campaign.description}/> : null}

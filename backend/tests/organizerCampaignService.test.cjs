@@ -246,7 +246,7 @@ test("organizer campaign service requires the booking-time campaign opt-in", asy
   await assert.rejects(() => service.createCampaign({ user: { _id: "7" }, body: { bookingId: 42 } }), { statusCode: 409 });
 });
 
-test("organizer campaign response includes its isolated booking summary and hides empty ratings in the UI contract", async () => {
+test("organizer campaign response includes its booking summary without customer ratings", async () => {
   const service = loadService({
     "../repositories/bookings": {
       findBookingById: async () => ({
@@ -286,7 +286,7 @@ test("organizer campaign response includes its isolated booking summary and hide
   const result = await service.getCampaignForCustomer({ user: { _id: "7" }, campaignId: "9" });
 
   assert.equal(result.organizerDisplayName, "Alex Organizer");
-  assert.deepEqual(result.organizerTrustRating, { average: 0, count: 0 });
+  assert.equal(result.organizerTrustRating, undefined);
   assert.equal(result.booking.reference, "BKG-TEST42");
   assert.equal(result.booking.locationSlug, "main-branch");
   assert.equal(result.booking.locationAddress, "123 Sample Street, Cebu City, Cebu");

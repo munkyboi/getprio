@@ -548,7 +548,6 @@ export interface CustomerBookingSummary {
   bookingPaymentSource: BookingPaymentSource;
   organizerCampaignOptIn: boolean;
   organizerCampaign?: { id: string; status: OrganizerCampaignStatus } | null;
-  organizerTrustRating?: { average: number; count: number } | null;
   groupFundedCampaign: BookingGroupFundedCampaignSummary | null;
   manualPaymentDestination: BookingManualPaymentDestination | null;
   paymentProof: BookingPaymentProofSummary | null;
@@ -881,7 +880,6 @@ export interface OrganizerCampaignContribution {
   reservationAttemptCount: number;
   retryAvailableAt?: string | Date | null;
   submittedAt?: string | Date | null;
-  trustRating?: { average: number; count: number };
 }
 
 export interface OrganizerCampaign {
@@ -927,7 +925,6 @@ export interface OrganizerCampaign {
   contribution?: OrganizerCampaignContribution;
   reimbursements?: Array<{ id: string; contributionId: string; contributorUserId: string; status: "pending" | "sent" | "confirmed" | "disputed"; amountCents: number }>;
   reimbursement?: { id: string; contributionId: string; contributorUserId: string; status: "pending" | "sent" | "confirmed" | "disputed"; amountCents: number } | null;
-  organizerTrustRating?: { average: number; count: number };
   events?: Array<{
     id: string;
     eventType: string;
@@ -956,7 +953,6 @@ export interface PublicOrganizerCampaign {
   availableContributors: number;
   organizerDisplayName: string;
   organizerAvatarUrl?: string;
-  organizerTrustRating?: { average: number; count: number };
   scheduledStartAt: string | Date;
   scheduledEndAt: string | Date;
   currency: string;
@@ -1927,7 +1923,6 @@ export interface CustomerAccountOverviewResponse {
     hasPassword?: boolean;
     mfaRequired: boolean;
   };
-  trustRating: { average: number; count: number };
   notificationSettings: CustomerNotificationSettings;
   tickets: CustomerAccountTicketSummary[];
 }

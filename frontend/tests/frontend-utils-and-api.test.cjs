@@ -2129,15 +2129,14 @@ test("queue ticket notices use an opaque readable surface with hero spacing", ()
   );
 });
 
-test("campaign pages show booking details and consistent organizer trust rating states", () => {
+test("campaign pages show booking details without customer ratings", () => {
   const frontendRoot = path.resolve(__dirname, "..");
   const source = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CampaignControlCenterPage.tsx"), "utf8");
   const publicSource = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CampaignPreviewPage.tsx"), "utf8");
-  const rating = fs.readFileSync(path.join(frontendRoot, "src", "components", "CampaignOrganizerRating.tsx"), "utf8");
   const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
 
   assert.match(source, /Organized by/);
-  assert.match(source, /<CampaignOrganizerRating rating=\{campaign\.organizerTrustRating\}\/>/);
+  assert.doesNotMatch(source, /<CampaignOrganizerRating rating=\{campaign\.organizerTrustRating\}\/>/);
   assert.match(source, /src=\{campaign\.organizerAvatarUrl \|\| undefined\}/);
   assert.match(source, /src=\{item\.contributorAvatarUrl \|\| undefined\}/);
   assert.match(source, /BOOKING DETAILS/);
@@ -2147,11 +2146,7 @@ test("campaign pages show booking details and consistent organizer trust rating 
   assert.match(source, /to=\{`\/vendors\/\$\{booking\.vendorSlug\}`\}/);
   assert.match(source, /booking\.locationAddress \?/);
   assert.match(source, /event\.actorDisplayName/);
-  assert.match(publicSource, /<CampaignOrganizerRating rating=\{campaign\.organizerTrustRating\}\/>/);
-  assert.match(rating, /rating\?\.count \?/);
-  assert.match(rating, /fill="#ffd000"/);
-  assert.match(rating, /<IconStar aria-hidden="true" color="var\(--mantine-color-gray-4\)"/);
-  assert.match(rating, />Not yet rated</);
+  assert.doesNotMatch(publicSource, /<CampaignOrganizerRating rating=\{campaign\.organizerTrustRating\}\/>/);
   assert.match(publicSource, /src=\{campaign\.organizerAvatarUrl \|\| undefined\}/);
   assert.match(publicSource, /<Badge color="cyan">\{campaign\.status\}<\/Badge>/);
   assert.match(publicSource, /<CampaignFundingProgress[\s\S]*?fundedAmountCents=\{acceptedAmountCents\}[\s\S]*?targetAmountCents=\{fundingTargetCents\}/);
@@ -2377,15 +2372,15 @@ test("contributor campaign hero uses campaign-wide aggregates instead of the vie
   assert.match(source, /requiredContributors=\{campaign\.requiredContributors\}/);
 });
 
-test("campaign trust ratings open from a contextual action inside a mobile-first modal", () => {
+test("campaign customer rating controls are retired", () => {
   const frontendRoot = path.resolve(__dirname, "..");
   const source = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CampaignControlCenterPage.tsx"), "utf8");
 
-  assert.match(source, /Rate contributor/);
-  assert.match(source, /Rate organizer/);
-  assert.match(source, /className="customer-modal campaign-rating-modal"/);
-  assert.match(source, /<FiveStarRatingInput/);
-  assert.match(source, /Low-rating reason/);
+  assert.doesNotMatch(source, /Rate contributor/);
+  assert.doesNotMatch(source, /Rate organizer/);
+  assert.doesNotMatch(source, /className="customer-modal campaign-rating-modal"/);
+  assert.doesNotMatch(source, /<FiveStarRatingInput/);
+  assert.doesNotMatch(source, /Low-rating reason/);
   assert.doesNotMatch(source, /<Stack gap="xs"><Text size="sm" fw=\{700\}>Private trust rating/);
 });
 
@@ -2490,7 +2485,7 @@ test("campaign page titles use the customer account heading scale", () => {
   assert.match(styles, /\.customer-section-header h1 \{[\s\S]*?font-size: clamp\(2\.15rem, 9vw, 3\.35rem\)/);
 });
 
-test("customer campaign cards show status flavor, organizer trust, and three campaign facts", () => {
+test("customer campaign cards show organizer identity and campaign facts without customer ratings", () => {
   const frontendRoot = path.resolve(__dirname, "..");
   const source = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CampaignControlCenterPage.tsx"), "utf8");
   const card = fs.readFileSync(path.join(frontendRoot, "src", "components", "CampaignSummaryCard.tsx"), "utf8");
@@ -2502,8 +2497,8 @@ test("customer campaign cards show status flavor, organizer trust, and three cam
   assert.match(card, /cancelled: \{ color: "red", label: "Cancelled" \}/);
   assert.match(card, /Organized by/);
   assert.match(card, /organizerAvatarUrl/);
-  assert.match(card, /organizerTrustRating/);
-  assert.match(card, />Not yet rated</);
+  assert.doesNotMatch(card, /organizerTrustRating/);
+  assert.doesNotMatch(card, />Not yet rated</);
   assert.doesNotMatch(card, />No rating yet</);
   assert.match(card, /campaign-list-progress/);
   assert.match(card, /<CampaignFundingProgress/);
@@ -2752,7 +2747,7 @@ test("registered customers can rate a served queue visit from the ticket page", 
   assert.match(source, /className="queue-rating-modal-shell"/);
   assert.match(source, /className="queue-rating-modal-main"/);
   assert.match(source, /className="customer-modal-actions queue-rating-modal-actions"/);
-  assert.match(source, /<FiveStarRatingInput/);
+  assert.doesNotMatch(source, /<FiveStarRatingInput/);
   assert.match(source, /label="Optional public comment"/);
   assert.match(source, /maxLength=\{500\}/);
   assert.match(source, />\s*Rating submitted\s*</);

@@ -26,15 +26,6 @@ async function findVendorReviewByTicketId(ticketId, customerUserId) {
   return rows[0] || null;
 }
 
-async function createTrustRating(data) {
-  const { rows } = await db.pool.query(
-    `INSERT INTO user_trust_ratings (interaction_type, booking_id, campaign_id, contribution_id, rater_user_id, subject_user_id, stars, reason_category, private_note)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
-    [data.interactionType, data.bookingId ? Number(data.bookingId) : null, data.campaignId ? Number(data.campaignId) : null, data.contributionId ? Number(data.contributionId) : null, Number(data.raterUserId), Number(data.subjectUserId), data.stars, data.reasonCategory || null, data.privateNote || null]
-  );
-  return rows[0];
-}
-
 async function getVendorAggregate(tenantId) {
   const { rows } = await db.pool.query("SELECT COALESCE(ROUND(AVG(stars)::numeric, 1), 0)::float AS average, count(*)::int AS count FROM vendor_reviews WHERE tenant_id = $1 AND moderation_status = 'active'", [Number(tenantId)]);
   return rows[0];
@@ -67,11 +58,6 @@ async function listVendorReviews(tenantId, limit, offset) {
 async function setReviewVisibility(tenantId, reviewId, visible) {
   const { rows } = await db.pool.query(`UPDATE vendor_reviews SET public_visible = $3 WHERE tenant_id = $1 AND id = $2 RETURNING id, public_visible`, [Number(tenantId), Number(reviewId), visible]);
   return rows[0] || null;
-}
-
-async function getUserTrustAggregate(subjectUserId) {
-  const { rows } = await db.pool.query("SELECT COALESCE(ROUND(AVG(stars)::numeric, 1), 0)::float AS average, count(*)::int AS count FROM user_trust_ratings WHERE subject_user_id = $1 AND moderation_status = 'active'", [Number(subjectUserId)]);
-  return rows[0];
 }
 
 async function findVendorReviewById(reviewId) {
@@ -145,4 +131,4 @@ async function createDispute({ ratingType, ratingId, reporterUserId, reason }) {
   });
 }
 
-module.exports = { maskCustomerName, countPublicVendorReviews, listVendorReviews, setReviewVisibility, createDispute, createTrustRating, createVendorReview, findTrustRatingById, findVendorReviewById, findVendorReviewByTicketId, getUserTrustAggregate, getVendorAggregate, listDisputes, listPublicVendorReviews, replyToVendorReview, resolveDispute, reviseVendorReview };
+module.exports = { maskCustomerName, countPublicVendorReviews, listVendorReviews, setReviewVisibility, createDispute, createVendorReview, findTrustRatingById, findVendorReviewById, findVendorReviewByTicketId, getVendorAggregate, listDisputes, listPublicVendorReviews, replyToVendorReview, resolveDispute, reviseVendorReview };

@@ -1,19 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Avatar, Badge, Box, Button, Card, Container, FileInput, Group, Image, Modal, Notification, NumberInput, Paper, Portal, ScrollArea, SimpleGrid, Slider, Stack, Text, Textarea, TextInput, Title } from "@mantine/core";
-import { IconAlertCircle, IconBellRinging, IconCalendarTime, IconCircleCheck, IconClock, IconCopy, IconExternalLink, IconEye, IconHistory, IconRefresh, IconStar, IconUpload } from "@tabler/icons-react";
+import { Alert, Avatar, Badge, Box, Button, Card, Container, FileInput, Group, Image, Modal, Notification, NumberInput, Paper, Portal, ScrollArea, SimpleGrid, Slider, Stack, Text, TextInput, Title } from "@mantine/core";
+import { IconAlertCircle, IconBellRinging, IconCalendarTime, IconCircleCheck, IconClock, IconCopy, IconExternalLink, IconEye, IconHistory, IconRefresh, IconUpload } from "@tabler/icons-react";
 import { Link, Navigate, useParams } from "react-router-dom";
 import type { OrganizerCampaign, OrganizerContributionStatus } from "@shared";
 import { API_BASE_URL, apiRequest } from "../api/client";
 import { customerAccountApi } from "../api/customerAccount";
 import { useAuth } from "../context/AuthContext";
 import { getErrorMessage } from "../utils/errors";
-import FiveStarRatingInput from "../components/FiveStarRatingInput";
+
 import CampaignDescriptionEditor from "../components/CampaignDescriptionEditor";
 import RichCampaignDescription from "../components/RichCampaignDescription";
 import CampaignDeadlinePicker, { formatCampaignDeadlineDate, resolveCampaignDeadline } from "../components/CampaignDeadlinePicker";
 import CampaignHeroStats from "../components/CampaignHeroStats";
 import CampaignFundingProgress from "../components/CampaignFundingProgress";
-import CampaignOrganizerRating from "../components/CampaignOrganizerRating";
+
 import { ConfirmActionModal } from "../components/ConfirmActionModal";
 import { PromptActionModal } from "../components/PromptActionModal";
 import { formatBookingScheduleDate, formatBookingScheduleTimeRange } from "../utils/dates";
@@ -176,35 +176,7 @@ function participationPresentation(contribution: NonNullable<OrganizerCampaign["
   };
 }
 
-function CampaignRatingForm({ token, campaignId, contributionId, onSaved, actionLabel, subjectLabel }: { token: string; campaignId: string; contributionId: string; onSaved: () => void; actionLabel: string; subjectLabel: string }) {
-  const [stars, setStars] = useState(0); const [busy, setBusy] = useState(false); const [error, setError] = useState("");
-  const [submitted, setSubmitted] = useState(false);
-  const [opened, setOpened] = useState(false);
-  const [reasonCategory, setReasonCategory] = useState("");
-  async function saveRating() {
-    if (!stars) return;
-    const reason = reasonCategory.trim();
-    if (stars <= 2 && !reason) {
-      setError("A low-rating reason is required for one or two stars.");
-      return;
-    }
-    setBusy(true);
-    setError("");
-    try {
-      await apiRequest(`/account/campaigns/${campaignId}/contributions/${contributionId}/rating`, { method: "POST", token, body: { stars, reasonCategory: reason, privateNote: "" } });
-      setOpened(false);
-      setReasonCategory("");
-      setSubmitted(true);
-      onSaved();
-    } catch (next) {
-      setError(getErrorMessage(next));
-    } finally {
-      setBusy(false);
-    }
-  }
-  if (submitted) return <Text c="teal" fw={700} size="sm">Rating submitted</Text>;
-  return <><Button leftSection={<IconStar size={16}/>} onClick={() => { setError(""); setOpened(true); }} size="xs" variant="light">{actionLabel}</Button><Modal centered className="customer-modal campaign-rating-modal" onClose={() => { if (!busy) setOpened(false); }} opened={opened} size="md" title={<Stack className="getprio-modal-title" gap={2}><Text className="getprio-modal-eyebrow">PRIVATE TRUST</Text><Text className="getprio-modal-heading">Rate {subjectLabel}</Text></Stack>} transitionProps={{ transition: "slide-up", duration: 240, timingFunction: "ease-out" }}><div className="campaign-rating-modal-shell"><ScrollArea className="campaign-rating-modal-main" scrollbars="y" scrollbarSize={8} styles={{ root: { flex: 1, minHeight: 0 }, viewport: { height: "100%" } }} type="hover"><Stack gap="md"><Text c="dimmed" size="sm">This rating is private and helps GetPrio support safer campaign interactions.</Text><FiveStarRatingInput label={`Private trust rating for ${subjectLabel}`} onChange={(value) => { setStars(value); setError(""); if (value > 2) setReasonCategory(""); }} value={stars}/>{stars > 0 && stars <= 2 ? <Textarea autosize label="Low-rating reason" maxLength={500} minRows={3} onChange={(event) => setReasonCategory(event.currentTarget.value)} placeholder="For example: communication, payment, or conduct" required value={reasonCategory}/> : null}{error ? <Alert color="red">{error}</Alert> : null}</Stack></ScrollArea><Group className="customer-modal-actions campaign-rating-modal-actions" justify="flex-end"><Button disabled={!stars || (stars <= 2 && !reasonCategory.trim())} loading={busy} onClick={() => void saveRating()} size="lg">Submit rating</Button></Group></div></Modal></>;
-}
+
 
 function DraftCampaignEditor({ campaign, token, onSaved }: { campaign: OrganizerCampaign; token: string; onSaved: () => void }) {
   const initialDeadlineDate = campaign.deadlineAt ? formatCampaignDeadlineDate(campaign.deadlineAt) : "";
@@ -518,7 +490,7 @@ export default function CampaignControlCenterPage() {
   if (!campaign) return <Container py="xl">{error ? <Alert color="red">{error}</Alert> : <Text>Loading campaign…</Text>}</Container>;
   return <><Container className="campaign-control-page" p={0} size="lg"><Stack gap="lg">
     <Card className="campaign-control-hero" p="xl"><Stack gap="md">
-      <Group align="flex-start" justify="space-between"><Group align="center" gap="sm" wrap="nowrap"><Avatar alt={`${campaign.organizerDisplayName || "Organizer"} profile photo`} color="orange" radius="xl" size={48} src={campaign.organizerAvatarUrl || undefined}>{getInitials(campaign.organizerDisplayName || "Organizer")}</Avatar><Stack gap={4}><Badge color="cyan">{campaign.status}</Badge><Text className="campaign-hero-secondary" size="sm">Organized by <Text component="span" fw={800}>{campaign.organizerDisplayName || "Organizer"}</Text></Text></Stack></Group><CampaignOrganizerRating rating={campaign.organizerTrustRating}/></Group>
+      <Group align="flex-start" justify="space-between"><Group align="center" gap="sm" wrap="nowrap"><Avatar alt={`${campaign.organizerDisplayName || "Organizer"} profile photo`} color="orange" radius="xl" size={48} src={campaign.organizerAvatarUrl || undefined}>{getInitials(campaign.organizerDisplayName || "Organizer")}</Avatar><Stack gap={4}><Badge color="cyan">{campaign.status}</Badge><Text className="campaign-hero-secondary" size="sm">Organized by <Text component="span" fw={800}>{campaign.organizerDisplayName || "Organizer"}</Text></Text></Stack></Group></Group>
       <Title order={2}>{campaign.title}</Title>{campaign.description ? <RichCampaignDescription content={campaign.description}/> : null}
       <CampaignFundingProgress fundedAmountCents={acceptedAmountCents} targetAmountCents={fundingTargetCents}/>
       <CampaignHeroStats acceptedContributors={acceptedContributors} currency={campaign.currency} deadlineAt={campaign.deadlineAt} joinFeeCents={campaign.contributionFeeCents} requiredContributors={campaign.requiredContributors} reservedContributors={reservedContributors} scheduledEndAt={campaign.scheduledEndAt} scheduledStartAt={campaign.scheduledStartAt} timeZone={campaign.location?.timezone} underReviewContributors={underReviewContributors}/>
@@ -560,10 +532,10 @@ export default function CampaignControlCenterPage() {
     </Stack></Card> : null}
     {isOrganizer && campaign.status === "draft" ? <Card p="lg"><Stack><Title order={3}>Publish campaign</Title><Text c="dimmed">Share-link visibility is the default. Public discovery also requires vendor consent.</Text><Group><Button loading={busy} onClick={() => publish("private_link")}>Publish privately</Button><Button loading={busy} onClick={() => publish("public")} variant="light">Publish publicly</Button></Group></Stack></Card> : null}
     {isOrganizer && campaign.status === "collected" ? <Button color="red" disabled={busy} onClick={cancel} variant="light">Cancel and reimburse contributors</Button> : null}
-    {isOrganizer ? <Card p="lg"><Stack><Group justify="space-between"><Title order={3}>Contributors</Title><Badge>{joinedContributors} active</Badge></Group>{contributions.map((item, index) => <Card className="campaign-contributor-row" key={item.id} p="sm"><Stack gap="xs"><Group justify="space-between"><Group align="center" gap="sm" wrap="nowrap"><Avatar alt={`${item.contributorDisplayName || `Contributor ${index + 1}`} profile photo`} color="orange" radius="xl" size={44} src={item.contributorAvatarUrl || undefined}>{getInitials(item.contributorDisplayName || `Contributor ${index + 1}`)}</Avatar><div><Text fw={700}>{item.contributorDisplayName || `Contributor ${index + 1}`}</Text><Text c="dimmed" size="sm">{item.status.replaceAll("_", " ")}</Text>{item.trustRating?.count ? <Group gap={4}><IconStar color="#ffd000" fill="#ffd000" size={14}/><Text size="xs">{item.trustRating.average.toFixed(1)} ({item.trustRating.count})</Text></Group> : null}</div></Group><Group><Badge>{money(item.amountCents, item.currency)}</Badge>{["submitted", "review_overdue", "accepted", "rejected"].includes(item.status) ? <Button disabled={busy} onClick={() => viewEvidence(item.id)} size="xs" variant="subtle">View proof</Button> : null}{["submitted", "review_overdue"].includes(item.status) ? <Button disabled={busy} onClick={() => reviewContribution(item.id, "accept")} size="xs">Accept</Button> : null}{["pending_proof", "submitted", "review_overdue"].includes(item.status) ? <Button color="red" disabled={busy} onClick={() => reviewContribution(item.id, "reject")} size="xs" variant="light">Reject</Button> : null}{item.status === "refund_pending" ? <Button component="label" disabled={busy} size="xs" variant="light">Record reimbursement<input accept="image/jpeg,image/png,image/webp,application/pdf" hidden onChange={(event) => { const file = event.currentTarget.files?.[0]; if (file) void uploadReimbursementEvidence(item.id, file); }} type="file" /></Button> : null}{["refund_sent", "refund_confirmed", "refund_disputed"].includes(item.status) ? <Button disabled={busy} onClick={() => viewEvidence(item.id, "reimbursement")} size="xs" variant="subtle">View reimbursement</Button> : null}{["accepted", "rejected", "refund_pending", "refund_sent", "refund_confirmed", "refund_disputed"].includes(item.status) ? <CampaignRatingForm actionLabel="Rate contributor" campaignId={campaign.id} contributionId={item.id} onSaved={() => void load()} subjectLabel={item.contributorDisplayName || `Contributor ${index + 1}`} token={token}/> : null}</Group></Group></Stack></Card>)}</Stack></Card> : null}
+    {isOrganizer ? <Card p="lg"><Stack><Group justify="space-between"><Title order={3}>Contributors</Title><Badge>{joinedContributors} active</Badge></Group>{contributions.map((item, index) => <Card className="campaign-contributor-row" key={item.id} p="sm"><Stack gap="xs"><Group justify="space-between"><Group align="center" gap="sm" wrap="nowrap"><Avatar alt={`${item.contributorDisplayName || `Contributor ${index + 1}`} profile photo`} color="orange" radius="xl" size={44} src={item.contributorAvatarUrl || undefined}>{getInitials(item.contributorDisplayName || `Contributor ${index + 1}`)}</Avatar><div><Text fw={700}>{item.contributorDisplayName || `Contributor ${index + 1}`}</Text><Text c="dimmed" size="sm">{item.status.replaceAll("_", " ")}</Text></div></Group><Group><Badge>{money(item.amountCents, item.currency)}</Badge>{["submitted", "review_overdue", "accepted", "rejected"].includes(item.status) ? <Button disabled={busy} onClick={() => viewEvidence(item.id)} size="xs" variant="subtle">View proof</Button> : null}{["submitted", "review_overdue"].includes(item.status) ? <Button disabled={busy} onClick={() => reviewContribution(item.id, "accept")} size="xs">Accept</Button> : null}{["pending_proof", "submitted", "review_overdue"].includes(item.status) ? <Button color="red" disabled={busy} onClick={() => reviewContribution(item.id, "reject")} size="xs" variant="light">Reject</Button> : null}{item.status === "refund_pending" ? <Button component="label" disabled={busy} size="xs" variant="light">Record reimbursement<input accept="image/jpeg,image/png,image/webp,application/pdf" hidden onChange={(event) => { const file = event.currentTarget.files?.[0]; if (file) void uploadReimbursementEvidence(item.id, file); }} type="file" /></Button> : null}{["refund_sent", "refund_confirmed", "refund_disputed"].includes(item.status) ? <Button disabled={busy} onClick={() => viewEvidence(item.id, "reimbursement")} size="xs" variant="subtle">View reimbursement</Button> : null}</Group></Group></Stack></Card>)}</Stack></Card> : null}
     {!isOrganizer && ownContribution && (ownContribution.status === "pending_proof" || (ownContribution.status === "rejected" && ownContribution.resubmissionCount < 1)) ? <Card p="lg"><Stack><Title order={3}>Submit contribution proof</Title><Alert color="blue" title="Pay the organizer directly"><RichCampaignDescription content={campaign.paymentInstructions}/></Alert>{ownContribution.status === "rejected" && !retryAvailable ? <Alert color="orange">Corrected proof can be submitted after {new Date(ownContribution.retryAvailableAt!).toLocaleTimeString()}.</Alert> : null}<TextInput label="Payment reference" value={paymentReference} onChange={(event) => setPaymentReference(event.currentTarget.value)}/><FileInput accept="image/jpeg,image/png,image/webp,application/pdf" label="Proof file" leftSection={<IconUpload size={16}/>} value={proof} onChange={setProof}/><Button disabled={!proof || !paymentReference.trim() || (ownContribution.status === "rejected" && !retryAvailable)} loading={busy} onClick={uploadProof}>Submit proof</Button></Stack></Card> : null}
     {!isOrganizer && ownContribution && ownReimbursement?.status === "sent" ? <Card p="lg"><Stack><Title order={3}>Confirm your reimbursement</Title><Text>The organizer marked {money(ownReimbursement.amountCents, campaign.currency)} as sent. Review the evidence and confirm only after it reaches you.</Text><Group><Button disabled={busy} onClick={() => viewEvidence(ownContribution.id, "reimbursement")} variant="subtle">View reimbursement evidence</Button><Button loading={busy} onClick={() => resolveReimbursement("confirm")}>I received it</Button><Button color="red" loading={busy} onClick={() => resolveReimbursement("dispute")} variant="light">Not received / dispute</Button></Group></Stack></Card> : null}
-    {!isOrganizer && ownContribution && ["collected", "cancelled"].includes(campaign.status) ? <Card p="lg"><Group justify="space-between"><Stack gap={2}><Text fw={700}>Rate the organizer</Text><Text c="dimmed" size="sm">Share a private trust rating after the campaign closes.</Text></Stack><CampaignRatingForm actionLabel="Rate organizer" campaignId={campaign.id} contributionId={ownContribution.id} onSaved={() => void load()} subjectLabel={campaign.organizerDisplayName || "organizer"} token={token}/></Group></Card> : null}
+
     {isOrganizer ? <Card p="lg"><Group align="center" className="campaign-history-cta" justify="space-between">
       <Stack gap={2}><Text fw={800}>Campaign history</Text><Text c="dimmed" size="sm">Review campaign, contributor, and payment activity.</Text></Stack>
       <Button className="campaign-history-cta-button" leftSection={<IconHistory size={18}/>} onClick={() => setHistoryModalOpen(true)} variant="light">View campaign history</Button>

@@ -67,7 +67,6 @@ import {
   IconUserCircle,
   IconQrcode,
   IconSparkles,
-  IconStar,
   IconTicket,
   IconTrash,
   IconX,
@@ -124,7 +123,7 @@ import { VendorAccountDeletionPanel } from "../components/VendorAccountDeletionP
 import { EmailMfaSettingsPanel } from "../components/EmailMfaSettingsPanel";
 import { API_BASE_URL } from "../api/client";
 import PhilippineMobileInput from "../components/PhilippineMobileInput";
-import FiveStarRatingInput from "../components/FiveStarRatingInput";
+
 import CampaignDescriptionEditor from "../components/CampaignDescriptionEditor";
 import RichCampaignDescription from "../components/RichCampaignDescription";
 import StyledQRCode, { getStyledQRCodeCanvas } from "../components/StyledQRCode";
@@ -141,7 +140,6 @@ import * as vendorDashboardBootstrap from "../api/vendorDashboardBootstrap";
 import * as vendorDashboardExport from "../api/vendorDashboardExport";
 import { useAuth } from "../context/AuthContext";
 import { ConfirmActionModal } from "../components/ConfirmActionModal";
-import { PromptActionModal } from "../components/PromptActionModal";
 import EmailChangePanel from "../components/EmailChangePanel";
 import PhoneChangePanel from "../components/PhoneChangePanel";
 import {
@@ -1228,10 +1226,10 @@ export default function VendorDashboardPage() {
   const [bookingDetailBooking, setBookingDetailBooking] = useState<VendorBookingSummary | null>(null);
   const [bookingDetailError, setBookingDetailError] = useState("");
   const [paymentRejectionReason, setPaymentRejectionReason] = useState("");
-  const [organizerRatingStars, setOrganizerRatingStars] = useState(0);
-  const [organizerRatingSubmitted, setOrganizerRatingSubmitted] = useState(false);
-  const [organizerRatingBooking, setOrganizerRatingBooking] = useState<VendorBookingSummary | null>(null);
-  const [organizerRatingReason, setOrganizerRatingReason] = useState("");
+
+
+
+
   const [groupFundedStatusFilter, setGroupFundedStatusFilter] = useState<GroupFundedStatusFilter>("all");
   const [groupFundedDetailId, setGroupFundedDetailId] = useState<string | null>(null);
   const [groupFundedRejectReason, setGroupFundedRejectReason] = useState("");
@@ -3398,32 +3396,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     }
   }
 
-  async function handleRateOrganizer(booking: VendorBookingSummary, reasonCategory?: string) {
-    if (!organizerRatingStars) return;
-    if (organizerRatingStars <= 2 && !reasonCategory?.trim()) {
-      setError("");
-      setOrganizerRatingBooking(booking);
-      setOrganizerRatingReason("");
-      return;
-    }
-    setBusyAction(`organizer-rating:${booking.id}`);
-    setError("");
-    try {
-      await vendorDashboardBookings.rateOrganizer(token, selectedTenantSlug, booking.id, {
-        stars: organizerRatingStars,
-        reasonCategory,
-        privateNote: ""
-      });
-      setOrganizerRatingSubmitted(true);
-      setOrganizerRatingBooking(null);
-      setOrganizerRatingReason("");
-      showSuccessNotification("Rating submitted", "The private organizer trust rating was saved.");
-    } catch (ratingError) {
-      setError(getErrorMessage(ratingError));
-    } finally {
-      setBusyAction("");
-    }
-  }
+
 
   async function handleVerifyGroupFundedContribution(contribution: VendorGroupFundedContributionSummary) {
     setBusyAction(`group-funded-contribution-verify:${contribution.id}`);
@@ -10828,8 +10801,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       setBookingDetailBooking(null);
       setBookingDetailError("");
       setPaymentRejectionReason("");
-      setOrganizerRatingStars(0);
-      setOrganizerRatingSubmitted(false);
+
+
     };
 
     return (
@@ -10924,7 +10897,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               <Group justify="space-between" align="flex-start" className="booking-detail__hero">
                 <Stack gap={6}>
                   <Text className="booking-detail__customer">{detailBooking.customerName}</Text>
-                  {detailBooking.organizerTrustRating?.count ? <Group gap={5}><IconStar color="#ffd000" fill="#ffd000" size={18}/><Text fw={900}>{detailBooking.organizerTrustRating.average.toFixed(1)} ({detailBooking.organizerTrustRating.count}) organizer trust</Text></Group> : null}
+
                   <Text className="booking-detail__contact">{detailBooking.customerEmail || detailBooking.customerPhone || "No contact details"}</Text>
                 </Stack>
                 <Group gap="xs" justify="flex-end">
@@ -11128,19 +11101,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 </Paper>
               ) : null}
 
-              {detailBooking.organizerCampaign && detailBooking.status === "completed" && !organizerRatingSubmitted ? (
-                <Paper withBorder radius="md" p="md" className="booking-detail__panel">
-                  <Stack gap="sm">
-                    <Group justify="space-between">
-                      <div><Text className="neura-label">PRIVATE TRUST</Text><Title order={3}>Rate this organizer</Title></div>
-                      {organizerRatingStars ? <Group gap={5}><IconStar color="#ffd000" fill="#ffd000" size={20}/><Text fw={900}>{organizerRatingStars}.0</Text></Group> : null}
-                    </Group>
-                    <Text c="dimmed" size="sm">Visible only as a role-scoped aggregate. Your identity and notes are not shown.</Text>
-                    <FiveStarRatingInput label="Private organizer rating" onChange={setOrganizerRatingStars} value={organizerRatingStars}/>
-                    <Button disabled={!organizerRatingStars} loading={busyAction === `organizer-rating:${detailBooking.id}`} onClick={() => handleRateOrganizer(detailBooking)} w="fit-content">Submit rating</Button>
-                  </Stack>
-                </Paper>
-              ) : null}
+
 
               <Group justify="space-between" className="booking-detail__footer">
                 <Button variant="default" onClick={closeBookingDetailModal}>
@@ -11224,29 +11185,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             closeConfirmAction();
           }}
         />
-        <PromptActionModal
-          confirmLabel="Submit rating"
-          description="Low ratings require a short reason to support fair trust and moderation decisions."
-          error={error}
-          eyebrow="PRIVATE TRUST"
-          label="Reason for this low rating"
-          loading={Boolean(organizerRatingBooking && busyAction === `organizer-rating:${organizerRatingBooking.id}`)}
-          maxLength={500}
-          onChange={setOrganizerRatingReason}
-          onClose={() => {
-            setOrganizerRatingBooking(null);
-            setOrganizerRatingReason("");
-          }}
-          onConfirm={() => {
-            if (organizerRatingBooking) {
-              void handleRateOrganizer(organizerRatingBooking, organizerRatingReason.trim());
-            }
-          }}
-          opened={Boolean(organizerRatingBooking)}
-          placeholder="For example: communication, payment, or conduct"
-          title="Add rating context"
-          value={organizerRatingReason}
-        />
+
       </Portal>
     );
   }

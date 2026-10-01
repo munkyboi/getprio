@@ -640,12 +640,10 @@ router.get(
     }
 
     const organizerCampaign = /^\d+$/.test(String(booking._id)) ? await organizerCampaignRepository.findCampaignByBookingId(booking._id) : null;
-    const organizerTrustRating = organizerCampaign ? await ratingRepository.getUserTrustAggregate(organizerCampaign.organizerUserId) : null;
     res.json({
       booking: {
         ...formatVendorBooking(booking),
-        organizerCampaign: organizerCampaign ? { id: organizerCampaign.id, status: organizerCampaign.status } : null,
-        organizerTrustRating
+        organizerCampaign: organizerCampaign ? { id: organizerCampaign.id, status: organizerCampaign.status } : null
       }
     });
   })

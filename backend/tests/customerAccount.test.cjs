@@ -335,7 +335,7 @@ test("customer account overview and history expose owned tickets only", async ()
     assert.equal(overview.user.mfaRequired, true);
     assert.equal(overview.user.totpMfaEnabled, true);
     assert.equal(overview.user.emailMfaEnabled, true);
-    assert.deepEqual(overview.trustRating, { average: 4.4, count: 5 });
+    assert.equal(overview.trustRating, undefined);
     assert.deepEqual(overview.ticketStats, { joined: 75, served: 1 });
     assert.equal(overview.tickets.length, 1);
     assert.equal(overview.tickets[0].ticketNumber, "DMO-001");

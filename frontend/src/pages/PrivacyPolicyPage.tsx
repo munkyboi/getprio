@@ -54,7 +54,7 @@ export default function PrivacyPolicyPage() {
               <List.Item>Queue and booking data such as vendor, service selected, ticket identifiers, position, join and service times, estimated waits, notes, status, and payment reference.</List.Item>
               <List.Item>Payment proof uploads and verification records when manual payment is required.</List.Item>
               <List.Item>Organizer campaign details, contributor membership, payment instructions, contribution and reimbursement evidence, review decisions, reports, and audit events.</List.Item>
-              <List.Item>Public vendor reviews and private role-scoped user trust ratings, including rating appeals and moderation decisions.</List.Item>
+              <List.Item>Public vendor reviews, including review appeals and moderation decisions. Customers do not receive ratings. Historical customer-rating records may be retained for existing disputes and audit obligations.</List.Item>
               <List.Item>Notification preferences, including your permitted campaign contact channel, and push registration data linked to your account, including an app installation identifier, notification token, platform, app version, app locale, and delivery success or failure records. Browser notifications use a push subscription endpoint and encryption keys.</List.Item>
               <List.Item>Vendor and staff records such as business names, locations, roles, schedules, and assigned bookings.</List.Item>
               <List.Item>Security and diagnostic data such as login attempts, audit logs, timestamps, IP address, and device metadata.</List.Item>
@@ -67,7 +67,7 @@ export default function PrivacyPolicyPage() {
               <List.Item>To process bookings, display vendor profiles and saved favorites, manage queue tickets, and calculate and update estimated waiting times.</List.Item>
               <List.Item>To verify manual payment proof and confirm or reject bookings where needed.</List.Item>
               <List.Item>To send confirmations, reminders, status updates, and service notifications.</List.Item>
-              <List.Item>To operate organizer-collected campaigns, record contributor proof decisions and reimbursements, calculate privacy-safe rating aggregates, and resolve reports or appeals.</List.Item>
+              <List.Item>To operate organizer-collected campaigns, record contributor proof decisions and reimbursements, and resolve reports or appeals.</List.Item>
               <List.Item>To monitor abuse, troubleshoot issues, and maintain audit trails.</List.Item>
               <List.Item>To improve product performance, usability, and service reliability.</List.Item>
             </List>

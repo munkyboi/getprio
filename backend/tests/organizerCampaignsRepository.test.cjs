@@ -179,14 +179,14 @@ test("organizer campaign discovery searches campaign, organizer, vendor, and bra
   assert.match(calls[0].query, /store_locations\.address_line1/);
   assert.match(calls[0].query, /store_locations\.city/);
   assert.match(calls[0].query, /store_locations\.province/);
-  assert.match(calls[0].query, /AVG\(ratings\.stars\)/);
-  assert.match(calls[0].query, /ratings\.subject_user_id = campaigns\.organizer_user_id/);
-  assert.match(calls[0].query, /ratings\.moderation_status = 'active'/);
+  assert.doesNotMatch(calls[0].query, /AVG\(ratings\.stars\)/);
+  assert.doesNotMatch(calls[0].query, /ratings\.subject_user_id = campaigns\.organizer_user_id/);
+  assert.doesNotMatch(calls[0].query, /ratings\.moderation_status = 'active'/);
   assert.match(calls[0].query, /\(bookings\.scheduled_start_at AT TIME ZONE store_locations\.timezone\)::date = \$2::date/);
   assert.deepEqual(calls[0].params, ["%Cebu open play%", "2026-08-20", 50]);
 });
 
-test("public campaign preview exposes the organizer trust aggregate", async () => {
+test("public campaign preview omits customer trust ratings", async () => {
   const repository = requireWithDbMock({
     pool: {
       query: async () => ({
@@ -226,7 +226,7 @@ test("public campaign preview exposes the organizer trust aggregate", async () =
 
   const campaign = await repository.findPublicCampaignByToken("public-token");
 
-  assert.deepEqual(campaign.organizerTrustRating, { average: 4.4, count: 5 });
+  assert.equal(campaign.organizerTrustRating, undefined);
   assert.equal(campaign.scheduledEndAt.toISOString(), "2026-08-20T05:00:00.000Z");
   assert.deepEqual(campaign.location, {
     name: "Tulik",
@@ -445,14 +445,14 @@ test("customer campaign list includes campaign-wide contribution aggregates", as
   assert.match(calls[0].query, /store_locations\.city AS location_city/);
   assert.match(calls[0].query, /bookings\.scheduled_end_at/);
   assert.match(calls[0].query, /store_locations\.timezone AS location_timezone/);
-  assert.match(calls[0].query, /AVG\(ratings\.stars\)/);
+  assert.doesNotMatch(calls[0].query, /AVG\(ratings\.stars\)/);
   assert.deepEqual(calls[0].params, [7]);
   assert.equal(campaigns[0].acceptedContributors, 4);
   assert.equal(campaigns[0].joinedContributors, 4);
   assert.equal(campaigns[0].reservedContributors, 1);
   assert.equal(campaigns[0].acceptedAmountCents, 40000);
   assert.equal(campaigns[0].scheduledEndAt.toISOString(), "2026-08-20T14:30:00.000Z");
-  assert.deepEqual(campaigns[0].organizerTrustRating, { average: 4.4, count: 51 });
+  assert.equal(campaigns[0].organizerTrustRating, undefined);
   assert.deepEqual(campaigns[0].vendor, { name: "VD Sports Club", slug: "vd-sports-club" });
   assert.deepEqual(campaigns[0].location, {
     name: "Tulik",

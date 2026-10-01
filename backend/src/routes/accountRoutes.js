@@ -5,7 +5,6 @@ const { authenticate } = require("../middleware/auth");
 const { moderatePublicText } = require("../middleware/moderatePublicText");
 const bookingRepository = require("../repositories/bookings");
 const organizerCampaignRepository = require("../repositories/organizerCampaigns");
-const ratingRepository = require("../repositories/ratings");
 const ticketRepository = require("../repositories/tickets");
 const tenantRepository = require("../repositories/tenants");
 const userRepository = require("../repositories/users");
@@ -331,9 +330,8 @@ function normalizeCustomerNotificationSettings(settings = {}) {
 router.get(
   "/overview",
   asyncHandler(async (req, res) => {
-    const [tickets, trustRating, ticketStats, mfaMethods] = await Promise.all([
+    const [tickets, ticketStats, mfaMethods] = await Promise.all([
       ticketRepository.listTicketsForCustomerAccount(req.user, { limit: 50 }),
-      ratingRepository.getUserTrustAggregate(req.user._id),
       ticketRepository.getCustomerTicketStats(req.user._id),
       mfaFlowService.getLoginMethods(req.user)
     ]);
@@ -344,7 +342,6 @@ router.get(
       totpMfaEnabled: mfaMethods.includes("totp"),
       emailMfaEnabled: mfaMethods.includes("email")
     },
-    trustRating,
     ticketStats,
     notificationSettings: normalizeCustomerNotificationSettings(req.user.notificationSettings),
     tickets: tickets.map(formatCustomerTicket)
