@@ -32,14 +32,14 @@ function mapPlan(row) {
       branding: Boolean(row.entitlements?.publicFacingBranding),
       discovery: Boolean(row.entitlements?.marketplaceDiscovery),
       booking: Boolean(row.entitlements?.serviceBookingAccess),
-      campaigns: Boolean(row.entitlements?.groupFundedCampaignAccess)
+      campaigns: false
     },
     allowances: {
       queueTickets: Number(row.entitlements?.monthlyTickets || 0),
       queueEmailJourneys: Number(row.entitlements?.monthlyQueueEmailJourneys ?? row.entitlements?.monthlyTransactionalEmails ?? 0),
       serviceBookings: Number(row.entitlements?.monthlyServiceBookings || 0)
     },
-    entitlements: row.entitlements || {},
+    entitlements: { ...(row.entitlements || {}), groupFundedCampaignAccess: false },
     included: row.included || []
   };
 }
@@ -69,7 +69,7 @@ async function updatePlan(plan, userId, options = {}) {
     publicFacingBranding: Boolean(plan.features?.branding),
     marketplaceDiscovery: Boolean(plan.features?.discovery),
     serviceBookingAccess: Boolean(plan.features?.booking),
-    groupFundedCampaignAccess: Boolean(plan.features?.campaigns),
+    groupFundedCampaignAccess: false,
     monthlyTickets: Number(plan.allowances?.queueTickets || 0),
     monthlyTransactionalEmails: Number(plan.allowances?.queueEmailJourneys || 0),
     monthlyQueueEmailJourneys: Number(plan.allowances?.queueEmailJourneys || 0),
@@ -106,7 +106,7 @@ async function updatePlan(plan, userId, options = {}) {
     ]
   );
 
-  for (const [featureKey, enabled] of Object.entries(plan.features || {})) {
+  for (const [featureKey, enabled] of Object.entries({ ...(plan.features || {}), campaigns: false })) {
     await queryClient.query(
       `INSERT INTO plan_feature_entitlements (plan_slug, feature_key, enabled, updated_by_user_id)
        VALUES ($1, $2, $3, $4)

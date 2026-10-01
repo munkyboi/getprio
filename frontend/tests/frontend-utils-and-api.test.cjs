@@ -1866,6 +1866,15 @@ test("pricing highlights follow current entitlements instead of stale marketing 
   assert.ok(changed.includes("8,000 Queue Tickets/mo"));
   assert.ok(changed.includes("0 Queue Email Journeys/mo"));
   assert.ok(changed.includes("250 service bookings/mo"));
+  const legacy = getPlanHighlights({ ...plan, features: { campaigns: true }, entitlements: { ...plan.entitlements, groupFundedCampaignAccess: true } });
+  assert.ok(!legacy.includes("Group-funded campaigns"));
+});
+
+test("privacy policy discloses retained campaign evidence without offering the retired workflow", () => {
+  const source = fs.readFileSync(path.resolve(__dirname, "../src/pages/PrivacyPolicyPage.tsx"), "utf8");
+  assert.match(source, /Historical campaign records/);
+  assert.match(source, /contribution and reimbursement evidence/);
+  assert.match(source, /campaign workflow is no longer available/);
 });
 
 test("enterprise inquiries use protected intake and a bounded autosizing message", () => {

@@ -17,9 +17,6 @@ const SMOKE_API_READY_TIMEOUT_MS = Math.max(1, Number.parseInt(process.env.SMOKE
 const SMOKE_API_READY_RETRY_INTERVAL_MS = Math.max(1, Number.parseInt(process.env.SMOKE_API_READY_RETRY_INTERVAL_MS || "2000", 10) || 2_000);
 const VENDOR_STAFF_SMOKE_EMAIL = String(process.env.VENDOR_STAFF_SMOKE_EMAIL || "").trim();
 const VENDOR_STAFF_SMOKE_PASSWORD = String(process.env.VENDOR_STAFF_SMOKE_PASSWORD || "").trim();
-const CAMPAIGN_SMOKE_ENABLED = ["1", "true", "yes"].includes(
-  String(process.env.SMOKE_ORGANIZER_CAMPAIGN || process.env.SMOKE_GROUP_FUNDED || "").toLowerCase()
-);
 
 function getCliStage() {
   const index = process.argv.indexOf("--stage");
@@ -52,8 +49,6 @@ const customerPages = [
   { path: "/account/profile", label: "customer profile" },
   { path: "/account/tickets", label: "customer tickets" },
   { path: "/account/bookings", label: "customer bookings" },
-  { path: "/account/campaigns", label: "customer campaigns" },
-  { path: "/account/campaigns/discover", label: "campaign discovery" },
   { path: "/account/settings", label: "customer settings" },
   { path: "/account/notifications", label: "customer notifications" },
   { path: "/account/security", label: "customer security" }
@@ -68,7 +63,6 @@ const platformPages = [
   { path: "/subscriptions", label: "platform subscriptions" },
   { path: "/users", label: "platform users" },
   { path: "/billing-events", label: "platform billing events" },
-  { path: "/campaign-reports", label: "platform campaign reports" },
   { path: "/rating-disputes", label: "platform rating disputes" }
 ];
 
@@ -677,56 +671,6 @@ async function smokeQueueLifecycleReadStage() {
   log("Platform Admin queue lifecycle diagnostics ok");
 }
 
-async function smokeOrganizerCampaignStage() {
-  if (!CAMPAIGN_SMOKE_ENABLED) {
-    log("organizer campaign smoke skipped (set SMOKE_ORGANIZER_CAMPAIGN=1 to enable)");
-    return;
-  }
-  if (!SMOKE_EMAIL || !SMOKE_PASSWORD) {
-    log("organizer campaign smoke skipped (set SMOKE_EMAIL and SMOKE_PASSWORD to a seeded fixture)");
-    return;
-  }
-
-  const auth = await login(SMOKE_EMAIL, SMOKE_PASSWORD);
-  const headers = { Authorization: `Bearer ${auth.token}` };
-  const bookingId = process.env.SMOKE_ORGANIZER_CAMPAIGN_BOOKING_ID;
-  if (!bookingId) {
-    log("organizer campaign smoke skipped (set SMOKE_ORGANIZER_CAMPAIGN_BOOKING_ID to an owned paid/confirmed opt-in booking)");
-    return;
-  }
-  const deadlineAt = process.env.SMOKE_ORGANIZER_CAMPAIGN_DEADLINE_AT || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-  const createCampaign = await requestJson(`${API_BASE_URL}/account/campaigns`, {
-    method: "POST",
-    headers: { ...headers, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      bookingId, title: `Organizer campaign smoke ${Date.now()}`,
-      description: "Private organizer-collected campaign smoke fixture",
-      deadlineAt, contributionFeeCents: 10000, requiredContributors: 2,
-      paymentInstructions: "Smoke-only direct organizer payment instructions"
-    })
-  });
-  assertOk(createCampaign.response, "organizer campaign creation");
-  const campaign = createCampaign.body?.campaign;
-  if (!campaign?.id || !campaign?.publicToken) fail("organizer campaign creation missing id or generic share token");
-  log("organizer campaign creation ok");
-
-  const publish = await requestJson(`${API_BASE_URL}/account/campaigns/${campaign.id}/publish`, { method: "PATCH", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ visibility: "private_link" }) });
-  assertOk(publish.response, "organizer campaign private publication");
-  log("organizer campaign private publication ok");
-  const preview = await requestJson(`${API_BASE_URL}/public/campaigns/${campaign.publicToken}`);
-  assertOk(preview.response, "organizer campaign privacy-minimized preview");
-  if ("paymentInstructions" in (preview.body?.campaign || {})) fail("public campaign preview leaked payment instructions");
-  log("organizer campaign privacy-minimized preview ok");
-
-  const legacyAccount = await requestJson(`${API_BASE_URL}/account/group-funded-campaigns`, { headers });
-  if (legacyAccount.response.status !== 410) fail("legacy customer campaign API was not retired");
-  const tenant = Array.isArray(auth.user.tenants) ? auth.user.tenants[0] : null;
-  if (tenant?.slug) {
-    const legacyVendor = await requestJson(`${API_BASE_URL}/vendor/tenant/${tenant.slug}/group-funded-campaigns`, { headers });
-    if (legacyVendor.response.status !== 404) fail("legacy vendor campaign API was not retired");
-  }
-  log("legacy campaign APIs retired ok");
-}
 
 async function smokePlatformStage() {
   if (!PLATFORM_SMOKE_EMAIL || !PLATFORM_SMOKE_PASSWORD) {
@@ -765,6 +709,10 @@ async function smokePlatformStage() {
 }
 
 async function reportPlatformSmoke(outcome, summary) {
+  if (SMOKE_STAGE === "campaign" || SMOKE_STAGE === "group-funded") {
+    log("retired campaign stage does not produce deployment evidence");
+    return;
+  }
   if (!process.env.GITHUB_RUN_ID || !SMOKE_EXPECTED_DEPLOY_SHA) {
     log("deployment evidence report skipped outside a configured GitHub deployment run");
     return;
@@ -827,8 +775,8 @@ async function main() {
   if (SMOKE_STAGE === "all" || SMOKE_STAGE === "queue") {
     await smokeQueueLifecycleReadStage();
   }
-  if (SMOKE_STAGE === "all" || SMOKE_STAGE === "campaign" || SMOKE_STAGE === "group-funded") {
-    await smokeOrganizerCampaignStage();
+  if (SMOKE_STAGE === "campaign" || SMOKE_STAGE === "group-funded") {
+    log("campaign smoke stage retired; no campaign operations were performed (not release verification)");
   }
   if (SMOKE_STAGE === "all" || SMOKE_STAGE === "platform") {
     await smokePlatformStage();

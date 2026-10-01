@@ -2,7 +2,7 @@ import { Anchor, Container, List, Stack, Text } from "@mantine/core";
 import LegalArticleLayout from "../components/LegalArticleLayout";
 import LegalSection from "../components/LegalSection";
 
-const lastUpdated = "September 30, 2026";
+const lastUpdated = "October 1, 2026";
 
 export default function PrivacyPolicyPage() {
   return (
@@ -53,7 +53,7 @@ export default function PrivacyPolicyPage() {
               <List.Item>Profile details, profile photos you upload, preferences, favorite vendors, and booking contact information.</List.Item>
               <List.Item>Queue and booking data such as vendor, service selected, ticket identifiers, position, join and service times, estimated waits, notes, status, and payment reference.</List.Item>
               <List.Item>Payment proof uploads and verification records when manual payment is required.</List.Item>
-
+              <List.Item>Historical campaign records from participation before retirement, including membership, payment instructions, contribution and reimbursement evidence, reports, and audit events. The campaign workflow is no longer available; retained records remain subject to the access limits and purpose-based retention described below.</List.Item>
               <List.Item>Public vendor reviews, including review appeals and moderation decisions. Customers do not receive ratings. Historical customer-rating records may be retained for existing disputes and audit obligations.</List.Item>
               <List.Item>Notification preferences and push registration data linked to your account, including an app installation identifier, notification token, platform, app version, app locale, and delivery success or failure records. Browser notifications use a push subscription endpoint and encryption keys.</List.Item>
               <List.Item>Vendor and staff records such as business names, locations, roles, schedules, and assigned bookings.</List.Item>

@@ -6,6 +6,23 @@ const path = require("node:path");
 const fs = require("node:fs");
 const test = require("node:test");
 
+test("retired campaign smoke aliases perform no network requests or campaign mutations", async () => {
+  for (const stage of ["campaign", "group-funded"]) {
+    const result = await new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, [path.join(__dirname, "smoke-test.mjs"), "--stage", stage], {
+        env: { ...process.env, SMOKE_API_URL: "http://127.0.0.1:1/api", SMOKE_EMAIL: "fixture@example.test", SMOKE_PASSWORD: "fixture-only", SMOKE_ORGANIZER_CAMPAIGN: "1", SMOKE_GROUP_FUNDED: "1", GITHUB_RUN_ID: "test-run", SMOKE_EXPECTED_DEPLOY_SHA: "a".repeat(40), PLATFORM_RELEASE_EVIDENCE_SECRET: "fixture-evidence-secret-at-least-32-bytes" }
+      });
+      let output = "";
+      child.stdout.on("data", (chunk) => { output += chunk; });
+      child.stderr.on("data", (chunk) => { output += chunk; });
+      child.on("error", reject);
+      child.on("close", (code) => resolve({ code, output }));
+    });
+    assert.equal(result.code, 0, result.output);
+    assert.match(result.output, /campaign smoke stage retired/);
+  }
+});
+
 function totp(secret, timestamp = Date.now()) {
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
   let bits = "";

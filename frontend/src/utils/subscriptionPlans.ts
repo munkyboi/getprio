@@ -26,7 +26,6 @@ export function getPlanHighlights(plan: SubscriptionPlan): string[] {
       ? "Branded public queue pages" : "GetPrio-branded public queue page");
   }
   if (plan.features?.discovery ?? e.marketplaceDiscovery) highlights.push("Marketplace discovery");
-  if (plan.features?.campaigns ?? e.groupFundedCampaignAccess) highlights.push("Group-funded campaigns");
   if (e.analytics) highlights.push("Analytics");
   else if (e.basicDashboard) highlights.push("Basic queue dashboard");
   if (e.csvExport || e.pdfExport) highlights.push(`${[e.csvExport && "CSV", e.pdfExport && "PDF"].filter(Boolean).join(" and ")} export`);
