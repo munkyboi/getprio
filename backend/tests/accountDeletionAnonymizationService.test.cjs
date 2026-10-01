@@ -2,6 +2,27 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { applyBestEffortAnonymization } = require('../src/services/accountDeletionAnonymizationService');
 
+test('reviewed cleanup deletes only account-owned favorites and detaches the actor from retained queue events', async () => {
+  const calls = [];
+  const client = { async query(sql, params) { calls.push({ sql, params }); return { rowCount: 1 }; } };
+  const inventory = { sources: [
+    { source: 'public.customer_favorites.customer_user_id', recordCount: 1, itemsComplete: true,
+      items: [{ id: 'favorite', rowKey: ['52', '4'], rowKeyColumns: ['customer_user_id', 'tenant_id'] }] },
+    { source: 'public.queue_events.actor_user_id', recordCount: 1, itemsComplete: true,
+      items: [{ id: 'event', rowKey: ['675'], rowKeyColumns: ['id'] }] }
+  ] };
+  const selection = { 'public.customer_favorites.customer_user_id': ['favorite'], 'public.queue_events.actor_user_id': ['event'] };
+  const result = await applyBestEffortAnonymization(client, inventory, 52, selection);
+  assert.deepEqual(result.deleted, [{ source: 'public.customer_favorites.customer_user_id', count: 1 }]);
+  assert.deepEqual(result.anonymized, [{ source: 'public.queue_events.actor_user_id', count: 1 }]);
+  assert.deepEqual(calls, [
+    { sql: 'DELETE FROM "public"."customer_favorites" WHERE "customer_user_id"=$1 AND "tenant_id"=$2 AND "customer_user_id"=$3', params: ['52', '4', 52] },
+    { sql: 'UPDATE "public"."queue_events" SET "actor_user_id"=NULL WHERE "id"=$1 AND "actor_user_id"=$2', params: ['675', 52] }
+  ]);
+  await assert.rejects(() => applyBestEffortAnonymization(client, inventory, 52, { ...selection, 'public.queue_events.actor_user_id': [] }), { code: 'CLEANUP_SELECTION_INVALID' });
+  await assert.rejects(() => applyBestEffortAnonymization({ query: async () => ({ rowCount: 0 }) }, inventory, 52, selection), { code: 'CLEANUP_REFERENCE_CHANGED' });
+});
+
 test('best-effort anonymization applies approved row-level dispositions and reports counts', async () => {
   const calls = [];
   const client = { async query(sql, params) { calls.push({ sql, params }); return { rowCount: 1, rows: [] }; } };

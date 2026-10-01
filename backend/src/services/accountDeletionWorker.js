@@ -5,6 +5,8 @@ const { collectRelationalInventory, unsafeCleanupReferences } = require('./accou
 const { applyBestEffortAnonymization } = require('./accountDeletionAnonymizationService');
 const env = require('../config/env');
 
+const isPreferenceReference = (item) => item.source === 'public.customer_favorites.customer_user_id';
+
 function emailConfigured() {
   return Boolean(env.resendApiKey || env.sendgridApiKey || (env.smtpHost && env.smtpUser && env.smtpPass));
 }
@@ -129,6 +131,8 @@ async function runApprovedCleanup(client, request) {
       throw Object.assign(new Error('The relational references changed or were not all included in the reviewed checklist.'), { code: 'CLEANUP_REFERENCES_CHANGED' });
     }
     const anonymization = await applyBestEffortAnonymization(client, currentInventory, userId, selectedReferences);
+    const deletedPreferenceReferences = anonymization.deleted.filter(isPreferenceReference);
+    const deletedTransientReferences = anonymization.deleted.filter((item) => !isPreferenceReference(item));
     // Device tokens are revoked at request time and removed during cleanup so
     // that no device registration retains a link to the deleted account.
     await client.query('DELETE FROM mobile_push_registrations WHERE user_id=$1', [userId]);
@@ -174,7 +178,7 @@ async function runApprovedCleanup(client, request) {
       version: 1,
       completedAt: new Date().toISOString(),
       actions: [
-        { categoryId: 'relational_references', outcome: 'best_effort_anonymized', details: 'The account identity was removed; approved actor/reporter links and private notes were minimized, ownerless campaigns were frozen, and transient challenge/idempotency/recipient records were removed. File evidence and copied identifiers were not inspected by this scan.', ticketsMinimized: tickets.length, bookingsMinimized: bookings.length, securityEventsMinimized: securityEvents.length, anonymizedReferences: anonymization.anonymized, deletedTransientReferences: anonymization.deleted }
+        { categoryId: 'relational_references', outcome: 'best_effort_anonymized', details: 'The account identity was removed; approved actor/reporter links and private notes were minimized, ownerless campaigns were frozen, and saved favorites and transient challenge/idempotency/recipient records were removed. File evidence and copied identifiers were not inspected by this scan.', ticketsMinimized: tickets.length, bookingsMinimized: bookings.length, securityEventsMinimized: securityEvents.length, anonymizedReferences: anonymization.anonymized, deletedPreferenceReferences, deletedTransientReferences }
       ],
       exclusions: excluded,
       coverage: lockedRequest.scan_report?.coverage || 'partial',
@@ -190,7 +194,7 @@ async function runApprovedCleanup(client, request) {
     await securityAuditService.record({
       actorRole: 'system', action: 'account_deletion.cleanup.completed', resourceType: 'account_deletion_request',
       resourceId: request.id, reason: 'Approved allowlisted account cleanup completed.', outcome: 'success',
-      afterState: { cleanupStatus: 'completed', ticketsMinimized: tickets.length, bookingsMinimized: bookings.length, securityEventsMinimized: securityEvents.length, anonymizedReferenceSources: anonymization.anonymized.length, deletedTransientReferenceSources: anonymization.deleted.length, exclusions: excluded.map(({ categoryId }) => categoryId) }
+      afterState: { cleanupStatus: 'completed', ticketsMinimized: tickets.length, bookingsMinimized: bookings.length, securityEventsMinimized: securityEvents.length, anonymizedReferenceSources: anonymization.anonymized.length, deletedPreferenceReferenceSources: deletedPreferenceReferences.length, deletedTransientReferenceSources: deletedTransientReferences.length, exclusions: excluded.map(({ categoryId }) => categoryId) }
     }, { client });
     await client.query('COMMIT');
     return true;
@@ -219,7 +223,9 @@ async function sendUserReport(client, request) {
   }, 0);
   const actions = Array.isArray(report.actions) ? report.actions : [];
   const anonymizedCount = actions.reduce((total, action) => total + totalCount(action.anonymizedReferences), 0);
-  const removedCount = actions.reduce((total, action) => total + totalCount(action.deletedTransientReferences), 0);
+  const preferenceCount = actions.reduce((total, action) => total + totalCount(action.deletedPreferenceReferences
+    ?? (action.deletedTransientReferences || []).filter(isPreferenceReference)), 0);
+  const removedCount = actions.reduce((total, action) => total + totalCount((action.deletedTransientReferences || []).filter((item) => !isPreferenceReference(item))), 0);
   const minimizedCounts = actions.reduce((totals, action) => ({
     bookings: totals.bookings + (Number.isFinite(Number(action.bookingsMinimized)) ? Math.max(0, Math.trunc(Number(action.bookingsMinimized))) : 0),
     support: totals.support + (Number.isFinite(Number(action.ticketsMinimized)) ? Math.max(0, Math.trunc(Number(action.ticketsMinimized))) : 0),
@@ -227,7 +233,8 @@ async function sendUserReport(client, request) {
   }), { bookings: 0, support: 0, security: 0 });
   const actionSummary = [
     '- Your GetPrio account and sign-in access were removed.',
-    anonymizedCount ? `- ${anonymizedCount} account-linked ${anonymizedCount === 1 ? 'record was' : 'records were'} anonymized so they are no longer directly linked to your account.` : null,
+    anonymizedCount ? `- Direct account links were removed from ${anonymizedCount} retained ${anonymizedCount === 1 ? 'record' : 'records'}. This does not mean all content in those records was erased.` : null,
+    preferenceCount ? `- ${preferenceCount} saved ${preferenceCount === 1 ? 'favorite was' : 'favorites were'} removed.` : null,
     removedCount ? `- ${removedCount} temporary ${removedCount === 1 ? 'record was' : 'records were'} removed.` : null,
     minimizedCounts.bookings || minimizedCounts.support || minimizedCounts.security
       ? `- We minimized personal details in ${minimizedCounts.bookings} ${minimizedCounts.bookings === 1 ? 'booking' : 'bookings'}, ${minimizedCounts.support} ${minimizedCounts.support === 1 ? 'support record' : 'support records'}, and ${minimizedCounts.security} ${minimizedCounts.security === 1 ? 'security record' : 'security records'} retained for service integrity.`

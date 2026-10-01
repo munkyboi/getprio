@@ -2,6 +2,7 @@ const { BEST_EFFORT_ANONYMIZATION_SOURCES, SAFE_CLEANUP_SOURCES } = require('./a
 
 const IDENTIFIER = /^[a-z_][a-z0-9_]*$/i;
 const DELETE_SOURCES = new Set([
+  'public.customer_favorites.customer_user_id',
   'public.account_email_change_challenges.user_id',
   'public.idempotency_records.actor_user_id',
   'public.organizer_campaign_notices.recipient_user_id'
@@ -14,6 +15,7 @@ function quoteIdentifier(identifier) {
 
 function statementFor(source) {
   switch (source) {
+    case 'public.queue_events.actor_user_id':
     case 'public.organizer_campaign_contributions.accepted_by_user_id':
     case 'public.organizer_campaign_events.actor_user_id':
       return ({ table, foreignKey }) => `UPDATE ${table} SET ${quoteIdentifier(foreignKey)}=NULL`;

@@ -2,6 +2,15 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { collectRelationalInventory, unsafeCleanupReferences } = require('../src/services/accountDeletionInventoryService');
 
+test('favorites and queue actor references are policy-covered while unknown sources still block cleanup', () => {
+  const sources = [
+    { source: 'public.customer_favorites.customer_user_id', recordCount: 3 },
+    { source: 'public.queue_events.actor_user_id', recordCount: 2 },
+    { source: 'public.unknown_user_links.user_id', recordCount: 1 }
+  ];
+  assert.deepEqual(unsafeCleanupReferences({ sources }).map(({ source }) => source), ['public.unknown_user_links.user_id']);
+});
+
 test('mobile push registrations are recognized as a supported cleanup reference', () => {
   const inventory = { sources: [
     { source: 'public.mobile_push_registrations.user_id', recordCount: 1 },
