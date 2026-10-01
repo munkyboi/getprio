@@ -19,23 +19,18 @@ import {
   IconCalendarOff,
   IconChevronRight,
   IconMapPin,
-  IconSpeakerphone,
-  IconStar,
-  IconStarFilled,
   IconTicket,
   IconUsersGroup
 } from "@tabler/icons-react";
 import { Link, Navigate } from "react-router-dom";
 import type { QueueSnapshot } from "@shared";
 import CustomerAccountLayout from "../components/CustomerAccountLayout";
-import CampaignFundingProgress from "../components/CampaignFundingProgress";
+
 import { API_BASE_URL, apiRequest } from "../api/client";
 import { customerAccountApi } from "../api/customerAccount";
 import { useAuth } from "../context/AuthContext";
 import { buildJoinedQueuePathWithTicket } from "../queuePaths";
 import {
-  getCampaignFunding,
-  selectActiveCustomerCampaign,
   selectActiveCustomerTicket,
   selectNextCustomerBooking,
   selectRecentCustomerActivity
@@ -92,24 +87,14 @@ export default function CustomerDashboardPage() {
     },
     enabled: Boolean(token)
   });
-  const campaignsQuery = useQuery({
-    queryKey: ["customer-dashboard-campaigns", token],
-    queryFn: async () => {
-      if (!token) throw new Error("Missing authentication token.");
-      return customerAccountApi.getCampaigns(token);
-    },
-    enabled: Boolean(token)
-  });
-  const refetchCampaigns = campaignsQuery.refetch;
 
   const account = accountQuery.data?.overview || null;
   const bookings = useMemo(() => bookingsQuery.data?.bookings || [], [bookingsQuery.data?.bookings]);
-  const campaigns = useMemo(() => campaignsQuery.data?.campaigns || [], [campaignsQuery.data?.campaigns]);
+
   const tickets = useMemo(() => account?.tickets || [], [account?.tickets]);
   const nextBooking = useMemo(() => selectNextCustomerBooking(bookings, now), [bookings, now]);
   const activeTicket = useMemo(() => selectActiveCustomerTicket(tickets), [tickets]);
-  const activeCampaign = useMemo(() => selectActiveCustomerCampaign(campaigns), [campaigns]);
-  const campaignFunding = useMemo(() => getCampaignFunding(activeCampaign), [activeCampaign]);
+
   const recentActivity = useMemo(
     () => selectRecentCustomerActivity(bookings, tickets),
     [bookings, tickets]
@@ -144,18 +129,6 @@ export default function CustomerDashboardPage() {
     return () => eventSource.close();
   }, [activeTicket, queueBasePath, queryClient]);
 
-  useEffect(() => {
-    if (!activeCampaign?.publicToken) return undefined;
-    const eventSource = new EventSource(
-      `${API_BASE_URL}/public/campaigns/${encodeURIComponent(activeCampaign.publicToken)}/stream`
-    );
-    eventSource.addEventListener("campaign-change", () => {
-      void refetchCampaigns();
-    });
-    eventSource.onerror = () => eventSource.close();
-    return () => eventSource.close();
-  }, [activeCampaign?.publicToken, refetchCampaigns]);
-
   if (loading) {
     return (
       <CustomerAccountLayout activeSection="dashboard">
@@ -168,13 +141,12 @@ export default function CustomerDashboardPage() {
     return <Navigate replace to="/login" />;
   }
 
-  const dashboardLoading = accountQuery.isLoading || bookingsQuery.isLoading || campaignsQuery.isLoading;
-  const dashboardError = accountQuery.error || bookingsQuery.error || campaignsQuery.error;
+  const dashboardLoading = accountQuery.isLoading || bookingsQuery.isLoading;
+  const dashboardError = accountQuery.error || bookingsQuery.error;
   const firstName = (account?.user.displayName || account?.user.name || user.name || "Customer")
     .trim()
     .split(/\s+/)[0];
   const focusTicket = queueQuery.data?.focusTicket || null;
-  const campaignStatusLabel = activeCampaign?.status.replaceAll("_", " ") || "";
 
   return (
     <CustomerAccountLayout activeSection="dashboard">
@@ -193,7 +165,7 @@ export default function CustomerDashboardPage() {
               onClick={() => {
                 void accountQuery.refetch();
                 void bookingsQuery.refetch();
-                void campaignsQuery.refetch();
+
               }}
               variant="light"
             >
@@ -213,21 +185,7 @@ export default function CustomerDashboardPage() {
                 Here&apos;s what needs your attention today, {formatDashboardDate(now)}.
               </Text>
             </div>
-            <Stack align="flex-end" className="customer-dashboard__rating-block" gap={6}>
-              <Text className="finazze-section-label">Your rating</Text>
-              {account?.trustRating.count ? (
-                <Group aria-label={`Trust rating ${account.trustRating.average.toFixed(1)} from ${account.trustRating.count} ratings`} className="customer-dashboard__rating" gap={7} wrap="nowrap">
-                  <IconStarFilled aria-hidden className="customer-dashboard__rating-star customer-dashboard__rating-star--filled" size={24} />
-                  <Text fw={900}>{account.trustRating.average.toFixed(1)}</Text>
-                  <Text c="dimmed" size="sm">({account.trustRating.count})</Text>
-                </Group>
-              ) : (
-                <Group aria-label="Not yet rated" className="customer-dashboard__rating" gap={7} wrap="nowrap">
-                  <IconStar aria-hidden className="customer-dashboard__rating-star" size={24} />
-                  <Text fw={700}>Not yet rated</Text>
-                </Group>
-              )}
-            </Stack>
+
           </header>
 
           <Card className="customer-dashboard__next" p="lg">
@@ -327,58 +285,6 @@ export default function CustomerDashboardPage() {
               </Stack>
             </Card>
 
-            <Card className="customer-dashboard__support-card" p="lg">
-              <Stack h="100%" justify="space-between" gap="lg">
-                <div>
-                  <Text className="finazze-section-label">Active campaign</Text>
-                  {activeCampaign ? (
-                    <Group className="customer-dashboard__campaign-heading" align="flex-start" justify="space-between" mt="md" wrap="wrap">
-                      <Group align="flex-start" gap="md" wrap="nowrap">
-                        <ThemeIcon className="customer-dashboard__icon customer-dashboard__icon--amber" radius="lg" size={64} variant="light">
-                          <IconSpeakerphone size={32} stroke={1.7} />
-                        </ThemeIcon>
-                        <div>
-                          <Title order={3}>{activeCampaign.title}</Title>
-                          <Text c="dimmed" size="sm">Ends {formatDateTime(activeCampaign.deadlineAt)}</Text>
-                        </div>
-                      </Group>
-                      <Badge color={activeCampaign.status === "refund_pending" || activeCampaign.status === "frozen" ? "red" : "teal"} variant="light">
-                        {campaignStatusLabel}
-                      </Badge>
-                    </Group>
-                  ) : (
-                    <Group align="flex-start" gap="md" mt="lg" wrap="nowrap">
-                      <ThemeIcon className="customer-dashboard__icon customer-dashboard__icon--amber" radius="lg" size={64} variant="light">
-                        <IconSpeakerphone size={32} stroke={1.7} />
-                      </ThemeIcon>
-                      <div>
-                        <Title order={3}>No active campaign</Title>
-                        <Text c="dimmed" size="sm">Create one from an eligible booking or discover a public campaign.</Text>
-                      </div>
-                    </Group>
-                  )}
-                </div>
-                {activeCampaign ? (
-                  <div>
-                    <CampaignFundingProgress
-                      fundedAmountCents={campaignFunding.fundedAmountCents}
-                      targetAmountCents={campaignFunding.targetAmountCents}
-                    />
-                    <Group justify="space-between" mt="md">
-                      <Text size="sm"><strong>{campaignFunding.acceptedContributors} of {activeCampaign.requiredContributors}</strong> contributors</Text>
-                      <Button color="orange" component={Link} rightSection={<IconChevronRight size={17} />} size="compact-sm" to={`/account/campaigns/${activeCampaign.id}/manage`} variant="subtle">
-                        View campaign
-                      </Button>
-                    </Group>
-                  </div>
-                ) : (
-                  <Button component={Link} justify="space-between" to="/account/campaigns/discover" variant="light">
-                    Discover campaigns
-                    <IconChevronRight size={17} />
-                  </Button>
-                )}
-              </Stack>
-            </Card>
           </div>
 
           <Card className="customer-dashboard__notification" p="lg">
@@ -396,7 +302,7 @@ export default function CustomerDashboardPage() {
                       <Text c="dimmed" size="sm">{formatRelativeActivity(recentActivity.occurredAt)}</Text>
                     </>
                   ) : (
-                    <Text c="dimmed">You&apos;re all caught up. New booking, queue, and campaign activity will appear here.</Text>
+                    <Text c="dimmed">You&apos;re all caught up. New booking and queue activity will appear here.</Text>
                   )}
                 </div>
               </Group>

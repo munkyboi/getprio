@@ -11,7 +11,7 @@ const notificationService = require("./notificationService");
 const { bookingEmail } = require("./bookingEmailTemplates");
 const paymentProofStorageService = require("./paymentProofStorageService");
 const pushNotificationService = require("./pushNotificationService");
-const organizerCampaignService = require("./organizerCampaignService");
+
 const { assertPublicTextFieldsAllowed } = require("./contentModeration");
 const { normalizePhilippineMobileNumber } = require("../utils/phone");
 const entitlementAdmissionService = require("./entitlementAdmissionService");
@@ -1155,7 +1155,7 @@ async function createCustomerBooking({ user, body }) {
       smsAlertFeePaymentId,
       contactVerifiedAt: verifiedBooking.contactVerifiedAt,
       contactVerificationChannel: verifiedBooking.contactVerificationChannel,
-      organizerCampaignOptIn: Boolean(body.organizerCampaignOptIn),
+      organizerCampaignOptIn: false,
       bundleItems: bookingBundleItems
     }, { client });
     await allowanceService.consumeAllowance({
@@ -1488,7 +1488,6 @@ async function cancelCustomerBooking({ user, bookingId, reason }) {
     status: "canceled",
     notes: cancellationReason || booking.notes || ""
   });
-  if (booking.organizerCampaignOptIn) await organizerCampaignService.cancelCampaignForBooking({ bookingId: updated._id, reason: cancellationReason || "The linked booking was cancelled." });
 
   const message = `${updated.tenantName}: Your booking request ${updated.reference} was cancelled.`;
   if (updated.customerEmail) {
@@ -1708,7 +1707,6 @@ async function markVendorBookingNoShow({ tenant, location, bookingId, user }) {
     noShowAt: new Date().toISOString(),
     noShowByUserId: user?._id || null
   });
-  if (booking.organizerCampaignOptIn) await organizerCampaignService.cancelCampaignForBooking({ bookingId: updated._id, reason: "The linked booking was cancelled as a no-show." });
 
   const message = `${updated.tenantName}: Your booking request ${updated.reference} was cancelled as a no-show.`;
   if (updated.customerEmail) {

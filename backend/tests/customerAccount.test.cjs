@@ -218,67 +218,6 @@ test("customer account deletion request uses only the authenticated account", as
   }
 });
 
-test("legacy group-funded QR route is retired", async () => {
-  const requestedQrUrls = [];
-  const router = requireWithMocks("../src/routes/accountRoutes.js", {
-    "../middleware/auth": buildAuthMock(),
-    "../middleware/asyncHandler": buildAsyncHandlerMock(),
-    "../services/groupFundedBookingService": {
-      getCampaignForCustomer: async ({ user, campaignIdOrToken }) => {
-        assert.equal(user._id, "user-1");
-        assert.equal(campaignIdOrToken, "campaign-share-token");
-        return {
-          campaign: {
-            paymentDestination: { qrImageUrl: "https://example.test/payment-qr.png" }
-          }
-        };
-      }
-    },
-    "../services/locationPaymentQrUploadService": {
-      downloadBinary: async ({ publicUrl }) => {
-        requestedQrUrls.push(publicUrl);
-        return { body: Buffer.from("qr-image"), contentType: "image/png", fileName: "payment-qr.png" };
-      }
-    }
-  });
-  const { server, baseUrl } = await startServer(router, "/api/account");
-
-  try {
-    const response = await fetch(`${baseUrl}/group-funded-campaigns/campaign-share-token/payment-qr`);
-    assert.equal(response.status, 410);
-    assert.deepEqual(requestedQrUrls, []);
-  } finally {
-    await stopServer(server);
-  }
-});
-
-test("legacy group-funded contribution proof route is retired", async () => {
-  const router = requireWithMocks("../src/routes/accountRoutes.js", {
-    "../middleware/auth": buildAuthMock(),
-    "../middleware/asyncHandler": buildAsyncHandlerMock(),
-    "../services/groupFundedBookingService": {
-      createCustomerContributionProofAccess: async ({ user, campaignIdOrToken }) => {
-        assert.equal(user._id, "user-1");
-        assert.equal(campaignIdOrToken, "campaign-share-token");
-        return {
-          proof: { fileName: "receipt.png", contentType: "image/png", sizeBytes: 1024, uploadedAt: "2026-07-15T00:00:00.000Z" },
-          access: { method: "GET", url: "https://proofs.example/receipt.png", expiresInSeconds: 300 }
-        };
-      }
-    }
-  });
-  const { server, baseUrl } = await startServer(router, "/api/account");
-
-  try {
-    const response = await fetch(`${baseUrl}/group-funded-campaigns/campaign-share-token/contributions/payment-proof`);
-    assert.equal(response.status, 410);
-    const body = await response.json();
-    assert.match(body.message, /retired/i);
-  } finally {
-    await stopServer(server);
-  }
-});
-
 test("customer account overview and history expose owned tickets only", async () => {
   const tickets = [
     {
@@ -335,7 +274,7 @@ test("customer account overview and history expose owned tickets only", async ()
     assert.equal(overview.user.mfaRequired, true);
     assert.equal(overview.user.totpMfaEnabled, true);
     assert.equal(overview.user.emailMfaEnabled, true);
-    assert.deepEqual(overview.trustRating, { average: 4.4, count: 5 });
+    assert.equal(overview.trustRating, undefined);
     assert.deepEqual(overview.ticketStats, { joined: 75, served: 1 });
     assert.equal(overview.tickets.length, 1);
     assert.equal(overview.tickets[0].ticketNumber, "DMO-001");
@@ -470,54 +409,6 @@ test("customer can upload a public profile photo", async () => {
     assert.equal(uploads[0].fileName, "portrait.png");
     assert.equal(uploads[0].contentType, "image/png");
     assert.deepEqual(uploads[0].fileBuffer, Buffer.from("avatar-image"));
-  } finally {
-    await stopServer(server);
-  }
-});
-
-test("customer can leave a campaign before submitting contribution proof", async () => {
-  const leaveRequests = [];
-  const router = requireWithMocks("../src/routes/accountRoutes.js", {
-    "../middleware/auth": buildAuthMock(),
-    "../middleware/asyncHandler": buildAsyncHandlerMock(),
-    "../middleware/moderatePublicText": {
-      moderatePublicText(_req, _res, next) {
-        next();
-      }
-    },
-    "../services/organizerCampaignService": {
-      leaveCampaign: async (input) => {
-        leaveRequests.push(input);
-        return { left: true };
-      }
-    }
-  });
-
-  const { server, baseUrl } = await startServer(router, "/api/account");
-
-  try {
-    const response = await fetch(`${baseUrl}/campaigns/9/contributions/self`, {
-      method: "DELETE",
-      headers: {
-        Authorization: "Bearer token"
-      }
-    });
-
-    assert.equal(response.status, 200);
-    assert.deepEqual(await response.json(), { left: true });
-    assert.deepEqual(leaveRequests, [{
-      user: {
-        _id: "user-1",
-        name: "Customer One",
-        username: "customer_one",
-        email: "customer@example.com",
-        phone: "09171234567",
-        emailVerified: true,
-        mfaEnabled: false,
-        mfaRequired: false
-      },
-      campaignId: "9"
-    }]);
   } finally {
     await stopServer(server);
   }

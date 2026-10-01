@@ -1,5 +1,9 @@
 # GetPrio Capstone Route and Role Inventory
 
+## Historical snapshot — superseded for campaigns and customer ratings
+
+This inventory records the 2026-06-20 design, not current route availability. As of 2026-10-01, booking campaigns and ratings of customers are retired directly. All campaign permissions, routes, contribution/refund operations, and customer-rating descriptions below are historical only; they must not be used as active implementation requirements. Ordinary queues, bookings, and vendor reviews remain supported. No campaign transition/history UI or stored-data/schema purge is authorized. See `queue-booking-ai-cleanup.md` and current route source for the active boundary.
+
 This inventory completes the first Phase 0 task from the capstone implementation transition PRD. It maps the current queue-platform routes and roles to the capstone marketplace/booking role model so future work can evolve the app without losing existing behavior.
 
 ## Source Snapshot

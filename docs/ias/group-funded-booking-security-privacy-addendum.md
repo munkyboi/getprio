@@ -1,5 +1,21 @@
 # Organizer-Collected Campaign IAS Addendum
 
+## Retirement notice — 2026-10-01
+
+This addendum is a historical design record, not an active product or release requirement. Booking campaigns and ratings of customers are retired directly, without a transition or history UI. The sections below document the former design only; they must not be used to reintroduce campaign routes, customer scores, or rating permissions.
+
+Current boundaries:
+
+- Customers may submit reviews of vendors after a qualifying service interaction; vendors may reply. Customers, organizers, and contributors cannot receive new ratings or have customer trust scores displayed.
+- Campaign creation, participation, discovery, contributions, reimbursements, notifications, lifecycle processing, and Platform campaign moderation are unavailable. Ordinary bookings, payment-proof review, check-in, and queue operations remain supported.
+- Historical campaign, customer-rating, dispute, and evidence records remain stored; retirement does not authorize a schema or data purge. Any retained evidence access must remain permission-scoped and audited, and must not feed customer reputation aggregates or restore retired creation/display flows.
+- Vendor-review disputes remain supported. Historical customer-rating disputes are not a public/customer workflow and must not recreate customer scores.
+- Verification must prove retired routes are unavailable and ordinary booking, queue, and vendor-review boundaries still work. Historical migration files remain; no transactional-state reset is authorized by this slice.
+
+See `docs/plan/queue-booking-ai-cleanup.md` for the active scope. Existing legal research below is historical research, not a new legal assessment.
+
+## Historical design (superseded)
+
 Date: 2026-07-19
 
 This replaces the vendor-managed group-funded booking addendum. Campaign money moves directly between a contributor and the customer organizer. GetPrio records the workflow but does not hold, transmit, settle, guarantee, or automatically reimburse contribution money. Qualified Philippine legal, privacy, consumer-protection, and tax review remains a production release gate.

@@ -3,5 +3,5 @@ export type Capacity = { planSlug: string; subscriptionId: string | null; planRe
 export type EntitlementOverride = { id: string; subscription_id: string; policy_key: string; value: unknown; reason: string; expires_at?: string | null; revoked_at?: string | null };
 export type CreditTask = { action: string; target: string; endpoint: string; payload: Record<string, unknown>; title: string; description: string; maxUnits?: number; needsProviderDisputeId?: boolean };
 export type PlanMatrixCapabilities = { planPolicyMutations: boolean; usageCreditCatalog: boolean; usageCreditAdministration: boolean; usageCreditCases: boolean; tenantOverrides: boolean };
-export const featureLabels = { queue: "Queue system", branding: "Public-facing branding", discovery: "Marketplace discovery", booking: "Service booking", campaigns: "Group-funded campaigns" } as const;
+export const featureLabels = { queue: "Queue system", branding: "Public-facing branding", discovery: "Marketplace discovery", booking: "Service booking" } as const;
 export const allowanceLabels = { queueTickets: "Queue Tickets / month", queueEmailJourneys: "Queue Email Journeys / month", serviceBookings: "Service Bookings / month" } as const;

@@ -4,13 +4,12 @@ const asyncHandler = require("../middleware/asyncHandler");
 const { authenticate } = require("../middleware/auth");
 const { moderatePublicText } = require("../middleware/moderatePublicText");
 const bookingRepository = require("../repositories/bookings");
-const organizerCampaignRepository = require("../repositories/organizerCampaigns");
-const ratingRepository = require("../repositories/ratings");
+
 const ticketRepository = require("../repositories/tickets");
 const tenantRepository = require("../repositories/tenants");
 const userRepository = require("../repositories/users");
 const bookingService = require("../services/bookingService");
-const organizerCampaignService = require("../services/organizerCampaignService");
+
 const ratingService = require("../services/ratingService");
 const passwordResetService = require("../services/passwordResetService");
 const emailChangeService = require("../services/emailChangeService");
@@ -26,14 +25,7 @@ const { assertTenantPermission } = require("../middleware/auth");
 const { formatPaginationMetadata, parsePaginationParams } = require("../utils/pagination");
 
 const router = express.Router();
-const campaignJoinLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 5,
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: (req) => `${req.user?._id || "anonymous"}:${ipKeyGenerator(req.ip)}`,
-  message: { message: "Too many campaign join attempts. Please try again later." }
-});
+
 const avatarUploadLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 10,
@@ -258,7 +250,7 @@ function formatCustomerBooking(booking) {
     paymentStatus: booking.paymentStatus,
     groupFundedBookingId: booking.groupFundedBookingId,
     bookingPaymentSource: booking.bookingPaymentSource,
-    organizerCampaignOptIn: Boolean(booking.organizerCampaignOptIn),
+
     groupFundedCampaign,
     manualPaymentDestination: formatManualPaymentDestination(booking),
     paymentProof: booking.paymentProofObjectKey
@@ -321,7 +313,7 @@ function normalizeCustomerNotificationSettings(settings = {}) {
   return {
     bookingAlerts: settings.bookingAlerts !== false,
     queueAlerts: settings.queueAlerts !== false,
-    campaignAlerts: settings.campaignAlerts !== false,
+
     preferredContactMethod: ["in_app", "email", "sms"].includes(settings.preferredContactMethod)
       ? settings.preferredContactMethod
       : "in_app"
@@ -331,9 +323,8 @@ function normalizeCustomerNotificationSettings(settings = {}) {
 router.get(
   "/overview",
   asyncHandler(async (req, res) => {
-    const [tickets, trustRating, ticketStats, mfaMethods] = await Promise.all([
+    const [tickets, ticketStats, mfaMethods] = await Promise.all([
       ticketRepository.listTicketsForCustomerAccount(req.user, { limit: 50 }),
-      ratingRepository.getUserTrustAggregate(req.user._id),
       ticketRepository.getCustomerTicketStats(req.user._id),
       mfaFlowService.getLoginMethods(req.user)
     ]);
@@ -344,7 +335,6 @@ router.get(
       totpMfaEnabled: mfaMethods.includes("totp"),
       emailMfaEnabled: mfaMethods.includes("email")
     },
-    trustRating,
     ticketStats,
     notificationSettings: normalizeCustomerNotificationSettings(req.user.notificationSettings),
     tickets: tickets.map(formatCustomerTicket)
@@ -375,124 +365,10 @@ router.patch(
   })
 );
 
-router.post(
-  "/campaigns/:campaignId/join",
-  campaignJoinLimiter,
-  asyncHandler(async (req, res) => {
-    const contribution = await organizerCampaignService.joinCampaign({
-      user: req.user,
-      campaignId: req.params.campaignId,
-      body: req.body || {}
-    });
-    res.status(201).json({ contribution });
-  })
-);
-
-router.delete(
-  "/campaigns/:campaignId/contributions/self",
-  asyncHandler(async (req, res) => {
-    res.json(await organizerCampaignService.leaveCampaign({
-      user: req.user,
-      campaignId: req.params.campaignId
-    }));
-  })
-);
-
-router.post(
-  "/campaigns/:campaignId/contributions/proof",
-  campaignJoinLimiter,
-  express.raw({ type: ["image/jpeg", "image/png", "image/webp", "application/pdf"], limit: "8mb" }),
-  asyncHandler(async (req, res) => {
-    if (!Buffer.isBuffer(req.body) || !req.body.length) {
-      const error = new Error("Contribution proof file payload is required.");
-      error.statusCode = 400;
-      throw error;
-    }
-    const contribution = await organizerCampaignService.uploadContributionProofDirect({
-      user: req.user,
-      campaignId: req.params.campaignId,
-      body: { paymentReference: normalizeQueryText(req.query.paymentReference), fileName: normalizeQueryText(req.query.fileName), contentType: normalizeQueryText(req.headers["content-type"]) },
-      fileBuffer: req.body
-    });
-    res.status(201).json({ contribution });
-  })
-);
-
-router.patch(
-  "/campaigns/:campaignId/contributions/:contributionId/review",
-  asyncHandler(async (req, res) => {
-    const contribution = await organizerCampaignService.reviewContribution({
-      user: req.user,
-      campaignId: req.params.campaignId,
-      contributionId: req.params.contributionId,
-      body: req.body || {}
-    });
-    res.json({ contribution });
-  })
-);
-
-router.get(
-  "/campaigns/:campaignId/contributions/:contributionId/evidence",
-  asyncHandler(async (req, res) => res.json(await organizerCampaignService.createEvidenceAccess({ user: req.user, campaignId: req.params.campaignId, contributionId: req.params.contributionId, kind: req.query.kind === "reimbursement" ? "reimbursement" : "contribution" })))
-);
-
-router.patch(
-  "/campaigns/:campaignId/cancel",
-  asyncHandler(async (req, res) => {
-    const campaign = await organizerCampaignService.cancelCampaign({
-      user: req.user,
-      campaignId: req.params.campaignId,
-      body: req.body || {}
-    });
-    res.json({ campaign });
-  })
-);
-
-router.post(
-  "/campaigns/:campaignId/contributions/:contributionId/reimbursement/evidence",
-  campaignJoinLimiter,
-  express.raw({ type: ["image/jpeg", "image/png", "image/webp", "application/pdf"], limit: "8mb" }),
-  asyncHandler(async (req, res) => {
-    if (!Buffer.isBuffer(req.body) || !req.body.length) {
-      const error = new Error("Reimbursement evidence file payload is required."); error.statusCode = 400; throw error;
-    }
-    const reimbursement = await organizerCampaignService.submitReimbursementEvidence({
-      user: req.user, campaignId: req.params.campaignId, contributionId: req.params.contributionId,
-      body: { fileName: normalizeQueryText(req.query.fileName), contentType: normalizeQueryText(req.headers["content-type"]) }, fileBuffer: req.body
-    });
-    res.status(201).json({ reimbursement });
-  })
-);
-
-router.patch(
-  "/campaigns/:campaignId/contributions/:contributionId/reimbursement/confirm",
-  asyncHandler(async (req, res) => {
-    const reimbursement = await organizerCampaignService.confirmReimbursement({ user: req.user, campaignId: req.params.campaignId, contributionId: req.params.contributionId });
-    res.json({ reimbursement });
-  })
-);
-
-router.patch(
-  "/campaigns/:campaignId/contributions/:contributionId/reimbursement/dispute",
-  asyncHandler(async (req, res) => {
-    const reimbursement = await organizerCampaignService.disputeReimbursement({ user: req.user, campaignId: req.params.campaignId, contributionId: req.params.contributionId, body: req.body || {} });
-    res.json({ reimbursement });
-  })
-);
-
-router.post(
-  "/campaigns/:campaignId/report",
-  campaignJoinLimiter,
-  asyncHandler(async (req, res) => {
-    const report = await organizerCampaignService.reportCampaign({ user: req.user, campaignId: req.params.campaignId, body: req.body || {} });
-    res.status(201).json({ report });
-  })
-);
-
 router.post("/bookings/:bookingId/rating", asyncHandler(async (req, res) => res.status(201).json({ rating: await ratingService.rateVendor({ user: req.user, bookingId: req.params.bookingId, body: req.body || {} }) })));
 router.get("/tickets/:lookupCode/rating", asyncHandler(async (req, res) => res.json(await ratingService.getQueueTicketRating({ user: req.user, lookupCode: req.params.lookupCode }))));
 router.post("/tickets/:lookupCode/rating", asyncHandler(async (req, res) => res.status(201).json({ rating: await ratingService.rateQueueTicket({ user: req.user, lookupCode: req.params.lookupCode, body: req.body || {} }) })));
-router.post("/campaigns/:campaignId/contributions/:contributionId/rating", asyncHandler(async (req, res) => res.status(201).json({ rating: await ratingService.rateCampaignUser({ user: req.user, campaignId: req.params.campaignId, contributionId: req.params.contributionId, body: req.body || {} }) })));
+
 router.post("/ratings/dispute", asyncHandler(async (req, res) => res.status(201).json({ dispute: await ratingService.disputeRating({ user: req.user, body: req.body || {} }) })));
 router.patch("/ratings/vendor-reviews/:reviewId", asyncHandler(async (req, res) => res.json({ rating: await ratingService.reviseVendorReview({ user: req.user, reviewId: req.params.reviewId, body: req.body || {} }) })));
 
@@ -774,70 +650,6 @@ router.get(
 );
 
 router.get(
-  "/campaigns",
-  asyncHandler(async (req, res) => {
-    const campaigns = await organizerCampaignService.listCampaignsForCustomer({ user: req.user });
-    res.json({ campaigns });
-  })
-);
-
-router.get(
-  "/campaign-discovery",
-  asyncHandler(async (req, res) => res.json({ campaigns: await organizerCampaignService.listPublicCampaigns({
-    search: normalizeQueryText(req.query.search), date: normalizeQueryText(req.query.date)
-  }) }))
-);
-
-router.post(
-  "/campaigns",
-  campaignJoinLimiter,
-  asyncHandler(async (req, res) => {
-    const campaign = await organizerCampaignService.createCampaign({ user: req.user, body: req.body || {} });
-    res.status(201).json({ campaign });
-  })
-);
-
-router.get(
-  "/campaigns/:campaignId",
-  asyncHandler(async (req, res) => {
-    const campaign = await organizerCampaignService.getCampaignForCustomer({
-      user: req.user,
-      campaignId: req.params.campaignId
-    });
-    res.json({ campaign });
-  })
-);
-
-router.all(/^\/group-funded-campaigns(?:\/|$)/, (_req, res) => {
-  res.status(410).json({ message: "This legacy campaign API has been retired. Use /api/account/campaigns." });
-});
-
-router.patch(
-  "/campaigns/:campaignId/publish",
-  campaignJoinLimiter,
-  asyncHandler(async (req, res) => {
-    const campaign = await organizerCampaignService.publishCampaign({
-      user: req.user,
-      campaignId: req.params.campaignId,
-      visibility: req.body?.visibility,
-      website: req.body?.website
-    });
-    res.json({ campaign });
-  })
-);
-
-router.patch(
-  "/campaigns/:campaignId",
-  campaignJoinLimiter,
-  asyncHandler(async (req, res) => res.json({ campaign: await organizerCampaignService.updateCampaign({ user: req.user, campaignId: req.params.campaignId, body: req.body || {} }) }))
-);
-
-router.patch(
-  "/campaigns/:campaignId/unpublish",
-  asyncHandler(async (req, res) => res.json({ campaign: await organizerCampaignService.unpublishCampaign({ user: req.user, campaignId: req.params.campaignId }) }))
-);
-
-router.get(
   "/bookings/:bookingId",
   asyncHandler(async (req, res) => {
     await bookingService.expirePendingBookingsForCustomer(req.user._id);
@@ -847,8 +659,8 @@ router.get(
       error.statusCode = 404;
       throw error;
     }
-    const organizerCampaign = /^\d+$/.test(String(booking._id)) ? await organizerCampaignRepository.findCampaignByBookingId(booking._id) : null;
-    res.json({ booking: { ...formatCustomerBooking(booking), organizerCampaign: organizerCampaign ? { id: organizerCampaign.id, status: organizerCampaign.status } : null } });
+
+    res.json({ booking: { ...formatCustomerBooking(booking), organizerCampaign: null } });
   })
 );
 

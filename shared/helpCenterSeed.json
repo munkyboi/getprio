@@ -5,7 +5,7 @@
     { "id": "payments", "title": "Payments & refunds", "description": "Understand payment steps and who can help with a refund." },
     { "id": "account", "title": "Account & privacy", "description": "Sign in, secure your account, and manage your data." },
     { "id": "vendors", "title": "For businesses", "description": "Set up your business and manage day-to-day service." },
-    { "id": "campaigns", "title": "Group-funded bookings", "description": "Learn how organizers and contributors use a campaign." },
+
     { "id": "support", "title": "Contact & reporting", "description": "Get help with an issue or report a safety concern." }
   ],
   "articles": [
@@ -123,24 +123,7 @@
       "note": "A queue ticket limit, email-notification capacity, and booking allowance are separate. Existing work may continue even when new activity is limited.",
       "link": null, "linkLabel": null, "review": { "owner": "GetPrio Support", "timeZone": "Asia/Manila", "cadenceDays": 90, "appliesTo": ["web"], "lastReviewedAt": "2026-09-29", "reviewDueAt": "2026-12-28", "sourceReferences": ["frontend/src/pages/VendorDashboardPage.tsx", "backend/src/services/allowanceService.js", "backend/src/services/entitlementAdmissionService.js"] }
     },
-    {
-      "id": "group-funded-organizer", "topic": "campaigns", "title": "Start and manage a group-funded booking", "intro": "An eligible customer can organize a campaign around an existing paid and confirmed booking.",
-      "steps": ["Open the eligible booking and choose the group-funded campaign option.", "Review the campaign details, contribution amount, required participants, visibility, and deadline.", "Publish when the information is accurate, then share the campaign link with invited contributors.", "Use the campaign control page to review contributions and any follow-up actions."],
-      "note": "Contributions are made between customers. GetPrio records submissions and decisions but does not hold or distribute campaign funds.",
-      "link": null, "linkLabel": null, "review": { "owner": "GetPrio Support", "timeZone": "Asia/Manila", "cadenceDays": 90, "appliesTo": ["web"], "lastReviewedAt": "2026-09-29", "reviewDueAt": "2026-12-28", "sourceReferences": ["frontend/src/pages/BookingRequestPage.tsx", "frontend/src/pages/CampaignControlCenterPage.tsx", "backend/src/services/groupFundedBookingService.js"] }
-    },
-    {
-      "id": "group-funded-contributor", "topic": "campaigns", "title": "Join a group-funded booking", "intro": "A campaign organizer may invite contributors to help cover a booking cost.",
-      "steps": ["Open the campaign link and review the booking, amount, deadline, and organizer details.", "Follow the displayed payment instructions and submit the requested payment reference or proof.", "Check the campaign page for the organizer’s review and your contribution status."],
-      "note": "Submitting payment proof does not mean a contribution has been accepted. Do not submit passwords or sign-in codes as payment evidence.",
-      "link": null, "linkLabel": null, "review": { "owner": "GetPrio Support", "timeZone": "Asia/Manila", "cadenceDays": 90, "appliesTo": ["web"], "lastReviewedAt": "2026-09-29", "reviewDueAt": "2026-12-28", "sourceReferences": ["frontend/src/pages/GroupFundedCampaignPage.tsx", "backend/src/services/groupFundedBookingService.js"] }
-    },
-    {
-      "id": "campaign-reimbursement", "topic": "campaigns", "title": "Campaign cancellation and reimbursement", "intro": "If a campaign closes after accepted contributions, the organizer may need to reimburse contributors directly.",
-      "steps": ["Open the campaign and review its cancellation or reimbursement status.", "Follow the organizer’s instructions for arranging the return of money outside GetPrio.", "Confirm receipt only after you have received the reimbursement.", "If the amount was not received or is incorrect, use the dispute or report option shown."],
-      "note": "GetPrio can record the reimbursement process but does not automatically send money back to contributors.",
-      "link": null, "linkLabel": null, "review": { "owner": "GetPrio Support", "timeZone": "Asia/Manila", "cadenceDays": 90, "appliesTo": ["web"], "lastReviewedAt": "2026-09-29", "reviewDueAt": "2026-12-28", "sourceReferences": ["frontend/src/pages/GroupFundedCampaignPage.tsx", "frontend/src/pages/CampaignControlCenterPage.tsx", "backend/src/services/groupFundedBookingService.js"] }
-    },
+
     {
       "id": "report", "topic": "support", "title": "Contact GetPrio support", "intro": "A clear description helps us understand an account or app problem.",
       "steps": ["Use the Contact page or the support address listed there.", "Include what you were doing, what you expected, what happened, and when.", "Add the business name and booking or ticket reference if relevant.", "Remove passwords, one-time codes, full payment details, and unrelated personal information from screenshots."],
@@ -149,9 +132,9 @@
     },
     {
       "id": "report-safety", "topic": "support", "title": "Report abuse or a safety concern", "intro": "Use the report option available on the relevant GetPrio page, or contact support if you cannot access it.",
-      "steps": ["Identify the business, booking, ticket, campaign, or content involved.", "Describe the specific behavior and when it happened.", "Include only evidence relevant to the report and remove unrelated personal data.", "If there is immediate danger, contact local emergency services first."],
+      "steps": ["Identify the business, booking, ticket, or content involved.", "Describe the specific behavior and when it happened.", "Include only evidence relevant to the report and remove unrelated personal data.", "If there is immediate danger, contact local emergency services first."],
       "note": "Submitting a report asks GetPrio to review it; it does not guarantee a particular moderation outcome.",
-      "link": "/contact", "linkLabel": "Contact GetPrio", "review": { "owner": "GetPrio Support", "timeZone": "Asia/Manila", "cadenceDays": 90, "appliesTo": ["web"], "lastReviewedAt": "2026-09-29", "reviewDueAt": "2026-12-28", "sourceReferences": ["frontend/src/pages/GroupFundedCampaignPage.tsx", "backend/src/services/groupFundedBookingService.js", "frontend/src/pages/ContactPage.tsx"] }
+      "link": "/contact", "linkLabel": "Contact GetPrio", "review": { "owner": "GetPrio Support", "timeZone": "Asia/Manila", "cadenceDays": 90, "appliesTo": ["web"], "lastReviewedAt": "2026-09-29", "reviewDueAt": "2026-12-28", "sourceReferences": ["frontend/src/pages/ContactPage.tsx", "frontend/src/components/ContactForm.tsx"] }
     }
   ],
   "faqs": [
@@ -169,8 +152,6 @@
     { "id": "uninstall-and-account-deletion", "question": "Does uninstalling the app delete my account?", "answer": "No. Uninstalling the app does not submit an account deletion request. Use the account deletion option in your account settings.", "relatedArticleId": "privacy", "review": { "owner": "GetPrio Support", "timeZone": "Asia/Manila", "cadenceDays": 90, "appliesTo": ["web", "mobile"], "lastReviewedAt": "2026-09-29", "reviewDueAt": "2026-12-28", "sourceReferences": ["frontend/src/components/AccountDeletionPanel.tsx", "backend/src/routes/accountRoutes.js"] } },
     { "id": "deletion-bookings", "question": "Will account deletion cancel my bookings or refund payments?", "answer": "No. Account deletion does not automatically cancel bookings or issue refunds. Contact the business about existing bookings and payments.", "relatedArticleId": "privacy", "review": { "owner": "GetPrio Support", "timeZone": "Asia/Manila", "cadenceDays": 90, "appliesTo": ["web", "mobile"], "lastReviewedAt": "2026-09-29", "reviewDueAt": "2026-12-28", "sourceReferences": ["frontend/src/components/AccountDeletionPanel.tsx", "backend/src/services/accountDeletionService.js"] } },
     { "id": "contact-for-a-visit", "question": "Who should I contact about a booking or visit?", "answer": "Contact the business for availability, schedule changes, payment review, and visit-specific questions. Contact GetPrio for account or app issues.", "relatedArticleId": "report", "review": { "owner": "GetPrio Support", "timeZone": "Asia/Manila", "cadenceDays": 90, "appliesTo": ["web", "mobile"], "lastReviewedAt": "2026-09-29", "reviewDueAt": "2026-12-28", "sourceReferences": ["frontend/src/pages/ContactPage.tsx", "frontend/src/components/ContactForm.tsx"] } },
-    { "id": "share-payment-proof", "question": "What should I include when asking for payment help?", "answer": "Include the business and booking or ticket reference, payment date, and reference shown in your records. Do not send passwords, one-time codes, or full card details.", "relatedArticleId": "report", "review": { "owner": "GetPrio Support", "timeZone": "Asia/Manila", "cadenceDays": 90, "appliesTo": ["web", "mobile"], "lastReviewedAt": "2026-09-29", "reviewDueAt": "2026-12-28", "sourceReferences": ["frontend/src/pages/ContactPage.tsx", "frontend/src/pages/CustomerBookingDetailPage.tsx"] } },
-    { "id": "campaign-funds", "question": "Does GetPrio hold or send group-campaign money?", "answer": "No. Contributions are arranged between customers. GetPrio records submissions and decisions but does not hold or distribute campaign funds.", "relatedArticleId": "group-funded-contributor", "review": { "owner": "GetPrio Support", "timeZone": "Asia/Manila", "cadenceDays": 90, "appliesTo": ["web"], "lastReviewedAt": "2026-09-29", "reviewDueAt": "2026-12-28", "sourceReferences": ["frontend/src/pages/GroupFundedCampaignPage.tsx", "backend/src/services/groupFundedBookingService.js"] } },
-    { "id": "campaign-refunds", "question": "Are group-campaign reimbursements automatic?", "answer": "No. If a reimbursement is due, the organizer arranges it directly with the contributor. Confirm receipt only after the money arrives.", "relatedArticleId": "campaign-reimbursement", "review": { "owner": "GetPrio Support", "timeZone": "Asia/Manila", "cadenceDays": 90, "appliesTo": ["web"], "lastReviewedAt": "2026-09-29", "reviewDueAt": "2026-12-28", "sourceReferences": ["frontend/src/pages/GroupFundedCampaignPage.tsx", "backend/src/services/groupFundedBookingService.js"] } }
+    { "id": "share-payment-proof", "question": "What should I include when asking for payment help?", "answer": "Include the business and booking or ticket reference, payment date, and reference shown in your records. Do not send passwords, one-time codes, or full card details.", "relatedArticleId": "report", "review": { "owner": "GetPrio Support", "timeZone": "Asia/Manila", "cadenceDays": 90, "appliesTo": ["web", "mobile"], "lastReviewedAt": "2026-09-29", "reviewDueAt": "2026-12-28", "sourceReferences": ["frontend/src/pages/ContactPage.tsx", "frontend/src/pages/CustomerBookingDetailPage.tsx"] } }
   ]
 }

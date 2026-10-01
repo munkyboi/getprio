@@ -1,8 +1,8 @@
 import { type FormEvent, useCallback, useEffect, useState } from "react";
-import { Accordion, Alert, Badge, Button, Card, Container, FileInput, Group, Image, Modal, Paper, ScrollArea, SimpleGrid, Spoiler, Stack, Text, Textarea, TextInput, ThemeIcon, Title } from "@mantine/core";
+import {  Alert, Badge, Button, Card, Container, FileInput, Group, Image, Modal, Paper, ScrollArea, SimpleGrid,  Stack, Text, Textarea, TextInput, ThemeIcon, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
-import { IconAlertCircle, IconArrowLeft, IconBuildingBank, IconBuildingStore, IconCalendar, IconCircleCheck, IconExternalLink, IconEye, IconReceipt, IconStar, IconTicket, IconUpload, IconUsersGroup, IconX } from "@tabler/icons-react";
-import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
+import { IconAlertCircle, IconArrowLeft, IconBuildingBank, IconBuildingStore, IconCalendar, IconCircleCheck, IconExternalLink, IconEye, IconReceipt, IconStar, IconTicket, IconUpload,  IconX } from "@tabler/icons-react";
+import { Link, Navigate,  useParams } from "react-router-dom";
 import type {
   BookingPaymentProofAccessResponse,
   BookingStatus,
@@ -18,8 +18,7 @@ import { API_BASE_URL, ApiError, apiRequest } from "../api/client";
 import { customerAccountApi } from "../api/customerAccount";
 import ResourceErrorState from "../components/ResourceErrorState";
 import FiveStarRatingInput from "../components/FiveStarRatingInput";
-import CampaignCreateForm from "../components/CampaignCreateForm";
-import RichCampaignDescription from "../components/RichCampaignDescription";
+
 import { useAuth } from "../context/AuthContext";
 import { buildJoinedQueuePathWithTicket } from "../queuePaths";
 import {
@@ -87,30 +86,6 @@ function formatPaymentAmount(amountCents: number, currency: string) {
   }).format(amountCents / 100);
 }
 
-function getContributionBadgeColor(status: string): "gray" | "red" | "yellow" | "orange" | "teal" | "blue" {
-  switch (status) {
-    case "verified":
-      return "teal";
-    case "submitted":
-    case "pending_proof":
-      return "yellow";
-    case "rejected":
-      return "red";
-    case "refund_pending":
-      return "orange";
-    case "refunded":
-      return "blue";
-    case "policy_review_required":
-      return "orange";
-    default:
-      return "gray";
-  }
-}
-
-function formatCampaignStatusLabel(status: string) {
-  return status.replace(/_/g, " ");
-}
-
 function formatDurationLabel(startValue: string | Date, endValue: string | Date) {
   const start = toTimestamp(startValue);
   const end = toTimestamp(endValue);
@@ -161,7 +136,7 @@ function formatCheckInCountdown(milliseconds: number) {
 
 export default function CustomerBookingDetailPage() {
   const { bookingId = "" } = useParams<{ bookingId: string }>();
-  const navigate = useNavigate();
+
   const { token, user, loading: authLoading } = useAuth();
   const [booking, setBooking] = useState<CustomerBookingDetailResponse["booking"] | null>(null);
   const [reason, setReason] = useState("");
@@ -183,7 +158,6 @@ export default function CustomerBookingDetailPage() {
   const [ratingStars, setRatingStars] = useState(0);
   const [ratingComment, setRatingComment] = useState("");
   const [ratingSubmitted, setRatingSubmitted] = useState(false);
-  const [campaignCreateModalOpen, setCampaignCreateModalOpen] = useState(false);
 
   const loadBooking = useCallback(async (options: { showLoading?: boolean } = {}) => {
     if (!token || !bookingId) {
@@ -427,8 +401,7 @@ export default function CustomerBookingDetailPage() {
 
   const groupFundedCampaign = booking.groupFundedCampaign;
   const isGroupFundedBooking = booking.bookingPaymentSource === "group_funded" || Boolean(booking.groupFundedBookingId || groupFundedCampaign);
-  const campaignTitle = groupFundedCampaign?.campaignTitle || "Group-funded campaign";
-  const campaignPath = groupFundedCampaign?.publicToken ? `/group-funded/${groupFundedCampaign.publicToken}` : "";
+
   const cancellationAllowed = canCancel(booking.status, booking.checkedInAt, booking.linkedTicket);
   const proofSubmissionAllowed = canSubmitPaymentProof(
     booking.status,
@@ -454,12 +427,7 @@ export default function CustomerBookingDetailPage() {
     : "";
   const fundingAdjustmentCents = Math.max(0, Number(groupFundedCampaign?.roundingAdjustmentCents || 0));
   const fundingTargetAmountCents = Number(groupFundedCampaign?.targetAmountCents || 0) + fundingAdjustmentCents;
-  const campaignProgress = fundingTargetAmountCents
-    ? Math.min(100, Math.round(((groupFundedCampaign?.fundedAmountCents || 0) / fundingTargetAmountCents) * 100))
-    : 0;
-  const campaignContributions = (groupFundedCampaign?.contributions || []).filter(
-    (contribution) => contribution.contributionStatus === "verified"
-  );
+
   const bookingBundleItems = groupFundedCampaign?.bundleItems?.length
     ? groupFundedCampaign.bundleItems
     : booking.bundleItems?.length
@@ -529,22 +497,6 @@ export default function CustomerBookingDetailPage() {
               {booking.expirationReason || "This pending booking expired before vendor confirmation or payment evidence submission."}
             </Alert>
           ) : null}
-
-        {booking.organizerCampaignOptIn && booking.status === "confirmed" && booking.paymentStatus === "paid" ? (
-          <Paper aria-labelledby="booking-campaign-notice-title" className="booking-campaign-notice" mb="md" p={{ base: "md", sm: "lg" }} role="status">
-            <div className="booking-campaign-notice__layout">
-              <ThemeIcon className="booking-campaign-notice__icon" radius="xl" size={44}>
-                <IconUsersGroup aria-hidden="true" size={22}/>
-              </ThemeIcon>
-              <Stack gap={4}>
-                <Text className="booking-campaign-notice__eyebrow" size="xs">BOOKING CONFIRMED</Text>
-                <Title className="booking-campaign-notice__title" id="booking-campaign-notice-title" order={2}>{booking.organizerCampaign ? "Your campaign is ready to manage" : "Ready to start your group-funded campaign"}</Title>
-                <Text className="booking-campaign-notice__message" size="sm">{booking.organizerCampaign ? "Review contributions, campaign progress, and organizer actions from your Campaign Control Center." : "Your booking is paid and vendor-confirmed. Create a campaign when you are ready to collect contributions independently."}</Text>
-              </Stack>
-              {booking.organizerCampaign ? <Button className="booking-campaign-notice__action" component={Link} size="md" to={`/account/campaigns/${booking.organizerCampaign.id}/manage`}>Manage campaign</Button> : <Button className="booking-campaign-notice__action" onClick={() => setCampaignCreateModalOpen(true)} size="md">Create campaign</Button>}
-            </div>
-          </Paper>
-        ) : null}
 
         {["completed", "reviewed"].includes(booking.status) && !ratingSubmitted ? (
           <Card mb="md" p="lg">
@@ -651,17 +603,7 @@ export default function CustomerBookingDetailPage() {
                     <Badge color={getBookingBadgeColor(hasExpired ? "canceled" : booking.status)} size="lg" variant="light">
                       {bookingTicketStatus.toUpperCase()}
                     </Badge>
-                    {campaignPath ? (
-                      <Badge
-                        className="booking-detail-campaign-chip"
-                        color="gray"
-                        size="lg"
-                        title={`CAMPAIGN: ${campaignTitle}`}
-                        variant="light"
-                      >
-                        CAMPAIGN: {campaignTitle}
-                      </Badge>
-                    ) : null}
+
                   </Group>
                 </Stack>
                 <SimpleGrid cols={{ base: 1, sm: 3 }} mt="lg" spacing="sm">
@@ -683,18 +625,7 @@ export default function CustomerBookingDetailPage() {
                 </SimpleGrid>
                 <Stack className="booking-detail-visual-action" gap="sm">
                   {primaryCheckInAction}
-                  {campaignPath ? (
-                    <Button
-                      className="vendor-theme-button booking-detail-campaign-action"
-                      component={Link}
-                      leftSection={<IconExternalLink size={18} />}
-                      size="lg"
-                      to={campaignPath}
-                      variant="filled"
-                    >
-                      View campaign
-                    </Button>
-                  ) : null}
+
                   <Button
                     className="booking-detail-cancel-action"
                     color="red"
@@ -714,108 +645,6 @@ export default function CustomerBookingDetailPage() {
 
         <Card className="finazze-auth-card customer-account-card booking-detail-section-card" mt="xl" p="xl">
           <Stack gap="md">
-
-          {groupFundedCampaign ? (
-            <Paper className="customer-booking-campaign-card" withBorder radius="lg" p="lg">
-              <Stack gap="md">
-                <Group justify="space-between" align="flex-start">
-                  <Stack gap={4}>
-                    <Text className="finazze-section-label">Group-funded campaign</Text>
-                    <Title order={3}>{groupFundedCampaign.campaignTitle || booking.serviceName}</Title>
-                    <Text c="dimmed" size="sm">
-                      Organized by {groupFundedCampaign.organizerDisplayName || "the campaign organizer"}
-                    </Text>
-                  </Stack>
-                  <Button
-                    component={Link}
-                    rightSection={<IconExternalLink size={16} />}
-                    to={`/group-funded/${groupFundedCampaign.publicToken}`}
-                    variant="light"
-                  >
-                    View campaign
-                  </Button>
-                </Group>
-
-                {groupFundedCampaign.description ? (
-                  <Spoiler hideLabel="Show less" maxHeight={72} showLabel="Show more">
-                    <RichCampaignDescription
-                      className="rich-campaign-description"
-                      content={groupFundedCampaign.description}
-                    />
-                  </Spoiler>
-                ) : null}
-
-                <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
-                  <Paper className="customer-booking-campaign-stat" radius="md" p="md">
-                    <Text c="dimmed" size="sm">Campaign status</Text>
-                    <Badge color="blue" mt={6} variant="light">
-                      {formatCampaignStatusLabel(groupFundedCampaign.campaignStatus)}
-                    </Badge>
-                    <Text c="dimmed" mt="xs" size="sm">
-                      Confirmed {groupFundedCampaign.confirmedAt ? formatDateTime(groupFundedCampaign.confirmedAt) : "by vendor"}
-                    </Text>
-                  </Paper>
-                  <Paper className="customer-booking-campaign-stat" radius="md" p="md">
-                    <Text c="dimmed" size="sm">Funding</Text>
-                    <Text fw={800}>
-                      {formatPaymentAmount(groupFundedCampaign.fundedAmountCents, groupFundedCampaign.currency)} /{" "}
-                      {formatPaymentAmount(fundingTargetAmountCents, groupFundedCampaign.currency)}
-                    </Text>
-                    <Text c="dimmed" size="sm">{campaignProgress}% funded</Text>
-                  </Paper>
-                  <Paper className="customer-booking-campaign-stat" radius="md" p="md">
-                    <Text c="dimmed" size="sm">Contributors</Text>
-                    <Text fw={800}>
-                      {groupFundedCampaign.paidParticipantCount} of {groupFundedCampaign.requiredContributors}
-                    </Text>
-                    <Text c="dimmed" size="sm">
-                      {formatPaymentAmount(groupFundedCampaign.requiredContributionAmountCents, groupFundedCampaign.currency)} each
-                    </Text>
-                  </Paper>
-                </SimpleGrid>
-                {campaignContributions.length ? (
-                  <Accordion className="customer-booking-contributors" variant="contained">
-                    <Accordion.Item value="contributors">
-                      <Accordion.Control>
-                        <Group justify="space-between" pr="sm">
-                          <Text fw={800}>Contributors</Text>
-                          <Badge color="teal" variant="light">
-                            {campaignContributions.length} verified
-                          </Badge>
-                        </Group>
-                      </Accordion.Control>
-                      <Accordion.Panel>
-                        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
-                          {campaignContributions.map((contribution) => (
-                            <Paper className="customer-booking-campaign-stat" key={contribution.id} radius="md" p="md">
-                              <Stack gap={4}>
-                                <Group justify="space-between" gap="sm" wrap="nowrap">
-                                  <Text fw={800}>{contribution.contributorDisplayName || "Contributor"}</Text>
-                                  <Badge color={getContributionBadgeColor(contribution.contributionStatus)} variant="light">
-                                    {contribution.contributionStatus.replace(/_/g, " ")}
-                                  </Badge>
-                                </Group>
-                                <Text c="dimmed" size="sm">
-                                  {formatPaymentAmount(contribution.amountCents, contribution.currency)}
-                                </Text>
-                                <Text c="dimmed" size="xs">
-                                  {contribution.verifiedAt
-                                    ? `Verified ${formatDateTime(contribution.verifiedAt)}`
-                                    : contribution.submittedAt
-                                      ? `Submitted ${formatDateTime(contribution.submittedAt)}`
-                                      : "Contribution recorded"}
-                                </Text>
-                              </Stack>
-                            </Paper>
-                          ))}
-                        </SimpleGrid>
-                      </Accordion.Panel>
-                    </Accordion.Item>
-                  </Accordion>
-                ) : null}
-              </Stack>
-            </Paper>
-          ) : null}
 
           {!isGroupFundedBooking ? <div className="customer-booking-payment-section">
             <Stack gap="md">
@@ -972,32 +801,6 @@ export default function CustomerBookingDetailPage() {
         </Stack>
         </Card>
       ) : null}
-
-      <Modal
-        centered
-        className="customer-modal campaign-create-modal"
-        onClose={() => setCampaignCreateModalOpen(false)}
-        opened={campaignCreateModalOpen}
-        size="lg"
-        title={
-          <Stack className="getprio-modal-title" gap={2}>
-            <Text className="getprio-modal-eyebrow">GROUP FUNDING</Text>
-            <Text className="getprio-modal-heading">Create campaign</Text>
-          </Stack>
-        }
-        transitionProps={{ transition: "slide-up", duration: 240, timingFunction: "ease-out" }}
-      >
-        <CampaignCreateForm
-          booking={booking}
-          modal
-          onCancel={() => setCampaignCreateModalOpen(false)}
-          onCreated={(campaign) => {
-            setCampaignCreateModalOpen(false);
-            navigate(`/account/campaigns/${campaign.id}/manage`);
-          }}
-          token={token}
-        />
-      </Modal>
 
       <Modal
         centered

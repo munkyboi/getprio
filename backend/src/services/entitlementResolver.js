@@ -29,9 +29,7 @@ function stableHash(value) {
 }
 
 function applyCampaignDependency(features) {
-  if (features.campaigns.enabled && !features.booking.enabled) {
-    features.campaigns = { ...features.campaigns, enabled: false, suppressedBy: "booking" };
-  }
+  features.campaigns = { enabled: false, source: "restriction", overrideId: null };
   return features;
 }
 

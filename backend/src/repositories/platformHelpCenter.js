@@ -105,9 +105,16 @@ function validateContent(input, { requireReviewed = false } = {}) {
 
 function publicContent(content) {
   const safe = validateContent(content);
-  const topics = safe.topics.filter((topic) => !topic.archived).map(({ archived, ...topic }) => topic);
+  // Existing published revisions remain stored, but retired product guidance is no longer public.
+  const topics = safe.topics.filter((topic) => !topic.archived && topic.id !== "campaigns").map(({ archived, ...topic }) => topic);
   const activeTopics = new Set(topics.map((topic) => topic.id));
-  const articles = safe.articles.filter((article) => !article.archived && activeTopics.has(article.topic)).map(({ review, archived, ...article }) => article);
+  const articles = safe.articles.filter((article) => !article.archived && activeTopics.has(article.topic)).map(({ review, archived, ...article }) => {
+    if (article.id === "report-safety") {
+      return { ...article, steps: article.steps.map((step) => step === "Identify the business, booking, ticket, campaign, or content involved."
+        ? "Identify the business, booking, ticket, or content involved." : step) };
+    }
+    return article;
+  });
   const activeArticles = new Set(articles.map((article) => article.id));
   const faqs = safe.faqs.filter((faq) => !faq.archived && (!faq.relatedArticleId || activeArticles.has(faq.relatedArticleId))).map(({ review, archived, ...faq }) => faq);
   return { topics, articles, faqs };

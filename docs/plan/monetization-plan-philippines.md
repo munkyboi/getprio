@@ -17,14 +17,14 @@ For the MVP, use PayMongo for local payment checkout and Semaphore for SMS notif
 
 | Tier | Price | Best For | Included |
 | --- | ---: | --- | --- |
-| Free | `PHP 0` | Vendors starting with queues | Queue System Access; 500 Queue Tickets and 500 Queue Email Journeys per month; no Branding, Discovery, Booking, or Campaigns |
-| Economical | `PHP 499/mo` | Solo vendors, small shops, small clinics | Queue, Discovery, Booking, and Campaigns; no public-facing Branding; 1,000 Tickets, 1,000 Journeys, and 100 Service Bookings per month |
-| Pro | `PHP 1,499/mo` | Clinics, salons, offices, busier service counters | All five features; 5,000 Tickets, 5,000 Journeys, and 1,000 Service Bookings per month |
-| Enterprise | `PHP 6,999/mo` | Multi-branch businesses, schools, LGUs, hospitals | All five features; 50,000 Tickets, 50,000 Journeys, and 10,000 Service Bookings per month |
+| Free | `PHP 0` | Vendors starting with queues | Queue System Access; 500 Queue Tickets and 500 Queue Email Journeys per month; no Branding, Discovery, or Booking |
+| Economical | `PHP 499/mo` | Solo vendors, small shops, small clinics | Queue, Discovery, and Booking; no public-facing Branding; 1,000 Tickets, 1,000 Journeys, and 100 Service Bookings per month |
+| Pro | `PHP 1,499/mo` | Clinics, salons, offices, busier service counters | Queue, Branding, Discovery, and Booking; 5,000 Tickets, 5,000 Journeys, and 1,000 Service Bookings per month |
+| Enterprise | `PHP 6,999/mo` | Multi-branch businesses, schools, LGUs, hospitals | Queue, Branding, Discovery, and Booking; 50,000 Tickets, 50,000 Journeys, and 10,000 Service Bookings per month |
 
 The `Included` column is both customer-facing pricing copy and the source for backend entitlement rules. Each item should map to a numeric limit, feature flag, support level, or custom-quoted Enterprise entitlement so billing, dashboard display, and future feature gating stay consistent.
 
-Branding applies to every public-facing vendor page, not only the queue board. Campaign access depends on Booking access. Platform Admin may independently enable or disable the customer queue fee and set its amount for each plan; this fee is not part of the vendor's allowance balance.
+Branding applies to every public-facing vendor page, not only the queue board. Campaigns are retired and cannot be enabled by any plan or tenant override. Platform Admin may independently enable or disable the customer queue fee and set its amount for each plan; this fee is not part of the vendor's allowance balance.
 
 ## Usage Credits
 

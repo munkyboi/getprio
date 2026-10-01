@@ -37,12 +37,6 @@ function mapCampaign(row) {
     organizerUserId: row.organizer_user_id == null ? null : String(row.organizer_user_id),
     organizerDisplayName: row.organizer_display_name || "Organizer",
     organizerAvatarUrl: row.organizer_avatar_url || "",
-    ...(row.organizer_trust_count == null ? {} : {
-      organizerTrustRating: {
-        average: Number(row.organizer_trust_average || 0),
-        count: Number(row.organizer_trust_count || 0)
-      }
-    }),
     ...(row.tenant_name ? {
       vendor: { name: row.tenant_name, slug: row.tenant_slug }
     } : {}),
@@ -94,10 +88,6 @@ function mapPublicCampaign(row) {
     availableContributors: Number(row.available_contributors || 0),
     organizerDisplayName: row.organizer_display_name || "Organizer",
     organizerAvatarUrl: row.organizer_avatar_url || "",
-    organizerTrustRating: {
-      average: Number(row.organizer_trust_average || 0),
-      count: Number(row.organizer_trust_count || 0)
-    },
     scheduledStartAt: row.scheduled_start_at,
     scheduledEndAt: row.scheduled_end_at,
     vendor: { name: row.tenant_name, slug: row.tenant_slug },
@@ -119,12 +109,6 @@ const PUBLIC_CAMPAIGN_SELECT = `SELECT campaigns.*, bookings.scheduled_start_at,
   vendor_services.name AS service_name, vendor_services.slug AS service_slug,
   COALESCE(NULLIF(users.display_name, ''), users.name) AS organizer_display_name,
   users.avatar_url AS organizer_avatar_url,
-  (SELECT COALESCE(ROUND(AVG(ratings.stars)::numeric, 1), 0)::float
-   FROM user_trust_ratings ratings
-   WHERE ratings.subject_user_id = campaigns.organizer_user_id AND ratings.moderation_status = 'active') AS organizer_trust_average,
-  (SELECT COUNT(*)::int
-   FROM user_trust_ratings ratings
-   WHERE ratings.subject_user_id = campaigns.organizer_user_id AND ratings.moderation_status = 'active') AS organizer_trust_count,
   COUNT(contributions.id) FILTER (WHERE contributions.contribution_status = 'accepted') AS accepted_contributors,
   COUNT(contributions.id) FILTER (
     WHERE contributions.contribution_status = 'pending_proof'
@@ -342,14 +326,6 @@ async function listCampaignsForCustomer(userId) {
        store_locations.city AS location_city,
        store_locations.province AS location_province,
        store_locations.timezone AS location_timezone,
-       (SELECT COALESCE(ROUND(AVG(ratings.stars)::numeric, 1), 0)::float
-        FROM user_trust_ratings ratings
-        WHERE ratings.subject_user_id = campaigns.organizer_user_id
-          AND ratings.moderation_status = 'active') AS organizer_trust_average,
-       (SELECT COUNT(*)::int
-        FROM user_trust_ratings ratings
-        WHERE ratings.subject_user_id = campaigns.organizer_user_id
-          AND ratings.moderation_status = 'active') AS organizer_trust_count,
        COALESCE((
          SELECT COUNT(*)::int
          FROM organizer_campaign_contributions

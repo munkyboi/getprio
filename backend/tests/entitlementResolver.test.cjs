@@ -62,7 +62,7 @@ test("resolver applies sparse current overrides and suppresses Campaigns without
 
   assert.deepEqual(result.features.booking, { enabled: false, source: "override", overrideId: "override-booking" });
   assert.equal(result.features.campaigns.enabled, false);
-  assert.equal(result.features.campaigns.suppressedBy, "booking");
+  assert.equal(result.features.campaigns.source, "restriction");
   assert.equal(result.features.branding.enabled, false);
   assert.deepEqual(result.allowances.queueTickets, { limit: 1250, source: "override", overrideId: "override-tickets" });
 });

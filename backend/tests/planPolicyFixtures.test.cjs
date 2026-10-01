@@ -22,17 +22,17 @@ test("settled four-plan features and monthly allowances have one canonical fixtu
     },
     economical: {
       checkoutEnabled: true,
-      features: { queue: true, branding: false, discovery: true, booking: true, campaigns: true },
+      features: { queue: true, branding: false, discovery: true, booking: true, campaigns: false },
       allowances: { queueTickets: 1000, queueEmailJourneys: 1000, serviceBookings: 100 }
     },
     pro: {
       checkoutEnabled: true,
-      features: { queue: true, branding: true, discovery: true, booking: true, campaigns: true },
+      features: { queue: true, branding: true, discovery: true, booking: true, campaigns: false },
       allowances: { queueTickets: 5000, queueEmailJourneys: 5000, serviceBookings: 1000 }
     },
     enterprise: {
       checkoutEnabled: false,
-      features: { queue: true, branding: true, discovery: true, booking: true, campaigns: true },
+      features: { queue: true, branding: true, discovery: true, booking: true, campaigns: false },
       allowances: { queueTickets: 50000, queueEmailJourneys: 50000, serviceBookings: 10000 }
     }
   });

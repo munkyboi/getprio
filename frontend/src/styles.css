@@ -4393,7 +4393,7 @@ button {
   }
 
   .customer-dashboard__support-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .customer-dashboard__support-card {
@@ -6348,7 +6348,6 @@ h2 {
 .signup-label-required {
   color: var(--mantine-color-red-6);
 }
-
 
 .social-auth-button:hover:not(:disabled) {
   transform: translateY(-1px);

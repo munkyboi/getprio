@@ -12,11 +12,11 @@ const billingRepository = require("../repositories/billing");
 const queueFeeService = require("../services/queueFeeService");
 const queueJoinPaymentService = require("../services/queueJoinPaymentService");
 const subscriptionPlanRepository = require("../repositories/subscriptionPlans");
-const organizerCampaignRepository = require("../repositories/organizerCampaigns");
+
 const ratingRepository = require("../repositories/ratings");
 const queueDayRepository = require("../repositories/queueDays");
 const queueNotificationOutboxRepository = require("../repositories/queueNotificationOutbox");
-const paymentProofStorageService = require("../services/paymentProofStorageService");
+
 const queueDayLifecycleService = require("../services/queueDayLifecycleService");
 const privilegedTransactionService = require("../services/privilegedTransactionService");
 const privilegedPreviewService = require("../services/privilegedPreviewService");
@@ -617,7 +617,6 @@ router.patch("/business-categories/:categoryId", requirePlatformPermission("plat
   res.json({ category: await businessCategories.save(req.params.categoryId, req.body, { actorId: req.user._id, actorRole: "platform_admin", sessionId: req.auth.sessionId }) });
 }));
 
-
 router.get("/capabilities", requirePlatformPermission("platform.plan_policy.read"), (_req, res) => {
   res.json({
     planMatrix: true,
@@ -633,7 +632,7 @@ const PRIVILEGED_ACTIONS = new Set([
   "credit.pack.publish", "credit.grant", "credit.revoke",
   "credit.refund.resolve", "credit.dispute.open", "credit.dispute.resolve",
   "plan.defaults.publish", "queue.fees.publish", "subscription.transition", "subscription.suspend"
-  , "moderation.campaign_report.status", "moderation.rating_dispute.resolve", "platform.user_sessions.revoke", "platform.user.password_reset.send", "platform.user.roles.update", "platform.user.tenant_membership.update", "platform.user.mfa.reset", "platform.user.access.suspend", "platform.user.access.reactivate", "platform.account_deletion.cleanup.begin", "platform.account_deletion.report.send", "entitlement.override.publish", "entitlement.override.revoke", "allowance.reverse", "allowance.reconcile"
+  , "moderation.rating_dispute.resolve", "platform.user_sessions.revoke", "platform.user.password_reset.send", "platform.user.roles.update", "platform.user.tenant_membership.update", "platform.user.mfa.reset", "platform.user.access.suspend", "platform.user.access.reactivate", "platform.account_deletion.cleanup.begin", "platform.account_deletion.report.send", "entitlement.override.publish", "entitlement.override.revoke", "allowance.reverse", "allowance.reconcile"
 ]);
 
 const PRIVILEGED_ACTION_CONTROLS = Object.freeze({
@@ -667,7 +666,7 @@ router.post(
     const permissionByAction = {
       "credit.pack.publish": "platform.credit_catalog.manage", "credit.grant": "platform.credit_grants.manage", "credit.revoke": "platform.credit_revocations.manage",
       "credit.refund.resolve": "platform.credit_adjustments.manage", "credit.dispute.open": "platform.credit_disputes.manage", "credit.dispute.resolve": "platform.credit_disputes.manage",
-      "plan.defaults.publish": "platform.plans.manage", "queue.fees.publish": "platform.queue_fees.manage", "subscription.transition": "platform.subscription_lifecycle.manage", "subscription.suspend": "platform.subscription_lifecycle.manage", "moderation.campaign_report.status": "platform.settings.manage", "moderation.rating_dispute.resolve": "platform.settings.manage", "platform.user_sessions.revoke": "platform.user_sessions.revoke"
+      "plan.defaults.publish": "platform.plans.manage", "queue.fees.publish": "platform.queue_fees.manage", "subscription.transition": "platform.subscription_lifecycle.manage", "subscription.suspend": "platform.subscription_lifecycle.manage", "moderation.rating_dispute.resolve": "platform.settings.manage", "platform.user_sessions.revoke": "platform.user_sessions.revoke"
       , "platform.user.password_reset.send": "platform.user_password_reset.send", "platform.user.roles.update": "platform.user_roles.manage", "platform.user.tenant_membership.update": "platform.user_roles.manage", "platform.user.mfa.reset": "platform.user_mfa.reset", "platform.user.access.suspend": "platform.user_access.manage", "platform.user.access.reactivate": "platform.user_access.manage", "platform.account_deletion.cleanup.begin": "platform.account_deletion.manage", "platform.account_deletion.report.send": "platform.account_deletion.manage", "entitlement.override.publish": "platform.entitlement_overrides.manage", "entitlement.override.revoke": "platform.entitlement_overrides.manage", "allowance.reverse": "platform.credit_adjustments.manage", "allowance.reconcile": "platform.credit_reconcile"
     };
     if (!getGlobalPermissions(req.user).has(permissionByAction[action])) throw Object.assign(new Error("You do not have permission to preview this action."), { statusCode: 403 });
@@ -1158,7 +1157,7 @@ router.post(
 
 router.post("/tenants/:tenantId/entitlement-overrides", requirePlatformPermission("platform.entitlement_overrides.manage"), requireReleaseControl("entitlementOverrides"), requireIdempotency("platform.entitlement_override.publish"), asyncHandler(async (req,res) => {
   const payload={tenantId:req.params.tenantId,subscriptionId:req.body.subscriptionId,policyKey:req.body.policyKey,value:req.body.value,expiresAt:req.body.expiresAt || null};
-  if (!/^(feature\.(queue|branding|discovery|booking|campaigns)|allowance\.(queueTickets|queueEmailJourneys|serviceBookings))$/.test(String(payload.policyKey || ""))) throw Object.assign(new Error("Entitlement override key is invalid."),{statusCode:400});
+  if (!/^(feature\.(queue|branding|discovery|booking)|allowance\.(queueTickets|queueEmailJourneys|serviceBookings))$/.test(String(payload.policyKey || ""))) throw Object.assign(new Error("Entitlement override key is invalid."),{statusCode:400});
   const override=await executeCreditConfirmation(req,"entitlement.override.publish",req.params.tenantId,payload,(client)=>entitlementOverrideRepository.create({...payload,reason:req.body.reason,actorId:req.user._id},{client}));
   if(!override) throw Object.assign(new Error("Subscription not found for this tenant."),{statusCode:404});
   await securityAuditService.record({actorId:req.user._id,actorRole:"platform_admin",sessionId:req.auth.sessionId,tenantId:req.params.tenantId,action:"entitlement.override.publish",resourceType:"tenant_entitlement_override",resourceId:override.id,reason:req.body.reason,outcome:"success",afterState:override});
@@ -1653,71 +1652,6 @@ router.get(
     res.json(req.query.page !== undefined ? await platformRecords.listRecords("users", req.query) : {
       items: await platformRepository.listUsers({ limit: req.query.limit })
     });
-  })
-);
-
-router.get(
-  "/campaign-reports",
-  requirePlatformPermission("platform.users.read"),
-  asyncHandler(async (_req, res) => res.json({ items: await organizerCampaignRepository.listReports() }))
-);
-
-router.patch(
-  "/campaign-reports/:reportId",
-  requirePlatformPermission("platform.settings.manage"),
-  requireIdempotency("platform.campaign_report.status"),
-  asyncHandler(async (req, res) => {
-    const status = String(req.body?.status || "");
-    if (!["reviewing", "resolved", "dismissed"].includes(status)) { const error = new Error("Invalid report status."); error.statusCode = 400; throw error; }
-    const report = await db.withTransaction(async (client) => {
-      const payload = { status };
-      const preview = await privilegedPreviewService.resolvePreview({ action: "moderation.campaign_report.status", target: req.params.reportId, payload }, { client, lock: true });
-      await privilegedTransactionService.consumeConfirmation({ token: req.get("x-transaction-confirmation"), actorId: req.user._id, session: req.auth.session, action: "moderation.campaign_report.status", target: req.params.reportId, reason: req.body.reason, payload, previewRevision: req.body.previewRevision, currentPreviewRevision: preview.revision }, { client });
-      const before = preview.state[0];
-      if (!before || !["open", "reviewing"].includes(before.report_status)) {
-        const error = new Error("Active campaign report not found.");
-        error.statusCode = 404;
-        throw error;
-      }
-      const result = await client.query("UPDATE organizer_campaign_reports SET report_status = $2 WHERE id = $1 AND report_status IN ('open','reviewing') RETURNING *", [Number(req.params.reportId), status]);
-      const updated = result.rows[0];
-      if (!updated) {
-        const error = new Error("Campaign report changed before the action completed.");
-        error.statusCode = 409;
-        throw error;
-      }
-      await securityAuditService.record({ actorId: req.user._id, actorRole: "platform_admin", sessionId: req.auth.sessionId, action: "moderation.campaign_report.status", resourceType: "campaign_report", resourceId: req.params.reportId, reason: req.body.reason, outcome: "success", beforeState: { status: before.report_status }, afterState: { status: updated.report_status } }, { client });
-      return updated;
-    });
-    res.json({ report });
-  })
-);
-
-router.get(
-  "/campaign-reports/:reportId/contributions/:contributionId/evidence",
-  requirePlatformPermission("platform.settings.manage"),
-  asyncHandler(async (req, res) => {
-    const report = await organizerCampaignRepository.findReportById(req.params.reportId);
-    if (!report || !["open", "reviewing"].includes(report.report_status)) { const error = new Error("Active campaign report not found."); error.statusCode = 404; throw error; }
-    const contribution = await organizerCampaignRepository.findContributionById(req.params.contributionId);
-    if (!contribution || String(contribution.campaignId) !== String(report.campaign_id)) { const error = new Error("Evidence not found."); error.statusCode = 404; throw error; }
-    const evidence = req.query.kind === "reimbursement"
-      ? await organizerCampaignRepository.findReimbursementEvidenceByContributionId(contribution.id)
-      : await organizerCampaignRepository.findContributionEvidenceById(contribution.id);
-    if (!evidence?.object_key) { const error = new Error("Evidence not found."); error.statusCode = 404; throw error; }
-    await organizerCampaignRepository.recordEvent({ campaignId: report.campaign_id, eventType: "campaign_evidence_viewed", actorUserId: req.user?._id, actorRole: "platform_admin", source: "platform", metadata: { reportId: report.id, contributionId: contribution.id, kind: req.query.kind === "reimbursement" ? "reimbursement" : "contribution" } });
-    res.json(await paymentProofStorageService.createCampaignEvidenceViewAccess({ objectKey: evidence.object_key, fileName: evidence.file_name, contentType: evidence.content_type, sizeBytes: evidence.size_bytes }));
-  })
-);
-
-router.patch(
-  "/campaigns/:campaignId/freeze",
-  requirePlatformPermission("platform.settings.manage"),
-  asyncHandler(async (req, res) => {
-    const reason = String(req.body?.reason || "").trim();
-    if (!reason) { const error = new Error("Freeze reason is required."); error.statusCode = 400; throw error; }
-    if (reason.length > 500) { const error = new Error("Freeze reason must be 500 characters or fewer."); error.statusCode = 400; throw error; }
-    res.json({ campaign: await organizerCampaignRepository.freezeCampaign({ campaignId: req.params.campaignId, actorUserId: req.user?._id, reason }) });
   })
 );
 

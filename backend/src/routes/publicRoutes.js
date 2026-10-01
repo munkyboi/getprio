@@ -20,8 +20,7 @@ const queueFeeService = require("../services/queueFeeService");
 const bookingService = require("../services/bookingService");
 const bookingOtpService = require("../services/bookingOtpService");
 const bookingSmsAlertPaymentService = require("../services/bookingSmsAlertPaymentService");
-const organizerCampaignService = require("../services/organizerCampaignService");
-const organizerCampaignEvents = require("../services/organizerCampaignEvents");
+
 const ratingRepository = require("../repositories/ratings");
 const storeHoursService = require("../services/storeHoursService");
 const notificationService = require("../services/notificationService");
@@ -61,37 +60,7 @@ const queueTicketReadLimiter = rateLimit({
   message: { message: "Too many queue status requests. Please try again later." }
 });
 router.use(moderatePublicText);
-router.get(
-  "/campaigns/:publicToken/stream",
-  asyncHandler(async (req, res) => {
-    const campaign = await organizerCampaignService.getCampaignPreview(req.params.publicToken);
 
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache, no-transform");
-    res.setHeader("Connection", "keep-alive");
-    res.flushHeaders();
-    res.write(`event: ready\ndata: ${JSON.stringify({ connected: true })}\n\n`);
-
-    const unsubscribe = organizerCampaignEvents.subscribe(campaign.id, () => {
-      res.write(`event: campaign-change\ndata: ${JSON.stringify({
-        changedAt: new Date().toISOString()
-      })}\n\n`);
-    });
-    const heartbeat = setInterval(() => {
-      res.write(`event: heartbeat\ndata: ${Date.now()}\n\n`);
-    }, 25000);
-
-    req.on("close", () => {
-      clearInterval(heartbeat);
-      unsubscribe();
-      res.end();
-    });
-  })
-);
-router.get(
-  "/campaigns/:publicToken",
-  asyncHandler(async (req, res) => res.json({ campaign: await organizerCampaignService.getCampaignPreview(req.params.publicToken) }))
-);
 router.get(
   "/vendors/:tenantSlug/ratings",
   asyncHandler(async (req, res) => {
@@ -104,9 +73,7 @@ router.get(
     res.json({ rating, reviews, pagination: formatPaginationMetadata(total, page, pageSize) });
   })
 );
-router.all(/^\/group-funded-campaigns(?:\/|$)/, (_req, res) => {
-  res.status(410).json({ message: "This legacy campaign API has been retired. Use the organizer campaign share link." });
-});
+
 function formatPublicVendorService(service) {
   return {
     name: service.name,

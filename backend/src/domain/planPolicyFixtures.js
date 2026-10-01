@@ -27,7 +27,7 @@ const PLAN_POLICY_FIXTURES = Object.freeze({
       branding: false,
       discovery: true,
       booking: true,
-      campaigns: true
+      campaigns: false
     }),
     allowances: Object.freeze({
       queueTickets: 1000,
@@ -42,7 +42,7 @@ const PLAN_POLICY_FIXTURES = Object.freeze({
       branding: true,
       discovery: true,
       booking: true,
-      campaigns: true
+      campaigns: false
     }),
     allowances: Object.freeze({
       queueTickets: 5000,
@@ -57,7 +57,7 @@ const PLAN_POLICY_FIXTURES = Object.freeze({
       branding: true,
       discovery: true,
       booking: true,
-      campaigns: true
+      campaigns: false
     }),
     allowances: Object.freeze({
       queueTickets: 50000,

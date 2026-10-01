@@ -21,7 +21,7 @@ export function canAccessVendorSection(section, entitlements, plan = null) {
     case "bookings":
       return entitlements.serviceBookingAccess === true;
     case "group-funded":
-      return entitlements.serviceBookingAccess === true && entitlements.groupFundedCampaignAccess === true;
+      return false;
     case "staff":
       return Number(entitlements.staffSeats || 0) > 1;
     case "clients":
