@@ -60,11 +60,8 @@ test("Free plan policy data preserves the complete dashboard entitlement contrac
   }
 });
 
-test("all authoritative booking and Journey paths retain one-unit and retry contracts", () => {
-  const campaign = fs.readFileSync(path.join(__dirname, "../src/services/groupFundedBookingService.js"), "utf8");
+test("Journey paths retain retry contracts", () => {
   const journey = fs.readFileSync(path.join(__dirname, "../src/services/queueEmailJourneyService.js"), "utf8");
-  assert.match(campaign, /Approved group-funded campaign created one Service Booking/);
-  assert.match(campaign, /resourceKey: "serviceBookings"/);
   assert.match(journey, /status IN \('unused', 'failed'\)/);
 });
 

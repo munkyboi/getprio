@@ -62,7 +62,7 @@ import type {
 import { getTimeZoneOptions } from "../../shared/timezones";
 import { apiRequest } from "./api";
 import { PortalDataTable } from "./components/PortalDataTable";
-import { PromptActionModal } from "./components/PromptActionModal";
+
 import { ModalWheelBridge } from "./components/ModalWheelBridge";
 import { PlanMatrixPage } from "./pages/PlanMatrixPage";
 import { DeveloperProjectsPage } from "./pages/DeveloperProjectsPage";
@@ -93,7 +93,7 @@ const navItems = [
   { to: "/users", label: "Users", icon: IconUsers },
   { to: "/billing-events", label: "Billing events", icon: IconReceipt },
   { to: "/security-audit", label: "Security audit", icon: IconShieldExclamation },
-  { to: "/campaign-reports", label: "Campaign reports", icon: IconShieldExclamation },
+
   { to: "/rating-disputes", label: "Rating disputes", icon: IconStar },
   { to: "/settings", label: "Settings", icon: IconSettings }
 ] as const;
@@ -493,46 +493,6 @@ function RecordsPage({ token, endpoint, columns, emptyLabel }: { token: string; 
   return <PortalDataTable rows={rows} columns={columns} emptyLabel={emptyLabel} />;
 }
 
-function CampaignReportsPage({ token }: { token: string }) {
-  const [rows, setRows] = useState<GenericRecord[]>([]);
-  const [campaignToFreeze, setCampaignToFreeze] = useState<GenericRecord | null>(null);
-  const [freezeReason, setFreezeReason] = useState("");
-  const [freezeBusy, setFreezeBusy] = useState(false);
-  const [freezeError, setFreezeError] = useState("");
-  const load = () => apiRequest<PlatformListResponse<GenericRecord>>("/platform/campaign-reports", { token }).then((data) => setRows(data.items));
-  useEffect(() => { void load(); }, [token]);
-  async function freeze() {
-    const reason = freezeReason.trim();
-    if (!campaignToFreeze || !reason) return;
-    setFreezeBusy(true);
-    setFreezeError("");
-    let campaignFrozen = false;
-    try {
-      const freezeResult = await apiRequest<{ campaign: GenericRecord | null }>(`/platform/campaigns/${campaignToFreeze.campaign_id}/freeze`, { method: "PATCH", token, body: { reason } });
-      if (!freezeResult.campaign) throw new Error("This campaign is no longer eligible to be frozen.");
-      campaignFrozen = true;
-      await apiRequest(`/platform/campaign-reports/${campaignToFreeze.id}`, { method: "PATCH", token, body: { status: "reviewing" } });
-      setCampaignToFreeze(null);
-      setFreezeReason("");
-      notifications.show({ color: "teal", title: "Campaign frozen", message: "The report is now marked for review." });
-      await load();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Please try again.";
-      if (campaignFrozen) {
-        setCampaignToFreeze(null);
-        setFreezeReason("");
-        notifications.show({ color: "yellow", title: "Campaign frozen; report status needs attention", message });
-        await load().catch(() => undefined);
-      } else {
-        setFreezeError(message);
-      }
-    } finally {
-      setFreezeBusy(false);
-    }
-  }
-  return <><PortalDataTable rows={rows} emptyLabel="No campaign reports." columns={[{ key: "campaign_title", label: "Campaign" }, { key: "category", label: "Category" }, { key: "reporter_email", label: "Reporter" }, { key: "report_status", label: "Status", render: (row) => <StatusBadge value={row.report_status}/> }, { key: "created_at", label: "Reported", render: (row) => formatDate(row.created_at) }, { key: "actions", label: "Action", render: (row) => <Button color="red" onClick={() => { setCampaignToFreeze(row); setFreezeReason(""); setFreezeError(""); }} size="xs" variant="light">Freeze & review</Button> }]}/><PromptActionModal confirmColor="red" confirmLabel="Freeze campaign" description="Freezing prevents further campaign activity while Platform Admin reviews the report." error={freezeError} eyebrow="CAMPAIGN MODERATION" label="Reason for freezing this campaign" loading={freezeBusy} maxLength={500} onChange={setFreezeReason} onClose={() => { setCampaignToFreeze(null); setFreezeReason(""); setFreezeError(""); }} onConfirm={() => void freeze()} opened={Boolean(campaignToFreeze)} placeholder="Explain the moderation concern" title={`Freeze ${String(campaignToFreeze?.campaign_title || "campaign")}?`} value={freezeReason}/></>;
-}
-
 function RatingDisputesPage({ token }: { token: string }) {
   const [rows, setRows] = useState<GenericRecord[]>([]);
   const load = () => apiRequest<PlatformListResponse<GenericRecord>>("/platform/rating-disputes", { token }).then((data) => setRows(data.items));
@@ -867,7 +827,7 @@ function PortalApp({
                 { key: "resource_type", label: "Resource" },
                 { key: "reason", label: "Reason" }
               ]} />} />
-              <Route path="/campaign-reports" element={<CampaignReportsPage token={token} />} />
+
               <Route path="/rating-disputes" element={<RatingDisputesPage token={token} />} />
             </Routes>
           </Stack>

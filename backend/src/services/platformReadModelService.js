@@ -7,7 +7,7 @@ const developerWebhooks = require("../repositories/developerWebhooks");
 const developerWebhookSuspensions = require("../repositories/developerWebhookSuspensions");
 const developerApiRateLimits = require("../repositories/developerApiRateLimits");
 const platformReleaseReadinessEvidence = require("./platformReleaseReadinessEvidence");
-const organizerCampaignRepository = require("../repositories/organizerCampaigns");
+
 const ratingRepository = require("../repositories/ratings");
 const platformRepository = require("../repositories/platform");
 const { getGlobalPermissions } = require("./permissions");
@@ -172,50 +172,24 @@ async function getOverview(req) {
 }
 
 async function getModeration(req) {
-  const [summary, campaignReports, ratingDisputes] = await Promise.all([
-    db.pool.query(`
-      SELECT
-        (SELECT COUNT(*)::INTEGER FROM organizer_campaign_reports WHERE report_status IN ('open', 'reviewing')) AS open_reports,
-        (SELECT COUNT(*)::INTEGER FROM rating_disputes WHERE dispute_status IN ('open', 'reviewing')) AS open_disputes,
-        ((SELECT COUNT(*) FROM organizer_campaign_reports WHERE report_status = 'resolved' AND updated_at >= date_trunc('week', NOW()))
-         + (SELECT COUNT(*) FROM rating_disputes WHERE dispute_status = 'resolved' AND resolved_at >= date_trunc('week', NOW())))::INTEGER AS resolved_this_week
-    `),
-    organizerCampaignRepository.listReports(),
+  const [summary, ratingDisputes] = await Promise.all([
+    db.pool.query(`SELECT
+      (SELECT COUNT(*)::INTEGER FROM rating_disputes WHERE dispute_status IN ('open', 'reviewing')) AS open_disputes,
+      (SELECT COUNT(*)::INTEGER FROM rating_disputes WHERE dispute_status = 'resolved' AND resolved_at >= date_trunc('week', NOW())) AS resolved_this_week`),
     ratingRepository.listDisputes()
   ]);
-  const mapStatus = (value) => ["open", "reviewing", "resolved", "dismissed"].includes(value) ? value : "open";
-  const reports = campaignReports.map((row) => ({
-    id: String(row.id),
-    campaignId: String(row.campaign_id),
-    campaignTitle: row.campaign_title || "Untitled campaign",
-    category: row.category,
-    status: mapStatus(row.report_status),
-    campaignStatus: row.campaign_status,
-    reporter: row.reporter_user_id == null ? "Anonymized account" : `user_${row.reporter_user_id}`,
-    details: row.details || null,
-    createdAt: row.created_at
-  }));
-  const disputes = ratingDisputes.map((row) => ({
-    id: String(row.id),
-    ratingType: row.rating_type,
-    ratingId: String(row.rating_id),
-    status: mapStatus(row.dispute_status),
-    reason: row.reason,
-    reporter: `user_${row.reporter_user_id}`,
-    createdAt: row.created_at
-  }));
   const totals = summary.rows[0] || {};
-  const openReports = Number(totals.open_reports || 0);
-  const openDisputes = Number(totals.open_disputes || 0);
-  const resolvedThisWeek = Number(totals.resolved_this_week || 0);
   return envelope(req, "global", {
     metrics: [
-      { label: "Open reports", value: String(openReports), trend: "Needs triage", trendTone: openReports ? "attention" : "positive" },
-      { label: "Rating disputes", value: String(openDisputes), trend: "Awaiting resolution", trendTone: openDisputes ? "attention" : "positive" },
-      { label: "Resolved this week", value: String(resolvedThisWeek), trend: "Moderation throughput", trendTone: "positive" }
+      { label: "Rating disputes", value: String(totals.open_disputes || 0), trend: "Awaiting resolution", trendTone: Number(totals.open_disputes) ? "attention" : "positive" },
+      { label: "Resolved this week", value: String(totals.resolved_this_week || 0), trend: "Moderation throughput", trendTone: "positive" }
     ],
-    campaignReports: reports,
-    ratingDisputes: disputes
+    campaignReports: [],
+    ratingDisputes: ratingDisputes.map((row) => ({
+      id: String(row.id), ratingType: row.rating_type, ratingId: String(row.rating_id),
+      status: ["open", "reviewing", "resolved", "dismissed"].includes(row.dispute_status) ? row.dispute_status : "open",
+      reason: row.reason, reporter: `user_${row.reporter_user_id}`, createdAt: row.created_at
+    }))
   });
 }
 

@@ -546,7 +546,7 @@ export interface CustomerBookingSummary {
   paymentStatus: BookingPaymentStatus;
   groupFundedBookingId: string | null;
   bookingPaymentSource: BookingPaymentSource;
-  organizerCampaignOptIn: boolean;
+
   organizerCampaign?: { id: string; status: OrganizerCampaignStatus } | null;
   groupFundedCampaign: BookingGroupFundedCampaignSummary | null;
   manualPaymentDestination: BookingManualPaymentDestination | null;
@@ -596,7 +596,7 @@ export interface CreateCustomerBookingRequest {
   notifyBySms?: boolean;
   smsAlertFeePaymentId?: string;
   bookingVerificationToken?: string;
-  organizerCampaignOptIn?: boolean;
+
 }
 
 export interface CustomerBookingResponse {
@@ -1723,7 +1723,7 @@ export interface UpdateTenantSettingsRequest {
 export interface CustomerNotificationSettings {
   bookingAlerts: boolean;
   queueAlerts: boolean;
-  campaignAlerts: boolean;
+
   preferredContactMethod: "in_app" | "email" | "sms";
 }
 

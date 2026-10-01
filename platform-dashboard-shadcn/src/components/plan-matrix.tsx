@@ -16,7 +16,7 @@ import type { PlanPolicyPreview, PlatformPlanMatrix } from "@/lib/platform-contr
 
 const features = [
   ["queue", "Queue system"], ["branding", "Branded experience"], ["discovery", "Marketplace discovery"],
-  ["booking", "Service bookings"], ["campaigns", "Group-funded campaigns"],
+  ["booking", "Service bookings"],
 ] as const
 const allowances = [
   ["queueTickets", "Queue tickets / month"], ["queueEmailJourneys", "Email journeys / month"], ["serviceBookings", "Service bookings / month"],
@@ -159,7 +159,7 @@ export function PlanMatrix() {
         </div>
         <ToggleField label="Allow self-serve checkout" checked={plan.checkoutEnabled} disabled={!canPublishPlan} onChange={(checkoutEnabled) => updatePlan((current) => ({ ...current, checkoutEnabled }))} />
         <div className="grid gap-5 xl:grid-cols-2">
-          <div className="space-y-3"><h2 className="text-base font-medium">Feature entitlements</h2><div className="grid gap-2">{features.map(([key, label]) => <ToggleField key={key} label={label} checked={Boolean(plan.features?.[key])} disabled={!canPublishPlan || (key === "queue" && plan.slug === "free") || (key === "campaigns" && !plan.features?.booking)} onChange={(checked) => updatePlan((current) => ({ ...current, features: { queue: false, branding: false, discovery: false, booking: false, campaigns: false, ...current.features, [key]: checked, ...(key === "booking" && !checked ? { campaigns: false } : {}) } }))} />)}</div><p className="text-xs text-muted-foreground">Group-funded campaigns require Service bookings.</p></div>
+          <div className="space-y-3"><h2 className="text-base font-medium">Feature entitlements</h2><div className="grid gap-2">{features.map(([key, label]) => <ToggleField key={key} label={label} checked={Boolean(plan.features?.[key])} disabled={!canPublishPlan || (key === "queue" && plan.slug === "free")} onChange={(checked) => updatePlan((current) => ({ ...current, features: { queue: false, branding: false, discovery: false, booking: false, campaigns: false, ...current.features, [key]: checked, ...(key === "booking" && !checked ? { campaigns: false } : {}) } }))} />)}</div></div>
           <div className="space-y-3"><h2 className="text-base font-medium">Monthly allowances</h2><div className="grid gap-3 sm:grid-cols-2">{allowances.map(([key, label]) => <NumericField key={key} label={label} value={plan.allowances?.[key] ?? 0} disabled={!canPublishPlan} onChange={(value) => updatePlan((current) => ({ ...current, allowances: { queueTickets: 0, queueEmailJourneys: 0, serviceBookings: 0, ...current.allowances, [key]: value } }))} />)}</div></div>
         </div>
         <div className="grid gap-5 xl:grid-cols-2">

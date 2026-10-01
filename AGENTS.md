@@ -6,6 +6,10 @@ This repository supports the GetPrio capstone project. Codex and other AI coding
 
 GetPrio is a service marketplace and booking platform. Customers discover vendors publicly, view vendor profiles, book services, manage transactions, receive notifications, and leave reviews. Vendors manage their business profile, services, staff, availability, bookings, and operational dashboards. Platform administrators manage vendor approvals, disputes, moderation, audit logs, compliance, and platform governance.
 
+## Current Product Direction
+
+Focus on queue operations, ordinary service bookings, and AI integration. Booking campaigns are removed directly; do not introduce campaign creation, contributions, discovery, history UI, or transition flows. Customers do not receive ratings. Ratings and reviews apply only to vendors. Wait-time model rollout is currently on hold; existing sample capture may continue.
+
 ## Capstone Roles
 
 Use these roles consistently across UI, routing, authorization, data models, and documentation:

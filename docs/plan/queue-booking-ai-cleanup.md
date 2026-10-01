@@ -1,34 +1,22 @@
-# Queue, booking, and AI product cleanup
+# Queue, booking, and AI product direction
 
-## Product direction
+GetPrio focuses on queue operations, ordinary service bookings, and AI assistance grounded in reliable queue and booking data. Customers do not receive ratings; reviews and star ratings apply only to vendors.
 
-The product focuses on queue operations, ordinary service bookings, and AI assistance grounded in reliable queue and booking data. Booking campaigns are being retired. Customers do not receive ratings; reviews and star ratings apply only to vendors.
+## Current cleanup
 
-Wait-time model work is on hold. Existing sample capture may continue; no model rollout or additional infrastructure is part of this cleanup.
+Booking campaigns are removed directly. There is no archive, history UI, migration wizard, or transition phase.
 
-## Slice 1: Retire customer ratings
+- Remove campaign creation, discovery, public share/join pages, contribution and reimbursement APIs, moderation actions, lifecycle jobs, and booking opt-in.
+- Remove campaign navigation, dashboard cards, vendor configuration controls, notification settings, Help articles, and active Terms descriptions.
+- Prevent saved plan settings and entitlement overrides from restoring campaign access.
+- Preserve ordinary booking, payment-proof review, check-in, booking-to-ticket linkage, queue operations, and vendor reviews.
+- Remove customer rating controls, customer-score API fields and aggregate queries, and customer-rating creation.
+- Retain historical database migrations and stored records. No data/schema purge is part of this product removal.
 
-- Remove customer scores from account, booking, contributor, and public campaign responses and shared contracts.
-- Remove customer rating displays, contributor/organizer rating controls, and the vendor action for rating an organizer.
-- Return HTTP 410 from the authenticated legacy customer-rating write endpoints, including requests from older clients. Do not query bookings or campaigns or write ratings in those handlers.
-- Remove customer-rating creation and aggregate computation from the repository.
-- Preserve vendor reviews for served queue visits and completed bookings, customer review revisions, vendor replies, and moderation.
-- Preserve historical records and existing dispute handling. No schema deletion or data purge is authorized by this slice.
+Implementation is prepared in PR #286. CI, review, merge, deployment, and live runtime evidence are separate gates.
 
-Implementation is prepared on `codex/retire-customer-ratings`; it still needs PR/CI review, merge, deployment, and runtime evidence.
+## Next product work
 
-## Slice 2: Retire booking campaigns
+Reconcile the booking execution checklist against current code, then complete outstanding customer booking/ticket flow and vendor operations work. AI integration should support these workflows.
 
-The remaining campaign feature is not disabled by Slice 1.
-
-Inventory and remove campaign creation and discovery, booking opt-in, share/join flows, contribution operations, customer navigation/dashboard cards, vendor campaign configuration and controls, notification preferences, and active campaign jobs. Keep ordinary bookings, payment-proof review, check-in, booking-to-ticket linkage, queue operations, and vendor reviews.
-
-Before changing access to existing campaign records, settle the history policy with the product owner: preserve authenticated read-only history, or remove product access while retaining stored records. Inspect outstanding contributions, reimbursements, booking links, holds, and scheduled jobs before retiring their handlers. Existing financial obligations must have a deliberate resolution path rather than disappearing behind a retired endpoint.
-
-Retain historical database migrations. Any later deletion of stored records or files requires a separate retention and cleanup scope.
-
-## Slice 3: Reconcile product requirements
-
-Update help, terms/privacy descriptions, API documentation, capstone requirements, and slice trackers to reflect the shipped campaign retirement. Check web and mobile consumers against the revised API contracts. Keep vendor reviews in scope.
-
-Resume wait-time evaluation only when the product owner resumes that work and collected observations support evaluation on later tickets.
+Wait-time model work remains on hold. Existing sample capture may continue; model rollout and new inference infrastructure are outside this cleanup.

@@ -31,7 +31,7 @@ function loadUploads(state) {
     state.signatures.push({ input: command.input, options });
     return "https://signed.example.test";
   } });
-  const names = ["imageUploadPolicy", "userAvatarUploadService", "vendorMediaUploadService", "publicBoardThemeUploadService", "locationPaymentQrUploadService", "campaignReportAttachmentService", "paymentProofStorageService"];
+  const names = ["imageUploadPolicy", "userAvatarUploadService", "vendorMediaUploadService", "publicBoardThemeUploadService", "locationPaymentQrUploadService", "paymentProofStorageService"];
   const services = {};
   try {
     for (const name of names) {
@@ -67,7 +67,6 @@ test("every binary image path enforces current policy on actual bytes before sto
     services.vendorMediaUploadService.uploadBinary,
     services.publicBoardThemeUploadService.uploadBinary,
     services.locationPaymentQrUploadService.uploadBinary,
-    services.campaignReportAttachmentService.uploadBinary,
     services.paymentProofStorageService.uploadBinary,
     services.paymentProofStorageService.uploadGroupFundedBinary
   ];

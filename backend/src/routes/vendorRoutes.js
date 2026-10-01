@@ -9,7 +9,7 @@ const vendorServiceRepository = require("../repositories/vendorServices");
 const locationServiceRepository = require("../repositories/locationServices");
 const vendorAvailabilityRepository = require("../repositories/vendorAvailability");
 const bookingRepository = require("../repositories/bookings");
-const organizerCampaignRepository = require("../repositories/organizerCampaigns");
+
 const platformRepository = require("../repositories/platform");
 const ratingRepository = require("../repositories/ratings");
 const userRepository = require("../repositories/users");
@@ -639,11 +639,10 @@ router.get(
       }
     }
 
-    const organizerCampaign = /^\d+$/.test(String(booking._id)) ? await organizerCampaignRepository.findCampaignByBookingId(booking._id) : null;
     res.json({
       booking: {
         ...formatVendorBooking(booking),
-        organizerCampaign: organizerCampaign ? { id: organizerCampaign.id, status: organizerCampaign.status } : null
+        organizerCampaign: null
       }
     });
   })
@@ -743,15 +742,6 @@ router.patch(
         })
     })
   )
-);
-
-router.post(
-  "/tenant/:tenantSlug/bookings/:bookingId/organizer-rating",
-  asyncHandler(async (req, res) => {
-    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantPermission(req.user, tenant._id, "tenant.booking.manage");
-    res.status(201).json({ rating: await ratingService.rateOrganizerFromVendor({ user: req.user, tenant, bookingId: req.params.bookingId, body: req.body || {} }) });
-  })
 );
 
 router.get("/tenant/:tenantSlug/ratings", asyncHandler(async (req, res) => {

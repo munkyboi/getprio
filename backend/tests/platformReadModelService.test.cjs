@@ -498,12 +498,12 @@ test("moderation metrics use global counts and a real this-week resolution windo
   });
 
   const result = await service.getModeration({});
-  assert.deepEqual(JSON.parse(JSON.stringify(result.data.metrics.map((metric) => metric.value))), ["45", "11", "6"]);
-  assert.equal(result.data.campaignReports.length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.data.metrics.map((metric) => metric.value))), ["11", "6"]);
+  assert.equal(result.data.campaignReports.length, 0);
   assert.equal(result.data.ratingDisputes.length, 1);
-  assert.match(summarySql, /report_status IN \('open', 'reviewing'\)/);
+  assert.doesNotMatch(summarySql, /report_status IN \('open', 'reviewing'\)/);
   assert.match(summarySql, /dispute_status IN \('open', 'reviewing'\)/);
-  assert.match(summarySql, /updated_at >= date_trunc\('week', NOW\(\)\)/);
+  assert.doesNotMatch(summarySql, /updated_at >= date_trunc\('week', NOW\(\)\)/);
   assert.match(summarySql, /resolved_at >= date_trunc\('week', NOW\(\)\)/);
 });
 

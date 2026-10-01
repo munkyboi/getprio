@@ -3,7 +3,7 @@ import accountDeletionWorker from "./services/accountDeletionWorker";
 import app from "./app";
 import { connectDb } from "./config/db";
 import env from "./config/env";
-import organizerCampaignService from "./services/organizerCampaignService";
+
 import queueLifecycleWorkerModule from "./services/queueLifecycleWorker";
 import allowanceWarningService from "./services/allowanceWarningService";
 import developerWebhookDispatcherModule from "./services/developerWebhookDispatcher";
@@ -55,10 +55,7 @@ async function start(): Promise<void> {
   deletionTimer.unref();
   const queueLifecycleWorker = queueLifecycleWorkerModule.createQueueLifecycleWorker();
   queueLifecycleWorker.start();
-  const campaignLifecycleTimer = setInterval(() => {
-    organizerCampaignService.expireDueCampaigns().catch((error: Error) => console.error("Organizer campaign lifecycle scan failed", error));
-  }, 60_000);
-  campaignLifecycleTimer.unref();
+
   const allowanceWarningTimer = setInterval(() => {
     allowanceWarningService.dispatchPendingWarnings().catch((error: Error) => console.error("Allowance warning dispatch failed", error));
   }, 60_000);
@@ -83,7 +80,6 @@ async function start(): Promise<void> {
     workerStopPromise = (async () => {
       clearInterval(staffAccessEmailTimer);
       clearInterval(deletionTimer);
-      clearInterval(campaignLifecycleTimer);
       clearInterval(allowanceWarningTimer);
       clearInterval(developerApiRetentionTimer);
       queueLifecycleWorker.stop();
