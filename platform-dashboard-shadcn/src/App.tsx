@@ -962,21 +962,22 @@ function PlatformNavigationItem({ item, activeRoute, onRouteChange }: { item: Na
   const submenuId = useId()
   const { setOpen } = useSidebar()
   const active = item.subItems ? item.subItems.some((child) => child.route === activeRoute) : activeRoute === item.label
-  // The route-keyed instance reveals direct/history links while preserving
-  // manual toggles until the administrator changes page.
-  const [expanded, setExpanded] = useState(active)
+  const [expansion, setExpansion] = useState({ route: activeRoute, open: active })
+  // Reset disclosure on route changes without remounting focused controls.
+  if (expansion.route !== activeRoute) setExpansion({ route: activeRoute, open: active })
+  const expanded = expansion.route === activeRoute ? expansion.open : active
   const navigate = () => {
     const route = item.route || item.label
     if (item.subItems) {
-      setExpanded(true)
+      setExpansion({ route: activeRoute, open: true })
       setOpen(true)
     }
     onRouteChange(route)
   }
   return <SidebarMenuItem>
-    <SidebarMenuButton isActive={active} tooltip={item.label} onClick={navigate} aria-expanded={item.subItems ? expanded : undefined} aria-controls={item.subItems ? submenuId : undefined}><item.icon /><span>{item.label}</span></SidebarMenuButton>
+    <SidebarMenuButton className={cn(item.subItems && "h-11 pr-12")} isActive={active} tooltip={item.label} onClick={navigate} aria-expanded={item.subItems ? expanded : undefined} aria-controls={item.subItems ? submenuId : undefined}><item.icon /><span>{item.label}</span></SidebarMenuButton>
     {item.subItems ? <>
-      <SidebarMenuAction aria-label={`${expanded ? "Collapse" : "Expand"} ${item.label} menu`} aria-expanded={expanded} aria-controls={submenuId} onClick={() => setExpanded((open) => !open)}><ChevronDown className={cn("transition-transform", !expanded && "-rotate-90")} /></SidebarMenuAction>
+      <SidebarMenuAction className="top-0 right-0 size-11 after:hidden peer-data-[size=default]/menu-button:top-0" aria-label={`${expanded ? "Collapse" : "Expand"} ${item.label} menu`} aria-expanded={expanded} aria-controls={submenuId} onClick={() => setExpansion({ route: activeRoute, open: !expanded })}><ChevronDown className={cn("transition-transform", !expanded && "-rotate-90")} /></SidebarMenuAction>
       <SidebarMenuSub id={submenuId} className={cn(!expanded && "hidden")}>{item.subItems.map((child) => <SidebarMenuSubItem key={child.route}><SidebarMenuSubButton href={routePathByLabel[child.route]} isActive={activeRoute === child.route} aria-current={activeRoute === child.route ? "page" : undefined} onClick={(event) => {
         if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
         event.preventDefault()
@@ -998,7 +999,7 @@ function PlatformSidebar({ activeRoute, dark, onRouteChange, viewer, onLogout }:
         </SidebarHeader>
         <SidebarContent className="overflow-hidden">
           <ScrollArea className="min-h-0 flex-1">
-            {navGroups.map((group) => { const items = group.items.filter((item) => capabilities.has(item.capability)); return items.length ? <SidebarGroup key={group.label}><SidebarGroupLabel>{group.label}</SidebarGroupLabel><SidebarGroupContent><SidebarMenu>{items.map((item) => <PlatformNavigationItem key={item.subItems ? `${item.label}:${activeRoute}` : item.label} item={item} activeRoute={activeRoute} onRouteChange={onRouteChange} />)}</SidebarMenu></SidebarGroupContent></SidebarGroup> : null })}
+            {navGroups.map((group) => { const items = group.items.filter((item) => capabilities.has(item.capability)); return items.length ? <SidebarGroup key={group.label}><SidebarGroupLabel>{group.label}</SidebarGroupLabel><SidebarGroupContent><SidebarMenu>{items.map((item) => <PlatformNavigationItem key={item.label} item={item} activeRoute={activeRoute} onRouteChange={onRouteChange} />)}</SidebarMenu></SidebarGroupContent></SidebarGroup> : null })}
           </ScrollArea>
         </SidebarContent>
         <SidebarFooter className="p-3">

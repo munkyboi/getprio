@@ -8,11 +8,19 @@ export default async function verifySidebarNavigation(page) {
   await page.getByLabel("Fixture data only, not connected to live Platform data").waitFor();
   await help.waitFor();
   expect(!(await guides.isVisible()), "Submenu must start collapsed outside Help Center");
-  await help.click();
+  await help.focus();
+  await page.keyboard.press("Enter");
   await page.waitForURL(`${origin}/help-center`);
   await guides.waitFor({ state: "visible" });
   expect(await help.getAttribute("aria-expanded") === "true", "Help Center click must expand the menu");
   expect(await guides.isVisible(), "Help Center must reveal its content pages");
+  expect(await help.evaluate((element) => element === document.activeElement), "Parent navigation must preserve keyboard focus");
+  await page.keyboard.press("Tab");
+  expect(await page.getByRole("button", { name: "Collapse Help Center menu" }).evaluate((element) => element === document.activeElement), "Tab after navigation must reach the toggle");
+  await page.keyboard.press("Tab");
+  expect(await page.getByRole("link", { name: "Overview", exact: true }).evaluate((element) => element === document.activeElement), "Next Tab must reach the expanded submenu");
+  const toggle = await page.getByRole("button", { name: "Collapse Help Center menu" }).boundingBox();
+  expect(toggle?.width >= 44 && toggle?.height >= 44, "Menu toggle must have a dedicated 44px target");
   await page.getByRole("button", { name: "Collapse Help Center menu" }).click();
   expect(!(await guides.isVisible()), "Chevron must collapse the submenu");
   expect(page.url() === `${origin}/help-center`, "Collapsing must not navigate");
@@ -22,6 +30,7 @@ export default async function verifySidebarNavigation(page) {
   await page.getByRole("link", { name: "Guides", exact: true }).focus();
   await page.keyboard.press("Enter");
   await page.waitForURL(`${origin}/help-center/guides`);
+  expect(await page.getByRole("link", { name: "Guides", exact: true }).evaluate((element) => element === document.activeElement), "Child navigation must preserve keyboard focus");
   expect(await page.locator('[aria-current="page"]').innerText() === "Guides", "Selected guide route must be marked current");
   await page.getByRole("button", { name: "Collapse Help Center menu" }).focus();
   await page.keyboard.press("Enter");
